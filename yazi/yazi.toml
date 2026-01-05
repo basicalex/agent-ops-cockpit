@@ -1,0 +1,11 @@
+[manager]
+show_hidden = true
+sort_by = "natural"
+sort_sensitive = false
+linemode = "size"
+show_symlink = true
+
+[preview]
+script = "~/.config/yazi/preview.sh"
+max_width = 120
+max_height = 40

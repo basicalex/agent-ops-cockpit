@@ -1,0 +1,24 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+while true; do
+  clear
+  echo "Sys Details (light)"
+  echo "-------------------"
+  date
+  echo
+  uptime
+  echo
+  echo "CPU:"
+  grep -m1 "model name" /proc/cpuinfo | sed 's/.*: //'
+  echo "Load: $(cut -d' ' -f1-3 /proc/loadavg)"
+  echo
+  echo "Mem:"
+  free -h
+  echo
+  echo "Disk (/):"
+  df -h / | tail -n1
+  echo
+  echo "[Ctrl+C] to exit"
+  sleep 2
+done

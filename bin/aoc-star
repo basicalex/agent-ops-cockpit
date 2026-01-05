@@ -1,0 +1,28 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+STAR_FILE="${XDG_STATE_HOME:-$HOME/.local/state}/aoc/starred_root"
+mkdir -p "$(dirname "$STAR_FILE")"
+
+new_root="${1:-$PWD}"
+new_root="$(realpath "$new_root")"
+
+echo "Star new root and re-anchor panes?"
+echo "  $new_root"
+read -r -p "[y/N] " ans
+[[ "${ans,,}" == "y" ]] || exit 0
+
+echo "$new_root" > "$STAR_FILE"
+
+pane_ids="$(zellij list-panes --format json | python3 - <<'PY'
+import json,sys
+data=json.load(sys.stdin)
+print("\n".join(str(p["id"]) for p in data))
+PY
+)"
+
+for pid in $pane_ids; do
+  zellij action write-chars --pane-id "$pid" "cd \"${new_root}\" && clear\n"
+done
+
+echo "Starred root set: $new_root"

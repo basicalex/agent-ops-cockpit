@@ -1,0 +1,80 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+ASSET="${XDG_STATE_HOME:-$HOME/.local/state}/aoc/widget_asset"
+mkdir -p "$(dirname "$ASSET")"
+touch "$ASSET"
+
+mode="cal"
+
+while true; do
+  clear
+  echo "AOC Widget   [c] calendar  [m] media  [p] set media path  [q] quit"
+  echo "---------------------------------------------------------------"
+
+  if [[ "$mode" == "cal" ]]; then
+    date
+    echo
+    cal -3
+    read -rsn1 k || true
+    case "$k" in
+      m) mode="media" ;;
+      p)
+        printf "\nPath> "
+        read -r path
+        echo "$path" > "$ASSET"
+        ;;
+      q) exit 0 ;;
+      c) : ;;
+    esac
+  else
+    path="$(cat "$ASSET" || true)"
+    if [[ -z "$path" || ! -e "$path" ]]; then
+      echo "No media set or path missing."
+      echo "Press [p] to set a path."
+      read -rsn1 k || true
+      case "$k" in
+        p)
+          printf "\nPath> "
+          read -r path
+          echo "$path" > "$ASSET"
+          ;;
+        c) mode="cal" ;;
+        q) exit 0 ;;
+      esac
+      continue
+    fi
+
+    case "$path" in
+      *.mp4|*.webm|*.mov|*.gif)
+        ffmpeg -loglevel quiet -i "$path" -vf "fps=12,scale=640:-1" -f image2pipe -vcodec png - \
+          | chafa --animate --size=30x16 - ;;
+      *.png|*.jpg|*.jpeg|*.webp)
+        chafa --size=30x16 "$path" ;;
+      *.svg)
+        tmp="/tmp/aoc_widget.png"
+        rsvg-convert "$path" -o "$tmp" >/dev/null 2>&1 || true
+        if [[ -f "$tmp" ]]; then
+          chafa --size=30x16 "$tmp"
+        else
+          echo "SVG render failed (need librsvg2-bin: rsvg-convert)."
+        fi
+        ;;
+      *)
+        echo "Unsupported: $path"
+        ;;
+    esac
+
+    read -rsn1 k || true
+    case "$k" in
+      c) mode="cal" ;;
+      p)
+        printf "\nPath> "
+        read -r path
+        echo "$path" > "$ASSET"
+        ;;
+      q) exit 0 ;;
+      m) : ;;
+    esac
+  fi
+done

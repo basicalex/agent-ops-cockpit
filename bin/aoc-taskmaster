@@ -1,0 +1,55 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+TM="${TM_CMD:-task-master-ai}"
+mode="active"
+
+get_list() {
+  case "$mode" in
+    active) $TM get_tasks 2>/dev/null || true ;;
+    done)   $TM get_tasks --done 2>/dev/null || true ;;
+    *)      $TM get_tasks 2>/dev/null || true ;;
+  esac
+}
+
+while true; do
+  clear
+  echo "Taskmaster (mode: $mode)"
+  echo "  [a] active  [d] done  [s] search  [r] refresh  [q] quit"
+  echo
+
+  list="$(get_list)"
+
+  if [[ "$mode" == "search" ]]; then
+    query="$(printf "" | fzf --print-query --prompt="Search query > " --height=20% --border | head -n1 || true)"
+    [[ -z "$query" ]] && mode="active" && continue
+    if command -v rg >/dev/null 2>&1; then
+      list="$(printf "%s" "$list" | rg -i -- "$query" || true)"
+    else
+      list="$(printf "%s" "$list" | grep -i -- "$query" || true)"
+    fi
+  fi
+
+  choice="$(printf "%s" "$list" | fzf --ansi --height=70% --border --prompt="Select task > " \
+    --bind "esc:abort" \
+    --bind "ctrl-r:reload($TM get_tasks)" )" || {
+      read -rsn1 k || true
+      case "$k" in
+        a) mode="active" ;;
+        d) mode="done" ;;
+        s) mode="search" ;;
+        r) : ;;
+        q) exit 0 ;;
+      esac
+      continue
+    }
+
+  clear
+  echo "$choice"
+  echo
+  echo "[b] back"
+  read -rsn1 k || true
+  case "$k" in
+    b) ;;
+  esac
+done
