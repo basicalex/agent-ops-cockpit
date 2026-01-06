@@ -58,6 +58,12 @@ cargo install cargo-binstall
 cargo binstall tectonic
 ```
 
+Linux source-build deps (Ubuntu/Omakub):
+```bash
+sudo apt-get update
+sudo apt-get install -y pkg-config cmake g++ libharfbuzz-dev libfreetype6-dev libgraphite2-dev
+```
+
 ## Install
 
 From this repo:
