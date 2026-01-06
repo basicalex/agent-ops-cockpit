@@ -1,11 +1,40 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-ASSET="${XDG_STATE_HOME:-$HOME/.local/state}/aoc/widget_asset"
+STATE_DIR="${XDG_STATE_HOME:-$HOME/.local/state}/aoc"
+ASSET="${STATE_DIR}/widget_asset"
+MODE_FILE="${STATE_DIR}/widget_mode"
 mkdir -p "$(dirname "$ASSET")"
 touch "$ASSET"
 
+have() { command -v "$1" >/dev/null 2>&1; }
+
 mode="cal"
+if [[ -f "$MODE_FILE" ]]; then
+  saved="$(cat "$MODE_FILE" 2>/dev/null || true)"
+  if [[ "$saved" == "cal" || "$saved" == "media" ]]; then
+    mode="$saved"
+  fi
+fi
+
+set_mode() {
+  mode="$1"
+  echo "$mode" > "$MODE_FILE"
+}
+
+set_media_path() {
+  printf "\nPath> "
+  read -r path
+  if [[ -z "$path" ]]; then
+    return
+  fi
+  if [[ ! -e "$path" ]]; then
+    echo "Path not found: $path"
+    sleep 1
+    return
+  fi
+  echo "$path" > "$ASSET"
+}
 
 while true; do
   clear
@@ -18,12 +47,8 @@ while true; do
     cal -3
     read -rsn1 k || true
     case "$k" in
-      m) mode="media" ;;
-      p)
-        printf "\nPath> "
-        read -r path
-        echo "$path" > "$ASSET"
-        ;;
+      m) set_mode "media" ;;
+      p) set_media_path ;;
       q) exit 0 ;;
       c) : ;;
     esac
@@ -34,12 +59,8 @@ while true; do
       echo "Press [p] to set a path."
       read -rsn1 k || true
       case "$k" in
-        p)
-          printf "\nPath> "
-          read -r path
-          echo "$path" > "$ASSET"
-          ;;
-        c) mode="cal" ;;
+        p) set_media_path ;;
+        c) set_mode "cal" ;;
         q) exit 0 ;;
       esac
       continue
@@ -47,17 +68,31 @@ while true; do
 
     case "$path" in
       *.mp4|*.webm|*.mov|*.gif)
-        ffmpeg -loglevel quiet -i "$path" -vf "fps=12,scale=640:-1" -f image2pipe -vcodec png - \
-          | chafa --animate --size=30x16 - ;;
+        if ! have ffmpeg || ! have chafa; then
+          echo "Missing ffmpeg or chafa for video rendering."
+        else
+          ffmpeg -loglevel quiet -i "$path" -vf "fps=12,scale=640:-1" -f image2pipe -vcodec png - \
+            | chafa --animate --size=30x16 - ;;
+        fi
+        ;;
       *.png|*.jpg|*.jpeg|*.webp)
-        chafa --size=30x16 "$path" ;;
+        if ! have chafa; then
+          echo "Missing chafa for image rendering."
+        else
+          chafa --size=30x16 "$path"
+        fi
+        ;;
       *.svg)
         tmp="/tmp/aoc_widget.png"
-        rsvg-convert "$path" -o "$tmp" >/dev/null 2>&1 || true
-        if [[ -f "$tmp" ]]; then
-          chafa --size=30x16 "$tmp"
+        if ! have rsvg-convert || ! have chafa; then
+          echo "Missing rsvg-convert or chafa for SVG rendering."
         else
-          echo "SVG render failed (need librsvg2-bin: rsvg-convert)."
+          rsvg-convert "$path" -o "$tmp" >/dev/null 2>&1 || true
+          if [[ -f "$tmp" ]]; then
+            chafa --size=30x16 "$tmp"
+          else
+            echo "SVG render failed."
+          fi
         fi
         ;;
       *)
@@ -67,12 +102,8 @@ while true; do
 
     read -rsn1 k || true
     case "$k" in
-      c) mode="cal" ;;
-      p)
-        printf "\nPath> "
-        read -r path
-        echo "$path" > "$ASSET"
-        ;;
+      c) set_mode "cal" ;;
+      p) set_media_path ;;
       q) exit 0 ;;
       m) : ;;
     esac

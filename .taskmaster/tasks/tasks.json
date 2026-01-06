@@ -1,0 +1,402 @@
+{
+  "master": {
+    "tasks": [
+      {
+        "id": "1",
+        "title": "Add aoc-doctor dependency checker",
+        "description": "Create a script that validates required tools (zellij, yazi, fzf, chafa, ffmpeg, poppler-utils, librsvg2-bin, rg, bat, tectonic) and prints actionable install hints.",
+        "details": "Add bin/aoc-doctor and document in README.md; include exit codes and a --quiet mode for CI.",
+        "testStrategy": "",
+        "status": "done",
+        "dependencies": [],
+        "priority": "medium",
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "Define dependency list and install hints",
+            "description": "Classify required vs optional tools and map each to distro-specific install hints for README and aoc-doctor output.",
+            "details": "",
+            "status": "pending",
+            "dependencies": [],
+            "parentTaskId": 1,
+            "parentId": "undefined"
+          },
+          {
+            "id": 2,
+            "title": "Implement bin/aoc-doctor with exit codes",
+            "description": "Create aoc-doctor that checks PATH/tools, supports --quiet, and returns non-zero on missing required deps.",
+            "details": "",
+            "status": "pending",
+            "dependencies": [],
+            "parentTaskId": 1,
+            "parentId": "undefined"
+          },
+          {
+            "id": 3,
+            "title": "Document doctor usage",
+            "description": "Add README section with example output and suggested install fixes.",
+            "details": "",
+            "status": "pending",
+            "dependencies": [],
+            "parentTaskId": 1,
+            "parentId": "undefined"
+          }
+        ],
+        "updatedAt": "2026-01-06T17:03:03.762Z"
+      },
+      {
+        "id": "2",
+        "title": "Improve aoc-taskmaster interactivity",
+        "description": "Enhance the Taskmaster pane UX with actions to mark done, open details, and refresh lists.",
+        "details": "Add key bindings in bin/aoc-taskmaster (e.g., enter to open, d to mark done, r to refresh) and handle missing task-master-ai gracefully.",
+        "testStrategy": "",
+        "status": "done",
+        "dependencies": [],
+        "priority": "medium",
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "Detect missing task-master-ai",
+            "description": "Add graceful fallback when TM binary is missing (message + exit or read-only mode).",
+            "details": "",
+            "status": "pending",
+            "dependencies": [],
+            "parentTaskId": 2,
+            "parentId": "undefined"
+          },
+          {
+            "id": 2,
+            "title": "Add task actions in UI",
+            "description": "Implement keybinds to mark done/reopen, open task details, and refresh without restarting.",
+            "details": "",
+            "status": "pending",
+            "dependencies": [],
+            "parentTaskId": 2,
+            "parentId": "undefined"
+          },
+          {
+            "id": 3,
+            "title": "Update help text and keybinds",
+            "description": "Keep the on-screen hints aligned with the new actions and modes.",
+            "details": "",
+            "status": "pending",
+            "dependencies": [],
+            "parentTaskId": 2,
+            "parentId": "undefined"
+          }
+        ],
+        "updatedAt": "2026-01-06T17:03:04.695Z"
+      },
+      {
+        "id": "3",
+        "title": "Widget resilience and UX polish",
+        "description": "Improve aoc-widget to handle missing tools and invalid media paths with clear prompts.",
+        "details": "Add detection for chafa/ffmpeg/rsvg-convert and show fallback text; persist last mode in state file.",
+        "testStrategy": "",
+        "status": "done",
+        "dependencies": [],
+        "priority": "medium",
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "Persist widget mode",
+            "description": "Store last mode (cal/media) in state file and restore on start.",
+            "details": "",
+            "status": "pending",
+            "dependencies": [],
+            "parentTaskId": 3,
+            "parentId": "undefined"
+          },
+          {
+            "id": 2,
+            "title": "Add tool checks and fallbacks",
+            "description": "Detect chafa/ffmpeg/rsvg-convert and show clear fallback instructions.",
+            "details": "",
+            "status": "pending",
+            "dependencies": [],
+            "parentTaskId": 3,
+            "parentId": "undefined"
+          },
+          {
+            "id": 3,
+            "title": "Improve path selection flow",
+            "description": "Add validation and non-blocking prompt when media path is missing or unsupported.",
+            "details": "",
+            "status": "pending",
+            "dependencies": [],
+            "parentTaskId": 3,
+            "parentId": "undefined"
+          }
+        ],
+        "updatedAt": "2026-01-06T17:03:06.117Z"
+      },
+      {
+        "id": "4",
+        "title": "Sys details configurability",
+        "description": "Allow aoc-sys to be configured for update interval and sections.",
+        "details": "Support env vars like AOC_SYS_INTERVAL and toggles for CPU/mem/disk output.",
+        "testStrategy": "",
+        "status": "done",
+        "dependencies": [],
+        "priority": "medium",
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "Add env var support",
+            "description": "Implement AOC_SYS_INTERVAL and section toggles (CPU/Mem/Disk) with defaults.",
+            "details": "",
+            "status": "pending",
+            "dependencies": [],
+            "parentTaskId": 4,
+            "parentId": "undefined"
+          },
+          {
+            "id": 2,
+            "title": "Update sys output formatting",
+            "description": "Keep output stable for small panes; handle missing /proc gracefully.",
+            "details": "",
+            "status": "pending",
+            "dependencies": [],
+            "parentTaskId": 4,
+            "parentId": "undefined"
+          },
+          {
+            "id": 3,
+            "title": "Document aoc-sys configuration",
+            "description": "Add README section with env vars and examples.",
+            "details": "",
+            "status": "pending",
+            "dependencies": [],
+            "parentTaskId": 4,
+            "parentId": "undefined"
+          }
+        ],
+        "updatedAt": "2026-01-06T17:03:06.731Z"
+      },
+      {
+        "id": "5",
+        "title": "Layout customization options",
+        "description": "Allow users to override pane sizes and commands without editing aoc.kdl directly.",
+        "details": "Document environment variables or alternate layout file strategy in README.md; consider templating in install.sh.",
+        "testStrategy": "",
+        "status": "done",
+        "dependencies": [],
+        "priority": "medium",
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "Choose customization strategy",
+            "description": "Decide between env var overrides or templated layout copy on install.",
+            "details": "",
+            "status": "pending",
+            "dependencies": [],
+            "parentTaskId": 5,
+            "parentId": "undefined"
+          },
+          {
+            "id": 2,
+            "title": "Implement override mechanism",
+            "description": "Add layout templating or alternate layout file resolution in install/launch.",
+            "details": "",
+            "status": "pending",
+            "dependencies": [],
+            "parentTaskId": 5,
+            "parentId": "undefined"
+          },
+          {
+            "id": 3,
+            "title": "Document layout overrides",
+            "description": "Provide examples for custom sizes/commands in README.",
+            "details": "",
+            "status": "pending",
+            "dependencies": [],
+            "parentTaskId": 5,
+            "parentId": "undefined"
+          }
+        ],
+        "updatedAt": "2026-01-06T17:03:07.336Z"
+      },
+      {
+        "id": "6",
+        "title": "Installer improvements and uninstall path",
+        "description": "Add an uninstall script and make install.sh idempotent with clear output.",
+        "details": "Add bin/aoc-uninstall or scripts/uninstall.sh; ensure it removes only files installed by AOC.",
+        "testStrategy": "",
+        "status": "done",
+        "dependencies": [],
+        "priority": "medium",
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "Add uninstall script",
+            "description": "Create aoc-uninstall or scripts/uninstall.sh to remove installed files only.",
+            "details": "",
+            "status": "pending",
+            "dependencies": [],
+            "parentTaskId": 6,
+            "parentId": "undefined"
+          },
+          {
+            "id": 2,
+            "title": "Make installer idempotent",
+            "description": "Ensure install.sh overwrites safely, prints what changed, and exits cleanly on re-run.",
+            "details": "",
+            "status": "pending",
+            "dependencies": [],
+            "parentTaskId": 6,
+            "parentId": "undefined"
+          },
+          {
+            "id": 3,
+            "title": "Document install/uninstall",
+            "description": "Add README usage examples and expected file paths.",
+            "details": "",
+            "status": "pending",
+            "dependencies": [],
+            "parentTaskId": 6,
+            "parentId": "undefined"
+          }
+        ],
+        "updatedAt": "2026-01-06T17:03:08.164Z"
+      },
+      {
+        "id": "7",
+        "title": "README enhancements and troubleshooting",
+        "description": "Add setup verification, troubleshooting, and screenshot usage guidance.",
+        "details": "Include common failures (missing chafa, yazi preview) and how to fix; add placeholder for screenshot.",
+        "testStrategy": "",
+        "status": "done",
+        "dependencies": [],
+        "priority": "medium",
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "Add setup verification checklist",
+            "description": "Document a quick checklist (zellij version, yazi preview, widget media) and how to confirm.",
+            "details": "",
+            "status": "pending",
+            "dependencies": [],
+            "parentTaskId": 7,
+            "parentId": "undefined"
+          },
+          {
+            "id": 2,
+            "title": "Add troubleshooting section",
+            "description": "Cover common errors (missing tools, blank preview, taskmaster missing) with fixes.",
+            "details": "",
+            "status": "pending",
+            "dependencies": [],
+            "parentTaskId": 7,
+            "parentId": "undefined"
+          },
+          {
+            "id": 3,
+            "title": "Add screenshot guidance",
+            "description": "Include placeholder path and note for updating the screenshot in README.",
+            "details": "",
+            "status": "pending",
+            "dependencies": [],
+            "parentTaskId": 7,
+            "parentId": "undefined"
+          }
+        ],
+        "updatedAt": "2026-01-06T17:03:09.086Z"
+      },
+      {
+        "id": "8",
+        "title": "Add shellcheck lint workflow",
+        "description": "Introduce a lightweight CI or local script to run shellcheck on bin/ and yazi/preview.sh.",
+        "details": "Add scripts/lint.sh or a GitHub Actions workflow; document in README.md.",
+        "testStrategy": "",
+        "status": "done",
+        "dependencies": [],
+        "priority": "medium",
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "Create scripts/lint.sh",
+            "description": "Add shellcheck invocation over bin/ and yazi/preview.sh with sensible flags.",
+            "details": "",
+            "status": "pending",
+            "dependencies": [],
+            "parentTaskId": 8,
+            "parentId": "undefined"
+          },
+          {
+            "id": 2,
+            "title": "Add GitHub Actions lint workflow",
+            "description": "Optional CI workflow that runs shellcheck on pushes/PRs.",
+            "details": "",
+            "status": "pending",
+            "dependencies": [],
+            "parentTaskId": 8,
+            "parentId": "undefined"
+          },
+          {
+            "id": 3,
+            "title": "Document lint usage",
+            "description": "Add README instructions for running lint locally and in CI.",
+            "details": "",
+            "status": "pending",
+            "dependencies": [],
+            "parentTaskId": 8,
+            "parentId": "undefined"
+          }
+        ],
+        "updatedAt": "2026-01-06T17:03:10.110Z"
+      },
+      {
+        "id": "9",
+        "title": "Versioning and release notes",
+        "description": "Define a minimal versioning scheme and CHANGELOG.md.",
+        "details": "Add CHANGELOG.md and update README.md with release process; optional tag naming.",
+        "testStrategy": "",
+        "status": "done",
+        "dependencies": [],
+        "priority": "medium",
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "Create CHANGELOG.md",
+            "description": "Add initial release section describing current features.",
+            "details": "",
+            "status": "pending",
+            "dependencies": [],
+            "parentTaskId": 9,
+            "parentId": "undefined"
+          },
+          {
+            "id": 2,
+            "title": "Define versioning scheme",
+            "description": "Document SemVer (or similar) and tag naming in README.",
+            "details": "",
+            "status": "pending",
+            "dependencies": [],
+            "parentTaskId": 9,
+            "parentId": "undefined"
+          },
+          {
+            "id": 3,
+            "title": "Add release checklist",
+            "description": "Add a small checklist for cutting releases and tagging.",
+            "details": "",
+            "status": "pending",
+            "dependencies": [],
+            "parentTaskId": 9,
+            "parentId": "undefined"
+          }
+        ],
+        "updatedAt": "2026-01-06T17:03:11.326Z"
+      }
+    ],
+    "metadata": {
+      "version": "1.0.0",
+      "lastModified": "2026-01-06T17:03:11.327Z",
+      "taskCount": 9,
+      "completedCount": 9,
+      "tags": [
+        "master"
+      ]
+    }
+  }
+}

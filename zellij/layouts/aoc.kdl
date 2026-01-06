@@ -3,7 +3,7 @@ layout {
     pane split_direction="horizontal" {
       // LEFT: Yazi (tree + preview). Starts in project root.
       pane size="28%" command="bash" {
-        args "-lc" "cd \"${ZELLIJ_PROJECT_ROOT:-$PWD}\" && yazi"
+        args "-lc" "cd \"${ZELLIJ_PROJECT_ROOT:-$PWD}\" && ${AOC_FILETREE_CMD:-yazi}"
       }
 
       // CENTER + RIGHT COLUMN
@@ -12,24 +12,24 @@ layout {
         // CENTER stack: Codex (top) + Taskmaster (bottom)
         pane split_direction="vertical" {
           pane size="62%" command="bash" {
-            args "-lc" "cd \"${ZELLIJ_PROJECT_ROOT:-$PWD}\" && codex"
+            args "-lc" "cd \"${ZELLIJ_PROJECT_ROOT:-$PWD}\" && ${AOC_CODEX_CMD:-codex}"
           }
 
           pane size="38%" command="bash" {
-            args "-lc" "cd \"${ZELLIJ_PROJECT_ROOT:-$PWD}\" && aoc-taskmaster"
+            args "-lc" "cd \"${ZELLIJ_PROJECT_ROOT:-$PWD}\" && ${AOC_TASKMASTER_CMD:-aoc-taskmaster}"
           }
         }
 
         // RIGHT COLUMN: Widget, Sys, Terminal
         pane size="26%" split_direction="vertical" {
           pane size="34%" command="bash" {
-            args "-lc" "aoc-widget"
+            args "-lc" "${AOC_WIDGET_CMD:-aoc-widget}"
           }
           pane size="33%" command="bash" {
-            args "-lc" "aoc-sys"
+            args "-lc" "${AOC_SYS_CMD:-aoc-sys}"
           }
           pane size="33%" command="bash" {
-            args "-lc" "cd \"${ZELLIJ_PROJECT_ROOT:-$PWD}\" && exec $SHELL -l"
+            args "-lc" "cd \"${ZELLIJ_PROJECT_ROOT:-$PWD}\" && exec ${AOC_TERMINAL_CMD:-$SHELL -l}"
           }
         }
       }

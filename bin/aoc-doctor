@@ -1,0 +1,189 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+usage() {
+  cat <<'EOF'
+Usage: aoc-doctor [--quiet]
+
+Checks for required and optional dependencies used by Agent Ops Cockpit.
+Exit codes:
+  0  All required tools are present.
+  1  One or more required tools are missing.
+EOF
+}
+
+quiet=0
+case "${1:-}" in
+  --quiet) quiet=1 ;;
+  -h|--help) usage; exit 0 ;;
+  "") ;;
+  *) echo "Unknown option: $1" >&2; usage; exit 1 ;;
+esac
+
+have() { command -v "$1" >/dev/null 2>&1; }
+
+detect_pm() {
+  if have apt-get; then echo "apt"; return; fi
+  if have dnf; then echo "dnf"; return; fi
+  if have pacman; then echo "pacman"; return; fi
+  if have brew; then echo "brew"; return; fi
+  if have apk; then echo "apk"; return; fi
+  echo "unknown"
+}
+
+pm="$(detect_pm)"
+
+hint_for() {
+  local tool="$1"
+  case "$tool" in
+    zellij)
+      case "$pm" in
+        apt) echo "sudo apt-get install -y zellij" ;;
+        dnf) echo "sudo dnf install -y zellij" ;;
+        pacman) echo "sudo pacman -S zellij" ;;
+        brew) echo "brew install zellij" ;;
+        apk) echo "sudo apk add zellij" ;;
+        *) echo "Install zellij via your package manager." ;;
+      esac
+      ;;
+    yazi)
+      echo "cargo install --locked yazi-fm yazi-cli"
+      ;;
+    fzf)
+      case "$pm" in
+        apt) echo "sudo apt-get install -y fzf" ;;
+        dnf) echo "sudo dnf install -y fzf" ;;
+        pacman) echo "sudo pacman -S fzf" ;;
+        brew) echo "brew install fzf" ;;
+        apk) echo "sudo apk add fzf" ;;
+        *) echo "Install fzf via your package manager." ;;
+      esac
+      ;;
+    codex)
+      echo "Install the Codex CLI and ensure it is in PATH."
+      ;;
+    chafa)
+      case "$pm" in
+        apt) echo "sudo apt-get install -y chafa" ;;
+        dnf) echo "sudo dnf install -y chafa" ;;
+        pacman) echo "sudo pacman -S chafa" ;;
+        brew) echo "brew install chafa" ;;
+        apk) echo "sudo apk add chafa" ;;
+        *) echo "Install chafa via your package manager." ;;
+      esac
+      ;;
+    ffmpeg)
+      case "$pm" in
+        apt) echo "sudo apt-get install -y ffmpeg" ;;
+        dnf) echo "sudo dnf install -y ffmpeg" ;;
+        pacman) echo "sudo pacman -S ffmpeg" ;;
+        brew) echo "brew install ffmpeg" ;;
+        apk) echo "sudo apk add ffmpeg" ;;
+        *) echo "Install ffmpeg via your package manager." ;;
+      esac
+      ;;
+    rsvg-convert)
+      case "$pm" in
+        apt) echo "sudo apt-get install -y librsvg2-bin" ;;
+        dnf) echo "sudo dnf install -y librsvg2-tools" ;;
+        pacman) echo "sudo pacman -S librsvg" ;;
+        brew) echo "brew install librsvg" ;;
+        apk) echo "sudo apk add librsvg" ;;
+        *) echo "Install librsvg (rsvg-convert) via your package manager." ;;
+      esac
+      ;;
+    pdftoppm)
+      case "$pm" in
+        apt) echo "sudo apt-get install -y poppler-utils" ;;
+        dnf) echo "sudo dnf install -y poppler-utils" ;;
+        pacman) echo "sudo pacman -S poppler" ;;
+        brew) echo "brew install poppler" ;;
+        apk) echo "sudo apk add poppler-utils" ;;
+        *) echo "Install poppler-utils (pdftoppm) via your package manager." ;;
+      esac
+      ;;
+    rg)
+      case "$pm" in
+        apt) echo "sudo apt-get install -y ripgrep" ;;
+        dnf) echo "sudo dnf install -y ripgrep" ;;
+        pacman) echo "sudo pacman -S ripgrep" ;;
+        brew) echo "brew install ripgrep" ;;
+        apk) echo "sudo apk add ripgrep" ;;
+        *) echo "Install ripgrep via your package manager." ;;
+      esac
+      ;;
+    bat)
+      case "$pm" in
+        apt) echo "sudo apt-get install -y bat" ;;
+        dnf) echo "sudo dnf install -y bat" ;;
+        pacman) echo "sudo pacman -S bat" ;;
+        brew) echo "brew install bat" ;;
+        apk) echo "sudo apk add bat" ;;
+        *) echo "Install bat via your package manager." ;;
+      esac
+      ;;
+    tectonic)
+      case "$pm" in
+        apt) echo "sudo apt-get install -y tectonic" ;;
+        dnf) echo "sudo dnf install -y tectonic" ;;
+        pacman) echo "sudo pacman -S tectonic" ;;
+        brew) echo "brew install tectonic" ;;
+        apk) echo "sudo apk add tectonic" ;;
+        *) echo "Install tectonic via your package manager." ;;
+      esac
+      ;;
+    task-master-ai)
+      echo "Install task-master-ai and ensure it is in PATH."
+      ;;
+    *)
+      echo "Install $tool via your package manager."
+      ;;
+  esac
+}
+
+required=(zellij yazi fzf codex)
+optional=(chafa ffmpeg rsvg-convert pdftoppm rg bat tectonic task-master-ai)
+
+missing_required=()
+missing_optional=()
+
+for tool in "${required[@]}"; do
+  if ! have "$tool"; then
+    missing_required+=("$tool")
+  fi
+done
+
+for tool in "${optional[@]}"; do
+  if ! have "$tool"; then
+    missing_optional+=("$tool")
+  fi
+done
+
+if [[ "$quiet" -eq 0 ]]; then
+  echo "AOC Doctor"
+  echo "=========="
+  echo "Required:"
+  for tool in "${required[@]}"; do
+    if have "$tool"; then
+      echo "  [ok] $tool"
+    else
+      echo "  [missing] $tool"
+      echo "    -> $(hint_for "$tool")"
+    fi
+  done
+  echo
+  echo "Optional (features may degrade if missing):"
+  for tool in "${optional[@]}"; do
+    if have "$tool"; then
+      echo "  [ok] $tool"
+    else
+      echo "  [missing] $tool"
+      echo "    -> $(hint_for "$tool")"
+    fi
+  done
+fi
+
+if [[ "${#missing_required[@]}" -gt 0 ]]; then
+  exit 1
+fi
+exit 0

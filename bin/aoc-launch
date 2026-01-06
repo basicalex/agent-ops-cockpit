@@ -1,0 +1,12 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+layout="${AOC_LAYOUT:-aoc}"
+local_layout="$HOME/.config/zellij/layouts/aoc.local.kdl"
+
+if [[ -z "${AOC_LAYOUT:-}" && -f "$local_layout" ]]; then
+  layout="aoc.local"
+fi
+
+ZELLIJ_PROJECT_ROOT="${ZELLIJ_PROJECT_ROOT:-$PWD}" \
+  zellij --layout "$layout"

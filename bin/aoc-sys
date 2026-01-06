@@ -1,24 +1,53 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+interval="${AOC_SYS_INTERVAL:-2}"
+if ! [[ "$interval" =~ ^[0-9]+$ ]]; then
+  interval=2
+fi
+
+show_cpu="${AOC_SYS_CPU:-1}"
+show_mem="${AOC_SYS_MEM:-1}"
+show_disk="${AOC_SYS_DISK:-1}"
+
+have() { command -v "$1" >/dev/null 2>&1; }
+
 while true; do
   clear
   echo "Sys Details (light)"
   echo "-------------------"
   date
   echo
-  uptime
-  echo
-  echo "CPU:"
-  grep -m1 "model name" /proc/cpuinfo | sed 's/.*: //'
-  echo "Load: $(cut -d' ' -f1-3 /proc/loadavg)"
-  echo
-  echo "Mem:"
-  free -h
-  echo
-  echo "Disk (/):"
-  df -h / | tail -n1
-  echo
+
+  if [[ "$show_cpu" != "0" ]]; then
+    echo "CPU:"
+    if [[ -r /proc/cpuinfo ]]; then
+      grep -m1 "model name" /proc/cpuinfo | sed 's/.*: //'
+    else
+      uname -m
+    fi
+    if [[ -r /proc/loadavg ]]; then
+      echo "Load: $(cut -d' ' -f1-3 /proc/loadavg)"
+    fi
+    echo
+  fi
+
+  if [[ "$show_mem" != "0" ]]; then
+    echo "Mem:"
+    if have free; then
+      free -h
+    else
+      echo "free not available"
+    fi
+    echo
+  fi
+
+  if [[ "$show_disk" != "0" ]]; then
+    echo "Disk (/):"
+    df -h / | tail -n1
+    echo
+  fi
+
   echo "[Ctrl+C] to exit"
-  sleep 2
+  sleep "$interval"
 done

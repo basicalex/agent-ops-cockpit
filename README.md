@@ -49,12 +49,23 @@ This will:
 
 Ensure `~/.local/bin` is in PATH.
 
+Verify dependencies:
+
+```bash
+aoc-doctor
+```
+
+Setup checklist:
+- `zellij --version` is >= 0.43.1
+- `yazi` opens and previews images
+- Widget pane renders an image after setting a media path
+
 ## Launch
 
 From inside a project directory:
 
 ```bash
-ZELLIJ_PROJECT_ROOT="$PWD" zellij --layout aoc
+aoc-launch
 ```
 
 ### Pane expansion (minimal + fast)
@@ -82,3 +93,39 @@ Media is rendered as ASCII via chafa (videos animated).
 ## Notes
 - The layout expects `codex` to be in PATH.
 - Taskmaster script expects `task-master-ai` in PATH; adjust in `bin/aoc-taskmaster` if needed.
+
+## Customization
+- Override commands via env vars: `AOC_CODEX_CMD`, `AOC_TASKMASTER_CMD`, `AOC_FILETREE_CMD`, `AOC_WIDGET_CMD`, `AOC_SYS_CMD`, `AOC_TERMINAL_CMD`.
+- To tweak pane sizes, copy the layout:
+  `cp ~/.config/zellij/layouts/aoc.kdl ~/.config/zellij/layouts/aoc.local.kdl`
+  `aoc-launch` will use `aoc.local` if present.
+
+## Sys Details Options
+- `AOC_SYS_INTERVAL=2` controls refresh interval (seconds).
+- Set `AOC_SYS_CPU=0`, `AOC_SYS_MEM=0`, or `AOC_SYS_DISK=0` to hide sections.
+
+## Troubleshooting
+- Missing previews: install `chafa`, `poppler-utils`, and `librsvg2-bin`.
+- Blank task list: ensure `task-master-ai` is in PATH.
+- Widget media not rendering: run `aoc-doctor` to confirm `ffmpeg` and `chafa`.
+
+## Screenshot
+- Store the latest layout screenshot at `docs/screenshot.png` and reference it in docs or release notes.
+
+## Lint
+Run shellcheck locally:
+
+```bash
+./scripts/lint.sh
+```
+
+## Uninstall
+Remove installed files:
+
+```bash
+aoc-uninstall
+```
+
+## Releases
+- Follow SemVer and update `CHANGELOG.md` for each release.
+- Tag releases as `vX.Y.Z`.

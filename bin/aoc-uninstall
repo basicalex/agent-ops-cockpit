@@ -1,0 +1,40 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+confirm=0
+if [[ "${1:-}" == "--yes" ]]; then
+  confirm=1
+fi
+
+state_dir="${XDG_STATE_HOME:-$HOME/.local/state}/aoc"
+
+files=(
+  "$HOME/.local/bin/aoc-star"
+  "$HOME/.local/bin/aoc-sys"
+  "$HOME/.local/bin/aoc-taskmaster"
+  "$HOME/.local/bin/aoc-widget"
+  "$HOME/.local/bin/aoc-doctor"
+  "$HOME/.local/bin/aoc-launch"
+  "$HOME/.local/bin/aoc-uninstall"
+  "$HOME/.config/zellij/layouts/aoc.kdl"
+  "$HOME/.config/yazi/yazi.toml"
+  "$HOME/.config/yazi/preview.sh"
+)
+
+echo "This will remove AOC-installed files from your home directory."
+if [[ "$confirm" -eq 0 ]]; then
+  read -r -p "Continue? [y/N] " ans
+  [[ "${ans,,}" == "y" ]] || exit 0
+fi
+
+for f in "${files[@]}"; do
+  if [[ -e "$f" ]]; then
+    rm -f "$f"
+    echo "Removed: $f"
+  fi
+done
+
+if [[ -d "$state_dir" ]]; then
+  rm -rf "$state_dir"
+  echo "Removed: $state_dir"
+fi

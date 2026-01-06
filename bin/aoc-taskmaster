@@ -2,6 +2,20 @@
 set -euo pipefail
 
 TM="${TM_CMD:-task-master-ai}"
+
+have() { command -v "$1" >/dev/null 2>&1; }
+
+if ! have "$TM"; then
+  clear
+  echo "Taskmaster"
+  echo "----------"
+  echo "task-master-ai not found in PATH."
+  echo "Install it and restart this pane."
+  echo
+  read -rsn1 -p "Press any key to exit." _ || true
+  exit 0
+fi
+
 mode="active"
 
 get_list() {
@@ -10,6 +24,40 @@ get_list() {
     done)   $TM get_tasks --done 2>/dev/null || true ;;
     *)      $TM get_tasks 2>/dev/null || true ;;
   esac
+}
+
+extract_id() {
+  printf "%s" "$1" | sed -n 's/^[^0-9]*\([0-9]\+\).*/\1/p' | head -n1
+}
+
+get_task_details() {
+  local id="$1"
+  local tmp
+  tmp="$(mktemp -t aoc_taskmaster_detail.XXXXXX)"
+  if $TM get_task --id "$id" >"$tmp" 2>/dev/null; then
+    cat "$tmp"
+    rm -f "$tmp"
+    return 0
+  fi
+  if $TM get_task "$id" >"$tmp" 2>/dev/null; then
+    cat "$tmp"
+    rm -f "$tmp"
+    return 0
+  fi
+  rm -f "$tmp"
+  return 1
+}
+
+set_task_status() {
+  local id="$1"
+  local status="$2"
+  if $TM set_task_status --id "$id" --status "$status" >/dev/null 2>&1; then
+    return 0
+  fi
+  if $TM set_task_status "$id" "$status" >/dev/null 2>&1; then
+    return 0
+  fi
+  return 1
 }
 
 while true; do
@@ -30,6 +78,19 @@ while true; do
     fi
   fi
 
+  if [[ -z "$list" ]]; then
+    echo "No tasks found."
+    read -rsn1 k || true
+    case "$k" in
+      a) mode="active" ;;
+      d) mode="done" ;;
+      s) mode="search" ;;
+      r) : ;;
+      q) exit 0 ;;
+    esac
+    continue
+  fi
+
   choice="$(printf "%s" "$list" | fzf --ansi --height=70% --border --prompt="Select task > " \
     --bind "esc:abort" \
     --bind "ctrl-r:reload($TM get_tasks)" )" || {
@@ -44,12 +105,42 @@ while true; do
       continue
     }
 
-  clear
-  echo "$choice"
-  echo
-  echo "[b] back"
-  read -rsn1 k || true
-  case "$k" in
-    b) ;;
-  esac
+  task_id="$(extract_id "$choice")"
+  if [[ -n "$task_id" ]]; then
+    detail="$(get_task_details "$task_id" || true)"
+  else
+    detail=""
+  fi
+
+  while true; do
+    clear
+    if [[ -n "$detail" ]]; then
+      echo "$detail"
+    else
+      echo "$choice"
+    fi
+    echo
+    echo "[d] done  [r] reopen  [b] back  [q] quit"
+    read -rsn1 k || true
+    case "$k" in
+      d)
+        if [[ -n "$task_id" ]]; then
+          if ! set_task_status "$task_id" "done"; then
+            echo "Failed to set status."
+            sleep 1
+          fi
+        fi
+        ;;
+      r)
+        if [[ -n "$task_id" ]]; then
+          if ! set_task_status "$task_id" "pending"; then
+            echo "Failed to set status."
+            sleep 1
+          fi
+        fi
+        ;;
+      b) break ;;
+      q) exit 0 ;;
+    esac
+  done
 done
