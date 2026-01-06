@@ -21,6 +21,7 @@ case "${1:-}" in
 esac
 
 have() { command -v "$1" >/dev/null 2>&1; }
+have_bat() { have bat || have batcat; }
 
 detect_pm() {
   if have apt-get; then echo "apt"; return; fi
@@ -114,7 +115,7 @@ hint_for() {
       ;;
     bat)
       case "$pm" in
-        apt) echo "sudo apt-get install -y bat" ;;
+        apt) echo "sudo apt-get install -y bat # binary is batcat on Ubuntu" ;;
         dnf) echo "sudo dnf install -y bat" ;;
         pacman) echo "sudo pacman -S bat" ;;
         brew) echo "brew install bat" ;;
@@ -154,7 +155,11 @@ for tool in "${required[@]}"; do
 done
 
 for tool in "${optional[@]}"; do
-  if ! have "$tool"; then
+  if [[ "$tool" == "bat" ]]; then
+    if ! have_bat; then
+      missing_optional+=("$tool")
+    fi
+  elif ! have "$tool"; then
     missing_optional+=("$tool")
   fi
 done
@@ -174,7 +179,16 @@ if [[ "$quiet" -eq 0 ]]; then
   echo
   echo "Optional (features may degrade if missing):"
   for tool in "${optional[@]}"; do
-    if have "$tool"; then
+    if [[ "$tool" == "bat" ]]; then
+      if have bat; then
+        echo "  [ok] bat"
+      elif have batcat; then
+        echo "  [ok] bat (via batcat)"
+      else
+        echo "  [missing] bat"
+        echo "    -> $(hint_for "$tool")"
+      fi
+    elif have "$tool"; then
       echo "  [ok] $tool"
     else
       echo "  [missing] $tool"

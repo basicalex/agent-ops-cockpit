@@ -155,6 +155,7 @@ Media is rendered as ASCII via chafa (videos animated).
 - TeX preview build errors: install `tectonic` via Cargo using `cargo install --locked tectonic --version 0.14.1`.
 - If Cargo builds fail with the `time` crate error, use `cargo +1.78.0 install --locked tectonic --version 0.14.1`
   or `cargo binstall tectonic` for a prebuilt release.
+- On Ubuntu, the `bat` binary is named `batcat`; `aoc-doctor` accepts either.
 
 ## Screenshot
 - Store the latest layout screenshot at `docs/screenshot.png` and reference it in docs or release notes.

@@ -8,10 +8,21 @@ w="${2:-80}"
 h="${3:-24}"
 
 have() { command -v "$1" >/dev/null 2>&1; }
+bat_cmd() {
+  if have bat; then
+    echo "bat"
+  elif have batcat; then
+    echo "batcat"
+  else
+    echo ""
+  fi
+}
 
 text_preview() {
-  if have bat; then
-    bat --style=plain --color=always --line-range=:200 "$file"
+  local cmd
+  cmd="$(bat_cmd)"
+  if [[ -n "$cmd" ]]; then
+    "$cmd" --style=plain --color=always --line-range=:200 "$file"
   else
     sed -n '1,200p' "$file"
   fi
