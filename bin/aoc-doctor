@@ -129,7 +129,7 @@ hint_for() {
         pacman) echo "sudo pacman -S tectonic" ;;
         brew) echo "brew install tectonic" ;;
         apk) echo "sudo apk add tectonic" ;;
-        *) echo "Install tectonic via your package manager." ;;
+        *) echo "cargo binstall tectonic (or cargo +1.78.0 install --locked tectonic --version 0.14.1)" ;;
       esac
       ;;
     task-master-ai)

@@ -19,6 +19,9 @@ A lightweight, terminal-first "agent cockpit" layout for coding sessions:
 - librsvg2-bin (for svg -> png)
 - optional: ripgrep (`rg`), bat, tectonic (for .tex previews)
 
+This setup is terminal-emulator agnostic (Alacritty, Kitty, GNOME Terminal, etc.)
+as long as Zellij is installed and in PATH.
+
 Ubuntu/Debian quick install:
 
 ```bash
@@ -32,6 +35,27 @@ Yazi install:
 
 ```bash
 cargo install --locked yazi-fm yazi-cli
+```
+
+Other distros:
+- Fedora: `sudo dnf install -y zellij fzf ffmpeg chafa poppler-utils librsvg2-tools ripgrep bat`
+- Arch: `sudo pacman -S zellij fzf ffmpeg chafa poppler ripgrep bat`
+- Alpine: `sudo apk add zellij fzf ffmpeg chafa poppler-utils librsvg`
+
+TeX preview (recommended cross-distro):
+```bash
+cargo install --locked tectonic --version 0.14.1
+```
+
+If Cargo builds fail with a `time` crate type inference error, use a pinned
+toolchain or a prebuilt binary:
+```bash
+rustup toolchain install 1.78.0
+cargo +1.78.0 install --locked tectonic --version 0.14.1
+```
+```bash
+cargo install cargo-binstall
+cargo binstall tectonic
 ```
 
 ## Install
@@ -72,14 +96,14 @@ aoc-launch
 Create a new tab and choose layout:
 
 ```bash
-aoc-new-tab
+aoc
 ```
 
 Or skip the prompt:
 
 ```bash
-aoc-new-tab --aoc --name my-project
-aoc-new-tab --default
+aoc --aoc --name my-project
+aoc --default
 ```
 
 ### Pane expansion (minimal + fast)
@@ -122,6 +146,9 @@ Media is rendered as ASCII via chafa (videos animated).
 - Missing previews: install `chafa`, `poppler-utils`, and `librsvg2-bin`.
 - Blank task list: ensure `task-master-ai` is in PATH.
 - Widget media not rendering: run `aoc-doctor` to confirm `ffmpeg` and `chafa`.
+- TeX preview build errors: install `tectonic` via Cargo using `cargo install --locked tectonic --version 0.14.1`.
+- If Cargo builds fail with the `time` crate error, use `cargo +1.78.0 install --locked tectonic --version 0.14.1`
+  or `cargo binstall tectonic` for a prebuilt release.
 
 ## Screenshot
 - Store the latest layout screenshot at `docs/screenshot.png` and reference it in docs or release notes.
