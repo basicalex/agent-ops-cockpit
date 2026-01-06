@@ -1,0 +1,58 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+usage() {
+  cat <<'EOF'
+Usage: aoc-new-tab [--aoc|--default] [--name NAME] [--cwd PATH]
+
+Create a new Zellij tab. Prompts for layout if not specified.
+EOF
+}
+
+layout_choice=""
+tab_name=""
+tab_cwd=""
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --aoc) layout_choice="aoc" ;;
+    --default) layout_choice="default" ;;
+    --name)
+      shift
+      tab_name="${1:-}"
+      ;;
+    --cwd)
+      shift
+      tab_cwd="${1:-}"
+      ;;
+    -h|--help) usage; exit 0 ;;
+    *) echo "Unknown option: $1" >&2; usage; exit 1 ;;
+  esac
+  shift || true
+done
+
+if [[ -z "$layout_choice" ]]; then
+  echo "New tab layout:"
+  echo "  [a] AOC cockpit"
+  echo "  [d] default"
+  read -rsn1 k || true
+  case "$k" in
+    a) layout_choice="aoc" ;;
+    d) layout_choice="default" ;;
+    *) layout_choice="default" ;;
+  esac
+fi
+
+args=()
+if [[ -n "$tab_name" ]]; then
+  args+=(--name "$tab_name")
+fi
+if [[ -n "$tab_cwd" ]]; then
+  args+=(--cwd "$tab_cwd")
+fi
+
+if [[ "$layout_choice" == "aoc" ]]; then
+  zellij action new-tab --layout aoc "${args[@]}"
+else
+  zellij action new-tab "${args[@]}"
+fi

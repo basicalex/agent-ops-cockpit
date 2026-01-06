@@ -68,6 +68,20 @@ From inside a project directory:
 aoc-launch
 ```
 
+## New Tabs
+Create a new tab and choose layout:
+
+```bash
+aoc-new-tab
+```
+
+Or skip the prompt:
+
+```bash
+aoc-new-tab --aoc --name my-project
+aoc-new-tab --default
+```
+
 ### Pane expansion (minimal + fast)
 Zellij doesn't auto-resize panes on focus by default. Use:
 - **Fullscreen current pane:** `Ctrl + f`
