@@ -12,6 +12,9 @@ EOF
 layout_choice=""
 tab_name=""
 tab_cwd=""
+state_dir="${XDG_STATE_HOME:-$HOME/.local/state}/aoc"
+project_root_file="${AOC_PROJECT_ROOT_FILE:-$state_dir/project_root}"
+star_file="${AOC_STAR_FILE:-$state_dir/starred_root}"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -32,15 +35,7 @@ while [[ $# -gt 0 ]]; do
 done
 
 if [[ -z "$layout_choice" ]]; then
-  echo "New tab layout:"
-  echo "  [a] AOC cockpit"
-  echo "  [d] default"
-  read -rsn1 k || true
-  case "$k" in
-    a) layout_choice="aoc" ;;
-    d) layout_choice="default" ;;
-    *) layout_choice="default" ;;
-  esac
+  layout_choice="aoc"
 fi
 
 args=()
@@ -49,10 +44,23 @@ if [[ -n "$tab_name" ]]; then
 fi
 if [[ -n "$tab_cwd" ]]; then
   args+=(--cwd "$tab_cwd")
+else
+  args+=(--cwd "$PWD")
 fi
 
+project_root="${tab_cwd:-$PWD}"
+mkdir -p "$state_dir"
+printf '%s\n' "$project_root" > "$project_root_file"
+printf '%s\n' "$project_root" > "$star_file"
+
 if [[ "$layout_choice" == "aoc" ]]; then
-  zellij action new-tab --layout aoc "${args[@]}"
+  AOC_PROJECT_ROOT="$project_root" \
+    AOC_PROJECT_ROOT_FILE="$project_root_file" \
+    ZELLIJ_PROJECT_ROOT="$project_root" \
+    zellij action new-tab --layout aoc "${args[@]}"
 else
-  zellij action new-tab "${args[@]}"
+  AOC_PROJECT_ROOT="$project_root" \
+    AOC_PROJECT_ROOT_FILE="$project_root_file" \
+    ZELLIJ_PROJECT_ROOT="$project_root" \
+    zellij action new-tab "${args[@]}"
 fi

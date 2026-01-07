@@ -4,6 +4,19 @@ set -euo pipefail
 STATE_DIR="${XDG_STATE_HOME:-$HOME/.local/state}/aoc"
 ASSET="${STATE_DIR}/widget_asset"
 MODE_FILE="${STATE_DIR}/widget_mode"
+GALLERY_DIR="${AOC_WIDGET_GALLERY_DIR:-$HOME/Pictures/Zellij}"
+STYLE_FILE="${STATE_DIR}/widget_style"
+SIZE_FILE="${STATE_DIR}/widget_scale"
+DETAIL_FILE="${STATE_DIR}/widget_detail"
+COLOR_FILE="${STATE_DIR}/widget_colors"
+DITHER_FILE="${STATE_DIR}/widget_dither"
+OFFSET_X_FILE="${STATE_DIR}/widget_offset_x"
+OFFSET_Y_FILE="${STATE_DIR}/widget_offset_y"
+CHAFa_SYMBOLS="${AOC_WIDGET_SYMBOLS:-}"
+CHAFa_COLORS="${AOC_WIDGET_COLORS:-}"
+CHAFa_DITHER="${AOC_WIDGET_DITHER:-}"
+CHAFa_SCALE="${AOC_WIDGET_SCALE:-}"
+CHAFa_WORK="${AOC_WIDGET_WORK:-}"
 mkdir -p "$(dirname "$ASSET")"
 touch "$ASSET"
 
@@ -12,14 +25,308 @@ have() { command -v "$1" >/dev/null 2>&1; }
 mode="cal"
 if [[ -f "$MODE_FILE" ]]; then
   saved="$(cat "$MODE_FILE" 2>/dev/null || true)"
-  if [[ "$saved" == "cal" || "$saved" == "media" ]]; then
+  if [[ "$saved" == "cal" || "$saved" == "media" || "$saved" == "gallery" || "$saved" == "blank" ]]; then
     mode="$saved"
   fi
 fi
 
+today_year="$(date +%Y)"
+today_month="$(date +%m)"
+today_day="$(date +%d)"
+view_year="$today_year"
+view_month="$today_month"
+gallery_index=0
+gallery_count=0
+gallery_stat="0"
+gallery_view=0
+last_gallery_view=0
+declare -a gallery_files=()
+declare -a style_presets=(
+  "ascii"
+  "ascii+stipple"
+  "ascii+dot"
+  "ascii+diagonal"
+  "ascii+geometric"
+  "ascii+half"
+)
+declare -a color_presets=("16" "256" "full" "none")
+declare -a dither_presets=("ordered" "diffusion" "none")
+declare -a work_presets=("1" "3" "5" "7" "9")
+style_index=0
+color_index=0
+dither_index=0
+work_index=0
+offset_x=0
+offset_y=0
+
+adjust_offset() {
+  local dx="$1"
+  local dy="$2"
+  local cols
+  local lines
+
+  cols="$(tput cols 2>/dev/null || echo 30)"
+  lines="$(tput lines 2>/dev/null || echo 16)"
+  local max_x=$((cols - 10))
+  local max_y=$((lines - 6))
+  if (( max_x < 0 )); then max_x=0; fi
+  if (( max_y < 0 )); then max_y=0; fi
+
+  offset_x=$((offset_x + dx))
+  offset_y=$((offset_y + dy))
+  if (( offset_x < 0 )); then offset_x=0; fi
+  if (( offset_y < 0 )); then offset_y=0; fi
+  if (( offset_x > max_x )); then offset_x="$max_x"; fi
+  if (( offset_y > max_y )); then offset_y="$max_y"; fi
+
+  save_setting "$OFFSET_X_FILE" "$offset_x"
+  save_setting "$OFFSET_Y_FILE" "$offset_y"
+}
+
 set_mode() {
   mode="$1"
   echo "$mode" > "$MODE_FILE"
+}
+
+load_setting() {
+  local file="$1"
+  local default="$2"
+  if [[ -f "$file" ]]; then
+    cat "$file" 2>/dev/null || echo "$default"
+  else
+    echo "$default"
+  fi
+}
+
+save_setting() {
+  local file="$1"
+  local value="$2"
+  echo "$value" > "$file"
+}
+
+sync_index() {
+  local value="$1"
+  shift
+  local -a options=("$@")
+  local i
+  for i in "${!options[@]}"; do
+    if [[ "${options[$i]}" == "$value" ]]; then
+      echo "$i"
+      return
+    fi
+  done
+  echo "0"
+}
+
+style_index="$(sync_index "$(load_setting "$STYLE_FILE" "ascii")" "${style_presets[@]}")"
+color_index="$(sync_index "$(load_setting "$COLOR_FILE" "16")" "${color_presets[@]}")"
+dither_index="$(sync_index "$(load_setting "$DITHER_FILE" "ordered")" "${dither_presets[@]}")"
+work_index="$(sync_index "$(load_setting "$DETAIL_FILE" "5")" "${work_presets[@]}")"
+offset_x="$(load_setting "$OFFSET_X_FILE" "0")"
+offset_y="$(load_setting "$OFFSET_Y_FILE" "0")"
+if ! [[ "$offset_x" =~ ^[0-9]+$ ]]; then offset_x=0; fi
+if ! [[ "$offset_y" =~ ^[0-9]+$ ]]; then offset_y=0; fi
+
+load_setting() {
+  local file="$1"
+  local default="$2"
+  if [[ -f "$file" ]]; then
+    cat "$file" 2>/dev/null || echo "$default"
+  else
+    echo "$default"
+  fi
+}
+
+save_setting() {
+  local file="$1"
+  local value="$2"
+  echo "$value" > "$file"
+}
+
+render_header() {
+  echo "AOC Widget   [c] calendar  [m] media  [g] gallery  [p] set media path  [q] quit"
+  echo "---------------------------------------------------------------"
+}
+
+render_blank() {
+  render_header
+  echo
+  echo "Widget idle. Press [c] for calendar, [m] for media, or [g] for gallery."
+  echo
+  echo "[s] style  [C] colors  [D] dither  [w] detail  [+/-] size"
+}
+
+render_media() {
+  local path="$1"
+  local offset_x="${2:-0}"
+  local offset_y="${3:-0}"
+  local cols
+  local lines
+
+  cols="$(tput cols 2>/dev/null || echo 30)"
+  lines="$(tput lines 2>/dev/null || echo 16)"
+  local scale="$CHAFa_SCALE"
+  if [[ -z "$scale" ]]; then
+    scale="$(load_setting "$SIZE_FILE" "1.0")"
+  fi
+  local work="$CHAFa_WORK"
+  if [[ -z "$work" ]]; then
+    work="$(load_setting "$DETAIL_FILE" "5")"
+  fi
+  local symbols="$CHAFa_SYMBOLS"
+  if [[ -z "$symbols" ]]; then
+    symbols="$(load_setting "$STYLE_FILE" "ascii")"
+  fi
+  local colors="$CHAFa_COLORS"
+  if [[ -z "$colors" ]]; then
+    colors="$(load_setting "$COLOR_FILE" "16")"
+  fi
+  local dither="$CHAFa_DITHER"
+  if [[ -z "$dither" ]]; then
+    dither="$(load_setting "$DITHER_FILE" "ordered")"
+  fi
+
+  local out_cols out_lines
+  out_cols="$(python3 - <<PY
+import math
+cols=float("$cols")
+scale=float("$scale")
+print(max(10, int(math.floor(cols*scale))))
+PY
+)"
+  out_lines="$(python3 - <<PY
+import math
+lines=float("$lines")
+scale=float("$scale")
+print(max(6, int(math.floor(lines*scale))))
+PY
+)"
+
+  local chafa_args=(--size "${out_cols}x${out_lines}" --symbols "$symbols" --colors "$colors" --dither "$dither" --fg-only --work "$work")
+
+  render_pad() {
+    local ox="$1"
+    local oy="$2"
+    local i
+    for ((i=0; i<oy; i++)); do
+      printf "\n"
+    done
+    while IFS= read -r line; do
+      printf "%*s%s\n" "$ox" "" "$line"
+    done
+  }
+
+  if [[ -z "$path" || ! -e "$path" ]]; then
+    echo "No media set or path missing."
+    echo "Press [p] to set a path."
+    return
+  fi
+
+  case "$path" in
+    *.mp4|*.webm|*.mov|*.gif)
+      if ! have ffmpeg || ! have chafa; then
+        echo "Missing ffmpeg or chafa for video rendering."
+      else
+        if (( offset_x > 0 || offset_y > 0 )); then
+          chafa_args+=(--animate off)
+          ffmpeg -loglevel quiet -i "$path" -vf "fps=12,scale=640:-1" -f image2pipe -vcodec png - \
+            | chafa "${chafa_args[@]}" - \
+            | render_pad "$offset_x" "$offset_y"
+        else
+          chafa_args+=(--animate on)
+          ffmpeg -loglevel quiet -i "$path" -vf "fps=12,scale=640:-1" -f image2pipe -vcodec png - \
+            | chafa "${chafa_args[@]}" -
+        fi
+      fi
+      ;;
+    *.png|*.jpg|*.jpeg|*.webp)
+      if ! have chafa; then
+        echo "Missing chafa for image rendering."
+      else
+        if (( offset_x > 0 || offset_y > 0 )); then
+          chafa "${chafa_args[@]}" "$path" | render_pad "$offset_x" "$offset_y"
+        else
+          chafa "${chafa_args[@]}" "$path"
+        fi
+      fi
+      ;;
+    *.svg)
+      tmp="/tmp/aoc_widget.png"
+      if ! have rsvg-convert || ! have chafa; then
+        echo "Missing rsvg-convert or chafa for SVG rendering."
+      else
+        rsvg-convert "$path" -o "$tmp" >/dev/null 2>&1 || true
+        if [[ -f "$tmp" ]]; then
+          if (( offset_x > 0 || offset_y > 0 )); then
+            chafa "${chafa_args[@]}" "$tmp" | render_pad "$offset_x" "$offset_y"
+          else
+            chafa "${chafa_args[@]}" "$tmp"
+          fi
+        else
+          echo "SVG render failed."
+        fi
+      fi
+      ;;
+    *)
+      echo "Unsupported: $path"
+      ;;
+  esac
+}
+
+render_calendar() {
+  if ! have python3; then
+    echo "Missing python3 for calendar rendering."
+    return
+  fi
+
+  VIEW_YEAR="$view_year" VIEW_MONTH="$view_month" TODAY_YEAR="$today_year" TODAY_MONTH="$today_month" TODAY_DAY="$today_day" \
+    python3 - <<'PY'
+import calendar
+import os
+
+year = int(os.environ["VIEW_YEAR"])
+month = int(os.environ["VIEW_MONTH"])
+today_year = int(os.environ["TODAY_YEAR"])
+today_month = int(os.environ["TODAY_MONTH"])
+today_day = int(os.environ["TODAY_DAY"])
+
+cal = calendar.Calendar(firstweekday=calendar.SUNDAY)
+month_name = calendar.month_name[month]
+header = f"{month_name} {year}"
+width = 28
+print(header.center(width))
+print(" Su  Mo  Tu  We  Th  Fr  Sa")
+
+for week in cal.monthdayscalendar(year, month):
+    cells = []
+    for day in week:
+        if day == 0:
+            cells.append("    ")
+        elif year == today_year and month == today_month and day == today_day:
+            cells.append(f"[{day:2d}]")
+        else:
+            cells.append(f" {day:2d} ")
+    print("".join(cells))
+PY
+}
+
+load_gallery_files() {
+  gallery_files=()
+  if [[ -d "$GALLERY_DIR" ]]; then
+    while IFS= read -r -d '' f; do
+      gallery_files+=("$f")
+    done < <(
+      find "$GALLERY_DIR" -maxdepth 1 -type f \( \
+        -iname '*.png' -o -iname '*.jpg' -o -iname '*.jpeg' -o -iname '*.webp' -o -iname '*.gif' -o -iname '*.mp4' -o -iname '*.webm' -o -iname '*.mov' -o -iname '*.svg' \
+      \) -print0 | sort -z
+    )
+  fi
+  gallery_count="${#gallery_files[@]}"
+  if (( gallery_count == 0 )); then
+    gallery_index=0
+  elif (( gallery_index >= gallery_count )); then
+    gallery_index=$((gallery_count - 1))
+  fi
 }
 
 set_media_path() {
@@ -36,76 +343,264 @@ set_media_path() {
   echo "$path" > "$ASSET"
 }
 
+last_mode=""
+last_path=""
+last_minute=""
+force_redraw=1
+last_gallery_stat=""
+
 while true; do
-  clear
-  echo "AOC Widget   [c] calendar  [m] media  [p] set media path  [q] quit"
-  echo "---------------------------------------------------------------"
+  today_year="$(date +%Y)"
+  today_month="$(date +%m)"
+  today_day="$(date +%d)"
 
-  if [[ "$mode" == "cal" ]]; then
-    date
-    echo
-    cal -3
-    read -rsn1 k || true
-    case "$k" in
-      m) set_mode "media" ;;
-      p) set_media_path ;;
-      q) exit 0 ;;
-      c) : ;;
-    esac
-  else
-    path="$(cat "$ASSET" || true)"
-    if [[ -z "$path" || ! -e "$path" ]]; then
-      echo "No media set or path missing."
-      echo "Press [p] to set a path."
-      read -rsn1 k || true
-      case "$k" in
-        p) set_media_path ;;
-        c) set_mode "cal" ;;
-        q) exit 0 ;;
-      esac
-      continue
+  if [[ -f "$MODE_FILE" ]]; then
+    saved="$(cat "$MODE_FILE" 2>/dev/null || true)"
+    if [[ "$saved" == "cal" || "$saved" == "media" || "$saved" == "gallery" || "$saved" == "blank" ]]; then
+      mode="$saved"
     fi
+  fi
 
-    case "$path" in
-      *.mp4|*.webm|*.mov|*.gif)
-        if ! have ffmpeg || ! have chafa; then
-          echo "Missing ffmpeg or chafa for video rendering."
-        else
-          ffmpeg -loglevel quiet -i "$path" -vf "fps=12,scale=640:-1" -f image2pipe -vcodec png - \
-            | chafa --animate --size=30x16 -
-        fi
+  path=""
+  if [[ "$mode" == "media" ]]; then
+    path="$(cat "$ASSET" 2>/dev/null || true)"
+  elif [[ "$mode" == "gallery" ]]; then
+    gallery_stat="$(stat -c %Y "$GALLERY_DIR" 2>/dev/null || echo 0)"
+    if [[ "$gallery_stat" != "$last_gallery_stat" || "${#gallery_files[@]}" -eq 0 ]]; then
+      load_gallery_files
+      last_gallery_stat="$gallery_stat"
+      force_redraw=1
+    fi
+    if (( gallery_count > 0 )); then
+      path="${gallery_files[$gallery_index]}"
+    fi
+  fi
+
+  minute="$(date +%Y%m%d%H%M)"
+  redraw=0
+  if [[ "$force_redraw" -eq 1 || "$mode" != "$last_mode" || "$gallery_view" != "$last_gallery_view" ]]; then
+    redraw=1
+  elif [[ "$mode" == "media" && "$path" != "$last_path" ]]; then
+    redraw=1
+  elif [[ "$mode" == "cal" && "$minute" != "$last_minute" ]]; then
+    redraw=1
+  fi
+
+  if [[ "$redraw" -eq 1 ]]; then
+    clear
+    case "$mode" in
+      cal)
+        render_header
+        date
+        echo
+        render_calendar
+        echo
+        echo "[h] prev month  [l] next month  [H] prev year  [L] next year  [t] today  [j] jump"
+        echo "[s] style  [C] colors  [D] dither  [w] detail  [+/-] size"
         ;;
-      *.png|*.jpg|*.jpeg|*.webp)
-        if ! have chafa; then
-          echo "Missing chafa for image rendering."
-        else
-          chafa --size=30x16 "$path"
-        fi
+      media)
+        render_header
+        render_media "$path"
+        echo
+        echo "[s] style  [C] colors  [D] dither  [w] detail  [+/-] size"
         ;;
-      *.svg)
-        tmp="/tmp/aoc_widget.png"
-        if ! have rsvg-convert || ! have chafa; then
-          echo "Missing rsvg-convert or chafa for SVG rendering."
-        else
-          rsvg-convert "$path" -o "$tmp" >/dev/null 2>&1 || true
-          if [[ -f "$tmp" ]]; then
-            chafa --size=30x16 "$tmp"
+      gallery)
+        if (( gallery_view == 1 )); then
+          if (( gallery_count == 0 )); then
+            render_blank
           else
-            echo "SVG render failed."
+            render_media "${gallery_files[$gallery_index]}" "$offset_x" "$offset_y"
+          fi
+        else
+          render_header
+          echo "Gallery: $GALLERY_DIR"
+          if (( gallery_count == 0 )); then
+            echo "No media files found."
+          else
+            for i in "${!gallery_files[@]}"; do
+              name="$(basename "${gallery_files[$i]}")"
+              if (( i == gallery_index )); then
+                printf "> %2d. %s\n" "$((i + 1))" "$name"
+              else
+                printf "  %2d. %s\n" "$((i + 1))" "$name"
+              fi
+            done
+            echo
+            render_media "${gallery_files[$gallery_index]}"
+            echo
+            echo "[j/k] move  [1-9] jump  [Enter] view  [h/j/k/l or arrows] offset  [0] reset"
+            echo "[s] style  [C] colors  [D] dither  [w] detail  [+/-] size"
           fi
         fi
         ;;
-      *)
-        echo "Unsupported: $path"
+      blank)
+        render_blank
         ;;
     esac
 
-    read -rsn1 k || true
+    last_mode="$mode"
+    last_path="$path"
+    last_minute="$minute"
+    last_gallery_view="$gallery_view"
+    force_redraw=0
+  fi
+
+  key=""
+  is_enter=0
+  if read -rsn1 -t 1 k; then
+    if [[ "$k" == $'\e' ]]; then
+      if read -rsn2 -t 0.05 k2; then
+        case "$k2" in
+          "[A") key="up" ;;
+          "[B") key="down" ;;
+          "[C") key="right" ;;
+          "[D") key="left" ;;
+          *) key="esc" ;;
+        esac
+      else
+        key="esc"
+      fi
+    elif [[ -z "$k" ]]; then
+      is_enter=1
+      key="enter"
+    else
+      key="$k"
+    fi
+  fi
+
+  case "$key" in
+    esc) set_mode "blank"; force_redraw=1 ;;
+    m) set_mode "media"; force_redraw=1 ;;
+    c) set_mode "cal"; force_redraw=1 ;;
+    g) set_mode "gallery"; gallery_view=0; force_redraw=1 ;;
+    p) set_media_path; force_redraw=1 ;;
+    q) exit 0 ;;
+    s)
+      style_index=$(((style_index + 1) % ${#style_presets[@]}))
+      save_setting "$STYLE_FILE" "${style_presets[$style_index]}"
+      force_redraw=1
+      ;;
+    C)
+      color_index=$(((color_index + 1) % ${#color_presets[@]}))
+      save_setting "$COLOR_FILE" "${color_presets[$color_index]}"
+      force_redraw=1
+      ;;
+    D)
+      dither_index=$(((dither_index + 1) % ${#dither_presets[@]}))
+      save_setting "$DITHER_FILE" "${dither_presets[$dither_index]}"
+      force_redraw=1
+      ;;
+    w)
+      work_index=$(((work_index + 1) % ${#work_presets[@]}))
+      save_setting "$DETAIL_FILE" "${work_presets[$work_index]}"
+      force_redraw=1
+      ;;
+    "="|"+")
+      cur_scale="$(load_setting "$SIZE_FILE" "1.0")"
+      new_scale="$(python3 - <<PY
+import math
+cur=float("$cur_scale")
+print(min(2.0, round(cur + 0.1, 2)))
+PY
+)"
+      save_setting "$SIZE_FILE" "$new_scale"
+      force_redraw=1
+      ;;
+    "-")
+      cur_scale="$(load_setting "$SIZE_FILE" "1.0")"
+      new_scale="$(python3 - <<PY
+import math
+cur=float("$cur_scale")
+print(max(0.5, round(cur - 0.1, 2)))
+PY
+)"
+      save_setting "$SIZE_FILE" "$new_scale"
+      force_redraw=1
+      ;;
+  esac
+
+  if [[ "$mode" == "cal" ]]; then
     case "$k" in
-      c) set_mode "cal" ;;
-      p) set_media_path ;;
-      q) exit 0 ;;
-      m) : ;;
+      h)
+        if [[ "$view_month" == "01" ]]; then
+          view_month="12"
+          view_year="$((view_year - 1))"
+        else
+          view_month="$(printf "%02d" "$((10#$view_month - 1))")"
+        fi
+        force_redraw=1
+        ;;
+      l)
+        if [[ "$view_month" == "12" ]]; then
+          view_month="01"
+          view_year="$((view_year + 1))"
+        else
+          view_month="$(printf "%02d" "$((10#$view_month + 1))")"
+        fi
+        force_redraw=1
+        ;;
+      H) view_year="$((view_year - 1))"; force_redraw=1 ;;
+      L) view_year="$((view_year + 1))"; force_redraw=1 ;;
+      t)
+        view_year="$today_year"
+        view_month="$today_month"
+        force_redraw=1
+        ;;
+      j)
+        printf "\nYYYY-MM> "
+        read -r target
+        if [[ "$target" =~ ^([0-9]{4})-([0-9]{1,2})$ ]]; then
+          new_year="${BASH_REMATCH[1]}"
+          new_month="${BASH_REMATCH[2]}"
+          if (( new_month >= 1 && new_month <= 12 )); then
+            view_year="$new_year"
+            view_month="$(printf "%02d" "$new_month")"
+            force_redraw=1
+          fi
+        fi
+        ;;
+    esac
+  fi
+  if [[ "$mode" == "gallery" && "$gallery_count" -gt 0 && "$gallery_view" -eq 0 ]]; then
+    case "$key" in
+      j)
+        if (( gallery_index < gallery_count - 1 )); then
+          gallery_index=$((gallery_index + 1))
+          force_redraw=1
+        fi
+        ;;
+      k)
+        if (( gallery_index > 0 )); then
+          gallery_index=$((gallery_index - 1))
+          force_redraw=1
+        fi
+        ;;
+      [1-9])
+        idx=$((10#$key - 1))
+        if (( idx < gallery_count )); then
+          gallery_index="$idx"
+          force_redraw=1
+        fi
+        ;;
+    esac
+  fi
+  if [[ "$mode" == "gallery" && "$is_enter" -eq 1 ]]; then
+    gallery_view=$((1 - gallery_view))
+    force_redraw=1
+  fi
+  if [[ "$mode" == "gallery" && "$gallery_view" -eq 1 ]]; then
+    case "$key" in
+      h|left) adjust_offset -2 0; force_redraw=1 ;;
+      l|right) adjust_offset 2 0; force_redraw=1 ;;
+      k|up) adjust_offset 0 -1; force_redraw=1 ;;
+      j|down) adjust_offset 0 1; force_redraw=1 ;;
+      0)
+        offset_x=0
+        offset_y=0
+        save_setting "$OFFSET_X_FILE" "$offset_x"
+        save_setting "$OFFSET_Y_FILE" "$offset_y"
+        force_redraw=1
+        ;;
     esac
   fi
 done

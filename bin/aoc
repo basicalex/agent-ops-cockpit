@@ -1,4 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-exec aoc-new-tab "$@"
+if [[ -n "${ZELLIJ:-}" || -n "${ZELLIJ_SESSION_NAME:-}" ]]; then
+  exec aoc-new-tab "$@"
+fi
+
+exec aoc-launch

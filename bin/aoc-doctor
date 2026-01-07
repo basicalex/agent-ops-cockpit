@@ -60,6 +60,16 @@ hint_for() {
         *) echo "Install fzf via your package manager." ;;
       esac
       ;;
+    tmux)
+      case "$pm" in
+        apt) echo "sudo apt-get install -y tmux" ;;
+        dnf) echo "sudo dnf install -y tmux" ;;
+        pacman) echo "sudo pacman -S tmux" ;;
+        brew) echo "brew install tmux" ;;
+        apk) echo "sudo apk add tmux" ;;
+        *) echo "Install tmux via your package manager." ;;
+      esac
+      ;;
     codex)
       echo "Install the Codex CLI and ensure it is in PATH."
       ;;
@@ -143,7 +153,7 @@ hint_for() {
 }
 
 required=(zellij yazi fzf codex)
-optional=(chafa ffmpeg rsvg-convert pdftoppm rg bat tectonic task-master-ai)
+optional=(tmux chafa ffmpeg rsvg-convert pdftoppm rg bat tectonic task-master-ai)
 
 missing_required=()
 missing_optional=()

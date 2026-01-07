@@ -1,8 +1,9 @@
-[manager]
+[mgr]
+ratio = [0, 1, 0]
 show_hidden = true
 sort_by = "natural"
 sort_sensitive = false
-linemode = "size"
+linemode = "none"
 show_symlink = true
 
 [preview]

@@ -3,10 +3,26 @@ set -euo pipefail
 
 layout="${AOC_LAYOUT:-aoc}"
 local_layout="$HOME/.config/zellij/layouts/aoc.local.kdl"
+state_dir="${XDG_STATE_HOME:-$HOME/.local/state}/aoc"
+project_root_file="${AOC_PROJECT_ROOT_FILE:-$state_dir/project_root}"
+star_file="${AOC_STAR_FILE:-$state_dir/starred_root}"
 
 if [[ -z "${AOC_LAYOUT:-}" && -f "$local_layout" ]]; then
   layout="aoc.local"
 fi
 
-ZELLIJ_PROJECT_ROOT="${ZELLIJ_PROJECT_ROOT:-$PWD}" \
+if [[ -n "${AOC_ZELLIJ_CONFIG:-}" ]]; then
+  export ZELLIJ_CONFIG_FILE="$AOC_ZELLIJ_CONFIG"
+else
+  unset ZELLIJ_CONFIG_FILE
+fi
+
+project_root="${ZELLIJ_PROJECT_ROOT:-$PWD}"
+mkdir -p "$state_dir"
+printf '%s\n' "$project_root" > "$project_root_file"
+printf '%s\n' "$project_root" > "$star_file"
+
+ZELLIJ_PROJECT_ROOT="$project_root" \
+  AOC_PROJECT_ROOT="$project_root" \
+  AOC_PROJECT_ROOT_FILE="$project_root_file" \
   zellij --layout "$layout"

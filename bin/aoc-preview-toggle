@@ -1,0 +1,37 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+if [[ -z "${ZELLIJ_SESSION_NAME:-}" ]]; then
+  echo "Not running inside a Zellij session." >&2
+  exit 1
+fi
+
+pane_name="${AOC_PREVIEW_PANE_NAME:-aoc-preview}"
+width="${AOC_PREVIEW_WIDTH:-42%}"
+height="${AOC_PREVIEW_HEIGHT:-45%}"
+x="${AOC_PREVIEW_X:-0%}"
+y="${AOC_PREVIEW_Y:-55%}"
+pinned="${AOC_PREVIEW_PINNED:-true}"
+
+layout="$(zellij action dump-layout 2>/dev/null || true)"
+if command -v rg >/dev/null 2>&1; then
+  if printf '%s' "$layout" | rg -q "name=\"$pane_name\""; then
+    zellij action toggle-floating-panes
+    exit 0
+  fi
+else
+  if printf '%s' "$layout" | grep -q "name=\"$pane_name\""; then
+    zellij action toggle-floating-panes
+    exit 0
+  fi
+fi
+
+zellij action new-pane \
+  --floating \
+  --name "$pane_name" \
+  --width "$width" \
+  --height "$height" \
+  --x "$x" \
+  --y "$y" \
+  --pinned "$pinned" \
+  -- aoc-preview

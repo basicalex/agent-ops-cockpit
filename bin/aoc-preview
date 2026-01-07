@@ -1,0 +1,63 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+STATE_DIR="${XDG_STATE_HOME:-$HOME/.local/state}/aoc"
+PREVIEW_PATH_FILE="${AOC_PREVIEW_PATH_FILE:-$STATE_DIR/preview_path}"
+POLL_INTERVAL="${AOC_PREVIEW_POLL_INTERVAL:-0.25}"
+
+render() {
+  local path="$1"
+
+  printf '\033[H\033[2J'
+  if [[ -z "$path" ]]; then
+    echo "No preview target. Use 'p' in Yazi to send one."
+    return
+  fi
+  if [[ ! -e "$path" ]]; then
+    echo "Missing path: $path"
+    return
+  fi
+
+  echo "Preview: $path"
+  echo
+
+  local mime
+  mime="$(file -b --mime-type "$path" 2>/dev/null || true)"
+  case "$mime" in
+    image/*)
+      if command -v chafa >/dev/null 2>&1; then
+        local cols rows
+        cols="${COLUMNS:-80}"
+        rows="${LINES:-24}"
+        chafa -s "${cols}x${rows}" "$path" || file "$path"
+      elif command -v viu >/dev/null 2>&1; then
+        viu -w "${COLUMNS:-80}" -h "${LINES:-24}" "$path" || file "$path"
+      else
+        file "$path"
+      fi
+      ;;
+    text/*|application/json|application/*xml|application/x-*)
+      if command -v bat >/dev/null 2>&1; then
+        bat --style=plain --paging=never "$path"
+      else
+        sed -n '1,200p' "$path"
+      fi
+      ;;
+    *)
+      file "$path"
+      ;;
+  esac
+}
+
+last_path=""
+while true; do
+  path=""
+  if [[ -f "$PREVIEW_PATH_FILE" ]]; then
+    path="$(cat "$PREVIEW_PATH_FILE")"
+  fi
+  if [[ "$path" != "$last_path" ]]; then
+    render "$path"
+    last_path="$path"
+  fi
+  sleep "$POLL_INTERVAL"
+done

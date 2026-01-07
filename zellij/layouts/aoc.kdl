@@ -1,36 +1,34 @@
 layout {
   tab name="AOC" focus=true {
+    // LEFT: Yazi (tree + preview). Starts in project root.
+    pane size="10%" command="bash" {
+      args "-lc" "root_file=\"${AOC_PROJECT_ROOT_FILE:-${XDG_STATE_HOME:-$HOME/.local/state}/aoc/project_root}\"; root=\"${AOC_PROJECT_ROOT:-${ZELLIJ_PROJECT_ROOT:-$PWD}}\"; if [[ -f \"$root_file\" ]]; then root=\"$(cat \"$root_file\")\"; fi; cd \"$root\" && exec ${AOC_FILETREE_CMD:-yazi} ."
+    }
+
+    // CENTER + RIGHT COLUMN
     pane split_direction="horizontal" {
-      // LEFT: Yazi (tree + preview). Starts in project root.
-      pane size="28%" command="bash" {
-        args "-lc" "cd \"${ZELLIJ_PROJECT_ROOT:-$PWD}\" && ${AOC_FILETREE_CMD:-yazi}"
-      }
 
-      // CENTER + RIGHT COLUMN
-      pane split_direction="horizontal" {
-
-        // CENTER stack: Codex (top) + Taskmaster (bottom)
-        pane split_direction="vertical" {
-          pane size="62%" command="bash" {
-            args "-lc" "cd \"${ZELLIJ_PROJECT_ROOT:-$PWD}\" && ${AOC_CODEX_CMD:-codex}"
-          }
-
-          pane size="38%" command="bash" {
-            args "-lc" "cd \"${ZELLIJ_PROJECT_ROOT:-$PWD}\" && ${AOC_TASKMASTER_CMD:-aoc-taskmaster}"
-          }
+      // CENTER stack: Codex (top) + Taskmaster (bottom)
+      pane split_direction="vertical" {
+        pane size="62%" command="bash" {
+          args "-lc" "root_file=\"${AOC_PROJECT_ROOT_FILE:-${XDG_STATE_HOME:-$HOME/.local/state}/aoc/project_root}\"; root=\"${AOC_PROJECT_ROOT:-${ZELLIJ_PROJECT_ROOT:-$PWD}}\"; if [[ -f \"$root_file\" ]]; then root=\"$(cat \"$root_file\")\"; fi; cd \"$root\" && exec ${AOC_CODEX_CMD:-aoc-codex}"
         }
 
-        // RIGHT COLUMN: Widget, Sys, Terminal
-        pane size="26%" split_direction="vertical" {
-          pane size="34%" command="bash" {
-            args "-lc" "${AOC_WIDGET_CMD:-aoc-widget}"
-          }
-          pane size="33%" command="bash" {
-            args "-lc" "${AOC_SYS_CMD:-aoc-sys}"
-          }
-          pane size="33%" command="bash" {
-            args "-lc" "cd \"${ZELLIJ_PROJECT_ROOT:-$PWD}\" && exec ${AOC_TERMINAL_CMD:-$SHELL -l}"
-          }
+        pane size="38%" command="bash" {
+          args "-lc" "root_file=\"${AOC_PROJECT_ROOT_FILE:-${XDG_STATE_HOME:-$HOME/.local/state}/aoc/project_root}\"; root=\"${AOC_PROJECT_ROOT:-${ZELLIJ_PROJECT_ROOT:-$PWD}}\"; if [[ -f \"$root_file\" ]]; then root=\"$(cat \"$root_file\")\"; fi; cd \"$root\" && exec ${AOC_TASKMASTER_CMD:-aoc-taskmaster}"
+        }
+      }
+
+      // RIGHT COLUMN: Widget (top), Sys (center), Terminal (bottom)
+      pane size="26%" split_direction="vertical" {
+        pane size="34%" command="bash" {
+          args "-lc" "root_file=\"${AOC_PROJECT_ROOT_FILE:-${XDG_STATE_HOME:-$HOME/.local/state}/aoc/project_root}\"; root=\"${AOC_PROJECT_ROOT:-${ZELLIJ_PROJECT_ROOT:-$PWD}}\"; if [[ -f \"$root_file\" ]]; then root=\"$(cat \"$root_file\")\"; fi; cd \"$root\" && exec ${AOC_WIDGET_CMD:-aoc-widget}"
+        }
+        pane size="33%" command="bash" {
+          args "-lc" "root_file=\"${AOC_PROJECT_ROOT_FILE:-${XDG_STATE_HOME:-$HOME/.local/state}/aoc/project_root}\"; root=\"${AOC_PROJECT_ROOT:-${ZELLIJ_PROJECT_ROOT:-$PWD}}\"; if [[ -f \"$root_file\" ]]; then root=\"$(cat \"$root_file\")\"; fi; cd \"$root\" && exec ${AOC_SYS_CMD:-aoc-sys}"
+        }
+        pane size="33%" command="bash" {
+          args "-lc" "root_file=\"${AOC_PROJECT_ROOT_FILE:-${XDG_STATE_HOME:-$HOME/.local/state}/aoc/project_root}\"; root=\"${AOC_PROJECT_ROOT:-${ZELLIJ_PROJECT_ROOT:-$PWD}}\"; if [[ -f \"$root_file\" ]]; then root=\"$(cat \"$root_file\")\"; fi; cd \"$root\" && exec ${AOC_TERMINAL_CMD:-$SHELL}"
         }
       }
     }

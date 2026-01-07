@@ -1,0 +1,59 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+strip_path_dir() {
+  local dir="$1"
+  local new=""
+  local part=""
+  IFS=':' read -r -a parts <<<"$PATH"
+  for part in "${parts[@]}"; do
+    if [[ "$part" == "$dir" ]]; then
+      continue
+    fi
+    if [[ -z "$new" ]]; then
+      new="$part"
+    else
+      new="$new:$part"
+    fi
+  done
+  echo "$new"
+}
+
+resolve_codex_bin() {
+  if [[ -n "${AOC_CODEX_BIN:-}" ]]; then
+    echo "$AOC_CODEX_BIN"
+    return
+  fi
+  local search_path=""
+  search_path="$(strip_path_dir "$script_dir")"
+  local found=""
+  found="$(PATH="$search_path" command -v codex || true)"
+  if [[ -n "$found" ]]; then
+    echo "$found"
+    return
+  fi
+  echo "codex"
+}
+
+codex_bin="$(resolve_codex_bin)"
+
+if [[ -n "${TMUX:-}" ]]; then
+  exec "$codex_bin" "$@"
+fi
+
+if ! command -v tmux >/dev/null 2>&1; then
+  echo "aoc-codex: tmux not found; running codex without tmux wrapper." >&2
+  exec "$codex_bin" "$@"
+fi
+
+conf="${AOC_CODEX_TMUX_CONF:-${XDG_CONFIG_HOME:-$HOME/.config}/aoc/codex-tmux.conf}"
+socket="aoc-codex-${ZELLIJ_PANE_ID:-$$}"
+session="codex"
+
+if [[ -f "$conf" ]]; then
+  exec tmux -L "$socket" -f "$conf" new-session -A -s "$session" "$codex_bin" "$@"
+fi
+
+exec tmux -L "$socket" new-session -A -s "$session" "$codex_bin" "$@"

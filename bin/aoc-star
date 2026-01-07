@@ -5,6 +5,9 @@ STAR_FILE="${XDG_STATE_HOME:-$HOME/.local/state}/aoc/starred_root"
 mkdir -p "$(dirname "$STAR_FILE")"
 
 new_root="${1:-$PWD}"
+if [[ -f "$new_root" ]]; then
+  new_root="$(dirname "$new_root")"
+fi
 new_root="$(realpath "$new_root")"
 
 echo "Star new root and re-anchor panes?"

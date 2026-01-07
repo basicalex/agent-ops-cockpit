@@ -5,7 +5,10 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 mkdir -p "$HOME/.local/bin"
 mkdir -p "$HOME/.config/zellij/layouts"
+mkdir -p "$HOME/.config/zellij"
 mkdir -p "$HOME/.config/yazi"
+mkdir -p "$HOME/.config/yazi/plugins"
+mkdir -p "${XDG_CONFIG_HOME:-$HOME/.config}/aoc"
 mkdir -p "${XDG_STATE_HOME:-$HOME/.local/state}/aoc"
 
 install_file() {
@@ -29,10 +32,30 @@ done
 
 # Install zellij layout
 install_file "$ROOT_DIR/zellij/layouts/aoc.kdl" "$HOME/.config/zellij/layouts/aoc.kdl" 0644
+install_file "$ROOT_DIR/zellij/aoc.config.kdl" "$HOME/.config/zellij/aoc.config.kdl" 0644
 
 # Install yazi config + preview
 install_file "$ROOT_DIR/yazi/yazi.toml" "$HOME/.config/yazi/yazi.toml" 0644
 install_file "$ROOT_DIR/yazi/preview.sh" "$HOME/.config/yazi/preview.sh" 0755
+install_file "$ROOT_DIR/yazi/keymap.toml" "$HOME/.config/yazi/keymap.toml" 0644
+
+# Install yazi plugins
+if [[ -d "$ROOT_DIR/yazi/plugins" ]]; then
+  shopt -s nullglob
+  for d in "$ROOT_DIR/yazi/plugins/"*.yazi; do
+    [[ -d "$d" ]] || continue
+    dest="$HOME/.config/yazi/plugins/$(basename "$d")"
+    mkdir -p "$dest"
+    for f in "$d"/*.lua; do
+      [[ -f "$f" ]] || continue
+      install_file "$f" "$dest/$(basename "$f")" 0644
+    done
+  done
+  shopt -u nullglob
+fi
+
+# Install Codex tmux config
+install_file "$ROOT_DIR/config/codex-tmux.conf" "${XDG_CONFIG_HOME:-$HOME/.config}/aoc/codex-tmux.conf" 0644
 
 echo "Installed AOC."
 echo "Launch from a project dir:"

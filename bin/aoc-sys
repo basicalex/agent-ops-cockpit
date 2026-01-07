@@ -12,6 +12,10 @@ show_disk="${AOC_SYS_DISK:-1}"
 
 have() { command -v "$1" >/dev/null 2>&1; }
 
+if have btop; then
+  exec btop
+fi
+
 while true; do
   clear
   echo "Sys Details (light)"

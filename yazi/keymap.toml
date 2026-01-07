@@ -1,0 +1,9 @@
+[mgr]
+prepend_keymap = [
+  { on = ["y", "Y"], run = "shell --block 'aoc-widget-set \"$@\"'", desc = "Set widget media path" },
+  { on = ["p"], run = "shell --block 'aoc-preview-set \"$@\"'", desc = "Send to preview pane" },
+  { on = ["P"], run = "shell --block 'aoc-preview-toggle'", desc = "Toggle preview pane" },
+  { on = ["<C-p>"], run = "plugin aoc-preview-toggle", desc = "Toggle Yazi preview" },
+  { on = ["g", "p"], run = "plugin aoc-preview-toggle", desc = "Toggle Yazi preview" },
+  { on = ["S"], run = "shell --block 'aoc-star \"$@\"'", desc = "Star selected path" },
+]
