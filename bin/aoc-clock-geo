@@ -1,0 +1,47 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+state_dir="${XDG_STATE_HOME:-$HOME/.local/state}/aoc"
+geo_file="${AOC_CLOCK_GEO_FILE:-$state_dir/clock_geo}"
+
+if ! command -v curl >/dev/null 2>&1; then
+  echo "aoc-clock-geo: curl not found" >&2
+  exit 1
+fi
+if ! command -v python3 >/dev/null 2>&1; then
+  echo "aoc-clock-geo: python3 not found" >&2
+  exit 1
+fi
+
+coords=""
+for url in \
+  "https://ipapi.co/json/" \
+  "https://ipinfo.io/json" \
+  "https://ifconfig.co/json"
+do
+  coords="$(curl -fsSL "$url" | python3 -c 'import json,sys
+try:
+    data=json.load(sys.stdin)
+    lat=data.get("latitude") or data.get("lat")
+    lon=data.get("longitude") or data.get("lon")
+    if (lat is None or lon is None) and isinstance(data.get("loc"), str):
+        parts=data["loc"].split(",")
+        if len(parts) == 2:
+            lat, lon = parts[0].strip(), parts[1].strip()
+    if lat is None or lon is None:
+        sys.exit(1)
+    print(f"{lat} {lon}")
+except Exception:
+    sys.exit(1)
+'
+)" && break || coords=""
+done
+if [[ -z "$coords" ]]; then
+  echo "aoc-clock-geo: failed to resolve location" >&2
+  exit 1
+fi
+
+read -r lat lon <<<"$coords"
+mkdir -p "$state_dir"
+printf '%s %s %s\n' "$lat" "$lon" "$(date +%s)" > "$geo_file"
+echo "Saved clock geo: lat=$lat lon=$lon"

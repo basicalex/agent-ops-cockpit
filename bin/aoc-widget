@@ -5,6 +5,8 @@ STATE_DIR="${XDG_STATE_HOME:-$HOME/.local/state}/aoc"
 ASSET="${STATE_DIR}/widget_asset"
 MODE_FILE="${STATE_DIR}/widget_mode"
 GALLERY_DIR="${AOC_WIDGET_GALLERY_DIR:-$HOME/Pictures/Zellij}"
+GALLERY_INDEX_FILE="${STATE_DIR}/widget_gallery_index"
+GALLERY_VIEW_FILE="${STATE_DIR}/widget_gallery_view"
 STYLE_FILE="${STATE_DIR}/widget_style"
 SIZE_FILE="${STATE_DIR}/widget_scale"
 DETAIL_FILE="${STATE_DIR}/widget_detail"
@@ -23,12 +25,12 @@ touch "$ASSET"
 have() { command -v "$1" >/dev/null 2>&1; }
 
 mode="cal"
-if [[ -f "$MODE_FILE" ]]; then
-  saved="$(cat "$MODE_FILE" 2>/dev/null || true)"
-  if [[ "$saved" == "cal" || "$saved" == "media" || "$saved" == "gallery" || "$saved" == "blank" ]]; then
-    mode="$saved"
+  if [[ -f "$MODE_FILE" ]]; then
+    saved="$(cat "$MODE_FILE" 2>/dev/null || true)"
+    if [[ "$saved" == "media" || "$saved" == "gallery" || "$saved" == "blank" ]]; then
+      mode="$saved"
+    fi
   fi
-fi
 
 today_year="$(date +%Y)"
 today_month="$(date +%m)"
@@ -118,6 +120,11 @@ sync_index() {
   echo "0"
 }
 
+gallery_index="$(load_setting "$GALLERY_INDEX_FILE" "0")"
+gallery_view="$(load_setting "$GALLERY_VIEW_FILE" "0")"
+if ! [[ "$gallery_index" =~ ^[0-9]+$ ]]; then gallery_index=0; fi
+if ! [[ "$gallery_view" =~ ^[0-9]+$ ]]; then gallery_view=0; fi
+
 style_index="$(sync_index "$(load_setting "$STYLE_FILE" "ascii")" "${style_presets[@]}")"
 color_index="$(sync_index "$(load_setting "$COLOR_FILE" "16")" "${color_presets[@]}")"
 dither_index="$(sync_index "$(load_setting "$DITHER_FILE" "ordered")" "${dither_presets[@]}")"
@@ -144,14 +151,14 @@ save_setting() {
 }
 
 render_header() {
-  echo "AOC Widget   [c] calendar  [m] media  [g] gallery  [p] set media path  [q] quit"
+  echo "AOC Widget   [m] media  [g] gallery  [p] set media path  [q] quit"
   echo "---------------------------------------------------------------"
 }
 
 render_blank() {
   render_header
   echo
-  echo "Widget idle. Press [c] for calendar, [m] for media, or [g] for gallery."
+  echo "Widget idle. Press [m] for media or [g] for gallery."
   echo
   echo "[s] style  [C] colors  [D] dither  [w] detail  [+/-] size"
 }
@@ -327,6 +334,7 @@ load_gallery_files() {
   elif (( gallery_index >= gallery_count )); then
     gallery_index=$((gallery_count - 1))
   fi
+  save_setting "$GALLERY_INDEX_FILE" "$gallery_index"
 }
 
 set_media_path() {
@@ -356,7 +364,7 @@ while true; do
 
   if [[ -f "$MODE_FILE" ]]; then
     saved="$(cat "$MODE_FILE" 2>/dev/null || true)"
-    if [[ "$saved" == "cal" || "$saved" == "media" || "$saved" == "gallery" || "$saved" == "blank" ]]; then
+    if [[ "$saved" == "media" || "$saved" == "gallery" || "$saved" == "blank" ]]; then
       mode="$saved"
     fi
   fi
@@ -389,15 +397,6 @@ while true; do
   if [[ "$redraw" -eq 1 ]]; then
     clear
     case "$mode" in
-      cal)
-        render_header
-        date
-        echo
-        render_calendar
-        echo
-        echo "[h] prev month  [l] next month  [H] prev year  [L] next year  [t] today  [j] jump"
-        echo "[s] style  [C] colors  [D] dither  [w] detail  [+/-] size"
-        ;;
       media)
         render_header
         render_media "$path"
@@ -471,8 +470,11 @@ while true; do
   case "$key" in
     esc) set_mode "blank"; force_redraw=1 ;;
     m) set_mode "media"; force_redraw=1 ;;
-    c) set_mode "cal"; force_redraw=1 ;;
-    g) set_mode "gallery"; gallery_view=0; force_redraw=1 ;;
+    g)
+      set_mode "gallery"
+      gallery_view="$(load_setting "$GALLERY_VIEW_FILE" "0")"
+      force_redraw=1
+      ;;
     p) set_media_path; force_redraw=1 ;;
     q) exit 0 ;;
     s)
@@ -566,12 +568,14 @@ PY
       j)
         if (( gallery_index < gallery_count - 1 )); then
           gallery_index=$((gallery_index + 1))
+          save_setting "$GALLERY_INDEX_FILE" "$gallery_index"
           force_redraw=1
         fi
         ;;
       k)
         if (( gallery_index > 0 )); then
           gallery_index=$((gallery_index - 1))
+          save_setting "$GALLERY_INDEX_FILE" "$gallery_index"
           force_redraw=1
         fi
         ;;
@@ -579,6 +583,7 @@ PY
         idx=$((10#$key - 1))
         if (( idx < gallery_count )); then
           gallery_index="$idx"
+          save_setting "$GALLERY_INDEX_FILE" "$gallery_index"
           force_redraw=1
         fi
         ;;
@@ -586,6 +591,7 @@ PY
   fi
   if [[ "$mode" == "gallery" && "$is_enter" -eq 1 ]]; then
     gallery_view=$((1 - gallery_view))
+    save_setting "$GALLERY_VIEW_FILE" "$gallery_view"
     force_redraw=1
   fi
   if [[ "$mode" == "gallery" && "$gallery_view" -eq 1 ]]; then
@@ -594,6 +600,13 @@ PY
       l|right) adjust_offset 2 0; force_redraw=1 ;;
       k|up) adjust_offset 0 -1; force_redraw=1 ;;
       j|down) adjust_offset 0 1; force_redraw=1 ;;
+      S)
+        set_mode "gallery"
+        gallery_view=1
+        save_setting "$GALLERY_INDEX_FILE" "$gallery_index"
+        save_setting "$GALLERY_VIEW_FILE" "$gallery_view"
+        force_redraw=1
+        ;;
       0)
         offset_x=0
         offset_y=0

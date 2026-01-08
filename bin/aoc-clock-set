@@ -1,0 +1,56 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+usage() {
+  cat <<'EOF'
+Usage: aoc-clock-set [--backend auto|clocktemp|tty|figlet] [--tty-flags "FLAGS"] [--clocktemp-flags "FLAGS"]
+
+Persist clock settings for future AOC runs.
+EOF
+}
+
+backend=""
+tty_flags=""
+clocktemp_flags=""
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --backend)
+      shift
+      backend="${1:-}"
+      ;;
+    --tty-flags)
+      shift
+      tty_flags="${1:-}"
+      ;;
+    --clocktemp-flags)
+      shift
+      clocktemp_flags="${1:-}"
+      ;;
+    -h|--help) usage; exit 0 ;;
+    *) echo "Unknown option: $1" >&2; usage; exit 1 ;;
+  esac
+  shift || true
+done
+
+state_dir="${XDG_STATE_HOME:-$HOME/.local/state}/aoc"
+backend_file="${AOC_CLOCK_BACKEND_FILE:-$state_dir/clock_backend}"
+flags_file="${AOC_CLOCK_TTY_FLAGS_FILE:-$state_dir/clock_tty_flags}"
+clocktemp_flags_file="${AOC_CLOCK_CLOCKTEMP_FLAGS_FILE:-$state_dir/clocktemp_flags}"
+mkdir -p "$state_dir"
+
+if [[ -n "$backend" ]]; then
+  case "$backend" in
+    auto|clocktemp|tty|figlet) echo "$backend" > "$backend_file" ;;
+    *) echo "Invalid backend: $backend" >&2; exit 1 ;;
+  esac
+fi
+
+if [[ -n "$tty_flags" ]]; then
+  echo "$tty_flags" > "$flags_file"
+fi
+if [[ -n "$clocktemp_flags" ]]; then
+  echo "$clocktemp_flags" > "$clocktemp_flags_file"
+fi
+
+echo "Clock settings saved."

@@ -131,12 +131,12 @@ This is intentionally explicit and includes a confirmation prompt.
 
 ## Widget (Calendar ⇄ Media)
 In the top-right widget pane:
-- `c` calendar
 - `m` media
 - `g` gallery (renders files from `~/Pictures/Zellij`)
 - `p` set media path (mp4/webm/gif/png/jpg/webp/svg)
 - In gallery mode, `Enter` toggles a clean view (image only).
   - While in clean view, use arrows or `h/j/k/l` to nudge the image; `0` resets.
+  - Press `S` to save the current gallery view as the default on next launch.
 Media rendering controls:
 - `s` cycle ASCII styles
 - `C` cycle color depth
@@ -162,10 +162,16 @@ In Yazi:
   `codex` always uses the tmux wrapper even outside Zellij.
 - Taskmaster script expects `task-master-ai` in PATH; adjust in `bin/aoc-taskmaster` if needed.
 
+### Why the tmux wrapper?
+Codex is a full-screen TUI. Zellij can struggle to track scrollback for TUI apps,
+so we wrap Codex in tmux with alternate-screen disabled. This makes scrollback
+reliable in Zellij panes while keeping Codex behavior the same in other terminals.
+
 ## Customization
 - Override commands via env vars: `AOC_CODEX_CMD`, `AOC_TASKMASTER_CMD`, `AOC_FILETREE_CMD`, `AOC_WIDGET_CMD`, `AOC_CLOCK_CMD`, `AOC_SYS_CMD`, `AOC_TERMINAL_CMD`.
 - Override the tmux config used by `aoc-codex` with `AOC_CODEX_TMUX_CONF`.
-- `Alt ?` toggles the AOC swap layout (shows/hides top/bottom bars). Set `AOC_ZELLIJ_CONFIG` to use a different config file.
+- AOC defaults to `~/.config/zellij/aoc.config.kdl`, which keeps the full UI (top/bottom bars) and starts in normal mode. Set `AOC_ZELLIJ_CONFIG` to use a different config file.
+- `Alt ?` cycles swap layouts if you define them in your Zellij config.
 - Float preview pane placement can be customized with `AOC_PREVIEW_WIDTH`, `AOC_PREVIEW_HEIGHT`, `AOC_PREVIEW_X`, `AOC_PREVIEW_Y`, `AOC_PREVIEW_PINNED`, and `AOC_PREVIEW_PANE_NAME`.
 - To tweak pane sizes, copy the layout:
   `cp ~/.config/zellij/layouts/aoc.kdl ~/.config/zellij/layouts/aoc.local.kdl`
@@ -176,6 +182,15 @@ In Yazi:
 - `AOC_CLOCK_TIME_FORMAT` sets the `date` format for the big time (default: `%H:%M`).
 - `AOC_CLOCK_DATE_FORMAT` sets the `date` format for the line below (default: `%A, %B %d`).
 - `AOC_CLOCK_FONT` sets the figlet font (default: `small`, requires `figlet` in PATH).
+- `AOC_CLOCK_BACKEND` selects the backend: `auto` (default), `clocktemp`, `tty`, or `figlet`.
+- In `auto`, AOC prefers ClockTemp (if installed), then `tty-clock`, then the figlet fallback.
+- `AOC_CLOCK_CLOCKTEMP_CMD` sets the ClockTemp binary name (default: auto-detects `clocktemp`, `ClockTemp`, or `clock-temp`).
+- `AOC_CLOCK_CLOCKTEMP_FLAGS` passes flags directly to ClockTemp (when selected).
+- `AOC_CLOCK_TTY_FLAGS` passes flags directly to `tty-clock` (when selected).
+- `AOC_CLOCK_AUTO_GEO=1` auto-detects lat/lon for ClockTemp using `ipapi.co` (cached for 24h).
+- `AOC_CLOCK_GEO_TTL=86400` controls geo cache TTL in seconds.
+- Run `aoc-clock-geo` to refresh cached location manually.
+- Persist clock settings across runs with `aoc-clock-set`.
 
 ## Troubleshooting
 - Missing previews: install `chafa`, `poppler-utils`, and `librsvg2-bin`.
