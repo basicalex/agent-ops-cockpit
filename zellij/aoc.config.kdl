@@ -23,4 +23,9 @@ load_plugins {
 }
 
 keybinds {
+    shared_except "locked" {
+        bind "Alt s" { NextSwapLayout; }
+        unbind "Alt [";
+        unbind "Alt ]";
+    }
 }

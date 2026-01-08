@@ -143,8 +143,8 @@ hint_for() {
         *) echo "cargo binstall tectonic (or cargo +1.78.0 install --locked tectonic --version 0.14.1)" ;;
       esac
       ;;
-    task-master-ai)
-      echo "Install task-master-ai and ensure it is in PATH."
+    task-master)
+      echo "Install task-master and ensure it is in PATH."
       ;;
     *)
       echo "Install $tool via your package manager."
@@ -153,7 +153,7 @@ hint_for() {
 }
 
 required=(zellij yazi fzf codex)
-optional=(tmux chafa ffmpeg rsvg-convert pdftoppm rg bat tectonic task-master-ai)
+optional=(tmux chafa ffmpeg rsvg-convert pdftoppm rg bat tectonic task-master)
 
 missing_required=()
 missing_optional=()
@@ -167,6 +167,10 @@ done
 for tool in "${optional[@]}"; do
   if [[ "$tool" == "bat" ]]; then
     if ! have_bat; then
+      missing_optional+=("$tool")
+    fi
+  elif [[ "$tool" == "task-master" ]]; then
+    if ! have task-master && ! have task-master-ai; then
       missing_optional+=("$tool")
     fi
   elif ! have "$tool"; then

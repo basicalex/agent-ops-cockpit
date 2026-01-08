@@ -1,15 +1,31 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-TM="${TM_CMD:-task-master-ai}"
-
 have() { command -v "$1" >/dev/null 2>&1; }
 
-if ! have "$TM"; then
+pick_tm() {
+  if [[ -n "${TM_CMD:-}" ]]; then
+    printf "%s" "$TM_CMD"
+    return 0
+  fi
+  if have task-master; then
+    printf "%s" "task-master"
+    return 0
+  fi
+  if have task-master-ai; then
+    printf "%s" "task-master-ai"
+    return 0
+  fi
+  return 1
+}
+
+TM="$(pick_tm || true)"
+
+if [[ -z "$TM" ]] || ! have "$TM"; then
   clear
   echo "Taskmaster"
   echo "----------"
-  echo "task-master-ai not found in PATH."
+  echo "task-master (or task-master-ai) not found in PATH."
   echo "Install it and restart this pane."
   echo
   read -rsn1 -p "Press any key to exit." _ || true
@@ -18,12 +34,32 @@ fi
 
 mode="active"
 
-get_list() {
+list_tasks() {
+  if [[ "$TM" == "task-master" ]]; then
+    case "$mode" in
+      active) $TM list pending 2>/dev/null || true ;;
+      done)   $TM list done 2>/dev/null || true ;;
+      *)      $TM list 2>/dev/null || true ;;
+    esac
+    return 0
+  fi
+
   case "$mode" in
     active) $TM get_tasks 2>/dev/null || true ;;
     done)   $TM get_tasks --done 2>/dev/null || true ;;
     *)      $TM get_tasks 2>/dev/null || true ;;
   esac
+}
+
+get_list() {
+  local raw
+  raw="$(list_tasks)"
+  if [[ "$TM" == "task-master" ]]; then
+    printf "%s" "$raw" | LC_ALL=C tr -cd '\11\12\15\40-\176' \
+      | sed -n '/^[[:space:]]*[0-9][0-9]*[[:space:]]/p'
+    return 0
+  fi
+  printf "%s" "$raw"
 }
 
 extract_id() {
@@ -34,12 +70,17 @@ get_task_details() {
   local id="$1"
   local tmp
   tmp="$(mktemp -t aoc_taskmaster_detail.XXXXXX)"
-  if $TM get_task --id "$id" >"$tmp" 2>/dev/null; then
-    cat "$tmp"
+  if [[ "$TM" == "task-master" ]]; then
+    if $TM show "$id" >"$tmp" 2>/dev/null; then
+      cat "$tmp"
+      rm -f "$tmp"
+      return 0
+    fi
     rm -f "$tmp"
-    return 0
+    return 1
   fi
-  if $TM get_task "$id" >"$tmp" 2>/dev/null; then
+
+  if $TM get_task --id "$id" >"$tmp" 2>/dev/null; then
     cat "$tmp"
     rm -f "$tmp"
     return 0
@@ -51,6 +92,13 @@ get_task_details() {
 set_task_status() {
   local id="$1"
   local status="$2"
+  if [[ "$TM" == "task-master" ]]; then
+    if $TM set-status "$id" "$status" >/dev/null 2>&1; then
+      return 0
+    fi
+    return 1
+  fi
+
   if $TM set_task_status --id "$id" --status "$status" >/dev/null 2>&1; then
     return 0
   fi
@@ -59,6 +107,12 @@ set_task_status() {
   fi
   return 1
 }
+
+if [[ "${1:-}" == "--list" ]]; then
+  mode="${2:-active}"
+  get_list
+  exit 0
+fi
 
 while true; do
   clear
@@ -93,7 +147,7 @@ while true; do
 
   choice="$(printf "%s" "$list" | fzf --ansi --height=70% --border --prompt="Select task > " \
     --bind "esc:abort" \
-    --bind "ctrl-r:reload($TM get_tasks)" )" || {
+    --bind "ctrl-r:reload($0 --list $mode)" )" || {
       read -rsn1 k || true
       case "$k" in
         a) mode="active" ;;

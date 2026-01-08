@@ -160,7 +160,7 @@ In Yazi:
   (with alternate-screen disabled) so you get scrollback inside Zellij.
 - The installer drops a `codex` shim in `~/bin` (when it exists) to ensure
   `codex` always uses the tmux wrapper even outside Zellij.
-- Taskmaster script expects `task-master-ai` in PATH; adjust in `bin/aoc-taskmaster` if needed.
+- Taskmaster script expects `task-master` in PATH; adjust via `TM_CMD` or `bin/aoc-taskmaster` if needed.
 
 ### Why the tmux wrapper?
 Codex is a full-screen TUI. Zellij can struggle to track scrollback for TUI apps,
@@ -198,7 +198,7 @@ reliable in Zellij panes while keeping Codex behavior the same in other terminal
 
 ## Troubleshooting
 - Missing previews: install `chafa`, `poppler-utils`, and `librsvg2-bin`.
-- Blank task list: ensure `task-master-ai` is in PATH.
+- Blank task list: ensure `task-master` is in PATH.
 - Widget media not rendering: run `aoc-doctor` to confirm `ffmpeg` and `chafa`.
 - TeX preview build errors: install `tectonic` via Cargo using `cargo install --locked tectonic --version 0.14.1`.
 - If Cargo builds fail with the `time` crate error, use `cargo +1.78.0 install --locked tectonic --version 0.14.1`
