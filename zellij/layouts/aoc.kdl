@@ -1,36 +1,88 @@
 layout {
   tab name="AOC" focus=true {
-    pane split_direction="vertical" {
-      // LEFT: Yazi (tree + preview). Starts in project root.
-      pane size="10%" command="bash" {
-        args "-lc" "root_file=\"${AOC_PROJECT_ROOT_FILE:-${XDG_STATE_HOME:-$HOME/.local/state}/aoc/project_root}\"; root=\"${AOC_PROJECT_ROOT:-${ZELLIJ_PROJECT_ROOT:-$PWD}}\"; if [[ -f \"$root_file\" ]]; then root=\"$(cat \"$root_file\")\"; fi; cd \"$root\" && exec ${AOC_FILETREE_CMD:-yazi} ."
-      }
+    pane split_direction="horizontal" {
+      pane size=1 borderless=true {
+        plugin location="file:/home/ceii/.config/zellij/plugins/zjstatus.wasm" {
+          format_left   "{mode} #[fg=#89B4FA,bold]{session}"
+          format_center "{tabs}"
+          format_right  "{datetime}"
+          format_space  ""
 
-      // CENTER + RIGHT COLUMN
+          border_enabled  "false"
+          border_char     "─"
+          border_format   "#[fg=#6C7086]{char}"
+          border_position "bottom"
+
+          hide_frame_for_single_pane "true"
+
+          mode_normal  "#[bg=blue] "
+          mode_tmux    "#[bg=#ffc387] "
+
+          tab_normal   "#[fg=#6C7086] {name} "
+          tab_active   "#[fg=#9399B2,bold,italic] {name} "
+
+          datetime        "#[fg=#6C7086,bold] {format} "
+          datetime_format "%a %d %b %H:%M"
+        }
+      }
       pane split_direction="vertical" {
-
-      // CENTER stack: Codex (top) + Taskmaster (bottom)
-      pane split_direction="horizontal" {
-        pane size="62%" command="bash" {
-          args "-lc" "root_file=\"${AOC_PROJECT_ROOT_FILE:-${XDG_STATE_HOME:-$HOME/.local/state}/aoc/project_root}\"; root=\"${AOC_PROJECT_ROOT:-${ZELLIJ_PROJECT_ROOT:-$PWD}}\"; if [[ -f \"$root_file\" ]]; then root=\"$(cat \"$root_file\")\"; fi; cd \"$root\" && exec ${AOC_CODEX_CMD:-aoc-codex}"
+        // LEFT: Yazi (tree + preview). Starts in project root.
+        pane size="10%" command="bash" {
+          args "-lc" "root_file=\"${AOC_PROJECT_ROOT_FILE:-${XDG_STATE_HOME:-$HOME/.local/state}/aoc/project_root}\"; root=\"${AOC_PROJECT_ROOT:-${ZELLIJ_PROJECT_ROOT:-$PWD}}\"; if [[ -f \"$root_file\" ]]; then root=\"$(cat \"$root_file\")\"; fi; cd \"$root\" && exec ${AOC_FILETREE_CMD:-yazi} ."
         }
 
-        pane size="38%" command="bash" {
-          args "-lc" "root_file=\"${AOC_PROJECT_ROOT_FILE:-${XDG_STATE_HOME:-$HOME/.local/state}/aoc/project_root}\"; root=\"${AOC_PROJECT_ROOT:-${ZELLIJ_PROJECT_ROOT:-$PWD}}\"; if [[ -f \"$root_file\" ]]; then root=\"$(cat \"$root_file\")\"; fi; cd \"$root\" && exec ${AOC_TASKMASTER_CMD:-aoc-taskmaster}"
+        // CENTER + RIGHT COLUMN
+        pane split_direction="vertical" {
+
+          // CENTER stack: Codex (top) + Taskmaster (bottom)
+          pane split_direction="horizontal" {
+            pane size="62%" command="bash" {
+              args "-lc" "root_file=\"${AOC_PROJECT_ROOT_FILE:-${XDG_STATE_HOME:-$HOME/.local/state}/aoc/project_root}\"; root=\"${AOC_PROJECT_ROOT:-${ZELLIJ_PROJECT_ROOT:-$PWD}}\"; if [[ -f \"$root_file\" ]]; then root=\"$(cat \"$root_file\")\"; fi; cd \"$root\" && exec ${AOC_CODEX_CMD:-aoc-codex}"
+            }
+
+            pane size="38%" command="bash" {
+              args "-lc" "root_file=\"${AOC_PROJECT_ROOT_FILE:-${XDG_STATE_HOME:-$HOME/.local/state}/aoc/project_root}\"; root=\"${AOC_PROJECT_ROOT:-${ZELLIJ_PROJECT_ROOT:-$PWD}}\"; if [[ -f \"$root_file\" ]]; then root=\"$(cat \"$root_file\")\"; fi; cd \"$root\" && exec ${AOC_TASKMASTER_CMD:-aoc-taskmaster}"
+            }
+          }
+
+          // RIGHT COLUMN: Widget (top), Clock (center), Terminal (bottom)
+          pane size="26%" split_direction="horizontal" {
+            pane size="34%" command="bash" {
+              args "-lc" "root_file=\"${AOC_PROJECT_ROOT_FILE:-${XDG_STATE_HOME:-$HOME/.local/state}/aoc/project_root}\"; root=\"${AOC_PROJECT_ROOT:-${ZELLIJ_PROJECT_ROOT:-$PWD}}\"; if [[ -f \"$root_file\" ]]; then root=\"$(cat \"$root_file\")\"; fi; cd \"$root\" && exec ${AOC_WIDGET_CMD:-aoc-widget}"
+            }
+            pane size="18%" command="bash" {
+              args "-lc" "exec ${AOC_CLOCK_CMD:-aoc-clock}"
+            }
+            pane size="48%" command="bash" {
+              args "-lc" "root_file=\"${AOC_PROJECT_ROOT_FILE:-${XDG_STATE_HOME:-$HOME/.local/state}/aoc/project_root}\"; root=\"${AOC_PROJECT_ROOT:-${ZELLIJ_PROJECT_ROOT:-$PWD}}\"; if [[ -f \"$root_file\" ]]; then root=\"$(cat \"$root_file\")\"; fi; cd \"$root\" && exec ${AOC_TERMINAL_CMD:-$SHELL}"
+            }
+          }
         }
       }
+      pane size=1 borderless=true {
+        plugin location="file:/home/ceii/.config/zellij/plugins/zjstatus.wasm" {
+          format_left   "{mode} #[fg=#89B4FA,bold]{session}"
+          format_center "{command_git_branch}"
+          format_right  "{datetime}"
+          format_space  ""
 
-        // RIGHT COLUMN: Widget (top), Clock (center), Terminal (bottom)
-        pane size="26%" split_direction="horizontal" {
-          pane size="34%" command="bash" {
-            args "-lc" "root_file=\"${AOC_PROJECT_ROOT_FILE:-${XDG_STATE_HOME:-$HOME/.local/state}/aoc/project_root}\"; root=\"${AOC_PROJECT_ROOT:-${ZELLIJ_PROJECT_ROOT:-$PWD}}\"; if [[ -f \"$root_file\" ]]; then root=\"$(cat \"$root_file\")\"; fi; cd \"$root\" && exec ${AOC_WIDGET_CMD:-aoc-widget}"
-          }
-          pane size="18%" command="bash" {
-            args "-lc" "exec ${AOC_CLOCK_CMD:-aoc-clock}"
-          }
-          pane size="48%" command="bash" {
-            args "-lc" "root_file=\"${AOC_PROJECT_ROOT_FILE:-${XDG_STATE_HOME:-$HOME/.local/state}/aoc/project_root}\"; root=\"${AOC_PROJECT_ROOT:-${ZELLIJ_PROJECT_ROOT:-$PWD}}\"; if [[ -f \"$root_file\" ]]; then root=\"$(cat \"$root_file\")\"; fi; cd \"$root\" && exec ${AOC_TERMINAL_CMD:-$SHELL}"
-          }
+          border_enabled  "false"
+          border_char     "─"
+          border_format   "#[fg=#6C7086]{char}"
+          border_position "top"
+
+          hide_frame_for_single_pane "true"
+
+          mode_normal  "#[bg=blue] "
+          mode_tmux    "#[bg=#ffc387] "
+
+          command_git_branch_command     "git rev-parse --abbrev-ref HEAD"
+          command_git_branch_format      "#[fg=blue] {stdout} "
+          command_git_branch_interval    "10"
+          command_git_branch_rendermode  "static"
+
+          datetime        "#[fg=#6C7086,bold] {format} "
+          datetime_format "%a %d %b %H:%M"
         }
       }
     }

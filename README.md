@@ -172,6 +172,10 @@ reliable in Zellij panes while keeping Codex behavior the same in other terminal
 - Override the tmux config used by `aoc-codex` with `AOC_CODEX_TMUX_CONF`.
 - AOC defaults to `~/.config/zellij/aoc.config.kdl`, which keeps the full UI (top/bottom bars) and starts in normal mode. Set `AOC_ZELLIJ_CONFIG` to use a different config file.
 - `Alt ?` cycles swap layouts if you define them in your Zellij config.
+- When launching `aoc` outside Zellij, AOC will attempt to fullscreen the current terminal window on X11. Set `AOC_FULLSCREEN=0` to disable.
+  - Linux (X11): requires `wmctrl` or `xdotool`; Wayland compositors do not allow this, use your window manager bindings.
+  - macOS: use the system fullscreen shortcut (Ctrl+Cmd+F) or configure Alacritty/iTerm to start fullscreen.
+  - Windows: use terminal settings or Win+Up to maximize/fullscreen.
 - Float preview pane placement can be customized with `AOC_PREVIEW_WIDTH`, `AOC_PREVIEW_HEIGHT`, `AOC_PREVIEW_X`, `AOC_PREVIEW_Y`, `AOC_PREVIEW_PINNED`, and `AOC_PREVIEW_PANE_NAME`.
 - To tweak pane sizes, copy the layout:
   `cp ~/.config/zellij/layouts/aoc.kdl ~/.config/zellij/layouts/aoc.local.kdl`
