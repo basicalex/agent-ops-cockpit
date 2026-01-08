@@ -5,7 +5,7 @@ A lightweight, terminal-first "agent cockpit" layout for coding sessions:
 - **Left:** `yazi` file manager (compact view + togglable preview)
 - **Center top:** `codex` (always visible)
 - **Center bottom:** Taskmaster interactive (fzf-based)
-- **Right column:** Calendar/Media widget, Sys details, Project terminal
+- **Right column:** Calendar/Media widget, Clock, Project terminal
 - **Per-tab contract:** one Zellij **tab = one project root** (panes start there)
 
 ## Requirements
@@ -77,6 +77,8 @@ This will:
 - copy scripts to `~/.local/bin`
 - install Zellij layout to `~/.config/zellij/layouts/aoc.kdl`
 - install Yazi config to `~/.config/yazi/` (preview script included)
+- install a `codex` shim into `~/bin` when available so Codex always starts
+  through the tmux wrapper
 
 Ensure `~/.local/bin` is in PATH.
 
@@ -156,10 +158,12 @@ In Yazi:
 - The layout expects `codex` to be in PATH.
 - By default, the Codex pane runs through `aoc-codex`, which wraps Codex in tmux
   (with alternate-screen disabled) so you get scrollback inside Zellij.
+- The installer drops a `codex` shim in `~/bin` (when it exists) to ensure
+  `codex` always uses the tmux wrapper even outside Zellij.
 - Taskmaster script expects `task-master-ai` in PATH; adjust in `bin/aoc-taskmaster` if needed.
 
 ## Customization
-- Override commands via env vars: `AOC_CODEX_CMD`, `AOC_TASKMASTER_CMD`, `AOC_FILETREE_CMD`, `AOC_WIDGET_CMD`, `AOC_SYS_CMD`, `AOC_TERMINAL_CMD`.
+- Override commands via env vars: `AOC_CODEX_CMD`, `AOC_TASKMASTER_CMD`, `AOC_FILETREE_CMD`, `AOC_WIDGET_CMD`, `AOC_CLOCK_CMD`, `AOC_SYS_CMD`, `AOC_TERMINAL_CMD`.
 - Override the tmux config used by `aoc-codex` with `AOC_CODEX_TMUX_CONF`.
 - `Alt ?` toggles the AOC swap layout (shows/hides top/bottom bars). Set `AOC_ZELLIJ_CONFIG` to use a different config file.
 - Float preview pane placement can be customized with `AOC_PREVIEW_WIDTH`, `AOC_PREVIEW_HEIGHT`, `AOC_PREVIEW_X`, `AOC_PREVIEW_Y`, `AOC_PREVIEW_PINNED`, and `AOC_PREVIEW_PANE_NAME`.
@@ -167,9 +171,11 @@ In Yazi:
   `cp ~/.config/zellij/layouts/aoc.kdl ~/.config/zellij/layouts/aoc.local.kdl`
   `aoc-launch` will use `aoc.local` if present.
 
-## Sys Details Options
-- `AOC_SYS_INTERVAL=2` controls refresh interval (seconds).
-- Set `AOC_SYS_CPU=0`, `AOC_SYS_MEM=0`, or `AOC_SYS_DISK=0` to hide sections.
+## Clock Options
+- `AOC_CLOCK_INTERVAL=1` controls refresh interval (seconds).
+- `AOC_CLOCK_TIME_FORMAT` sets the `date` format for the big time (default: `%H:%M`).
+- `AOC_CLOCK_DATE_FORMAT` sets the `date` format for the line below (default: `%A, %B %d`).
+- `AOC_CLOCK_FONT` sets the figlet font (default: `small`, requires `figlet` in PATH).
 
 ## Troubleshooting
 - Missing previews: install `chafa`, `poppler-utils`, and `librsvg2-bin`.

@@ -12,12 +12,118 @@ show_disk="${AOC_SYS_DISK:-1}"
 
 have() { command -v "$1" >/dev/null 2>&1; }
 
+term_cols() { tput cols 2>/dev/null || echo 0; }
+term_lines() { tput lines 2>/dev/null || echo 0; }
+
+aoc_config_home="${AOC_CONFIG_HOME:-${XDG_CONFIG_HOME:-$HOME/.config}/aoc}"
+btop_preset_small="${AOC_SYS_BTOP_PRESET_SMALL:-1}"
+btop_preset_large="${AOC_SYS_BTOP_PRESET_LARGE:-0}"
+btop_min_cols="${AOC_SYS_BTOP_MIN_COLS:-80}"
+btop_min_lines="${AOC_SYS_BTOP_MIN_LINES:-24}"
+state_dir="${XDG_STATE_HOME:-$HOME/.local/state}/aoc"
+view_file="${AOC_SYS_VIEW_FILE:-$state_dir/sys_view}"
+compact_view="${AOC_SYS_COMPACT_VIEW:-cpu}"
+htop_delay="${AOC_SYS_HTOP_DELAY:-20}"
+
 if have btop; then
-  exec btop
+  cols="$(term_cols)"
+  lines="$(term_lines)"
+  if [[ "$cols" -ge "$btop_min_cols" && "$lines" -ge "$btop_min_lines" ]]; then
+    if [[ "$cols" -ge 80 && "$lines" -ge 24 ]]; then
+      exec env XDG_CONFIG_HOME="$aoc_config_home" btop -p "$btop_preset_large"
+    fi
+    exec env XDG_CONFIG_HOME="$aoc_config_home" btop -p "$btop_preset_small"
+  fi
 fi
+
+if have htop; then
+  cols="$(term_cols)"
+  lines="$(term_lines)"
+  if [[ "$cols" -ge 40 && "$lines" -ge 12 ]]; then
+    exec htop -d "$htop_delay"
+  fi
+fi
+
+load_view() {
+  if [[ -f "$view_file" ]]; then
+    compact_view="$(cat "$view_file")"
+  fi
+}
+
+save_view() {
+  mkdir -p "$state_dir"
+  printf '%s\n' "$compact_view" > "$view_file"
+}
+
+cycle_view() {
+  case "$compact_view" in
+    cpu) compact_view="mem" ;;
+    mem) compact_view="disk" ;;
+    disk) compact_view="cpu" ;;
+    *) compact_view="cpu" ;;
+  esac
+}
+
+compact_sys() {
+  echo "Sys (compact)"
+  echo "------------"
+  date +"%F %T"
+  echo
+
+  case "$compact_view" in
+    cpu)
+      if [[ "$show_cpu" != "0" ]]; then
+        echo "CPU:"
+        if [[ -r /proc/loadavg ]]; then
+          echo "Load: $(cut -d' ' -f1-3 /proc/loadavg)"
+        fi
+        if have ps; then
+          ps -eo pid,comm,%cpu --sort=-%cpu | head -n 5
+        fi
+      fi
+      ;;
+    mem)
+      if [[ "$show_mem" != "0" && -r /proc/meminfo ]]; then
+        echo "Mem:"
+        mem_total_kb="$(grep -m1 '^MemTotal:' /proc/meminfo | awk '{print $2}')"
+        mem_avail_kb="$(grep -m1 '^MemAvailable:' /proc/meminfo | awk '{print $2}')"
+        if [[ -n "$mem_total_kb" && -n "$mem_avail_kb" ]]; then
+          mem_used_kb=$((mem_total_kb - mem_avail_kb))
+          mem_used_mb=$((mem_used_kb / 1024))
+          mem_total_mb=$((mem_total_kb / 1024))
+          echo "Used: ${mem_used_mb}M / ${mem_total_mb}M"
+        fi
+      fi
+      ;;
+    disk)
+      if [[ "$show_disk" != "0" ]]; then
+        echo "Disk (/):"
+        df -h / | awk 'NR==2 {print $3 " / " $2 " (" $5 ")"}'
+      fi
+      ;;
+  esac
+
+  echo
+  echo "[h/l] prev/next view  [q] quit"
+}
 
 while true; do
   clear
+  load_view
+  cols="$(term_cols)"
+  lines="$(term_lines)"
+  if [[ "$cols" -lt 80 || "$lines" -lt 24 ]]; then
+    read -rsn1 -t 0.1 key || true
+    case "$key" in
+      h|k) cycle_view ;;
+      l|j) cycle_view ;;
+      q) exit 0 ;;
+    esac
+    save_view
+    compact_sys
+    sleep "$interval"
+    continue
+  fi
   echo "Sys Details (light)"
   echo "-------------------"
   date

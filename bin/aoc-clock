@@ -1,0 +1,46 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+interval="${AOC_CLOCK_INTERVAL:-1}"
+if ! [[ "$interval" =~ ^[0-9]+$ ]]; then
+  interval=1
+fi
+
+time_format="${AOC_CLOCK_TIME_FORMAT:-%H:%M}"
+date_format="${AOC_CLOCK_DATE_FORMAT:-%A, %B %d}"
+font="${AOC_CLOCK_FONT:-small}"
+
+have() { command -v "$1" >/dev/null 2>&1; }
+term_cols() { tput cols 2>/dev/null || echo 0; }
+
+center_lines() {
+  local cols="$1"
+  while IFS= read -r line; do
+    local len="${#line}"
+    local pad=0
+    if [[ "$cols" -gt "$len" ]]; then
+      pad=$(( (cols - len) / 2 ))
+    fi
+    printf '%*s%s\n' "$pad" "" "$line"
+  done
+}
+
+while true; do
+  clear
+  now_time="$(date +"$time_format")"
+  now_date="$(date +"$date_format")"
+  cols="$(term_cols)"
+
+  if have figlet; then
+    figlet -f "$font" "$now_time" | center_lines "$cols"
+  else
+    printf '%s\n' "$now_time"
+  fi
+
+  if [[ "$cols" -gt 0 ]]; then
+    printf '%s\n' "$now_date" | center_lines "$cols"
+  else
+    printf '%s\n' "$now_date"
+  fi
+  sleep "$interval"
+done

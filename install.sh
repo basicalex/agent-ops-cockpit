@@ -9,6 +9,7 @@ mkdir -p "$HOME/.config/zellij"
 mkdir -p "$HOME/.config/yazi"
 mkdir -p "$HOME/.config/yazi/plugins"
 mkdir -p "${XDG_CONFIG_HOME:-$HOME/.config}/aoc"
+mkdir -p "${XDG_CONFIG_HOME:-$HOME/.config}/aoc/btop"
 mkdir -p "${XDG_STATE_HOME:-$HOME/.local/state}/aoc"
 
 install_file() {
@@ -29,6 +30,11 @@ install_file() {
 for f in "$ROOT_DIR/bin/"*; do
   install_file "$f" "$HOME/.local/bin/$(basename "$f")" 0755
 done
+
+# Ensure codex shim is earlier in PATH when ~/bin is prioritized.
+if [[ -d "$HOME/bin" && -w "$HOME/bin" ]]; then
+  install_file "$ROOT_DIR/bin/codex" "$HOME/bin/codex" 0755
+fi
 
 # Install zellij layout
 install_file "$ROOT_DIR/zellij/layouts/aoc.kdl" "$HOME/.config/zellij/layouts/aoc.kdl" 0644
@@ -56,6 +62,8 @@ fi
 
 # Install Codex tmux config
 install_file "$ROOT_DIR/config/codex-tmux.conf" "${XDG_CONFIG_HOME:-$HOME/.config}/aoc/codex-tmux.conf" 0644
+# Install btop config (small-pane friendly)
+install_file "$ROOT_DIR/config/btop.conf" "${XDG_CONFIG_HOME:-$HOME/.config}/aoc/btop/btop.conf" 0644
 
 echo "Installed AOC."
 echo "Launch from a project dir:"

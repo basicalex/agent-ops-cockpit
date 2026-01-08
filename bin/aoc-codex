@@ -2,6 +2,7 @@
 set -euo pipefail
 
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+home_bin="${HOME}/bin"
 
 strip_path_dir() {
   local dir="$1"
@@ -21,6 +22,21 @@ strip_path_dir() {
   echo "$new"
 }
 
+is_wrapper() {
+  local candidate="$1"
+  local head=""
+  if [[ ! -f "$candidate" ]]; then
+    return 1
+  fi
+  head="$(head -n 1 "$candidate" 2>/dev/null || true)"
+  if [[ "$head" == "#!/usr/bin/env bash" ]]; then
+    if grep -q "aoc-codex" "$candidate" 2>/dev/null; then
+      return 0
+    fi
+  fi
+  return 1
+}
+
 resolve_codex_bin() {
   if [[ -n "${AOC_CODEX_BIN:-}" ]]; then
     echo "$AOC_CODEX_BIN"
@@ -28,8 +44,22 @@ resolve_codex_bin() {
   fi
   local search_path=""
   search_path="$(strip_path_dir "$script_dir")"
+  search_path="$(PATH="$search_path" strip_path_dir "$home_bin")"
   local found=""
-  found="$(PATH="$search_path" command -v codex || true)"
+  local part=""
+  local candidate=""
+  IFS=':' read -r -a parts <<<"$search_path"
+  for part in "${parts[@]}"; do
+    [[ -n "$part" ]] || continue
+    candidate="$part/codex"
+    if [[ -x "$candidate" ]]; then
+      if is_wrapper "$candidate"; then
+        continue
+      fi
+      found="$candidate"
+      break
+    fi
+  done
   if [[ -n "$found" ]]; then
     echo "$found"
     return
@@ -38,10 +68,6 @@ resolve_codex_bin() {
 }
 
 codex_bin="$(resolve_codex_bin)"
-
-if [[ -n "${TMUX:-}" ]]; then
-  exec "$codex_bin" "$@"
-fi
 
 if ! command -v tmux >/dev/null 2>&1; then
   echo "aoc-codex: tmux not found; running codex without tmux wrapper." >&2
