@@ -210,6 +210,7 @@ reliable in Zellij panes while keeping Codex behavior the same in other terminal
 - `AOC_CLOCK_TTY_FLAGS` passes flags directly to `tty-clock` (when selected).
 - `AOC_CLOCK_AUTO_GEO=1` auto-detects lat/lon for ClockTemp using `ipapi.co` (cached for 24h).
 - `AOC_CLOCK_GEO_TTL=86400` controls geo cache TTL in seconds.
+- Running `aoc-clock` inside Zellij will respawn a clock pane; set `AOC_CLOCK_SPAWN=0` to disable, `AOC_CLOCK_PANE_NAME` to rename it, and `AOC_CLOCK_PANE_DIRECTION` to control where it splits (default: `up`).
 - Run `aoc-clock-geo` to refresh cached location manually.
 - Persist clock settings across runs with `aoc-clock-set`.
 
