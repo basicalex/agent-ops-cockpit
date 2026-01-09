@@ -32,22 +32,27 @@ if [[ -z "$TM" ]] || ! have "$TM"; then
   exit 0
 fi
 
-mode="active"
+mode="all"
+refresh_interval="${AOC_TASKMASTER_REFRESH:-5}"
+
+if ! [[ "$refresh_interval" =~ ^[0-9]+$ ]]; then
+  refresh_interval=5
+fi
 
 list_tasks() {
   if [[ "$TM" == "task-master" ]]; then
     case "$mode" in
-      active) $TM list pending 2>/dev/null || true ;;
-      done)   $TM list done 2>/dev/null || true ;;
-      *)      $TM list 2>/dev/null || true ;;
+      pending) $TM list pending 2>/dev/null || true ;;
+      done)    $TM list done 2>/dev/null || true ;;
+      *)       $TM list 2>/dev/null || true ;;
     esac
     return 0
   fi
 
   case "$mode" in
-    active) $TM get_tasks 2>/dev/null || true ;;
-    done)   $TM get_tasks --done 2>/dev/null || true ;;
-    *)      $TM get_tasks 2>/dev/null || true ;;
+    pending) $TM get_tasks 2>/dev/null || true ;;
+    done)    $TM get_tasks --done 2>/dev/null || true ;;
+    *)       $TM get_tasks 2>/dev/null || true ;;
   esac
 }
 
@@ -117,7 +122,7 @@ fi
 while true; do
   clear
   echo "Taskmaster (mode: $mode)"
-  echo "  [a] active  [d] done  [s] search  [r] refresh  [q] quit"
+  echo "  [a] all  [p] pending  [d] done  [s] search  [enter] select  [r] refresh  [q] quit"
   echo
 
   list="$(get_list)"
@@ -134,30 +139,56 @@ while true; do
 
   if [[ -z "$list" ]]; then
     echo "No tasks found."
-    read -rsn1 k || true
+    if read -rsn1 -t "$refresh_interval" k; then
+      timed_out=0
+    else
+      timed_out=1
+    fi
     case "$k" in
-      a) mode="active" ;;
+      "") : ;;
+      a) mode="all" ;;
+      p) mode="pending" ;;
       d) mode="done" ;;
       s) mode="search" ;;
       r) : ;;
       q) exit 0 ;;
     esac
+    if [[ "$timed_out" -eq 1 ]]; then
+      continue
+    fi
+    continue
+  fi
+
+  printf "%s\n" "$list"
+  echo
+  if read -rsn1 -t "$refresh_interval" k; then
+    timed_out=0
+  else
+    timed_out=1
+  fi
+  case "$k" in
+    "") :
+      ;;
+    a) mode="all" ;;
+    p) mode="pending" ;;
+    d) mode="done" ;;
+    s) mode="search" ;;
+    r) : ;;
+    q) exit 0 ;;
+    *) continue ;;
+  esac
+
+  if [[ "$timed_out" -eq 1 ]]; then
+    continue
+  fi
+
+  if [[ "$k" != "" ]]; then
     continue
   fi
 
   choice="$(printf "%s" "$list" | fzf --ansi --height=70% --border --prompt="Select task > " \
     --bind "esc:abort" \
-    --bind "ctrl-r:reload($0 --list $mode)" )" || {
-      read -rsn1 k || true
-      case "$k" in
-        a) mode="active" ;;
-        d) mode="done" ;;
-        s) mode="search" ;;
-        r) : ;;
-        q) exit 0 ;;
-      esac
-      continue
-    }
+    --bind "ctrl-r:reload($0 --list $mode)" )" || continue
 
   task_id="$(extract_id "$choice")"
   if [[ -n "$task_id" ]]; then

@@ -158,6 +158,22 @@ In Yazi:
   (with alternate-screen disabled) so you get scrollback inside Zellij.
 - Taskmaster script expects `task-master` in PATH; adjust via `TM_CMD` or `bin/aoc-taskmaster` if needed.
 
+## Taskmaster Plugin (Experimental)
+To use the realtime Taskmaster plugin instead of the shell pane:
+
+```bash
+./scripts/build-taskmaster-plugin.sh
+./install.sh
+ZELLIJ_PROJECT_ROOT="$PWD" zellij --layout aoc.plugin
+```
+
+Plugin controls:
+- `a` all, `p` pending, `d` done
+- `j/k` or arrows to move
+- `Enter` toggle details
+- `x` mark done, `o` reopen
+- `r` refresh
+
 ## Customization
 - Override commands via env vars: `AOC_CODEX_CMD`, `AOC_TASKMASTER_CMD`, `AOC_FILETREE_CMD`, `AOC_WIDGET_CMD`, `AOC_SYS_CMD`, `AOC_TERMINAL_CMD`.
 - Override the tmux config used by `aoc-codex` with `AOC_CODEX_TMUX_CONF`.

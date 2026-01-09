@@ -6,6 +6,7 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 mkdir -p "$HOME/.local/bin"
 mkdir -p "$HOME/.config/zellij/layouts"
 mkdir -p "$HOME/.config/zellij"
+mkdir -p "$HOME/.config/zellij/plugins"
 mkdir -p "$HOME/.config/yazi"
 mkdir -p "$HOME/.config/yazi/plugins"
 mkdir -p "${XDG_CONFIG_HOME:-$HOME/.config}/aoc"
@@ -38,6 +39,7 @@ fi
 
 # Install zellij layout
 install_file "$ROOT_DIR/zellij/layouts/aoc.kdl" "$HOME/.config/zellij/layouts/aoc.kdl" 0644
+install_file "$ROOT_DIR/zellij/layouts/aoc.plugin.kdl" "$HOME/.config/zellij/layouts/aoc.plugin.kdl" 0644
 install_file "$ROOT_DIR/zellij/aoc.config.kdl" "$HOME/.config/zellij/aoc.config.kdl" 0644
 
 # Install yazi config + preview
@@ -64,6 +66,14 @@ fi
 install_file "$ROOT_DIR/config/codex-tmux.conf" "${XDG_CONFIG_HOME:-$HOME/.config}/aoc/codex-tmux.conf" 0644
 # Install btop config (small-pane friendly)
 install_file "$ROOT_DIR/config/btop.conf" "${XDG_CONFIG_HOME:-$HOME/.config}/aoc/btop/btop.conf" 0644
+
+# Install Taskmaster plugin if built
+plugin_wasm="$ROOT_DIR/plugins/taskmaster/target/wasm32-wasi/release/aoc-taskmaster-plugin.wasm"
+if [[ -f "$plugin_wasm" ]]; then
+  install_file "$plugin_wasm" "$HOME/.config/zellij/plugins/aoc-taskmaster.wasm" 0644
+else
+  echo "Taskmaster plugin not built. Run: ./scripts/build-taskmaster-plugin.sh"
+fi
 
 echo "Installed AOC."
 echo "Launch from a project dir:"

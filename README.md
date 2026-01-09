@@ -162,6 +162,22 @@ In Yazi:
   `codex` always uses the tmux wrapper even outside Zellij.
 - Taskmaster script expects `task-master` in PATH; adjust via `TM_CMD` or `bin/aoc-taskmaster` if needed.
 
+## Taskmaster Plugin (Experimental)
+To use the realtime Taskmaster plugin instead of the shell pane:
+
+```bash
+./scripts/build-taskmaster-plugin.sh
+./install.sh
+ZELLIJ_PROJECT_ROOT=\"$PWD\" zellij --layout aoc.plugin
+```
+
+Plugin controls:
+- `a` all, `p` pending, `d` done
+- `j/k` or arrows to move
+- `Enter` toggle details
+- `x` mark done, `o` reopen
+- `r` refresh
+
 ### Why the tmux wrapper?
 Codex is a full-screen TUI. Zellij can struggle to track scrollback for TUI apps,
 so we wrap Codex in tmux with alternate-screen disabled. This makes scrollback

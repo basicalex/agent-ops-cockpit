@@ -7,7 +7,7 @@
         "description": "Create a script that validates required tools (zellij, yazi, fzf, chafa, ffmpeg, poppler-utils, librsvg2-bin, rg, bat, tectonic) and prints actionable install hints.",
         "details": "Add bin/aoc-doctor and document in README.md; include exit codes and a --quiet mode for CI.",
         "testStrategy": "",
-        "status": "done",
+        "status": "pending",
         "dependencies": [],
         "priority": "medium",
         "subtasks": [
@@ -42,7 +42,7 @@
             "parentId": "undefined"
           }
         ],
-        "updatedAt": "2026-01-06T17:03:03.762Z"
+        "updatedAt": "2026-01-08T22:18:26.057Z"
       },
       {
         "id": "2",
@@ -387,12 +387,102 @@
           }
         ],
         "updatedAt": "2026-01-06T17:03:11.326Z"
+      },
+      {
+        "id": "10",
+        "title": "Zellij Taskmaster plugin (realtime tasks panel)",
+        "description": "Design and implement a Zellij plugin that renders Task Master tasks in realtime from .taskmaster/tasks/tasks.json and wires CLI actions (task-master) for updates.",
+        "details": "",
+        "testStrategy": "Manual: launch zellij layout with plugin pane; verify realtime updates on tasks.json changes and basic actions (filter, show details, set status).",
+        "status": "done",
+        "dependencies": [],
+        "priority": "high",
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "Collect Task Master schema + CLI usage for renderer/actions",
+            "description": "Summarize tasks.json schema and relevant CLI commands (list/show/set-status/update/add/remove) to support plugin rendering and actions.",
+            "details": "",
+            "status": "done",
+            "dependencies": [],
+            "parentTaskId": 10,
+            "updatedAt": "2026-01-09T07:00:42.672Z",
+            "parentId": "undefined"
+          },
+          {
+            "id": 2,
+            "title": "Evaluate Zellij plugin API + integration points",
+            "description": "Confirm zellij-tile capabilities (events, workers, filesystem access) and how to ship/load plugin in this repo.",
+            "details": "",
+            "status": "done",
+            "dependencies": [],
+            "parentTaskId": 10,
+            "parentId": "undefined",
+            "updatedAt": "2026-01-09T07:00:46.355Z"
+          },
+          {
+            "id": 3,
+            "title": "Design plugin UX + state model",
+            "description": "Define list/detail views, filters, keybindings, realtime refresh strategy, and error states (missing tasks.json, parse errors).",
+            "details": "",
+            "status": "done",
+            "dependencies": [],
+            "parentTaskId": 10,
+            "parentId": "undefined",
+            "updatedAt": "2026-01-09T07:01:07.748Z"
+          },
+          {
+            "id": 4,
+            "title": "Scaffold plugin project + build pipeline",
+            "description": "Add plugin source (Rust/WASM), build scripts, and install integration for zellij config/layout.",
+            "details": "",
+            "status": "done",
+            "dependencies": [],
+            "parentTaskId": 10,
+            "parentId": "undefined",
+            "updatedAt": "2026-01-09T07:00:53.624Z"
+          },
+          {
+            "id": 5,
+            "title": "Implement realtime renderer + file watcher/polling",
+            "description": "Load tasks.json, parse tasks/subtasks, render list/detail, and refresh on interval or file mtime change.",
+            "details": "",
+            "status": "done",
+            "dependencies": [],
+            "parentTaskId": 10,
+            "parentId": "undefined",
+            "updatedAt": "2026-01-09T07:00:57.170Z"
+          },
+          {
+            "id": 6,
+            "title": "Wire CLI actions (status changes, open details)",
+            "description": "Integrate task-master CLI commands for status changes and task updates; handle errors gracefully.",
+            "details": "",
+            "status": "done",
+            "dependencies": [],
+            "parentTaskId": 10,
+            "parentId": "undefined",
+            "updatedAt": "2026-01-09T07:01:01.715Z"
+          },
+          {
+            "id": 7,
+            "title": "Update docs + install instructions",
+            "description": "Document plugin build/install, configuration, and keybindings in README; update install/uninstall as needed.",
+            "details": "",
+            "status": "done",
+            "dependencies": [],
+            "parentTaskId": 10,
+            "parentId": "undefined",
+            "updatedAt": "2026-01-09T07:01:13.182Z"
+          }
+        ],
+        "updatedAt": "2026-01-09T07:01:13.182Z"
       }
     ],
     "metadata": {
       "version": "1.0.0",
-      "lastModified": "2026-01-06T17:03:11.327Z",
-      "taskCount": 9,
+      "lastModified": "2026-01-09T07:01:13.183Z",
+      "taskCount": 10,
       "completedCount": 9,
       "tags": [
         "master"
