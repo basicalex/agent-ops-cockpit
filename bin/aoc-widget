@@ -12,6 +12,7 @@ SIZE_FILE="${STATE_DIR}/widget_scale"
 DETAIL_FILE="${STATE_DIR}/widget_detail"
 COLOR_FILE="${STATE_DIR}/widget_colors"
 DITHER_FILE="${STATE_DIR}/widget_dither"
+RATIO_FILE="${STATE_DIR}/widget_font_ratio"
 OFFSET_X_FILE="${STATE_DIR}/widget_offset_x"
 OFFSET_Y_FILE="${STATE_DIR}/widget_offset_y"
 CHAFa_SYMBOLS="${AOC_WIDGET_SYMBOLS:-}"
@@ -19,6 +20,7 @@ CHAFa_COLORS="${AOC_WIDGET_COLORS:-}"
 CHAFa_DITHER="${AOC_WIDGET_DITHER:-}"
 CHAFa_SCALE="${AOC_WIDGET_SCALE:-}"
 CHAFa_WORK="${AOC_WIDGET_WORK:-}"
+CHAFa_FONT_RATIO="${AOC_WIDGET_FONT_RATIO:-}"
 mkdir -p "$(dirname "$ASSET")"
 touch "$ASSET"
 
@@ -60,6 +62,10 @@ dither_index=0
 work_index=0
 offset_x=0
 offset_y=0
+ratio_edit=0
+ratio_edit_w=1
+ratio_edit_h=2
+ratio_override=""
 
 adjust_offset() {
   local dx="$1"
@@ -160,7 +166,7 @@ render_blank() {
   echo
   echo "Widget idle. Press [m] for media or [g] for gallery."
   echo
-  echo "[s] style  [C] colors  [D] dither  [w] detail  [+/-] size"
+  echo "[s] style  [C] colors  [D] dither  [w] detail  [r] ratio  [+/-] size"
 }
 
 render_media() {
@@ -192,6 +198,13 @@ render_media() {
   if [[ -z "$dither" ]]; then
     dither="$(load_setting "$DITHER_FILE" "ordered")"
   fi
+  local font_ratio="$CHAFa_FONT_RATIO"
+  if [[ -z "$font_ratio" ]]; then
+    font_ratio="$(load_setting "$RATIO_FILE" "1/2")"
+  fi
+  if [[ -n "$ratio_override" ]]; then
+    font_ratio="$ratio_override"
+  fi
 
   local out_cols out_lines
   out_cols="$(python3 - <<PY
@@ -210,6 +223,9 @@ PY
 )"
 
   local chafa_args=(--size "${out_cols}x${out_lines}" --symbols "$symbols" --colors "$colors" --dither "$dither" --fg-only --work "$work")
+  if [[ -n "$font_ratio" ]]; then
+    chafa_args+=(--font-ratio "$font_ratio")
+  fi
 
   render_pad() {
     local ox="$1"
@@ -400,8 +416,12 @@ while true; do
       media)
         render_header
         render_media "$path"
+        if (( ratio_edit == 1 )); then
+          echo
+          echo "Ratio editor: ${ratio_edit_w}/${ratio_edit_h}  (h/l width, j/k height, Enter apply, Esc cancel)"
+        fi
         echo
-        echo "[s] style  [C] colors  [D] dither  [w] detail  [+/-] size"
+        echo "[s] style  [C] colors  [D] dither  [w] detail  [r] ratio  [+/-] size"
         ;;
       gallery)
         if (( gallery_view == 1 )); then
@@ -426,9 +446,13 @@ while true; do
             done
             echo
             render_media "${gallery_files[$gallery_index]}"
+            if (( ratio_edit == 1 )); then
+              echo
+              echo "Ratio editor: ${ratio_edit_w}/${ratio_edit_h}  (h/l width, j/k height, Enter apply, Esc cancel)"
+            fi
             echo
             echo "[j/k] move  [1-9] jump  [Enter] view  [h/j/k/l or arrows] offset  [0] reset"
-            echo "[s] style  [C] colors  [D] dither  [w] detail  [+/-] size"
+            echo "[s] style  [C] colors  [D] dither  [w] detail  [r] ratio  [+/-] size"
           fi
         fi
         ;;
@@ -467,8 +491,63 @@ while true; do
     fi
   fi
 
+  handled_ratio_edit=0
+  if (( ratio_edit == 1 )); then
+    case "$key" in
+      h)
+        if (( ratio_edit_w > 1 )); then ratio_edit_w=$((ratio_edit_w - 1)); fi
+        ratio_override="${ratio_edit_w}/${ratio_edit_h}"
+        force_redraw=1
+        handled_ratio_edit=1
+        ;;
+      l)
+        if (( ratio_edit_w < 9 )); then ratio_edit_w=$((ratio_edit_w + 1)); fi
+        ratio_override="${ratio_edit_w}/${ratio_edit_h}"
+        force_redraw=1
+        handled_ratio_edit=1
+        ;;
+      j)
+        if (( ratio_edit_h < 9 )); then ratio_edit_h=$((ratio_edit_h + 1)); fi
+        ratio_override="${ratio_edit_w}/${ratio_edit_h}"
+        force_redraw=1
+        handled_ratio_edit=1
+        ;;
+      k)
+        if (( ratio_edit_h > 1 )); then ratio_edit_h=$((ratio_edit_h - 1)); fi
+        ratio_override="${ratio_edit_w}/${ratio_edit_h}"
+        force_redraw=1
+        handled_ratio_edit=1
+        ;;
+      enter)
+        save_setting "$RATIO_FILE" "${ratio_edit_w}/${ratio_edit_h}"
+        ratio_edit=0
+        ratio_override=""
+        force_redraw=1
+        handled_ratio_edit=1
+        ;;
+    esac
+  fi
+  if (( handled_ratio_edit == 1 )); then
+    continue
+  fi
+  if (( ratio_edit == 1 )); then
+    case "$key" in
+      ""|esc|q) ;;
+      *) continue ;;
+    esac
+  fi
+
   case "$key" in
-    esc) set_mode "blank"; force_redraw=1 ;;
+    esc)
+      if (( ratio_edit == 1 )); then
+        ratio_edit=0
+        ratio_override=""
+        force_redraw=1
+      else
+        set_mode "blank"
+        force_redraw=1
+      fi
+      ;;
     m) set_mode "media"; force_redraw=1 ;;
     g)
       set_mode "gallery"
@@ -496,6 +575,20 @@ while true; do
       work_index=$(((work_index + 1) % ${#work_presets[@]}))
       save_setting "$DETAIL_FILE" "${work_presets[$work_index]}"
       force_redraw=1
+      ;;
+    r)
+      if (( ratio_edit == 0 )); then
+        ratio_edit=1
+        saved_ratio="$(load_setting "$RATIO_FILE" "1/2")"
+        ratio_edit_w="${saved_ratio%%/*}"
+        ratio_edit_h="${saved_ratio##*/}"
+        if ! [[ "$ratio_edit_w" =~ ^[0-9]+$ ]]; then ratio_edit_w=1; fi
+        if ! [[ "$ratio_edit_h" =~ ^[0-9]+$ ]]; then ratio_edit_h=2; fi
+        if (( ratio_edit_w < 1 )); then ratio_edit_w=1; fi
+        if (( ratio_edit_h < 1 )); then ratio_edit_h=1; fi
+        ratio_override="${ratio_edit_w}/${ratio_edit_h}"
+        force_redraw=1
+      fi
       ;;
     "="|"+")
       cur_scale="$(load_setting "$SIZE_FILE" "1.0")"

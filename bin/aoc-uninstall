@@ -22,6 +22,7 @@ files=(
   "$HOME/.local/bin/aoc-uninstall"
   "$HOME/.config/zellij/layouts/aoc.kdl"
   "$HOME/.config/zellij/layouts/aoc.plugin.kdl"
+  "$HOME/.config/zellij/layouts/aoc-plugin.kdl"
   "$HOME/.config/zellij/aoc.config.kdl"
   "$HOME/.config/zellij/plugins/aoc-taskmaster.wasm"
   "$HOME/.config/yazi/yazi.toml"

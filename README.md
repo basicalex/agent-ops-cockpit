@@ -142,8 +142,9 @@ Media rendering controls:
 - `C` cycle color depth
 - `D` cycle dither mode
 - `w` cycle detail
+- `r` edit font ratio (aspect) with h/j/k/l, Enter to apply
 - `+/-` adjust render size
-You can also set defaults via env vars: `AOC_WIDGET_SYMBOLS`, `AOC_WIDGET_COLORS`, `AOC_WIDGET_DITHER`, `AOC_WIDGET_SCALE`, `AOC_WIDGET_WORK`.
+You can also set defaults via env vars: `AOC_WIDGET_SYMBOLS`, `AOC_WIDGET_COLORS`, `AOC_WIDGET_DITHER`, `AOC_WIDGET_SCALE`, `AOC_WIDGET_WORK`, `AOC_WIDGET_FONT_RATIO`.
 
 Media is rendered as ASCII via chafa (videos animated).
 
@@ -168,7 +169,7 @@ To use the realtime Taskmaster plugin instead of the shell pane:
 ```bash
 ./scripts/build-taskmaster-plugin.sh
 ./install.sh
-ZELLIJ_PROJECT_ROOT=\"$PWD\" zellij --layout aoc.plugin
+ZELLIJ_PROJECT_ROOT=\"$PWD\" zellij --layout aoc-plugin
 ```
 
 Plugin controls:

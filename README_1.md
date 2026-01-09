@@ -164,7 +164,7 @@ To use the realtime Taskmaster plugin instead of the shell pane:
 ```bash
 ./scripts/build-taskmaster-plugin.sh
 ./install.sh
-ZELLIJ_PROJECT_ROOT="$PWD" zellij --layout aoc.plugin
+ZELLIJ_PROJECT_ROOT="$PWD" zellij --layout aoc-plugin
 ```
 
 Plugin controls:
