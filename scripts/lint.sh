@@ -12,6 +12,7 @@ files=(
   bin/aoc-star
   bin/aoc-sys
   bin/aoc-taskmaster
+  bin/aoc-test
   bin/aoc-uninstall
   bin/aoc-widget
   install.sh

@@ -3,7 +3,7 @@ set -euo pipefail
 
 usage() {
   cat <<'EOF'
-Usage: aoc-new-tab [--aoc|--default] [--name NAME] [--cwd PATH]
+Usage: aoc-new-tab [--aoc|--plugin|--default] [--name NAME] [--cwd PATH]
 
 Create a new Zellij tab. Prompts for layout if not specified.
 EOF
@@ -19,6 +19,7 @@ star_file="${AOC_STAR_FILE:-$state_dir/starred_root}"
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --aoc) layout_choice="aoc" ;;
+    --plugin) layout_choice="aoc-plugin" ;;
     --default) layout_choice="default" ;;
     --name)
       shift
@@ -58,6 +59,11 @@ if [[ "$layout_choice" == "aoc" ]]; then
     AOC_PROJECT_ROOT_FILE="$project_root_file" \
     ZELLIJ_PROJECT_ROOT="$project_root" \
     zellij action new-tab --layout aoc "${args[@]}"
+elif [[ "$layout_choice" == "aoc-plugin" ]]; then
+  AOC_PROJECT_ROOT="$project_root" \
+    AOC_PROJECT_ROOT_FILE="$project_root_file" \
+    ZELLIJ_PROJECT_ROOT="$project_root" \
+    zellij action new-tab --layout aoc-plugin "${args[@]}"
 else
   AOC_PROJECT_ROOT="$project_root" \
     AOC_PROJECT_ROOT_FILE="$project_root_file" \

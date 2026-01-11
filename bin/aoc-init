@@ -1,0 +1,130 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# AOC Initialization Script
+# Usage: aoc-init [path]
+#
+# This script standardizes a project for the Agent Ops Cockpit.
+# It is IDEMPOTENT: safe to run multiple times. It respects existing data.
+
+project_root="${1:-$PWD}"
+gemini_dir="$project_root/.gemini"
+task_dir="$project_root/.taskmaster"
+global_task_conf="$HOME/.taskmaster/config.json"
+
+log() { echo ">> $1"; }
+warn() { echo "!! $1"; }
+
+# 1. Setup Context & Memory (.gemini/)
+setup_memory() {
+  if [[ ! -d "$gemini_dir" ]]; then
+    log "Creating .gemini/ directory..."
+    mkdir -p "$gemini_dir"
+  fi
+
+  # Memory File
+  local mem_file="$gemini_dir/memory.md"
+  if [[ ! -f "$mem_file" ]]; then
+    log "Initializing empty memory ($mem_file)..."
+    cat <<EOF > "$mem_file"
+# Agent Memory for Project: $(basename "$project_root")
+This file contains persistent context, decisions, and knowledge for the AI agent.
+Agents should read this to understand project history and append new decisions here.
+
+## Core Decisions
+EOF
+  else
+    log "Memory file exists ($mem_file). Skipping."
+  fi
+
+  # Context Generation (GEMINI.md)
+  local context_file="$gemini_dir/GEMINI.md"
+  log "Generating/Updating Context ($context_file)..."
+  
+  # Start with header
+  cat <<EOF > "$context_file"
+# Agent Ops Cockpit (AOC) Global Context
+
+## Core Philosophy
+This machine uses the **Agent Ops Cockpit (AOC)** system. All agents (Gemini, Claude, OpenCode) running here share a unified set of tools for **Memory** and **Task Management**.
+
+## 1. Project Structure
+\`\`\`
+$(tree -L 2 --gitignore -I '.git|.taskmaster|.gemini|node_modules|target|dist|archive|deprecated' "$project_root" || echo "tree command not found")
+\`\`\`
+
+## 2. Long-Term Memory (\`aoc-mem\`)
+**Purpose:** Persistent storage of architectural decisions.
+**Commands:** \`aoc-mem read\`, \`aoc-mem add "fact"\`.
+
+## 3. Task Management (\`task-master\`)
+**Purpose:** Granular tracking of work.
+**Commands:** \`task-master list\`, \`task-master add-task --prompt "Task"\`.
+
+## 4. Operational Rules
+- **No Amnesia:** Always check \`aoc-mem\` first.
+- **No Ghost Work:** Track all work in \`task-master\`.
+EOF
+  
+  # Append README if it exists
+  if [[ -f "$project_root/README.md" ]]; then
+    echo >> "$context_file"
+    echo "## 5. README Content" >> "$context_file"
+    cat "$project_root/README.md" >> "$context_file"
+  fi
+
+  # Append Taskmaster Tags if available
+  if command -v task-master >/dev/null 2>&1; then
+    echo >> "$context_file"
+    echo "## 6. Active Workstreams (Tags)" >> "$context_file"
+    # Run in subshell to preserve cwd, capture output
+    tags_output="$(cd "$project_root" && task-master tags 2>/dev/null || echo "No tags found.")"
+    echo "\`\`\`" >> "$context_file"
+    echo "$tags_output" >> "$context_file"
+    echo "\`\`\`" >> "$context_file"
+  fi
+}
+
+# 2. Setup Taskmaster (.taskmaster/)
+setup_tasks() {
+  if [[ ! -d "$task_dir" ]]; then
+    log "Initializing Taskmaster..."
+    # We use 'task-master init -y' to create the structure if missing.
+    # Note: We do this inside the dir to ensure it picks up the right place.
+    (cd "$project_root" && task-master init -y >/dev/null)
+  fi
+
+  # Config Seeding (Preserve existing logic, but ensure Gemini preference)
+  local local_conf="$task_dir/config.json"
+  
+  if [[ -f "$global_task_conf" ]]; then
+    if [[ ! -f "$local_conf" ]]; then
+      log "Seeding Taskmaster config from global defaults..."
+      cp "$global_task_conf" "$local_conf"
+    else
+      # Advanced: We could merge JSON here, but for now we trust the local config
+      # if it exists, assuming the user might have customized it for this specific repo.
+      log "Local Taskmaster config exists. Preserving."
+    fi
+  else
+    warn "No global Taskmaster config found at $global_task_conf. Skipping seed."
+  fi
+}
+
+# 3. Environment Checks
+setup_env() {
+  if [[ ! -f "$project_root/.env" && -f "$project_root/.env.example" ]]; then
+    log "Copying .env.example to .env..."
+    cp "$project_root/.env.example" "$project_root/.env"
+  fi
+}
+
+main() {
+  log "Initializing AOC in: $project_root"
+  setup_memory
+  setup_tasks
+  setup_env
+  log "AOC Initialization Complete. Ready to launch."
+}
+
+main

@@ -1,0 +1,34 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+aoc_fullscreen() {
+  if [[ "${AOC_FULLSCREEN:-1}" == "0" ]]; then
+    return 0
+  fi
+
+  if [[ "${XDG_SESSION_TYPE:-}" != "x11" ]]; then
+    return 0
+  fi
+
+  local window_id="${ALACRITTY_WINDOW_ID:-${WINDOWID:-}}"
+  if [[ -z "$window_id" ]]; then
+    return 0
+  fi
+
+  if command -v wmctrl >/dev/null 2>&1; then
+    wmctrl -ir "$window_id" -b add,fullscreen >/dev/null 2>&1 || true
+    return 0
+  fi
+
+  if command -v xdotool >/dev/null 2>&1; then
+    xdotool windowactivate "$window_id" >/dev/null 2>&1 || true
+    xdotool windowstate --add FULLSCREEN "$window_id" >/dev/null 2>&1 || true
+  fi
+}
+
+if [[ -n "${ZELLIJ:-}" || -n "${ZELLIJ_SESSION_NAME:-}" ]]; then
+  exec aoc-new-tab --plugin "$@"
+fi
+
+aoc_fullscreen
+AOC_LAYOUT="aoc-plugin" exec aoc-launch

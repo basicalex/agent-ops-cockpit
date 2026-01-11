@@ -1,0 +1,100 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Project-local memory storage
+# Can be overridden by AOC_MEMORY_FILE
+mem_dir="${AOC_PROJECT_ROOT:-$PWD}/.gemini"
+mem_file="${AOC_MEMORY_FILE:-$mem_dir/memory.md}"
+
+setup() {
+  if [[ ! -d "$mem_dir" ]]; then
+    mkdir -p "$mem_dir"
+  fi
+  if [[ ! -f "$mem_file" ]]; then
+    cat <<EOF > "$mem_file"
+# Agent Memory for Project: $(basename "$PWD")
+This file contains persistent context, decisions, and knowledge for the AI agent.
+Agents should read this to understand project history and append new decisions here.
+
+## Core Decisions
+EOF
+  fi
+}
+
+add_memory() {
+  local fact="$1"
+  local timestamp
+  timestamp="$(date '+%Y-%m-%d %H:%M')"
+  setup
+  echo "- [$timestamp] $fact" >> "$mem_file"
+  echo "Memory saved."
+}
+
+read_memory() {
+  if [[ -f "$mem_file" ]]; then
+    cat "$mem_file"
+  else
+    echo "No memory file found at $mem_file"
+  fi
+}
+
+search_memory() {
+  local query="$1"
+  if [[ -f "$mem_file" ]]; then
+    grep -i "$query" "$mem_file" || echo "No matches found for '$query'."
+  else
+    echo "No memory file found."
+  fi
+}
+
+edit_memory() {
+  setup
+  ${EDITOR:-vim} "$mem_file"
+}
+
+usage() {
+  cat <<EOF
+Usage: aoc-mem [command] [args...]
+
+Simple markdown-based memory manager for AOC agents.
+
+Commands:
+  add "fact"    Add a new memory entry.
+  read          Print the full memory.
+  search "term" Search memory for a term.
+  edit          Open memory file in default editor.
+  path          Print the path to the memory file.
+EOF
+}
+
+case "${1:-}" in
+  add)
+    shift
+    if [[ -z "${1:-}" ]]; then
+      echo "Error: memory content required."
+      exit 1
+    fi
+    add_memory "$*"
+    ;;
+  read)
+    read_memory
+    ;;
+  search)
+    shift
+    search_memory "${1:-}"
+    ;;
+  edit)
+    edit_memory
+    ;;
+  path)
+    echo "$mem_file"
+    ;;
+  -h|--help)
+    usage
+    exit 0
+    ;;
+  *)
+    usage
+    exit 1
+    ;;
+esac

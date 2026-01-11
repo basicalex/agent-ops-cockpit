@@ -1,0 +1,9 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+agent_id="gemini"
+agent_bin="${AOC_GEMINI_BIN:-gemini}"
+agent_label="Gemini"
+
+export AOC_NO_TMUX=1
+exec aoc-agent-wrap "$agent_id" "$agent_bin" "$agent_label" "$@"

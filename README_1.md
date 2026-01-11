@@ -3,7 +3,7 @@
 A lightweight, terminal-first "agent cockpit" layout for coding sessions:
 
 - **Left:** `yazi` file manager (compact view + togglable preview)
-- **Center top:** `codex` (always visible)
+- **Center top:** agent CLI (default: `codex`)
 - **Center bottom:** Taskmaster interactive (fzf-based)
 - **Right column:** Calendar/Media widget, Sys details, Project terminal
 - **Per-tab contract:** one Zellij **tab = one project root** (panes start there)
@@ -153,10 +153,24 @@ In Yazi:
 - `S` star the selected directory (or file's parent).
 
 ## Notes
-- The layout expects `codex` to be in PATH.
-- By default, the Codex pane runs through `aoc-codex`, which wraps Codex in tmux
-  (with alternate-screen disabled) so you get scrollback inside Zellij.
+- The layout expects `codex` (or your selected agent) to be in PATH.
+- By default, the agent pane runs through `aoc-agent-run`, which picks the
+  selected agent and wraps it in tmux when supported.
+- `aoc-codex` still wraps Codex directly; use it if you want the Codex-only
+  wrapper.
+- The installer drops a `codex` shim in `~/bin` (when it exists) to ensure
+  `codex` always uses the tmux wrapper even outside Zellij.
 - Taskmaster script expects `task-master` in PATH; adjust via `TM_CMD` or `bin/aoc-taskmaster` if needed.
+
+### Agent selection
+- Set the default agent with `aoc-agent --set` (or run `aoc-agent` for a menu).
+- Open a new tab with a specific agent:
+  - `aoc-codex-tab`, `aoc-gemini`, `aoc-cc`, `aoc-oc`
+- `AOC_AGENT_ID` overrides the default for a single launch or tab.
+- Running the raw `gemini`, `claude`, or `opencode` commands now routes
+  through `aoc-agent-wrap` so the TUI gets the tmux-backed scroll history just
+  like `codex`; override the real executable via `AOC_GEMINI_BIN`, `AOC_CC_BIN`,
+  or `AOC_OC_BIN` if needed.
 
 ## Taskmaster Plugin (Experimental)
 To use the realtime Taskmaster plugin instead of the shell pane:
@@ -167,6 +181,8 @@ To use the realtime Taskmaster plugin instead of the shell pane:
 ZELLIJ_PROJECT_ROOT="$PWD" zellij --layout aoc-plugin
 ```
 
+Shortcut: run `aoc-test` to launch the plugin layout (opens a plugin tab when already in Zellij).
+
 Plugin controls:
 - `a` all, `p` pending, `d` done
 - `j/k` or arrows to move
@@ -175,8 +191,10 @@ Plugin controls:
 - `r` refresh
 
 ## Customization
-- Override commands via env vars: `AOC_CODEX_CMD`, `AOC_TASKMASTER_CMD`, `AOC_FILETREE_CMD`, `AOC_WIDGET_CMD`, `AOC_SYS_CMD`, `AOC_TERMINAL_CMD`.
+- Override commands via env vars: `AOC_AGENT_CMD`, `AOC_CODEX_CMD`, `AOC_TASKMASTER_CMD`, `AOC_FILETREE_CMD`, `AOC_WIDGET_CMD`, `AOC_SYS_CMD`, `AOC_TERMINAL_CMD`.
 - Override the tmux config used by `aoc-codex` with `AOC_CODEX_TMUX_CONF`.
+- Override the tmux config for other agent CLIs with `AOC_AGENT_TMUX_CONF`.
+- Override agent binaries with `AOC_GEMINI_BIN`, `AOC_CC_BIN`, `AOC_OC_BIN`.
 - AOC defaults to `~/.config/zellij/aoc.config.kdl`, which keeps the full UI (top/bottom bars) and starts in normal mode. Set `AOC_ZELLIJ_CONFIG` to use a different config file.
 - `Alt ?` cycles swap layouts if you define them in your Zellij config.
 - When launching `aoc` outside Zellij, AOC will attempt to fullscreen the current terminal window on X11. Set `AOC_FULLSCREEN=0` to disable.

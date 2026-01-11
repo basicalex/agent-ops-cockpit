@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+agent_id="oc"
+agent_bin="${AOC_OC_BIN:-opencode}"
+agent_label="OpenCode"
+
+exec aoc-agent-wrap "$agent_id" "$agent_bin" "$agent_label" "$@"

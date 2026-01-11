@@ -1,0 +1,100 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+agent_id="${1:-}"
+agent_bin="${2:-}"
+agent_label="${3:-}"
+shift 3 || true
+
+if [[ -z "$agent_id" || -z "$agent_bin" ]]; then
+  echo "Usage: aoc-agent-wrap <id> <bin> [label] [args...]" >&2
+  exit 1
+fi
+
+if [[ -z "$agent_label" ]]; then
+  agent_label="$agent_id"
+fi
+
+env_hint="AOC_${agent_id^^}_BIN"
+
+# --- Resolution Logic ---
+
+script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+home_bin="${HOME}/bin"
+
+is_wrapper() {
+  local candidate="$1"
+  local head=""
+  if [[ ! -f "$candidate" ]]; then
+    return 1
+  fi
+  head="$(head -n 1 "$candidate" 2>/dev/null || true)"
+  if [[ "$head" == "#!/usr/bin/env bash" ]]; then
+    # Heuristic: if it mentions "aoc-" or "tmux -L aoc-" it's likely a wrapper
+    if grep -E -q "aoc-|tmux -L aoc-" "$candidate" 2>/dev/null; then
+      return 0
+    fi
+  fi
+  return 1
+}
+
+resolve_bin() {
+  local name="$1"
+  local env_var="$2"
+  
+  # Check environment variable first
+  local env_val=""
+  env_val="$(printenv "$env_var" || true)"
+  if [[ -n "$env_val" ]]; then
+    echo "$env_val"
+    return
+  fi
+
+  # Search full PATH
+  local part=""
+  local candidate=""
+  IFS=':' read -r -a parts <<<"$PATH"
+  for part in "${parts[@]}"; do
+    [[ -n "$part" ]] || continue
+    candidate="$part/$name"
+    if [[ -x "$candidate" ]]; then
+      if is_wrapper "$candidate"; then
+        continue
+      fi
+      echo "$candidate"
+      return
+    fi
+  done
+  
+  echo "$name"
+}
+
+real_bin="$(resolve_bin "$agent_bin" "$env_hint")"
+
+if ! command -v "$real_bin" >/dev/null 2>&1; then
+  clear
+  echo "$agent_label CLI ('$agent_bin') not found in PATH."
+  echo "Set $env_hint to override the binary."
+  echo
+  read -rsn1 -p "Press any key to exit." _ || true
+  exit 0
+fi
+
+if [[ "${AOC_NO_TMUX:-0}" == "1" ]]; then
+  exec "$real_bin" "$@"
+fi
+
+if ! command -v tmux >/dev/null 2>&1; then
+  echo "aoc-$agent_id: tmux not found; running $agent_bin without tmux wrapper." >&2
+  exec "$real_bin" "$@"
+fi
+
+conf="${AOC_AGENT_TMUX_CONF:-${XDG_CONFIG_HOME:-$HOME/.config}/aoc/codex-tmux.conf}"
+socket="aoc-${agent_id}-${ZELLIJ_PANE_ID:-$$}"
+session="$agent_id"
+
+if [[ -f "$conf" ]]; then
+  exec tmux -L "$socket" -f "$conf" new-session -A -s "$session" "$real_bin" "$@"
+fi
+
+exec tmux -L "$socket" new-session -A -s "$session" "$real_bin" "$@"

@@ -1,0 +1,35 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+state_dir="${XDG_STATE_HOME:-$HOME/.local/state}/aoc"
+default_file="${AOC_AGENT_DEFAULT_FILE:-$state_dir/agent_default}"
+
+agent="${AOC_AGENT_ID:-}"
+if [[ -z "$agent" && -f "$default_file" ]]; then
+  agent="$(cat "$default_file" 2>/dev/null || true)"
+fi
+if [[ -z "$agent" ]]; then
+  agent="codex"
+fi
+agent="$(printf "%s" "$agent" | tr '[:upper:]' '[:lower:]')"
+
+case "$agent" in
+  codex)
+    exec aoc-codex "$@"
+    ;;
+  gemini)
+    export AOC_AGENT_RUN=1
+    exec aoc-gemini "$@"
+    ;;
+  cc|claude|claude-code)
+    export AOC_AGENT_RUN=1
+    exec aoc-cc "$@"
+    ;;
+  oc|opencode|open-code)
+    export AOC_AGENT_RUN=1
+    exec aoc-oc "$@"
+    ;;
+  *)
+    exec aoc-codex "$@"
+    ;;
+esac

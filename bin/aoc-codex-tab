@@ -1,0 +1,22 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+usage() {
+  cat <<'EOF'
+Usage: aoc-codex-tab [args...]
+
+Opens a new AOC tab specifically for Codex.
+EOF
+}
+
+if [[ "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
+  usage
+  exit 0
+fi
+
+if [[ -n "${ZELLIJ:-}" || -n "${ZELLIJ_SESSION_NAME:-}" ]]; then
+  AOC_AGENT_ID="codex" aoc-new-tab --aoc --name "Codex" "$@"
+else
+  # Fallback if outside Zellij (launch new session defaulting to Codex)
+  AOC_AGENT_ID="codex" aoc-launch
+fi

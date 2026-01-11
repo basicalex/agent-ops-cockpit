@@ -12,6 +12,7 @@ files=(
   "$HOME/.local/bin/aoc-star"
   "$HOME/.local/bin/aoc-sys"
   "$HOME/.local/bin/aoc-taskmaster"
+  "$HOME/.local/bin/aoc-test"
   "$HOME/.local/bin/aoc-widget"
   "$HOME/.local/bin/aoc-widget-set"
   "$HOME/.local/bin/aoc-preview"

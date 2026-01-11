@@ -2,12 +2,12 @@
   "master": {
     "tasks": [
       {
-        "id": "1",
+        "id": 1,
         "title": "Add aoc-doctor dependency checker",
         "description": "Create a script that validates required tools (zellij, yazi, fzf, chafa, ffmpeg, poppler-utils, librsvg2-bin, rg, bat, tectonic) and prints actionable install hints.",
         "details": "Add bin/aoc-doctor and document in README.md; include exit codes and a --quiet mode for CI.",
         "testStrategy": "",
-        "status": "pending",
+        "status": "done",
         "dependencies": [],
         "priority": "medium",
         "subtasks": [
@@ -42,10 +42,10 @@
             "parentId": "undefined"
           }
         ],
-        "updatedAt": "2026-01-08T22:18:26.057Z"
+        "updatedAt": "2026-01-11T20:26:34.869Z"
       },
       {
-        "id": "2",
+        "id": 2,
         "title": "Improve aoc-taskmaster interactivity",
         "description": "Enhance the Taskmaster pane UX with actions to mark done, open details, and refresh lists.",
         "details": "Add key bindings in bin/aoc-taskmaster (e.g., enter to open, d to mark done, r to refresh) and handle missing task-master-ai gracefully.",
@@ -88,7 +88,7 @@
         "updatedAt": "2026-01-06T17:03:04.695Z"
       },
       {
-        "id": "3",
+        "id": 3,
         "title": "Widget resilience and UX polish",
         "description": "Improve aoc-widget to handle missing tools and invalid media paths with clear prompts.",
         "details": "Add detection for chafa/ffmpeg/rsvg-convert and show fallback text; persist last mode in state file.",
@@ -131,7 +131,7 @@
         "updatedAt": "2026-01-06T17:03:06.117Z"
       },
       {
-        "id": "4",
+        "id": 4,
         "title": "Sys details configurability",
         "description": "Allow aoc-sys to be configured for update interval and sections.",
         "details": "Support env vars like AOC_SYS_INTERVAL and toggles for CPU/mem/disk output.",
@@ -174,7 +174,7 @@
         "updatedAt": "2026-01-06T17:03:06.731Z"
       },
       {
-        "id": "5",
+        "id": 5,
         "title": "Layout customization options",
         "description": "Allow users to override pane sizes and commands without editing aoc.kdl directly.",
         "details": "Document environment variables or alternate layout file strategy in README.md; consider templating in install.sh.",
@@ -217,7 +217,7 @@
         "updatedAt": "2026-01-06T17:03:07.336Z"
       },
       {
-        "id": "6",
+        "id": 6,
         "title": "Installer improvements and uninstall path",
         "description": "Add an uninstall script and make install.sh idempotent with clear output.",
         "details": "Add bin/aoc-uninstall or scripts/uninstall.sh; ensure it removes only files installed by AOC.",
@@ -260,7 +260,7 @@
         "updatedAt": "2026-01-06T17:03:08.164Z"
       },
       {
-        "id": "7",
+        "id": 7,
         "title": "README enhancements and troubleshooting",
         "description": "Add setup verification, troubleshooting, and screenshot usage guidance.",
         "details": "Include common failures (missing chafa, yazi preview) and how to fix; add placeholder for screenshot.",
@@ -303,7 +303,7 @@
         "updatedAt": "2026-01-06T17:03:09.086Z"
       },
       {
-        "id": "8",
+        "id": 8,
         "title": "Add shellcheck lint workflow",
         "description": "Introduce a lightweight CI or local script to run shellcheck on bin/ and yazi/preview.sh.",
         "details": "Add scripts/lint.sh or a GitHub Actions workflow; document in README.md.",
@@ -346,7 +346,7 @@
         "updatedAt": "2026-01-06T17:03:10.110Z"
       },
       {
-        "id": "9",
+        "id": 9,
         "title": "Versioning and release notes",
         "description": "Define a minimal versioning scheme and CHANGELOG.md.",
         "details": "Add CHANGELOG.md and update README.md with release process; optional tag naming.",
@@ -389,7 +389,7 @@
         "updatedAt": "2026-01-06T17:03:11.326Z"
       },
       {
-        "id": "10",
+        "id": 10,
         "title": "Zellij Taskmaster plugin (realtime tasks panel)",
         "description": "Design and implement a Zellij plugin that renders Task Master tasks in realtime from .taskmaster/tasks/tasks.json and wires CLI actions (task-master) for updates.",
         "details": "",
@@ -481,12 +481,15 @@
     ],
     "metadata": {
       "version": "1.0.0",
-      "lastModified": "2026-01-09T07:01:13.183Z",
+      "lastModified": "2026-01-11T20:26:34.872Z",
       "taskCount": 10,
-      "completedCount": 9,
+      "completedCount": 10,
       "tags": [
         "master"
-      ]
+      ],
+      "created": "2026-01-11T21:18:33.456Z",
+      "description": "Tasks for master context",
+      "updated": "2026-01-11T21:18:33.456Z"
     }
   }
 }

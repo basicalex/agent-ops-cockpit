@@ -1,0 +1,181 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+usage() {
+  cat <<'EOF'
+Usage: aoc-agent [--set [agent]] [--tab [agent]] [--run [agent]] [--current]
+
+Interactive dashboard for selecting the default agent or launching tabs.
+Agents: codex, gemini, cc, oc
+EOF
+}
+
+state_dir="${XDG_STATE_HOME:-$HOME/.local/state}/aoc"
+default_file="${AOC_AGENT_DEFAULT_FILE:-$state_dir/agent_default}"
+
+mkdir -p "$state_dir"
+
+list_agents() {
+  printf "codex\tCodex\n"
+  printf "gemini\tGemini\n"
+  printf "cc\tClaude Code\n"
+  printf "oc\tOpenCode\n"
+}
+
+agent_label() {
+  case "$1" in
+    codex) echo "Codex" ;;
+    gemini) echo "Gemini" ;;
+    cc) echo "Claude Code" ;;
+    oc) echo "OpenCode" ;;
+    *) echo "$1" ;;
+  esac
+}
+
+normalize_agent() {
+  printf "%s" "$1" | tr '[:upper:]' '[:lower:]'
+}
+
+valid_agent() {
+  case "$1" in
+    codex|gemini|cc|oc) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+pick_agent() {
+  local choice=""
+  if command -v fzf >/dev/null 2>&1; then
+    choice="$(list_agents | fzf --delimiter=$'\t' --with-nth=2 --prompt="Agent > " || true)"
+    printf "%s" "${choice%%$'\t'*}"
+    return 0
+  fi
+
+  echo "Select agent:"
+  list_agents | awk -F'\t' '{print "  - " $1 " (" $2 ")"}'
+  read -r -p "Agent id > " choice
+  printf "%s" "$choice"
+}
+
+current_agent() {
+  if [[ -f "$default_file" ]]; then
+    cat "$default_file" 2>/dev/null || true
+  fi
+}
+
+set_default() {
+  local agent="$1"
+  if [[ -z "$agent" ]]; then
+    agent="$(pick_agent)"
+  fi
+  agent="$(normalize_agent "$agent")"
+  if [[ -z "$agent" ]]; then
+    echo "No agent selected." >&2
+    exit 1
+  fi
+  if ! valid_agent "$agent"; then
+    echo "Unknown agent: $agent" >&2
+    exit 1
+  fi
+  echo "$agent" >"$default_file"
+  echo "Default agent set to $(agent_label "$agent")."
+}
+
+open_tab() {
+  local agent="$1"
+  if [[ -z "$agent" ]]; then
+    agent="$(pick_agent)"
+  fi
+  agent="$(normalize_agent "$agent")"
+  if [[ -z "$agent" ]]; then
+    echo "No agent selected." >&2
+    exit 1
+  fi
+  if ! valid_agent "$agent"; then
+    echo "Unknown agent: $agent" >&2
+    exit 1
+  fi
+  if [[ -n "${ZELLIJ:-}" || -n "${ZELLIJ_SESSION_NAME:-}" ]]; then
+    AOC_AGENT_ID="$agent" aoc-new-tab --aoc --name "$(agent_label "$agent")"
+  else
+    AOC_AGENT_ID="$agent" aoc-launch
+  fi
+}
+
+run_here() {
+  local agent="$1"
+  if [[ -z "$agent" ]]; then
+    agent="$(pick_agent)"
+  fi
+  agent="$(normalize_agent "$agent")"
+  if [[ -z "$agent" ]]; then
+    echo "No agent selected." >&2
+    exit 1
+  fi
+  if ! valid_agent "$agent"; then
+    echo "Unknown agent: $agent" >&2
+    exit 1
+  fi
+  AOC_AGENT_ID="$agent" aoc-agent-run
+}
+
+case "${1:-}" in
+  --set)
+    shift
+    set_default "${1:-}"
+    exit 0
+    ;;
+  --tab)
+    shift
+    open_tab "${1:-}"
+    exit 0
+    ;;
+  --run)
+    shift
+    run_here "${1:-}"
+    exit 0
+    ;;
+  --current)
+    current_agent
+    exit 0
+    ;;
+  -h|--help)
+    usage
+    exit 0
+    ;;
+  "")
+    :
+    ;;
+  *)
+    echo "Unknown option: $1" >&2
+    usage
+    exit 1
+    ;;
+esac
+
+if ! command -v fzf >/dev/null 2>&1; then
+  usage
+  exit 1
+fi
+
+action="$(printf "%s\n" \
+  "Set default agent" \
+  "Open new tab" \
+  "Run agent here" \
+  "Show current" \
+  | fzf --prompt="AOC Agent > " --height=40% --border || true)"
+
+case "$action" in
+  "Set default agent") set_default "" ;;
+  "Open new tab") open_tab "" ;;
+  "Run agent here") run_here "" ;;
+  "Show current")
+    current="$(current_agent)"
+    if [[ -z "$current" ]]; then
+      echo "No default agent set."
+    else
+      echo "Default agent: $(agent_label "$current")."
+    fi
+    ;;
+  *) exit 0 ;;
+esac

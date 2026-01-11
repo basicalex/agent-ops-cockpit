@@ -1,0 +1,16 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+agent_id="cc"
+agent_bin="${AOC_CC_BIN:-claude}"
+agent_label="Claude Code"
+
+if [[ "${AOC_AGENT_RUN:-0}" == "1" ]]; then
+  exec aoc-agent-wrap "$agent_id" "$agent_bin" "$agent_label" "$@"
+fi
+
+if [[ -n "${ZELLIJ:-}" || -n "${ZELLIJ_SESSION_NAME:-}" ]]; then
+  AOC_AGENT_ID="$agent_id" aoc-new-tab --aoc --name "$agent_label" "$@"
+else
+  AOC_AGENT_ID="$agent_id" aoc-launch
+fi

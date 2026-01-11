@@ -1,3 +1,89 @@
+# Agent Ops Cockpit (AOC) Global Context
+
+## Core Philosophy
+This machine uses the **Agent Ops Cockpit (AOC)** system. All agents (Gemini, Claude, OpenCode) running here share a unified set of tools for **Memory** and **Task Management**.
+
+## 1. Project Structure
+```
+/home/ceii/dev/agent-ops-cockpit
+├── AGENTS.md
+├── aoc1.png
+├── bin
+│   ├── aoc
+│   ├── aoc-agent
+│   ├── aoc-agent-run
+│   ├── aoc-agent-wrap
+│   ├── aoc-cc
+│   ├── aoc-clock
+│   ├── aoc-clock-geo
+│   ├── aoc-clock-set
+│   ├── aoc-codex
+│   ├── aoc-codex-tab
+│   ├── aoc-doctor
+│   ├── aoc-gemini
+│   ├── aoc-init
+│   ├── aoc-launch
+│   ├── aoc-mem
+│   ├── aoc-new-tab
+│   ├── aoc-oc
+│   ├── aoc-preview
+│   ├── aoc-preview-set
+│   ├── aoc-preview-toggle
+│   ├── aoc-star
+│   ├── aoc-sys
+│   ├── aoc-taskmaster
+│   ├── aoc-test
+│   ├── aoc-uninstall
+│   ├── aoc-widget
+│   ├── aoc-widget-set
+│   ├── claude
+│   ├── codex
+│   ├── gemini
+│   └── opencode
+├── CHANGELOG.md
+├── ClockTemp
+│   ├── assets
+│   ├── LICENSE
+│   ├── README.md
+│   ├── requirements.txt
+│   └── script
+├── config
+│   ├── btop.conf
+│   └── codex-tmux.conf
+├── GEMINI.md
+├── install.sh
+├── plugins
+│   └── taskmaster
+├── README_1.md
+├── README.md
+├── scripts
+│   ├── build-taskmaster-plugin.sh
+│   └── lint.sh
+├── yazi
+│   ├── keymap.toml
+│   ├── plugins
+│   ├── preview.sh
+│   └── yazi.toml
+└── zellij
+    ├── aoc.config.kdl
+    └── layouts
+
+13 directories, 49 files
+```
+
+## 2. Long-Term Memory (`aoc-mem`)
+**Purpose:** Persistent storage of architectural decisions.
+**Commands:** `aoc-mem read`, `aoc-mem add "fact"`.
+
+## 3. Task Management (`task-master`)
+**Purpose:** Granular tracking of work.
+**Commands:** `task-master list`, `task-master add-task --prompt "Task"`.
+
+## 4. Operational Rules
+- **No Amnesia:** Always check `aoc-mem` first.
+- **No Ghost Work:** Track all work in `task-master`.
+
+## 5. README Content
 # Agent Ops Cockpit (AOC) — Zellij 0.43.1 workspace
 
 A lightweight, terminal-first "agent cockpit" layout for coding sessions:
@@ -305,3 +391,15 @@ If you are an AI agent reading this repo to set it up for a user:
 2.  **Initialize:** Run `aoc-init` in the project root to generate the standard context structure.
 3.  **Orient:** Run `aoc-mem read` to ingest the long-term history and architectural decisions of this project.
 4.  **Work:** Use `task-master list` to find pending work, and `task-master add-task --prompt "..."` to track your plan.
+
+## 6. Active Workstreams (Tags)
+```
+[INFO] Listing available tags
+[INFO] Using file storage for tags
+[SUCCESS] Found 1 tags
+[90m┌───────────────────────────────────────────────────────────────────────────────[39m[90m┬─────────────────[39m[90m┬─────────────────┐[39m
+[90m│[39m[31m Tag Name                                                                      [39m[90m│[39m[31m Tasks           [39m[90m│[39m[31m Completed       [39m[90m│[39m
+[90m├───────────────────────────────────────────────────────────────────────────────[39m[90m┼─────────────────[39m[90m┼─────────────────┤[39m
+[90m│[39m ● master (current)                                                            [90m│[39m 10              [90m│[39m 10              [90m│[39m
+[90m└───────────────────────────────────────────────────────────────────────────────[39m[90m┴─────────────────[39m[90m┴─────────────────┘[39m
+```

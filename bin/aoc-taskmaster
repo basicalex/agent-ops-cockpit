@@ -1,231 +1,57 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-have() { command -v "$1" >/dev/null 2>&1; }
+usage() {
+  cat <<'EOF'
+Usage: aoc-taskmaster [command]
 
-pick_tm() {
-  if [[ -n "${TM_CMD:-}" ]]; then
-    printf "%s" "$TM_CMD"
-    return 0
-  fi
-  if have task-master; then
-    printf "%s" "task-master"
-    return 0
-  fi
-  if have task-master-ai; then
-    printf "%s" "task-master-ai"
-    return 0
-  fi
-  return 1
+Wraps the 'task-master' CLI for easy access within AOC.
+If 'task-master' is not in PATH, falls back to a simple shell-based list/edit loop.
+
+Commands:
+  list       Show tasks
+  add        Add a task
+  status     Set task status
+  next       Show next task
+  ...        Pass-through to underlying task-master CLI
+EOF
 }
 
-TM="$(pick_tm || true)"
+TM_CMD="${TM_CMD:-task-master}"
 
-if [[ -z "$TM" ]] || ! have "$TM"; then
-  clear
-  echo "Taskmaster"
-  echo "----------"
-  echo "task-master (or task-master-ai) not found in PATH."
-  echo "Install it and restart this pane."
-  echo
-  read -rsn1 -p "Press any key to exit." _ || true
-  exit 0
-fi
-
-mode="all"
-refresh_interval="${AOC_TASKMASTER_REFRESH:-5}"
-
-if ! [[ "$refresh_interval" =~ ^[0-9]+$ ]]; then
-  refresh_interval=5
-fi
-
-list_tasks() {
-  if [[ "$TM" == "task-master" ]]; then
-    case "$mode" in
-      pending) $TM list pending 2>/dev/null || true ;;
-      done)    $TM list done 2>/dev/null || true ;;
-      *)       $TM list 2>/dev/null || true ;;
-    esac
-    return 0
-  fi
-
-  case "$mode" in
-    pending) $TM get_tasks 2>/dev/null || true ;;
-    done)    $TM get_tasks --done 2>/dev/null || true ;;
-    *)       $TM get_tasks 2>/dev/null || true ;;
-  esac
-}
-
-get_list() {
-  local raw
-  raw="$(list_tasks)"
-  if [[ "$TM" == "task-master" ]]; then
-    printf "%s" "$raw" | LC_ALL=C tr -cd '\11\12\15\40-\176' \
-      | sed -n '/^[[:space:]]*[0-9][0-9]*[[:space:]]/p'
-    return 0
-  fi
-  printf "%s" "$raw"
-}
-
-extract_id() {
-  printf "%s" "$1" | sed -n 's/^[^0-9]*\([0-9]\+\).*/\1/p' | head -n1
-}
-
-get_task_details() {
-  local id="$1"
-  local tmp
-  tmp="$(mktemp -t aoc_taskmaster_detail.XXXXXX)"
-  if [[ "$TM" == "task-master" ]]; then
-    if $TM show "$id" >"$tmp" 2>/dev/null; then
-      cat "$tmp"
-      rm -f "$tmp"
-      return 0
-    fi
-    rm -f "$tmp"
-    return 1
-  fi
-
-  if $TM get_task --id "$id" >"$tmp" 2>/dev/null; then
-    cat "$tmp"
-    rm -f "$tmp"
-    return 0
-  fi
-  rm -f "$tmp"
-  return 1
-}
-
-set_task_status() {
-  local id="$1"
-  local status="$2"
-  if [[ "$TM" == "task-master" ]]; then
-    if $TM set-status "$id" "$status" >/dev/null 2>&1; then
-      return 0
-    fi
-    return 1
-  fi
-
-  if $TM set_task_status --id "$id" --status "$status" >/dev/null 2>&1; then
-    return 0
-  fi
-  if $TM set_task_status "$id" "$status" >/dev/null 2>&1; then
-    return 0
-  fi
-  return 1
-}
-
-if [[ "${1:-}" == "--list" ]]; then
-  mode="${2:-active}"
-  get_list
-  exit 0
-fi
-
-while true; do
-  clear
-  echo "Taskmaster (mode: $mode)"
-  echo "  [a] all  [p] pending  [d] done  [s] search  [enter] select  [r] refresh  [q] quit"
-  echo
-
-  list="$(get_list)"
-
-  if [[ "$mode" == "search" ]]; then
-    query="$(printf "" | fzf --print-query --prompt="Search query > " --height=20% --border | head -n1 || true)"
-    [[ -z "$query" ]] && mode="active" && continue
-    if command -v rg >/dev/null 2>&1; then
-      list="$(printf "%s" "$list" | rg -i -- "$query" || true)"
-    else
-      list="$(printf "%s" "$list" | grep -i -- "$query" || true)"
+# Auto-seed configuration from global defaults if available
+seed_config() {
+  local global_conf="$HOME/.taskmaster/config.json"
+  local local_conf=".taskmaster/config.json"
+  
+  if [[ -f "$global_conf" ]]; then
+    if [[ ! -f "$local_conf" ]]; then
+      # If local config is missing, create dir and copy global
+      mkdir -p .taskmaster
+      cp "$global_conf" "$local_conf"
+    elif [[ "${1:-}" == "init" ]]; then
+      # If running init, force copy/overwrite to ensure defaults
+      mkdir -p .taskmaster
+      cp "$global_conf" "$local_conf"
     fi
   fi
+}
 
-  if [[ -z "$list" ]]; then
-    echo "No tasks found."
-    if read -rsn1 -t "$refresh_interval" k; then
-      timed_out=0
-    else
-      timed_out=1
-    fi
-    case "$k" in
-      "") : ;;
-      a) mode="all" ;;
-      p) mode="pending" ;;
-      d) mode="done" ;;
-      s) mode="search" ;;
-      r) : ;;
-      q) exit 0 ;;
-    esac
-    if [[ "$timed_out" -eq 1 ]]; then
-      continue
-    fi
-    continue
-  fi
-
-  printf "%s\n" "$list"
-  echo
-  if read -rsn1 -t "$refresh_interval" k; then
-    timed_out=0
+# Check if the real task-master CLI is available
+if command -v "$TM_CMD" >/dev/null 2>&1; then
+  # Try to seed config before running
+  seed_config "${1:-}"
+  
+  if [[ $# -eq 0 ]]; then
+    # Interactive mode (TUI) if supported, or just list
+    "$TM_CMD" list
   else
-    timed_out=1
+    # Pass-through all args
+    exec "$TM_CMD" "$@"
   fi
-  case "$k" in
-    "") :
-      ;;
-    a) mode="all" ;;
-    p) mode="pending" ;;
-    d) mode="done" ;;
-    s) mode="search" ;;
-    r) : ;;
-    q) exit 0 ;;
-    *) continue ;;
-  esac
-
-  if [[ "$timed_out" -eq 1 ]]; then
-    continue
-  fi
-
-  if [[ "$k" != "" ]]; then
-    continue
-  fi
-
-  choice="$(printf "%s" "$list" | fzf --ansi --height=70% --border --prompt="Select task > " \
-    --bind "esc:abort" \
-    --bind "ctrl-r:reload($0 --list $mode)" )" || continue
-
-  task_id="$(extract_id "$choice")"
-  if [[ -n "$task_id" ]]; then
-    detail="$(get_task_details "$task_id" || true)"
-  else
-    detail=""
-  fi
-
-  while true; do
-    clear
-    if [[ -n "$detail" ]]; then
-      echo "$detail"
-    else
-      echo "$choice"
-    fi
-    echo
-    echo "[d] done  [r] reopen  [b] back  [q] quit"
-    read -rsn1 k || true
-    case "$k" in
-      d)
-        if [[ -n "$task_id" ]]; then
-          if ! set_task_status "$task_id" "done"; then
-            echo "Failed to set status."
-            sleep 1
-          fi
-        fi
-        ;;
-      r)
-        if [[ -n "$task_id" ]]; then
-          if ! set_task_status "$task_id" "pending"; then
-            echo "Failed to set status."
-            sleep 1
-          fi
-        fi
-        ;;
-      b) break ;;
-      q) exit 0 ;;
-    esac
-  done
-done
+else
+  # Fallback for when the rust plugin/CLI isn't installed
+  echo "aoc-taskmaster: '$TM_CMD' not found."
+  echo "Please install claude-task-master or build the plugin."
+  exit 1
+fi
