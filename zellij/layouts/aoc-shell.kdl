@@ -41,10 +41,8 @@ layout {
               args "-lc" "root_file=\"${AOC_PROJECT_ROOT_FILE:-${XDG_STATE_HOME:-$HOME/.local/state}/aoc/project_root}\"; root=\"${AOC_PROJECT_ROOT:-${ZELLIJ_PROJECT_ROOT:-$PWD}}\"; if [[ -f \"$root_file\" ]]; then root=\"$(cat \"$root_file\")\"; fi; cd \"$root\" && AOC_AGENT_RUN=1 exec ${AOC_AGENT_CMD:-${AOC_CODEX_CMD:-aoc-agent-run}}"
             }
 
-            pane size="38%" {
-              plugin location="file:/home/ceii/.config/zellij/plugins/aoc-taskmaster.wasm" {
-                refresh_secs "5"
-              }
+            pane size="38%" command="bash" {
+              args "-lc" "root_file=\"${AOC_PROJECT_ROOT_FILE:-${XDG_STATE_HOME:-$HOME/.local/state}/aoc/project_root}\"; root=\"${AOC_PROJECT_ROOT:-${ZELLIJ_PROJECT_ROOT:-$PWD}}\"; if [[ -f \"$root_file\" ]]; then root=\"$(cat \"$root_file\")\"; fi; cd \"$root\" && exec ${AOC_TASKMASTER_CMD:-aoc-taskmaster}"
             }
           }
 
@@ -116,10 +114,8 @@ swap_layouts {
               args "-lc" "root_file=\"${AOC_PROJECT_ROOT_FILE:-${XDG_STATE_HOME:-$HOME/.local/state}/aoc/project_root}\"; root=\"${AOC_PROJECT_ROOT:-${ZELLIJ_PROJECT_ROOT:-$PWD}}\"; if [[ -f \"$root_file\" ]]; then root=\"$(cat \"$root_file\")\"; fi; cd \"$root\" && AOC_AGENT_RUN=1 exec ${AOC_AGENT_CMD:-${AOC_CODEX_CMD:-aoc-agent-run}}"
             }
 
-            pane size="38%" {
-              plugin location="file:/home/ceii/.config/zellij/plugins/aoc-taskmaster.wasm" {
-                refresh_secs "5"
-              }
+            pane size="38%" command="bash" {
+              args "-lc" "root_file=\"${AOC_PROJECT_ROOT_FILE:-${XDG_STATE_HOME:-$HOME/.local/state}/aoc/project_root}\"; root=\"${AOC_PROJECT_ROOT:-${ZELLIJ_PROJECT_ROOT:-$PWD}}\"; if [[ -f \"$root_file\" ]]; then root=\"$(cat \"$root_file\")\"; fi; cd \"$root\" && exec ${AOC_TASKMASTER_CMD:-aoc-taskmaster}"
             }
           }
 

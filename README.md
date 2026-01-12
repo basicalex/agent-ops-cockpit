@@ -229,6 +229,7 @@ Plugin controls:
 - `Enter` toggle details
 - `x` mark done, `o` reopen
 - `r` refresh
+- `Shift+C` set/correct project root path
 
 ### Why the tmux wrapper?
 Codex is a full-screen TUI. Zellij can struggle to track scrollback for TUI apps,

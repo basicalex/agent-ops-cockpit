@@ -1,0 +1,27 @@
+#!/usr/bin/env bash
+# aoc-tasks: Launch or reload the Taskmaster WASM plugin in the current session
+
+set -euo pipefail
+
+PLUGIN_PATH="${HOME}/.config/zellij/plugins/aoc-taskmaster.wasm"
+
+if [ ! -f "$PLUGIN_PATH" ]; then
+    echo "Error: Plugin not found at $PLUGIN_PATH"
+    echo "Please run ./scripts/build-taskmaster-plugin.sh first."
+    exit 1
+fi
+
+# 1. Reload existing plugin instances (updates any open panes)
+zellij action start-or-reload-plugin "file:$PLUGIN_PATH"
+
+# 2. If the user provided -n or --new, or if they just want a new pane
+if [[ "${1:-}" == "-n" || "${1:-}" == "--new" ]]; then
+    # Correct syntax: zellij run [OPTIONS] -- <COMMAND> [ARGS]
+    # To run a plugin: zellij run -- plugin --wasm <location>
+    zellij run --name "Taskmaster" -- plugin --wasm "file:$PLUGIN_PATH"
+fi
+
+echo "Plugin reloaded from $PLUGIN_PATH"
+if [[ "${1:-}" != "-n" ]]; then
+    echo "Hint: use 'aoc-tasks -n' to open a new pane for the plugin."
+fi
