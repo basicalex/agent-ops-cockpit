@@ -2,7 +2,7 @@
   "master": {
     "tasks": [
       {
-        "id": "1",
+        "id": 1,
         "title": "Add aoc-doctor dependency checker",
         "description": "Create a script that validates required tools (zellij, yazi, fzf, chafa, ffmpeg, poppler-utils, librsvg2-bin, rg, bat, tectonic) and prints actionable install hints.",
         "details": "Add bin/aoc-doctor and document in README.md; include exit codes and a --quiet mode for CI.",
@@ -45,7 +45,7 @@
         "updatedAt": "2026-01-11T20:26:34.869Z"
       },
       {
-        "id": "2",
+        "id": 2,
         "title": "Improve aoc-taskmaster interactivity",
         "description": "Enhance the Taskmaster pane UX with actions to mark done, open details, and refresh lists.",
         "details": "Add key bindings in bin/aoc-taskmaster (e.g., enter to open, d to mark done, r to refresh) and handle missing task-master-ai gracefully.",
@@ -88,7 +88,7 @@
         "updatedAt": "2026-01-06T17:03:04.695Z"
       },
       {
-        "id": "3",
+        "id": 3,
         "title": "Widget resilience and UX polish",
         "description": "Improve aoc-widget to handle missing tools and invalid media paths with clear prompts.",
         "details": "Add detection for chafa/ffmpeg/rsvg-convert and show fallback text; persist last mode in state file.",
@@ -131,7 +131,7 @@
         "updatedAt": "2026-01-06T17:03:06.117Z"
       },
       {
-        "id": "4",
+        "id": 4,
         "title": "Sys details configurability",
         "description": "Allow aoc-sys to be configured for update interval and sections.",
         "details": "Support env vars like AOC_SYS_INTERVAL and toggles for CPU/mem/disk output.",
@@ -174,7 +174,7 @@
         "updatedAt": "2026-01-06T17:03:06.731Z"
       },
       {
-        "id": "5",
+        "id": 5,
         "title": "Layout customization options",
         "description": "Allow users to override pane sizes and commands without editing aoc.kdl directly.",
         "details": "Document environment variables or alternate layout file strategy in README.md; consider templating in install.sh.",
@@ -217,7 +217,7 @@
         "updatedAt": "2026-01-06T17:03:07.336Z"
       },
       {
-        "id": "6",
+        "id": 6,
         "title": "Installer improvements and uninstall path",
         "description": "Add an uninstall script and make install.sh idempotent with clear output.",
         "details": "Add bin/aoc-uninstall or scripts/uninstall.sh; ensure it removes only files installed by AOC.",
@@ -260,7 +260,7 @@
         "updatedAt": "2026-01-06T17:03:08.164Z"
       },
       {
-        "id": "7",
+        "id": 7,
         "title": "README enhancements and troubleshooting",
         "description": "Add setup verification, troubleshooting, and screenshot usage guidance.",
         "details": "Include common failures (missing chafa, yazi preview) and how to fix; add placeholder for screenshot.",
@@ -303,7 +303,7 @@
         "updatedAt": "2026-01-06T17:03:09.086Z"
       },
       {
-        "id": "8",
+        "id": 8,
         "title": "Add shellcheck lint workflow",
         "description": "Introduce a lightweight CI or local script to run shellcheck on bin/ and yazi/preview.sh.",
         "details": "Add scripts/lint.sh or a GitHub Actions workflow; document in README.md.",
@@ -346,7 +346,7 @@
         "updatedAt": "2026-01-06T17:03:10.110Z"
       },
       {
-        "id": "9",
+        "id": 9,
         "title": "Versioning and release notes",
         "description": "Define a minimal versioning scheme and CHANGELOG.md.",
         "details": "Add CHANGELOG.md and update README.md with release process; optional tag naming.",
@@ -389,7 +389,7 @@
         "updatedAt": "2026-01-06T17:03:11.326Z"
       },
       {
-        "id": "10",
+        "id": 10,
         "title": "Zellij Taskmaster plugin (realtime tasks panel)",
         "description": "Design and implement a Zellij plugin that renders Task Master tasks in realtime from .taskmaster/tasks/tasks.json and wires CLI actions (task-master) for updates.",
         "details": "",
@@ -479,7 +479,7 @@
         "updatedAt": "2026-01-09T07:01:13.182Z"
       },
       {
-        "id": "11",
+        "id": 11,
         "title": "Refactor Taskmaster Plugin: Modularize Monolithic main.rs",
         "description": "Refactor the existing monolithic main.rs in the Taskmaster Zellij plugin into distinct modules (model, state, ui) to improve maintainability and separation of concerns.",
         "details": "The current implementation of the Taskmaster plugin resides almost entirely in `plugins/taskmaster/src/main.rs`. To improve code organization and testability, the code should be split into logical modules.\n\n### Proposed Structure:\n1. **`src/model.rs`**: Move data structures here, specifically the `Task`, `TaskStatus`, and any serialization/deserialization logic (Serde structs).\n2. **`src/state.rs`**: encapsulate the application state logic. Move the `State` struct and its implementation (e.g., loading tasks from JSON, filtering logic, selection handling) here.\n3. **`src/ui.rs`**: Isolate rendering logic. Move the `render` function and any helper functions related to UI layout (e.g., calculating rows, drawing the header/footer) here.\n4. **`src/main.rs`**: Should become a thin entry point that initializes the `State`, handles the Zellij event loop (`update` method), and delegates rendering to `ui`.\n\n### Implementation Steps:\n- Create the new module files in `plugins/taskmaster/src/`.\n- Iteratively move code from `main.rs` to the respective modules, fixing visibility (`pub`) issues.\n- Ensure `Cargo.toml` dependencies (like `serde`, `zezellij-tile`) are accessible where needed.\n- Verify that the logic for loading `.taskmaster/tasks/tasks.json` remains intact in the `state` module.",
@@ -493,7 +493,7 @@
         "updatedAt": "2026-01-11T22:02:37.273Z"
       },
       {
-        "id": "12",
+        "id": 12,
         "title": "Implement UI Primitives: Table and ProgressBar for TUI",
         "description": "Create reusable `Table` and `ProgressBar` structs within the `ui` module of the Taskmaster plugin to standardize rendering of tabular data and progress indicators.",
         "details": "This task focuses on abstracting rendering logic into reusable components within `plugins/taskmaster/src/ui.rs` (or a sub-module like `ui/widgets.rs`). \n\n### Implementation Requirements:\n1. **ProgressBar Struct**:\n   - Fields: `progress` (f32 or usize), `total` (usize), `width` (usize), and styling characters (e.g., full block, empty block).\n   - Method `render(&self) -> String`: Returns a string representation of the bar (e.g., `[████░░░░░░] 40%`).\n   - Should handle boundary conditions (0% and 100%).\n\n2. **Table Struct**:\n   - Design a struct that accepts headers and a list of rows.\n   - Support dynamic column width calculation based on content or fixed constraints.\n   - Method `render(&self) -> Vec<String>` or similar, yielding lines ready to be printed to the TUI buffer.\n   - Ensure alignment support (left/right/center) if feasible.\n\n3. **Integration**:\n   - Update the main rendering loop to use these new primitives instead of raw string formatting where applicable (e.g., displaying the task list as a table, showing completion status as a progress bar).\n   - Ensure these structs implement `Display` or specific render traits compatible with `zellij-tile`.\n\n### Codebase Alignment:\n- Place code in `src/ui.rs` if it exists (post-Task 11) or prepare it to be moved there.\n- Ensure compatibility with existing color definitions in the `State` or `Model`.",
@@ -508,7 +508,7 @@
         "updatedAt": "2026-01-11T22:03:34.833Z"
       },
       {
-        "id": "13",
+        "id": 13,
         "title": "Implement Theme System (plugins/taskmaster): Add Nerd Fonts and Color Palette support",
         "description": "Introduce a centralized theme configuration to `plugins/taskmaster` providing semantic color palettes and Nerd Font icons for task statuses and UI elements.",
         "details": "This task focuses on decoupling hardcoded styles and icons from the rendering logic by introducing a `Theme` struct. This will improve consistency and allow for easier customization or future configuration.\n\n### Implementation Requirements:\n1. **Create `src/theme.rs`**:\n   - Define a `Theme` struct containing palette fields (e.g., `primary`, `success`, `warning`, `error`, `text_dim`) utilizing `zellij_tile::prelude::*` colors or ANSI codes.\n   - Define an `Icons` struct or fields within `Theme` for status icons (e.g., pending: `○` / ``, active: `▶` / ``, done: `✔` / ``, blocked: `✖` / ``).\n   - Implement a default implementation for `Theme` that uses a standard color scheme (e.g., Catppuccin-inspired or system default) and Nerd Fonts if supported (consider a flag or default to yes).\n\n2. **Integrate Theme into State/UI**:\n   - Add `theme: Theme` to the plugin's `State` struct.\n   - Update `src/ui.rs` (or rendering logic in `main.rs` if not yet refactored) to use `state.theme` instead of hardcoded strings/colors.\n   - Replace manual `format!` calls having raw color codes with helper methods from the `Theme` (e.g., `theme.style_status(&task.status)`).\n\n3. **Iconography**:\n   - Ensure the chosen Nerd Font glyphs are standard and widely supported.\n   - Update the task list rendering to prefix tasks with their status icon.\n   - Update the status bar/footer to use icons for hints (e.g., `?` for help, `↻` for refresh).\n\n4. **Refactor Compatibility**:\n   - If Task 12 (UI Primitives) is complete, ensure `Table` and `ProgressBar` accept style definitions from the `Theme`.",
@@ -522,7 +522,7 @@
         "updatedAt": "2026-01-11T22:05:07.218Z"
       },
       {
-        "id": "14",
+        "id": 14,
         "title": "Implement Dashboard Layout (plugins/taskmaster): Build Header HUD and Task Grid",
         "description": "Construct the main dashboard interface for the Taskmaster plugin by implementing a Header HUD for status summaries and a Task Grid for the main task list, utilizing the newly created UI primitives and theme system.",
         "details": "This task integrates the modular components created in previous tasks to build the final UI layout. The layout will be divided into two main sections: a Header HUD (Heads-Up Display) and a scrollable Task Grid.\n\n### Implementation Requirements:\n\n1. **Modify `src/ui.rs` (or `src/ui/layout.rs`)**:\n   - Implement a `draw_dashboard` function that accepts `&State`, `&Theme`, and `&mut UiWriter`.\n\n2. **Implement Header HUD**:\n   - **Layout**: Top section of the screen (fixed height, e.g., 3-4 rows).\n   - **Components**: \n     - **Progress Bar**: Use the `ProgressBar` struct (Task 12) to show overall completion (completed tasks / total tasks).\n     - **Stats**: Display counts for 'Pending', 'In Progress', 'Done' using theme colors (Task 13) (e.g., Green for Done, Yellow for In Progress).\n     - **Filter Status**: Show current active filter.\n\n3. **Implement Task Grid**:\n   - **Layout**: Remaining vertical space below the header.\n   - **Component**: Use the `Table` struct (Task 12) to render the list of tasks.\n   - **Columns**: ID, Status icon (Nerd Font from Task 13), Title, Priority, Age (calculated from timestamp).\n   - **Selection**: Highlight the currently selected row using the Theme's selection color.\n   - **Scrolling**: Ensure the table renders a window of tasks based on `state.selected_index` and available height.\n\n4. **Integration**:\n   - Update the main render loop in `main.rs` (or `lib.rs`) to call `draw_dashboard` instead of the legacy rendering logic.\n\n### Code Reference:\n- Utilize `zellij_tile::prelude::*` for coordinate management.\n- Access state properties from `State` struct (refactored in Task 11).",
@@ -538,7 +538,7 @@
         "updatedAt": "2026-01-11T22:07:38.663Z"
       },
       {
-        "id": "15",
+        "id": 15,
         "title": "Implement Sub-task Rendering (plugins/taskmaster): Visualize nested subtasks in the details pane",
         "description": "Enhance the details pane in the Taskmaster plugin to recursively render subtasks with status indicators and progress bars.",
         "details": "This task involves updating the UI rendering logic to properly display nested subtasks when a user inspects a specific task. The `Task` model already contains a `subtasks` field (Vec<Task>), and this structure needs to be traversed and visualized.\n\n### Implementation Requirements:\n\n1.  **Modify `src/ui.rs` - `draw_details_pane`**:\n    - Locate the function responsible for drawing task details (likely stubbed or basic).\n    - Implement a recursive or iterative rendering strategy to display subtasks.\n    - **Indentation**: Visual hierarchy should be clear. Use spaces or tree branches (e.g., `├─`, `└─`) to denote depth.\n    - **Status Icons**: Use the `Theme` system to render status icons (e.g., checkmark for Done, spinner for In Progress) for each subtask.\n\n2.  **Progress Calculation**:\n    - Implement a helper method on `Task` (e.g., `calculate_progress() -> f32`) that recursively calculates completion percentage based on subtasks.\n    - Integrate the `ProgressBar` component (created in Task 12) into the details header or alongside complex subtask groups to show aggregate progress.\n\n3.  **Interaction Handling (if applicable)**:\n    - Ensure the scrolling logic in the details pane accommodates the potentially long list of subtasks.\n\n### Code Integration:\n- **Model**: Ensure `Task` struct in `src/model.rs` derives necessary traits (Clone, Debug) to be passed to the renderer easily.\n- **Theme**: Use `theme.icons.subtask_branch` (or similar) and colors defined in Task 13 for consistent styling.",
@@ -554,7 +554,7 @@
         "updatedAt": "2026-01-12T06:21:59.249Z"
       },
       {
-        "id": "16",
+        "id": 16,
         "title": "Implement Search/Filter Logic (plugins/taskmaster)",
         "description": "Add interactive filtering capabilities to the Taskmaster plugin, supporting text search via '/' and status filter cycling via 'f'.",
         "details": "This task focuses on enhancing the `update` loop and `State` management in `plugins/taskmaster` to support dynamic filtering of the task list.\n\n### Implementation Requirements\n\n1.  **Update `State` Struct (`src/state.rs`)**:\n    - Add `filter_query: String` to store the active text search input.\n    - Add `filter_status: Option<TaskStatus>` (or an enum wrapping it) to store the active status filter (e.g., All, Pending, In Progress, Done).\n    - Add a boolean flag `is_searching` or `input_mode` to distinguish between navigation mode and text input mode.\n\n2.  **Modify `update` Function (`src/main.rs`)**:\n    - **'/' Key**: Toggle `is_searching` mode to true. While in search mode, capture character inputs to append to `filter_query`.\n    - **'Esc' / 'Enter'**: Exit search mode. 'Esc' could clear the query or just cancel typing.\n    - **'f' Key**: Cycle through available `TaskStatus` values (All -> Pending -> In Progress -> Done -> All).\n    - **Backspace**: Handle character deletion when in search mode.\n\n3.  **Implement Filtering Logic**:\n    - Create a method `get_filtered_tasks(&self) -> Vec<&Task>` on the `State` struct.\n    - This method should filter `self.tasks` based on:\n      - Does `task.title` (or description) contain `filter_query` (case-insensitive)?\n      - Does `task.status` match `filter_status` (if set)?\n\n4.  **UI Updates (`src/ui.rs`)**:\n    - Update the rendering loop to use `get_filtered_tasks()` instead of the raw task list for the main grid.\n    - **Search Bar**: Render a search input field (perhaps in the Header HUD or a bottom bar) when `is_searching` is active or `filter_query` is not empty.\n    - **Filter Indicator**: Display the current status filter in the HUD (e.g., \"[Filter: Pending]\").",
@@ -570,7 +570,7 @@
         "updatedAt": "2026-01-12T06:22:12.353Z"
       },
       {
-        "id": "17",
+        "id": 17,
         "title": "Implement 'Assign to Agent' (plugins/taskmaster): Add 'a' key to tag tasks for active agent focus",
         "description": "Add functionality to toggle an 'active_agent' tag on tasks using the 'a' key, allowing users to designate specific tasks for immediate AI agent attention.",
         "details": "This task implements a tagging mechanism to mark tasks for active agent focus. This involves updating the data model, state management, and input handling within the Taskmaster plugin.\n\n### Implementation Requirements:\n\n1.  **Update Data Model (`src/task.rs` or `src/state.rs`)**:\n    - Add a field `pub active_agent: bool` (defaulting to false) to the `Task` struct.\n    - If `Task` is defined in an external crate (like `task_master_core` referenced in previous tasks), ensure this field is added there or managed locally in the plugin state if the core struct is immutable.\n    - Ensure serialization/deserialization logic handles this new field (e.g., `#[serde(default)]`).\n\n2.  **Modify State Management (`src/state.rs`)**:\n    - Implement a method `toggle_agent_focus(&mut self)` on the `State` struct.\n    - This method should locate the currently selected task (based on `selected_index`) and toggle its `active_agent` boolean.\n    - Persist the change back to `tasks.json` immediately to trigger any file watchers or external agent processes.\n\n3.  **Update Input Handling (`src/main.rs`)**:\n    - In the `update` loop (specifically inside the `Key::Char('a')` match arm):\n      - Call `state.toggle_agent_focus()`.\n      - Ensure the UI refreshes to reflect the change.\n\n4.  **UI Visualization (`src/ui.rs`)**:\n    - Update the task list rendering to visually distinguish tasks with `active_agent: true`.\n    - Use a specific icon (e.g., `🤖` or a specific nerd font glyph) or a color highlight (e.g., Magenta/Purple from the Theme) next to the task status or title.\n    - Ensure the visual indicator is distinct from standard status icons.",
@@ -586,7 +586,7 @@
         "updatedAt": "2026-01-12T06:22:26.787Z"
       },
       {
-        "id": "18",
+        "id": 18,
         "title": "Implement Robust Error Handling (plugins/taskmaster)",
         "description": "Implement graceful error recovery for malformed JSON data and file I/O failures, adding a UI overlay to display errors without crashing the plugin.",
         "details": "This task focuses on preventing the plugin from panicking when encountering invalid states, particularly regarding the `tasks.json` data source. It involves updating the State model to hold error information and modifying the UI to render these errors.\n\n### Implementation Requirements\n\n1. **Update `State` Struct (`src/state.rs`)**:\n   - Add `pub error_msg: Option<String>` to the `State` struct.\n   - Implement helper methods: `set_error(msg: String)` and `clear_error()`.\n\n2. **Safe Data Loading (`src/plugin.rs`)**:\n   - Refactor the task loading logic (likely using `std::fs::read_to_string` and `serde_json::from_str`).\n   - Instead of `.unwrap()` or `.expect()`, use `match` or `if let Err(e)` patterns.\n   - On failure, capture the error message (e.g., \"JSON Syntax Error at line 10\") and call `state.set_error(...)` instead of panicking.\n\n3. **UI Error Overlay (`src/ui.rs`)**:\n   - Implement `draw_error_modal` function.\n   - Check `state.error_msg` at the beginning of the render loop. If present, render a centered box (using `Theme::error` color from Task #13) containing the message on top of the dashboard.\n   - Ensure the overlay obscures or dims the underlying content to indicate a modal state.\n\n4. **Input Handling (`src/plugin.rs`)**:\n   - In the `update` loop, if `state.error_msg` is `Some`, intercept input events.\n   - Map `Esc` or `Enter` to `state.clear_error()`, allowing the user to attempt a reload or return to a neutral state after fixing the external file.",
@@ -601,7 +601,7 @@
         "updatedAt": "2026-01-12T06:22:40.810Z"
       },
       {
-        "id": "19",
+        "id": 19,
         "title": "Implement Optimistic UI Updates (plugins/taskmaster)",
         "description": "Decouple UI state updates from file persistence to ensure immediate visual feedback during user interactions like toggling status or assigning agents.",
         "details": "This task focuses on making the plugin feel responsive ('snappy') by modifying the in-memory state and re-rendering immediately upon user input, rather than waiting for file I/O completion or file-watcher events.\n\n### Implementation Requirements\n\n1. **Modify Event Loop (`src/main.rs`)**:\n   - Review the `update` function where key events (e.g., 'd' for done, 'a' for agent, 'p' for priority) are handled.\n   - Currently, these likely trigger a write operation immediately. Refactor this flow.\n   \n2. **Update `State` Logic (`src/state.rs`)**:\n   - Implement specific mutation methods on the `State` struct, e.g., `pub fn optimistic_update_status(&mut self, index: usize, status: TaskStatus)`.\n   - Ensure these methods update both the raw task list and the filtered view (referencing Task #16 logic) immediately.\n\n3. **Persistence Strategy**:\n   - After the in-memory mutation and render call, perform the blocking file I/O to save `tasks.json`.\n   - If the I/O operation fails, utilize the error handling mechanism from Task #18 (`state.set_error()`) to notify the user, and optionally revert the local state change by reloading from disk.\n\n4. **Visual Consistency**:\n   - Ensure that when the file watcher eventually triggers (if applicable), it does not cause a 'stutter' if the on-disk state matches the current optimistic in-memory state.",
@@ -617,7 +617,7 @@
         "updatedAt": "2026-01-12T06:22:54.510Z"
       },
       {
-        "id": "20",
+        "id": 20,
         "title": "Fix Taskmaster plugin root selection for new AOC tabs",
         "description": "Ensure Taskmaster plugin reads project root from the shared root file instead of stale server env vars so new tabs load correctly.",
         "details": "Adjust plugin state loading to avoid locking root to AOC_PROJECT_ROOT/ZELLIJ_PROJECT_ROOT and prefer root_file when resolving root via command.",
@@ -636,7 +636,10 @@
       "completedCount": 20,
       "tags": [
         "master"
-      ]
+      ],
+      "created": "2026-01-13T18:09:33.556Z",
+      "description": "Tasks for master context",
+      "updated": "2026-01-13T18:09:33.556Z"
     }
   }
 }
