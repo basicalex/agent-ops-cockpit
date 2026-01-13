@@ -127,6 +127,10 @@ impl State {
             if self.roots.is_empty() {
                 self.set_root(cwd);
             }
+        } else if let Ok(cwd) = env::current_dir() {
+             if self.roots.is_empty() {
+                 self.set_root(cwd);
+             }
         }
     }
 
