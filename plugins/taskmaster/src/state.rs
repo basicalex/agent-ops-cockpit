@@ -109,15 +109,11 @@ impl State {
         self.cwd = configuration
             .get("cwd")
             .map(PathBuf::from)
-            .filter(|p| !p.as_os_str().is_empty())
-            .or_else(|| self.env_path("AOC_PROJECT_ROOT"))
-            .or_else(|| self.env_path("ZELLIJ_PROJECT_ROOT"));
+            .filter(|p| !p.as_os_str().is_empty());
         self.root = configuration
             .get("root")
             .map(PathBuf::from)
-            .filter(|p| !p.as_os_str().is_empty())
-            .or_else(|| self.env_path("AOC_PROJECT_ROOT"))
-            .or_else(|| self.env_path("ZELLIJ_PROJECT_ROOT"));
+            .filter(|p| !p.as_os_str().is_empty());
         self.root_file = configuration
             .get("root_file")
             .map(PathBuf::from)
@@ -150,9 +146,24 @@ impl State {
         }
     }
 
+    fn check_ignore_refresh(&mut self) -> bool {
+        if let Some(until) = self.ignore_refresh_until {
+            if until.duration_since(SystemTime::now()).is_ok() {
+                // 'until' is in the future
+                return false;
+            } else {
+                self.ignore_refresh_until = None;
+            }
+        }
+        true
+    }
+
     fn request_root_via_command(&mut self) -> bool {
         if self.pending_root {
             return true;
+        }
+        if !self.check_ignore_refresh() {
+            return true; // Pretend we are pending/busy to avoid loops, but do nothing
         }
         let mut context = BTreeMap::new();
         context.insert(Self::CTX_ACTION.to_string(), Self::ACTION_READ_ROOT.to_string());
@@ -162,8 +173,8 @@ impl State {
                 "-c",
                 "root_file=\"${AOC_PROJECT_ROOT_FILE:-${XDG_STATE_HOME:-$HOME/.local/state}/aoc/project_root}\"; \
                   root=\"${AOC_PROJECT_ROOT:-${ZELLIJ_PROJECT_ROOT:-}}\"; \
-                  if [ -n \"$root\" ]; then printf \'%s\' \"$root\"; \
-                  elif [ -f \"$root_file\" ]; then cat \"$root_file\"; \
+                  if [ -f \"$root_file\" ]; then cat \"$root_file\"; \
+                  elif [ -n \"$root\" ]; then printf \'%s\' \"$root\"; \
                   else pwd; fi",
             ],
             BTreeMap::new(),
@@ -178,13 +189,8 @@ impl State {
         if self.pending_tasks {
             return;
         }
-        if let Some(until) = self.ignore_refresh_until {
-            if let Ok(elapsed) = until.duration_since(SystemTime::now()) {
-                // 'until' is in the future
-                return;
-            } else {
-                self.ignore_refresh_until = None;
-            }
+        if !self.check_ignore_refresh() {
+            return;
         }
         let mut context = BTreeMap::new();
         context.insert(Self::CTX_ACTION.to_string(), Self::ACTION_READ_TASKS.to_string());
@@ -210,6 +216,9 @@ impl State {
 
     fn request_state_via_command(&mut self) {
         if self.pending_state {
+            return;
+        }
+        if !self.check_ignore_refresh() {
             return;
         }
         let mut context = BTreeMap::new();
