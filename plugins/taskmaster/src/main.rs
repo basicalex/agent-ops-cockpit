@@ -68,6 +68,10 @@ impl ZellijPlugin for State {
     }
 
     fn render(&mut self, rows: usize, cols: usize) {
+        if rows == 0 || cols == 0 {
+            return;
+        }
+
         // --- Error Modal ---
         if let Some(err) = &self.last_error {
             let lines = draw_error_modal(err, rows, cols);
@@ -103,7 +107,7 @@ impl ZellijPlugin for State {
         lines.push(truncate_visible(&format!(
             "Filter: {}{}{}   Root: {}", 
             colors::YELLOW, self.filter.label(), colors::RESET,
-            self.root.as_ref().map(|p| p.file_name().unwrap_or_default().to_string_lossy()).unwrap_or("?".into())
+            self.root.as_ref().map(|p| p.to_string_lossy()).unwrap_or("?".into())
         ), cols));
 
         // Line 4: Search Bar / Root Bar
@@ -191,8 +195,8 @@ impl ZellijPlugin for State {
 
         // --- Footer / Help ---
         // Ensure we fit in rows
-        while lines.len() >= rows {
-            lines.pop();
+        if lines.len() > rows {
+            lines.truncate(rows);
         }
         // If we have space, show help
         if lines.len() < rows {

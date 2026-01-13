@@ -173,8 +173,8 @@ impl State {
                 "-c",
                 "root_file=\"${AOC_PROJECT_ROOT_FILE:-${XDG_STATE_HOME:-$HOME/.local/state}/aoc/project_root}\"; \
                   root=\"${AOC_PROJECT_ROOT:-${ZELLIJ_PROJECT_ROOT:-}}\"; \
-                  if [ -f \"$root_file\" ]; then cat \"$root_file\"; \
-                  elif [ -n \"$root\" ]; then printf \'%s\' \"$root\"; \
+                  if [ -n \"$root\" ]; then printf \'%s\' \"$root\"; \
+                  elif [ -f \"$root_file\" ]; then cat \"$root_file\"; \
                   else pwd; fi",
             ],
             BTreeMap::new(),
