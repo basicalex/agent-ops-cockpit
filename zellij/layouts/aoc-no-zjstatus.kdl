@@ -21,6 +21,7 @@ layout {
 
             pane size="38%" {
               plugin location="file:/home/ceii/.config/zellij/plugins/aoc-taskmaster.wasm" {
+                root "$ZELLIJ_PROJECT_ROOT"
                 refresh_secs "5"
               }
             }
