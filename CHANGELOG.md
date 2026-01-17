@@ -10,6 +10,8 @@
 - **Zellij Layouts**: Explicit project root propagation to Taskmaster plugin to bypass WASM environment isolation.
 
 ### Fixed
+- **Session Management**: Hardened `aoc-session-watch` to prevent accidental session deletion. Added a 2-second timeout to client checks and implemented a requirement for 3 consecutive idle counts before a session is destroyed.
+- **Process Cleanup**: Improved `aoc-cleanup` accuracy by refining the agent process pattern and adding a protected list for essential cockpit scripts, preventing them from being killed as orphans.
 - **Taskmaster Plugin**: Resolved issue where the plugin would fail to find tasks due to incorrect root detection in WASM.
 - **Taskmaster Plugin**: Fixed a bug in the root detection shell script that introduced leading spaces in paths.
 - **Taskmaster Plugin**: Improved path validation to prevent defaulting to the system root.
