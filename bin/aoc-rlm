@@ -1,0 +1,128 @@
+#!/usr/bin/env python3
+import os
+import glob
+import json
+import math
+import subprocess
+import sys
+from pathlib import Path
+from typing import List, Dict, Any
+
+class RLMContext:
+    def __init__(self, root_dir: str = "."):
+        self.root = Path(root_dir).resolve()
+        self.index: Dict[str, str] = {}
+        self.chunk_size = 5000
+
+    def _get_git_files(self) -> List[str]:
+        """Get files respected by gitignore."""
+        try:
+            result = subprocess.run(
+                ["git", "ls-files", "-c", "-o", "--exclude-standard"],
+                cwd=str(self.root),
+                capture_output=True,
+                text=True
+            )
+            if result.returncode == 0:
+                return [f for f in result.stdout.splitlines() if f]
+        except Exception:
+            pass
+        return []
+
+    def load_context(self, pattern: str = "**/*"):
+        git_files = self._get_git_files()
+        if git_files:
+            files = [str(self.root / f) for f in git_files]
+        else:
+            files = glob.glob(str(self.root / pattern), recursive=True)
+
+        loaded = 0
+        for f in files:
+            path = Path(f)
+            if not path.is_file(): continue
+            # Skip likely binary/junk if not in git
+            if any(p in str(path) for p in ['.git/', 'node_modules/', 'target/', '__pycache__', '.aoc/']): continue
+            
+            try:
+                # Basic relative path check for pattern
+                rel_path = str(path.relative_to(self.root))
+                if pattern != "**/*" and pattern not in rel_path: continue
+                
+                content = path.read_text(errors='ignore')
+                if not content.strip(): continue
+                self.index[rel_path] = content
+                loaded += 1
+            except: pass
+        
+        return {"loaded": loaded, "chars": sum(len(c) for c in self.index.values())}
+
+    def peek(self, query: str, context_window: int = 200) -> List[str]:
+        results = []
+        for path, content in self.index.items():
+            if query.lower() in content.lower():
+                start = 0
+                while True:
+                    idx = content.lower().find(query.lower(), start)
+                    if idx == -1: break
+                    
+                    snippet_start = max(0, idx - context_window)
+                    snippet_end = min(len(content), idx + len(query) + context_window)
+                    snippet = content[snippet_start:snippet_end].replace('\n', ' ')
+                    results.append(f"[{path}]: ...{snippet}...")
+                    start = idx + 1
+        return results[:50]
+
+    def get_chunks(self, pattern: str = None) -> List[Dict]:
+        chunks = []
+        import fnmatch
+        for path, content in self.index.items():
+            if pattern:
+                if not fnmatch.fnmatch(path, pattern) and pattern not in path:
+                    continue
+            
+            total = math.ceil(len(content) / self.chunk_size) or 1
+            for i in range(total):
+                start = i * self.chunk_size
+                end = min((i + 1) * self.chunk_size, len(content))
+                text = content[start:end]
+                chunks.append({
+                    "path": path,
+                    "chunk": i + 1,
+                    "total": total,
+                    "lines": f"{content[:start].count('\n')+1}-{content[:end].count('\n')+1}",
+                    "content": text
+                })
+        return chunks
+
+if __name__ == "__main__":
+    import argparse
+    parser = argparse.ArgumentParser(description="AOC RLM Engine - Recursive Language Model context slicer")
+    subps = parser.add_subparsers(dest="cmd")
+    
+    scan = subps.add_parser("scan", help="Scan directory and report scale")
+    
+    peek = subps.add_parser("peek", help="Quick search for snippets across all files")
+    peek.add_argument("query")
+    
+    chunk = subps.add_parser("chunk", help="Slice files into chunks for agent processing")
+    chunk.add_argument("--pattern", default=None, help="Glob pattern to filter files")
+    chunk.add_argument("--size", type=int, default=5000, help="Chunk size in characters")
+    
+    args = parser.parse_args()
+    
+    if not args.cmd:
+        parser.print_help()
+        sys.exit(1)
+
+    ctx = RLMContext()
+    ctx.chunk_size = getattr(args, 'size', 5000)
+    stats = ctx.load_context()
+    
+    if args.cmd == "scan":
+        print(json.dumps(stats, indent=2))
+    elif args.cmd == "peek":
+        results = ctx.peek(args.query)
+        for r in results:
+            print(r)
+    elif args.cmd == "chunk":
+        print(json.dumps(ctx.get_chunks(args.pattern), indent=2))

@@ -32,6 +32,7 @@ This machine uses the **Agent Ops Cockpit (AOC)** system. All agents (Gemini, Cl
 │   ├── aoc-preview
 │   ├── aoc-preview-set
 │   ├── aoc-preview-toggle
+│   ├── aoc-rlm
 │   ├── aoc-session-watch
 │   ├── aoc-star
 │   ├── aoc-sys
@@ -77,7 +78,7 @@ This machine uses the **Agent Ops Cockpit (AOC)** system. All agents (Gemini, Cl
 │   └── layouts
 └── zellij_taskmaster_terminal_block.png
 
-13 directories, 58 files
+13 directories, 59 files
 ```
 
 ## 2. Long-Term Memory (`aoc-mem`)
@@ -450,6 +451,14 @@ If you are an AI agent reading this repo to set it up for a user:
 [90m┌────────────────────────────────────────────────────────────────────[39m[90m┬──────────────[39m[90m┬──────────────[39m[90m┬──────────────┐[39m
 [90m│[39m[31m Tag Name                                                           [39m[90m│[39m[31m Tasks        [39m[90m│[39m[31m Ready        [39m[90m│[39m[31m Done         [39m[90m│[39m
 [90m├────────────────────────────────────────────────────────────────────[39m[90m┼──────────────[39m[90m┼──────────────[39m[90m┼──────────────┤[39m
-[90m│[39m ● master (current)                                                 [90m│[39m 27           [90m│[39m 1            [90m│[39m 26           [90m│[39m
+[90m│[39m ● master (current)                                                 [90m│[39m 29           [90m│[39m 1            [90m│[39m 27           [90m│[39m
 [90m└────────────────────────────────────────────────────────────────────[39m[90m┴──────────────[39m[90m┴──────────────[39m[90m┴──────────────┘[39m
 ```
+
+## 7. RLM Skill (Large Codebase Analysis)
+When you need to analyze more files than fit in your context:
+1. **Scan:** Run `aoc-rlm scan` to see the scale of the codebase.
+2. **Peek:** Run `aoc-rlm peek "search_term"` to find relevant snippets and file paths.
+3. **Slice:** Run `aoc-rlm chunk --pattern "src/relevant/*.rs"` to get JSON chunks.
+4. **Process:** Use your available sub-agent tools (like `Task`) to process chunks in parallel.
+5. **Reduce:** Synthesize the sub-agent outputs into a final answer.

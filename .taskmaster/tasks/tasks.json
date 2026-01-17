@@ -2,7 +2,7 @@
   "master": {
     "tasks": [
       {
-        "id": "1",
+        "id": 1,
         "title": "Add aoc-doctor dependency checker",
         "description": "Create a script that validates required tools (zellij, yazi, fzf, chafa, ffmpeg, poppler-utils, librsvg2-bin, rg, bat, tectonic) and prints actionable install hints.",
         "details": "Add bin/aoc-doctor and document in README.md; include exit codes and a --quiet mode for CI.",
@@ -45,7 +45,7 @@
         "updatedAt": "2026-01-17T16:52:06.071Z"
       },
       {
-        "id": "2",
+        "id": 2,
         "title": "Improve aoc-taskmaster interactivity",
         "description": "Enhance the Taskmaster pane UX with actions to mark done, open details, and refresh lists.",
         "details": "Add key bindings in bin/aoc-taskmaster (e.g., enter to open, d to mark done, r to refresh) and handle missing task-master-ai gracefully.",
@@ -88,7 +88,7 @@
         "updatedAt": "2026-01-06T17:03:04.695Z"
       },
       {
-        "id": "3",
+        "id": 3,
         "title": "Widget resilience and UX polish",
         "description": "Improve aoc-widget to handle missing tools and invalid media paths with clear prompts.",
         "details": "Add detection for chafa/ffmpeg/rsvg-convert and show fallback text; persist last mode in state file.",
@@ -131,7 +131,7 @@
         "updatedAt": "2026-01-06T17:03:06.117Z"
       },
       {
-        "id": "4",
+        "id": 4,
         "title": "Sys details configurability",
         "description": "Allow aoc-sys to be configured for update interval and sections.",
         "details": "Support env vars like AOC_SYS_INTERVAL and toggles for CPU/mem/disk output.",
@@ -174,7 +174,7 @@
         "updatedAt": "2026-01-06T17:03:06.731Z"
       },
       {
-        "id": "5",
+        "id": 5,
         "title": "Layout customization options",
         "description": "Allow users to override pane sizes and commands without editing aoc.kdl directly.",
         "details": "Document environment variables or alternate layout file strategy in README.md; consider templating in install.sh.",
@@ -217,7 +217,7 @@
         "updatedAt": "2026-01-06T17:03:07.336Z"
       },
       {
-        "id": "6",
+        "id": 6,
         "title": "Installer improvements and uninstall path",
         "description": "Add an uninstall script and make install.sh idempotent with clear output.",
         "details": "Add bin/aoc-uninstall or scripts/uninstall.sh; ensure it removes only files installed by AOC.",
@@ -260,7 +260,7 @@
         "updatedAt": "2026-01-06T17:03:08.164Z"
       },
       {
-        "id": "7",
+        "id": 7,
         "title": "README enhancements and troubleshooting",
         "description": "Add setup verification, troubleshooting, and screenshot usage guidance.",
         "details": "Include common failures (missing chafa, yazi preview) and how to fix; add placeholder for screenshot.",
@@ -303,7 +303,7 @@
         "updatedAt": "2026-01-06T17:03:09.086Z"
       },
       {
-        "id": "8",
+        "id": 8,
         "title": "Add shellcheck lint workflow",
         "description": "Introduce a lightweight CI or local script to run shellcheck on bin/ and yazi/preview.sh.",
         "details": "Add scripts/lint.sh or a GitHub Actions workflow; document in README.md.",
@@ -346,7 +346,7 @@
         "updatedAt": "2026-01-06T17:03:10.110Z"
       },
       {
-        "id": "9",
+        "id": 9,
         "title": "Versioning and release notes",
         "description": "Define a minimal versioning scheme and CHANGELOG.md.",
         "details": "Add CHANGELOG.md and update README.md with release process; optional tag naming.",
@@ -389,7 +389,7 @@
         "updatedAt": "2026-01-06T17:03:11.326Z"
       },
       {
-        "id": "10",
+        "id": 10,
         "title": "Zellij Taskmaster plugin (realtime tasks panel)",
         "description": "Design and implement a Zellij plugin that renders Task Master tasks in realtime from .taskmaster/tasks/tasks.json and wires CLI actions (task-master) for updates.",
         "details": "",
@@ -479,7 +479,7 @@
         "updatedAt": "2026-01-09T07:01:13.182Z"
       },
       {
-        "id": "11",
+        "id": 11,
         "title": "Refactor Taskmaster Plugin: Modularize Monolithic main.rs",
         "description": "Refactor the existing monolithic main.rs in the Taskmaster Zellij plugin into distinct modules (model, state, ui) to improve maintainability and separation of concerns.",
         "details": "The current implementation of the Taskmaster plugin resides almost entirely in `plugins/taskmaster/src/main.rs`. To improve code organization and testability, the code should be split into logical modules.\n\n### Proposed Structure:\n1. **`src/model.rs`**: Move data structures here, specifically the `Task`, `TaskStatus`, and any serialization/deserialization logic (Serde structs).\n2. **`src/state.rs`**: encapsulate the application state logic. Move the `State` struct and its implementation (e.g., loading tasks from JSON, filtering logic, selection handling) here.\n3. **`src/ui.rs`**: Isolate rendering logic. Move the `render` function and any helper functions related to UI layout (e.g., calculating rows, drawing the header/footer) here.\n4. **`src/main.rs`**: Should become a thin entry point that initializes the `State`, handles the Zellij event loop (`update` method), and delegates rendering to `ui`.\n\n### Implementation Steps:\n- Create the new module files in `plugins/taskmaster/src/`.\n- Iteratively move code from `main.rs` to the respective modules, fixing visibility (`pub`) issues.\n- Ensure `Cargo.toml` dependencies (like `serde`, `zezellij-tile`) are accessible where needed.\n- Verify that the logic for loading `.taskmaster/tasks/tasks.json` remains intact in the `state` module.",
@@ -493,7 +493,7 @@
         "updatedAt": "2026-01-11T22:02:37.273Z"
       },
       {
-        "id": "12",
+        "id": 12,
         "title": "Implement UI Primitives: Table and ProgressBar for TUI",
         "description": "Create reusable `Table` and `ProgressBar` structs within the `ui` module of the Taskmaster plugin to standardize rendering of tabular data and progress indicators.",
         "details": "This task focuses on abstracting rendering logic into reusable components within `plugins/taskmaster/src/ui.rs` (or a sub-module like `ui/widgets.rs`). \n\n### Implementation Requirements:\n1. **ProgressBar Struct**:\n   - Fields: `progress` (f32 or usize), `total` (usize), `width` (usize), and styling characters (e.g., full block, empty block).\n   - Method `render(&self) -> String`: Returns a string representation of the bar (e.g., `[████░░░░░░] 40%`).\n   - Should handle boundary conditions (0% and 100%).\n\n2. **Table Struct**:\n   - Design a struct that accepts headers and a list of rows.\n   - Support dynamic column width calculation based on content or fixed constraints.\n   - Method `render(&self) -> Vec<String>` or similar, yielding lines ready to be printed to the TUI buffer.\n   - Ensure alignment support (left/right/center) if feasible.\n\n3. **Integration**:\n   - Update the main rendering loop to use these new primitives instead of raw string formatting where applicable (e.g., displaying the task list as a table, showing completion status as a progress bar).\n   - Ensure these structs implement `Display` or specific render traits compatible with `zellij-tile`.\n\n### Codebase Alignment:\n- Place code in `src/ui.rs` if it exists (post-Task 11) or prepare it to be moved there.\n- Ensure compatibility with existing color definitions in the `State` or `Model`.",
@@ -508,7 +508,7 @@
         "updatedAt": "2026-01-11T22:03:34.833Z"
       },
       {
-        "id": "13",
+        "id": 13,
         "title": "Implement Theme System (plugins/taskmaster): Add Nerd Fonts and Color Palette support",
         "description": "Introduce a centralized theme configuration to `plugins/taskmaster` providing semantic color palettes and Nerd Font icons for task statuses and UI elements.",
         "details": "This task focuses on decoupling hardcoded styles and icons from the rendering logic by introducing a `Theme` struct. This will improve consistency and allow for easier customization or future configuration.\n\n### Implementation Requirements:\n1. **Create `src/theme.rs`**:\n   - Define a `Theme` struct containing palette fields (e.g., `primary`, `success`, `warning`, `error`, `text_dim`) utilizing `zellij_tile::prelude::*` colors or ANSI codes.\n   - Define an `Icons` struct or fields within `Theme` for status icons (e.g., pending: `○` / ``, active: `▶` / ``, done: `✔` / ``, blocked: `✖` / ``).\n   - Implement a default implementation for `Theme` that uses a standard color scheme (e.g., Catppuccin-inspired or system default) and Nerd Fonts if supported (consider a flag or default to yes).\n\n2. **Integrate Theme into State/UI**:\n   - Add `theme: Theme` to the plugin's `State` struct.\n   - Update `src/ui.rs` (or rendering logic in `main.rs` if not yet refactored) to use `state.theme` instead of hardcoded strings/colors.\n   - Replace manual `format!` calls having raw color codes with helper methods from the `Theme` (e.g., `theme.style_status(&task.status)`).\n\n3. **Iconography**:\n   - Ensure the chosen Nerd Font glyphs are standard and widely supported.\n   - Update the task list rendering to prefix tasks with their status icon.\n   - Update the status bar/footer to use icons for hints (e.g., `?` for help, `↻` for refresh).\n\n4. **Refactor Compatibility**:\n   - If Task 12 (UI Primitives) is complete, ensure `Table` and `ProgressBar` accept style definitions from the `Theme`.",
@@ -522,7 +522,7 @@
         "updatedAt": "2026-01-11T22:05:07.218Z"
       },
       {
-        "id": "14",
+        "id": 14,
         "title": "Implement Dashboard Layout (plugins/taskmaster): Build Header HUD and Task Grid",
         "description": "Construct the main dashboard interface for the Taskmaster plugin by implementing a Header HUD for status summaries and a Task Grid for the main task list, utilizing the newly created UI primitives and theme system.",
         "details": "This task integrates the modular components created in previous tasks to build the final UI layout. The layout will be divided into two main sections: a Header HUD (Heads-Up Display) and a scrollable Task Grid.\n\n### Implementation Requirements:\n\n1. **Modify `src/ui.rs` (or `src/ui/layout.rs`)**:\n   - Implement a `draw_dashboard` function that accepts `&State`, `&Theme`, and `&mut UiWriter`.\n\n2. **Implement Header HUD**:\n   - **Layout**: Top section of the screen (fixed height, e.g., 3-4 rows).\n   - **Components**: \n     - **Progress Bar**: Use the `ProgressBar` struct (Task 12) to show overall completion (completed tasks / total tasks).\n     - **Stats**: Display counts for 'Pending', 'In Progress', 'Done' using theme colors (Task 13) (e.g., Green for Done, Yellow for In Progress).\n     - **Filter Status**: Show current active filter.\n\n3. **Implement Task Grid**:\n   - **Layout**: Remaining vertical space below the header.\n   - **Component**: Use the `Table` struct (Task 12) to render the list of tasks.\n   - **Columns**: ID, Status icon (Nerd Font from Task 13), Title, Priority, Age (calculated from timestamp).\n   - **Selection**: Highlight the currently selected row using the Theme's selection color.\n   - **Scrolling**: Ensure the table renders a window of tasks based on `state.selected_index` and available height.\n\n4. **Integration**:\n   - Update the main render loop in `main.rs` (or `lib.rs`) to call `draw_dashboard` instead of the legacy rendering logic.\n\n### Code Reference:\n- Utilize `zellij_tile::prelude::*` for coordinate management.\n- Access state properties from `State` struct (refactored in Task 11).",
@@ -538,7 +538,7 @@
         "updatedAt": "2026-01-11T22:07:38.663Z"
       },
       {
-        "id": "15",
+        "id": 15,
         "title": "Implement Sub-task Rendering (plugins/taskmaster): Visualize nested subtasks in the details pane",
         "description": "Enhance the details pane in the Taskmaster plugin to recursively render subtasks with status indicators and progress bars.",
         "details": "This task involves updating the UI rendering logic to properly display nested subtasks when a user inspects a specific task. The `Task` model already contains a `subtasks` field (Vec<Task>), and this structure needs to be traversed and visualized.\n\n### Implementation Requirements:\n\n1.  **Modify `src/ui.rs` - `draw_details_pane`**:\n    - Locate the function responsible for drawing task details (likely stubbed or basic).\n    - Implement a recursive or iterative rendering strategy to display subtasks.\n    - **Indentation**: Visual hierarchy should be clear. Use spaces or tree branches (e.g., `├─`, `└─`) to denote depth.\n    - **Status Icons**: Use the `Theme` system to render status icons (e.g., checkmark for Done, spinner for In Progress) for each subtask.\n\n2.  **Progress Calculation**:\n    - Implement a helper method on `Task` (e.g., `calculate_progress() -> f32`) that recursively calculates completion percentage based on subtasks.\n    - Integrate the `ProgressBar` component (created in Task 12) into the details header or alongside complex subtask groups to show aggregate progress.\n\n3.  **Interaction Handling (if applicable)**:\n    - Ensure the scrolling logic in the details pane accommodates the potentially long list of subtasks.\n\n### Code Integration:\n- **Model**: Ensure `Task` struct in `src/model.rs` derives necessary traits (Clone, Debug) to be passed to the renderer easily.\n- **Theme**: Use `theme.icons.subtask_branch` (or similar) and colors defined in Task 13 for consistent styling.",
@@ -554,7 +554,7 @@
         "updatedAt": "2026-01-12T06:21:59.249Z"
       },
       {
-        "id": "16",
+        "id": 16,
         "title": "Implement Search/Filter Logic (plugins/taskmaster)",
         "description": "Add interactive filtering capabilities to the Taskmaster plugin, supporting text search via '/' and status filter cycling via 'f'.",
         "details": "This task focuses on enhancing the `update` loop and `State` management in `plugins/taskmaster` to support dynamic filtering of the task list.\n\n### Implementation Requirements\n\n1.  **Update `State` Struct (`src/state.rs`)**:\n    - Add `filter_query: String` to store the active text search input.\n    - Add `filter_status: Option<TaskStatus>` (or an enum wrapping it) to store the active status filter (e.g., All, Pending, In Progress, Done).\n    - Add a boolean flag `is_searching` or `input_mode` to distinguish between navigation mode and text input mode.\n\n2.  **Modify `update` Function (`src/main.rs`)**:\n    - **'/' Key**: Toggle `is_searching` mode to true. While in search mode, capture character inputs to append to `filter_query`.\n    - **'Esc' / 'Enter'**: Exit search mode. 'Esc' could clear the query or just cancel typing.\n    - **'f' Key**: Cycle through available `TaskStatus` values (All -> Pending -> In Progress -> Done -> All).\n    - **Backspace**: Handle character deletion when in search mode.\n\n3.  **Implement Filtering Logic**:\n    - Create a method `get_filtered_tasks(&self) -> Vec<&Task>` on the `State` struct.\n    - This method should filter `self.tasks` based on:\n      - Does `task.title` (or description) contain `filter_query` (case-insensitive)?\n      - Does `task.status` match `filter_status` (if set)?\n\n4.  **UI Updates (`src/ui.rs`)**:\n    - Update the rendering loop to use `get_filtered_tasks()` instead of the raw task list for the main grid.\n    - **Search Bar**: Render a search input field (perhaps in the Header HUD or a bottom bar) when `is_searching` is active or `filter_query` is not empty.\n    - **Filter Indicator**: Display the current status filter in the HUD (e.g., \"[Filter: Pending]\").",
@@ -570,7 +570,7 @@
         "updatedAt": "2026-01-12T06:22:12.353Z"
       },
       {
-        "id": "17",
+        "id": 17,
         "title": "Implement 'Assign to Agent' (plugins/taskmaster): Add 'a' key to tag tasks for active agent focus",
         "description": "Add functionality to toggle an 'active_agent' tag on tasks using the 'a' key, allowing users to designate specific tasks for immediate AI agent attention.",
         "details": "This task implements a tagging mechanism to mark tasks for active agent focus. This involves updating the data model, state management, and input handling within the Taskmaster plugin.\n\n### Implementation Requirements:\n\n1.  **Update Data Model (`src/task.rs` or `src/state.rs`)**:\n    - Add a field `pub active_agent: bool` (defaulting to false) to the `Task` struct.\n    - If `Task` is defined in an external crate (like `task_master_core` referenced in previous tasks), ensure this field is added there or managed locally in the plugin state if the core struct is immutable.\n    - Ensure serialization/deserialization logic handles this new field (e.g., `#[serde(default)]`).\n\n2.  **Modify State Management (`src/state.rs`)**:\n    - Implement a method `toggle_agent_focus(&mut self)` on the `State` struct.\n    - This method should locate the currently selected task (based on `selected_index`) and toggle its `active_agent` boolean.\n    - Persist the change back to `tasks.json` immediately to trigger any file watchers or external agent processes.\n\n3.  **Update Input Handling (`src/main.rs`)**:\n    - In the `update` loop (specifically inside the `Key::Char('a')` match arm):\n      - Call `state.toggle_agent_focus()`.\n      - Ensure the UI refreshes to reflect the change.\n\n4.  **UI Visualization (`src/ui.rs`)**:\n    - Update the task list rendering to visually distinguish tasks with `active_agent: true`.\n    - Use a specific icon (e.g., `🤖` or a specific nerd font glyph) or a color highlight (e.g., Magenta/Purple from the Theme) next to the task status or title.\n    - Ensure the visual indicator is distinct from standard status icons.",
@@ -586,7 +586,7 @@
         "updatedAt": "2026-01-12T06:22:26.787Z"
       },
       {
-        "id": "18",
+        "id": 18,
         "title": "Implement Robust Error Handling (plugins/taskmaster)",
         "description": "Implement graceful error recovery for malformed JSON data and file I/O failures, adding a UI overlay to display errors without crashing the plugin.",
         "details": "This task focuses on preventing the plugin from panicking when encountering invalid states, particularly regarding the `tasks.json` data source. It involves updating the State model to hold error information and modifying the UI to render these errors.\n\n### Implementation Requirements\n\n1. **Update `State` Struct (`src/state.rs`)**:\n   - Add `pub error_msg: Option<String>` to the `State` struct.\n   - Implement helper methods: `set_error(msg: String)` and `clear_error()`.\n\n2. **Safe Data Loading (`src/plugin.rs`)**:\n   - Refactor the task loading logic (likely using `std::fs::read_to_string` and `serde_json::from_str`).\n   - Instead of `.unwrap()` or `.expect()`, use `match` or `if let Err(e)` patterns.\n   - On failure, capture the error message (e.g., \"JSON Syntax Error at line 10\") and call `state.set_error(...)` instead of panicking.\n\n3. **UI Error Overlay (`src/ui.rs`)**:\n   - Implement `draw_error_modal` function.\n   - Check `state.error_msg` at the beginning of the render loop. If present, render a centered box (using `Theme::error` color from Task #13) containing the message on top of the dashboard.\n   - Ensure the overlay obscures or dims the underlying content to indicate a modal state.\n\n4. **Input Handling (`src/plugin.rs`)**:\n   - In the `update` loop, if `state.error_msg` is `Some`, intercept input events.\n   - Map `Esc` or `Enter` to `state.clear_error()`, allowing the user to attempt a reload or return to a neutral state after fixing the external file.",
@@ -601,7 +601,7 @@
         "updatedAt": "2026-01-12T06:22:40.810Z"
       },
       {
-        "id": "19",
+        "id": 19,
         "title": "Implement Optimistic UI Updates (plugins/taskmaster)",
         "description": "Decouple UI state updates from file persistence to ensure immediate visual feedback during user interactions like toggling status or assigning agents.",
         "details": "This task focuses on making the plugin feel responsive ('snappy') by modifying the in-memory state and re-rendering immediately upon user input, rather than waiting for file I/O completion or file-watcher events.\n\n### Implementation Requirements\n\n1. **Modify Event Loop (`src/main.rs`)**:\n   - Review the `update` function where key events (e.g., 'd' for done, 'a' for agent, 'p' for priority) are handled.\n   - Currently, these likely trigger a write operation immediately. Refactor this flow.\n   \n2. **Update `State` Logic (`src/state.rs`)**:\n   - Implement specific mutation methods on the `State` struct, e.g., `pub fn optimistic_update_status(&mut self, index: usize, status: TaskStatus)`.\n   - Ensure these methods update both the raw task list and the filtered view (referencing Task #16 logic) immediately.\n\n3. **Persistence Strategy**:\n   - After the in-memory mutation and render call, perform the blocking file I/O to save `tasks.json`.\n   - If the I/O operation fails, utilize the error handling mechanism from Task #18 (`state.set_error()`) to notify the user, and optionally revert the local state change by reloading from disk.\n\n4. **Visual Consistency**:\n   - Ensure that when the file watcher eventually triggers (if applicable), it does not cause a 'stutter' if the on-disk state matches the current optimistic in-memory state.",
@@ -617,7 +617,7 @@
         "updatedAt": "2026-01-12T06:22:54.510Z"
       },
       {
-        "id": "20",
+        "id": 20,
         "title": "Fix Taskmaster plugin root selection for new AOC tabs",
         "description": "Ensure Taskmaster plugin reads project root from the shared root file instead of stale server env vars so new tabs load correctly.",
         "details": "Adjust plugin state loading to avoid locking root to AOC_PROJECT_ROOT/ZELLIJ_PROJECT_ROOT and prefer root_file when resolving root via command.",
@@ -629,7 +629,7 @@
         "updatedAt": "2026-01-12T13:58:44.521Z"
       },
       {
-        "id": "21",
+        "id": 21,
         "title": "Validate and Refine Per-Tab Root Isolation for Multi-Project Workflows",
         "description": "Verify and harden the root isolation mechanism across aoc-launch, aoc-new-tab, aoc-align, and aoc-star to ensure concurrent Zellij tabs can operate on distinct projects without state leakage.",
         "details": "This task focuses on integration testing and refinement of the project root management strategy implemented in Task #20. The goal is to ensure that opening multiple AOC tabs (even in the same Zellij session) allows each tab to maintain a unique project context.\n\n### Analysis & Implementation Steps\n\n1.  **Review Shell Scripts (`bin/`)**:\n    -   Analyze `bin/aoc-launch` and `bin/aoc-new-tab`. Verify how `AOC_PROJECT_ROOT` is propagated to the new tab layout.\n    -   Ensure `aoc-new-tab` creates a unique context (e.g., by ensuring the `.root` file or environment variable is scoped to the tab or strictly passed via layout parameters).\n    -   Check `bin/aoc-align` (pane alignment) and `bin/aoc-star` (task creation) to ensure they respect the *current* tab's root, not a global variable.\n\n2.  **Verify Plugin Behavior (`plugins/taskmaster`)**:\n    -   The `taskmaster` plugin (Rust) reads a root path. Based on Task #20, it prioritizes a root file. Ensure this file lookup is tab-aware (e.g., checking the current working directory or a specific tab-local environment variable provided by Zellij) rather than reading a singleton global file if multiple tabs exist.\n    -   If the plugin relies on `ZELLIJ_SESSION_NAME` or strictly on `CWD`, confirm that `aoc-launch` starts the plugin in the correct directory.\n\n3.  **Refactor for Tab-Local State (if needed)**:\n    -   If `aoc-new-tab` currently overwrites a global `/tmp/aoc.root` file (implying a race condition between tabs), refactor it to pass the root directly into the Zellij layout template or set a tab-scoped environment variable if supported.\n    -   Alternatively, verify the plugin logic strictly prefers `std::env::current_dir()` as the source of truth when no explicit root argument is provided.\n\n4.  **Edge Case Handling**:\n    -   Test scenarios where a user navigates `cd ..` in a shell pane. Does `aoc-star` still pick up the original project root or the new directory? (Should likely stick to the project root defined at launch).",
@@ -641,7 +641,7 @@
         "updatedAt": "2026-01-17T17:23:11.961Z"
       },
       {
-        "id": "22",
+        "id": 22,
         "title": "Verify and Harden Idle Session Lifecycle Management (aoc-session-watch)",
         "description": "Implement and verify the `aoc-session-watch` utility to handle session detach events by renaming sessions to `idle-*`, pruning heavy UI processes, and restoring the full layout upon reattachment.",
         "details": "This task focuses on the lifecycle management of Zellij sessions to optimize resource usage when sessions are not in focus (detached). The `aoc-session-watch` script acts as a daemon or hook that monitors session state.\n\n### Implementation Requirements\n\n1.  **Create/Update `bin/aoc-session-watch`**:\n    -   **Detach Handler**: Detect when the current client detaches. Rename the session from `[name]` to `idle-[name]` using `zellij action rename-session`.\n    -   **Pruning Logic**: When entering 'idle' state, identify and terminate resource-heavy UI processes that are not essential for background agent work (e.g., `yazi`, `chafa`, `k9s`). **Crucially**, ensure the Agent process (LLM loop) and the Taskmaster plugin remain running.\n    -   **Reattach Handler**: When a client attaches to an `idle-[name]` session, rename it back to `[name]` (removing the prefix).\n    -   **Layout Restoration**: Upon reattach, verify if panes were closed or if the layout needs to be re-applied to restore the UI tools (e.g., respawning the file browser pane if it was killed).\n\n2.  **Integration with `aoc-launch`**:\n    -   Ensure `aoc-launch` starts `aoc-session-watch` in the background or as a daemon pane within the session.\n\n3.  **Safety Checks**:\n    -   Prevent renaming if the session is already active elsewhere (multi-client scenarios).\n    -   Ensure PID tracking logic is robust so it doesn't kill the wrong processes.",
@@ -655,7 +655,7 @@
         "updatedAt": "2026-01-17T17:40:07.296Z"
       },
       {
-        "id": "23",
+        "id": 23,
         "title": "Verify and Implement Tab-Close Process Cleanup in aoc-session-watch",
         "description": "Implement the `trim_closed_tab_processes` function in `aoc-session-watch` to detect closed Zellij tabs and terminate associated background processes (like file watchers or servers) to prevent resource leaks.",
         "details": "This task addresses the issue of orphaned processes remaining after an AOC tab is closed. The implementation should leverage `zellij action query-tab-names` and process tree analysis.\n\n### Implementation Requirements\n\n1.  **Enhance `bin/aoc-session-watch`**:\n    -   **State Tracking**: Maintain an in-memory list or temp file tracking active Tab IDs and their associated PIDs (if detectable via Zellij's layout info or by tagging processes during launch).\n    -   **Polling/Event Loop**: Regularly (e.g., every 2-5 seconds) query the current list of open tabs using `zellij action query-tab-names`.\n    -   **Diff Logic**: Compare the current list of tabs against the previous state.\n    -   **`trim_closed_tab_processes()` Implementation**:\n        -   Identify tabs that were present in the previous state but missing in the current state.\n        -   If a mechanism exists to map Tab ID -> PIDs (e.g., via `zellij action list-clients` or inspecting the pane tree), iterate through those PIDs.\n        -   Send `SIGTERM` to the identified process groups (`pgid`) to ensure child processes (like `npm run dev`) are also cleaned up.\n        -   *Note*: Since Zellij may not expose PIDs per tab directly in CLI, consider an approach where `aoc-launch` writes a PID file keyed by Tab ID (e.g., `/tmp/aoc/pids/<session>_<tab_id>.pid`) which `aoc-session-watch` reads and cleans up.\n\n2.  **PID Tracking Integration (Optional but likely needed)**:\n    -   Modify `bin/aoc-launch` or `bin/aoc-new-tab` to record the PID of the primary process launched in the tab into a registry directory.",
@@ -669,7 +669,7 @@
         "updatedAt": "2026-01-17T17:47:05.092Z"
       },
       {
-        "id": "24",
+        "id": 24,
         "title": "Fix Taskmaster Plugin Scrollback Growth and Render Throttling",
         "description": "Implement state comparison logic to prevent redundant UI rendering and endless scrollback growth by ensuring the plugin only repaints when data or UI state actually changes.",
         "details": "This task addresses performance issues where the Taskmaster plugin may be re-rendering frames unnecessarily, causing high CPU usage or scrollback pollution. \n\n### Implementation Steps:\n1. **State Tracking (`src/state.rs`)**: \n   - Add a field to the `State` struct to track the signature of the last rendered frame (e.g., `last_render_signature: u64` or a clone of the relevant state subset).\n   - Implement a method `get_render_signature(&self)` that hashes or captures key UI state components: the tasks list (content and status), selected index, current filter mode, and any active error message.\n\n2. **Render Logic (`src/main.rs`)**:\n   - In the `render` method (or the main event loop handler), generate the signature for the current state.\n   - Compare the current signature with `state.last_render_signature`.\n   - If they match, return early without printing to stdout (printing ANSI codes to the terminal is what causes scrollback growth).\n   - If they differ, proceed with rendering and update `state.last_render_signature`.\n\n3. **Event Loop Optimization**:\n   - Review the `update` function. Ensure that events which do not affect visual state (e.g., file watcher ticks that result in identical data) do not trigger the `should_render` flag.\n   - Specifically, when reloading `tasks.json`, compare the new loaded data with the existing memory data. Only set `should_render = true` if the data differs.",
@@ -681,7 +681,7 @@
         "updatedAt": "2026-01-17T17:30:50.862Z"
       },
       {
-        "id": "25",
+        "id": 25,
         "title": "Fix Tmux Cleanup Configuration for Agent Panes",
         "description": "Configure tmux sessions for agent tools (opencode, codex) with 'destroy-unattached' and 'exit-empty' to ensure servers terminate automatically when the parent Zellij pane or tab is closed.",
         "details": "This task addresses resource leaks where tmux servers spawned by agent scripts remain active after the UI pane is closed. The implementation involves modifying the tmux startup commands in the agent wrapper scripts.\n\n### Implementation Steps\n\n1.  **Analyze Agent Launch Scripts**:\n    -   Locate scripts in `bin/` or `agents/` that invoke `tmux`. Likely candidates include `bin/opencode` or similar wrappers.\n    -   Identify the `tmux new-session` command lines.\n\n2.  **Apply Configuration Flags**:\n    -   Update the tmux invocation to include specific server configuration options via the `-f` config file argument or by passing configuration commands with `set-option`.\n    -   Ensure `set-option -g destroy-unattached on` is applied. This ensures the session is killed when no clients are attached (i.e., when the Zellij pane hosting the client closes).\n    -   Ensure `set-option -g exit-empty on` is applied (default behavior, but explicit setting prevents regressions).\n\n3.  **Refine Socket Handling**:\n    -   If the agents use named sockets (`-S /tmp/tmux-agent-socket`), ensure the cleanup logic or the socket location allows for automatic removal, or verify that `destroy-unattached` handles the socket cleanup correctly.\n\n4.  **Example Modification**:\n    ```bash\n    # Before\n    tmux -S \"$SOCKET\" new-session -s \"$SESSION_NAME\" -d\n    \n    # After\n    tmux -S \"$SOCKET\" new-session -s \"$SESSION_NAME\" -d\n    tmux -S \"$SOCKET\" set-option -g destroy-unattached on\n    tmux -S \"$SOCKET\" set-option -g exit-empty on\n    ```\n\n5.  **Integration with AOC Lifecycle**:\n    -   Review interaction with `aoc-session-watch` (Task #22) to ensure these settings don't conflict with intended idle states, though agent panes usually should die if the UI is gone.",
@@ -695,7 +695,7 @@
         "updatedAt": "2026-01-17T17:52:39.738Z"
       },
       {
-        "id": "26",
+        "id": 26,
         "title": "Enhance Yazi with Status Bar Tips and Pane Resize on File Open",
         "description": "Add Zellij-style command tips to Yazi status bar and implement automatic pane expansion when opening files for better visibility.",
         "details": "This task improves the Yazi file manager UX within AOC by:\\n\\n1. **Status Bar Tips**: Added `init.lua` that displays command hints at the bottom of the Yazi status bar (matching Zellij's status bar style with Catppuccin colors).\\n2. **Pane Resize Plugin**: Created `aoc-open.yazi` plugin that expands the Yazi pane to ~40% when opening a file, allowing users to see the file content clearly while keeping other AOC panes visible.\\n3. **Theme Styling**: Added `theme.toml` with Catppuccin-inspired colors for file types.\\n4. **Keybindings**: Updated `keymap.toml` with Enter override for open+resize, and `e` for direct edit.\\n\\n### Files Created/Modified:\\n- `yazi/init.lua` - Status bar command tips\\n- `yazi/theme.toml` - File type colors\\n- `yazi/keymap.toml` - Updated keybindings\\n- `yazi/plugins/aoc-open.yazi/main.lua` - Resize on open plugin\\n- `install.sh` - Updated to install new files\\n- `README.md` - Documentation added",
@@ -707,7 +707,7 @@
         "updatedAt": "2026-01-17T18:00:00.000Z"
       },
       {
-        "id": "27",
+        "id": 27,
         "title": "Refactor Context System to .aoc/ and Universal Agent Injection",
         "description": "Migrate the project configuration directory from .gemini/ to .aoc/ and implement a standardized mechanism to inject project context into any AI agent session.",
         "details": "This task unifies the context management system, moving away from provider-specific naming (.gemini) to a generic project directory (.aoc). It also standardizes how context is loaded and injected.\n\n### Implementation Requirements\n\n1. **Directory Migration & Install Logic**:\n   - Update `install.sh` and `bin/` scripts to use `$HOME/.aoc` (or project-local `.aoc/`) instead of `.gemini/`.\n   - Implement a migration check: If `.gemini/` exists and `.aoc/` does not, move/rename it automatically.\n   - Update `.gitignore` to exclude `.aoc/`.\n\n2. **Context Structure Definition**:\n   - Standardize the `.aoc/` structure:\n     - `config.json`: Global settings (API keys references, preferred model).\n     - `system/`: System prompts.\n     - `project/`: Project-specific context files (architecture, patterns).\n\n3. **Universal Injection Utility**:\n   - Create or refactor a utility (e.g., `bin/aoc-context` or a Rust module `src/context.rs`) that aggregates files from `.aoc/project/` and `.aoc/system/` into a single context payload.\n   - Ensure this payload can be piped into different agent backends (Gemini, local LLMs, etc.).\n\n4. **Taskmaster Integration**:\n   - Update `plugins/taskmaster/src/state.rs` or `model.rs` to read configuration and context paths from the new `.aoc/` location.\n   - Ensure the 'Assign to Agent' feature (Task 17) pulls the correct system prompt from this new location.",
@@ -722,16 +722,105 @@
         "priority": "high",
         "subtasks": [],
         "updatedAt": "2026-01-17T19:53:49.855Z"
+      },
+      {
+        "id": 28,
+        "title": "Implement RLM (Recursive Language Model) Skill for AOC",
+        "description": "Create a new RLM skill module that enables recursive task decomposition and execution using LLM interactions within the Agent Ops Cockpit.",
+        "details": "This task focuses on integrating a Recursive Language Model (RLM) capability into the AOC backend. This skill allows the system to take a high-level goal, break it down into sub-tasks using an LLM, and recursively execute or refine those sub-tasks.\n\n### Implementation Requirements\n\n1.  **Create Skill Module (`src/skills/rlm.rs`)**:\n    -   Define an `RlmSkill` struct implementing the `Skill` trait (if one exists, otherwise define a standard interface with `execute` and `help` methods).\n    -   Implement the `execute` method to accept a prompt/goal string.\n\n2.  **LLM Integration**:\n    -   Integrate with an LLM provider (e.g., via `reqwest` to OpenAI API or a local endpoint like Ollama). Use environment variables for API keys/endpoints.\n    -   Design a system prompt that instructs the LLM to output a JSON structure representing the breakdown of the task (e.g., `[{ \"step\": 1, \"description\": \"...\" }, ...]`).\n\n3.  **Recursive Logic**:\n    -   Implement the logic to parse the LLM's response.\n    -   For each sub-task identified, create a new `Task` entry in the system (leveraging the existing Task model).\n    -   If a sub-task is complex (based on complexity heuristics or LLM flagging), recursively call the RLM logic on that specific sub-task (up to a defined `MAX_DEPTH`).\n\n4.  **Integration with Taskmaster**:\n    -   Ensure generated tasks are persisted to `tasks.json` so they appear in the UI.\n    -   Add a command or keybinding (e.g., in `plugins/taskmaster`) to trigger this skill on the currently selected task.",
+        "testStrategy": "1. **Mocked LLM Test**: Create a unit test for `RlmSkill` using a mocked HTTP client. Verify that a sample JSON response from the 'LLM' is correctly parsed into a list of `Task` objects.\n2. **Recursion Depth Test**: Verify that the recursion logic respects the `MAX_DEPTH` constant to prevent infinite loops.\n3. **End-to-End Flow**: Trigger the RLM skill on a generic task like 'Plan a party' via the UI/CLI. Check `tasks.json` to ensure valid subtasks (e.g., 'Buy food', 'Invite guests') are created and linked to the parent task.",
+        "status": "cancelled",
+        "dependencies": [
+          "18",
+          "19",
+          "15"
+        ],
+        "priority": "high",
+        "subtasks": [],
+        "updatedAt": "2026-01-17T20:24:33.386Z"
+      },
+      {
+        "id": 29,
+        "title": "Implement RLM CLI Tool and Protocol (bin/aoc-rlm)",
+        "description": "Develop the standalone `aoc-rlm` binary for recursive task decomposition, update initialization templates, and document the IPC protocol.",
+        "details": "This task creates the external executable responsible for the heavy lifting of the Recursive Language Model (RLM) skill. \n\n### Implementation Requirements\n\n1. **Create `bin/aoc-rlm`**:\n   - Initialize a new Rust binary crate within the workspace.\n   - Implement argument parsing using `clap` (arguments: `--goal`, `--context`, `--depth`, `--model`).\n   - **LLM Client**: Implement `src/llm.rs` using `reqwest` to interface with OpenAI/Anthropic APIs. It must handle prompt construction for recursive decomposition.\n   - **Recursion Logic**: Implement `src/engine.rs` to process the goal, receive LLM response, parsing the JSON list of steps. If current depth < max depth, recursively process complex steps.\n\n2. **Protocol Definition**:\n   - Create `docs/RLM_PROTOCOL.md` defining the JSON schema for Input (Goal/Context) and Output (Task Tree).\n   - Output format must align with the `Task` struct structure used in `plugins/taskmaster` (Task 15).\n\n3. **Update `aoc-init`**:\n   - Modify `bin/aoc-init` (or relevant init script) to generate a default `.aoc-rlm-config.toml` in new projects, specifying default models and depth limits.",
+        "testStrategy": "1. **CLI Mock Test**: Run `cargo run --bin aoc-rlm -- --goal 'Test' --dry-run` to verify argument parsing and configuration loading without hitting the LLM.\n2. **Protocol Compliance**: Feed a sample JSON input to the binary and validate that the output JSON strictly matches the schema required by the Taskmaster plugin (Task 15).\n3. **Recursion Limit Test**: configure max depth to 1, provide a complex goal, and ensure the output contains flat steps without further nested recursion.",
+        "status": "done",
+        "dependencies": [
+          "28",
+          "15",
+          "18"
+        ],
+        "priority": "high",
+        "subtasks": [],
+        "updatedAt": "2026-01-17T20:23:36.342Z"
+      },
+      {
+        "id": 30,
+        "title": "Implement Reactive Context Watcher Service",
+        "description": "Create a background service that monitors file system changes and automatically regenerates `context.md` to ensure the AI agent always possesses up-to-date project context.",
+        "details": "This task involves creating a new binary or extending an existing one to watch for file changes in the project root and update a centralized context file. \n\n### Implementation Requirements\n\n1. **Service Architecture**:\n   - Implement as a subcommand in `aoc-session-watch` or a new binary `bin/aoc-context-watcher`.\n   - Use the `notify` crate for cross-platform file system monitoring.\n   - **Configuration**: Support a `.contextignore` file (or respect `.gitignore`) to prevent irrelevant updates (e.g., `target/`, `.git/`, `node_modules/`).\n\n2. **Context Generation Logic**:\n   - Create a module `src/context_gen.rs`.\n   - Implement `generate_context_file(root: &Path, output: &Path)`.\n   - This function should traverse the project, collect file structures (using `walkdir`), and aggregate specific file contents (e.g., `README.md`, `src/main.rs`, `Cargo.toml`).\n   - **Debouncing**: Implement a debounce mechanism (e.g., 500ms-2s) to prevent thrashing during rapid file edits (using `tokio::time` or a dedicated debounce channel).\n\n3. **Integration**:\n   - Ensure the service runs in the background, perhaps managed by the same process lifecycle as `aoc-session-watch`.\n   - Write the output to a designated location like `.aoc/context.md` or root `context.md`.\n\n4. **Performance Optimization**:\n   - Limit the size of included files (e.g., skip files > 100KB).\n   - Only rebuild the sections that changed if possible, or do a full rebuild if simplicity is preferred for V1.",
+        "testStrategy": "1. **Watcher Test**: Run the service, modify a monitored file (e.g., `src/main.rs`), and verify that the `context.md` file's modification timestamp updates within the debounce window.\n2. **Content Verification**: Add a dummy file `test_context_gen.txt`, wait for update, and grep `context.md` to ensure the new file's content is present.\n3. **Ignore Logic**: Modify a file in `target/` and verify `context.md` is NOT updated.\n4. **Debounce Check**: Save a file 5 times in 1 second; verify `context.md` is updated only once at the end.",
+        "status": "pending",
+        "dependencies": [
+          23
+        ],
+        "priority": "high",
+        "subtasks": []
+      },
+      {
+        "id": 31,
+        "title": "Refactor Agent Attribution to Support Multi-Agent Identification",
+        "description": "Replace the binary attribution flag in the Task model with an optional Agent ID to distinguish between specific agents and user actions.",
+        "details": "The current `Task` model uses a boolean (likely `is_agent`) to denote automated tasks, limiting the system to a single implied agent source. This refactor introduces precise attribution.\n\n### Implementation Requirements\n\n1. **Model Refactor (`plugins/taskmaster/src/model.rs`)**:\n   - Update the `Task` struct definition.\n   - Replace the `is_agent` boolean field with `agent_id: Option<String>` (or a custom `AgentId` type).\n   - Implement `serde` attributes or a custom deserializer to ensure backward compatibility: `is_agent: true` in existing JSON should map to `agent_id: Some(\"generic_agent\".into())`.\n\n2. **UI Enhancements (`plugins/taskmaster/src/ui.rs`)**:\n   - Update the render loop to check `agent_id.is_some()` for automated task styling.\n   - Display the specific Agent ID (e.g., \"RLM\", \"Planner\") in the task detail view or as a badge in the list view if space permits.\n\n3. **Integration**:\n   - Ensure `src/state.rs` preserves this new field during task updates.\n   - Update any internal task creation logic to allow passing an Agent ID.",
+        "testStrategy": "1. **Migration Unit Test**: Create a test case with a JSON string matching the old schema (`{\"is_agent\": true}`) and assert it deserializes into `agent_id: Some(...)`.\n2. **Round-Trip Test**: Verify that saving and loading the new structure preserves the specific Agent ID strings.\n3. **Visual Verification**: Manually inject a task with `agent_id: \"RLM\"` into the data file and verify the UI distinguishes it from user tasks.",
+        "status": "pending",
+        "dependencies": [
+          11
+        ],
+        "priority": "medium",
+        "subtasks": []
+      },
+      {
+        "id": 32,
+        "title": "Implement aoc-doctor Version Validation",
+        "description": "Enhance the aoc-doctor utility to validate installed tool versions against defined requirements, reporting mismatches or missing dependencies.",
+        "details": "This task focuses on implementing the core logic for `aoc-doctor` to parse a requirements file (e.g., `.tool-versions` or a section in `package.json`/`Cargo.toml`) and compare current system versions against these constraints.\n\n### Implementation Requirements\n\n1.  **Define Requirements Schema**:\n    -   Create a struct `ToolRequirement` with fields: `name` (String), `command` (String), `version_args` (Vec<String>), `version_regex` (String), and `required_version` (String/SemVer).\n    -   Decide on a configuration source (embedded default list + optional `aoc-tools.json` in project root).\n\n2.  **Implement Version Extraction**:\n    -   Create a function `get_tool_version(cmd: &str, args: &[&str]) -> Result<String>` using `std::process::Command`.\n    -   Implement regex matching to extract clean version numbers from output strings (e.g., capturing `1.70.0` from `cargo 1.70.0 (ec8...`).\n\n3.  **Implement SemVer Comparison**:\n    -   Utilize the `semver` crate to parse both the extracted version and the required version string.\n    -   Implement logic to determine if the installed version satisfies the requirement (e.g., `>=`).\n\n4.  **CLI Output Formatting**:\n    -   Update `bin/aoc-doctor` to output a checklist.\n    -   Use green checkmarks for pass, red crosses for fail/missing.\n    -   Example output: `[✓] cargo (1.75.0 >= 1.70.0)`.\n\n### targeted Tools\n-   `cargo`, `node`, `npm`, `zellij`.",
+        "testStrategy": "1. **Mock Command Test**: Create unit tests that mock `Command` output to simulate various version strings (standard, non-standard, missing command) and verify the regex extraction logic.\n2. **SemVer Logic Test**: specific unit tests for the comparison logic (e.g., ensure 1.2.0 fails if requirement is >=1.3.0).\n3. **Integration Run**: Run `aoc-doctor` locally and verify it correctly identifies the versions of Cargo and Node installed on the dev machine.",
+        "status": "pending",
+        "dependencies": [
+          18,
+          30
+        ],
+        "priority": "medium",
+        "subtasks": []
+      },
+      {
+        "id": 33,
+        "title": "Implement Live Context Handshake for Long-Running Sessions",
+        "description": "Develop a mechanism to detect context staleness in active agent sessions and implement a re-handshake protocol to inject updated context without restarting the session.",
+        "details": "This task addresses the architectural gap where long-running agent sessions rely on context loaded at startup, leading to hallucinations or errors when the underlying project state changes. \n\n### Implementation Requirements\n\n1. **Context Hash/Version Tracking**:\n   - Enhance `aoc-context-watcher` (Task #30) to maintain a hash or timestamp of the aggregated `context.md`.\n   - Expose this version identifier via a lightweight local endpoint or file (e.g., `.aoc/context.version`).\n\n2. **Staleness Detection Middleware**:\n   - In the agent interaction loop (likely within `aoc-client` or the main session handler), check the current context version before every Nth prompt or after a set time interval.\n   - Compare the session's loaded context version with the live version from the file system.\n\n3. **Re-Handshake Protocol**:\n   - If staleness is detected, trigger a 'Soft Reset' or 'Context Refresh' flow.\n   - Construct a system prompt injection: \"[SYSTEM NOTICE: Project Context Updated. Discard previous file state assumptions. New context loaded below.]\".\n   - Append the new content of `.aoc/context.md` to the conversation history or replace the system prompt if the LLM provider API supports it (e.g., updating the system message in the chat array).\n\n4. **Configuration**:\n   - Add `auto_refresh_context: boolean` to the agent configuration.\n   - Add `refresh_interval_seconds: number` to control check frequency.",
+        "testStrategy": "1. **Staleness Trigger Test**: Start a mock long-running session. Modify a file in the project. assert that the next agent interaction triggers a context reload log/event.\n2. **Injection Verification**: Inspect the conversation logs to ensure the updated context text is actually sent to the LLM in the subsequent request.\n3. **Stability Test**: Ensure the re-handshake doesn't confuse the agent or wipe out the conversation memory (history of *actions* should remain, only *project state* knowledge updates).",
+        "status": "pending",
+        "dependencies": [
+          27,
+          30
+        ],
+        "priority": "low",
+        "subtasks": []
       }
     ],
     "metadata": {
       "version": "1.0.0",
-      "lastModified": "2026-01-17T19:53:49.857Z",
-      "taskCount": 27,
-      "completedCount": 27,
+      "lastModified": "2026-01-17T20:24:33.387Z",
+      "taskCount": 29,
+      "completedCount": 28,
       "tags": [
         "master"
-      ]
+      ],
+      "created": "2026-01-17T20:41:56.626Z",
+      "description": "Tasks for master context",
+      "updated": "2026-01-17T20:43:16.009Z"
     }
   }
 }

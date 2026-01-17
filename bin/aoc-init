@@ -99,6 +99,21 @@ EOF
     log "Creating .cursorrules symlink..."
     ln -s ".aoc/context.md" "$project_root/.cursorrules"
   fi
+
+  # Update context with RLM Protocol if aoc-rlm is available
+  if command -v aoc-rlm >/dev/null 2>&1 || [[ -x "$project_root/bin/aoc-rlm" ]]; then
+    log "Adding RLM Protocol to context..."
+    cat <<EOF >> "$context_file"
+
+## 7. RLM Skill (Large Codebase Analysis)
+When you need to analyze more files than fit in your context:
+1. **Scan:** Run \`aoc-rlm scan\` to see the scale of the codebase.
+2. **Peek:** Run \`aoc-rlm peek "search_term"\` to find relevant snippets and file paths.
+3. **Slice:** Run \`aoc-rlm chunk --pattern "src/relevant/*.rs"\` to get JSON chunks.
+4. **Process:** Use your available sub-agent tools (like \`Task\`) to process chunks in parallel.
+5. **Reduce:** Synthesize the sub-agent outputs into a final answer.
+EOF
+  fi
 }
 
 # 2. Setup Taskmaster (.taskmaster/)
