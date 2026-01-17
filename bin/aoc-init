@@ -8,6 +8,7 @@ set -euo pipefail
 # It is IDEMPOTENT: safe to run multiple times. It respects existing data.
 
 project_root="${1:-$PWD}"
+aoc_dir="$project_root/.aoc"
 gemini_dir="$project_root/.gemini"
 task_dir="$project_root/.taskmaster"
 global_task_conf="$HOME/.taskmaster/config.json"
@@ -15,15 +16,24 @@ global_task_conf="$HOME/.taskmaster/config.json"
 log() { echo ">> $1"; }
 warn() { echo "!! $1"; }
 
-# 1. Setup Context & Memory (.gemini/)
+# 1. Setup Context & Memory (.aoc/)
 setup_memory() {
-  if [[ ! -d "$gemini_dir" ]]; then
-    log "Creating .gemini/ directory..."
-    mkdir -p "$gemini_dir"
+  # Migration Logic
+  if [[ -d "$gemini_dir" && ! -d "$aoc_dir" ]]; then
+    log "Migrating .gemini/ to .aoc/..."
+    mv "$gemini_dir" "$aoc_dir"
+    if [[ -f "$aoc_dir/GEMINI.md" ]]; then
+      mv "$aoc_dir/GEMINI.md" "$aoc_dir/context.md"
+    fi
+  fi
+
+  if [[ ! -d "$aoc_dir" ]]; then
+    log "Creating .aoc/ directory..."
+    mkdir -p "$aoc_dir"
   fi
 
   # Memory File
-  local mem_file="$gemini_dir/memory.md"
+  local mem_file="$aoc_dir/memory.md"
   if [[ ! -f "$mem_file" ]]; then
     log "Initializing empty memory ($mem_file)..."
     cat <<EOF > "$mem_file"
@@ -37,8 +47,8 @@ EOF
     log "Memory file exists ($mem_file). Skipping."
   fi
 
-  # Context Generation (GEMINI.md)
-  local context_file="$gemini_dir/GEMINI.md"
+  # Context Generation (context.md)
+  local context_file="$aoc_dir/context.md"
   log "Generating/Updating Context ($context_file)..."
   
   # Start with header
@@ -50,7 +60,7 @@ This machine uses the **Agent Ops Cockpit (AOC)** system. All agents (Gemini, Cl
 
 ## 1. Project Structure
 \`\`\`
-$(tree -L 2 --gitignore -I '.git|.taskmaster|.gemini|node_modules|target|dist|archive|deprecated' "$project_root" || echo "tree command not found")
+$(tree -L 2 --gitignore -I '.git|.taskmaster|.aoc|.gemini|node_modules|target|dist|archive|deprecated' "$project_root" || echo "tree command not found")
 \`\`\`
 
 ## 2. Long-Term Memory (\`aoc-mem\`)
@@ -82,6 +92,12 @@ EOF
     echo "\`\`\`" >> "$context_file"
     echo "$tags_output" >> "$context_file"
     echo "\`\`\`" >> "$context_file"
+  fi
+
+  # Setup .cursorrules symlink for universal agent awareness
+  if [[ ! -L "$project_root/.cursorrules" ]]; then
+    log "Creating .cursorrules symlink..."
+    ln -s ".aoc/context.md" "$project_root/.cursorrules"
   fi
 }
 

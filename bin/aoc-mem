@@ -3,12 +3,24 @@ set -euo pipefail
 
 # Project-local memory storage
 # Can be overridden by AOC_MEMORY_FILE
-mem_dir="${AOC_PROJECT_ROOT:-$PWD}/.gemini"
-mem_file="${AOC_MEMORY_FILE:-$mem_dir/memory.md}"
+aoc_dir="${AOC_PROJECT_ROOT:-$PWD}/.aoc"
+gemini_dir="${AOC_PROJECT_ROOT:-$PWD}/.gemini"
+mem_file="${AOC_MEMORY_FILE:-}"
+
+if [[ -z "$mem_file" ]]; then
+  if [[ -d "$aoc_dir" ]]; then
+    mem_file="$aoc_dir/memory.md"
+  elif [[ -d "$gemini_dir" ]]; then
+    mem_file="$gemini_dir/memory.md"
+  else
+    mem_file="$aoc_dir/memory.md"
+  fi
+fi
 
 setup() {
-  if [[ ! -d "$mem_dir" ]]; then
-    mkdir -p "$mem_dir"
+  local target_dir="$(dirname "$mem_file")"
+  if [[ ! -d "$target_dir" ]]; then
+    mkdir -p "$target_dir"
   fi
   if [[ ! -f "$mem_file" ]]; then
     cat <<EOF > "$mem_file"

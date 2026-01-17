@@ -80,13 +80,75 @@ if ! command -v "$real_bin" >/dev/null 2>&1; then
   exit 0
 fi
 
+# --- Context Injection (Handshake) ---
+
+construct_handshake() {
+  local aoc_dir=".aoc"
+  if [[ ! -d "$aoc_dir" ]]; then
+    aoc_dir=".gemini"
+  fi
+
+  if [[ ! -d "$aoc_dir" ]]; then
+    return
+  fi
+
+  echo "──────────────────────────────────────────────────────────────────────────────"
+  echo "🚀 AOC SYSTEM HANDSHAKE (Agent Orientation)"
+  echo "──────────────────────────────────────────────────────────────────────────────"
+  echo
+  echo "You are running in an Agent Ops Cockpit (AOC) managed environment."
+  echo "This terminal history contains your initial project orientation."
+  echo
+  echo "📂 PROJECT CONTEXT ($aoc_dir/context.md):"
+  if [[ -f "$aoc_dir/context.md" ]]; then
+    head -n 50 "$aoc_dir/context.md"
+    echo "... [see file for full content]"
+  elif [[ -f "$aoc_dir/GEMINI.md" ]]; then
+    head -n 50 "$aoc_dir/GEMINI.md"
+  fi
+  echo
+  echo "🧠 PROJECT MEMORY ($aoc_dir/memory.md):"
+  if [[ -f "$aoc_dir/memory.md" ]]; then
+    tail -n 20 "$aoc_dir/memory.md"
+  fi
+  echo
+  echo "📋 ACTIVE TASKS (.taskmaster/):"
+  if command -v task-master >/dev/null 2>&1; then
+    task-master list --tag "${AOC_TAG:-master}" 2>/dev/null | head -n 20 || echo "No active tasks."
+  fi
+  echo
+  echo "💡 OPERATIONAL DIRECTIVE:"
+  echo "1. The file '$aoc_dir/memory.md' is the LIVE source of truth for architectural decisions."
+  echo "2. Use 'aoc-mem add \"fact\"' to record new decisions."
+  echo "3. Use 'task-master' tools to track your progress."
+  echo "4. Read the files explicitly if you need updated context."
+  echo
+  echo "──────────────────────────────────────────────────────────────────────────────"
+  echo "Starting $agent_label CLI..."
+  echo "──────────────────────────────────────────────────────────────────────────────"
+  sleep 1
+}
+
+# We'll use a temporary script to handle the handshake and exec to avoid complex quoting in tmux
+bootloader="$(mktemp /tmp/aoc-bootloader-XXXXXX.sh)"
+chmod +x "$bootloader"
+{
+  echo "#!/usr/bin/env bash"
+  echo "construct_handshake() {"
+  declare -f construct_handshake | tail -n +2
+  echo "}"
+  echo "construct_handshake"
+  echo "rm -f \"\$0\"" # Self-destruct
+  echo "exec \"$real_bin\" \"\$@\""
+} > "$bootloader"
+
 if [[ "${AOC_NO_TMUX:-0}" == "1" ]]; then
-  exec "$real_bin" "$@"
+  exec "$bootloader" "$@"
 fi
 
 if ! command -v tmux >/dev/null 2>&1; then
-  echo "aoc-$agent_id: tmux not found; running $agent_bin without tmux wrapper." >&2
-  exec "$real_bin" "$@"
+  echo "aoc-$agent_id: tmux not found; running $agent_bin with handshake but no tmux wrapper." >&2
+  exec "$bootloader" "$@"
 fi
 
 conf="${AOC_AGENT_TMUX_CONF:-${XDG_CONFIG_HOME:-$HOME/.config}/aoc/codex-tmux.conf}"
@@ -94,7 +156,7 @@ socket="aoc-${agent_id}-${ZELLIJ_PANE_ID:-$$}"
 session="$agent_id"
 
 if [[ -f "$conf" ]]; then
-  exec tmux -L "$socket" -f "$conf" new-session -A -s "$session" "$real_bin" "$@"
+  exec tmux -L "$socket" -f "$conf" new-session -A -s "$session" "$bootloader" "$@"
 fi
 
-exec tmux -L "$socket" new-session -A -s "$session" "$real_bin" "$@"
+exec tmux -L "$socket" new-session -A -s "$session" "$bootloader" "$@"

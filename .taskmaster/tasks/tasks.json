@@ -705,13 +705,30 @@
         "priority": "medium",
         "subtasks": [],
         "updatedAt": "2026-01-17T18:00:00.000Z"
+      },
+      {
+        "id": "27",
+        "title": "Refactor Context System to .aoc/ and Universal Agent Injection",
+        "description": "Migrate the project configuration directory from .gemini/ to .aoc/ and implement a standardized mechanism to inject project context into any AI agent session.",
+        "details": "This task unifies the context management system, moving away from provider-specific naming (.gemini) to a generic project directory (.aoc). It also standardizes how context is loaded and injected.\n\n### Implementation Requirements\n\n1. **Directory Migration & Install Logic**:\n   - Update `install.sh` and `bin/` scripts to use `$HOME/.aoc` (or project-local `.aoc/`) instead of `.gemini/`.\n   - Implement a migration check: If `.gemini/` exists and `.aoc/` does not, move/rename it automatically.\n   - Update `.gitignore` to exclude `.aoc/`.\n\n2. **Context Structure Definition**:\n   - Standardize the `.aoc/` structure:\n     - `config.json`: Global settings (API keys references, preferred model).\n     - `system/`: System prompts.\n     - `project/`: Project-specific context files (architecture, patterns).\n\n3. **Universal Injection Utility**:\n   - Create or refactor a utility (e.g., `bin/aoc-context` or a Rust module `src/context.rs`) that aggregates files from `.aoc/project/` and `.aoc/system/` into a single context payload.\n   - Ensure this payload can be piped into different agent backends (Gemini, local LLMs, etc.).\n\n4. **Taskmaster Integration**:\n   - Update `plugins/taskmaster/src/state.rs` or `model.rs` to read configuration and context paths from the new `.aoc/` location.\n   - Ensure the 'Assign to Agent' feature (Task 17) pulls the correct system prompt from this new location.",
+        "testStrategy": "1. **Migration Verification**: Create a dummy `.gemini` folder, run the updated setup/install script, and verify it is renamed to `.aoc`.\n2. **Context Aggregation**: Populate `.aoc/project/` with two Markdown files. Run the injection utility and verify the output contains the text from both files.\n3. **Plugin Integration**: Launch the Taskmaster plugin. Verify it starts without errors (locating the new config) and that agent actions successfully retrieve the context.",
+        "status": "done",
+        "dependencies": [
+          "6",
+          "11",
+          "17",
+          "18"
+        ],
+        "priority": "high",
+        "subtasks": [],
+        "updatedAt": "2026-01-17T19:53:49.855Z"
       }
     ],
     "metadata": {
       "version": "1.0.0",
-      "lastModified": "2026-01-17T17:52:39.738Z",
-      "taskCount": 26,
-      "completedCount": 26,
+      "lastModified": "2026-01-17T19:53:49.857Z",
+      "taskCount": 27,
+      "completedCount": 27,
       "tags": [
         "master"
       ]

@@ -100,13 +100,13 @@ AOC is not just a layout; it is a **Distributed Cognitive Architecture** for AI-
 
 ### The Stack
 
-1.  **Project Context (`.gemini/GEMINI.md`)**
+1.  **Project Context (`.aoc/context.md`)**
     *   **Role:** The "Project Map."
     *   **Content:** Auto-generated snapshot of the file tree and `README`.
     *   **Tool:** `aoc-init` (re-generates this).
     *   **Philosophy:** Ephemeral. Agents read this to orient themselves.
 
-2.  **Long-Term Memory (`.gemini/memory.md`)**
+2.  **Long-Term Memory (`.aoc/memory.md`)**
     *   **Role:** The "Logbook."
     *   **Content:** Persistent architectural decisions, user preferences, and evolution history.
     *   **Tool:** `aoc-mem` (append-only logging).
@@ -120,8 +120,8 @@ AOC is not just a layout; it is a **Distributed Cognitive Architecture** for AI-
 
 ### Onboarding a Project (`aoc-init`)
 The `aoc-init` command is the universal entry point. It "standardizes" any directory by:
-1.  Creating the `.gemini/` structure.
-2.  Auto-generating the `GEMINI.md` context.
+1.  Creating the `.aoc/` structure.
+2.  Auto-generating the `context.md` context.
 3.  Initializing Taskmaster and seeding it with your global preferences (`~/.taskmaster/config.json`).
 
 ## Launch

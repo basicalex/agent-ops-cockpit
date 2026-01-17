@@ -40,9 +40,9 @@ A Rust-based WASM plugin for Zellij that provides an interactive task list.
 A Python-based utility for rendering the clock and weather information.
 *   **Scripts:** `script/*.py` handle the logic.
 
-### 5. Memory System (`.gemini/memory.md`)
+### 5. Memory System (`.aoc/memory.md`)
 A lightweight, markdown-based long-term memory for agents, stored directly in the project.
-*   **Location:** `.gemini/memory.md` (project-local).
+*   **Location:** `.aoc/memory.md` (project-local).
 *   **Tool:** `bin/aoc-mem` manages this file.
 *   **Agent Instruction:**
     *   **READ** this memory at the start of a task to understand past decisions and user preferences.

@@ -5,15 +5,18 @@ This machine uses the **Agent Ops Cockpit (AOC)** system. All agents (Gemini, Cl
 
 ## 1. Project Structure
 ```
-/home/ceii/dev/agent-ops-cockpit
+.
 ├── AGENTS.md
 ├── aoc1.png
+├── AOC.md
 ├── bin
 │   ├── aoc
 │   ├── aoc-agent
 │   ├── aoc-agent-run
 │   ├── aoc-agent-wrap
+│   ├── aoc-align
 │   ├── aoc-cc
+│   ├── aoc-cleanup
 │   ├── aoc-clock
 │   ├── aoc-clock-geo
 │   ├── aoc-clock-set
@@ -29,6 +32,7 @@ This machine uses the **Agent Ops Cockpit (AOC)** system. All agents (Gemini, Cl
 │   ├── aoc-preview
 │   ├── aoc-preview-set
 │   ├── aoc-preview-toggle
+│   ├── aoc-session-watch
 │   ├── aoc-star
 │   ├── aoc-sys
 │   ├── aoc-taskmaster
@@ -40,7 +44,9 @@ This machine uses the **Agent Ops Cockpit (AOC)** system. All agents (Gemini, Cl
 │   ├── claude
 │   ├── codex
 │   ├── gemini
-│   └── opencode
+│   ├── micro
+│   ├── opencode
+│   └── tm-editor
 ├── CHANGELOG.md
 ├── ClockTemp
 │   ├── assets
@@ -51,7 +57,6 @@ This machine uses the **Agent Ops Cockpit (AOC)** system. All agents (Gemini, Cl
 ├── config
 │   ├── btop.conf
 │   └── codex-tmux.conf
-├── GEMINI.md
 ├── install.sh
 ├── plugins
 │   └── taskmaster
@@ -61,16 +66,18 @@ This machine uses the **Agent Ops Cockpit (AOC)** system. All agents (Gemini, Cl
 │   ├── build-taskmaster-plugin.sh
 │   └── lint.sh
 ├── yazi
+│   ├── init.lua
 │   ├── keymap.toml
 │   ├── plugins
 │   ├── preview.sh
+│   ├── theme.toml
 │   └── yazi.toml
 ├── zellij
 │   ├── aoc.config.kdl
 │   └── layouts
 └── zellij_taskmaster_terminal_block.png
 
-13 directories, 51 files
+13 directories, 58 files
 ```
 
 ## 2. Long-Term Memory (`aoc-mem`)
@@ -100,6 +107,7 @@ A lightweight, terminal-first "agent cockpit" layout for coding sessions:
 
 - zellij >= 0.43.1
 - yazi (recommended via cargo)
+- micro (modern terminal editor, installed automatically via bin/)
 - fzf
 - tmux (optional, for Codex scrollback in Zellij)
 - chafa
@@ -187,13 +195,13 @@ AOC is not just a layout; it is a **Distributed Cognitive Architecture** for AI-
 
 ### The Stack
 
-1.  **Project Context (`.gemini/GEMINI.md`)**
+1.  **Project Context (`.aoc/context.md`)**
     *   **Role:** The "Project Map."
     *   **Content:** Auto-generated snapshot of the file tree and `README`.
     *   **Tool:** `aoc-init` (re-generates this).
     *   **Philosophy:** Ephemeral. Agents read this to orient themselves.
 
-2.  **Long-Term Memory (`.gemini/memory.md`)**
+2.  **Long-Term Memory (`.aoc/memory.md`)**
     *   **Role:** The "Logbook."
     *   **Content:** Persistent architectural decisions, user preferences, and evolution history.
     *   **Tool:** `aoc-mem` (append-only logging).
@@ -207,8 +215,8 @@ AOC is not just a layout; it is a **Distributed Cognitive Architecture** for AI-
 
 ### Onboarding a Project (`aoc-init`)
 The `aoc-init` command is the universal entry point. It "standardizes" any directory by:
-1.  Creating the `.gemini/` structure.
-2.  Auto-generating the `GEMINI.md` context.
+1.  Creating the `.aoc/` structure.
+2.  Auto-generating the `context.md` context.
 3.  Initializing Taskmaster and seeding it with your global preferences (`~/.taskmaster/config.json`).
 
 ## Launch
@@ -273,12 +281,51 @@ You can also set defaults via env vars: `AOC_WIDGET_SYMBOLS`, `AOC_WIDGET_COLORS
 
 Media is rendered as ASCII via chafa (videos animated).
 
-In Yazi:
-- `y` set the widget media path to the selected file.
-- `p` send selected file to the floating preview pane.
-- `P` toggle the floating preview pane.
-- `Ctrl+p` toggle Yazi's built-in preview split.
-- `S` star the selected directory (or file's parent).
+## Yazi File Manager
+
+The Yazi pane displays command tips in the status bar (similar to Zellij's status bar).
+
+### Yazi Keybindings
+
+| Key | Action |
+|-----|--------|
+| `Enter` | Open file/directory + expand pane for better visibility |
+| `e` | Edit file with `$EDITOR` |
+| `q` | Quit Yazi |
+| `y` | Set widget media path to selected file |
+| `p` | Send selected file to floating preview pane |
+| `P` | Toggle floating preview pane |
+| `Ctrl+p` | Toggle Yazi's built-in preview split |
+| `S` | Star the selected directory (or file's parent) |
+| `Esc` | Cancel/escape current action |
+
+### Editing Files
+
+By default, AOC uses **`micro`**, a modern terminal editor that feels like a standard GUI editor (supports mouse selection and common shortcuts).
+
+When you press `Enter` on a file in Yazi, the pane expands for better visibility.
+
+**Micro Shortcuts:**
+- **Save:** `Ctrl+s`
+- **Quit:** `Ctrl+q`
+- **Copy:** `Ctrl+c`
+- **Paste:** `Ctrl+v`
+- **Undo:** `Ctrl+z`
+
+**Alternative Editors:**
+If you prefer a different editor, you can change the `EDITOR` variable in your `~/.bashrc`. However, AOC enforces `micro` in some panes (like Taskmaster and Yazi) via the Zellij layout to ensure a consistent developer experience for beginners.
+
+### Yazi Configuration Files
+
+| File | Purpose |
+|------|---------|
+| `yazi/yazi.toml` | Main config (compact view, hidden files, sorting) |
+| `yazi/keymap.toml` | Custom keybindings for AOC integration |
+| `yazi/theme.toml` | Catppuccin-inspired colors for file types |
+| `yazi/init.lua` | Status bar command tips |
+| `yazi/preview.sh` | Rich file previews (images, PDFs, LaTeX) |
+| `yazi/plugins/aoc-open.yazi/` | Open + resize pane plugin |
+| `yazi/plugins/aoc-preview-toggle.yazi/` | Toggle preview layout |
 
 ## Notes
 - The layout expects `codex` (or your selected agent) to be in PATH.
@@ -400,9 +447,9 @@ If you are an AI agent reading this repo to set it up for a user:
 [INFO] Listing available tags
 [INFO] Using file storage for tags
 [SUCCESS] Found 1 tags
-[90m┌───────────────────────────────────────────────────────────────────────────────[39m[90m┬─────────────────[39m[90m┬─────────────────┐[39m
-[90m│[39m[31m Tag Name                                                                      [39m[90m│[39m[31m Tasks           [39m[90m│[39m[31m Completed       [39m[90m│[39m
-[90m├───────────────────────────────────────────────────────────────────────────────[39m[90m┼─────────────────[39m[90m┼─────────────────┤[39m
-[90m│[39m ● master (current)                                                            [90m│[39m 20              [90m│[39m 20              [90m│[39m
-[90m└───────────────────────────────────────────────────────────────────────────────[39m[90m┴─────────────────[39m[90m┴─────────────────┘[39m
+[90m┌────────────────────────────────────────────────────────────────────[39m[90m┬──────────────[39m[90m┬──────────────[39m[90m┬──────────────┐[39m
+[90m│[39m[31m Tag Name                                                           [39m[90m│[39m[31m Tasks        [39m[90m│[39m[31m Ready        [39m[90m│[39m[31m Done         [39m[90m│[39m
+[90m├────────────────────────────────────────────────────────────────────[39m[90m┼──────────────[39m[90m┼──────────────[39m[90m┼──────────────┤[39m
+[90m│[39m ● master (current)                                                 [90m│[39m 27           [90m│[39m 1            [90m│[39m 26           [90m│[39m
+[90m└────────────────────────────────────────────────────────────────────[39m[90m┴──────────────[39m[90m┴──────────────[39m[90m┴──────────────┘[39m
 ```

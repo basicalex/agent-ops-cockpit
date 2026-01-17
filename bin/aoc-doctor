@@ -181,7 +181,28 @@ done
 if [[ "$quiet" -eq 0 ]]; then
   echo "AOC Doctor"
   echo "=========="
-  echo "Required:"
+  
+  echo "Project Integrity:"
+  if [[ -d ".aoc" ]]; then
+    echo "  [ok] .aoc/ directory found"
+    if [[ -f ".aoc/context.md" ]]; then
+      echo "    [ok] context.md present"
+    else
+      echo "    [missing] context.md"
+    fi
+    if [[ -f ".aoc/memory.md" ]]; then
+      echo "    [ok] memory.md present"
+    else
+      echo "    [missing] memory.md"
+    fi
+  elif [[ -d ".gemini" ]]; then
+    echo "  [warn] .gemini/ found (legacy). Run 'aoc-init' to migrate to .aoc/"
+  else
+    echo "  [missing] .aoc/ directory. Run 'aoc-init' to initialize."
+  fi
+  echo
+
+  echo "Required Tools:"
   for tool in "${required[@]}"; do
     if have "$tool"; then
       echo "  [ok] $tool"

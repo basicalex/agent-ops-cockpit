@@ -26,3 +26,4 @@ Agents should read this to understand project history and append new decisions h
 - [2026-01-17 20:10] Switched default editor to `micro` to improve developer UX and prevent terminal glitching caused by Vim/Neovim modal confusion. Implemented enforcement via `EDITOR` in `.bashrc`, wrapper script `bin/tm-editor`, and explicit environment injection in Zellij layout (`aoc.kdl`).
 - [2026-01-17 20:30] Hardened `aoc-session-watch` with safety timeouts and consecutive idle requirements (3x) to prevent premature session termination during slow Zellij responses.
 - [2026-01-17 20:30] Updated `aoc-cleanup` with a protected whitelist for cockpit helper scripts and more specific agent process regex to prevent accidental termination of active session management components.
+- [2026-01-17 20:53] Refactored context system: migrated .gemini/ to .aoc/, implemented universal context handshake/injection in aoc-agent-wrap, and added .cursorrules symlink support.
