@@ -12,6 +12,7 @@ A lightweight, terminal-first "agent cockpit" layout for coding sessions:
 
 - zellij >= 0.43.1
 - yazi (recommended via cargo)
+- micro (modern terminal editor, installed automatically via bin/)
 - fzf
 - tmux (optional, for Codex scrollback in Zellij)
 - chafa
@@ -185,12 +186,51 @@ You can also set defaults via env vars: `AOC_WIDGET_SYMBOLS`, `AOC_WIDGET_COLORS
 
 Media is rendered as ASCII via chafa (videos animated).
 
-In Yazi:
-- `y` set the widget media path to the selected file.
-- `p` send selected file to the floating preview pane.
-- `P` toggle the floating preview pane.
-- `Ctrl+p` toggle Yazi's built-in preview split.
-- `S` star the selected directory (or file's parent).
+## Yazi File Manager
+
+The Yazi pane displays command tips in the status bar (similar to Zellij's status bar).
+
+### Yazi Keybindings
+
+| Key | Action |
+|-----|--------|
+| `Enter` | Open file/directory + expand pane for better visibility |
+| `e` | Edit file with `$EDITOR` |
+| `q` | Quit Yazi |
+| `y` | Set widget media path to selected file |
+| `p` | Send selected file to floating preview pane |
+| `P` | Toggle floating preview pane |
+| `Ctrl+p` | Toggle Yazi's built-in preview split |
+| `S` | Star the selected directory (or file's parent) |
+| `Esc` | Cancel/escape current action |
+
+### Editing Files
+
+By default, AOC uses **`micro`**, a modern terminal editor that feels like a standard GUI editor (supports mouse selection and common shortcuts).
+
+When you press `Enter` on a file in Yazi, the pane expands for better visibility.
+
+**Micro Shortcuts:**
+- **Save:** `Ctrl+s`
+- **Quit:** `Ctrl+q`
+- **Copy:** `Ctrl+c`
+- **Paste:** `Ctrl+v`
+- **Undo:** `Ctrl+z`
+
+**Alternative Editors:**
+If you prefer a different editor, you can change the `EDITOR` variable in your `~/.bashrc`. However, AOC enforces `micro` in some panes (like Taskmaster and Yazi) via the Zellij layout to ensure a consistent developer experience for beginners.
+
+### Yazi Configuration Files
+
+| File | Purpose |
+|------|---------|
+| `yazi/yazi.toml` | Main config (compact view, hidden files, sorting) |
+| `yazi/keymap.toml` | Custom keybindings for AOC integration |
+| `yazi/theme.toml` | Catppuccin-inspired colors for file types |
+| `yazi/init.lua` | Status bar command tips |
+| `yazi/preview.sh` | Rich file previews (images, PDFs, LaTeX) |
+| `yazi/plugins/aoc-open.yazi/` | Open + resize pane plugin |
+| `yazi/plugins/aoc-preview-toggle.yazi/` | Toggle preview layout |
 
 ## Notes
 - The layout expects `codex` (or your selected agent) to be in PATH.

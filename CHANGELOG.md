@@ -3,6 +3,8 @@
 ## [Unreleased]
 
 ### Added
+- **Developer Experience**: Switched default editor from Vim/Neovim to **`micro`** across the entire cockpit.
+- **Developer Experience**: Implemented a robust editor enforcement system using a wrapper script (`bin/tm-editor`) and environment variable injection in Zellij layouts.
 - **Taskmaster Plugin**: Interactive root path management. Press **Shift+C** to manually set or correct the project root within the plugin.
 - **Taskmaster Plugin**: New input bar UI for search and root path entry.
 - **Zellij Layouts**: Explicit project root propagation to Taskmaster plugin to bypass WASM environment isolation.

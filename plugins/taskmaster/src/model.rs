@@ -1,4 +1,4 @@
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
 use std::collections::BTreeMap;
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
@@ -13,8 +13,27 @@ pub struct TaskTag {
     pub tasks: Vec<Task>,
 }
 
+#[derive(Debug, Deserialize)]
+#[serde(untagged)]
+enum TaskId {
+    Number(u64),
+    Text(String),
+}
+
+fn deserialize_task_id<'de, D>(deserializer: D) -> Result<String, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let parsed = TaskId::deserialize(deserializer)?;
+    Ok(match parsed {
+        TaskId::Number(value) => value.to_string(),
+        TaskId::Text(value) => value,
+    })
+}
+
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct Task {
+    #[serde(deserialize_with = "deserialize_task_id")]
     pub id: String,
     pub title: String,
     #[serde(default)]

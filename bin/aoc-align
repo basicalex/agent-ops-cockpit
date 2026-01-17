@@ -1,6 +1,16 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+print_only=false
+if [[ "${1:-}" == "--print-root" ]]; then
+  print_only=true
+  shift
+fi
+
+if [[ -z "${ZELLIJ:-}" && -z "${ZELLIJ_SESSION_NAME:-}" ]]; then
+  exit 0
+fi
+
 state_dir="${XDG_STATE_HOME:-$HOME/.local/state}/aoc"
 
 # Discover root_tag from pane names in the current tab
@@ -26,34 +36,25 @@ discover_root_from_pane_names() {
 
 discover_root_from_pane_names
 
-STAR_FILE="${AOC_STAR_FILE:-$state_dir/starred_root}"
-mkdir -p "$(dirname "$STAR_FILE")"
-
-new_root="${1:-$PWD}"
-if [[ -f "$new_root" ]]; then
-  new_root="$(dirname "$new_root")"
-fi
-new_root="$(realpath "$new_root")"
-
-echo "Star new root and re-anchor panes?"
-echo "  $new_root"
-read -r -p "[y/N] " ans
-[[ "${ans,,}" == "y" ]] || exit 0
-
-echo "$new_root" > "$STAR_FILE"
-if [[ -n "${AOC_PROJECT_ROOT_FILE:-}" ]]; then
-  echo "$new_root" > "$AOC_PROJECT_ROOT_FILE"
+root=""
+if [[ -n "${AOC_STAR_FILE:-}" && -f "$AOC_STAR_FILE" ]]; then
+  root="$(cat "$AOC_STAR_FILE" 2>/dev/null || true)"
+elif [[ -n "${AOC_PROJECT_ROOT_FILE:-}" && -f "$AOC_PROJECT_ROOT_FILE" ]]; then
+  root="$(cat "$AOC_PROJECT_ROOT_FILE" 2>/dev/null || true)"
 fi
 
-pane_ids="$(zellij list-panes --format json | python3 - <<'PY'
-import json,sys
-data=json.load(sys.stdin)
-print("\n".join(str(p["id"]) for p in data))
-PY
-)"
+if [[ "${AOC_ALIGN_DEBUG:-}" == "1" ]]; then
+  echo "aoc-align root: ${root:-<empty>}" >&2
+fi
 
-for pid in $pane_ids; do
-  zellij action write-chars --pane-id "$pid" "cd \"${new_root}\" && clear\n"
-done
+if [[ "$print_only" == "true" ]]; then
+  printf '%s' "$root"
+  exit 0
+fi
 
-echo "Starred root set: $new_root"
+if [[ -z "$root" ]]; then
+  exit 0
+fi
+
+payload="cd \"${root}\" && clear"$'\n'
+zellij action write-chars "$payload" >/dev/null 2>&1 || true

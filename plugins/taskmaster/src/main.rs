@@ -33,18 +33,19 @@ impl ZellijPlugin for State {
             Event::Timer(_) => {
                 self.refresh();
                 set_timeout(self.refresh_secs);
-                true
+                self.take_render()
             }
             Event::Key(key) => {
                 if self.handle_key(key) {
-                    true 
+                    self.mark_dirty();
+                    self.take_render()
                 } else {
                     false
                 }
             },
             Event::RunCommandResult(_, stdout, stderr, context) => {
                 self.handle_command_result(stdout, stderr, context);
-                true
+                self.take_render()
             }
             Event::PermissionRequestResult(status) => {
                 match status {
@@ -53,15 +54,24 @@ impl ZellijPlugin for State {
                         self.pending_root = false;
                         self.pending_tasks = false;
                         self.pending_state = false;
-                        self.last_error = None;
+                        if self.last_error_action.as_deref() == Some(State::ACTION_READ_ROOT)
+                            || self.last_error_action.as_deref() == Some(State::ACTION_READ_TASKS)
+                            || self.last_error_action.as_deref() == Some(State::ACTION_READ_STATE)
+                        {
+                            self.clear_error();
+                        }
                         self.refresh();
+                        self.mark_dirty();
                     }
                     PermissionStatus::Denied => {
                         self.permissions_granted = false;
-                        self.last_error = Some("RunCommands permission denied.".to_string());
+                        self.set_error_with_action(
+                            "RunCommands permission denied.".to_string(),
+                            None,
+                        );
                     }
                 }
-                true
+                self.take_render()
             }
             _ => false,
         }
@@ -75,7 +85,7 @@ impl ZellijPlugin for State {
         // --- Error Modal ---
         if let Some(err) = &self.last_error {
             let lines = draw_error_modal(err, rows, cols);
-            print_lines(lines, rows, cols);
+            print_lines_checked(self, lines, rows, cols);
             return;
         }
 
@@ -204,10 +214,10 @@ impl ZellijPlugin for State {
                  format!("{}[Enter/Esc] Stop searching{}", colors::DIM, colors::RESET)
              } else if self.input_mode == state::InputMode::Root {
                  format!("{}[Enter] Apply [Esc] Cancel{}", colors::DIM, colors::RESET)
-             } else if self.focus == state::FocusMode::Details {
+             } else              if self.focus == state::FocusMode::Details {
                  format!("{}[Tab/^o] List [j/k] Nav [Space] Toggle [e] Edit{}", colors::DIM, colors::RESET)
              } else {
-                 format!("{}[j/k] Nav [x] Done [e] Edit [Tab] Details [/] Search [C] Root [r] Refresh{}", colors::DIM, colors::RESET)
+                 format!("{}[j/k] Nav [x] Done [Tab] Details [/] Search [C] Root [r] Refresh{}", colors::DIM, colors::RESET)
              };
              // Push to bottom
              while lines.len() < rows - 1 {
@@ -216,11 +226,11 @@ impl ZellijPlugin for State {
              lines.push(truncate_visible(&help, cols));
         }
 
-        print_lines(lines, rows, cols);
+        print_lines_checked(self, lines, rows, cols);
     }
 }
 
-fn print_lines(lines: Vec<String>, rows: usize, cols: usize) {
+fn print_lines_checked(state: &mut State, lines: Vec<String>, rows: usize, cols: usize) {
     let mut padded = Vec::with_capacity(rows);
     for line in lines {
         if padded.len() >= rows {
@@ -231,6 +241,14 @@ fn print_lines(lines: Vec<String>, rows: usize, cols: usize) {
     while padded.len() < rows {
         padded.push(String::new());
     }
+
+    if state.last_render_output.as_ref() == Some(&padded) {
+        return;
+    }
+    state.last_render_output = Some(padded.clone());
+
+    // Move cursor to home (top-left) to avoid scrollback growth
+    print!("\u{1b}[H");
     for line in &padded {
         println!("{}", line);
     }

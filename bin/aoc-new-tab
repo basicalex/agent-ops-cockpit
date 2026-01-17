@@ -13,8 +13,6 @@ layout_choice=""
 tab_name=""
 tab_cwd=""
 state_dir="${XDG_STATE_HOME:-$HOME/.local/state}/aoc"
-project_root_file="${AOC_PROJECT_ROOT_FILE:-$state_dir/project_root}"
-star_file="${AOC_STAR_FILE:-$state_dir/starred_root}"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -35,6 +33,71 @@ while [[ $# -gt 0 ]]; do
   shift || true
 done
 
+sanitize_name() {
+  local raw="$1"
+  raw="$(printf '%s' "$raw" | tr '[:upper:]' '[:lower:]')"
+  raw="$(printf '%s' "$raw" | sed -E 's/[^a-z0-9]+/-/g; s/^-+|-+$//g')"
+  printf '%s' "${raw:-tab}"
+}
+
+cleanup_state() {
+  local dir="$1"
+  find "$dir" -maxdepth 1 -type f \( \
+    -name 'project_root.*' -o \
+    -name 'starred_root.*' -o \
+    -name 'aoc-layout-*' \
+  \) -mtime +30 -delete 2>/dev/null || true
+}
+
+resolve_layout_path() {
+  local layout_name="$1"
+  if [[ "$layout_name" == /* || "$layout_name" == *.kdl ]]; then
+    printf '%s' "$layout_name"
+    return
+  fi
+  printf '%s' "$HOME/.config/zellij/layouts/${layout_name}.kdl"
+}
+
+inject_plugin_root_file() {
+  local layout_path="$1"
+  local output_path="$2"
+  local root_file="$3"
+  local star_file="$4"
+  local root_tag="$5"
+  awk -v root_file="$root_file" -v star_file="$star_file" -v root_tag="$root_tag" '
+    {
+      gsub(/__AOC_PROJECT_ROOT_FILE__/, root_file)
+      gsub(/__AOC_STAR_FILE__/, star_file)
+      gsub(/__AOC_ROOT_TAG__/, root_tag)
+      print
+    }
+    $0 ~ /plugin location=.*aoc-taskmaster\.wasm/ { in_plugin=1 }
+    in_plugin && $0 ~ /refresh_secs/ {
+      print "                root_file \"" root_file "\""
+      in_plugin=0
+    }
+  ' "$layout_path" > "$output_path"
+}
+
+realign_current_pane() {
+  local root="$1"
+  local delay="${2:-0}"
+  if [[ -z "${ZELLIJ_SESSION_NAME:-}" ]]; then
+    return
+  fi
+  if [[ -z "$root" ]]; then
+    return
+  fi
+  local cmd=""
+  if [[ "$delay" != "0" ]]; then
+    cmd="sleep ${delay}; "
+  fi
+  cmd+="cd \"${root}\" && clear"
+  local payload
+  payload="${cmd}"$'\n'
+  zellij action write-chars "$payload" >/dev/null 2>&1 || true
+}
+
 if [[ -z "$layout_choice" ]]; then
   layout_choice="aoc"
 fi
@@ -49,24 +112,55 @@ else
   args+=(--cwd "$PWD")
 fi
 
-project_root="${tab_cwd:-$PWD}"
+current_pwd="$(pwd -P)"
+project_root="${tab_cwd:-$current_pwd}"
+
+current_root=""
+if command -v aoc-align >/dev/null 2>&1; then
+  current_root="$(aoc-align --print-root || true)"
+fi
+
+
 mkdir -p "$state_dir"
+cleanup_state "$state_dir"
+
+root_label="$(sanitize_name "${tab_name:-$(basename "$project_root")}")"
+timestamp="$(date +%Y%m%d-%H%M%S)"
+root_tag="${root_label}-${timestamp}"
+project_root_file="$state_dir/project_root.${root_tag}"
+star_file="$state_dir/starred_root.${root_tag}"
 printf '%s\n' "$project_root" > "$project_root_file"
 printf '%s\n' "$project_root" > "$star_file"
+
+layout_arg="$layout_choice"
+if [[ "$layout_choice" == "aoc" || "$layout_choice" == "aoc-plugin" ]]; then
+  layout_path="$(resolve_layout_path "$layout_choice")"
+  if [[ -f "$layout_path" ]]; then
+    layout_label="$(sanitize_name "$layout_choice")"
+    layout_tmp="$state_dir/aoc-layout-${layout_label}-${root_tag}.kdl"
+    inject_plugin_root_file "$layout_path" "$layout_tmp" "$project_root_file" "$star_file" "$root_tag"
+    layout_arg="$layout_tmp"
+  fi
+fi
+
+realign_current_pane "$current_root"
 
 if [[ "$layout_choice" == "aoc" ]]; then
   AOC_PROJECT_ROOT="$project_root" \
     AOC_PROJECT_ROOT_FILE="$project_root_file" \
+    AOC_STAR_FILE="$star_file" \
     ZELLIJ_PROJECT_ROOT="$project_root" \
-    zellij action new-tab --layout aoc "${args[@]}"
+    zellij action new-tab --layout "$layout_arg" "${args[@]}"
 elif [[ "$layout_choice" == "aoc-plugin" ]]; then
   AOC_PROJECT_ROOT="$project_root" \
     AOC_PROJECT_ROOT_FILE="$project_root_file" \
+    AOC_STAR_FILE="$star_file" \
     ZELLIJ_PROJECT_ROOT="$project_root" \
-    zellij action new-tab --layout aoc-plugin "${args[@]}"
+    zellij action new-tab --layout "$layout_arg" "${args[@]}"
 else
   AOC_PROJECT_ROOT="$project_root" \
     AOC_PROJECT_ROOT_FILE="$project_root_file" \
+    AOC_STAR_FILE="$star_file" \
     ZELLIJ_PROJECT_ROOT="$project_root" \
     zellij action new-tab "${args[@]}"
 fi

@@ -22,11 +22,14 @@ pub struct State {
     pub focus: FocusMode,           // New: Track which pane has focus
     pub subtask_cursor: usize,      // New: Selected subtask index
     pub last_error: Option<String>,
+    pub last_error_action: Option<String>,
     pub last_mtime: Option<SystemTime>,
     pub refresh_secs: f64,
     pub permissions_granted: bool,
     pub current_tag: String,
     pub task_root: Option<TaskRoot>,
+    pub last_tasks_payload: Option<String>,
+    pub needs_render: bool,
     pub pending_tasks: bool,
     pub pending_state: bool,
     pub pending_root: bool,
@@ -36,6 +39,7 @@ pub struct State {
     pub roots: Vec<PathBuf>,
     pub root_index: usize,
     pub ignore_refresh_until: Option<SystemTime>,
+    pub last_render_output: Option<Vec<String>>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -127,11 +131,8 @@ impl State {
             if self.roots.is_empty() {
                 self.set_root(cwd);
             }
-        } else if let Ok(cwd) = env::current_dir() {
-             if self.roots.is_empty() {
-                 self.set_root(cwd);
-             }
         }
+        self.needs_render = true;
     }
 
     pub fn refresh(&mut self) {
@@ -171,20 +172,30 @@ impl State {
         }
         let mut context = BTreeMap::new();
         context.insert(Self::CTX_ACTION.to_string(), Self::ACTION_READ_ROOT.to_string());
-        run_command_with_env_variables_and_cwd(
-            &[
-                "sh",
-                "-c",
-                "root_file=\"${AOC_PROJECT_ROOT_FILE:-${XDG_STATE_HOME:-$HOME/.local/state}/aoc/project_root}\"; \
-                  root=\"${AOC_PROJECT_ROOT:-${ZELLIJ_PROJECT_ROOT:-}}\"; \
-                  if [ -n \"$root\" ]; then printf \'%s\' \"$root\"; \
-                  elif [ -f \"$root_file\" ]; then cat \"$root_file\"; \
-                  else pwd; fi",
-            ],
-            BTreeMap::new(),
-            PathBuf::from("/"),
-            context,
-        );
+        if let Some(root_file) = self.root_file.clone() {
+            let root_path = root_file.to_string_lossy().to_string();
+            run_command_with_env_variables_and_cwd(
+                &["cat", root_path.as_str()],
+                BTreeMap::new(),
+                PathBuf::from("/"),
+                context,
+            );
+        } else {
+            run_command_with_env_variables_and_cwd(
+                &[
+                    "sh",
+                    "-c",
+                    "root_file=\"${AOC_PROJECT_ROOT_FILE:-${XDG_STATE_HOME:-$HOME/.local/state}/aoc/project_root}\"; \
+                      root=\"${AOC_PROJECT_ROOT:-${ZELLIJ_PROJECT_ROOT:-}}\"; \
+                      if [ -n \"$root\" ]; then printf \'%s\' \"$root\"; \
+                      elif [ -f \"$root_file\" ]; then cat \"$root_file\"; \
+                      else pwd; fi",
+                ],
+                BTreeMap::new(),
+                PathBuf::from("/"),
+                context,
+            );
+        }
         self.pending_root = true;
         true
     }
@@ -254,10 +265,19 @@ impl State {
         context: BTreeMap<String, String>,
     ) {
         let action = context.get(Self::CTX_ACTION).map(String::as_str);
+        
+        // Ignore write/edit actions - they're fire-and-forget
+        if action == Some("write") || action == Some("edit") {
+            return;
+        }
+        
         if action == Some(Self::ACTION_READ_ROOT) {
             self.pending_root = false;
             if !stderr.is_empty() {
-                self.last_error = Some(String::from_utf8_lossy(&stderr).to_string());
+                self.set_error_with_action(
+                    String::from_utf8_lossy(&stderr).to_string(),
+                    Some(Self::ACTION_READ_ROOT),
+                );
                 return;
             }
             let data = String::from_utf8_lossy(&stdout).to_string();
@@ -265,53 +285,93 @@ impl State {
             if !trimmed.is_empty() {
                 self.set_root(PathBuf::from(trimmed));
                 self.last_mtime = None;
+                if self.last_error_action.as_deref() == Some(Self::ACTION_READ_ROOT) {
+                    self.clear_error();
+                }
                 self.refresh();
+                self.mark_dirty();
             }
             return;
         }
         if action == Some(Self::ACTION_READ_TASKS) {
             self.pending_tasks = false;
             if !stderr.is_empty() {
-                self.last_error = Some(String::from_utf8_lossy(&stderr).to_string());
+                self.set_error_with_action(
+                    String::from_utf8_lossy(&stderr).to_string(),
+                    Some(Self::ACTION_READ_TASKS),
+                );
                 return;
             }
             let data = String::from_utf8_lossy(&stdout).to_string();
-            self.update_tasks_from_json(&data);
-            self.apply_current_tag();
-            self.last_error = None;
+            let updated = self.update_tasks_from_json(&data);
+            if updated && self.task_root.is_some() {
+                self.apply_current_tag();
+            }
+            if self.last_error_action.as_deref() == Some(Self::ACTION_READ_TASKS) && self.last_error.is_none() {
+                self.clear_error();
+            }
+            if updated {
+                self.mark_dirty();
+            }
             return;
         }
         if action == Some(Self::ACTION_READ_STATE) {
             self.pending_state = false;
             if !stderr.is_empty() {
-                self.last_error = Some(String::from_utf8_lossy(&stderr).to_string());
+                self.set_error_with_action(
+                    String::from_utf8_lossy(&stderr).to_string(),
+                    Some(Self::ACTION_READ_STATE),
+                );
                 return;
             }
             let data = String::from_utf8_lossy(&stdout).to_string();
             if let Some(tag) = Self::read_tag_from_json(&data) {
-                self.current_tag = tag;
-                self.apply_current_tag();
-                self.last_error = None;
+                let mut changed = false;
+                if self.current_tag != tag {
+                    self.current_tag = tag;
+                    self.apply_current_tag();
+                    changed = true;
+                }
+                if self.last_error_action.as_deref() == Some(Self::ACTION_READ_STATE) {
+                    self.clear_error();
+                    changed = true;
+                }
+                if changed {
+                    self.mark_dirty();
+                }
             }
             return;
         }
 
         if !stderr.is_empty() {
-            self.last_error = Some(String::from_utf8_lossy(&stderr).to_string());
+            self.set_error(String::from_utf8_lossy(&stderr).to_string());
         } else if !stdout.is_empty() {
-            self.last_error = Some(String::from_utf8_lossy(&stdout).to_string());
+            self.set_error(String::from_utf8_lossy(&stdout).to_string());
         }
     }
 
-    fn update_tasks_from_json(&mut self, data: &str) {
+    fn update_tasks_from_json(&mut self, data: &str) -> bool {
+        if self.last_tasks_payload.as_deref() == Some(data) {
+            return false;
+        }
+        self.last_tasks_payload = Some(data.to_string());
         let parsed: Result<TaskRoot, _> = serde_json::from_str(data);
         match parsed {
             Ok(root) => {
                 self.task_root = Some(root);
-                self.last_error = None;
+                if self.last_error_action.as_deref() == Some(Self::ACTION_READ_TASKS) {
+                    self.last_error = None;
+                    self.last_error_action = None;
+                }
+                self.mark_dirty();
+                true
             }
             Err(err) => {
-                self.last_error = Some(format!("Failed to parse tasks.json: {}", err));
+                self.set_error_with_action(
+                    format!("Failed to parse tasks.json: {}", err),
+                    Some(Self::ACTION_READ_TASKS),
+                );
+                true
             }
         }
     }
@@ -383,6 +443,7 @@ impl State {
         if self.selected >= self.filtered.len() {
             self.selected = self.filtered.len().saturating_sub(1);
         }
+        self.mark_dirty();
     }
 
     pub fn handle_key(&mut self, key: KeyWithModifier) -> bool {
@@ -497,10 +558,19 @@ impl State {
                          let root_str = root.map(|p| p.to_string_lossy().to_string()).unwrap_or_else(|| ".".to_string());
                          
                         // Open a new pane to edit the task, ensuring we CD first
-                        exec_cmd(&["bash", "-c", &format!(
-                            "cd \"{}\" && zellij run --name \"Edit Task #{}\" -- task-master update {} --edit", 
+                        let cmd = format!(
+                            "cd \"{}\" && zellij run --name \"Edit Task #{}\" -- bash -c \"export EDITOR=$HOME/dev/agent-ops-cockpit/bin/tm-editor; export VISUAL=$HOME/dev/agent-ops-cockpit/bin/tm-editor; export GIT_EDITOR=$HOME/dev/agent-ops-cockpit/bin/tm-editor; task-master update {} --edit\"", 
                             root_str, task.id, task.id
-                        )]);
+                        );
+                        let cwd = self.root.clone().unwrap_or_else(|| self.cwd.clone().unwrap_or_else(|| PathBuf::from(".")));
+                        let mut context = BTreeMap::new();
+                        context.insert(Self::CTX_ACTION.to_string(), "edit".to_string());
+                        run_command_with_env_variables_and_cwd(
+                            &["bash", "-c", &cmd],
+                            BTreeMap::new(),
+                            cwd,
+                            context,
+                        );
                     }
                     return true;
                 }
@@ -626,20 +696,52 @@ impl State {
     }
 
     pub fn set_error(&mut self, msg: String) {
+        self.set_error_with_action(msg, None);
+    }
+
+    pub fn set_error_with_action(&mut self, msg: String, action: Option<&str>) {
         self.last_error = Some(msg);
+        self.last_error_action = action.map(|value| value.to_string());
+        self.mark_dirty();
     }
 
     pub fn clear_error(&mut self) {
         self.last_error = None;
+        self.last_error_action = None;
+        self.mark_dirty();
+    }
+
+    pub fn mark_dirty(&mut self) {
+        self.needs_render = true;
+    }
+
+    pub fn take_render(&mut self) -> bool {
+        let value = self.needs_render;
+        self.needs_render = false;
+        value
     }
 
     fn save_to_disk(&self, id: &str, action: &str, value: &str) {
+        let cwd = self.root.clone().unwrap_or_else(|| self.cwd.clone().unwrap_or_else(|| PathBuf::from(".")));
+        let mut context = BTreeMap::new();
+        context.insert(Self::CTX_ACTION.to_string(), "write".to_string());
+        
         match action {
             "status" => {
-                exec_cmd(&["task-master", "set-status", id, value]);
+                run_command_with_env_variables_and_cwd(
+                    &["task-master", "set-status", id, value],
+                    BTreeMap::new(),
+                    cwd,
+                    context,
+                );
             }
             "active-agent" => {
-                exec_cmd(&["task-master", "update", id, "--active-agent", value]);
+                run_command_with_env_variables_and_cwd(
+                    &["task-master", "update", id, "--active-agent", value],
+                    BTreeMap::new(),
+                    cwd,
+                    context,
+                );
             }
             "subtask" => {
                 // value format: "SUBTASK_INDEX:STATUS" (e.g. "0:done")
@@ -672,7 +774,16 @@ impl State {
             task_id, idx, idx, status
         );
 
-        exec_cmd(&["python3", "-c", &script]);
+        let cwd = self.root.clone().unwrap_or_else(|| self.cwd.clone().unwrap_or_else(|| PathBuf::from(".")));
+        let mut context = BTreeMap::new();
+        context.insert(Self::CTX_ACTION.to_string(), "write".to_string());
+        
+        run_command_with_env_variables_and_cwd(
+            &["python3", "-c", &script],
+            BTreeMap::new(),
+            cwd,
+            context,
+        );
     }
 
     pub fn optimistic_toggle_subtask(&mut self) -> Option<()> {
@@ -802,6 +913,8 @@ impl State {
             self.roots.push(root);
             self.root_index = self.roots.len().saturating_sub(1);
         }
+        self.last_tasks_payload = None;
+        self.mark_dirty();
     }
 
     fn env_path(&self, key: &str) -> Option<PathBuf> {

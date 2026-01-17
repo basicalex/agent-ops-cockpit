@@ -1,0 +1,59 @@
+# AOC Yazi Theme - Command tips in status bar (like Zellij)
+# Catppuccin-inspired colors to match the Zellij status bar
+
+[status]
+separator_open  = ""
+separator_close = ""
+separator_style = { fg = "#6C7086" }
+
+# Mode indicators with command tips
+mode_normal = { fg = "#89B4FA", bg = "#1E1E2E", bold = true }
+mode_select = { fg = "#F38BA8", bg = "#1E1E2E", bold = true }
+mode_unset  = { fg = "#6C7086", bg = "#1E1E2E" }
+
+[mode]
+normal_main = { fg = "#1E1E2E", bg = "#89B4FA", bold = true }
+normal_alt  = { fg = "#89B4FA", bg = "#313244" }
+select_main = { fg = "#1E1E2E", bg = "#F38BA8", bold = true }
+select_alt  = { fg = "#F38BA8", bg = "#313244" }
+unset_main  = { fg = "#1E1E2E", bg = "#6C7086", bold = true }
+unset_alt   = { fg = "#6C7086", bg = "#313244" }
+
+# File type icons/colors
+[filetype]
+rules = [
+  # Directories
+  { name = "*/", fg = "#89B4FA" },
+  
+  # Code files
+  { name = "*.rs", fg = "#FAB387" },
+  { name = "*.lua", fg = "#89B4FA" },
+  { name = "*.py", fg = "#F9E2AF" },
+  { name = "*.js", fg = "#F9E2AF" },
+  { name = "*.ts", fg = "#89B4FA" },
+  { name = "*.tsx", fg = "#89B4FA" },
+  { name = "*.jsx", fg = "#F9E2AF" },
+  { name = "*.go", fg = "#94E2D5" },
+  { name = "*.sh", fg = "#A6E3A1" },
+  { name = "*.bash", fg = "#A6E3A1" },
+  { name = "*.zsh", fg = "#A6E3A1" },
+  
+  # Config files
+  { name = "*.toml", fg = "#FAB387" },
+  { name = "*.yaml", fg = "#F38BA8" },
+  { name = "*.yml", fg = "#F38BA8" },
+  { name = "*.json", fg = "#F9E2AF" },
+  { name = "*.kdl", fg = "#CBA6F7" },
+  
+  # Docs
+  { name = "*.md", fg = "#CBA6F7" },
+  { name = "*.txt", fg = "#CDD6F4" },
+  
+  # Media
+  { name = "*.png", fg = "#F5C2E7" },
+  { name = "*.jpg", fg = "#F5C2E7" },
+  { name = "*.jpeg", fg = "#F5C2E7" },
+  { name = "*.gif", fg = "#F5C2E7" },
+  { name = "*.svg", fg = "#F5C2E7" },
+  { name = "*.webp", fg = "#F5C2E7" },
+]

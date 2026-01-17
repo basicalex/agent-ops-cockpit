@@ -1,0 +1,153 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# aoc-cleanup
+# Identifies and kills agent processes that are not associated with
+# any currently running Zellij server (i.e. orphaned/zombie processes).
+# Handles agents running inside tmux sessions by bridging the client-server gap.
+
+AGENT_PATTERN="opencode|codex|gemini|claude|aoc-"
+
+echo "Analyzing process tree..."
+
+python3 - <<EOF
+import sys
+import subprocess
+import os
+import signal
+import re
+import time
+import collections
+
+# --- Helpers ---
+
+def get_process_map():
+    try:
+        ps_out = subprocess.check_output(["ps", "-eo", "pid,ppid,command"], text=True)
+    except subprocess.CalledProcessError:
+        return {}, {}
+        
+    processes = {}
+    children = collections.defaultdict(list)
+    
+    for line in ps_out.strip().splitlines()[1:]:
+        parts = line.strip().split(maxsplit=2)
+        if len(parts) < 3: continue
+        try:
+            pid = int(parts[0])
+            ppid = int(parts[1])
+            cmd = parts[2]
+            processes[pid] = (ppid, cmd)
+            children[ppid].append(pid)
+        except ValueError:
+            continue
+            
+    return processes, children
+
+def get_descendants(roots, children_map):
+    safe = set(roots)
+    stack = list(roots)
+    while stack:
+        curr = stack.pop()
+        for child in children_map.get(curr, []):
+            if child not in safe:
+                safe.add(child)
+                stack.append(child)
+    return safe
+
+def find_safe_tmux_sockets(safe_pids, processes):
+    sockets = set()
+    socket_re = re.compile(r"tmux\s+.*-L\s*([a-zA-Z0-9_\-\.]+)")
+    
+    for pid in safe_pids:
+        if pid not in processes: continue
+        _, cmd = processes[pid]
+        # Ignore myself and other cleanup tools to avoid false positives in arguments
+        if "aoc-cleanup" in cmd: continue
+        
+        if "tmux" in cmd:
+            match = socket_re.search(cmd)
+            if match:
+                s = match.group(1)
+                sockets.add(s)
+                # print(f"Debug: Found safe socket '{s}' in PID {pid}")
+    return sockets
+
+def find_tmux_servers_for_sockets(sockets, processes):
+    server_pids = set()
+    if not sockets: return server_pids
+    socket_re = re.compile(r"tmux\s+.*-L\s*([a-zA-Z0-9_\-\.]+)")
+    for pid, (_, cmd) in processes.items():
+        if "tmux" in cmd:
+            match = socket_re.search(cmd)
+            if match and match.group(1) in sockets:
+                server_pids.add(pid)
+    return server_pids
+
+# --- Main Logic ---
+
+processes, children = get_process_map()
+
+# 1. Identify Zellij Roots
+try:
+    pgrep = subprocess.check_output(["pgrep", "-f", "zellij"], text=True)
+    zellij_pids = set(int(p) for p in pgrep.strip().split())
+except subprocess.CalledProcessError:
+    zellij_pids = set()
+
+if not zellij_pids:
+    print("Warning: No active Zellij sessions found. All agents will be orphans.")
+
+# 2. Mark descendants of Zellij (Safe Set 1)
+safe_pids = get_descendants(zellij_pids, children)
+
+# 3. Protect Self and Ancestors (but NOT their other children)
+# This prevents killing the shell running this script if it wasn't spawned by Zellij,
+# but avoids protecting everything under systemd.
+my_pid = os.getpid()
+curr = my_pid
+while curr in processes:
+    safe_pids.add(curr)
+    curr = processes[curr][0]
+
+# 4. Bridge the Gap: Find Tmux Servers attached to Safe Clients
+safe_sockets = find_safe_tmux_sockets(safe_pids, processes)
+if safe_sockets:
+    print(f"Found active tmux sockets: {safe_sockets}")
+    tmux_server_roots = find_tmux_servers_for_sockets(safe_sockets, processes)
+    safe_pids.update(get_descendants(tmux_server_roots, children))
+
+# 5. Identify Targets (Orphan Agents)
+target_regex = re.compile(r"(${AGENT_PATTERN})", re.IGNORECASE)
+kill_list = []
+
+for pid, (_, cmd) in processes.items():
+    if target_regex.search(cmd):
+        if pid in safe_pids: continue
+        if " grep " in cmd or " pgrep " in cmd or "aoc-cleanup" in cmd: continue
+        kill_list.append((pid, cmd))
+
+# 6. Execute
+if not kill_list:
+    print("No orphan processes found.")
+    sys.exit(0)
+
+print(f"Found {len(kill_list)} orphan processes.")
+for pid, cmd in kill_list:
+    display_cmd = (cmd[:60] + '...') if len(cmd) > 60 else cmd
+    print(f"Killing PID {pid}: {display_cmd}")
+    try:
+        os.kill(pid, signal.SIGTERM)
+    except ProcessLookupError:
+        pass
+
+time.sleep(0.5)
+
+for pid, _ in kill_list:
+    try:
+        os.kill(pid, signal.SIGKILL)
+    except ProcessLookupError:
+        pass
+
+print("Cleanup complete.")
+EOF

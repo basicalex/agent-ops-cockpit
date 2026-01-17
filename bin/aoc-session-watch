@@ -1,0 +1,60 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+usage() {
+  cat <<'EOF'
+Usage: aoc-session-watch <root-tag> [layout-path] [root-file] [star-file]
+
+Monitors a Zellij session "aoc-<root-tag>".
+When the session becomes detached (0 clients), it is immediately destroyed
+to free resources.
+EOF
+}
+
+if [[ $# -lt 1 ]]; then
+  usage >&2
+  exit 1
+fi
+
+root_tag="$1"
+session_name="aoc-${root_tag}"
+interval_secs="${AOC_IDLE_INTERVAL:-5}"
+
+# Wait for session to appear
+wait_for_session() {
+  local retries=30 # 30 * 0.5s = 15s timeout
+  while (( retries > 0 )); do
+    if zellij list-sessions --short 2>/dev/null | grep -Fxq "$session_name"; then
+      return 0
+    fi
+    sleep 0.5
+    ((retries--))
+  done
+  return 1
+}
+
+if ! wait_for_session; then
+  # Session never appeared or we missed it (maybe user cancelled launch)
+  exit 0
+fi
+
+# Monitor loop
+while true; do
+  # Check if session still exists
+  if ! zellij list-sessions --short 2>/dev/null | grep -Fxq "$session_name"; then
+    # Session gone (maybe killed manually), just exit
+    exit 0
+  fi
+
+  # Check client count
+  clients_raw=$(ZELLIJ_SESSION_NAME="$session_name" zellij action list-clients 2>/dev/null || true)
+  # Count non-empty lines in the output (ignoring headers if any, though list-clients usually just lists)
+  
+  if [[ -z "${clients_raw//[[:space:]]/}" ]]; then
+    # No clients connected - kill it to free resources
+    zellij delete-session "$session_name" --force >/dev/null 2>&1 || true
+    exit 0
+  fi
+
+  sleep "$interval_secs"
+done

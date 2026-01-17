@@ -47,6 +47,8 @@ install_file "$ROOT_DIR/zellij/aoc.config.kdl" "$HOME/.config/zellij/aoc.config.
 install_file "$ROOT_DIR/yazi/yazi.toml" "$HOME/.config/yazi/yazi.toml" 0644
 install_file "$ROOT_DIR/yazi/preview.sh" "$HOME/.config/yazi/preview.sh" 0755
 install_file "$ROOT_DIR/yazi/keymap.toml" "$HOME/.config/yazi/keymap.toml" 0644
+install_file "$ROOT_DIR/yazi/theme.toml" "$HOME/.config/yazi/theme.toml" 0644
+install_file "$ROOT_DIR/yazi/init.lua" "$HOME/.config/yazi/init.lua" 0644
 
 # Install yazi plugins
 if [[ -d "$ROOT_DIR/yazi/plugins" ]]; then

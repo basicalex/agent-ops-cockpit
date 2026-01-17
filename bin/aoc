@@ -26,8 +26,14 @@ aoc_fullscreen() {
   fi
 }
 
-if [[ -n "${ZELLIJ:-}" || -n "${ZELLIJ_SESSION_NAME:-}" ]]; then
+if [[ -n "${ZELLIJ:-}" ]]; then
   exec aoc-new-tab "$@"
+fi
+
+if [[ -n "${ZELLIJ_SESSION_NAME:-}" ]]; then
+  if zellij action list-clients >/dev/null 2>&1; then
+    exec aoc-new-tab "$@"
+  fi
 fi
 
 aoc_fullscreen
