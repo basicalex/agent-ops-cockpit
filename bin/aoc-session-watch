@@ -39,21 +39,38 @@ if ! wait_for_session; then
 fi
 
 # Monitor loop
+consecutive_idle=0
+max_idle=3
+
 while true; do
   # Check if session still exists
   if ! zellij list-sessions --short 2>/dev/null | grep -Fxq "$session_name"; then
-    # Session gone (maybe killed manually), just exit
     exit 0
   fi
 
-  # Check client count
-  clients_raw=$(ZELLIJ_SESSION_NAME="$session_name" zellij action list-clients 2>/dev/null || true)
-  # Count non-empty lines in the output (ignoring headers if any, though list-clients usually just lists)
-  
-  if [[ -z "${clients_raw//[[:space:]]/}" ]]; then
-    # No clients connected - kill it to free resources
-    zellij delete-session "$session_name" --force >/dev/null 2>&1 || true
-    exit 0
+  # Check client count with a timeout to avoid hanging on slow sessions
+  # Use 'timeout' to ensure we don't block forever
+  if clients_raw=$(timeout 2s zellij action list-clients 2>/dev/null); then
+    # Filter out empty lines/whitespace
+    trimmed_clients="${clients_raw//[[:space:]]/}"
+    if [[ -z "$trimmed_clients" ]]; then
+      ((consecutive_idle++))
+    else
+      consecutive_idle=0
+    fi
+  else
+    # Command failed or timed out - assume active to be safe
+    consecutive_idle=0
+  fi
+
+  if (( consecutive_idle >= max_idle )); then
+    # No clients connected for several consecutive checks - destroy to free resources
+    # Double check one last time with list-sessions which is less prone to hanging
+    if ! zellij list-sessions 2>/dev/null | grep -F "$session_name" | grep -iq "attached"; then
+       zellij delete-session "$session_name" --force >/dev/null 2>&1 || true
+       exit 0
+    fi
+    consecutive_idle=0
   fi
 
   sleep "$interval_secs"
