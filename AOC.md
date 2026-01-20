@@ -26,6 +26,8 @@ These scripts are installed to `~/.local/bin` and drive the entire experience.
 *   `aoc-agent-run`: The "runner" script that executes the selected agent in the center pane.
 *   `aoc-agent-wrap`: Wraps agent CLIs (often in `tmux`) to provide scrollback and better integration.
 *   `aoc-star`: "Stars" a directory, re-anchoring all panes to that path.
+*   `aoc-watcher`: A Rust-based background daemon that monitors the project filesystem and automatically regenerates `context.md` when files change.
+*   `aoc-align`: Automatically re-aligns the current terminal pane to the project root (used when switching tabs or re-anchoring).
 
 ### 2. Zellij Configuration (`zellij/`)
 *   `layouts/aoc.kdl`: The primary layout definition. It uses `bash` commands to launch the specific `aoc-*` scripts in each pane.
@@ -40,7 +42,23 @@ A Rust-based WASM plugin for Zellij that provides an interactive task list.
 A Python-based utility for rendering the clock and weather information.
 *   **Scripts:** `script/*.py` handle the logic.
 
-### 5. Memory System (`.aoc/memory.md`)
+## System Architecture: Per-Tab Isolation
+
+AOC uses a **Distributed Cognitive Architecture** with strict per-tab isolation.
+
+### 1. Layout Injection
+To solve Zellij's environment variable limitations, AOC uses "Layout Injection."
+*   **Placeholders:** Layout templates use tokens like `__AOC_PROJECT_ROOT__` and `__AOC_ROOT_TAG__`.
+*   **Just-In-Time Generation:** `aoc-launch` and `aoc-new-tab` replace these tokens with absolute paths and unique IDs, creating a temporary KDL file for each tab.
+*   **Anchoring:** Every tab's panes are named `aoc:<root_tag>`, allowing tools to discover the tab's project root via `zellij action dump-layout`.
+
+### 2. Reactive Context (`aoc-watcher`)
+The `aoc-watcher` service provides "Live Context":
+*   **Discovery:** It scans the active Zellij session for `aoc:<root_tag>` panes to identify all active project roots.
+*   **Monitoring:** It spawns efficient `notify` (inotify) watchers for each root.
+*   **Atomic Updates:** When a file is saved, it regenerates `.aoc/context.md` atomically, ensuring AI agents always have an up-to-date map of the project.
+
+### 3. Memory System (`.aoc/memory.md`)
 A lightweight, markdown-based long-term memory for agents, stored directly in the project.
 *   **Location:** `.aoc/memory.md` (project-local).
 *   **Tool:** `bin/aoc-mem` manages this file.

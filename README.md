@@ -2,7 +2,7 @@
 
 A lightweight, terminal-first "agent cockpit" layout for coding sessions:
 
-- **Left:** `yazi` file manager (compact view + togglable preview)
+- **Left:** `yazi` file manager (compact view + togglable preview/micro editor)
 - **Center top:** agent CLI (default: `codex`)
 - **Center bottom:** Taskmaster interactive (fzf-based)
 - **Right column:** Calendar/Media widget, Clock, Project terminal
@@ -103,8 +103,8 @@ AOC is not just a layout; it is a **Distributed Cognitive Architecture** for AI-
 1.  **Project Context (`.aoc/context.md`)**
     *   **Role:** The "Project Map."
     *   **Content:** Auto-generated snapshot of the file tree and `README`.
-    *   **Tool:** `aoc-init` (re-generates this).
-    *   **Philosophy:** Ephemeral. Agents read this to orient themselves.
+    *   **Tool:** `aoc-init` (manual) / `aoc-watcher` (automatic).
+    *   **Philosophy:** **Reactive.** Updated in real-time as you edit files, so agents always see the current state.
 
 2.  **Long-Term Memory (`.aoc/memory.md`)**
     *   **Role:** The "Logbook."

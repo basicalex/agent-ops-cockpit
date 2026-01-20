@@ -146,13 +146,16 @@ hint_for() {
     task-master)
       echo "Install task-master and ensure it is in PATH."
       ;;
+    aoc-watcher)
+      echo "Run ./scripts/build-watcher.sh to build the context watcher."
+      ;;
     *)
       echo "Install $tool via your package manager."
       ;;
   esac
 }
 
-required=(zellij yazi fzf codex)
+required=(zellij yazi fzf codex aoc-watcher)
 optional=(tmux chafa ffmpeg rsvg-convert pdftoppm rg bat tectonic task-master)
 
 missing_required=()

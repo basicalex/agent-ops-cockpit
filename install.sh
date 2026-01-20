@@ -84,6 +84,11 @@ else
   echo "Taskmaster plugin not built. Run: ./scripts/build-taskmaster-plugin.sh"
 fi
 
+# Check for aoc-watcher
+if [[ ! -f "$ROOT_DIR/bin/aoc-watcher" ]]; then
+  echo "aoc-watcher binary not found. Run: ./scripts/build-watcher.sh"
+fi
+
 echo "Installed AOC."
 echo "Launch from a project dir:"
 echo "  aoc-launch"
