@@ -4,6 +4,7 @@ set -euo pipefail
 agent_id="oc"
 agent_bin="${AOC_OC_BIN:-opencode}"
 agent_label="OpenCode"
+export AOC_OC_VERSION="${AOC_OC_VERSION:-1.1.25}"
 
 if [[ "${AOC_AGENT_RUN:-0}" == "1" ]]; then
   exec aoc-agent-wrap "$agent_id" "$agent_bin" "$agent_label" "$@"

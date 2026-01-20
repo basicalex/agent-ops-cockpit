@@ -65,11 +65,55 @@ resolve_bin() {
       return
     fi
   done
+
+  if [[ "$name" == "opencode" || "$name" == "open-code" ]]; then
+    local pnpm_home="${PNPM_HOME:-$HOME/.local/share/pnpm}"
+    local pinned_version="${AOC_OC_VERSION:-}"
+    local candidates=()
+    local base=""
+    for base in "$pnpm_home"/global/*/.pnpm; do
+      [[ -d "$base" ]] || continue
+      if [[ -n "$pinned_version" ]]; then
+        for candidate in "$base"/opencode-ai@"$pinned_version"/node_modules/opencode-ai/bin/opencode; do
+          [[ -x "$candidate" ]] || continue
+          echo "$candidate"
+          return
+        done
+        for candidate in "$base"/opencode@"$pinned_version"/node_modules/opencode/bin/opencode; do
+          [[ -x "$candidate" ]] || continue
+          echo "$candidate"
+          return
+        done
+      fi
+      for candidate in "$base"/opencode-ai@*/node_modules/opencode-ai/bin/opencode; do
+        [[ -x "$candidate" ]] || continue
+        candidates+=("$candidate")
+      done
+      for candidate in "$base"/opencode@*/node_modules/opencode/bin/opencode; do
+        [[ -x "$candidate" ]] || continue
+        candidates+=("$candidate")
+      done
+    done
+    if ((${#candidates[@]} > 0)); then
+      printf '%s\n' "${candidates[@]}" | sort -V | tail -n 1
+      return
+    fi
+  fi
   
   echo "$name"
 }
 
 real_bin="$(resolve_bin "$agent_bin" "$env_hint")"
+
+resolved_path="$(command -v "$real_bin" 2>/dev/null || true)"
+if [[ -n "$resolved_path" ]] && is_wrapper "$resolved_path"; then
+  clear
+  echo "$agent_label CLI resolves to an AOC wrapper ($resolved_path)."
+  echo "Install the real binary and set $env_hint to its path."
+  echo
+  read -rsn1 -p "Press any key to exit." _ || true
+  exit 0
+fi
 
 if ! command -v "$real_bin" >/dev/null 2>&1; then
   clear
@@ -82,13 +126,40 @@ fi
 
 # --- Context Injection (Handshake) ---
 
-construct_handshake() {
-  local aoc_dir=".aoc"
-  if [[ ! -d "$aoc_dir" ]]; then
-    aoc_dir=".gemini"
+find_aoc_dir() {
+  local base=""
+  local probe=""
+  if [[ -n "${AOC_PROJECT_ROOT:-}" ]]; then
+    base="$AOC_PROJECT_ROOT"
+  else
+    base="$PWD"
   fi
 
-  if [[ ! -d "$aoc_dir" ]]; then
+  probe="$base"
+  while [[ -n "$probe" && "$probe" != "/" ]]; do
+    if [[ -d "$probe/.aoc" ]]; then
+      echo "$probe/.aoc"
+      return 0
+    fi
+    probe="$(dirname "$probe")"
+  done
+
+  if [[ -d "$script_dir/../.aoc" ]]; then
+    echo "$script_dir/../.aoc"
+    return 0
+  fi
+
+  if [[ -d "$base/.gemini" ]]; then
+    echo "$base/.gemini"
+    return 0
+  fi
+
+  return 1
+}
+
+construct_handshake() {
+  local aoc_dir=""
+  if ! aoc_dir="$(find_aoc_dir)"; then
     return
   fi
 
@@ -134,6 +205,7 @@ bootloader="$(mktemp /tmp/aoc-bootloader-XXXXXX.sh)"
 chmod +x "$bootloader"
 {
   echo "#!/usr/bin/env bash"
+  declare -f find_aoc_dir
   echo "construct_handshake() {"
   declare -f construct_handshake | tail -n +2
   echo "}"
@@ -154,6 +226,15 @@ fi
 conf="${AOC_AGENT_TMUX_CONF:-${XDG_CONFIG_HOME:-$HOME/.config}/aoc/codex-tmux.conf}"
 socket="aoc-${agent_id}-${ZELLIJ_PANE_ID:-$$}"
 session="$agent_id"
+socket_dir="/tmp/tmux-$(id -u)"
+socket_path="$socket_dir/$socket"
+
+# Clean up stale sockets that block tmux from starting.
+if [[ -S "$socket_path" ]]; then
+  if ! tmux -L "$socket" ls >/dev/null 2>&1; then
+    rm -f "$socket_path"
+  fi
+fi
 
 if [[ -f "$conf" ]]; then
   exec tmux -L "$socket" -f "$conf" new-session -A -s "$session" "$bootloader" "$@"

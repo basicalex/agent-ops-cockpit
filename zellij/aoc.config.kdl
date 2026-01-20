@@ -27,5 +27,9 @@ keybinds {
         bind "Alt s" { NextSwapLayout; }
         unbind "Alt [";
         unbind "Alt ]";
+        
+        // Safety: Unbind Ctrl+q (Quit) so it passes to Micro/Yazi
+        // To quit: Ctrl+o (Session) -> q
+        unbind "Ctrl q";
     }
 }

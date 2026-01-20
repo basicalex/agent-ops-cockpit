@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashSet};
 use std::env;
 use std::path::PathBuf;
 use std::time::SystemTime;
@@ -8,10 +8,19 @@ use crate::model::{Task, TaskRoot};
 use crate::theme::colors;
 use crate::ui::*;
 
+#[derive(Debug, Clone, Default)]
+pub struct DisplayRow {
+    pub task_idx: usize,
+    pub subtask_path: Vec<usize>, 
+    pub depth: usize,
+}
+
 #[derive(Default)]
 pub struct State {
     pub tasks: Vec<Task>,
     pub filtered: Vec<usize>,
+    pub display_rows: Vec<DisplayRow>, // New: Flattened view for rendering
+    pub expanded_tasks: HashSet<String>, // New: Expanded task IDs
     pub selected: usize,
     pub filter: FilterMode,
     pub search_query: String,
@@ -21,6 +30,9 @@ pub struct State {
     pub show_detail: bool,
     pub focus: FocusMode,           // New: Track which pane has focus
     pub subtask_cursor: usize,      // New: Selected subtask index
+    pub scroll_offset: usize,       // New: Vertical scroll offset
+    pub viewport_height: usize,     // New: Calculated available height for tasks
+    pub list_start_y: usize,        // New: Y-coordinate where the list starts
     pub last_error: Option<String>,
     pub last_error_action: Option<String>,
     pub last_mtime: Option<SystemTime>,
@@ -103,6 +115,49 @@ impl State {
     pub const ACTION_READ_TASKS: &'static str = "read_tasks";
     pub const ACTION_READ_STATE: &'static str = "read_state";
     pub const ACTION_READ_ROOT: &'static str = "read_root";
+
+    pub fn recalc_display_rows(&mut self) {
+        let mut rows = Vec::new();
+        for &task_idx in &self.filtered {
+            rows.push(DisplayRow {
+                task_idx,
+                subtask_path: Vec::new(),
+                depth: 0,
+            });
+            
+            let task = &self.tasks[task_idx];
+            if self.expanded_tasks.contains(&task.id) {
+                self.add_subtasks_recursive(&task.subtasks, task_idx, &mut rows, Vec::new(), 1);
+            }
+        }
+        self.display_rows = rows;
+        
+        if self.selected >= self.display_rows.len() {
+             self.selected = self.display_rows.len().saturating_sub(1);
+        }
+        // Ensure scroll keeps selection in view
+        if self.selected < self.scroll_offset {
+             self.scroll_offset = self.selected;
+        }
+    }
+
+    fn add_subtasks_recursive(&self, subtasks: &[crate::model::Subtask], task_idx: usize, rows: &mut Vec<DisplayRow>, current_path: Vec<usize>, depth: usize) {
+        for (i, sub) in subtasks.iter().enumerate() {
+            let mut path = current_path.clone();
+            path.push(i);
+            rows.push(DisplayRow {
+                task_idx,
+                subtask_path: path,
+                depth,
+            });
+            if !sub.subtasks.is_empty() {
+                // For now, always expand children if parent is expanded
+                 let mut child_path = current_path.clone();
+                 child_path.push(i);
+                self.add_subtasks_recursive(&sub.subtasks, task_idx, rows, child_path, depth + 1);
+            }
+        }
+    }
 
     pub fn load_config(&mut self, configuration: BTreeMap<String, String>) {
         self.refresh_secs = configuration
@@ -443,6 +498,10 @@ impl State {
         if self.selected >= self.filtered.len() {
             self.selected = self.filtered.len().saturating_sub(1);
         }
+        
+        // Recalculate display rows which drives the actual view
+        self.recalc_display_rows();
+        
         self.mark_dirty();
     }
 
@@ -585,6 +644,10 @@ impl State {
 
         // List Focus Mode (Standard)
         match key.bare_key {
+            BareKey::Char(' ') => {
+                self.toggle_expanded_task();
+                true
+            }
             BareKey::Char('/') => {
                 self.input_mode = InputMode::Search;
                 self.is_searching = true;
@@ -615,8 +678,11 @@ impl State {
                 true
             }
             BareKey::Char('j') | BareKey::Down => {
-                if self.selected + 1 < self.filtered.len() {
+                if self.selected + 1 < self.display_rows.len() {
                     self.selected += 1;
+                    if self.viewport_height > 0 && self.selected >= self.scroll_offset + self.viewport_height {
+                        self.scroll_offset = self.selected - self.viewport_height + 1;
+                    }
                     return true;
                 }
                 false
@@ -624,6 +690,9 @@ impl State {
             BareKey::Char('k') | BareKey::Up => {
                 if self.selected > 0 {
                     self.selected -= 1;
+                    if self.selected < self.scroll_offset {
+                        self.scroll_offset = self.selected;
+                    }
                     return true;
                 }
                 false
@@ -667,10 +736,27 @@ impl State {
         }
     }
 
+    pub fn toggle_expanded_task(&mut self) {
+        if self.selected >= self.display_rows.len() { return; }
+        let row = &self.display_rows[self.selected];
+        if row.depth > 0 { return; } // Only toggle root tasks
+        
+        let task_id = self.tasks[row.task_idx].id.clone();
+        if self.expanded_tasks.contains(&task_id) {
+            self.expanded_tasks.remove(&task_id);
+        } else {
+            self.expanded_tasks.insert(task_id);
+        }
+        self.recalc_display_rows();
+        self.mark_dirty();
+    }
+
     pub fn selected_task(&self) -> Option<&Task> {
-        self.filtered
-            .get(self.selected)
-            .and_then(|idx| self.tasks.get(*idx))
+        if self.display_rows.is_empty() { return None; }
+        // Fallback for safety if selected is out of sync
+        let idx = self.selected.min(self.display_rows.len() - 1);
+        let row = &self.display_rows[idx];
+        self.tasks.get(row.task_idx)
     }
 
     pub fn render_tags_line(&self) -> Option<String> {
@@ -789,8 +875,9 @@ impl State {
     pub fn optimistic_toggle_subtask(&mut self) -> Option<()> {
         if self.focus != FocusMode::Details { return None; }
         
-        let task_idx = self.filtered.get(self.selected)?;
-        let task = &mut self.tasks[*task_idx];
+        let row = self.display_rows.get(self.selected)?;
+        let task_idx = row.task_idx;
+        let task = &mut self.tasks[task_idx];
         
         if task.subtasks.is_empty() || self.subtask_cursor >= task.subtasks.len() {
             return None;
@@ -810,11 +897,15 @@ impl State {
     }
 
     pub fn optimistic_toggle_status(&mut self, status: String) -> Option<()> {
-        if self.selected >= self.filtered.len() {
+        if self.selected >= self.display_rows.len() {
             return None;
         }
-        let task_idx = self.filtered[self.selected];
+        let row = &self.display_rows[self.selected];
         
+        // Block status toggle on subtask rows for now (or maybe map to parent?)
+        if row.depth > 0 { return None; }
+
+        let task_idx = row.task_idx;
         let task = &mut self.tasks[task_idx];
         if task.status == status {
             return None; 
@@ -830,11 +921,13 @@ impl State {
     }
 
     pub fn optimistic_toggle_agent(&mut self) -> Option<()> {
-        if self.selected >= self.filtered.len() {
+        if self.selected >= self.display_rows.len() {
             return None;
         }
-        let task_idx = self.filtered[self.selected];
-        
+        let row = &self.display_rows[self.selected];
+        if row.depth > 0 { return None; }
+
+        let task_idx = row.task_idx;
         let task = &mut self.tasks[task_idx];
         task.active_agent = !task.active_agent;
         let id = task.id.clone();
