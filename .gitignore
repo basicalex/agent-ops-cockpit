@@ -14,6 +14,7 @@ dev-debug.log
 node_modules/
 # Rust build artifacts
 plugins/taskmaster/target/
+plugins/aoc-watcher/target/
 # Environment variables
 .env
 # Editor directories and files
