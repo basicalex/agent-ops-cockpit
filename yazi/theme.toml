@@ -1,6 +1,22 @@
 # AOC Yazi Theme - Command tips in status bar (like Zellij)
 # Catppuccin-inspired colors to match the Zellij status bar
 
+[mgr]
+cwd = { fg = "#94E2D5" }
+
+# Hovered file
+hovered = { fg = "#1E1E2E", bg = "#89B4FA", bold = true }
+preview_hovered = { underline = true }
+
+# Regular files
+file = { fg = "#CDD6F4" }
+directory = { fg = "#89B4FA", bold = true }
+symlink = { fg = "#94E2D5" }
+
+# Border
+border_symbol = "│"
+border_style  = { fg = "#444444" }
+
 [status]
 separator_open  = ""
 separator_close = ""

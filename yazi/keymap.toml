@@ -2,18 +2,32 @@
 prepend_keymap = [
   # AOC integrations
   { on = ["y", "Y"], run = "shell --block 'aoc-widget-set \"$@\"'", desc = "Set widget media path" },
-  { on = ["p"], run = "shell --block 'aoc-preview-set \"$@\"'", desc = "Send to preview pane" },
-  { on = ["P"], run = "shell --block 'aoc-preview-toggle'", desc = "Toggle preview pane" },
-  { on = ["<C-p>"], run = "plugin aoc-preview-toggle", desc = "Toggle Yazi preview" },
-  { on = ["g", "p"], run = "plugin aoc-preview-toggle", desc = "Toggle Yazi preview" },
+  { on = ["p"], run = "shell --block 'aoc-preview-set \"$@\"'", desc = "Send to floating preview" },
+  { on = ["P"], run = "shell --block 'aoc-preview-toggle'", desc = "Toggle floating preview" },
+  { on = ["<C-p>"], run = "plugin aoc-preview-toggle", desc = "Toggle inline preview" },
   { on = ["S"], run = "shell --block 'aoc-star \"$@\"'", desc = "Star selected path" },
 
-  # Open with Zellij pane resize (Enter opens file and expands pane to 40%)
-  { on = ["<Enter>"], run = "plugin aoc-open", desc = "Open file/dir with pane expand" },
+  # Navigation
+  { on = ["g", "c"], run = "cd .aoc", desc = "Go to Context" },
+  { on = ["g", "m"], run = "shell --block 'zellij action resize increase right && zellij action resize increase right && zellij action resize increase right && zellij action resize increase right && zellij action resize increase right && zellij action resize increase right && zellij action resize increase right && zellij action resize increase right && zellij action resize increase right && zellij action resize increase right && zellij action resize increase right && zellij action resize increase right && ${EDITOR:-micro} .aoc/memory.md; zellij action resize decrease right && zellij action resize decrease right && zellij action resize decrease right && zellij action resize decrease right && zellij action resize decrease right && zellij action resize decrease right && zellij action resize decrease right && zellij action resize decrease right && zellij action resize decrease right && zellij action resize decrease right && zellij action resize decrease right'", desc = "Edit Memory" },
+  { on = ["g", "t"], run = "cd .taskmaster", desc = "Go to Tasks" },
+  { on = ["g", "l"], run = "shell 'cd \"${XDG_STATE_HOME:-$HOME/.local/state}/aoc\" && yazi'", desc = "Go to Logs" },
 
-  # Edit file with $EDITOR
-  { on = ["e"], run = "open", desc = "Edit file with $EDITOR" },
+  # SMART OPEN (Enter)
+  { on = ["<Enter>"], run = "plugin aoc-open", desc = "Smart Open" },
+
+  # Pane Expansion
+  { on = ["e"], run = "plugin aoc-pane-toggle", desc = "Toggle pane width" },
+
+  # Global Overrides
+  { on = ["?"], run = "plugin aoc-help-toggle", desc = "Help" },
+  { on = ["q"], run = "noop", desc = "Disabled" },
 
   # Quick navigation
   { on = ["<Esc>"], run = "escape", desc = "Cancel/escape" },
+]
+
+[help]
+prepend_keymap = [
+  { on = ["<Esc>"], run = "plugin aoc-help-exit", desc = "Close help" },
 ]

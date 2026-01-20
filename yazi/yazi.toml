@@ -3,8 +3,8 @@ ratio = [0, 1, 0]
 show_hidden = true
 sort_by = "natural"
 sort_sensitive = false
-linemode = "none"
 show_symlink = true
+linemode = "none"
 
 [preview]
 script = "~/.config/yazi/preview.sh"
