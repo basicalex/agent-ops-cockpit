@@ -64,11 +64,13 @@ inject_plugin_root_file() {
   local root_file="$3"
   local star_file="$4"
   local root_tag="$5"
-  awk -v root_file="$root_file" -v star_file="$star_file" -v root_tag="$root_tag" '
+  local project_root="$6"
+  awk -v root_file="$root_file" -v star_file="$star_file" -v root_tag="$root_tag" -v proj_root="$project_root" '
     {
       gsub(/__AOC_PROJECT_ROOT_FILE__/, root_file)
       gsub(/__AOC_STAR_FILE__/, star_file)
       gsub(/__AOC_ROOT_TAG__/, root_tag)
+      gsub(/__AOC_PROJECT_ROOT__/, proj_root)
       print
     }
     $0 ~ /plugin location=.*aoc-taskmaster\.wasm/ { in_plugin=1 }
@@ -138,7 +140,7 @@ if [[ "$layout_choice" == "aoc" || "$layout_choice" == "aoc-plugin" ]]; then
   if [[ -f "$layout_path" ]]; then
     layout_label="$(sanitize_name "$layout_choice")"
     layout_tmp="$state_dir/aoc-layout-${layout_label}-${root_tag}.kdl"
-    inject_plugin_root_file "$layout_path" "$layout_tmp" "$project_root_file" "$star_file" "$root_tag"
+    inject_plugin_root_file "$layout_path" "$layout_tmp" "$project_root_file" "$star_file" "$root_tag" "$project_root"
     layout_arg="$layout_tmp"
   fi
 fi
