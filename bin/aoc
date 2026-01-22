@@ -1,6 +1,21 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# Forward known subcommands to the Rust CLI
+if [[ $# -gt 0 ]]; then
+  case "$1" in
+    task|mem|--help|-h)
+      # Assuming aoc-cli is in path or same directory
+      DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" >/dev/null 2>&1 && pwd)"
+      if [[ -x "$DIR/aoc-cli" ]]; then
+        exec "$DIR/aoc-cli" "$@"
+      elif command -v aoc-cli >/dev/null 2>&1; then
+        exec aoc-cli "$@"
+      fi
+      ;;
+  esac
+fi
+
 aoc_fullscreen() {
   if [[ "${AOC_FULLSCREEN:-1}" == "0" ]]; then
     return 0
