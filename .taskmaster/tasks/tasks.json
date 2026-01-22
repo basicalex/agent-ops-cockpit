@@ -15,34 +15,26 @@
             "id": 1,
             "title": "Define dependency list and install hints",
             "description": "Classify required vs optional tools and map each to distro-specific install hints for README and aoc-doctor output.",
-            "details": "",
             "status": "pending",
-            "dependencies": [],
-            "parentTaskId": 1,
-            "parentId": "undefined"
+            "dependencies": []
           },
           {
             "id": 2,
             "title": "Implement bin/aoc-doctor with exit codes",
             "description": "Create aoc-doctor that checks PATH/tools, supports --quiet, and returns non-zero on missing required deps.",
-            "details": "",
             "status": "pending",
-            "dependencies": [],
-            "parentTaskId": 1,
-            "parentId": "undefined"
+            "dependencies": []
           },
           {
             "id": 3,
             "title": "Document doctor usage",
             "description": "Add README section with example output and suggested install fixes.",
-            "details": "",
             "status": "pending",
-            "dependencies": [],
-            "parentTaskId": 1,
-            "parentId": "undefined"
+            "dependencies": []
           }
         ],
-        "updatedAt": "2026-01-17T16:52:06.071Z"
+        "updatedAt": "2026-01-17T16:52:06.071Z",
+        "activeAgent": false
       },
       {
         "id": "2",
@@ -58,34 +50,26 @@
             "id": 1,
             "title": "Detect missing task-master-ai",
             "description": "Add graceful fallback when TM binary is missing (message + exit or read-only mode).",
-            "details": "",
             "status": "pending",
-            "dependencies": [],
-            "parentTaskId": 2,
-            "parentId": "undefined"
+            "dependencies": []
           },
           {
             "id": 2,
             "title": "Add task actions in UI",
             "description": "Implement keybinds to mark done/reopen, open task details, and refresh without restarting.",
-            "details": "",
             "status": "pending",
-            "dependencies": [],
-            "parentTaskId": 2,
-            "parentId": "undefined"
+            "dependencies": []
           },
           {
             "id": 3,
             "title": "Update help text and keybinds",
             "description": "Keep the on-screen hints aligned with the new actions and modes.",
-            "details": "",
             "status": "pending",
-            "dependencies": [],
-            "parentTaskId": 2,
-            "parentId": "undefined"
+            "dependencies": []
           }
         ],
-        "updatedAt": "2026-01-06T17:03:04.695Z"
+        "updatedAt": "2026-01-06T17:03:04.695Z",
+        "activeAgent": false
       },
       {
         "id": "3",
@@ -101,34 +85,26 @@
             "id": 1,
             "title": "Persist widget mode",
             "description": "Store last mode (cal/media) in state file and restore on start.",
-            "details": "",
             "status": "pending",
-            "dependencies": [],
-            "parentTaskId": 3,
-            "parentId": "undefined"
+            "dependencies": []
           },
           {
             "id": 2,
             "title": "Add tool checks and fallbacks",
             "description": "Detect chafa/ffmpeg/rsvg-convert and show clear fallback instructions.",
-            "details": "",
             "status": "pending",
-            "dependencies": [],
-            "parentTaskId": 3,
-            "parentId": "undefined"
+            "dependencies": []
           },
           {
             "id": 3,
             "title": "Improve path selection flow",
             "description": "Add validation and non-blocking prompt when media path is missing or unsupported.",
-            "details": "",
             "status": "pending",
-            "dependencies": [],
-            "parentTaskId": 3,
-            "parentId": "undefined"
+            "dependencies": []
           }
         ],
-        "updatedAt": "2026-01-06T17:03:06.117Z"
+        "updatedAt": "2026-01-06T17:03:06.117Z",
+        "activeAgent": false
       },
       {
         "id": "4",
@@ -144,34 +120,26 @@
             "id": 1,
             "title": "Add env var support",
             "description": "Implement AOC_SYS_INTERVAL and section toggles (CPU/Mem/Disk) with defaults.",
-            "details": "",
             "status": "pending",
-            "dependencies": [],
-            "parentTaskId": 4,
-            "parentId": "undefined"
+            "dependencies": []
           },
           {
             "id": 2,
             "title": "Update sys output formatting",
             "description": "Keep output stable for small panes; handle missing /proc gracefully.",
-            "details": "",
             "status": "pending",
-            "dependencies": [],
-            "parentTaskId": 4,
-            "parentId": "undefined"
+            "dependencies": []
           },
           {
             "id": 3,
             "title": "Document aoc-sys configuration",
             "description": "Add README section with env vars and examples.",
-            "details": "",
             "status": "pending",
-            "dependencies": [],
-            "parentTaskId": 4,
-            "parentId": "undefined"
+            "dependencies": []
           }
         ],
-        "updatedAt": "2026-01-06T17:03:06.731Z"
+        "updatedAt": "2026-01-06T17:03:06.731Z",
+        "activeAgent": false
       },
       {
         "id": "5",
@@ -187,34 +155,26 @@
             "id": 1,
             "title": "Choose customization strategy",
             "description": "Decide between env var overrides or templated layout copy on install.",
-            "details": "",
             "status": "pending",
-            "dependencies": [],
-            "parentTaskId": 5,
-            "parentId": "undefined"
+            "dependencies": []
           },
           {
             "id": 2,
             "title": "Implement override mechanism",
             "description": "Add layout templating or alternate layout file resolution in install/launch.",
-            "details": "",
             "status": "pending",
-            "dependencies": [],
-            "parentTaskId": 5,
-            "parentId": "undefined"
+            "dependencies": []
           },
           {
             "id": 3,
             "title": "Document layout overrides",
             "description": "Provide examples for custom sizes/commands in README.",
-            "details": "",
             "status": "pending",
-            "dependencies": [],
-            "parentTaskId": 5,
-            "parentId": "undefined"
+            "dependencies": []
           }
         ],
-        "updatedAt": "2026-01-06T17:03:07.336Z"
+        "updatedAt": "2026-01-06T17:03:07.336Z",
+        "activeAgent": false
       },
       {
         "id": "6",
@@ -230,34 +190,26 @@
             "id": 1,
             "title": "Add uninstall script",
             "description": "Create aoc-uninstall or scripts/uninstall.sh to remove installed files only.",
-            "details": "",
             "status": "pending",
-            "dependencies": [],
-            "parentTaskId": 6,
-            "parentId": "undefined"
+            "dependencies": []
           },
           {
             "id": 2,
             "title": "Make installer idempotent",
             "description": "Ensure install.sh overwrites safely, prints what changed, and exits cleanly on re-run.",
-            "details": "",
             "status": "pending",
-            "dependencies": [],
-            "parentTaskId": 6,
-            "parentId": "undefined"
+            "dependencies": []
           },
           {
             "id": 3,
             "title": "Document install/uninstall",
             "description": "Add README usage examples and expected file paths.",
-            "details": "",
             "status": "pending",
-            "dependencies": [],
-            "parentTaskId": 6,
-            "parentId": "undefined"
+            "dependencies": []
           }
         ],
-        "updatedAt": "2026-01-06T17:03:08.164Z"
+        "updatedAt": "2026-01-06T17:03:08.164Z",
+        "activeAgent": false
       },
       {
         "id": "7",
@@ -273,34 +225,26 @@
             "id": 1,
             "title": "Add setup verification checklist",
             "description": "Document a quick checklist (zellij version, yazi preview, widget media) and how to confirm.",
-            "details": "",
             "status": "pending",
-            "dependencies": [],
-            "parentTaskId": 7,
-            "parentId": "undefined"
+            "dependencies": []
           },
           {
             "id": 2,
             "title": "Add troubleshooting section",
             "description": "Cover common errors (missing tools, blank preview, taskmaster missing) with fixes.",
-            "details": "",
             "status": "pending",
-            "dependencies": [],
-            "parentTaskId": 7,
-            "parentId": "undefined"
+            "dependencies": []
           },
           {
             "id": 3,
             "title": "Add screenshot guidance",
             "description": "Include placeholder path and note for updating the screenshot in README.",
-            "details": "",
             "status": "pending",
-            "dependencies": [],
-            "parentTaskId": 7,
-            "parentId": "undefined"
+            "dependencies": []
           }
         ],
-        "updatedAt": "2026-01-06T17:03:09.086Z"
+        "updatedAt": "2026-01-06T17:03:09.086Z",
+        "activeAgent": false
       },
       {
         "id": "8",
@@ -316,34 +260,26 @@
             "id": 1,
             "title": "Create scripts/lint.sh",
             "description": "Add shellcheck invocation over bin/ and yazi/preview.sh with sensible flags.",
-            "details": "",
             "status": "pending",
-            "dependencies": [],
-            "parentTaskId": 8,
-            "parentId": "undefined"
+            "dependencies": []
           },
           {
             "id": 2,
             "title": "Add GitHub Actions lint workflow",
             "description": "Optional CI workflow that runs shellcheck on pushes/PRs.",
-            "details": "",
             "status": "pending",
-            "dependencies": [],
-            "parentTaskId": 8,
-            "parentId": "undefined"
+            "dependencies": []
           },
           {
             "id": 3,
             "title": "Document lint usage",
             "description": "Add README instructions for running lint locally and in CI.",
-            "details": "",
             "status": "pending",
-            "dependencies": [],
-            "parentTaskId": 8,
-            "parentId": "undefined"
+            "dependencies": []
           }
         ],
-        "updatedAt": "2026-01-06T17:03:10.110Z"
+        "updatedAt": "2026-01-06T17:03:10.110Z",
+        "activeAgent": false
       },
       {
         "id": "9",
@@ -359,34 +295,26 @@
             "id": 1,
             "title": "Create CHANGELOG.md",
             "description": "Add initial release section describing current features.",
-            "details": "",
             "status": "pending",
-            "dependencies": [],
-            "parentTaskId": 9,
-            "parentId": "undefined"
+            "dependencies": []
           },
           {
             "id": 2,
             "title": "Define versioning scheme",
             "description": "Document SemVer (or similar) and tag naming in README.",
-            "details": "",
             "status": "pending",
-            "dependencies": [],
-            "parentTaskId": 9,
-            "parentId": "undefined"
+            "dependencies": []
           },
           {
             "id": 3,
             "title": "Add release checklist",
             "description": "Add a small checklist for cutting releases and tagging.",
-            "details": "",
             "status": "pending",
-            "dependencies": [],
-            "parentTaskId": 9,
-            "parentId": "undefined"
+            "dependencies": []
           }
         ],
-        "updatedAt": "2026-01-06T17:03:11.326Z"
+        "updatedAt": "2026-01-06T17:03:11.326Z",
+        "activeAgent": false
       },
       {
         "id": "10",
@@ -402,81 +330,54 @@
             "id": 1,
             "title": "Collect Task Master schema + CLI usage for renderer/actions",
             "description": "Summarize tasks.json schema and relevant CLI commands (list/show/set-status/update/add/remove) to support plugin rendering and actions.",
-            "details": "",
             "status": "done",
-            "dependencies": [],
-            "parentTaskId": 10,
-            "updatedAt": "2026-01-09T07:00:42.672Z",
-            "parentId": "undefined"
+            "dependencies": []
           },
           {
             "id": 2,
             "title": "Evaluate Zellij plugin API + integration points",
             "description": "Confirm zellij-tile capabilities (events, workers, filesystem access) and how to ship/load plugin in this repo.",
-            "details": "",
             "status": "done",
-            "dependencies": [],
-            "parentTaskId": 10,
-            "parentId": "undefined",
-            "updatedAt": "2026-01-09T07:00:46.355Z"
+            "dependencies": []
           },
           {
             "id": 3,
             "title": "Design plugin UX + state model",
             "description": "Define list/detail views, filters, keybindings, realtime refresh strategy, and error states (missing tasks.json, parse errors).",
-            "details": "",
             "status": "done",
-            "dependencies": [],
-            "parentTaskId": 10,
-            "parentId": "undefined",
-            "updatedAt": "2026-01-09T07:01:07.748Z"
+            "dependencies": []
           },
           {
             "id": 4,
             "title": "Scaffold plugin project + build pipeline",
             "description": "Add plugin source (Rust/WASM), build scripts, and install integration for zellij config/layout.",
-            "details": "",
             "status": "done",
-            "dependencies": [],
-            "parentTaskId": 10,
-            "parentId": "undefined",
-            "updatedAt": "2026-01-09T07:00:53.624Z"
+            "dependencies": []
           },
           {
             "id": 5,
             "title": "Implement realtime renderer + file watcher/polling",
             "description": "Load tasks.json, parse tasks/subtasks, render list/detail, and refresh on interval or file mtime change.",
-            "details": "",
             "status": "done",
-            "dependencies": [],
-            "parentTaskId": 10,
-            "parentId": "undefined",
-            "updatedAt": "2026-01-09T07:00:57.170Z"
+            "dependencies": []
           },
           {
             "id": 6,
             "title": "Wire CLI actions (status changes, open details)",
             "description": "Integrate task-master CLI commands for status changes and task updates; handle errors gracefully.",
-            "details": "",
             "status": "done",
-            "dependencies": [],
-            "parentTaskId": 10,
-            "parentId": "undefined",
-            "updatedAt": "2026-01-09T07:01:01.715Z"
+            "dependencies": []
           },
           {
             "id": 7,
             "title": "Update docs + install instructions",
             "description": "Document plugin build/install, configuration, and keybindings in README; update install/uninstall as needed.",
-            "details": "",
             "status": "done",
-            "dependencies": [],
-            "parentTaskId": 10,
-            "parentId": "undefined",
-            "updatedAt": "2026-01-09T07:01:13.182Z"
+            "dependencies": []
           }
         ],
-        "updatedAt": "2026-01-09T07:01:13.182Z"
+        "updatedAt": "2026-01-09T07:01:13.182Z",
+        "activeAgent": false
       },
       {
         "id": "11",
@@ -490,7 +391,8 @@
         ],
         "priority": "high",
         "subtasks": [],
-        "updatedAt": "2026-01-11T22:02:37.273Z"
+        "updatedAt": "2026-01-11T22:02:37.273Z",
+        "activeAgent": false
       },
       {
         "id": "12",
@@ -505,7 +407,8 @@
         ],
         "priority": "high",
         "subtasks": [],
-        "updatedAt": "2026-01-11T22:03:34.833Z"
+        "updatedAt": "2026-01-11T22:03:34.833Z",
+        "activeAgent": false
       },
       {
         "id": "13",
@@ -519,7 +422,8 @@
         ],
         "priority": "medium",
         "subtasks": [],
-        "updatedAt": "2026-01-11T22:05:07.218Z"
+        "updatedAt": "2026-01-11T22:05:07.218Z",
+        "activeAgent": false
       },
       {
         "id": "14",
@@ -535,7 +439,8 @@
         ],
         "priority": "high",
         "subtasks": [],
-        "updatedAt": "2026-01-11T22:07:38.663Z"
+        "updatedAt": "2026-01-11T22:07:38.663Z",
+        "activeAgent": false
       },
       {
         "id": "15",
@@ -551,7 +456,8 @@
         ],
         "priority": "medium",
         "subtasks": [],
-        "updatedAt": "2026-01-12T06:21:59.249Z"
+        "updatedAt": "2026-01-12T06:21:59.249Z",
+        "activeAgent": false
       },
       {
         "id": "16",
@@ -567,7 +473,8 @@
         ],
         "priority": "high",
         "subtasks": [],
-        "updatedAt": "2026-01-12T06:22:12.353Z"
+        "updatedAt": "2026-01-12T06:22:12.353Z",
+        "activeAgent": false
       },
       {
         "id": "17",
@@ -583,7 +490,8 @@
         ],
         "priority": "high",
         "subtasks": [],
-        "updatedAt": "2026-01-12T06:22:26.787Z"
+        "updatedAt": "2026-01-12T06:22:26.787Z",
+        "activeAgent": false
       },
       {
         "id": "18",
@@ -598,7 +506,8 @@
         ],
         "priority": "medium",
         "subtasks": [],
-        "updatedAt": "2026-01-12T06:22:40.810Z"
+        "updatedAt": "2026-01-12T06:22:40.810Z",
+        "activeAgent": false
       },
       {
         "id": "19",
@@ -614,7 +523,8 @@
         ],
         "priority": "low",
         "subtasks": [],
-        "updatedAt": "2026-01-12T06:22:54.510Z"
+        "updatedAt": "2026-01-12T06:22:54.510Z",
+        "activeAgent": false
       },
       {
         "id": "20",
@@ -626,7 +536,8 @@
         "dependencies": [],
         "priority": "medium",
         "subtasks": [],
-        "updatedAt": "2026-01-12T13:58:44.521Z"
+        "updatedAt": "2026-01-12T13:58:44.521Z",
+        "activeAgent": false
       },
       {
         "id": "21",
@@ -638,7 +549,8 @@
         "dependencies": [],
         "priority": "high",
         "subtasks": [],
-        "updatedAt": "2026-01-17T17:23:11.961Z"
+        "updatedAt": "2026-01-17T17:23:11.961Z",
+        "activeAgent": false
       },
       {
         "id": "22",
@@ -652,7 +564,8 @@
         ],
         "priority": "medium",
         "subtasks": [],
-        "updatedAt": "2026-01-17T17:40:07.296Z"
+        "updatedAt": "2026-01-17T17:40:07.296Z",
+        "activeAgent": false
       },
       {
         "id": "23",
@@ -666,7 +579,8 @@
         ],
         "priority": "medium",
         "subtasks": [],
-        "updatedAt": "2026-01-17T17:47:05.092Z"
+        "updatedAt": "2026-01-17T17:47:05.092Z",
+        "activeAgent": false
       },
       {
         "id": "24",
@@ -678,7 +592,8 @@
         "dependencies": [],
         "priority": "medium",
         "subtasks": [],
-        "updatedAt": "2026-01-17T17:30:50.862Z"
+        "updatedAt": "2026-01-17T17:30:50.862Z",
+        "activeAgent": false
       },
       {
         "id": "25",
@@ -692,7 +607,8 @@
         ],
         "priority": "low",
         "subtasks": [],
-        "updatedAt": "2026-01-17T17:52:39.738Z"
+        "updatedAt": "2026-01-17T17:52:39.738Z",
+        "activeAgent": false
       },
       {
         "id": "26",
@@ -704,7 +620,8 @@
         "dependencies": [],
         "priority": "medium",
         "subtasks": [],
-        "updatedAt": "2026-01-17T18:00:00.000Z"
+        "updatedAt": "2026-01-17T18:00:00.000Z",
+        "activeAgent": false
       },
       {
         "id": "27",
@@ -721,7 +638,8 @@
         ],
         "priority": "high",
         "subtasks": [],
-        "updatedAt": "2026-01-17T19:53:49.855Z"
+        "updatedAt": "2026-01-17T19:53:49.855Z",
+        "activeAgent": false
       },
       {
         "id": "28",
@@ -737,7 +655,8 @@
         ],
         "priority": "high",
         "subtasks": [],
-        "updatedAt": "2026-01-17T20:24:33.386Z"
+        "updatedAt": "2026-01-17T20:24:33.386Z",
+        "activeAgent": false
       },
       {
         "id": "29",
@@ -753,7 +672,8 @@
         ],
         "priority": "high",
         "subtasks": [],
-        "updatedAt": "2026-01-17T20:23:36.342Z"
+        "updatedAt": "2026-01-17T20:23:36.342Z",
+        "activeAgent": false
       },
       {
         "id": "30",
@@ -767,7 +687,8 @@
         ],
         "priority": "high",
         "subtasks": [],
-        "updatedAt": "2026-01-18T10:13:23.237Z"
+        "updatedAt": "2026-01-18T10:13:23.237Z",
+        "activeAgent": false
       },
       {
         "id": "31",
@@ -780,7 +701,9 @@
           "11"
         ],
         "priority": "medium",
-        "subtasks": []
+        "subtasks": [],
+        "updatedAt": null,
+        "activeAgent": false
       },
       {
         "id": "32",
@@ -794,7 +717,9 @@
           "30"
         ],
         "priority": "medium",
-        "subtasks": []
+        "subtasks": [],
+        "updatedAt": null,
+        "activeAgent": false
       },
       {
         "id": "33",
@@ -808,7 +733,9 @@
           "30"
         ],
         "priority": "low",
-        "subtasks": []
+        "subtasks": [],
+        "updatedAt": null,
+        "activeAgent": false
       },
       {
         "id": "34",
@@ -823,65 +750,55 @@
         ],
         "priority": "medium",
         "subtasks": [],
-        "updatedAt": "2026-01-18T10:59:03.577Z"
+        "updatedAt": "2026-01-18T10:59:03.577Z",
+        "activeAgent": false
       },
       {
         "id": "35",
         "title": "Polish Yazi Interface and Keybindings",
         "description": "Refine the Yazi file manager configuration to fix status bar labeling, improve the smart status line logic, and enhance pane resizing behavior for better workflow integration.",
+        "details": "This task builds upon the initial Yazi enhancements (Task #26) to address visual inconsistencies and logic refinements. The goal is to ensure the custom status bar correctly displays labels and that the automated pane resizing logic is robust.\n\n### Implementation Requirements\n\n1.  **Fix Status Bar Labels (`yazi/init.lua`)**:\n    -   Review the custom status line implementation (Header:children). Currently, the 'Help' label is hardcoded or misaligned.\n    -   Update the status bar widget to dynamically reflect available keybindings or fix static labels to match the actual keymap (e.g., ensure 'Open', 'Select', 'Exit' labels are accurate).\n    -   Ensure the background and foreground colors of the labels transition smoothly without visual artifacts.\n\n2.  **Refine Smart Status Logic**:\n    -   Modify the status bar to show contextual information relevant to the AOC workflow (e.g., current git branch if possible, or specialized file info).\n    -   Ensure the status bar layout respects the `1:4:3` column ratio set in `yazi.toml` and doesn't overlap with the preview pane borders.\n\n3.  **Enhance Resize Logic (`plugins/aoc-open.yazi`)**:\n    -   The current resize logic (expanding to ~40%) might conflict with Zellij's own layout management or cause flickering.\n    -   Investigate utilizing `zellij action resize` commands more effectively within the Lua wrapper if possible, or adjust the resize step to be smoother.\n    -   Add logic to revert the resize (restore layout) when Yazi loses focus or when the file is closed, if not already handled.\n\n4.  **Keybinding & Config Polish**:\n    -   Finalize `yazi/keymap.toml` to ensure `g a` (.aoc), `g l` (logs), and `g c` (config) shortcuts work as intended.\n    -   Verify `Ctrl+t` behavior for task switching integration.\n    -   Ensure `yazi/theme.toml` colors are fully aligned with the Catppuccin/AOC palette used in Task #26.",
+        "testStrategy": "1. **UI Verification**: Launch Yazi and inspect the status bar. Confirm that labels like 'Help', 'Open', etc., are correctly positioned and colored.\n2. **Resize Test**: Open a file from Yazi. Verify the pane expands. Close the file or switch focus and verify behavior is consistent/predictable.\n3. **Keybinding Check**: Test `g a` to jump to `.aoc/`. Test `Ctrl+t` functionality.",
         "status": "done",
         "dependencies": [
           "34",
           "26"
         ],
         "priority": "low",
-        "details": "This task builds upon the initial Yazi enhancements (Task #26) to address visual inconsistencies and logic refinements. The goal is to ensure the custom status bar correctly displays labels and that the automated pane resizing logic is robust.\n\n### Implementation Requirements\n\n1.  **Fix Status Bar Labels (`yazi/init.lua`)**:\n    -   Review the custom status line implementation (Header:children). Currently, the 'Help' label is hardcoded or misaligned.\n    -   Update the status bar widget to dynamically reflect available keybindings or fix static labels to match the actual keymap (e.g., ensure 'Open', 'Select', 'Exit' labels are accurate).\n    -   Ensure the background and foreground colors of the labels transition smoothly without visual artifacts.\n\n2.  **Refine Smart Status Logic**:\n    -   Modify the status bar to show contextual information relevant to the AOC workflow (e.g., current git branch if possible, or specialized file info).\n    -   Ensure the status bar layout respects the `1:4:3` column ratio set in `yazi.toml` and doesn't overlap with the preview pane borders.\n\n3.  **Enhance Resize Logic (`plugins/aoc-open.yazi`)**:\n    -   The current resize logic (expanding to ~40%) might conflict with Zellij's own layout management or cause flickering.\n    -   Investigate utilizing `zellij action resize` commands more effectively within the Lua wrapper if possible, or adjust the resize step to be smoother.\n    -   Add logic to revert the resize (restore layout) when Yazi loses focus or when the file is closed, if not already handled.\n\n4.  **Keybinding & Config Polish**:\n    -   Finalize `yazi/keymap.toml` to ensure `g a` (.aoc), `g l` (logs), and `g c` (config) shortcuts work as intended.\n    -   Verify `Ctrl+t` behavior for task switching integration.\n    -   Ensure `yazi/theme.toml` colors are fully aligned with the Catppuccin/AOC palette used in Task #26.",
-        "testStrategy": "1. **UI Verification**: Launch Yazi and inspect the status bar. Confirm that labels like 'Help', 'Open', etc., are correctly positioned and colored.\n2. **Resize Test**: Open a file from Yazi. Verify the pane expands. Close the file or switch focus and verify behavior is consistent/predictable.\n3. **Keybinding Check**: Test `g a` to jump to `.aoc/`. Test `Ctrl+t` functionality.",
         "subtasks": [
           {
             "id": 1,
             "title": "Fix Status Bar Labels in init.lua",
             "description": "Refactor the Header:children method in yazi/init.lua to correctly display 'Help', 'Open', 'Select', and 'Exit' labels with proper alignment and color transitions.",
-            "dependencies": [],
-            "details": "Inspect the current Header widget implementation. Hardcoded strings should be replaced or corrected to match the actual keymap. Use the theme colors defined in theme.toml for background/foreground consistency.",
             "status": "pending",
-            "testStrategy": "Launch Yazi and visually inspect the header/status bar to ensure labels are legible and aligned.",
-            "parentId": "undefined"
+            "dependencies": []
           },
           {
             "id": 2,
             "title": "Implement Contextual Smart Status",
             "description": "Update the status bar to display contextual info such as Git branch or file metadata, respecting the column layout.",
-            "dependencies": [
-              1
-            ],
-            "details": "Modify the status line logic to pull basic git status or file type info. Ensure it fits within the main manager column width (ratio 4 in 1:4:3 layout).",
             "status": "pending",
-            "testStrategy": "Navigate to a git repository and a non-git directory to verify the status bar updates appropriately.",
-            "parentId": "undefined"
+            "dependencies": [
+              "1"
+            ]
           },
           {
             "id": 3,
             "title": "Enhance Pane Resize Logic in aoc-open plugin",
             "description": "Optimize the resize behavior in plugins/aoc-open.yazi to handle Zellij interactions smoothly and restore layout on exit.",
-            "dependencies": [],
-            "details": "Review the existing lua script for resizing. Ensure 'zellij action resize' is called with appropriate parameters. Add cleanup logic to revert size if feasible.",
             "status": "pending",
-            "testStrategy": "Open a file using the plugin and verify the pane expands. Close it and check if the layout feels stable (no flickering).",
-            "parentId": "undefined"
+            "dependencies": []
           },
           {
             "id": 4,
             "title": "Finalize Keybindings and Theme Polish",
             "description": "Configure yazi/keymap.toml for 'g a', 'g l', 'g c' and Ctrl+t, and sync colors in yazi/theme.toml.",
-            "dependencies": [],
-            "details": "Add or verify the specific 'goto' commands in keymap.toml. Check theme.toml against the project's color palette (Catppuccin).",
             "status": "pending",
-            "testStrategy": "Test all specified keybindings manually. Verify color consistency across the UI.",
-            "parentId": "undefined"
+            "dependencies": []
           }
         ],
-        "updatedAt": "2026-01-18T11:13:22.886Z"
+        "updatedAt": "2026-01-18T11:13:22.886Z",
+        "activeAgent": false
       },
       {
         "id": "36",
@@ -896,7 +813,8 @@
         ],
         "priority": "high",
         "subtasks": [],
-        "updatedAt": "2026-01-21T19:41:32.370Z"
+        "updatedAt": "2026-01-21T19:41:32.370Z",
+        "activeAgent": false
       },
       {
         "id": "37",
@@ -910,7 +828,8 @@
         ],
         "priority": "high",
         "subtasks": [],
-        "updatedAt": "2026-01-21T19:47:55.887Z"
+        "updatedAt": "2026-01-21T19:47:55.887Z",
+        "activeAgent": false
       },
       {
         "id": "38",
@@ -924,7 +843,8 @@
         ],
         "priority": "high",
         "subtasks": [],
-        "updatedAt": "2026-01-21T20:08:08.127Z"
+        "updatedAt": "2026-01-21T20:08:08.127Z",
+        "activeAgent": false
       },
       {
         "id": "39",
@@ -939,17 +859,10 @@
           "37"
         ],
         "priority": "medium",
-        "subtasks": []
+        "subtasks": [],
+        "updatedAt": null,
+        "activeAgent": false
       }
-    ],
-    "metadata": {
-      "version": "1.0.0",
-      "lastModified": "2026-01-21T20:08:08.128Z",
-      "taskCount": 39,
-      "completedCount": 34,
-      "tags": [
-        "master"
-      ]
-    }
+    ]
   }
 }

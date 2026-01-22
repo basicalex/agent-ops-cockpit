@@ -2,7 +2,8 @@ use ratatui::style::{Color, Modifier, Style};
 
 pub const HEADER_STYLE: Style = Style::new().fg(Color::Cyan).add_modifier(Modifier::BOLD);
 pub const SELECTED_STYLE: Style = Style::new()
-    .bg(Color::DarkGray)
+    .bg(Color::Cyan)
+    .fg(Color::Black)
     .add_modifier(Modifier::BOLD);
 pub const NORMAL_STYLE: Style = Style::new().fg(Color::Reset);
 
@@ -13,7 +14,7 @@ pub mod icons {
     pub const BLOCKED: &str = "";
     pub const REVIEW: &str = "";
     pub const AGENT: &str = "󰚩";
-    pub const PRIORITY_HIGH: &str = "🔥";
+    pub const PRIORITY_HIGH: &str = "󰈸";
     pub const PRIORITY_MED: &str = "";
     pub const PRIORITY_LOW: &str = "";
     pub const EXPANDED: &str = "▼";

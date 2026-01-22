@@ -143,6 +143,7 @@ impl State {
                        root=$(cat \"${XDG_STATE_HOME:-$HOME/.local/state}/aoc/project_root\"); \
                    fi; \
                    if [ -z \"$root\" ]; then root=\".\"; fi; \
+                   echo \"PATH:$root/.taskmaster/tasks/tasks.json\"; \
                    cat \"$root/.taskmaster/tasks/tasks.json\"";
 
         run_command(&["sh", "-c", cmd], context);
@@ -167,7 +168,20 @@ impl State {
                 self.mark_dirty();
                 return;
             }
-            let data = String::from_utf8_lossy(&stdout);
+            let mut data = String::from_utf8_lossy(&stdout).to_string();
+            // Try to parse PATH header
+            if data.starts_with("PATH:") {
+                if let Some(newline_idx) = data.find('\n') {
+                    let path_str = &data[5..newline_idx];
+                    self.tasks_path = Some(PathBuf::from(path_str.trim()));
+                    if data.len() > newline_idx + 1 {
+                        data = data[newline_idx + 1..].to_string();
+                    } else {
+                        data = String::new();
+                    }
+                }
+            }
+
             if let Ok(project) = serde_json::from_str::<ProjectData>(&data) {
                 self.project = Some(project);
                 self.apply_current_tag();
@@ -215,6 +229,16 @@ impl State {
                 subtask_path: vec![],
                 depth: 0,
             });
+
+            if self.expanded_tasks.contains(&task.id) {
+                for (s_i, _sub) in task.subtasks.iter().enumerate() {
+                    rows.push(DisplayRow {
+                        task_idx: idx,
+                        subtask_path: vec![s_i],
+                        depth: 1,
+                    });
+                }
+            }
         }
         self.display_rows = rows;
         if self.table_state.selected().unwrap_or(0) >= self.display_rows.len() {
@@ -231,24 +255,48 @@ impl State {
         let row = &self.display_rows[idx];
         let task_idx = row.task_idx;
 
-        let new_status = match self.tasks[task_idx].status {
-            TaskStatus::Done => TaskStatus::Pending,
-            _ => TaskStatus::Done,
-        };
-
-        // Update View
-        self.tasks[task_idx].status = new_status.clone();
-
-        // Update Project
-        if let Some(proj) = &mut self.project {
-            let tag = if self.current_tag.is_empty() {
-                "master"
-            } else {
-                &self.current_tag
+        if let Some(sub_idx) = row.subtask_path.first() {
+            // Toggle Subtask
+            let new_status = match self.tasks[task_idx].subtasks[*sub_idx].status {
+                TaskStatus::Done => TaskStatus::Pending,
+                _ => TaskStatus::Done,
             };
-            if let Some(ctx) = proj.tags.get_mut(tag) {
-                if task_idx < ctx.tasks.len() {
-                    ctx.tasks[task_idx].status = new_status;
+            self.tasks[task_idx].subtasks[*sub_idx].status = new_status.clone();
+
+            // Update Project
+            if let Some(proj) = &mut self.project {
+                let tag = if self.current_tag.is_empty() {
+                    "master"
+                } else {
+                    &self.current_tag
+                };
+                if let Some(ctx) = proj.tags.get_mut(tag) {
+                    if task_idx < ctx.tasks.len() && *sub_idx < ctx.tasks[task_idx].subtasks.len() {
+                        ctx.tasks[task_idx].subtasks[*sub_idx].status = new_status;
+                    }
+                }
+            }
+        } else {
+            // Toggle Main Task
+            let new_status = match self.tasks[task_idx].status {
+                TaskStatus::Done => TaskStatus::Pending,
+                _ => TaskStatus::Done,
+            };
+
+            // Update View
+            self.tasks[task_idx].status = new_status.clone();
+
+            // Update Project
+            if let Some(proj) = &mut self.project {
+                let tag = if self.current_tag.is_empty() {
+                    "master"
+                } else {
+                    &self.current_tag
+                };
+                if let Some(ctx) = proj.tags.get_mut(tag) {
+                    if task_idx < ctx.tasks.len() {
+                        ctx.tasks[task_idx].status = new_status;
+                    }
                 }
             }
         }
@@ -258,23 +306,41 @@ impl State {
     }
 
     fn save_project(&mut self) {
-        if let Some(path) = &self.tasks_path {
-            if let Some(proj) = &self.project {
-                if let Ok(json) = serde_json::to_string_pretty(proj) {
-                    if let Err(e) = std::fs::write(path, json) {
-                        self.last_error = Some(format!("Failed to save: {}", e));
-                    }
-                }
-            }
+        let path = if let Some(p) = &self.tasks_path {
+            p.clone()
         } else {
             self.last_error =
                 Some("Cannot save: Unknown tasks.json path (read-only mode)".to_string());
+            return;
+        };
+
+        if let Some(proj) = &self.project {
+            if let Ok(json) = serde_json::to_string_pretty(proj) {
+                // Try direct write first
+                if std::fs::write(&path, &json).is_err() {
+                    // Fallback to RunCommand
+                    self.save_project_via_command(&path, &json);
+                } else {
+                    self.last_error = None;
+                }
+            }
         }
+    }
+
+    fn save_project_via_command(&mut self, path: &PathBuf, json: &str) {
+        let path_str = path.to_string_lossy();
+        // Use HEREDOC with quoted delimiter to prevent variable expansion and handle quotes
+        let cmd = format!(
+            "cat <<'EOF_AOC_TASKMASTER' > \"{}\"\n{}\nEOF_AOC_TASKMASTER",
+            path_str, json
+        );
+        let mut context = BTreeMap::new();
+        context.insert("action".to_string(), "save".to_string());
+        run_command(&["sh", "-c", &cmd], context);
     }
 
     pub fn handle_key(&mut self, key: KeyWithModifier) -> bool {
         match key.bare_key {
-            BareKey::Char('q') => return true,
             BareKey::Down | BareKey::Char('j') => {
                 let i = match self.table_state.selected() {
                     Some(i) => {
@@ -315,6 +381,23 @@ impl State {
                 self.show_detail = !self.show_detail;
                 if !self.show_detail {
                     self.focus = FocusMode::List;
+                }
+                return true;
+            }
+            BareKey::Char(' ') => {
+                let idx = self.table_state.selected().unwrap_or(0);
+                if idx < self.display_rows.len() {
+                    let task_idx = self.display_rows[idx].task_idx;
+                    // Check if task has subtasks before expanding
+                    if !self.tasks[task_idx].subtasks.is_empty() {
+                        let id = self.tasks[task_idx].id.clone();
+                        if self.expanded_tasks.contains(&id) {
+                            self.expanded_tasks.remove(&id);
+                        } else {
+                            self.expanded_tasks.insert(id);
+                        }
+                        self.recalc_display_rows();
+                    }
                 }
                 return true;
             }

@@ -34,11 +34,9 @@ impl BufferBackend {
     pub fn render_to_string(&self) -> String {
         let mut output = String::with_capacity((self.width * self.height * 10) as usize);
 
-        // ANSI Reset + Home
-        // output.push_str("\u{1b}[2J\u{1b}[H");
-        // Zellij plugin specific: We usually just print.
-        // But to overwrite previous frame without scrolling, we need cursor home.
-        // Try just Home.
+        // Zellij plugin: Disable line wrapping to prevent scroll-creep on exact-width writes
+        output.push_str("\u{1b}[?7l");
+        // Move cursor home
         output.push_str("\u{1b}[H");
 
         let mut last_fg = Color::Reset;
@@ -99,6 +97,10 @@ impl BufferBackend {
             last_bg = Color::Reset;
             last_modifier = Modifier::empty();
         }
+
+        // Restore line wrapping
+        output.push_str("\u{1b}[?7h");
+
         output
     }
 }

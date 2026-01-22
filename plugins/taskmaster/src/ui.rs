@@ -74,7 +74,35 @@ fn render_main(f: &mut Frame, state: &mut State, area: Rect) {
         .map(|row| {
             let task = &state.tasks[row.task_idx];
 
-            let status_str = format!("{:?}", task.status).to_lowercase();
+            // Resolve subtask if applicable
+            let (title, status, priority, is_subtask) =
+                if let Some(sub_idx) = row.subtask_path.first() {
+                    if *sub_idx < task.subtasks.len() {
+                        let sub = &task.subtasks[*sub_idx];
+                        (
+                            sub.title.clone(),
+                            sub.status.clone(),
+                            aoc_core::TaskPriority::Medium,
+                            true,
+                        )
+                    } else {
+                        (
+                            task.title.clone(),
+                            task.status.clone(),
+                            task.priority.clone(),
+                            false,
+                        )
+                    }
+                } else {
+                    (
+                        task.title.clone(),
+                        task.status.clone(),
+                        task.priority.clone(),
+                        false,
+                    )
+                };
+
+            let status_str = format!("{:?}", status).to_lowercase();
             let s_icon = match status_str.as_str() {
                 "done" => icons::CHECK,
                 "inprogress" | "in-progress" => icons::IN_PROGRESS,
@@ -85,11 +113,15 @@ fn render_main(f: &mut Frame, state: &mut State, area: Rect) {
             };
             let s_color = theme::status_color(&status_str);
 
-            let prio_str = format!("{:?}", task.priority).to_lowercase();
-            let p_icon = match prio_str.as_str() {
-                "high" => icons::PRIORITY_HIGH,
-                "low" => icons::PRIORITY_LOW,
-                _ => icons::PRIORITY_MED,
+            let prio_str = format!("{:?}", priority).to_lowercase();
+            let p_icon = if is_subtask {
+                "" // Don't show priority for subtasks
+            } else {
+                match prio_str.as_str() {
+                    "high" => icons::PRIORITY_HIGH,
+                    "low" => icons::PRIORITY_LOW,
+                    _ => icons::PRIORITY_MED,
+                }
             };
             let p_color = theme::priority_color(&prio_str);
 
@@ -100,7 +132,7 @@ fn render_main(f: &mut Frame, state: &mut State, area: Rect) {
                 title_spans.push(Span::styled("└─ ", Color::DarkGray));
             }
 
-            if !task.subtasks.is_empty() {
+            if !is_subtask && !task.subtasks.is_empty() {
                 let icon = if state.expanded_tasks.contains(&task.id) {
                     icons::EXPANDED
                 } else {
@@ -109,14 +141,18 @@ fn render_main(f: &mut Frame, state: &mut State, area: Rect) {
                 title_spans.push(Span::styled(format!("{} ", icon), Color::Blue));
             }
 
-            if task.active_agent {
+            if !is_subtask && task.active_agent {
                 title_spans.push(Span::styled(format!("{} ", icons::AGENT), Color::Magenta));
             }
 
-            title_spans.push(Span::raw(task.title.clone()));
+            title_spans.push(Span::raw(title));
 
             Row::new(vec![
-                Cell::from(Span::raw(task.id.clone())),
+                Cell::from(Span::raw(if is_subtask {
+                    "".to_string()
+                } else {
+                    task.id.clone()
+                })),
                 Cell::from(Span::styled(s_icon, s_color)),
                 Cell::from(Span::styled(p_icon, p_color)),
                 Cell::from(Line::from(title_spans)),
@@ -221,7 +257,6 @@ fn render_details(f: &mut Frame, state: &State, area: Rect) {
 }
 
 fn render_footer(f: &mut Frame, _state: &State, area: Rect) {
-    let p = Paragraph::new("Help: [x]Done [Space]Expand [Enter]Details [q]Quit")
-        .style(theme::NORMAL_STYLE);
+    let p = Paragraph::new("Help: [x]Done [Space]Expand [Enter]Details").style(theme::NORMAL_STYLE);
     f.render_widget(p, area);
 }
