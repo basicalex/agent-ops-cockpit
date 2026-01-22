@@ -168,6 +168,8 @@ center_lines() {
   done
 }
 
+printf "\033]0;Clock\007"
+
 while true; do
   clear
   now_time="$(date +"$time_format")"

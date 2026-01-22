@@ -161,7 +161,12 @@ render_header() {
   echo "---------------------------------------------------------------"
 }
 
+set_pane_title() {
+  printf "\033]0;%s\007" "$1"
+}
+
 render_blank() {
+  set_pane_title "Widget [Idle]"
   render_header
   echo
   echo "Widget idle. Press [m] for media or [g] for gallery."
@@ -414,6 +419,7 @@ while true; do
     clear
     case "$mode" in
       media)
+        set_pane_title "Widget [Media]"
         render_header
         render_media "$path"
         if (( ratio_edit == 1 )); then
@@ -425,12 +431,14 @@ while true; do
         ;;
       gallery)
         if (( gallery_view == 1 )); then
+          set_pane_title "Widget [Gallery: $((gallery_index+1))/$gallery_count]"
           if (( gallery_count == 0 )); then
             render_blank
           else
             render_media "${gallery_files[$gallery_index]}" "$offset_x" "$offset_y"
           fi
         else
+          set_pane_title "Widget [Gallery List]"
           render_header
           echo "Gallery: $GALLERY_DIR"
           if (( gallery_count == 0 )); then
@@ -455,6 +463,13 @@ while true; do
             echo "[s] style  [C] colors  [D] dither  [w] detail  [r] ratio  [+/-] size"
           fi
         fi
+        ;;
+      cal)
+        set_pane_title "Widget [Calendar]"
+        render_header
+        render_calendar
+        echo
+        echo "[h/j/k/l] navigate  [t] today  [m] media  [g] gallery"
         ;;
       blank)
         render_blank

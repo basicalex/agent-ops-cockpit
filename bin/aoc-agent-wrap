@@ -209,6 +209,7 @@ chmod +x "$bootloader"
   echo "construct_handshake() {"
   declare -f construct_handshake | tail -n +2
   echo "}"
+  echo "printf \"\\033]0;Agent [$agent_label]\\007\""
   echo "construct_handshake"
   echo "rm -f \"\$0\"" # Self-destruct
   echo "exec \"$real_bin\" \"\$@\""
