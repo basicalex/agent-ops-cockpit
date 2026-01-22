@@ -13,8 +13,10 @@ dev-debug.log
 # Dependency directories
 node_modules/
 # Rust build artifacts
+target/
 plugins/taskmaster/target/
 plugins/aoc-watcher/target/
+crates/target/
 # Environment variables
 .env
 # Editor directories and files
