@@ -258,18 +258,32 @@ To use the realtime Taskmaster plugin instead of the shell pane:
 ```bash
 ./scripts/build-taskmaster-plugin.sh
 ./install.sh
-ZELLIJ_PROJECT_ROOT=\"$PWD\" zellij --layout aoc-plugin
+ZELLIJ_PROJECT_ROOT="$PWD" zellij --layout aoc-plugin
 ```
 
 Shortcut: run `aoc-test` to launch the plugin layout (opens a plugin tab when already in Zellij).
 
-Plugin controls:
-- `a` all, `p` pending, `d` done
-- `j/k` or arrows to move
-- `Enter` toggle details
-- `x` mark done, `o` reopen
-- `r` refresh
-- `Shift+C` set/correct project root path
+**Key Controls:**
+- `j` / `k` (or arrows/scroll wheel): Move selection up/down
+- `x`: Toggle task/subtask status (Done/Pending)
+- `Space`: Expand/Collapse subtasks
+- `Enter`: Toggle Details pane
+- `Tab`: Switch focus between List and Details
+- `f`: Cycle Status Filter (All -> Pending -> Done)
+- `t`: Cycle Project Tag (Context)
+- `?`: Toggle Help panel
+- `r`: Refresh tasks manually
+
+**Mouse Support:**
+- **Left Click:** Select task
+- **Click Selected:** Toggle Details pane
+- **Scroll Wheel:** Move selection up/down
+
+**Features:**
+- **Realtime Persistence:** Changes (status toggles) are saved immediately to `tasks.json`.
+- **Subtasks:** Full support for nested subtask rendering and interaction.
+- **Multi-Tag Workflow:** seamless switching between task lists (e.g., `[master]`, `[feature-x]`).
+- **Rich UI:** Nerd Fonts, progress bars, and dependency visualization.
 
 ### Why the tmux wrapper?
 Codex is a full-screen TUI. Zellij can struggle to track scrollback for TUI apps,

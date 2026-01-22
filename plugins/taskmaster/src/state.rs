@@ -24,6 +24,7 @@ pub struct State {
     pub search_query: String,
     pub input_mode: InputMode,
     pub show_detail: bool,
+    pub show_help: bool,
     pub focus: FocusMode,
     pub subtask_cursor: usize,
     pub last_error: Option<String>,
@@ -43,6 +44,8 @@ pub struct State {
     pub root_index: usize,
     pub ignore_refresh_until: Option<SystemTime>,
     pub tasks_path: Option<PathBuf>, // New: Path for saving
+    pub last_render_rows: u16,
+    pub last_render_cols: u16,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -378,9 +381,21 @@ impl State {
                 return true;
             }
             BareKey::Enter => {
+                if self.show_help {
+                    self.show_help = false;
+                }
                 self.show_detail = !self.show_detail;
                 if !self.show_detail {
                     self.focus = FocusMode::List;
+                }
+                return true;
+            }
+            BareKey::Char('?') => {
+                self.show_help = !self.show_help;
+                // If help is shown, we want the right pane to be visible
+                if self.show_help {
+                    // Close detail if open to switch context (optional, but cleaner)
+                    // self.show_detail = false;
                 }
                 return true;
             }
@@ -414,12 +429,90 @@ impl State {
                 self.toggle_status();
                 return true;
             }
+            BareKey::Char('f') => {
+                self.filter = self.filter.next();
+                self.recalc_display_rows();
+                self.mark_dirty();
+                return true;
+            }
+            BareKey::Char('t') => {
+                self.cycle_tag();
+                return true;
+            }
             _ => false,
+        }
+    }
+
+    fn cycle_tag(&mut self) {
+        if let Some(proj) = &self.project {
+            let mut tags: Vec<&String> = proj.tags.keys().collect();
+            tags.sort(); // Stable order
+
+            if tags.is_empty() {
+                return;
+            }
+
+            let current = if self.current_tag.is_empty() {
+                "master".to_string()
+            } else {
+                self.current_tag.clone()
+            };
+
+            let pos = tags.iter().position(|&t| *t == current).unwrap_or(0);
+            let next_idx = (pos + 1) % tags.len();
+            self.current_tag = tags[next_idx].clone();
+
+            self.apply_current_tag();
+            self.mark_dirty();
         }
     }
 
     pub fn mark_dirty(&mut self) {
         self.needs_render = true;
+        self.update_pane_title();
+    }
+
+    fn update_pane_title(&self) {
+        let total = self.tasks.len();
+        let done = self
+            .tasks
+            .iter()
+            .filter(|t| format!("{:?}", t.status).to_lowercase() == "done")
+            .count();
+        let percent = if total > 0 {
+            (done as f64 / total as f64) * 100.0
+        } else {
+            0.0
+        };
+
+        // Progress Bar (ASCII)
+        let bar_width = 10;
+        let filled = (percent / 100.0 * bar_width as f64) as usize;
+        let bar = format!("[{}{}]", "=".repeat(filled), " ".repeat(bar_width - filled));
+
+        let tag = if self.current_tag.is_empty() {
+            "master"
+        } else {
+            &self.current_tag
+        };
+
+        let title = format!(
+            "Taskmaster [{}] {} {}/{} | Filter: {} | ? Help",
+            tag,
+            bar,
+            done,
+            total,
+            self.filter.label()
+        );
+
+        // Use zellij_tile's get_plugin_ids() to find our own ID, or use 0/context?
+        // Actually, zellij-tile 0.43 rename_plugin_pane requires an ID.
+        // We can get our own ID via get_plugin_ids().plugin_id usually, but let's check
+        // if we can just use the context or if there is a helper.
+        // Wait, standard practice for self-rename might be get_plugin_ids() or just know it.
+        // Let's try getting the current plugin id.
+        let ids = get_plugin_ids();
+        rename_plugin_pane(ids.plugin_id, title);
     }
 
     pub fn take_render(&mut self) -> bool {
