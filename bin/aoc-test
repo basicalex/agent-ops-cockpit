@@ -27,8 +27,8 @@ aoc_fullscreen() {
 }
 
 if [[ -n "${ZELLIJ:-}" || -n "${ZELLIJ_SESSION_NAME:-}" ]]; then
-  exec aoc-new-tab --plugin "$@"
+  exec aoc-new-tab --aoc "$@"
 fi
 
 aoc_fullscreen
-AOC_LAYOUT="aoc-plugin" exec aoc-launch
+AOC_LAYOUT="aoc" exec aoc-launch

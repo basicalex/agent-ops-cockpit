@@ -39,8 +39,6 @@ fi
 
 # Install zellij layout
 install_file "$ROOT_DIR/zellij/layouts/aoc.kdl" "$HOME/.config/zellij/layouts/aoc.kdl" 0644
-install_file "$ROOT_DIR/zellij/layouts/aoc.plugin.kdl" "$HOME/.config/zellij/layouts/aoc.plugin.kdl" 0644
-install_file "$ROOT_DIR/zellij/layouts/aoc.plugin.kdl" "$HOME/.config/zellij/layouts/aoc-plugin.kdl" 0644
 install_file "$ROOT_DIR/zellij/aoc.config.kdl" "$HOME/.config/zellij/aoc.config.kdl" 0644
 
 # Install yazi config + preview
@@ -82,11 +80,6 @@ if [[ -n "$plugin_wasm" ]]; then
   install_file "$plugin_wasm" "$HOME/.config/zellij/plugins/aoc-taskmaster.wasm" 0644
 else
   echo "Taskmaster plugin not built. Run: ./scripts/build-taskmaster-plugin.sh"
-fi
-
-# Check for aoc-watcher
-if [[ ! -f "$ROOT_DIR/bin/aoc-watcher" ]]; then
-  echo "aoc-watcher binary not found. Run: ./scripts/build-watcher.sh"
 fi
 
 echo "Installed AOC."

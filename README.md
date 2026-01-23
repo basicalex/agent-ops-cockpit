@@ -1,4 +1,4 @@
-# Agent Ops Cockpit (AOC) — Zellij 0.43.1 workspace
+# Agent Ops Cockpit (AOC) — Zellij 0.43.1 workspace yeee haw
 
 A lightweight, terminal-first "agent cockpit" layout for coding sessions:
 
@@ -252,16 +252,16 @@ If you prefer a different editor, you can change the `EDITOR` variable in your `
   `codex`; override the real executable via `AOC_GEMINI_BIN`, `AOC_CC_BIN`, or
   `AOC_OC_BIN` if needed.
 
-## Taskmaster Plugin (Experimental)
-To use the realtime Taskmaster plugin instead of the shell pane:
+## Taskmaster Plugin (Default)
+The default AOC layout uses the realtime Taskmaster Rust/WASM plugin.
 
 ```bash
 ./scripts/build-taskmaster-plugin.sh
 ./install.sh
-ZELLIJ_PROJECT_ROOT="$PWD" zellij --layout aoc-plugin
+aoc-launch
 ```
 
-Shortcut: run `aoc-test` to launch the plugin layout (opens a plugin tab when already in Zellij).
+Shortcut: run `aoc-test` to launch the default layout (opens a new tab when already in Zellij).
 
 **Key Controls:**
 - `j` / `k` (or arrows/scroll wheel): Move selection up/down
