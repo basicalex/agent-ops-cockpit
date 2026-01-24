@@ -31,28 +31,6 @@ resolve_layout_path() {
   printf '%s' "$HOME/.config/zellij/layouts/${layout_name}.kdl"
 }
 
-inject_plugin_root_file() {
-  local layout_path="$1"
-  local output_path="$2"
-  local root_file="$3"
-  local star_file="$4"
-  local root_tag="$5"
-  local project_root="$6"
-  awk -v root_file="$root_file" -v star_file="$star_file" -v root_tag="$root_tag" -v proj_root="$project_root" '
-    {
-      gsub(/__AOC_PROJECT_ROOT_FILE__/, root_file)
-      gsub(/__AOC_STAR_FILE__/, star_file)
-      gsub(/__AOC_ROOT_TAG__/, root_tag)
-      gsub(/__AOC_PROJECT_ROOT__/, proj_root)
-      print
-    }
-    $0 ~ /plugin location=.*aoc-taskmaster\.wasm/ { in_plugin=1 }
-    in_plugin && $0 ~ /refresh_secs/ {
-      print "                root_file \"" root_file "\""
-      in_plugin=0
-    }
-  ' "$layout_path" > "$output_path"
-}
 
 if [[ -z "${AOC_LAYOUT:-}" && -f "$local_layout" ]]; then
   layout="aoc.local"
@@ -71,34 +49,67 @@ cleanup_state "$state_dir"
 
 root_label="$(sanitize_name "$(basename "$project_root")")"
 timestamp="$(date +%Y%m%d-%H%M%S)"
-root_tag="${root_label}-${timestamp}"
-project_root_file="$state_dir/project_root.${root_tag}"
-star_file="$state_dir/starred_root.${root_tag}"
+
+# Generate Tab Name (First word of repo, Title Case)
+# e.g., agent-ops-cockpit -> Agent
+raw_name="$(basename "$project_root")"
+tab_name="$(echo "$raw_name" | cut -d'-' -f1 | awk '{print toupper(substr($0,1,1)) tolower(substr($0,2))}')"
+if [[ -z "$tab_name" ]]; then tab_name="AOC"; fi
+
+# Agent ID is just the raw repo name
+agent_id="$raw_name"
+
+# Project root file key is now the agent_id
+project_root_file="$state_dir/project_root.${agent_id}"
+star_file="$state_dir/starred_root.${agent_id}"
 printf '%s\n' "$project_root" > "$project_root_file"
 printf '%s\n' "$project_root" > "$star_file"
 
 layout_path="$(resolve_layout_path "$layout")"
 layout_arg="$layout"
+
 if [[ -f "$layout_path" ]]; then
   layout_label="$(sanitize_name "$(basename "$layout")")"
-    layout_tmp="$state_dir/aoc-layout-${layout_label}-${root_tag}.kdl"
-    inject_plugin_root_file "$layout_path" "$layout_tmp" "$project_root_file" "$star_file" "$root_tag" "$project_root"
+    layout_tmp="$state_dir/aoc-layout-${layout_label}-${agent_id}.kdl"
+    
+    # Inject both tab name and agent id
+    awk -v root_file="$project_root_file" \
+        -v star_file="$star_file" \
+        -v tab_name="$tab_name" \
+        -v agent_id="$agent_id" \
+        -v proj_root="$project_root" '
+    {
+      gsub(/__AOC_PROJECT_ROOT_FILE__/, root_file)
+      gsub(/__AOC_STAR_FILE__/, star_file)
+      gsub(/__AOC_TAB_NAME__/, tab_name)
+      gsub(/__AOC_AGENT_ID__/, agent_id)
+      gsub(/__AOC_PROJECT_ROOT__/, proj_root)
+      print
+    }
+    $0 ~ /plugin location=.*aoc-taskmaster\.wasm/ { in_plugin=1 }
+    in_plugin && $0 ~ /refresh_secs/ {
+      print "                root_file \"" root_file "\""
+      in_plugin=0
+    }
+  ' "$layout_path" > "$layout_tmp"
     layout_arg="$layout_tmp"
 
 fi
 
-session_name="aoc-${root_tag}"
+# Project identification exported for tools like aoc-star and aoc-align
+export AOC_ROOT_TAG="$agent_id"
 
-if command -v aoc-session-watch >/dev/null 2>&1; then
-  nohup aoc-session-watch "$root_tag" "$layout_arg" "$project_root_file" "$star_file" >/dev/null 2>&1 &
+# If running inside Zellij, launch a new tab in the current session
+# We use 'zellij action new-tab' which takes the layout with injected paths.
+if [[ -n "${ZELLIJ:-}" ]]; then
+  zellij action new-tab --layout "$layout_arg"
+  exit 0
 fi
 
-if command -v aoc-watcher >/dev/null 2>&1; then
-  nohup aoc-watcher --session "$session_name" >"$state_dir/watcher.log" 2>&1 &
-fi
-
+# Otherwise, launch a new session
 ZELLIJ_PROJECT_ROOT="$project_root" \
   AOC_PROJECT_ROOT="$project_root" \
   AOC_PROJECT_ROOT_FILE="$project_root_file" \
   AOC_STAR_FILE="$star_file" \
-  zellij "${config_arg[@]}" --session "$session_name" --new-session-with-layout "$layout_arg"
+  AOC_ROOT_TAG="$agent_id" \
+  zellij "${config_arg[@]}" --new-session-with-layout "$layout_arg"

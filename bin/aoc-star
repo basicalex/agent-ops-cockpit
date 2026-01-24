@@ -3,22 +3,42 @@ set -euo pipefail
 
 state_dir="${XDG_STATE_HOME:-$HOME/.local/state}/aoc"
 
-# Discover root_tag from pane names in the current tab
-# Layout panes named "aoc:<root_tag>" serve as markers
+# Discover root_tag from environment or Agent pane name
 discover_root_from_pane_names() {
-  # Skip if already set via environment
+  # Priority 1: Direct environment variable (fastest)
+  if [[ -n "${AOC_ROOT_TAG:-}" ]]; then
+    root_tag="$AOC_ROOT_TAG"
+    AOC_PROJECT_ROOT_FILE="${AOC_PROJECT_ROOT_FILE:-$state_dir/project_root.${root_tag}}"
+    AOC_STAR_FILE="${AOC_STAR_FILE:-$state_dir/starred_root.${root_tag}}"
+    return 0
+  fi
+
+  # Priority 2: Project root file directly set
   if [[ -n "${AOC_PROJECT_ROOT_FILE:-}" && -f "${AOC_PROJECT_ROOT_FILE:-}" ]]; then
     return 0
   fi
 
+  # Priority 3: Scrape Agent pane name from the current tab
+  # Format: "Agent [agent-ops-cockpit]" -> agent-ops-cockpit
   local layout_dump root_tag
   layout_dump="$(zellij action dump-layout 2>/dev/null || true)"
   
-  # Extract root_tag from pane name="aoc:<root_tag>" pattern
-  # The focused tab's panes are in the current dump
-  root_tag="$(echo "$layout_dump" | grep -oP 'pane[^}]*name="aoc:\K[^"]+' | head -1 || true)"
+  # Logic:
+  # 1. Find the tab that is focused (focus=true)
+  # 2. Inside that tab, look for a pane with name="Agent [...]"
+  # This uses a simple regex assuming standard KDL formatting.
   
-  if [[ -n "$root_tag" && "$root_tag" != "__AOC_ROOT_TAG__" ]]; then
+  root_tag="$(echo "$layout_dump" | awk '
+    /tab .*focus=true/ { in_focus=1; next }
+    /tab / { in_focus=0 }
+    in_focus && /pane .*name="Agent \[.*\]"/ {
+      match($0, /name="Agent \[(.*)\]"/, arr)
+      print arr[1]
+      exit
+    }
+  ')"
+  
+  if [[ -n "$root_tag" ]]; then
     AOC_PROJECT_ROOT_FILE="${AOC_PROJECT_ROOT_FILE:-$state_dir/project_root.${root_tag}}"
     AOC_STAR_FILE="${AOC_STAR_FILE:-$state_dir/starred_root.${root_tag}}"
   fi
