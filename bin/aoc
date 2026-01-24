@@ -4,7 +4,7 @@ set -euo pipefail
 # Forward known subcommands to the Rust CLI
 if [[ $# -gt 0 ]]; then
   case "$1" in
-    task|mem|--help|-h)
+    task|mem|rlm|--help|-h)
       # Assuming aoc-cli is in path or same directory
       DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" >/dev/null 2>&1 && pwd)"
       if [[ -x "$DIR/aoc-cli" ]]; then

@@ -49,3 +49,8 @@ When you receive a high-level request (e.g., "Refactor the login system"):
 *   `aoc-mem`: CLI for managing `memory.md`.
 *   `task-master` / `aoc-taskmaster`: CLI for managing tasks.
 *   `aoc-doctor`: Validates system dependencies.
+
+## RLM Skill (Default for Large Codebases)
+When repository size exceeds your context window, use the Rust-based RLM tool:
+*   `aoc-rlm scan` for scale, `aoc-rlm peek` for snippets, `aoc-rlm chunk` for slicing.
+*   Treat this as the default approach for large codebases before deep analysis.

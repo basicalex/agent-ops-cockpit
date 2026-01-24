@@ -42,6 +42,11 @@ A Rust-based WASM plugin for Zellij that provides an interactive task list.
 A Python-based utility for rendering the clock and weather information.
 *   **Scripts:** `script/*.py` handle the logic.
 
+### 5. RLM Skill (`aoc-rlm`)
+Rust-based Recursive Language Model tooling for large codebase analysis.
+*   **Commands:** `aoc-rlm scan`, `aoc-rlm peek`, `aoc-rlm chunk`.
+*   **Default usage:** prefer RLM for large repos to avoid context overflows.
+
 ## System Architecture: Per-Tab Isolation
 
 AOC uses a **Distributed Cognitive Architecture** with strict per-tab isolation.

@@ -1,5 +1,8 @@
 use serde::{Deserialize, Deserializer, Serialize};
+use serde_json::Value;
 use std::collections::HashMap;
+use std::fmt;
+use std::str::FromStr;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ProjectData {
@@ -10,6 +13,8 @@ pub struct ProjectData {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TagContext {
     pub tasks: Vec<Task>,
+    #[serde(default, flatten)]
+    pub extra: HashMap<String, Value>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -31,6 +36,8 @@ pub struct Task {
     pub updated_at: Option<String>,
     #[serde(default, rename = "activeAgent")]
     pub active_agent: bool,
+    #[serde(default, flatten)]
+    pub extra: HashMap<String, Value>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -51,6 +58,48 @@ impl Default for TaskStatus {
     }
 }
 
+impl TaskStatus {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            TaskStatus::Pending => "pending",
+            TaskStatus::InProgress => "in-progress",
+            TaskStatus::Done => "done",
+            TaskStatus::Cancelled => "cancelled",
+            TaskStatus::Deferred => "deferred",
+            TaskStatus::Review => "review",
+            TaskStatus::Blocked => "blocked",
+        }
+    }
+
+    pub fn is_done(&self) -> bool {
+        matches!(self, TaskStatus::Done | TaskStatus::Cancelled)
+    }
+}
+
+impl fmt::Display for TaskStatus {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
+impl FromStr for TaskStatus {
+    type Err = String;
+
+    fn from_str(input: &str) -> Result<Self, Self::Err> {
+        let normalized = input.trim().to_lowercase();
+        match normalized.as_str() {
+            "pending" => Ok(TaskStatus::Pending),
+            "in-progress" | "in_progress" | "inprogress" => Ok(TaskStatus::InProgress),
+            "done" => Ok(TaskStatus::Done),
+            "cancelled" | "canceled" => Ok(TaskStatus::Cancelled),
+            "deferred" => Ok(TaskStatus::Deferred),
+            "review" => Ok(TaskStatus::Review),
+            "blocked" => Ok(TaskStatus::Blocked),
+            other => Err(format!("Unknown status: {other}")),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
 pub enum TaskPriority {
@@ -65,6 +114,36 @@ impl Default for TaskPriority {
     }
 }
 
+impl TaskPriority {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            TaskPriority::High => "high",
+            TaskPriority::Medium => "medium",
+            TaskPriority::Low => "low",
+        }
+    }
+}
+
+impl fmt::Display for TaskPriority {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
+impl FromStr for TaskPriority {
+    type Err = String;
+
+    fn from_str(input: &str) -> Result<Self, Self::Err> {
+        let normalized = input.trim().to_lowercase();
+        match normalized.as_str() {
+            "high" => Ok(TaskPriority::High),
+            "medium" => Ok(TaskPriority::Medium),
+            "low" => Ok(TaskPriority::Low),
+            other => Err(format!("Unknown priority: {other}")),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Subtask {
     pub id: u32,
@@ -75,6 +154,8 @@ pub struct Subtask {
     pub status: TaskStatus,
     #[serde(default, deserialize_with = "deserialize_deps")]
     pub dependencies: Vec<String>,
+    #[serde(default, flatten)]
+    pub extra: HashMap<String, Value>,
 }
 
 // Memory System Types

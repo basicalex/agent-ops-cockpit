@@ -14,6 +14,8 @@ A lightweight, terminal-first "agent cockpit" layout for coding sessions:
 - yazi (recommended via cargo)
 - micro (modern terminal editor, installed automatically via bin/)
 - fzf
+- python3 (calendar/widget helpers)
+- git (recommended for aoc-rlm scan + gitignore)
 - tmux (optional, for Codex scrollback in Zellij)
 - chafa
 - ffmpeg
@@ -115,7 +117,7 @@ AOC is not just a layout; it is a **Distributed Cognitive Architecture** for AI-
 3.  **Task State (`.taskmaster/tasks/tasks.json`)**
     *   **Role:** The "TodoList."
     *   **Content:** Active work items, status, dependencies.
-    *   **Tool:** `task-master` / `aoc-taskmaster`.
+    *   **Tool:** `aoc task` (preferred) / `aoc-taskmaster` (npm optional).
     *   **Philosophy:** Dynamic. High-frequency updates during work.
 
 ### Onboarding a Project (`aoc-init`)
@@ -240,7 +242,8 @@ If you prefer a different editor, you can change the `EDITOR` variable in your `
   wrapper.
 - The installer drops a `codex` shim in `~/bin` (when it exists) to ensure
   `codex` always uses the tmux wrapper even outside Zellij.
-- Taskmaster script expects `task-master` in PATH; adjust via `TM_CMD` or `bin/aoc-taskmaster` if needed.
+- Taskmaster script expects `task-master` in PATH; otherwise use `aoc task` for mutations.
+- Claude plan sync (manual): `aoc task sync --from claude` or `--to claude` (uses `plansDirectory`).
 
 ### Agent selection
 - Set the default agent with `aoc-agent --set` (or run `aoc-agent` for a menu).
@@ -324,8 +327,9 @@ reliable in Zellij panes while keeping Codex behavior the same in other terminal
 
 ## Troubleshooting
 - Missing previews: install `chafa`, `poppler-utils`, and `librsvg2-bin`.
-- Blank task list: ensure `task-master` is in PATH.
+- Blank task list: ensure `aoc task list` works (or install `task-master` if you want the npm CLI).
 - Widget media not rendering: run `aoc-doctor` to confirm `ffmpeg` and `chafa`.
+- RLM skill not working: build `aoc-cli` (`cargo build --release -p aoc-cli`) and ensure `aoc-cli` is in PATH.
 - TeX preview build errors: install `tectonic` via Cargo using `cargo install --locked tectonic --version 0.14.1`.
 - If Cargo builds fail with the `time` crate error, use `cargo +1.78.0 install --locked tectonic --version 0.14.1`
   or `cargo binstall tectonic` for a prebuilt release.
@@ -359,4 +363,14 @@ If you are an AI agent reading this repo to set it up for a user:
 1.  **Install:** Run `./install.sh` to deploy the toolchain (`aoc-init`, `aoc-mem`, etc.) to the user's path.
 2.  **Initialize:** Run `aoc-init` in the project root to generate the standard context structure.
 3.  **Orient:** Run `aoc-mem read` to ingest the long-term history and architectural decisions of this project.
-4.  **Work:** Use `task-master list` to find pending work, and `task-master add-task --prompt "..."` to track your plan.
+4.  **Work:** Use `aoc task list` to find pending work, and `aoc task add "..."` to track your plan.
+
+## RLM Skill (Large Codebase Analysis)
+Use the Rust-based RLM tool as the default workflow for large repos:
+
+1. **Scan:** `aoc-rlm scan` to measure scale.
+2. **Peek:** `aoc-rlm peek "search_term"` for fast snippets.
+3. **Slice:** `aoc-rlm chunk --pattern "src/relevant/*.rs"` for chunked processing.
+
+`aoc-rlm` is backed by the Rust `aoc-cli` implementation for speed; build it with
+`cargo build --release -p aoc-cli` if you haven't installed binaries yet.

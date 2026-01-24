@@ -144,7 +144,27 @@ hint_for() {
       esac
       ;;
     task-master)
-      echo "Install task-master and ensure it is in PATH."
+      echo "Install task-master for npm-based task control (optional if using 'aoc task')."
+      ;;
+    python3)
+      case "$pm" in
+        apt) echo "sudo apt-get install -y python3" ;;
+        dnf) echo "sudo dnf install -y python3" ;;
+        pacman) echo "sudo pacman -S python" ;;
+        brew) echo "brew install python" ;;
+        apk) echo "sudo apk add python3" ;;
+        *) echo "Install python3 via your package manager." ;;
+      esac
+      ;;
+    git)
+      case "$pm" in
+        apt) echo "sudo apt-get install -y git" ;;
+        dnf) echo "sudo dnf install -y git" ;;
+        pacman) echo "sudo pacman -S git" ;;
+        brew) echo "brew install git" ;;
+        apk) echo "sudo apk add git" ;;
+        *) echo "Install git via your package manager." ;;
+      esac
       ;;
     aoc-watcher)
       echo "Run ./scripts/build-watcher.sh to build the context watcher."
@@ -156,7 +176,7 @@ hint_for() {
 }
 
 required=(zellij yazi fzf codex aoc-watcher)
-optional=(tmux chafa ffmpeg rsvg-convert pdftoppm rg bat tectonic task-master)
+optional=(tmux chafa ffmpeg rsvg-convert pdftoppm rg bat tectonic task-master python3 git)
 
 missing_required=()
 missing_optional=()
@@ -173,6 +193,9 @@ for tool in "${optional[@]}"; do
       missing_optional+=("$tool")
     fi
   elif [[ "$tool" == "task-master" ]]; then
+    if have aoc || have aoc-cli; then
+      continue
+    fi
     if ! have task-master && ! have task-master-ai; then
       missing_optional+=("$tool")
     fi
