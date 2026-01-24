@@ -147,7 +147,7 @@
         "description": "Allow users to override pane sizes and commands without editing aoc.kdl directly.",
         "details": "Document environment variables or alternate layout file strategy in README.md; consider templating in install.sh.",
         "testStrategy": "",
-        "status": "pending",
+        "status": "done",
         "dependencies": [],
         "priority": "medium",
         "subtasks": [
@@ -182,7 +182,7 @@
         "description": "Add an uninstall script and make install.sh idempotent with clear output.",
         "details": "Add bin/aoc-uninstall or scripts/uninstall.sh; ensure it removes only files installed by AOC.",
         "testStrategy": "",
-        "status": "pending",
+        "status": "done",
         "dependencies": [],
         "priority": "medium",
         "subtasks": [

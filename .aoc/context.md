@@ -5,7 +5,7 @@ This machine uses the **Agent Ops Cockpit (AOC)** system. All agents (Gemini, Cl
 
 ## 1. Project Structure
 ```
-.
+/home/ceii/dev/agent-ops-cockpit
 ├── AGENTS.md
 ├── aoc1.png
 ├── AOC.md
@@ -17,6 +17,7 @@ This machine uses the **Agent Ops Cockpit (AOC)** system. All agents (Gemini, Cl
 │   ├── aoc-align
 │   ├── aoc-cc
 │   ├── aoc-cleanup
+│   ├── aoc-cli -> /home/ceii/dev/agent-ops-cockpit/crates/target/release/aoc-cli
 │   ├── aoc-clock
 │   ├── aoc-clock-geo
 │   ├── aoc-clock-set
@@ -33,7 +34,6 @@ This machine uses the **Agent Ops Cockpit (AOC)** system. All agents (Gemini, Cl
 │   ├── aoc-preview-set
 │   ├── aoc-preview-toggle
 │   ├── aoc-rlm
-│   ├── aoc-session-watch
 │   ├── aoc-star
 │   ├── aoc-sys
 │   ├── aoc-taskmaster
@@ -58,6 +58,11 @@ This machine uses the **Agent Ops Cockpit (AOC)** system. All agents (Gemini, Cl
 ├── config
 │   ├── btop.conf
 │   └── codex-tmux.conf
+├── crates
+│   ├── aoc-cli
+│   ├── aoc-core
+│   ├── Cargo.lock
+│   └── Cargo.toml
 ├── install.sh
 ├── plugins
 │   └── taskmaster
@@ -78,7 +83,7 @@ This machine uses the **Agent Ops Cockpit (AOC)** system. All agents (Gemini, Cl
 │   └── layouts
 └── zellij_taskmaster_terminal_block.png
 
-13 directories, 59 files
+16 directories, 61 files
 ```
 
 ## 2. Long-Term Memory (`aoc-mem`)
@@ -94,11 +99,11 @@ This machine uses the **Agent Ops Cockpit (AOC)** system. All agents (Gemini, Cl
 - **No Ghost Work:** Track all work in `task-master`.
 
 ## 5. README Content
-# Agent Ops Cockpit (AOC) — Zellij 0.43.1 workspace
+# Agent Ops Cockpit (AOC) — Zellij 0.43.1 workspace yeee haw
 
 A lightweight, terminal-first "agent cockpit" layout for coding sessions:
 
-- **Left:** `yazi` file manager (compact view + togglable preview)
+- **Left:** `yazi` file manager (compact view + togglable preview/micro editor)
 - **Center top:** agent CLI (default: `codex`)
 - **Center bottom:** Taskmaster interactive (fzf-based)
 - **Right column:** Calendar/Media widget, Clock, Project terminal
@@ -199,8 +204,8 @@ AOC is not just a layout; it is a **Distributed Cognitive Architecture** for AI-
 1.  **Project Context (`.aoc/context.md`)**
     *   **Role:** The "Project Map."
     *   **Content:** Auto-generated snapshot of the file tree and `README`.
-    *   **Tool:** `aoc-init` (re-generates this).
-    *   **Philosophy:** Ephemeral. Agents read this to orient themselves.
+    *   **Tool:** `aoc-init` (manual) / `aoc-watcher` (automatic).
+    *   **Philosophy:** **Reactive.** Updated in real-time as you edit files, so agents always see the current state.
 
 2.  **Long-Term Memory (`.aoc/memory.md`)**
     *   **Role:** The "Logbook."
@@ -354,18 +359,32 @@ To use the realtime Taskmaster plugin instead of the shell pane:
 ```bash
 ./scripts/build-taskmaster-plugin.sh
 ./install.sh
-ZELLIJ_PROJECT_ROOT=\"$PWD\" zellij --layout aoc-plugin
+ZELLIJ_PROJECT_ROOT="$PWD" zellij --layout aoc-plugin
 ```
 
 Shortcut: run `aoc-test` to launch the plugin layout (opens a plugin tab when already in Zellij).
 
-Plugin controls:
-- `a` all, `p` pending, `d` done
-- `j/k` or arrows to move
-- `Enter` toggle details
-- `x` mark done, `o` reopen
-- `r` refresh
-- `Shift+C` set/correct project root path
+**Key Controls:**
+- `j` / `k` (or arrows/scroll wheel): Move selection up/down
+- `x`: Toggle task/subtask status (Done/Pending)
+- `Space`: Expand/Collapse subtasks
+- `Enter`: Toggle Details pane
+- `Tab`: Switch focus between List and Details
+- `f`: Cycle Status Filter (All -> Pending -> Done)
+- `t`: Cycle Project Tag (Context)
+- `?`: Toggle Help panel
+- `r`: Refresh tasks manually
+
+**Mouse Support:**
+- **Left Click:** Select task
+- **Click Selected:** Toggle Details pane
+- **Scroll Wheel:** Move selection up/down
+
+**Features:**
+- **Realtime Persistence:** Changes (status toggles) are saved immediately to `tasks.json`.
+- **Subtasks:** Full support for nested subtask rendering and interaction.
+- **Multi-Tag Workflow:** seamless switching between task lists (e.g., `[master]`, `[feature-x]`).
+- **Rich UI:** Nerd Fonts, progress bars, and dependency visualization.
 
 ### Why the tmux wrapper?
 Codex is a full-screen TUI. Zellij can struggle to track scrollback for TUI apps,
@@ -451,7 +470,7 @@ If you are an AI agent reading this repo to set it up for a user:
 [90m┌────────────────────────────────────────────────────────────────────[39m[90m┬──────────────[39m[90m┬──────────────[39m[90m┬──────────────┐[39m
 [90m│[39m[31m Tag Name                                                           [39m[90m│[39m[31m Tasks        [39m[90m│[39m[31m Ready        [39m[90m│[39m[31m Done         [39m[90m│[39m
 [90m├────────────────────────────────────────────────────────────────────[39m[90m┼──────────────[39m[90m┼──────────────[39m[90m┼──────────────┤[39m
-[90m│[39m ● master (current)                                                 [90m│[39m 29           [90m│[39m 1            [90m│[39m 27           [90m│[39m
+[90m│[39m ● master (current)                                                 [90m│[39m 39           [90m│[39m 4            [90m│[39m 35           [90m│[39m
 [90m└────────────────────────────────────────────────────────────────────[39m[90m┴──────────────[39m[90m┴──────────────[39m[90m┴──────────────┘[39m
 ```
 
