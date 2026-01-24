@@ -9,7 +9,6 @@ fi
 state_dir="${XDG_STATE_HOME:-$HOME/.local/state}/aoc"
 
 files=(
-  "$HOME/.local/bin/aoc-star"
   "$HOME/.local/bin/aoc-sys"
   "$HOME/.local/bin/aoc-taskmaster"
   "$HOME/.local/bin/aoc-test"

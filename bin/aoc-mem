@@ -1,10 +1,19 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# Get the correct project root from aoc-align (respects focused tab)
+project_root=""
+if command -v aoc-align >/dev/null 2>&1; then
+  project_root="$(aoc-align --print-root 2>/dev/null || true)"
+fi
+if [[ -z "$project_root" ]]; then
+  project_root="$PWD"
+fi
+
 # Project-local memory storage
 # Can be overridden by AOC_MEMORY_FILE
-aoc_dir="${AOC_PROJECT_ROOT:-$PWD}/.aoc"
-gemini_dir="${AOC_PROJECT_ROOT:-$PWD}/.gemini"
+aoc_dir="$project_root/.aoc"
+gemini_dir="$project_root/.gemini"
 mem_file="${AOC_MEMORY_FILE:-}"
 
 if [[ -z "$mem_file" ]]; then

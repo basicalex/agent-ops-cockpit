@@ -28,7 +28,6 @@ PROTECTED_COMMANDS = [
     "aoc-cleanup", 
     "aoc-init", 
     "aoc-launch", 
-    "aoc-star", 
     "aoc-align", 
     "aoc-doctor",
     "aoc-mem",

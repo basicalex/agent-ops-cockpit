@@ -134,9 +134,12 @@ fi
 find_aoc_dir() {
   local base=""
   local probe=""
-  if [[ -n "${AOC_PROJECT_ROOT:-}" ]]; then
-    base="$AOC_PROJECT_ROOT"
-  else
+  # Use aoc-align to get the correct root for the focused tab (ignores stale env vars)
+  if command -v aoc-align >/dev/null 2>&1; then
+    base="$(aoc-align --print-root 2>/dev/null || true)"
+  fi
+  # Fallback to PWD if aoc-align didn't return a value
+  if [[ -z "$base" ]]; then
     base="$PWD"
   fi
 

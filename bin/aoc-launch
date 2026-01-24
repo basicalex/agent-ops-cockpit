@@ -17,9 +17,10 @@ cleanup_state() {
   local dir="$1"
   find "$dir" -maxdepth 1 -type f \( \
     -name 'project_root.*' -o \
-    -name 'starred_root.*' -o \
     -name 'aoc-layout-*' \
   \) -mtime +30 -delete 2>/dev/null || true
+  # Clean up deprecated starred_root files
+  find "$dir" -maxdepth 1 -type f -name 'starred_root.*' -delete 2>/dev/null || true
 }
 
 resolve_layout_path() {
@@ -61,9 +62,7 @@ agent_id="$raw_name"
 
 # Project root file key is now the agent_id
 project_root_file="$state_dir/project_root.${agent_id}"
-star_file="$state_dir/starred_root.${agent_id}"
 printf '%s\n' "$project_root" > "$project_root_file"
-printf '%s\n' "$project_root" > "$star_file"
 
 layout_path="$(resolve_layout_path "$layout")"
 layout_arg="$layout"
@@ -74,13 +73,11 @@ if [[ -f "$layout_path" ]]; then
     
     # Inject both tab name and agent id
     awk -v root_file="$project_root_file" \
-        -v star_file="$star_file" \
         -v tab_name="$tab_name" \
         -v agent_id="$agent_id" \
         -v proj_root="$project_root" '
     {
       gsub(/__AOC_PROJECT_ROOT_FILE__/, root_file)
-      gsub(/__AOC_STAR_FILE__/, star_file)
       gsub(/__AOC_TAB_NAME__/, tab_name)
       gsub(/__AOC_AGENT_ID__/, agent_id)
       gsub(/__AOC_PROJECT_ROOT__/, proj_root)
@@ -96,7 +93,7 @@ if [[ -f "$layout_path" ]]; then
 
 fi
 
-# Project identification exported for tools like aoc-star and aoc-align
+# Project identification exported for layout template substitution
 export AOC_ROOT_TAG="$agent_id"
 
 # If running inside Zellij, launch a new tab in the current session
@@ -110,6 +107,5 @@ fi
 ZELLIJ_PROJECT_ROOT="$project_root" \
   AOC_PROJECT_ROOT="$project_root" \
   AOC_PROJECT_ROOT_FILE="$project_root_file" \
-  AOC_STAR_FILE="$star_file" \
   AOC_ROOT_TAG="$agent_id" \
   zellij "${config_arg[@]}" --new-session-with-layout "$layout_arg"
