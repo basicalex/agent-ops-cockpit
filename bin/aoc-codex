@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# Set title early, before any execs
+printf "\033]0;Agent [Codex]\007"
+
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 home_bin="${HOME}/bin"
 
@@ -71,15 +74,12 @@ codex_bin="$(resolve_codex_bin)"
 
 if ! command -v tmux >/dev/null 2>&1; then
   echo "aoc-codex: tmux not found; running codex without tmux wrapper." >&2
-  printf "\033]0;Agent [Codex]\007"
   exec "$codex_bin" "$@"
 fi
 
 conf="${AOC_CODEX_TMUX_CONF:-${XDG_CONFIG_HOME:-$HOME/.config}/aoc/codex-tmux.conf}"
 socket="aoc-codex-${ZELLIJ_PANE_ID:-$$}"
 session="codex"
-
-printf "\033]0;Agent [Codex]\007"
 
 if [[ -f "$conf" ]]; then
   exec tmux -L "$socket" -f "$conf" new-session -A -s "$session" "$codex_bin" "$@"

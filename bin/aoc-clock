@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# Set title early, before any execs
+printf "\033]0;Clock\007"
+
 interval="${AOC_CLOCK_INTERVAL:-1}"
 if ! [[ "$interval" =~ ^[0-9]+$ ]]; then
   interval=1
@@ -168,10 +171,9 @@ center_lines() {
   done
 }
 
-printf "\033]0;Clock\007"
-
 while true; do
   clear
+  printf "\033]0;Clock\007"
   now_time="$(date +"$time_format")"
   now_date="$(date +"$date_format")"
   cols="$(term_cols)"

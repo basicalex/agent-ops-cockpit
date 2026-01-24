@@ -6,6 +6,11 @@ agent_bin="${2:-}"
 agent_label="${3:-}"
 shift 3 || true
 
+# Set title early, before any execs
+if [[ -n "$agent_label" ]]; then
+  printf "\033]0;Agent [$agent_label]\007"
+fi
+
 if [[ -z "$agent_id" || -z "$agent_bin" ]]; then
   echo "Usage: aoc-agent-wrap <id> <bin> [label] [args...]" >&2
   exit 1
