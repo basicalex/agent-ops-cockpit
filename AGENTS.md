@@ -28,8 +28,8 @@ AOC separates information into three layers to prevent context window overflow a
 *   **Nature:** Dynamic, State-driven.
 *   **Content:** The immediate work queue.
 *   **Agent Action:**
-    *   **Read:** `task-master list` to find work.
-    *   **Write:** `task-master add-task` to plan steps. `task-master set-status` to report progress.
+    *   **Read:** `aoc task list` to find work.
+    *   **Write:** `aoc task add` to plan steps. `aoc task status` to report progress.
 
 ## Standard Workflow
 
@@ -37,9 +37,9 @@ When you receive a high-level request (e.g., "Refactor the login system"):
 
 1.  **Orient:** Run `aoc-init` (if needed) or check `.aoc/context.md` to see the files involved.
 2.  **Recall:** Run `aoc-mem read` (or `aoc-mem search "login"`) to see past decisions about the login system.
-3.  **Plan:** Run `task-master add-task --prompt "Refactor login"` to break it down.
+3.  **Plan:** Run `aoc task add "Refactor login"` to break it down.
 4.  **Execute:** Edit files, run tests.
-5.  **Update:** `task-master set-status <id> done`.
+5.  **Update:** `aoc task status <id> done`.
 6.  **Record:** `aoc-mem add "Refactored login to use OAuth2 provider X."`
 
 ## Toolchain Reference
@@ -47,10 +47,10 @@ When you receive a high-level request (e.g., "Refactor the login system"):
 *   `aoc-init`: Bootstraps the `.aoc` and `.taskmaster` folders.
 *   `aoc-watcher`: Background service that keeps `context.md` updated in real-time.
 *   `aoc-mem`: CLI for managing `memory.md`.
-*   `task-master` / `aoc-taskmaster`: CLI for managing tasks.
+*   `aoc task` / `aoc-taskmaster`: CLI for managing tasks.
 *   `aoc-doctor`: Validates system dependencies.
 
 ## RLM Skill (Default for Large Codebases)
 When repository size exceeds your context window, use the Rust-based RLM tool:
-*   `aoc-rlm scan` for scale, `aoc-rlm peek` for snippets, `aoc-rlm chunk` for slicing.
+*   `aoc-rlm scan` (or `rlm scan`) for scale, `aoc-rlm peek` (or `rlm peek`) for snippets, `aoc-rlm chunk` (or `rlm chunk`) for slicing.
 *   Treat this as the default approach for large codebases before deep analysis.

@@ -47,6 +47,88 @@ EOF
     log "Memory file exists ($mem_file). Skipping."
   fi
 
+  # AGENTS.md (project-level agent contract)
+  local agents_file="$project_root/AGENTS.md"
+  if [[ ! -f "$agents_file" ]]; then
+    log "Creating AGENTS.md..."
+    cat <<'EOF' > "$agents_file"
+# AOC Architecture & Agent Guidelines
+
+This document details the **Distributed Cognitive Architecture** of the Agent Ops Cockpit. If you are an agent working in this environment, this is your operating manual.
+
+## The Cognitive Stack
+
+AOC separates information into three layers to prevent context window overflow and ensure long-term coherence.
+
+### 1. Context (Orientation)
+*   **File:** `.aoc/context.md`
+*   **Nature:** Reactive, Auto-generated.
+*   **Content:** File tree, `README.md` snapshot, basic operational rules.
+*   **Agent Action:** **Read Only.** This file is updated in real-time by the `aoc-watcher` background service. You do not need to run `aoc-init` manually unless the watcher is stopped.
+
+### 2. Memory (Wisdom)
+*   **File:** `.aoc/memory.md`
+*   **Nature:** Persistent, Append-only (Log).
+*   **Content:**
+    *   **Decisions:** Why we chose library X over Y.
+    *   **Evolution:** Major refactors or pivots (e.g., "Switched Gemini to native pane").
+    *   **Preferences:** User specific constraints (e.g., "Strict Types only").
+*   **Agent Action:**
+    *   **Read:** At the start of every task (`aoc-mem read`).
+    *   **Write:** When you make a decision that future agents need to know (`aoc-mem add "..."`).
+
+### 3. Tasks (Execution)
+*   **File:** `.taskmaster/tasks/tasks.json`
+*   **Nature:** Dynamic, State-driven.
+*   **Content:** The immediate work queue.
+*   **Agent Action:**
+    *   **Read:** `aoc task list` to find work.
+    *   **Write:** `aoc task add` to plan steps. `aoc task status` to report progress.
+
+## Standard Workflow
+
+When you receive a high-level request (e.g., "Refactor the login system"):
+
+1.  **Orient:** Run `aoc-init` (if needed) or check `.aoc/context.md` to see the files involved.
+2.  **Recall:** Run `aoc-mem read` (or `aoc-mem search "login"`) to see past decisions about the login system.
+3.  **Plan:** Run `aoc task add "Refactor login"` to break it down.
+4.  **Execute:** Edit files, run tests.
+5.  **Update:** `aoc task status <id> done`.
+6.  **Record:** `aoc-mem add "Refactored login to use OAuth2 provider X."`
+
+## Toolchain Reference
+
+*   `aoc-init`: Bootstraps the `.aoc` and `.taskmaster` folders.
+*   `aoc-watcher`: Background service that keeps `context.md` updated in real-time.
+*   `aoc-mem`: CLI for managing `memory.md`.
+*   `aoc task` / `aoc-taskmaster`: CLI for managing tasks.
+*   `aoc-doctor`: Validates system dependencies.
+
+## RLM Skill (Default for Large Codebases)
+When repository size exceeds your context window, use the Rust-based RLM tool:
+*   `aoc-rlm scan` (or `rlm scan`) for scale, `aoc-rlm peek` (or `rlm peek`) for snippets, `aoc-rlm chunk` (or `rlm chunk`) for slicing.
+*   Treat this as the default approach for large codebases before deep analysis.
+EOF
+  else
+    if grep -Eq "AOC Architecture & Agent Guidelines|Agent Ops Cockpit \(AOC\)" "$agents_file"; then
+      log "AGENTS.md already includes AOC guidance. Skipping."
+    else
+      log "Appending AOC agent guidance to AGENTS.md..."
+      cat <<'EOF' >> "$agents_file"
+
+## Agent Ops Cockpit (AOC)
+Use the AOC tools for context, memory, and tasks in this repo.
+
+- **Context:** `.aoc/context.md` (read-only)
+- **Memory:** `.aoc/memory.md` via `aoc-mem read/add`
+- **Tasks:** `.taskmaster/tasks/tasks.json` via `aoc task list/add/status`
+- **RLM:** `aoc-rlm` (or `rlm`) for large codebase analysis
+
+If the AOC files are missing, run `aoc-init` at the repo root.
+EOF
+    fi
+  fi
+
   # Context Generation (context.md)
   local context_file="$aoc_dir/context.md"
   log "Generating/Updating Context ($context_file)..."
@@ -67,13 +149,13 @@ $(tree -L 2 --gitignore -I '.git|.taskmaster|.aoc|.gemini|node_modules|target|di
 **Purpose:** Persistent storage of architectural decisions.
 **Commands:** \`aoc-mem read\`, \`aoc-mem add "fact"\`.
 
-## 3. Task Management (\`task-master\`)
+## 3. Task Management (\`aoc task\`)
 **Purpose:** Granular tracking of work.
-**Commands:** \`task-master list\`, \`task-master add-task --prompt "Task"\`.
+**Commands:** \`aoc task list\`, \`aoc task add "Task"\`.
 
 ## 4. Operational Rules
 - **No Amnesia:** Always check \`aoc-mem\` first.
-- **No Ghost Work:** Track all work in \`task-master\`.
+- **No Ghost Work:** Track all work in \`aoc task\` (or \`task-master\`).
 EOF
   
   # Append README if it exists
@@ -84,11 +166,17 @@ EOF
   fi
 
   # Append Taskmaster Tags if available
-  if command -v task-master >/dev/null 2>&1; then
+  if command -v aoc >/dev/null 2>&1 || command -v aoc-cli >/dev/null 2>&1 || command -v task-master >/dev/null 2>&1; then
     echo >> "$context_file"
     echo "## 6. Active Workstreams (Tags)" >> "$context_file"
     # Run in subshell to preserve cwd, capture output
-    tags_output="$(cd "$project_root" && task-master tags 2>/dev/null || echo "No tags found.")"
+    if command -v aoc >/dev/null 2>&1; then
+      tags_output="$(cd "$project_root" && aoc task tag list 2>/dev/null || echo "No tags found.")"
+    elif command -v aoc-cli >/dev/null 2>&1; then
+      tags_output="$(cd "$project_root" && aoc-cli task tag list 2>/dev/null || echo "No tags found.")"
+    else
+      tags_output="$(cd "$project_root" && task-master tags 2>/dev/null || echo "No tags found.")"
+    fi
     echo "\`\`\`" >> "$context_file"
     echo "$tags_output" >> "$context_file"
     echo "\`\`\`" >> "$context_file"
@@ -107,9 +195,9 @@ EOF
 
 ## 7. RLM Skill (Large Codebase Analysis)
 When you need to analyze more files than fit in your context:
-1. **Scan:** Run \`aoc-rlm scan\` to see the scale of the codebase.
-2. **Peek:** Run \`aoc-rlm peek "search_term"\` to find relevant snippets and file paths.
-3. **Slice:** Run \`aoc-rlm chunk --pattern "src/relevant/*.rs"\` to get JSON chunks.
+1. **Scan:** Run \`aoc-rlm scan\` (or \`rlm scan\`) to see the scale of the codebase.
+2. **Peek:** Run \`aoc-rlm peek "search_term"\` (or \`rlm peek\`) to find relevant snippets and file paths.
+3. **Slice:** Run \`aoc-rlm chunk --pattern "src/relevant/*.rs"\` (or \`rlm chunk\`) to get JSON chunks.
 4. **Process:** Use your available sub-agent tools (like \`Task\`) to process chunks in parallel.
 5. **Reduce:** Synthesize the sub-agent outputs into a final answer.
 EOF
@@ -120,9 +208,32 @@ EOF
 setup_tasks() {
   if [[ ! -d "$task_dir" ]]; then
     log "Initializing Taskmaster..."
-    # We use 'task-master init -y' to create the structure if missing.
-    # Note: We do this inside the dir to ensure it picks up the right place.
-    (cd "$project_root" && task-master init -y >/dev/null)
+    if command -v task-master >/dev/null 2>&1; then
+      # We use 'task-master init -y' to create the structure if missing.
+      # Note: We do this inside the dir to ensure it picks up the right place.
+      (cd "$project_root" && task-master init -y >/dev/null)
+    else
+      mkdir -p "$task_dir/tasks"
+      cat <<EOF > "$task_dir/tasks/tasks.json"
+{
+  "tags": {
+    "master": {
+      "tasks": []
+    }
+  }
+}
+EOF
+      now_stamp="$(date -u +%Y-%m-%dT%H:%M:%S.%3NZ)"
+      cat <<EOF > "$task_dir/state.json"
+{
+  "currentTag": "master",
+  "lastUpdated": "${now_stamp}",
+  "lastSwitched": "${now_stamp}",
+  "branchTagMapping": {},
+  "migrationNoticeShown": true
+}
+EOF
+    fi
   fi
 
   # Config Seeding (Preserve existing logic, but ensure Gemini preference)

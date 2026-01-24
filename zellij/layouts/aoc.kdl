@@ -44,7 +44,7 @@ layout {
             pane size="30%" name="Tasks" {
 
               plugin location="file:/home/ceii/.config/zellij/plugins/aoc-taskmaster.wasm" {
-                refresh_secs "5"
+                refresh_secs "1"
               }
             }
           }
@@ -119,7 +119,7 @@ swap_layouts {
 
             pane size="38%" name="Tasks" {
               plugin location="file:/home/ceii/.config/zellij/plugins/aoc-taskmaster.wasm" {
-                refresh_secs "5"
+                refresh_secs "1"
               }
             }
           }

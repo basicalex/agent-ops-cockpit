@@ -1,9 +1,10 @@
-use aoc_core::{ProjectData, Task, TaskPriority, TaskStatus};
+use aoc_core::{ProjectData, Task, TaskStatus};
 use ratatui::widgets::TableState;
-use std::collections::{BTreeMap, HashSet};
-use std::env;
-use std::path::PathBuf;
-use std::time::SystemTime;
+use serde::Deserialize;
+use serde_json::{json, Value};
+use std::collections::{BTreeMap, HashMap, HashSet};
+use std::path::{Path, PathBuf};
+use std::time::{SystemTime, UNIX_EPOCH};
 use zellij_tile::prelude::*;
 
 #[derive(Debug, Clone, Default)]
@@ -44,6 +45,8 @@ pub struct State {
     pub root_index: usize,
     pub ignore_refresh_until: Option<SystemTime>,
     pub tasks_path: Option<PathBuf>, // New: Path for saving
+    pub last_tasks_mtime: Option<SystemTime>,
+    pub last_state_updated: Option<String>,
     pub last_render_rows: u16,
     pub last_render_cols: u16,
 }
@@ -69,6 +72,17 @@ pub enum FilterMode {
     All,
     Pending,
     Done,
+}
+
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct TaskmasterState {
+    #[serde(default)]
+    current_tag: Option<String>,
+    #[serde(default)]
+    last_updated: Option<String>,
+    #[serde(default, flatten)]
+    _extra: HashMap<String, Value>,
 }
 
 impl FilterMode {
@@ -120,6 +134,8 @@ impl State {
                 if let Ok(project) = serde_json::from_str::<ProjectData>(&content) {
                     self.project = Some(project);
                     self.apply_current_tag();
+                    self.refresh_state();
+                    self.update_tasks_mtime(&path);
                     self.last_error = None;
                     self.mark_dirty();
                     return; // Success, skip shell command
@@ -188,6 +204,10 @@ impl State {
             if let Ok(project) = serde_json::from_str::<ProjectData>(&data) {
                 self.project = Some(project);
                 self.apply_current_tag();
+                self.refresh_state();
+                if let Some(path) = self.tasks_path.clone() {
+                    self.update_tasks_mtime(&path);
+                }
                 self.last_error = None;
             } else {
                 self.last_error = Some(format!("Failed to parse tasks.json. Len: {}", data.len()));
@@ -325,6 +345,8 @@ impl State {
                     self.save_project_via_command(&path, &json);
                 } else {
                     self.last_error = None;
+                    self.update_tasks_mtime(&path);
+                    self.touch_state_file();
                 }
             }
         }
@@ -340,6 +362,82 @@ impl State {
         let mut context = BTreeMap::new();
         context.insert("action".to_string(), "save".to_string());
         run_command(&["sh", "-c", &cmd], context);
+    }
+
+    fn update_tasks_mtime(&mut self, path: &Path) {
+        if let Ok(metadata) = std::fs::metadata(path) {
+            if let Ok(modified) = metadata.modified() {
+                self.last_tasks_mtime = Some(modified);
+            }
+        }
+    }
+
+    fn resolve_state_path(&self) -> Option<PathBuf> {
+        if let Some(tasks_path) = &self.tasks_path {
+            let mut path = tasks_path.clone();
+            path.pop();
+            path.pop();
+            path.push("state.json");
+            return Some(path);
+        }
+        let path = PathBuf::from(".taskmaster/state.json");
+        if path.exists() {
+            return Some(path);
+        }
+        None
+    }
+
+    fn refresh_state(&mut self) {
+        let Some(path) = self.resolve_state_path() else {
+            return;
+        };
+        let Ok(content) = std::fs::read_to_string(&path) else {
+            return;
+        };
+        let Ok(state) = serde_json::from_str::<TaskmasterState>(&content) else {
+            return;
+        };
+        if let Some(tag) = state.current_tag.clone() {
+            if tag != self.current_tag {
+                self.current_tag = tag;
+                self.apply_current_tag();
+            }
+        }
+        if let Some(last_updated) = state.last_updated {
+            if self.last_state_updated.as_ref() != Some(&last_updated) {
+                self.last_state_updated = Some(last_updated);
+            }
+        }
+    }
+
+    fn touch_state_file(&mut self) {
+        let Some(path) = self.resolve_state_path() else {
+            return;
+        };
+        let now = match SystemTime::now().duration_since(UNIX_EPOCH) {
+            Ok(duration) => duration.as_millis().to_string(),
+            Err(_) => return,
+        };
+        let mut state = if let Ok(content) = std::fs::read_to_string(&path) {
+            serde_json::from_str::<Value>(&content).unwrap_or_else(|_| json!({}))
+        } else {
+            json!({})
+        };
+        if let Value::Object(map) = &mut state {
+            map.insert("lastUpdated".to_string(), Value::String(now));
+            if !self.current_tag.is_empty() {
+                map.insert(
+                    "currentTag".to_string(),
+                    Value::String(self.current_tag.clone()),
+                );
+            }
+        }
+        if let Ok(payload) = serde_json::to_string_pretty(&state) {
+            if let Some(parent) = path.parent() {
+                let _ = std::fs::create_dir_all(parent);
+            }
+            let _ = std::fs::write(&path, payload);
+        }
     }
 
     pub fn handle_key(&mut self, key: KeyWithModifier) -> bool {

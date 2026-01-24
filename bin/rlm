@@ -1,0 +1,18 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+if command -v aoc-rlm >/dev/null 2>&1; then
+  exec aoc-rlm "$@"
+fi
+
+if command -v aoc-cli >/dev/null 2>&1; then
+  exec aoc-cli rlm "$@"
+fi
+
+DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" >/dev/null 2>&1 && pwd)"
+if [[ -x "$DIR/aoc-rlm" ]]; then
+  exec "$DIR/aoc-rlm" "$@"
+fi
+
+echo "rlm: 'aoc-rlm' not found. Run: cargo build --release -p aoc-cli" >&2
+exit 1

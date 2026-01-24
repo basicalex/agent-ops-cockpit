@@ -852,7 +852,7 @@
         "description": "Update agent tool definitions and documentation to utilize the new Rust CLI, and refactor the context watcher service to directly consume the aoc-core library for performance.",
         "details": "This task bridges the gap between the legacy shell-script environment and the new Rust architecture by updating external interfaces and internal background services.\n\n### Implementation Requirements\n\n1. **Tool Definitions & Documentation**:\n   - Audit `AGENTS.md` and tool definition files (likely in `.aoc/tools/` or `prompts/`) for references to legacy scripts like `task_add.sh` or `mem_add.sh`.\n   - Replace these references with the new `aoc` CLI syntax (e.g., `aoc task add ...`).\n   - Ensure parameter mapping in JSON schemas aligns with `aoc-cli` arguments defined in Task #37.\n\n2. **Refactor `aoc-watcher`**:\n   - Modify `crates/aoc-watcher/Cargo.toml` (created in Task #30) to add `aoc-core` as a local dependency.\n   - Remove ad-hoc file reading/concatenation logic from the watcher.\n   - Import and utilize `aoc_core::context` (from Task #36) to handle file scanning, ignoring patterns (git/contextignore), and context aggregation.\n   - Ensure the watcher leverages `aoc-core`'s efficient string handling to reduce overhead during rapid file changes.",
         "testStrategy": "1. **Tool Invocation Verification**: Manually execute a tool definition command (simulating an agent) and verify the `aoc` binary receives the correct arguments and successfully modifies the state (e.g., adds a task).\n2. **Watcher Integration Loop**: Start the refactored watcher. Modify a file ignored by `.contextignore` (verify no update). Modify a valid source file. Verify `context.md` updates immediately and matches the format expected by `aoc-core` unit tests.",
-        "status": "pending",
+        "status": "done",
         "dependencies": [
           "30",
           "36",
@@ -860,7 +860,20 @@
         ],
         "priority": "medium",
         "subtasks": [],
-        "updatedAt": null,
+        "updatedAt": "2026-01-24T20:46:39.942Z",
+        "activeAgent": false
+      },
+      {
+        "id": "40",
+        "title": "Explore aoc-size wizard for user-defined pane presets",
+        "description": "Investigate a guided sizing wizard that writes user-specific Zellij layout presets; feasibility is limited because in-session layout swapping may be unsupported and the feature may not be universally useful.",
+        "details": "Prototype an aoc-size flow that edits ~/.config/zellij/layouts/aoc.local.kdl (or generates named layout files) with user-selected pane sizes (default, agent-expanded, tasks-minimized, yazi-expanded, right-column-expanded). Document that Zellij cannot resize via mouse drag and may not support interactive layout switching, so the wizard should be optional and may provide limited value depending on the user’s screen and workflow.",
+        "testStrategy": "Manual: run the wizard, launch AOC, and confirm pane sizing matches user inputs on multiple screen sizes; validate that the feature degrades gracefully if layout switching is not possible.",
+        "status": "deferred",
+        "dependencies": [],
+        "priority": "low",
+        "subtasks": [],
+        "updatedAt": "2026-01-24T20:46:39.934Z",
         "activeAgent": false
       }
     ]

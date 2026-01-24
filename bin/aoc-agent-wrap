@@ -189,14 +189,18 @@ construct_handshake() {
   fi
   echo
   echo "📋 ACTIVE TASKS (.taskmaster/):"
-  if command -v task-master >/dev/null 2>&1; then
+  if command -v aoc >/dev/null 2>&1; then
+    aoc task list --tag "${AOC_TAG:-master}" 2>/dev/null | head -n 20 || echo "No active tasks."
+  elif command -v aoc-cli >/dev/null 2>&1; then
+    aoc-cli task list --tag "${AOC_TAG:-master}" 2>/dev/null | head -n 20 || echo "No active tasks."
+  elif command -v task-master >/dev/null 2>&1; then
     task-master list --tag "${AOC_TAG:-master}" 2>/dev/null | head -n 20 || echo "No active tasks."
   fi
   echo
   echo "💡 OPERATIONAL DIRECTIVE:"
   echo "1. The file '$aoc_dir/memory.md' is the LIVE source of truth for architectural decisions."
   echo "2. Use 'aoc-mem add \"fact\"' to record new decisions."
-  echo "3. Use 'task-master' tools to track your progress."
+  echo "3. Use 'aoc task' (or 'task-master') tools to track your progress."
   echo "4. Read the files explicitly if you need updated context."
   echo
   echo "──────────────────────────────────────────────────────────────────────────────"
