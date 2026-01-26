@@ -2,8 +2,10 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+BIN_DIR="$HOME/.local/bin"
 
-mkdir -p "$HOME/.local/bin"
+# Ensure dirs exist
+mkdir -p "$BIN_DIR"
 mkdir -p "$HOME/.config/zellij/layouts"
 mkdir -p "$HOME/.config/zellij"
 mkdir -p "$HOME/.config/zellij/plugins"
@@ -13,42 +15,90 @@ mkdir -p "${XDG_CONFIG_HOME:-$HOME/.config}/aoc"
 mkdir -p "${XDG_CONFIG_HOME:-$HOME/.config}/aoc/btop"
 mkdir -p "${XDG_STATE_HOME:-$HOME/.local/state}/aoc"
 
-install_file() {
-  local src="$1"
-  local dest="$2"
-  local mode="$3"
+log() { echo ">> $1"; }
 
-  if [[ -f "$dest" ]] && cmp -s "$src" "$dest"; then
-    echo "Up to date: $dest"
-    return
-  fi
-
-  install -m "$mode" "$src" "$dest"
-  echo "Installed: $dest"
-}
-
-# Install scripts
+# 1. Install Scripts
+log "Installing scripts..."
 for f in "$ROOT_DIR/bin/"*; do
-  install_file "$f" "$HOME/.local/bin/$(basename "$f")" 0755
+  filename=$(basename "$f")
+  # Skip micro if it's there (it shouldn't be, but just in case)
+  [[ "$filename" == "micro" ]] && continue
+  
+  install -m 0755 "$f" "$BIN_DIR/$filename"
 done
 
-# Ensure codex shim is earlier in PATH when ~/bin is prioritized.
+# Ensure codex shim
 if [[ -d "$HOME/bin" && -w "$HOME/bin" ]]; then
-  install_file "$ROOT_DIR/bin/codex" "$HOME/bin/codex" 0755
+  install -m 0755 "$ROOT_DIR/bin/codex" "$HOME/bin/codex"
 fi
 
-# Install zellij layout
-install_file "$ROOT_DIR/zellij/layouts/aoc.kdl" "$HOME/.config/zellij/layouts/aoc.kdl" 0644
-install_file "$ROOT_DIR/zellij/aoc.config.kdl" "$HOME/.config/zellij/aoc.config.kdl" 0644
+# 2. Rust Build & Install
+log "Building Rust components..."
+if command -v cargo >/dev/null 2>&1; then
+  # Build aoc-cli
+  log "Building aoc-cli..."
+  cargo install --path "$ROOT_DIR/crates/aoc-cli" --root "$HOME/.local" --force --quiet || {
+    # Fallback for older cargos that don't support --root in the same way or if it fails
+    # Try direct build
+    log "Cargo install failed, trying build --release..."
+    (cd "$ROOT_DIR/crates" && cargo build --release -p aoc-cli)
+    cp "$ROOT_DIR/crates/target/release/aoc-cli" "$BIN_DIR/aoc-cli"
+  }
+  
+  # Build taskmaster plugin
+  log "Building taskmaster plugin..."
+  "$ROOT_DIR/scripts/build-taskmaster-plugin.sh"
+else
+  log "WARNING: cargo not found. Skipping Rust builds. You must install aoc-cli manually."
+fi
 
-# Install yazi config + preview
-install_file "$ROOT_DIR/yazi/yazi.toml" "$HOME/.config/yazi/yazi.toml" 0644
-install_file "$ROOT_DIR/yazi/preview.sh" "$HOME/.config/yazi/preview.sh" 0755
-install_file "$ROOT_DIR/yazi/keymap.toml" "$HOME/.config/yazi/keymap.toml" 0644
-install_file "$ROOT_DIR/yazi/theme.toml" "$HOME/.config/yazi/theme.toml" 0644
-install_file "$ROOT_DIR/yazi/init.lua" "$HOME/.config/yazi/init.lua" 0644
+# 3. Dependencies (Micro & ZJStatus)
+log "Checking dependencies..."
 
-# Install yazi plugins
+# Micro
+if ! command -v micro >/dev/null 2>&1; then
+  if [[ ! -f "$BIN_DIR/micro" ]]; then
+    log "Downloading micro..."
+    curl https://getmic.ro | bash
+    mv micro "$BIN_DIR/micro"
+  fi
+else
+  log "Micro found."
+fi
+
+# ZJStatus
+ZJSTATUS_PATH="$HOME/.config/zellij/plugins/zjstatus.wasm"
+if [[ ! -f "$ZJSTATUS_PATH" ]]; then
+  log "Downloading zjstatus.wasm..."
+  curl -L -o "$ZJSTATUS_PATH" https://github.com/dj95/zjstatus/releases/latest/download/zjstatus.wasm
+fi
+
+# 4. Generate & Install Configs
+log "Generating configurations..."
+
+# Zellij Layout
+# Replace placeholders in template
+PROJECTS_BASE="$HOME/dev"
+[[ ! -d "$PROJECTS_BASE" ]] && PROJECTS_BASE="$HOME"
+
+sed \
+  -e "s|{{HOME}}|$HOME|g" \
+  -e "s|{{PROJECTS_BASE}}|$PROJECTS_BASE|g" \
+  "$ROOT_DIR/zellij/layouts/aoc.kdl.template" > "$HOME/.config/zellij/layouts/aoc.kdl"
+
+log "Generated $HOME/.config/zellij/layouts/aoc.kdl"
+
+# Copy other configs
+install -m 0644 "$ROOT_DIR/zellij/aoc.config.kdl" "$HOME/.config/zellij/aoc.config.kdl"
+install -m 0644 "$ROOT_DIR/yazi/yazi.toml" "$HOME/.config/yazi/yazi.toml"
+install -m 0755 "$ROOT_DIR/yazi/preview.sh" "$HOME/.config/yazi/preview.sh"
+install -m 0644 "$ROOT_DIR/yazi/keymap.toml" "$HOME/.config/yazi/keymap.toml"
+install -m 0644 "$ROOT_DIR/yazi/theme.toml" "$HOME/.config/yazi/theme.toml"
+install -m 0644 "$ROOT_DIR/yazi/init.lua" "$HOME/.config/yazi/init.lua"
+install -m 0644 "$ROOT_DIR/config/codex-tmux.conf" "${XDG_CONFIG_HOME:-$HOME/.config}/aoc/codex-tmux.conf"
+install -m 0644 "$ROOT_DIR/config/btop.conf" "${XDG_CONFIG_HOME:-$HOME/.config}/aoc/btop/btop.conf"
+
+# Yazi Plugins
 if [[ -d "$ROOT_DIR/yazi/plugins" ]]; then
   shopt -s nullglob
   for d in "$ROOT_DIR/yazi/plugins/"*.yazi; do
@@ -57,31 +107,26 @@ if [[ -d "$ROOT_DIR/yazi/plugins" ]]; then
     mkdir -p "$dest"
     for f in "$d"/*.lua; do
       [[ -f "$f" ]] || continue
-      install_file "$f" "$dest/$(basename "$f")" 0644
+      install -m 0644 "$f" "$dest/$(basename "$f")"
     done
   done
   shopt -u nullglob
 fi
 
-# Install Codex tmux config
-install_file "$ROOT_DIR/config/codex-tmux.conf" "${XDG_CONFIG_HOME:-$HOME/.config}/aoc/codex-tmux.conf" 0644
-# Install btop config (small-pane friendly)
-install_file "$ROOT_DIR/config/btop.conf" "${XDG_CONFIG_HOME:-$HOME/.config}/aoc/btop/btop.conf" 0644
-
-# Install Taskmaster plugin if built
-plugin_wasm=""
+# Taskmaster Plugin Install
+PLUGIN_WASM=""
 if [[ -f "$ROOT_DIR/plugins/taskmaster/target/wasm32-wasi/release/aoc-taskmaster-plugin.wasm" ]]; then
-  plugin_wasm="$ROOT_DIR/plugins/taskmaster/target/wasm32-wasi/release/aoc-taskmaster-plugin.wasm"
+  PLUGIN_WASM="$ROOT_DIR/plugins/taskmaster/target/wasm32-wasi/release/aoc-taskmaster-plugin.wasm"
 elif [[ -f "$ROOT_DIR/plugins/taskmaster/target/wasm32-wasip1/release/aoc-taskmaster-plugin.wasm" ]]; then
-  plugin_wasm="$ROOT_DIR/plugins/taskmaster/target/wasm32-wasip1/release/aoc-taskmaster-plugin.wasm"
+  PLUGIN_WASM="$ROOT_DIR/plugins/taskmaster/target/wasm32-wasip1/release/aoc-taskmaster-plugin.wasm"
 fi
 
-if [[ -n "$plugin_wasm" ]]; then
-  install_file "$plugin_wasm" "$HOME/.config/zellij/plugins/aoc-taskmaster.wasm" 0644
+if [[ -n "$PLUGIN_WASM" ]]; then
+  install -m 0644 "$PLUGIN_WASM" "$HOME/.config/zellij/plugins/aoc-taskmaster.wasm"
+  log "Installed taskmaster plugin."
 else
-  echo "Taskmaster plugin not built. Run: ./scripts/build-taskmaster-plugin.sh"
+  log "WARNING: Taskmaster plugin not found (build failed?)."
 fi
 
-echo "Installed AOC."
-echo "Launch from a project dir:"
-echo "  aoc-launch"
+log "AOC Installed Successfully!"
+log "Run 'aoc-launch' to start."

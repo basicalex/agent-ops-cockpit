@@ -2,7 +2,7 @@ layout {
   tab name="__AOC_TAB_NAME__" focus=true {
     pane split_direction="horizontal" {
       pane size=1 borderless=true {
-        plugin location="file:/home/ceii/.config/zellij/plugins/zjstatus.wasm" {
+        plugin location="file:{{HOME}}/.config/zellij/plugins/zjstatus.wasm" {
           format_left   "{mode} #[fg=#89B4FA,bold]{session}"
           format_center "{tabs}"
           format_right  "{command_cwd}"
@@ -29,7 +29,7 @@ layout {
       pane split_direction="vertical" {
         // LEFT: Yazi (tree + preview). Starts in project root.
         pane size="13%" command="bash" {
-          args "-lc" "export EDITOR=/home/ceii/dev/agent-ops-cockpit/bin/micro; export VISUAL=$EDITOR; cd \"__AOC_PROJECT_ROOT__\" && exec ${AOC_FILETREE_CMD:-yazi} ."
+          args "-lc" "export EDITOR=micro; export VISUAL=$EDITOR; cd \"__AOC_PROJECT_ROOT__\" && exec ${AOC_FILETREE_CMD:-yazi} ."
         }
 
         // CENTER + RIGHT COLUMN
@@ -42,9 +42,9 @@ layout {
             }
 
             pane size="30%" name="Tasks" {
-              plugin location="file:/home/ceii/.config/zellij/plugins/aoc-taskmaster.wasm" {
+              plugin location="file:{{HOME}}/.config/zellij/plugins/aoc-taskmaster.wasm" {
                 refresh_secs "1"
-                projects_base "/home/ceii/dev"
+                projects_base "{{PROJECTS_BASE}}"
               }
             }
           }
@@ -64,7 +64,7 @@ layout {
         }
       }
       pane size=1 borderless=true {
-        plugin location="file:/home/ceii/.config/zellij/plugins/zjstatus.wasm" {
+        plugin location="file:{{HOME}}/.config/zellij/plugins/zjstatus.wasm" {
           format_left   "{mode}"
           format_center ""
           format_right  "{command_alt}"
@@ -105,7 +105,7 @@ swap_layouts {
       pane split_direction="vertical" {
         // LEFT: Yazi (tree + preview). Starts in project root.
         pane size="10%" command="bash" {
-          args "-lc" "export EDITOR=/home/ceii/dev/agent-ops-cockpit/bin/micro; export VISUAL=$EDITOR; cd \"__AOC_PROJECT_ROOT__\" && exec ${AOC_FILETREE_CMD:-yazi} ."
+          args "-lc" "export EDITOR=micro; export VISUAL=$EDITOR; cd \"__AOC_PROJECT_ROOT__\" && exec ${AOC_FILETREE_CMD:-yazi} ."
         }
 
         // CENTER + RIGHT COLUMN
@@ -118,9 +118,9 @@ swap_layouts {
             }
 
             pane size="38%" name="Tasks" {
-              plugin location="file:/home/ceii/.config/zellij/plugins/aoc-taskmaster.wasm" {
+              plugin location="file:{{HOME}}/.config/zellij/plugins/aoc-taskmaster.wasm" {
                 refresh_secs "1"
-                projects_base "/home/ceii/dev"
+                projects_base "{{PROJECTS_BASE}}"
               }
             }
           }

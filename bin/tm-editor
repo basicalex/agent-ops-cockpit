@@ -1,2 +1,3 @@
 #!/bin/bash
-exec /home/ceii/dev/agent-ops-cockpit/bin/micro "$@"
+# Wrapper to ensure we use the correct micro instance
+exec micro "$@"
