@@ -1,0 +1,15 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+TITLE="${1:-Files}"
+
+# Ensure we have the session name if possible
+if [[ -z "${ZELLIJ_SESSION_NAME:-}" ]]; then
+    # Fallback: try to find the active session if we are in one
+    # Zellij usually sets this, but background shells might lose it
+    exit 0
+fi
+
+# Rename the pane. If we are in the pane, it renames the focused one.
+# We don't use --pane-id here to keep it simple, as Yazi is usually focused when title updates.
+zellij action rename-pane "$TITLE" >/dev/null 2>&1 || true

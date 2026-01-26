@@ -55,11 +55,11 @@ AOC uses a **Distributed Cognitive Architecture** with strict per-tab isolation.
 To solve Zellij's environment variable limitations, AOC uses "Layout Injection."
 *   **Placeholders:** Layout templates use tokens like `__AOC_PROJECT_ROOT__` and `__AOC_ROOT_TAG__`.
 *   **Just-In-Time Generation:** `aoc-launch` and `aoc-new-tab` replace these tokens with absolute paths and unique IDs, creating a temporary KDL file for each tab.
-*   **Anchoring:** Every tab's panes are named `aoc:<root_tag>`, allowing tools to discover the tab's project root via `zellij action dump-layout`.
+*   **Anchoring:** The Agent pane name includes the per-tab agent id (`Agent [<root_tag>]`), and layout injection writes `project_root.<root_tag>` files used to seed each pane's working directory. Yazi pane names are not used for root discovery.
 
 ### 2. Reactive Context (`aoc-watcher`)
 The `aoc-watcher` service provides "Live Context":
-*   **Discovery:** It scans the active Zellij session for `aoc:<root_tag>` panes to identify all active project roots.
+*   **Discovery:** It scans the active Zellij session for Agent panes and uses their injected root files/working directory to identify active project roots.
 *   **Monitoring:** It spawns efficient `notify` (inotify) watchers for each root.
 *   **Atomic Updates:** When a file is saved, it regenerates `.aoc/context.md` atomically, ensuring AI agents always have an up-to-date map of the project.
 

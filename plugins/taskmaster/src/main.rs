@@ -4,7 +4,6 @@ mod theme;
 mod ui;
 
 use std::collections::BTreeMap;
-use std::time::SystemTime;
 use zellij_tile::prelude::*;
 
 use backend::BufferBackend;
@@ -16,11 +15,13 @@ register_plugin!(State);
 impl ZellijPlugin for State {
     fn load(&mut self, configuration: BTreeMap<String, String>) {
         self.load_config(configuration);
+        self.plugin_pane_id = Some(get_plugin_ids().plugin_id);
         set_selectable(true);
         subscribe(&[
             EventType::Timer,
             EventType::Key,
             EventType::Mouse,
+            EventType::PaneUpdate,
             EventType::RunCommandResult,
             EventType::PermissionRequestResult,
         ]);
@@ -28,8 +29,7 @@ impl ZellijPlugin for State {
             PermissionType::RunCommands,
             PermissionType::ChangeApplicationState,
         ]);
-        self.ignore_refresh_until = Some(SystemTime::now() + std::time::Duration::from_secs(2));
-        set_timeout(self.refresh_secs);
+        set_timeout(0.1);
     }
 
     fn update(&mut self, event: Event) -> bool {
@@ -130,6 +130,10 @@ impl ZellijPlugin for State {
             }
             Event::RunCommandResult(_, stdout, stderr, context) => {
                 self.handle_command_result(stdout, stderr, context);
+                self.take_render()
+            }
+            Event::PaneUpdate(pane_manifest) => {
+                self.handle_pane_update(pane_manifest);
                 self.take_render()
             }
             Event::PermissionRequestResult(_) => {

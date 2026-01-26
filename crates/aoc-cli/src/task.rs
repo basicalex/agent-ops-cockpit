@@ -449,9 +449,7 @@ impl TaskContext {
 }
 
 fn resolve_root() -> Result<PathBuf> {
-    if let Ok(root) = std::env::var("AOC_PROJECT_ROOT") {
-        return Ok(PathBuf::from(root));
-    }
+    // The CLI runs inside the project directory - current_dir is truth
     Ok(std::env::current_dir()?)
 }
 

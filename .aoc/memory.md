@@ -31,3 +31,5 @@ Agents should read this to understand project history and append new decisions h
 - [2026-01-18 11:13] Implemented Reactive Context Watcher (aoc-watcher) in Rust. It uses Zellij dump-layout to discover per-tab project roots (via name='aoc:<root_tag>' anchors) and monitors them with notify. Integrated into aoc-launch; logs to watcher.log.
 - [2026-01-20 14:37] Updated aoc-agent-wrap to auto-resolve opencode binaries from PNPM global installs (opencode-ai/opencode) to avoid wrapper recursion; handshake now prefers nearest .aoc from PWD or repo root.
 - [2026-01-20 14:42] Pinned OpenCode to version 1.1.25 via AOC_OC_VERSION default in wrappers; aoc-agent-wrap now prefers pinned version when resolving PNPM opencode binaries.
+- [2026-01-25 10:10] Never use project_root state files for variable injection or context; avoid passing runtime state via project_root.* files.
+- [2026-01-26 00:00] Docs clarified: root discovery is anchored on Agent pane (Agent [<root_tag>]) and per-tab project_root files; Yazi pane titles can be dynamic without affecting root tagging.

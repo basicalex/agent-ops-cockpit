@@ -1,5 +1,6 @@
 [mgr]
 ratio = [0, 1, 0]
+title_format = ""
 show_hidden = true
 sort_by = "natural"
 sort_sensitive = false

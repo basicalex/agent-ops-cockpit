@@ -134,13 +134,16 @@ fi
 find_aoc_dir() {
   local base=""
   local probe=""
-  # Use aoc-align to get the correct root for the focused tab (ignores stale env vars)
+  base="$PWD"
+  # Prefer aoc-align only when it matches the current pane's path.
   if command -v aoc-align >/dev/null 2>&1; then
-    base="$(aoc-align --print-root 2>/dev/null || true)"
-  fi
-  # Fallback to PWD if aoc-align didn't return a value
-  if [[ -z "$base" ]]; then
-    base="$PWD"
+    local aligned=""
+    aligned="$(aoc-align --print-root 2>/dev/null || true)"
+    if [[ -n "$aligned" ]]; then
+      case "$base" in
+        "$aligned"|"$aligned"/*) base="$aligned" ;;
+      esac
+    fi
   fi
 
   probe="$base"

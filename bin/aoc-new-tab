@@ -43,11 +43,10 @@ sanitize_name() {
 
 cleanup_state() {
   local dir="$1"
-  find "$dir" -maxdepth 1 -type f \( \
-    -name 'project_root.*' -o \
-    -name 'aoc-layout-*' \
-  \) -mtime +30 -delete 2>/dev/null || true
-  # Clean up deprecated starred_root files
+  # Clean up old temp layout files
+  find "$dir" -maxdepth 1 -type f -name 'aoc-layout-*' -mtime +30 -delete 2>/dev/null || true
+  # Clean up deprecated root files (legacy)
+  find "$dir" -maxdepth 1 -type f -name 'project_root.*' -delete 2>/dev/null || true
   find "$dir" -maxdepth 1 -type f -name 'starred_root.*' -delete 2>/dev/null || true
 }
 
@@ -106,21 +105,14 @@ fi
 mkdir -p "$state_dir"
 cleanup_state "$state_dir"
 
-root_label="$(sanitize_name "${tab_name:-$(basename "$project_root")}")"
-timestamp="$(date +%Y%m%d-%H%M%S)"
-
 # Generate Tab Name (First word of repo, Title Case)
 raw_name="$(basename "$project_root")"
 computed_tab_name="$(echo "$raw_name" | cut -d'-' -f1 | awk '{print toupper(substr($0,1,1)) tolower(substr($0,2))}')"
 if [[ -z "$computed_tab_name" ]]; then computed_tab_name="AOC"; fi
 tab_name_to_use="${tab_name:-$computed_tab_name}"
 
-# Agent ID is just the raw repo name
+# Agent ID is just the raw repo name (used in pane name for alignment)
 agent_id="$raw_name"
-
-# Project root file key is now the agent_id
-project_root_file="$state_dir/project_root.${agent_id}"
-printf '%s\n' "$project_root" > "$project_root_file"
 
 layout_arg="$layout_choice"
 if [[ "$layout_choice" == "aoc" ]]; then
@@ -130,21 +122,14 @@ if [[ "$layout_choice" == "aoc" ]]; then
     layout_tmp="$state_dir/aoc-layout-${layout_label}-${agent_id}.kdl"
     
     # Inject placeholders
-    awk -v root_file="$project_root_file" \
-        -v tab_name="$tab_name_to_use" \
+    awk -v tab_name="$tab_name_to_use" \
         -v agent_id="$agent_id" \
         -v proj_root="$project_root" '
     {
-      gsub(/__AOC_PROJECT_ROOT_FILE__/, root_file)
       gsub(/__AOC_TAB_NAME__/, tab_name)
       gsub(/__AOC_AGENT_ID__/, agent_id)
       gsub(/__AOC_PROJECT_ROOT__/, proj_root)
       print
-    }
-    $0 ~ /plugin location=.*aoc-taskmaster\.wasm/ { in_plugin=1 }
-    in_plugin && $0 ~ /refresh_secs/ {
-      print "                root_file \"" root_file "\""
-      in_plugin=0
     }
   ' "$layout_path" > "$layout_tmp"
     layout_arg="$layout_tmp"
@@ -155,12 +140,10 @@ realign_current_pane "$current_root"
 
 if [[ "$layout_choice" == "aoc" ]]; then
   AOC_PROJECT_ROOT="$project_root" \
-    AOC_PROJECT_ROOT_FILE="$project_root_file" \
     ZELLIJ_PROJECT_ROOT="$project_root" \
     zellij action new-tab --layout "$layout_arg" "${args[@]}"
 else
   AOC_PROJECT_ROOT="$project_root" \
-    AOC_PROJECT_ROOT_FILE="$project_root_file" \
     ZELLIJ_PROJECT_ROOT="$project_root" \
     zellij action new-tab "${args[@]}"
 fi

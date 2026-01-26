@@ -13,6 +13,26 @@ local function resize(direction, steps)
 	return table.concat(chain, " && ")
 end
 
+local function get_lock_path()
+	local state_root = os.getenv("XDG_STATE_HOME") or (os.getenv("HOME") .. "/.local/state")
+	return state_root .. "/aoc/yazi-edit.lock"
+end
+
+local function set_editing(enabled, filename)
+	local path = get_lock_path()
+	local z_env = string.format("ZELLIJ=%s ZELLIJ_SESSION_NAME=%s", 
+		ya.quote(os.getenv("ZELLIJ") or ""), 
+		ya.quote(os.getenv("ZELLIJ_SESSION_NAME") or ""))
+		
+	if enabled then
+		local f = io.open(path, "w")
+		if f then f:write(filename .. "\n") f:close() end
+		os.execute(string.format("%s /home/ceii/dev/agent-ops-cockpit/bin/aoc-pane-rename %s &", z_env, ya.quote(filename)))
+	else
+		os.remove(path)
+	end
+end
+
 function M:entry()
 	-- 1. Get hovered item
 	if not cx or not cx.active or not cx.active.current then return end
@@ -41,18 +61,24 @@ function M:entry()
 	end
 
 	-- 4. Focus Edit Mode (Text/Code)
-	-- Expand 12 steps for Focus, Shrink 11 steps to ensure it doesn't get too small
 	local expand = resize("increase", 12)
 	local shrink = resize("decrease", 11)
 	
 	local editor = os.getenv("EDITOR") or "micro"
 	local quoted_url = "'" .. url_str:gsub("'", "'\\''") .. "'"
 	
+	-- Set editing state and title
+	set_editing(true, name)
+	
 	-- Full Command: Expand -> Editor -> Shrink
 	local cmd = string.format("%s && %s %s; %s", expand, editor, quoted_url, shrink)
 	
 	-- Use ya.emit("shell") with block=true to suspend Yazi TUI and fix lag
 	ya.emit("shell", { cmd, block = true })
+	
+	-- Clear editing state
+	set_editing(false)
+	ps.pub("aoc-title-refresh", "")
 end
 
 return M

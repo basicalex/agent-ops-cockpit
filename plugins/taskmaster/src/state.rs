@@ -37,14 +37,11 @@ pub struct State {
     pub needs_render: bool,
     pub pending_tasks: bool,
     pub pending_state: bool,
-    pub pending_root: bool,
-    pub cwd: Option<PathBuf>,
+    pub plugin_pane_id: Option<u32>,
+    pub pane_manifest: Option<PaneManifest>,
     pub root: Option<PathBuf>,
-    pub root_file: Option<PathBuf>,
-    pub roots: Vec<PathBuf>,
-    pub root_index: usize,
-    pub ignore_refresh_until: Option<SystemTime>,
-    pub tasks_path: Option<PathBuf>, // New: Path for saving
+    pub projects_base: PathBuf, // Base directory for projects (default: ~/dev)
+    pub tasks_path: Option<PathBuf>,
     pub last_tasks_mtime: Option<SystemTime>,
     pub last_state_updated: Option<String>,
     pub last_render_rows: u16,
@@ -106,18 +103,39 @@ impl FilterMode {
 impl State {
     pub const CTX_ACTION: &'static str = "aoc_taskmaster_action";
     pub const ACTION_READ_TASKS: &'static str = "read_tasks";
-    pub const ACTION_READ_STATE: &'static str = "read_state";
-    pub const ACTION_READ_ROOT: &'static str = "read_root";
 
     pub fn new() -> Self {
-        Self::default()
+        Self {
+            projects_base: PathBuf::from(
+                std::env::var("HOME").unwrap_or_else(|_| "/home/ceii".to_string()) + "/dev",
+            ),
+            ..Self::default()
+        }
     }
 
     pub fn load_config(&mut self, configuration: BTreeMap<String, String>) {
         self.refresh_secs = configuration
             .get("refresh_secs")
             .and_then(|v| v.parse::<f64>().ok())
-            .unwrap_or(5.0);
+            .unwrap_or(1.0);
+
+        // Set projects_base with a sensible default
+        let home = std::env::var("HOME").unwrap_or_else(|_| "/home/ceii".to_string());
+        let default_base = format!("{}/dev", home);
+
+        self.projects_base = configuration
+            .get("projects_base")
+            .filter(|s| !s.trim().is_empty())
+            .map(|s| PathBuf::from(s.trim()))
+            .unwrap_or_else(|| PathBuf::from(&default_base));
+
+        // Direct project_root config (still used as initial hint, but pane title takes precedence)
+        if let Some(root) = configuration.get("project_root") {
+            if !root.trim().is_empty() {
+                self.root = Some(PathBuf::from(root.trim()));
+            }
+        }
+
         self.needs_render = true;
     }
 
@@ -126,23 +144,121 @@ impl State {
             return;
         }
 
-        // Try direct read first
-        let path = PathBuf::from(".taskmaster/tasks/tasks.json");
-        if std::fs::metadata(&path).is_ok() {
-            self.tasks_path = Some(path.clone());
-            if let Ok(content) = std::fs::read_to_string(&path) {
-                if let Ok(project) = serde_json::from_str::<ProjectData>(&content) {
-                    self.project = Some(project);
-                    self.apply_current_tag();
-                    self.refresh_state();
-                    self.update_tasks_mtime(&path);
-                    self.last_error = None;
-                    self.mark_dirty();
-                    return; // Success, skip shell command
-                }
+        // Try to sync root from pane manifest (Agent pane title is source of truth)
+        self.sync_root_from_manifest();
+
+        if self.root.is_some() {
+            self.refresh_tasks_with_root();
+        } else {
+            self.last_error = Some("No project root discovered".to_string());
+            self.mark_dirty();
+        }
+    }
+
+    pub fn handle_pane_update(&mut self, manifest: PaneManifest) {
+        self.pane_manifest = Some(manifest);
+        self.sync_root_from_manifest();
+    }
+
+    /// Derive project root from the Agent pane's title in our tab.
+    ///
+    /// The Agent pane is named: "Agent [<agent_id>]" where agent_id is the
+    /// project directory name (e.g., "agent-ops-cockpit").
+    ///
+    /// We derive the root as: projects_base/agent_id (e.g., ~/dev/agent-ops-cockpit)
+    fn sync_root_from_manifest(&mut self) {
+        let Some(manifest) = &self.pane_manifest else {
+            return;
+        };
+
+        // Get our plugin ID to find which tab we're in
+        if self.plugin_pane_id.is_none() {
+            let ids = get_plugin_ids();
+            self.plugin_pane_id = Some(ids.plugin_id);
+        }
+        let Some(plugin_id) = self.plugin_pane_id else {
+            return;
+        };
+
+        // Find the tab containing our plugin instance
+        let mut target_tab: Option<usize> = None;
+        for (tab_index, panes) in &manifest.panes {
+            if panes
+                .iter()
+                .any(|pane| pane.is_plugin && pane.id == plugin_id)
+            {
+                target_tab = Some(*tab_index);
+                break;
             }
         }
 
+        let Some(tab_index) = target_tab else {
+            return;
+        };
+
+        let Some(panes) = manifest.panes.get(&tab_index) else {
+            return;
+        };
+
+        // Find the Agent pane by title pattern: "Agent [<agent_id>]"
+        let agent_pane = panes
+            .iter()
+            .find(|pane| !pane.is_plugin && pane.title.starts_with("Agent ["));
+
+        let Some(agent_pane) = agent_pane else {
+            return;
+        };
+
+        // Extract agent_id from title: "Agent [agent-ops-cockpit]" -> "agent-ops-cockpit"
+        let agent_id = extract_agent_id_from_title(&agent_pane.title);
+
+        let Some(agent_id) = agent_id else {
+            return;
+        };
+
+        // Derive project root from agent_id
+        let new_root = self.projects_base.join(&agent_id);
+
+        // Only update if the root changed
+        if self.root.as_ref() != Some(&new_root) {
+            // Verify the directory exists before switching
+            if new_root.is_dir() {
+                self.root = Some(new_root);
+                // Reset cached data when root changes
+                self.last_tasks_payload = None;
+                self.last_state_updated = None;
+                self.tasks_path = None;
+                self.project = None;
+                self.tasks.clear();
+            }
+        }
+    }
+
+    fn refresh_tasks_with_root(&mut self) {
+        let Some(root) = &self.root else {
+            self.last_error = Some("No project root discovered".to_string());
+            self.mark_dirty();
+            return;
+        };
+
+        // Build absolute path to tasks.json
+        let tasks_path = root.join(".taskmaster/tasks/tasks.json");
+
+        // Try direct fs read first
+        if let Ok(content) = std::fs::read_to_string(&tasks_path) {
+            if let Ok(project) = serde_json::from_str::<ProjectData>(&content) {
+                self.tasks_path = Some(tasks_path.clone());
+                self.project = Some(project);
+                self.apply_current_tag();
+                self.refresh_state();
+                self.update_tasks_mtime(&tasks_path);
+                self.last_error = None;
+                self.mark_dirty();
+                return;
+            }
+        }
+
+        // Fall back to shell command if direct read fails
         self.request_tasks_via_command();
     }
 
@@ -150,22 +266,22 @@ impl State {
         if self.pending_tasks {
             return;
         }
+        let Some(root) = &self.root else {
+            return;
+        };
+
         let mut context = BTreeMap::new();
         context.insert(
             Self::CTX_ACTION.to_string(),
             Self::ACTION_READ_TASKS.to_string(),
         );
 
-        // Robust command to find the file content
-        let cmd = "root=\"${AOC_PROJECT_ROOT:-${ZELLIJ_PROJECT_ROOT:-}}\"; \
-                   if [ -z \"$root\" ] && [ -f \"${XDG_STATE_HOME:-$HOME/.local/state}/aoc/project_root\" ]; then \
-                       root=$(cat \"${XDG_STATE_HOME:-$HOME/.local/state}/aoc/project_root\"); \
-                   fi; \
-                   if [ -z \"$root\" ]; then root=\".\"; fi; \
-                   echo \"PATH:$root/.taskmaster/tasks/tasks.json\"; \
-                   cat \"$root/.taskmaster/tasks/tasks.json\"";
+        // Use the discovered root path directly
+        let tasks_path = root.join(".taskmaster/tasks/tasks.json");
+        let path_str = tasks_path.to_string_lossy();
+        let cmd = format!("echo 'PATH:{}' && cat '{}'", path_str, path_str);
 
-        run_command(&["sh", "-c", cmd], context);
+        run_command(&["sh", "-c", &cmd], context);
         self.pending_tasks = true;
     }
 
@@ -179,7 +295,6 @@ impl State {
         if action == Some(Self::ACTION_READ_TASKS) {
             self.pending_tasks = false;
             if !stderr.is_empty() {
-                // Ignore error if we read via fs successfully? No, fs check failed to reach here.
                 self.last_error = Some(format!(
                     "Error reading tasks: {}",
                     String::from_utf8_lossy(&stderr)
@@ -356,7 +471,7 @@ impl State {
         let path_str = path.to_string_lossy();
         // Use HEREDOC with quoted delimiter to prevent variable expansion and handle quotes
         let cmd = format!(
-            "cat <<'EOF_AOC_TASKMASTER' > \"{}\"\n{}\nEOF_AOC_TASKMASTER",
+            "cat <<'EOF_AOC_TASKMASTER' > \"{}\"\\n{}\\nEOF_AOC_TASKMASTER",
             path_str, json
         );
         let mut context = BTreeMap::new();
@@ -373,16 +488,20 @@ impl State {
     }
 
     fn resolve_state_path(&self) -> Option<PathBuf> {
+        // Derive from tasks_path if available
         if let Some(tasks_path) = &self.tasks_path {
             let mut path = tasks_path.clone();
-            path.pop();
-            path.pop();
+            path.pop(); // remove tasks.json
+            path.pop(); // remove tasks/
             path.push("state.json");
             return Some(path);
         }
-        let path = PathBuf::from(".taskmaster/state.json");
-        if path.exists() {
-            return Some(path);
+        // Fallback to discovered root
+        if let Some(root) = &self.root {
+            let path = root.join(".taskmaster/state.json");
+            if path.exists() {
+                return Some(path);
+            }
         }
         None
     }
@@ -490,11 +609,6 @@ impl State {
             }
             BareKey::Char('?') => {
                 self.show_help = !self.show_help;
-                // If help is shown, we want the right pane to be visible
-                if self.show_help {
-                    // Close detail if open to switch context (optional, but cleaner)
-                    // self.show_detail = false;
-                }
                 return true;
             }
             BareKey::Char(' ') => {
@@ -603,12 +717,6 @@ impl State {
             self.filter.label()
         );
 
-        // Use zellij_tile's get_plugin_ids() to find our own ID, or use 0/context?
-        // Actually, zellij-tile 0.43 rename_plugin_pane requires an ID.
-        // We can get our own ID via get_plugin_ids().plugin_id usually, but let's check
-        // if we can just use the context or if there is a helper.
-        // Wait, standard practice for self-rename might be get_plugin_ids() or just know it.
-        // Let's try getting the current plugin id.
         let ids = get_plugin_ids();
         rename_plugin_pane(ids.plugin_id, title);
     }
@@ -618,4 +726,21 @@ impl State {
         self.needs_render = false;
         val
     }
+}
+
+/// Extract agent_id from pane title.
+/// Pattern: "Agent [<agent_id>]" -> Some("agent_id")
+fn extract_agent_id_from_title(title: &str) -> Option<String> {
+    // Look for "Agent [" prefix and extract content until "]"
+    let prefix = "Agent [";
+    if !title.starts_with(prefix) {
+        return None;
+    }
+    let rest = &title[prefix.len()..];
+    let end = rest.find(']')?;
+    let agent_id = &rest[..end];
+    if agent_id.is_empty() {
+        return None;
+    }
+    Some(agent_id.to_string())
 }

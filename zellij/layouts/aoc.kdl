@@ -28,23 +28,23 @@ layout {
       }
       pane split_direction="vertical" {
         // LEFT: Yazi (tree + preview). Starts in project root.
-        pane size="13%" name="Yazi" command="bash" {
-          args "-lc" "export EDITOR=/home/ceii/dev/agent-ops-cockpit/bin/micro; export VISUAL=$EDITOR; root_file=\"__AOC_PROJECT_ROOT_FILE__\"; root=\"__AOC_PROJECT_ROOT__\"; if [[ -f \"$root_file\" ]]; then root=\"$(cat \"$root_file\")\"; fi; cd \"$root\" && exec ${AOC_FILETREE_CMD:-yazi} ."
+        pane size="13%" command="bash" {
+          args "-lc" "export EDITOR=/home/ceii/dev/agent-ops-cockpit/bin/micro; export VISUAL=$EDITOR; cd \"__AOC_PROJECT_ROOT__\" && exec ${AOC_FILETREE_CMD:-yazi} ."
         }
 
         // CENTER + RIGHT COLUMN
         pane split_direction="vertical" {
 
-          // CENTER stack: Codex (top) + Taskmaster (bottom)
+          // CENTER stack: Agent (top) + Taskmaster (bottom)
           pane split_direction="horizontal" {
             pane size="70%" name="Agent [__AOC_AGENT_ID__]" command="bash" {
-              args "-lc" "root_file=\"__AOC_PROJECT_ROOT_FILE__\"; root=\"__AOC_PROJECT_ROOT__\"; if [[ -f \"$root_file\" ]]; then root=\"$(cat \"$root_file\")\"; fi; cd \"$root\" && AOC_AGENT_RUN=1 exec ${AOC_AGENT_CMD:-${AOC_CODEX_CMD:-aoc-agent-run}}"
+              args "-lc" "cd \"__AOC_PROJECT_ROOT__\" && AOC_AGENT_RUN=1 exec ${AOC_AGENT_CMD:-${AOC_CODEX_CMD:-aoc-agent-run}}"
             }
 
             pane size="30%" name="Tasks" {
-
               plugin location="file:/home/ceii/.config/zellij/plugins/aoc-taskmaster.wasm" {
                 refresh_secs "1"
+                projects_base "/home/ceii/dev"
               }
             }
           }
@@ -52,13 +52,13 @@ layout {
           // RIGHT COLUMN: Widget (top), Clock (center), Terminal (bottom)
           pane size="23%" split_direction="horizontal" {
             pane size="34%" name="Widget" command="bash" {
-              args "-lc" "root_file=\"__AOC_PROJECT_ROOT_FILE__\"; root=\"__AOC_PROJECT_ROOT__\"; if [[ -f \"$root_file\" ]]; then root=\"$(cat \"$root_file\")\"; fi; cd \"$root\" && exec ${AOC_WIDGET_CMD:-aoc-widget}"
+              args "-lc" "cd \"__AOC_PROJECT_ROOT__\" && exec ${AOC_WIDGET_CMD:-aoc-widget}"
             }
             pane size="18%" name="Clock" command="bash" {
               args "-lc" "AOC_CLOCK_IN_PANE=1 exec ${AOC_CLOCK_CMD:-aoc-clock}"
             }
             pane size="48%" command="bash" {
-              args "-lc" "root_file=\"__AOC_PROJECT_ROOT_FILE__\"; root=\"__AOC_PROJECT_ROOT__\"; if [[ -f \"$root_file\" ]]; then root=\"$(cat \"$root_file\")\"; fi; cd \"$root\" && exec ${AOC_TERMINAL_CMD:-$SHELL}"
+              args "-lc" "cd \"__AOC_PROJECT_ROOT__\" && exec ${AOC_TERMINAL_CMD:-$SHELL}"
             }
           }
         }
@@ -104,22 +104,23 @@ swap_layouts {
     tab name="__AOC_TAB_NAME__" focus=true {
       pane split_direction="vertical" {
         // LEFT: Yazi (tree + preview). Starts in project root.
-        pane size="10%" name="Yazi" command="bash" {
-          args "-lc" "export EDITOR=/home/ceii/dev/agent-ops-cockpit/bin/micro; export VISUAL=$EDITOR; root_file=\"__AOC_PROJECT_ROOT_FILE__\"; root=\"__AOC_PROJECT_ROOT__\"; if [[ -f \"$root_file\" ]]; then root=\"$(cat \"$root_file\")\"; fi; cd \"$root\" && exec ${AOC_FILETREE_CMD:-yazi} ."
+        pane size="10%" command="bash" {
+          args "-lc" "export EDITOR=/home/ceii/dev/agent-ops-cockpit/bin/micro; export VISUAL=$EDITOR; cd \"__AOC_PROJECT_ROOT__\" && exec ${AOC_FILETREE_CMD:-yazi} ."
         }
 
         // CENTER + RIGHT COLUMN
         pane split_direction="vertical" {
 
-          // CENTER stack: Codex (top) + Taskmaster (bottom)
+          // CENTER stack: Agent (top) + Taskmaster (bottom)
           pane split_direction="horizontal" {
             pane size="62%" name="Agent [__AOC_AGENT_ID__]" command="bash" {
-              args "-lc" "root_file=\"__AOC_PROJECT_ROOT_FILE__\"; root=\"__AOC_PROJECT_ROOT__\"; if [[ -f \"$root_file\" ]]; then root=\"$(cat \"$root_file\")\"; fi; cd \"$root\" && AOC_AGENT_RUN=1 exec ${AOC_AGENT_CMD:-${AOC_CODEX_CMD:-aoc-agent-run}}"
+              args "-lc" "cd \"__AOC_PROJECT_ROOT__\" && AOC_AGENT_RUN=1 exec ${AOC_AGENT_CMD:-${AOC_CODEX_CMD:-aoc-agent-run}}"
             }
 
             pane size="38%" name="Tasks" {
               plugin location="file:/home/ceii/.config/zellij/plugins/aoc-taskmaster.wasm" {
                 refresh_secs "1"
+                projects_base "/home/ceii/dev"
               }
             }
           }
@@ -127,13 +128,13 @@ swap_layouts {
           // RIGHT COLUMN: Widget (top), Clock (center), Terminal (bottom)
           pane size="26%" split_direction="horizontal" {
             pane size="34%" name="Widget" command="bash" {
-              args "-lc" "root_file=\"__AOC_PROJECT_ROOT_FILE__\"; root=\"__AOC_PROJECT_ROOT__\"; if [[ -f \"$root_file\" ]]; then root=\"$(cat \"$root_file\")\"; fi; cd \"$root\" && exec ${AOC_WIDGET_CMD:-aoc-widget}"
+              args "-lc" "cd \"__AOC_PROJECT_ROOT__\" && exec ${AOC_WIDGET_CMD:-aoc-widget}"
             }
             pane size="18%" name="Clock" command="bash" {
               args "-lc" "AOC_CLOCK_IN_PANE=1 exec ${AOC_CLOCK_CMD:-aoc-clock}"
             }
             pane size="48%" command="bash" {
-              args "-lc" "root_file=\"__AOC_PROJECT_ROOT_FILE__\"; root=\"__AOC_PROJECT_ROOT__\"; if [[ -f \"$root_file\" ]]; then root=\"$(cat \"$root_file\")\"; fi; cd \"$root\" && exec ${AOC_TERMINAL_CMD:-$SHELL}"
+              args "-lc" "cd \"__AOC_PROJECT_ROOT__\" && exec ${AOC_TERMINAL_CMD:-$SHELL}"
             }
           }
         }

@@ -15,11 +15,10 @@ sanitize_name() {
 
 cleanup_state() {
   local dir="$1"
-  find "$dir" -maxdepth 1 -type f \( \
-    -name 'project_root.*' -o \
-    -name 'aoc-layout-*' \
-  \) -mtime +30 -delete 2>/dev/null || true
-  # Clean up deprecated starred_root files
+  # Clean up old temp layout files
+  find "$dir" -maxdepth 1 -type f -name 'aoc-layout-*' -mtime +30 -delete 2>/dev/null || true
+  # Clean up deprecated root files (legacy)
+  find "$dir" -maxdepth 1 -type f -name 'project_root.*' -delete 2>/dev/null || true
   find "$dir" -maxdepth 1 -type f -name 'starred_root.*' -delete 2>/dev/null || true
 }
 
@@ -48,48 +47,34 @@ project_root="${ZELLIJ_PROJECT_ROOT:-$PWD}"
 mkdir -p "$state_dir"
 cleanup_state "$state_dir"
 
-root_label="$(sanitize_name "$(basename "$project_root")")"
-timestamp="$(date +%Y%m%d-%H%M%S)"
-
 # Generate Tab Name (First word of repo, Title Case)
 # e.g., agent-ops-cockpit -> Agent
 raw_name="$(basename "$project_root")"
 tab_name="$(echo "$raw_name" | cut -d'-' -f1 | awk '{print toupper(substr($0,1,1)) tolower(substr($0,2))}')"
 if [[ -z "$tab_name" ]]; then tab_name="AOC"; fi
 
-# Agent ID is just the raw repo name
+# Agent ID is just the raw repo name (used in pane name for alignment)
 agent_id="$raw_name"
-
-# Project root file key is now the agent_id
-project_root_file="$state_dir/project_root.${agent_id}"
-printf '%s\n' "$project_root" > "$project_root_file"
 
 layout_path="$(resolve_layout_path "$layout")"
 layout_arg="$layout"
 
 if [[ -f "$layout_path" ]]; then
   layout_label="$(sanitize_name "$(basename "$layout")")"
-    layout_tmp="$state_dir/aoc-layout-${layout_label}-${agent_id}.kdl"
-    
-    # Inject both tab name and agent id
-    awk -v root_file="$project_root_file" \
-        -v tab_name="$tab_name" \
-        -v agent_id="$agent_id" \
-        -v proj_root="$project_root" '
-    {
-      gsub(/__AOC_PROJECT_ROOT_FILE__/, root_file)
-      gsub(/__AOC_TAB_NAME__/, tab_name)
-      gsub(/__AOC_AGENT_ID__/, agent_id)
-      gsub(/__AOC_PROJECT_ROOT__/, proj_root)
-      print
-    }
-    $0 ~ /plugin location=.*aoc-taskmaster\.wasm/ { in_plugin=1 }
-    in_plugin && $0 ~ /refresh_secs/ {
-      print "                root_file \"" root_file "\""
-      in_plugin=0
-    }
-  ' "$layout_path" > "$layout_tmp"
-    layout_arg="$layout_tmp"
+  layout_tmp="$state_dir/aoc-layout-${layout_label}-${agent_id}.kdl"
+  
+  # Inject tab name, agent id, and project root into layout template
+  awk -v tab_name="$tab_name" \
+      -v agent_id="$agent_id" \
+      -v proj_root="$project_root" '
+  {
+    gsub(/__AOC_TAB_NAME__/, tab_name)
+    gsub(/__AOC_AGENT_ID__/, agent_id)
+    gsub(/__AOC_PROJECT_ROOT__/, proj_root)
+    print
+  }
+' "$layout_path" > "$layout_tmp"
+  layout_arg="$layout_tmp"
 
 fi
 
@@ -97,7 +82,6 @@ fi
 export AOC_ROOT_TAG="$agent_id"
 
 # If running inside Zellij, launch a new tab in the current session
-# We use 'zellij action new-tab' which takes the layout with injected paths.
 if [[ -n "${ZELLIJ:-}" ]]; then
   zellij action new-tab --layout "$layout_arg"
   exit 0
@@ -106,6 +90,5 @@ fi
 # Otherwise, launch a new session
 ZELLIJ_PROJECT_ROOT="$project_root" \
   AOC_PROJECT_ROOT="$project_root" \
-  AOC_PROJECT_ROOT_FILE="$project_root_file" \
   AOC_ROOT_TAG="$agent_id" \
   zellij "${config_arg[@]}" --new-session-with-layout "$layout_arg"
