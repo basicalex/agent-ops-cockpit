@@ -28,6 +28,7 @@ impl ZellijPlugin for State {
         request_permission(&[
             PermissionType::RunCommands,
             PermissionType::ChangeApplicationState,
+            PermissionType::ReadApplicationState,
         ]);
         set_timeout(0.1);
     }

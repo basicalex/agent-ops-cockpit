@@ -90,6 +90,41 @@ fn render_help(f: &mut Frame, _state: &State, area: Rect) {
 }
 
 fn render_main(f: &mut Frame, state: &mut State, area: Rect) {
+    // Show error message if no tasks and there's an error
+    if state.display_rows.is_empty() {
+        let border_style = if state.focus == FocusMode::List {
+            Style::default().fg(Color::Cyan)
+        } else {
+            Style::default()
+        };
+
+        let error_msg = state.last_error.clone().unwrap_or_else(|| {
+            if state.root.is_some() {
+                format!("No tasks found")
+            } else {
+                "Waiting for pane manifest...".to_string()
+            }
+        });
+
+        let block = Block::default()
+            .borders(Borders::ALL)
+            .title("Tasks")
+            .border_style(border_style);
+        let inner = block.inner(area);
+        f.render_widget(block, area);
+
+        let text = vec![
+            Line::from(Span::styled(&error_msg, Color::Yellow)),
+            Line::from(""),
+            Line::from(format!("projects_base: {:?}", state.projects_base)),
+            Line::from(format!("root: {:?}", state.root)),
+            Line::from(format!("tasks_path: {:?}", state.tasks_path)),
+        ];
+        let p = Paragraph::new(text).wrap(Wrap { trim: true });
+        f.render_widget(p, inner);
+        return;
+    }
+
     let rows: Vec<Row> = state
         .display_rows
         .iter()

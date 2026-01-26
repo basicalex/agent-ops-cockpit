@@ -141,6 +141,7 @@ impl State {
 
     pub fn refresh(&mut self) {
         if !self.permissions_granted {
+            self.last_error = Some("Waiting for permissions...".to_string());
             return;
         }
 
@@ -149,8 +150,11 @@ impl State {
 
         if self.root.is_some() {
             self.refresh_tasks_with_root();
+        } else if self.pane_manifest.is_none() {
+            self.last_error = Some("Waiting for PaneUpdate event...".to_string());
+            self.mark_dirty();
         } else {
-            self.last_error = Some("No project root discovered".to_string());
+            // We have manifest but still no root - error is set in sync_root_from_manifest
             self.mark_dirty();
         }
     }
@@ -168,6 +172,7 @@ impl State {
     /// We derive the root as: projects_base/agent_id (e.g., ~/dev/agent-ops-cockpit)
     fn sync_root_from_manifest(&mut self) {
         let Some(manifest) = &self.pane_manifest else {
+            // No manifest yet - wait for PaneUpdate event
             return;
         };
 
@@ -177,6 +182,7 @@ impl State {
             self.plugin_pane_id = Some(ids.plugin_id);
         }
         let Some(plugin_id) = self.plugin_pane_id else {
+            self.last_error = Some("No plugin ID".to_string());
             return;
         };
 
@@ -193,10 +199,12 @@ impl State {
         }
 
         let Some(tab_index) = target_tab else {
+            self.last_error = Some(format!("Plugin {} not found in manifest", plugin_id));
             return;
         };
 
         let Some(panes) = manifest.panes.get(&tab_index) else {
+            self.last_error = Some(format!("Tab {} not in manifest", tab_index));
             return;
         };
 
@@ -206,6 +214,9 @@ impl State {
             .find(|pane| !pane.is_plugin && pane.title.starts_with("Agent ["));
 
         let Some(agent_pane) = agent_pane else {
+            // List all pane titles for debugging
+            let titles: Vec<_> = panes.iter().map(|p| p.title.as_str()).collect();
+            self.last_error = Some(format!("No Agent pane. Panes: {:?}", titles));
             return;
         };
 
@@ -213,6 +224,7 @@ impl State {
         let agent_id = extract_agent_id_from_title(&agent_pane.title);
 
         let Some(agent_id) = agent_id else {
+            self.last_error = Some(format!("Can't parse: {}", agent_pane.title));
             return;
         };
 
@@ -221,16 +233,16 @@ impl State {
 
         // Only update if the root changed
         if self.root.as_ref() != Some(&new_root) {
-            // Verify the directory exists before switching
-            if new_root.is_dir() {
-                self.root = Some(new_root);
-                // Reset cached data when root changes
-                self.last_tasks_payload = None;
-                self.last_state_updated = None;
-                self.tasks_path = None;
-                self.project = None;
-                self.tasks.clear();
-            }
+            // Note: We can't use is_dir() in WASM sandbox - it doesn't work
+            // Just set the root and let refresh_tasks_with_root() handle errors
+            self.root = Some(new_root);
+            self.last_error = None;
+            // Reset cached data when root changes
+            self.last_tasks_payload = None;
+            self.last_state_updated = None;
+            self.tasks_path = None;
+            self.project = None;
+            self.tasks.clear();
         }
     }
 
