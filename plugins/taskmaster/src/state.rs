@@ -7,6 +7,45 @@ use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 use zellij_tile::prelude::*;
 
+const BASE64_CHARS: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+
+/// Simple base64 encoder (no external dependency needed)
+fn base64_encode(data: &[u8]) -> String {
+    let mut result = String::new();
+    let mut i = 0;
+    while i < data.len() {
+        let b0 = data[i] as usize;
+        let b1 = if i + 1 < data.len() {
+            data[i + 1] as usize
+        } else {
+            0
+        };
+        let b2 = if i + 2 < data.len() {
+            data[i + 2] as usize
+        } else {
+            0
+        };
+
+        result.push(BASE64_CHARS[(b0 >> 2) & 0x3F] as char);
+        result.push(BASE64_CHARS[((b0 << 4) | (b1 >> 4)) & 0x3F] as char);
+
+        if i + 1 < data.len() {
+            result.push(BASE64_CHARS[((b1 << 2) | (b2 >> 6)) & 0x3F] as char);
+        } else {
+            result.push('=');
+        }
+
+        if i + 2 < data.len() {
+            result.push(BASE64_CHARS[b2 & 0x3F] as char);
+        } else {
+            result.push('=');
+        }
+
+        i += 3;
+    }
+    result
+}
+
 #[derive(Debug, Clone, Default)]
 pub struct DisplayRow {
     pub task_idx: usize,
@@ -103,14 +142,12 @@ impl FilterMode {
 impl State {
     pub const CTX_ACTION: &'static str = "aoc_taskmaster_action";
     pub const ACTION_READ_TASKS: &'static str = "read_tasks";
+    pub const ACTION_SAVE_TASKS: &'static str = "save_tasks";
 
     pub fn new() -> Self {
-        Self {
-            projects_base: PathBuf::from(
-                std::env::var("HOME").unwrap_or_else(|_| "/home/ceii".to_string()) + "/dev",
-            ),
-            ..Self::default()
-        }
+        // Don't set projects_base here - it will be set in load_config()
+        // The WASM sandbox may not have access to HOME environment variable
+        Self::default()
     }
 
     pub fn load_config(&mut self, configuration: BTreeMap<String, String>) {
@@ -119,15 +156,16 @@ impl State {
             .and_then(|v| v.parse::<f64>().ok())
             .unwrap_or(1.0);
 
-        // Set projects_base with a sensible default
-        let home = std::env::var("HOME").unwrap_or_else(|_| "/home/ceii".to_string());
-        let default_base = format!("{}/dev", home);
+        // Set projects_base - prefer config value, fallback to $HOME/dev if available
+        // In WASM sandbox, HOME may not be set, so we handle that gracefully
+        let default_base = std::env::var("HOME").map(|h| format!("{}/dev", h)).ok();
 
         self.projects_base = configuration
             .get("projects_base")
             .filter(|s| !s.trim().is_empty())
             .map(|s| PathBuf::from(s.trim()))
-            .unwrap_or_else(|| PathBuf::from(&default_base));
+            .or_else(|| default_base.map(PathBuf::from))
+            .unwrap_or_else(|| PathBuf::from("/tmp")); // Ultimate fallback
 
         // Direct project_root config (still used as initial hint, but pane title takes precedence)
         if let Some(root) = configuration.get("project_root") {
@@ -304,6 +342,28 @@ impl State {
         context: BTreeMap<String, String>,
     ) {
         let action = context.get(Self::CTX_ACTION).map(String::as_str);
+
+        // Handle save result
+        if action == Some(Self::ACTION_SAVE_TASKS) {
+            if !stderr.is_empty() {
+                self.last_error = Some(format!(
+                    "Error saving tasks: {}",
+                    String::from_utf8_lossy(&stderr)
+                ));
+                self.last_error_action = Some("save".to_string());
+            } else {
+                // Save succeeded via command, update mtime
+                if let Some(path) = self.tasks_path.clone() {
+                    self.update_tasks_mtime(&path);
+                    self.touch_state_file();
+                }
+                self.last_error = None;
+            }
+            self.mark_dirty();
+            return;
+        }
+
+        // Handle read result
         if action == Some(Self::ACTION_READ_TASKS) {
             self.pending_tasks = false;
             if !stderr.is_empty() {
@@ -481,13 +541,16 @@ impl State {
 
     fn save_project_via_command(&mut self, path: &PathBuf, json: &str) {
         let path_str = path.to_string_lossy();
-        // Use HEREDOC with quoted delimiter to prevent variable expansion and handle quotes
-        let cmd = format!(
-            "cat <<'EOF_AOC_TASKMASTER' > \"{}\"\\n{}\\nEOF_AOC_TASKMASTER",
-            path_str, json
-        );
         let mut context = BTreeMap::new();
-        context.insert("action".to_string(), "save".to_string());
+        context.insert(
+            Self::CTX_ACTION.to_string(),
+            Self::ACTION_SAVE_TASKS.to_string(),
+        );
+
+        // Base64 encode the JSON to avoid shell escaping issues entirely
+        let encoded = base64_encode(json.as_bytes());
+        let cmd = format!("echo '{}' | base64 -d > '{}'", encoded, path_str);
+
         run_command(&["sh", "-c", &cmd], context);
     }
 
