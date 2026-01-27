@@ -8,6 +8,9 @@ A lightweight, terminal-first "agent cockpit" layout for coding sessions:
 - **Right column:** Calendar/Media widget, Clock, Project terminal
 - **Per-tab contract:** one Zellij **tab = one project root** (panes start there)
 
+- [Docs: Custom Layouts / Modes](docs/layouts.md)
+- [Docs: Feature Process](docs/feature-upgrade-collection-key.md)
+
 ## Requirements
 
 - zellij >= 0.43.1
@@ -294,6 +297,7 @@ so we wrap Codex in tmux with alternate-screen disabled. This makes scrollback
 reliable in Zellij panes while keeping Codex behavior the same in other terminals.
 
 ## Customization
+- **New:** [Create Custom Layouts ("AOC Modes")](docs/layouts.md) that adapt to your project.
 - Override commands via env vars: `AOC_AGENT_CMD`, `AOC_CODEX_CMD`, `AOC_TASKMASTER_CMD`, `AOC_FILETREE_CMD`, `AOC_WIDGET_CMD`, `AOC_CLOCK_CMD`, `AOC_SYS_CMD`, `AOC_TERMINAL_CMD`.
 - Override the tmux config used by `aoc-codex` with `AOC_CODEX_TMUX_CONF`.
 - Override the tmux config for other agent CLIs with `AOC_AGENT_TMUX_CONF`.

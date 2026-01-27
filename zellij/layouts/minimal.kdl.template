@@ -1,0 +1,37 @@
+layout {
+  tab name="__AOC_TAB_NAME__" focus=true {
+    pane split_direction="vertical" {
+      pane name="Editor" size="60%" command="bash" {
+        args "-lc" "cd \"__AOC_PROJECT_ROOT__\" && ${EDITOR:-micro} ."
+      }
+      pane name="Terminal" size="40%" command="bash" {
+        args "-lc" "cd \"__AOC_PROJECT_ROOT__\" && exec ${AOC_TERMINAL_CMD:-$SHELL}"
+      }
+    }
+    pane size=1 borderless=true {
+      plugin location="file:{{HOME}}/.config/zellij/plugins/zjstatus.wasm" {
+        format_left   "{mode} #[fg=#89B4FA,bold]{session}"
+        format_center "{tabs}"
+        format_right  "{command_cwd}"
+        format_space  ""
+
+        border_enabled  "false"
+        border_char     "─"
+        border_format   "#[fg=#6C7086]{char}"
+        border_position "bottom"
+
+        hide_frame_for_single_pane "true"
+
+        mode_normal  "#[bg=blue] "
+        mode_tmux    "#[bg=#ffc387] "
+
+        tab_normal   "#[fg=#6C7086] {name} "
+        tab_active   "#[fg=#9399B2,bold,italic] {name} "
+
+        command_cwd_command  "pwd | sed 's|.*/||'"
+        command_cwd_format   "#[fg=#6C7086] {stdout} "
+        command_cwd_interval "2"
+      }
+    }
+  }
+}

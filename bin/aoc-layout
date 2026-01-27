@@ -1,0 +1,141 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+usage() {
+  cat <<'EOF'
+Usage: aoc-layout [--set [layout]] [--tab [layout]] [--current]
+
+Interactive dashboard for selecting the default layout or launching tabs.
+EOF
+}
+
+state_dir="${XDG_STATE_HOME:-$HOME/.local/state}/aoc"
+default_file="${state_dir}/layout_default"
+
+mkdir -p "$state_dir"
+
+list_layouts() {
+  # List .kdl files in ~/.config/zellij/layouts/
+  # Also always include "aoc" as it's the standard default
+  # Remove extension for display
+  {
+    echo "aoc"
+    find "$HOME/.config/zellij/layouts" -maxdepth 1 -name "*.kdl" -printf "%f\n" 2>/dev/null | sed 's/\.kdl$//'
+  } | sort -u
+}
+
+pick_layout() {
+  local choice=""
+  if command -v fzf >/dev/null 2>&1; then
+    choice="$(list_layouts | fzf --prompt="Layout > " || true)"
+    printf "%s" "$choice"
+    return 0
+  fi
+
+  echo "Select layout:"
+  local i=1
+  local layouts=()
+  while IFS= read -r line; do
+    layouts+=("$line")
+    echo "  $i) $line"
+    ((i++))
+  done < <(list_layouts)
+
+  read -r -p "Layout number > " choice
+  if [[ "$choice" =~ ^[0-9]+$ ]] && ((choice >= 1 && choice <= ${#layouts[@]})); then
+    printf "%s" "${layouts[$((choice-1))]}"
+  fi
+}
+
+current_layout() {
+  if [[ -f "$default_file" ]]; then
+    cat "$default_file" 2>/dev/null || true
+  else
+    echo "aoc"
+  fi
+}
+
+set_default() {
+  local layout="$1"
+  if [[ -z "$layout" ]]; then
+    layout="$(pick_layout)"
+  fi
+  if [[ -z "$layout" ]]; then
+    echo "No layout selected." >&2
+    exit 1
+  fi
+  echo "$layout" >"$default_file"
+  echo "Default layout set to '$layout'."
+}
+
+open_tab() {
+  local layout="$1"
+  if [[ -z "$layout" ]]; then
+    layout="$(pick_layout)"
+  fi
+  if [[ -z "$layout" ]]; then
+    echo "No layout selected." >&2
+    exit 1
+  fi
+  
+  if [[ -n "${ZELLIJ:-}" || -n "${ZELLIJ_SESSION_NAME:-}" ]]; then
+    aoc-new-tab --layout "$layout"
+  else
+    # If not in Zellij, launch new session with this layout
+    AOC_LAYOUT="$layout" aoc-launch
+  fi
+}
+
+case "${1:-}" in
+  --set)
+    shift
+    set_default "${1:-}"
+    exit 0
+    ;;
+  --tab)
+    shift
+    open_tab "${1:-}"
+    exit 0
+    ;;
+  --current)
+    current_layout
+    exit 0
+    ;;
+  -h|--help)
+    usage
+    exit 0
+    ;;
+  "")
+    :
+    ;;
+  *)
+    echo "Unknown option: $1" >&2
+    usage
+    exit 1
+    ;;
+esac
+
+if ! command -v fzf >/dev/null 2>&1; then
+  usage
+  exit 1
+fi
+
+action="$(printf "%s\n" \
+  "Set default layout" \
+  "Open new tab" \
+  "Show current" \
+  | fzf --prompt="AOC Layout > " --height=40% --border || true)"
+
+case "$action" in
+  "Set default layout") set_default "" ;;
+  "Open new tab") open_tab "" ;;
+  "Show current")
+    current="$(current_layout)"
+    if [[ -z "$current" ]]; then
+      echo "No default layout set."
+    else
+      echo "Default layout: $current"
+    fi
+    ;;
+  *) exit 0 ;;
+esac

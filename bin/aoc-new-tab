@@ -3,7 +3,7 @@ set -euo pipefail
 
 usage() {
   cat <<'EOF'
-Usage: aoc-new-tab [--aoc|--plugin|--default] [--name NAME] [--cwd PATH]
+Usage: aoc-new-tab [--aoc|--plugin|--default] [--layout NAME] [--name NAME] [--cwd PATH]
 
 Create a new Zellij tab. Prompts for layout if not specified.
 --plugin is a legacy alias of --aoc.
@@ -14,12 +14,17 @@ layout_choice=""
 tab_name=""
 tab_cwd=""
 state_dir="${XDG_STATE_HOME:-$HOME/.local/state}/aoc"
+default_layout_file="${state_dir}/layout_default"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --aoc) layout_choice="aoc" ;;
     --plugin) layout_choice="aoc" ;;
     --default) layout_choice="default" ;;
+    --layout)
+      shift
+      layout_choice="${1:-}"
+      ;;
     --name)
       shift
       tab_name="${1:-}"
@@ -79,6 +84,21 @@ realign_current_pane() {
   zellij action write-chars "$payload" >/dev/null 2>&1 || true
 }
 
+# Determine layout choice logic:
+# 1. CLI arg (--layout, --aoc, etc)
+# 2. Env var (AOC_LAYOUT)
+# 3. Persistent default file
+# 4. Fallback to "aoc"
+if [[ -z "$layout_choice" ]]; then
+  if [[ -n "${AOC_LAYOUT:-}" ]]; then
+    layout_choice="$AOC_LAYOUT"
+  elif [[ -f "$default_layout_file" ]]; then
+    layout_choice="$(cat "$default_layout_file")"
+  else
+    layout_choice="aoc"
+  fi
+fi
+
 if [[ -z "$layout_choice" ]]; then
   layout_choice="aoc"
 fi
@@ -115,35 +135,29 @@ tab_name_to_use="${tab_name:-$computed_tab_name}"
 agent_id="$raw_name"
 
 layout_arg="$layout_choice"
-if [[ "$layout_choice" == "aoc" ]]; then
-  layout_path="$(resolve_layout_path "$layout_choice")"
-  if [[ -f "$layout_path" ]]; then
-    layout_label="$(sanitize_name "$layout_choice")"
-    layout_tmp="$state_dir/aoc-layout-${layout_label}-${agent_id}.kdl"
-    
-    # Inject placeholders
-    awk -v tab_name="$tab_name_to_use" \
-        -v agent_id="$agent_id" \
-        -v proj_root="$project_root" '
-    {
-      gsub(/__AOC_TAB_NAME__/, tab_name)
-      gsub(/__AOC_AGENT_ID__/, agent_id)
-      gsub(/__AOC_PROJECT_ROOT__/, proj_root)
-      print
-    }
-  ' "$layout_path" > "$layout_tmp"
-    layout_arg="$layout_tmp"
-  fi
+layout_path="$(resolve_layout_path "$layout_choice")"
+
+# Process layout file if it exists (for ALL layouts, not just "aoc")
+if [[ -f "$layout_path" ]]; then
+  layout_label="$(sanitize_name "$(basename "$layout_choice")")"
+  layout_tmp="$state_dir/aoc-layout-${layout_label}-${agent_id}.kdl"
+  
+  # Inject placeholders
+  awk -v tab_name="$tab_name_to_use" \
+      -v agent_id="$agent_id" \
+      -v proj_root="$project_root" '
+  {
+    gsub(/__AOC_TAB_NAME__/, tab_name)
+    gsub(/__AOC_AGENT_ID__/, agent_id)
+    gsub(/__AOC_PROJECT_ROOT__/, proj_root)
+    print
+  }
+' "$layout_path" > "$layout_tmp"
+  layout_arg="$layout_tmp"
 fi
 
 realign_current_pane "$current_root"
 
-if [[ "$layout_choice" == "aoc" ]]; then
-  AOC_PROJECT_ROOT="$project_root" \
-    ZELLIJ_PROJECT_ROOT="$project_root" \
-    zellij action new-tab --layout "$layout_arg" "${args[@]}"
-else
-  AOC_PROJECT_ROOT="$project_root" \
-    ZELLIJ_PROJECT_ROOT="$project_root" \
-    zellij action new-tab "${args[@]}"
-fi
+AOC_PROJECT_ROOT="$project_root" \
+  ZELLIJ_PROJECT_ROOT="$project_root" \
+  zellij action new-tab --layout "$layout_arg" "${args[@]}"

@@ -33,7 +33,7 @@
             "dependencies": []
           }
         ],
-        "updatedAt": "2026-01-17T16:52:06.071Z",
+        "updatedAt": "2026-01-27T16:47:45.724Z",
         "activeAgent": false
       },
       {
@@ -68,7 +68,7 @@
             "dependencies": []
           }
         ],
-        "updatedAt": "2026-01-06T17:03:04.695Z",
+        "updatedAt": "2026-01-27T16:47:45.730Z",
         "activeAgent": false
       },
       {
@@ -103,7 +103,7 @@
             "dependencies": []
           }
         ],
-        "updatedAt": "2026-01-06T17:03:06.117Z",
+        "updatedAt": "2026-01-27T16:47:45.751Z",
         "activeAgent": false
       },
       {
@@ -138,7 +138,7 @@
             "dependencies": []
           }
         ],
-        "updatedAt": "2026-01-06T17:03:06.731Z",
+        "updatedAt": "2026-01-27T16:47:45.760Z",
         "activeAgent": false
       },
       {
@@ -874,6 +874,104 @@
         "priority": "low",
         "subtasks": [],
         "updatedAt": "2026-01-24T20:46:39.934Z",
+        "activeAgent": false
+      },
+      {
+        "id": "41",
+        "title": "Implement Multi-Shell Terminal Support",
+        "description": "Enable terminal panes to launch in the user's preferred shell (fish, zsh, powershell, nushell, etc.) while keeping internal AOC scripts as bash. This is the first step toward cross-platform support.",
+        "details": "Currently AOC wraps all panes in 'bash -lc'. For terminal panes, we should use Zellij's native cwd directive and launch the user's $SHELL directly. Internal scripts remain bash for consistency.",
+        "testStrategy": "",
+        "status": "pending",
+        "dependencies": [],
+        "priority": "high",
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "Modify aoc.kdl.template to use Zellij cwd directive",
+            "description": "Replace bash -lc cd pattern with native cwd directive and direct shell invocation for terminal panes",
+            "status": "pending",
+            "dependencies": []
+          },
+          {
+            "id": 2,
+            "title": "Create bin/aoc-shell-detect utility",
+            "description": "Shell detection module that identifies user shell type and returns appropriate init flags for bash, zsh, fish, powershell, nushell",
+            "status": "pending",
+            "dependencies": []
+          },
+          {
+            "id": 3,
+            "title": "Update aoc-new-tab for shell-agnostic layout generation",
+            "description": "Ensure dynamically generated tab layouts respect user shell preference via AOC_SHELL or SHELL",
+            "status": "pending",
+            "dependencies": []
+          },
+          {
+            "id": 4,
+            "title": "Add AOC_SHELL environment variable support",
+            "description": "Document and implement AOC_SHELL override for explicit shell selection with fallback to SHELL",
+            "status": "pending",
+            "dependencies": []
+          },
+          {
+            "id": 5,
+            "title": "Test with fish, zsh, powershell, and nushell",
+            "description": "Validate terminal pane behavior with each shell type, ensure rc files are sourced and interactive mode works",
+            "status": "pending",
+            "dependencies": []
+          },
+          {
+            "id": 6,
+            "title": "Document multi-shell support in README",
+            "description": "Add section explaining shell support, AOC_SHELL override, and known limitations due to Zellij platform constraints",
+            "status": "pending",
+            "dependencies": []
+          }
+        ],
+        "updatedAt": "2026-01-27T16:20:29.969Z",
+        "activeAgent": false
+      },
+      {
+        "id": "42",
+        "title": "Implement Custom Layout Selection",
+        "description": "Allow users to select, persist, and use custom Zellij layouts",
+        "details": "Enables 'ricing' and community layout sharing by making the layout system generic and persistent. Includes bin/aoc-layout tool and updates to tab generation.",
+        "testStrategy": "",
+        "status": "done",
+        "dependencies": [],
+        "priority": "high",
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "Create bin/aoc-layout CLI tool",
+            "description": "List, select, and persist layout choice.",
+            "status": "pending",
+            "dependencies": []
+          },
+          {
+            "id": 2,
+            "title": "Update bin/aoc-new-tab for generic layouts",
+            "description": "Support --layout flag and generic variable substitution.",
+            "status": "pending",
+            "dependencies": []
+          },
+          {
+            "id": 3,
+            "title": "Update bin/aoc-launch for persistence",
+            "description": "Read layout_default on startup.",
+            "status": "pending",
+            "dependencies": []
+          },
+          {
+            "id": 4,
+            "title": "Document Custom Layouts",
+            "description": "Add guide for creating compatible KDL layouts.",
+            "status": "pending",
+            "dependencies": []
+          }
+        ],
+        "updatedAt": "2026-01-27T16:47:57.746Z",
         "activeAgent": false
       }
     ]

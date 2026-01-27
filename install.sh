@@ -86,7 +86,11 @@ sed \
   -e "s|{{PROJECTS_BASE}}|$PROJECTS_BASE|g" \
   "$ROOT_DIR/zellij/layouts/aoc.kdl.template" > "$HOME/.config/zellij/layouts/aoc.kdl"
 
-log "Generated $HOME/.config/zellij/layouts/aoc.kdl"
+sed \
+  -e "s|{{HOME}}|$HOME|g" \
+  "$ROOT_DIR/zellij/layouts/minimal.kdl.template" > "$HOME/.config/zellij/layouts/minimal.kdl"
+
+log "Generated layouts in $HOME/.config/zellij/layouts/"
 
 # Copy other configs
 install -m 0644 "$ROOT_DIR/zellij/aoc.config.kdl" "$HOME/.config/zellij/aoc.config.kdl"

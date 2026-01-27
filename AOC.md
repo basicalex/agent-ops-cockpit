@@ -112,3 +112,11 @@ aoc-doctor
 *   **Naming:** Scripts are prefixed with `aoc-` to avoid namespace collisions.
 *   **Wrappers:** Agents are typically wrapped (via `aoc-agent-wrap`) to ensure consistent behavior (scrollback, signal handling) within the Zellij panes.
 *   **State:** The system uses `~/.local/state/aoc` to persist state like the current project root or the active default agent.
+
+### 6. Custom Layouts
+AOC supports user-defined layouts with context injection.
+*   **Documentation:** See [docs/layouts.md](docs/layouts.md) for a full guide on creating custom "AOC Modes".
+*   **Tool:** `aoc-layout` allows selecting and persisting a default layout from `~/.config/zellij/layouts/`.
+*   **Placeholders:** `__AOC_TAB_NAME__`, `__AOC_AGENT_ID__`, `__AOC_PROJECT_ROOT__`.
+
+

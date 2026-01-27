@@ -1,10 +1,21 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-layout="${AOC_LAYOUT:-aoc}"
+layout=""
 local_layout="$HOME/.config/zellij/layouts/aoc.local.kdl"
 aoc_config="$HOME/.config/zellij/aoc.config.kdl"
 state_dir="${XDG_STATE_HOME:-$HOME/.local/state}/aoc"
+default_layout_file="${state_dir}/layout_default"
+
+if [[ -n "${AOC_LAYOUT:-}" ]]; then
+  layout="$AOC_LAYOUT"
+elif [[ -f "$default_layout_file" ]]; then
+  layout="$(cat "$default_layout_file")"
+elif [[ -f "$local_layout" ]]; then
+  layout="aoc.local"
+else
+  layout="aoc"
+fi
 
 sanitize_name() {
   local raw="$1"
@@ -32,8 +43,8 @@ resolve_layout_path() {
 }
 
 
-if [[ -z "${AOC_LAYOUT:-}" && -f "$local_layout" ]]; then
-  layout="aoc.local"
+if [[ -z "$layout" ]]; then
+  layout="aoc"
 fi
 
 config_arg=()

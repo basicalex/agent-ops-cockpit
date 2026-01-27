@@ -33,3 +33,7 @@ Agents should read this to understand project history and append new decisions h
 - [2026-01-20 14:42] Pinned OpenCode to version 1.1.25 via AOC_OC_VERSION default in wrappers; aoc-agent-wrap now prefers pinned version when resolving PNPM opencode binaries.
 - [2026-01-25 10:10] Never use project_root state files for variable injection or context; avoid passing runtime state via project_root.* files.
 - [2026-01-26 00:00] Docs clarified: root discovery is anchored on Agent pane (Agent [<root_tag>]) and per-tab project_root files; Yazi pane titles can be dynamic without affecting root tagging.
+- [2026-01-27 17:23] Added ROADMAP.md documenting cross-platform vision: multi-shell terminal support (Phase 1), script portability (Phase 2), alternative multiplexer research (Phase 3), and native Windows (Phase 4, blocked by Zellij). Created task #41 for multi-shell implementation with 6 subtasks.
+- [2026-01-27 17:45] Started Phase 2: Custom Layout Selection (Task #42). Allows users to select, persist, and use custom layouts with generic context injection. Bumped Script Portability to Phase 3.
+- [2026-01-27 17:48] Completed Phase 2: Custom Layout Selection. Implemented bin/aoc-layout, updated bin/aoc-new-tab and bin/aoc-launch to support persistent, generic layout selection with context injection.
+- [2026-01-27 18:08] Documented Custom Layouts feature in docs/layouts.md. Added minimal.kdl layout template and updated install.sh to deploy it. Updated README and AOC.md with links.
