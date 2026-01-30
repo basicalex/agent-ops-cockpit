@@ -1,4 +1,141 @@
 {
+  "mission-control": {
+    "tasks": [
+      {
+        "id": "43",
+        "title": "Define Mission Control architecture and event schema (Rust)",
+        "description": "Document the Rust-native Mission Control ecosystem, session scoping, and data flows.",
+        "details": "Deliverables: update docs/mission-control.md for Rust components (aoc-hub-rs, aoc-agent-wrap-rs, aoc-taskmaster Ratatui TUI, aoc-mission-control Ratatui TUI); keep envelope fields, message types, env vars, limits; add Rust runtime/logging notes and concurrency/backpressure guidance; note existing Go docs/impl as reference for the port.\n\nProgress: Updated docs/mission-control.md for Rust-only stack; removed Go references and added Rust implementation/backpressure notes.",
+        "testStrategy": "Review doc for Rust component naming and schema completeness; validate JSON examples; confirm session_id derivation and local-only socket guidance.",
+        "status": "done",
+        "dependencies": [],
+        "priority": "high",
+        "subtasks": [],
+        "updatedAt": "2026-01-28T20:13:44.839Z",
+        "activeAgent": false
+      },
+      {
+        "id": "44",
+        "title": "Implement session-scoped status hub (Rust)",
+        "description": "Build a Rust WebSocket hub that aggregates agent updates and serves Mission Control and Taskmaster clients within a session.",
+        "details": "Deliverables: Rust aoc-hub-rs using tokio plus axum or warp and tungstenite; listen on AOC_HUB_ADDR default 127.0.0.1:PORT_FROM_SESSION_ID; hello handshake and session_id validation; per-agent state cache and snapshot; ping/heartbeat with stale reaper; strict envelope/payload validation and size limits; structured tracing logs; reuse Go hub behavior as reference while porting.\n\nProgress: Created crates/aoc-hub-rs with axum WebSocket server, hello handshake, envelope validation, state cache + snapshot broadcast, ping + stale reaper, and tracing logs. Builds with cargo check.",
+        "testStrategy": "Start hub, connect publisher/subscriber, verify broadcast and snapshot; reject wrong session_id; restart hub and confirm reconnect plus state replay.",
+        "status": "done",
+        "dependencies": [],
+        "priority": "high",
+        "subtasks": [],
+        "updatedAt": "2026-01-29T15:11:21+00:00",
+        "activeAgent": false
+      },
+      {
+        "id": "45",
+        "title": "Implement agent-agnostic Rust wrapper for status streaming",
+        "description": "Create a Rust wrapper that launches any agent process and streams status, diff, and tasks to the hub.",
+        "details": "Deliverables: Rust aoc-agent-wrap-rs using tokio; spawn child command with stdio attached; resolve session_id/pane_id/agent_id/project_root; connect to hub with backoff; fs notify tasks/state with debounce; compute diff_summary via git commands; handle non-git or missing git; serve diff_patch responses; emit heartbeat and offline on exit; structured tracing logs; parity with existing Go wrapper as reference.\n\nProgress: Created crates/aoc-agent-wrap-rs baseline to spawn child, send hello/agent_status/heartbeat, reconnect to hub, and return diff_patch_request as not_implemented. Compiles with cargo check.",
+        "testStrategy": "Wrap dummy command; verify hub sees status and heartbeats; edit file to trigger diff update; stop hub to verify reconnect and state resend.",
+        "status": "done",
+        "dependencies": [],
+        "priority": "high",
+        "subtasks": [],
+        "updatedAt": "2026-01-29T15:11:21+00:00",
+        "activeAgent": false
+      },
+      {
+        "id": "46",
+        "title": "Port Taskmaster to native Rust Ratatui app",
+        "description": "Replace the Zellij Taskmaster plugin with a Rust Ratatui TUI that edits Taskmaster JSON directly.",
+        "details": "Deliverables: Rust aoc-taskmaster using ratatui and crossterm; resolve project_root from cwd or AOC_PROJECT_ROOT; parse .taskmaster tasks/state JSON with numeric or string IDs; list and details panes with subtasks, active-agent marker, help view; keybindings j/k, Up/Down, Enter, Space, Tab, x, f, t, r, ?; filter and tag cycling; atomic writes with temp file rename and update state.json; clear error view with retry; optional task_summary publish to hub.",
+        "testStrategy": "Toggle task status and active_agent and verify tasks.json updates; cycle tags and filters and confirm list updates; corrupt tasks.json and verify error view instead of crash.",
+        "status": "done",
+        "dependencies": [],
+        "priority": "high",
+        "subtasks": [],
+        "updatedAt": "2026-01-28T20:33:48.762Z",
+        "activeAgent": false
+      },
+      {
+        "id": "47",
+        "title": "Build Mission Control Ratatui UI (agent list + diff views)",
+        "description": "Implement Mission Control in Rust with agent list, diff list, and patch view.",
+        "details": "Deliverables: Rust aoc-mission-control using ratatui and crossterm; websocket subscriber to hub; maintain per-agent state; left column agent list and status summary, right column diff file list and patch view; request diff_patch on demand; cache patches and invalidate when diff_summary changes; keybindings for navigation, focus switching, search, refresh; empty/error states.\n\nProgress: Created crates/aoc-mission-control skeleton with Ratatui TUI, websocket subscriber + hello, agent list, and details panel showing status/diff summary basics. Compiles with cargo check.",
+        "testStrategy": "Feed mock hub events for multiple agents and verify UI updates; select file and confirm patch view loads and scrolls; verify empty and error states render without panic.",
+        "status": "done",
+        "dependencies": [],
+        "priority": "high",
+        "subtasks": [],
+        "updatedAt": "2026-01-29T16:04:05+00:00",
+        "activeAgent": false
+      },
+      {
+        "id": "48",
+        "title": "Integrate editor workflow inside Mission Control (Rust)",
+        "description": "Allow editing selected diff files from Mission Control using the default editor.",
+        "details": "Deliverables: add editor action that exits raw mode and alternate screen, runs editor subprocess, then restores TUI; choose editor from AOC_EDITOR or EDITOR with fallback to micro; optional line jump when hunk info exists; refresh diff_summary on return; handle missing file paths with visible error message.",
+        "testStrategy": "Open file, edit, exit, confirm diff list updates; unset EDITOR and confirm fallback editor used; attempt to open missing file and verify graceful error.",
+        "status": "pending",
+        "dependencies": [],
+        "priority": "medium",
+        "subtasks": [],
+        "updatedAt": "2026-01-28T18:45:27.895Z",
+        "activeAgent": false
+      },
+      {
+        "id": "49",
+        "title": "Wire Zellij layout and keybinding for Mission Control and Rust Taskmaster",
+        "description": "Update Zellij layouts and launch scripts to start the Rust hub, Rust Taskmaster, and Mission Control.",
+        "details": "Deliverables: update layouts/*.kdl and launch scripts to run aoc-hub-rs, aoc-taskmaster, and aoc-mission-control; add Alt-a toggle for Mission Control; inject AOC_SESSION_ID and AOC_HUB_ADDR into panes; ensure one hub per session and clean shutdown; add bin/aoc-mission-control launcher.",
+        "testStrategy": "Run aoc-launch, toggle Mission Control with Alt-a, confirm connection; start a second Zellij session and confirm isolation between sessions.",
+        "status": "pending",
+        "dependencies": [],
+        "priority": "high",
+        "subtasks": [],
+        "updatedAt": "2026-01-29T15:35:45.691Z",
+        "activeAgent": false
+      },
+      {
+        "id": "50",
+        "title": "Deprecate Zellij Taskmaster plugin and update docs/install for Rust CLI",
+        "description": "Remove the Zellij plugin from default flows and document the Rust-native Taskmaster CLI.",
+        "details": "Deliverables: mark plugin as legacy in README/docs; update install.sh to build and install Rust binaries (hub, wrapper, taskmaster, mission-control); keep optional plugin build flag; update scripts/build-taskmaster-plugin.sh and add migration notes.",
+        "testStrategy": "Run clean install and confirm aoc-taskmaster launches; enable legacy flag and verify plugin can still be built.",
+        "status": "pending",
+        "dependencies": [],
+        "priority": "medium",
+        "subtasks": [],
+        "updatedAt": "2026-01-28T18:45:50.911Z",
+        "activeAgent": false
+      },
+      {
+        "id": "51",
+        "title": "Add observability and multi-session isolation test plan (Rust)",
+        "description": "Add logs, reconnection, and isolation checks for Rust hub, wrapper, Mission Control, and Taskmaster.",
+        "details": "Deliverables: standardize logs under .aoc/logs with session_id prefixes; use tracing and tracing-subscriber; honor AOC_LOG_LEVEL and AOC_LOG_DIR and map to RUST_LOG; log connect and reconnect events, schema errors, backpressure drops; add manual isolation checklist and reconnection test docs.",
+        "testStrategy": "Start two sessions and confirm no cross-session messages; kill hub and verify clients reconnect with logs showing state transitions.",
+        "status": "pending",
+        "dependencies": [],
+        "priority": "medium",
+        "subtasks": [],
+        "updatedAt": "2026-01-28T18:45:50.919Z",
+        "activeAgent": false
+      },
+      {
+        "id": "52",
+        "title": "Add Session Manager to Mission Control (projects + defaults)",
+        "description": "Extend the Rust Mission Control UI with a Session Manager that can switch projects, create new projects, and set defaults.",
+        "details": "Deliverables: Ratatui Session Manager view with Projects, New Project, and Defaults sections; list directories from AOC_PROJECTS_BASE (default ~/dev), provide search and open a new AOC tab via zellij action new-tab --layout <layout> --cwd <path>; New Project prompts for name, creates directory, runs aoc-init, then opens new tab; Defaults set layout, agent, editor and persist to config (for example ~/.config/aoc/config.toml) used by aoc-launch and aoc-new-tab; keybindings Tab, Enter, n, /, Esc; support AOC_CONFIG_PATH and AOC_PROJECTS_BASE overrides; display errors when mkdir or aoc-init fails.",
+        "testStrategy": "Open Mission Control and verify Projects list from ~/dev; search and open project to create new tab; create new project and confirm aoc-init runs; change defaults and confirm persisted config is applied to new tabs; verify error handling when projects base is missing or aoc-init fails.",
+        "status": "pending",
+        "dependencies": [
+          "47",
+          "49"
+        ],
+        "priority": "high",
+        "subtasks": [],
+        "updatedAt": "2026-01-28T18:45:50.926Z",
+        "activeAgent": false
+      }
+    ]
+  },
   "master": {
     "tasks": [
       {
@@ -16,21 +153,36 @@
             "title": "Define dependency list and install hints",
             "description": "Classify required vs optional tools and map each to distro-specific install hints for README and aoc-doctor output.",
             "status": "pending",
-            "dependencies": []
+            "dependencies": [],
+            "priority": "",
+            "subtasks": null,
+            "activeAgent": false,
+            "details": "",
+            "testStrategy": ""
           },
           {
             "id": 2,
             "title": "Implement bin/aoc-doctor with exit codes",
             "description": "Create aoc-doctor that checks PATH/tools, supports --quiet, and returns non-zero on missing required deps.",
             "status": "pending",
-            "dependencies": []
+            "dependencies": [],
+            "details": "",
+            "subtasks": null,
+            "testStrategy": "",
+            "activeAgent": false,
+            "priority": ""
           },
           {
             "id": 3,
             "title": "Document doctor usage",
             "description": "Add README section with example output and suggested install fixes.",
             "status": "pending",
-            "dependencies": []
+            "dependencies": [],
+            "activeAgent": false,
+            "details": "",
+            "priority": "",
+            "subtasks": null,
+            "testStrategy": ""
           }
         ],
         "updatedAt": "2026-01-27T16:47:45.724Z",
@@ -51,21 +203,36 @@
             "title": "Detect missing task-master-ai",
             "description": "Add graceful fallback when TM binary is missing (message + exit or read-only mode).",
             "status": "pending",
-            "dependencies": []
+            "dependencies": [],
+            "priority": "",
+            "details": "",
+            "activeAgent": false,
+            "subtasks": null,
+            "testStrategy": ""
           },
           {
             "id": 2,
             "title": "Add task actions in UI",
             "description": "Implement keybinds to mark done/reopen, open task details, and refresh without restarting.",
             "status": "pending",
-            "dependencies": []
+            "dependencies": [],
+            "testStrategy": "",
+            "priority": "",
+            "details": "",
+            "activeAgent": false,
+            "subtasks": null
           },
           {
             "id": 3,
             "title": "Update help text and keybinds",
             "description": "Keep the on-screen hints aligned with the new actions and modes.",
             "status": "pending",
-            "dependencies": []
+            "dependencies": [],
+            "activeAgent": false,
+            "priority": "",
+            "details": "",
+            "testStrategy": "",
+            "subtasks": null
           }
         ],
         "updatedAt": "2026-01-27T16:47:45.730Z",
@@ -86,21 +253,36 @@
             "title": "Persist widget mode",
             "description": "Store last mode (cal/media) in state file and restore on start.",
             "status": "pending",
-            "dependencies": []
+            "dependencies": [],
+            "testStrategy": "",
+            "subtasks": null,
+            "details": "",
+            "priority": "",
+            "activeAgent": false
           },
           {
             "id": 2,
             "title": "Add tool checks and fallbacks",
             "description": "Detect chafa/ffmpeg/rsvg-convert and show clear fallback instructions.",
             "status": "pending",
-            "dependencies": []
+            "dependencies": [],
+            "testStrategy": "",
+            "priority": "",
+            "activeAgent": false,
+            "details": "",
+            "subtasks": null
           },
           {
             "id": 3,
             "title": "Improve path selection flow",
             "description": "Add validation and non-blocking prompt when media path is missing or unsupported.",
             "status": "pending",
-            "dependencies": []
+            "dependencies": [],
+            "activeAgent": false,
+            "testStrategy": "",
+            "subtasks": null,
+            "priority": "",
+            "details": ""
           }
         ],
         "updatedAt": "2026-01-27T16:47:45.751Z",
@@ -121,21 +303,36 @@
             "title": "Add env var support",
             "description": "Implement AOC_SYS_INTERVAL and section toggles (CPU/Mem/Disk) with defaults.",
             "status": "pending",
-            "dependencies": []
+            "dependencies": [],
+            "priority": "",
+            "activeAgent": false,
+            "details": "",
+            "testStrategy": "",
+            "subtasks": null
           },
           {
             "id": 2,
             "title": "Update sys output formatting",
             "description": "Keep output stable for small panes; handle missing /proc gracefully.",
             "status": "pending",
-            "dependencies": []
+            "dependencies": [],
+            "details": "",
+            "priority": "",
+            "activeAgent": false,
+            "testStrategy": "",
+            "subtasks": null
           },
           {
             "id": 3,
             "title": "Document aoc-sys configuration",
             "description": "Add README section with env vars and examples.",
             "status": "pending",
-            "dependencies": []
+            "dependencies": [],
+            "details": "",
+            "testStrategy": "",
+            "activeAgent": false,
+            "subtasks": null,
+            "priority": ""
           }
         ],
         "updatedAt": "2026-01-27T16:47:45.760Z",
@@ -156,21 +353,36 @@
             "title": "Choose customization strategy",
             "description": "Decide between env var overrides or templated layout copy on install.",
             "status": "done",
-            "dependencies": []
+            "dependencies": [],
+            "testStrategy": "",
+            "activeAgent": false,
+            "priority": "",
+            "details": "",
+            "subtasks": null
           },
           {
             "id": 2,
             "title": "Implement override mechanism",
             "description": "Add layout templating or alternate layout file resolution in install/launch.",
             "status": "done",
-            "dependencies": []
+            "dependencies": [],
+            "subtasks": null,
+            "details": "",
+            "activeAgent": false,
+            "testStrategy": "",
+            "priority": ""
           },
           {
             "id": 3,
             "title": "Document layout overrides",
             "description": "Provide examples for custom sizes/commands in README.",
             "status": "done",
-            "dependencies": []
+            "dependencies": [],
+            "testStrategy": "",
+            "activeAgent": false,
+            "priority": "",
+            "subtasks": null,
+            "details": ""
           }
         ],
         "updatedAt": "2026-01-06T17:03:07.336Z",
@@ -191,21 +403,36 @@
             "title": "Add uninstall script",
             "description": "Create aoc-uninstall or scripts/uninstall.sh to remove installed files only.",
             "status": "pending",
-            "dependencies": []
+            "dependencies": [],
+            "priority": "",
+            "details": "",
+            "testStrategy": "",
+            "activeAgent": false,
+            "subtasks": null
           },
           {
             "id": 2,
             "title": "Make installer idempotent",
             "description": "Ensure install.sh overwrites safely, prints what changed, and exits cleanly on re-run.",
             "status": "pending",
-            "dependencies": []
+            "dependencies": [],
+            "testStrategy": "",
+            "subtasks": null,
+            "details": "",
+            "priority": "",
+            "activeAgent": false
           },
           {
             "id": 3,
             "title": "Document install/uninstall",
             "description": "Add README usage examples and expected file paths.",
             "status": "pending",
-            "dependencies": []
+            "dependencies": [],
+            "testStrategy": "",
+            "activeAgent": false,
+            "priority": "",
+            "subtasks": null,
+            "details": ""
           }
         ],
         "updatedAt": "2026-01-06T17:03:08.164Z",
@@ -226,21 +453,36 @@
             "title": "Add setup verification checklist",
             "description": "Document a quick checklist (zellij version, yazi preview, widget media) and how to confirm.",
             "status": "pending",
-            "dependencies": []
+            "dependencies": [],
+            "priority": "",
+            "testStrategy": "",
+            "details": "",
+            "subtasks": null,
+            "activeAgent": false
           },
           {
             "id": 2,
             "title": "Add troubleshooting section",
             "description": "Cover common errors (missing tools, blank preview, taskmaster missing) with fixes.",
             "status": "pending",
-            "dependencies": []
+            "dependencies": [],
+            "details": "",
+            "subtasks": null,
+            "priority": "",
+            "activeAgent": false,
+            "testStrategy": ""
           },
           {
             "id": 3,
             "title": "Add screenshot guidance",
             "description": "Include placeholder path and note for updating the screenshot in README.",
             "status": "pending",
-            "dependencies": []
+            "dependencies": [],
+            "activeAgent": false,
+            "subtasks": null,
+            "priority": "",
+            "testStrategy": "",
+            "details": ""
           }
         ],
         "updatedAt": "2026-01-06T17:03:09.086Z",
@@ -261,21 +503,36 @@
             "title": "Create scripts/lint.sh",
             "description": "Add shellcheck invocation over bin/ and yazi/preview.sh with sensible flags.",
             "status": "pending",
-            "dependencies": []
+            "dependencies": [],
+            "activeAgent": false,
+            "details": "",
+            "subtasks": null,
+            "priority": "",
+            "testStrategy": ""
           },
           {
             "id": 2,
             "title": "Add GitHub Actions lint workflow",
             "description": "Optional CI workflow that runs shellcheck on pushes/PRs.",
             "status": "pending",
-            "dependencies": []
+            "dependencies": [],
+            "testStrategy": "",
+            "subtasks": null,
+            "activeAgent": false,
+            "details": "",
+            "priority": ""
           },
           {
             "id": 3,
             "title": "Document lint usage",
             "description": "Add README instructions for running lint locally and in CI.",
             "status": "pending",
-            "dependencies": []
+            "dependencies": [],
+            "subtasks": null,
+            "testStrategy": "",
+            "priority": "",
+            "activeAgent": false,
+            "details": ""
           }
         ],
         "updatedAt": "2026-01-06T17:03:10.110Z",
@@ -296,21 +553,36 @@
             "title": "Create CHANGELOG.md",
             "description": "Add initial release section describing current features.",
             "status": "pending",
-            "dependencies": []
+            "dependencies": [],
+            "subtasks": null,
+            "details": "",
+            "activeAgent": false,
+            "priority": "",
+            "testStrategy": ""
           },
           {
             "id": 2,
             "title": "Define versioning scheme",
             "description": "Document SemVer (or similar) and tag naming in README.",
             "status": "pending",
-            "dependencies": []
+            "dependencies": [],
+            "testStrategy": "",
+            "subtasks": null,
+            "activeAgent": false,
+            "details": "",
+            "priority": ""
           },
           {
             "id": 3,
             "title": "Add release checklist",
             "description": "Add a small checklist for cutting releases and tagging.",
             "status": "pending",
-            "dependencies": []
+            "dependencies": [],
+            "details": "",
+            "activeAgent": false,
+            "priority": "",
+            "subtasks": null,
+            "testStrategy": ""
           }
         ],
         "updatedAt": "2026-01-06T17:03:11.326Z",
@@ -331,49 +603,84 @@
             "title": "Collect Task Master schema + CLI usage for renderer/actions",
             "description": "Summarize tasks.json schema and relevant CLI commands (list/show/set-status/update/add/remove) to support plugin rendering and actions.",
             "status": "done",
-            "dependencies": []
+            "dependencies": [],
+            "priority": "",
+            "details": "",
+            "subtasks": null,
+            "activeAgent": false,
+            "testStrategy": ""
           },
           {
             "id": 2,
             "title": "Evaluate Zellij plugin API + integration points",
             "description": "Confirm zellij-tile capabilities (events, workers, filesystem access) and how to ship/load plugin in this repo.",
             "status": "done",
-            "dependencies": []
+            "dependencies": [],
+            "testStrategy": "",
+            "priority": "",
+            "subtasks": null,
+            "activeAgent": false,
+            "details": ""
           },
           {
             "id": 3,
             "title": "Design plugin UX + state model",
             "description": "Define list/detail views, filters, keybindings, realtime refresh strategy, and error states (missing tasks.json, parse errors).",
             "status": "done",
-            "dependencies": []
+            "dependencies": [],
+            "activeAgent": false,
+            "subtasks": null,
+            "priority": "",
+            "details": "",
+            "testStrategy": ""
           },
           {
             "id": 4,
             "title": "Scaffold plugin project + build pipeline",
             "description": "Add plugin source (Rust/WASM), build scripts, and install integration for zellij config/layout.",
             "status": "done",
-            "dependencies": []
+            "dependencies": [],
+            "subtasks": null,
+            "priority": "",
+            "testStrategy": "",
+            "activeAgent": false,
+            "details": ""
           },
           {
             "id": 5,
             "title": "Implement realtime renderer + file watcher/polling",
             "description": "Load tasks.json, parse tasks/subtasks, render list/detail, and refresh on interval or file mtime change.",
             "status": "done",
-            "dependencies": []
+            "dependencies": [],
+            "testStrategy": "",
+            "priority": "",
+            "details": "",
+            "activeAgent": false,
+            "subtasks": null
           },
           {
             "id": 6,
             "title": "Wire CLI actions (status changes, open details)",
             "description": "Integrate task-master CLI commands for status changes and task updates; handle errors gracefully.",
             "status": "done",
-            "dependencies": []
+            "dependencies": [],
+            "subtasks": null,
+            "testStrategy": "",
+            "details": "",
+            "activeAgent": false,
+            "priority": ""
           },
           {
             "id": 7,
             "title": "Update docs + install instructions",
             "description": "Document plugin build/install, configuration, and keybindings in README; update install/uninstall as needed.",
             "status": "done",
-            "dependencies": []
+            "dependencies": [],
+            "subtasks": null,
+            "priority": "",
+            "details": "",
+            "testStrategy": "",
+            "activeAgent": false
           }
         ],
         "updatedAt": "2026-01-09T07:01:13.182Z",
@@ -771,7 +1078,12 @@
             "title": "Fix Status Bar Labels in init.lua",
             "description": "Refactor the Header:children method in yazi/init.lua to correctly display 'Help', 'Open', 'Select', and 'Exit' labels with proper alignment and color transitions.",
             "status": "pending",
-            "dependencies": []
+            "dependencies": [],
+            "activeAgent": false,
+            "subtasks": null,
+            "priority": "",
+            "testStrategy": "",
+            "details": ""
           },
           {
             "id": 2,
@@ -780,21 +1092,36 @@
             "status": "pending",
             "dependencies": [
               "1"
-            ]
+            ],
+            "activeAgent": false,
+            "testStrategy": "",
+            "priority": "",
+            "details": "",
+            "subtasks": null
           },
           {
             "id": 3,
             "title": "Enhance Pane Resize Logic in aoc-open plugin",
             "description": "Optimize the resize behavior in plugins/aoc-open.yazi to handle Zellij interactions smoothly and restore layout on exit.",
             "status": "pending",
-            "dependencies": []
+            "dependencies": [],
+            "testStrategy": "",
+            "subtasks": null,
+            "priority": "",
+            "details": "",
+            "activeAgent": false
           },
           {
             "id": 4,
             "title": "Finalize Keybindings and Theme Polish",
             "description": "Configure yazi/keymap.toml for 'g a', 'g l', 'g c' and Ctrl+t, and sync colors in yazi/theme.toml.",
             "status": "pending",
-            "dependencies": []
+            "dependencies": [],
+            "testStrategy": "",
+            "priority": "",
+            "activeAgent": false,
+            "subtasks": null,
+            "details": ""
           }
         ],
         "updatedAt": "2026-01-18T11:13:22.886Z",
@@ -891,42 +1218,72 @@
             "title": "Modify aoc.kdl.template to use Zellij cwd directive",
             "description": "Replace bash -lc cd pattern with native cwd directive and direct shell invocation for terminal panes",
             "status": "pending",
-            "dependencies": []
+            "dependencies": [],
+            "priority": "",
+            "activeAgent": false,
+            "details": "",
+            "subtasks": null,
+            "testStrategy": ""
           },
           {
             "id": 2,
             "title": "Create bin/aoc-shell-detect utility",
             "description": "Shell detection module that identifies user shell type and returns appropriate init flags for bash, zsh, fish, powershell, nushell",
             "status": "pending",
-            "dependencies": []
+            "dependencies": [],
+            "testStrategy": "",
+            "details": "",
+            "priority": "",
+            "activeAgent": false,
+            "subtasks": null
           },
           {
             "id": 3,
             "title": "Update aoc-new-tab for shell-agnostic layout generation",
             "description": "Ensure dynamically generated tab layouts respect user shell preference via AOC_SHELL or SHELL",
             "status": "pending",
-            "dependencies": []
+            "dependencies": [],
+            "priority": "",
+            "subtasks": null,
+            "details": "",
+            "activeAgent": false,
+            "testStrategy": ""
           },
           {
             "id": 4,
             "title": "Add AOC_SHELL environment variable support",
             "description": "Document and implement AOC_SHELL override for explicit shell selection with fallback to SHELL",
             "status": "pending",
-            "dependencies": []
+            "dependencies": [],
+            "subtasks": null,
+            "activeAgent": false,
+            "priority": "",
+            "details": "",
+            "testStrategy": ""
           },
           {
             "id": 5,
             "title": "Test with fish, zsh, powershell, and nushell",
             "description": "Validate terminal pane behavior with each shell type, ensure rc files are sourced and interactive mode works",
             "status": "pending",
-            "dependencies": []
+            "dependencies": [],
+            "priority": "",
+            "subtasks": null,
+            "details": "",
+            "activeAgent": false,
+            "testStrategy": ""
           },
           {
             "id": 6,
             "title": "Document multi-shell support in README",
             "description": "Add section explaining shell support, AOC_SHELL override, and known limitations due to Zellij platform constraints",
             "status": "pending",
-            "dependencies": []
+            "dependencies": [],
+            "priority": "",
+            "testStrategy": "",
+            "subtasks": null,
+            "details": "",
+            "activeAgent": false
           }
         ],
         "updatedAt": "2026-01-27T16:20:29.969Z",
@@ -947,28 +1304,48 @@
             "title": "Create bin/aoc-layout CLI tool",
             "description": "List, select, and persist layout choice.",
             "status": "pending",
-            "dependencies": []
+            "dependencies": [],
+            "testStrategy": "",
+            "activeAgent": false,
+            "priority": "",
+            "subtasks": null,
+            "details": ""
           },
           {
             "id": 2,
             "title": "Update bin/aoc-new-tab for generic layouts",
             "description": "Support --layout flag and generic variable substitution.",
             "status": "pending",
-            "dependencies": []
+            "dependencies": [],
+            "subtasks": null,
+            "activeAgent": false,
+            "testStrategy": "",
+            "details": "",
+            "priority": ""
           },
           {
             "id": 3,
             "title": "Update bin/aoc-launch for persistence",
             "description": "Read layout_default on startup.",
             "status": "pending",
-            "dependencies": []
+            "dependencies": [],
+            "activeAgent": false,
+            "priority": "",
+            "subtasks": null,
+            "details": "",
+            "testStrategy": ""
           },
           {
             "id": 4,
             "title": "Document Custom Layouts",
             "description": "Add guide for creating compatible KDL layouts.",
             "status": "pending",
-            "dependencies": []
+            "dependencies": [],
+            "subtasks": null,
+            "testStrategy": "",
+            "priority": "",
+            "activeAgent": false,
+            "details": ""
           }
         ],
         "updatedAt": "2026-01-27T16:47:57.746Z",

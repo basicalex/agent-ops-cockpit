@@ -7,7 +7,6 @@ This machine uses the **Agent Ops Cockpit (AOC)** system. All agents (Gemini, Cl
 ```
 /home/ceii/dev/agent-ops-cockpit
 ├── AGENTS.md
-├── aoc1.png
 ├── AOC.md
 ├── bin
 │   ├── aoc
@@ -17,7 +16,6 @@ This machine uses the **Agent Ops Cockpit (AOC)** system. All agents (Gemini, Cl
 │   ├── aoc-align
 │   ├── aoc-cc
 │   ├── aoc-cleanup
-│   ├── aoc-cli -> /home/ceii/dev/agent-ops-cockpit/crates/target/release/aoc-cli
 │   ├── aoc-clock
 │   ├── aoc-clock-geo
 │   ├── aoc-clock-set
@@ -25,16 +23,20 @@ This machine uses the **Agent Ops Cockpit (AOC)** system. All agents (Gemini, Cl
 │   ├── aoc-codex-tab
 │   ├── aoc-doctor
 │   ├── aoc-gemini
+│   ├── aoc-hub
 │   ├── aoc-init
 │   ├── aoc-launch
+│   ├── aoc-layout
 │   ├── aoc-mem
+│   ├── aoc-mission-control
+│   ├── aoc-mission-control-toggle
 │   ├── aoc-new-tab
 │   ├── aoc-oc
+│   ├── aoc-pane-rename
 │   ├── aoc-preview
 │   ├── aoc-preview-set
 │   ├── aoc-preview-toggle
 │   ├── aoc-rlm
-│   ├── aoc-star
 │   ├── aoc-sys
 │   ├── aoc-taskmaster
 │   ├── aoc-tasks
@@ -45,7 +47,6 @@ This machine uses the **Agent Ops Cockpit (AOC)** system. All agents (Gemini, Cl
 │   ├── claude
 │   ├── codex
 │   ├── gemini
-│   ├── micro
 │   ├── opencode
 │   ├── rlm
 │   └── tm-editor
@@ -56,19 +57,34 @@ This machine uses the **Agent Ops Cockpit (AOC)** system. All agents (Gemini, Cl
 │   ├── README.md
 │   ├── requirements.txt
 │   └── script
+├── cmd
+│   ├── aoc-agent-wrap-go
+│   ├── aoc-hub
+│   └── aoc-taskmaster
 ├── config
 │   ├── btop.conf
 │   └── codex-tmux.conf
+├── CONTRIBUTING.md
 ├── crates
+│   ├── aoc-agent-wrap-rs
 │   ├── aoc-cli
 │   ├── aoc-core
+│   ├── aoc-hub-rs
+│   ├── aoc-mission-control
+│   ├── aoc-taskmaster
 │   ├── Cargo.lock
 │   └── Cargo.toml
+├── docs
+│   ├── assets
+│   ├── feature-upgrade-collection-key.md
+│   ├── layouts.md
+│   └── mission-control.md
 ├── install.sh
+├── LICENSE
 ├── plugins
 │   └── taskmaster
-├── README_1.md
 ├── README.md
+├── ROADMAP.md
 ├── scripts
 │   ├── build-taskmaster-plugin.sh
 │   └── lint.sh
@@ -79,12 +95,11 @@ This machine uses the **Agent Ops Cockpit (AOC)** system. All agents (Gemini, Cl
 │   ├── preview.sh
 │   ├── theme.toml
 │   └── yazi.toml
-├── zellij
-│   ├── aoc.config.kdl
-│   └── layouts
-└── zellij_taskmaster_terminal_block.png
+└── zellij
+    ├── aoc.config.kdl
+    └── layouts
 
-16 directories, 62 files
+26 directories, 67 files
 ```
 
 ## 2. Long-Term Memory (`aoc-mem`)
@@ -109,6 +124,9 @@ A lightweight, terminal-first "agent cockpit" layout for coding sessions:
 - **Center bottom:** Taskmaster interactive (fzf-based)
 - **Right column:** Calendar/Media widget, Clock, Project terminal
 - **Per-tab contract:** one Zellij **tab = one project root** (panes start there)
+
+- [Docs: Custom Layouts / Modes](docs/layouts.md)
+- [Docs: Feature Process](docs/feature-upgrade-collection-key.md)
 
 ## Requirements
 
@@ -396,6 +414,7 @@ so we wrap Codex in tmux with alternate-screen disabled. This makes scrollback
 reliable in Zellij panes while keeping Codex behavior the same in other terminals.
 
 ## Customization
+- **New:** [Create Custom Layouts ("AOC Modes")](docs/layouts.md) that adapt to your project.
 - Override commands via env vars: `AOC_AGENT_CMD`, `AOC_CODEX_CMD`, `AOC_TASKMASTER_CMD`, `AOC_FILETREE_CMD`, `AOC_WIDGET_CMD`, `AOC_CLOCK_CMD`, `AOC_SYS_CMD`, `AOC_TERMINAL_CMD`.
 - Override the tmux config used by `aoc-codex` with `AOC_CODEX_TMUX_CONF`.
 - Override the tmux config for other agent CLIs with `AOC_AGENT_TMUX_CONF`.
@@ -479,7 +498,8 @@ Use the Rust-based RLM tool as the default workflow for large repos:
 
 ## 6. Active Workstreams (Tags)
 ```
-master (40)
+master (42)
+mission-control (10)
 ```
 
 ## 7. RLM Skill (Large Codebase Analysis)

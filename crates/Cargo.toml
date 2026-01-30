@@ -1,5 +1,10 @@
 [workspace]
-members = ["aoc-cli",
+members = [
+    "aoc-cli",
     "aoc-core",
+    "aoc-hub-rs",
+    "aoc-agent-wrap-rs",
+    "aoc-mission-control",
+    "aoc-taskmaster",
 ]
 resolver = "2"

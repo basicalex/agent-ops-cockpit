@@ -1,0 +1,103 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+if [[ -z "${ZELLIJ_SESSION_NAME:-}" ]]; then
+  echo "Not running inside a Zellij session." >&2
+  exit 1
+fi
+
+pane_name="${AOC_MISSION_CONTROL_PANE_NAME:-Mission Control}"
+width="${AOC_MISSION_CONTROL_WIDTH:-70%}"
+height="${AOC_MISSION_CONTROL_HEIGHT:-70%}"
+x="${AOC_MISSION_CONTROL_X:-15%}"
+y="${AOC_MISSION_CONTROL_Y:-15%}"
+pinned="false"
+state_dir="${XDG_STATE_HOME:-$HOME/.local/state}/aoc"
+
+layout="$(zellij action dump-layout 2>/dev/null || true)"
+if command -v rg >/dev/null 2>&1; then
+  if printf '%s' "$layout" | rg -q "name=\"${pane_name}\""; then
+    zellij action toggle-floating-panes
+    exit 0
+  fi
+else
+  if printf '%s' "$layout" | grep -q "name=\"${pane_name}\""; then
+    zellij action toggle-floating-panes
+    exit 0
+  fi
+fi
+
+session_id="${AOC_SESSION_ID:-${ZELLIJ_SESSION_NAME}}"
+if [[ -z "$session_id" ]]; then
+  session_id="pid-$$"
+fi
+mkdir -p "$state_dir"
+
+sanitize_name() {
+  local raw="$1"
+  raw="$(printf '%s' "$raw" | tr '[:upper:]' '[:lower:]')"
+  raw="$(printf '%s' "$raw" | sed -E 's/[^a-z0-9]+/-/g; s/^-+|-+$//g')"
+  printf '%s' "${raw:-tab}"
+}
+
+session_slug="$(sanitize_name "$session_id")"
+pid_file="${AOC_MISSION_CONTROL_PID_FILE:-$state_dir/mission-control-${session_slug}.pid}"
+close_pane_flag="${AOC_MISSION_CONTROL_CLOSE_PANE:-}"
+if [[ -z "$close_pane_flag" ]]; then
+  if [[ -n "${ZELLIJ:-}" || -n "${ZELLIJ_SESSION_NAME:-}" ]]; then
+    close_pane_flag="1"
+  else
+    close_pane_flag="0"
+  fi
+fi
+
+if [[ -f "$pid_file" ]]; then
+  existing_pid="$(cat "$pid_file" 2>/dev/null || true)"
+  if [[ -n "$existing_pid" ]] && kill -0 "$existing_pid" 2>/dev/null; then
+    zellij action toggle-floating-panes
+    if [[ "$close_pane_flag" == "1" ]]; then
+      zellij action close-pane >/dev/null 2>&1 || true
+    fi
+    exit 0
+  fi
+  rm -f "$pid_file"
+fi
+hub_addr="${AOC_HUB_ADDR:-}"
+if [[ -z "$hub_addr" ]]; then
+  if command -v python3 >/dev/null 2>&1; then
+    port="$(python3 - <<'PY' "$session_id"
+import sys
+session = sys.argv[1].encode()
+hash_value = 2166136261
+for byte in session:
+    hash_value ^= byte
+    hash_value = (hash_value * 16777619) & 0xFFFFFFFF
+port = 42000 + (hash_value % 2000)
+print(port)
+PY
+)"
+    hub_addr="127.0.0.1:${port}"
+  else
+    hub_addr="127.0.0.1:42000"
+  fi
+fi
+
+mission_cmd="${AOC_MISSION_CONTROL_CMD:-aoc-mission-control}"
+
+zellij action new-pane \
+  --floating \
+  --name "$pane_name" \
+  --width "$width" \
+  --height "$height" \
+  --x "$x" \
+  --y "$y" \
+  -- bash -lc "export AOC_SESSION_ID=\"${session_id}\"; export AOC_HUB_ADDR=\"${hub_addr}\"; export AOC_MISSION_CONTROL_PID_FILE=\"${pid_file}\"; exec ${mission_cmd}"
+
+if [[ "$pinned" == "true" ]]; then
+  zellij action toggle-pane-pinned >/dev/null 2>&1 || true
+fi
+
+if [[ "$close_pane_flag" == "1" ]]; then
+  zellij action focus-previous-pane >/dev/null 2>&1 || true
+  zellij action close-pane >/dev/null 2>&1 || true
+fi

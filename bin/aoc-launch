@@ -24,6 +24,19 @@ sanitize_name() {
   printf '%s' "${raw:-tab}"
 }
 
+resolve_session_id() {
+  local agent_id="$1"
+  if [[ -n "${AOC_SESSION_ID:-}" ]]; then
+    echo "$AOC_SESSION_ID"
+    return
+  fi
+  if [[ -n "${ZELLIJ_SESSION_NAME:-}" ]]; then
+    echo "$ZELLIJ_SESSION_NAME"
+    return
+  fi
+  echo "aoc-${agent_id}-$$"
+}
+
 cleanup_state() {
   local dir="$1"
   # Clean up old temp layout files
@@ -67,6 +80,8 @@ if [[ -z "$tab_name" ]]; then tab_name="AOC"; fi
 # Agent ID is just the raw repo name (used in pane name for alignment)
 agent_id="$raw_name"
 
+session_id="$(resolve_session_id "$agent_id")"
+
 layout_path="$(resolve_layout_path "$layout")"
 layout_arg="$layout"
 
@@ -102,4 +117,4 @@ fi
 ZELLIJ_PROJECT_ROOT="$project_root" \
   AOC_PROJECT_ROOT="$project_root" \
   AOC_ROOT_TAG="$agent_id" \
-  zellij "${config_arg[@]}" --new-session-with-layout "$layout_arg"
+  zellij "${config_arg[@]}" --session "$session_id" --new-session-with-layout "$layout_arg"

@@ -1,0 +1,35 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+local_release="$script_dir/../crates/target/release/aoc-mission-control"
+local_debug="$script_dir/../crates/target/debug/aoc-mission-control"
+manifest_path=""
+if [[ -n "${AOC_PROJECT_ROOT:-}" && -f "${AOC_PROJECT_ROOT}/crates/Cargo.toml" ]]; then
+  manifest_path="${AOC_PROJECT_ROOT}/crates/Cargo.toml"
+elif [[ -f "$script_dir/../crates/Cargo.toml" ]]; then
+  manifest_path="$script_dir/../crates/Cargo.toml"
+fi
+
+if [[ -n "${AOC_MISSION_CONTROL_PID_FILE:-}" ]]; then
+  echo "$$" >"$AOC_MISSION_CONTROL_PID_FILE" 2>/dev/null || true
+fi
+
+if [[ -n "${AOC_MISSION_CONTROL_BIN:-}" ]]; then
+  exec "$AOC_MISSION_CONTROL_BIN" "$@"
+fi
+
+if [[ -x "$local_release" ]]; then
+  exec "$local_release" "$@"
+fi
+
+if [[ -x "$local_debug" ]]; then
+  exec "$local_debug" "$@"
+fi
+
+if command -v cargo >/dev/null 2>&1 && [[ -n "$manifest_path" ]]; then
+  exec cargo run --manifest-path "$manifest_path" -p aoc-mission-control -- "$@"
+fi
+
+echo "aoc-mission-control: binary not found (build crates/aoc-mission-control)." >&2
+exit 1

@@ -1,6 +1,14 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+agent_id="codex"
+agent_bin="${AOC_CODEX_BIN:-codex}"
+agent_label="Codex"
+
+if [[ "${AOC_AGENT_RUN:-0}" == "1" ]]; then
+  exec aoc-agent-wrap "$agent_id" "$agent_bin" "$agent_label" "$@"
+fi
+
 # Set title early, before any execs
 printf "\033]0;Agent [Codex]\007"
 

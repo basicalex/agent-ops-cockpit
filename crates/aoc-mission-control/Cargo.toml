@@ -1,0 +1,17 @@
+[package]
+name = "aoc-mission-control"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+chrono = { version = "0.4", features = ["serde"] }
+crossterm = { version = "0.27", features = ["event-stream"] }
+futures-util = "0.3"
+ratatui = "0.26"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+tokio = { version = "1.36", features = ["rt-multi-thread", "macros", "sync", "time"] }
+tokio-tungstenite = "0.21"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+url = "2.5"

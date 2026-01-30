@@ -44,7 +44,7 @@ if command -v cargo >/dev/null 2>&1; then
     (cd "$ROOT_DIR/crates" && cargo build --release -p aoc-cli)
     cp "$ROOT_DIR/crates/target/release/aoc-cli" "$BIN_DIR/aoc-cli"
   }
-  
+
   # Build taskmaster plugin
   log "Building taskmaster plugin..."
   "$ROOT_DIR/scripts/build-taskmaster-plugin.sh"

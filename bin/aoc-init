@@ -12,6 +12,7 @@ aoc_dir="$project_root/.aoc"
 gemini_dir="$project_root/.gemini"
 task_dir="$project_root/.taskmaster"
 global_task_conf="$HOME/.taskmaster/config.json"
+script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 log() { echo ">> $1"; }
 warn() { echo "!! $1"; }
@@ -261,11 +262,65 @@ setup_env() {
   fi
 }
 
+# 4. Ensure AOC Rust binaries are available
+setup_binaries() {
+  if [[ "${AOC_INIT_SKIP_BUILD:-0}" == "1" ]]; then
+    log "Skipping Rust binary build (AOC_INIT_SKIP_BUILD=1)."
+    return
+  fi
+
+  local manifest_path=""
+  if [[ -f "$project_root/crates/Cargo.toml" ]]; then
+    manifest_path="$project_root/crates/Cargo.toml"
+  elif [[ -f "$script_dir/../crates/Cargo.toml" ]]; then
+    manifest_path="$script_dir/../crates/Cargo.toml"
+  fi
+
+  local required=(aoc-hub-rs aoc-agent-wrap-rs aoc-mission-control aoc-taskmaster)
+  local missing=()
+  local bin=""
+  local manifest_dir=""
+  if [[ -n "$manifest_path" ]]; then
+    manifest_dir="$(dirname "$manifest_path")"
+  fi
+
+  for bin in "${required[@]}"; do
+    if command -v "$bin" >/dev/null 2>&1; then
+      continue
+    fi
+    if [[ -n "$manifest_dir" ]]; then
+      if [[ -x "$manifest_dir/target/release/$bin" || -x "$manifest_dir/target/debug/$bin" ]]; then
+        continue
+      fi
+    fi
+    missing+=("$bin")
+  done
+
+  if ((${#missing[@]} == 0)); then
+    log "Rust binaries already available. Skipping build."
+    return
+  fi
+
+  if [[ -z "$manifest_path" ]]; then
+    warn "Rust workspace not found. Missing binaries: ${missing[*]}"
+    return
+  fi
+
+  if ! command -v cargo >/dev/null 2>&1; then
+    warn "cargo not found; unable to build binaries: ${missing[*]}"
+    return
+  fi
+
+  log "Building AOC Rust binaries: ${required[*]}"
+  cargo build --manifest-path "$manifest_path" -p aoc-hub-rs -p aoc-agent-wrap-rs -p aoc-mission-control -p aoc-taskmaster
+}
+
 main() {
   log "Initializing AOC in: $project_root"
   setup_memory
   setup_tasks
   setup_env
+  setup_binaries
   log "AOC Initialization Complete. Ready to launch."
 }
 

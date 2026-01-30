@@ -230,6 +230,10 @@ chmod +x "$bootloader"
   echo "exec \"$real_bin\" \"\$@\""
 } > "$bootloader"
 
+if [[ "$agent_id" != "codex" ]]; then
+  exec "$bootloader" "$@"
+fi
+
 if [[ "${AOC_NO_TMUX:-0}" == "1" ]]; then
   exec "$bootloader" "$@"
 fi

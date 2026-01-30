@@ -41,11 +41,8 @@ layout {
               args "-lc" "cd \"__AOC_PROJECT_ROOT__\" && AOC_AGENT_RUN=1 exec ${AOC_AGENT_CMD:-${AOC_CODEX_CMD:-aoc-agent-run}}"
             }
 
-            pane size="30%" name="Tasks" {
-              plugin location="file:{{HOME}}/.config/zellij/plugins/aoc-taskmaster.wasm" {
-                refresh_secs "1"
-                projects_base "{{PROJECTS_BASE}}"
-              }
+            pane size="30%" command="bash" {
+              args "-lc" "export AOC_TASKMASTER_NATIVE=1; cd \"__AOC_PROJECT_ROOT__\" && exec aoc-taskmaster"
             }
           }
 
@@ -117,11 +114,8 @@ swap_layouts {
               args "-lc" "cd \"__AOC_PROJECT_ROOT__\" && AOC_AGENT_RUN=1 exec ${AOC_AGENT_CMD:-${AOC_CODEX_CMD:-aoc-agent-run}}"
             }
 
-            pane size="38%" name="Tasks" {
-              plugin location="file:{{HOME}}/.config/zellij/plugins/aoc-taskmaster.wasm" {
-                refresh_secs "1"
-                projects_base "{{PROJECTS_BASE}}"
-              }
+            pane size="38%" command="bash" {
+              args "-lc" "export AOC_TASKMASTER_NATIVE=1; cd \"__AOC_PROJECT_ROOT__\" && exec aoc-taskmaster"
             }
           }
 

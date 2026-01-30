@@ -1,0 +1,89 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+resolve_session_id() {
+  if [[ -n "${AOC_SESSION_ID:-}" ]]; then
+    echo "$AOC_SESSION_ID"
+    return
+  fi
+  if [[ -n "${ZELLIJ_SESSION_NAME:-}" ]]; then
+    echo "$ZELLIJ_SESSION_NAME"
+    return
+  fi
+  echo "pid-$$"
+}
+
+derive_port() {
+  local session="$1"
+  if ! command -v python3 >/dev/null 2>&1; then
+    echo "42000"
+    return
+  fi
+  python3 - <<'PY' "$session"
+import sys
+session = sys.argv[1].encode()
+hash_value = 2166136261
+for byte in session:
+    hash_value ^= byte
+    hash_value = (hash_value * 16777619) & 0xFFFFFFFF
+port = 42000 + (hash_value % 2000)
+print(port)
+PY
+}
+
+resolve_hub_addr() {
+  local session_id="$1"
+  if [[ -n "${AOC_HUB_ADDR:-}" ]]; then
+    echo "$AOC_HUB_ADDR"
+    return
+  fi
+  local port
+  port="$(derive_port "$session_id")"
+  echo "127.0.0.1:${port}"
+}
+
+session_id="$(resolve_session_id)"
+hub_addr="$(resolve_hub_addr "$session_id")"
+
+script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+local_release="$script_dir/../crates/target/release/aoc-hub-rs"
+local_debug="$script_dir/../crates/target/debug/aoc-hub-rs"
+bin_home="${XDG_BIN_HOME:-$HOME/.local/bin}"
+cargo_bin="$HOME/.cargo/bin"
+manifest_path=""
+if [[ -n "${AOC_PROJECT_ROOT:-}" && -f "${AOC_PROJECT_ROOT}/crates/Cargo.toml" ]]; then
+  manifest_path="${AOC_PROJECT_ROOT}/crates/Cargo.toml"
+elif [[ -f "$script_dir/../crates/Cargo.toml" ]]; then
+  manifest_path="$script_dir/../crates/Cargo.toml"
+fi
+
+if [[ -n "${AOC_HUB_BIN:-}" ]]; then
+  exec "$AOC_HUB_BIN" --session "$session_id" --addr "$hub_addr" "$@"
+fi
+
+if [[ -x "$local_release" ]]; then
+  exec "$local_release" --session "$session_id" --addr "$hub_addr" "$@"
+fi
+
+if [[ -x "$local_debug" ]]; then
+  exec "$local_debug" --session "$session_id" --addr "$hub_addr" "$@"
+fi
+
+if command -v aoc-hub-rs >/dev/null 2>&1; then
+  exec aoc-hub-rs --session "$session_id" --addr "$hub_addr" "$@"
+fi
+
+if [[ -x "$bin_home/aoc-hub-rs" ]]; then
+  exec "$bin_home/aoc-hub-rs" --session "$session_id" --addr "$hub_addr" "$@"
+fi
+
+if [[ -x "$cargo_bin/aoc-hub-rs" ]]; then
+  exec "$cargo_bin/aoc-hub-rs" --session "$session_id" --addr "$hub_addr" "$@"
+fi
+
+if command -v cargo >/dev/null 2>&1 && [[ -n "$manifest_path" ]]; then
+  exec cargo run --manifest-path "$manifest_path" -p aoc-hub-rs -- --session "$session_id" --addr "$hub_addr" "$@"
+fi
+
+echo "aoc-hub: aoc-hub-rs not found (build crates/aoc-hub-rs)." >&2
+exit 1

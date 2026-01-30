@@ -19,6 +19,33 @@ EOF
 
 TM_CMD="${TM_CMD:-task-master}"
 
+script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+native_release="$script_dir/../crates/target/release/aoc-taskmaster"
+native_debug="$script_dir/../crates/target/debug/aoc-taskmaster"
+
+if [[ "${AOC_TASKMASTER_NATIVE:-0}" == "1" || $# -eq 0 ]]; then
+  if [[ -n "${AOC_TASKMASTER_BIN:-}" ]]; then
+    exec "$AOC_TASKMASTER_BIN" "$@"
+  fi
+  if [[ -x "$native_release" ]]; then
+    exec "$native_release" "$@"
+  fi
+  if [[ -x "$native_debug" ]]; then
+    exec "$native_debug" "$@"
+  fi
+  if command -v cargo >/dev/null 2>&1; then
+    manifest_path=""
+    if [[ -n "${AOC_PROJECT_ROOT:-}" && -f "${AOC_PROJECT_ROOT}/crates/Cargo.toml" ]]; then
+      manifest_path="${AOC_PROJECT_ROOT}/crates/Cargo.toml"
+    elif [[ -f "$script_dir/../crates/Cargo.toml" ]]; then
+      manifest_path="$script_dir/../crates/Cargo.toml"
+    fi
+    if [[ -n "$manifest_path" ]]; then
+      exec cargo run --manifest-path "$manifest_path" -p aoc-taskmaster -- "$@"
+    fi
+  fi
+fi
+
 # Auto-seed configuration from global defaults if available
 seed_config() {
   local global_conf="$HOME/.taskmaster/config.json"
