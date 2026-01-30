@@ -1,7 +1,10 @@
 use anyhow::{Context, Result};
 use aoc_core::{ProjectData, Task, TaskStatus};
 use crossterm::event::{KeyCode, KeyEvent, MouseButton, MouseEvent, MouseEventKind};
-use ratatui::{layout::Rect, widgets::TableState};
+use ratatui::{
+    layout::Rect,
+    widgets::{ListState, TableState},
+};
 use serde::Deserialize;
 use serde_json::{json, Value};
 use std::collections::{HashMap, HashSet};
@@ -18,11 +21,19 @@ pub struct DisplayRow {
     pub depth: usize,
 }
 
+#[derive(Debug, Clone)]
+pub struct TagItem {
+    pub name: String,
+    pub total: usize,
+    pub done: usize,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum FocusMode {
     #[default]
     List,
     Details,
+    Tags,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -57,6 +68,7 @@ pub struct App {
     pub current_tag: String,
     pub show_detail: bool,
     pub show_help: bool,
+    pub show_tag_selector: bool,
     pub focus: FocusMode,
     pub last_error: Option<String>,
     pub last_tasks_mtime: Option<SystemTime>,
@@ -69,6 +81,8 @@ pub struct App {
     pub last_title: Option<String>,
     pub dirty: bool,
     pub should_quit: bool,
+    pub tag_items: Vec<TagItem>,
+    pub tag_list_state: ListState,
 }
 
 #[derive(Debug, Clone)]
@@ -156,6 +170,7 @@ impl App {
             current_tag: String::new(),
             show_detail: false,
             show_help: false,
+            show_tag_selector: false,
             focus: FocusMode::List,
             last_error: None,
             last_tasks_mtime: None,
@@ -168,6 +183,8 @@ impl App {
             last_title: None,
             dirty: false,
             should_quit: false,
+            tag_items: Vec::new(),
+            tag_list_state: ListState::default(),
         }
     }
 
@@ -186,6 +203,7 @@ impl App {
     pub fn refresh(&mut self, force: bool) {
         self.read_state(force);
         self.read_tasks(force);
+        self.sync_tag_items();
         self.maybe_update_pane_title();
     }
 
@@ -305,6 +323,161 @@ impl App {
         self.restore_selection(selection);
     }
 
+    fn sync_tag_items(&mut self) {
+        if !self.show_tag_selector {
+            return;
+        }
+        let selected_name = self
+            .tag_list_state
+            .selected()
+            .and_then(|idx| self.tag_items.get(idx))
+            .map(|item| item.name.clone());
+
+        self.tag_items = self.build_tag_items();
+        if self.tag_items.is_empty() {
+            self.tag_list_state.select(None);
+            return;
+        }
+
+        if let Some(name) = selected_name {
+            if let Some(idx) = self.tag_items.iter().position(|item| item.name == name) {
+                self.tag_list_state.select(Some(idx));
+                return;
+            }
+        }
+
+        self.ensure_tag_selection();
+    }
+
+    fn build_tag_items(&self) -> Vec<TagItem> {
+        let Some(project) = &self.project else {
+            return Vec::new();
+        };
+        let mut items: Vec<TagItem> = project
+            .tags
+            .iter()
+            .map(|(name, ctx)| TagItem {
+                name: name.clone(),
+                total: ctx.tasks.len(),
+                done: ctx
+                    .tasks
+                    .iter()
+                    .filter(|task| task.status.is_done())
+                    .count(),
+            })
+            .collect();
+        items.sort_by(|a, b| a.name.cmp(&b.name));
+        items
+    }
+
+    fn ensure_tag_selection(&mut self) {
+        if self.tag_items.is_empty() {
+            self.tag_list_state.select(None);
+            return;
+        }
+        let current = self.current_tag_or_default();
+        let idx = self
+            .tag_items
+            .iter()
+            .position(|item| item.name == current)
+            .unwrap_or(0);
+        self.tag_list_state.select(Some(idx));
+    }
+
+    fn open_tag_selector(&mut self) {
+        self.tag_items = self.build_tag_items();
+        self.show_tag_selector = true;
+        self.show_help = false;
+        self.focus = FocusMode::Tags;
+        self.ensure_tag_selection();
+    }
+
+    fn close_tag_selector(&mut self) {
+        self.show_tag_selector = false;
+        if self.show_detail {
+            self.focus = FocusMode::Details;
+        } else {
+            self.focus = FocusMode::List;
+        }
+    }
+
+    fn toggle_tag_selector(&mut self) {
+        if self.show_tag_selector {
+            self.close_tag_selector();
+        } else {
+            self.open_tag_selector();
+        }
+    }
+
+    fn move_tag_selection(&mut self, delta: isize) {
+        if self.tag_items.is_empty() {
+            self.tag_list_state.select(None);
+            return;
+        }
+        let current = self.tag_list_state.selected().unwrap_or(0) as isize;
+        let len = self.tag_items.len() as isize;
+        let mut next = current + delta;
+        if next < 0 {
+            next = len - 1;
+        }
+        if next >= len {
+            next = 0;
+        }
+        self.tag_list_state.select(Some(next as usize));
+    }
+
+    fn apply_selected_tag(&mut self) {
+        let Some(idx) = self.tag_list_state.selected() else {
+            return;
+        };
+        let Some(item) = self.tag_items.get(idx) else {
+            return;
+        };
+        self.current_tag = item.name.clone();
+        self.apply_current_tag();
+        self.touch_state_file();
+    }
+
+    fn handle_tag_selector_key(&mut self, key: KeyEvent) -> bool {
+        match key.code {
+            KeyCode::Esc | KeyCode::Char('T') => {
+                self.close_tag_selector();
+                return true;
+            }
+            KeyCode::Enter => {
+                if self.focus == FocusMode::Tags {
+                    self.apply_selected_tag();
+                }
+                self.close_tag_selector();
+                return true;
+            }
+            KeyCode::Tab => {
+                self.focus = match self.focus {
+                    FocusMode::List => FocusMode::Tags,
+                    _ => FocusMode::List,
+                };
+                return true;
+            }
+            KeyCode::Down | KeyCode::Char('j') => {
+                if self.focus == FocusMode::Tags {
+                    self.move_tag_selection(1);
+                    return true;
+                }
+            }
+            KeyCode::Up | KeyCode::Char('k') => {
+                if self.focus == FocusMode::Tags {
+                    self.move_tag_selection(-1);
+                    return true;
+                }
+            }
+            KeyCode::Char('t') => {
+                return true;
+            }
+            _ => {}
+        }
+        false
+    }
+
     pub fn recalc_display_rows(&mut self) {
         let mut rows = Vec::new();
         for (idx, task) in self.tasks.iter().enumerate() {
@@ -349,6 +522,10 @@ impl App {
     }
 
     pub fn handle_key(&mut self, key: KeyEvent) {
+        if self.show_tag_selector && self.handle_tag_selector_key(key) {
+            self.maybe_update_pane_title();
+            return;
+        }
         match key.code {
             KeyCode::Char('q') | KeyCode::Esc => {
                 self.should_quit = true;
@@ -366,22 +543,44 @@ impl App {
                 if self.show_help {
                     self.show_help = false;
                 }
+                if self.show_tag_selector {
+                    self.show_tag_selector = false;
+                }
                 self.show_detail = !self.show_detail;
                 if !self.show_detail {
                     self.focus = FocusMode::List;
+                } else {
+                    self.focus = FocusMode::Details;
                 }
             }
             KeyCode::Char('?') => {
                 self.show_help = !self.show_help;
+                if self.show_help {
+                    self.show_tag_selector = false;
+                    self.focus = FocusMode::Details;
+                } else if self.show_tag_selector {
+                    self.focus = FocusMode::Tags;
+                } else if self.show_detail {
+                    self.focus = FocusMode::Details;
+                } else {
+                    self.focus = FocusMode::List;
+                }
             }
             KeyCode::Char(' ') => {
                 self.toggle_expand();
             }
             KeyCode::Tab => {
-                if self.show_detail {
+                if self.show_tag_selector {
+                    self.focus = match self.focus {
+                        FocusMode::List => FocusMode::Tags,
+                        FocusMode::Tags => FocusMode::List,
+                        FocusMode::Details => FocusMode::Tags,
+                    };
+                } else if self.show_detail || self.show_help {
                     self.focus = match self.focus {
                         FocusMode::List => FocusMode::Details,
                         FocusMode::Details => FocusMode::List,
+                        FocusMode::Tags => FocusMode::List,
                     };
                 }
             }
@@ -397,6 +596,9 @@ impl App {
             }
             KeyCode::Char('t') => {
                 self.cycle_tag();
+            }
+            KeyCode::Char('T') => {
+                self.toggle_tag_selector();
             }
             _ => {}
         }
@@ -624,6 +826,9 @@ impl App {
                             if self.show_help {
                                 self.show_help = false;
                             }
+                            if self.show_tag_selector {
+                                self.show_tag_selector = false;
+                            }
                             self.show_detail = !self.show_detail;
                             if self.show_detail {
                                 self.focus = FocusMode::Details;
@@ -642,7 +847,22 @@ impl App {
 
         if let Some(area) = self.details_area {
             if contains(area, column, row) {
-                self.focus = FocusMode::Details;
+                if self.show_tag_selector {
+                    self.focus = FocusMode::Tags;
+                    let inner = Rect {
+                        x: area.x.saturating_add(1),
+                        y: area.y.saturating_add(1),
+                        width: area.width.saturating_sub(2),
+                        height: area.height.saturating_sub(2),
+                    };
+                    if let Some(idx) = self.row_from_inner_coords(inner, column, row) {
+                        if idx < self.tag_items.len() {
+                            self.tag_list_state.select(Some(idx));
+                        }
+                    }
+                } else {
+                    self.focus = FocusMode::Details;
+                }
             }
         }
     }
@@ -657,12 +877,25 @@ impl App {
 
         if let Some(area) = self.details_area {
             if contains(area, column, row) {
-                self.focus = FocusMode::Details;
+                self.focus = if self.show_tag_selector {
+                    FocusMode::Tags
+                } else {
+                    FocusMode::Details
+                };
             }
         }
     }
 
     fn handle_scroll(&mut self, delta: i16) {
+        if self.show_tag_selector && self.focus == FocusMode::Tags {
+            if delta < 0 {
+                self.move_tag_selection(-1);
+            } else {
+                self.move_tag_selection(1);
+            }
+            return;
+        }
+
         if self.show_detail && self.focus == FocusMode::Details && !self.show_help {
             if delta < 0 {
                 self.details_scroll = self.details_scroll.saturating_sub(1);
@@ -699,6 +932,19 @@ impl App {
         let row_index = (row - data_start) as usize;
         let offset = self.table_state.offset();
         Some(offset + row_index)
+    }
+
+    fn row_from_inner_coords(&self, area: Rect, column: u16, row: u16) -> Option<usize> {
+        if !contains(area, column, row) {
+            return None;
+        }
+
+        if area.height == 0 {
+            return None;
+        }
+
+        let row_index = (row - area.y) as usize;
+        Some(row_index)
     }
 
     fn cycle_tag(&mut self) {

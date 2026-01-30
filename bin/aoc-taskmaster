@@ -27,6 +27,9 @@ if [[ "${AOC_TASKMASTER_NATIVE:-0}" == "1" || $# -eq 0 ]]; then
   if [[ -n "${AOC_TASKMASTER_BIN:-}" ]]; then
     exec "$AOC_TASKMASTER_BIN" "$@"
   fi
+  if command -v aoc-taskmaster-native >/dev/null 2>&1; then
+    exec aoc-taskmaster-native "$@"
+  fi
   if [[ -x "$native_release" ]]; then
     exec "$native_release" "$@"
   fi

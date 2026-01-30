@@ -48,6 +48,16 @@ if command -v cargo >/dev/null 2>&1; then
   # Build taskmaster plugin
   log "Building taskmaster plugin..."
   "$ROOT_DIR/scripts/build-taskmaster-plugin.sh"
+
+  # Build aoc-taskmaster (native TUI)
+  log "Building aoc-taskmaster..."
+  if cargo build --release -p aoc-taskmaster --manifest-path "$ROOT_DIR/crates/Cargo.toml"; then
+    if [[ -f "$ROOT_DIR/crates/target/release/aoc-taskmaster" ]]; then
+      install -m 0755 "$ROOT_DIR/crates/target/release/aoc-taskmaster" "$BIN_DIR/aoc-taskmaster-native"
+    fi
+  else
+    log "WARNING: Failed to build aoc-taskmaster."
+  fi
 else
   log "WARNING: cargo not found. Skipping Rust builds. You must install aoc-cli manually."
 fi

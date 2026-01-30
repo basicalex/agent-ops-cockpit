@@ -4,14 +4,14 @@ use ratatui::{
     layout::{Constraint, Direction, Layout, Rect},
     style::{Color, Modifier, Style},
     text::{Line, Span},
-    widgets::{Block, Borders, Cell, Paragraph, Row, Table, Wrap},
+    widgets::{Block, Borders, Cell, List, ListItem, Paragraph, Row, Table, Wrap},
     Frame,
 };
 
 pub fn render(f: &mut Frame, app: &mut App) {
     let area = f.size();
 
-    if app.show_help || app.show_detail {
+    if app.show_help || app.show_detail || app.show_tag_selector {
         let main = Layout::default()
             .direction(Direction::Horizontal)
             .constraints([Constraint::Percentage(50), Constraint::Percentage(50)])
@@ -20,7 +20,9 @@ pub fn render(f: &mut Frame, app: &mut App) {
         app.update_layout(main[0], Some(main[1]));
         render_main(f, app, main[0]);
 
-        if app.show_help {
+        if app.show_tag_selector {
+            render_tag_selector(f, app, main[1]);
+        } else if app.show_help {
             render_help(f, main[1]);
         } else {
             render_details(f, app, main[1]);
@@ -84,6 +86,10 @@ fn render_help(f: &mut Frame, area: Rect) {
         Line::from(vec![
             Span::styled("t", Color::Cyan),
             Span::raw("          Cycle tag"),
+        ]),
+        Line::from(vec![
+            Span::styled("T", Color::Cyan),
+            Span::raw("          Tag selector"),
         ]),
         Line::from(vec![
             Span::styled("?", Color::Cyan),
@@ -401,6 +407,47 @@ fn render_details(f: &mut Frame, app: &mut App, area: Rect) {
         .wrap(Wrap { trim: true })
         .scroll((app.details_scroll, 0));
     f.render_widget(p, inner_area);
+}
+
+fn render_tag_selector(f: &mut Frame, app: &mut App, area: Rect) {
+    let border_style = if app.focus == FocusMode::Tags {
+        Style::default().fg(Color::Cyan)
+    } else {
+        Style::default()
+    };
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .title("Tags")
+        .border_style(border_style);
+    let inner_area = block.inner(area);
+    f.render_widget(block, area);
+
+    if app.tag_items.is_empty() {
+        let p = Paragraph::new("No tags found").wrap(Wrap { trim: true });
+        f.render_widget(p, inner_area);
+        return;
+    }
+
+    let active_tag = if app.current_tag.is_empty() {
+        "master"
+    } else {
+        app.current_tag.as_str()
+    };
+
+    let items: Vec<ListItem> = app
+        .tag_items
+        .iter()
+        .map(|item| {
+            let marker = if item.name == active_tag { "* " } else { "  " };
+            let label = format!("{}{}  ({}/{})", marker, item.name, item.done, item.total);
+            ListItem::new(Line::from(Span::raw(label)))
+        })
+        .collect();
+
+    let list = List::new(items)
+        .highlight_style(theme::SELECTED_STYLE)
+        .highlight_symbol("> ");
+    f.render_stateful_widget(list, inner_area, &mut app.tag_list_state);
 }
 
 fn wrapped_height(lines: &[Line<'_>], width: u16) -> u16 {
