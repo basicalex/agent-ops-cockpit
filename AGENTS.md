@@ -11,6 +11,7 @@ AOC separates information into three layers to prevent context window overflow a
 *   **Nature:** Reactive, Auto-generated.
 *   **Content:** File tree, `README.md` snapshot, basic operational rules.
 *   **Agent Action:** **Read Only.** This file is updated in real-time by the `aoc-watcher` background service. You do not need to run `aoc-init` manually unless the watcher is stopped.
+*   **Why it exists:** AGENTS.md is static policy; `.aoc/context.md` is a live project snapshot. The watcher keeps it current so long-running sessions don't drift.
 
 ### 2. Memory (Wisdom)
 *   **File:** `.aoc/memory.md`
@@ -22,6 +23,7 @@ AOC separates information into three layers to prevent context window overflow a
 *   **Agent Action:**
     *   **Read:** At the start of every task (`aoc-mem read`).
     *   **Write:** When you make a decision that future agents need to know (`aoc-mem add "..."`).
+    *   **Rule:** Do not edit `.aoc/memory.md` directly; all interactions must go through `aoc-mem`.
 
 ### 3. Tasks (Execution)
 *   **File:** `.taskmaster/tasks/tasks.json`
@@ -30,6 +32,7 @@ AOC separates information into three layers to prevent context window overflow a
 *   **Agent Action:**
     *   **Read:** `aoc task list` to find work.
     *   **Write:** `aoc task add` to plan steps. `aoc task status` to report progress.
+    *   **Rule:** Do not edit `.taskmaster/tasks/tasks.json` directly; all interactions must go through `aoc task`.
 
 ## Standard Workflow
 

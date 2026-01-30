@@ -128,6 +128,7 @@ The `aoc-init` command is the universal entry point. It "standardizes" any direc
 1.  Creating the `.aoc/` structure.
 2.  Auto-generating the `context.md` context.
 3.  Initializing Taskmaster and seeding it with your global preferences (`~/.taskmaster/config.json`).
+4.  Creating `AGENTS.md` if missing, or appending the AOC guidance section if an existing `AGENTS.md` does not already include it.
 
 ## Launch
 
