@@ -28,7 +28,7 @@ layout {
       }
       pane split_direction="vertical" {
         // LEFT: Yazi (tree + preview). Starts in project root.
-        pane size="13%" command="bash" {
+        pane size="13%" name="Explorer" command="bash" {
           args "-lc" "export EDITOR=micro; export VISUAL=$EDITOR; cd \"__AOC_PROJECT_ROOT__\" && exec ${AOC_FILETREE_CMD:-yazi} ."
         }
 
@@ -37,7 +37,7 @@ layout {
 
           // CENTER stack: Agent (top) + Taskmaster (bottom)
           pane split_direction="horizontal" {
-            pane size="70%" name="Agent [__AOC_AGENT_ID__]" command="bash" {
+            pane size="70%" name="Agent [__AOC_AGENT_ID__]" focus=true command="bash" {
               args "-lc" "cd \"__AOC_PROJECT_ROOT__\" && AOC_AGENT_RUN=1 exec ${AOC_AGENT_CMD:-${AOC_CODEX_CMD:-aoc-agent-run}}"
             }
 
@@ -101,7 +101,7 @@ swap_layouts {
     tab name="__AOC_TAB_NAME__" focus=true {
       pane split_direction="vertical" {
         // LEFT: Yazi (tree + preview). Starts in project root.
-        pane size="10%" command="bash" {
+        pane size="10%" name="Explorer" command="bash" {
           args "-lc" "export EDITOR=micro; export VISUAL=$EDITOR; cd \"__AOC_PROJECT_ROOT__\" && exec ${AOC_FILETREE_CMD:-yazi} ."
         }
 
@@ -110,7 +110,7 @@ swap_layouts {
 
           // CENTER stack: Agent (top) + Taskmaster (bottom)
           pane split_direction="horizontal" {
-            pane size="62%" name="Agent [__AOC_AGENT_ID__]" command="bash" {
+            pane size="62%" name="Agent [__AOC_AGENT_ID__]" focus=true command="bash" {
               args "-lc" "cd \"__AOC_PROJECT_ROOT__\" && AOC_AGENT_RUN=1 exec ${AOC_AGENT_CMD:-${AOC_CODEX_CMD:-aoc-agent-run}}"
             }
 

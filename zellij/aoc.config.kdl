@@ -26,8 +26,8 @@ keybinds {
     shared_except "locked" {
         unbind "Alt a";
         bind "Alt s" { NextSwapLayout; }
-        unbind "Alt [";
-        unbind "Alt ]";
+        bind "Alt [" { GoToPreviousTab; }
+        bind "Alt ]" { GoToNextTab; }
         
         // Safety: Unbind Ctrl+q (Quit) so it passes to Micro/Yazi
         // To quit: Ctrl+o (Session) -> q
