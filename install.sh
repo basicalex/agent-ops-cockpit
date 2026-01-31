@@ -108,8 +108,11 @@ sed \
 
 log "Generated layouts in $HOME/.config/zellij/layouts/"
 
+sed \
+  -e "s|{{HOME}}|$HOME|g" \
+  "$ROOT_DIR/zellij/aoc.config.kdl.template" > "$HOME/.config/zellij/aoc.config.kdl"
+
 # Copy other configs
-install -m 0644 "$ROOT_DIR/zellij/aoc.config.kdl" "$HOME/.config/zellij/aoc.config.kdl"
 install -m 0644 "$ROOT_DIR/yazi/yazi.toml" "$HOME/.config/yazi/yazi.toml"
 install -m 0755 "$ROOT_DIR/yazi/preview.sh" "$HOME/.config/yazi/preview.sh"
 install -m 0644 "$ROOT_DIR/yazi/keymap.toml" "$HOME/.config/yazi/keymap.toml"

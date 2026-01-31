@@ -38,7 +38,7 @@ local function rename_pane(title)
 	if pane_id ~= "" then
 		pane_arg = " " .. ya.quote(pane_id)
 	end
-	os.execute(string.format("%s /home/ceii/dev/agent-ops-cockpit/bin/aoc-pane-rename %s%s &", z_env, ya.quote(title), pane_arg))
+	os.execute(string.format("%s aoc-pane-rename %s%s &", z_env, ya.quote(title), pane_arg))
 end
 
 local EMPTY_TITLE = " "
@@ -63,7 +63,7 @@ local function clear_editing_cmd()
 	if pane_id ~= "" then
 		pane_arg = " " .. ya.quote(pane_id)
 	end
-	return string.format("rm -f %s; %s /home/ceii/dev/agent-ops-cockpit/bin/aoc-pane-rename %s%s >/dev/null 2>&1 || true; printf '\\033]0;\\007\\033]2;\\007'", ya.quote(path), z_env, ya.quote(EMPTY_TITLE), pane_arg)
+	return string.format("rm -f %s; %s aoc-pane-rename %s%s >/dev/null 2>&1 || true; printf '\\033]0;\\007\\033]2;\\007'", ya.quote(path), z_env, ya.quote(EMPTY_TITLE), pane_arg)
 end
 
 function M:entry()

@@ -11,7 +11,7 @@ plugins {
     }
     plugin-manager location="zellij:plugin-manager"
     session-manager location="zellij:session-manager"
-    status-bar location="file:/home/ceii/.config/zellij/plugins/zjstatus.wasm"
+    status-bar location="file:{{HOME}}/.config/zellij/plugins/zjstatus.wasm"
     strider location="zellij:strider"
     tab-bar location="zellij:tab-bar"
     welcome-screen location="zellij:session-manager" {

@@ -31,3 +31,7 @@ crates/target/
 # Task files
 # tasks.json
 # tasks/ 
+
+# Local AOC state
+/.aoc/
+/.taskmaster/

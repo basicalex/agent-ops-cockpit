@@ -33,7 +33,7 @@ local function do_rename(title)
 	if pane_id ~= "" then
 		pane_arg = " " .. ya.quote(pane_id)
 	end
-	os.execute(string.format("%s /home/ceii/dev/agent-ops-cockpit/bin/aoc-pane-rename %s%s &", z_env, ya.quote(title), pane_arg))
+	os.execute(string.format("%s aoc-pane-rename %s%s &", z_env, ya.quote(title), pane_arg))
 end
 
 -- Debouncing logic

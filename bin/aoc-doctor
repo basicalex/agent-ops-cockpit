@@ -166,16 +166,13 @@ hint_for() {
         *) echo "Install git via your package manager." ;;
       esac
       ;;
-    aoc-watcher)
-      echo "Run ./scripts/build-watcher.sh to build the context watcher."
-      ;;
     *)
       echo "Install $tool via your package manager."
       ;;
   esac
 }
 
-required=(zellij yazi fzf codex aoc-watcher)
+required=(zellij yazi fzf codex)
 optional=(tmux chafa ffmpeg rsvg-convert pdftoppm rg bat tectonic task-master python3 git)
 
 missing_required=()

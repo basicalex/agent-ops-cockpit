@@ -49,6 +49,12 @@ Other distros:
 - Arch: `sudo pacman -S zellij fzf ffmpeg chafa poppler ripgrep bat`
 - Alpine: `sudo apk add zellij fzf ffmpeg chafa poppler-utils librsvg`
 
+## WSL (Windows)
+
+- WSL2 is required (WSL1 is not supported).
+- Use the Linux package lists above inside your distro.
+- Fullscreen helpers (`wmctrl`/`xdotool`) do not work in WSL/WSLg; set `AOC_FULLSCREEN=0` or use your terminal's fullscreen/maximize.
+
 TeX preview (recommended cross-distro):
 ```bash
 cargo install --locked tectonic --version 0.14.1
@@ -108,7 +114,7 @@ AOC is not just a layout; it is a **Distributed Cognitive Architecture** for AI-
 1.  **Project Context (`.aoc/context.md`)**
     *   **Role:** The "Project Map."
     *   **Content:** Auto-generated snapshot of the file tree and `README`.
-    *   **Tool:** `aoc-init` (manual) / `aoc-watcher` (automatic).
+    *   **Tool:** `aoc-init` (manual); `aoc-watcher` (automatic, optional).
     *   **Philosophy:** **Reactive.** Updated in real-time as you edit files, so agents always see the current state.
 
 2.  **Long-Term Memory (`.aoc/memory.md`)**

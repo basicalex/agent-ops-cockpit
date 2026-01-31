@@ -63,10 +63,10 @@ AOC separates information into three layers to prevent context window overflow a
 
 ### 1. Context (Orientation)
 *   **File:** `.aoc/context.md`
-*   **Nature:** Reactive, Auto-generated.
+*   **Nature:** Auto-generated (reactive if `aoc-watcher` is installed).
 *   **Content:** File tree, `README.md` snapshot, basic operational rules.
-*   **Agent Action:** **Read Only.** This file is updated in real-time by the `aoc-watcher` background service. You do not need to run `aoc-init` manually unless the watcher is stopped.
-*   **Why it exists:** AGENTS.md is static policy; `.aoc/context.md` is a live project snapshot. The watcher keeps it current so long-running sessions don't drift.
+*   **Agent Action:** **Read Only.** Run `aoc-init` to refresh it manually. If `aoc-watcher` is installed, it updates automatically.
+*   **Why it exists:** AGENTS.md is static policy; `.aoc/context.md` is a live project snapshot. Use `aoc-init` (or `aoc-watcher` when available) to keep it current.
 
 ### 2. Memory (Wisdom)
 *   **File:** `.aoc/memory.md`
@@ -103,7 +103,7 @@ When you receive a high-level request (e.g., "Refactor the login system"):
 ## Toolchain Reference
 
 *   `aoc-init`: Bootstraps the `.aoc` and `.taskmaster` folders.
-*   `aoc-watcher`: Background service that keeps `context.md` updated in real-time.
+*   `aoc-watcher` (optional): Background service that keeps `context.md` updated in real-time.
 *   `aoc-mem`: CLI for managing `memory.md`.
 *   `aoc task` / `aoc-taskmaster`: CLI for managing tasks.
 *   `aoc-doctor`: Validates system dependencies.
@@ -187,9 +187,14 @@ EOF
   fi
 
   # Setup .cursorrules symlink for universal agent awareness
-  if [[ ! -L "$project_root/.cursorrules" ]]; then
+  local cursor_rules="$project_root/.cursorrules"
+  if [[ ! -e "$cursor_rules" ]]; then
     log "Creating .cursorrules symlink..."
-    ln -s ".aoc/context.md" "$project_root/.cursorrules"
+    ln -s ".aoc/context.md" "$cursor_rules"
+  elif [[ -L "$cursor_rules" ]]; then
+    log "Existing .cursorrules symlink found. Skipping."
+  else
+    log "Existing .cursorrules file found. Skipping."
   fi
 
   # Update context with RLM Protocol if aoc-rlm is available

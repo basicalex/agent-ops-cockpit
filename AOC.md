@@ -26,7 +26,7 @@ These scripts are installed to `~/.local/bin` and drive the entire experience.
 *   `aoc-agent-run`: The "runner" script that executes the selected agent in the center pane.
 *   `aoc-agent-wrap`: Wraps agent CLIs (often in `tmux`) to provide scrollback and better integration.
 *   `aoc-star`: "Stars" a directory, re-anchoring all panes to that path.
-*   `aoc-watcher`: A Rust-based background daemon that monitors the project filesystem and automatically regenerates `context.md` when files change.
+*   `aoc-watcher` (optional): A background daemon that monitors the project filesystem and automatically regenerates `context.md` when files change.
 *   `aoc-align`: Automatically re-aligns the current terminal pane to the project root (used when switching tabs or re-anchoring).
 
 ### 2. Zellij Configuration (`zellij/`)
@@ -57,11 +57,12 @@ To solve Zellij's environment variable limitations, AOC uses "Layout Injection."
 *   **Just-In-Time Generation:** `aoc-launch` and `aoc-new-tab` replace these tokens with absolute paths and unique IDs, creating a temporary KDL file for each tab.
 *   **Anchoring:** The Agent pane name includes the per-tab agent id (`Agent [<root_tag>]`), and layout injection writes `project_root.<root_tag>` files used to seed each pane's working directory. Yazi pane names are not used for root discovery.
 
-### 2. Reactive Context (`aoc-watcher`)
-The `aoc-watcher` service provides "Live Context":
+### 2. Reactive Context (optional)
+If `aoc-watcher` is installed, it provides "Live Context":
 *   **Discovery:** It scans the active Zellij session for Agent panes and uses their injected root files/working directory to identify active project roots.
 *   **Monitoring:** It spawns efficient `notify` (inotify) watchers for each root.
 *   **Atomic Updates:** When a file is saved, it regenerates `.aoc/context.md` atomically, ensuring AI agents always have an up-to-date map of the project.
+If it is not installed, use `aoc-init` to refresh context manually.
 
 ### 3. Memory System (`.aoc/memory.md`)
 A lightweight, markdown-based long-term memory for agents, stored directly in the project.
