@@ -7,6 +7,14 @@ aoc_config="$HOME/.config/zellij/aoc.config.kdl"
 state_dir="${XDG_STATE_HOME:-$HOME/.local/state}/aoc"
 default_layout_file="${state_dir}/layout_default"
 
+if [[ "${AOC_CLEANUP:-1}" != "0" ]]; then
+  if command -v aoc-cleanup >/dev/null 2>&1; then
+    cleanup_log="$state_dir/cleanup.log"
+    mkdir -p "$state_dir"
+    (aoc-cleanup >>"$cleanup_log" 2>&1) &
+  fi
+fi
+
 if [[ -n "${AOC_LAYOUT:-}" ]]; then
   layout="$AOC_LAYOUT"
 elif [[ -f "$default_layout_file" ]]; then

@@ -6,7 +6,7 @@ set -euo pipefail
 # any currently running Zellij server (i.e. orphaned/zombie processes).
 # Handles agents running inside tmux sessions by bridging the client-server gap.
 
-AGENT_PATTERN="opencode|codex|gemini|claude|aoc-agent"
+AGENT_PATTERN="opencode|open-code|codex|gemini|claude|kimi"
 
 echo "Analyzing process tree..."
 
@@ -18,10 +18,12 @@ import signal
 import re
 import time
 import collections
+import shlex
 
 # --- Configuration ---
 # Only kill processes matching these patterns if they are orphans
-TARGET_PATTERN = r"(${AGENT_PATTERN})"
+AGENT_PATTERN = r"${AGENT_PATTERN}"
+TARGET_PATTERN = r"({})".format(AGENT_PATTERN)
 # Never kill these, even if they appear orphaned
 PROTECTED_COMMANDS = [
     "aoc-session-watch", 
@@ -37,7 +39,259 @@ PROTECTED_COMMANDS = [
     "aoc-sys"
 ]
 
+EXTRA_AGENT_PATTERN = os.environ.get("AOC_AGENT_PATTERN", "").strip()
+if EXTRA_AGENT_PATTERN:
+    combined = f"({AGENT_PATTERN}|{EXTRA_AGENT_PATTERN})"
+else:
+    combined = AGENT_PATTERN
+AGENT_NAME_PATTERN = re.compile(f"({combined})", re.IGNORECASE)
+AGENT_BINARIES = {
+    "opencode",
+    "open-code",
+    "codex",
+    "gemini",
+    "claude",
+    "kimi",
+    "aoc-agent",
+    "aoc-agent-run",
+    "aoc-oc",
+    "aoc-cc",
+    "aoc-gemini",
+    "aoc-kimi",
+}
+
 # --- Helpers ---
+
+def run_cmd(args):
+    try:
+        return subprocess.check_output(args, text=True, stderr=subprocess.DEVNULL)
+    except Exception:
+        return ""
+
+def list_sessions():
+    out = run_cmd(["zellij", "list-sessions"])
+    names = []
+    for line in out.strip().splitlines():
+        parts = line.split()
+        if parts:
+            names.append(parts[0])
+    return names
+
+def dump_layout(session=None):
+    if session:
+        return run_cmd(["zellij", "-s", session, "action", "dump-layout"])
+    return run_cmd(["zellij", "action", "dump-layout"])
+
+def detect_projects_base():
+    env_base = os.environ.get("AOC_PROJECTS_BASE")
+    if env_base:
+        return env_base
+    config_path = os.environ.get("AOC_CONFIG_PATH")
+    if not config_path:
+        config_path = os.path.join(os.path.expanduser("~"), ".config", "aoc", "config.toml")
+    try:
+        with open(config_path, "r", encoding="utf-8") as fh:
+            for line in fh:
+                m = re.match(r'\s*projects_base\s*=\s*"(.*)"\s*', line)
+                if m:
+                    return m.group(1)
+    except Exception:
+        return ""
+
+    home = os.path.expanduser("~")
+    dev_guess = os.path.join(home, "dev")
+    if os.path.isdir(dev_guess):
+        return dev_guess
+    return home
+
+def normalize_cwd(cwd, projects_base=None):
+    if not cwd:
+        return ""
+    if cwd.startswith("/"):
+        return cwd
+    if projects_base:
+        return os.path.join(projects_base, cwd)
+    return cwd
+
+def is_real_agent_command(cmd):
+    if not cmd:
+        return False
+    base = os.path.basename(cmd)
+    if base in {
+        "aoc-agent",
+        "aoc-agent-run",
+        "aoc-oc",
+        "aoc-cc",
+        "aoc-gemini",
+        "aoc-kimi",
+        "bash",
+    }:
+        return False
+    return AGENT_NAME_PATTERN.search(cmd) is not None
+
+def is_agent_process(args, comm):
+    cmd = proc_cmd(args, comm)
+    base = os.path.basename(cmd) if cmd else ""
+    if base in AGENT_BINARIES or base.startswith("opencode"):
+        return True
+    if comm == "node" and "opencode" in (args or ""):
+        return True
+    if AGENT_NAME_PATTERN.search(args or "") or AGENT_NAME_PATTERN.search(comm or ""):
+        return True
+    return False
+
+def parse_layout(text, projects_base=None):
+    active_commands = set()
+    agent_cwds = set()
+    agent_ids = set()
+    expected_cwds = collections.Counter()
+    expected_ids = collections.Counter()
+
+    tabs = []
+    current_tab = None
+
+    def flush_tab():
+        nonlocal current_tab
+        if current_tab and current_tab["name"]:
+            tabs.append(current_tab)
+        current_tab = None
+
+    for line in text.splitlines():
+        tab_match = re.search(r'tab\s+name="([^"]+)"', line)
+        if tab_match:
+            flush_tab()
+            current_tab = {"name": tab_match.group(1), "cwds": [], "agent_ids": [], "agent_count": 0}
+            continue
+
+        if current_tab is None:
+            current_tab = {"name": "", "cwds": [], "agent_ids": [], "agent_count": 0}
+
+        if "name=" in line:
+            name_match = re.search(r'name\s*=\s*"([^"]+)"', line)
+            if not name_match:
+                name_match = re.search(r'name\s+"([^"]+)"', line)
+            if name_match:
+                name = name_match.group(1).strip()
+                if name.startswith("Agent [") and "]" in name:
+                    agent_id = name.split("[", 1)[1].split("]", 1)[0].strip()
+                    if agent_id:
+                        agent_ids.add(agent_id)
+                        expected_ids[agent_id] += 1
+                        current_tab["agent_ids"].append(agent_id)
+                        current_tab["agent_count"] += 1
+                if name.startswith("aoc:"):
+                    agent_id = name.split(":", 1)[1].strip()
+                    if agent_id:
+                        agent_ids.add(agent_id)
+                        expected_ids[agent_id] += 1
+                        current_tab["agent_ids"].append(agent_id)
+
+        if "command" in line or "args" in line or "cwd" in line:
+            quoted = re.findall(r'"([^"]+)"', line)
+            for token in quoted:
+                if AGENT_NAME_PATTERN.search(token):
+                    active_commands.add(token)
+                cd_match = re.search(r'\bcd\s+"([^"]+)"', token)
+                if cd_match:
+                    agent_cwds.add(normalize_cwd(cd_match.group(1), projects_base))
+
+            cwd_match = re.search(r'cwd\s*=\s*"([^"]+)"', line)
+            if not cwd_match:
+                cwd_match = re.search(r'cwd\s+"([^"]+)"', line)
+            if cwd_match:
+                cwd = normalize_cwd(cwd_match.group(1), projects_base)
+                if cwd:
+                    agent_cwds.add(cwd)
+                    current_tab["cwds"].append(cwd)
+
+            cmd_match = re.search(r'command\s*=\s*"([^"]+)"', line)
+            if not cmd_match:
+                cmd_match = re.search(r'command\s+"([^"]+)"', line)
+            if cmd_match:
+                cmd = cmd_match.group(1)
+                if AGENT_NAME_PATTERN.search(cmd):
+                    active_commands.add(cmd)
+
+    flush_tab()
+
+    for tab in tabs:
+        if not tab["cwds"]:
+            continue
+        counts = collections.Counter(tab["cwds"])
+        root = counts.most_common(1)[0][0]
+        if tab["agent_count"] > 0:
+            expected_cwds[root] += tab["agent_count"]
+
+    if projects_base:
+        for agent_id, count in expected_ids.items():
+            guess = os.path.join(projects_base, agent_id)
+            if os.path.isdir(guess):
+                agent_cwds.add(guess)
+                expected_cwds[guess] += count
+
+    return active_commands, agent_cwds, expected_cwds, expected_ids
+
+def build_active_sets():
+    active_commands = set()
+    agent_cwds = set()
+    expected_cwds = collections.Counter()
+    expected_ids = collections.Counter()
+    projects_base = detect_projects_base()
+    sessions = list_sessions()
+    if sessions:
+        for session in sessions:
+            layout = dump_layout(session)
+            if not layout:
+                continue
+            cmds, cwds, exp, ids = parse_layout(layout, projects_base)
+            active_commands.update(cmds)
+            agent_cwds.update(cwds)
+            expected_cwds.update(exp)
+            expected_ids.update(ids)
+        return active_commands, agent_cwds, expected_cwds, expected_ids
+
+    layout = dump_layout()
+    if layout:
+        cmds, cwds, exp, ids = parse_layout(layout, projects_base)
+        active_commands.update(cmds)
+        agent_cwds.update(cwds)
+        expected_cwds.update(exp)
+        expected_ids.update(ids)
+    return active_commands, agent_cwds, expected_cwds, expected_ids
+
+def proc_cwd(pid):
+    try:
+        return os.readlink(f"/proc/{pid}/cwd")
+    except Exception:
+        return ""
+
+def cwd_matches(proc_path, active_cwd):
+    if not proc_path or not active_cwd:
+        return False
+    if active_cwd.startswith("/"):
+        return proc_path == active_cwd or proc_path.startswith(active_cwd + "/")
+    return proc_path == active_cwd or proc_path.endswith("/" + active_cwd)
+
+def cmd_matches(proc_cmd, active_cmd):
+    if not proc_cmd or not active_cmd:
+        return False
+    if proc_cmd == active_cmd:
+        return True
+    try:
+        return os.path.basename(proc_cmd) == os.path.basename(active_cmd)
+    except Exception:
+        return False
+
+def proc_cmd(args, comm):
+    if args:
+        try:
+            parts = shlex.split(args)
+            if parts:
+                return parts[0]
+        except Exception:
+            pass
+        return args.split(" ", 1)[0]
+    return comm
 
 def get_process_map():
     try:
@@ -110,6 +364,9 @@ def find_tmux_servers_for_sockets(sockets, processes):
 
 processes, children = get_process_map()
 
+active_commands, agent_cwds, expected_cwds, expected_ids = build_active_sets()
+have_active_signals = bool(active_commands or agent_cwds or expected_cwds or expected_ids)
+
 # 1. Identify Zellij Server Roots
 zellij_pids = set()
 for pid, info in processes.items():
@@ -138,19 +395,27 @@ if safe_sockets:
     tmux_server_roots = find_tmux_servers_for_sockets(safe_sockets, processes)
     safe_pids.update(get_descendants(tmux_server_roots, children))
 
+if active_commands:
+    print(f"Active agent commands in panes: {len(active_commands)}")
+if agent_cwds:
+    print(f"Active agent CWD hints: {len(agent_cwds)}")
+if expected_cwds:
+    print(f"Active agent panes detected: {sum(expected_cwds.values())}")
+if expected_ids:
+    print(f"Active agent ids detected: {sum(expected_ids.values())}")
+if not have_active_signals:
+    print("Warning: No active agent panes discovered; falling back to safe-pid logic only.")
+
 # 5. Identify Targets (Orphan Agents)
-target_regex = re.compile(TARGET_PATTERN, re.IGNORECASE)
 kill_list = []
+agent_candidates = []
 
 for pid, info in processes.items():
     comm = info["comm"]
     args = info["args"]
     
     # Check if it matches our agent pattern
-    if target_regex.search(args) or target_regex.search(comm):
-        # Exclude if it's in the safe set
-        if pid in safe_pids: continue
-        
+    if is_agent_process(args, comm):
         # Exclude if it's protected
         if any(p in comm or p in args for p in PROTECTED_COMMANDS):
             continue
@@ -158,8 +423,100 @@ for pid, info in processes.items():
         # Exclude common false positives
         if any(x in args for x in [" grep ", " pgrep ", " ps "]):
             continue
-            
+
+        cwd = proc_cwd(pid)
+        cmd = proc_cmd(args, comm)
+        base = os.path.basename(cmd) if cmd else ""
+        kind = "other"
+        if base in AGENT_BINARIES or base.startswith("opencode"):
+            kind = "agent_bin"
+        elif comm == "node" and "opencode" in (args or ""):
+            kind = "agent_node"
+        agent_candidates.append({
+            "pid": pid,
+            "args": args,
+            "comm": comm,
+            "cwd": cwd,
+            "safe": pid in safe_pids,
+            "kind": kind,
+        })
+
+keep_pids = set()
+expected_cwds_effective = collections.Counter()
+if expected_cwds:
+    key_matches = {key: [] for key in expected_cwds.keys()}
+    for proc in agent_candidates:
+        for cwd_hint, count in expected_cwds.items():
+            if not cwd_matches(proc["cwd"], cwd_hint):
+                continue
+            key_matches[cwd_hint].append(proc)
+
+    for cwd_hint, procs in key_matches.items():
+        if not procs:
+            continue
+        expected_cwds_effective[cwd_hint] = expected_cwds.get(cwd_hint, 0)
+        procs.sort(key=lambda p: p["pid"], reverse=True)
+        preferred = [p for p in procs if p["kind"] == "agent_bin"]
+        if not preferred:
+            preferred = [p for p in procs if p["kind"] == "agent_node"]
+        if not preferred:
+            preferred = procs
+        keep_count = expected_cwds.get(cwd_hint, 0)
+        for proc in preferred[:keep_count]:
+            keep_pids.add(proc["pid"])
+elif expected_ids:
+    key_matches = {key: [] for key in expected_ids.keys()}
+    for proc in agent_candidates:
+        cwd_base = os.path.basename(proc["cwd"]) if proc["cwd"] else ""
+        if not cwd_base:
+            continue
+        if cwd_base in key_matches:
+            key_matches[cwd_base].append(proc)
+
+    for agent_id, procs in key_matches.items():
+        if not procs:
+            continue
+        procs.sort(key=lambda p: p["pid"], reverse=True)
+        preferred = [p for p in procs if p["kind"] == "agent_bin"]
+        if not preferred:
+            preferred = [p for p in procs if p["kind"] == "agent_node"]
+        if not preferred:
+            preferred = procs
+        keep_count = expected_ids.get(agent_id, 0)
+        for proc in preferred[:keep_count]:
+            keep_pids.add(proc["pid"])
+
+keep_tree = set()
+if keep_pids:
+    keep_tree = get_descendants(keep_pids, children)
+
+for proc in agent_candidates:
+    pid = proc["pid"]
+    args = proc["args"]
+    if expected_cwds_effective or expected_ids:
+        if pid in keep_tree:
+            continue
+        # If we couldn't match this proc to any active cwd, be conservative
+        if expected_cwds_effective and not any(cwd_matches(proc["cwd"], c) for c in expected_cwds_effective.keys()):
+            continue
         kill_list.append((pid, args))
+        continue
+
+    active_hit = False
+    if have_active_signals:
+        if any(cmd in proc["args"] for cmd in active_commands):
+            active_hit = True
+        else:
+            if any(cwd_matches(proc["cwd"], ac) for ac in agent_cwds):
+                active_hit = True
+        if active_hit:
+            continue
+    else:
+        # Fallback safety: respect safe tree
+        if pid in safe_pids:
+            continue
+
+    kill_list.append((pid, args))
 
 # 6. Execute
 if not kill_list:

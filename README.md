@@ -259,6 +259,12 @@ If you prefer a different editor, you can change the `EDITOR` variable in your `
   `codex`; override the real executable via `AOC_GEMINI_BIN`, `AOC_CC_BIN`, or
   `AOC_OC_BIN` if needed.
 
+### Process cleanup
+- `aoc-cleanup` kills orphaned agent CLIs left behind after closing tabs/sessions.
+- `aoc-launch` runs `aoc-cleanup` asynchronously by default; set `AOC_CLEANUP=0` to skip.
+- Cleanup logs to `~/.local/state/aoc/cleanup.log`.
+- Add future agent names via `AOC_AGENT_PATTERN="my-agent|another-agent"`.
+
 ### Defaults + Projects
 - Run `aoc-control` to manage layout/agent defaults and open/create projects.
 - Projects base defaults to `~/dev` (overridable via `AOC_PROJECTS_BASE`).
