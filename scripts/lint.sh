@@ -16,7 +16,6 @@ files=(
   bin/aoc-uninstall
   bin/aoc-widget
   install.sh
-  scripts/build-taskmaster-plugin.sh
   yazi/preview.sh
 )
 

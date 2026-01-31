@@ -45,10 +45,6 @@ if command -v cargo >/dev/null 2>&1; then
     cp "$ROOT_DIR/crates/target/release/aoc-cli" "$BIN_DIR/aoc-cli"
   }
 
-  # Build taskmaster plugin
-  log "Building taskmaster plugin..."
-  "$ROOT_DIR/scripts/build-taskmaster-plugin.sh"
-
   # Build aoc-taskmaster (native TUI)
   log "Building aoc-taskmaster..."
   if cargo build --release -p aoc-taskmaster --manifest-path "$ROOT_DIR/crates/Cargo.toml"; then
@@ -135,21 +131,6 @@ if [[ -d "$ROOT_DIR/yazi/plugins" ]]; then
     done
   done
   shopt -u nullglob
-fi
-
-# Taskmaster Plugin Install
-PLUGIN_WASM=""
-if [[ -f "$ROOT_DIR/plugins/taskmaster/target/wasm32-wasi/release/aoc-taskmaster-plugin.wasm" ]]; then
-  PLUGIN_WASM="$ROOT_DIR/plugins/taskmaster/target/wasm32-wasi/release/aoc-taskmaster-plugin.wasm"
-elif [[ -f "$ROOT_DIR/plugins/taskmaster/target/wasm32-wasip1/release/aoc-taskmaster-plugin.wasm" ]]; then
-  PLUGIN_WASM="$ROOT_DIR/plugins/taskmaster/target/wasm32-wasip1/release/aoc-taskmaster-plugin.wasm"
-fi
-
-if [[ -n "$PLUGIN_WASM" ]]; then
-  install -m 0644 "$PLUGIN_WASM" "$HOME/.config/zellij/plugins/aoc-taskmaster.wasm"
-  log "Installed taskmaster plugin."
-else
-  log "WARNING: Taskmaster plugin not found (build failed?)."
 fi
 
 log "AOC Installed Successfully!"

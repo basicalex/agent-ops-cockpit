@@ -13,7 +13,7 @@
 The project is polyglot, consisting primarily of:
 *   **Shell Scripts (`bin/`):** The core logic for launching the environment, managing agents, and wrapping tools.
 *   **Zellij Layouts (`zellij/`):** KDL files defining the pane structure and plugins.
-*   **Rust (`plugins/taskmaster`):** A custom Zellij WASM plugin for task management.
+*   **Rust (`crates/aoc-taskmaster`):** Native Taskmaster TUI for task management.
 *   **Python (`ClockTemp/`):** Scripts for the clock and weather widget.
 
 ## Key Components
@@ -33,7 +33,7 @@ These scripts are installed to `~/.local/bin` and drive the entire experience.
 *   `layouts/aoc.kdl`: The primary layout definition. It uses `bash` commands to launch the specific `aoc-*` scripts in each pane.
 *   `aoc.config.kdl`: The base Zellij configuration used by AOC.
 
-### 3. Taskmaster Plugin (`plugins/taskmaster`)
+### 3. Taskmaster (Native TUI)
 A Rust-based WASM plugin for Zellij that provides an interactive task list.
 *   **Source:** `src/main.rs`
 *   **Build:** Compiles to `wasm32-wasi` or `wasm32-wasip1`.
@@ -90,7 +90,7 @@ Run the installer to deploy scripts and configs to your user directories (`~/.lo
 To build the Rust plugin:
 
 ```bash
-./scripts/build-taskmaster-plugin.sh
+./install.sh
 ```
 
 ### Dependencies
@@ -118,5 +118,3 @@ AOC supports user-defined layouts with context injection.
 *   **Documentation:** See [docs/layouts.md](docs/layouts.md) for a full guide on creating custom "AOC Modes".
 *   **Tool:** `aoc-layout` allows selecting and persisting a default layout from `~/.config/zellij/layouts/`.
 *   **Placeholders:** `__AOC_TAB_NAME__`, `__AOC_AGENT_ID__`, `__AOC_PROJECT_ROOT__`.
-
-

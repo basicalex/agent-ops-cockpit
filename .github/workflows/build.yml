@@ -39,10 +39,6 @@ jobs:
     - name: Build Crates
       run: cargo build --workspace --verbose
 
-    - name: Build Taskmaster Plugin (WASM)
-      # This script runs cargo build --target wasm32-wasi ...
-      run: ./scripts/build-taskmaster-plugin.sh
-
     - name: Run Installer (Integration Test)
       # Verify install.sh runs to completion
       run: ./install.sh
