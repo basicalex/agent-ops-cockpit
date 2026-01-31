@@ -58,6 +58,16 @@ if command -v cargo >/dev/null 2>&1; then
   else
     log "WARNING: Failed to build aoc-taskmaster."
   fi
+
+  # Build aoc-control (native TUI)
+  log "Building aoc-control..."
+  if cargo build --release -p aoc-control --manifest-path "$ROOT_DIR/crates/Cargo.toml"; then
+    if [[ -f "$ROOT_DIR/crates/target/release/aoc-control" ]]; then
+      install -m 0755 "$ROOT_DIR/crates/target/release/aoc-control" "$BIN_DIR/aoc-control-native"
+    fi
+  else
+    log "WARNING: Failed to build aoc-control."
+  fi
 else
   log "WARNING: cargo not found. Skipping Rust builds. You must install aoc-cli manually."
 fi

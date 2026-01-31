@@ -25,6 +25,12 @@ load_plugins {
 keybinds {
     shared_except "locked" {
         unbind "Alt a";
+        bind "Alt c" {
+            Run "bash" "-lc" "AOC_CONTROL_NO_FLOAT=1 AOC_CONTROL_FLOATING_ACTIVE=1 exec aoc-control" {
+                floating true
+                close_on_exit true
+            };
+        }
         bind "Alt s" { NextSwapLayout; }
         bind "Alt [" { GoToPreviousTab; }
         bind "Alt ]" { GoToNextTab; }

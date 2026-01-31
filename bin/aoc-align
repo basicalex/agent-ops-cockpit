@@ -17,7 +17,13 @@ if [[ "${1:-}" == "--print-root" ]]; then
 fi
 
 # Base directory where projects live
-AOC_PROJECTS_BASE="${AOC_PROJECTS_BASE:-$HOME/dev}"
+config_dir="${XDG_CONFIG_HOME:-$HOME/.config}"
+config_path="${AOC_CONFIG_PATH:-$config_dir/aoc/config.toml}"
+config_base=""
+if [[ -z "${AOC_PROJECTS_BASE:-}" && -f "$config_path" ]]; then
+  config_base="$(sed -n 's/^projects_base[[:space:]]*=[[:space:]]*"\(.*\)"/\1/p' "$config_path" | head -n 1)"
+fi
+AOC_PROJECTS_BASE="${AOC_PROJECTS_BASE:-${config_base:-$HOME/dev}}"
 
 # Extract the focused tab's content from the layout dump
 # Returns just the KDL content between the focused tab's braces

@@ -252,12 +252,19 @@ If you prefer a different editor, you can change the `EDITOR` variable in your `
 ### Agent selection
 - Set the default agent with `aoc-agent --set` (or run `aoc-agent` for a menu).
 - Open a new tab with a specific agent:
-  - `aoc-codex-tab`, `aoc-gemini`, `aoc-cc`, `aoc-oc`
+  - `aoc-codex-tab`, `aoc-gemini`, `aoc-kimi`, `aoc-cc`, `aoc-oc`
 - `AOC_AGENT_ID` overrides the default for a single launch or tab.
-- Running the raw `gemini`, `claude`, or `opencode` commands now routes through
-  `aoc-agent-wrap` so the TUI gets the tmux-backed scroll history just like
-  `codex`; override the real executable via `AOC_GEMINI_BIN`, `AOC_CC_BIN`, or
-  `AOC_OC_BIN` if needed.
+- Running the raw `gemini`, `kimi`, `claude`, or `opencode` commands now routes
+  through `aoc-agent-wrap` so the TUI gets the tmux-backed scroll history just
+  like `codex`; override the real executable via `AOC_GEMINI_BIN`,
+  `AOC_KIMI_BIN`, `AOC_CC_BIN`, or `AOC_OC_BIN` if needed.
+
+### Defaults + Projects
+- Run `aoc-control` to manage layout/agent defaults and open/create projects.
+- Projects base defaults to `~/dev` (overridable via `AOC_PROJECTS_BASE`).
+- `aoc-control` persists the base path in `~/.config/aoc/config.toml`.
+- When launched inside Zellij, `aoc-control` opens as a floating pane (set `AOC_CONTROL_FLOATING=0` to disable).
+- Shortcut: `Alt+c` opens a floating `aoc-control` pane without creating a split. Update `~/.config/zellij/aoc.config.kdl` if you want a different key.
 
 ## Taskmaster Plugin (Default)
 The default AOC layout uses the realtime Taskmaster Rust/WASM plugin.

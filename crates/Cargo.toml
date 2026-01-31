@@ -4,6 +4,7 @@ members = [
     "aoc-core",
     "aoc-hub-rs",
     "aoc-agent-wrap-rs",
+    "aoc-control",
     "aoc-mission-control",
     "aoc-taskmaster",
 ]

@@ -1,0 +1,51 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+if [[ -z "${ZELLIJ_SESSION_NAME:-}" ]]; then
+  echo "Not running inside a Zellij session." >&2
+  exit 1
+fi
+
+pane_name="${AOC_CONTROL_PANE_NAME:-AOC Control}"
+width="${AOC_CONTROL_WIDTH:-70%}"
+height="${AOC_CONTROL_HEIGHT:-70%}"
+x="${AOC_CONTROL_X:-15%}"
+y="${AOC_CONTROL_Y:-15%}"
+pinned="${AOC_CONTROL_PINNED:-true}"
+
+layout="$(zellij action dump-layout 2>/dev/null || true)"
+if command -v rg >/dev/null 2>&1; then
+  if printf '%s' "$layout" | rg -q "name=\"${pane_name}\""; then
+    zellij action toggle-floating-panes
+    exit 0
+  fi
+else
+  if printf '%s' "$layout" | grep -q "name=\"${pane_name}\""; then
+    zellij action toggle-floating-panes
+    exit 0
+  fi
+fi
+
+close_pane_flag="${AOC_CONTROL_CLOSE_PANE:-}"
+if [[ -z "$close_pane_flag" ]]; then
+  if [[ -n "${ZELLIJ:-}" || -n "${ZELLIJ_SESSION_NAME:-}" ]]; then
+    close_pane_flag="1"
+  else
+    close_pane_flag="0"
+  fi
+fi
+
+zellij action new-pane \
+  --floating \
+  --name "$pane_name" \
+  --width "$width" \
+  --height "$height" \
+  --x "$x" \
+  --y "$y" \
+  --pinned "$pinned" \
+  -- bash -lc "export AOC_CONTROL_NO_FLOAT=1; export AOC_CONTROL_FLOATING_ACTIVE=1; exec aoc-control"
+
+if [[ "$close_pane_flag" == "1" ]]; then
+  zellij action focus-previous-pane >/dev/null 2>&1 || true
+  zellij action close-pane >/dev/null 2>&1 || true
+fi

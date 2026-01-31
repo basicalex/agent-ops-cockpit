@@ -1,0 +1,68 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+local_release="$script_dir/../crates/target/release/aoc-control"
+local_debug="$script_dir/../crates/target/debug/aoc-control"
+manifest_path=""
+if [[ -n "${AOC_PROJECT_ROOT:-}" && -f "${AOC_PROJECT_ROOT}/crates/Cargo.toml" ]]; then
+  manifest_path="${AOC_PROJECT_ROOT}/crates/Cargo.toml"
+elif [[ -f "$script_dir/../crates/Cargo.toml" ]]; then
+  manifest_path="$script_dir/../crates/Cargo.toml"
+fi
+
+if [[ ( -n "${ZELLIJ:-}" || -n "${ZELLIJ_SESSION_NAME:-}" ) && "${AOC_CONTROL_NO_FLOAT:-0}" != "1" && "${AOC_CONTROL_FLOATING:-1}" != "0" ]]; then
+  pane_name="${AOC_CONTROL_PANE_NAME:-AOC Control}"
+  width="${AOC_CONTROL_WIDTH:-70%}"
+  height="${AOC_CONTROL_HEIGHT:-70%}"
+  x="${AOC_CONTROL_X:-15%}"
+  y="${AOC_CONTROL_Y:-15%}"
+  pinned="${AOC_CONTROL_PINNED:-true}"
+
+  layout="$(zellij action dump-layout 2>/dev/null || true)"
+  if command -v rg >/dev/null 2>&1; then
+    if printf '%s' "$layout" | rg -q "name=\"$pane_name\""; then
+      zellij action toggle-floating-panes
+      exit 0
+    fi
+  else
+    if printf '%s' "$layout" | grep -q "name=\"$pane_name\""; then
+      zellij action toggle-floating-panes
+      exit 0
+    fi
+  fi
+
+  zellij action new-pane \
+    --floating \
+    --name "$pane_name" \
+    --width "$width" \
+    --height "$height" \
+    --x "$x" \
+    --y "$y" \
+    --pinned "$pinned" \
+    -- bash -lc "export AOC_CONTROL_NO_FLOAT=1; export AOC_CONTROL_FLOATING_ACTIVE=1; exec aoc-control"
+  exit 0
+fi
+
+if [[ -n "${AOC_CONTROL_BIN:-}" ]]; then
+  exec "$AOC_CONTROL_BIN" "$@"
+fi
+
+if command -v aoc-control-native >/dev/null 2>&1; then
+  exec aoc-control-native "$@"
+fi
+
+if [[ -x "$local_release" ]]; then
+  exec "$local_release" "$@"
+fi
+
+if [[ -x "$local_debug" ]]; then
+  exec "$local_debug" "$@"
+fi
+
+if command -v cargo >/dev/null 2>&1 && [[ -n "$manifest_path" ]]; then
+  exec cargo run --manifest-path "$manifest_path" -p aoc-control -- "$@"
+fi
+
+echo "aoc-control: binary not found (build crates/aoc-control)." >&2
+exit 1

@@ -47,3 +47,5 @@ Agents should read this to understand project history and append new decisions h
 - [2026-01-28 21:33] Added native aoc-taskmaster Ratatui TUI crate with direct filesystem access; plugin remains in place for now.
 - [2026-01-29 20:49] Paused Mission Control Alt+a fix; Alt+a unbound in zellij/aoc.config.kdl. Suspected issue: Zellij Run keybind opens a split pane; toggle script closes focused pane, so MC blinks and split remains. Resume by verifying Zellij 0.43.1 keybind options (Run/NewPane close_on_exit/floating) and prefer keybind-only fix; otherwise adjust aoc-mission-control-toggle close logic.
 - [2026-01-29 20:54] aoc-taskmaster root resolution now prefers walking up from cwd before AOC_PROJECT_ROOT to avoid stale session env in new tabs.
+- [2026-01-30 17:19] Added Kimi agent support with aoc-kimi and kimi shim (AOC_KIMI_BIN override) for agent selection.
+- [2026-01-31 10:09] Floating TUI panes in Zellij: use keybind Run with floating true + close_on_exit true (not NewPane), e.g. Run "bash" "-lc" "AOC_CONTROL_NO_FLOAT=1 AOC_CONTROL_FLOATING_ACTIVE=1 exec aoc-control" { floating true close_on_exit true }. Avoids split panes and blinking.
