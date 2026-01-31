@@ -21,6 +21,10 @@ case "$agent" in
     export AOC_AGENT_RUN=1
     exec aoc-gemini "$@"
     ;;
+  kimi)
+    export AOC_AGENT_RUN=1
+    exec aoc-kimi "$@"
+    ;;
   cc|claude|claude-code)
     export AOC_AGENT_RUN=1
     exec aoc-cc "$@"

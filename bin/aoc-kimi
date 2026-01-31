@@ -1,0 +1,32 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+agent_id="kimi"
+agent_label="Kimi"
+
+resolve_kimi_bin() {
+  if [[ -n "${AOC_KIMI_BIN:-}" ]]; then
+    return 0
+  fi
+
+  if command -v uv >/dev/null 2>&1; then
+    local uv_dir=""
+    uv_dir="$(uv tool dir 2>/dev/null || true)"
+    if [[ -n "$uv_dir" && -x "$uv_dir/kimi-cli/bin/kimi" ]]; then
+      export AOC_KIMI_BIN="$uv_dir/kimi-cli/bin/kimi"
+    fi
+  fi
+}
+
+resolve_kimi_bin
+agent_bin="${AOC_KIMI_BIN:-kimi}"
+
+if [[ "${AOC_AGENT_RUN:-0}" == "1" ]]; then
+  exec aoc-agent-wrap "$agent_id" "$agent_bin" "$agent_label" "$@"
+fi
+
+if [[ -n "${ZELLIJ:-}" || -n "${ZELLIJ_SESSION_NAME:-}" ]]; then
+  AOC_AGENT_ID="$agent_id" aoc-new-tab --aoc --name "$agent_label" "$@"
+else
+  AOC_AGENT_ID="$agent_id" aoc-launch
+fi

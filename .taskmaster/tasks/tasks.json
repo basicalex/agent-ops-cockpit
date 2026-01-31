@@ -124,14 +124,14 @@
         "description": "Extend the Rust Mission Control UI with a Session Manager that can switch projects, create new projects, and set defaults.",
         "details": "Deliverables: Ratatui Session Manager view with Projects, New Project, and Defaults sections; list directories from AOC_PROJECTS_BASE (default ~/dev), provide search and open a new AOC tab via zellij action new-tab --layout <layout> --cwd <path>; New Project prompts for name, creates directory, runs aoc-init, then opens new tab; Defaults set layout, agent, editor and persist to config (for example ~/.config/aoc/config.toml) used by aoc-launch and aoc-new-tab; keybindings Tab, Enter, n, /, Esc; support AOC_CONFIG_PATH and AOC_PROJECTS_BASE overrides; display errors when mkdir or aoc-init fails.",
         "testStrategy": "Open Mission Control and verify Projects list from ~/dev; search and open project to create new tab; create new project and confirm aoc-init runs; change defaults and confirm persisted config is applied to new tabs; verify error handling when projects base is missing or aoc-init fails.",
-        "status": "pending",
+        "status": "done",
         "dependencies": [
           "47",
           "49"
         ],
         "priority": "high",
         "subtasks": [],
-        "updatedAt": "2026-01-28T18:45:50.926Z",
+        "updatedAt": "2026-01-30T16:55:48.425Z",
         "activeAgent": false
       },
       {
@@ -167,11 +167,11 @@
             "description": "Classify required vs optional tools and map each to distro-specific install hints for README and aoc-doctor output.",
             "status": "pending",
             "dependencies": [],
+            "activeAgent": false,
             "testStrategy": "",
-            "details": "",
-            "subtasks": null,
             "priority": "",
-            "activeAgent": false
+            "details": "",
+            "subtasks": null
           },
           {
             "id": 2,
@@ -179,11 +179,11 @@
             "description": "Create aoc-doctor that checks PATH/tools, supports --quiet, and returns non-zero on missing required deps.",
             "status": "pending",
             "dependencies": [],
-            "testStrategy": "",
-            "priority": "",
-            "details": "",
             "subtasks": null,
-            "activeAgent": false
+            "details": "",
+            "testStrategy": "",
+            "activeAgent": false,
+            "priority": ""
           },
           {
             "id": 3,
@@ -191,11 +191,11 @@
             "description": "Add README section with example output and suggested install fixes.",
             "status": "pending",
             "dependencies": [],
-            "subtasks": null,
-            "testStrategy": "",
-            "activeAgent": false,
+            "details": "",
             "priority": "",
-            "details": ""
+            "activeAgent": false,
+            "testStrategy": "",
+            "subtasks": null
           }
         ],
         "updatedAt": "2026-01-27T16:47:45.724Z",
@@ -217,11 +217,11 @@
             "description": "Add graceful fallback when TM binary is missing (message + exit or read-only mode).",
             "status": "pending",
             "dependencies": [],
-            "testStrategy": "",
-            "activeAgent": false,
-            "priority": "",
             "details": "",
-            "subtasks": null
+            "priority": "",
+            "activeAgent": false,
+            "subtasks": null,
+            "testStrategy": ""
           },
           {
             "id": 2,
@@ -229,11 +229,11 @@
             "description": "Implement keybinds to mark done/reopen, open task details, and refresh without restarting.",
             "status": "pending",
             "dependencies": [],
-            "activeAgent": false,
             "subtasks": null,
-            "details": "",
             "testStrategy": "",
-            "priority": ""
+            "priority": "",
+            "activeAgent": false,
+            "details": ""
           },
           {
             "id": 3,
@@ -241,11 +241,11 @@
             "description": "Keep the on-screen hints aligned with the new actions and modes.",
             "status": "pending",
             "dependencies": [],
-            "activeAgent": false,
+            "subtasks": null,
             "testStrategy": "",
             "details": "",
-            "subtasks": null,
-            "priority": ""
+            "priority": "",
+            "activeAgent": false
           }
         ],
         "updatedAt": "2026-01-27T16:47:45.730Z",
@@ -267,11 +267,11 @@
             "description": "Store last mode (cal/media) in state file and restore on start.",
             "status": "pending",
             "dependencies": [],
-            "details": "",
-            "testStrategy": "",
             "priority": "",
-            "activeAgent": false,
-            "subtasks": null
+            "subtasks": null,
+            "testStrategy": "",
+            "details": "",
+            "activeAgent": false
           },
           {
             "id": 2,
@@ -279,11 +279,11 @@
             "description": "Detect chafa/ffmpeg/rsvg-convert and show clear fallback instructions.",
             "status": "pending",
             "dependencies": [],
-            "testStrategy": "",
-            "activeAgent": false,
             "details": "",
+            "subtasks": null,
             "priority": "",
-            "subtasks": null
+            "testStrategy": "",
+            "activeAgent": false
           },
           {
             "id": 3,
@@ -292,10 +292,10 @@
             "status": "pending",
             "dependencies": [],
             "priority": "",
-            "details": "",
+            "subtasks": null,
             "activeAgent": false,
             "testStrategy": "",
-            "subtasks": null
+            "details": ""
           }
         ],
         "updatedAt": "2026-01-27T16:47:45.751Z",
@@ -317,11 +317,11 @@
             "description": "Implement AOC_SYS_INTERVAL and section toggles (CPU/Mem/Disk) with defaults.",
             "status": "pending",
             "dependencies": [],
-            "details": "",
-            "testStrategy": "",
+            "priority": "",
             "subtasks": null,
+            "testStrategy": "",
             "activeAgent": false,
-            "priority": ""
+            "details": ""
           },
           {
             "id": 2,
@@ -330,9 +330,9 @@
             "status": "pending",
             "dependencies": [],
             "activeAgent": false,
+            "priority": "",
             "testStrategy": "",
             "details": "",
-            "priority": "",
             "subtasks": null
           },
           {
@@ -341,11 +341,11 @@
             "description": "Add README section with env vars and examples.",
             "status": "pending",
             "dependencies": [],
-            "testStrategy": "",
-            "details": "",
             "subtasks": null,
+            "activeAgent": false,
+            "testStrategy": "",
             "priority": "",
-            "activeAgent": false
+            "details": ""
           }
         ],
         "updatedAt": "2026-01-27T16:47:45.760Z",
@@ -367,11 +367,11 @@
             "description": "Decide between env var overrides or templated layout copy on install.",
             "status": "done",
             "dependencies": [],
+            "activeAgent": false,
             "subtasks": null,
-            "details": "",
-            "priority": "",
             "testStrategy": "",
-            "activeAgent": false
+            "priority": "",
+            "details": ""
           },
           {
             "id": 2,
@@ -379,11 +379,11 @@
             "description": "Add layout templating or alternate layout file resolution in install/launch.",
             "status": "done",
             "dependencies": [],
+            "activeAgent": false,
             "testStrategy": "",
-            "priority": "",
             "subtasks": null,
-            "details": "",
-            "activeAgent": false
+            "priority": "",
+            "details": ""
           },
           {
             "id": 3,
@@ -391,10 +391,10 @@
             "description": "Provide examples for custom sizes/commands in README.",
             "status": "done",
             "dependencies": [],
-            "priority": "",
-            "testStrategy": "",
             "subtasks": null,
             "details": "",
+            "priority": "",
+            "testStrategy": "",
             "activeAgent": false
           }
         ],
@@ -417,11 +417,11 @@
             "description": "Create aoc-uninstall or scripts/uninstall.sh to remove installed files only.",
             "status": "pending",
             "dependencies": [],
-            "details": "",
-            "testStrategy": "",
-            "subtasks": null,
             "priority": "",
-            "activeAgent": false
+            "activeAgent": false,
+            "testStrategy": "",
+            "details": "",
+            "subtasks": null
           },
           {
             "id": 2,
@@ -429,11 +429,11 @@
             "description": "Ensure install.sh overwrites safely, prints what changed, and exits cleanly on re-run.",
             "status": "pending",
             "dependencies": [],
-            "subtasks": null,
-            "activeAgent": false,
+            "priority": "",
             "testStrategy": "",
             "details": "",
-            "priority": ""
+            "subtasks": null,
+            "activeAgent": false
           },
           {
             "id": 3,
@@ -441,11 +441,11 @@
             "description": "Add README usage examples and expected file paths.",
             "status": "pending",
             "dependencies": [],
-            "testStrategy": "",
             "details": "",
             "activeAgent": false,
+            "subtasks": null,
             "priority": "",
-            "subtasks": null
+            "testStrategy": ""
           }
         ],
         "updatedAt": "2026-01-06T17:03:08.164Z",
@@ -467,10 +467,10 @@
             "description": "Document a quick checklist (zellij version, yazi preview, widget media) and how to confirm.",
             "status": "pending",
             "dependencies": [],
-            "testStrategy": "",
             "activeAgent": false,
-            "subtasks": null,
             "details": "",
+            "testStrategy": "",
+            "subtasks": null,
             "priority": ""
           },
           {
@@ -479,11 +479,11 @@
             "description": "Cover common errors (missing tools, blank preview, taskmaster missing) with fixes.",
             "status": "pending",
             "dependencies": [],
-            "testStrategy": "",
             "priority": "",
-            "activeAgent": false,
             "details": "",
-            "subtasks": null
+            "subtasks": null,
+            "activeAgent": false,
+            "testStrategy": ""
           },
           {
             "id": 3,
@@ -491,11 +491,11 @@
             "description": "Include placeholder path and note for updating the screenshot in README.",
             "status": "pending",
             "dependencies": [],
-            "testStrategy": "",
-            "activeAgent": false,
-            "details": "",
             "priority": "",
-            "subtasks": null
+            "activeAgent": false,
+            "testStrategy": "",
+            "subtasks": null,
+            "details": ""
           }
         ],
         "updatedAt": "2026-01-06T17:03:09.086Z",
@@ -517,11 +517,11 @@
             "description": "Add shellcheck invocation over bin/ and yazi/preview.sh with sensible flags.",
             "status": "pending",
             "dependencies": [],
+            "subtasks": null,
             "testStrategy": "",
-            "details": "",
             "activeAgent": false,
-            "priority": "",
-            "subtasks": null
+            "details": "",
+            "priority": ""
           },
           {
             "id": 2,
@@ -529,11 +529,11 @@
             "description": "Optional CI workflow that runs shellcheck on pushes/PRs.",
             "status": "pending",
             "dependencies": [],
-            "priority": "",
             "testStrategy": "",
-            "activeAgent": false,
+            "priority": "",
+            "subtasks": null,
             "details": "",
-            "subtasks": null
+            "activeAgent": false
           },
           {
             "id": 3,
@@ -541,11 +541,11 @@
             "description": "Add README instructions for running lint locally and in CI.",
             "status": "pending",
             "dependencies": [],
+            "testStrategy": "",
             "details": "",
             "subtasks": null,
-            "priority": "",
-            "testStrategy": "",
-            "activeAgent": false
+            "activeAgent": false,
+            "priority": ""
           }
         ],
         "updatedAt": "2026-01-06T17:03:10.110Z",
@@ -567,11 +567,11 @@
             "description": "Add initial release section describing current features.",
             "status": "pending",
             "dependencies": [],
-            "testStrategy": "",
-            "subtasks": null,
-            "activeAgent": false,
             "priority": "",
-            "details": ""
+            "details": "",
+            "activeAgent": false,
+            "testStrategy": "",
+            "subtasks": null
           },
           {
             "id": 2,
@@ -580,10 +580,10 @@
             "status": "pending",
             "dependencies": [],
             "subtasks": null,
-            "priority": "",
-            "details": "",
             "testStrategy": "",
-            "activeAgent": false
+            "activeAgent": false,
+            "details": "",
+            "priority": ""
           },
           {
             "id": 3,
@@ -591,11 +591,11 @@
             "description": "Add a small checklist for cutting releases and tagging.",
             "status": "pending",
             "dependencies": [],
+            "priority": "",
+            "activeAgent": false,
             "subtasks": null,
             "testStrategy": "",
-            "details": "",
-            "priority": "",
-            "activeAgent": false
+            "details": ""
           }
         ],
         "updatedAt": "2026-01-06T17:03:11.326Z",
@@ -617,11 +617,11 @@
             "description": "Summarize tasks.json schema and relevant CLI commands (list/show/set-status/update/add/remove) to support plugin rendering and actions.",
             "status": "done",
             "dependencies": [],
-            "details": "",
-            "testStrategy": "",
+            "priority": "",
             "subtasks": null,
             "activeAgent": false,
-            "priority": ""
+            "testStrategy": "",
+            "details": ""
           },
           {
             "id": 2,
@@ -629,11 +629,11 @@
             "description": "Confirm zellij-tile capabilities (events, workers, filesystem access) and how to ship/load plugin in this repo.",
             "status": "done",
             "dependencies": [],
-            "activeAgent": false,
-            "priority": "",
             "testStrategy": "",
+            "activeAgent": false,
+            "details": "",
             "subtasks": null,
-            "details": ""
+            "priority": ""
           },
           {
             "id": 3,
@@ -641,11 +641,11 @@
             "description": "Define list/detail views, filters, keybindings, realtime refresh strategy, and error states (missing tasks.json, parse errors).",
             "status": "done",
             "dependencies": [],
-            "subtasks": null,
             "priority": "",
-            "testStrategy": "",
             "details": "",
-            "activeAgent": false
+            "subtasks": null,
+            "activeAgent": false,
+            "testStrategy": ""
           },
           {
             "id": 4,
@@ -653,11 +653,11 @@
             "description": "Add plugin source (Rust/WASM), build scripts, and install integration for zellij config/layout.",
             "status": "done",
             "dependencies": [],
-            "details": "",
-            "testStrategy": "",
             "activeAgent": false,
             "priority": "",
-            "subtasks": null
+            "subtasks": null,
+            "details": "",
+            "testStrategy": ""
           },
           {
             "id": 5,
@@ -665,11 +665,11 @@
             "description": "Load tasks.json, parse tasks/subtasks, render list/detail, and refresh on interval or file mtime change.",
             "status": "done",
             "dependencies": [],
-            "activeAgent": false,
-            "subtasks": null,
-            "priority": "",
+            "testStrategy": "",
             "details": "",
-            "testStrategy": ""
+            "priority": "",
+            "subtasks": null,
+            "activeAgent": false
           },
           {
             "id": 6,
@@ -677,10 +677,10 @@
             "description": "Integrate task-master CLI commands for status changes and task updates; handle errors gracefully.",
             "status": "done",
             "dependencies": [],
-            "details": "",
             "activeAgent": false,
-            "subtasks": null,
             "priority": "",
+            "details": "",
+            "subtasks": null,
             "testStrategy": ""
           },
           {
@@ -689,11 +689,11 @@
             "description": "Document plugin build/install, configuration, and keybindings in README; update install/uninstall as needed.",
             "status": "done",
             "dependencies": [],
-            "details": "",
-            "testStrategy": "",
             "activeAgent": false,
             "subtasks": null,
-            "priority": ""
+            "priority": "",
+            "testStrategy": "",
+            "details": ""
           }
         ],
         "updatedAt": "2026-01-09T07:01:13.182Z",
@@ -1092,11 +1092,11 @@
             "description": "Refactor the Header:children method in yazi/init.lua to correctly display 'Help', 'Open', 'Select', and 'Exit' labels with proper alignment and color transitions.",
             "status": "pending",
             "dependencies": [],
+            "testStrategy": "",
             "subtasks": null,
             "details": "",
-            "activeAgent": false,
-            "testStrategy": "",
-            "priority": ""
+            "priority": "",
+            "activeAgent": false
           },
           {
             "id": 2,
@@ -1106,11 +1106,11 @@
             "dependencies": [
               "1"
             ],
-            "details": "",
+            "priority": "",
             "subtasks": null,
+            "details": "",
             "testStrategy": "",
-            "activeAgent": false,
-            "priority": ""
+            "activeAgent": false
           },
           {
             "id": 3,
@@ -1118,11 +1118,11 @@
             "description": "Optimize the resize behavior in plugins/aoc-open.yazi to handle Zellij interactions smoothly and restore layout on exit.",
             "status": "pending",
             "dependencies": [],
-            "priority": "",
-            "subtasks": null,
-            "details": "",
+            "activeAgent": false,
             "testStrategy": "",
-            "activeAgent": false
+            "details": "",
+            "priority": "",
+            "subtasks": null
           },
           {
             "id": 4,
@@ -1130,11 +1130,11 @@
             "description": "Configure yazi/keymap.toml for 'g a', 'g l', 'g c' and Ctrl+t, and sync colors in yazi/theme.toml.",
             "status": "pending",
             "dependencies": [],
+            "activeAgent": false,
             "priority": "",
-            "subtasks": null,
             "testStrategy": "",
-            "details": "",
-            "activeAgent": false
+            "subtasks": null,
+            "details": ""
           }
         ],
         "updatedAt": "2026-01-18T11:13:22.886Z",
@@ -1233,10 +1233,10 @@
             "status": "pending",
             "dependencies": [],
             "subtasks": null,
-            "testStrategy": "",
+            "details": "",
             "activeAgent": false,
-            "priority": "",
-            "details": ""
+            "testStrategy": "",
+            "priority": ""
           },
           {
             "id": 2,
@@ -1245,10 +1245,10 @@
             "status": "pending",
             "dependencies": [],
             "subtasks": null,
-            "details": "",
-            "priority": "",
             "activeAgent": false,
-            "testStrategy": ""
+            "testStrategy": "",
+            "details": "",
+            "priority": ""
           },
           {
             "id": 3,
@@ -1256,11 +1256,11 @@
             "description": "Ensure dynamically generated tab layouts respect user shell preference via AOC_SHELL or SHELL",
             "status": "pending",
             "dependencies": [],
-            "priority": "",
+            "testStrategy": "",
+            "subtasks": null,
             "details": "",
             "activeAgent": false,
-            "subtasks": null,
-            "testStrategy": ""
+            "priority": ""
           },
           {
             "id": 4,
@@ -1268,11 +1268,11 @@
             "description": "Document and implement AOC_SHELL override for explicit shell selection with fallback to SHELL",
             "status": "pending",
             "dependencies": [],
-            "subtasks": null,
-            "activeAgent": false,
-            "priority": "",
             "testStrategy": "",
-            "details": ""
+            "priority": "",
+            "subtasks": null,
+            "details": "",
+            "activeAgent": false
           },
           {
             "id": 5,
@@ -1280,11 +1280,11 @@
             "description": "Validate terminal pane behavior with each shell type, ensure rc files are sourced and interactive mode works",
             "status": "pending",
             "dependencies": [],
-            "priority": "",
-            "details": "",
             "subtasks": null,
-            "testStrategy": "",
-            "activeAgent": false
+            "details": "",
+            "activeAgent": false,
+            "priority": "",
+            "testStrategy": ""
           },
           {
             "id": 6,
@@ -1292,11 +1292,11 @@
             "description": "Add section explaining shell support, AOC_SHELL override, and known limitations due to Zellij platform constraints",
             "status": "pending",
             "dependencies": [],
-            "subtasks": null,
-            "activeAgent": false,
-            "testStrategy": "",
+            "details": "",
             "priority": "",
-            "details": ""
+            "testStrategy": "",
+            "activeAgent": false,
+            "subtasks": null
           }
         ],
         "updatedAt": "2026-01-27T16:20:29.969Z",
@@ -1318,11 +1318,11 @@
             "description": "List, select, and persist layout choice.",
             "status": "pending",
             "dependencies": [],
-            "details": "",
-            "subtasks": null,
             "priority": "",
+            "activeAgent": false,
+            "details": "",
             "testStrategy": "",
-            "activeAgent": false
+            "subtasks": null
           },
           {
             "id": 2,
@@ -1330,10 +1330,10 @@
             "description": "Support --layout flag and generic variable substitution.",
             "status": "pending",
             "dependencies": [],
-            "activeAgent": false,
-            "testStrategy": "",
-            "subtasks": null,
             "priority": "",
+            "testStrategy": "",
+            "activeAgent": false,
+            "subtasks": null,
             "details": ""
           },
           {
@@ -1343,10 +1343,10 @@
             "status": "pending",
             "dependencies": [],
             "details": "",
+            "priority": "",
             "testStrategy": "",
-            "subtasks": null,
             "activeAgent": false,
-            "priority": ""
+            "subtasks": null
           },
           {
             "id": 4,
@@ -1354,11 +1354,11 @@
             "description": "Add guide for creating compatible KDL layouts.",
             "status": "pending",
             "dependencies": [],
-            "details": "",
+            "activeAgent": false,
+            "priority": "",
             "testStrategy": "",
             "subtasks": null,
-            "priority": "",
-            "activeAgent": false
+            "details": ""
           }
         ],
         "updatedAt": "2026-01-27T16:47:57.746Z",

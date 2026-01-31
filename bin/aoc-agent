@@ -6,7 +6,7 @@ usage() {
 Usage: aoc-agent [--set [agent]] [--tab [agent]] [--run [agent]] [--current]
 
 Interactive dashboard for selecting the default agent or launching tabs.
-Agents: codex, gemini, cc, oc
+Agents: codex, gemini, kimi, cc, oc
 EOF
 }
 
@@ -18,6 +18,7 @@ mkdir -p "$state_dir"
 list_agents() {
   printf "codex\tCodex\n"
   printf "gemini\tGemini\n"
+  printf "kimi\tKimi\n"
   printf "cc\tClaude Code\n"
   printf "oc\tOpenCode\n"
 }
@@ -26,6 +27,7 @@ agent_label() {
   case "$1" in
     codex) echo "Codex" ;;
     gemini) echo "Gemini" ;;
+    kimi) echo "Kimi" ;;
     cc) echo "Claude Code" ;;
     oc) echo "OpenCode" ;;
     *) echo "$1" ;;
@@ -38,7 +40,7 @@ normalize_agent() {
 
 valid_agent() {
   case "$1" in
-    codex|gemini|cc|oc) return 0 ;;
+    codex|gemini|kimi|cc|oc) return 0 ;;
     *) return 1 ;;
   esac
 }

@@ -86,7 +86,6 @@ This machine uses the **Agent Ops Cockpit (AOC)** system. All agents (Gemini, Cl
 ├── README.md
 ├── ROADMAP.md
 ├── scripts
-│   ├── build-taskmaster-plugin.sh
 │   └── lint.sh
 ├── yazi
 │   ├── init.lua
@@ -379,7 +378,6 @@ If you prefer a different editor, you can change the `EDITOR` variable in your `
 The default AOC layout uses the realtime Taskmaster Rust/WASM plugin.
 
 ```bash
-./scripts/build-taskmaster-plugin.sh
 ./install.sh
 aoc-launch
 ```

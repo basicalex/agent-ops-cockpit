@@ -134,4 +134,4 @@ if [[ -d "$ROOT_DIR/yazi/plugins" ]]; then
 fi
 
 log "AOC Installed Successfully!"
-log "Run 'aoc-launch' to start."
+log "Run 'aoc' to start."
