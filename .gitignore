@@ -33,6 +33,7 @@ crates/target/
 # tasks/ 
 
 # Local AOC state
+.opencode/
 /.aoc/*
 !/.aoc/skills/
 !/.aoc/skills/**
