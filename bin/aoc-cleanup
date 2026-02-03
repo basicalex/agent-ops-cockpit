@@ -60,6 +60,8 @@ AGENT_BINARIES = {
     "aoc-kimi",
 }
 
+ENV_CACHE = {}
+
 # --- Helpers ---
 
 def run_cmd(args):
@@ -67,6 +69,9 @@ def run_cmd(args):
         return subprocess.check_output(args, text=True, stderr=subprocess.DEVNULL)
     except Exception:
         return ""
+
+def get_current_session():
+    return os.environ.get("ZELLIJ_SESSION_NAME") or os.environ.get("ZELLIJ_SESSION") or ""
 
 def list_sessions():
     out = run_cmd(["zellij", "list-sessions", "--short", "--no-formatting"])
@@ -91,6 +96,24 @@ def list_sessions():
         if parts:
             names.append(parts[0])
     return names
+
+def parse_session_filter():
+    raw = os.environ.get("AOC_CLEANUP_SESSIONS", "").strip()
+    if not raw:
+        return None
+    raw_lower = raw.lower()
+    if raw_lower in {"current", "self", "this"}:
+        curr = get_current_session()
+        if curr:
+            return {curr}
+        print("Warning: AOC_CLEANUP_SESSIONS=current but no current session detected.")
+        return set()
+    sessions = {s for s in re.split(r"[\s,]+", raw) if s}
+    return sessions
+
+def env_truthy(name):
+    raw = os.environ.get(name, "").strip().lower()
+    return raw not in {"", "0", "false", "no", "off"}
 
 def dump_layout(session=None):
     if session:
@@ -246,13 +269,15 @@ def parse_layout(text, projects_base=None):
 
     return active_commands, agent_cwds, expected_cwds, expected_ids
 
-def build_active_sets():
+def build_active_sets(allowed_sessions=None):
     active_commands = set()
     agent_cwds = set()
     expected_cwds = collections.Counter()
     expected_ids = collections.Counter()
     projects_base = detect_projects_base()
     sessions = list_sessions()
+    if allowed_sessions is not None:
+        sessions = [s for s in sessions if s in allowed_sessions]
     if sessions:
         for session in sessions:
             layout = dump_layout(session)
@@ -265,21 +290,35 @@ def build_active_sets():
             expected_ids.update(ids)
         return active_commands, agent_cwds, expected_cwds, expected_ids
 
-    layout = dump_layout()
-    if layout:
-        cmds, cwds, exp, ids = parse_layout(layout, projects_base)
-        active_commands.update(cmds)
-        agent_cwds.update(cwds)
-        expected_cwds.update(exp)
-        expected_ids.update(ids)
+    if allowed_sessions is None:
+        layout = dump_layout()
+        if layout:
+            cmds, cwds, exp, ids = parse_layout(layout, projects_base)
+            active_commands.update(cmds)
+            agent_cwds.update(cwds)
+            expected_cwds.update(exp)
+            expected_ids.update(ids)
+    else:
+        curr = get_current_session()
+        if curr and curr in allowed_sessions:
+            layout = dump_layout()
+            if layout:
+                cmds, cwds, exp, ids = parse_layout(layout, projects_base)
+                active_commands.update(cmds)
+                agent_cwds.update(cwds)
+                expected_cwds.update(exp)
+                expected_ids.update(ids)
     return active_commands, agent_cwds, expected_cwds, expected_ids
 
 def proc_env(pid):
+    if pid in ENV_CACHE:
+        return ENV_CACHE[pid]
     try:
         with open(f"/proc/{pid}/environ", "rb") as fh:
             data = fh.read().split(b"\0")
     except Exception:
-        return {}
+        ENV_CACHE[pid] = {}
+        return ENV_CACHE[pid]
     env = {}
     for item in data:
         if not item or b"=" not in item:
@@ -292,6 +331,7 @@ def proc_env(pid):
             continue
         if k:
             env[k] = v
+    ENV_CACHE[pid] = env
     return env
 
 def proc_has_active_session(pid, active_sessions):
@@ -340,7 +380,7 @@ def proc_cmd(args, comm):
 def get_process_map():
     try:
         # Get more info: pid, ppid, comm (executable name), and full command line
-        ps_out = subprocess.check_output(["ps", "-eo", "pid,ppid,comm,args"], text=True)
+        ps_out = subprocess.check_output(["ps", "-eo", "pid,ppid,tty,comm,args"], text=True)
     except subprocess.CalledProcessError:
         return {}, {}
         
@@ -349,15 +389,18 @@ def get_process_map():
     
     for line in ps_out.strip().splitlines()[1:]:
         # format: PID PPID COMM ARGS...
-        parts = line.strip().split(None, 3)
-        if len(parts) < 4: continue
+        parts = line.strip().split(None, 4)
+        if len(parts) < 5:
+            continue
         try:
             pid = int(parts[0])
             ppid = int(parts[1])
-            comm = parts[2]
-            args = parts[3]
+            tty = parts[2]
+            comm = parts[3]
+            args = parts[4]
             processes[pid] = {
                 "ppid": ppid,
+                "tty": tty,
                 "comm": comm,
                 "args": args
             }
@@ -408,9 +451,27 @@ def find_tmux_servers_for_sockets(sockets, processes):
 
 processes, children = get_process_map()
 
-active_commands, agent_cwds, expected_cwds, expected_ids = build_active_sets()
+session_filter = parse_session_filter()
+pane_strict = env_truthy("AOC_CLEANUP_PANE_STRICT")
+all_sessions = list_sessions()
+if session_filter is None:
+    active_sessions = set(all_sessions)
+else:
+    if session_filter:
+        if all_sessions:
+            active_sessions = {s for s in all_sessions if s in session_filter}
+            if not active_sessions:
+                active_sessions = set(session_filter)
+        else:
+            active_sessions = set(session_filter)
+    else:
+        active_sessions = set()
+
+active_commands, agent_cwds, expected_cwds, expected_ids = build_active_sets(
+    active_sessions if session_filter is not None else None
+)
 have_active_signals = bool(active_commands or agent_cwds or expected_cwds or expected_ids)
-active_sessions = set(list_sessions())
+pane_layout_signals = bool(expected_cwds or expected_ids)
 
 # 1. Identify Zellij Server Roots
 zellij_pids = set()
@@ -448,6 +509,13 @@ if expected_cwds:
     print(f"Active agent panes detected: {sum(expected_cwds.values())}")
 if expected_ids:
     print(f"Active agent ids detected: {sum(expected_ids.values())}")
+if session_filter is not None:
+    if active_sessions:
+        print(f"Session filter active: {', '.join(sorted(active_sessions))}")
+    else:
+        print("Warning: Session filter active but no matching sessions found.")
+if pane_strict:
+    print("Pane strict mode: on")
 if not have_active_signals:
     print("Warning: No active agent panes discovered; falling back to safe-pid logic only.")
 
@@ -477,18 +545,72 @@ for pid, info in processes.items():
             kind = "agent_bin"
         elif comm == "node" and "opencode" in (args or ""):
             kind = "agent_node"
+        env = proc_env(pid)
+        session_name = env.get("ZELLIJ_SESSION_NAME") or env.get("ZELLIJ_SESSION") or ""
+        pane_id = env.get("ZELLIJ_PANE_ID") or ""
+        tty = info.get("tty", "")
+        has_tty = bool(tty and tty != "?")
         agent_candidates.append({
             "pid": pid,
+            "ppid": info.get("ppid"),
             "args": args,
             "comm": comm,
             "cwd": cwd,
             "safe": pid in safe_pids,
             "kind": kind,
+            "session": session_name,
+            "pane_id": pane_id,
+            "tty": tty,
+            "has_tty": has_tty,
         })
 
 keep_pids = set()
+used_pane_selection = False
+def root_rank(proc):
+    tty_rank = 0 if proc.get("has_tty") else 1
+    kind = proc.get("kind")
+    if kind == "agent_node":
+        kind_rank = 0
+    elif kind == "agent_bin":
+        kind_rank = 1
+    else:
+        kind_rank = 2
+    return (tty_rank, kind_rank, -proc.get("pid", 0))
+
+if pane_strict and pane_layout_signals:
+    pane_groups = collections.defaultdict(list)
+    for proc in agent_candidates:
+        pane_id = proc.get("pane_id")
+        if not pane_id:
+            continue
+        if active_sessions and proc.get("session") and proc.get("session") not in active_sessions:
+            continue
+        pane_groups[pane_id].append(proc)
+
+    if pane_groups:
+        used_pane_selection = True
+        selected_roots = []
+        for pane_id, procs in pane_groups.items():
+            group_pids = {p["pid"] for p in procs}
+            roots = [p for p in procs if p.get("ppid") not in group_pids]
+            if not roots:
+                roots = procs
+            roots.sort(key=root_rank)
+            selected_roots.append(roots[0])
+
+        expected_total = 0
+        if expected_cwds:
+            expected_total = sum(expected_cwds.values())
+        elif expected_ids:
+            expected_total = sum(expected_ids.values())
+        if expected_total and len(selected_roots) > expected_total:
+            selected_roots.sort(key=root_rank)
+            selected_roots = selected_roots[:expected_total]
+        for proc in selected_roots:
+            keep_pids.add(proc["pid"])
+
 expected_cwds_effective = collections.Counter()
-if expected_cwds:
+if expected_cwds and not used_pane_selection:
     key_matches = {key: [] for key in expected_cwds.keys()}
     for proc in agent_candidates:
         for cwd_hint, count in expected_cwds.items():
@@ -509,7 +631,7 @@ if expected_cwds:
         keep_count = expected_cwds.get(cwd_hint, 0)
         for proc in preferred[:keep_count]:
             keep_pids.add(proc["pid"])
-elif expected_ids:
+elif expected_ids and not used_pane_selection:
     key_matches = {key: [] for key in expected_ids.keys()}
     for proc in agent_candidates:
         cwd_base = os.path.basename(proc["cwd"]) if proc["cwd"] else ""
@@ -539,14 +661,17 @@ for proc in agent_candidates:
     pid = proc["pid"]
     args = proc["args"]
     if pid in safe_pids:
-        continue
+        if not (pane_strict and pane_layout_signals):
+            if session_filter is None or proc_has_active_session(pid, active_sessions):
+                continue
     if pid in keep_tree:
         continue
     if proc_has_active_session(pid, active_sessions):
-        continue
+        if not (pane_strict and pane_layout_signals):
+            continue
 
     active_hit = False
-    if have_active_signals:
+    if have_active_signals and not (pane_strict and pane_layout_signals):
         proc_exec = proc_cmd(proc["args"], proc["comm"])
         if any(cmd_matches(proc_exec, cmd) or (cmd in proc["args"]) for cmd in active_commands):
             active_hit = True

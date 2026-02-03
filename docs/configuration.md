@@ -103,6 +103,8 @@ Control layout behavior and appearance:
 | `AOC_FULLSCREEN` | Auto-fullscreen on launch | `1` (Linux X11 only) |
 | `AOC_CONTROL_FLOATING` | Open aoc-control as floating pane | `1` |
 | `AOC_CLEANUP` | Run cleanup on launch | `1` |
+| `AOC_CLEANUP_SESSIONS` | Limit cleanup to sessions (`current` or comma list) | All sessions |
+| `AOC_CLEANUP_PANE_STRICT` | Allow cleanup within sessions based on pane layout | `0` |
 
 **Preview Pane Placement:**
 
