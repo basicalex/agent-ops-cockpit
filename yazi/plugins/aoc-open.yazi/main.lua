@@ -2,15 +2,32 @@
 local M = {}
 
 local function in_zellij()
-	return os.getenv("ZELLIJ") ~= nil
+	return os.getenv("ZELLIJ") ~= nil or os.getenv("ZELLIJ_SESSION_NAME") ~= nil
+end
+
+local function zellij_env_prefix()
+	local parts = {}
+	local zellij = os.getenv("ZELLIJ")
+	local session = os.getenv("ZELLIJ_SESSION_NAME")
+	local pane = os.getenv("ZELLIJ_PANE_ID")
+
+	if zellij and zellij ~= "" then
+		parts[#parts + 1] = "ZELLIJ=" .. ya.quote(zellij)
+	end
+	if session and session ~= "" then
+		parts[#parts + 1] = "ZELLIJ_SESSION_NAME=" .. ya.quote(session)
+	end
+	if pane and pane ~= "" then
+		parts[#parts + 1] = "ZELLIJ_PANE_ID=" .. ya.quote(pane)
+	end
+
+	if #parts == 0 then return "" end
+	return table.concat(parts, " ") .. " "
 end
 
 local function resize(direction, steps)
 	if not in_zellij() then return "" end
-	local step = "zellij action resize " .. direction .. " right >/dev/null 2>&1"
-	local chain = {}
-	for i = 1, steps do chain[i] = step end
-	return table.concat(chain, " && ")
+	return string.format("aoc-zellij-resize %s %d", direction, steps)
 end
 
 local function normalize_cmd(cmd)
@@ -18,9 +35,25 @@ local function normalize_cmd(cmd)
 	return cmd
 end
 
+local function safe_id(value)
+	if value == nil or value == "" then
+		return "unknown"
+	end
+	return value:gsub("[^%w%-_]", "_")
+end
+
+local function pane_scope()
+	local session = safe_id(os.getenv("ZELLIJ_SESSION_NAME") or "session")
+	local pane = safe_id(os.getenv("ZELLIJ_PANE_ID") or "")
+	if pane ~= "" then
+		return session .. "-" .. pane
+	end
+	return session
+end
+
 local function get_lock_path()
 	local state_root = os.getenv("XDG_STATE_HOME") or (os.getenv("HOME") .. "/.local/state")
-	return state_root .. "/aoc/yazi-edit.lock"
+	return state_root .. "/aoc/yazi-edit-" .. pane_scope() .. ".lock"
 end
 
 local function ensure_state_dir()
@@ -29,10 +62,7 @@ local function ensure_state_dir()
 end
 
 local function rename_pane(title)
-	local z_env = string.format("ZELLIJ=%s ZELLIJ_SESSION_NAME=%s ZELLIJ_PANE_ID=%s", 
-		ya.quote(os.getenv("ZELLIJ") or ""), 
-		ya.quote(os.getenv("ZELLIJ_SESSION_NAME") or ""),
-		ya.quote(os.getenv("ZELLIJ_PANE_ID") or ""))
+	local z_env = zellij_env_prefix()
 	local pane_id = os.getenv("ZELLIJ_PANE_ID") or ""
 	local pane_arg = ""
 	if pane_id ~= "" then
@@ -54,10 +84,7 @@ end
 
 local function clear_editing_cmd()
 	local path = get_lock_path()
-	local z_env = string.format("ZELLIJ=%s ZELLIJ_SESSION_NAME=%s ZELLIJ_PANE_ID=%s", 
-		ya.quote(os.getenv("ZELLIJ") or ""), 
-		ya.quote(os.getenv("ZELLIJ_SESSION_NAME") or ""),
-		ya.quote(os.getenv("ZELLIJ_PANE_ID") or ""))
+	local z_env = zellij_env_prefix()
 	local pane_id = os.getenv("ZELLIJ_PANE_ID") or ""
 	local pane_arg = ""
 	if pane_id ~= "" then

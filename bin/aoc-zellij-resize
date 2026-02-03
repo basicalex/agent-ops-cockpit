@@ -1,0 +1,45 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+direction="${1:-}"
+steps="${2:-1}"
+border="${3:-right}"
+
+if [[ -z "$direction" ]]; then
+	exit 0
+fi
+
+if ! [[ "$steps" =~ ^[0-9]+$ ]]; then
+	steps=1
+fi
+
+socket="${ZELLIJ:-}"
+session="${ZELLIJ_SESSION_NAME:-}"
+
+if [[ -z "$socket" && -n "$session" ]]; then
+	uid=$(id -u)
+	runtime="${XDG_RUNTIME_DIR:-/run/user/$uid}"
+	base_dirs=("$runtime/zellij" "/run/user/$uid/zellij")
+	for base in "${base_dirs[@]}"; do
+		[[ -d "$base" ]] || continue
+		if [[ -S "$base/$session" ]]; then
+			socket="$base/$session"
+			break
+		fi
+		for d in "$base"/*; do
+			[[ -d "$d" ]] || continue
+			if [[ -S "$d/$session" ]]; then
+				socket="$d/$session"
+				break 2
+			fi
+		done
+	done
+fi
+
+if [[ -z "$socket" ]]; then
+	exit 0
+fi
+
+for ((i = 0; i < steps; i++)); do
+	ZELLIJ="$socket" zellij action resize "$direction" "$border" >/dev/null 2>&1 || true
+done

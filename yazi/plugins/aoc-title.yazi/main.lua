@@ -1,7 +1,15 @@
 --- @sync entry
 local function get_lock_path()
 	local state_root = os.getenv("XDG_STATE_HOME") or (os.getenv("HOME") .. "/.local/state")
-	return state_root .. "/aoc/yazi-edit.lock"
+	local session = os.getenv("ZELLIJ_SESSION_NAME") or "session"
+	local pane = os.getenv("ZELLIJ_PANE_ID") or ""
+	session = session:gsub("[^%w%-_]", "_")
+	pane = pane:gsub("[^%w%-_]", "_")
+	local suffix = session
+	if pane ~= "" then
+		suffix = session .. "-" .. pane
+	end
+	return state_root .. "/aoc/yazi-edit-" .. suffix .. ".lock"
 end
 
 local function read_lock_title()
@@ -24,10 +32,25 @@ local function resolve_title()
 end
 
 local function do_rename(title)
-	local z_env = string.format("ZELLIJ=%s ZELLIJ_SESSION_NAME=%s ZELLIJ_PANE_ID=%s", 
-		ya.quote(os.getenv("ZELLIJ") or ""), 
-		ya.quote(os.getenv("ZELLIJ_SESSION_NAME") or ""),
-		ya.quote(os.getenv("ZELLIJ_PANE_ID") or ""))
+	local parts = {}
+	local zellij = os.getenv("ZELLIJ")
+	local session = os.getenv("ZELLIJ_SESSION_NAME")
+	local pane = os.getenv("ZELLIJ_PANE_ID")
+
+	if zellij and zellij ~= "" then
+		parts[#parts + 1] = "ZELLIJ=" .. ya.quote(zellij)
+	end
+	if session and session ~= "" then
+		parts[#parts + 1] = "ZELLIJ_SESSION_NAME=" .. ya.quote(session)
+	end
+	if pane and pane ~= "" then
+		parts[#parts + 1] = "ZELLIJ_PANE_ID=" .. ya.quote(pane)
+	end
+
+	local z_env = ""
+	if #parts > 0 then
+		z_env = table.concat(parts, " ") .. " "
+	end
 	local pane_id = os.getenv("ZELLIJ_PANE_ID") or ""
 	local pane_arg = ""
 	if pane_id ~= "" then

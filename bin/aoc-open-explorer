@@ -1,0 +1,72 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+if [[ $# -lt 1 ]]; then
+	exit 0
+fi
+
+target="$1"
+if [[ -z "$target" ]]; then
+	exit 0
+fi
+
+if [[ -d "$target" ]]; then
+	target_dir="$target"
+else
+	target_dir=$(dirname "$target")
+fi
+
+is_wsl() {
+	if [[ -n "${WSL_DISTRO_NAME:-}" ]]; then
+		return 0
+	fi
+	grep -qi microsoft /proc/version 2>/dev/null
+}
+
+open_linux() {
+	if command -v xdg-open >/dev/null 2>&1; then
+		xdg-open "$target_dir" >/dev/null 2>&1 &
+		return 0
+	fi
+	if command -v gio >/dev/null 2>&1; then
+		gio open "$target_dir" >/dev/null 2>&1 &
+		return 0
+	fi
+	return 1
+}
+
+uname_s=$(uname -s 2>/dev/null | tr '[:upper:]' '[:lower:]')
+
+case "$uname_s" in
+	darwin*)
+		open "$target_dir" >/dev/null 2>&1 &
+		;;
+	linux*)
+		if is_wsl; then
+			if command -v explorer.exe >/dev/null 2>&1; then
+				if command -v wslpath >/dev/null 2>&1; then
+					win_path=$(wslpath -w "$target_dir")
+				else
+					win_path="$target_dir"
+				fi
+				explorer.exe "$win_path" >/dev/null 2>&1 &
+			else
+				open_linux || true
+			fi
+		else
+			open_linux || true
+		fi
+		;;
+	msys*|mingw*|cygwin*)
+		if command -v explorer.exe >/dev/null 2>&1; then
+			if command -v cygpath >/dev/null 2>&1; then
+				explorer.exe "$(cygpath -w "$target_dir")" >/dev/null 2>&1 &
+			else
+				explorer.exe "$target_dir" >/dev/null 2>&1 &
+			fi
+		fi
+		;;
+	*)
+		open_linux || true
+		;;
+esac

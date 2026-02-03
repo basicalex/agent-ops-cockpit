@@ -15,6 +15,7 @@ prepend_keymap = [
 
   # SMART OPEN (Enter)
   { on = ["<Enter>"], run = "plugin aoc-open", desc = "Smart Open" },
+  { on = ["<S-Enter>"], run = "plugin aoc-open-explorer", desc = "Open in Explorer" },
 
   # Pane Expansion
   { on = ["e"], run = "plugin aoc-pane-toggle", desc = "Toggle pane width" },

@@ -6,6 +6,7 @@ sort_by = "natural"
 sort_sensitive = false
 show_symlink = true
 linemode = "none"
+mouse_events = ["click", "scroll"]
 
 [preview]
 script = "~/.config/yazi/preview.sh"
