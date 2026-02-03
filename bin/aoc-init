@@ -12,6 +12,7 @@ aoc_dir="$project_root/.aoc"
 gemini_dir="$project_root/.gemini"
 task_dir="$project_root/.taskmaster"
 global_task_conf="$HOME/.taskmaster/config.json"
+aoc_config_dir="${XDG_CONFIG_HOME:-$HOME/.config}/aoc"
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 log() { echo ">> $1"; }
@@ -55,67 +56,56 @@ EOF
     cat <<'EOF' > "$agents_file"
 # AOC Architecture & Agent Guidelines
 
-This document details the **Distributed Cognitive Architecture** of the Agent Ops Cockpit. If you are an agent working in this environment, this is your operating manual.
+This file defines the always-on rules for agents in this repo. Procedural playbooks live in AOC skills.
 
-## The Cognitive Stack
+## Always-on rules
+- Use `.aoc/context.md` for orientation; run `aoc-init` if it is missing or stale.
+- `.aoc/memory.md` is append-only; use `aoc-mem` to read/search/add. Do not edit the file directly.
+- `.taskmaster/tasks/tasks.json` is task state; use the Taskmaster TUI or `aoc task` commands. Do not edit the file directly.
+- Record major decisions and constraints in memory (`aoc-mem add "..."`).
 
-AOC separates information into three layers to prevent context window overflow and ensure long-term coherence.
+## Core files
+- `.aoc/context.md`: auto-generated project snapshot.
+- `.aoc/memory.md`: persistent decision log.
+- `.taskmaster/tasks/tasks.json`: dynamic task queue.
 
-### 1. Context (Orientation)
-*   **File:** `.aoc/context.md`
-*   **Nature:** Auto-generated (reactive if `aoc-watcher` is installed).
-*   **Content:** File tree, `README.md` snapshot, basic operational rules.
-*   **Agent Action:** **Read Only.** Run `aoc-init` to refresh it manually. If `aoc-watcher` is installed, it updates automatically.
-*   **Why it exists:** AGENTS.md is static policy; `.aoc/context.md` is a live project snapshot. Use `aoc-init` (or `aoc-watcher` when available) to keep it current.
-
-### 2. Memory (Wisdom)
-*   **File:** `.aoc/memory.md`
-*   **Nature:** Persistent, Append-only (Log).
-*   **Content:**
-    *   **Decisions:** Why we chose library X over Y.
-    *   **Evolution:** Major refactors or pivots (e.g., "Switched Gemini to native pane").
-    *   **Preferences:** User specific constraints (e.g., "Strict Types only").
-*   **Agent Action:**
-    *   **Read:** At the start of every task (`aoc-mem read`).
-    *   **Write:** When you make a decision that future agents need to know (`aoc-mem add "..."`).
-    *   **Rule:** Do not edit `.aoc/memory.md` directly; all interactions must go through `aoc-mem`.
-
-### 3. Tasks (Execution)
-*   **File:** `.taskmaster/tasks/tasks.json`
-*   **Nature:** Dynamic, State-driven.
-*   **Content:** The immediate work queue.
-*   **Agent Action:**
-    *   **Read:** `aoc task list` to find work.
-    *   **Write:** `aoc task add` to plan steps. `aoc task status` to report progress.
-    *   **Rule:** Do not edit `.taskmaster/tasks/tasks.json` directly; all interactions must go through `aoc task`.
-
-## Standard Workflow
-
-When you receive a high-level request (e.g., "Refactor the login system"):
-
-1.  **Orient:** Run `aoc-init` (if needed) or check `.aoc/context.md` to see the files involved.
-2.  **Recall:** Run `aoc-mem read` (or `aoc-mem search "login"`) to see past decisions about the login system.
-3.  **Plan:** Run `aoc task add "Refactor login"` to break it down.
-4.  **Execute:** Edit files, run tests.
-5.  **Update:** `aoc task status <id> done`.
-6.  **Record:** `aoc-mem add "Refactored login to use OAuth2 provider X."`
-
-## Toolchain Reference
-
-*   `aoc-init`: Bootstraps the `.aoc` and `.taskmaster` folders.
-*   `aoc-watcher` (optional): Background service that keeps `context.md` updated in real-time.
-*   `aoc-mem`: CLI for managing `memory.md`.
-*   `aoc task` / `aoc-taskmaster`: CLI for managing tasks.
-*   `aoc-doctor`: Validates system dependencies.
-
-## RLM Skill (Default for Large Codebases)
-When repository size exceeds your context window, use the Rust-based RLM tool:
-*   `aoc-rlm scan` (or `rlm scan`) for scale, `aoc-rlm peek` (or `rlm peek`) for snippets, `aoc-rlm chunk` (or `rlm chunk`) for slicing.
-*   Treat this as the default approach for large codebases before deep analysis.
+## Skills (load when needed)
+- `aoc-workflow`: standard project workflow.
+- `aoc-init-ops`: initialize or repair AOC files.
+- `memory-ops`: read/search/add to memory.
+- `taskmaster-ops`: manage tasks and tags.
+- `rlm-analysis`: large codebase analysis flow.
+- `prd-dev`: draft the Taskmaster PRD.
+- `prd-align`: align tasks with the PRD.
+- `tag-align`: normalize task tags and dependencies.
+- `task-breakdown`: expand tasks into subtasks.
+- `task-checker`: verify implementation vs. testStrategy.
+- `release-notes`: draft changelog and release notes.
+- `skill-creator`: create or update AOC skills.
 EOF
   else
     if grep -Eq "AOC Architecture & Agent Guidelines|Agent Ops Cockpit \(AOC\)" "$agents_file"; then
-      log "AGENTS.md already includes AOC guidance. Skipping."
+      if grep -Eq "Skills \(load when needed\)|aoc-workflow" "$agents_file"; then
+        log "AGENTS.md already includes AOC guidance. Skipping."
+      else
+        log "Appending AOC skills guidance to AGENTS.md..."
+        cat <<'EOF' >> "$agents_file"
+
+## Skills (load when needed)
+- `aoc-workflow`: standard project workflow.
+- `aoc-init-ops`: initialize or repair AOC files.
+- `memory-ops`: read/search/add to memory.
+- `taskmaster-ops`: manage tasks and tags.
+- `rlm-analysis`: large codebase analysis flow.
+- `prd-dev`: draft the Taskmaster PRD.
+- `prd-align`: align tasks with the PRD.
+- `tag-align`: normalize task tags and dependencies.
+- `task-breakdown`: expand tasks into subtasks.
+- `task-checker`: verify implementation vs. testStrategy.
+- `release-notes`: draft changelog and release notes.
+- `skill-creator`: create or update AOC skills.
+EOF
+      fi
     else
       log "Appending AOC agent guidance to AGENTS.md..."
       cat <<'EOF' >> "$agents_file"
@@ -126,7 +116,7 @@ Use the AOC tools for context, memory, and tasks in this repo.
 - **Context:** `.aoc/context.md` (read-only)
 - **Memory:** `.aoc/memory.md` via `aoc-mem read/add` (do not edit directly)
 - **Tasks:** `.taskmaster/tasks/tasks.json` via `aoc task list/add/status` (do not edit directly)
-- **RLM:** `aoc-rlm` (or `rlm`) for large codebase analysis
+- **Skills:** load AOC skills as needed for workflows
 
 If the AOC files are missing, run `aoc-init` at the repo root.
 EOF
@@ -210,6 +200,103 @@ When you need to analyze more files than fit in your context:
 4. **Process:** Use your available sub-agent tools (like \`Task\`) to process chunks in parallel.
 5. **Reduce:** Synthesize the sub-agent outputs into a final answer.
 EOF
+  fi
+}
+
+# 1b. Setup Skills (.aoc/skills)
+setup_skills() {
+  local skills_dir="$aoc_dir/skills"
+  if [[ ! -d "$skills_dir" ]]; then
+    log "Creating .aoc/skills directory..."
+    mkdir -p "$skills_dir"
+  fi
+
+  local seed_dir=""
+  local candidate=""
+  local seed_has_skills=0
+  local skill_list=()
+
+  for candidate in "$aoc_config_dir/skills" "$script_dir/../.aoc/skills"; do
+    if [[ -d "$candidate" ]]; then
+      shopt -s nullglob
+      skill_list=("$candidate"/*/SKILL.md)
+      shopt -u nullglob
+      if ((${#skill_list[@]} > 0)); then
+        seed_dir="$candidate"
+        seed_has_skills=1
+        break
+      fi
+    fi
+  done
+
+  if [[ "$seed_has_skills" == "1" ]]; then
+    local copied=0
+    shopt -s nullglob
+    local seed_entries=("$seed_dir"/*)
+    shopt -u nullglob
+    local entry=""
+    for entry in "${seed_entries[@]}"; do
+      [[ -d "$entry" ]] || continue
+      local name
+      name="$(basename "$entry")"
+      if [[ ! -e "$skills_dir/$name" ]]; then
+        cp -R "$entry" "$skills_dir/$name"
+        copied=1
+      fi
+    done
+    if [[ -f "$seed_dir/manifest.toml" && ! -f "$skills_dir/manifest.toml" ]]; then
+      cp "$seed_dir/manifest.toml" "$skills_dir/manifest.toml"
+      copied=1
+    fi
+    if [[ "$copied" == "1" ]]; then
+      log "Seeded AOC skills into .aoc/skills."
+    fi
+  else
+    warn "No default skills source found; leaving .aoc/skills as-is."
+  fi
+
+  if [[ -x "$script_dir/aoc-skill" ]]; then
+    log "Syncing skills for active agent..."
+    (cd "$project_root" && "$script_dir/aoc-skill" sync --active --root "$project_root" || true)
+    log "Syncing skills for existing agent targets..."
+    (cd "$project_root" && "$script_dir/aoc-skill" sync --existing --root "$project_root" || true)
+  elif command -v aoc-skill >/dev/null 2>&1; then
+    log "Syncing skills for active agent..."
+    (cd "$project_root" && aoc-skill sync --active --root "$project_root" || true)
+    log "Syncing skills for existing agent targets..."
+    (cd "$project_root" && aoc-skill sync --existing --root "$project_root" || true)
+  fi
+}
+
+# 1c. Setup OpenCode Agents (.opencode/agents)
+setup_agents() {
+  local opencode_agents_dir="$project_root/.opencode/agents"
+  local seed_file=""
+  local candidate=""
+
+  for candidate in \
+    "$aoc_config_dir/agents/opencode/aoc-ops.md" \
+    "$script_dir/../.aoc/agents/opencode/aoc-ops.md"; do
+    if [[ -f "$candidate" ]]; then
+      seed_file="$candidate"
+      break
+    fi
+  done
+
+  if [[ -z "$seed_file" ]]; then
+    warn "No OpenCode agent template found; skipping agent seeding."
+    return
+  fi
+
+  if [[ ! -d "$opencode_agents_dir" ]]; then
+    mkdir -p "$opencode_agents_dir"
+  fi
+
+  if [[ ! -f "$opencode_agents_dir/aoc-ops.md" ]]; then
+    cp "$seed_file" "$opencode_agents_dir/aoc-ops.md"
+    log "Seeded OpenCode agent: aoc-ops"
+  else
+    log "OpenCode agent already present. Preserving."
   fi
 }
 
@@ -326,6 +413,8 @@ setup_binaries() {
 main() {
   log "Initializing AOC in: $project_root"
   setup_memory
+  setup_skills
+  setup_agents
   setup_tasks
   setup_env
   setup_binaries

@@ -21,7 +21,7 @@ We welcome contributions!
 
 ## Project Structure
 
-*   `crates/`: Rust binaries (`aoc-cli`, `aoc-core`).
-*   `plugins/`: Zellij WASM plugins (`taskmaster`).
+*   `crates/`: Rust binaries (`aoc-cli`, `aoc-core`, `aoc-taskmaster`).
+*   `plugins/`: Reserved for Zellij plugins (currently empty).
 *   `bin/`: Shell scripts and wrappers.
 *   `zellij/`: Layout templates.

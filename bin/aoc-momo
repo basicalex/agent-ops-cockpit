@@ -1,0 +1,265 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+usage() {
+  cat <<'EOF'
+Usage: aoc-momo init [--root PATH] [--dir NAME] [--source PATH|URL] [--update] [--quiet]
+
+Initialize the MoreMotion integration in a repo.
+
+Options:
+  --root PATH     Project root (defaults to nearest .aoc or .git).
+  --dir NAME      Target directory for MoreMotion (default: moremotion).
+  --source        Local path or git URL (default: ../MoreMotion).
+  --update        Pull if the repo already exists.
+  --quiet         Suppress non-error output.
+  -h, --help      Show this help.
+EOF
+}
+
+quiet=0
+command="${1:-init}"
+if [[ "$command" == -* ]]; then
+  command="init"
+else
+  shift || true
+fi
+
+root=""
+target_dir="${AOC_MOMO_DIR:-moremotion}"
+source="${AOC_MOMO_SOURCE:-}"
+update=0
+
+log() {
+  if [[ "$quiet" == "1" ]]; then
+    return
+  fi
+  echo ">> $1"
+}
+
+warn() {
+  echo "!! $1" >&2
+}
+
+find_root() {
+  if [[ -n "$root" ]]; then
+    if [[ -d "$root" ]]; then
+      (cd "$root" && pwd -P)
+      return 0
+    fi
+    return 1
+  fi
+
+  local probe="$PWD"
+  while [[ -n "$probe" && "$probe" != "/" ]]; do
+    if [[ -d "$probe/.aoc" ]]; then
+      (cd "$probe" && pwd -P)
+      return 0
+    fi
+    if [[ -d "$probe/.git" ]]; then
+      (cd "$probe" && pwd -P)
+      return 0
+    fi
+    probe="$(dirname "$probe")"
+  done
+  (pwd -P)
+}
+
+resolve_source() {
+  if [[ -n "$source" ]]; then
+    return 0
+  fi
+  if [[ -d "$root/../MoreMotion" ]]; then
+    source="$root/../MoreMotion"
+    return 0
+  fi
+  if [[ -d "$root/../moremotion" ]]; then
+    source="$root/../moremotion"
+    return 0
+  fi
+  return 1
+}
+
+ensure_aoc() {
+  if [[ -d "$root/.aoc" ]]; then
+    return 0
+  fi
+  local script_dir
+  script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+  if [[ -x "$script_dir/aoc-init" ]]; then
+    log "Running aoc-init..."
+    (cd "$root" && "$script_dir/aoc-init")
+    return 0
+  fi
+  if command -v aoc-init >/dev/null 2>&1; then
+    log "Running aoc-init..."
+    (cd "$root" && aoc-init)
+    return 0
+  fi
+  warn "aoc-init not found. Please run it before aoc-momo."
+  exit 1
+}
+
+seed_skill() {
+  local dest="$root/.aoc/skills/moremotion"
+  if [[ -d "$dest" ]]; then
+    return 0
+  fi
+  local script_dir
+  script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+  local config_dir="${XDG_CONFIG_HOME:-$HOME/.config}/aoc"
+  local source_dir=""
+  if [[ -d "$config_dir/skills-optional/moremotion" ]]; then
+    source_dir="$config_dir/skills-optional/moremotion"
+  elif [[ -d "$script_dir/../.aoc/skills-optional/moremotion" ]]; then
+    source_dir="$script_dir/../.aoc/skills-optional/moremotion"
+  fi
+  if [[ -z "$source_dir" ]]; then
+    warn "No MoreMotion skill template found."
+    return 0
+  fi
+  cp -R "$source_dir" "$dest"
+  log "Added MoreMotion skill to .aoc/skills."
+}
+
+seed_agent() {
+  local dest_dir="$root/.opencode/agents"
+  local dest="$dest_dir/momo.md"
+  if [[ -f "$dest" ]]; then
+    return 0
+  fi
+  local script_dir
+  script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+  local config_dir="${XDG_CONFIG_HOME:-$HOME/.config}/aoc"
+  local source_file=""
+  if [[ -f "$config_dir/agents-optional/opencode/momo.md" ]]; then
+    source_file="$config_dir/agents-optional/opencode/momo.md"
+  elif [[ -f "$script_dir/../.aoc/agents-optional/opencode/momo.md" ]]; then
+    source_file="$script_dir/../.aoc/agents-optional/opencode/momo.md"
+  fi
+  if [[ -z "$source_file" ]]; then
+    warn "No OpenCode momo agent template found."
+    return 0
+  fi
+  mkdir -p "$dest_dir"
+  cp "$source_file" "$dest"
+  log "Added OpenCode subagent: momo"
+}
+
+sync_skills() {
+  local script_dir
+  script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+  if [[ -x "$script_dir/aoc-skill" ]]; then
+    (cd "$root" && "$script_dir/aoc-skill" validate --root "$root" || true)
+    (cd "$root" && "$script_dir/aoc-skill" sync --active --root "$root" || true)
+    return 0
+  fi
+  if command -v aoc-skill >/dev/null 2>&1; then
+    (cd "$root" && aoc-skill validate --root "$root" || true)
+    (cd "$root" && aoc-skill sync --active --root "$root" || true)
+  fi
+}
+
+ensure_gitignore() {
+  local ignore_file="$root/.gitignore"
+  local entry="$target_dir/"
+  if [[ -f "$ignore_file" ]]; then
+    if grep -Fqx "$entry" "$ignore_file"; then
+      return 0
+    fi
+  fi
+  printf '%s\n' "$entry" >> "$ignore_file"
+  log "Added $entry to .gitignore"
+}
+
+clone_moremotion() {
+  local dest="$root/$target_dir"
+  if [[ -d "$dest" ]]; then
+    if [[ "$update" == "1" && -d "$dest/.git" ]]; then
+      log "Updating MoreMotion repo..."
+      git -C "$dest" pull --ff-only || warn "MoreMotion update failed."
+    else
+      log "MoreMotion directory already exists."
+    fi
+    return 0
+  fi
+
+  if ! command -v git >/dev/null 2>&1; then
+    warn "git not found; cannot clone MoreMotion."
+    exit 1
+  fi
+  log "Cloning MoreMotion into $dest"
+  git clone "$source" "$dest"
+}
+
+if [[ "$command" != "init" ]]; then
+  usage
+  exit 1
+fi
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --root)
+      shift
+      root="$1"
+      ;;
+    --dir)
+      shift
+      target_dir="$1"
+      ;;
+    --source)
+      shift
+      source="$1"
+      ;;
+    --update)
+      update=1
+      ;;
+    --quiet)
+      quiet=1
+      ;;
+    -h|--help)
+      usage
+      exit 0
+      ;;
+    *)
+      warn "Unknown option: $1"
+      usage
+      exit 1
+      ;;
+  esac
+  shift || true
+done
+
+root="$(find_root)"
+
+if [[ -f "$root/package.json" ]]; then
+  if grep -Eq '"name"[[:space:]]*:[[:space:]]*"moremotion"' "$root/package.json"; then
+    warn "This repo appears to be MoreMotion. Use aoc-init here; run aoc-momo in a host repo only."
+    exit 1
+  fi
+fi
+
+ensure_aoc
+
+if ! resolve_source; then
+  warn "MoreMotion source not found. Set --source or AOC_MOMO_SOURCE."
+  exit 1
+fi
+
+if [[ -d "$source" ]]; then
+  source_real="$(cd "$source" && pwd -P)"
+  root_real="$(cd "$root" && pwd -P)"
+  if [[ "$source_real" == "$root_real" ]]; then
+    warn "Refusing to clone MoreMotion into itself. Use aoc-init here; run aoc-momo in a host repo."
+    exit 1
+  fi
+fi
+
+clone_moremotion
+ensure_gitignore
+seed_skill
+seed_agent
+sync_skills
+
+log "MoreMotion integration ready."
+exit 0

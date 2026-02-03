@@ -1,0 +1,59 @@
+[[skill]]
+name = "aoc-workflow"
+type = "workflow"
+summary = "Standard AOC workflow using context, memory, and tasks."
+
+[[skill]]
+name = "aoc-init-ops"
+type = "ops"
+summary = "Initialize or repair AOC context, memory, and tasks."
+
+[[skill]]
+name = "memory-ops"
+type = "ops"
+summary = "Read, search, and record decisions with aoc-mem."
+
+[[skill]]
+name = "taskmaster-ops"
+type = "ops"
+summary = "Operate tasks via aoc task and the Taskmaster TUI."
+
+[[skill]]
+name = "rlm-analysis"
+type = "analysis"
+summary = "Analyze large repos with aoc-rlm scan/peek/chunk."
+
+[[skill]]
+name = "prd-dev"
+type = "planning"
+summary = "Draft and refine the Taskmaster PRD."
+
+[[skill]]
+name = "prd-align"
+type = "planning"
+summary = "Align tasks and implementation with the PRD."
+
+[[skill]]
+name = "tag-align"
+type = "planning"
+summary = "Normalize task tags, statuses, and dependencies."
+
+[[skill]]
+name = "task-breakdown"
+type = "planning"
+summary = "Expand a task into subtasks with dependencies and test strategy."
+
+[[skill]]
+name = "task-checker"
+type = "verification"
+summary = "Verify implementation meets task details and test strategy."
+
+[[skill]]
+name = "release-notes"
+type = "release"
+summary = "Draft changelog entries and release notes."
+
+[[skill]]
+name = "skill-creator"
+type = "ops"
+summary = "Create or update AOC skills with the correct structure."

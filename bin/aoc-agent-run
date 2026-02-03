@@ -13,6 +13,10 @@ if [[ -z "$agent" ]]; then
 fi
 agent="$(printf "%s" "$agent" | tr '[:upper:]' '[:lower:]')"
 
+if command -v aoc-skill >/dev/null 2>&1; then
+  aoc-skill sync --agent "$agent" --quiet || true
+fi
+
 case "$agent" in
   codex)
     exec aoc-codex "$@"

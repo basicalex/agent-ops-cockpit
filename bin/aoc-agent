@@ -45,6 +45,13 @@ valid_agent() {
   esac
 }
 
+maybe_sync_skills() {
+  local agent="$1"
+  if command -v aoc-skill >/dev/null 2>&1; then
+    aoc-skill sync --agent "$agent" --quiet || true
+  fi
+}
+
 pick_agent() {
   local choice=""
   if command -v fzf >/dev/null 2>&1; then
@@ -80,6 +87,7 @@ set_default() {
     exit 1
   fi
   echo "$agent" >"$default_file"
+  maybe_sync_skills "$agent"
   echo "Default agent set to $(agent_label "$agent")."
 }
 
@@ -97,6 +105,7 @@ open_tab() {
     echo "Unknown agent: $agent" >&2
     exit 1
   fi
+  maybe_sync_skills "$agent"
   if [[ -n "${ZELLIJ:-}" || -n "${ZELLIJ_SESSION_NAME:-}" ]]; then
     AOC_AGENT_ID="$agent" aoc-new-tab --aoc --name "$(agent_label "$agent")"
   else
@@ -118,6 +127,7 @@ run_here() {
     echo "Unknown agent: $agent" >&2
     exit 1
   fi
+  maybe_sync_skills "$agent"
   AOC_AGENT_ID="$agent" aoc-agent-run
 }
 

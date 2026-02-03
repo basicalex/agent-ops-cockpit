@@ -33,5 +33,13 @@ crates/target/
 # tasks/ 
 
 # Local AOC state
-/.aoc/
+/.aoc/*
+!/.aoc/skills/
+!/.aoc/skills/**
+!/.aoc/agents/
+!/.aoc/agents/**
+!/.aoc/skills-optional/
+!/.aoc/skills-optional/**
+!/.aoc/agents-optional/
+!/.aoc/agents-optional/**
 /.taskmaster/

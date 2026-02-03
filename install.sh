@@ -13,6 +13,10 @@ mkdir -p "$HOME/.config/yazi"
 mkdir -p "$HOME/.config/yazi/plugins"
 mkdir -p "${XDG_CONFIG_HOME:-$HOME/.config}/aoc"
 mkdir -p "${XDG_CONFIG_HOME:-$HOME/.config}/aoc/btop"
+mkdir -p "${XDG_CONFIG_HOME:-$HOME/.config}/aoc/skills"
+mkdir -p "${XDG_CONFIG_HOME:-$HOME/.config}/aoc/agents/opencode"
+mkdir -p "${XDG_CONFIG_HOME:-$HOME/.config}/aoc/skills-optional"
+mkdir -p "${XDG_CONFIG_HOME:-$HOME/.config}/aoc/agents-optional/opencode"
 mkdir -p "${XDG_STATE_HOME:-$HOME/.local/state}/aoc"
 
 log() { echo ">> $1"; }
@@ -137,6 +141,51 @@ install -m 0644 "$ROOT_DIR/yazi/theme.toml" "$HOME/.config/yazi/theme.toml"
 install -m 0644 "$ROOT_DIR/yazi/init.lua" "$HOME/.config/yazi/init.lua"
 install -m 0644 "$ROOT_DIR/config/codex-tmux.conf" "${XDG_CONFIG_HOME:-$HOME/.config}/aoc/codex-tmux.conf"
 install -m 0644 "$ROOT_DIR/config/btop.conf" "${XDG_CONFIG_HOME:-$HOME/.config}/aoc/btop/btop.conf"
+
+# AOC default skills
+if [[ -d "$ROOT_DIR/.aoc/skills" ]]; then
+  for d in "$ROOT_DIR/.aoc/skills"/*; do
+    [[ -d "$d" ]] || continue
+    dest="${XDG_CONFIG_HOME:-$HOME/.config}/aoc/skills/$(basename "$d")"
+    if [[ -e "$dest" ]]; then
+      continue
+    fi
+    cp -R "$d" "$dest"
+  done
+  if [[ -f "$ROOT_DIR/.aoc/skills/manifest.toml" && ! -f "${XDG_CONFIG_HOME:-$HOME/.config}/aoc/skills/manifest.toml" ]]; then
+    cp "$ROOT_DIR/.aoc/skills/manifest.toml" "${XDG_CONFIG_HOME:-$HOME/.config}/aoc/skills/manifest.toml"
+  fi
+fi
+
+# AOC default agents (OpenCode)
+if [[ -f "$ROOT_DIR/.aoc/agents/opencode/aoc-ops.md" ]]; then
+  dest="${XDG_CONFIG_HOME:-$HOME/.config}/aoc/agents/opencode/aoc-ops.md"
+  if [[ ! -f "$dest" ]]; then
+    cp "$ROOT_DIR/.aoc/agents/opencode/aoc-ops.md" "$dest"
+  fi
+fi
+
+# Optional skills and agents (MoreMotion)
+if [[ -d "$ROOT_DIR/.aoc/skills-optional" ]]; then
+  for d in "$ROOT_DIR/.aoc/skills-optional"/*; do
+    [[ -d "$d" ]] || continue
+    dest="${XDG_CONFIG_HOME:-$HOME/.config}/aoc/skills-optional/$(basename "$d")"
+    if [[ -e "$dest" ]]; then
+      continue
+    fi
+    cp -R "$d" "$dest"
+  done
+fi
+if [[ -d "$ROOT_DIR/.aoc/agents-optional/opencode" ]]; then
+  for f in "$ROOT_DIR/.aoc/agents-optional/opencode"/*.md; do
+    [[ -f "$f" ]] || continue
+    dest="${XDG_CONFIG_HOME:-$HOME/.config}/aoc/agents-optional/opencode/$(basename "$f")"
+    if [[ -f "$dest" ]]; then
+      continue
+    fi
+    cp "$f" "$dest"
+  done
+fi
 
 # Yazi Plugins
 if [[ -d "$ROOT_DIR/yazi/plugins" ]]; then

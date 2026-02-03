@@ -71,7 +71,7 @@ aoc task list
 |-----------|--------------|--------|
 | Zellij layouts | Hardcoded bash | High - all panes |
 | bin/* scripts | bash-only | Medium - internal |
-| WASM plugin | sh -c | Low |
+| Taskmaster TUI | native (Ratatui) | Low |
 ```
 
 ---
@@ -234,7 +234,7 @@ When presenting a new feature to the user, use this structure:
 This feature was planned using the above process:
 
 ### Discovery
-- Explored 37+ bash scripts, layout templates, WASM plugin
+- Explored 37+ bash scripts, layout templates, Taskmaster TUI
 - Found hardcoded `bash -lc` patterns throughout
 
 ### Scope Clarification

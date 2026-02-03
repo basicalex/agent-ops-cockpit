@@ -1,0 +1,535 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+usage() {
+  cat <<'EOF'
+Usage: aoc-skill sync [--agent AGENT] [--active] [--existing] [--root PATH] [--quiet]
+       aoc-skill validate [--root PATH] [--quiet]
+
+Sync AOC skills for the active agent or existing targets only.
+
+Options:
+  --agent AGENT   Sync skills for a specific agent (codex, kimi, cc, oc).
+  --active        Sync skills for the current default agent.
+  --existing      Sync only targets already synced in this repo (default).
+  --root PATH     Project root to use (defaults to searching for .aoc).
+  --quiet         Suppress non-error output.
+  -h, --help      Show this help.
+EOF
+}
+
+quiet=0
+mode="existing"
+agent=""
+project_root=""
+
+log() {
+  if [[ "$quiet" == "1" ]]; then
+    return
+  fi
+  echo ">> $1"
+}
+
+warn() {
+  if [[ "$quiet" == "1" ]]; then
+    return
+  fi
+  echo "!! $1" >&2
+}
+
+normalize_agent() {
+  local input="${1:-}"
+  input="$(printf '%s' "$input" | tr '[:upper:]' '[:lower:]')"
+  case "$input" in
+    codex) echo "codex" ;;
+    gemini) echo "gemini" ;;
+    kimi) echo "kimi" ;;
+    cc|claude|claude-code) echo "cc" ;;
+    oc|opencode|open-code) echo "oc" ;;
+    *) echo "" ;;
+  esac
+}
+
+find_project_root() {
+  if [[ -n "$project_root" ]]; then
+    if [[ -d "$project_root" ]]; then
+      (cd "$project_root" && pwd -P)
+      return 0
+    fi
+    return 1
+  fi
+  local probe="$PWD"
+  while [[ -n "$probe" && "$probe" != "/" ]]; do
+    if [[ -d "$probe/.aoc" ]]; then
+      (cd "$probe" && pwd -P)
+      return 0
+    fi
+    probe="$(dirname "$probe")"
+  done
+  return 1
+}
+
+active_agent() {
+  local state_dir="${XDG_STATE_HOME:-$HOME/.local/state}/aoc"
+  local default_file="${AOC_AGENT_DEFAULT_FILE:-$state_dir/agent_default}"
+  local current="${AOC_AGENT_ID:-}"
+  if [[ -z "$current" && -f "$default_file" ]]; then
+    current="$(cat "$default_file" 2>/dev/null || true)"
+  fi
+  if [[ -z "$current" ]]; then
+    current="codex"
+  fi
+  normalize_agent "$current"
+}
+
+toml_escape() {
+  printf '%s' "$1" | sed 's/\\/\\\\/g; s/"/\\"/g'
+}
+
+frontmatter_value() {
+  local key="$1"
+  local file="$2"
+  awk -v k="$key" '
+    BEGIN { in_block=0 }
+    NR==1 && $0=="---" { in_block=1; next }
+    in_block==1 {
+      if ($0=="---") { exit }
+      if ($0 ~ "^"k"[[:space:]]*:") {
+        sub("^"k"[[:space:]]*:[[:space:]]*", "")
+        print
+        exit
+      }
+    }
+  ' "$file"
+}
+
+strip_frontmatter() {
+  local file="$1"
+  awk '
+    BEGIN { in_block=0 }
+    NR==1 && $0=="---" { in_block=1; next }
+    in_block==1 {
+      if ($0=="---") { in_block=0; next }
+      next
+    }
+    { print }
+  ' "$file"
+}
+
+skills_present() {
+  local dir="$1"
+  shopt -s nullglob
+  local skill_dirs=("$dir"/*)
+  shopt -u nullglob
+  local found=0
+  local d=""
+  for d in "${skill_dirs[@]}"; do
+    if [[ -d "$d" && -f "$d/SKILL.md" ]]; then
+      found=1
+      break
+    fi
+  done
+  if [[ "$found" == "1" ]]; then
+    return 0
+  fi
+  return 1
+}
+
+target_dir_for_agent() {
+  local root="$1"
+  local agent_name="$2"
+  case "$agent_name" in
+    codex) echo "$root/.codex/skills" ;;
+    cc) echo "$root/.claude/skills" ;;
+    oc) echo "$root/.opencode/skills" ;;
+    kimi) echo "$root/.agents/skills" ;;
+    *) echo "" ;;
+  esac
+}
+
+sync_symlinks() {
+  local skills_dir="$1"
+  local target_dir="$2"
+  mkdir -p "$target_dir"
+  shopt -s nullglob
+  local skill_dirs=("$skills_dir"/*)
+  shopt -u nullglob
+  local d=""
+  for d in "${skill_dirs[@]}"; do
+    [[ -d "$d" ]] || continue
+    [[ -f "$d/SKILL.md" ]] || continue
+    local name
+    name="$(basename "$d")"
+    local dest="$target_dir/$name"
+    if [[ -L "$dest" ]]; then
+      local resolved
+      local expected
+      resolved="$(readlink -f "$dest" 2>/dev/null || true)"
+      expected="$(readlink -f "$d" 2>/dev/null || true)"
+      if [[ -n "$resolved" && -n "$expected" && "$resolved" == "$expected" ]]; then
+        continue
+      fi
+      warn "Skill target exists and points elsewhere: $dest"
+      continue
+    elif [[ -e "$dest" ]]; then
+      warn "Skill target exists and is not a symlink: $dest"
+    else
+      ln -s "$d" "$dest"
+    fi
+  done
+
+  shopt -s nullglob
+  local links=("$target_dir"/*)
+  shopt -u nullglob
+  local link=""
+  for link in "${links[@]}"; do
+    [[ -L "$link" ]] || continue
+    local target
+    target="$(readlink "$link" || true)"
+    if [[ "$target" == "$skills_dir"/* ]]; then
+      if [[ ! -e "$target" ]]; then
+        rm -f "$link"
+      fi
+    fi
+  done
+}
+
+sync_gemini_commands() {
+  local skills_dir="$1"
+  local commands_root="$2"
+  local namespace="$3"
+  local target_dir="$commands_root/$namespace"
+  mkdir -p "$target_dir"
+
+  shopt -s nullglob
+  local skill_dirs=("$skills_dir"/*)
+  shopt -u nullglob
+  local allowed_names=()
+  local d=""
+  for d in "${skill_dirs[@]}"; do
+    [[ -d "$d" ]] || continue
+    local skill_file="$d/SKILL.md"
+    [[ -f "$skill_file" ]] || continue
+    local name
+    name="$(basename "$d")"
+    allowed_names+=("$name")
+    local desc
+    desc="$(frontmatter_value "description" "$skill_file")"
+    desc="$(printf '%s' "$desc" | sed -e 's/^"//' -e 's/"$//' -e "s/^'//" -e "s/'$//")"
+    if [[ -z "$desc" ]]; then
+      desc="AOC skill: $name"
+    fi
+    local desc_escaped
+    desc_escaped="$(toml_escape "$desc")"
+    local content
+    content="$(strip_frontmatter "$skill_file")"
+    local out_file="$target_dir/${name}.toml"
+    {
+      printf '# Generated by aoc-skill sync. Edit %s instead.\n' "$skill_file"
+      printf 'description = "%s"\n' "$desc_escaped"
+      printf 'prompt = """\n'
+      printf '%s\n' "$content"
+      printf '\n\nAdditional request (if provided): {{args}}\n'
+      printf '"""\n'
+    } > "$out_file"
+  done
+
+  shopt -s nullglob
+  local existing=("$target_dir"/*.toml)
+  shopt -u nullglob
+  local file=""
+  for file in "${existing[@]}"; do
+    local base
+    base="$(basename "$file" .toml)"
+    local keep=0
+    local allowed=""
+    for allowed in "${allowed_names[@]}"; do
+      if [[ "$base" == "$allowed" ]]; then
+        keep=1
+        break
+      fi
+    done
+    if [[ "$keep" == "0" ]]; then
+      if grep -q "Generated by aoc-skill sync" "$file" 2>/dev/null; then
+        rm -f "$file"
+      fi
+    fi
+  done
+}
+
+validate_skills() {
+  local root="$1"
+  local skills_dir="$root/.aoc/skills"
+  local errors=0
+  local warnings=0
+
+  if [[ ! -d "$skills_dir" ]]; then
+    warn "No .aoc/skills directory present."
+    return 1
+  fi
+
+  shopt -s nullglob
+  local skill_dirs=("$skills_dir"/*)
+  shopt -u nullglob
+  local d=""
+  for d in "${skill_dirs[@]}"; do
+    [[ -d "$d" ]] || continue
+    local skill_file="$d/SKILL.md"
+    if [[ ! -f "$skill_file" ]]; then
+      warn "Missing SKILL.md: $d"
+      errors=$((errors + 1))
+      continue
+    fi
+
+    local first_line
+    first_line="$(head -n 1 "$skill_file" 2>/dev/null || true)"
+    if [[ "$first_line" != "---" ]]; then
+      warn "Frontmatter must start with '---': $skill_file"
+      errors=$((errors + 1))
+      continue
+    fi
+
+    local has_end=0
+    if awk 'NR>1 { if ($0=="---") { found=1; exit } } END { exit found ? 0 : 1 }' "$skill_file"; then
+      has_end=1
+    fi
+    if [[ "$has_end" != "1" ]]; then
+      warn "Frontmatter must end with '---': $skill_file"
+      errors=$((errors + 1))
+      continue
+    fi
+
+    local name
+    local desc
+    name="$(frontmatter_value "name" "$skill_file" | head -n 1)"
+    desc="$(frontmatter_value "description" "$skill_file" | head -n 1)"
+    name="$(printf '%s' "$name" | sed -e 's/^"//' -e 's/"$//' -e "s/^'//" -e "s/'$//")"
+    desc="$(printf '%s' "$desc" | sed -e 's/^"//' -e 's/"$//' -e "s/^'//" -e "s/'$//")"
+
+    local dir_name
+    dir_name="$(basename "$d")"
+    if [[ -z "$name" ]]; then
+      warn "Missing name in frontmatter: $skill_file"
+      errors=$((errors + 1))
+    elif [[ "$name" != "$dir_name" ]]; then
+      warn "Skill name must match directory ($dir_name): $skill_file"
+      errors=$((errors + 1))
+    elif [[ ! "$name" =~ ^[a-z0-9]+(-[a-z0-9]+)*$ ]]; then
+      warn "Invalid skill name (use lowercase + hyphens): $skill_file"
+      errors=$((errors + 1))
+    fi
+
+    if [[ -z "$desc" ]]; then
+      warn "Missing description in frontmatter: $skill_file"
+      errors=$((errors + 1))
+    else
+      local desc_len=${#desc}
+      if ((desc_len < 1 || desc_len > 1024)); then
+        warn "Description must be 1-1024 characters: $skill_file"
+        errors=$((errors + 1))
+      fi
+    fi
+
+    local key
+    local allowed=" name description license compatibility metadata "
+    while IFS= read -r key; do
+      if [[ -n "$key" ]]; then
+        if [[ "$allowed" != *" $key "* ]]; then
+          warn "Unknown frontmatter key '$key' (ignored by OpenCode): $skill_file"
+          warnings=$((warnings + 1))
+        fi
+      fi
+    done < <(awk '
+      NR==1 && $0=="---" { in_block=1; next }
+      in_block==1 {
+        if ($0=="---") { exit }
+        if ($0 ~ "^[a-zA-Z0-9_-]+:") {
+          sub(":.*", "")
+          print
+        }
+      }
+    ' "$skill_file")
+  done
+
+  if ((errors > 0)); then
+    warn "Skill validation failed: ${errors} error(s), ${warnings} warning(s)."
+    return 1
+  fi
+
+  log "Skill validation passed with ${warnings} warning(s)."
+  return 0
+}
+
+write_marker() {
+  local path="$1"
+  local agent_name="$2"
+  mkdir -p "$(dirname "$path")"
+  {
+    echo "aoc-skill-sync: true"
+    echo "agent: $agent_name"
+    echo "timestamp: $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+  } > "$path"
+}
+
+marker_path() {
+  local root="$1"
+  local agent_name="$2"
+  case "$agent_name" in
+    codex) echo "$root/.codex/skills/.aoc-skill-sync" ;;
+    cc) echo "$root/.claude/skills/.aoc-skill-sync" ;;
+    oc) echo "$root/.opencode/skills/.aoc-skill-sync" ;;
+    kimi) echo "$root/.agents/skills/.aoc-skill-sync" ;;
+    *) echo "" ;;
+  esac
+}
+
+sync_agent() {
+  local root="$1"
+  local skills_dir="$2"
+  local agent_name="$3"
+  case "$agent_name" in
+    codex)
+      local target="$(target_dir_for_agent "$root" "$agent_name")"
+      log "Syncing skills for Codex"
+      sync_symlinks "$skills_dir" "$target"
+      write_marker "$(marker_path "$root" "$agent_name")" "$agent_name"
+      ;;
+    cc)
+      local target="$(target_dir_for_agent "$root" "$agent_name")"
+      log "Syncing skills for Claude Code"
+      sync_symlinks "$skills_dir" "$target"
+      write_marker "$(marker_path "$root" "$agent_name")" "$agent_name"
+      ;;
+    oc)
+      local target="$(target_dir_for_agent "$root" "$agent_name")"
+      log "Syncing skills for OpenCode"
+      sync_symlinks "$skills_dir" "$target"
+      write_marker "$(marker_path "$root" "$agent_name")" "$agent_name"
+      ;;
+    kimi)
+      local target="$(target_dir_for_agent "$root" "$agent_name")"
+      log "Syncing skills for Kimi"
+      sync_symlinks "$skills_dir" "$target"
+      write_marker "$(marker_path "$root" "$agent_name")" "$agent_name"
+      ;;
+    *)
+      warn "Unknown agent: $agent_name"
+      return 1
+      ;;
+  esac
+}
+
+command="${1:-sync}"
+if [[ "$command" == -* ]]; then
+  command="sync"
+else
+  shift || true
+fi
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --agent)
+      shift
+      agent="${1:-}"
+      mode="agent"
+      ;;
+    --active)
+      mode="agent"
+      ;;
+    --existing)
+      mode="existing"
+      ;;
+    --root)
+      shift
+      project_root="${1:-}"
+      ;;
+    --quiet)
+      quiet=1
+      ;;
+    -h|--help)
+      usage
+      exit 0
+      ;;
+    *)
+      echo "Unknown option: $1" >&2
+      usage
+      exit 1
+      ;;
+  esac
+  shift || true
+done
+
+if [[ "$command" == "validate" ]]; then
+  root="$(find_project_root || true)"
+  if [[ -z "$root" ]]; then
+    warn "No .aoc directory found."
+    exit 1
+  fi
+  validate_skills "$root"
+  exit $?
+fi
+
+if [[ "$command" != "sync" ]]; then
+  usage
+  exit 1
+fi
+
+root="$(find_project_root || true)"
+if [[ -z "$root" ]]; then
+  warn "No .aoc directory found. Skipping skill sync."
+  exit 0
+fi
+
+skills_dir="$root/.aoc/skills"
+if [[ ! -d "$skills_dir" ]]; then
+  log "No .aoc/skills directory present. Skipping."
+  exit 0
+fi
+
+if ! skills_present "$skills_dir"; then
+  log "No skills found in $skills_dir. Skipping."
+  exit 0
+fi
+
+targets=()
+if [[ "$mode" == "agent" ]]; then
+  if [[ -z "$agent" ]]; then
+    agent="$(active_agent)"
+  else
+    agent="$(normalize_agent "$agent")"
+  fi
+  if [[ -z "$agent" ]]; then
+    warn "Unable to determine active agent."
+    exit 1
+  fi
+  targets=("$agent")
+else
+  for candidate in codex kimi cc oc; do
+    marker="$(marker_path "$root" "$candidate")"
+    if [[ -n "$marker" && -f "$marker" ]]; then
+      targets+=("$candidate")
+      continue
+    fi
+    candidate_dir="$(target_dir_for_agent "$root" "$candidate")"
+    if [[ -n "$candidate_dir" && -d "$candidate_dir" ]]; then
+      if skills_present "$candidate_dir"; then
+        targets+=("$candidate")
+      fi
+    fi
+  done
+fi
+
+if ((${#targets[@]} == 0)); then
+  log "No existing skill targets to sync."
+  exit 0
+fi
+
+for target in "${targets[@]}"; do
+  if [[ "$target" == "gemini" ]]; then
+    log "Gemini skill sync is not enabled."
+    continue
+  fi
+  sync_agent "$root" "$skills_dir" "$target"
+done
+
+exit 0

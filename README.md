@@ -3,7 +3,7 @@
 [![Version](https://img.shields.io/badge/version-0.1.0-blue.svg)](./CHANGELOG.md)
 [![Zellij](https://img.shields.io/badge/zellij-%E2%89%A50.43.1-green.svg)](https://zellij.dev)
 [![License](https://img.shields.io/badge/license-MIT-yellow.svg)](./LICENSE)
-[![Build](https://img.shields.io/badge/build-passing-brightgreen.svg)]()
+[![Build](https://github.com/basicalex/agent-ops-cockpit/actions/workflows/ci.yml/badge.svg)](https://github.com/basicalex/agent-ops-cockpit/actions/workflows/ci.yml)
 
 > **The Distributed Cognitive Architecture for AI-Assisted Development**
 
@@ -150,7 +150,23 @@ aoc-rlm peek "search_term"
 aoc-rlm chunk --pattern "src/relevant/*.rs"
 ```
 
-### 4. Yazi File Manager Integration
+### 4. Agent Skills
+
+Reusable workflow playbooks stored in `.aoc/skills/` and synced to the active agent:
+
+```bash
+# Sync skills for the active agent
+aoc-skill sync --agent oc
+
+# Re-sync existing targets (no new agent dirs)
+aoc-skill sync --existing
+```
+
+**Included skills:** `aoc-workflow`, `memory-ops`, `taskmaster-ops`, `rlm-analysis`, `prd-dev`, `prd-align`, `tag-align`, `task-breakdown`, `task-checker`, `release-notes`, `skill-creator`.
+
+Skills are synced automatically when you switch agents via `aoc-agent --set`. `aoc-init` also seeds default skills and syncs the active agent. Sync is additive and preserves existing agent skills.
+
+### 5. Yazi File Manager Integration
 
 Keyboard-driven file management with rich previews:
 
@@ -164,7 +180,7 @@ Keyboard-driven file management with rich previews:
 
 **Preview support:** Images, PDFs, SVGs, LaTeX, code with syntax highlighting
 
-### 5. Custom Layouts ("AOC Modes")
+### 6. Custom Layouts ("AOC Modes")
 
 Create specialized layouts for different workflows:
 
@@ -361,6 +377,9 @@ cargo build --workspace
 |----------|-------------|
 | [Installation Guide](./docs/installation.md) | Platform-specific setup instructions |
 | [Configuration Guide](./docs/configuration.md) | Environment variables and customization |
+| [Agent Skills](./docs/skills.md) | Skill format and sync workflow |
+| [Agents](./docs/agents.md) | Built-in agent helpers |
+| [MoreMotion](./docs/moremotion.md) | Optional Remotion integration |
 | [Custom Layouts](./docs/layouts.md) | Creating "AOC Modes" |
 | [Mission Control](./docs/mission-control.md) | Architecture and event schema |
 | [CHANGELOG.md](./CHANGELOG.md) | Release history |

@@ -12,7 +12,7 @@
 
 The project is polyglot, consisting primarily of:
 *   **Shell Scripts (`bin/`):** The core logic for launching the environment, managing agents, and wrapping tools.
-*   **Zellij Layouts (`zellij/`):** KDL files defining the pane structure and plugins.
+*   **Zellij Layouts (`zellij/`):** KDL files defining pane structure and command wiring.
 *   **Rust (`crates/aoc-taskmaster`):** Native Taskmaster TUI for task management.
 *   **Python (`ClockTemp/`):** Scripts for the clock and weather widget.
 
@@ -34,9 +34,9 @@ These scripts are installed to `~/.local/bin` and drive the entire experience.
 *   `aoc.config.kdl`: The base Zellij configuration used by AOC.
 
 ### 3. Taskmaster (Native TUI)
-A Rust-based WASM plugin for Zellij that provides an interactive task list.
-*   **Source:** `src/main.rs`
-*   **Build:** Compiles to `wasm32-wasi` or `wasm32-wasip1`.
+A Rust-based Ratatui TUI that provides an interactive task list.
+*   **Source:** `crates/aoc-taskmaster/src/main.rs`
+*   **Binary:** `aoc-taskmaster`
 
 ### 4. ClockTemp (`ClockTemp/`)
 A Python-based utility for rendering the clock and weather information.
@@ -87,11 +87,11 @@ Run the installer to deploy scripts and configs to your user directories (`~/.lo
 ./install.sh
 ```
 
-### Building the Taskmaster Plugin
-To build the Rust plugin:
+### Building the Taskmaster TUI
+To build the native TUI:
 
 ```bash
-./install.sh
+cargo build -p aoc-taskmaster
 ```
 
 ### Dependencies
