@@ -29,7 +29,7 @@ layout {
       pane split_direction="vertical" {
         // LEFT: Yazi (tree + preview). Starts in project root.
         pane size="13%" name="Explorer" command="bash" {
-          args "-lc" "export EDITOR=micro; export VISUAL=$EDITOR; cd \"__AOC_PROJECT_ROOT__\" && exec ${AOC_FILETREE_CMD:-yazi} ."
+          args "-lc" "export PATH=\"$HOME/.cargo/bin:$PATH\"; export EDITOR=micro; export VISUAL=$EDITOR; cd \"__AOC_PROJECT_ROOT__\" && exec ${AOC_FILETREE_CMD:-yazi} ."
         }
 
         // CENTER + RIGHT COLUMN
@@ -38,24 +38,24 @@ layout {
           // CENTER stack: Agent (top) + Taskmaster (bottom)
           pane split_direction="horizontal" {
             pane size="70%" name="Agent [__AOC_AGENT_ID__]" focus=true command="bash" {
-              args "-lc" "cd \"__AOC_PROJECT_ROOT__\" && AOC_AGENT_RUN=1 exec ${AOC_AGENT_CMD:-${AOC_CODEX_CMD:-aoc-agent-run}}"
+              args "-lc" "export PATH=\"$HOME/.cargo/bin:$PATH\"; cd \"__AOC_PROJECT_ROOT__\" && AOC_AGENT_RUN=1 exec ${AOC_AGENT_CMD:-${AOC_CODEX_CMD:-aoc-agent-run}}"
             }
 
             pane size="30%" command="bash" {
-              args "-lc" "export AOC_TASKMASTER_NATIVE=1; cd \"__AOC_PROJECT_ROOT__\" && exec aoc-taskmaster"
+              args "-lc" "export PATH=\"$HOME/.cargo/bin:$PATH\"; export AOC_TASKMASTER_NATIVE=1; cd \"__AOC_PROJECT_ROOT__\" && exec aoc-taskmaster"
             }
           }
 
           // RIGHT COLUMN: Widget (top), Clock (center), Terminal (bottom)
           pane size="23%" split_direction="horizontal" {
             pane size="34%" name="Widget" command="bash" {
-              args "-lc" "cd \"__AOC_PROJECT_ROOT__\" && exec ${AOC_WIDGET_CMD:-aoc-widget}"
+              args "-lc" "export PATH=\"$HOME/.cargo/bin:$PATH\"; cd \"__AOC_PROJECT_ROOT__\" && exec ${AOC_WIDGET_CMD:-aoc-widget}"
             }
             pane size="18%" name="Clock" command="bash" {
-              args "-lc" "AOC_CLOCK_IN_PANE=1 exec ${AOC_CLOCK_CMD:-aoc-clock}"
+              args "-lc" "export PATH=\"$HOME/.cargo/bin:$PATH\"; AOC_CLOCK_IN_PANE=1 exec ${AOC_CLOCK_CMD:-aoc-clock}"
             }
             pane size="48%" command="bash" {
-              args "-lc" "cd \"__AOC_PROJECT_ROOT__\" && exec ${AOC_TERMINAL_CMD:-$SHELL}"
+              args "-lc" "export PATH=\"$HOME/.cargo/bin:$PATH\"; cd \"__AOC_PROJECT_ROOT__\" && exec ${AOC_TERMINAL_CMD:-$SHELL}"
             }
           }
         }
@@ -102,7 +102,7 @@ swap_layouts {
       pane split_direction="vertical" {
         // LEFT: Yazi (tree + preview). Starts in project root.
         pane size="10%" name="Explorer" command="bash" {
-          args "-lc" "export EDITOR=micro; export VISUAL=$EDITOR; cd \"__AOC_PROJECT_ROOT__\" && exec ${AOC_FILETREE_CMD:-yazi} ."
+          args "-lc" "export PATH=\"$HOME/.cargo/bin:$PATH\"; export EDITOR=micro; export VISUAL=$EDITOR; cd \"__AOC_PROJECT_ROOT__\" && exec ${AOC_FILETREE_CMD:-yazi} ."
         }
 
         // CENTER + RIGHT COLUMN
@@ -111,24 +111,24 @@ swap_layouts {
           // CENTER stack: Agent (top) + Taskmaster (bottom)
           pane split_direction="horizontal" {
             pane size="62%" name="Agent [__AOC_AGENT_ID__]" focus=true command="bash" {
-              args "-lc" "cd \"__AOC_PROJECT_ROOT__\" && AOC_AGENT_RUN=1 exec ${AOC_AGENT_CMD:-${AOC_CODEX_CMD:-aoc-agent-run}}"
+              args "-lc" "export PATH=\"$HOME/.cargo/bin:$PATH\"; cd \"__AOC_PROJECT_ROOT__\" && AOC_AGENT_RUN=1 exec ${AOC_AGENT_CMD:-${AOC_CODEX_CMD:-aoc-agent-run}}"
             }
 
             pane size="38%" command="bash" {
-              args "-lc" "export AOC_TASKMASTER_NATIVE=1; cd \"__AOC_PROJECT_ROOT__\" && exec aoc-taskmaster"
+              args "-lc" "export PATH=\"$HOME/.cargo/bin:$PATH\"; export AOC_TASKMASTER_NATIVE=1; cd \"__AOC_PROJECT_ROOT__\" && exec aoc-taskmaster"
             }
           }
 
           // RIGHT COLUMN: Widget (top), Clock (center), Terminal (bottom)
           pane size="26%" split_direction="horizontal" {
             pane size="34%" name="Widget" command="bash" {
-              args "-lc" "cd \"__AOC_PROJECT_ROOT__\" && exec ${AOC_WIDGET_CMD:-aoc-widget}"
+              args "-lc" "export PATH=\"$HOME/.cargo/bin:$PATH\"; cd \"__AOC_PROJECT_ROOT__\" && exec ${AOC_WIDGET_CMD:-aoc-widget}"
             }
             pane size="18%" name="Clock" command="bash" {
-              args "-lc" "AOC_CLOCK_IN_PANE=1 exec ${AOC_CLOCK_CMD:-aoc-clock}"
+              args "-lc" "export PATH=\"$HOME/.cargo/bin:$PATH\"; AOC_CLOCK_IN_PANE=1 exec ${AOC_CLOCK_CMD:-aoc-clock}"
             }
             pane size="48%" command="bash" {
-              args "-lc" "cd \"__AOC_PROJECT_ROOT__\" && exec ${AOC_TERMINAL_CMD:-$SHELL}"
+              args "-lc" "export PATH=\"$HOME/.cargo/bin:$PATH\"; cd \"__AOC_PROJECT_ROOT__\" && exec ${AOC_TERMINAL_CMD:-$SHELL}"
             }
           }
         }

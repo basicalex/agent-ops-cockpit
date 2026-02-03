@@ -2,10 +2,10 @@ layout {
   tab name="__AOC_TAB_NAME__" focus=true {
     pane split_direction="vertical" {
       pane name="Editor" size="60%" command="bash" {
-        args "-lc" "cd \"__AOC_PROJECT_ROOT__\" && ${EDITOR:-micro} ."
+        args "-lc" "export PATH=\"$HOME/.cargo/bin:$PATH\"; cd \"__AOC_PROJECT_ROOT__\" && ${EDITOR:-micro} ."
       }
       pane name="Terminal" size="40%" command="bash" {
-        args "-lc" "cd \"__AOC_PROJECT_ROOT__\" && exec ${AOC_TERMINAL_CMD:-$SHELL}"
+        args "-lc" "export PATH=\"$HOME/.cargo/bin:$PATH\"; cd \"__AOC_PROJECT_ROOT__\" && exec ${AOC_TERMINAL_CMD:-$SHELL}"
       }
     }
     pane size=1 borderless=true {
