@@ -115,6 +115,25 @@ Control layout behavior and appearance:
 | `AOC_PREVIEW_PINED` | Keep pinned | Boolean |
 | `AOC_PREVIEW_PANE_NAME` | Pane name | `Preview` |
 
+### Zellij Shortcuts (AOC Defaults)
+
+AOC ships a custom Zellij keybind layer in `~/.config/zellij/aoc.config.kdl` (or `AOC_ZELLIJ_CONFIG`). These are the most used Alt bindings; Zellij defaults still apply.
+
+| Key | Action |
+|----------|-------------|
+| `Alt c` | Toggle AOC control (floating) |
+| `Alt s` | Next swap layout |
+| `Alt f` | Toggle floating panes |
+| `Alt n` | New pane |
+| `Alt i` | Previous tab |
+| `Alt o` | Next tab |
+| `Alt u` | Move tab left |
+| `Alt p` | Move tab right |
+| `Alt [` | Toggle pane grouping |
+| `Alt ]` | Next tab (alias) |
+| `Alt h/j/k/l` | Move focus |
+| `Alt =/-` | Resize |
+
 ### Agent Configuration
 
 | Variable | Description | Default |

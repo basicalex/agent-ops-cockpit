@@ -88,7 +88,7 @@ layout {
           mode_move "#[fg=#89B4FA,bold]MOVE #[fg=#6C7086]| #[fg=#A6E3A1]h/j/k/l #[fg=#6C7086]Move #[fg=#A6E3A1]n/Tab #[fg=#6C7086]Next #[fg=#A6E3A1]p #[fg=#6C7086]Prev #[fg=#A6E3A1]Ctrl #[fg=#6C7086]h Normal"
           mode_tmux "#[fg=#F38BA8,bold]TMUX #[fg=#6C7086]| #[fg=#A6E3A1]Ctrl #[fg=#6C7086]b Prefix  % Split R  \" Split D  z Fullscreen  c New Tab  p/n Prev/Next  b Normal"
 
-          command_alt_command  "printf 'Alt f Float  n NewPane  i Tab<  o Tab>  h/j/k/l Focus  =/- Resize'"
+          command_alt_command  "printf 'Alt f Float  n NewPane  i Tab<  o Tab>  u/p MoveTab  [ Group  h/j/k/l Focus  =/- Resize'"
           command_alt_format   "#[fg=#A6E3A1]{stdout} "
           command_alt_interval "60"
         }

@@ -32,7 +32,11 @@ keybinds {
             };
         }
         bind "Alt s" { NextSwapLayout; }
-        bind "Alt [" { GoToPreviousTab; }
+        bind "Alt i" { GoToPreviousTab; }
+        bind "Alt o" { GoToNextTab; }
+        bind "Alt u" { MoveTab "Left"; }
+        bind "Alt p" { MoveTab "Right"; }
+        bind "Alt [" { TogglePaneInGroup; }
         bind "Alt ]" { GoToNextTab; }
         
         // Safety: Unbind Ctrl+q (Quit) so it passes to Micro/Yazi
