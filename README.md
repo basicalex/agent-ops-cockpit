@@ -1,399 +1,425 @@
-# Agent Ops Cockpit (AOC) — Zellij 0.43.1 workspace yeee haw
+# AOC - Terminal-First AI Workspace
 
-A lightweight, terminal-first "agent cockpit" layout for coding sessions:
+[![Version](https://img.shields.io/badge/version-0.1.0-blue.svg)](./CHANGELOG.md)
+[![Zellij](https://img.shields.io/badge/zellij-%E2%89%A50.43.1-green.svg)](https://zellij.dev)
+[![License](https://img.shields.io/badge/license-MIT-yellow.svg)](./LICENSE)
+[![Build](https://img.shields.io/badge/build-passing-brightgreen.svg)]()
 
-- **Left:** `yazi` file manager (compact view + togglable preview/micro editor)
-- **Center top:** agent CLI (default: `codex`)
-- **Center bottom:** Taskmaster interactive (fzf-based)
-- **Right column:** Calendar/Media widget, Clock, Project terminal
-- **Per-tab contract:** one Zellij **tab = one project root** (panes start there)
+> **The Distributed Cognitive Architecture for AI-Assisted Development**
 
-- [Docs: Custom Layouts / Modes](docs/layouts.md)
-- [Docs: Feature Process](docs/feature-upgrade-collection-key.md)
+AOC (Agent Ops Cockpit) is a terminal-native workspace that brings **context-aware AI agents**, **integrated task management**, and **project memory** together in a unified Zellij layout.
 
-## Requirements
+[📸 Screenshot](./docs/assets/aoc1.png) | [📖 Quick Start](#quick-start) | [🔧 Installation](#installation) | [📚 Documentation](#documentation)
 
-- zellij >= 0.43.1
-- yazi (recommended via cargo)
-- micro (modern terminal editor, installed automatically via bin/)
-- fzf
-- python3 (calendar/widget helpers)
-- git (recommended for aoc-rlm scan + gitignore)
-- tmux (optional, for Codex scrollback in Zellij)
-- chafa
-- ffmpeg
-- poppler-utils (for pdf -> png)
-- librsvg2-bin (for svg -> png)
-- optional: ripgrep (`rg`), bat, tectonic (for .tex previews)
+---
 
-This setup is terminal-emulator agnostic (Alacritty, Kitty, GNOME Terminal, etc.)
-as long as Zellij is installed and in PATH.
+## ✨ Why AOC?
 
-Ubuntu/Debian quick install:
+### The Problem with AI Development Today
 
-```bash
-sudo apt-get update
-sudo apt-get install -y zellij fzf ffmpeg chafa poppler-utils librsvg2-bin ripgrep bat
-# optional tex:
-# sudo apt-get install -y tectonic
+Traditional workflows fragment your AI context across browser tabs, terminal windows, and scattered notes:
+
+- **Lost Context** - Every new chat starts from zero
+- **Manual Copy-Pasting** - Code, tasks, and decisions live in different places
+- **No Project Memory** - AI can't remember previous decisions or constraints
+- **Fragmented Workflow** - Switching between file manager, editor, terminal, and AI interface
+
+### The AOC Solution
+
+AOC implements a **Distributed Cognitive Architecture** that separates concerns into three persistent layers:
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                    AOC Workspace Layout                         │
+├──────────────────┬──────────────────┬───────────────────────────┤
+│   📁 Yazi        │   🤖 Agent       │   📅 Widget               │
+│   File Manager   │   (codex/gemini/ │   Calendar/Media          │
+│                  │   claude/opencode)│   Clock                   │
+├──────────────────┼──────────────────┴───────────────────────────┤
+│   Project Files  │   📋 Taskmaster TUI                         │
+│                  │   Interactive task & subtask management     │
+└──────────────────┴─────────────────────────────────────────────┘
+         │                    │                    │
+         └────────────────────┼────────────────────┘
+                              ▼
+        ┌──────────────────────────────────────────────────┐
+        │         DISTRIBUTED COGNITIVE ARCHITECTURE       │
+        ├──────────────────────────────────────────────────┤
+        │                                                   │
+        │  🗺️ Context        🧠 Memory          ✅ Tasks    │
+        │  (Reactive)       (Persistent)       (Dynamic)   │
+        │                                                   │
+        │  .aoc/context.md  .aoc/memory.md     tasks.json  │
+        │  Auto-updated     Append-only        Real-time   │
+        │  File tree +      Architectural      Status &    │
+        │  README snapshot  decisions          priorities  │
+        │                                                   │
+        └──────────────────────────────────────────────────┘
 ```
 
-Yazi install:
+**Result:** Your AI agents maintain context across sessions, remember your preferences, and track work items—all automatically.
+
+---
+
+## 🚀 Quick Start
+
+### One-Line Install
 
 ```bash
-cargo install --locked yazi-fm yazi-cli
+./install.sh && aoc-init && aoc
 ```
 
-Other distros:
-- Fedora: `sudo dnf install -y zellij fzf ffmpeg chafa poppler-utils librsvg2-tools ripgrep bat`
-- Arch: `sudo pacman -S zellij fzf ffmpeg chafa poppler ripgrep bat`
-- Alpine: `sudo apk add zellij fzf ffmpeg chafa poppler-utils librsvg`
+That's it. AOC will:
+1. Install all scripts and configurations
+2. Initialize your project's cognitive architecture
+3. Launch the workspace
 
-## WSL (Windows)
-
-- WSL2 is required (WSL1 is not supported).
-- Use the Linux package lists above inside your distro.
-- Fullscreen helpers (`wmctrl`/`xdotool`) do not work in WSL/WSLg; set `AOC_FULLSCREEN=0` or use your terminal's fullscreen/maximize.
-
-TeX preview (recommended cross-distro):
-```bash
-cargo install --locked tectonic --version 0.14.1
-```
-
-If Cargo builds fail with a `time` crate type inference error, use a pinned
-toolchain or a prebuilt binary:
-```bash
-rustup toolchain install 1.78.0
-cargo +1.78.0 install --locked tectonic --version 0.14.1
-```
-```bash
-cargo install cargo-binstall
-cargo binstall tectonic
-```
-
-Linux source-build deps (Ubuntu/Omakub):
-```bash
-sudo apt-get update
-sudo apt-get install -y pkg-config cmake g++ libharfbuzz-dev libfreetype6-dev libgraphite2-dev
-```
-
-## Install
-
-From this repo:
-
-```bash
-./install.sh
-```
-
-This will:
-- copy scripts to `~/.local/bin`
-- install Zellij layout to `~/.config/zellij/layouts/aoc.kdl`
-- install Yazi config to `~/.config/yazi/` (preview script included)
-- install a `codex` shim into `~/bin` when available so Codex always starts
-  through the tmux wrapper
-
-Ensure `~/.local/bin` is in PATH.
-
-Verify dependencies:
+### Verify Installation
 
 ```bash
 aoc-doctor
 ```
 
-Setup checklist:
-- `zellij --version` is >= 0.43.1
-- `yazi` opens and previews images
-- Widget pane renders an image after setting a media path
+### Next Steps
 
-## System Architecture & Philosophy
+Choose your path:
 
-AOC is not just a layout; it is a **Distributed Cognitive Architecture** for AI-assisted development. It splits context into three distinct, specialized layers to maximize agent performance and consistency across projects.
+| 🚀 **Start Coding** | 🤖 **Configure Agents** | 🔧 **Customize** |
+|---------------------|------------------------|------------------|
+| `aoc` in any project dir | `aoc-agent --set` | `aoc-layout --set minimal` |
+| Open files in Yazi | Switch between Codex, Gemini, Claude, OpenCode | Create your own "AOC Modes" |
+| Press `Enter` to edit with `micro` | Each agent gets isolated context | [Custom Layouts Guide](./docs/layouts.md) |
 
-### The Stack
+---
 
-1.  **Project Context (`.aoc/context.md`)**
-    *   **Role:** The "Project Map."
-    *   **Content:** Auto-generated snapshot of the file tree and `README`.
-    *   **Tool:** `aoc-init` (manual); `aoc-watcher` (automatic, optional).
-    *   **Philosophy:** **Reactive.** Updated in real-time as you edit files, so agents always see the current state.
+## 🎯 Key Features
 
-2.  **Long-Term Memory (`.aoc/memory.md`)**
-    *   **Role:** The "Logbook."
-    *   **Content:** Persistent architectural decisions, user preferences, and evolution history.
-    *   **Tool:** `aoc-mem` (append-only logging).
-    *   **Philosophy:** Permanent. Agents read this to understand *why* things are the way they are.
+### 1. Multi-Agent Support
 
-3.  **Task State (`.taskmaster/tasks/tasks.json`)**
-    *   **Role:** The "TodoList."
-    *   **Content:** Active work items, status, dependencies.
-    *   **Tool:** `aoc task` (preferred) / `aoc-taskmaster` (npm optional).
-    *   **Philosophy:** Dynamic. High-frequency updates during work.
-
-### Onboarding a Project (`aoc-init`)
-The `aoc-init` command is the universal entry point. It "standardizes" any directory by:
-1.  Creating the `.aoc/` structure.
-2.  Auto-generating the `context.md` context.
-3.  Initializing Taskmaster and seeding it with your global preferences (`~/.taskmaster/config.json`).
-4.  Creating `AGENTS.md` if missing, or appending the AOC guidance section if an existing `AGENTS.md` does not already include it.
-
-## Launch
-
-**Step 1: Initialize (Once per project)**
-Inside your project directory:
+Seamlessly work with multiple AI agents, each maintaining isolated project context:
 
 ```bash
-aoc-init
+# Switch agents interactively
+aoc-agent --set
+
+# Or launch specific agents directly
+aoc-codex-tab    # Open tab with Codex
+aoc-gemini       # Open tab with Gemini
+aoc-cc           # Open tab with Claude Code
+aoc-oc           # Open tab with OpenCode
 ```
 
-**Step 2: Launch Cockpit**
+**All agents get:**
+- Persistent project memory (`.aoc/memory.md`)
+- Real-time context updates (`.aoc/context.md`)
+- Task integration (Taskmaster TUI)
+- tmux-backed scrollback for reliability
+
+### 2. Native Taskmaster TUI
+
+Rust-based task management with rich interactions:
+
+| Feature | Key |
+|---------|-----|
+| Toggle task status | `x` |
+| Expand/collapse subtasks | `Space` |
+| Cycle project tags | `t` |
+| Filter by status | `f` |
+| Toggle details | `Enter` |
+| Mouse support | Click & scroll |
+
+**Features:**
+- ✅ Nested subtasks with expand/collapse
+- ✅ Multiple project contexts (tags)
+- ✅ Real-time persistence to `tasks.json`
+- ✅ Status filtering (All/Pending/Done)
+- ✅ Progress bars and dependency visualization
+
+### 3. RLM Skill - Large Codebase Analysis
+
+Built-in tooling for analyzing large repositories without context overflow:
 
 ```bash
-aoc-launch
+# Measure repository scale
+aoc-rlm scan
+
+# Search across codebase
+aoc-rlm peek "search_term"
+
+# Process in manageable chunks
+aoc-rlm chunk --pattern "src/relevant/*.rs"
 ```
 
-## New Tabs
-Create a new tab and choose layout:
+### 4. Yazi File Manager Integration
 
-```bash
-aoc
-```
-
-Or skip the prompt:
-
-```bash
-aoc --aoc --name my-project
-aoc --default
-```
-
-### Pane expansion (minimal + fast)
-Zellij doesn't auto-resize panes on focus by default. Use:
-- **Fullscreen current pane:** `Ctrl + f`
-- **Cycle panes:** default zellij bindings
-
-## Starred root (re-anchor panes)
-Set a new "starred root" and broadcast `cd` to your panes:
-
-```bash
-aoc-star /path/to/project
-```
-
-This is intentionally explicit and includes a confirmation prompt.
-
-## Widget (Calendar ⇄ Media)
-In the top-right widget pane:
-- `m` media
-- `g` gallery (renders files from `~/Pictures/Zellij`)
-- `p` set media path (mp4/webm/gif/png/jpg/webp/svg)
-- In gallery mode, `Enter` toggles a clean view (image only).
-  - While in clean view, use arrows or `h/j/k/l` to nudge the image; `0` resets.
-  - Press `S` to save the current gallery view as the default on next launch.
-Media rendering controls:
-- `s` cycle ASCII styles
-- `C` cycle color depth
-- `D` cycle dither mode
-- `w` cycle detail
-- `r` edit font ratio (aspect) with h/j/k/l, Enter to apply
-- `+/-` adjust render size
-You can also set defaults via env vars: `AOC_WIDGET_SYMBOLS`, `AOC_WIDGET_COLORS`, `AOC_WIDGET_DITHER`, `AOC_WIDGET_SCALE`, `AOC_WIDGET_WORK`, `AOC_WIDGET_FONT_RATIO`.
-
-Media is rendered as ASCII via chafa (videos animated).
-
-## Yazi File Manager
-
-The Yazi pane displays command tips in the status bar (similar to Zellij's status bar).
-
-### Yazi Keybindings
+Keyboard-driven file management with rich previews:
 
 | Key | Action |
 |-----|--------|
-| `Enter` | Open file/directory + expand pane for better visibility |
-| `e` | Edit file with `$EDITOR` |
-| `q` | Quit Yazi |
-| `y` | Set widget media path to selected file |
-| `p` | Send selected file to floating preview pane |
-| `P` | Toggle floating preview pane |
-| `Ctrl+p` | Toggle Yazi's built-in preview split |
-| `S` | Star the selected directory (or file's parent) |
-| `Esc` | Cancel/escape current action |
+| `Enter` | Open file + auto-expand pane |
+| `e` | Edit with `$EDITOR` (micro) |
+| `y` | Set widget media path |
+| `p` | Send to floating preview |
+| `S` | Star directory (re-anchor panes) |
 
-### Editing Files
+**Preview support:** Images, PDFs, SVGs, LaTeX, code with syntax highlighting
 
-By default, AOC uses **`micro`**, a modern terminal editor that feels like a standard GUI editor (supports mouse selection and common shortcuts).
+### 5. Custom Layouts ("AOC Modes")
 
-When you press `Enter` on a file in Yazi, the pane expands for better visibility.
-
-**Micro Shortcuts:**
-- **Save:** `Ctrl+s`
-- **Quit:** `Ctrl+q`
-- **Copy:** `Ctrl+c`
-- **Paste:** `Ctrl+v`
-- **Undo:** `Ctrl+z`
-
-**Alternative Editors:**
-If you prefer a different editor, you can change the `EDITOR` variable in your `~/.bashrc`. However, AOC enforces `micro` in some panes (like Taskmaster and Yazi) via the Zellij layout to ensure a consistent developer experience for beginners.
-
-### Yazi Configuration Files
-
-| File | Purpose |
-|------|---------|
-| `yazi/yazi.toml` | Main config (compact view, hidden files, sorting) |
-| `yazi/keymap.toml` | Custom keybindings for AOC integration |
-| `yazi/theme.toml` | Catppuccin-inspired colors for file types |
-| `yazi/init.lua` | Status bar command tips |
-| `yazi/preview.sh` | Rich file previews (images, PDFs, LaTeX) |
-| `yazi/plugins/aoc-open.yazi/` | Open + resize pane plugin |
-| `yazi/plugins/aoc-preview-toggle.yazi/` | Toggle preview layout |
-
-## Notes
-- The layout expects `codex` (or your selected agent) to be in PATH.
-- By default, the agent pane runs through `aoc-agent-run`, which picks the
-  selected agent and wraps it in tmux when supported.
-- `aoc-codex` still wraps Codex directly; use it if you want the Codex-only
-  wrapper.
-- The installer drops a `codex` shim in `~/bin` (when it exists) to ensure
-  `codex` always uses the tmux wrapper even outside Zellij.
-- Taskmaster script expects `task-master` in PATH; otherwise use `aoc task` for mutations.
-- Claude plan sync (manual): `aoc task sync --from claude` or `--to claude` (uses `plansDirectory`).
-
-### Agent selection
-- Set the default agent with `aoc-agent --set` (or run `aoc-agent` for a menu).
-- Open a new tab with a specific agent:
-  - `aoc-codex-tab`, `aoc-gemini`, `aoc-cc`, `aoc-oc`
-- `AOC_AGENT_ID` overrides the default for a single launch or tab.
-- Running the raw `gemini`, `claude`, or `opencode` commands now routes through
-  `aoc-agent-wrap` so the TUI gets the tmux-backed scroll history just like
-  `codex`; override the real executable via `AOC_GEMINI_BIN`, `AOC_CC_BIN`, or
-  `AOC_OC_BIN` if needed.
-
-### Process cleanup
-- `aoc-cleanup` kills orphaned agent CLIs left behind after closing tabs/sessions.
-- `aoc-launch` runs `aoc-cleanup` asynchronously by default; set `AOC_CLEANUP=0` to skip.
-- Cleanup logs to `~/.local/state/aoc/cleanup.log`.
-- Add future agent names via `AOC_AGENT_PATTERN="my-agent|another-agent"`.
-
-### Defaults + Projects
-- Run `aoc-control` to manage layout/agent defaults and open/create projects.
-- Projects base defaults to `~/dev` (overridable via `AOC_PROJECTS_BASE`).
-- `aoc-control` persists the base path in `~/.config/aoc/config.toml`.
-- When launched inside Zellij, `aoc-control` opens as a floating pane (set `AOC_CONTROL_FLOATING=0` to disable).
-- Shortcut: `Alt+c` opens a floating `aoc-control` pane without creating a split. Update `~/.config/zellij/aoc.config.kdl` if you want a different key.
-
-## Taskmaster (Native TUI)
-The default AOC layout uses the native Rust Taskmaster TUI.
+Create specialized layouts for different workflows:
 
 ```bash
-./install.sh
-aoc-launch
+# Try the minimal layout
+aoc-new-tab --layout minimal
+
+# Set as default
+aoc-layout --set minimal
 ```
 
-Shortcut: run `aoc-test` to launch the default layout (opens a new tab when already in Zellij).
+**Included layouts:**
+- `aoc` (default) - Full cockpit with all features
+- `minimal` - Streamlined for focused work
 
-**Key Controls:**
-- `j` / `k` (or arrows/scroll wheel): Move selection up/down
-- `x`: Toggle task/subtask status (Done/Pending)
-- `Space`: Expand/Collapse subtasks
-- `Enter`: Toggle Details pane
-- `Tab`: Switch focus between List and Details
-- `f`: Cycle Status Filter (All -> Pending -> Done)
-- `t`: Cycle Project Tag (Context)
-- `?`: Toggle Help panel
-- `r`: Refresh tasks manually
+**Create your own** with context injection placeholders (`__AOC_PROJECT_ROOT__`, `__AOC_TAB_NAME__`, `__AOC_AGENT_ID__`). See [Custom Layouts Guide](./docs/layouts.md).
 
-**Mouse Support:**
-- **Left Click:** Select task
-- **Click Selected:** Toggle Details pane
-- **Scroll Wheel:** Move selection up/down
+---
 
-**Features:**
-- **Realtime Persistence:** Changes (status toggles) are saved immediately to `tasks.json`.
-- **Subtasks:** Full support for nested subtask rendering and interaction.
-- **Multi-Tag Workflow:** seamless switching between task lists (e.g., `[master]`, `[feature-x]`).
-- **Rich UI:** Nerd Fonts, progress bars, and dependency visualization.
+## 🏗️ Distributed Cognitive Architecture
 
-### Why the tmux wrapper?
-Codex is a full-screen TUI. Zellij can struggle to track scrollback for TUI apps,
-so we wrap Codex in tmux with alternate-screen disabled. This makes scrollback
-reliable in Zellij panes while keeping Codex behavior the same in other terminals.
+AOC's architecture solves the fundamental problem of **context management in AI-assisted development**:
 
-## Customization
-- **New:** [Create Custom Layouts ("AOC Modes")](docs/layouts.md) that adapt to your project.
-- Override commands via env vars: `AOC_AGENT_CMD`, `AOC_CODEX_CMD`, `AOC_TASKMASTER_CMD`, `AOC_FILETREE_CMD`, `AOC_WIDGET_CMD`, `AOC_CLOCK_CMD`, `AOC_SYS_CMD`, `AOC_TERMINAL_CMD`.
-- Override the tmux config used by `aoc-codex` with `AOC_CODEX_TMUX_CONF`.
-- Override the tmux config for other agent CLIs with `AOC_AGENT_TMUX_CONF`.
-- Override agent binaries with `AOC_GEMINI_BIN`, `AOC_CC_BIN`, `AOC_OC_BIN`.
-- AOC defaults to `~/.config/zellij/aoc.config.kdl`, which keeps the full UI (top/bottom bars) and starts in normal mode. Set `AOC_ZELLIJ_CONFIG` to use a different config file.
-- `Alt ?` cycles swap layouts if you define them in your Zellij config.
-- When launching `aoc` outside Zellij, AOC will attempt to fullscreen the current terminal window on X11. Set `AOC_FULLSCREEN=0` to disable.
-  - Linux (X11): requires `wmctrl` or `xdotool`; Wayland compositors do not allow this, use your window manager bindings.
-  - macOS: use the system fullscreen shortcut (Ctrl+Cmd+F) or configure Alacritty/iTerm to start fullscreen.
-  - Windows: use terminal settings or Win+Up to maximize/fullscreen.
-- Float preview pane placement can be customized with `AOC_PREVIEW_WIDTH`, `AOC_PREVIEW_HEIGHT`, `AOC_PREVIEW_X`, `AOC_PREVIEW_Y`, `AOC_PREVIEW_PINNED`, and `AOC_PREVIEW_PANE_NAME`.
-- To tweak pane sizes, copy the layout:
-  `cp ~/.config/zellij/layouts/aoc.kdl ~/.config/zellij/layouts/aoc.local.kdl`
-  `aoc-launch` will use `aoc.local` if present.
+### The Three Layers
 
-## Clock Options
-- `AOC_CLOCK_INTERVAL=1` controls refresh interval (seconds).
-- `AOC_CLOCK_TIME_FORMAT` sets the `date` format for the big time (default: `%H:%M`).
-- `AOC_CLOCK_DATE_FORMAT` sets the `date` format for the line below (default: `%A, %B %d`).
-- `AOC_CLOCK_FONT` sets the figlet font (default: `small`, requires `figlet` in PATH).
-- `AOC_CLOCK_BACKEND` selects the backend: `auto` (default), `clocktemp`, `tty`, or `figlet`.
-- In `auto`, AOC prefers ClockTemp (if installed), then `tty-clock`, then the figlet fallback.
-- `AOC_CLOCK_CLOCKTEMP_CMD` sets the ClockTemp binary name (default: auto-detects `clocktemp`, `ClockTemp`, or `clock-temp`).
-- `AOC_CLOCK_CLOCKTEMP_FLAGS` passes flags directly to ClockTemp (when selected).
-- `AOC_CLOCK_TTY_FLAGS` passes flags directly to `tty-clock` (when selected).
-- `AOC_CLOCK_AUTO_GEO=1` auto-detects lat/lon for ClockTemp using `ipapi.co` (cached for 24h).
-- `AOC_CLOCK_GEO_TTL=86400` controls geo cache TTL in seconds.
-- Running `aoc-clock` inside Zellij will respawn a clock pane; set `AOC_CLOCK_SPAWN=0` to disable, `AOC_CLOCK_PANE_NAME` to rename it, and `AOC_CLOCK_PANE_DIRECTION` to control where it splits (default: `up`).
-- Run `aoc-clock-geo` to refresh cached location manually.
-- Persist clock settings across runs with `aoc-clock-set`.
+#### 1. Context (`.aoc/context.md`) - The "Project Map"
+- **Role:** Reactive, auto-generated snapshot
+- **Content:** File tree, README summary, project structure
+- **Update:** Automatic via `aoc-watcher` or manual via `aoc-init`
+- **Agent Usage:** Read at task start to understand current codebase state
 
-## Troubleshooting
-- Missing previews: install `chafa`, `poppler-utils`, and `librsvg2-bin`.
-- Blank task list: ensure `aoc task list` works (or install `task-master` if you want the npm CLI).
-- Widget media not rendering: run `aoc-doctor` to confirm `ffmpeg` and `chafa`.
-- RLM skill not working: build `aoc-cli` (`cargo build --release -p aoc-cli`) and ensure `aoc-cli` is in PATH.
-- TeX preview build errors: install `tectonic` via Cargo using `cargo install --locked tectonic --version 0.14.1`.
-- If Cargo builds fail with the `time` crate error, use `cargo +1.78.0 install --locked tectonic --version 0.14.1`
-  or `cargo binstall tectonic` for a prebuilt release.
-- On Ubuntu, the `bat` binary is named `batcat`; `aoc-doctor` accepts either.
+#### 2. Memory (`.aoc/memory.md`) - The "Logbook"
+- **Role:** Persistent, append-only record
+- **Content:** Architectural decisions, user preferences, evolution history
+- **Update:** Manual via `aoc-mem add "..."`
+- **Agent Usage:** Read to understand *why* things are the way they are
 
-## Screenshot
-- Store the latest layout screenshot at `docs/screenshot.png` and reference it in docs or release notes.
+#### 3. Tasks (`.taskmaster/tasks/tasks.json`) - The "Todo List"
+- **Role:** Dynamic work queue
+- **Content:** Active tasks, subtasks, dependencies, priorities
+- **Update:** Via Taskmaster TUI or `aoc task` CLI
+- **Agent Usage:** Track work, update status, create new items
 
-## Lint
-Run shellcheck locally:
+### Per-Tab Isolation
+
+Each Zellij tab = One isolated project context:
+
+- **Root Anchoring:** All panes start in the project root
+- **Star Command:** `aoc-star /path/to/project` to re-anchor all panes
+- **Context Injection:** Layouts automatically receive `__AOC_PROJECT_ROOT__`, `__AOC_AGENT_ID__`
+- **Memory Boundaries:** Each project has its own `.aoc/` directory
+
+**Agent Pane Names Include Root Tag:**
+```
+Agent [my-project]     # Shows which project context is active
+```
+
+### Standard Agent Workflow
+
+When you start working in AOC:
+
+1. **Orient:** `aoc-mem read` - Ingest past decisions and preferences
+2. **Context:** `.aoc/context.md` - Automatically provides current project map
+3. **Plan:** `aoc task add "..."` - Track your work plan
+4. **Execute:** Edit files, run commands, collaborate with AI agent
+5. **Update:** Mark tasks done in Taskmaster TUI
+6. **Record:** `aoc-mem add "..."` - Document significant decisions
+
+---
+
+## 📋 Requirements
+
+**Core Dependencies:**
+- `zellij` >= 0.43.1
+- `yazi` (file manager)
+- `fzf` (fuzzy finder)
+- `micro` (editor - auto-installed)
+
+**Optional but Recommended:**
+- `tmux` (for agent scrollback)
+- `chafa` + `ffmpeg` (for media widgets)
+- `git` (for RLM and git integration)
+
+**Platform Support:**
+- ✅ Linux (X11/Wayland)
+- ✅ macOS
+- ✅ WSL2 (Windows)
+
+**See [Installation Guide](./docs/installation.md) for distro-specific commands.**
+
+---
+
+## 🎮 Widget Controls
+
+The top-right widget pane supports media, calendar, and clock:
+
+**Media & Gallery:**
+- `m` - Media mode
+- `g` - Gallery mode (from `~/Pictures/Zellij`)
+- `p` - Set media path
+- `Enter` - Toggle clean view (in gallery)
+
+**Rendering Controls:**
+- `s` - Cycle ASCII styles
+- `C` - Cycle color depth
+- `D` - Cycle dither mode
+- `w` - Cycle detail
+- `r` - Edit font ratio
+- `+/-` - Adjust render size
+
+**Configure defaults via environment variables:**
+`AOC_WIDGET_SYMBOLS`, `AOC_WIDGET_COLORS`, `AOC_WIDGET_DITHER`, `AOC_WIDGET_SCALE`
+
+**See [Configuration Guide](./docs/configuration.md) for all options.**
+
+---
+
+## 📊 Comparison with Alternatives
+
+| Feature | AOC | tmux+vim | Standard IDE |
+|---------|-----|----------|--------------|
+| **Per-project AI context** | ✅ Auto | ❌ Manual | ❌ None |
+| **Multi-agent support** | ✅ Native | ⚠️ Complex | ❌ None |
+| **Terminal-native** | ✅ Yes | ✅ Yes | ❌ No |
+| **Task integration** | ✅ Built-in | ❌ None | ⚠️ Plugin |
+| **File manager** | ✅ Yazi | ⚠️ Optional | ✅ Yes |
+| **Context persistence** | ✅ 3-layer | ❌ None | ⚠️ Limited |
+| **Scrollback reliability** | ✅ tmux-backed | ✅ Yes | ✅ Yes |
+
+---
+
+## 🛠️ Configuration
+
+### Quick Overrides
 
 ```bash
+# Use a different layout
+AOC_ZELLIJ_CONFIG=~/.config/zellij/my-layout.kdl aoc
+
+# Disable auto-fullscreen
+AOC_FULLSCREEN=0 aoc
+
+# Override agent for one session
+AOC_AGENT_ID=gemini aoc
+```
+
+### Environment Variables
+
+AOC supports extensive customization via environment variables:
+
+**Command Overrides:** `AOC_AGENT_CMD`, `AOC_CODEX_CMD`, `AOC_TASKMASTER_CMD`, `AOC_FILETREE_CMD`
+
+**Widget:** `AOC_WIDGET_SYMBOLS`, `AOC_WIDGET_COLORS`, `AOC_WIDGET_DITHER`, `AOC_WIDGET_SCALE`
+
+**Clock:** `AOC_CLOCK_INTERVAL`, `AOC_CLOCK_TIME_FORMAT`, `AOC_CLOCK_BACKEND`, `AOC_CLOCK_FONT`
+
+**See [Configuration Guide](./docs/configuration.md) for complete reference.**
+
+---
+
+## 🤝 Contributing
+
+We welcome contributions! See [CONTRIBUTING.md](./CONTRIBUTING.md) for guidelines.
+
+**Quick setup for contributors:**
+
+```bash
+# 1. Install dependencies (see docs/installation.md)
+# 2. Clone and install
+git clone <repo>
+cd agent-ops-cockpit
+./install.sh
+
+# 3. Build Rust components
+cargo build --workspace
+
+# 4. Run tests
 ./scripts/lint.sh
 ```
 
-## Uninstall
-Remove installed files:
+**Areas where help is welcome:**
+- Multi-shell support (fish, zsh, PowerShell)
+- Custom layout contributions
+- Documentation improvements
+- Windows native support (when Zellij supports it)
+
+**See [ROADMAP.md](./ROADMAP.md) for future direction.**
+
+---
+
+## 📚 Documentation
+
+| Document | Description |
+|----------|-------------|
+| [Installation Guide](./docs/installation.md) | Platform-specific setup instructions |
+| [Configuration Guide](./docs/configuration.md) | Environment variables and customization |
+| [Custom Layouts](./docs/layouts.md) | Creating "AOC Modes" |
+| [Mission Control](./docs/mission-control.md) | Architecture and event schema |
+| [CHANGELOG.md](./CHANGELOG.md) | Release history |
+| [ROADMAP.md](./ROADMAP.md) | Future development plans |
+
+---
+
+## 🆘 Troubleshooting
+
+**Quick diagnostics:**
 
 ```bash
-aoc-uninstall
+aoc-doctor          # Check all dependencies
+aoc task list       # Verify taskmaster works
+aoc-mem read        # Check memory system
 ```
 
-## Releases
-- Follow SemVer and update `CHANGELOG.md` for each release.
-- Tag releases as `vX.Y.Z`.
+**Common issues:**
 
-## Quick Start for Agents 🤖
+| Issue | Solution |
+|-------|----------|
+| Missing previews | Install `chafa`, `poppler-utils`, `librsvg2-bin` |
+| Blank task list | Run `aoc task list` or install `task-master` npm CLI |
+| Widget not rendering | Run `aoc-doctor`, check `ffmpeg` and `chafa` |
+| RLM not working | Build with `cargo build --release -p aoc-cli` |
+| TeX preview errors | Install `tectonic` via Cargo |
 
-If you are an AI agent reading this repo to set it up for a user:
+**See [Installation Guide - Troubleshooting](./docs/installation.md#troubleshooting) for detailed solutions.**
 
-1.  **Install:** Run `./install.sh` to deploy the toolchain (`aoc-init`, `aoc-mem`, etc.) to the user's path.
-2.  **Initialize:** Run `aoc-init` in the project root to generate the standard context structure.
-3.  **Orient:** Run `aoc-mem read` to ingest the long-term history and architectural decisions of this project.
-4.  **Work:** Use `aoc task list` to find pending work, and `aoc task add "..."` to track your plan.
+---
 
-## RLM Skill (Large Codebase Analysis)
-Use the Rust-based RLM tool as the default workflow for large repos:
+## 🔍 Keywords
 
-1. **Scan:** `aoc-rlm scan` to measure scale.
-2. **Peek:** `aoc-rlm peek "search_term"` for fast snippets.
-3. **Slice:** `aoc-rlm chunk --pattern "src/relevant/*.rs"` for chunked processing.
+terminal workspace, AI agent IDE, zellij layout, terminal multiplexer, ai-assisted development, codex cli, gemini cli, claude cli, opencode, rust tui, yazi file manager, task management, context isolation, distributed cognitive architecture
 
-`aoc-rlm` is backed by the Rust `aoc-cli` implementation for speed; build it with
-`cargo build --release -p aoc-cli` if you haven't installed binaries yet.
+---
+
+## 🙏 Acknowledgments
+
+AOC builds on excellent open-source tools:
+- [Zellij](https://zellij.dev) - Terminal workspace
+- [Yazi](https://yazi-rs.github.io) - File manager
+- [micro](https://micro-editor.github.io) - Modern terminal editor
+- [tmux](https://github.com/tmux/tmux) - Terminal multiplexer (agent scrollback)
+- [fzf](https://github.com/junegunn/fzf) - Fuzzy finder
+- [chafa](https://hpjansson.org/chafa) - Image-to-text converter
+
+---
+
+## 📄 License
+
+MIT License - see [LICENSE](./LICENSE) file for details.
+
+---
+
+**Ready to transform your AI-assisted development workflow?**
+
+```bash
+./install.sh && aoc-init && aoc
+```
+
+[⬆️ Back to Top](#aoc---terminal-first-ai-workspace)
