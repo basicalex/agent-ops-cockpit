@@ -9,7 +9,7 @@ fi
 files=(
   bin/aoc-doctor
   bin/aoc-launch
-  bin/aoc-star
+  bin/aoc-task
   bin/aoc-sys
   bin/aoc-taskmaster
   bin/aoc-test

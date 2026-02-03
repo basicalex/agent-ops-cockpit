@@ -144,7 +144,7 @@ hint_for() {
       esac
       ;;
     task-master)
-      echo "Install task-master for npm-based task control (optional if using 'aoc task')."
+      echo "Install task-master for npm-based task control (optional if using 'aoc-task')."
       ;;
     python3)
       case "$pm" in

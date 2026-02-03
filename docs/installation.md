@@ -156,7 +156,7 @@ aoc-doctor
 Ensure taskmaster is working:
 
 ```bash
-aoc task list
+aoc-task list
 ```
 
 Or install `task-master` npm package if you prefer the CLI version.

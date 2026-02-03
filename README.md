@@ -188,7 +188,6 @@ Keyboard-driven file management with rich previews:
 | `e` | Edit with `$EDITOR` (micro) |
 | `y` | Set widget media path |
 | `p` | Send to floating preview |
-| `S` | Star directory (re-anchor panes) |
 
 **Preview support:** Images, PDFs, SVGs, LaTeX, code with syntax highlighting
 
@@ -233,7 +232,7 @@ AOC's architecture solves the fundamental problem of **context management in AI-
 #### 3. Tasks (`.taskmaster/tasks/tasks.json`) - The "Todo List"
 - **Role:** Dynamic work queue
 - **Content:** Active tasks, subtasks, dependencies, priorities
-- **Update:** Via Taskmaster TUI or `aoc task` CLI
+- **Update:** Via Taskmaster TUI or `aoc-task` CLI
 - **Agent Usage:** Track work, update status, create new items
 
 ### Per-Tab Isolation
@@ -241,7 +240,6 @@ AOC's architecture solves the fundamental problem of **context management in AI-
 Each Zellij tab = One isolated project context:
 
 - **Root Anchoring:** All panes start in the project root
-- **Star Command:** `aoc-star /path/to/project` to re-anchor all panes
 - **Context Injection:** Layouts automatically receive `__AOC_PROJECT_ROOT__`, `__AOC_AGENT_ID__`
 - **Memory Boundaries:** Each project has its own `.aoc/` directory
 
@@ -256,7 +254,7 @@ When you start working in AOC:
 
 1. **Orient:** `aoc-mem read` - Ingest past decisions and preferences
 2. **Context:** `.aoc/context.md` - Automatically provides current project map
-3. **Plan:** `aoc task add "..."` - Track your work plan
+3. **Plan:** `aoc-task add "..."` - Track your work plan
 4. **Execute:** Edit files, run commands, collaborate with AI agent
 5. **Update:** Mark tasks done in Taskmaster TUI
 6. **Record:** `aoc-mem add "..."` - Document significant decisions
@@ -405,7 +403,7 @@ cargo build --workspace
 
 ```bash
 aoc-doctor          # Check all dependencies
-aoc task list       # Verify taskmaster works
+aoc-task list       # Verify taskmaster works
 aoc-mem read        # Check memory system
 ```
 
@@ -414,7 +412,7 @@ aoc-mem read        # Check memory system
 | Issue | Solution |
 |-------|----------|
 | Missing previews | Install `chafa`, `poppler-utils`, `librsvg2-bin` |
-| Blank task list | Run `aoc task list` or install `task-master` npm CLI |
+| Blank task list | Run `aoc-task list` or install `task-master` npm CLI |
 | Widget not rendering | Run `aoc-doctor`, check `ffmpeg` and `chafa` |
 | RLM not working | Build with `cargo build --release -p aoc-cli` |
 | TeX preview errors | Install `tectonic` via Cargo |

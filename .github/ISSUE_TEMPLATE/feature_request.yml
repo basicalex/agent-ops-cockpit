@@ -1,0 +1,33 @@
+name: Feature request
+description: Suggest an improvement or new feature
+title: "feat: "
+labels: [enhancement]
+body:
+  - type: checkboxes
+    attributes:
+      label: Pre-flight
+      options:
+        - label: I searched existing issues
+          required: true
+  - type: textarea
+    attributes:
+      label: Problem statement
+      description: What problem are you trying to solve?
+    validations:
+      required: true
+  - type: textarea
+    attributes:
+      label: Proposed solution
+      description: What would you like to see built?
+    validations:
+      required: true
+  - type: textarea
+    attributes:
+      label: Alternatives considered
+    validations:
+      required: false
+  - type: textarea
+    attributes:
+      label: Additional context
+    validations:
+      required: false

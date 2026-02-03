@@ -4,5 +4,5 @@ See `AGENTS.md` for the full workflow and tool rules.
 
 Quick expectations:
 - Run `aoc-mem read` at the start of a task.
-- Use `aoc task list` and `aoc task add` to track work.
+- Use `aoc-task list` and `aoc-task add` to track work.
 - Do not edit `.aoc/memory.md` directly; use `aoc-mem`.

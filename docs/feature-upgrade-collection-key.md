@@ -57,7 +57,7 @@ Before proposing anything, understand the current state:
 aoc-mem read
 
 # Check existing tasks
-aoc task list
+aoc-task list
 
 # Explore relevant code (agent uses Task tool for deep exploration)
 ```
@@ -119,13 +119,13 @@ Create a parent task with subtasks using taskmaster:
 
 ```bash
 # Add parent task
-aoc task add "Feature Name" \
+aoc-task add "Feature Name" \
   --priority high \
   --description "One-line summary" \
   --details "Extended explanation"
 
 # Add subtasks (use task ID from above)
-aoc task sub add <ID> "Subtask title" --desc "Details"
+aoc-task sub add <ID> "Subtask title" --desc "Details"
 ```
 
 ### Subtask Structure
@@ -266,13 +266,13 @@ Created task #41 for multi-shell implementation with 6 subtasks.
 ```bash
 # Explore codebase
 aoc-mem read
-aoc task list
+aoc-task list
 
 # Create feature task
-aoc task add "Title" --priority high --description "..."
+aoc-task add "Title" --priority high --description "..."
 
 # Add subtasks
-aoc task sub add <ID> "Subtask" --desc "..."
+aoc-task sub add <ID> "Subtask" --desc "..."
 
 # Record decision
 aoc-mem add "Summary of decision and task IDs"

@@ -25,7 +25,6 @@ These scripts are installed to `~/.local/bin` and drive the entire experience.
 *   `aoc-agent`: Manages which AI agent is active (Codex, Gemini, Claude, etc.).
 *   `aoc-agent-run`: The "runner" script that executes the selected agent in the center pane.
 *   `aoc-agent-wrap`: Wraps agent CLIs (often in `tmux`) to provide scrollback and better integration.
-*   `aoc-star`: "Stars" a directory, re-anchoring all panes to that path.
 *   `aoc-watcher` (optional): A background daemon that monitors the project filesystem and automatically regenerates `context.md` when files change.
 *   `aoc-align`: Automatically re-aligns the current terminal pane to the project root (used when switching tabs or re-anchoring).
 

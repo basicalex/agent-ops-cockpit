@@ -1,0 +1,15 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" >/dev/null 2>&1 && pwd)"
+
+if [[ -x "$script_dir/aoc-cli" ]]; then
+  exec "$script_dir/aoc-cli" task "$@"
+fi
+
+if command -v aoc-cli >/dev/null 2>&1; then
+  exec aoc-cli task "$@"
+fi
+
+echo "aoc-task: aoc-cli not found. Install via ./install.sh or ensure aoc-cli is in PATH." >&2
+exit 1

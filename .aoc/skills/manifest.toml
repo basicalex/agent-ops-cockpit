@@ -16,7 +16,7 @@ summary = "Read, search, and record decisions with aoc-mem."
 [[skill]]
 name = "taskmaster-ops"
 type = "ops"
-summary = "Operate tasks via aoc task and the Taskmaster TUI."
+summary = "Operate tasks via aoc-task and the Taskmaster TUI."
 
 [[skill]]
 name = "rlm-analysis"

@@ -542,8 +542,7 @@ Processing 12 files in 3 chunks...
 6. Git diff shows new files: src/auth/mod.rs, src/middleware/auth.rs
 7. Mark subtask "Setup JWT" complete (press 'x')
 8. Add to memory: "Using JWT with 24h expiry, bcrypt for hashing"
-9. Star directory to confirm project root
-10. Final view: all panes showing synchronized state
+9. Final view: all panes showing synchronized state
 
 **On-Screen Split View:**
 ```

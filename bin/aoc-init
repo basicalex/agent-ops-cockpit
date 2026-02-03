@@ -61,7 +61,7 @@ This file defines the always-on rules for agents in this repo. Procedural playbo
 ## Always-on rules
 - Use `.aoc/context.md` for orientation; run `aoc-init` if it is missing or stale.
 - `.aoc/memory.md` is append-only; use `aoc-mem` to read/search/add. Do not edit the file directly.
-- `.taskmaster/tasks/tasks.json` is task state; use the Taskmaster TUI or `aoc task` commands. Do not edit the file directly.
+- `.taskmaster/tasks/tasks.json` is task state; use the Taskmaster TUI or `aoc-task` commands. Do not edit the file directly.
 - Record major decisions and constraints in memory (`aoc-mem add "..."`).
 
 ## Core files
@@ -115,7 +115,7 @@ Use the AOC tools for context, memory, and tasks in this repo.
 
 - **Context:** `.aoc/context.md` (read-only)
 - **Memory:** `.aoc/memory.md` via `aoc-mem read/add` (do not edit directly)
-- **Tasks:** `.taskmaster/tasks/tasks.json` via `aoc task list/add/status` (do not edit directly)
+- **Tasks:** `.taskmaster/tasks/tasks.json` via `aoc-task list/add/status` (do not edit directly)
 - **Skills:** load AOC skills as needed for workflows
 
 If the AOC files are missing, run `aoc-init` at the repo root.
@@ -143,13 +143,13 @@ $(tree -L 2 --gitignore -I '.git|.taskmaster|.aoc|.gemini|node_modules|target|di
 **Purpose:** Persistent storage of architectural decisions.
 **Commands:** \`aoc-mem read\`, \`aoc-mem add "fact"\`.
 
-## 3. Task Management (\`aoc task\`)
+## 3. Task Management (\`aoc-task\`)
 **Purpose:** Granular tracking of work.
-**Commands:** \`aoc task list\`, \`aoc task add "Task"\`.
+**Commands:** \`aoc-task list\`, \`aoc-task add "Task"\`.
 
 ## 4. Operational Rules
 - **No Amnesia:** Always check \`aoc-mem\` first.
-- **No Ghost Work:** Track all work in \`aoc task\` (or \`task-master\`).
+- **No Ghost Work:** Track all work in \`aoc-task\` (or \`task-master\`).
 EOF
   
   # Append README if it exists
@@ -160,12 +160,12 @@ EOF
   fi
 
   # Append Taskmaster Tags if available
-  if command -v aoc >/dev/null 2>&1 || command -v aoc-cli >/dev/null 2>&1 || command -v task-master >/dev/null 2>&1; then
+  if command -v aoc-task >/dev/null 2>&1 || command -v aoc-cli >/dev/null 2>&1 || command -v task-master >/dev/null 2>&1; then
     echo >> "$context_file"
     echo "## 6. Active Workstreams (Tags)" >> "$context_file"
     # Run in subshell to preserve cwd, capture output
-    if command -v aoc >/dev/null 2>&1; then
-      tags_output="$(cd "$project_root" && aoc task tag list 2>/dev/null || echo "No tags found.")"
+    if command -v aoc-task >/dev/null 2>&1; then
+      tags_output="$(cd "$project_root" && aoc-task tag list 2>/dev/null || echo "No tags found.")"
     elif command -v aoc-cli >/dev/null 2>&1; then
       tags_output="$(cd "$project_root" && aoc-cli task tag list 2>/dev/null || echo "No tags found.")"
     else

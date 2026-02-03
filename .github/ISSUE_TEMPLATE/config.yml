@@ -1,0 +1,8 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Support
+    url: https://github.com/basicalex/agent-ops-cockpit/blob/main/SUPPORT.md
+    about: Where to ask questions and get help
+  - name: Security
+    url: https://github.com/basicalex/agent-ops-cockpit/blob/main/SECURITY.md
+    about: Please report vulnerabilities privately

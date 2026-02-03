@@ -5,7 +5,6 @@ prepend_keymap = [
   { on = ["p"], run = "shell --block 'aoc-preview-set \"$@\"'", desc = "Send to floating preview" },
   { on = ["P"], run = "shell --block 'aoc-preview-toggle'", desc = "Toggle floating preview" },
   { on = ["<C-p>"], run = "plugin aoc-preview-toggle", desc = "Toggle inline preview" },
-  { on = ["S"], run = "shell --block 'aoc-star \"$@\"'", desc = "Star selected path" },
 
   # Navigation
   { on = ["g", "c"], run = "cd .aoc", desc = "Go to Context" },

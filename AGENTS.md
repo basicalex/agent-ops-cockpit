@@ -5,7 +5,7 @@ This file defines the always-on rules for agents in this repo. Procedural playbo
 ## Always-on rules
 - Use `.aoc/context.md` for orientation; run `aoc-init` if it is missing or stale.
 - `.aoc/memory.md` is append-only; use `aoc-mem` to read/search/add. Do not edit the file directly.
-- `.taskmaster/tasks/tasks.json` is task state; use the Taskmaster TUI or `aoc task` commands. Do not edit the file directly.
+- `.taskmaster/tasks/tasks.json` is task state; use the Taskmaster TUI or `aoc-task` commands. Do not edit the file directly.
 - Record major decisions and constraints in memory (`aoc-mem add "..."`).
 
 ## Core files

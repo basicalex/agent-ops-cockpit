@@ -190,7 +190,7 @@ AOC uses a **Distributed Cognitive Architecture** with three layers:
 ### 3. Task State (`.taskmaster/tasks/tasks.json`)
 
 - **Purpose:** Active work queue
-- **Management:** `aoc task` commands
+- **Management:** `aoc-task` commands
 
 ### Global Configuration
 

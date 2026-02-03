@@ -6,7 +6,7 @@ usage() {
 Usage: aoc-taskmaster [command]
 
 Wraps the 'task-master' CLI for easy access within AOC.
-If 'task-master' is not in PATH, falls back to the Rust `aoc task` CLI when available.
+If 'task-master' is not in PATH, falls back to the Rust `aoc-task` CLI when available.
 
 Commands:
   list       Show tasks
@@ -81,11 +81,11 @@ if command -v "$TM_CMD" >/dev/null 2>&1; then
   fi
 else
   # Fallback for when the rust plugin/CLI isn't installed
-  if command -v aoc >/dev/null 2>&1; then
+  if command -v aoc-task >/dev/null 2>&1; then
     if [[ $# -eq 0 ]]; then
-      exec aoc task list
+      exec aoc-task list
     fi
-    exec aoc task "$@"
+    exec aoc-task "$@"
   elif command -v aoc-cli >/dev/null 2>&1; then
     if [[ $# -eq 0 ]]; then
       exec aoc-cli task list

@@ -60,7 +60,6 @@ cleanup_state() {
   find "$dir" -maxdepth 1 -type f -name 'aoc-layout-*' -mtime +30 -delete 2>/dev/null || true
   # Clean up deprecated root files (legacy)
   find "$dir" -maxdepth 1 -type f -name 'project_root.*' -delete 2>/dev/null || true
-  find "$dir" -maxdepth 1 -type f -name 'starred_root.*' -delete 2>/dev/null || true
 }
 
 resolve_layout_path() {
