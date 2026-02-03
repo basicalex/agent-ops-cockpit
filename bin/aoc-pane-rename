@@ -3,15 +3,21 @@ set -euo pipefail
 
 TITLE="${1:-Explorer}"
 PANE_ID="${2:-${ZELLIJ_PANE_ID:-}}"
+SESSION_NAME="${ZELLIJ_SESSION_NAME:-}"
 
-if [[ -z "${ZELLIJ:-}" ]]; then
+if [[ -z "${ZELLIJ:-}" && -z "$SESSION_NAME" ]]; then
     exit 0
 fi
 
+action_cmd=(zellij action rename-pane)
+if [[ -n "$SESSION_NAME" ]]; then
+    action_cmd=(zellij --session "$SESSION_NAME" action rename-pane)
+fi
+
 if [[ -n "$PANE_ID" ]]; then
-    if ! zellij action rename-pane --pane-id "$PANE_ID" "$TITLE" >/dev/null 2>&1; then
-        zellij action rename-pane "$TITLE" >/dev/null 2>&1 || true
+    if ! "${action_cmd[@]}" --pane-id "$PANE_ID" "$TITLE" >/dev/null 2>&1; then
+        "${action_cmd[@]}" "$TITLE" >/dev/null 2>&1 || true
     fi
 else
-    zellij action rename-pane "$TITLE" >/dev/null 2>&1 || true
+    "${action_cmd[@]}" "$TITLE" >/dev/null 2>&1 || true
 fi

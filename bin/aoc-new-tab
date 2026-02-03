@@ -16,6 +16,14 @@ tab_cwd=""
 state_dir="${XDG_STATE_HOME:-$HOME/.local/state}/aoc"
 default_layout_file="${state_dir}/layout_default"
 
+if [[ "${AOC_CLEANUP:-1}" != "0" ]]; then
+  if command -v aoc-cleanup >/dev/null 2>&1; then
+    cleanup_log="$state_dir/cleanup.log"
+    mkdir -p "$state_dir"
+    (aoc-cleanup >>"$cleanup_log" 2>&1) &
+  fi
+fi
+
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --aoc) layout_choice="aoc" ;;

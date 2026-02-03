@@ -212,7 +212,6 @@ construct_handshake() {
   echo "──────────────────────────────────────────────────────────────────────────────"
   echo "Starting $agent_label CLI..."
   echo "──────────────────────────────────────────────────────────────────────────────"
-  sleep 1
 }
 
 # We'll use a temporary script to handle the handshake and exec to avoid complex quoting in tmux

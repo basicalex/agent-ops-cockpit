@@ -69,10 +69,25 @@ def run_cmd(args):
         return ""
 
 def list_sessions():
-    out = run_cmd(["zellij", "list-sessions"])
+    out = run_cmd(["zellij", "list-sessions", "--short", "--no-formatting"])
     names = []
+    if out:
+        for line in out.strip().splitlines():
+            name = line.strip()
+            if name:
+                names.append(name)
+        if names:
+            return names
+
+    out = run_cmd(["zellij", "list-sessions"])
+    if not out:
+        return names
+    ansi_re = re.compile(r"\x1b\[[0-9;]*m")
     for line in out.strip().splitlines():
-        parts = line.split()
+        cleaned = ansi_re.sub("", line).strip()
+        if not cleaned:
+            continue
+        parts = cleaned.split()
         if parts:
             names.append(parts[0])
     return names
@@ -259,6 +274,35 @@ def build_active_sets():
         expected_ids.update(ids)
     return active_commands, agent_cwds, expected_cwds, expected_ids
 
+def proc_env(pid):
+    try:
+        with open(f"/proc/{pid}/environ", "rb") as fh:
+            data = fh.read().split(b"\0")
+    except Exception:
+        return {}
+    env = {}
+    for item in data:
+        if not item or b"=" not in item:
+            continue
+        key, value = item.split(b"=", 1)
+        try:
+            k = key.decode("utf-8", errors="ignore")
+            v = value.decode("utf-8", errors="ignore")
+        except Exception:
+            continue
+        if k:
+            env[k] = v
+    return env
+
+def proc_has_active_session(pid, active_sessions):
+    if not active_sessions:
+        return False
+    env = proc_env(pid)
+    session = env.get("ZELLIJ_SESSION_NAME") or env.get("ZELLIJ_SESSION")
+    if not session:
+        return False
+    return session in active_sessions
+
 def proc_cwd(pid):
     try:
         return os.readlink(f"/proc/{pid}/cwd")
@@ -366,6 +410,7 @@ processes, children = get_process_map()
 
 active_commands, agent_cwds, expected_cwds, expected_ids = build_active_sets()
 have_active_signals = bool(active_commands or agent_cwds or expected_cwds or expected_ids)
+active_sessions = set(list_sessions())
 
 # 1. Identify Zellij Server Roots
 zellij_pids = set()
@@ -493,27 +538,22 @@ if keep_pids:
 for proc in agent_candidates:
     pid = proc["pid"]
     args = proc["args"]
-    if expected_cwds_effective or expected_ids:
-        if pid in keep_tree:
-            continue
-        # If we couldn't match this proc to any active cwd, be conservative
-        if expected_cwds_effective and not any(cwd_matches(proc["cwd"], c) for c in expected_cwds_effective.keys()):
-            continue
-        kill_list.append((pid, args))
+    if pid in safe_pids:
+        continue
+    if pid in keep_tree:
+        continue
+    if proc_has_active_session(pid, active_sessions):
         continue
 
     active_hit = False
     if have_active_signals:
-        if any(cmd in proc["args"] for cmd in active_commands):
+        proc_exec = proc_cmd(proc["args"], proc["comm"])
+        if any(cmd_matches(proc_exec, cmd) or (cmd in proc["args"]) for cmd in active_commands):
             active_hit = True
         else:
             if any(cwd_matches(proc["cwd"], ac) for ac in agent_cwds):
                 active_hit = True
         if active_hit:
-            continue
-    else:
-        # Fallback safety: respect safe tree
-        if pid in safe_pids:
             continue
 
     kill_list.append((pid, args))
