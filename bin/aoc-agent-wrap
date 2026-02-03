@@ -229,7 +229,107 @@ chmod +x "$bootloader"
   echo "exec \"$real_bin\" \"\$@\""
 } > "$bootloader"
 
+pane_cleanup=0
+if [[ -n "${ZELLIJ_PANE_ID:-}" ]]; then
+  case "$agent_id" in
+    oc|opencode|open-code) pane_cleanup=1 ;;
+  esac
+fi
+
+cleanup_done=0
+cleanup_pane_agents() {
+  if [[ "$pane_cleanup" != "1" ]]; then
+    return
+  fi
+  if [[ -z "${ZELLIJ_PANE_ID:-}" ]]; then
+    return
+  fi
+  if [[ "$cleanup_done" == "1" ]]; then
+    return
+  fi
+  cleanup_done=1
+  python3 - <<'PY'
+import os
+import signal
+import subprocess
+import re
+
+pane_id = os.environ.get("ZELLIJ_PANE_ID", "")
+if not pane_id:
+    raise SystemExit(0)
+
+pattern = re.compile(r"(opencode|open-code)", re.IGNORECASE)
+
+def proc_env(pid):
+    try:
+        with open(f"/proc/{pid}/environ", "rb") as fh:
+            data = fh.read().split(b"\0")
+    except Exception:
+        return {}
+    env = {}
+    for item in data:
+        if not item or b"=" not in item:
+            continue
+        key, value = item.split(b"=", 1)
+        try:
+            k = key.decode("utf-8", errors="ignore")
+            v = value.decode("utf-8", errors="ignore")
+        except Exception:
+            continue
+        if k:
+            env[k] = v
+    return env
+
+try:
+    ps_out = subprocess.check_output(["ps", "-eo", "pid,comm,args"], text=True)
+except Exception:
+    raise SystemExit(0)
+
+pids = []
+for line in ps_out.strip().splitlines()[1:]:
+    parts = line.strip().split(None, 2)
+    if len(parts) < 2:
+        continue
+    try:
+        pid = int(parts[0])
+    except ValueError:
+        continue
+    comm = parts[1]
+    args = parts[2] if len(parts) > 2 else ""
+    if not (pattern.search(comm) or pattern.search(args)):
+        continue
+    env = proc_env(pid)
+    if env.get("ZELLIJ_PANE_ID") == pane_id:
+        pids.append(pid)
+
+for pid in pids:
+    try:
+        os.kill(pid, signal.SIGTERM)
+    except ProcessLookupError:
+        pass
+
+for pid in pids:
+    try:
+        os.kill(pid, signal.SIGKILL)
+    except ProcessLookupError:
+        pass
+PY
+}
+
+handle_cleanup_signal() {
+  cleanup_pane_agents
+  exit 0
+}
+
 if [[ "$agent_id" != "codex" ]]; then
+  if [[ "$pane_cleanup" == "1" ]]; then
+    trap handle_cleanup_signal HUP INT TERM
+    trap cleanup_pane_agents EXIT
+    "$bootloader" "$@"
+    status=$?
+    trap - HUP INT TERM EXIT
+    exit "$status"
+  fi
   exec "$bootloader" "$@"
 fi
 

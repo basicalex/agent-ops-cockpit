@@ -265,7 +265,8 @@ def parse_layout(text, projects_base=None):
             guess = os.path.join(projects_base, agent_id)
             if os.path.isdir(guess):
                 agent_cwds.add(guess)
-                expected_cwds[guess] += count
+                if guess not in expected_cwds:
+                    expected_cwds[guess] += count
 
     return active_commands, agent_cwds, expected_cwds, expected_ids
 
