@@ -34,20 +34,37 @@ fi
 
 # 2. Rust Build & Install
 log "Building Rust components..."
-if command -v cargo >/dev/null 2>&1; then
+cargo_bin="cargo"
+if [[ -x "$HOME/.cargo/bin/cargo" ]]; then
+  cargo_bin="$HOME/.cargo/bin/cargo"
+  export PATH="$HOME/.cargo/bin:$PATH"
+fi
+if command -v "$cargo_bin" >/dev/null 2>&1; then
+  cargo_version="$($cargo_bin --version | awk '{print $2}')"
+  cargo_major="${cargo_version%%.*}"
+  cargo_minor="${cargo_version#*.}"
+  cargo_minor="${cargo_minor%%.*}"
+  lockfile="$ROOT_DIR/crates/Cargo.lock"
+  if [[ "$cargo_major" -eq 1 && "$cargo_minor" -lt 78 ]]; then
+    if [[ -f "$lockfile" ]] && grep -q '^version = 4' "$lockfile"; then
+      log "Downgrading lockfile for Cargo $cargo_version..."
+      rm -f "$lockfile"
+      "$cargo_bin" generate-lockfile --manifest-path "$ROOT_DIR/crates/Cargo.toml"
+    fi
+  fi
   # Build aoc-cli
   log "Building aoc-cli..."
-  cargo install --path "$ROOT_DIR/crates/aoc-cli" --root "$HOME/.local" --force --quiet || {
+  "$cargo_bin" install --path "$ROOT_DIR/crates/aoc-cli" --root "$HOME/.local" --force --quiet || {
     # Fallback for older cargos that don't support --root in the same way or if it fails
     # Try direct build
     log "Cargo install failed, trying build --release..."
-    (cd "$ROOT_DIR/crates" && cargo build --release -p aoc-cli)
+    (cd "$ROOT_DIR/crates" && "$cargo_bin" build --release -p aoc-cli)
     cp "$ROOT_DIR/crates/target/release/aoc-cli" "$BIN_DIR/aoc-cli"
   }
 
   # Build aoc-taskmaster (native TUI)
   log "Building aoc-taskmaster..."
-  if cargo build --release -p aoc-taskmaster --manifest-path "$ROOT_DIR/crates/Cargo.toml"; then
+  if "$cargo_bin" build --release -p aoc-taskmaster --manifest-path "$ROOT_DIR/crates/Cargo.toml"; then
     if [[ -f "$ROOT_DIR/crates/target/release/aoc-taskmaster" ]]; then
       install -m 0755 "$ROOT_DIR/crates/target/release/aoc-taskmaster" "$BIN_DIR/aoc-taskmaster-native"
     fi
@@ -57,7 +74,7 @@ if command -v cargo >/dev/null 2>&1; then
 
   # Build aoc-control (native TUI)
   log "Building aoc-control..."
-  if cargo build --release -p aoc-control --manifest-path "$ROOT_DIR/crates/Cargo.toml"; then
+  if "$cargo_bin" build --release -p aoc-control --manifest-path "$ROOT_DIR/crates/Cargo.toml"; then
     if [[ -f "$ROOT_DIR/crates/target/release/aoc-control" ]]; then
       install -m 0755 "$ROOT_DIR/crates/target/release/aoc-control" "$BIN_DIR/aoc-control-native"
     fi

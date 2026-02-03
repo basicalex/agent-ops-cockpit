@@ -1,7 +1,7 @@
 [package]
 name = "aoc-taskmaster"
 version = "0.1.0"
-edition = "2024"
+edition = "2021"
 
 [dependencies]
 aoc-core = { path = "../aoc-core" }
