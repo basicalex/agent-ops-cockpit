@@ -166,6 +166,18 @@ aoc-skill sync --existing
 
 Skills are synced automatically when you switch agents via `aoc-agent --set`. `aoc-init` also seeds default skills and syncs the active agent. Sync is additive and preserves existing agent skills.
 
+**Optional MoreMotion (React projects):**
+
+```bash
+aoc-momo init
+```
+
+Then in OpenCode:
+
+```
+@momo
+```
+
 ### 5. Yazi File Manager Integration
 
 Keyboard-driven file management with rich previews:
