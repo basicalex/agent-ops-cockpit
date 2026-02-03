@@ -6,24 +6,53 @@ if [[ -z "${ZELLIJ_SESSION_NAME:-}" ]]; then
   exit 1
 fi
 
-pane_name="${AOC_CONTROL_PANE_NAME:-AOC Control}"
+caller_pane_id="${ZELLIJ_PANE_ID:-}"
+
+pane_name="${AOC_CONTROL_PANE_NAME:-Control}"
 width="${AOC_CONTROL_WIDTH:-70%}"
 height="${AOC_CONTROL_HEIGHT:-70%}"
 x="${AOC_CONTROL_X:-15%}"
 y="${AOC_CONTROL_Y:-15%}"
 pinned="${AOC_CONTROL_PINNED:-true}"
+control_bin="${AOC_CONTROL_BIN:-aoc-control}"
 
 layout="$(zellij action dump-layout 2>/dev/null || true)"
-if command -v rg >/dev/null 2>&1; then
-  if printf '%s' "$layout" | rg -q "name=\"${pane_name}\""; then
-    zellij action toggle-floating-panes
-    exit 0
+has_control="0"
+if command -v awk >/dev/null 2>&1; then
+  has_control=$(printf '%s\n' "$layout" | awk -v target="$pane_name" '
+    function braces(line, open_count, close_count, total) {
+      open_count = gsub(/\{/, "", line)
+      close_count = gsub(/\}/, "", line)
+      total = open_count - close_count
+      return total
+    }
+    /tab .*focus=true/ {
+      in_tab = 1
+      depth = 0
+    }
+    {
+      if (in_tab && index($0, "name=\"" target "\"") > 0) {
+        found = 1
+      }
+      if (in_tab) {
+        depth += braces($0)
+        if (depth <= 0 && $0 !~ /tab .*focus=true/) {
+          in_tab = 0
+          depth = 0
+        }
+      }
+    }
+    END { print found + 0 }
+  ')
+fi
+if [[ "$has_control" == "0" ]]; then
+  if printf '%s' "$layout" | grep -q "name=\"$pane_name\""; then
+    has_control="1"
   fi
-else
-  if printf '%s' "$layout" | grep -q "name=\"${pane_name}\""; then
-    zellij action toggle-floating-panes
-    exit 0
-  fi
+fi
+if [[ "$has_control" == "1" ]]; then
+  zellij action toggle-floating-panes
+  exit 0
 fi
 
 close_pane_flag="${AOC_CONTROL_CLOSE_PANE:-}"
@@ -34,6 +63,9 @@ if [[ -z "$close_pane_flag" ]]; then
     close_pane_flag="0"
   fi
 fi
+if [[ "${AOC_CONTROL_TOGGLE_NO_CLOSE:-}" == "1" ]]; then
+  close_pane_flag="0"
+fi
 
 zellij action new-pane \
   --floating \
@@ -43,9 +75,13 @@ zellij action new-pane \
   --x "$x" \
   --y "$y" \
   --pinned "$pinned" \
-  -- bash -lc "export AOC_CONTROL_NO_FLOAT=1; export AOC_CONTROL_FLOATING_ACTIVE=1; exec aoc-control"
+  -- bash -lc "export PATH=\"$HOME/.local/bin:$HOME/.cargo/bin:$PATH\"; export AOC_CONTROL_NO_FLOAT=1; export AOC_CONTROL_FLOATING_ACTIVE=1; exec $control_bin"
 
 if [[ "$close_pane_flag" == "1" ]]; then
-  zellij action focus-previous-pane >/dev/null 2>&1 || true
-  zellij action close-pane >/dev/null 2>&1 || true
+  if [[ -n "$caller_pane_id" ]]; then
+    zellij action close-pane --pane-id "$caller_pane_id" >/dev/null 2>&1 || true
+  else
+    zellij action focus-previous-pane >/dev/null 2>&1 || true
+    zellij action close-pane >/dev/null 2>&1 || true
+  fi
 fi

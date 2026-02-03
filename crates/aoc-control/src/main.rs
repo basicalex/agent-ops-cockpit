@@ -13,7 +13,8 @@ use ratatui::{
 };
 use serde::{Deserialize, Serialize};
 use std::{
-    env, fs, io,
+    env, fs,
+    io::{self, Write},
     path::{Path, PathBuf},
     process::{Command, Stdio},
     time::Duration,
@@ -29,6 +30,12 @@ enum Tab {
     Defaults,
     Projects,
     Sessions,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Focus {
+    Nav,
+    Detail,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -69,6 +76,7 @@ struct PendingLaunch {
 #[derive(Clone, Debug)]
 struct App {
     active_tab: Tab,
+    focus: Focus,
     mode: Mode,
     status: String,
     should_exit: bool,
@@ -92,6 +100,7 @@ struct App {
     in_zellij: bool,
     floating_active: bool,
     close_on_exit: bool,
+    pane_rename_remaining: u8,
 }
 
 impl App {
@@ -102,6 +111,7 @@ impl App {
         let projects = load_projects(&projects_base).unwrap_or_default();
         let mut app = Self {
             active_tab: Tab::Defaults,
+            focus: Focus::Nav,
             mode: Mode::Normal,
             status: String::new(),
             should_exit: false,
@@ -127,6 +137,7 @@ impl App {
             in_zellij: in_zellij(),
             floating_active: is_floating_active(),
             close_on_exit: false,
+            pane_rename_remaining: if in_zellij() { 6 } else { 0 },
         };
         app.apply_project_filter();
         app.ensure_selections();
@@ -307,6 +318,14 @@ impl App {
         self.session_overrides = SessionOverrides::default();
         self.set_status("Cleared overrides");
     }
+
+    fn tick(&mut self) {
+        if self.pane_rename_remaining == 0 {
+            return;
+        }
+        rename_pane();
+        self.pane_rename_remaining = self.pane_rename_remaining.saturating_sub(1);
+    }
 }
 
 fn main() -> io::Result<()> {
@@ -317,7 +336,7 @@ fn main() -> io::Result<()> {
     let mut terminal = Terminal::new(backend)?;
 
     let mut app = App::new()?;
-    maybe_rename_pane();
+    app.tick();
     let tick = Duration::from_millis(200);
 
     while !app.should_exit {
@@ -327,6 +346,7 @@ fn main() -> io::Result<()> {
                 handle_key(&mut app, key);
             }
         }
+        app.tick();
     }
 
     disable_raw_mode()?;
@@ -360,68 +380,72 @@ fn handle_key_normal(app: &mut App, key: KeyEvent) {
     match key.code {
         KeyCode::Char('q') => app.should_exit = true,
         KeyCode::Esc => {
-            app.should_exit = true;
-            if app.floating_active {
-                app.close_on_exit = true;
+            if app.focus == Focus::Detail {
+                app.focus = Focus::Nav;
+            } else {
+                app.should_exit = true;
+                if app.floating_active {
+                    app.close_on_exit = true;
+                }
             }
         }
         KeyCode::Tab => cycle_tab(app, true),
         KeyCode::BackTab => cycle_tab(app, false),
-        KeyCode::Left => cycle_tab(app, false),
-        KeyCode::Right => cycle_tab(app, true),
-        KeyCode::Char('j') | KeyCode::Down => list_next(app),
-        KeyCode::Char('k') | KeyCode::Up => list_prev(app),
-        KeyCode::Enter => activate_selection(app),
-        KeyCode::Char('/') if app.active_tab == Tab::Projects => {
+        KeyCode::Char('h') | KeyCode::Left => {
+            if app.focus == Focus::Detail {
+                app.focus = Focus::Nav;
+            } else {
+                cycle_tab(app, false);
+            }
+        }
+        KeyCode::Char('l') | KeyCode::Right => {
+            if app.focus == Focus::Nav {
+                app.focus = Focus::Detail;
+            } else {
+                activate_selection(app);
+            }
+        }
+        KeyCode::Char('j') | KeyCode::Down => {
+            if app.focus == Focus::Nav {
+                cycle_tab(app, true);
+            } else {
+                list_next(app);
+            }
+        }
+        KeyCode::Char('k') | KeyCode::Up => {
+            if app.focus == Focus::Nav {
+                cycle_tab(app, false);
+            } else {
+                list_prev(app);
+            }
+        }
+        KeyCode::Enter => {
+            if app.focus == Focus::Nav {
+                app.focus = Focus::Detail;
+            } else {
+                activate_selection(app);
+            }
+        }
+        KeyCode::Char('/') if app.active_tab == Tab::Projects && app.focus == Focus::Detail => {
             app.start_input(Mode::SearchProjects, app.project_filter.clone());
         }
-        KeyCode::Char('n') if app.active_tab == Tab::Projects => {
+        KeyCode::Char('n') if app.active_tab == Tab::Projects && app.focus == Focus::Detail => {
             app.start_input(Mode::NewProject, String::new());
         }
-        KeyCode::Char('r') if app.active_tab == Tab::Projects => app.reload_projects(),
-        KeyCode::Char('o') if app.active_tab == Tab::Projects => {
+        KeyCode::Char('r') if app.active_tab == Tab::Projects && app.focus == Focus::Detail => {
+            app.reload_projects()
+        }
+        KeyCode::Char('o') if app.active_tab == Tab::Projects && app.focus == Focus::Detail => {
             if let Some(project) = app.selected_project() {
                 app.open_project(project.path);
             }
         }
-        KeyCode::Char('?') | KeyCode::Char('h') => {
+        KeyCode::Char('c') if app.active_tab == Tab::Sessions && app.focus == Focus::Detail => {
+            app.clear_overrides()
+        }
+        KeyCode::Char('?') => {
             app.mode = Mode::Help;
         }
-        KeyCode::Char('l') if app.active_tab == Tab::Defaults => {
-            let current = app.default_layout.clone();
-            select_picker(&mut app.layout_picker_state, &layout_options(), &current);
-            app.mode = Mode::PickLayout(PickTarget::Defaults);
-        }
-        KeyCode::Char('a') if app.active_tab == Tab::Defaults => {
-            let current = app.default_agent.clone();
-            select_picker(&mut app.agent_picker_state, &agent_options(), &current);
-            app.mode = Mode::PickAgent(PickTarget::Defaults);
-        }
-        KeyCode::Char('p') if app.active_tab == Tab::Defaults => {
-            app.start_input(
-                Mode::EditProjectsBase,
-                app.projects_base.to_string_lossy().to_string(),
-            );
-        }
-        KeyCode::Char('l') if app.active_tab == Tab::Sessions => {
-            let current = app
-                .session_overrides
-                .layout
-                .clone()
-                .unwrap_or_else(|| app.default_layout.clone());
-            select_picker(&mut app.layout_picker_state, &layout_options(), &current);
-            app.mode = Mode::PickLayout(PickTarget::Override);
-        }
-        KeyCode::Char('a') if app.active_tab == Tab::Sessions => {
-            let current = app
-                .session_overrides
-                .agent
-                .clone()
-                .unwrap_or_else(|| app.default_agent.clone());
-            select_picker(&mut app.agent_picker_state, &agent_options(), &current);
-            app.mode = Mode::PickAgent(PickTarget::Override);
-        }
-        KeyCode::Char('c') if app.active_tab == Tab::Sessions => app.clear_overrides(),
         _ => {}
     }
 }
@@ -501,7 +525,7 @@ fn handle_key_input(app: &mut App, key: KeyEvent, mode: InputMode) {
 
 fn handle_key_help(app: &mut App, key: KeyEvent) {
     match key.code {
-        KeyCode::Esc | KeyCode::Char('?') | KeyCode::Char('h') => app.mode = Mode::Normal,
+        KeyCode::Esc | KeyCode::Char('?') => app.mode = Mode::Normal,
         _ => {}
     }
 }
@@ -597,8 +621,8 @@ fn draw_ui(frame: &mut ratatui::Frame, app: &mut App) {
         .constraints([Constraint::Length(22), Constraint::Min(1)])
         .split(body);
 
-    draw_nav(frame, columns[0], app);
-    draw_detail(frame, columns[1], app);
+    draw_nav(frame, columns[0], app, app.focus == Focus::Nav);
+    draw_detail(frame, columns[1], app, app.focus == Focus::Detail);
     draw_footer(frame, footer, app);
 
     if app.mode != Mode::Normal {
@@ -606,11 +630,11 @@ fn draw_ui(frame: &mut ratatui::Frame, app: &mut App) {
     }
 }
 
-fn draw_nav(frame: &mut ratatui::Frame, area: Rect, app: &mut App) {
+fn draw_nav(frame: &mut ratatui::Frame, area: Rect, app: &mut App, focused: bool) {
     let items = vec![
-        ListItem::new("Defaults"),
+        ListItem::new("Settings"),
         ListItem::new("Projects"),
-        ListItem::new("Sessions"),
+        ListItem::new("Launch"),
     ];
     let mut state = ListState::default();
     state.select(Some(match app.active_tab {
@@ -619,43 +643,37 @@ fn draw_nav(frame: &mut ratatui::Frame, area: Rect, app: &mut App) {
         Tab::Sessions => 2,
     }));
     let list = List::new(items)
-        .block(Block::default().title("AOC Control").borders(Borders::ALL))
-        .highlight_style(
-            Style::default()
-                .fg(Color::Cyan)
-                .add_modifier(Modifier::BOLD),
-        );
+        .block(titled_block("AOC Control", focused))
+        .highlight_style(nav_highlight_style(focused))
+        .highlight_symbol("> ");
     frame.render_stateful_widget(list, area, &mut state);
 }
 
-fn draw_detail(frame: &mut ratatui::Frame, area: Rect, app: &mut App) {
+fn draw_detail(frame: &mut ratatui::Frame, area: Rect, app: &mut App, focused: bool) {
     match app.active_tab {
-        Tab::Defaults => draw_defaults(frame, area, app),
-        Tab::Projects => draw_projects(frame, area, app),
-        Tab::Sessions => draw_sessions(frame, area, app),
+        Tab::Defaults => draw_defaults(frame, area, app, focused),
+        Tab::Projects => draw_projects(frame, area, app, focused),
+        Tab::Sessions => draw_sessions(frame, area, app, focused),
     }
 }
 
-fn draw_defaults(frame: &mut ratatui::Frame, area: Rect, app: &mut App) {
+fn draw_defaults(frame: &mut ratatui::Frame, area: Rect, app: &mut App, focused: bool) {
     let items = vec![
-        ListItem::new(format!("Layout: {}", app.default_layout)),
-        ListItem::new(format!("Agent: {}", app.default_agent)),
+        ListItem::new(format!("Set layout: {}", app.default_layout)),
+        ListItem::new(format!("Set agent: {}", app.default_agent)),
         ListItem::new(format!(
             "Projects base: {}",
             app.projects_base.to_string_lossy()
         )),
     ];
     let list = List::new(items)
-        .block(Block::default().title("Defaults").borders(Borders::ALL))
-        .highlight_style(
-            Style::default()
-                .fg(Color::Cyan)
-                .add_modifier(Modifier::BOLD),
-        );
+        .block(titled_block("Settings", focused))
+        .highlight_style(detail_highlight_style(focused))
+        .highlight_symbol("> ");
     frame.render_stateful_widget(list, area, &mut app.defaults_state);
 }
 
-fn draw_projects(frame: &mut ratatui::Frame, area: Rect, app: &mut App) {
+fn draw_projects(frame: &mut ratatui::Frame, area: Rect, app: &mut App, focused: bool) {
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([Constraint::Length(5), Constraint::Min(1)])
@@ -704,16 +722,13 @@ fn draw_projects(frame: &mut ratatui::Frame, area: Rect, app: &mut App) {
         .collect();
 
     let list = List::new(items)
-        .block(Block::default().borders(Borders::ALL).title("Project List"))
-        .highlight_style(
-            Style::default()
-                .fg(Color::Cyan)
-                .add_modifier(Modifier::BOLD),
-        );
+        .block(titled_block("Project List", focused))
+        .highlight_style(detail_highlight_style(focused))
+        .highlight_symbol("> ");
     frame.render_stateful_widget(list, chunks[1], &mut app.projects_state);
 }
 
-fn draw_sessions(frame: &mut ratatui::Frame, area: Rect, app: &mut App) {
+fn draw_sessions(frame: &mut ratatui::Frame, area: Rect, app: &mut App, focused: bool) {
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([Constraint::Length(5), Constraint::Min(1)])
@@ -731,22 +746,19 @@ fn draw_sessions(frame: &mut ratatui::Frame, area: Rect, app: &mut App) {
             .unwrap_or_else(|| "(default)".to_string())
     );
     let header = Paragraph::new(vec![Line::from(overrides)])
-        .block(Block::default().borders(Borders::ALL).title("Sessions"));
+        .block(Block::default().borders(Borders::ALL).title("Launch"));
     frame.render_widget(header, chunks[0]);
 
     let items = vec![
         ListItem::new("Launch new tab/session"),
-        ListItem::new("Set layout override"),
-        ListItem::new("Set agent override"),
+        ListItem::new("Set launch layout"),
+        ListItem::new("Set launch agent"),
         ListItem::new("Clear overrides"),
     ];
     let list = List::new(items)
-        .block(Block::default().borders(Borders::ALL).title("Actions"))
-        .highlight_style(
-            Style::default()
-                .fg(Color::Cyan)
-                .add_modifier(Modifier::BOLD),
-        );
+        .block(titled_block("Actions", focused))
+        .highlight_style(detail_highlight_style(focused))
+        .highlight_symbol("> ");
     frame.render_stateful_widget(list, chunks[1], &mut app.sessions_state);
 }
 
@@ -762,14 +774,14 @@ fn draw_modal(frame: &mut ratatui::Frame, app: &mut App) {
     let area = centered_rect(60, 40, frame.size());
     frame.render_widget(Clear, area);
     match app.mode {
-        Mode::PickLayout(_) => {
+        Mode::PickLayout(target) => {
+            let title = match target {
+                PickTarget::Defaults => "Select Layout (Default)",
+                PickTarget::Override => "Select Layout (Launch)",
+            };
             let items: Vec<ListItem> = layout_options().into_iter().map(ListItem::new).collect();
             let list = List::new(items)
-                .block(
-                    Block::default()
-                        .borders(Borders::ALL)
-                        .title("Select Layout"),
-                )
+                .block(Block::default().borders(Borders::ALL).title(title))
                 .highlight_style(
                     Style::default()
                         .fg(Color::Cyan)
@@ -777,10 +789,14 @@ fn draw_modal(frame: &mut ratatui::Frame, app: &mut App) {
                 );
             frame.render_stateful_widget(list, area, &mut app.layout_picker_state);
         }
-        Mode::PickAgent(_) => {
+        Mode::PickAgent(target) => {
+            let title = match target {
+                PickTarget::Defaults => "Select Agent (Default)",
+                PickTarget::Override => "Select Agent (Launch)",
+            };
             let items: Vec<ListItem> = agent_options().into_iter().map(ListItem::new).collect();
             let list = List::new(items)
-                .block(Block::default().borders(Borders::ALL).title("Select Agent"))
+                .block(Block::default().borders(Borders::ALL).title(title))
                 .highlight_style(
                     Style::default()
                         .fg(Color::Cyan)
@@ -809,15 +825,15 @@ fn draw_help_modal(frame: &mut ratatui::Frame, area: Rect) {
         Line::from("AOC Control Help"),
         Line::from(""),
         Line::from("Navigation:"),
-        Line::from("  Tab / Shift+Tab  switch sections"),
-        Line::from("  j/k or Up/Down  move selection"),
-        Line::from("  Enter  select action"),
-        Line::from("  Esc    close dialogs or exit"),
+        Line::from("  h/l or Left/Right  focus menu/details"),
+        Line::from("  Tab / Shift+Tab    cycle sections"),
+        Line::from("  j/k or Up/Down     move selection"),
+        Line::from("  Enter              select action"),
+        Line::from("  Esc                back (quit from menu)"),
+        Line::from("  q                  quit"),
         Line::from(""),
-        Line::from("Defaults:"),
-        Line::from("  l  change layout"),
-        Line::from("  a  change agent"),
-        Line::from("  p  edit projects base"),
+        Line::from("Settings:"),
+        Line::from("  Enter  change layout/agent/base"),
         Line::from(""),
         Line::from("Projects:"),
         Line::from("  Enter or o  open project"),
@@ -825,13 +841,11 @@ fn draw_help_modal(frame: &mut ratatui::Frame, area: Rect) {
         Line::from("  /  search filter"),
         Line::from("  r  refresh list"),
         Line::from(""),
-        Line::from("Sessions:"),
+        Line::from("Launch:"),
         Line::from("  Enter  launch"),
-        Line::from("  l  set layout override"),
-        Line::from("  a  set agent override"),
         Line::from("  c  clear overrides"),
         Line::from(""),
-        Line::from("Press ? or h to close this help."),
+        Line::from("Press Esc or ? to close this help."),
     ];
     let block = Block::default().borders(Borders::ALL).title("Help");
     let paragraph = Paragraph::new(lines)
@@ -875,14 +889,18 @@ fn footer_lines(app: &App) -> Vec<Line<'_>> {
     }
 
     lines.push(Line::from(vec![
-        keycap("Tab"),
-        Span::raw(" sections  "),
+        keycap("h/l"),
+        Span::raw(" focus  "),
         keycap("j/k"),
         Span::raw(" move  "),
         keycap("Enter"),
         Span::raw(" select  "),
+        keycap("Tab"),
+        Span::raw(" section  "),
         keycap("Esc"),
-        Span::raw(" close  "),
+        Span::raw(" back  "),
+        keycap("q"),
+        Span::raw(" quit  "),
         keycap("?"),
         Span::raw(" help"),
     ]));
@@ -902,14 +920,7 @@ fn footer_lines(app: &App) -> Vec<Line<'_>> {
         ],
         Mode::Help => vec![keycap("Esc"), Span::raw(" close help")],
         Mode::Normal => match app.active_tab {
-            Tab::Defaults => vec![
-                keycap("l"),
-                Span::raw(" layout  "),
-                keycap("a"),
-                Span::raw(" agent  "),
-                keycap("p"),
-                Span::raw(" projects base"),
-            ],
+            Tab::Defaults => vec![keycap("Enter"), Span::raw(" adjust settings")],
             Tab::Projects => vec![
                 keycap("Enter"),
                 Span::raw(" open  "),
@@ -923,10 +934,6 @@ fn footer_lines(app: &App) -> Vec<Line<'_>> {
             Tab::Sessions => vec![
                 keycap("Enter"),
                 Span::raw(" launch  "),
-                keycap("l"),
-                Span::raw(" layout override  "),
-                keycap("a"),
-                Span::raw(" agent override  "),
                 keycap("c"),
                 Span::raw(" clear"),
             ],
@@ -943,6 +950,54 @@ fn keycap(label: &str) -> Span<'_> {
             .fg(Color::Cyan)
             .add_modifier(Modifier::BOLD),
     )
+}
+
+fn titled_block(title: &str, focused: bool) -> Block<'_> {
+    let title_style = if focused {
+        Style::default()
+            .fg(Color::Cyan)
+            .add_modifier(Modifier::BOLD)
+    } else {
+        Style::default()
+    };
+    let title = if focused {
+        format!("{title} *")
+    } else {
+        title.to_string()
+    };
+    let mut block = Block::default()
+        .title(Span::styled(title, title_style))
+        .borders(Borders::ALL);
+    if focused {
+        block = block.border_style(Style::default().fg(Color::Cyan));
+    }
+    block
+}
+
+fn nav_highlight_style(focused: bool) -> Style {
+    if focused {
+        Style::default()
+            .fg(Color::White)
+            .bg(Color::Blue)
+            .add_modifier(Modifier::BOLD)
+    } else {
+        Style::default()
+            .fg(Color::Blue)
+            .add_modifier(Modifier::BOLD)
+    }
+}
+
+fn detail_highlight_style(focused: bool) -> Style {
+    if focused {
+        Style::default()
+            .fg(Color::Black)
+            .bg(Color::Green)
+            .add_modifier(Modifier::BOLD)
+    } else {
+        Style::default()
+            .fg(Color::Green)
+            .add_modifier(Modifier::BOLD)
+    }
 }
 
 fn select_picker(state: &mut ListState, options: &[String], current: &str) {
@@ -1199,23 +1254,32 @@ fn close_floating_pane() {
         .status();
 }
 
-fn maybe_rename_pane() {
+fn rename_pane() {
     if !in_zellij() {
         return;
     }
-    if !is_floating_active() {
-        return;
-    }
-    let name = env::var("AOC_CONTROL_PANE_NAME").unwrap_or_else(|_| "AOC Control".to_string());
+    let name = env::var("AOC_CONTROL_PANE_NAME").unwrap_or_else(|_| "Control".to_string());
     let name = name.trim();
     if name.is_empty() {
         return;
     }
-    let mut cmd = Command::new("zellij");
-    cmd.args(["action", "rename-pane"]);
-    let _ = cmd
-        .arg(name)
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .status();
+    if let Ok(pane_id) = env::var("ZELLIJ_PANE_ID") {
+        let status = Command::new("zellij")
+            .args(["action", "rename-pane", "--pane-id", &pane_id, name])
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status();
+        if matches!(status, Ok(status) if status.success()) {
+            return;
+        }
+    }
+    emit_pane_title(name);
+}
+
+fn emit_pane_title(title: &str) {
+    let mut stdout = io::stdout();
+    let payload = format!("\x1b]0;{}\x07", title);
+    if stdout.write_all(payload.as_bytes()).is_ok() {
+        let _ = stdout.flush();
+    }
 }
