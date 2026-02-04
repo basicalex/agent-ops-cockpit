@@ -105,6 +105,7 @@ Control layout behavior and appearance:
 | `AOC_CLEANUP` | Run cleanup on launch | `1` |
 | `AOC_CLEANUP_SESSIONS` | Limit cleanup to sessions (`current` or comma list) | All sessions |
 | `AOC_CLEANUP_PANE_STRICT` | Allow cleanup within sessions based on pane layout | `0` |
+| `AOC_CLEANUP_INTERACTIVE` | Prompt for cleanup mode when interactive | `1` |
 
 **Preview Pane Placement:**
 

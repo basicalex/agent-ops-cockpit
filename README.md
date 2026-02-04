@@ -69,6 +69,8 @@ AOC implements a **Distributed Cognitive Architecture** that separates concerns 
 ./install.sh && aoc-init && aoc
 ```
 
+`install.sh` will attempt to install missing dependencies via your package manager (and Cargo for some tools). It may prompt for sudo.
+
 That's it. AOC will:
 1. Install all scripts and configurations
 2. Initialize your project's cognitive architecture

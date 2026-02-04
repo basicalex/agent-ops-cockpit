@@ -8,6 +8,71 @@ set -euo pipefail
 
 AGENT_PATTERN="opencode|open-code|codex|gemini|claude|kimi"
 
+is_interactive() {
+  [[ -t 0 && -t 1 ]]
+}
+
+select_cleanup_mode() {
+  local choice=""
+  if command -v fzf >/dev/null 2>&1; then
+    choice="$(printf "%s\n" \
+      "Standard (safe, all sessions)" \
+      "Current session only" \
+      "Strict panes (current session)" \
+      "Strict panes (all sessions)" \
+      "Exit" \
+      | fzf --prompt="Cleanup > " --height=40% --border || true)"
+    printf "%s" "$choice"
+    return 0
+  fi
+
+  echo "Select cleanup mode:"
+  echo "  1) Standard (safe, all sessions)"
+  echo "  2) Current session only"
+  echo "  3) Strict panes (current session)"
+  echo "  4) Strict panes (all sessions)"
+  echo "  5) Exit"
+  read -r -p "Mode number > " choice
+  case "$choice" in
+    1) printf "%s" "Standard (safe, all sessions)" ;;
+    2) printf "%s" "Current session only" ;;
+    3) printf "%s" "Strict panes (current session)" ;;
+    4) printf "%s" "Strict panes (all sessions)" ;;
+    *) printf "%s" "Exit" ;;
+  esac
+}
+
+apply_cleanup_mode() {
+  local mode="$1"
+  case "$mode" in
+    "Standard (safe, all sessions)")
+      :
+      ;;
+    "Current session only")
+      export AOC_CLEANUP_SESSIONS="current"
+      ;;
+    "Strict panes (current session)")
+      export AOC_CLEANUP_SESSIONS="current"
+      export AOC_CLEANUP_PANE_STRICT="1"
+      ;;
+    "Strict panes (all sessions)")
+      export AOC_CLEANUP_PANE_STRICT="1"
+      ;;
+    *)
+      exit 0
+      ;;
+  esac
+}
+
+if [[ "${AOC_CLEANUP_INTERACTIVE:-1}" != "0" ]]; then
+  if is_interactive; then
+    if [[ -z "${AOC_CLEANUP_SESSIONS:-}" && -z "${AOC_CLEANUP_PANE_STRICT:-}" ]]; then
+      selection="$(select_cleanup_mode)"
+      apply_cleanup_mode "$selection"
+    fi
+  fi
+fi
+
 echo "Analyzing process tree..."
 
 python3 - <<EOF
@@ -592,12 +657,21 @@ if pane_strict and pane_layout_signals:
         used_pane_selection = True
         selected_roots = []
         for pane_id, procs in pane_groups.items():
-            group_pids = {p["pid"] for p in procs}
-            roots = [p for p in procs if p.get("ppid") not in group_pids]
-            if not roots:
-                roots = procs
-            roots.sort(key=root_rank)
-            selected_roots.append(roots[0])
+            group_has_tty = any(p.get("has_tty") for p in procs)
+            group_has_session = any(p.get("session") for p in procs)
+            preferred_pool = [p for p in procs if p.get("has_tty")]
+            if not preferred_pool:
+                group_pids = {p["pid"] for p in procs}
+                roots = [p for p in procs if p.get("ppid") not in group_pids]
+                if not roots:
+                    roots = procs
+                preferred_pool = roots
+            preferred_pool.sort(key=root_rank)
+            selected_roots.append({
+                "proc": preferred_pool[0],
+                "has_tty": group_has_tty,
+                "has_session": group_has_session,
+            })
 
         expected_total = 0
         if expected_cwds:
@@ -605,10 +679,14 @@ if pane_strict and pane_layout_signals:
         elif expected_ids:
             expected_total = sum(expected_ids.values())
         if expected_total and len(selected_roots) > expected_total:
-            selected_roots.sort(key=root_rank)
+            selected_roots.sort(key=lambda r: (
+                not r.get("has_tty"),
+                not r.get("has_session"),
+                root_rank(r["proc"]),
+            ))
             selected_roots = selected_roots[:expected_total]
-        for proc in selected_roots:
-            keep_pids.add(proc["pid"])
+        for entry in selected_roots:
+            keep_pids.add(entry["proc"]["pid"])
 
 expected_cwds_effective = collections.Counter()
 if expected_cwds and not used_pane_selection:

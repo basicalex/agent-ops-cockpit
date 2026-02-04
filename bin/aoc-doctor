@@ -48,7 +48,7 @@ hint_for() {
       esac
       ;;
     yazi)
-      echo "cargo install --locked yazi-fm yazi-cli"
+      echo "cargo install --locked --force yazi-build"
       ;;
     fzf)
       case "$pm" in

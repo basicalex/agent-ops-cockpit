@@ -19,13 +19,13 @@ Detailed installation instructions for Agent Ops Cockpit (AOC) on various platfo
 
 ## Quick Install
 
-If you already have the required dependencies, simply run:
+Run the installer (it will attempt to install missing dependencies via your package manager, and use Cargo for some tools):
 
 ```bash
 ./install.sh
 ```
 
-This will install all AOC components to `~/.local/bin` and configure Zellij, Yazi, and other tools.
+This will install all AOC components to `~/.local/bin` and configure Zellij, Yazi, and other tools. If you prefer to install dependencies manually, use the platform-specific instructions below.
 
 ## Platform-Specific Instructions
 
@@ -42,7 +42,7 @@ sudo apt-get install -y tectonic
 **Install Yazi (recommended via cargo):**
 
 ```bash
-cargo install --locked yazi-fm yazi-cli
+cargo install --locked --force yazi-build
 ```
 
 **Note:** On Ubuntu, the `bat` binary is named `batcat`. AOC accepts either.

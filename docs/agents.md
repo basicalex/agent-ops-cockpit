@@ -33,3 +33,28 @@ Run `aoc-momo init` in a repo to seed the `momo` subagent:
 ```
 
 Use `@momo` for Remotion animation work in React projects.
+
+## Planned: Sub-agent Rotation (Future)
+This is a planned feature and is not implemented yet. The goal is to ship a curated set of OpenCode sub-agents and a rotation flow so users can cycle between them quickly while staying in the same AOC session.
+
+**Planned sub-agent catalog:**
+- `architect`
+- `task-breaker`
+- `implementer`
+- `test-planner`
+- `code-reviewer`
+- `docs-maintainer`
+- `security-reviewer`
+- `perf-analyzer`
+- `release-notes`
+- `incident-debugger`
+- `rlm-curator`
+
+**Planned UX:**
+- `Tab` continues to toggle OpenCode plan/build.
+- `Shift+Tab` rotates through the sub-agents in the configured order.
+- Active sub-agent is shown in the agent pane label.
+
+**Planned integration:**
+- `aoc-init` seeds `.opencode/agents/<name>.md` templates for each sub-agent.
+- An OpenCode CLI plugin owns the rotation logic and per-tab selection.

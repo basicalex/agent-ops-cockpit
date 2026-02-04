@@ -20,6 +20,209 @@ mkdir -p "${XDG_CONFIG_HOME:-$HOME/.config}/aoc/agents-optional/opencode"
 mkdir -p "${XDG_STATE_HOME:-$HOME/.local/state}/aoc"
 
 log() { echo ">> $1"; }
+warn() { echo "!! $1"; }
+have() { command -v "$1" >/dev/null 2>&1; }
+have_bat() { have bat || have batcat; }
+
+cargo_cmd() {
+  if [[ -x "$HOME/.cargo/bin/cargo" ]]; then
+    echo "$HOME/.cargo/bin/cargo"
+    return 0
+  fi
+  if command -v cargo >/dev/null 2>&1; then
+    command -v cargo
+    return 0
+  fi
+  return 1
+}
+
+detect_pm() {
+  if have apt-get; then echo "apt"; return; fi
+  if have dnf; then echo "dnf"; return; fi
+  if have pacman; then echo "pacman"; return; fi
+  if have brew; then echo "brew"; return; fi
+  if have apk; then echo "apk"; return; fi
+  if have yum; then echo "yum"; return; fi
+  if have zypper; then echo "zypper"; return; fi
+  echo "unknown"
+}
+
+run_root() {
+  if [[ "$EUID" -eq 0 ]]; then
+    "$@"
+    return
+  fi
+  if have sudo; then
+    sudo "$@"
+    return
+  fi
+  warn "sudo not available; run as root to install packages."
+  return 1
+}
+
+pm_install() {
+  local pkgs=("$@")
+  if ((${#pkgs[@]} == 0)); then
+    return 0
+  fi
+  case "$pm" in
+    apt)
+      if [[ "$apt_updated" -eq 0 ]]; then
+        if ! run_root apt-get update; then
+          return 1
+        fi
+        apt_updated=1
+      fi
+      if ! run_root apt-get install -y "${pkgs[@]}"; then
+        return 1
+      fi
+      ;;
+    dnf)
+      if ! run_root dnf install -y "${pkgs[@]}"; then
+        return 1
+      fi
+      ;;
+    pacman)
+      if ! run_root pacman -S --noconfirm --needed "${pkgs[@]}"; then
+        return 1
+      fi
+      ;;
+    brew)
+      if ! brew install "${pkgs[@]}"; then
+        return 1
+      fi
+      ;;
+    apk)
+      if ! run_root apk add "${pkgs[@]}"; then
+        return 1
+      fi
+      ;;
+    yum)
+      if ! run_root yum install -y "${pkgs[@]}"; then
+        return 1
+      fi
+      ;;
+    zypper)
+      if ! run_root zypper install -y "${pkgs[@]}"; then
+        return 1
+      fi
+      ;;
+    *)
+      warn "No supported package manager found for installing: ${pkgs[*]}"
+      return 1
+      ;;
+  esac
+}
+
+install_tool() {
+  local tool="$1"
+  local cargo_bin=""
+  case "$tool" in
+    curl|wget)
+      pm_install "$tool" || warn "Failed to install $tool."
+      ;;
+    zellij)
+      pm_install zellij || warn "Failed to install zellij via package manager."
+      if ! have zellij; then
+        if cargo_bin="$(cargo_cmd)"; then
+          log "Installing zellij via cargo..."
+          "$cargo_bin" install --locked zellij || warn "Failed to install zellij via cargo."
+        fi
+      fi
+      ;;
+    yazi)
+      case "$pm" in
+        brew|pacman|dnf|apk|apt|yum|zypper)
+          pm_install yazi || warn "Failed to install yazi via package manager."
+          ;;
+        *)
+          ;;
+      esac
+      if ! have yazi; then
+        if cargo_bin="$(cargo_cmd)"; then
+          log "Installing yazi via cargo (yazi-build)..."
+          if ! "$cargo_bin" install --locked --force yazi-build; then
+            warn "Failed to install yazi via yazi-build."
+            log "Attempting legacy yazi-fm/yazi-cli install..."
+            "$cargo_bin" install --locked yazi-fm yazi-cli || warn "Failed to install yazi via cargo."
+          fi
+        fi
+      fi
+      ;;
+    fzf|tmux|chafa|ffmpeg)
+      pm_install "$tool" || warn "Failed to install $tool."
+      ;;
+    pdftoppm)
+      case "$pm" in
+        apt|dnf|apk|yum)
+          pm_install poppler-utils || warn "Failed to install poppler-utils."
+          ;;
+        pacman|brew)
+          pm_install poppler || warn "Failed to install poppler."
+          ;;
+        zypper)
+          pm_install poppler-tools || warn "Failed to install poppler-tools."
+          ;;
+        *)
+          warn "No package manager mapping for poppler."
+          ;;
+      esac
+      ;;
+    rsvg-convert)
+      case "$pm" in
+        apt)
+          pm_install librsvg2-bin || warn "Failed to install librsvg2-bin."
+          ;;
+        dnf)
+          pm_install librsvg2-tools || warn "Failed to install librsvg2-tools."
+          ;;
+        pacman|brew|apk|yum|zypper)
+          pm_install librsvg || warn "Failed to install librsvg."
+          ;;
+        *)
+          warn "No package manager mapping for librsvg."
+          ;;
+      esac
+      ;;
+    rg)
+      pm_install ripgrep || warn "Failed to install ripgrep."
+      ;;
+    bat)
+      pm_install bat || warn "Failed to install bat."
+      ;;
+  esac
+}
+
+ensure_tool() {
+  local tool="$1"
+  local label="${2:-$tool}"
+  if have "$tool"; then
+    return 0
+  fi
+  log "$label missing; installing..."
+  install_tool "$tool"
+  if have "$tool"; then
+    return 0
+  fi
+  warn "$label still missing."
+  return 1
+}
+
+ensure_bat() {
+  if have_bat; then
+    return 0
+  fi
+  log "bat missing; installing..."
+  install_tool bat
+  if have_bat; then
+    return 0
+  fi
+  warn "bat still missing."
+  return 1
+}
+
+pm=""
+apt_updated=0
 
 # 1. Install Scripts
 log "Installing scripts..."
@@ -38,12 +241,11 @@ fi
 
 # 2. Rust Build & Install
 log "Building Rust components..."
-cargo_bin="cargo"
-if [[ -x "$HOME/.cargo/bin/cargo" ]]; then
-  cargo_bin="$HOME/.cargo/bin/cargo"
-  export PATH="$HOME/.cargo/bin:$PATH"
-fi
-if command -v "$cargo_bin" >/dev/null 2>&1; then
+cargo_bin=""
+if cargo_bin="$(cargo_cmd)"; then
+  if [[ "$cargo_bin" == "$HOME/.cargo/bin/cargo" ]]; then
+    export PATH="$HOME/.cargo/bin:$PATH"
+  fi
   cargo_version="$($cargo_bin --version | awk '{print $2}')"
   cargo_major="${cargo_version%%.*}"
   cargo_minor="${cargo_version#*.}"
@@ -89,15 +291,82 @@ else
   log "WARNING: cargo not found. Skipping Rust builds. You must install aoc-cli manually."
 fi
 
-# 3. Dependencies (Micro & ZJStatus)
+# 3. Dependencies
 log "Checking dependencies..."
+
+pm="$(detect_pm)"
+if [[ "$pm" == "unknown" ]]; then
+  warn "No supported package manager found; dependency installs may be limited."
+fi
+
+missing_required=()
+missing_optional=()
+
+if ! have curl && ! have wget; then
+  if ! ensure_tool curl "curl"; then
+    if ! ensure_tool wget "wget"; then
+      missing_required+=("curl/wget")
+    fi
+  fi
+fi
+
+if ! ensure_tool zellij "zellij"; then
+  missing_required+=("zellij")
+fi
+if ! ensure_tool yazi "yazi"; then
+  missing_required+=("yazi")
+fi
+if ! ensure_tool fzf "fzf"; then
+  missing_required+=("fzf")
+fi
+
+if ! ensure_tool tmux "tmux"; then
+  missing_optional+=("tmux")
+fi
+if ! ensure_tool chafa "chafa"; then
+  missing_optional+=("chafa")
+fi
+if ! ensure_tool ffmpeg "ffmpeg"; then
+  missing_optional+=("ffmpeg")
+fi
+if ! ensure_tool pdftoppm "poppler-utils (pdftoppm)"; then
+  missing_optional+=("poppler-utils")
+fi
+if ! ensure_tool rsvg-convert "librsvg (rsvg-convert)"; then
+  missing_optional+=("librsvg")
+fi
+if ! ensure_tool rg "ripgrep (rg)"; then
+  missing_optional+=("ripgrep")
+fi
+if ! ensure_bat; then
+  missing_optional+=("bat")
+fi
+
+if ((${#missing_required[@]} > 0)); then
+  warn "Missing required tools: ${missing_required[*]}"
+fi
+if ((${#missing_optional[@]} > 0)); then
+  warn "Missing optional tools: ${missing_optional[*]}"
+fi
 
 # Micro
 if ! command -v micro >/dev/null 2>&1; then
   if [[ ! -f "$BIN_DIR/micro" ]]; then
     log "Downloading micro..."
-    curl https://getmic.ro | bash
-    mv micro "$BIN_DIR/micro"
+    if have curl; then
+      if ! curl -fsSL https://getmic.ro | bash; then
+        warn "Failed to download micro via curl."
+      fi
+    elif have wget; then
+      if ! wget -qO- https://getmic.ro | bash; then
+        warn "Failed to download micro via wget."
+      fi
+    else
+      warn "curl or wget required to download micro."
+    fi
+    if [[ -f "micro" ]]; then
+      mv micro "$BIN_DIR/micro"
+    fi
   fi
 else
   log "Micro found."
@@ -107,7 +376,17 @@ fi
 ZJSTATUS_PATH="$HOME/.config/zellij/plugins/zjstatus.wasm"
 if [[ ! -f "$ZJSTATUS_PATH" ]]; then
   log "Downloading zjstatus.wasm..."
-  curl -L -o "$ZJSTATUS_PATH" https://github.com/dj95/zjstatus/releases/latest/download/zjstatus.wasm
+  if have curl; then
+    if ! curl -fsSL -o "$ZJSTATUS_PATH" https://github.com/dj95/zjstatus/releases/latest/download/zjstatus.wasm; then
+      warn "Failed to download zjstatus.wasm via curl."
+    fi
+  elif have wget; then
+    if ! wget -qO "$ZJSTATUS_PATH" https://github.com/dj95/zjstatus/releases/latest/download/zjstatus.wasm; then
+      warn "Failed to download zjstatus.wasm via wget."
+    fi
+  else
+    warn "curl or wget required to download zjstatus.wasm."
+  fi
 fi
 
 # 4. Generate & Install Configs
