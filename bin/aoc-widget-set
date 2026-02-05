@@ -2,8 +2,43 @@
 set -euo pipefail
 
 STATE_DIR="${XDG_STATE_HOME:-$HOME/.local/state}/aoc"
-ASSET="${STATE_DIR}/widget_asset"
-MODE_FILE="${STATE_DIR}/widget_mode"
+GLOBAL_WIDGET_DIR="${STATE_DIR}/widget"
+
+project_root=""
+if command -v aoc-align >/dev/null 2>&1; then
+  project_root="$(aoc-align --print-root 2>/dev/null || true)"
+fi
+if [[ -z "$project_root" ]]; then
+  project_root="$PWD"
+fi
+project_root="$(cd "$project_root" 2>/dev/null && pwd -P || echo "$project_root")"
+
+project_id_source=""
+if command -v git >/dev/null 2>&1; then
+  if git -C "$project_root" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+    project_id_source="$(git -C "$project_root" config --get remote.origin.url 2>/dev/null || true)"
+    if [[ -z "$project_id_source" ]]; then
+      project_id_source="$(git -C "$project_root" remote get-url origin 2>/dev/null || true)"
+    fi
+  fi
+fi
+if [[ -z "$project_id_source" ]]; then
+  project_id_source="$project_root"
+fi
+
+if command -v cksum >/dev/null 2>&1; then
+  project_key="$(printf "%s" "$project_id_source" | cksum | awk '{print $1}')"
+else
+  project_key="$(printf "%s" "$project_id_source" | tr '/:' '__' | tr -cd '[:alnum:]_-')"
+fi
+if [[ -z "$project_key" ]]; then
+  project_key="default"
+fi
+
+PROJECT_STATE_DIR="${GLOBAL_WIDGET_DIR}/projects/${project_key}"
+MEDIA_ASSET_FILE="${PROJECT_STATE_DIR}/widget_media_asset"
+MODE_FILE="${PROJECT_STATE_DIR}/widget_mode"
+MEDIA_VIEW_FILE="${PROJECT_STATE_DIR}/widget_media_view"
 
 path="${1:-}"
 if [[ -z "$path" && -n "${YAZI_FILE:-}" ]]; then
@@ -21,7 +56,16 @@ if [[ ! -e "$path" ]]; then
 fi
 
 mkdir -p "$STATE_DIR"
+mkdir -p "$GLOBAL_WIDGET_DIR"
+mkdir -p "$PROJECT_STATE_DIR"
+
 path="$(realpath "$path")"
-echo "$path" > "$ASSET"
+stored_path="$path"
+if [[ -n "$project_root" && "$path" == "$project_root"/* ]]; then
+  stored_path="${path#$project_root/}"
+fi
+
+echo "$stored_path" > "$MEDIA_ASSET_FILE"
 echo "media" > "$MODE_FILE"
+echo "1" > "$MEDIA_VIEW_FILE"
 echo "Widget media set: $path"

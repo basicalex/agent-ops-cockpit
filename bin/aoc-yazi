@@ -1,0 +1,9 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+if ! command -v yazi >/dev/null 2>&1; then
+	echo "yazi not found. Install yazi to use aoc-yazi." >&2
+	exit 1
+fi
+
+exec yazi "$@"

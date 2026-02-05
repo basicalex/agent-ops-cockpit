@@ -1,7 +1,7 @@
 [mgr]
 prepend_keymap = [
   # AOC integrations
-  { on = ["y", "Y"], run = "shell --block 'aoc-widget-set \"$@\"'", desc = "Set widget media path" },
+  { on = ["W"], run = "shell --block 'aoc-widget-set \"$@\"'", desc = "Set widget media path" },
   { on = ["p"], run = "shell --block 'aoc-preview-set \"$@\"'", desc = "Send to floating preview" },
   { on = ["P"], run = "shell --block 'aoc-preview-toggle'", desc = "Toggle floating preview" },
   { on = ["<C-p>"], run = "plugin aoc-preview-toggle", desc = "Toggle inline preview" },

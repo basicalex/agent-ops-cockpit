@@ -116,7 +116,7 @@ function M:entry()
 	}
 
 	if ext and media[ext] then
-		os.execute(string.format("aoc-widget-set '%s' &", url_str:gsub("'", "'\\''")))
+		os.execute(string.format("aoc-open-file '%s' &", url_str:gsub("'", "'\\''")))
 		return
 	end
 
