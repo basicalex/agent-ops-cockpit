@@ -92,11 +92,6 @@ mode="gallery"
     fi
   fi
 
-  gallery_view="$(load_gallery_setting "$GALLERY_VIEW_FILE" "0")"
-  media_view="$(load_media_setting "$MEDIA_VIEW_FILE" "0")"
-  if ! [[ "$gallery_view" =~ ^[0-9]+$ ]]; then gallery_view=0; fi
-  if ! [[ "$media_view" =~ ^[0-9]+$ ]] || [[ "$media_view" != "0" && "$media_view" != "1" ]]; then media_view=0; fi
-
 today_year="$(date +%Y)"
 today_month="$(date +%m)"
 today_day="$(date +%d)"
