@@ -2,37 +2,100 @@
 set -euo pipefail
 
 STATE_DIR="${XDG_STATE_HOME:-$HOME/.local/state}/aoc"
-ASSET="${STATE_DIR}/widget_asset"
-MODE_FILE="${STATE_DIR}/widget_mode"
+GLOBAL_WIDGET_DIR="${STATE_DIR}/widget"
+LEGACY_GLOBAL_DIR="${STATE_DIR}"
+
+project_root=""
+if command -v aoc-align >/dev/null 2>&1; then
+  project_root="$(aoc-align --print-root 2>/dev/null || true)"
+fi
+if [[ -z "$project_root" ]]; then
+  project_root="$PWD"
+fi
+project_root="$(cd "$project_root" 2>/dev/null && pwd -P || echo "$project_root")"
+
+project_id_source=""
+if command -v git >/dev/null 2>&1; then
+  if git -C "$project_root" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+    project_id_source="$(git -C "$project_root" config --get remote.origin.url 2>/dev/null || true)"
+    if [[ -z "$project_id_source" ]]; then
+      project_id_source="$(git -C "$project_root" remote get-url origin 2>/dev/null || true)"
+    fi
+  fi
+fi
+if [[ -z "$project_id_source" ]]; then
+  project_id_source="$project_root"
+fi
+
+if command -v cksum >/dev/null 2>&1; then
+  project_key="$(printf "%s" "$project_id_source" | cksum | awk '{print $1}')"
+else
+  project_key="$(printf "%s" "$project_id_source" | tr '/:' '__' | tr -cd '[:alnum:]_-')"
+fi
+if [[ -z "$project_key" ]]; then
+  project_key="default"
+fi
+
+PROJECT_WIDGET_DIR="${GLOBAL_WIDGET_DIR}/projects/${project_key}"
+mkdir -p "$STATE_DIR"
+mkdir -p "$GLOBAL_WIDGET_DIR"
+mkdir -p "$PROJECT_WIDGET_DIR"
+
+MODE_FILE="${PROJECT_WIDGET_DIR}/widget_mode"
+MEDIA_ASSET_FILE="${PROJECT_WIDGET_DIR}/widget_media_asset"
+LEGACY_MEDIA_ASSET_FILE="${PROJECT_WIDGET_DIR}/widget_asset"
+MEDIA_VIEW_FILE="${PROJECT_WIDGET_DIR}/widget_media_view"
+MEDIA_STYLE_FILE="${PROJECT_WIDGET_DIR}/widget_media_style"
+MEDIA_SIZE_FILE="${PROJECT_WIDGET_DIR}/widget_media_scale"
+MEDIA_DETAIL_FILE="${PROJECT_WIDGET_DIR}/widget_media_detail"
+MEDIA_COLOR_FILE="${PROJECT_WIDGET_DIR}/widget_media_colors"
+MEDIA_DITHER_FILE="${PROJECT_WIDGET_DIR}/widget_media_dither"
+MEDIA_RATIO_FILE="${PROJECT_WIDGET_DIR}/widget_media_font_ratio"
+MEDIA_OFFSET_X_FILE="${PROJECT_WIDGET_DIR}/widget_media_offset_x"
+MEDIA_OFFSET_Y_FILE="${PROJECT_WIDGET_DIR}/widget_media_offset_y"
+
+GLOBAL_MEDIA_STYLE_FILE="${GLOBAL_WIDGET_DIR}/widget_media_style"
+GLOBAL_MEDIA_SIZE_FILE="${GLOBAL_WIDGET_DIR}/widget_media_scale"
+GLOBAL_MEDIA_DETAIL_FILE="${GLOBAL_WIDGET_DIR}/widget_media_detail"
+GLOBAL_MEDIA_COLOR_FILE="${GLOBAL_WIDGET_DIR}/widget_media_colors"
+GLOBAL_MEDIA_DITHER_FILE="${GLOBAL_WIDGET_DIR}/widget_media_dither"
+GLOBAL_MEDIA_RATIO_FILE="${GLOBAL_WIDGET_DIR}/widget_media_font_ratio"
+GLOBAL_MEDIA_OFFSET_X_FILE="${GLOBAL_WIDGET_DIR}/widget_media_offset_x"
+GLOBAL_MEDIA_OFFSET_Y_FILE="${GLOBAL_WIDGET_DIR}/widget_media_offset_y"
+
+GALLERY_INDEX_FILE="${GLOBAL_WIDGET_DIR}/widget_gallery_index"
+GALLERY_VIEW_FILE="${GLOBAL_WIDGET_DIR}/widget_gallery_view"
+GALLERY_STYLE_FILE="${GLOBAL_WIDGET_DIR}/widget_style"
+GALLERY_SIZE_FILE="${GLOBAL_WIDGET_DIR}/widget_scale"
+GALLERY_DETAIL_FILE="${GLOBAL_WIDGET_DIR}/widget_detail"
+GALLERY_COLOR_FILE="${GLOBAL_WIDGET_DIR}/widget_colors"
+GALLERY_DITHER_FILE="${GLOBAL_WIDGET_DIR}/widget_dither"
+GALLERY_RATIO_FILE="${GLOBAL_WIDGET_DIR}/widget_font_ratio"
+GALLERY_OFFSET_X_FILE="${GLOBAL_WIDGET_DIR}/widget_offset_x"
+GALLERY_OFFSET_Y_FILE="${GLOBAL_WIDGET_DIR}/widget_offset_y"
+
 GALLERY_DIR="${AOC_WIDGET_GALLERY_DIR:-$HOME/Pictures/Zellij}"
-GALLERY_INDEX_FILE="${STATE_DIR}/widget_gallery_index"
-GALLERY_VIEW_FILE="${STATE_DIR}/widget_gallery_view"
-STYLE_FILE="${STATE_DIR}/widget_style"
-SIZE_FILE="${STATE_DIR}/widget_scale"
-DETAIL_FILE="${STATE_DIR}/widget_detail"
-COLOR_FILE="${STATE_DIR}/widget_colors"
-DITHER_FILE="${STATE_DIR}/widget_dither"
-RATIO_FILE="${STATE_DIR}/widget_font_ratio"
-OFFSET_X_FILE="${STATE_DIR}/widget_offset_x"
-OFFSET_Y_FILE="${STATE_DIR}/widget_offset_y"
 CHAFa_SYMBOLS="${AOC_WIDGET_SYMBOLS:-}"
 CHAFa_COLORS="${AOC_WIDGET_COLORS:-}"
 CHAFa_DITHER="${AOC_WIDGET_DITHER:-}"
 CHAFa_SCALE="${AOC_WIDGET_SCALE:-}"
 CHAFa_WORK="${AOC_WIDGET_WORK:-}"
 CHAFa_FONT_RATIO="${AOC_WIDGET_FONT_RATIO:-}"
-mkdir -p "$(dirname "$ASSET")"
-touch "$ASSET"
 
 have() { command -v "$1" >/dev/null 2>&1; }
 
-mode="cal"
+mode="gallery"
   if [[ -f "$MODE_FILE" ]]; then
     saved="$(cat "$MODE_FILE" 2>/dev/null || true)"
     if [[ "$saved" == "media" || "$saved" == "gallery" || "$saved" == "blank" ]]; then
       mode="$saved"
     fi
   fi
+
+  gallery_view="$(load_gallery_setting "$GALLERY_VIEW_FILE" "0")"
+  media_view="$(load_media_setting "$MEDIA_VIEW_FILE" "0")"
+  if ! [[ "$gallery_view" =~ ^[0-9]+$ ]]; then gallery_view=0; fi
+  if ! [[ "$media_view" =~ ^[0-9]+$ ]] || [[ "$media_view" != "0" && "$media_view" != "1" ]]; then media_view=0; fi
 
 today_year="$(date +%Y)"
 today_month="$(date +%m)"
@@ -44,6 +107,8 @@ gallery_count=0
 gallery_stat="0"
 gallery_view=0
 last_gallery_view=0
+media_view=0
+last_media_view=0
 declare -a gallery_files=()
 declare -a style_presets=(
   "ascii"
@@ -87,8 +152,8 @@ adjust_offset() {
   if (( offset_x > max_x )); then offset_x="$max_x"; fi
   if (( offset_y > max_y )); then offset_y="$max_y"; fi
 
-  save_setting "$OFFSET_X_FILE" "$offset_x"
-  save_setting "$OFFSET_Y_FILE" "$offset_y"
+  save_setting "$ACTIVE_OFFSET_X_FILE" "$offset_x"
+  save_setting "$ACTIVE_OFFSET_Y_FILE" "$offset_y"
 }
 
 set_mode() {
@@ -96,19 +161,52 @@ set_mode() {
   echo "$mode" > "$MODE_FILE"
 }
 
-load_setting() {
+load_gallery_setting() {
   local file="$1"
   local default="$2"
   if [[ -f "$file" ]]; then
     cat "$file" 2>/dev/null || echo "$default"
+    return
+  fi
+  local base
+  base="$(basename "$file")"
+  local legacy_file="${LEGACY_GLOBAL_DIR}/${base}"
+  if [[ -f "$legacy_file" ]]; then
+    cat "$legacy_file" 2>/dev/null || echo "$default"
   else
     echo "$default"
+  fi
+}
+
+load_media_setting() {
+  local file="$1"
+  local default="$2"
+  if [[ -f "$file" ]]; then
+    cat "$file" 2>/dev/null || echo "$default"
+    return
+  fi
+  local base
+  base="$(basename "$file")"
+  local global_file="${GLOBAL_WIDGET_DIR}/${base}"
+  if [[ -f "$global_file" ]]; then
+    cat "$global_file" 2>/dev/null || echo "$default"
+  else
+    echo "$default"
+  fi
+}
+
+load_active_setting() {
+  if [[ "$mode" == "media" ]]; then
+    load_media_setting "$@"
+  else
+    load_gallery_setting "$@"
   fi
 }
 
 save_setting() {
   local file="$1"
   local value="$2"
+  mkdir -p "$(dirname "$file")"
   echo "$value" > "$file"
 }
 
@@ -126,38 +224,123 @@ sync_index() {
   echo "0"
 }
 
-gallery_index="$(load_setting "$GALLERY_INDEX_FILE" "0")"
-gallery_view="$(load_setting "$GALLERY_VIEW_FILE" "0")"
-if ! [[ "$gallery_index" =~ ^[0-9]+$ ]]; then gallery_index=0; fi
-if ! [[ "$gallery_view" =~ ^[0-9]+$ ]]; then gallery_view=0; fi
-
-style_index="$(sync_index "$(load_setting "$STYLE_FILE" "ascii")" "${style_presets[@]}")"
-color_index="$(sync_index "$(load_setting "$COLOR_FILE" "16")" "${color_presets[@]}")"
-dither_index="$(sync_index "$(load_setting "$DITHER_FILE" "ordered")" "${dither_presets[@]}")"
-work_index="$(sync_index "$(load_setting "$DETAIL_FILE" "5")" "${work_presets[@]}")"
-offset_x="$(load_setting "$OFFSET_X_FILE" "0")"
-offset_y="$(load_setting "$OFFSET_Y_FILE" "0")"
-if ! [[ "$offset_x" =~ ^[0-9]+$ ]]; then offset_x=0; fi
-if ! [[ "$offset_y" =~ ^[0-9]+$ ]]; then offset_y=0; fi
-
-load_setting() {
-  local file="$1"
-  local default="$2"
-  if [[ -f "$file" ]]; then
-    cat "$file" 2>/dev/null || echo "$default"
-  else
-    echo "$default"
+migrate_file() {
+  local target="$1"
+  local source="$2"
+  if [[ ! -f "$target" && -f "$source" ]]; then
+    cp "$source" "$target"
   fi
 }
 
-save_setting() {
-  local file="$1"
-  local value="$2"
-  echo "$value" > "$file"
+migrate_project_media_settings() {
+  migrate_file "$MEDIA_ASSET_FILE" "$LEGACY_MEDIA_ASSET_FILE"
+  migrate_file "$MEDIA_STYLE_FILE" "${PROJECT_WIDGET_DIR}/widget_style"
+  migrate_file "$MEDIA_SIZE_FILE" "${PROJECT_WIDGET_DIR}/widget_scale"
+  migrate_file "$MEDIA_DETAIL_FILE" "${PROJECT_WIDGET_DIR}/widget_detail"
+  migrate_file "$MEDIA_COLOR_FILE" "${PROJECT_WIDGET_DIR}/widget_colors"
+  migrate_file "$MEDIA_DITHER_FILE" "${PROJECT_WIDGET_DIR}/widget_dither"
+  migrate_file "$MEDIA_RATIO_FILE" "${PROJECT_WIDGET_DIR}/widget_font_ratio"
+  migrate_file "$MEDIA_OFFSET_X_FILE" "${PROJECT_WIDGET_DIR}/widget_offset_x"
+  migrate_file "$MEDIA_OFFSET_Y_FILE" "${PROJECT_WIDGET_DIR}/widget_offset_y"
 }
 
+normalize_media_path() {
+  local input="$1"
+  if [[ -z "$input" ]]; then
+    echo ""
+    return
+  fi
+  if [[ "$input" == /* || "$input" =~ ^[A-Za-z]:[/\\] ]]; then
+    echo "$input"
+    return
+  fi
+  echo "$project_root/$input"
+}
+
+format_media_path() {
+  local abs="$1"
+  if [[ -n "$project_root" && "$abs" == "$project_root"/* ]]; then
+    echo "${abs#$project_root/}"
+  else
+    echo "$abs"
+  fi
+}
+
+migrate_project_media_settings
+
+if [[ -f "$MEDIA_ASSET_FILE" ]]; then
+  media_asset_raw="$(cat "$MEDIA_ASSET_FILE" 2>/dev/null || true)"
+  if [[ -n "$media_asset_raw" ]]; then
+    media_asset_abs="$(normalize_media_path "$media_asset_raw")"
+    if [[ -n "$media_asset_abs" && "$media_asset_abs" == "$project_root"/* ]]; then
+      rel_media_asset="$(format_media_path "$media_asset_abs")"
+      if [[ -n "$rel_media_asset" && "$rel_media_asset" != "$media_asset_raw" ]]; then
+        echo "$rel_media_asset" > "$MEDIA_ASSET_FILE"
+      fi
+    fi
+  fi
+fi
+
+ACTIVE_STYLE_FILE=""
+ACTIVE_SIZE_FILE=""
+ACTIVE_DETAIL_FILE=""
+ACTIVE_COLOR_FILE=""
+ACTIVE_DITHER_FILE=""
+ACTIVE_RATIO_FILE=""
+ACTIVE_OFFSET_X_FILE=""
+ACTIVE_OFFSET_Y_FILE=""
+active_mode=""
+
+gallery_index="$(load_gallery_setting "$GALLERY_INDEX_FILE" "0")"
+gallery_view="$(load_gallery_setting "$GALLERY_VIEW_FILE" "0")"
+media_view="$(load_media_setting "$MEDIA_VIEW_FILE" "0")"
+if ! [[ "$gallery_index" =~ ^[0-9]+$ ]]; then gallery_index=0; fi
+if ! [[ "$gallery_view" =~ ^[0-9]+$ ]]; then gallery_view=0; fi
+if ! [[ "$media_view" =~ ^[0-9]+$ ]] || [[ "$media_view" != "0" && "$media_view" != "1" ]]; then media_view=0; fi
+
+load_mode_settings() {
+  local target="$1"
+  if [[ "$target" == "media" ]]; then
+    ACTIVE_STYLE_FILE="$MEDIA_STYLE_FILE"
+    ACTIVE_SIZE_FILE="$MEDIA_SIZE_FILE"
+    ACTIVE_DETAIL_FILE="$MEDIA_DETAIL_FILE"
+    ACTIVE_COLOR_FILE="$MEDIA_COLOR_FILE"
+    ACTIVE_DITHER_FILE="$MEDIA_DITHER_FILE"
+    ACTIVE_RATIO_FILE="$MEDIA_RATIO_FILE"
+    ACTIVE_OFFSET_X_FILE="$MEDIA_OFFSET_X_FILE"
+    ACTIVE_OFFSET_Y_FILE="$MEDIA_OFFSET_Y_FILE"
+    style_index="$(sync_index "$(load_media_setting "$MEDIA_STYLE_FILE" "ascii")" "${style_presets[@]}")"
+    color_index="$(sync_index "$(load_media_setting "$MEDIA_COLOR_FILE" "16")" "${color_presets[@]}")"
+    dither_index="$(sync_index "$(load_media_setting "$MEDIA_DITHER_FILE" "ordered")" "${dither_presets[@]}")"
+    work_index="$(sync_index "$(load_media_setting "$MEDIA_DETAIL_FILE" "5")" "${work_presets[@]}")"
+    offset_x="$(load_media_setting "$MEDIA_OFFSET_X_FILE" "0")"
+    offset_y="$(load_media_setting "$MEDIA_OFFSET_Y_FILE" "0")"
+  else
+    ACTIVE_STYLE_FILE="$GALLERY_STYLE_FILE"
+    ACTIVE_SIZE_FILE="$GALLERY_SIZE_FILE"
+    ACTIVE_DETAIL_FILE="$GALLERY_DETAIL_FILE"
+    ACTIVE_COLOR_FILE="$GALLERY_COLOR_FILE"
+    ACTIVE_DITHER_FILE="$GALLERY_DITHER_FILE"
+    ACTIVE_RATIO_FILE="$GALLERY_RATIO_FILE"
+    ACTIVE_OFFSET_X_FILE="$GALLERY_OFFSET_X_FILE"
+    ACTIVE_OFFSET_Y_FILE="$GALLERY_OFFSET_Y_FILE"
+    style_index="$(sync_index "$(load_gallery_setting "$GALLERY_STYLE_FILE" "ascii")" "${style_presets[@]}")"
+    color_index="$(sync_index "$(load_gallery_setting "$GALLERY_COLOR_FILE" "16")" "${color_presets[@]}")"
+    dither_index="$(sync_index "$(load_gallery_setting "$GALLERY_DITHER_FILE" "ordered")" "${dither_presets[@]}")"
+    work_index="$(sync_index "$(load_gallery_setting "$GALLERY_DETAIL_FILE" "5")" "${work_presets[@]}")"
+    offset_x="$(load_gallery_setting "$GALLERY_OFFSET_X_FILE" "0")"
+    offset_y="$(load_gallery_setting "$GALLERY_OFFSET_Y_FILE" "0")"
+  fi
+
+  if ! [[ "$offset_x" =~ ^[0-9]+$ ]]; then offset_x=0; fi
+  if ! [[ "$offset_y" =~ ^[0-9]+$ ]]; then offset_y=0; fi
+}
+
+load_mode_settings "$mode"
+active_mode="$mode"
+
 render_header() {
-  echo "AOC Widget   [m] media  [g] gallery  [p] set media path  [q] quit"
+  echo "AOC Widget   [m] media  [g] gallery  [p] set media path  [G] save defaults  [R] reset  [q] quit"
   echo "---------------------------------------------------------------"
 }
 
@@ -185,27 +368,27 @@ render_media() {
   lines="$(tput lines 2>/dev/null || echo 16)"
   local scale="$CHAFa_SCALE"
   if [[ -z "$scale" ]]; then
-    scale="$(load_setting "$SIZE_FILE" "1.0")"
+    scale="$(load_active_setting "$ACTIVE_SIZE_FILE" "1.0")"
   fi
   local work="$CHAFa_WORK"
   if [[ -z "$work" ]]; then
-    work="$(load_setting "$DETAIL_FILE" "5")"
+    work="$(load_active_setting "$ACTIVE_DETAIL_FILE" "5")"
   fi
   local symbols="$CHAFa_SYMBOLS"
   if [[ -z "$symbols" ]]; then
-    symbols="$(load_setting "$STYLE_FILE" "ascii")"
+    symbols="$(load_active_setting "$ACTIVE_STYLE_FILE" "ascii")"
   fi
   local colors="$CHAFa_COLORS"
   if [[ -z "$colors" ]]; then
-    colors="$(load_setting "$COLOR_FILE" "16")"
+    colors="$(load_active_setting "$ACTIVE_COLOR_FILE" "16")"
   fi
   local dither="$CHAFa_DITHER"
   if [[ -z "$dither" ]]; then
-    dither="$(load_setting "$DITHER_FILE" "ordered")"
+    dither="$(load_active_setting "$ACTIVE_DITHER_FILE" "ordered")"
   fi
   local font_ratio="$CHAFa_FONT_RATIO"
   if [[ -z "$font_ratio" ]]; then
-    font_ratio="$(load_setting "$RATIO_FILE" "1/2")"
+    font_ratio="$(load_active_setting "$ACTIVE_RATIO_FILE" "1/2")"
   fi
   if [[ -n "$ratio_override" ]]; then
     font_ratio="$ratio_override"
@@ -369,7 +552,69 @@ set_media_path() {
     sleep 1
     return
   fi
-  echo "$path" > "$ASSET"
+  path="$(realpath "$path")"
+  stored_path="$(format_media_path "$path")"
+  echo "$stored_path" > "$MEDIA_ASSET_FILE"
+  save_setting "$MEDIA_VIEW_FILE" "1"
+  media_view=1
+}
+
+save_media_defaults() {
+  local scale
+  local ratio
+  scale="$(load_media_setting "$ACTIVE_SIZE_FILE" "1.0")"
+  ratio="$(load_media_setting "$ACTIVE_RATIO_FILE" "1/2")"
+  save_setting "$GLOBAL_MEDIA_STYLE_FILE" "${style_presets[$style_index]}"
+  save_setting "$GLOBAL_MEDIA_COLOR_FILE" "${color_presets[$color_index]}"
+  save_setting "$GLOBAL_MEDIA_DITHER_FILE" "${dither_presets[$dither_index]}"
+  save_setting "$GLOBAL_MEDIA_DETAIL_FILE" "${work_presets[$work_index]}"
+  save_setting "$GLOBAL_MEDIA_SIZE_FILE" "$scale"
+  save_setting "$GLOBAL_MEDIA_RATIO_FILE" "$ratio"
+  save_setting "$GLOBAL_MEDIA_OFFSET_X_FILE" "$offset_x"
+  save_setting "$GLOBAL_MEDIA_OFFSET_Y_FILE" "$offset_y"
+}
+
+save_gallery_defaults() {
+  local scale
+  local ratio
+  scale="$(load_gallery_setting "$ACTIVE_SIZE_FILE" "1.0")"
+  ratio="$(load_gallery_setting "$ACTIVE_RATIO_FILE" "1/2")"
+  save_setting "$GALLERY_STYLE_FILE" "${style_presets[$style_index]}"
+  save_setting "$GALLERY_COLOR_FILE" "${color_presets[$color_index]}"
+  save_setting "$GALLERY_DITHER_FILE" "${dither_presets[$dither_index]}"
+  save_setting "$GALLERY_DETAIL_FILE" "${work_presets[$work_index]}"
+  save_setting "$GALLERY_SIZE_FILE" "$scale"
+  save_setting "$GALLERY_RATIO_FILE" "$ratio"
+  save_setting "$GALLERY_OFFSET_X_FILE" "$offset_x"
+  save_setting "$GALLERY_OFFSET_Y_FILE" "$offset_y"
+  save_setting "$GALLERY_INDEX_FILE" "$gallery_index"
+  save_setting "$GALLERY_VIEW_FILE" "$gallery_view"
+}
+
+reset_media_settings() {
+  rm -f "$MEDIA_ASSET_FILE" "$LEGACY_MEDIA_ASSET_FILE"
+  rm -f "$MEDIA_STYLE_FILE" "$MEDIA_COLOR_FILE" "$MEDIA_DITHER_FILE" "$MEDIA_DETAIL_FILE" \
+    "$MEDIA_SIZE_FILE" "$MEDIA_RATIO_FILE" "$MEDIA_OFFSET_X_FILE" "$MEDIA_OFFSET_Y_FILE" \
+    "$MEDIA_VIEW_FILE"
+  rm -f "$MODE_FILE"
+  media_view=0
+  mode="gallery"
+  load_mode_settings "gallery"
+  active_mode="gallery"
+}
+
+reset_gallery_settings() {
+  rm -f "$GALLERY_STYLE_FILE" "$GALLERY_COLOR_FILE" "$GALLERY_DITHER_FILE" "$GALLERY_DETAIL_FILE" \
+    "$GALLERY_SIZE_FILE" "$GALLERY_RATIO_FILE" "$GALLERY_OFFSET_X_FILE" "$GALLERY_OFFSET_Y_FILE" \
+    "$GALLERY_INDEX_FILE" "$GALLERY_VIEW_FILE"
+  rm -f "${LEGACY_GLOBAL_DIR}/widget_style" "${LEGACY_GLOBAL_DIR}/widget_colors" \
+    "${LEGACY_GLOBAL_DIR}/widget_dither" "${LEGACY_GLOBAL_DIR}/widget_detail" \
+    "${LEGACY_GLOBAL_DIR}/widget_scale" "${LEGACY_GLOBAL_DIR}/widget_font_ratio" \
+    "${LEGACY_GLOBAL_DIR}/widget_offset_x" "${LEGACY_GLOBAL_DIR}/widget_offset_y" \
+    "${LEGACY_GLOBAL_DIR}/widget_gallery_index" "${LEGACY_GLOBAL_DIR}/widget_gallery_view"
+  gallery_index=0
+  gallery_view=0
+  load_mode_settings "gallery"
 }
 
 last_mode=""
@@ -390,9 +635,27 @@ while true; do
     fi
   fi
 
+  project_media_path_raw=""
+  if [[ -f "$MEDIA_ASSET_FILE" ]]; then
+    project_media_path_raw="$(cat "$MEDIA_ASSET_FILE" 2>/dev/null || true)"
+  fi
+  project_media_path="$(normalize_media_path "$project_media_path_raw")"
+  project_media_ready=0
+  if [[ -n "$project_media_path" && -e "$project_media_path" ]]; then
+    project_media_ready=1
+  fi
+  if [[ "$mode" == "media" && "$project_media_ready" -eq 0 ]]; then
+    mode="gallery"
+  fi
+
+  if [[ "$mode" != "$active_mode" ]]; then
+    load_mode_settings "$mode"
+    active_mode="$mode"
+  fi
+
   path=""
   if [[ "$mode" == "media" ]]; then
-    path="$(cat "$ASSET" 2>/dev/null || true)"
+    path="$project_media_path"
   elif [[ "$mode" == "gallery" ]]; then
     gallery_stat="$(stat -c %Y "$GALLERY_DIR" 2>/dev/null || echo 0)"
     if [[ "$gallery_stat" != "$last_gallery_stat" || "${#gallery_files[@]}" -eq 0 ]]; then
@@ -406,8 +669,12 @@ while true; do
   fi
 
   minute="$(date +%Y%m%d%H%M)"
+  media_ready=0
+  if [[ "$mode" == "media" && "$project_media_ready" -eq 1 ]]; then
+    media_ready=1
+  fi
   redraw=0
-  if [[ "$force_redraw" -eq 1 || "$mode" != "$last_mode" || "$gallery_view" != "$last_gallery_view" ]]; then
+  if [[ "$force_redraw" -eq 1 || "$mode" != "$last_mode" || "$gallery_view" != "$last_gallery_view" || "$media_view" != "$last_media_view" ]]; then
     redraw=1
   elif [[ "$mode" == "media" && "$path" != "$last_path" ]]; then
     redraw=1
@@ -420,14 +687,19 @@ while true; do
     case "$mode" in
       media)
         set_pane_title "Widget [Media]"
-        render_header
-        render_media "$path"
-        if (( ratio_edit == 1 )); then
+        if (( media_view == 1 && media_ready == 1 )); then
+          render_media "$path" "$offset_x" "$offset_y"
+        else
+          render_header
+          render_media "$path"
+          if (( ratio_edit == 1 )); then
+            echo
+            echo "Ratio editor: ${ratio_edit_w}/${ratio_edit_h}  (h/l width, j/k height, Enter apply, Esc cancel)"
+          fi
           echo
-          echo "Ratio editor: ${ratio_edit_w}/${ratio_edit_h}  (h/l width, j/k height, Enter apply, Esc cancel)"
+          echo "[Enter] clean view  [h/j/k/l or arrows] offset  [0] reset"
+          echo "[s] style  [C] colors  [D] dither  [w] detail  [r] ratio  [+/-] size  [G] save defaults  [R] reset"
         fi
-        echo
-        echo "[s] style  [C] colors  [D] dither  [w] detail  [r] ratio  [+/-] size"
         ;;
       gallery)
         if (( gallery_view == 1 )); then
@@ -460,7 +732,7 @@ while true; do
             fi
             echo
             echo "[j/k] move  [1-9] jump  [Enter] view  [h/j/k/l or arrows] offset  [0] reset"
-            echo "[s] style  [C] colors  [D] dither  [w] detail  [r] ratio  [+/-] size"
+            echo "[s] style  [C] colors  [D] dither  [w] detail  [r] ratio  [+/-] size  [G] save defaults  [R] reset"
           fi
         fi
         ;;
@@ -480,6 +752,7 @@ while true; do
     last_path="$path"
     last_minute="$minute"
     last_gallery_view="$gallery_view"
+    last_media_view="$media_view"
     force_redraw=0
   fi
 
@@ -534,7 +807,7 @@ while true; do
         handled_ratio_edit=1
         ;;
       enter)
-        save_setting "$RATIO_FILE" "${ratio_edit_w}/${ratio_edit_h}"
+        save_setting "$ACTIVE_RATIO_FILE" "${ratio_edit_w}/${ratio_edit_h}"
         ratio_edit=0
         ratio_override=""
         force_redraw=1
@@ -563,38 +836,72 @@ while true; do
         force_redraw=1
       fi
       ;;
-    m) set_mode "media"; force_redraw=1 ;;
-    g)
-      set_mode "gallery"
-      gallery_view="$(load_setting "$GALLERY_VIEW_FILE" "0")"
+    m)
+      set_mode "media"
+      mode="media"
+      media_view="$(load_media_setting "$MEDIA_VIEW_FILE" "0")"
+      if ! [[ "$media_view" =~ ^[0-9]+$ ]] || [[ "$media_view" != "0" && "$media_view" != "1" ]]; then media_view=0; fi
+      load_mode_settings "$mode"
+      active_mode="$mode"
       force_redraw=1
       ;;
-    p) set_media_path; force_redraw=1 ;;
+    g)
+      set_mode "gallery"
+      mode="gallery"
+      gallery_view="$(load_gallery_setting "$GALLERY_VIEW_FILE" "0")"
+      load_mode_settings "$mode"
+      active_mode="$mode"
+      force_redraw=1
+      ;;
+    p)
+      set_media_path
+      set_mode "media"
+      mode="media"
+      load_mode_settings "$mode"
+      active_mode="$mode"
+      force_redraw=1
+      ;;
+    G)
+      if [[ "$mode" == "media" ]]; then
+        save_media_defaults
+      else
+        save_gallery_defaults
+      fi
+      force_redraw=1
+      ;;
+    R)
+      if [[ "$mode" == "media" ]]; then
+        reset_media_settings
+      else
+        reset_gallery_settings
+      fi
+      force_redraw=1
+      ;;
     q) exit 0 ;;
     s)
       style_index=$(((style_index + 1) % ${#style_presets[@]}))
-      save_setting "$STYLE_FILE" "${style_presets[$style_index]}"
+      save_setting "$ACTIVE_STYLE_FILE" "${style_presets[$style_index]}"
       force_redraw=1
       ;;
     C)
       color_index=$(((color_index + 1) % ${#color_presets[@]}))
-      save_setting "$COLOR_FILE" "${color_presets[$color_index]}"
+      save_setting "$ACTIVE_COLOR_FILE" "${color_presets[$color_index]}"
       force_redraw=1
       ;;
     D)
       dither_index=$(((dither_index + 1) % ${#dither_presets[@]}))
-      save_setting "$DITHER_FILE" "${dither_presets[$dither_index]}"
+      save_setting "$ACTIVE_DITHER_FILE" "${dither_presets[$dither_index]}"
       force_redraw=1
       ;;
     w)
       work_index=$(((work_index + 1) % ${#work_presets[@]}))
-      save_setting "$DETAIL_FILE" "${work_presets[$work_index]}"
+      save_setting "$ACTIVE_DETAIL_FILE" "${work_presets[$work_index]}"
       force_redraw=1
       ;;
     r)
       if (( ratio_edit == 0 )); then
         ratio_edit=1
-        saved_ratio="$(load_setting "$RATIO_FILE" "1/2")"
+        saved_ratio="$(load_active_setting "$ACTIVE_RATIO_FILE" "1/2")"
         ratio_edit_w="${saved_ratio%%/*}"
         ratio_edit_h="${saved_ratio##*/}"
         if ! [[ "$ratio_edit_w" =~ ^[0-9]+$ ]]; then ratio_edit_w=1; fi
@@ -606,25 +913,25 @@ while true; do
       fi
       ;;
     "="|"+")
-      cur_scale="$(load_setting "$SIZE_FILE" "1.0")"
+      cur_scale="$(load_active_setting "$ACTIVE_SIZE_FILE" "1.0")"
       new_scale="$(python3 - <<PY
 import math
 cur=float("$cur_scale")
 print(min(2.0, round(cur + 0.1, 2)))
 PY
 )"
-      save_setting "$SIZE_FILE" "$new_scale"
+      save_setting "$ACTIVE_SIZE_FILE" "$new_scale"
       force_redraw=1
       ;;
     "-")
-      cur_scale="$(load_setting "$SIZE_FILE" "1.0")"
+      cur_scale="$(load_active_setting "$ACTIVE_SIZE_FILE" "1.0")"
       new_scale="$(python3 - <<PY
 import math
 cur=float("$cur_scale")
 print(max(0.5, round(cur - 0.1, 2)))
 PY
 )"
-      save_setting "$SIZE_FILE" "$new_scale"
+      save_setting "$ACTIVE_SIZE_FILE" "$new_scale"
       force_redraw=1
       ;;
   esac
@@ -702,6 +1009,26 @@ PY
     save_setting "$GALLERY_VIEW_FILE" "$gallery_view"
     force_redraw=1
   fi
+  if [[ "$mode" == "media" && "$is_enter" -eq 1 ]]; then
+    media_view=$((1 - media_view))
+    save_setting "$MEDIA_VIEW_FILE" "$media_view"
+    force_redraw=1
+  fi
+  if [[ "$mode" == "media" && "$media_view" -eq 1 ]]; then
+    case "$key" in
+      h|left) adjust_offset -2 0; force_redraw=1 ;;
+      l|right) adjust_offset 2 0; force_redraw=1 ;;
+      k|up) adjust_offset 0 -1; force_redraw=1 ;;
+      j|down) adjust_offset 0 1; force_redraw=1 ;;
+      0)
+        offset_x=0
+        offset_y=0
+        save_setting "$ACTIVE_OFFSET_X_FILE" "$offset_x"
+        save_setting "$ACTIVE_OFFSET_Y_FILE" "$offset_y"
+        force_redraw=1
+        ;;
+    esac
+  fi
   if [[ "$mode" == "gallery" && "$gallery_view" -eq 1 ]]; then
     case "$key" in
       h|left) adjust_offset -2 0; force_redraw=1 ;;
@@ -718,8 +1045,8 @@ PY
       0)
         offset_x=0
         offset_y=0
-        save_setting "$OFFSET_X_FILE" "$offset_x"
-        save_setting "$OFFSET_Y_FILE" "$offset_y"
+        save_setting "$ACTIVE_OFFSET_X_FILE" "$offset_x"
+        save_setting "$ACTIVE_OFFSET_Y_FILE" "$offset_y"
         force_redraw=1
         ;;
     esac

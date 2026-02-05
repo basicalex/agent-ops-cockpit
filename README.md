@@ -34,26 +34,26 @@ AOC implements a **Distributed Cognitive Architecture** that separates concerns 
 ├──────────────────┬──────────────────┬───────────────────────────┤
 │   📁 Yazi        │   🤖 Agent       │   📅 Widget               │
 │   File Manager   │   (codex/gemini/ │   Calendar/Media          │
-│                  │   claude/opencode)│   Clock                   │
+│                  │   claude/opencode)│   Clock                  │
 ├──────────────────┼──────────────────┴───────────────────────────┤
-│   Project Files  │   📋 Taskmaster TUI                         │
-│                  │   Interactive task & subtask management     │
-└──────────────────┴─────────────────────────────────────────────┘
+│   Project Files  │   📋 Taskmaster TUI                          │
+│                  │   Interactive task & subtask management      │
+└──────────────────┴──────────────────────────────────────────────┘
          │                    │                    │
          └────────────────────┼────────────────────┘
                               ▼
         ┌──────────────────────────────────────────────────┐
         │         DISTRIBUTED COGNITIVE ARCHITECTURE       │
         ├──────────────────────────────────────────────────┤
-        │                                                   │
+        │                                                  │
         │  🗺️ Context        🧠 Memory          ✅ Tasks    │
         │  (Reactive)       (Persistent)       (Dynamic)   │
-        │                                                   │
+        │                                                  │
         │  .aoc/context.md  .aoc/memory.md     tasks.json  │
         │  Auto-updated     Append-only        Real-time   │
         │  File tree +      Architectural      Status &    │
         │  README snapshot  decisions          priorities  │
-        │                                                   │
+        │                                                  │
         └──────────────────────────────────────────────────┘
 ```
 
@@ -186,9 +186,9 @@ Keyboard-driven file management with rich previews:
 
 | Key | Action |
 |-----|--------|
-| `Enter` | Open file + auto-expand pane |
+| `Enter` | Smart open (dir enter, text edit, media default app) |
 | `e` | Edit with `$EDITOR` (micro) |
-| `y` | Set widget media path |
+| `W` | Set widget media path |
 | `p` | Send to floating preview |
 
 **Preview support:** Images, PDFs, SVGs, LaTeX, code with syntax highlighting
@@ -293,7 +293,12 @@ The top-right widget pane supports media, calendar, and clock:
 - `m` - Media mode
 - `g` - Gallery mode (from `~/Pictures/Zellij`)
 - `p` - Set media path
-- `Enter` - Toggle clean view (in gallery)
+- `Enter` - Toggle clean view (media/gallery)
+- `h/j/k/l` or arrows - Offset in clean view (`0` reset)
+- `G` - Save current settings as global defaults
+- `R` - Reset settings (media -> clear project asset + global defaults, gallery -> built-in defaults)
+
+Media path + media render settings are stored per project. Gallery settings are global and used when no project media is set.
 
 **Rendering Controls:**
 - `s` - Cycle ASCII styles
