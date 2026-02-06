@@ -252,6 +252,9 @@ export AOC_PROJECT_ROOT="$project_root"
 export AOC_HUB_ADDR="$hub_addr"
 export AOC_HUB_URL="$hub_url"
 export AOC_AGENT_LABEL="$agent_label"
+if [[ -z "${AOC_AGENT_PTY:-}" ]]; then
+  export AOC_AGENT_PTY=0
+fi
 if [[ -z "${AOC_AGENT_ID:-}" ]]; then
   export AOC_AGENT_ID="$agent_id"
 fi
@@ -261,6 +264,10 @@ fi
 find_aoc_dir() {
   local base=""
   local probe=""
+  if [[ -n "${AOC_PROJECT_ROOT:-}" && -d "${AOC_PROJECT_ROOT}/.aoc" ]]; then
+    echo "${AOC_PROJECT_ROOT}/.aoc"
+    return 0
+  fi
   base="$PWD"
   # Prefer aoc-align only when it matches the current pane's path.
   if command -v aoc-align >/dev/null 2>&1; then
@@ -365,7 +372,7 @@ construct_handshake() {
   echo "6. Track ephemeral session state with aoc-stm add/edit; use aoc-stm to hand off when context gets tight."
   echo
   echo "──────────────────────────────────────────────────────────────────────────────"
-  echo "Starting $agent_label CLI..."
+  echo "Starting ${AOC_AGENT_LABEL:-$agent_label} CLI..."
   echo "──────────────────────────────────────────────────────────────────────────────"
 }
 

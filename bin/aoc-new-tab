@@ -54,6 +54,104 @@ sanitize_name() {
   printf '%s' "${raw:-tab}"
 }
 
+resolve_session_id() {
+  if [[ -n "${AOC_SESSION_ID:-}" ]]; then
+    printf '%s' "$AOC_SESSION_ID"
+    return
+  fi
+  if [[ -n "${ZELLIJ_SESSION_NAME:-}" ]]; then
+    printf '%s' "$ZELLIJ_SESSION_NAME"
+    return
+  fi
+  printf 'pid-%s' "$$"
+}
+
+derive_port() {
+  local session="$1"
+  if ! command -v python3 >/dev/null 2>&1; then
+    printf '42000'
+    return
+  fi
+  python3 - <<'PY' "$session"
+import sys
+session = sys.argv[1].encode()
+hash_value = 2166136261
+for byte in session:
+    hash_value ^= byte
+    hash_value = (hash_value * 16777619) & 0xFFFFFFFF
+port = 42000 + (hash_value % 2000)
+print(port)
+PY
+}
+
+resolve_hub_addr() {
+  local session_id="$1"
+  if [[ -n "${AOC_HUB_ADDR:-}" ]]; then
+    printf '%s' "$AOC_HUB_ADDR"
+    return
+  fi
+  local port
+  port="$(derive_port "$session_id")"
+  printf '127.0.0.1:%s' "$port"
+}
+
+resolve_hub_url() {
+  local hub_addr="$1"
+  if [[ -n "${AOC_HUB_URL:-}" ]]; then
+    printf '%s' "$AOC_HUB_URL"
+    return
+  fi
+  printf 'ws://%s/ws' "$hub_addr"
+}
+
+hub_health_ok() {
+  local addr="$1"
+  if command -v curl >/dev/null 2>&1; then
+    local body
+    body="$(curl -fsS --max-time 1 "http://$addr/health" 2>/dev/null || true)"
+    [[ "$body" == "ok" ]]
+    return
+  fi
+  return 1
+}
+
+ensure_hub_running() {
+  local session_id="$1"
+  local hub_addr="$2"
+  local state_root="$3"
+  local session_slug
+  session_slug="$(sanitize_name "$session_id")"
+  local pid_file="$state_root/hub-${session_slug}.pid"
+  local log_file="$state_root/hub-${session_slug}.log"
+
+  if hub_health_ok "$hub_addr"; then
+    return
+  fi
+
+  if [[ -f "$pid_file" ]]; then
+    local existing_pid
+    existing_pid="$(cat "$pid_file" 2>/dev/null || true)"
+    if [[ -n "$existing_pid" ]] && kill -0 "$existing_pid" 2>/dev/null; then
+      local i
+      for i in 1 2 3 4 5; do
+        if hub_health_ok "$hub_addr"; then
+          return
+        fi
+        sleep 0.2
+      done
+    fi
+    rm -f "$pid_file"
+  fi
+
+  if ! command -v aoc-hub >/dev/null 2>&1; then
+    return
+  fi
+
+  AOC_SESSION_ID="$session_id" AOC_HUB_ADDR="$hub_addr" nohup aoc-hub >>"$log_file" 2>&1 &
+  local hub_pid=$!
+  printf '%s\n' "$hub_pid" > "$pid_file"
+}
+
 cleanup_state() {
   local dir="$1"
   # Clean up old temp layout files
@@ -122,6 +220,9 @@ fi
 
 current_pwd="$(pwd -P)"
 project_root="${tab_cwd:-$current_pwd}"
+session_id="$(resolve_session_id)"
+hub_addr="$(resolve_hub_addr "$session_id")"
+hub_url="$(resolve_hub_url "$hub_addr")"
 
 current_root=""
 if command -v aoc-align >/dev/null 2>&1; then
@@ -131,6 +232,7 @@ fi
 
 mkdir -p "$state_dir"
 cleanup_state "$state_dir"
+ensure_hub_running "$session_id" "$hub_addr" "$state_dir"
 
 # Generate Tab Name (First word of repo, Title Case)
 raw_name="$(basename "$project_root")"
@@ -152,11 +254,17 @@ if [[ -f "$layout_path" ]]; then
   # Inject placeholders
   awk -v tab_name="$tab_name_to_use" \
       -v agent_id="$agent_id" \
-      -v proj_root="$project_root" '
+      -v proj_root="$project_root" \
+      -v session_id="$session_id" \
+      -v hub_addr="$hub_addr" \
+      -v hub_url="$hub_url" '
   {
     gsub(/__AOC_TAB_NAME__/, tab_name)
     gsub(/__AOC_AGENT_ID__/, agent_id)
     gsub(/__AOC_PROJECT_ROOT__/, proj_root)
+    gsub(/__AOC_SESSION_ID__/, session_id)
+    gsub(/__AOC_HUB_ADDR__/, hub_addr)
+    gsub(/__AOC_HUB_URL__/, hub_url)
     print
   }
 ' "$layout_path" > "$layout_tmp"
@@ -166,5 +274,8 @@ fi
 realign_current_pane "$current_root"
 
 AOC_PROJECT_ROOT="$project_root" \
+  AOC_SESSION_ID="$session_id" \
+  AOC_HUB_ADDR="$hub_addr" \
+  AOC_HUB_URL="$hub_url" \
   ZELLIJ_PROJECT_ROOT="$project_root" \
   zellij action new-tab --layout "$layout_arg" "${args[@]}"
