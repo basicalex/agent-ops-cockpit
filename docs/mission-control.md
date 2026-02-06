@@ -27,11 +27,38 @@ the session_id and the hub must reject mismatched sessions.
 |--------|---------|----------------------|
 | AOC_SESSION_ID | Unique session identifier used for routing | Prefer ZELLIJ_SESSION_NAME; else existing AOC_SESSION_ID; else "pid-<pid>" |
 | AOC_PANE_ID | Pane identifier for this client | Prefer ZELLIJ_PANE_ID; else "pid-<pid>" |
-| AOC_AGENT_ID | Stable agent identifier for publishers | Prefer AOC_AGENT_ID; else AOC_PANE_ID |
+| AOC_AGENT_ID | Human-readable agent label metadata | Prefer explicit AOC_AGENT_ID; else project name |
+| AOC_AGENT_LABEL | Optional explicit label for display only | Empty |
 | AOC_PROJECT_ROOT | Project root used for task and git scans | Prefer AOC_PROJECT_ROOT; else current working directory |
 | AOC_HUB_ADDR | Hub listen address (host:port) | 127.0.0.1:<port-from-session> |
 | AOC_HUB_URL | Websocket URL for hub | ws://AOC_HUB_ADDR/ws |
 | AOC_LOG_DIR | Log output directory | .aoc/logs |
+
+## AOC Pulse Data Source Strategy
+
+The default top-right pane is now **AOC Pulse** with four modes:
+Overview, Work, Diff, and Health.
+
+### v1 Fallback (No Hub Required)
+- Pulse must run headless-safe and useful even when hub is down.
+- Data sources are local-only:
+  - runtime/process introspection for session/pane liveness
+  - Taskmaster JSON for work state
+  - git status/diff for repo change summaries
+  - dependency/marker checks for health
+
+### v2 Preferred (Hub Available)
+- If hub is reachable, Pulse prefers hub snapshots/events for:
+  - `agent_status` + `heartbeat` (Overview)
+  - `task_summary` (Work)
+  - `diff_summary` (Diff)
+- If hub disconnects or lacks data, Pulse automatically falls back to v1.
+
+### Identity Model (Collision-Safe)
+- Primary publisher/consumer identity key is always:
+  - `agent_id = "<session_id>::<pane_id>"`
+- Human labels (`AOC_AGENT_ID` / `AOC_AGENT_LABEL`) are metadata only.
+- This prevents collisions when multiple tabs use the same label (for example, multiple `codex` panes).
 
 ### Port Derivation
 To avoid collisions across sessions, derive a stable port from session_id:
