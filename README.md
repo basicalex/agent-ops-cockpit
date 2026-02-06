@@ -66,10 +66,16 @@ AOC implements a **Distributed Cognitive Architecture** that separates concerns 
 ### One-Line Install
 
 ```bash
-./install.sh && aoc-init && aoc
+curl -fsSL https://raw.githubusercontent.com/basicalex/agent-ops-cockpit/main/install/bootstrap.sh | bash -s -- --repo basicalex/agent-ops-cockpit
 ```
 
-`install.sh` will attempt to install missing dependencies via your package manager (and Cargo for some tools). It may prompt for sudo.
+The bootstrap entrypoint downloads the latest release installer (portable Rust binary when available), falls back to source install when needed, and installs AOC to user-local paths.
+
+For a local clone workflow, you can still run:
+
+```bash
+./install.sh
+```
 
 That's it. AOC will:
 1. Install all scripts and configurations
@@ -455,7 +461,7 @@ MIT License - see [LICENSE](./LICENSE) file for details.
 **Ready to transform your AI-assisted development workflow?**
 
 ```bash
-./install.sh && aoc-init && aoc
+curl -fsSL https://raw.githubusercontent.com/basicalex/agent-ops-cockpit/main/install/bootstrap.sh | bash -s -- --repo basicalex/agent-ops-cockpit
 ```
 
 [⬆️ Back to Top](#aoc---terminal-first-ai-workspace)

@@ -19,13 +19,33 @@ Detailed installation instructions for Agent Ops Cockpit (AOC) on various platfo
 
 ## Quick Install
 
-Run the installer (it will attempt to install missing dependencies via your package manager, and use Cargo for some tools):
+Run the online bootstrap installer:
 
 ```bash
-./install.sh
+curl -fsSL https://raw.githubusercontent.com/basicalex/agent-ops-cockpit/main/install/bootstrap.sh | bash -s -- --repo basicalex/agent-ops-cockpit
 ```
 
-This will install all AOC components to `~/.local/bin` and configure Zellij, Yazi, and other tools. If you prefer to install dependencies manually, use the platform-specific instructions below.
+This entrypoint will:
+
+1. Resolve the latest release tag (or use your pinned `--ref`)
+2. Download the portable `aoc-installer` Rust binary when available
+3. Fall back to source archive install if no matching binary exists
+4. Install AOC to `~/.local/bin` and user config paths
+
+### Bootstrap Options
+
+```bash
+# pin a specific release tag
+curl -fsSL https://raw.githubusercontent.com/basicalex/agent-ops-cockpit/main/install/bootstrap.sh | bash -s -- --repo basicalex/agent-ops-cockpit --ref v0.2.0
+
+# non-interactive install for automation
+curl -fsSL https://raw.githubusercontent.com/basicalex/agent-ops-cockpit/main/install/bootstrap.sh | bash -s -- --repo basicalex/agent-ops-cockpit --yes
+
+# skip the post-install doctor check
+curl -fsSL https://raw.githubusercontent.com/basicalex/agent-ops-cockpit/main/install/bootstrap.sh | bash -s -- --repo basicalex/agent-ops-cockpit --skip-doctor
+```
+
+If you already cloned the repo, you can still run `./install.sh` directly.
 
 ## Platform-Specific Instructions
 
