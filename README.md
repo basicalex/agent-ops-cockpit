@@ -243,6 +243,12 @@ AOC's architecture solves the fundamental problem of **context management in AI-
 - **Update:** Via Taskmaster TUI or `aoc-task` CLI
 - **Agent Usage:** Track work, update status, create new items
 
+#### 4. Task PRDs (`.taskmaster/docs/prds/`) - The "Spec Layer"
+- **Role:** Task-level implementation specification
+- **Content:** Problem framing, requirements, acceptance criteria, validation plan
+- **Linking:** Stored on each task as `aocPrd` (task-level only; no subtask PRDs)
+- **Update:** Via `aoc-task prd show|init|set|clear`
+
 ### Per-Tab Isolation
 
 Each Zellij tab = One isolated project context:
@@ -263,9 +269,10 @@ When you start working in AOC:
 1. **Orient:** `aoc-mem read` - Ingest past decisions and preferences
 2. **Context:** `.aoc/context.md` - Automatically provides current project map
 3. **Plan:** `aoc-task add "..."` - Track your work plan
-4. **Execute:** Edit files, run commands, collaborate with AI agent
-5. **Update:** Mark tasks done in Taskmaster TUI
-6. **Record:** `aoc-mem add "..."` - Document significant decisions
+4. **Spec:** `aoc-task prd show <id>` - Read linked PRD before implementation
+5. **Execute:** Edit files, run commands, collaborate with AI agent
+6. **Update:** Mark tasks done in Taskmaster TUI
+7. **Record:** `aoc-mem add "..."` - Document significant decisions
 
 ---
 
