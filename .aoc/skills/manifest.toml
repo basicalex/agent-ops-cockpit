@@ -26,12 +26,12 @@ summary = "Analyze large repos with aoc-rlm scan/peek/chunk."
 [[skill]]
 name = "prd-dev"
 type = "planning"
-summary = "Draft and refine the Taskmaster PRD."
+summary = "Draft and refine a task-level Taskmaster PRD linked via aocPrd."
 
 [[skill]]
 name = "prd-align"
 type = "planning"
-summary = "Align tasks and implementation with the PRD."
+summary = "Align tasks and implementation with each task's linked PRD."
 
 [[skill]]
 name = "tag-align"

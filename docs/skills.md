@@ -3,6 +3,8 @@
 ## Overview
 Skills are reusable workflow playbooks stored in `.aoc/skills/<name>/SKILL.md`. AOC syncs skills only for the active agent to avoid repo bloat.
 
+Task PRD workflows use task-level links (`aocPrd`) and PRD docs under `.taskmaster/docs/prds/`.
+
 ## Sync behavior
 - `aoc-agent --set <agent>` syncs skills for that agent.
 - `aoc-agent --run <agent>` and `aoc-agent-run` re-sync before launch.

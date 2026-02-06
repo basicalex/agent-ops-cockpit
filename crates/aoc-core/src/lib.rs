@@ -34,10 +34,23 @@ pub struct Task {
     pub priority: TaskPriority,
     #[serde(default)]
     pub subtasks: Vec<Subtask>,
+    #[serde(default, rename = "aocPrd")]
+    pub aoc_prd: Option<TaskPrd>,
     #[serde(default, rename = "updatedAt")]
     pub updated_at: Option<String>,
     #[serde(default, rename = "activeAgent")]
     pub active_agent: bool,
+    #[serde(default, flatten)]
+    pub extra: HashMap<String, Value>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TaskPrd {
+    pub path: String,
+    #[serde(default, rename = "updatedAt")]
+    pub updated_at: Option<String>,
+    #[serde(default)]
+    pub version: Option<u32>,
     #[serde(default, flatten)]
     pub extra: HashMap<String, Value>,
 }

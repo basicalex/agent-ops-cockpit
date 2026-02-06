@@ -286,6 +286,11 @@ impl App {
             }
         };
 
+        if let Err(err) = validate_project(&project) {
+            self.set_error(err);
+            return;
+        }
+
         self.project = Some(project);
         self.last_tasks_mtime = modified;
         self.last_error = None;
@@ -1143,4 +1148,28 @@ fn sync_tags_enabled() -> bool {
         std::env::var("AOC_TASKMASTER_SYNC_TAG").ok().as_deref(),
         Some("1") | Some("true") | Some("TRUE")
     )
+}
+
+fn validate_project(project: &ProjectData) -> std::result::Result<(), String> {
+    for (tag, tag_ctx) in &project.tags {
+        for task in &tag_ctx.tasks {
+            if let Some(prd) = &task.aoc_prd {
+                if prd.path.trim().is_empty() {
+                    return Err(format!(
+                        "Invalid tasks.json: task [{}] in tag '{}' has empty aocPrd.path",
+                        task.id, tag
+                    ));
+                }
+            }
+            for sub in &task.subtasks {
+                if sub.extra.contains_key("aocPrd") {
+                    return Err(format!(
+                        "Invalid tasks.json: subtask [{}] in task [{}] tag '{}' has unsupported aocPrd",
+                        sub.id, task.id, tag
+                    ));
+                }
+            }
+        }
+    }
+    Ok(())
 }

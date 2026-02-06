@@ -368,6 +368,15 @@ fn render_details(f: &mut Frame, app: &mut App, area: Rect) {
             lines.push(Line::from(task.test_strategy.clone()));
         }
 
+        if let Some(prd) = &task.aoc_prd {
+            lines.push(Line::from(""));
+            lines.push(Line::from(Span::styled(
+                "PRD:",
+                Style::default().fg(Color::Blue),
+            )));
+            lines.push(Line::from(prd.path.clone()));
+        }
+
         if !task.dependencies.is_empty() {
             lines.push(Line::from(""));
             lines.push(Line::from(Span::styled(

@@ -16,4 +16,5 @@ description: Initialize or repair AOC context, memory, and tasks safely.
 - Creates `.aoc/` and `.taskmaster/` if missing
 - Generates `.aoc/context.md`
 - Seeds `.aoc/memory.md`
+- Ensures task-level PRD directory `.taskmaster/docs/prds/` is available when used
 - Syncs skills for existing agent targets

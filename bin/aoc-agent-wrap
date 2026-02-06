@@ -207,7 +207,8 @@ construct_handshake() {
   echo "1. The file '$aoc_dir/memory.md' is the LIVE source of truth for architectural decisions."
   echo "2. Use 'aoc-mem add \"fact\"' to record new decisions."
   echo "3. Use 'aoc-task' (or 'task-master') tools to track your progress."
-  echo "4. Read the files explicitly if you need updated context."
+  echo "4. If a task has a PRD link, read it before implementation (aoc-task prd show <task-id>)."
+  echo "5. PRD links are task-level only; subtasks must not define PRD links."
   echo
   echo "──────────────────────────────────────────────────────────────────────────────"
   echo "Starting $agent_label CLI..."
