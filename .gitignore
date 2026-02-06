@@ -43,4 +43,6 @@ crates/target/
 !/.aoc/skills-optional/**
 !/.aoc/agents-optional/
 !/.aoc/agents-optional/**
+!/.aoc/commands/
+!/.aoc/commands/**
 /.taskmaster/

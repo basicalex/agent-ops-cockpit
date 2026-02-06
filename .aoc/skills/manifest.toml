@@ -14,6 +14,11 @@ type = "ops"
 summary = "Read, search, and record decisions with aoc-mem."
 
 [[skill]]
+name = "stm-ops"
+type = "ops"
+summary = "Capture and hand off short-term session memory with aoc-stm."
+
+[[skill]]
 name = "taskmaster-ops"
 type = "ops"
 summary = "Operate tasks via aoc-task and the Taskmaster TUI."

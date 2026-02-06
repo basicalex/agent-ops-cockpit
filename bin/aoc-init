@@ -49,6 +49,18 @@ EOF
     log "Memory file exists ($mem_file). Skipping."
   fi
 
+  # Short-term memory workspace
+  local stm_dir="$aoc_dir/stm"
+  local stm_current="$stm_dir/current.md"
+  local stm_archive="$stm_dir/archive"
+  mkdir -p "$stm_archive"
+  if [[ ! -f "$stm_current" ]]; then
+    log "Initializing short-term memory ($stm_current)..."
+    : > "$stm_current"
+  else
+    log "Short-term memory exists ($stm_current). Preserving."
+  fi
+
   # AGENTS.md (project-level agent contract)
   local agents_file="$project_root/AGENTS.md"
   if [[ ! -f "$agents_file" ]]; then
@@ -61,6 +73,7 @@ This file defines the always-on rules for agents in this repo. Procedural playbo
 ## Always-on rules
 - Use `.aoc/context.md` for orientation; run `aoc-init` if it is missing or stale.
 - `.aoc/memory.md` is append-only; use `aoc-mem` to read/search/add. Do not edit the file directly.
+- `.aoc/stm/current.md` is short-term working state; use `aoc-stm` to add/edit/handoff/archive. Do not store long-term decisions here.
 - `.taskmaster/tasks/tasks.json` is task state; use the Taskmaster TUI or `aoc-task` commands. Do not edit the file directly.
 - Task PRDs are linked per task (not subtask) via `aocPrd`; keep PRD documents in `.taskmaster/docs/prds/` and resolve via `aoc-task prd` commands.
 - Record major decisions and constraints in memory (`aoc-mem add "..."`).
@@ -68,6 +81,8 @@ This file defines the always-on rules for agents in this repo. Procedural playbo
 ## Core files
 - `.aoc/context.md`: auto-generated project snapshot.
 - `.aoc/memory.md`: persistent decision log.
+- `.aoc/stm/current.md`: ephemeral short-term handoff state.
+- `.aoc/stm/archive/`: archived STM snapshots used for handoffs/history.
 - `.taskmaster/tasks/tasks.json`: dynamic task queue.
 - `.taskmaster/docs/prds/`: task-level PRD documents linked from tasks.
 
@@ -75,6 +90,7 @@ This file defines the always-on rules for agents in this repo. Procedural playbo
 - `aoc-workflow`: standard project workflow.
 - `aoc-init-ops`: initialize or repair AOC files.
 - `memory-ops`: read/search/add to memory.
+- `stm-ops`: manage short-term handoff memory and resume flow.
 - `taskmaster-ops`: manage tasks and tags.
 - `rlm-analysis`: large codebase analysis flow.
 - `prd-dev`: draft the Taskmaster PRD.
@@ -97,6 +113,7 @@ EOF
 - `aoc-workflow`: standard project workflow.
 - `aoc-init-ops`: initialize or repair AOC files.
 - `memory-ops`: read/search/add to memory.
+- `stm-ops`: manage short-term handoff memory and resume flow.
 - `taskmaster-ops`: manage tasks and tags.
 - `rlm-analysis`: large codebase analysis flow.
 - `prd-dev`: draft the Taskmaster PRD.
@@ -117,6 +134,7 @@ Use the AOC tools for context, memory, and tasks in this repo.
 
 - **Context:** `.aoc/context.md` (read-only)
 - **Memory:** `.aoc/memory.md` via `aoc-mem read/add` (do not edit directly)
+- **Short-term memory:** `.aoc/stm/current.md` via `aoc-stm` (ephemeral handoff state)
 - **Tasks:** `.taskmaster/tasks/tasks.json` via `aoc-task list/add/status` (do not edit directly)
 - **Task PRDs:** `.taskmaster/docs/prds/` linked with `aoc-task prd` (task-level only, no subtask PRDs)
 - **Skills:** load AOC skills as needed for workflows
@@ -146,11 +164,15 @@ $(tree -L 2 --gitignore -I '.git|.taskmaster|.aoc|.gemini|node_modules|target|di
 **Purpose:** Persistent storage of architectural decisions.
 **Commands:** \`aoc-mem read\`, \`aoc-mem add "fact"\`.
 
-## 3. Task Management (\`aoc-task\`)
+## 3. Short-Term Memory (\`aoc-stm\`)
+**Purpose:** Ephemeral handoff state for context-window continuation.
+**Commands:** \`aoc-stm add "note"\`, \`aoc-stm --last\`, \`aoc-stm history\`.
+
+## 4. Task Management (\`aoc-task\`)
 **Purpose:** Granular tracking of work.
 **Commands:** \`aoc-task list\`, \`aoc-task add "Task"\`.
 
-## 4. Operational Rules
+## 5. Operational Rules
 - **No Amnesia:** Always check \`aoc-mem\` first.
 - **No Ghost Work:** Track all work in \`aoc-task\` (or \`task-master\`).
 EOF
@@ -158,14 +180,14 @@ EOF
   # Append README if it exists
   if [[ -f "$project_root/README.md" ]]; then
     echo >> "$context_file"
-    echo "## 5. README Content" >> "$context_file"
+    echo "## 6. README Content" >> "$context_file"
     cat "$project_root/README.md" >> "$context_file"
   fi
 
   # Append Taskmaster Tags if available
   if command -v aoc-task >/dev/null 2>&1 || command -v aoc-cli >/dev/null 2>&1 || command -v task-master >/dev/null 2>&1; then
     echo >> "$context_file"
-    echo "## 6. Active Workstreams (Tags)" >> "$context_file"
+    echo "## 7. Active Workstreams (Tags)" >> "$context_file"
     # Run in subshell to preserve cwd, capture output
     if command -v aoc-task >/dev/null 2>&1; then
       tags_output="$(cd "$project_root" && aoc-task tag list 2>/dev/null || echo "No tags found.")"
@@ -195,7 +217,7 @@ EOF
     log "Adding RLM Protocol to context..."
     cat <<EOF >> "$context_file"
 
-## 7. RLM Skill (Large Codebase Analysis)
+## 8. RLM Skill (Large Codebase Analysis)
 When you need to analyze more files than fit in your context:
 1. **Scan:** Run \`aoc-rlm scan\` (or \`rlm scan\`) to see the scale of the codebase.
 2. **Peek:** Run \`aoc-rlm peek "search_term"\` (or \`rlm peek\`) to find relevant snippets and file paths.
@@ -217,6 +239,7 @@ setup_skills() {
   local seed_dir=""
   local candidate=""
   local seed_has_skills=0
+  local seed_dirs=()
   local skill_list=()
 
   for candidate in "$aoc_config_dir/skills" "$script_dir/../.aoc/skills"; do
@@ -225,32 +248,33 @@ setup_skills() {
       skill_list=("$candidate"/*/SKILL.md)
       shopt -u nullglob
       if ((${#skill_list[@]} > 0)); then
-        seed_dir="$candidate"
+        seed_dirs+=("$candidate")
         seed_has_skills=1
-        break
       fi
     fi
   done
 
   if [[ "$seed_has_skills" == "1" ]]; then
     local copied=0
-    shopt -s nullglob
-    local seed_entries=("$seed_dir"/*)
-    shopt -u nullglob
     local entry=""
-    for entry in "${seed_entries[@]}"; do
-      [[ -d "$entry" ]] || continue
-      local name
-      name="$(basename "$entry")"
-      if [[ ! -e "$skills_dir/$name" ]]; then
-        cp -R "$entry" "$skills_dir/$name"
+    for seed_dir in "${seed_dirs[@]}"; do
+      shopt -s nullglob
+      local seed_entries=("$seed_dir"/*)
+      shopt -u nullglob
+      for entry in "${seed_entries[@]}"; do
+        [[ -d "$entry" ]] || continue
+        local name
+        name="$(basename "$entry")"
+        if [[ ! -e "$skills_dir/$name" ]]; then
+          cp -R "$entry" "$skills_dir/$name"
+          copied=1
+        fi
+      done
+      if [[ -f "$seed_dir/manifest.toml" && ! -f "$skills_dir/manifest.toml" ]]; then
+        cp "$seed_dir/manifest.toml" "$skills_dir/manifest.toml"
         copied=1
       fi
     done
-    if [[ -f "$seed_dir/manifest.toml" && ! -f "$skills_dir/manifest.toml" ]]; then
-      cp "$seed_dir/manifest.toml" "$skills_dir/manifest.toml"
-      copied=1
-    fi
     if [[ "$copied" == "1" ]]; then
       log "Seeded AOC skills into .aoc/skills."
     fi
@@ -300,6 +324,38 @@ setup_agents() {
     log "Seeded OpenCode agent: aoc-ops"
   else
     log "OpenCode agent already present. Preserving."
+  fi
+}
+
+# 1d. Setup OpenCode Commands (.opencode/commands)
+setup_opencode_commands() {
+  local opencode_commands_dir="$project_root/.opencode/commands"
+  local seed_file=""
+  local candidate=""
+
+  for candidate in \
+    "$aoc_config_dir/commands/opencode/stm.md" \
+    "$script_dir/../.aoc/commands/opencode/stm.md"; do
+    if [[ -f "$candidate" ]]; then
+      seed_file="$candidate"
+      break
+    fi
+  done
+
+  if [[ -z "$seed_file" ]]; then
+    warn "No OpenCode /stm command template found; skipping command seeding."
+    return
+  fi
+
+  if [[ ! -d "$opencode_commands_dir" ]]; then
+    mkdir -p "$opencode_commands_dir"
+  fi
+
+  if [[ ! -f "$opencode_commands_dir/stm.md" ]]; then
+    cp "$seed_file" "$opencode_commands_dir/stm.md"
+    log "Seeded OpenCode command: /stm"
+  else
+    log "OpenCode command /stm already present. Preserving."
   fi
 }
 
@@ -420,6 +476,7 @@ main() {
   setup_memory
   setup_skills
   setup_agents
+  setup_opencode_commands
   setup_tasks
   setup_env
   setup_binaries

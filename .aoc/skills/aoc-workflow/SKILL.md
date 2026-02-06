@@ -13,9 +13,11 @@ Use this when you start a new task or need to re-orient inside a project.
 4. For the active task, check PRD linkage with `aoc-task prd show <id>`; if missing, create/link via `aoc-task prd init <id>` or `aoc-task prd set <id> <path>`.
 5. Plan: add or refine tasks with `aoc-task add "<task>"` and set status.
 6. Execute changes and run tests.
-7. Update tasks and record decisions: `aoc-task status <id> done`, `aoc-mem add "<decision>"`.
+7. If context gets tight, capture handoff state (`aoc-stm add/edit`; in OpenCode you can run `/stm`) and then run `aoc-stm` to continue in a new tab/session.
+8. Update tasks and record decisions: `aoc-task status <id> done`, `aoc-mem add "<decision>"`.
 
 ## Guardrails
 - Do not edit `.aoc/memory.md` directly.
+- Do not keep long-term decisions in `.aoc/stm/current.md`; promote durable decisions to `aoc-mem`.
 - Do not edit `.taskmaster/tasks/tasks.json` directly.
 - Do not add PRD links to subtasks; PRDs are task-level only (`aocPrd`).

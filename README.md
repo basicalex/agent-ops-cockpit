@@ -194,6 +194,7 @@ Keyboard-driven file management with rich previews:
 |-----|--------|
 | `Enter` | Smart open (dir enter, text edit, media default app) |
 | `e` | Edit with `$EDITOR` (micro) |
+| `g s` | Edit short-term memory |
 | `W` | Set widget media path |
 | `p` | Send to floating preview |
 
@@ -249,6 +250,13 @@ AOC's architecture solves the fundamental problem of **context management in AI-
 - **Linking:** Stored on each task as `aocPrd` (task-level only; no subtask PRDs)
 - **Update:** Via `aoc-task prd show|init|set|clear`
 
+#### 5. Short-Term Memory (`.aoc/stm/`) - The "Handoff Buffer"
+- **Role:** Ephemeral session continuity near context limits
+- **Content:** current handoff (`current.md`) and archived snapshots (`archive/*.md`)
+- **Update:** Via `aoc-stm add|edit|archive|history|use|--last` (`aoc-stm` defaults to `--last`)
+- **Lifecycle:** Promote durable decisions to `aoc-mem`; keep STM temporary
+- **Behavior:** `aoc-stm --last` fails hard if no archive exists (create one with `aoc-stm add "..."` then `aoc-stm archive`)
+
 ### Per-Tab Isolation
 
 Each Zellij tab = One isolated project context:
@@ -271,8 +279,10 @@ When you start working in AOC:
 3. **Plan:** `aoc-task add "..."` - Track your work plan
 4. **Spec:** `aoc-task prd show <id>` - Read linked PRD before implementation
 5. **Execute:** Edit files, run commands, collaborate with AI agent
-6. **Update:** Mark tasks done in Taskmaster TUI
-7. **Record:** `aoc-mem add "..."` - Document significant decisions
+6. **Handoff Prep (OpenCode):** `/stm` - Ask the agent to write a concise `.aoc/stm/current.md`
+7. **Handoff:** `aoc-stm` (default `--last`) - Archive STM and continue in a fresh tab/session with STM injected
+8. **Update:** Mark tasks done in Taskmaster TUI
+9. **Record:** `aoc-mem add "..."` - Document significant decisions
 
 ---
 
