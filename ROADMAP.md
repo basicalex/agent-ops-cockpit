@@ -156,4 +156,4 @@ We'd love to hear from the community:
 - Would you contribute to Zellij Windows support?
 - Are there other multiplexers we should consider?
 
-Open a discussion or issue at: https://github.com/your-org/agent-ops-cockpit/discussions
+Open a discussion or issue at: https://github.com/basicalex/agent-ops-cockpit/discussions

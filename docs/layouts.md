@@ -79,7 +79,7 @@ Why use `aoc-layout` instead of just `zellij action new-tab --layout ...`?
 
 ## Community Layouts
 
-We encourage sharing layouts! If you create a useful mode (e.g., for Rust dev, Python data science, or writing markdown), share it in the [Discussions](https://github.com/your-org/agent-ops-cockpit/discussions).
+We encourage sharing layouts! If you create a useful mode (e.g., for Rust dev, Python data science, or writing markdown), share it in the [Discussions](https://github.com/basicalex/agent-ops-cockpit/discussions).
 
 ## Troubleshooting
 

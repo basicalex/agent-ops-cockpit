@@ -344,6 +344,8 @@ fi
 
 if ((${#missing_required[@]} > 0)); then
   warn "Missing required tools: ${missing_required[*]}"
+  warn "Cannot continue without required tools. Install them and re-run install.sh."
+  exit 1
 fi
 if ((${#missing_optional[@]} > 0)); then
   warn "Missing optional tools: ${missing_optional[*]}"
