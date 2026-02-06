@@ -25,6 +25,23 @@ In OpenCode, invoke it with:
 
 `aoc-init` will not overwrite existing `.opencode/agents/aoc-ops.md`.
 
+## OpenCode STM Command
+`aoc-init` also seeds a project command for OpenCode:
+
+```
+.opencode/commands/stm.md
+```
+
+Usage in OpenCode:
+
+```
+/stm
+```
+
+This command asks the agent to contextualize current work into `.aoc/stm/current.md` so you can then run `aoc-stm` to archive and resume in a fresh tab/session.
+
+`aoc-init` will not overwrite an existing `.opencode/commands/stm.md`.
+
 ## MoreMotion (optional)
 Run `aoc-momo init` in a repo to seed the `momo` subagent:
 

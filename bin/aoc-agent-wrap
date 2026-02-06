@@ -26,6 +26,117 @@ env_hint="AOC_${agent_id^^}_BIN"
 
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 home_bin="${HOME}/bin"
+cargo_bin="$HOME/.cargo/bin"
+
+resolve_session_id() {
+  if [[ -n "${AOC_SESSION_ID:-}" ]]; then
+    printf '%s' "$AOC_SESSION_ID"
+    return
+  fi
+  if [[ -n "${ZELLIJ_SESSION_NAME:-}" ]]; then
+    printf '%s' "$ZELLIJ_SESSION_NAME"
+    return
+  fi
+  printf 'pid-%s' "$$"
+}
+
+resolve_pane_id() {
+  if [[ -n "${AOC_PANE_ID:-}" ]]; then
+    printf '%s' "$AOC_PANE_ID"
+    return
+  fi
+  if [[ -n "${ZELLIJ_PANE_ID:-}" ]]; then
+    printf '%s' "$ZELLIJ_PANE_ID"
+    return
+  fi
+  printf '%s' "$$"
+}
+
+resolve_project_root() {
+  if [[ -n "${AOC_PROJECT_ROOT:-}" ]]; then
+    printf '%s' "$AOC_PROJECT_ROOT"
+    return
+  fi
+  printf '%s' "$PWD"
+}
+
+derive_port() {
+  local session="$1"
+  if ! command -v python3 >/dev/null 2>&1; then
+    printf '42000'
+    return
+  fi
+  python3 - <<'PY' "$session"
+import sys
+session = sys.argv[1].encode()
+hash_value = 2166136261
+for byte in session:
+    hash_value ^= byte
+    hash_value = (hash_value * 16777619) & 0xFFFFFFFF
+port = 42000 + (hash_value % 2000)
+print(port)
+PY
+}
+
+resolve_hub_addr() {
+  local session_id="$1"
+  if [[ -n "${AOC_HUB_ADDR:-}" ]]; then
+    printf '%s' "$AOC_HUB_ADDR"
+    return
+  fi
+  local port
+  port="$(derive_port "$session_id")"
+  printf '127.0.0.1:%s' "$port"
+}
+
+resolve_hub_url() {
+  local hub_addr="$1"
+  if [[ -n "${AOC_HUB_URL:-}" ]]; then
+    printf '%s' "$AOC_HUB_URL"
+    return
+  fi
+  printf 'ws://%s/ws' "$hub_addr"
+}
+
+wrap_rs_cmd=()
+resolve_wrap_rs_cmd() {
+  wrap_rs_cmd=()
+  if [[ -n "${AOC_AGENT_WRAP_RS_BIN:-}" ]]; then
+    wrap_rs_cmd=("$AOC_AGENT_WRAP_RS_BIN")
+    return
+  fi
+  local local_release="$script_dir/../crates/target/release/aoc-agent-wrap-rs"
+  local local_debug="$script_dir/../crates/target/debug/aoc-agent-wrap-rs"
+  if [[ -x "$local_release" ]]; then
+    wrap_rs_cmd=("$local_release")
+    return
+  fi
+  if [[ -x "$local_debug" ]]; then
+    wrap_rs_cmd=("$local_debug")
+    return
+  fi
+  if command -v aoc-agent-wrap-rs >/dev/null 2>&1; then
+    wrap_rs_cmd=(aoc-agent-wrap-rs)
+    return
+  fi
+  if [[ -x "$home_bin/aoc-agent-wrap-rs" ]]; then
+    wrap_rs_cmd=("$home_bin/aoc-agent-wrap-rs")
+    return
+  fi
+  if [[ -x "$cargo_bin/aoc-agent-wrap-rs" ]]; then
+    wrap_rs_cmd=("$cargo_bin/aoc-agent-wrap-rs")
+    return
+  fi
+  local manifest_path=""
+  if [[ -n "${AOC_PROJECT_ROOT:-}" && -f "${AOC_PROJECT_ROOT}/crates/Cargo.toml" ]]; then
+    manifest_path="${AOC_PROJECT_ROOT}/crates/Cargo.toml"
+  elif [[ -f "$script_dir/../crates/Cargo.toml" ]]; then
+    manifest_path="$script_dir/../crates/Cargo.toml"
+  fi
+  if command -v cargo >/dev/null 2>&1 && [[ -n "$manifest_path" ]]; then
+    wrap_rs_cmd=(cargo run --manifest-path "$manifest_path" -p aoc-agent-wrap-rs --)
+  fi
+}
 
 is_wrapper() {
   local candidate="$1"
@@ -129,6 +240,22 @@ if ! command -v "$real_bin" >/dev/null 2>&1; then
   exit 0
 fi
 
+session_id="$(resolve_session_id)"
+pane_id="$(resolve_pane_id)"
+project_root="$(resolve_project_root)"
+hub_addr="$(resolve_hub_addr "$session_id")"
+hub_url="$(resolve_hub_url "$hub_addr")"
+
+export AOC_SESSION_ID="$session_id"
+export AOC_PANE_ID="$pane_id"
+export AOC_PROJECT_ROOT="$project_root"
+export AOC_HUB_ADDR="$hub_addr"
+export AOC_HUB_URL="$hub_url"
+export AOC_AGENT_LABEL="$agent_label"
+if [[ -z "${AOC_AGENT_ID:-}" ]]; then
+  export AOC_AGENT_ID="$agent_id"
+fi
+
 # --- Context Injection (Handshake) ---
 
 find_aoc_dir() {
@@ -170,8 +297,23 @@ find_aoc_dir() {
 
 construct_handshake() {
   local aoc_dir=""
+  local stm_file=""
   if ! aoc_dir="$(find_aoc_dir)"; then
     return
+  fi
+
+  if [[ -n "${AOC_STM_INJECT_FILE:-}" ]]; then
+    stm_file="$AOC_STM_INJECT_FILE"
+    if [[ -f "$aoc_dir/stm/next.path" ]]; then
+      local queued_stm=""
+      queued_stm="$(head -n 1 "$aoc_dir/stm/next.path" 2>/dev/null || true)"
+      if [[ "$queued_stm" == "$stm_file" ]]; then
+        rm -f "$aoc_dir/stm/next.path"
+      fi
+    fi
+  elif [[ -f "$aoc_dir/stm/next.path" ]]; then
+    stm_file="$(head -n 1 "$aoc_dir/stm/next.path" 2>/dev/null || true)"
+    rm -f "$aoc_dir/stm/next.path"
   fi
 
   echo "──────────────────────────────────────────────────────────────────────────────"
@@ -202,6 +344,17 @@ construct_handshake() {
   elif command -v task-master >/dev/null 2>&1; then
     task-master list --tag "${AOC_TAG:-master}" 2>/dev/null | head -n 20 || echo "No active tasks."
   fi
+
+  if [[ -n "$stm_file" && -f "$stm_file" ]]; then
+    echo
+    echo "⚡ SHORT-TERM MEMORY HANDOFF ($stm_file):"
+    head -n 120 "$stm_file"
+    echo "... [end of STM handoff]"
+    if [[ -n "${AOC_STM_ACTIVE_FILE:-}" ]]; then
+      : > "$AOC_STM_ACTIVE_FILE" 2>/dev/null || true
+    fi
+  fi
+
   echo
   echo "💡 OPERATIONAL DIRECTIVE:"
   echo "1. The file '$aoc_dir/memory.md' is the LIVE source of truth for architectural decisions."
@@ -209,6 +362,7 @@ construct_handshake() {
   echo "3. Use 'aoc-task' (or 'task-master') tools to track your progress."
   echo "4. If a task has a PRD link, read it before implementation (aoc-task prd show <task-id>)."
   echo "5. PRD links are task-level only; subtasks must not define PRD links."
+  echo "6. Track ephemeral session state with aoc-stm add/edit; use aoc-stm to hand off when context gets tight."
   echo
   echo "──────────────────────────────────────────────────────────────────────────────"
   echo "Starting $agent_label CLI..."
@@ -230,8 +384,26 @@ chmod +x "$bootloader"
   echo "exec \"$real_bin\" \"\$@\""
 } > "$bootloader"
 
+resolve_wrap_rs_cmd
+wrapped_cmd=()
+if ((${#wrap_rs_cmd[@]} > 0)); then
+  wrapped_cmd=(
+    "${wrap_rs_cmd[@]}"
+    --session "$AOC_SESSION_ID"
+    --pane-id "$AOC_PANE_ID"
+    --agent-id "$AOC_AGENT_LABEL"
+    --project-root "$AOC_PROJECT_ROOT"
+    --hub-addr "$AOC_HUB_ADDR"
+    --
+    "$bootloader"
+    "$@"
+  )
+else
+  wrapped_cmd=("$bootloader" "$@")
+fi
+
 pane_cleanup=0
-if [[ -n "${ZELLIJ_PANE_ID:-}" ]]; then
+if [[ -n "${AOC_PANE_ID:-}" || -n "${ZELLIJ_PANE_ID:-}" ]]; then
   case "$agent_id" in
     oc|opencode|open-code) pane_cleanup=1 ;;
   esac
@@ -242,7 +414,7 @@ cleanup_pane_agents() {
   if [[ "$pane_cleanup" != "1" ]]; then
     return
   fi
-  if [[ -z "${ZELLIJ_PANE_ID:-}" ]]; then
+  if [[ -z "${AOC_PANE_ID:-}" && -z "${ZELLIJ_PANE_ID:-}" ]]; then
     return
   fi
   if [[ "$cleanup_done" == "1" ]]; then
@@ -255,7 +427,7 @@ import signal
 import subprocess
 import re
 
-pane_id = os.environ.get("ZELLIJ_PANE_ID", "")
+pane_id = os.environ.get("AOC_PANE_ID") or os.environ.get("ZELLIJ_PANE_ID", "")
 if not pane_id:
     raise SystemExit(0)
 
@@ -300,7 +472,7 @@ for line in ps_out.strip().splitlines()[1:]:
     if not (pattern.search(comm) or pattern.search(args)):
         continue
     env = proc_env(pid)
-    if env.get("ZELLIJ_PANE_ID") == pane_id:
+    if env.get("AOC_PANE_ID") == pane_id or env.get("ZELLIJ_PANE_ID") == pane_id:
         pids.append(pid)
 
 for pid in pids:
@@ -326,21 +498,21 @@ if [[ "$agent_id" != "codex" ]]; then
   if [[ "$pane_cleanup" == "1" ]]; then
     trap handle_cleanup_signal HUP INT TERM
     trap cleanup_pane_agents EXIT
-    "$bootloader" "$@"
+    "${wrapped_cmd[@]}"
     status=$?
     trap - HUP INT TERM EXIT
     exit "$status"
   fi
-  exec "$bootloader" "$@"
+  exec "${wrapped_cmd[@]}"
 fi
 
 if [[ "${AOC_NO_TMUX:-0}" == "1" ]]; then
-  exec "$bootloader" "$@"
+  exec "${wrapped_cmd[@]}"
 fi
 
 if ! command -v tmux >/dev/null 2>&1; then
   echo "aoc-$agent_id: tmux not found; running $agent_bin with handshake but no tmux wrapper." >&2
-  exec "$bootloader" "$@"
+  exec "${wrapped_cmd[@]}"
 fi
 
 conf="${AOC_AGENT_TMUX_CONF:-${XDG_CONFIG_HOME:-$HOME/.config}/aoc/codex-tmux.conf}"
@@ -357,7 +529,7 @@ if [[ -S "$socket_path" ]]; then
 fi
 
 if [[ -f "$conf" ]]; then
-  exec tmux -L "$socket" -f "$conf" new-session -A -s "$session" "$bootloader" "$@"
+  exec tmux -L "$socket" -f "$conf" new-session -A -s "$session" "${wrapped_cmd[@]}"
 fi
 
-exec tmux -L "$socket" new-session -A -s "$session" "$bootloader" "$@"
+exec tmux -L "$socket" new-session -A -s "$session" "${wrapped_cmd[@]}"

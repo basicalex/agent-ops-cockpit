@@ -15,6 +15,7 @@ mkdir -p "${XDG_CONFIG_HOME:-$HOME/.config}/aoc"
 mkdir -p "${XDG_CONFIG_HOME:-$HOME/.config}/aoc/btop"
 mkdir -p "${XDG_CONFIG_HOME:-$HOME/.config}/aoc/skills"
 mkdir -p "${XDG_CONFIG_HOME:-$HOME/.config}/aoc/agents/opencode"
+mkdir -p "${XDG_CONFIG_HOME:-$HOME/.config}/aoc/commands/opencode"
 mkdir -p "${XDG_CONFIG_HOME:-$HOME/.config}/aoc/skills-optional"
 mkdir -p "${XDG_CONFIG_HOME:-$HOME/.config}/aoc/agents-optional/opencode"
 mkdir -p "${XDG_STATE_HOME:-$HOME/.local/state}/aoc"
@@ -443,6 +444,14 @@ if [[ -f "$ROOT_DIR/.aoc/agents/opencode/aoc-ops.md" ]]; then
   dest="${XDG_CONFIG_HOME:-$HOME/.config}/aoc/agents/opencode/aoc-ops.md"
   if [[ ! -f "$dest" ]]; then
     cp "$ROOT_DIR/.aoc/agents/opencode/aoc-ops.md" "$dest"
+  fi
+fi
+
+# AOC default OpenCode commands
+if [[ -f "$ROOT_DIR/.aoc/commands/opencode/stm.md" ]]; then
+  dest="${XDG_CONFIG_HOME:-$HOME/.config}/aoc/commands/opencode/stm.md"
+  if [[ ! -f "$dest" ]]; then
+    cp "$ROOT_DIR/.aoc/commands/opencode/stm.md" "$dest"
   fi
 fi
 

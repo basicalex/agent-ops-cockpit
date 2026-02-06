@@ -64,6 +64,7 @@ aoc-skill validate
 - `aoc-workflow`
 - `aoc-init-ops`
 - `memory-ops`
+- `stm-ops`
 - `taskmaster-ops`
 - `rlm-analysis`
 - `prd-dev`
