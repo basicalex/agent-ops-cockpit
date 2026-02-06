@@ -1,5 +1,6 @@
 [workspace]
 members = [
+    "aoc-installer",
     "aoc-cli",
     "aoc-core",
     "aoc-hub-rs",

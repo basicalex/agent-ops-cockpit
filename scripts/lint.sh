@@ -16,6 +16,7 @@ files=(
   bin/aoc-uninstall
   bin/aoc-widget
   install.sh
+  install/bootstrap.sh
   yazi/preview.sh
 )
 
