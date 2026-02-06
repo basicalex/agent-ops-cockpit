@@ -101,6 +101,58 @@ download_file() {
   fi
 }
 
+read_checksum() {
+  local checksum_file="$1"
+  local expected=""
+
+  if [[ ! -s "$checksum_file" ]]; then
+    return 1
+  fi
+
+  read -r expected _ < "$checksum_file"
+  if [[ ! "$expected" =~ ^[A-Fa-f0-9]{64}$ ]]; then
+    return 1
+  fi
+
+  printf '%s\n' "$expected"
+}
+
+compute_sha256() {
+  local file="$1"
+  if have sha256sum; then
+    sha256sum "$file" | awk '{print $1}'
+  elif have shasum; then
+    shasum -a 256 "$file" | awk '{print $1}'
+  elif have openssl; then
+    openssl dgst -sha256 "$file" | awk '{print $NF}'
+  else
+    return 1
+  fi
+}
+
+verify_checksum() {
+  local file="$1"
+  local checksum_file="$2"
+  local expected actual
+
+  if ! expected="$(read_checksum "$checksum_file")"; then
+    warn "Could not parse checksum file: $checksum_file"
+    return 1
+  fi
+
+  if ! actual="$(compute_sha256 "$file")"; then
+    warn "No SHA-256 tool available (sha256sum, shasum, or openssl)."
+    return 1
+  fi
+
+  if [[ "$actual" != "$expected" ]]; then
+    warn "Checksum verification failed for $(basename "$file")."
+    return 1
+  fi
+
+  return 0
+}
+
 resolve_ref() {
   local repo="$1"
   if [[ -n "$AOC_REF" ]]; then
@@ -248,7 +300,7 @@ main() {
     exit 1
   fi
 
-  local repo ref target workdir installer_archive installer_url installer_bin
+  local repo ref target workdir installer_archive installer_checksum installer_url installer_checksum_url installer_bin
   repo="$(resolve_repo)"
   ref="$(resolve_ref "$repo")"
   target="$(detect_target)"
@@ -258,7 +310,9 @@ main() {
   if [[ -n "$target" ]]; then
     local installer_args=()
     installer_archive="$workdir/aoc-installer-${target}.tar.gz"
+    installer_checksum="$workdir/aoc-installer-${target}.tar.gz.sha256"
     installer_url="https://github.com/${repo}/releases/download/${ref}/aoc-installer-${target}.tar.gz"
+    installer_checksum_url="${installer_url}.sha256"
     installer_args=(--repo "$repo" --ref "$ref")
     if [[ "$AOC_YES" == "1" ]]; then
       installer_args+=(--yes)
@@ -268,13 +322,17 @@ main() {
     fi
 
     log "Trying portable installer binary (${target}) from release ${ref}..."
-    if download_file "$installer_url" "$installer_archive"; then
-      tar -xzf "$installer_archive" -C "$workdir"
-      installer_bin="$workdir/aoc-installer"
-      if [[ -x "$installer_bin" ]]; then
-        exec "$installer_bin" "${installer_args[@]}"
+    if download_file "$installer_url" "$installer_archive" && download_file "$installer_checksum_url" "$installer_checksum"; then
+      if verify_checksum "$installer_archive" "$installer_checksum"; then
+        tar -xzf "$installer_archive" -C "$workdir"
+        installer_bin="$workdir/aoc-installer"
+        if [[ -x "$installer_bin" ]]; then
+          exec "$installer_bin" "${installer_args[@]}"
+        fi
+        warn "Portable installer asset unpacked but executable was not found."
+      else
+        warn "Portable installer checksum could not be verified; using source installer fallback."
       fi
-      warn "Portable installer asset unpacked but executable was not found."
     else
       warn "Portable installer asset unavailable for ${target}; using source installer fallback."
     fi
