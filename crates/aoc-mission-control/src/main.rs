@@ -8,10 +8,10 @@ use crossterm::{
 use futures_util::{SinkExt, StreamExt};
 use ratatui::{
     backend::CrosstermBackend,
-    layout::{Constraint, Direction, Layout},
+    layout::{Constraint, Direction, Layout, Rect},
     style::{Color, Modifier, Style},
     text::{Line, Span, Text},
-    widgets::{Block, Borders, Paragraph, Wrap},
+    widgets::{Block, Borders, Clear, List, ListItem, ListState, Paragraph, Wrap},
     Terminal,
 };
 use serde::{Deserialize, Serialize};
@@ -197,11 +197,26 @@ struct OverviewRow {
     identity_key: String,
     label: String,
     pane_id: String,
+    tab_index: Option<usize>,
+    tab_name: Option<String>,
+    tab_focused: bool,
     project_root: String,
     online: bool,
     age_secs: Option<i64>,
-    latest_message: Option<String>,
     source: String,
+}
+
+#[derive(Clone, Debug)]
+struct TabMeta {
+    index: usize,
+    name: String,
+    focused: bool,
+}
+
+#[derive(Clone, Debug, Default)]
+struct SessionLayout {
+    pane_ids: HashSet<String>,
+    pane_tabs: HashMap<String, TabMeta>,
 }
 
 #[derive(Clone, Debug)]
@@ -315,6 +330,9 @@ struct App {
     local: LocalSnapshot,
     mode: Mode,
     scroll: u16,
+    help_open: bool,
+    selected_overview: usize,
+    status_note: Option<String>,
 }
 
 impl App {
@@ -326,6 +344,9 @@ impl App {
             local,
             mode: Mode::Overview,
             scroll: 0,
+            help_open: false,
+            selected_overview: 0,
+            status_note: None,
         }
     }
 
@@ -514,10 +535,12 @@ impl App {
                     identity_key: agent_id.clone(),
                     label,
                     pane_id,
+                    tab_index: None,
+                    tab_name: None,
+                    tab_focused: false,
                     project_root,
                     online,
                     age_secs,
-                    latest_message: status.and_then(|s| s.message.clone()),
                     source: "hub".to_string(),
                 };
                 rows.insert(row.identity_key.clone(), row);
@@ -536,6 +559,15 @@ impl App {
                     }
                     if existing.source == "hub" {
                         existing.source = format!("hub+{}", local.source);
+                    }
+                    if existing.tab_index.is_none() {
+                        existing.tab_index = local.tab_index;
+                    }
+                    if existing.tab_name.is_none() {
+                        existing.tab_name = local.tab_name.clone();
+                    }
+                    if local.tab_focused {
+                        existing.tab_focused = true;
                     }
                 } else {
                     let mut row = local.clone();
@@ -598,7 +630,7 @@ impl App {
 
     fn diff_rows(&self) -> Vec<DiffProject> {
         if self.connected && !self.hub.diffs.is_empty() {
-            let mut rows = Vec::new();
+            let mut grouped: BTreeMap<String, (DiffProject, Vec<String>)> = BTreeMap::new();
             for payload in self.hub.diffs.values() {
                 let scope = self
                     .hub
@@ -610,19 +642,89 @@ impl App {
                 if files.len() > MAX_DIFF_FILES {
                     files.truncate(MAX_DIFF_FILES);
                 }
-                rows.push(DiffProject {
-                    project_root: payload.repo_root.clone(),
-                    scope,
-                    git_available: payload.git_available,
-                    reason: payload.reason.clone(),
-                    summary: payload.summary.clone(),
-                    files,
+                let key = payload.repo_root.clone();
+                let entry = grouped.entry(key.clone()).or_insert_with(|| {
+                    (
+                        DiffProject {
+                            project_root: key,
+                            scope: String::new(),
+                            git_available: payload.git_available,
+                            reason: payload.reason.clone(),
+                            summary: payload.summary.clone(),
+                            files: files.clone(),
+                        },
+                        Vec::new(),
+                    )
                 });
+                if !entry.1.iter().any(|value| value == &scope) {
+                    entry.1.push(scope);
+                }
+                if entry.0.files.is_empty() && !files.is_empty() {
+                    entry.0.files = files;
+                }
+                if !entry.0.git_available && payload.git_available {
+                    entry.0.git_available = true;
+                    entry.0.reason = payload.reason.clone();
+                    entry.0.summary = payload.summary.clone();
+                }
             }
-            rows.sort_by(|a, b| a.project_root.cmp(&b.project_root));
+            let mut rows = Vec::new();
+            for (_, (mut row, scopes)) in grouped {
+                row.scope = scope_summary(&scopes);
+                rows.push(row);
+            }
             return rows;
         }
         self.local.diff.clone()
+    }
+
+    fn selected_overview_index(&self, len: usize) -> usize {
+        self.selected_overview.min(len.saturating_sub(1))
+    }
+
+    fn move_overview_selection(&mut self, step: i32) {
+        let len = self.overview_rows().len();
+        if len == 0 {
+            self.selected_overview = 0;
+            return;
+        }
+        let current = self.selected_overview_index(len) as i32;
+        let max = len.saturating_sub(1) as i32;
+        let next = (current + step).clamp(0, max) as usize;
+        self.selected_overview = next;
+    }
+
+    fn focus_selected_overview_tab(&mut self) {
+        if self.mode != Mode::Overview {
+            return;
+        }
+        let rows = self.overview_rows();
+        if rows.is_empty() {
+            self.status_note = Some("no agents to focus".to_string());
+            return;
+        }
+        let selected = self.selected_overview_index(rows.len());
+        self.selected_overview = selected;
+        let row = &rows[selected];
+        let Some(tab_index) = row.tab_index else {
+            self.status_note = Some(format!("no tab mapping for pane {}", row.pane_id));
+            return;
+        };
+        match go_to_tab(&self.config.session_id, tab_index) {
+            Ok(()) => {
+                self.status_note = Some(format!(
+                    "focused tab {} {}",
+                    tab_index,
+                    row.tab_name
+                        .as_deref()
+                        .map(|value| format!("({})", value))
+                        .unwrap_or_default()
+                ));
+            }
+            Err(err) => {
+                self.status_note = Some(format!("focus failed: {err}"));
+            }
+        }
     }
 }
 
@@ -756,7 +858,14 @@ fn render_ui(frame: &mut ratatui::Frame, app: &App) {
         .split(size);
     frame.render_widget(render_header(app, theme, size.width), layout[0]);
     frame.render_widget(render_kpis(app, theme, size.width), layout[1]);
-    frame.render_widget(render_body(app, theme, size.width), layout[2]);
+    if app.mode == Mode::Overview {
+        render_overview_panel(frame, app, theme, layout[2], size.width);
+    } else {
+        frame.render_widget(render_body(app, theme, size.width), layout[2]);
+    }
+    if app.help_open {
+        render_help_overlay(frame, app, theme);
+    }
 }
 
 fn render_header(app: &App, theme: PulseTheme, width: u16) -> Paragraph<'static> {
@@ -765,163 +874,101 @@ fn render_header(app: &App, theme: PulseTheme, width: u16) -> Paragraph<'static>
     let source = app.mode_source();
     let hub = if app.connected { "online" } else { "offline" };
     let session = ellipsize(&app.config.session_id, if compact { 14 } else { 28 });
-    let hub_bg = if app.connected {
-        theme.ok
-    } else {
-        theme.critical
-    };
-    let source_bg = if source == "hub" {
-        theme.info
-    } else {
-        theme.warn
-    };
-    let mode_bg = match app.mode {
-        Mode::Overview => theme.info,
-        Mode::Work => theme.accent,
-        Mode::Diff => theme.warn,
-        Mode::Health => theme.ok,
-    };
-
-    let mut spans = vec![
-        Span::styled(
-            " AOC Pulse ",
-            Style::default()
-                .fg(theme.title)
-                .bg(theme.surface)
-                .add_modifier(Modifier::BOLD),
-        ),
-        Span::raw(" "),
-        chip("mode", &app.mode.title().to_ascii_lowercase(), mode_bg),
-        Span::raw(" "),
-        chip("hub", hub, hub_bg),
-        Span::raw(" "),
-        chip("src", source, source_bg),
-        Span::raw(" "),
-        chip(
-            "agents",
-            &format!("{}/{}", kpis.online_agents, kpis.total_agents),
-            if kpis.online_agents == kpis.total_agents && kpis.total_agents > 0 {
-                theme.ok
-            } else if kpis.online_agents == 0 {
-                theme.critical
-            } else {
-                theme.warn
-            },
-        ),
-        Span::raw(" "),
-        Span::styled(
-            format!("session:{session}"),
-            Style::default().fg(theme.muted),
-        ),
+    let inner_width = width.saturating_sub(4) as usize;
+    let status_fields = vec![
+        format!("mode={}", app.mode.title()),
+        format!("hub={hub}"),
+        format!("src={source}"),
+        format!("agents={}/{}", kpis.online_agents, kpis.total_agents),
+        format!("session={session}"),
     ];
-    if !compact {
-        spans.push(Span::raw("  "));
-        spans.push(Span::styled(
-            "1-4 Tab j/k r q",
-            Style::default().fg(theme.muted),
-        ));
-    }
+    let status_line = fit_fields(&status_fields, inner_width.max(12));
 
-    Paragraph::new(Line::from(spans))
-        .style(Style::default().fg(theme.text).bg(theme.bg))
-        .block(
-            Block::default()
-                .borders(Borders::ALL)
-                .border_style(Style::default().fg(theme.border))
-                .style(Style::default().bg(theme.bg))
-                .title(Span::styled(
-                    "Status",
-                    Style::default()
-                        .fg(theme.title)
-                        .add_modifier(Modifier::BOLD),
-                )),
+    let controls_text = if let Some(note) = app.status_note.as_deref() {
+        ellipsize(note, inner_width.max(12))
+    } else if compact {
+        "? help".to_string()
+    } else {
+        fit_fields(
+            &[
+                "1-4 mode".to_string(),
+                "Tab next".to_string(),
+                "j/k nav".to_string(),
+                "Enter focus".to_string(),
+                "r refresh".to_string(),
+                "? help".to_string(),
+                "q quit".to_string(),
+            ],
+            inner_width.max(12),
         )
+    };
+
+    Paragraph::new(Text::from(vec![
+        Line::from(Span::styled(status_line, Style::default().fg(theme.text))),
+        Line::from(Span::styled(
+            controls_text,
+            Style::default().fg(if app.status_note.is_some() {
+                theme.info
+            } else {
+                theme.muted
+            }),
+        )),
+    ]))
+    .style(Style::default().fg(theme.text).bg(theme.bg))
+    .block(
+        Block::default()
+            .borders(Borders::ALL)
+            .border_style(Style::default().fg(theme.border))
+            .style(Style::default().bg(theme.bg))
+            .title(Span::styled(
+                "Status",
+                Style::default()
+                    .fg(theme.title)
+                    .add_modifier(Modifier::BOLD),
+            )),
+    )
 }
 
 fn render_kpis(app: &App, theme: PulseTheme, width: u16) -> Paragraph<'static> {
     let compact = is_compact(width);
     let kpis = compute_kpis(app);
-
-    let mut spans = vec![
-        metric_chip(
-            "online",
-            format!("{}/{}", kpis.online_agents, kpis.total_agents),
-            if kpis.online_agents == kpis.total_agents && kpis.total_agents > 0 {
-                theme.ok
-            } else if kpis.online_agents == 0 {
-                theme.critical
-            } else {
-                theme.warn
-            },
-        ),
-        Span::raw(" "),
-        metric_chip(
-            "in-progress",
-            kpis.in_progress.to_string(),
-            if kpis.in_progress > 0 {
-                theme.info
-            } else {
-                theme.muted
-            },
-        ),
-        Span::raw(" "),
-        metric_chip(
-            "dirty",
-            kpis.dirty_files.to_string(),
-            if kpis.dirty_files > 0 {
-                theme.warn
-            } else {
-                theme.ok
-            },
-        ),
-        Span::raw(" "),
-        metric_chip(
-            "blocked",
-            kpis.blocked.to_string(),
-            if kpis.blocked > 0 {
-                theme.critical
-            } else {
-                theme.ok
-            },
-        ),
+    let inner_width = width.saturating_sub(4) as usize;
+    let mut fields = vec![
+        format!("online {}/{}", kpis.online_agents, kpis.total_agents),
+        format!("in-progress {}", kpis.in_progress),
+        format!("dirty {}", kpis.dirty_files),
+        format!("blocked {}", kpis.blocked),
     ];
     if !compact {
-        spans.push(Span::raw(" "));
-        spans.push(metric_chip(
-            "churn",
-            kpis.churn.to_string(),
-            if kpis.churn > 180 {
-                theme.critical
-            } else if kpis.churn > 60 {
-                theme.warn
-            } else {
-                theme.info
-            },
-        ));
+        fields.push(format!("churn {}", kpis.churn));
     }
+    let line = fit_fields(&fields, inner_width.max(12));
 
-    Paragraph::new(Line::from(spans))
-        .style(Style::default().fg(theme.text).bg(theme.surface))
-        .block(
-            Block::default()
-                .borders(Borders::ALL)
-                .border_style(Style::default().fg(theme.border))
-                .style(Style::default().bg(theme.surface))
-                .title(Span::styled(
-                    "Pulse",
-                    Style::default()
-                        .fg(theme.title)
-                        .add_modifier(Modifier::BOLD),
-                )),
-        )
+    Paragraph::new(Line::from(Span::styled(
+        line,
+        Style::default().fg(theme.text),
+    )))
+    .style(Style::default().fg(theme.text).bg(theme.surface))
+    .block(
+        Block::default()
+            .borders(Borders::ALL)
+            .border_style(Style::default().fg(theme.border))
+            .style(Style::default().bg(theme.surface))
+            .title(Span::styled(
+                "Pulse",
+                Style::default()
+                    .fg(theme.title)
+                    .add_modifier(Modifier::BOLD),
+            )),
+    )
 }
 
 fn render_body(app: &App, theme: PulseTheme, width: u16) -> Paragraph<'static> {
     let compact = is_compact(width);
     let lines = match app.mode {
-        Mode::Overview => render_overview_lines(app, theme, compact),
+        Mode::Overview => Vec::new(),
         Mode::Work => render_work_lines(app, theme, compact),
-        Mode::Diff => render_diff_lines(app, theme, compact),
+        Mode::Diff => render_diff_lines(app, theme, compact, width),
         Mode::Health => render_health_lines(app, theme, compact),
     };
     Paragraph::new(Text::from(lines))
@@ -938,85 +985,288 @@ fn render_body(app: &App, theme: PulseTheme, width: u16) -> Paragraph<'static> {
                         .add_modifier(Modifier::BOLD),
                 )),
         )
-        .wrap(Wrap { trim: false })
         .scroll((app.scroll, 0))
 }
 
-fn render_overview_lines(app: &App, theme: PulseTheme, compact: bool) -> Vec<Line<'static>> {
+fn render_overview_panel(
+    frame: &mut ratatui::Frame,
+    app: &App,
+    theme: PulseTheme,
+    area: Rect,
+    width: u16,
+) {
+    let compact = is_compact(width);
     let rows = app.overview_rows();
     if rows.is_empty() {
-        return vec![Line::from(Span::styled(
+        let paragraph = Paragraph::new(Line::from(Span::styled(
             "No active panes detected for this session.",
             Style::default().fg(theme.muted),
-        ))];
+        )))
+        .style(Style::default().fg(theme.text).bg(theme.surface))
+        .block(
+            Block::default()
+                .borders(Borders::ALL)
+                .border_style(Style::default().fg(theme.border))
+                .style(Style::default().bg(theme.surface))
+                .title(Span::styled(
+                    "Overview",
+                    Style::default()
+                        .fg(theme.title)
+                        .add_modifier(Modifier::BOLD),
+                )),
+        );
+        frame.render_widget(paragraph, area);
+        return;
     }
-    let mut lines = Vec::new();
-    for row in rows {
-        let status_color = if row.online { theme.ok } else { theme.critical };
-        let age_color = age_color(row.age_secs, row.online, theme);
-        let pane = ellipsize(&row.pane_id, 8);
-        let label = ellipsize(&row.label, if compact { 16 } else { 24 });
-        let source_color = if row.source == "hub" {
-            theme.info
-        } else {
-            theme.warn
-        };
-        lines.push(Line::from(vec![
+
+    let items: Vec<ListItem> = rows
+        .iter()
+        .map(|row| ListItem::new(Line::from(overview_row_spans(row, theme, compact, width))))
+        .collect();
+    let mut state = ListState::default();
+    state.select(Some(app.selected_overview_index(items.len())));
+    let list = List::new(items)
+        .highlight_symbol("-> ")
+        .highlight_style(
+            Style::default()
+                .fg(theme.accent)
+                .add_modifier(Modifier::BOLD),
+        )
+        .block(
+            Block::default()
+                .borders(Borders::ALL)
+                .border_style(Style::default().fg(theme.border))
+                .style(Style::default().bg(theme.surface))
+                .title(Span::styled(
+                    "Overview",
+                    Style::default()
+                        .fg(theme.title)
+                        .add_modifier(Modifier::BOLD),
+                )),
+        );
+    frame.render_stateful_widget(list, area, &mut state);
+}
+
+fn overview_row_spans(
+    row: &OverviewRow,
+    theme: PulseTheme,
+    compact: bool,
+    width: u16,
+) -> Vec<Span<'static>> {
+    let status_color = if row.online { theme.ok } else { theme.critical };
+    let age_color = age_color(row.age_secs, row.online, theme);
+    let pane = ellipsize(&row.pane_id, 8);
+    let label = ellipsize(&row.label, if compact { 14 } else { 20 });
+    let tab = row
+        .tab_index
+        .map(|index| format!("t{index}"))
+        .unwrap_or_else(|| "t?".to_string());
+    let tab_name = row
+        .tab_name
+        .as_deref()
+        .map(|value| ellipsize(value, if compact { 8 } else { 12 }))
+        .unwrap_or_else(|| "unknown".to_string());
+    let source_color = if row.source == "hub" {
+        theme.info
+    } else {
+        theme.warn
+    };
+
+    let base_cols = if compact { 56usize } else { 72usize };
+    let root_budget = width.saturating_sub(base_cols as u16) as usize;
+    let root = if compact || row.project_root == "(unknown)" {
+        String::new()
+    } else {
+        format!(
+            " root:{}",
+            ellipsize(&short_project(&row.project_root, 20), root_budget.max(10))
+        )
+    };
+
+    let mut spans = vec![
+        Span::styled(
+            if row.online { "*" } else { "!" },
+            Style::default()
+                .fg(status_color)
+                .add_modifier(Modifier::BOLD),
+        ),
+        Span::raw(" "),
+        Span::styled(
+            label,
+            Style::default().fg(theme.text).add_modifier(Modifier::BOLD),
+        ),
+        Span::raw(" "),
+        Span::styled(format!("({pane})"), Style::default().fg(theme.muted)),
+        Span::raw(" "),
+        Span::styled(
+            if row.tab_focused {
+                format!("[{tab}:{tab_name}*]")
+            } else {
+                format!("[{tab}:{tab_name}]")
+            },
+            Style::default().fg(if row.tab_focused {
+                theme.accent
+            } else {
+                theme.muted
+            }),
+        ),
+        Span::raw(" "),
+        Span::styled(
+            format!(
+                "{} act:{}",
+                age_meter(row.age_secs, row.online),
+                format_age(row.age_secs)
+            ),
+            Style::default().fg(age_color),
+        ),
+        Span::raw(" "),
+        Span::styled(
+            format!("[{}]", ellipsize(&row.source, 12)),
+            Style::default().fg(source_color),
+        ),
+    ];
+    if !root.is_empty() {
+        spans.push(Span::styled(root, Style::default().fg(theme.muted)));
+    }
+    spans
+}
+
+fn render_help_overlay(frame: &mut ratatui::Frame, app: &App, theme: PulseTheme) {
+    let area = centered_rect(78, 72, frame.size());
+    let source = app.mode_source();
+    let mut lines = vec![
+        Line::from(vec![
             Span::styled(
-                "*",
+                "Controls",
                 Style::default()
-                    .fg(status_color)
+                    .fg(theme.title)
                     .add_modifier(Modifier::BOLD),
             ),
-            Span::raw(" "),
-            Span::styled(
-                label,
-                Style::default().fg(theme.text).add_modifier(Modifier::BOLD),
-            ),
-            Span::raw(" "),
-            Span::styled(format!("({pane})"), Style::default().fg(theme.muted)),
-            Span::raw(" "),
+            Span::raw("  "),
             Span::styled(
                 format!(
-                    "{} act:{}",
-                    age_meter(row.age_secs, row.online),
-                    format_age(row.age_secs)
+                    "mode:{} src:{}",
+                    app.mode.title().to_ascii_lowercase(),
+                    source
                 ),
-                Style::default().fg(age_color),
+                Style::default().fg(theme.muted),
             ),
-            Span::raw(" "),
-            Span::styled(
-                format!("[{}]", row.source),
-                Style::default().fg(source_color),
-            ),
-        ]));
-        if !compact {
-            lines.push(Line::from(vec![
-                Span::raw("  "),
-                Span::styled(
-                    format!(
-                        "root={} key={}",
-                        ellipsize(&row.project_root, 56),
-                        ellipsize(&row.identity_key, 26)
-                    ),
-                    Style::default().fg(theme.muted),
-                ),
-            ]));
-            if let Some(message) = row.latest_message.as_deref() {
-                let message = message.trim();
-                if !message.is_empty() {
-                    lines.push(Line::from(vec![
-                        Span::raw("  "),
-                        Span::styled(
-                            format!("msg={} ", ellipsize(message, 72)),
-                            Style::default().fg(theme.info),
-                        ),
-                    ]));
-                }
-            }
-        }
+        ]),
+        Line::from(Span::styled(
+            "Pulse Navigation",
+            Style::default()
+                .fg(theme.accent)
+                .add_modifier(Modifier::BOLD),
+        )),
+        Line::from("  1/2/3/4  switch mode (Overview/Work/Diff/Health)"),
+        Line::from("  Tab      cycle mode"),
+        Line::from("  r        refresh local snapshot"),
+        Line::from(""),
+    ];
+    lines.extend(mode_help_lines(app, theme));
+    lines.extend([
+        Line::from(""),
+        Line::from(Span::styled(
+            "Session & Exit",
+            Style::default()
+                .fg(theme.accent)
+                .add_modifier(Modifier::BOLD),
+        )),
+        Line::from("  ? or F1  toggle this help"),
+        Line::from("  Esc      close help"),
+        Line::from("  q        quit pulse pane"),
+        Line::from(""),
+        Line::from(Span::styled(
+            "Planned Agent Controls",
+            Style::default().fg(theme.warn).add_modifier(Modifier::BOLD),
+        )),
+        Line::from("  stop/close controls in progress"),
+        Line::from("  for now, use zellij tab actions directly"),
+    ]);
+    frame.render_widget(Clear, area);
+    frame.render_widget(
+        Paragraph::new(Text::from(lines))
+            .style(Style::default().fg(theme.text).bg(theme.surface))
+            .block(
+                Block::default()
+                    .borders(Borders::ALL)
+                    .border_style(Style::default().fg(theme.border))
+                    .style(Style::default().bg(theme.surface))
+                    .title(Span::styled(
+                        "Help",
+                        Style::default()
+                            .fg(theme.title)
+                            .add_modifier(Modifier::BOLD),
+                    )),
+            )
+            .wrap(Wrap { trim: false }),
+        area,
+    );
+}
+
+fn mode_help_lines(app: &App, theme: PulseTheme) -> Vec<Line<'static>> {
+    match app.mode {
+        Mode::Overview => vec![
+            Line::from(Span::styled(
+                "Overview Mode",
+                Style::default()
+                    .fg(theme.accent)
+                    .add_modifier(Modifier::BOLD),
+            )),
+            Line::from("  j/k      select agent row"),
+            Line::from("  g        jump to first agent"),
+            Line::from("  Enter    focus selected zellij tab"),
+        ],
+        Mode::Work => vec![
+            Line::from(Span::styled(
+                "Work Mode",
+                Style::default()
+                    .fg(theme.accent)
+                    .add_modifier(Modifier::BOLD),
+            )),
+            Line::from("  j/k      scroll work summary"),
+            Line::from("  g        jump to top"),
+        ],
+        Mode::Diff => vec![
+            Line::from(Span::styled(
+                "Diff Mode",
+                Style::default()
+                    .fg(theme.accent)
+                    .add_modifier(Modifier::BOLD),
+            )),
+            Line::from("  j/k      scroll diff summary"),
+            Line::from("  g        jump to top"),
+        ],
+        Mode::Health => vec![
+            Line::from(Span::styled(
+                "Health Mode",
+                Style::default()
+                    .fg(theme.accent)
+                    .add_modifier(Modifier::BOLD),
+            )),
+            Line::from("  j/k      scroll dependency checks"),
+            Line::from("  g        jump to top"),
+        ],
     }
-    lines
+}
+
+fn centered_rect(percent_x: u16, percent_y: u16, area: Rect) -> Rect {
+    let vertical = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Percentage((100u16.saturating_sub(percent_y)) / 2),
+            Constraint::Percentage(percent_y),
+            Constraint::Percentage((100u16.saturating_sub(percent_y)) / 2),
+        ])
+        .split(area);
+    Layout::default()
+        .direction(Direction::Horizontal)
+        .constraints([
+            Constraint::Percentage((100u16.saturating_sub(percent_x)) / 2),
+            Constraint::Percentage(percent_x),
+            Constraint::Percentage((100u16.saturating_sub(percent_x)) / 2),
+        ])
+        .split(vertical[1])[1]
 }
 
 fn render_work_lines(app: &App, theme: PulseTheme, compact: bool) -> Vec<Line<'static>> {
@@ -1092,7 +1342,12 @@ fn render_work_lines(app: &App, theme: PulseTheme, compact: bool) -> Vec<Line<'s
     lines
 }
 
-fn render_diff_lines(app: &App, theme: PulseTheme, compact: bool) -> Vec<Line<'static>> {
+fn render_diff_lines(
+    app: &App,
+    theme: PulseTheme,
+    compact: bool,
+    width: u16,
+) -> Vec<Line<'static>> {
     let projects = app.diff_rows();
     if projects.is_empty() {
         return vec![Line::from(Span::styled(
@@ -1145,31 +1400,26 @@ fn render_diff_lines(app: &App, theme: PulseTheme, compact: bool) -> Vec<Line<'s
         } else {
             ("risk:low", theme.ok)
         };
+        let summary_line = fit_fields(
+            &[
+                format!("stg:{}", project.summary.staged.files),
+                format!("uns:{}", project.summary.unstaged.files),
+                format!("new:{}", project.summary.untracked.files),
+                format!("churn:{}", churn),
+            ],
+            width.saturating_sub(18) as usize,
+        );
         lines.push(Line::from(vec![
             Span::raw("  "),
             Span::styled(
                 risk_label,
                 Style::default().fg(risk_color).add_modifier(Modifier::BOLD),
             ),
-            Span::raw("  "),
-            Span::styled(
-                format!("stg:{}", project.summary.staged.files),
-                Style::default().fg(theme.info),
-            ),
-            Span::raw(" "),
-            Span::styled(
-                format!("uns:{}", project.summary.unstaged.files),
-                Style::default().fg(theme.warn),
-            ),
-            Span::raw(" "),
-            Span::styled(
-                format!("new:{}", project.summary.untracked.files),
-                Style::default().fg(theme.accent),
-            ),
-            Span::raw(" "),
-            Span::styled(format!("churn:{}", churn), Style::default().fg(theme.muted)),
+            Span::raw(" | "),
+            Span::styled(summary_line, Style::default().fg(theme.muted)),
         ]));
         let file_limit = if compact { 4 } else { MAX_DIFF_FILES };
+        let path_max = width.saturating_sub(if compact { 28 } else { 34 }) as usize;
         for file in project.files.iter().take(file_limit) {
             lines.push(Line::from(vec![
                 Span::raw("    "),
@@ -1191,7 +1441,7 @@ fn render_diff_lines(app: &App, theme: PulseTheme, compact: bool) -> Vec<Line<'s
                 ),
                 Span::raw(" "),
                 Span::styled(
-                    ellipsize(&file.path, if compact { 44 } else { 84 }),
+                    ellipsize(&file.path, path_max.max(16)),
                     Style::default().fg(theme.text),
                 ),
             ]));
@@ -1399,41 +1649,6 @@ fn task_bar_spans(counts: &TaskCounts, width: usize, theme: PulseTheme) -> Vec<S
     spans
 }
 
-fn metric_chip(label: &str, value: String, bg: Color) -> Span<'static> {
-    Span::styled(
-        format!(" {label}:{value} "),
-        Style::default()
-            .fg(chip_fg(bg))
-            .bg(bg)
-            .add_modifier(Modifier::BOLD),
-    )
-}
-
-fn chip(label: &str, value: &str, bg: Color) -> Span<'static> {
-    Span::styled(
-        format!(" {label}:{value} "),
-        Style::default()
-            .fg(chip_fg(bg))
-            .bg(bg)
-            .add_modifier(Modifier::BOLD),
-    )
-}
-
-fn chip_fg(bg: Color) -> Color {
-    match bg {
-        Color::Yellow | Color::LightYellow | Color::White | Color::Gray => Color::Black,
-        Color::Rgb(r, g, b) => {
-            let luma = ((r as u32) * 299 + (g as u32) * 587 + (b as u32) * 114) / 1000;
-            if luma >= 150 {
-                Color::Black
-            } else {
-                Color::White
-            }
-        }
-        _ => Color::White,
-    }
-}
-
 fn diff_status_color(status: &str, theme: PulseTheme) -> Color {
     match status {
         "added" => theme.ok,
@@ -1491,6 +1706,16 @@ fn short_project(project_root: &str, max: usize) -> String {
     ellipsize(leaf, max)
 }
 
+fn scope_summary(scopes: &[String]) -> String {
+    if scopes.is_empty() {
+        return "local".to_string();
+    }
+    if scopes.len() == 1 {
+        return scopes[0].clone();
+    }
+    format!("{}+{}", scopes[0], scopes.len() - 1)
+}
+
 fn ellipsize(input: &str, max: usize) -> String {
     if input.chars().count() <= max {
         return input.to_string();
@@ -1500,6 +1725,32 @@ fn ellipsize(input: &str, max: usize) -> String {
     }
     let prefix: String = input.chars().take(max - 3).collect();
     format!("{prefix}...")
+}
+
+fn fit_fields(fields: &[String], max: usize) -> String {
+    if max == 0 {
+        return String::new();
+    }
+    let mut output = String::new();
+    for field in fields {
+        if field.trim().is_empty() {
+            continue;
+        }
+        let candidate = if output.is_empty() {
+            field.clone()
+        } else {
+            format!("{output} | {field}")
+        };
+        if candidate.chars().count() <= max {
+            output = candidate;
+            continue;
+        }
+        if output.is_empty() {
+            return ellipsize(field, max);
+        }
+        break;
+    }
+    output
 }
 
 fn is_compact(width: u16) -> bool {
@@ -1516,6 +1767,18 @@ fn handle_input(event: Event, app: &mut App, refresh_requested: &mut bool) -> bo
 }
 
 fn handle_key(key: KeyEvent, app: &mut App, refresh_requested: &mut bool) -> bool {
+    if matches!(key.code, KeyCode::Char('?') | KeyCode::F(1)) {
+        app.help_open = !app.help_open;
+        return false;
+    }
+    if key.code == KeyCode::Esc && app.help_open {
+        app.help_open = false;
+        return false;
+    }
+    if app.help_open {
+        return false;
+    }
+
     match key.code {
         KeyCode::Char('q') => true,
         KeyCode::Char('1') => {
@@ -1543,15 +1806,30 @@ fn handle_key(key: KeyEvent, app: &mut App, refresh_requested: &mut bool) -> boo
             app.scroll = 0;
             false
         }
+        KeyCode::Enter => {
+            app.focus_selected_overview_tab();
+            false
+        }
         KeyCode::Down | KeyCode::Char('j') => {
-            app.scroll = app.scroll.saturating_add(1);
+            if app.mode == Mode::Overview {
+                app.move_overview_selection(1);
+            } else {
+                app.scroll = app.scroll.saturating_add(1);
+            }
             false
         }
         KeyCode::Up | KeyCode::Char('k') => {
-            app.scroll = app.scroll.saturating_sub(1);
+            if app.mode == Mode::Overview {
+                app.move_overview_selection(-1);
+            } else {
+                app.scroll = app.scroll.saturating_sub(1);
+            }
             false
         }
         KeyCode::Char('g') => {
+            if app.mode == Mode::Overview {
+                app.selected_overview = 0;
+            }
             app.scroll = 0;
             false
         }
@@ -1560,6 +1838,25 @@ fn handle_key(key: KeyEvent, app: &mut App, refresh_requested: &mut bool) -> boo
             false
         }
         _ => false,
+    }
+}
+
+fn go_to_tab(session_id: &str, tab_index: usize) -> Result<(), String> {
+    if tab_index == 0 {
+        return Err("invalid tab index".to_string());
+    }
+    let status = Command::new("zellij")
+        .arg("--session")
+        .arg(session_id)
+        .arg("action")
+        .arg("go-to-tab")
+        .arg(tab_index.to_string())
+        .status()
+        .map_err(|_| "zellij not available".to_string())?;
+    if status.success() {
+        Ok(())
+    } else {
+        Err(format!("zellij exited with {}", status))
     }
 }
 
@@ -1681,7 +1978,9 @@ fn collect_runtime_overview(config: &Config) -> Vec<OverviewRow> {
         Err(_) => return Vec::new(),
     };
     let now = Utc::now();
-    let active_panes = active_session_pane_ids(&config.session_id);
+    let session_layout = collect_session_layout(&config.session_id);
+    let active_panes = session_layout.as_ref().map(|layout| &layout.pane_ids);
+    let pane_tabs = session_layout.as_ref().map(|layout| &layout.pane_tabs);
     for entry in entries.flatten() {
         let path = entry.path();
         if !path.is_file() {
@@ -1710,23 +2009,27 @@ fn collect_runtime_overview(config: &Config) -> Vec<OverviewRow> {
                     .num_seconds()
                     .max(0)
             });
-        let online = runtime_process_matches(&snapshot) && !snapshot.status.eq_ignore_ascii_case("offline");
+        let online =
+            runtime_process_matches(&snapshot) && !snapshot.status.eq_ignore_ascii_case("offline");
         let expected_identity = build_identity_key(&snapshot.session_id, &snapshot.pane_id);
         let identity_key = if snapshot.agent_id == expected_identity {
             snapshot.agent_id.clone()
         } else {
             expected_identity
         };
+        let tab_meta = pane_tabs.and_then(|tabs| tabs.get(&snapshot.pane_id));
         rows.insert(
             identity_key.clone(),
             OverviewRow {
                 identity_key,
                 label: snapshot.agent_label,
                 pane_id: snapshot.pane_id,
+                tab_index: tab_meta.map(|meta| meta.index),
+                tab_name: tab_meta.map(|meta| meta.name.clone()),
+                tab_focused: tab_meta.map(|meta| meta.focused).unwrap_or(false),
                 project_root: snapshot.project_root,
                 online,
                 age_secs: heartbeat_age,
-                latest_message: None,
                 source: "runtime".to_string(),
             },
         );
@@ -1734,7 +2037,7 @@ fn collect_runtime_overview(config: &Config) -> Vec<OverviewRow> {
     rows.into_values().collect()
 }
 
-fn active_session_pane_ids(session_id: &str) -> Option<HashSet<String>> {
+fn collect_session_layout(session_id: &str) -> Option<SessionLayout> {
     if session_id.trim().is_empty() {
         return None;
     }
@@ -1749,28 +2052,92 @@ fn active_session_pane_ids(session_id: &str) -> Option<HashSet<String>> {
         return None;
     }
     let layout = String::from_utf8_lossy(&output.stdout);
-    let pane_ids = parse_layout_pane_ids(&layout);
-    if pane_ids.is_empty() {
+    let parsed = parse_layout_tabs(&layout);
+    if parsed.pane_ids.is_empty() {
         None
     } else {
-        Some(pane_ids)
+        Some(parsed)
     }
 }
 
-fn parse_layout_pane_ids(layout: &str) -> HashSet<String> {
-    let mut pane_ids = HashSet::new();
-    for part in layout.split("--pane-id\"").skip(1) {
-        let Some(start) = part.find('"') else {
-            continue;
-        };
-        let tail = &part[start + 1..];
-        let Some(end) = tail.find('"') else {
-            continue;
-        };
-        let pane_id = tail[..end].trim();
-        if !pane_id.is_empty() {
-            pane_ids.insert(pane_id.to_string());
+fn parse_layout_tabs(layout: &str) -> SessionLayout {
+    let mut parsed = SessionLayout::default();
+    let mut current_tab_index = 0usize;
+    let mut current_tab_name = String::new();
+    let mut current_tab_focused = false;
+
+    for line in layout.lines() {
+        if line_is_tab_decl(line) {
+            current_tab_index += 1;
+            current_tab_name = extract_layout_attr(line, "name")
+                .unwrap_or_else(|| format!("tab-{current_tab_index}"));
+            current_tab_focused = line.contains("focus=true") || line.contains("focus true");
         }
+
+        for pane_id in extract_pane_ids_from_layout_line(line) {
+            parsed.pane_ids.insert(pane_id.clone());
+            if current_tab_index > 0 {
+                parsed.pane_tabs.insert(
+                    pane_id,
+                    TabMeta {
+                        index: current_tab_index,
+                        name: current_tab_name.clone(),
+                        focused: current_tab_focused,
+                    },
+                );
+            }
+        }
+    }
+    parsed
+}
+
+fn line_is_tab_decl(line: &str) -> bool {
+    let trimmed = line.trim_start();
+    trimmed.starts_with("tab ") || trimmed == "tab" || trimmed.starts_with("tab\t")
+}
+
+fn extract_layout_attr(line: &str, attr: &str) -> Option<String> {
+    let with_equals = format!("{attr}=\"");
+    if let Some(start) = line.find(&with_equals) {
+        let value_start = start + with_equals.len();
+        let tail = &line[value_start..];
+        let end = tail.find('"')?;
+        let value = tail[..end].trim();
+        if !value.is_empty() {
+            return Some(value.to_string());
+        }
+    }
+
+    let with_space = format!("{attr} \"");
+    if let Some(start) = line.find(&with_space) {
+        let value_start = start + with_space.len();
+        let tail = &line[value_start..];
+        let end = tail.find('"')?;
+        let value = tail[..end].trim();
+        if !value.is_empty() {
+            return Some(value.to_string());
+        }
+    }
+    None
+}
+
+fn extract_pane_ids_from_layout_line(line: &str) -> Vec<String> {
+    let mut pane_ids = Vec::new();
+    let mut cursor = line;
+    while let Some(idx) = cursor.find("--pane-id\"") {
+        let tail = &cursor[idx + "--pane-id\"".len()..];
+        let Some(start_quote) = tail.find('"') else {
+            break;
+        };
+        let value_tail = &tail[start_quote + 1..];
+        let Some(end_quote) = value_tail.find('"') else {
+            break;
+        };
+        let pane_id = value_tail[..end_quote].trim();
+        if !pane_id.is_empty() {
+            pane_ids.push(pane_id.to_string());
+        }
+        cursor = &value_tail[end_quote + 1..];
     }
     pane_ids
 }
@@ -1802,6 +2169,8 @@ fn runtime_process_matches(snapshot: &RuntimeSnapshot) -> bool {
 
 fn collect_proc_overview(config: &Config) -> Vec<OverviewRow> {
     let mut rows: BTreeMap<String, OverviewRow> = BTreeMap::new();
+    let session_layout = collect_session_layout(&config.session_id);
+    let pane_tabs = session_layout.as_ref().map(|layout| &layout.pane_tabs);
     let proc_entries = match fs::read_dir("/proc") {
         Ok(entries) => entries,
         Err(_) => return Vec::new(),
@@ -1843,14 +2212,17 @@ fn collect_proc_overview(config: &Config) -> Vec<OverviewRow> {
                 .unwrap_or_else(|| "(unknown)".to_string())
         });
         let key = build_identity_key(&config.session_id, &pane_id);
+        let tab_meta = pane_tabs.and_then(|tabs| tabs.get(&pane_id));
         rows.entry(key.clone()).or_insert(OverviewRow {
             identity_key: key,
             label,
             pane_id,
+            tab_index: tab_meta.map(|meta| meta.index),
+            tab_name: tab_meta.map(|meta| meta.name.clone()),
+            tab_focused: tab_meta.map(|meta| meta.focused).unwrap_or(false),
             project_root,
             online: true,
             age_secs: None,
-            latest_message: None,
             source: "proc".to_string(),
         });
     }
@@ -1926,7 +2298,7 @@ fn collect_local_work(project_roots: &[String]) -> (Vec<WorkProject>, String) {
 }
 
 fn collect_local_diff(project_roots: &[String]) -> Vec<DiffProject> {
-    let mut projects = Vec::new();
+    let mut projects: BTreeMap<String, DiffProject> = BTreeMap::new();
     for root in project_roots {
         let root_path = PathBuf::from(root);
         match git_repo_root(&root_path) {
@@ -1935,8 +2307,9 @@ fn collect_local_diff(project_roots: &[String]) -> Vec<DiffProject> {
                     if files.len() > MAX_DIFF_FILES {
                         files.truncate(MAX_DIFF_FILES);
                     }
-                    projects.push(DiffProject {
-                        project_root: repo_root.to_string_lossy().to_string(),
+                    let key = repo_root.to_string_lossy().to_string();
+                    projects.entry(key.clone()).or_insert(DiffProject {
+                        project_root: key,
                         scope: "local".to_string(),
                         git_available: true,
                         reason: None,
@@ -1944,26 +2317,30 @@ fn collect_local_diff(project_roots: &[String]) -> Vec<DiffProject> {
                         files,
                     });
                 }
-                Err(err) => projects.push(DiffProject {
+                Err(err) => {
+                    projects.entry(root.clone()).or_insert(DiffProject {
+                        project_root: root.clone(),
+                        scope: "local".to_string(),
+                        git_available: false,
+                        reason: Some(err),
+                        summary: DiffSummaryCounts::default(),
+                        files: Vec::new(),
+                    });
+                }
+            },
+            Err(reason) => {
+                projects.entry(root.clone()).or_insert(DiffProject {
                     project_root: root.clone(),
                     scope: "local".to_string(),
                     git_available: false,
-                    reason: Some(err),
+                    reason: Some(reason),
                     summary: DiffSummaryCounts::default(),
                     files: Vec::new(),
-                }),
-            },
-            Err(reason) => projects.push(DiffProject {
-                project_root: root.clone(),
-                scope: "local".to_string(),
-                git_available: false,
-                reason: Some(reason),
-                summary: DiffSummaryCounts::default(),
-                files: Vec::new(),
-            }),
+                });
+            }
         }
     }
-    projects
+    projects.into_values().collect()
 }
 
 fn collect_health(config: &Config, taskmaster_status: &str) -> HealthSnapshot {
