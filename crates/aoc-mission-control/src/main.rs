@@ -1,11 +1,19 @@
-use aoc_core::{ProjectData, TaskStatus};
-use chrono::{DateTime, Utc};
+use aoc_core::{
+    pulse_ipc::{
+        encode_frame, AgentState, CommandPayload, CommandResultPayload, DeltaPayload,
+        HeartbeatPayload as PulseHeartbeatPayload, HelloPayload as PulseHelloPayload,
+        NdjsonFrameDecoder, ProtocolVersion, SnapshotPayload, StateChangeOp, SubscribePayload,
+        WireEnvelope, WireMsg, CURRENT_PROTOCOL_VERSION, DEFAULT_MAX_FRAME_BYTES,
+    },
+    ProjectData, TaskStatus,
+};
+use chrono::{DateTime, TimeZone, Utc};
 use crossterm::{
     event::{Event, EventStream, KeyCode, KeyEvent, KeyEventKind},
     execute,
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
 };
-use futures_util::{SinkExt, StreamExt};
+use futures_util::StreamExt;
 use ratatui::{
     backend::CrosstermBackend,
     layout::{Constraint, Direction, Layout, Rect},
@@ -24,13 +32,15 @@ use std::{
     process::Command,
     time::Duration,
 };
-use tokio::sync::mpsc;
-use tokio_tungstenite::connect_async;
+#[cfg(unix)]
+use tokio::net::UnixStream;
+use tokio::{
+    io::{AsyncReadExt, AsyncWriteExt, BufReader},
+    sync::mpsc,
+};
 use tracing::warn;
 use tracing_subscriber::EnvFilter;
-use url::Url;
 
-const PROTOCOL_VERSION: &str = "1";
 const LOCAL_REFRESH_SECS: u64 = 1;
 const HUB_STALE_SECS: i64 = 45;
 const HUB_PRUNE_SECS: i64 = 90;
@@ -38,36 +48,15 @@ const HUB_OFFLINE_GRACE_SECS: i64 = 12;
 const HUB_LOCAL_MISS_PRUNE_SECS: i64 = 0;
 const MAX_DIFF_FILES: usize = 8;
 const COMPACT_WIDTH: u16 = 92;
+const COMMAND_QUEUE_CAPACITY: usize = 64;
 
 #[derive(Clone, Debug)]
 struct Config {
     session_id: String,
-    hub_url: Url,
+    pulse_socket_path: PathBuf,
     client_id: String,
     project_root: PathBuf,
     state_dir: PathBuf,
-}
-
-#[derive(Deserialize, Serialize)]
-struct Envelope {
-    version: String,
-    #[serde(rename = "type")]
-    r#type: String,
-    session_id: String,
-    sender_id: String,
-    timestamp: String,
-    payload: Value,
-    #[serde(default)]
-    request_id: Option<String>,
-}
-
-#[derive(Deserialize, Serialize)]
-struct HelloPayload {
-    client_id: String,
-    role: String,
-    capabilities: Vec<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    agent_id: Option<String>,
 }
 
 #[derive(Deserialize, Serialize, Clone, Debug)]
@@ -80,18 +69,6 @@ struct AgentStatusPayload {
     agent_label: Option<String>,
     #[serde(default)]
     message: Option<String>,
-}
-
-#[derive(Deserialize, Serialize, Clone, Debug)]
-struct HeartbeatPayload {
-    agent_id: String,
-    pid: i32,
-    cwd: String,
-    last_update: String,
-    #[serde(default)]
-    pane_id: Option<String>,
-    #[serde(default)]
-    project_root: Option<String>,
 }
 
 #[derive(Deserialize, Serialize, Clone, Debug, Default)]
@@ -190,12 +167,29 @@ struct HubCache {
     agents: HashMap<String, HubAgent>,
     tasks: HashMap<String, TaskSummaryPayload>,
     diffs: HashMap<String, DiffSummaryPayload>,
+    last_seq: u64,
+}
+
+#[derive(Clone, Debug)]
+struct PendingCommand {
+    command: String,
+    target: String,
+}
+
+#[derive(Clone, Debug)]
+struct HubCommand {
+    request_id: String,
+    command: String,
+    target_agent_id: Option<String>,
+    args: Value,
 }
 
 #[derive(Clone, Debug)]
 struct OverviewRow {
     identity_key: String,
     label: String,
+    lifecycle: String,
+    snippet: Option<String>,
     pane_id: String,
     tab_index: Option<usize>,
     tab_name: Option<String>,
@@ -305,26 +299,27 @@ impl Mode {
 enum HubEvent {
     Connected,
     Disconnected,
-    AgentStatus {
-        payload: AgentStatusPayload,
+    Snapshot {
+        payload: SnapshotPayload,
+        event_at: DateTime<Utc>,
+    },
+    Delta {
+        payload: DeltaPayload,
         event_at: DateTime<Utc>,
     },
     Heartbeat {
-        payload: HeartbeatPayload,
+        payload: PulseHeartbeatPayload,
         event_at: DateTime<Utc>,
     },
-    TaskSummary {
-        payload: TaskSummaryPayload,
-        event_at: DateTime<Utc>,
-    },
-    DiffSummary {
-        payload: DiffSummaryPayload,
-        event_at: DateTime<Utc>,
+    CommandResult {
+        payload: CommandResultPayload,
+        request_id: Option<String>,
     },
 }
 
 struct App {
     config: Config,
+    command_tx: mpsc::Sender<HubCommand>,
     connected: bool,
     hub: HubCache,
     local: LocalSnapshot,
@@ -333,12 +328,15 @@ struct App {
     help_open: bool,
     selected_overview: usize,
     status_note: Option<String>,
+    pending_commands: HashMap<String, PendingCommand>,
+    next_request_id: u64,
 }
 
 impl App {
-    fn new(config: Config, local: LocalSnapshot) -> Self {
+    fn new(config: Config, command_tx: mpsc::Sender<HubCommand>, local: LocalSnapshot) -> Self {
         Self {
             config,
+            command_tx,
             connected: false,
             hub: HubCache::default(),
             local,
@@ -347,77 +345,182 @@ impl App {
             help_open: false,
             selected_overview: 0,
             status_note: None,
+            pending_commands: HashMap::new(),
+            next_request_id: 0,
         }
     }
 
     fn apply_hub_event(&mut self, event: HubEvent) {
         match event {
-            HubEvent::Connected => self.connected = true,
-            HubEvent::Disconnected => self.connected = false,
-            HubEvent::AgentStatus { payload, event_at } => {
-                let key = payload.agent_id.clone();
-                let entry = self.hub.agents.entry(key).or_insert(HubAgent {
-                    status: None,
-                    last_seen: event_at,
-                    last_heartbeat: None,
-                    last_activity: None,
-                });
-                let has_message = payload
-                    .message
-                    .as_deref()
-                    .map(|value| !value.trim().is_empty())
-                    .unwrap_or(false);
-                let reported_status = payload.status.to_ascii_lowercase();
-                entry.status = Some(payload);
-                entry.last_seen = event_at;
-                if has_message || reported_status != "offline" {
-                    entry.last_activity = Some(event_at);
+            HubEvent::Connected => {
+                self.connected = true;
+                self.status_note = Some("hub connected".to_string());
+            }
+            HubEvent::Disconnected => {
+                self.connected = false;
+                self.hub.agents.clear();
+                self.hub.tasks.clear();
+                self.hub.diffs.clear();
+                self.hub.last_seq = 0;
+                self.pending_commands.clear();
+                self.status_note = Some("hub offline; local fallback active".to_string());
+            }
+            HubEvent::Snapshot { payload, event_at } => {
+                self.hub.agents.clear();
+                self.hub.last_seq = payload.seq;
+                for state in payload.states {
+                    self.upsert_hub_state(state, event_at);
+                }
+            }
+            HubEvent::Delta { payload, event_at } => {
+                if payload.seq <= self.hub.last_seq {
+                    return;
+                }
+                if self.hub.last_seq > 0 && payload.seq > self.hub.last_seq + 1 {
+                    self.hub.agents.clear();
+                    self.status_note = Some("hub delta gap detected; awaiting resync".to_string());
+                }
+                self.hub.last_seq = payload.seq;
+                for change in payload.changes {
+                    match change.op {
+                        StateChangeOp::Upsert => {
+                            if let Some(state) = change.state {
+                                self.upsert_hub_state(state, event_at);
+                            }
+                        }
+                        StateChangeOp::Remove => {
+                            self.hub.agents.remove(&change.agent_id);
+                        }
+                    }
                 }
             }
             HubEvent::Heartbeat { payload, event_at } => {
-                let key = payload.agent_id.clone();
-                let entry = self.hub.agents.entry(key).or_insert(HubAgent {
-                    status: None,
-                    last_seen: event_at,
-                    last_heartbeat: None,
-                    last_activity: None,
-                });
-                entry.last_seen = event_at;
-                entry.last_heartbeat = DateTime::parse_from_rfc3339(&payload.last_update)
-                    .ok()
-                    .map(|dt| dt.with_timezone(&Utc))
-                    .or(Some(event_at));
-            }
-            HubEvent::TaskSummary { payload, event_at } => {
                 let entry = self
                     .hub
                     .agents
                     .entry(payload.agent_id.clone())
-                    .or_insert(HubAgent {
-                        status: None,
+                    .or_insert_with(|| HubAgent {
+                        status: Some(AgentStatusPayload {
+                            agent_id: payload.agent_id.clone(),
+                            status: payload
+                                .lifecycle
+                                .clone()
+                                .unwrap_or_else(|| "running".to_string()),
+                            pane_id: extract_pane_id(&payload.agent_id),
+                            project_root: "(unknown)".to_string(),
+                            agent_label: Some(extract_label(&payload.agent_id)),
+                            message: None,
+                        }),
                         last_seen: event_at,
                         last_heartbeat: None,
                         last_activity: None,
                     });
                 entry.last_seen = event_at;
-                entry.last_activity = Some(event_at);
-                let key = format!("{}::{}", payload.agent_id, payload.tag);
-                self.hub.tasks.insert(key, payload);
+                entry.last_heartbeat = ms_to_datetime(payload.last_heartbeat_ms).or(Some(event_at));
+                if let Some(lifecycle) = payload.lifecycle {
+                    if let Some(status) = entry.status.as_mut() {
+                        status.status = normalize_lifecycle(&lifecycle);
+                    }
+                }
             }
-            HubEvent::DiffSummary { payload, event_at } => {
-                let entry = self
-                    .hub
-                    .agents
-                    .entry(payload.agent_id.clone())
-                    .or_insert(HubAgent {
-                        status: None,
-                        last_seen: event_at,
-                        last_heartbeat: None,
-                        last_activity: None,
-                    });
-                entry.last_seen = event_at;
-                entry.last_activity = Some(event_at);
-                self.hub.diffs.insert(payload.agent_id.clone(), payload);
+            HubEvent::CommandResult {
+                payload,
+                request_id,
+            } => {
+                self.apply_command_result(payload, request_id);
+            }
+        }
+    }
+
+    fn upsert_hub_state(&mut self, state: AgentState, event_at: DateTime<Utc>) {
+        let key = state.agent_id.clone();
+        let status = status_payload_from_state(&state);
+        let heartbeat_at = state.last_heartbeat_ms.and_then(ms_to_datetime);
+        let activity_at = state.last_activity_ms.and_then(ms_to_datetime);
+        let entry = self.hub.agents.entry(key).or_insert(HubAgent {
+            status: None,
+            last_seen: event_at,
+            last_heartbeat: None,
+            last_activity: None,
+        });
+        entry.status = Some(status);
+        entry.last_seen = event_at;
+        entry.last_heartbeat = heartbeat_at.or(Some(event_at));
+        entry.last_activity = activity_at.or(Some(event_at));
+    }
+
+    fn apply_command_result(&mut self, payload: CommandResultPayload, request_id: Option<String>) {
+        let tracked = request_id
+            .as_deref()
+            .and_then(|id| self.pending_commands.get(id).cloned());
+        let done = !payload.status.eq_ignore_ascii_case("accepted");
+        if done {
+            if let Some(id) = request_id.as_deref() {
+                self.pending_commands.remove(id);
+            }
+        }
+        let target = tracked
+            .as_ref()
+            .map(|value| value.target.clone())
+            .unwrap_or_else(|| "hub".to_string());
+        let command_name = tracked
+            .as_ref()
+            .map(|value| value.command.clone())
+            .unwrap_or_else(|| payload.command.clone());
+        let mut message = payload
+            .message
+            .clone()
+            .unwrap_or_else(|| payload.status.clone());
+        if let Some(error) = payload.error.as_ref() {
+            message = format!("{} ({})", error.message, error.code);
+        }
+        self.status_note = Some(format!(
+            "{} {} -> {}",
+            command_name,
+            target,
+            ellipsize(&message, 72)
+        ));
+    }
+
+    fn next_command_request_id(&mut self) -> String {
+        self.next_request_id = self.next_request_id.saturating_add(1);
+        format!("pulse-{}-{}", std::process::id(), self.next_request_id)
+    }
+
+    fn queue_hub_command(
+        &mut self,
+        command: &str,
+        target_agent_id: Option<String>,
+        args: Value,
+        target_label: String,
+    ) {
+        if !self.connected {
+            self.status_note = Some("hub offline; command unavailable".to_string());
+            return;
+        }
+        let request_id = self.next_command_request_id();
+        let outbound = HubCommand {
+            request_id: request_id.clone(),
+            command: command.to_string(),
+            target_agent_id,
+            args,
+        };
+        match self.command_tx.try_send(outbound) {
+            Ok(()) => {
+                self.pending_commands.insert(
+                    request_id,
+                    PendingCommand {
+                        command: command.to_string(),
+                        target: target_label,
+                    },
+                );
+                self.status_note = Some(format!("{} queued", command));
+            }
+            Err(mpsc::error::TrySendError::Full(_)) => {
+                self.status_note = Some("hub command queue full".to_string());
+            }
+            Err(mpsc::error::TrySendError::Closed(_)) => {
+                self.status_note = Some("hub command channel closed".to_string());
             }
         }
     }
@@ -534,6 +637,10 @@ impl App {
                 let row = OverviewRow {
                     identity_key: agent_id.clone(),
                     label,
+                    lifecycle: status
+                        .map(|s| normalize_lifecycle(&s.status))
+                        .unwrap_or_else(|| "running".to_string()),
+                    snippet: status.and_then(|s| s.message.clone()),
                     pane_id,
                     tab_index: None,
                     tab_name: None,
@@ -576,9 +683,9 @@ impl App {
                 }
             }
 
-            return rows.into_values().collect();
+            return sort_overview_rows(rows.into_values().collect());
         }
-        self.local.overview.clone()
+        sort_overview_rows(self.local.overview.clone())
     }
 
     fn work_rows(&self) -> Vec<WorkProject> {
@@ -706,25 +813,58 @@ impl App {
         let selected = self.selected_overview_index(rows.len());
         self.selected_overview = selected;
         let row = &rows[selected];
+        if self.connected {
+            let mut args = serde_json::Map::new();
+            if let Some(tab_index) = row.tab_index {
+                args.insert("tab_index".to_string(), Value::from(tab_index as u64));
+            }
+            if let Some(tab_name) = row.tab_name.as_ref() {
+                if !tab_name.trim().is_empty() {
+                    args.insert("tab_name".to_string(), Value::String(tab_name.clone()));
+                }
+            }
+            if args.is_empty() {
+                self.status_note = Some(format!("no tab mapping for pane {}", row.pane_id));
+                return;
+            }
+            self.queue_hub_command(
+                "focus_tab",
+                None,
+                Value::Object(args),
+                format!("pane {}", row.pane_id),
+            );
+            return;
+        }
+
         let Some(tab_index) = row.tab_index else {
             self.status_note = Some(format!("no tab mapping for pane {}", row.pane_id));
             return;
         };
-        match go_to_tab(&self.config.session_id, tab_index) {
-            Ok(()) => {
-                self.status_note = Some(format!(
-                    "focused tab {} {}",
-                    tab_index,
-                    row.tab_name
-                        .as_deref()
-                        .map(|value| format!("({})", value))
-                        .unwrap_or_default()
-                ));
-            }
-            Err(err) => {
-                self.status_note = Some(format!("focus failed: {err}"));
-            }
+        if let Err(err) = go_to_tab(&self.config.session_id, tab_index) {
+            self.status_note = Some(format!("focus failed: {err}"));
+        } else {
+            self.status_note = Some(format!("focused tab {}", tab_index));
         }
+    }
+
+    fn stop_selected_overview_agent(&mut self) {
+        if self.mode != Mode::Overview {
+            return;
+        }
+        let rows = self.overview_rows();
+        if rows.is_empty() {
+            self.status_note = Some("no agents to stop".to_string());
+            return;
+        }
+        let selected = self.selected_overview_index(rows.len());
+        self.selected_overview = selected;
+        let row = &rows[selected];
+        self.queue_hub_command(
+            "stop_agent",
+            Some(row.identity_key.clone()),
+            serde_json::json!({"reason": "pulse_user_request"}),
+            row.label.clone(),
+        );
     }
 }
 
@@ -755,12 +895,13 @@ async fn main() -> Result<(), Box<dyn Error>> {
     init_logging();
 
     let initial_local = collect_local(&config);
-    let mut app = App::new(config.clone(), initial_local);
+    let (cmd_tx, cmd_rx) = mpsc::channel(COMMAND_QUEUE_CAPACITY);
+    let mut app = App::new(config.clone(), cmd_tx, initial_local);
 
     let (hub_tx, mut hub_rx) = mpsc::channel(256);
     let hub_cfg = config.clone();
     tokio::spawn(async move {
-        hub_loop(hub_cfg, hub_tx).await;
+        hub_loop(hub_cfg, hub_tx, cmd_rx).await;
     });
 
     enable_raw_mode()?;
@@ -895,6 +1036,7 @@ fn render_header(app: &App, theme: PulseTheme, width: u16) -> Paragraph<'static>
                 "Tab next".to_string(),
                 "j/k nav".to_string(),
                 "Enter focus".to_string(),
+                "x stop".to_string(),
                 "r refresh".to_string(),
                 "? help".to_string(),
                 "q quit".to_string(),
@@ -1053,8 +1195,10 @@ fn overview_row_spans(
     compact: bool,
     width: u16,
 ) -> Vec<Span<'static>> {
+    let lifecycle = normalize_lifecycle(&row.lifecycle);
     let status_color = if row.online { theme.ok } else { theme.critical };
     let age_color = age_color(row.age_secs, row.online, theme);
+    let lifecycle_color = lifecycle_color(&lifecycle, row.online, theme);
     let pane = ellipsize(&row.pane_id, 8);
     let label = ellipsize(&row.label, if compact { 14 } else { 20 });
     let tab = row
@@ -1096,6 +1240,11 @@ fn overview_row_spans(
             Style::default().fg(theme.text).add_modifier(Modifier::BOLD),
         ),
         Span::raw(" "),
+        Span::styled(
+            format!("<{}>", ellipsize(&lifecycle, 11)),
+            Style::default().fg(lifecycle_color),
+        ),
+        Span::raw(" "),
         Span::styled(format!("({pane})"), Style::default().fg(theme.muted)),
         Span::raw(" "),
         Span::styled(
@@ -1127,6 +1276,16 @@ fn overview_row_spans(
     ];
     if !root.is_empty() {
         spans.push(Span::styled(root, Style::default().fg(theme.muted)));
+    }
+    if !compact {
+        if let Some(snippet) = row.snippet.as_deref() {
+            if !snippet.trim().is_empty() {
+                spans.push(Span::styled(
+                    format!(" msg:{}", ellipsize(snippet, 28)),
+                    Style::default().fg(theme.muted),
+                ));
+            }
+        }
     }
     spans
 }
@@ -1175,13 +1334,6 @@ fn render_help_overlay(frame: &mut ratatui::Frame, app: &App, theme: PulseTheme)
         Line::from("  ? or F1  toggle this help"),
         Line::from("  Esc      close help"),
         Line::from("  q        quit pulse pane"),
-        Line::from(""),
-        Line::from(Span::styled(
-            "Planned Agent Controls",
-            Style::default().fg(theme.warn).add_modifier(Modifier::BOLD),
-        )),
-        Line::from("  stop/close controls in progress"),
-        Line::from("  for now, use zellij tab actions directly"),
     ]);
     frame.render_widget(Clear, area);
     frame.render_widget(
@@ -1215,7 +1367,8 @@ fn mode_help_lines(app: &App, theme: PulseTheme) -> Vec<Line<'static>> {
             )),
             Line::from("  j/k      select agent row"),
             Line::from("  g        jump to first agent"),
-            Line::from("  Enter    focus selected zellij tab"),
+            Line::from("  Enter    focus selected tab (hub command)"),
+            Line::from("  x        stop selected agent"),
         ],
         Mode::Work => vec![
             Line::from(Span::styled(
@@ -1698,6 +1851,95 @@ fn age_color(age: Option<i64>, online: bool, theme: PulseTheme) -> Color {
     }
 }
 
+fn normalize_lifecycle(raw: &str) -> String {
+    let normalized = raw.trim().to_ascii_lowercase().replace('_', "-");
+    if normalized.is_empty() {
+        "running".to_string()
+    } else {
+        normalized
+    }
+}
+
+fn lifecycle_rank(lifecycle: &str, online: bool) -> u8 {
+    if !online {
+        return 0;
+    }
+    match normalize_lifecycle(lifecycle).as_str() {
+        "error" => 0,
+        "needs-input" | "blocked" => 1,
+        "busy" => 2,
+        "running" => 3,
+        "idle" => 4,
+        _ => 5,
+    }
+}
+
+fn lifecycle_color(lifecycle: &str, online: bool, theme: PulseTheme) -> Color {
+    if !online {
+        return theme.critical;
+    }
+    match normalize_lifecycle(lifecycle).as_str() {
+        "error" => theme.critical,
+        "needs-input" | "blocked" => theme.warn,
+        "busy" => theme.info,
+        "idle" => theme.muted,
+        _ => theme.ok,
+    }
+}
+
+fn sort_overview_rows(mut rows: Vec<OverviewRow>) -> Vec<OverviewRow> {
+    rows.sort_by(|left, right| {
+        lifecycle_rank(&left.lifecycle, left.online)
+            .cmp(&lifecycle_rank(&right.lifecycle, right.online))
+            .then_with(|| left.tab_focused.cmp(&right.tab_focused))
+            .then_with(|| {
+                right
+                    .age_secs
+                    .unwrap_or(-1)
+                    .cmp(&left.age_secs.unwrap_or(-1))
+            })
+            .then_with(|| left.identity_key.cmp(&right.identity_key))
+    });
+    rows
+}
+
+fn ms_to_datetime(value: i64) -> Option<DateTime<Utc>> {
+    Utc.timestamp_millis_opt(value).single()
+}
+
+fn status_payload_from_state(state: &AgentState) -> AgentStatusPayload {
+    let lifecycle = normalize_lifecycle(&state.lifecycle);
+    let project_root = source_string_field(&state.source, "project_root")
+        .unwrap_or_else(|| "(unknown)".to_string());
+    let agent_label = source_string_field(&state.source, "agent_label")
+        .or_else(|| source_string_field(&state.source, "label"))
+        .or_else(|| Some(extract_label(&state.agent_id)));
+    AgentStatusPayload {
+        agent_id: state.agent_id.clone(),
+        status: lifecycle,
+        pane_id: state.pane_id.clone(),
+        project_root,
+        agent_label,
+        message: state.snippet.clone(),
+    }
+}
+
+fn source_string_field(source: &Option<Value>, key: &str) -> Option<String> {
+    let source = source.as_ref()?.as_object()?;
+    if let Some(value) = source.get(key).and_then(Value::as_str) {
+        if !value.trim().is_empty() {
+            return Some(value.to_string());
+        }
+    }
+    let nested = source.get("agent_status")?.as_object()?;
+    nested
+        .get(key)
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(|value| value.to_string())
+}
+
 fn short_project(project_root: &str, max: usize) -> String {
     let leaf = Path::new(project_root)
         .file_name()
@@ -1810,6 +2052,10 @@ fn handle_key(key: KeyEvent, app: &mut App, refresh_requested: &mut bool) -> boo
             app.focus_selected_overview_tab();
             false
         }
+        KeyCode::Char('x') => {
+            app.stop_selected_overview_agent();
+            false
+        }
         KeyCode::Down | KeyCode::Char('j') => {
             if app.mode == Mode::Overview {
                 app.move_overview_selection(1);
@@ -1860,94 +2106,217 @@ fn go_to_tab(session_id: &str, tab_index: usize) -> Result<(), String> {
     }
 }
 
-async fn hub_loop(config: Config, tx: mpsc::Sender<HubEvent>) {
+#[cfg(not(unix))]
+async fn hub_loop(
+    _config: Config,
+    tx: mpsc::Sender<HubEvent>,
+    mut command_rx: mpsc::Receiver<HubCommand>,
+) {
+    let _ = tx.send(HubEvent::Disconnected).await;
+    while command_rx.recv().await.is_some() {}
+}
+
+#[cfg(unix)]
+async fn hub_loop(
+    config: Config,
+    tx: mpsc::Sender<HubEvent>,
+    mut command_rx: mpsc::Receiver<HubCommand>,
+) {
     let mut backoff = Duration::from_secs(1);
+    let mut command_open = true;
+
     loop {
-        let connect = connect_async(config.hub_url.clone()).await;
-        let (mut ws, _) = match connect {
-            Ok(value) => value,
+        let stream = match UnixStream::connect(&config.pulse_socket_path).await {
+            Ok(stream) => stream,
             Err(err) => {
-                warn!("hub_connect_error: {err}");
+                warn!("pulse_connect_error: {err}");
                 tokio::time::sleep(backoff).await;
                 backoff = next_backoff(backoff);
                 continue;
             }
         };
         backoff = Duration::from_secs(1);
-        let hello = build_hello(&config);
-        if ws
-            .send(tokio_tungstenite::tungstenite::Message::Text(hello))
+
+        let (reader_half, mut writer_half) = stream.into_split();
+        let hello = build_pulse_hello(&config);
+        if send_wire_envelope(&mut writer_half, &hello).await.is_err() {
+            tokio::time::sleep(backoff).await;
+            backoff = next_backoff(backoff);
+            continue;
+        }
+        let subscribe = build_pulse_subscribe(&config);
+        if send_wire_envelope(&mut writer_half, &subscribe)
             .await
             .is_err()
         {
-            let _ = ws.close(None).await;
+            tokio::time::sleep(backoff).await;
+            backoff = next_backoff(backoff);
             continue;
         }
+
         let _ = tx.send(HubEvent::Connected).await;
+        let mut reader = BufReader::new(reader_half);
+        let mut decoder = NdjsonFrameDecoder::<WireEnvelope>::new(DEFAULT_MAX_FRAME_BYTES);
+        let mut read_buf = [0u8; 8192];
+        let mut last_seq = 0u64;
+        let mut reconnect_requested = false;
+
         loop {
-            match ws.next().await {
-                Some(Ok(tokio_tungstenite::tungstenite::Message::Text(text))) => {
-                    if let Some(event) = parse_hub_event(&config, &text) {
-                        let _ = tx.send(event).await;
+            tokio::select! {
+                read = reader.read(&mut read_buf) => {
+                    let read = match read {
+                        Ok(value) => value,
+                        Err(err) => {
+                            warn!("pulse_read_error: {err}");
+                            break;
+                        }
+                    };
+                    if read == 0 {
+                        break;
+                    }
+                    let report = decoder.push_chunk(&read_buf[..read]);
+                    for err in report.errors {
+                        warn!("pulse_decode_error: {err}");
+                    }
+                    for envelope in report.frames {
+                        if envelope.session_id != config.session_id {
+                            continue;
+                        }
+                        if envelope.version.0 > CURRENT_PROTOCOL_VERSION {
+                            continue;
+                        }
+                        let event_at = parse_event_at(&envelope.timestamp);
+                        match envelope.msg {
+                            WireMsg::Snapshot(payload) => {
+                                last_seq = payload.seq;
+                                let _ = tx.send(HubEvent::Snapshot { payload, event_at }).await;
+                            }
+                            WireMsg::Delta(payload) => {
+                                if payload.seq <= last_seq {
+                                    continue;
+                                }
+                                if last_seq > 0 && payload.seq > last_seq + 1 {
+                                    warn!("pulse_delta_gap: last_seq={last_seq} next_seq={}", payload.seq);
+                                    reconnect_requested = true;
+                                    break;
+                                }
+                                last_seq = payload.seq;
+                                let _ = tx.send(HubEvent::Delta { payload, event_at }).await;
+                            }
+                            WireMsg::Heartbeat(payload) => {
+                                let _ = tx.send(HubEvent::Heartbeat { payload, event_at }).await;
+                            }
+                            WireMsg::CommandResult(payload) => {
+                                let _ = tx
+                                    .send(HubEvent::CommandResult {
+                                        payload,
+                                        request_id: envelope.request_id,
+                                    })
+                                    .await;
+                            }
+                            _ => {}
+                        }
                     }
                 }
-                Some(Ok(_)) => {}
-                Some(Err(_)) | None => break,
+                maybe_command = command_rx.recv(), if command_open => {
+                    match maybe_command {
+                        Some(command) => {
+                            let envelope = build_command_envelope(&config, command);
+                            if send_wire_envelope(&mut writer_half, &envelope).await.is_err() {
+                                break;
+                            }
+                        }
+                        None => {
+                            command_open = false;
+                        }
+                    }
+                }
+            }
+
+            if reconnect_requested {
+                break;
             }
         }
+
+        let final_report = decoder.finish();
+        for err in final_report.errors {
+            warn!("pulse_decode_error: {err}");
+        }
         let _ = tx.send(HubEvent::Disconnected).await;
-        let _ = ws.close(None).await;
+        tokio::time::sleep(backoff).await;
+        backoff = next_backoff(backoff);
     }
 }
 
-fn parse_hub_event(config: &Config, text: &str) -> Option<HubEvent> {
-    let envelope: Envelope = serde_json::from_str(text).ok()?;
-    if envelope.session_id != config.session_id {
-        return None;
-    }
-    let event_at = DateTime::parse_from_rfc3339(&envelope.timestamp)
-        .ok()
-        .map(|dt| dt.with_timezone(&Utc))
-        .unwrap_or_else(Utc::now);
-    match envelope.r#type.as_str() {
-        "agent_status" => serde_json::from_value(envelope.payload)
-            .ok()
-            .map(|payload| HubEvent::AgentStatus { payload, event_at }),
-        "heartbeat" => serde_json::from_value(envelope.payload)
-            .ok()
-            .map(|payload| HubEvent::Heartbeat { payload, event_at }),
-        "task_summary" => serde_json::from_value(envelope.payload)
-            .ok()
-            .map(|payload| HubEvent::TaskSummary { payload, event_at }),
-        "diff_summary" => serde_json::from_value(envelope.payload)
-            .ok()
-            .map(|payload| HubEvent::DiffSummary { payload, event_at }),
-        _ => None,
-    }
+#[cfg(unix)]
+async fn send_wire_envelope(
+    writer: &mut tokio::net::unix::OwnedWriteHalf,
+    envelope: &WireEnvelope,
+) -> io::Result<()> {
+    let frame = encode_frame(envelope, DEFAULT_MAX_FRAME_BYTES)
+        .map_err(|err| io::Error::new(io::ErrorKind::InvalidData, err.to_string()))?;
+    writer.write_all(&frame).await?;
+    writer.flush().await
 }
 
-fn build_hello(config: &Config) -> String {
-    let payload = HelloPayload {
-        client_id: config.client_id.clone(),
-        role: "subscriber".to_string(),
-        capabilities: vec![
-            "agent_status".to_string(),
-            "heartbeat".to_string(),
-            "task_summary".to_string(),
-            "diff_summary".to_string(),
-        ],
-        agent_id: None,
-    };
-    let envelope = Envelope {
-        version: PROTOCOL_VERSION.to_string(),
-        r#type: "hello".to_string(),
+fn build_pulse_hello(config: &Config) -> WireEnvelope {
+    WireEnvelope {
+        version: ProtocolVersion(CURRENT_PROTOCOL_VERSION),
         session_id: config.session_id.clone(),
         sender_id: config.client_id.clone(),
         timestamp: Utc::now().to_rfc3339(),
-        payload: serde_json::to_value(payload).unwrap_or(Value::Null),
         request_id: None,
-    };
-    serde_json::to_string(&envelope).unwrap_or_else(|_| "{}".to_string())
+        msg: WireMsg::Hello(PulseHelloPayload {
+            client_id: config.client_id.clone(),
+            role: "subscriber".to_string(),
+            capabilities: vec![
+                "snapshot".to_string(),
+                "delta".to_string(),
+                "heartbeat".to_string(),
+                "command".to_string(),
+                "command_result".to_string(),
+            ],
+            agent_id: None,
+            pane_id: None,
+            project_root: Some(config.project_root.to_string_lossy().to_string()),
+        }),
+    }
+}
+
+fn build_pulse_subscribe(config: &Config) -> WireEnvelope {
+    WireEnvelope {
+        version: ProtocolVersion(CURRENT_PROTOCOL_VERSION),
+        session_id: config.session_id.clone(),
+        sender_id: config.client_id.clone(),
+        timestamp: Utc::now().to_rfc3339(),
+        request_id: None,
+        msg: WireMsg::Subscribe(SubscribePayload {
+            topics: vec!["agent_state".to_string(), "command_result".to_string()],
+            since_seq: None,
+        }),
+    }
+}
+
+fn build_command_envelope(config: &Config, command: HubCommand) -> WireEnvelope {
+    WireEnvelope {
+        version: ProtocolVersion(CURRENT_PROTOCOL_VERSION),
+        session_id: config.session_id.clone(),
+        sender_id: config.client_id.clone(),
+        timestamp: Utc::now().to_rfc3339(),
+        request_id: Some(command.request_id),
+        msg: WireMsg::Command(CommandPayload {
+            command: command.command,
+            target_agent_id: command.target_agent_id,
+            args: command.args,
+        }),
+    }
+}
+
+fn parse_event_at(timestamp: &str) -> DateTime<Utc> {
+    DateTime::parse_from_rfc3339(timestamp)
+        .ok()
+        .map(|dt| dt.with_timezone(&Utc))
+        .unwrap_or_else(Utc::now)
 }
 
 fn collect_local(config: &Config) -> LocalSnapshot {
@@ -2023,6 +2392,8 @@ fn collect_runtime_overview(config: &Config) -> Vec<OverviewRow> {
             OverviewRow {
                 identity_key,
                 label: snapshot.agent_label,
+                lifecycle: normalize_lifecycle(&snapshot.status),
+                snippet: None,
                 pane_id: snapshot.pane_id,
                 tab_index: tab_meta.map(|meta| meta.index),
                 tab_name: tab_meta.map(|meta| meta.name.clone()),
@@ -2216,6 +2587,8 @@ fn collect_proc_overview(config: &Config) -> Vec<OverviewRow> {
         rows.entry(key.clone()).or_insert(OverviewRow {
             identity_key: key,
             label,
+            lifecycle: "running".to_string(),
+            snippet: None,
             pane_id,
             tab_index: tab_meta.map(|meta| meta.index),
             tab_name: tab_meta.map(|meta| meta.name.clone()),
@@ -2634,13 +3007,13 @@ fn which_cmd(name: &str) -> Option<String> {
 
 fn load_config() -> Config {
     let session_id = resolve_session_id();
-    let hub_url = resolve_hub_url(&session_id);
+    let pulse_socket_path = resolve_pulse_socket_path(&session_id);
     let client_id = format!("aoc-pulse-{}", std::process::id());
     let project_root = resolve_project_root();
     let state_dir = resolve_state_dir();
     Config {
         session_id,
-        hub_url,
+        pulse_socket_path,
         client_id,
         project_root,
         state_dir,
@@ -2677,22 +3050,27 @@ fn resolve_session_id() -> String {
     format!("pid-{}", std::process::id())
 }
 
-fn resolve_hub_url(session_id: &str) -> Url {
-    if let Ok(value) = std::env::var("AOC_HUB_URL") {
+fn resolve_pulse_socket_path(session_id: &str) -> PathBuf {
+    if let Ok(value) = std::env::var("AOC_PULSE_SOCK") {
         if !value.trim().is_empty() {
-            return Url::parse(&value).expect("invalid hub url");
+            return PathBuf::from(value);
         }
     }
-    let addr = if let Ok(value) = std::env::var("AOC_HUB_ADDR") {
+    let runtime_dir = if let Ok(value) = std::env::var("XDG_RUNTIME_DIR") {
         if !value.trim().is_empty() {
-            value
+            PathBuf::from(value)
         } else {
-            default_hub_addr(session_id)
+            PathBuf::from("/tmp")
         }
+    } else if let Ok(uid) = std::env::var("UID") {
+        PathBuf::from(format!("/run/user/{uid}"))
     } else {
-        default_hub_addr(session_id)
+        PathBuf::from("/tmp")
     };
-    Url::parse(&format!("ws://{addr}/ws")).expect("invalid hub addr")
+    runtime_dir
+        .join("aoc")
+        .join(session_slug(session_id))
+        .join("pulse.sock")
 }
 
 fn resolve_project_root() -> PathBuf {
@@ -2719,17 +3097,40 @@ fn resolve_state_dir() -> PathBuf {
     PathBuf::from(".aoc/state")
 }
 
-fn default_hub_addr(session_id: &str) -> String {
-    format!("127.0.0.1:{}", derive_port(session_id))
+fn session_slug(session_id: &str) -> String {
+    let mut slug = String::with_capacity(session_id.len());
+    for ch in session_id.chars() {
+        if ch.is_ascii_alphanumeric() || ch == '-' || ch == '_' || ch == '.' {
+            slug.push(ch);
+        } else {
+            slug.push('-');
+        }
+    }
+    while slug.contains("--") {
+        slug = slug.replace("--", "-");
+    }
+    let slug = slug.trim_matches('-').to_string();
+    let base = if slug.is_empty() {
+        "session".to_string()
+    } else {
+        slug
+    };
+    let hash = stable_hash_hex(session_id);
+    let short = if base.len() > 48 {
+        &base[..48]
+    } else {
+        base.as_str()
+    };
+    format!("{short}-{hash}")
 }
 
-fn derive_port(session_id: &str) -> u16 {
+fn stable_hash_hex(input: &str) -> String {
     let mut hash: u32 = 2166136261;
-    for byte in session_id.as_bytes() {
+    for byte in input.as_bytes() {
         hash ^= *byte as u32;
         hash = hash.wrapping_mul(16777619);
     }
-    42000 + (hash % 2000) as u16
+    format!("{hash:08x}")
 }
 
 fn next_backoff(current: Duration) -> Duration {
@@ -2752,4 +3153,123 @@ fn sanitize_component(input: &str) -> String {
             }
         })
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn test_config() -> Config {
+        Config {
+            session_id: "session-test".to_string(),
+            pulse_socket_path: PathBuf::from("/tmp/pulse-test.sock"),
+            client_id: "pulse-test".to_string(),
+            project_root: PathBuf::from("/tmp"),
+            state_dir: PathBuf::from("/tmp"),
+        }
+    }
+
+    fn empty_local() -> LocalSnapshot {
+        LocalSnapshot {
+            overview: Vec::new(),
+            work: Vec::new(),
+            diff: Vec::new(),
+            health: HealthSnapshot {
+                dependencies: Vec::new(),
+                checks: Vec::new(),
+                taskmaster_status: "unknown".to_string(),
+            },
+        }
+    }
+
+    #[test]
+    fn status_payload_prefers_source_metadata() {
+        let state = AgentState {
+            agent_id: "session-test::12".to_string(),
+            session_id: "session-test".to_string(),
+            pane_id: "12".to_string(),
+            lifecycle: "needs_input".to_string(),
+            snippet: Some("awaiting input".to_string()),
+            last_heartbeat_ms: Some(1),
+            last_activity_ms: Some(1),
+            updated_at_ms: Some(1),
+            source: Some(serde_json::json!({
+                "agent_label": "OpenCode",
+                "project_root": "/repo"
+            })),
+        };
+
+        let payload = status_payload_from_state(&state);
+        assert_eq!(payload.status, "needs-input");
+        assert_eq!(payload.project_root, "/repo");
+        assert_eq!(payload.agent_label.as_deref(), Some("OpenCode"));
+        assert_eq!(payload.message.as_deref(), Some("awaiting input"));
+    }
+
+    #[test]
+    fn command_result_clears_pending_on_terminal_status() {
+        let (tx, _rx) = mpsc::channel(4);
+        let mut app = App::new(test_config(), tx, empty_local());
+        app.connected = true;
+        app.pending_commands.insert(
+            "req-1".to_string(),
+            PendingCommand {
+                command: "stop_agent".to_string(),
+                target: "pane-12".to_string(),
+            },
+        );
+
+        app.apply_hub_event(HubEvent::CommandResult {
+            payload: CommandResultPayload {
+                command: "stop_agent".to_string(),
+                status: "ok".to_string(),
+                message: Some("terminated".to_string()),
+                error: None,
+            },
+            request_id: Some("req-1".to_string()),
+        });
+
+        assert!(app.pending_commands.is_empty());
+        let note = app.status_note.unwrap_or_default();
+        assert!(note.contains("stop_agent"));
+        assert!(note.contains("terminated"));
+    }
+
+    #[test]
+    fn overview_sort_prioritizes_attention_states() {
+        let rows = vec![
+            OverviewRow {
+                identity_key: "session-test::2".to_string(),
+                label: "idle-pane".to_string(),
+                lifecycle: "idle".to_string(),
+                snippet: None,
+                pane_id: "2".to_string(),
+                tab_index: Some(2),
+                tab_name: Some("Agent".to_string()),
+                tab_focused: false,
+                project_root: "/repo".to_string(),
+                online: true,
+                age_secs: Some(1),
+                source: "hub".to_string(),
+            },
+            OverviewRow {
+                identity_key: "session-test::1".to_string(),
+                label: "needs-input-pane".to_string(),
+                lifecycle: "needs-input".to_string(),
+                snippet: None,
+                pane_id: "1".to_string(),
+                tab_index: Some(1),
+                tab_name: Some("Agent".to_string()),
+                tab_focused: false,
+                project_root: "/repo".to_string(),
+                online: true,
+                age_secs: Some(1),
+                source: "hub".to_string(),
+            },
+        ];
+
+        let sorted = sort_overview_rows(rows);
+        assert_eq!(sorted[0].identity_key, "session-test::1");
+        assert_eq!(sorted[1].identity_key, "session-test::2");
+    }
 }
