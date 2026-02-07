@@ -37,6 +37,7 @@ struct Config {
     addr: String,
     session_id: String,
     pulse_socket_path: PathBuf,
+    pulse_vnext_enabled: bool,
     pulse_queue_capacity: usize,
     debug: bool,
     stale_seconds: u64,
@@ -948,25 +949,35 @@ async fn main() {
         }
     };
 
-    let pulse_cfg = pulse_uds::PulseUdsConfig {
-        session_id: config.session_id.clone(),
-        socket_path: config.pulse_socket_path.clone(),
-        stale_after: if config.stale_seconds == 0 {
-            None
-        } else {
-            Some(Duration::from_secs(config.stale_seconds))
-        },
-        write_timeout: config.write_timeout,
-        queue_capacity: config.pulse_queue_capacity,
-    };
     let (shutdown_tx, shutdown_rx) = tokio::sync::watch::channel(false);
-    let pulse_task = tokio::spawn(pulse_uds::run(pulse_cfg, shutdown_rx));
+    let pulse_task = if config.pulse_vnext_enabled {
+        let pulse_cfg = pulse_uds::PulseUdsConfig {
+            session_id: config.session_id.clone(),
+            socket_path: config.pulse_socket_path.clone(),
+            stale_after: if config.stale_seconds == 0 {
+                None
+            } else {
+                Some(Duration::from_secs(config.stale_seconds))
+            },
+            write_timeout: config.write_timeout,
+            queue_capacity: config.pulse_queue_capacity,
+        };
+        Some(tokio::spawn(pulse_uds::run(pulse_cfg, shutdown_rx)))
+    } else {
+        info!(
+            event = "pulse_rollout_disabled",
+            session_id = %config.session_id,
+            flag = "AOC_PULSE_VNEXT_ENABLED"
+        );
+        None
+    };
 
     info!(
         event = "hub_start",
         session_id = %config.session_id,
         addr = %config.addr,
-        pulse_socket = %config.pulse_socket_path.display()
+        pulse_socket = %config.pulse_socket_path.display(),
+        pulse_vnext_enabled = config.pulse_vnext_enabled
     );
 
     let shutdown_sender = shutdown_tx.clone();
@@ -983,10 +994,12 @@ async fn main() {
     .await;
 
     let _ = shutdown_tx.send(true);
-    match pulse_task.await {
-        Ok(Ok(())) => {}
-        Ok(Err(err)) => warn!(event = "pulse_uds_error", error = %err),
-        Err(err) => warn!(event = "pulse_uds_join_error", error = %err),
+    if let Some(pulse_task) = pulse_task {
+        match pulse_task.await {
+            Ok(Ok(())) => {}
+            Ok(Err(err)) => warn!(event = "pulse_uds_error", error = %err),
+            Err(err) => warn!(event = "pulse_uds_join_error", error = %err),
+        }
     }
 
     if let Err(err) = serve_result {
@@ -1015,12 +1028,14 @@ fn load_config() -> Config {
     }
     let addr = resolve_addr(&session_id, &args.addr);
     let pulse_socket_path = resolve_pulse_socket_path(&session_id, &args.pulse_socket_path);
+    let pulse_vnext_enabled = env_bool("AOC_PULSE_VNEXT_ENABLED", true);
     let debug = args.debug || env_true("AOC_HUB_DEBUG");
     let log_dir = resolve_log_dir(&args.log_dir);
     Config {
         addr,
         session_id,
         pulse_socket_path,
+        pulse_vnext_enabled,
         pulse_queue_capacity: args.pulse_queue_capacity.max(8),
         debug,
         stale_seconds: args.stale_seconds,
@@ -1123,6 +1138,17 @@ fn env_true(key: &str) -> bool {
             "1" | "true" | "yes" | "on"
         ),
         Err(_) => false,
+    }
+}
+
+fn env_bool(key: &str, default: bool) -> bool {
+    match std::env::var(key) {
+        Ok(value) => match value.trim().to_ascii_lowercase().as_str() {
+            "1" | "true" | "yes" | "on" => true,
+            "0" | "false" | "no" | "off" => false,
+            _ => default,
+        },
+        Err(_) => default,
     }
 }
 

@@ -25,7 +25,7 @@ use tokio::{
     time::Instant,
 };
 use tokio_tungstenite::connect_async;
-use tracing::{error, warn};
+use tracing::{error, info, warn};
 use tracing_subscriber::{fmt::writer::BoxMakeWriter, EnvFilter};
 use url::Url;
 
@@ -859,6 +859,7 @@ async fn tap_state_reporter_loop(
     let mut ticker = tokio::time::interval(Duration::from_millis(TAP_REPORT_INTERVAL_MS));
     let mut current = AgentLifecycle::Running;
     let mut pending: Option<(AgentLifecycle, u8)> = None;
+    let mut last_parser_sample: Option<(AgentLifecycle, u8)> = None;
     let mut last_version = 0u64;
     let mut last_hash = 0u64;
     let mut last_sent = Instant::now();
@@ -878,6 +879,20 @@ async fn tap_state_reporter_loop(
                 let message = extract_significant_message(&decoded);
                 let hash = stable_text_hash(&message);
                 let (detected, confidence) = detect_lifecycle(&decoded);
+                if last_parser_sample != Some((detected, confidence)) {
+                    let (previous_state, previous_confidence) = last_parser_sample
+                        .map(|(state, confidence)| (state.as_status(), confidence))
+                        .unwrap_or(("unknown", 0));
+                    info!(
+                        event = "pulse_parser_confidence_transition",
+                        agent_id = %cfg.agent_key,
+                        previous_state,
+                        previous_confidence,
+                        next_state = detected.as_status(),
+                        next_confidence = confidence
+                    );
+                    last_parser_sample = Some((detected, confidence));
+                }
 
                 let now = Instant::now();
                 let changed = version != last_version || hash != last_hash;

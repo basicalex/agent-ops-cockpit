@@ -38,7 +38,7 @@ use tokio::{
     io::{AsyncReadExt, AsyncWriteExt, BufReader},
     sync::mpsc,
 };
-use tracing::warn;
+use tracing::{info, warn};
 use tracing_subscriber::EnvFilter;
 
 const LOCAL_REFRESH_SECS: u64 = 1;
@@ -49,11 +49,14 @@ const HUB_LOCAL_MISS_PRUNE_SECS: i64 = 0;
 const MAX_DIFF_FILES: usize = 8;
 const COMPACT_WIDTH: u16 = 92;
 const COMMAND_QUEUE_CAPACITY: usize = 64;
+const PULSE_LATENCY_WARN_MS: i64 = 1500;
+const PULSE_LATENCY_INFO_EVERY: u64 = 25;
 
 #[derive(Clone, Debug)]
 struct Config {
     session_id: String,
     pulse_socket_path: PathBuf,
+    pulse_vnext_enabled: bool,
     client_id: String,
     project_root: PathBuf,
     state_dir: PathBuf,
@@ -317,6 +320,16 @@ enum HubEvent {
     },
 }
 
+#[derive(Clone, Debug)]
+struct PendingRenderLatency {
+    sample_id: u64,
+    agent_id: String,
+    channel: &'static str,
+    emitted_at_ms: i64,
+    hub_event_at_ms: i64,
+    ingest_latency_ms: i64,
+}
+
 struct App {
     config: Config,
     command_tx: mpsc::Sender<HubCommand>,
@@ -330,6 +343,9 @@ struct App {
     status_note: Option<String>,
     pending_commands: HashMap<String, PendingCommand>,
     next_request_id: u64,
+    pending_render_latency: Vec<PendingRenderLatency>,
+    parser_confidence: HashMap<String, u8>,
+    latency_sample_count: u64,
 }
 
 impl App {
@@ -347,6 +363,9 @@ impl App {
             status_note: None,
             pending_commands: HashMap::new(),
             next_request_id: 0,
+            pending_render_latency: Vec::new(),
+            parser_confidence: HashMap::new(),
+            latency_sample_count: 0,
         }
     }
 
@@ -363,13 +382,15 @@ impl App {
                 self.hub.diffs.clear();
                 self.hub.last_seq = 0;
                 self.pending_commands.clear();
+                self.pending_render_latency.clear();
+                self.parser_confidence.clear();
                 self.status_note = Some("hub offline; local fallback active".to_string());
             }
             HubEvent::Snapshot { payload, event_at } => {
                 self.hub.agents.clear();
                 self.hub.last_seq = payload.seq;
                 for state in payload.states {
-                    self.upsert_hub_state(state, event_at);
+                    self.upsert_hub_state(state, event_at, "snapshot");
                 }
             }
             HubEvent::Delta { payload, event_at } => {
@@ -385,7 +406,7 @@ impl App {
                     match change.op {
                         StateChangeOp::Upsert => {
                             if let Some(state) = change.state {
-                                self.upsert_hub_state(state, event_at);
+                                self.upsert_hub_state(state, event_at, "delta");
                             }
                         }
                         StateChangeOp::Remove => {
@@ -417,11 +438,12 @@ impl App {
                     });
                 entry.last_seen = event_at;
                 entry.last_heartbeat = ms_to_datetime(payload.last_heartbeat_ms).or(Some(event_at));
-                if let Some(lifecycle) = payload.lifecycle {
+                if let Some(lifecycle) = payload.lifecycle.as_ref() {
                     if let Some(status) = entry.status.as_mut() {
-                        status.status = normalize_lifecycle(&lifecycle);
+                        status.status = normalize_lifecycle(lifecycle);
                     }
                 }
+                self.observe_heartbeat_latency(&payload, event_at);
             }
             HubEvent::CommandResult {
                 payload,
@@ -432,8 +454,15 @@ impl App {
         }
     }
 
-    fn upsert_hub_state(&mut self, state: AgentState, event_at: DateTime<Utc>) {
+    fn upsert_hub_state(
+        &mut self,
+        state: AgentState,
+        event_at: DateTime<Utc>,
+        channel: &'static str,
+    ) {
         let key = state.agent_id.clone();
+        self.observe_state_latency(&state, event_at, channel);
+        self.observe_parser_confidence_transition(&state.agent_id, &state.source, channel);
         let status = status_payload_from_state(&state);
         let heartbeat_at = state.last_heartbeat_ms.and_then(ms_to_datetime);
         let activity_at = state.last_activity_ms.and_then(ms_to_datetime);
@@ -447,6 +476,130 @@ impl App {
         entry.last_seen = event_at;
         entry.last_heartbeat = heartbeat_at.or(Some(event_at));
         entry.last_activity = activity_at.or(Some(event_at));
+    }
+
+    fn observe_state_latency(
+        &mut self,
+        state: &AgentState,
+        event_at: DateTime<Utc>,
+        channel: &'static str,
+    ) {
+        let emitted_at_ms = state
+            .updated_at_ms
+            .or(state.last_activity_ms)
+            .or(state.last_heartbeat_ms);
+        let Some(emitted_at_ms) = emitted_at_ms else {
+            return;
+        };
+        let hub_event_at_ms = event_at.timestamp_millis();
+        let ingest_latency_ms = hub_event_at_ms.saturating_sub(emitted_at_ms);
+        self.latency_sample_count = self.latency_sample_count.saturating_add(1);
+        let sample_id = self.latency_sample_count;
+        if ingest_latency_ms >= PULSE_LATENCY_WARN_MS {
+            warn!(
+                event = "pulse_end_to_end_latency",
+                stage = "hub_ingest",
+                sample_id,
+                channel,
+                agent_id = %state.agent_id,
+                emit_ts_ms = emitted_at_ms,
+                hub_event_ts_ms = hub_event_at_ms,
+                latency_ms = ingest_latency_ms
+            );
+        } else if sample_id % PULSE_LATENCY_INFO_EVERY == 0 {
+            info!(
+                event = "pulse_end_to_end_latency",
+                stage = "hub_ingest",
+                sample_id,
+                channel,
+                agent_id = %state.agent_id,
+                latency_ms = ingest_latency_ms
+            );
+        }
+        self.pending_render_latency.push(PendingRenderLatency {
+            sample_id,
+            agent_id: state.agent_id.clone(),
+            channel,
+            emitted_at_ms,
+            hub_event_at_ms,
+            ingest_latency_ms,
+        });
+    }
+
+    fn observe_heartbeat_latency(
+        &mut self,
+        payload: &PulseHeartbeatPayload,
+        event_at: DateTime<Utc>,
+    ) {
+        let ingest_latency_ms = event_at
+            .timestamp_millis()
+            .saturating_sub(payload.last_heartbeat_ms);
+        if ingest_latency_ms >= PULSE_LATENCY_WARN_MS {
+            warn!(
+                event = "pulse_end_to_end_latency",
+                stage = "heartbeat_ingest",
+                agent_id = %payload.agent_id,
+                latency_ms = ingest_latency_ms
+            );
+        }
+    }
+
+    fn observe_parser_confidence_transition(
+        &mut self,
+        agent_id: &str,
+        source: &Option<Value>,
+        channel: &'static str,
+    ) {
+        let Some(next_confidence) = source_confidence(source) else {
+            return;
+        };
+        let previous = self
+            .parser_confidence
+            .insert(agent_id.to_string(), next_confidence);
+        if previous == Some(next_confidence) {
+            return;
+        }
+        info!(
+            event = "pulse_parser_confidence_transition",
+            channel,
+            agent_id,
+            previous = previous.unwrap_or(0),
+            next = next_confidence
+        );
+    }
+
+    fn observe_render_latency(&mut self) {
+        if self.pending_render_latency.is_empty() {
+            return;
+        }
+        let now_ms = Utc::now().timestamp_millis();
+        for sample in self.pending_render_latency.drain(..) {
+            let total_latency_ms = now_ms.saturating_sub(sample.emitted_at_ms);
+            let render_latency_ms = now_ms.saturating_sub(sample.hub_event_at_ms);
+            if total_latency_ms >= PULSE_LATENCY_WARN_MS {
+                warn!(
+                    event = "pulse_end_to_end_latency",
+                    stage = "render",
+                    sample_id = sample.sample_id,
+                    channel = sample.channel,
+                    agent_id = %sample.agent_id,
+                    ingest_latency_ms = sample.ingest_latency_ms,
+                    hub_to_render_ms = render_latency_ms,
+                    total_latency_ms
+                );
+            } else if sample.sample_id % PULSE_LATENCY_INFO_EVERY == 0 {
+                info!(
+                    event = "pulse_end_to_end_latency",
+                    stage = "render",
+                    sample_id = sample.sample_id,
+                    channel = sample.channel,
+                    agent_id = %sample.agent_id,
+                    ingest_latency_ms = sample.ingest_latency_ms,
+                    hub_to_render_ms = render_latency_ms,
+                    total_latency_ms
+                );
+            }
+        }
     }
 
     fn apply_command_result(&mut self, payload: CommandResultPayload, request_id: Option<String>) {
@@ -517,9 +670,22 @@ impl App {
                 self.status_note = Some(format!("{} queued", command));
             }
             Err(mpsc::error::TrySendError::Full(_)) => {
+                warn!(
+                    event = "pulse_command_queue_drop",
+                    reason = "queue_full",
+                    command,
+                    pending = self.pending_commands.len(),
+                    capacity = COMMAND_QUEUE_CAPACITY
+                );
                 self.status_note = Some("hub command queue full".to_string());
             }
             Err(mpsc::error::TrySendError::Closed(_)) => {
+                warn!(
+                    event = "pulse_command_queue_drop",
+                    reason = "channel_closed",
+                    command,
+                    pending = self.pending_commands.len()
+                );
                 self.status_note = Some("hub command channel closed".to_string());
             }
         }
@@ -899,10 +1065,20 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let mut app = App::new(config.clone(), cmd_tx, initial_local);
 
     let (hub_tx, mut hub_rx) = mpsc::channel(256);
-    let hub_cfg = config.clone();
-    tokio::spawn(async move {
-        hub_loop(hub_cfg, hub_tx, cmd_rx).await;
-    });
+    let _hub_tx_guard = if config.pulse_vnext_enabled {
+        let hub_cfg = config.clone();
+        tokio::spawn(async move {
+            hub_loop(hub_cfg, hub_tx, cmd_rx).await;
+        });
+        None
+    } else {
+        Some(hub_tx)
+    };
+    if !config.pulse_vnext_enabled {
+        app.status_note = Some(
+            "pulse vNext disabled (AOC_PULSE_VNEXT_ENABLED=0); local fallback active".to_string(),
+        );
+    }
 
     enable_raw_mode()?;
     let mut stdout = io::stdout();
@@ -922,6 +1098,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
         app.prune_hub_cache();
 
         terminal.draw(|frame| render_ui(frame, &app))?;
+        app.observe_render_latency();
         tokio::select! {
             _ = ticker.tick() => {
                 refresh_requested = true;
@@ -1938,6 +2115,35 @@ fn source_string_field(source: &Option<Value>, key: &str) -> Option<String> {
         .map(str::trim)
         .filter(|value| !value.is_empty())
         .map(|value| value.to_string())
+}
+
+fn source_confidence(source: &Option<Value>) -> Option<u8> {
+    source
+        .as_ref()
+        .and_then(|value| source_numeric_field(value, "parser_confidence"))
+        .or_else(|| {
+            source
+                .as_ref()
+                .and_then(|value| source_numeric_field(value, "lifecycle_confidence"))
+        })
+}
+
+fn source_numeric_field(source: &Value, key: &str) -> Option<u8> {
+    if let Some(number) = source
+        .as_object()
+        .and_then(|map| map.get(key))
+        .and_then(Value::as_u64)
+    {
+        return u8::try_from(number).ok();
+    }
+    let nested = source
+        .as_object()
+        .and_then(|map| map.get("agent_status"))
+        .and_then(Value::as_object)?;
+    nested
+        .get(key)
+        .and_then(Value::as_u64)
+        .and_then(|value| u8::try_from(value).ok())
 }
 
 fn short_project(project_root: &str, max: usize) -> String {
@@ -3008,16 +3214,33 @@ fn which_cmd(name: &str) -> Option<String> {
 fn load_config() -> Config {
     let session_id = resolve_session_id();
     let pulse_socket_path = resolve_pulse_socket_path(&session_id);
+    let pulse_vnext_enabled = resolve_pulse_vnext_enabled();
     let client_id = format!("aoc-pulse-{}", std::process::id());
     let project_root = resolve_project_root();
     let state_dir = resolve_state_dir();
     Config {
         session_id,
         pulse_socket_path,
+        pulse_vnext_enabled,
         client_id,
         project_root,
         state_dir,
     }
+}
+
+fn parse_bool_flag(value: &str) -> Option<bool> {
+    match value.trim().to_ascii_lowercase().as_str() {
+        "1" | "true" | "yes" | "on" => Some(true),
+        "0" | "false" | "no" | "off" => Some(false),
+        _ => None,
+    }
+}
+
+fn resolve_pulse_vnext_enabled() -> bool {
+    std::env::var("AOC_PULSE_VNEXT_ENABLED")
+        .ok()
+        .and_then(|value| parse_bool_flag(&value))
+        .unwrap_or(true)
 }
 
 fn init_logging() {
@@ -3163,6 +3386,7 @@ mod tests {
         Config {
             session_id: "session-test".to_string(),
             pulse_socket_path: PathBuf::from("/tmp/pulse-test.sock"),
+            pulse_vnext_enabled: true,
             client_id: "pulse-test".to_string(),
             project_root: PathBuf::from("/tmp"),
             state_dir: PathBuf::from("/tmp"),
@@ -3271,5 +3495,23 @@ mod tests {
         let sorted = sort_overview_rows(rows);
         assert_eq!(sorted[0].identity_key, "session-test::1");
         assert_eq!(sorted[1].identity_key, "session-test::2");
+    }
+
+    #[test]
+    fn source_confidence_supports_top_level_and_nested_fields() {
+        let top = serde_json::json!({"parser_confidence": 3});
+        assert_eq!(source_confidence(&Some(top)), Some(3));
+
+        let nested = serde_json::json!({"agent_status": {"lifecycle_confidence": 2}});
+        assert_eq!(source_confidence(&Some(nested)), Some(2));
+    }
+
+    #[test]
+    fn parse_bool_flag_accepts_rollout_values() {
+        assert_eq!(parse_bool_flag("1"), Some(true));
+        assert_eq!(parse_bool_flag("on"), Some(true));
+        assert_eq!(parse_bool_flag("0"), Some(false));
+        assert_eq!(parse_bool_flag("off"), Some(false));
+        assert_eq!(parse_bool_flag("maybe"), None);
     }
 }
