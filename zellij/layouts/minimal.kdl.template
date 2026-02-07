@@ -4,7 +4,7 @@ layout {
       pane name="Editor" size="60%" command="bash" {
         args "-lc" "export PATH=\"$HOME/.cargo/bin:$PATH\"; cd \"__AOC_PROJECT_ROOT__\" && ${EDITOR:-micro} ."
       }
-      pane name="Terminal" size="40%" command="bash" {
+      pane size="40%" command="bash" {
         args "-lc" "export PATH=\"$HOME/.cargo/bin:$PATH\"; cd \"__AOC_PROJECT_ROOT__\" && exec ${AOC_TERMINAL_CMD:-$SHELL}"
       }
     }

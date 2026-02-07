@@ -51,7 +51,7 @@ layout {
             pane size="52%" name="AOC Pulse" command="bash" {
               args "-lc" "export PATH=\"$HOME/.cargo/bin:$PATH\"; export AOC_SESSION_ID=\"__AOC_SESSION_ID__\"; export AOC_HUB_ADDR=\"__AOC_HUB_ADDR__\"; export AOC_HUB_URL=\"__AOC_HUB_URL__\"; export AOC_PROJECT_ROOT=\"__AOC_PROJECT_ROOT__\"; export AOC_PANE_ID=\"${ZELLIJ_PANE_ID:-}\"; cd \"__AOC_PROJECT_ROOT__\" && exec ${AOC_PULSE_CMD:-aoc-mission-control}"
             }
-            pane size="48%" name="Terminal" command="bash" {
+            pane size="48%" command="bash" {
               args "-lc" "export PATH=\"$HOME/.cargo/bin:$PATH\"; export AOC_SESSION_ID=\"__AOC_SESSION_ID__\"; export AOC_HUB_ADDR=\"__AOC_HUB_ADDR__\"; export AOC_HUB_URL=\"__AOC_HUB_URL__\"; export AOC_PROJECT_ROOT=\"__AOC_PROJECT_ROOT__\"; cd \"__AOC_PROJECT_ROOT__\" && exec ${AOC_TERMINAL_CMD:-$SHELL}"
             }
           }
@@ -121,7 +121,7 @@ swap_layouts {
             pane size="52%" name="AOC Pulse" command="bash" {
               args "-lc" "export PATH=\"$HOME/.cargo/bin:$PATH\"; export AOC_SESSION_ID=\"__AOC_SESSION_ID__\"; export AOC_HUB_ADDR=\"__AOC_HUB_ADDR__\"; export AOC_HUB_URL=\"__AOC_HUB_URL__\"; export AOC_PROJECT_ROOT=\"__AOC_PROJECT_ROOT__\"; export AOC_PANE_ID=\"${ZELLIJ_PANE_ID:-}\"; cd \"__AOC_PROJECT_ROOT__\" && exec ${AOC_PULSE_CMD:-aoc-mission-control}"
             }
-            pane size="48%" name="Terminal" command="bash" {
+            pane size="48%" command="bash" {
               args "-lc" "export PATH=\"$HOME/.cargo/bin:$PATH\"; export AOC_SESSION_ID=\"__AOC_SESSION_ID__\"; export AOC_HUB_ADDR=\"__AOC_HUB_ADDR__\"; export AOC_HUB_URL=\"__AOC_HUB_URL__\"; export AOC_PROJECT_ROOT=\"__AOC_PROJECT_ROOT__\"; cd \"__AOC_PROJECT_ROOT__\" && exec ${AOC_TERMINAL_CMD:-$SHELL}"
             }
           }
