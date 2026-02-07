@@ -29,6 +29,9 @@ use tracing::{debug, info, warn};
 
 const COMMAND_CACHE_MAX: usize = 512;
 const COMMAND_CACHE_TTL: Duration = Duration::from_secs(30);
+const PULSE_LATENCY_WARN_MS: i64 = 1500;
+const PULSE_LATENCY_INFO_EVERY: u64 = 50;
+const LAYOUT_HEALTH_EVERY_TICKS: u64 = 20;
 
 #[derive(Clone, Debug)]
 pub struct PulseUdsConfig {
@@ -137,6 +140,9 @@ struct PulseUdsHub {
     config: PulseUdsConfig,
     conn_counter: AtomicU64,
     seq: AtomicU64,
+    latency_sample_count: AtomicU64,
+    queue_drop_count: AtomicU64,
+    backpressure_count: AtomicU64,
     clients: RwLock<HashMap<String, ClientEntry>>,
     subscribers: RwLock<HashMap<String, mpsc::Sender<WireEnvelope>>>,
     publishers: RwLock<HashMap<String, HashSet<String>>>,
@@ -153,6 +159,9 @@ impl PulseUdsHub {
             config,
             conn_counter: AtomicU64::new(0),
             seq: AtomicU64::new(0),
+            latency_sample_count: AtomicU64::new(0),
+            queue_drop_count: AtomicU64::new(0),
+            backpressure_count: AtomicU64::new(0),
             clients: RwLock::new(HashMap::new()),
             subscribers: RwLock::new(HashMap::new()),
             publishers: RwLock::new(HashMap::new()),
@@ -283,10 +292,25 @@ impl PulseUdsHub {
             match sender.try_send(envelope.clone()) {
                 Ok(()) => {}
                 Err(mpsc::error::TrySendError::Closed(_)) => {
+                    let dropped = self.queue_drop_count.fetch_add(1, Ordering::Relaxed) + 1;
+                    warn!(
+                        event = "pulse_queue_drop",
+                        reason = "channel_closed",
+                        conn_id = %conn_id,
+                        dropped,
+                        queue_capacity = self.config.queue_capacity
+                    );
                     slow.push(conn_id);
                 }
                 Err(mpsc::error::TrySendError::Full(_)) => {
-                    warn!(event = "pulse_slow_consumer", conn_id = %conn_id);
+                    let dropped = self.queue_drop_count.fetch_add(1, Ordering::Relaxed) + 1;
+                    warn!(
+                        event = "pulse_queue_drop",
+                        reason = "slow_consumer",
+                        conn_id = %conn_id,
+                        dropped,
+                        queue_capacity = self.config.queue_capacity
+                    );
                     slow.push(conn_id);
                 }
             }
@@ -309,14 +333,60 @@ impl PulseUdsHub {
         match sender.try_send(envelope) {
             Ok(()) => true,
             Err(mpsc::error::TrySendError::Closed(_)) => {
+                let dropped = self.queue_drop_count.fetch_add(1, Ordering::Relaxed) + 1;
+                warn!(
+                    event = "pulse_queue_drop",
+                    reason = "send_closed",
+                    conn_id = %conn_id,
+                    dropped,
+                    queue_capacity = self.config.queue_capacity
+                );
                 self.unregister_client(conn_id).await;
                 false
             }
             Err(mpsc::error::TrySendError::Full(_)) => {
-                warn!(event = "pulse_send_backpressure", conn_id = %conn_id);
+                let dropped = self.queue_drop_count.fetch_add(1, Ordering::Relaxed) + 1;
+                let backpressure = self.backpressure_count.fetch_add(1, Ordering::Relaxed) + 1;
+                warn!(
+                    event = "pulse_send_backpressure",
+                    conn_id = %conn_id,
+                    dropped,
+                    backpressure,
+                    queue_capacity = self.config.queue_capacity
+                );
                 self.unregister_client(conn_id).await;
                 false
             }
+        }
+    }
+
+    fn observe_ingest_latency(
+        &self,
+        stage: &'static str,
+        agent_id: &str,
+        emitted_at_ms: Option<i64>,
+    ) {
+        let Some(emitted_at_ms) = emitted_at_ms else {
+            return;
+        };
+        let now = now_ms();
+        let latency_ms = now.saturating_sub(emitted_at_ms);
+        let sample_id = self.latency_sample_count.fetch_add(1, Ordering::Relaxed) + 1;
+        if latency_ms >= PULSE_LATENCY_WARN_MS {
+            warn!(
+                event = "pulse_end_to_end_latency",
+                stage,
+                sample_id,
+                agent_id,
+                emit_ts_ms = emitted_at_ms,
+                hub_ingest_ts_ms = now,
+                latency_ms
+            );
+        } else if sample_id % PULSE_LATENCY_INFO_EVERY == 0 {
+            info!(
+                event = "pulse_end_to_end_latency",
+                stage, sample_id, agent_id, latency_ms
+            );
         }
     }
 
@@ -383,6 +453,10 @@ impl PulseUdsHub {
             let mut ticker = tokio::time::interval(interval);
             let mut previous_tick = Instant::now();
             let mut failure_streak: u32 = 0;
+            let mut tick_count: u64 = 0;
+            let mut slow_cycles: u64 = 0;
+            let mut opened_total: u64 = 0;
+            let mut closed_total: u64 = 0;
 
             loop {
                 tokio::select! {
@@ -392,12 +466,14 @@ impl PulseUdsHub {
                         }
                     }
                     _ = ticker.tick() => {
+                        tick_count = tick_count.saturating_add(1);
                         let now = Instant::now();
                         let elapsed = now.duration_since(previous_tick);
                         previous_tick = now;
                         let jitter = elapsed.abs_diff(interval);
+                        let jitter_ms = jitter.as_millis() as u64;
                         if jitter > Duration::from_millis(150) {
-                            warn!(event = "pulse_layout_watcher_jitter", jitter_ms = jitter.as_millis() as u64);
+                            warn!(event = "pulse_layout_watcher_jitter", jitter_ms);
                         }
 
                         let started = Instant::now();
@@ -423,6 +499,8 @@ impl PulseUdsHub {
                         failure_streak = 0;
 
                         let (opened, closed) = self.reconcile_layout_panes(active_panes).await;
+                        opened_total = opened_total.saturating_add(opened.len() as u64);
+                        closed_total = closed_total.saturating_add(closed.len() as u64);
                         if !opened.is_empty() {
                             info!(event = "pulse_pane_opened", count = opened.len());
                         }
@@ -433,7 +511,25 @@ impl PulseUdsHub {
 
                         let elapsed_ms = started.elapsed().as_millis() as u64;
                         if elapsed_ms > 500 {
+                            slow_cycles = slow_cycles.saturating_add(1);
                             warn!(event = "pulse_layout_watcher_slow", elapsed_ms);
+                        }
+                        if tick_count % LAYOUT_HEALTH_EVERY_TICKS == 0 {
+                            let active_panes = self.active_panes.read().await.len();
+                            info!(
+                                event = "pulse_layout_watcher_health",
+                                session_id = %session_id,
+                                tick = tick_count,
+                                active_panes,
+                                failure_streak,
+                                slow_cycles,
+                                opened_total,
+                                closed_total,
+                                last_cycle_ms = elapsed_ms,
+                                jitter_ms,
+                                queue_drops = self.queue_drop_count.load(Ordering::Relaxed),
+                                backpressure = self.backpressure_count.load(Ordering::Relaxed)
+                            );
                         }
                     }
                 }
@@ -513,6 +609,11 @@ impl PulseUdsHub {
         if let Some(lifecycle) = payload.lifecycle {
             entry.state.lifecycle = lifecycle;
         }
+        self.observe_ingest_latency(
+            "heartbeat_ingest",
+            publisher_agent,
+            Some(payload.last_heartbeat_ms),
+        );
     }
 
     async fn apply_delta(&self, publisher_agent: &str, payload: DeltaPayload) {
@@ -537,6 +638,14 @@ impl PulseUdsHub {
                         if next_state.updated_at_ms.is_none() {
                             next_state.updated_at_ms = Some(now_ms());
                         }
+                        self.observe_ingest_latency(
+                            "delta_ingest",
+                            publisher_agent,
+                            next_state
+                                .updated_at_ms
+                                .or(next_state.last_activity_ms)
+                                .or(next_state.last_heartbeat_ms),
+                        );
                         let record = AgentRecord {
                             state: next_state.clone(),
                             last_heartbeat: Instant::now(),
@@ -1756,5 +1865,86 @@ pane pane_id="44" name="Agent"
         let _ = shutdown_tx.send(true);
         let result = handle.await.expect("join hub");
         assert!(result.is_ok(), "hub returned error: {result:?}");
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    #[ignore]
+    async fn pulse_stress_agents_tab_churn_benchmark() {
+        let session = "pulse-bench-session";
+        let hub = Arc::new(PulseUdsHub::new(PulseUdsConfig {
+            session_id: session.to_string(),
+            socket_path: test_path("bench-churn"),
+            stale_after: Some(Duration::from_secs(5)),
+            write_timeout: Duration::from_secs(1),
+            queue_capacity: 256,
+        }));
+
+        for agents in [5usize, 10, 20] {
+            let start = Instant::now();
+            for tick in 0..120usize {
+                let mut open_panes = HashSet::new();
+                for idx in 0..agents {
+                    let pane = (idx + 1).to_string();
+                    if (tick + idx) % 4 != 0 {
+                        open_panes.insert(pane.clone());
+                    }
+                    let agent_id = format!("{session}::{pane}");
+                    let state = AgentState {
+                        agent_id: agent_id.clone(),
+                        session_id: session.to_string(),
+                        pane_id: pane.clone(),
+                        lifecycle: if (tick + idx) % 11 == 0 {
+                            "needs_input".to_string()
+                        } else {
+                            "running".to_string()
+                        },
+                        snippet: Some(format!("tick-{tick}-agent-{idx}")),
+                        last_heartbeat_ms: Some(now_ms()),
+                        last_activity_ms: Some(now_ms()),
+                        updated_at_ms: Some(now_ms()),
+                        source: Some(serde_json::json!({
+                            "benchmark": true,
+                            "parser_confidence": (idx % 3) + 1
+                        })),
+                    };
+                    hub.apply_delta(
+                        &agent_id,
+                        DeltaPayload {
+                            seq: tick as u64,
+                            changes: vec![StateChange {
+                                op: StateChangeOp::Upsert,
+                                agent_id: agent_id.clone(),
+                                state: Some(state),
+                            }],
+                        },
+                    )
+                    .await;
+                }
+
+                let (_, closed) = hub.reconcile_layout_panes(open_panes).await;
+                if !closed.is_empty() {
+                    hub.prune_closed_panes(closed).await;
+                }
+            }
+
+            let elapsed = start.elapsed();
+            let remaining = hub.state.read().await.len();
+            assert!(
+                elapsed < Duration::from_secs(6),
+                "scenario agents={agents} exceeded budget: {elapsed:?}"
+            );
+            assert!(
+                remaining <= agents,
+                "state leak detected: {remaining} > {agents}"
+            );
+            println!(
+                "bench scenario agents={} elapsed_ms={} remaining_state={} queue_drops={} backpressure={}",
+                agents,
+                elapsed.as_millis(),
+                remaining,
+                hub.queue_drop_count.load(Ordering::Relaxed),
+                hub.backpressure_count.load(Ordering::Relaxed)
+            );
+        }
     }
 }
