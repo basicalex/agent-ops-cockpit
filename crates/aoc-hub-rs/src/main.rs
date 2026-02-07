@@ -1285,8 +1285,7 @@ fn build_offline_status_event(
     previous_status: Option<&[u8]>,
     reason: &str,
 ) -> Option<Vec<u8>> {
-    let (pane_id, project_root, cwd, agent_label) =
-        offline_metadata(agent_id, previous_status);
+    let (pane_id, project_root, cwd, agent_label) = offline_metadata(agent_id, previous_status);
     let mut payload = serde_json::Map::new();
     payload.insert("agent_id".to_string(), Value::String(agent_id.to_string()));
     payload.insert("status".to_string(), Value::String("offline".to_string()));

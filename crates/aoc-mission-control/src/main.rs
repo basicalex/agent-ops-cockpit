@@ -31,11 +31,11 @@ use tracing_subscriber::EnvFilter;
 use url::Url;
 
 const PROTOCOL_VERSION: &str = "1";
-const LOCAL_REFRESH_SECS: u64 = 3;
+const LOCAL_REFRESH_SECS: u64 = 1;
 const HUB_STALE_SECS: i64 = 45;
 const HUB_PRUNE_SECS: i64 = 90;
 const HUB_OFFLINE_GRACE_SECS: i64 = 12;
-const HUB_LOCAL_MISS_PRUNE_SECS: i64 = 8;
+const HUB_LOCAL_MISS_PRUNE_SECS: i64 = 0;
 const MAX_DIFF_FILES: usize = 8;
 const COMPACT_WIDTH: u16 = 92;
 
@@ -442,7 +442,7 @@ impl App {
                 .max(0);
             if !local_online.is_empty()
                 && !local_online.contains(agent_id)
-                && age > HUB_LOCAL_MISS_PRUNE_SECS
+                && age >= HUB_LOCAL_MISS_PRUNE_SECS
             {
                 return false;
             }

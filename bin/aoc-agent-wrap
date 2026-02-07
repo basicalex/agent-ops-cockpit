@@ -259,6 +259,25 @@ if [[ -z "${AOC_AGENT_ID:-}" ]]; then
   export AOC_AGENT_ID="$agent_id"
 fi
 
+sanitize_component() {
+  local input="$1"
+  local output
+  output="$(printf '%s' "$input" | sed -E 's/[^A-Za-z0-9._-]+/_/g')"
+  printf '%s' "${output:-unknown}"
+}
+
+state_dir="${XDG_STATE_HOME:-$HOME/.local/state}/aoc"
+lease_session="$(sanitize_component "${AOC_SESSION_ID:-unknown}")"
+lease_pane="$(sanitize_component "${AOC_PANE_ID:-${ZELLIJ_PANE_ID:-unknown}}")"
+lease_dir="$state_dir/pane-leases/$lease_session"
+lease_file="$lease_dir/${lease_pane}.lease"
+instance_seed="$(date +%s 2>/dev/null || printf '%s' "$$")"
+pane_instance_id="${AOC_PANE_INSTANCE_ID:-${AOC_SESSION_ID:-pid}-${AOC_PANE_ID:-${ZELLIJ_PANE_ID:-$$}}-$$-${RANDOM}-${instance_seed}}"
+mkdir -p "$lease_dir" 2>/dev/null || true
+printf '%s\n' "$pane_instance_id" >"$lease_file" 2>/dev/null || true
+export AOC_PANE_INSTANCE_ID="$pane_instance_id"
+export AOC_PANE_LEASE_FILE="$lease_file"
+
 # --- Context Injection (Handshake) ---
 
 find_aoc_dir() {
@@ -414,6 +433,101 @@ if [[ -n "${AOC_PANE_ID:-}" || -n "${ZELLIJ_PANE_ID:-}" ]]; then
   pane_cleanup=1
 fi
 
+reap_conflicting_pane_processes() {
+  if [[ "$pane_cleanup" != "1" ]]; then
+    return
+  fi
+  local pane_id="${AOC_PANE_ID:-${ZELLIJ_PANE_ID:-}}"
+  local session_id="${AOC_SESSION_ID:-${ZELLIJ_SESSION_NAME:-}}"
+  local project_root="${AOC_PROJECT_ROOT:-}"
+  if [[ -z "$pane_id" || -z "$session_id" ]]; then
+    return
+  fi
+
+  python3 - "$pane_id" "$session_id" "$project_root" "${BASHPID:-$$}" <<'PY'
+import os
+import signal
+import subprocess
+import sys
+import time
+
+pane_id = sys.argv[1] if len(sys.argv) > 1 else ""
+session_id = sys.argv[2] if len(sys.argv) > 2 else ""
+project_root = sys.argv[3] if len(sys.argv) > 3 else ""
+self_pid = int(sys.argv[4]) if len(sys.argv) > 4 and sys.argv[4].isdigit() else 0
+
+if not pane_id or not session_id:
+    raise SystemExit(0)
+
+def proc_env(pid):
+    try:
+        with open(f"/proc/{pid}/environ", "rb") as fh:
+            data = fh.read().split(b"\0")
+    except Exception:
+        return {}
+    env = {}
+    for item in data:
+        if not item or b"=" not in item:
+            continue
+        key, value = item.split(b"=", 1)
+        env[key.decode("utf-8", "ignore")] = value.decode("utf-8", "ignore")
+    return env
+
+try:
+    ps_out = subprocess.check_output(["ps", "-eo", "pid,args"], text=True)
+except Exception:
+    raise SystemExit(0)
+
+targets = []
+for line in ps_out.strip().splitlines()[1:]:
+    parts = line.strip().split(None, 1)
+    if len(parts) != 2:
+        continue
+    try:
+        pid = int(parts[0])
+    except ValueError:
+        continue
+    if pid <= 0 or pid == self_pid:
+        continue
+    args = parts[1]
+    if "aoc-agent-wrap" not in args and "opencode" not in args and "codex" not in args and "gemini" not in args and "claude" not in args and "kimi" not in args:
+        continue
+    env = proc_env(pid)
+    proc_pane = env.get("AOC_PANE_ID") or env.get("ZELLIJ_PANE_ID") or ""
+    if proc_pane != pane_id:
+        continue
+    proc_session = env.get("AOC_SESSION_ID") or env.get("ZELLIJ_SESSION_NAME") or ""
+    if proc_session != session_id:
+        continue
+    if project_root:
+        proc_root = env.get("AOC_PROJECT_ROOT") or ""
+        if proc_root == project_root:
+            # same pane/session/root implies duplicate stale instance
+            pass
+    targets.append(pid)
+
+if not targets:
+    raise SystemExit(0)
+
+targets = sorted(set(targets), reverse=True)
+for pid in targets:
+    try:
+        os.kill(pid, signal.SIGTERM)
+    except ProcessLookupError:
+        pass
+
+time.sleep(0.3)
+
+for pid in targets:
+    try:
+        os.kill(pid, signal.SIGKILL)
+    except ProcessLookupError:
+        pass
+PY
+}
+
+reap_conflicting_pane_processes
+
 cleanup_done=0
 kill_pane_agents_by_env() {
   if [[ "$pane_cleanup" != "1" ]]; then
@@ -421,11 +535,12 @@ kill_pane_agents_by_env() {
   fi
   local pane_id="${AOC_PANE_ID:-${ZELLIJ_PANE_ID:-}}"
   local session_id="${AOC_SESSION_ID:-${ZELLIJ_SESSION_NAME:-}}"
+  local instance_id="${AOC_PANE_INSTANCE_ID:-}"
   if [[ -z "$pane_id" ]]; then
     return
   fi
 
-  python3 - "$pane_id" "$session_id" "${BASHPID:-$$}" <<'PY'
+  python3 - "$pane_id" "$session_id" "${BASHPID:-$$}" "$instance_id" <<'PY'
 import os
 import signal
 import subprocess
@@ -435,6 +550,7 @@ import time
 pane_id = sys.argv[1] if len(sys.argv) > 1 else ""
 session_id = sys.argv[2] if len(sys.argv) > 2 else ""
 skip_pid = 0
+instance_id = sys.argv[4] if len(sys.argv) > 4 else ""
 if len(sys.argv) > 3:
     try:
         skip_pid = int(sys.argv[3])
@@ -482,13 +598,17 @@ for line in ps_out.strip().splitlines()[1:]:
     if pid == self_pid or (skip_pid and pid == skip_pid):
         continue
     env = proc_env(pid)
-    same_pane = env.get("AOC_PANE_ID") == pane_id or env.get("ZELLIJ_PANE_ID") == pane_id
-    if not same_pane:
-        continue
-    if session_id:
-        proc_session = env.get("AOC_SESSION_ID") or env.get("ZELLIJ_SESSION_NAME") or ""
-        if proc_session and proc_session != session_id:
+    if instance_id:
+        if env.get("AOC_PANE_INSTANCE_ID") != instance_id:
             continue
+    else:
+        same_pane = env.get("AOC_PANE_ID") == pane_id or env.get("ZELLIJ_PANE_ID") == pane_id
+        if not same_pane:
+            continue
+        if session_id:
+            proc_session = env.get("AOC_SESSION_ID") or env.get("ZELLIJ_SESSION_NAME") or ""
+            if proc_session and proc_session != session_id:
+                continue
     pids.append(pid)
 
 pids = sorted(set(pids), reverse=True)
@@ -515,6 +635,14 @@ cleanup_pane_agents() {
   fi
   cleanup_done=1
   kill_pane_agents_by_env
+  if [[ -n "${AOC_PANE_LEASE_FILE:-}" && -n "${AOC_PANE_INSTANCE_ID:-}" ]]; then
+    if [[ -f "$AOC_PANE_LEASE_FILE" ]]; then
+      lease_owner="$(head -n 1 "$AOC_PANE_LEASE_FILE" 2>/dev/null || true)"
+      if [[ "$lease_owner" == "$AOC_PANE_INSTANCE_ID" ]]; then
+        rm -f "$AOC_PANE_LEASE_FILE" 2>/dev/null || true
+      fi
+    fi
+  fi
 }
 
 start_orphan_watchdog() {
@@ -523,6 +651,8 @@ start_orphan_watchdog() {
   fi
   local pane_id="${AOC_PANE_ID:-${ZELLIJ_PANE_ID:-}}"
   local session_id="${AOC_SESSION_ID:-${ZELLIJ_SESSION_NAME:-}}"
+  local instance_id="${AOC_PANE_INSTANCE_ID:-}"
+  local lease_file="${AOC_PANE_LEASE_FILE:-}"
   if [[ -z "$pane_id" ]]; then
     return
   fi
@@ -531,7 +661,7 @@ start_orphan_watchdog() {
   fi
 
   local parent_pid="$$"
-  local watcher_cmd=(python3 - "$parent_pid" "$pane_id" "$session_id")
+  local watcher_cmd=(python3 - "$parent_pid" "$pane_id" "$session_id" "$instance_id" "$lease_file")
 
   if command -v setsid >/dev/null 2>&1; then
     setsid "${watcher_cmd[@]}" >/dev/null 2>&1 <<'PY' &
@@ -545,6 +675,8 @@ import time
 parent_pid = int(sys.argv[1])
 pane_id = sys.argv[2]
 session_id = sys.argv[3] if len(sys.argv) > 3 else ""
+instance_id = sys.argv[4] if len(sys.argv) > 4 else ""
+lease_file = sys.argv[5] if len(sys.argv) > 5 else ""
 
 if not pane_id:
     raise SystemExit(0)
@@ -590,6 +722,16 @@ def proc_env(pid):
         env[key.decode("utf-8", "ignore")] = value.decode("utf-8", "ignore")
     return env
 
+def lease_owned():
+    if not instance_id or not lease_file:
+        return True
+    try:
+        with open(lease_file, "r", encoding="utf-8") as fh:
+            owner = fh.readline().strip()
+    except Exception:
+        return False
+    return owner == instance_id
+
 def matching_pids():
     try:
         ps_out = subprocess.check_output(["ps", "-eo", "pid,comm,args"], text=True)
@@ -607,13 +749,17 @@ def matching_pids():
         if pid == self_pid:
             continue
         env = proc_env(pid)
-        same_pane = env.get("AOC_PANE_ID") == pane_id or env.get("ZELLIJ_PANE_ID") == pane_id
-        if not same_pane:
-            continue
-        if session_id:
-            proc_session = env.get("AOC_SESSION_ID") or env.get("ZELLIJ_SESSION_NAME") or ""
-            if proc_session and proc_session != session_id:
+        if instance_id:
+            if env.get("AOC_PANE_INSTANCE_ID") != instance_id:
                 continue
+        else:
+            same_pane = env.get("AOC_PANE_ID") == pane_id or env.get("ZELLIJ_PANE_ID") == pane_id
+            if not same_pane:
+                continue
+            if session_id:
+                proc_session = env.get("AOC_SESSION_ID") or env.get("ZELLIJ_SESSION_NAME") or ""
+                if proc_session and proc_session != session_id:
+                    continue
         found.append(pid)
     return sorted(set(found), reverse=True)
 
@@ -650,6 +796,8 @@ pane_misses = 0
 while True:
     if not pid_alive(parent_pid):
         break
+    if not lease_owned():
+        break
     if session_pane_missing():
         pane_misses += 1
         if pane_misses >= pane_miss_limit:
@@ -685,6 +833,8 @@ import time
 parent_pid = int(sys.argv[1])
 pane_id = sys.argv[2]
 session_id = sys.argv[3] if len(sys.argv) > 3 else ""
+instance_id = sys.argv[4] if len(sys.argv) > 4 else ""
+lease_file = sys.argv[5] if len(sys.argv) > 5 else ""
 
 if not pane_id:
     raise SystemExit(0)
@@ -730,6 +880,16 @@ def proc_env(pid):
         env[key.decode("utf-8", "ignore")] = value.decode("utf-8", "ignore")
     return env
 
+def lease_owned():
+    if not instance_id or not lease_file:
+        return True
+    try:
+        with open(lease_file, "r", encoding="utf-8") as fh:
+            owner = fh.readline().strip()
+    except Exception:
+        return False
+    return owner == instance_id
+
 def matching_pids():
     try:
         ps_out = subprocess.check_output(["ps", "-eo", "pid,comm,args"], text=True)
@@ -747,13 +907,17 @@ def matching_pids():
         if pid == self_pid:
             continue
         env = proc_env(pid)
-        same_pane = env.get("AOC_PANE_ID") == pane_id or env.get("ZELLIJ_PANE_ID") == pane_id
-        if not same_pane:
-            continue
-        if session_id:
-            proc_session = env.get("AOC_SESSION_ID") or env.get("ZELLIJ_SESSION_NAME") or ""
-            if proc_session and proc_session != session_id:
+        if instance_id:
+            if env.get("AOC_PANE_INSTANCE_ID") != instance_id:
                 continue
+        else:
+            same_pane = env.get("AOC_PANE_ID") == pane_id or env.get("ZELLIJ_PANE_ID") == pane_id
+            if not same_pane:
+                continue
+            if session_id:
+                proc_session = env.get("AOC_SESSION_ID") or env.get("ZELLIJ_SESSION_NAME") or ""
+                if proc_session and proc_session != session_id:
+                    continue
         found.append(pid)
     return sorted(set(found), reverse=True)
 
@@ -789,6 +953,8 @@ def session_pane_missing():
 pane_misses = 0
 while True:
     if not pid_alive(parent_pid):
+        break
+    if not lease_owned():
         break
     if session_pane_missing():
         pane_misses += 1
