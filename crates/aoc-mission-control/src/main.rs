@@ -113,7 +113,9 @@ struct DiffFile {
 
 #[derive(Deserialize, Serialize, Clone, Debug, Default)]
 struct DiffSummaryPayload {
+    #[serde(default)]
     agent_id: String,
+    #[serde(default)]
     repo_root: String,
     #[serde(default)]
     git_available: bool,
@@ -150,11 +152,22 @@ struct ActiveTask {
 
 #[derive(Deserialize, Serialize, Clone, Debug)]
 struct TaskSummaryPayload {
+    #[serde(default)]
     agent_id: String,
+    #[serde(default)]
     tag: String,
+    #[serde(default)]
     counts: TaskCounts,
     #[serde(default)]
     active_tasks: Option<Vec<ActiveTask>>,
+    #[serde(default)]
+    error: Option<PayloadError>,
+}
+
+#[derive(Deserialize, Serialize, Clone, Debug)]
+struct PayloadError {
+    code: String,
+    message: String,
 }
 
 #[derive(Clone, Debug)]
@@ -170,6 +183,7 @@ struct HubCache {
     agents: HashMap<String, HubAgent>,
     tasks: HashMap<String, TaskSummaryPayload>,
     diffs: HashMap<String, DiffSummaryPayload>,
+    health: HashMap<String, HealthSnapshot>,
     last_seq: u64,
 }
 
@@ -240,26 +254,41 @@ struct DiffProject {
     files: Vec<DiffFile>,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Deserialize, Serialize, Clone, Debug)]
 struct CheckOutcome {
     name: String,
+    #[serde(default)]
     status: String,
+    #[serde(default)]
     timestamp: Option<String>,
+    #[serde(default)]
     details: Option<String>,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Deserialize, Serialize, Clone, Debug)]
 struct DependencyStatus {
     name: String,
+    #[serde(default)]
     available: bool,
+    #[serde(default)]
     path: Option<String>,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Deserialize, Serialize, Clone, Debug)]
 struct HealthSnapshot {
+    #[serde(default)]
     dependencies: Vec<DependencyStatus>,
+    #[serde(default)]
     checks: Vec<CheckOutcome>,
+    #[serde(default)]
     taskmaster_status: String,
+}
+
+#[derive(Clone, Debug)]
+struct HealthRow {
+    scope: String,
+    project_root: String,
+    snapshot: HealthSnapshot,
 }
 
 #[derive(Clone, Debug)]
@@ -380,6 +409,7 @@ impl App {
                 self.hub.agents.clear();
                 self.hub.tasks.clear();
                 self.hub.diffs.clear();
+                self.hub.health.clear();
                 self.hub.last_seq = 0;
                 self.pending_commands.clear();
                 self.pending_render_latency.clear();
@@ -388,6 +418,9 @@ impl App {
             }
             HubEvent::Snapshot { payload, event_at } => {
                 self.hub.agents.clear();
+                self.hub.tasks.clear();
+                self.hub.diffs.clear();
+                self.hub.health.clear();
                 self.hub.last_seq = payload.seq;
                 for state in payload.states {
                     self.upsert_hub_state(state, event_at, "snapshot");
@@ -399,6 +432,9 @@ impl App {
                 }
                 if self.hub.last_seq > 0 && payload.seq > self.hub.last_seq + 1 {
                     self.hub.agents.clear();
+                    self.hub.tasks.clear();
+                    self.hub.diffs.clear();
+                    self.hub.health.clear();
                     self.status_note = Some("hub delta gap detected; awaiting resync".to_string());
                 }
                 self.hub.last_seq = payload.seq;
@@ -411,6 +447,16 @@ impl App {
                         }
                         StateChangeOp::Remove => {
                             self.hub.agents.remove(&change.agent_id);
+                            self.hub.diffs.remove(&change.agent_id);
+                            self.hub.health.remove(&change.agent_id);
+                            self.hub.tasks.retain(|key, payload| {
+                                if payload.agent_id == change.agent_id {
+                                    return false;
+                                }
+                                key.rsplit_once("::")
+                                    .map(|(agent_id, _)| agent_id != change.agent_id)
+                                    .unwrap_or(true)
+                            });
                         }
                     }
                 }
@@ -464,6 +510,7 @@ impl App {
         self.observe_state_latency(&state, event_at, channel);
         self.observe_parser_confidence_transition(&state.agent_id, &state.source, channel);
         let status = status_payload_from_state(&state);
+        let project_root = status.project_root.clone();
         let heartbeat_at = state.last_heartbeat_ms.and_then(ms_to_datetime);
         let activity_at = state.last_activity_ms.and_then(ms_to_datetime);
         let entry = self.hub.agents.entry(key).or_insert(HubAgent {
@@ -476,6 +523,73 @@ impl App {
         entry.last_seen = event_at;
         entry.last_heartbeat = heartbeat_at.or(Some(event_at));
         entry.last_activity = activity_at.or(Some(event_at));
+
+        if let Some(source_value) =
+            source_value_by_keys(&state.source, &["task_summaries", "task_summary"])
+        {
+            match parse_task_summaries_from_source(source_value, &state.agent_id) {
+                Ok(task_summaries) => {
+                    self.hub
+                        .tasks
+                        .retain(|_, payload| payload.agent_id != state.agent_id);
+                    for payload in task_summaries {
+                        let key = format!("{}::{}", payload.agent_id, payload.tag);
+                        self.hub.tasks.insert(key, payload);
+                    }
+                }
+                Err(err) => {
+                    warn!(
+                        event = "pulse_source_parse_error",
+                        kind = "task_summary",
+                        channel,
+                        agent_id = %state.agent_id,
+                        error = %err
+                    );
+                }
+            }
+        }
+
+        if let Some(source_value) = source_value_by_keys(&state.source, &["diff_summary"]) {
+            match parse_diff_summary_from_source(source_value, &state.agent_id, &project_root) {
+                Ok(Some(payload)) => {
+                    self.hub.diffs.insert(state.agent_id.clone(), payload);
+                }
+                Ok(None) => {
+                    self.hub.diffs.remove(&state.agent_id);
+                }
+                Err(err) => {
+                    warn!(
+                        event = "pulse_source_parse_error",
+                        kind = "diff_summary",
+                        channel,
+                        agent_id = %state.agent_id,
+                        error = %err
+                    );
+                }
+            }
+        }
+
+        if let Some(source_value) =
+            source_value_by_keys(&state.source, &["health", "health_summary"])
+        {
+            match parse_health_from_source(source_value) {
+                Ok(Some(snapshot)) => {
+                    self.hub.health.insert(state.agent_id.clone(), snapshot);
+                }
+                Ok(None) => {
+                    self.hub.health.remove(&state.agent_id);
+                }
+                Err(err) => {
+                    warn!(
+                        event = "pulse_source_parse_error",
+                        kind = "health",
+                        channel,
+                        agent_id = %state.agent_id,
+                        error = %err
+                    );
+                }
+            }
+        }
     }
 
     fn observe_state_latency(
@@ -731,6 +845,9 @@ impl App {
         self.hub
             .diffs
             .retain(|agent_id, _| active_agents.contains(agent_id));
+        self.hub
+            .health
+            .retain(|agent_id, _| active_agents.contains(agent_id));
         self.hub.tasks.retain(|key, payload| {
             if active_agents.contains(&payload.agent_id) {
                 return true;
@@ -764,7 +881,13 @@ impl App {
                     "local"
                 }
             }
-            Mode::Health => "local",
+            Mode::Health => {
+                if self.connected && !self.hub.health.is_empty() {
+                    "hub"
+                } else {
+                    "local"
+                }
+            }
         }
     }
 
@@ -949,6 +1072,41 @@ impl App {
             return rows;
         }
         self.local.diff.clone()
+    }
+
+    fn health_rows(&self) -> Vec<HealthRow> {
+        if self.connected && !self.hub.health.is_empty() {
+            let mut rows = Vec::new();
+            for (agent_id, snapshot) in &self.hub.health {
+                let status = self
+                    .hub
+                    .agents
+                    .get(agent_id)
+                    .and_then(|agent| agent.status.as_ref());
+                let scope = status
+                    .and_then(|value| value.agent_label.clone())
+                    .unwrap_or_else(|| extract_label(agent_id));
+                let project_root = status
+                    .map(|value| value.project_root.clone())
+                    .unwrap_or_else(|| "(unknown)".to_string());
+                rows.push(HealthRow {
+                    scope,
+                    project_root,
+                    snapshot: snapshot.clone(),
+                });
+            }
+            rows.sort_by(|left, right| {
+                left.project_root
+                    .cmp(&right.project_root)
+                    .then_with(|| left.scope.cmp(&right.scope))
+            });
+            return rows;
+        }
+        vec![HealthRow {
+            scope: "local".to_string(),
+            project_root: self.config.project_root.to_string_lossy().to_string(),
+            snapshot: self.local.health.clone(),
+        }]
     }
 
     fn selected_overview_index(&self, len: usize) -> usize {
@@ -1806,31 +1964,62 @@ fn render_health_lines(app: &App, theme: PulseTheme, compact: bool) -> Vec<Line<
             }),
         ),
     ]));
+    let health_rows = app.health_rows();
+    for (idx, row) in health_rows.iter().enumerate() {
+        if idx > 0 && !compact {
+            lines.push(Line::from(""));
+        }
+        push_health_snapshot_lines(
+            &mut lines,
+            &row.snapshot,
+            &row.scope,
+            &row.project_root,
+            theme,
+            compact,
+        );
+    }
+    lines
+}
+
+fn push_health_snapshot_lines(
+    lines: &mut Vec<Line<'static>>,
+    snapshot: &HealthSnapshot,
+    scope: &str,
+    project_root: &str,
+    theme: PulseTheme,
+    compact: bool,
+) {
     lines.push(Line::from(vec![
-        Span::styled("Taskmaster ", Style::default().fg(theme.title)),
+        Span::styled(scope.to_string(), Style::default().fg(theme.title)),
+        Span::raw(" "),
         Span::styled(
-            ellipsize(
-                &app.local.health.taskmaster_status,
-                if compact { 38 } else { 80 },
+            format!(
+                "@{}",
+                short_project(project_root, if compact { 16 } else { 28 })
             ),
-            Style::default().fg(
-                if app.local.health.taskmaster_status.contains("available") {
-                    theme.ok
-                } else {
-                    theme.warn
-                },
-            ),
+            Style::default().fg(theme.muted),
+        ),
+    ]));
+    lines.push(Line::from(vec![
+        Span::styled("  taskmaster ", Style::default().fg(theme.title)),
+        Span::styled(
+            ellipsize(&snapshot.taskmaster_status, if compact { 34 } else { 72 }),
+            Style::default().fg(if snapshot.taskmaster_status.contains("available") {
+                theme.ok
+            } else {
+                theme.warn
+            }),
         ),
     ]));
     lines.push(Line::from(Span::styled(
-        "Dependencies",
+        "  dependencies",
         Style::default()
             .fg(theme.accent)
             .add_modifier(Modifier::BOLD),
     )));
-    for dep in &app.local.health.dependencies {
+    for dep in &snapshot.dependencies {
         lines.push(Line::from(vec![
-            Span::raw("  "),
+            Span::raw("    "),
             Span::styled(
                 "*",
                 Style::default().fg(if dep.available {
@@ -1861,14 +2050,14 @@ fn render_health_lines(app: &App, theme: PulseTheme, compact: bool) -> Vec<Line<
         ]));
     }
     lines.push(Line::from(Span::styled(
-        "Checks",
+        "  checks",
         Style::default()
             .fg(theme.accent)
             .add_modifier(Modifier::BOLD),
     )));
-    for check in &app.local.health.checks {
+    for check in &snapshot.checks {
         lines.push(Line::from(vec![
-            Span::raw("  "),
+            Span::raw("    "),
             Span::styled(
                 check.name.clone(),
                 Style::default().fg(theme.text).add_modifier(Modifier::BOLD),
@@ -1887,13 +2076,12 @@ fn render_health_lines(app: &App, theme: PulseTheme, compact: bool) -> Vec<Line<
             Span::styled(
                 ellipsize(
                     check.details.as_deref().unwrap_or(""),
-                    if compact { 24 } else { 64 },
+                    if compact { 20 } else { 52 },
                 ),
                 Style::default().fg(theme.muted),
             ),
         ]));
     }
-    lines
 }
 
 fn compute_kpis(app: &App) -> PulseKpis {
@@ -2102,19 +2290,162 @@ fn status_payload_from_state(state: &AgentState) -> AgentStatusPayload {
 }
 
 fn source_string_field(source: &Option<Value>, key: &str) -> Option<String> {
-    let source = source.as_ref()?.as_object()?;
-    if let Some(value) = source.get(key).and_then(Value::as_str) {
-        if !value.trim().is_empty() {
-            return Some(value.to_string());
-        }
-    }
-    let nested = source.get("agent_status")?.as_object()?;
-    nested
-        .get(key)
+    source_value_field(source, key)
         .and_then(Value::as_str)
         .map(str::trim)
         .filter(|value| !value.is_empty())
         .map(|value| value.to_string())
+}
+
+fn source_value_by_keys<'a>(source: &'a Option<Value>, keys: &[&str]) -> Option<&'a Value> {
+    for key in keys {
+        if let Some(value) = source_value_field(source, key) {
+            return Some(value);
+        }
+    }
+    None
+}
+
+fn source_value_field<'a>(source: &'a Option<Value>, key: &str) -> Option<&'a Value> {
+    let root = source.as_ref()?.as_object()?;
+    if let Some(value) = root.get(key) {
+        return Some(value);
+    }
+    for nested_key in ["agent_status", "pulse", "telemetry"] {
+        if let Some(value) = root
+            .get(nested_key)
+            .and_then(Value::as_object)
+            .and_then(|nested| nested.get(key))
+        {
+            return Some(value);
+        }
+    }
+    None
+}
+
+fn parse_task_summaries_from_source(
+    value: &Value,
+    fallback_agent_id: &str,
+) -> Result<Vec<TaskSummaryPayload>, String> {
+    if value.is_null() {
+        return Ok(Vec::new());
+    }
+    if let Some(items) = value.as_array() {
+        let mut parsed = Vec::new();
+        for item in items {
+            parsed.push(parse_task_summary_item(item, fallback_agent_id, "default")?);
+        }
+        parsed.sort_by(|left, right| left.tag.cmp(&right.tag));
+        return Ok(parsed);
+    }
+    if let Some(map) = value.as_object() {
+        if looks_like_task_summary_payload(map) {
+            return Ok(vec![parse_task_summary_item(
+                value,
+                fallback_agent_id,
+                "default",
+            )?]);
+        }
+        let mut parsed = Vec::new();
+        for (tag, item) in map {
+            parsed.push(parse_task_summary_item(item, fallback_agent_id, tag)?);
+        }
+        parsed.sort_by(|left, right| left.tag.cmp(&right.tag));
+        return Ok(parsed);
+    }
+    Err("unsupported task summary source shape".to_string())
+}
+
+fn parse_task_summary_item(
+    value: &Value,
+    fallback_agent_id: &str,
+    fallback_tag: &str,
+) -> Result<TaskSummaryPayload, String> {
+    let mut payload: TaskSummaryPayload =
+        serde_json::from_value(value.clone()).map_err(|err| err.to_string())?;
+    if payload.agent_id.trim().is_empty() {
+        payload.agent_id = fallback_agent_id.to_string();
+    }
+    payload.tag = if payload.tag.trim().is_empty() {
+        fallback_tag.to_string()
+    } else {
+        payload.tag.trim().to_string()
+    };
+    if payload.counts.total == 0
+        && payload.counts.pending == 0
+        && payload.counts.in_progress == 0
+        && payload.counts.done == 0
+        && payload.counts.blocked == 0
+    {
+        if let Some(map) = value.as_object() {
+            if !map.contains_key("counts")
+                && (map.contains_key("total")
+                    || map.contains_key("pending")
+                    || map.contains_key("in_progress")
+                    || map.contains_key("done")
+                    || map.contains_key("blocked"))
+            {
+                if let Ok(counts) = serde_json::from_value::<TaskCounts>(value.clone()) {
+                    payload.counts = counts;
+                }
+            }
+        }
+    }
+    if let Some(active_tasks) = payload.active_tasks.as_mut() {
+        for task in active_tasks {
+            task.status = task.status.trim().to_ascii_lowercase().replace('_', "-");
+        }
+    }
+    Ok(payload)
+}
+
+fn looks_like_task_summary_payload(map: &serde_json::Map<String, Value>) -> bool {
+    map.contains_key("tag")
+        || map.contains_key("counts")
+        || map.contains_key("active_tasks")
+        || map.contains_key("error")
+        || map.contains_key("agent_id")
+}
+
+fn parse_diff_summary_from_source(
+    value: &Value,
+    fallback_agent_id: &str,
+    fallback_project_root: &str,
+) -> Result<Option<DiffSummaryPayload>, String> {
+    if value.is_null() {
+        return Ok(None);
+    }
+    let mut payload: DiffSummaryPayload =
+        serde_json::from_value(value.clone()).map_err(|err| err.to_string())?;
+    if payload.agent_id.trim().is_empty() {
+        payload.agent_id = fallback_agent_id.to_string();
+    }
+    if payload.repo_root.trim().is_empty() {
+        payload.repo_root = fallback_project_root.to_string();
+    }
+    payload.reason = payload
+        .reason
+        .as_ref()
+        .map(|reason| reason.trim().to_string())
+        .filter(|reason| !reason.is_empty());
+    Ok(Some(payload))
+}
+
+fn parse_health_from_source(value: &Value) -> Result<Option<HealthSnapshot>, String> {
+    if value.is_null() {
+        return Ok(None);
+    }
+    let mut snapshot: HealthSnapshot =
+        serde_json::from_value(value.clone()).map_err(|err| err.to_string())?;
+    if snapshot.taskmaster_status.trim().is_empty() {
+        snapshot.taskmaster_status = "unknown".to_string();
+    }
+    for check in &mut snapshot.checks {
+        if check.status.trim().is_empty() {
+            check.status = "unknown".to_string();
+        }
+    }
+    Ok(Some(snapshot))
 }
 
 fn source_confidence(source: &Option<Value>) -> Option<u8> {
@@ -2129,21 +2460,9 @@ fn source_confidence(source: &Option<Value>) -> Option<u8> {
 }
 
 fn source_numeric_field(source: &Value, key: &str) -> Option<u8> {
-    if let Some(number) = source
-        .as_object()
-        .and_then(|map| map.get(key))
+    source_value_field(&Some(source.clone()), key)
         .and_then(Value::as_u64)
-    {
-        return u8::try_from(number).ok();
-    }
-    let nested = source
-        .as_object()
-        .and_then(|map| map.get("agent_status"))
-        .and_then(Value::as_object)?;
-    nested
-        .get(key)
-        .and_then(Value::as_u64)
-        .and_then(|value| u8::try_from(value).ok())
+        .and_then(|number| u8::try_from(number).ok())
 }
 
 fn short_project(project_root: &str, max: usize) -> String {
@@ -3504,6 +3823,116 @@ mod tests {
 
         let nested = serde_json::json!({"agent_status": {"lifecycle_confidence": 2}});
         assert_eq!(source_confidence(&Some(nested)), Some(2));
+    }
+
+    #[test]
+    fn parse_task_summaries_supports_tag_map_counts_shape() {
+        let value = serde_json::json!({
+            "master": {
+                "total": 5,
+                "pending": 2,
+                "in_progress": 1,
+                "blocked": 1,
+                "done": 1
+            }
+        });
+        let parsed = parse_task_summaries_from_source(&value, "session-test::12").unwrap();
+        assert_eq!(parsed.len(), 1);
+        assert_eq!(parsed[0].agent_id, "session-test::12");
+        assert_eq!(parsed[0].tag, "master");
+        assert_eq!(parsed[0].counts.total, 5);
+        assert_eq!(parsed[0].counts.in_progress, 1);
+        assert_eq!(parsed[0].counts.blocked, 1);
+    }
+
+    #[test]
+    fn hub_state_upsert_wires_task_diff_and_health_from_source() {
+        let (tx, _rx) = mpsc::channel(4);
+        let mut app = App::new(test_config(), tx, empty_local());
+        app.apply_hub_event(HubEvent::Connected);
+
+        let state = AgentState {
+            agent_id: "session-test::12".to_string(),
+            session_id: "session-test".to_string(),
+            pane_id: "12".to_string(),
+            lifecycle: "running".to_string(),
+            snippet: None,
+            last_heartbeat_ms: Some(1),
+            last_activity_ms: Some(1),
+            updated_at_ms: Some(1),
+            source: Some(serde_json::json!({
+                "agent_status": {
+                    "agent_label": "OpenCode",
+                    "project_root": "/repo"
+                },
+                "task_summaries": {
+                    "master": {
+                        "total": 3,
+                        "pending": 1,
+                        "in_progress": 1,
+                        "blocked": 0,
+                        "done": 1
+                    }
+                },
+                "diff_summary": {
+                    "repo_root": "/repo",
+                    "git_available": true,
+                    "summary": {
+                        "staged": {"files": 1, "additions": 2, "deletions": 0},
+                        "unstaged": {"files": 1, "additions": 1, "deletions": 1},
+                        "untracked": {"files": 0}
+                    },
+                    "files": []
+                },
+                "health": {
+                    "taskmaster_status": "available",
+                    "dependencies": [
+                        {"name": "git", "available": true, "path": "/usr/bin/git"}
+                    ],
+                    "checks": [
+                        {"name": "test", "status": "ok", "timestamp": "now", "details": "pass"}
+                    ]
+                }
+            })),
+        };
+
+        app.apply_hub_event(HubEvent::Snapshot {
+            payload: SnapshotPayload {
+                seq: 1,
+                states: vec![state],
+            },
+            event_at: Utc::now(),
+        });
+
+        assert_eq!(app.hub.tasks.len(), 1);
+        let task = app
+            .hub
+            .tasks
+            .get("session-test::12::master")
+            .expect("task payload should exist");
+        assert_eq!(task.counts.total, 3);
+        assert_eq!(task.counts.in_progress, 1);
+
+        assert_eq!(app.hub.diffs.len(), 1);
+        let diff = app
+            .hub
+            .diffs
+            .get("session-test::12")
+            .expect("diff payload should exist");
+        assert_eq!(diff.repo_root, "/repo");
+        assert!(diff.git_available);
+
+        assert_eq!(app.hub.health.len(), 1);
+        let health = app
+            .hub
+            .health
+            .get("session-test::12")
+            .expect("health payload should exist");
+        assert_eq!(health.taskmaster_status, "available");
+
+        app.mode = Mode::Health;
+        assert_eq!(app.mode_source(), "hub");
+        assert_eq!(app.health_rows().len(), 1);
     }
 
     #[test]
