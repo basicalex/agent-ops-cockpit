@@ -6,9 +6,11 @@ use notify::{RecommendedWatcher, RecursiveMode, Watcher};
 use portable_pty::{native_pty_system, CommandBuilder, PtySize};
 use serde::{Deserialize, Serialize};
 use std::{
+    collections::hash_map::DefaultHasher,
     collections::HashMap,
     env,
     fs::OpenOptions,
+    hash::{Hash, Hasher},
     io::{self, Read, Write},
     path::{Path, PathBuf},
     process::Stdio,
@@ -20,7 +22,7 @@ use tokio::{
     io::AsyncReadExt,
     process::Command,
     sync::{mpsc, oneshot, Mutex},
-    time::{sleep_until, Instant},
+    time::Instant,
 };
 use tokio_tungstenite::connect_async;
 use tracing::{error, warn};
@@ -32,8 +34,12 @@ const MAX_PATCH_BYTES: usize = 1024 * 1024;
 const MAX_FILES_LIST: usize = 500;
 const TASK_DEBOUNCE_MS: u64 = 500;
 const DIFF_INTERVAL_SECS: u64 = 2;
-const STATUS_UPDATE_INTERVAL_MS: u64 = 1200;
 const STATUS_MESSAGE_MAX_CHARS: usize = 140;
+const TAP_RING_MAX_BYTES: usize = 64 * 1024;
+const TAP_REPORT_INTERVAL_MS: u64 = 250;
+const TAP_RESEND_INTERVAL_MS: u64 = 3000;
+const STOP_SIGINT_GRACE_MS: u64 = 1500;
+const STOP_TERM_GRACE_MS: u64 = 800;
 const DISABLE_MOUSE_SEQ: &str =
     "\x1b[?1000l\x1b[?1002l\x1b[?1003l\x1b[?1005l\x1b[?1006l\x1b[?1015l\x1b[?1007l\x1b[?1004l";
 
@@ -278,6 +284,67 @@ struct RuntimeSnapshot {
     last_update: String,
 }
 
+struct TapBuffer {
+    max_bytes: usize,
+    bytes: Vec<u8>,
+    version: u64,
+}
+
+impl TapBuffer {
+    fn new(max_bytes: usize) -> Self {
+        Self {
+            max_bytes,
+            bytes: Vec::with_capacity(max_bytes),
+            version: 0,
+        }
+    }
+
+    fn append(&mut self, chunk: &[u8]) {
+        if chunk.is_empty() {
+            return;
+        }
+        if chunk.len() >= self.max_bytes {
+            let start = chunk.len().saturating_sub(self.max_bytes);
+            self.bytes.clear();
+            self.bytes.extend_from_slice(&chunk[start..]);
+            self.version = self.version.wrapping_add(1);
+            return;
+        }
+        let total = self.bytes.len() + chunk.len();
+        if total > self.max_bytes {
+            let trim = total - self.max_bytes;
+            self.bytes.drain(0..trim);
+        }
+        self.bytes.extend_from_slice(chunk);
+        self.version = self.version.wrapping_add(1);
+    }
+
+    fn snapshot(&self) -> (u64, Vec<u8>) {
+        (self.version, self.bytes.clone())
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum AgentLifecycle {
+    Running,
+    Busy,
+    NeedsInput,
+    Error,
+    Idle,
+}
+
+impl AgentLifecycle {
+    fn as_status(self) -> &'static str {
+        match self {
+            AgentLifecycle::Running => "running",
+            AgentLifecycle::Busy => "busy",
+            AgentLifecycle::NeedsInput => "needs-input",
+            AgentLifecycle::Error => "error",
+            AgentLifecycle::Idle => "idle",
+        }
+    }
+}
+
 #[tokio::main]
 async fn main() {
     let args = Args::parse();
@@ -291,7 +358,7 @@ async fn main() {
 
     let (tx, rx) = mpsc::channel::<String>(256);
     let cache = Arc::new(Mutex::new(CachedMessages::default()));
-    let (activity_tx, activity_rx) = mpsc::unbounded_channel::<String>();
+    let tap_buffer = Arc::new(StdMutex::new(TapBuffer::new(TAP_RING_MAX_BYTES)));
     let hub_cfg = config.client.clone();
     let hub_url = config.hub_url.clone();
     let cache_clone = cache.clone();
@@ -336,25 +403,24 @@ async fn main() {
         diff_summary_loop(diff_cfg, diff_tx, diff_cache).await;
     });
 
-    let status_cfg = config.client.clone();
-    let status_tx = tx.clone();
-    let status_cache = cache.clone();
-    let status_task = tokio::spawn(async move {
-        status_message_loop(status_cfg, status_tx, status_cache, activity_rx).await;
+    let reporter_cfg = config.client.clone();
+    let reporter_tx = tx.clone();
+    let reporter_cache = cache.clone();
+    let reporter_tap = tap_buffer.clone();
+    let reporter_task = tokio::spawn(async move {
+        tap_state_reporter_loop(reporter_cfg, reporter_tx, reporter_cache, reporter_tap).await;
     });
 
     let use_pty = resolve_use_pty();
     let exit_code = if use_pty {
-        match run_child_pty(&config.cmd, Some(activity_tx.clone())).await {
+        match run_child_pty(&config.cmd, Some(tap_buffer.clone())).await {
             Ok(code) => code,
             Err(err) => {
                 warn!("pty_spawn_failed: {err}; falling back to pipes");
-                drop(activity_tx);
                 run_child_piped(&config.cmd).await
             }
         }
     } else {
-        drop(activity_tx);
         run_child_piped(&config.cmd).await
     };
 
@@ -369,7 +435,7 @@ async fn main() {
     heartbeat_task.abort();
     task_task.abort();
     diff_task.abort();
-    status_task.abort();
+    reporter_task.abort();
     hub_task.abort();
     std::process::exit(exit_code);
 }
@@ -784,79 +850,167 @@ fn resolve_pty_size() -> PtySize {
     }
 }
 
-async fn status_message_loop(
+async fn tap_state_reporter_loop(
     cfg: ClientConfig,
     tx: mpsc::Sender<String>,
     cache: Arc<Mutex<CachedMessages>>,
-    mut rx: mpsc::UnboundedReceiver<String>,
+    tap: Arc<StdMutex<TapBuffer>>,
 ) {
-    let interval = Duration::from_millis(STATUS_UPDATE_INTERVAL_MS);
-    let mut pending: Option<String> = None;
-    let mut next_allowed = Instant::now();
-    let mut last_sent = String::new();
+    let mut ticker = tokio::time::interval(Duration::from_millis(TAP_REPORT_INTERVAL_MS));
+    let mut current = AgentLifecycle::Running;
+    let mut pending: Option<(AgentLifecycle, u8)> = None;
+    let mut last_version = 0u64;
+    let mut last_hash = 0u64;
+    let mut last_sent = Instant::now();
 
     loop {
         tokio::select! {
-            maybe_line = rx.recv() => {
-                let line = match maybe_line {
-                    Some(line) => line,
-                    None => break,
+            _ = tx.closed() => break,
+            _ = ticker.tick() => {
+                let (version, bytes) = {
+                    match tap.lock() {
+                        Ok(tap) => tap.snapshot(),
+                        Err(_) => continue,
+                    }
                 };
-                if line.is_empty() || line == "exit" {
+
+                let decoded = String::from_utf8_lossy(&bytes);
+                let message = extract_significant_message(&decoded);
+                let hash = stable_text_hash(&message);
+                let (detected, confidence) = detect_lifecycle(&decoded);
+
+                let now = Instant::now();
+                let changed = version != last_version || hash != last_hash;
+                if !changed && now.duration_since(last_sent) < Duration::from_millis(TAP_RESEND_INTERVAL_MS) {
                     continue;
                 }
-                pending = Some(line);
-            }
-            _ = sleep_until(next_allowed), if pending.is_some() => {
-                if let Some(message) = pending.take() {
-                    if message != last_sent {
-                        let status = build_agent_status(&cfg, "running", Some(&message));
-                        {
-                            let mut cached = cache.lock().await;
-                            cached.status = Some(status.clone());
-                        }
-                        if tx.send(status).await.is_err() {
-                            break;
-                        }
-                        last_sent = message;
-                    }
-                    next_allowed = Instant::now() + interval;
-                }
-            }
-        }
 
-        if pending.is_some() && Instant::now() >= next_allowed {
-            next_allowed = Instant::now();
+                let mut should_emit = false;
+                if detected != current {
+                    if confidence >= 3 {
+                        current = detected;
+                        pending = None;
+                        should_emit = true;
+                    } else {
+                        match pending {
+                            Some((state, count)) if state == detected => {
+                                if count + 1 >= 2 {
+                                    current = detected;
+                                    pending = None;
+                                    should_emit = true;
+                                } else {
+                                    pending = Some((state, count + 1));
+                                }
+                            }
+                            _ => {
+                                pending = Some((detected, 1));
+                            }
+                        }
+                    }
+                } else {
+                    pending = None;
+                    if changed && now.duration_since(last_sent) >= Duration::from_millis(TAP_RESEND_INTERVAL_MS) {
+                        should_emit = true;
+                    }
+                }
+
+                if should_emit {
+                    let status = build_agent_status(
+                        &cfg,
+                        current.as_status(),
+                        if message.is_empty() { None } else { Some(message.as_str()) },
+                    );
+                    {
+                        let mut cached = cache.lock().await;
+                        cached.status = Some(status.clone());
+                    }
+                    if tx.send(status).await.is_err() {
+                        break;
+                    }
+                    last_sent = now;
+                }
+
+                last_version = version;
+                last_hash = hash;
+            }
         }
     }
 }
 
-fn emit_activity_lines(bytes: &[u8], carry: &mut Vec<u8>, tx: &mpsc::UnboundedSender<String>) {
-    carry.extend_from_slice(bytes);
-    while let Some(idx) = carry
-        .iter()
-        .position(|byte| *byte == b'\n' || *byte == b'\r')
-    {
-        let mut chunk = carry.drain(..=idx).collect::<Vec<u8>>();
-        while matches!(chunk.last(), Some(b'\n' | b'\r')) {
-            chunk.pop();
-        }
-        if chunk.is_empty() {
-            continue;
-        }
-        let line = sanitize_activity_line(&String::from_utf8_lossy(&chunk));
-        if !line.is_empty() {
-            let _ = tx.send(line);
-        }
+fn detect_lifecycle(input: &str) -> (AgentLifecycle, u8) {
+    let normalized = strip_ansi(input).to_lowercase();
+    let tail = normalized
+        .lines()
+        .rev()
+        .take(20)
+        .collect::<Vec<_>>()
+        .join(" ");
+
+    let errors = [
+        "error",
+        "panic",
+        "traceback",
+        "exception",
+        "fatal",
+        "failed",
+    ];
+    if errors.iter().any(|word| tail.contains(word)) {
+        return (AgentLifecycle::Error, 3);
     }
 
-    if carry.len() > 8192 {
-        let line = sanitize_activity_line(&String::from_utf8_lossy(carry));
-        if !line.is_empty() {
-            let _ = tx.send(line);
-        }
-        carry.clear();
+    let waiting = [
+        "waiting for input",
+        "press enter",
+        "enter to continue",
+        "[y/n]",
+        "(y/n)",
+        "needs input",
+        "continue?",
+    ];
+    if waiting.iter().any(|word| tail.contains(word))
+        || tail.trim_end().ends_with(':')
+        || tail.trim_end().ends_with('>')
+    {
+        return (AgentLifecycle::NeedsInput, 3);
     }
+
+    let busy = [
+        "thinking",
+        "analyzing",
+        "processing",
+        "generating",
+        "loading",
+        "running",
+        "working",
+        "compiling",
+    ];
+    if busy.iter().any(|word| tail.contains(word)) {
+        return (AgentLifecycle::Busy, 2);
+    }
+
+    let idle = ["ready", "idle", "done", "complete", "finished", "waiting"];
+    if idle.iter().any(|word| tail.contains(word)) {
+        return (AgentLifecycle::Idle, 2);
+    }
+
+    (AgentLifecycle::Running, 1)
+}
+
+fn extract_significant_message(input: &str) -> String {
+    let stripped = strip_ansi(input);
+    for line in stripped.lines().rev() {
+        let message = sanitize_activity_line(line);
+        if !message.is_empty() {
+            return message;
+        }
+    }
+    String::new()
+}
+
+fn stable_text_hash(input: &str) -> u64 {
+    let mut hasher = DefaultHasher::new();
+    input.hash(&mut hasher);
+    hasher.finish()
 }
 
 fn sanitize_activity_line(input: &str) -> String {
@@ -904,11 +1058,11 @@ async fn run_child_piped(cmd: &[String]) -> i32 {
             return 1;
         }
     };
+    let pid = child.id();
 
     let exit_code = tokio::select! {
         _ = tokio::signal::ctrl_c() => {
-            let _ = child.kill().await;
-            1
+            stop_tokio_child_with_escalation(&mut child, pid).await
         }
         status = child.wait() => {
             match status {
@@ -923,7 +1077,7 @@ async fn run_child_piped(cmd: &[String]) -> i32 {
 
 async fn run_child_pty(
     cmd: &[String],
-    activity_tx: Option<mpsc::UnboundedSender<String>>,
+    tap_buffer: Option<Arc<StdMutex<TapBuffer>>>,
 ) -> io::Result<i32> {
     let pty_system = native_pty_system();
     let pair = pty_system
@@ -991,7 +1145,6 @@ async fn run_child_pty(
     });
 
     let stdout_task = tokio::task::spawn_blocking(move || {
-        let mut line_carry: Vec<u8> = Vec::new();
         let mut stdout = io::stdout();
         let mut buffer = [0u8; 8192];
         let mut mouse_carry: Vec<u8> = Vec::new();
@@ -1015,23 +1168,18 @@ async fn run_child_pty(
             if filtered.is_empty() {
                 continue;
             }
-            if let Some(tx) = &activity_tx {
-                emit_activity_lines(&filtered, &mut line_carry, tx);
+            if let Some(tap) = &tap_buffer {
+                if let Ok(mut tap) = tap.lock() {
+                    tap.append(&filtered);
+                }
             }
             let _ = stdout.write_all(&filtered);
             let _ = stdout.flush();
         }
-        if let Some(tx) = &activity_tx {
-            if !line_carry.is_empty() {
-                let line = sanitize_activity_line(&String::from_utf8_lossy(&line_carry));
-                if !line.is_empty() {
-                    let _ = tx.send(line);
-                }
-            }
-        }
     });
 
     let (exit_tx, mut exit_rx) = oneshot::channel::<i32>();
+    let child_pid = child.process_id();
     std::thread::spawn(move || {
         let code = match child.wait() {
             Ok(status) => status.exit_code() as i32,
@@ -1044,7 +1192,7 @@ async fn run_child_pty(
         status = &mut exit_rx => status.unwrap_or(1),
         _ = tokio::signal::ctrl_c() => {
             send_ctrl_c(&writer);
-            exit_rx.await.unwrap_or(1)
+            wait_or_escalate_pty_exit(&mut exit_rx, child_pid).await
         }
     };
 
@@ -1059,6 +1207,84 @@ fn send_ctrl_c(writer: &Arc<StdMutex<Box<dyn Write + Send>>>) {
         let _ = writer.write_all(&[0x03]);
         let _ = writer.flush();
     }
+}
+
+async fn wait_or_escalate_pty_exit(exit_rx: &mut oneshot::Receiver<i32>, pid: Option<u32>) -> i32 {
+    let grace = Duration::from_millis(STOP_SIGINT_GRACE_MS);
+    if let Ok(status) = tokio::time::timeout(grace, &mut *exit_rx).await {
+        return status.unwrap_or(1);
+    }
+
+    if let Some(pid) = pid {
+        let _ = send_unix_signal(pid, "TERM");
+        if let Ok(status) =
+            tokio::time::timeout(Duration::from_millis(STOP_TERM_GRACE_MS), &mut *exit_rx).await
+        {
+            return status.unwrap_or(1);
+        }
+        let _ = send_unix_signal(pid, "KILL");
+    }
+
+    (&mut *exit_rx).await.unwrap_or(1)
+}
+
+async fn stop_tokio_child_with_escalation(
+    child: &mut tokio::process::Child,
+    pid: Option<u32>,
+) -> i32 {
+    if let Some(pid) = pid {
+        let _ = send_unix_signal(pid, "INT");
+    }
+
+    let grace = Duration::from_millis(STOP_SIGINT_GRACE_MS);
+    if let Ok(status) = tokio::time::timeout(grace, child.wait()).await {
+        return match status {
+            Ok(wait) => wait.code().unwrap_or(0),
+            Err(_) => 1,
+        };
+    }
+
+    if let Some(pid) = pid {
+        let _ = send_unix_signal(pid, "TERM");
+        if let Ok(status) =
+            tokio::time::timeout(Duration::from_millis(STOP_TERM_GRACE_MS), child.wait()).await
+        {
+            return match status {
+                Ok(wait) => wait.code().unwrap_or(0),
+                Err(_) => 1,
+            };
+        }
+    }
+
+    let _ = child.kill().await;
+    match child.wait().await {
+        Ok(wait) => wait.code().unwrap_or(1),
+        Err(_) => 1,
+    }
+}
+
+#[cfg(unix)]
+fn send_unix_signal(pid: u32, signal: &str) -> io::Result<()> {
+    let status = std::process::Command::new("kill")
+        .arg(format!("-{signal}"))
+        .arg(pid.to_string())
+        .status()?;
+    if status.success() {
+        Ok(())
+    } else {
+        Err(io::Error::new(
+            io::ErrorKind::Other,
+            format!("kill -{signal} {pid} failed with status {status}"),
+        ))
+    }
+}
+
+#[cfg(not(unix))]
+fn send_unix_signal(_pid: u32, _signal: &str) -> io::Result<()> {
+    Err(io::Error::new(
+        io::ErrorKind::Unsupported,
+        "signals unavailable",
+    ))
 }
 
 async fn task_summary_loop(
@@ -2092,5 +2318,65 @@ fn next_backoff(current: Duration) -> Duration {
         Duration::from_secs(10)
     } else {
         next
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::time::{Duration, Instant};
+
+    #[test]
+    fn tap_buffer_keeps_bounded_tail() {
+        let mut tap = TapBuffer::new(10);
+        tap.append(b"12345");
+        tap.append(b"67890");
+        tap.append(b"abcdef");
+        let (_version, bytes) = tap.snapshot();
+        assert_eq!(String::from_utf8_lossy(&bytes), "7890abcdef");
+    }
+
+    #[test]
+    fn lifecycle_detection_prefers_error_and_input() {
+        let (state, confidence) = detect_lifecycle("Traceback: something blew up");
+        assert_eq!(state, AgentLifecycle::Error);
+        assert_eq!(confidence, 3);
+
+        let (state, confidence) = detect_lifecycle("Waiting for input [y/n]");
+        assert_eq!(state, AgentLifecycle::NeedsInput);
+        assert_eq!(confidence, 3);
+    }
+
+    #[test]
+    fn lifecycle_detection_marks_busy_and_idle() {
+        let (state, confidence) = detect_lifecycle("Analyzing repository and generating patch");
+        assert_eq!(state, AgentLifecycle::Busy);
+        assert_eq!(confidence, 2);
+
+        let (state, confidence) = detect_lifecycle("Done. Ready for next command.");
+        assert_eq!(state, AgentLifecycle::Idle);
+        assert_eq!(confidence, 2);
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn stop_tokio_child_escalates_when_sigint_ignored() {
+        let mut child = Command::new("bash")
+            .arg("-lc")
+            .arg("trap '' INT; sleep 30")
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .expect("spawn child");
+        let pid = child.id();
+        let started = Instant::now();
+
+        let _ = stop_tokio_child_with_escalation(&mut child, pid).await;
+
+        assert!(
+            started.elapsed() < Duration::from_secs(6),
+            "stop escalation took too long"
+        );
     }
 }

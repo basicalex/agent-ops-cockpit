@@ -4,6 +4,8 @@ use std::collections::HashMap;
 use std::fmt;
 use std::str::FromStr;
 
+pub mod pulse_ipc;
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ProjectData {
     #[serde(flatten)]
