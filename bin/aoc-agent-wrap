@@ -425,7 +425,7 @@ kill_pane_agents_by_env() {
     return
   fi
 
-  python3 - "$pane_id" "$session_id" <<'PY'
+  python3 - "$pane_id" "$session_id" "${BASHPID:-$$}" <<'PY'
 import os
 import signal
 import subprocess
@@ -434,6 +434,12 @@ import time
 
 pane_id = sys.argv[1] if len(sys.argv) > 1 else ""
 session_id = sys.argv[2] if len(sys.argv) > 2 else ""
+skip_pid = 0
+if len(sys.argv) > 3:
+    try:
+        skip_pid = int(sys.argv[3])
+    except ValueError:
+        skip_pid = 0
 if not pane_id:
     raise SystemExit(0)
 
@@ -473,7 +479,7 @@ for line in ps_out.strip().splitlines()[1:]:
         pid = int(parts[0])
     except ValueError:
         continue
-    if pid == self_pid:
+    if pid == self_pid or (skip_pid and pid == skip_pid):
         continue
     env = proc_env(pid)
     same_pane = env.get("AOC_PANE_ID") == pane_id or env.get("ZELLIJ_PANE_ID") == pane_id
@@ -827,6 +833,7 @@ run_with_cleanup() {
   "$@"
   local status=$?
   set -e
+  cleanup_pane_agents
   trap - HUP INT TERM EXIT
   return "$status"
 }
