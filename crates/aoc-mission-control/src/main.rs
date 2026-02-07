@@ -1681,6 +1681,7 @@ fn collect_runtime_overview(config: &Config) -> Vec<OverviewRow> {
         Err(_) => return Vec::new(),
     };
     let now = Utc::now();
+    let active_panes = active_session_pane_ids(&config.session_id);
     for entry in entries.flatten() {
         let path = entry.path();
         if !path.is_file() {
@@ -1697,6 +1698,11 @@ fn collect_runtime_overview(config: &Config) -> Vec<OverviewRow> {
         if snapshot.session_id != config.session_id {
             continue;
         }
+        if let Some(panes) = active_panes.as_ref() {
+            if !panes.contains(&snapshot.pane_id) {
+                continue;
+            }
+        }
         let heartbeat_age = DateTime::parse_from_rfc3339(&snapshot.last_update)
             .ok()
             .map(|dt| {
@@ -1704,12 +1710,17 @@ fn collect_runtime_overview(config: &Config) -> Vec<OverviewRow> {
                     .num_seconds()
                     .max(0)
             });
-        let alive = process_exists(snapshot.pid);
-        let online = alive && snapshot.status != "offline";
+        let online = runtime_process_matches(&snapshot) && !snapshot.status.eq_ignore_ascii_case("offline");
+        let expected_identity = build_identity_key(&snapshot.session_id, &snapshot.pane_id);
+        let identity_key = if snapshot.agent_id == expected_identity {
+            snapshot.agent_id.clone()
+        } else {
+            expected_identity
+        };
         rows.insert(
-            snapshot.agent_id.clone(),
+            identity_key.clone(),
             OverviewRow {
-                identity_key: snapshot.agent_id,
+                identity_key,
                 label: snapshot.agent_label,
                 pane_id: snapshot.pane_id,
                 project_root: snapshot.project_root,
@@ -1721,6 +1732,72 @@ fn collect_runtime_overview(config: &Config) -> Vec<OverviewRow> {
         );
     }
     rows.into_values().collect()
+}
+
+fn active_session_pane_ids(session_id: &str) -> Option<HashSet<String>> {
+    if session_id.trim().is_empty() {
+        return None;
+    }
+    let output = Command::new("zellij")
+        .arg("--session")
+        .arg(session_id)
+        .arg("action")
+        .arg("dump-layout")
+        .output()
+        .ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    let layout = String::from_utf8_lossy(&output.stdout);
+    let pane_ids = parse_layout_pane_ids(&layout);
+    if pane_ids.is_empty() {
+        None
+    } else {
+        Some(pane_ids)
+    }
+}
+
+fn parse_layout_pane_ids(layout: &str) -> HashSet<String> {
+    let mut pane_ids = HashSet::new();
+    for part in layout.split("--pane-id\"").skip(1) {
+        let Some(start) = part.find('"') else {
+            continue;
+        };
+        let tail = &part[start + 1..];
+        let Some(end) = tail.find('"') else {
+            continue;
+        };
+        let pane_id = tail[..end].trim();
+        if !pane_id.is_empty() {
+            pane_ids.insert(pane_id.to_string());
+        }
+    }
+    pane_ids
+}
+
+fn runtime_process_matches(snapshot: &RuntimeSnapshot) -> bool {
+    if snapshot.pid <= 0 {
+        return false;
+    }
+    let proc_path = PathBuf::from("/proc").join(snapshot.pid.to_string());
+    if !proc_path.exists() {
+        return false;
+    }
+    let env_map = read_proc_environ(proc_path.join("environ"));
+    if env_map.is_empty() {
+        return false;
+    }
+    let proc_session = env_map
+        .get("AOC_SESSION_ID")
+        .or_else(|| env_map.get("ZELLIJ_SESSION_NAME"))
+        .map(|value| value.as_str())
+        .unwrap_or("");
+    let proc_pane = env_map
+        .get("AOC_PANE_ID")
+        .or_else(|| env_map.get("ZELLIJ_PANE_ID"))
+        .map(|value| value.as_str())
+        .unwrap_or("");
+    proc_session == snapshot.session_id.as_str() && proc_pane == snapshot.pane_id.as_str()
 }
 
 fn collect_proc_overview(config: &Config) -> Vec<OverviewRow> {
@@ -2115,10 +2192,6 @@ fn parse_status_line(line: &str) -> Option<GitStatusEntry> {
         unstaged,
         untracked: false,
     })
-}
-
-fn process_exists(pid: i32) -> bool {
-    PathBuf::from("/proc").join(pid.to_string()).exists()
 }
 
 fn read_proc_environ(path: PathBuf) -> HashMap<String, String> {

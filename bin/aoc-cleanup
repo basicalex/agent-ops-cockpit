@@ -8,11 +8,50 @@ set -euo pipefail
 
 AGENT_PATTERN="opencode|open-code|codex|gemini|claude|kimi"
 
+show_help() {
+  cat <<'USAGE'
+Usage: aoc-cleanup [--dry-run|-n] [--execute]
+
+Options:
+  -n, --dry-run  Preview actions without killing or deleting files
+      --execute  Force execute mode (overrides AOC_CLEANUP_DRY_RUN)
+  -h, --help     Show this help
+USAGE
+}
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    -n|--dry-run)
+      export AOC_CLEANUP_DRY_RUN="1"
+      shift
+      ;;
+    --execute)
+      export AOC_CLEANUP_DRY_RUN="0"
+      shift
+      ;;
+    -h|--help)
+      show_help
+      exit 0
+      ;;
+    *)
+      echo "Unknown option: $1" >&2
+      show_help >&2
+      exit 2
+      ;;
+  esac
+done
+
 is_interactive() {
   [[ -t 0 && -t 1 ]]
 }
 
-select_cleanup_mode() {
+env_truthy() {
+  local value="${1:-}"
+  value="${value,,}"
+  [[ -n "$value" && "$value" != "0" && "$value" != "false" && "$value" != "no" && "$value" != "off" ]]
+}
+
+select_cleanup_scope() {
   local choice=""
   if command -v fzf >/dev/null 2>&1; then
     choice="$(printf "%s\n" \
@@ -21,18 +60,18 @@ select_cleanup_mode() {
       "Strict panes (current session)" \
       "Strict panes (all sessions)" \
       "Exit" \
-      | fzf --prompt="Cleanup > " --height=40% --border || true)"
+      | fzf --prompt="Cleanup scope > " --height=40% --border || true)"
     printf "%s" "$choice"
     return 0
   fi
 
-  echo "Select cleanup mode:"
+  echo "Select cleanup scope:"
   echo "  1) Standard (safe, all sessions)"
   echo "  2) Current session only"
   echo "  3) Strict panes (current session)"
   echo "  4) Strict panes (all sessions)"
   echo "  5) Exit"
-  read -r -p "Mode number > " choice
+  read -r -p "Scope number > " choice
   case "$choice" in
     1) printf "%s" "Standard (safe, all sessions)" ;;
     2) printf "%s" "Current session only" ;;
@@ -42,9 +81,9 @@ select_cleanup_mode() {
   esac
 }
 
-apply_cleanup_mode() {
-  local mode="$1"
-  case "$mode" in
+apply_cleanup_scope() {
+  local scope="$1"
+  case "$scope" in
     "Standard (safe, all sessions)")
       :
       ;;
@@ -64,14 +103,90 @@ apply_cleanup_mode() {
   esac
 }
 
+select_cleanup_action() {
+  local choice=""
+  if command -v fzf >/dev/null 2>&1; then
+    choice="$(printf "%s\n" \
+      "Preview only (dry-run, recommended)" \
+      "Execute cleanup now" \
+      "Exit" \
+      | fzf --prompt="Cleanup action > " --height=30% --border || true)"
+    printf "%s" "$choice"
+    return 0
+  fi
+
+  echo "Select cleanup action:"
+  echo "  1) Preview only (dry-run, recommended)"
+  echo "  2) Execute cleanup now"
+  echo "  3) Exit"
+  read -r -p "Action number > " choice
+  case "$choice" in
+    1) printf "%s" "Preview only (dry-run, recommended)" ;;
+    2) printf "%s" "Execute cleanup now" ;;
+    *) printf "%s" "Exit" ;;
+  esac
+}
+
+apply_cleanup_action() {
+  local action="$1"
+  case "$action" in
+    "Preview only (dry-run, recommended)")
+      export AOC_CLEANUP_DRY_RUN="1"
+      ;;
+    "Execute cleanup now")
+      export AOC_CLEANUP_DRY_RUN="0"
+      ;;
+    *)
+      exit 0
+      ;;
+  esac
+}
+
+confirm_execute() {
+  local answer=""
+  read -r -p "Run live cleanup now? [y/N] " answer
+  case "${answer,,}" in
+    y|yes)
+      return 0
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+}
+
 if [[ "${AOC_CLEANUP_INTERACTIVE:-1}" != "0" ]]; then
   if is_interactive; then
     if [[ -z "${AOC_CLEANUP_SESSIONS:-}" && -z "${AOC_CLEANUP_PANE_STRICT:-}" ]]; then
-      selection="$(select_cleanup_mode)"
-      apply_cleanup_mode "$selection"
+      scope_selection="$(select_cleanup_scope)"
+      apply_cleanup_scope "$scope_selection"
+    fi
+    if [[ -z "${AOC_CLEANUP_DRY_RUN:-}" ]]; then
+      action_selection="$(select_cleanup_action)"
+      apply_cleanup_action "$action_selection"
+    fi
+    if ! env_truthy "${AOC_CLEANUP_DRY_RUN:-}"; then
+      if ! confirm_execute; then
+        echo "Cancelled. No changes made."
+        exit 0
+      fi
     fi
   fi
 fi
+
+cleanup_scope_desc="all sessions"
+if [[ "${AOC_CLEANUP_SESSIONS:-}" == "current" ]]; then
+  cleanup_scope_desc="current session"
+fi
+if env_truthy "${AOC_CLEANUP_PANE_STRICT:-}"; then
+  cleanup_scope_desc="${cleanup_scope_desc}, strict panes"
+fi
+cleanup_action_desc="execute"
+if env_truthy "${AOC_CLEANUP_DRY_RUN:-}"; then
+  cleanup_action_desc="dry-run"
+fi
+
+echo "Cleanup setup: scope=${cleanup_scope_desc}; mode=${cleanup_action_desc}"
 
 echo "Analyzing process tree..."
 
@@ -84,6 +199,7 @@ import re
 import time
 import collections
 import shlex
+import json
 
 # --- Configuration ---
 # Only kill processes matching these patterns if they are orphans
@@ -179,6 +295,8 @@ def parse_session_filter():
 def env_truthy(name):
     raw = os.environ.get(name, "").strip().lower()
     return raw not in {"", "0", "false", "no", "off"}
+
+dry_run = env_truthy("AOC_CLEANUP_DRY_RUN")
 
 def dump_layout(session=None):
     if session:
@@ -335,6 +453,59 @@ def parse_layout(text, projects_base=None):
 
     return active_commands, agent_cwds, expected_cwds, expected_ids
 
+def parse_layout_pane_ids(text):
+    pane_ids = set()
+    for match in re.finditer(r'--pane-id"\s*"([^"]+)"', text):
+        pane_id = (match.group(1) or "").strip()
+        if pane_id:
+            pane_ids.add(pane_id)
+    if pane_ids:
+        return pane_ids
+    for part in text.split('--pane-id"')[1:]:
+        quote = part.find('"')
+        if quote == -1:
+            continue
+        tail = part[quote + 1:]
+        end = tail.find('"')
+        if end == -1:
+            continue
+        pane_id = tail[:end].strip()
+        if pane_id:
+            pane_ids.add(pane_id)
+    return pane_ids
+
+def build_active_pane_map(allowed_sessions=None):
+    pane_map = {}
+    sessions = list_sessions()
+    if allowed_sessions is not None:
+        sessions = [s for s in sessions if s in allowed_sessions]
+    if sessions:
+        for session in sessions:
+            layout = dump_layout(session)
+            if not layout:
+                continue
+            pane_ids = parse_layout_pane_ids(layout)
+            if pane_ids:
+                pane_map[session] = pane_ids
+        return pane_map
+
+    if allowed_sessions is None:
+        curr = get_current_session()
+        layout = dump_layout()
+        if curr and layout:
+            pane_ids = parse_layout_pane_ids(layout)
+            if pane_ids:
+                pane_map[curr] = pane_ids
+    else:
+        curr = get_current_session()
+        if curr and curr in allowed_sessions:
+            layout = dump_layout()
+            if layout:
+                pane_ids = parse_layout_pane_ids(layout)
+                if pane_ids:
+                    pane_map[curr] = pane_ids
+    return pane_map
+
 def build_active_sets(allowed_sessions=None):
     active_commands = set()
     agent_cwds = set()
@@ -404,10 +575,74 @@ def proc_has_active_session(pid, active_sessions):
     if not active_sessions:
         return False
     env = proc_env(pid)
-    session = env.get("ZELLIJ_SESSION_NAME") or env.get("ZELLIJ_SESSION")
+    session = env.get("AOC_SESSION_ID") or env.get("ZELLIJ_SESSION_NAME") or env.get("ZELLIJ_SESSION")
     if not session:
         return False
     return session in active_sessions
+
+def proc_matches_active_pane(proc, active_panes_by_session):
+    session = (proc.get("session") or "").strip()
+    pane_id = (proc.get("pane_id") or "").strip()
+    if not session or not pane_id:
+        return False
+    active = active_panes_by_session.get(session)
+    if not active:
+        return False
+    return pane_id in active
+
+def telemetry_root_dir():
+    state_home = os.environ.get("XDG_STATE_HOME", "").strip()
+    if state_home:
+        base = state_home
+    else:
+        base = os.path.join(os.path.expanduser("~"), ".local", "state")
+    return os.path.join(base, "aoc", "telemetry")
+
+def prune_runtime_snapshots(active_panes_by_session, active_sessions, session_filter_active, dry_run=False):
+    root = telemetry_root_dir()
+    if not os.path.isdir(root):
+        return 0
+    removed = 0
+    for session_name in os.listdir(root):
+        session_path = os.path.join(root, session_name)
+        if not os.path.isdir(session_path):
+            continue
+        if session_filter_active and active_sessions and session_name not in active_sessions:
+            continue
+        allowed_panes = active_panes_by_session.get(session_name, set())
+        for file_name in os.listdir(session_path):
+            if not file_name.endswith(".json"):
+                continue
+            pane_id = file_name[:-5].strip()
+            if pane_id and pane_id in allowed_panes:
+                continue
+            path = os.path.join(session_path, file_name)
+            keep = False
+            try:
+                with open(path, "r", encoding="utf-8") as fh:
+                    snapshot = json.load(fh)
+                pid = int(snapshot.get("pid") or 0)
+                if pid > 0:
+                    env = proc_env(pid)
+                    proc_session = env.get("AOC_SESSION_ID") or env.get("ZELLIJ_SESSION_NAME") or env.get("ZELLIJ_SESSION") or ""
+                    proc_pane = env.get("AOC_PANE_ID") or env.get("ZELLIJ_PANE_ID") or ""
+                    if proc_session == session_name and proc_pane == pane_id:
+                        keep = True
+            except Exception:
+                pass
+            if keep:
+                continue
+            try:
+                if dry_run:
+                    removed += 1
+                else:
+                    os.remove(path)
+                    removed += 1
+            except FileNotFoundError:
+                pass
+            except Exception:
+                pass
+    return removed
 
 def proc_cwd(pid):
     try:
@@ -536,8 +771,11 @@ else:
 active_commands, agent_cwds, expected_cwds, expected_ids = build_active_sets(
     active_sessions if session_filter is not None else None
 )
+active_panes_by_session = build_active_pane_map(
+    active_sessions if session_filter is not None else None
+)
 have_active_signals = bool(active_commands or agent_cwds or expected_cwds or expected_ids)
-pane_layout_signals = bool(expected_cwds or expected_ids)
+pane_layout_signals = bool(expected_cwds or expected_ids or active_panes_by_session)
 
 # 1. Identify Zellij Server Roots
 zellij_pids = set()
@@ -575,6 +813,9 @@ if expected_cwds:
     print(f"Active agent panes detected: {sum(expected_cwds.values())}")
 if expected_ids:
     print(f"Active agent ids detected: {sum(expected_ids.values())}")
+if active_panes_by_session:
+    total_active_panes = sum(len(panes) for panes in active_panes_by_session.values())
+    print(f"Active pane ids discovered: {total_active_panes}")
 if session_filter is not None:
     if active_sessions:
         print(f"Session filter active: {', '.join(sorted(active_sessions))}")
@@ -582,6 +823,8 @@ if session_filter is not None:
         print("Warning: Session filter active but no matching sessions found.")
 if pane_strict:
     print("Pane strict mode: on")
+if dry_run:
+    print("Dry run mode: on")
 if not have_active_signals:
     print("Warning: No active agent panes discovered; falling back to safe-pid logic only.")
 
@@ -612,8 +855,8 @@ for pid, info in processes.items():
         elif comm == "node" and "opencode" in (args or ""):
             kind = "agent_node"
         env = proc_env(pid)
-        session_name = env.get("ZELLIJ_SESSION_NAME") or env.get("ZELLIJ_SESSION") or ""
-        pane_id = env.get("ZELLIJ_PANE_ID") or ""
+        session_name = env.get("AOC_SESSION_ID") or env.get("ZELLIJ_SESSION_NAME") or env.get("ZELLIJ_SESSION") or ""
+        pane_id = env.get("AOC_PANE_ID") or env.get("ZELLIJ_PANE_ID") or ""
         tty = info.get("tty", "")
         has_tty = bool(tty and tty != "?")
         agent_candidates.append({
@@ -739,6 +982,14 @@ if keep_pids:
 for proc in agent_candidates:
     pid = proc["pid"]
     args = proc["args"]
+    proc_session = proc.get("session") or ""
+    if session_filter is not None and proc_session and proc_session not in active_sessions:
+        continue
+    if proc_matches_active_pane(proc, active_panes_by_session):
+        continue
+    if proc_session and proc.get("pane_id") and proc_session in active_panes_by_session:
+        kill_list.append((pid, args))
+        continue
     if pid in safe_pids:
         if not (pane_strict and pane_layout_signals):
             if session_filter is None or proc_has_active_session(pid, active_sessions):
@@ -754,7 +1005,7 @@ for proc in agent_candidates:
         proc_exec = proc_cmd(proc["args"], proc["comm"])
         if any(cmd_matches(proc_exec, cmd) or (cmd in proc["args"]) for cmd in active_commands):
             active_hit = True
-        else:
+        elif not (proc.get("session") and proc.get("pane_id")):
             if any(cwd_matches(proc["cwd"], ac) for ac in agent_cwds):
                 active_hit = True
         if active_hit:
@@ -765,24 +1016,39 @@ for proc in agent_candidates:
 # 6. Execute
 if not kill_list:
     print("No orphan processes found.")
-    sys.exit(0)
+else:
+    print(f"Found {len(kill_list)} orphan processes.")
+    for pid, args in kill_list:
+        display_cmd = (args[:60] + '...') if len(args) > 60 else args
+        if dry_run:
+            print(f"Would kill PID {pid}: {display_cmd}")
+        else:
+            print(f"Killing PID {pid}: {display_cmd}")
+            try:
+                os.kill(pid, signal.SIGTERM)
+            except ProcessLookupError:
+                pass
 
-print(f"Found {len(kill_list)} orphan processes.")
-for pid, args in kill_list:
-    display_cmd = (args[:60] + '...') if len(args) > 60 else args
-    print(f"Killing PID {pid}: {display_cmd}")
-    try:
-        os.kill(pid, signal.SIGTERM)
-    except ProcessLookupError:
-        pass
+    if not dry_run:
+        time.sleep(0.5)
 
-time.sleep(0.5)
+        for pid, _ in kill_list:
+            try:
+                os.kill(pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
 
-for pid, _ in kill_list:
-    try:
-        os.kill(pid, signal.SIGKILL)
-    except ProcessLookupError:
-        pass
+removed_snapshots = prune_runtime_snapshots(
+    active_panes_by_session,
+    active_sessions,
+    session_filter is not None,
+    dry_run,
+)
+if removed_snapshots:
+    if dry_run:
+        print(f"Would prune {removed_snapshots} stale runtime snapshots.")
+    else:
+        print(f"Pruned {removed_snapshots} stale runtime snapshots.")
 
 print("Cleanup complete.")
 EOF
