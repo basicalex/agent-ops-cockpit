@@ -9,14 +9,15 @@ use futures_util::{SinkExt, StreamExt};
 use ratatui::{
     backend::CrosstermBackend,
     layout::{Constraint, Direction, Layout},
-    text::{Line, Text},
+    style::{Color, Modifier, Style},
+    text::{Line, Span, Text},
     widgets::{Block, Borders, Paragraph, Wrap},
     Terminal,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::{
-    collections::{BTreeMap, HashMap},
+    collections::{BTreeMap, HashMap, HashSet},
     error::Error,
     fs, io,
     path::{Path, PathBuf},
@@ -32,7 +33,11 @@ use url::Url;
 const PROTOCOL_VERSION: &str = "1";
 const LOCAL_REFRESH_SECS: u64 = 3;
 const HUB_STALE_SECS: i64 = 45;
+const HUB_PRUNE_SECS: i64 = 90;
+const HUB_OFFLINE_GRACE_SECS: i64 = 12;
+const HUB_LOCAL_MISS_PRUNE_SECS: i64 = 8;
 const MAX_DIFF_FILES: usize = 8;
+const COMPACT_WIDTH: u16 = 92;
 
 #[derive(Clone, Debug)]
 struct Config {
@@ -177,6 +182,7 @@ struct HubAgent {
     status: Option<AgentStatusPayload>,
     last_seen: DateTime<Utc>,
     last_heartbeat: Option<DateTime<Utc>>,
+    last_activity: Option<DateTime<Utc>>,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -194,6 +200,7 @@ struct OverviewRow {
     project_root: String,
     online: bool,
     age_secs: Option<i64>,
+    latest_message: Option<String>,
     source: String,
 }
 
@@ -283,10 +290,22 @@ impl Mode {
 enum HubEvent {
     Connected,
     Disconnected,
-    AgentStatus(AgentStatusPayload),
-    Heartbeat(HeartbeatPayload),
-    TaskSummary(TaskSummaryPayload),
-    DiffSummary(DiffSummaryPayload),
+    AgentStatus {
+        payload: AgentStatusPayload,
+        event_at: DateTime<Utc>,
+    },
+    Heartbeat {
+        payload: HeartbeatPayload,
+        event_at: DateTime<Utc>,
+    },
+    TaskSummary {
+        payload: TaskSummaryPayload,
+        event_at: DateTime<Utc>,
+    },
+    DiffSummary {
+        payload: DiffSummaryPayload,
+        event_at: DateTime<Utc>,
+    },
 }
 
 struct App {
@@ -314,34 +333,69 @@ impl App {
         match event {
             HubEvent::Connected => self.connected = true,
             HubEvent::Disconnected => self.connected = false,
-            HubEvent::AgentStatus(payload) => {
+            HubEvent::AgentStatus { payload, event_at } => {
                 let key = payload.agent_id.clone();
                 let entry = self.hub.agents.entry(key).or_insert(HubAgent {
                     status: None,
-                    last_seen: Utc::now(),
+                    last_seen: event_at,
                     last_heartbeat: None,
+                    last_activity: None,
                 });
+                let has_message = payload
+                    .message
+                    .as_deref()
+                    .map(|value| !value.trim().is_empty())
+                    .unwrap_or(false);
+                let reported_status = payload.status.to_ascii_lowercase();
                 entry.status = Some(payload);
-                entry.last_seen = Utc::now();
+                entry.last_seen = event_at;
+                if has_message || reported_status != "offline" {
+                    entry.last_activity = Some(event_at);
+                }
             }
-            HubEvent::Heartbeat(payload) => {
+            HubEvent::Heartbeat { payload, event_at } => {
                 let key = payload.agent_id.clone();
                 let entry = self.hub.agents.entry(key).or_insert(HubAgent {
                     status: None,
-                    last_seen: Utc::now(),
+                    last_seen: event_at,
                     last_heartbeat: None,
+                    last_activity: None,
                 });
-                entry.last_seen = Utc::now();
+                entry.last_seen = event_at;
                 entry.last_heartbeat = DateTime::parse_from_rfc3339(&payload.last_update)
                     .ok()
                     .map(|dt| dt.with_timezone(&Utc))
-                    .or(Some(Utc::now()));
+                    .or(Some(event_at));
             }
-            HubEvent::TaskSummary(payload) => {
+            HubEvent::TaskSummary { payload, event_at } => {
+                let entry = self
+                    .hub
+                    .agents
+                    .entry(payload.agent_id.clone())
+                    .or_insert(HubAgent {
+                        status: None,
+                        last_seen: event_at,
+                        last_heartbeat: None,
+                        last_activity: None,
+                    });
+                entry.last_seen = event_at;
+                entry.last_activity = Some(event_at);
                 let key = format!("{}::{}", payload.agent_id, payload.tag);
                 self.hub.tasks.insert(key, payload);
             }
-            HubEvent::DiffSummary(payload) => {
+            HubEvent::DiffSummary { payload, event_at } => {
+                let entry = self
+                    .hub
+                    .agents
+                    .entry(payload.agent_id.clone())
+                    .or_insert(HubAgent {
+                        status: None,
+                        last_seen: event_at,
+                        last_heartbeat: None,
+                        last_activity: None,
+                    });
+                entry.last_seen = event_at;
+                entry.last_activity = Some(event_at);
                 self.hub.diffs.insert(payload.agent_id.clone(), payload);
             }
         }
@@ -349,6 +403,52 @@ impl App {
 
     fn set_local(&mut self, local: LocalSnapshot) {
         self.local = local;
+    }
+
+    fn prune_hub_cache(&mut self) {
+        let now = Utc::now();
+        let local_online: HashSet<String> = self
+            .local
+            .overview
+            .iter()
+            .filter(|row| row.online)
+            .map(|row| row.identity_key.clone())
+            .collect();
+        self.hub.agents.retain(|agent_id, agent| {
+            let age = now
+                .signed_duration_since(agent.last_seen)
+                .num_seconds()
+                .max(0);
+            if !local_online.is_empty()
+                && !local_online.contains(agent_id)
+                && age > HUB_LOCAL_MISS_PRUNE_SECS
+            {
+                return false;
+            }
+            let reported_offline = agent
+                .status
+                .as_ref()
+                .map(|status| status.status.eq_ignore_ascii_case("offline"))
+                .unwrap_or(false);
+            if reported_offline {
+                age <= HUB_OFFLINE_GRACE_SECS
+            } else {
+                age <= HUB_PRUNE_SECS
+            }
+        });
+
+        let active_agents: HashSet<String> = self.hub.agents.keys().cloned().collect();
+        self.hub
+            .diffs
+            .retain(|agent_id, _| active_agents.contains(agent_id));
+        self.hub.tasks.retain(|key, payload| {
+            if active_agents.contains(&payload.agent_id) {
+                return true;
+            }
+            key.rsplit_once("::")
+                .map(|(agent_id, _)| active_agents.contains(agent_id))
+                .unwrap_or(false)
+        });
     }
 
     fn mode_source(&self) -> &'static str {
@@ -381,7 +481,7 @@ impl App {
     fn overview_rows(&self) -> Vec<OverviewRow> {
         if self.connected && !self.hub.agents.is_empty() {
             let now = Utc::now();
-            let mut rows = Vec::new();
+            let mut rows: BTreeMap<String, OverviewRow> = BTreeMap::new();
             for (agent_id, agent) in &self.hub.agents {
                 let status = agent.status.as_ref();
                 let pane_id = status
@@ -393,7 +493,7 @@ impl App {
                 let project_root = status
                     .map(|s| s.project_root.clone())
                     .unwrap_or_else(|| "(unknown)".to_string());
-                let age_secs = agent
+                let heartbeat_age_secs = agent
                     .last_heartbeat
                     .map(|dt| now.signed_duration_since(dt).num_seconds().max(0))
                     .or(Some(
@@ -401,23 +501,50 @@ impl App {
                             .num_seconds()
                             .max(0),
                     ));
+                let age_secs = agent
+                    .last_activity
+                    .map(|dt| now.signed_duration_since(dt).num_seconds().max(0))
+                    .or(heartbeat_age_secs);
                 let reported = status
                     .map(|s| s.status.to_ascii_lowercase())
                     .unwrap_or_else(|| "running".to_string());
                 let online = reported != "offline"
-                    && age_secs.unwrap_or(HUB_STALE_SECS + 1) <= HUB_STALE_SECS;
-                rows.push(OverviewRow {
+                    && heartbeat_age_secs.unwrap_or(HUB_STALE_SECS + 1) <= HUB_STALE_SECS;
+                let row = OverviewRow {
                     identity_key: agent_id.clone(),
                     label,
                     pane_id,
                     project_root,
                     online,
                     age_secs,
+                    latest_message: status.and_then(|s| s.message.clone()),
                     source: "hub".to_string(),
-                });
+                };
+                rows.insert(row.identity_key.clone(), row);
             }
-            rows.sort_by(|a, b| a.identity_key.cmp(&b.identity_key));
-            return rows;
+
+            for local in &self.local.overview {
+                if !local.online {
+                    continue;
+                }
+                if let Some(existing) = rows.get_mut(&local.identity_key) {
+                    if existing.project_root == "(unknown)" && local.project_root != "(unknown)" {
+                        existing.project_root = local.project_root.clone();
+                    }
+                    if existing.label.starts_with("pane-") && !local.label.starts_with("pane-") {
+                        existing.label = local.label.clone();
+                    }
+                    if existing.source == "hub" {
+                        existing.source = format!("hub+{}", local.source);
+                    }
+                } else {
+                    let mut row = local.clone();
+                    row.source = format!("local:{}", local.source);
+                    rows.insert(row.identity_key.clone(), row);
+                }
+            }
+
+            return rows.into_values().collect();
         }
         self.local.overview.clone()
     }
@@ -549,6 +676,8 @@ async fn main() -> Result<(), Box<dyn Error>> {
             refresh_requested = false;
         }
 
+        app.prune_hub_cache();
+
         terminal.draw(|frame| render_ui(frame, &app))?;
         tokio::select! {
             _ = ticker.tick() => {
@@ -573,185 +702,808 @@ async fn main() -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
+#[derive(Clone, Copy)]
+struct PulseTheme {
+    bg: Color,
+    surface: Color,
+    border: Color,
+    title: Color,
+    text: Color,
+    muted: Color,
+    accent: Color,
+    ok: Color,
+    warn: Color,
+    critical: Color,
+    info: Color,
+}
+
+#[derive(Default)]
+struct PulseKpis {
+    total_agents: usize,
+    online_agents: usize,
+    in_progress: u32,
+    blocked: u32,
+    dirty_files: u32,
+    churn: u32,
+}
+
+fn pulse_theme() -> PulseTheme {
+    PulseTheme {
+        bg: Color::Rgb(11, 18, 32),
+        surface: Color::Rgb(17, 26, 46),
+        border: Color::Rgb(71, 85, 105),
+        title: Color::Rgb(191, 219, 254),
+        text: Color::Rgb(226, 232, 240),
+        muted: Color::Rgb(148, 163, 184),
+        accent: Color::Rgb(56, 189, 248),
+        ok: Color::Rgb(34, 197, 94),
+        warn: Color::Rgb(245, 158, 11),
+        critical: Color::Rgb(239, 68, 68),
+        info: Color::Rgb(59, 130, 246),
+    }
+}
+
 fn render_ui(frame: &mut ratatui::Frame, app: &App) {
     let size = frame.size();
+    let theme = pulse_theme();
     let layout = Layout::default()
         .direction(Direction::Vertical)
-        .constraints([Constraint::Length(3), Constraint::Min(0)])
+        .constraints([
+            Constraint::Length(4),
+            Constraint::Length(3),
+            Constraint::Min(0),
+        ])
         .split(size);
-    frame.render_widget(render_header(app), layout[0]);
-    frame.render_widget(render_body(app), layout[1]);
+    frame.render_widget(render_header(app, theme, size.width), layout[0]);
+    frame.render_widget(render_kpis(app, theme, size.width), layout[1]);
+    frame.render_widget(render_body(app, theme, size.width), layout[2]);
 }
 
-fn render_header(app: &App) -> Paragraph<'static> {
-    let hub = if app.connected {
-        "connected"
-    } else {
-        "offline"
-    };
+fn render_header(app: &App, theme: PulseTheme, width: u16) -> Paragraph<'static> {
+    let compact = is_compact(width);
+    let kpis = compute_kpis(app);
     let source = app.mode_source();
-    let line = Line::from(format!(
-		"AOC Pulse | mode={} | source={} | hub={} | session={} | 1-4 switch  Tab cycle  j/k scroll  r refresh  q quit",
-		app.mode.title(),
-		source,
-		hub,
-		app.config.session_id
-	));
-    Paragraph::new(line).block(Block::default().borders(Borders::ALL).title("Status"))
-}
-
-fn render_body(app: &App) -> Paragraph<'static> {
-    let lines = match app.mode {
-        Mode::Overview => render_overview_lines(app),
-        Mode::Work => render_work_lines(app),
-        Mode::Diff => render_diff_lines(app),
-        Mode::Health => render_health_lines(app),
+    let hub = if app.connected { "online" } else { "offline" };
+    let session = ellipsize(&app.config.session_id, if compact { 14 } else { 28 });
+    let hub_bg = if app.connected {
+        theme.ok
+    } else {
+        theme.critical
     };
-    Paragraph::new(Text::from(lines))
+    let source_bg = if source == "hub" {
+        theme.info
+    } else {
+        theme.warn
+    };
+    let mode_bg = match app.mode {
+        Mode::Overview => theme.info,
+        Mode::Work => theme.accent,
+        Mode::Diff => theme.warn,
+        Mode::Health => theme.ok,
+    };
+
+    let mut spans = vec![
+        Span::styled(
+            " AOC Pulse ",
+            Style::default()
+                .fg(theme.title)
+                .bg(theme.surface)
+                .add_modifier(Modifier::BOLD),
+        ),
+        Span::raw(" "),
+        chip("mode", &app.mode.title().to_ascii_lowercase(), mode_bg),
+        Span::raw(" "),
+        chip("hub", hub, hub_bg),
+        Span::raw(" "),
+        chip("src", source, source_bg),
+        Span::raw(" "),
+        chip(
+            "agents",
+            &format!("{}/{}", kpis.online_agents, kpis.total_agents),
+            if kpis.online_agents == kpis.total_agents && kpis.total_agents > 0 {
+                theme.ok
+            } else if kpis.online_agents == 0 {
+                theme.critical
+            } else {
+                theme.warn
+            },
+        ),
+        Span::raw(" "),
+        Span::styled(
+            format!("session:{session}"),
+            Style::default().fg(theme.muted),
+        ),
+    ];
+    if !compact {
+        spans.push(Span::raw("  "));
+        spans.push(Span::styled(
+            "1-4 Tab j/k r q",
+            Style::default().fg(theme.muted),
+        ));
+    }
+
+    Paragraph::new(Line::from(spans))
+        .style(Style::default().fg(theme.text).bg(theme.bg))
         .block(
             Block::default()
                 .borders(Borders::ALL)
-                .title(format!("{}", app.mode.title())),
+                .border_style(Style::default().fg(theme.border))
+                .style(Style::default().bg(theme.bg))
+                .title(Span::styled(
+                    "Status",
+                    Style::default()
+                        .fg(theme.title)
+                        .add_modifier(Modifier::BOLD),
+                )),
+        )
+}
+
+fn render_kpis(app: &App, theme: PulseTheme, width: u16) -> Paragraph<'static> {
+    let compact = is_compact(width);
+    let kpis = compute_kpis(app);
+
+    let mut spans = vec![
+        metric_chip(
+            "online",
+            format!("{}/{}", kpis.online_agents, kpis.total_agents),
+            if kpis.online_agents == kpis.total_agents && kpis.total_agents > 0 {
+                theme.ok
+            } else if kpis.online_agents == 0 {
+                theme.critical
+            } else {
+                theme.warn
+            },
+        ),
+        Span::raw(" "),
+        metric_chip(
+            "in-progress",
+            kpis.in_progress.to_string(),
+            if kpis.in_progress > 0 {
+                theme.info
+            } else {
+                theme.muted
+            },
+        ),
+        Span::raw(" "),
+        metric_chip(
+            "dirty",
+            kpis.dirty_files.to_string(),
+            if kpis.dirty_files > 0 {
+                theme.warn
+            } else {
+                theme.ok
+            },
+        ),
+        Span::raw(" "),
+        metric_chip(
+            "blocked",
+            kpis.blocked.to_string(),
+            if kpis.blocked > 0 {
+                theme.critical
+            } else {
+                theme.ok
+            },
+        ),
+    ];
+    if !compact {
+        spans.push(Span::raw(" "));
+        spans.push(metric_chip(
+            "churn",
+            kpis.churn.to_string(),
+            if kpis.churn > 180 {
+                theme.critical
+            } else if kpis.churn > 60 {
+                theme.warn
+            } else {
+                theme.info
+            },
+        ));
+    }
+
+    Paragraph::new(Line::from(spans))
+        .style(Style::default().fg(theme.text).bg(theme.surface))
+        .block(
+            Block::default()
+                .borders(Borders::ALL)
+                .border_style(Style::default().fg(theme.border))
+                .style(Style::default().bg(theme.surface))
+                .title(Span::styled(
+                    "Pulse",
+                    Style::default()
+                        .fg(theme.title)
+                        .add_modifier(Modifier::BOLD),
+                )),
+        )
+}
+
+fn render_body(app: &App, theme: PulseTheme, width: u16) -> Paragraph<'static> {
+    let compact = is_compact(width);
+    let lines = match app.mode {
+        Mode::Overview => render_overview_lines(app, theme, compact),
+        Mode::Work => render_work_lines(app, theme, compact),
+        Mode::Diff => render_diff_lines(app, theme, compact),
+        Mode::Health => render_health_lines(app, theme, compact),
+    };
+    Paragraph::new(Text::from(lines))
+        .style(Style::default().fg(theme.text).bg(theme.surface))
+        .block(
+            Block::default()
+                .borders(Borders::ALL)
+                .border_style(Style::default().fg(theme.border))
+                .style(Style::default().bg(theme.surface))
+                .title(Span::styled(
+                    app.mode.title(),
+                    Style::default()
+                        .fg(theme.title)
+                        .add_modifier(Modifier::BOLD),
+                )),
         )
         .wrap(Wrap { trim: false })
         .scroll((app.scroll, 0))
 }
 
-fn render_overview_lines(app: &App) -> Vec<Line<'static>> {
+fn render_overview_lines(app: &App, theme: PulseTheme, compact: bool) -> Vec<Line<'static>> {
     let rows = app.overview_rows();
     if rows.is_empty() {
-        return vec![Line::from("No active panes detected for this session.")];
+        return vec![Line::from(Span::styled(
+            "No active panes detected for this session.",
+            Style::default().fg(theme.muted),
+        ))];
     }
     let mut lines = Vec::new();
-    lines.push(Line::from("Agents/panes in current session:"));
     for row in rows {
-        let status = if row.online { "online" } else { "offline" };
-        let age = row
-            .age_secs
-            .map(|v| format!("{}s", v))
-            .unwrap_or_else(|| "n/a".to_string());
-        lines.push(Line::from(format!(
-            "- [{}] label={} pane={} age={} src={} key={} root={}",
-            status, row.label, row.pane_id, age, row.source, row.identity_key, row.project_root
-        )));
-    }
-    lines
-}
-
-fn render_work_lines(app: &App) -> Vec<Line<'static>> {
-    let projects = app.work_rows();
-    if projects.is_empty() {
-        return vec![Line::from("No task data available.")];
-    }
-    let mut lines = Vec::new();
-    for project in projects {
-        lines.push(Line::from(format!(
-            "Project: {}  Scope: {}",
-            project.project_root, project.scope
-        )));
-        for tag in project.tags {
-            lines.push(Line::from(format!(
-                "  - tag={} total={} pending={} in_progress={} done={} blocked={}",
-                tag.tag,
-                tag.counts.total,
-                tag.counts.pending,
-                tag.counts.in_progress,
-                tag.counts.done,
-                tag.counts.blocked
-            )));
-            if !tag.in_progress_titles.is_empty() {
-                for item in tag.in_progress_titles.iter().take(3) {
-                    lines.push(Line::from(format!("      * {}", item)));
+        let status_color = if row.online { theme.ok } else { theme.critical };
+        let age_color = age_color(row.age_secs, row.online, theme);
+        let pane = ellipsize(&row.pane_id, 8);
+        let label = ellipsize(&row.label, if compact { 16 } else { 24 });
+        let source_color = if row.source == "hub" {
+            theme.info
+        } else {
+            theme.warn
+        };
+        lines.push(Line::from(vec![
+            Span::styled(
+                "*",
+                Style::default()
+                    .fg(status_color)
+                    .add_modifier(Modifier::BOLD),
+            ),
+            Span::raw(" "),
+            Span::styled(
+                label,
+                Style::default().fg(theme.text).add_modifier(Modifier::BOLD),
+            ),
+            Span::raw(" "),
+            Span::styled(format!("({pane})"), Style::default().fg(theme.muted)),
+            Span::raw(" "),
+            Span::styled(
+                format!(
+                    "{} act:{}",
+                    age_meter(row.age_secs, row.online),
+                    format_age(row.age_secs)
+                ),
+                Style::default().fg(age_color),
+            ),
+            Span::raw(" "),
+            Span::styled(
+                format!("[{}]", row.source),
+                Style::default().fg(source_color),
+            ),
+        ]));
+        if !compact {
+            lines.push(Line::from(vec![
+                Span::raw("  "),
+                Span::styled(
+                    format!(
+                        "root={} key={}",
+                        ellipsize(&row.project_root, 56),
+                        ellipsize(&row.identity_key, 26)
+                    ),
+                    Style::default().fg(theme.muted),
+                ),
+            ]));
+            if let Some(message) = row.latest_message.as_deref() {
+                let message = message.trim();
+                if !message.is_empty() {
+                    lines.push(Line::from(vec![
+                        Span::raw("  "),
+                        Span::styled(
+                            format!("msg={} ", ellipsize(message, 72)),
+                            Style::default().fg(theme.info),
+                        ),
+                    ]));
                 }
             }
         }
-        lines.push(Line::from(""));
     }
     lines
 }
 
-fn render_diff_lines(app: &App) -> Vec<Line<'static>> {
-    let projects = app.diff_rows();
+fn render_work_lines(app: &App, theme: PulseTheme, compact: bool) -> Vec<Line<'static>> {
+    let projects = app.work_rows();
     if projects.is_empty() {
-        return vec![Line::from("No diff data available.")];
+        return vec![Line::from(Span::styled(
+            "No task data available.",
+            Style::default().fg(theme.muted),
+        ))];
     }
     let mut lines = Vec::new();
     for project in projects {
-        lines.push(Line::from(format!(
-            "Project: {}  Scope: {}",
-            project.project_root, project.scope
-        )));
-        if !project.git_available {
-            lines.push(Line::from(format!(
-                "  - diff unavailable: {}",
-                project.reason.unwrap_or_else(|| "unknown".to_string())
-            )));
+        lines.push(Line::from(vec![
+            Span::styled(
+                format!("Project {}", short_project(&project.project_root, 28)),
+                Style::default()
+                    .fg(theme.accent)
+                    .add_modifier(Modifier::BOLD),
+            ),
+            Span::raw(" "),
+            Span::styled(
+                format!("[{}]", project.scope),
+                Style::default().fg(theme.muted),
+            ),
+        ]));
+        for tag in project.tags {
+            let mut spans = vec![
+                Span::raw("  "),
+                Span::styled(
+                    format!("{}", ellipsize(&tag.tag, 18)),
+                    Style::default().fg(theme.info).add_modifier(Modifier::BOLD),
+                ),
+                Span::raw(" "),
+            ];
+            spans.extend(task_bar_spans(
+                &tag.counts,
+                if compact { 12 } else { 18 },
+                theme,
+            ));
+            spans.push(Span::raw(" "));
+            spans.push(Span::styled(
+                format!("ip:{}", tag.counts.in_progress),
+                Style::default().fg(if tag.counts.in_progress > 0 {
+                    theme.info
+                } else {
+                    theme.muted
+                }),
+            ));
+            spans.push(Span::raw(" "));
+            spans.push(Span::styled(
+                format!("blk:{}", tag.counts.blocked),
+                Style::default().fg(if tag.counts.blocked > 0 {
+                    theme.critical
+                } else {
+                    theme.muted
+                }),
+            ));
+            lines.push(Line::from(spans));
+            if let Some(item) = tag.in_progress_titles.first() {
+                lines.push(Line::from(vec![
+                    Span::raw("    -> "),
+                    Span::styled(
+                        ellipsize(item, if compact { 40 } else { 72 }),
+                        Style::default().fg(theme.muted),
+                    ),
+                ]));
+            }
+        }
+        if !compact {
             lines.push(Line::from(""));
-            continue;
         }
-        lines.push(Line::from(format!(
-            "  - staged: files={} +{} -{}",
-            project.summary.staged.files,
-            project.summary.staged.additions,
-            project.summary.staged.deletions
-        )));
-        lines.push(Line::from(format!(
-            "  - unstaged: files={} +{} -{}",
-            project.summary.unstaged.files,
-            project.summary.unstaged.additions,
-            project.summary.unstaged.deletions
-        )));
-        lines.push(Line::from(format!(
-            "  - untracked: files={}",
-            project.summary.untracked.files
-        )));
-        for file in project.files.iter().take(MAX_DIFF_FILES) {
-            lines.push(Line::from(format!(
-                "      * {} +{} -{} {}",
-                short_status(&file.status),
-                file.additions,
-                file.deletions,
-                file.path
-            )));
-        }
-        lines.push(Line::from(""));
     }
     lines
 }
 
-fn render_health_lines(app: &App) -> Vec<Line<'static>> {
-    let mut lines = Vec::new();
-    lines.push(Line::from(format!(
-        "Hub connection: {}",
-        if app.connected {
-            "available"
-        } else {
-            "unreachable (local fallback active)"
-        }
-    )));
-    lines.push(Line::from(format!(
-        "Taskmaster data: {}",
-        app.local.health.taskmaster_status
-    )));
-    lines.push(Line::from("Dependencies:"));
-    for dep in &app.local.health.dependencies {
-        let status = if dep.available { "ok" } else { "missing" };
-        let detail = dep.path.clone().unwrap_or_else(|| "not found".to_string());
-        lines.push(Line::from(format!(
-            "  - {}: {} ({})",
-            dep.name, status, detail
-        )));
+fn render_diff_lines(app: &App, theme: PulseTheme, compact: bool) -> Vec<Line<'static>> {
+    let projects = app.diff_rows();
+    if projects.is_empty() {
+        return vec![Line::from(Span::styled(
+            "No diff data available.",
+            Style::default().fg(theme.muted),
+        ))];
     }
-    lines.push(Line::from("Checks (if available):"));
-    for check in &app.local.health.checks {
-        let ts = check.timestamp.clone().unwrap_or_else(|| "n/a".to_string());
-        let details = check.details.clone().unwrap_or_else(|| "".to_string());
-        lines.push(Line::from(format!(
-            "  - {}: {} at {} {}",
-            check.name, check.status, ts, details
-        )));
+    let mut lines = Vec::new();
+    for project in projects {
+        lines.push(Line::from(vec![
+            Span::styled(
+                format!("Repo {}", short_project(&project.project_root, 28)),
+                Style::default()
+                    .fg(theme.accent)
+                    .add_modifier(Modifier::BOLD),
+            ),
+            Span::raw(" "),
+            Span::styled(
+                format!("[{}]", project.scope),
+                Style::default().fg(theme.muted),
+            ),
+        ]));
+        if !project.git_available {
+            lines.push(Line::from(vec![
+                Span::raw("  "),
+                Span::styled(
+                    format!(
+                        "diff unavailable: {}",
+                        project.reason.unwrap_or_else(|| "unknown".to_string())
+                    ),
+                    Style::default().fg(theme.critical),
+                ),
+            ]));
+            if !compact {
+                lines.push(Line::from(""));
+            }
+            continue;
+        }
+        let dirty = project.summary.staged.files
+            + project.summary.unstaged.files
+            + project.summary.untracked.files;
+        let churn = project.summary.staged.additions
+            + project.summary.staged.deletions
+            + project.summary.unstaged.additions
+            + project.summary.unstaged.deletions;
+        let (risk_label, risk_color) = if churn > 200 || dirty > 24 {
+            ("risk:high", theme.critical)
+        } else if churn > 80 || dirty > 10 {
+            ("risk:med", theme.warn)
+        } else {
+            ("risk:low", theme.ok)
+        };
+        lines.push(Line::from(vec![
+            Span::raw("  "),
+            Span::styled(
+                risk_label,
+                Style::default().fg(risk_color).add_modifier(Modifier::BOLD),
+            ),
+            Span::raw("  "),
+            Span::styled(
+                format!("stg:{}", project.summary.staged.files),
+                Style::default().fg(theme.info),
+            ),
+            Span::raw(" "),
+            Span::styled(
+                format!("uns:{}", project.summary.unstaged.files),
+                Style::default().fg(theme.warn),
+            ),
+            Span::raw(" "),
+            Span::styled(
+                format!("new:{}", project.summary.untracked.files),
+                Style::default().fg(theme.accent),
+            ),
+            Span::raw(" "),
+            Span::styled(format!("churn:{}", churn), Style::default().fg(theme.muted)),
+        ]));
+        let file_limit = if compact { 4 } else { MAX_DIFF_FILES };
+        for file in project.files.iter().take(file_limit) {
+            lines.push(Line::from(vec![
+                Span::raw("    "),
+                Span::styled(
+                    format!("{}", short_status(&file.status)),
+                    Style::default()
+                        .fg(diff_status_color(&file.status, theme))
+                        .add_modifier(Modifier::BOLD),
+                ),
+                Span::raw(" "),
+                Span::styled(
+                    format!("+{}", file.additions),
+                    Style::default().fg(theme.ok),
+                ),
+                Span::raw(" "),
+                Span::styled(
+                    format!("-{}", file.deletions),
+                    Style::default().fg(theme.critical),
+                ),
+                Span::raw(" "),
+                Span::styled(
+                    ellipsize(&file.path, if compact { 44 } else { 84 }),
+                    Style::default().fg(theme.text),
+                ),
+            ]));
+        }
+        if !compact {
+            lines.push(Line::from(""));
+        }
     }
     lines
+}
+
+fn render_health_lines(app: &App, theme: PulseTheme, compact: bool) -> Vec<Line<'static>> {
+    let mut lines = Vec::new();
+    lines.push(Line::from(vec![
+        Span::styled(
+            "Hub",
+            Style::default()
+                .fg(theme.title)
+                .add_modifier(Modifier::BOLD),
+        ),
+        Span::raw(" "),
+        Span::styled(
+            if app.connected {
+                "connected"
+            } else {
+                "offline (fallback active)"
+            },
+            Style::default().fg(if app.connected {
+                theme.ok
+            } else {
+                theme.critical
+            }),
+        ),
+    ]));
+    lines.push(Line::from(vec![
+        Span::styled("Taskmaster ", Style::default().fg(theme.title)),
+        Span::styled(
+            ellipsize(
+                &app.local.health.taskmaster_status,
+                if compact { 38 } else { 80 },
+            ),
+            Style::default().fg(
+                if app.local.health.taskmaster_status.contains("available") {
+                    theme.ok
+                } else {
+                    theme.warn
+                },
+            ),
+        ),
+    ]));
+    lines.push(Line::from(Span::styled(
+        "Dependencies",
+        Style::default()
+            .fg(theme.accent)
+            .add_modifier(Modifier::BOLD),
+    )));
+    for dep in &app.local.health.dependencies {
+        lines.push(Line::from(vec![
+            Span::raw("  "),
+            Span::styled(
+                "*",
+                Style::default().fg(if dep.available {
+                    theme.ok
+                } else {
+                    theme.critical
+                }),
+            ),
+            Span::raw(" "),
+            Span::styled(dep.name.clone(), Style::default().fg(theme.text)),
+            Span::raw(" "),
+            Span::styled(
+                if dep.available { "ok" } else { "missing" },
+                Style::default().fg(if dep.available {
+                    theme.ok
+                } else {
+                    theme.critical
+                }),
+            ),
+            Span::raw(" "),
+            Span::styled(
+                format!(
+                    "({})",
+                    dep.path.clone().unwrap_or_else(|| "not found".to_string())
+                ),
+                Style::default().fg(theme.muted),
+            ),
+        ]));
+    }
+    lines.push(Line::from(Span::styled(
+        "Checks",
+        Style::default()
+            .fg(theme.accent)
+            .add_modifier(Modifier::BOLD),
+    )));
+    for check in &app.local.health.checks {
+        lines.push(Line::from(vec![
+            Span::raw("  "),
+            Span::styled(
+                check.name.clone(),
+                Style::default().fg(theme.text).add_modifier(Modifier::BOLD),
+            ),
+            Span::raw(" "),
+            Span::styled(
+                check.status.clone(),
+                Style::default().fg(check_status_color(&check.status, theme)),
+            ),
+            Span::raw(" "),
+            Span::styled(
+                check.timestamp.clone().unwrap_or_else(|| "n/a".to_string()),
+                Style::default().fg(theme.muted),
+            ),
+            Span::raw(" "),
+            Span::styled(
+                ellipsize(
+                    check.details.as_deref().unwrap_or(""),
+                    if compact { 24 } else { 64 },
+                ),
+                Style::default().fg(theme.muted),
+            ),
+        ]));
+    }
+    lines
+}
+
+fn compute_kpis(app: &App) -> PulseKpis {
+    let overview = app.overview_rows();
+    let work = app.work_rows();
+    let diff = app.diff_rows();
+
+    let total_agents = overview.len();
+    let online_agents = overview.iter().filter(|row| row.online).count();
+
+    let mut in_progress = 0;
+    let mut blocked = 0;
+    for project in work {
+        for tag in project.tags {
+            in_progress += tag.counts.in_progress;
+            blocked += tag.counts.blocked;
+        }
+    }
+
+    let mut dirty_files = 0;
+    let mut churn = 0;
+    for project in diff {
+        if !project.git_available {
+            continue;
+        }
+        dirty_files += project.summary.staged.files
+            + project.summary.unstaged.files
+            + project.summary.untracked.files;
+        churn += project.summary.staged.additions
+            + project.summary.staged.deletions
+            + project.summary.unstaged.additions
+            + project.summary.unstaged.deletions;
+    }
+
+    PulseKpis {
+        total_agents,
+        online_agents,
+        in_progress,
+        blocked,
+        dirty_files,
+        churn,
+    }
+}
+
+fn task_bar_spans(counts: &TaskCounts, width: usize, theme: PulseTheme) -> Vec<Span<'static>> {
+    let width = width.max(6);
+    let total = counts.total.max(1) as usize;
+    let done_w = (counts.done as usize * width) / total;
+    let in_progress_w = (counts.in_progress as usize * width) / total;
+    let mut blocked_w = (counts.blocked as usize * width) / total;
+    if done_w + in_progress_w + blocked_w > width {
+        blocked_w = blocked_w.saturating_sub((done_w + in_progress_w + blocked_w) - width);
+    }
+    let used = done_w + in_progress_w + blocked_w;
+    let pending_w = width.saturating_sub(used);
+
+    let mut spans = vec![Span::styled("[", Style::default().fg(theme.muted))];
+    if done_w > 0 {
+        spans.push(Span::styled(
+            "#".repeat(done_w),
+            Style::default().fg(theme.ok),
+        ));
+    }
+    if in_progress_w > 0 {
+        spans.push(Span::styled(
+            "=".repeat(in_progress_w),
+            Style::default().fg(theme.info),
+        ));
+    }
+    if blocked_w > 0 {
+        spans.push(Span::styled(
+            "!".repeat(blocked_w),
+            Style::default().fg(theme.critical),
+        ));
+    }
+    if pending_w > 0 {
+        spans.push(Span::styled(
+            "-".repeat(pending_w),
+            Style::default().fg(theme.muted),
+        ));
+    }
+    spans.push(Span::styled("]", Style::default().fg(theme.muted)));
+    spans
+}
+
+fn metric_chip(label: &str, value: String, bg: Color) -> Span<'static> {
+    Span::styled(
+        format!(" {label}:{value} "),
+        Style::default()
+            .fg(chip_fg(bg))
+            .bg(bg)
+            .add_modifier(Modifier::BOLD),
+    )
+}
+
+fn chip(label: &str, value: &str, bg: Color) -> Span<'static> {
+    Span::styled(
+        format!(" {label}:{value} "),
+        Style::default()
+            .fg(chip_fg(bg))
+            .bg(bg)
+            .add_modifier(Modifier::BOLD),
+    )
+}
+
+fn chip_fg(bg: Color) -> Color {
+    match bg {
+        Color::Yellow | Color::LightYellow | Color::White | Color::Gray => Color::Black,
+        Color::Rgb(r, g, b) => {
+            let luma = ((r as u32) * 299 + (g as u32) * 587 + (b as u32) * 114) / 1000;
+            if luma >= 150 {
+                Color::Black
+            } else {
+                Color::White
+            }
+        }
+        _ => Color::White,
+    }
+}
+
+fn diff_status_color(status: &str, theme: PulseTheme) -> Color {
+    match status {
+        "added" => theme.ok,
+        "deleted" => theme.critical,
+        "renamed" => theme.accent,
+        "untracked" => theme.info,
+        _ => theme.warn,
+    }
+}
+
+fn check_status_color(status: &str, theme: PulseTheme) -> Color {
+    match status.to_ascii_lowercase().as_str() {
+        "ok" | "pass" | "passed" | "success" | "done" => theme.ok,
+        "fail" | "failed" | "error" => theme.critical,
+        "unknown" => theme.muted,
+        _ => theme.warn,
+    }
+}
+
+fn format_age(age: Option<i64>) -> String {
+    age.map(|value| format!("{value}s"))
+        .unwrap_or_else(|| "n/a".to_string())
+}
+
+fn age_meter(age: Option<i64>, online: bool) -> &'static str {
+    if !online {
+        return "!!!!!";
+    }
+    match age {
+        Some(secs) if secs <= 8 => "|||||",
+        Some(secs) if secs <= 20 => "||||.",
+        Some(secs) if secs <= HUB_STALE_SECS => "|||..",
+        Some(_) => "!!...",
+        None => ".....",
+    }
+}
+
+fn age_color(age: Option<i64>, online: bool, theme: PulseTheme) -> Color {
+    if !online {
+        return theme.critical;
+    }
+    match age {
+        Some(secs) if secs <= 20 => theme.ok,
+        Some(secs) if secs <= HUB_STALE_SECS => theme.warn,
+        Some(_) => theme.critical,
+        None => theme.muted,
+    }
+}
+
+fn short_project(project_root: &str, max: usize) -> String {
+    let leaf = Path::new(project_root)
+        .file_name()
+        .and_then(|value| value.to_str())
+        .unwrap_or(project_root);
+    ellipsize(leaf, max)
+}
+
+fn ellipsize(input: &str, max: usize) -> String {
+    if input.chars().count() <= max {
+        return input.to_string();
+    }
+    if max <= 3 {
+        return "...".chars().take(max).collect();
+    }
+    let prefix: String = input.chars().take(max - 3).collect();
+    format!("{prefix}...")
+}
+
+fn is_compact(width: u16) -> bool {
+    width < COMPACT_WIDTH
 }
 
 fn handle_input(event: Event, app: &mut App, refresh_requested: &mut bool) -> bool {
@@ -856,19 +1608,23 @@ fn parse_hub_event(config: &Config, text: &str) -> Option<HubEvent> {
     if envelope.session_id != config.session_id {
         return None;
     }
+    let event_at = DateTime::parse_from_rfc3339(&envelope.timestamp)
+        .ok()
+        .map(|dt| dt.with_timezone(&Utc))
+        .unwrap_or_else(Utc::now);
     match envelope.r#type.as_str() {
         "agent_status" => serde_json::from_value(envelope.payload)
             .ok()
-            .map(HubEvent::AgentStatus),
+            .map(|payload| HubEvent::AgentStatus { payload, event_at }),
         "heartbeat" => serde_json::from_value(envelope.payload)
             .ok()
-            .map(HubEvent::Heartbeat),
+            .map(|payload| HubEvent::Heartbeat { payload, event_at }),
         "task_summary" => serde_json::from_value(envelope.payload)
             .ok()
-            .map(HubEvent::TaskSummary),
+            .map(|payload| HubEvent::TaskSummary { payload, event_at }),
         "diff_summary" => serde_json::from_value(envelope.payload)
             .ok()
-            .map(HubEvent::DiffSummary),
+            .map(|payload| HubEvent::DiffSummary { payload, event_at }),
         _ => None,
     }
 }
@@ -959,6 +1715,7 @@ fn collect_runtime_overview(config: &Config) -> Vec<OverviewRow> {
                 project_root: snapshot.project_root,
                 online,
                 age_secs: heartbeat_age,
+                latest_message: None,
                 source: "runtime".to_string(),
             },
         );
@@ -1016,6 +1773,7 @@ fn collect_proc_overview(config: &Config) -> Vec<OverviewRow> {
             project_root,
             online: true,
             age_secs: None,
+            latest_message: None,
             source: "proc".to_string(),
         });
     }
