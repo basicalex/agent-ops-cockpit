@@ -857,6 +857,16 @@ for pid, info in processes.items():
         env = proc_env(pid)
         session_name = env.get("AOC_SESSION_ID") or env.get("ZELLIJ_SESSION_NAME") or env.get("ZELLIJ_SESSION") or ""
         pane_id = env.get("AOC_PANE_ID") or env.get("ZELLIJ_PANE_ID") or ""
+        pane_instance_id = env.get("AOC_PANE_INSTANCE_ID") or ""
+        pane_lease_file = env.get("AOC_PANE_LEASE_FILE") or ""
+        pane_instance_match = True
+        if pane_instance_id and pane_lease_file:
+            try:
+                with open(pane_lease_file, "r", encoding="utf-8") as fh:
+                    lease_owner = fh.readline().strip()
+                pane_instance_match = (lease_owner == pane_instance_id)
+            except Exception:
+                pane_instance_match = False
         tty = info.get("tty", "")
         has_tty = bool(tty and tty != "?")
         agent_candidates.append({
@@ -869,6 +879,9 @@ for pid, info in processes.items():
             "kind": kind,
             "session": session_name,
             "pane_id": pane_id,
+            "pane_instance_id": pane_instance_id,
+            "pane_lease_file": pane_lease_file,
+            "pane_instance_match": pane_instance_match,
             "tty": tty,
             "has_tty": has_tty,
         })
@@ -984,6 +997,9 @@ for proc in agent_candidates:
     args = proc["args"]
     proc_session = proc.get("session") or ""
     if session_filter is not None and proc_session and proc_session not in active_sessions:
+        continue
+    if proc.get("pane_instance_id") and not proc.get("pane_instance_match", True):
+        kill_list.append((pid, args))
         continue
     if proc_matches_active_pane(proc, active_panes_by_session):
         continue
