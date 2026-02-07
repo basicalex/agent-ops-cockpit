@@ -25,6 +25,8 @@ use tokio::sync::{mpsc, Mutex as AsyncMutex, RwLock};
 use tracing::{debug, error, info, warn};
 use tracing_subscriber::{fmt::writer::BoxMakeWriter, EnvFilter};
 
+mod pulse_uds;
+
 const PROTOCOL_VERSION: &str = "1";
 const MAX_ENVELOPE_BYTES: usize = 256 * 1024;
 const MAX_PATCH_BYTES: usize = 1024 * 1024;
@@ -34,6 +36,8 @@ const MAX_FILES_LIST: usize = 500;
 struct Config {
     addr: String,
     session_id: String,
+    pulse_socket_path: PathBuf,
+    pulse_queue_capacity: usize,
     debug: bool,
     stale_seconds: u64,
     ping_interval: Duration,
@@ -48,6 +52,10 @@ struct Args {
     addr: String,
     #[arg(long, default_value = "")]
     session: String,
+    #[arg(long, default_value = "")]
+    pulse_socket_path: String,
+    #[arg(long, default_value_t = 256)]
+    pulse_queue_capacity: usize,
     #[arg(long, default_value_t = false)]
     debug: bool,
     #[arg(long, default_value_t = 30)]
@@ -940,19 +948,48 @@ async fn main() {
         }
     };
 
-    info!(event = "hub_start", session_id = %config.session_id, addr = %config.addr);
+    let pulse_cfg = pulse_uds::PulseUdsConfig {
+        session_id: config.session_id.clone(),
+        socket_path: config.pulse_socket_path.clone(),
+        stale_after: if config.stale_seconds == 0 {
+            None
+        } else {
+            Some(Duration::from_secs(config.stale_seconds))
+        },
+        write_timeout: config.write_timeout,
+        queue_capacity: config.pulse_queue_capacity,
+    };
+    let (shutdown_tx, shutdown_rx) = tokio::sync::watch::channel(false);
+    let pulse_task = tokio::spawn(pulse_uds::run(pulse_cfg, shutdown_rx));
 
-    let shutdown = async {
+    info!(
+        event = "hub_start",
+        session_id = %config.session_id,
+        addr = %config.addr,
+        pulse_socket = %config.pulse_socket_path.display()
+    );
+
+    let shutdown_sender = shutdown_tx.clone();
+    let shutdown = async move {
         let _ = tokio::signal::ctrl_c().await;
+        let _ = shutdown_sender.send(true);
     };
 
-    if let Err(err) = axum::serve(
+    let serve_result = axum::serve(
         listener,
         app.into_make_service_with_connect_info::<SocketAddr>(),
     )
     .with_graceful_shutdown(shutdown)
-    .await
-    {
+    .await;
+
+    let _ = shutdown_tx.send(true);
+    match pulse_task.await {
+        Ok(Ok(())) => {}
+        Ok(Err(err)) => warn!(event = "pulse_uds_error", error = %err),
+        Err(err) => warn!(event = "pulse_uds_join_error", error = %err),
+    }
+
+    if let Err(err) = serve_result {
         error!(event = "hub_error", error = %err);
     }
 }
@@ -977,11 +1014,14 @@ fn load_config() -> Config {
         session_id = resolve_session_id();
     }
     let addr = resolve_addr(&session_id, &args.addr);
+    let pulse_socket_path = resolve_pulse_socket_path(&session_id, &args.pulse_socket_path);
     let debug = args.debug || env_true("AOC_HUB_DEBUG");
     let log_dir = resolve_log_dir(&args.log_dir);
     Config {
         addr,
         session_id,
+        pulse_socket_path,
+        pulse_queue_capacity: args.pulse_queue_capacity.max(8),
         debug,
         stale_seconds: args.stale_seconds,
         ping_interval: Duration::from_secs(args.ping_interval),
@@ -1123,6 +1163,70 @@ fn resolve_addr(session_id: &str, addr_flag: &str) -> String {
         }
     }
     default_hub_addr(session_id)
+}
+
+fn resolve_pulse_socket_path(session_id: &str, path_flag: &str) -> PathBuf {
+    if !path_flag.trim().is_empty() {
+        return PathBuf::from(path_flag);
+    }
+    if let Ok(value) = std::env::var("AOC_PULSE_SOCK") {
+        if !value.trim().is_empty() {
+            return PathBuf::from(value);
+        }
+    }
+
+    let runtime_dir = if let Ok(value) = std::env::var("XDG_RUNTIME_DIR") {
+        if !value.trim().is_empty() {
+            PathBuf::from(value)
+        } else {
+            PathBuf::from("/tmp")
+        }
+    } else if let Ok(uid) = std::env::var("UID") {
+        PathBuf::from(format!("/run/user/{uid}"))
+    } else {
+        PathBuf::from("/tmp")
+    };
+
+    runtime_dir
+        .join("aoc")
+        .join(session_slug(session_id))
+        .join("pulse.sock")
+}
+
+fn session_slug(session_id: &str) -> String {
+    let mut slug = String::with_capacity(session_id.len());
+    for ch in session_id.chars() {
+        if ch.is_ascii_alphanumeric() || ch == '-' || ch == '_' || ch == '.' {
+            slug.push(ch);
+        } else {
+            slug.push('-');
+        }
+    }
+    while slug.contains("--") {
+        slug = slug.replace("--", "-");
+    }
+    let slug = slug.trim_matches('-').to_string();
+    let base = if slug.is_empty() {
+        "session".to_string()
+    } else {
+        slug
+    };
+    let hash = stable_hash_hex(session_id);
+    let short = if base.len() > 48 {
+        &base[..48]
+    } else {
+        base.as_str()
+    };
+    format!("{short}-{hash}")
+}
+
+fn stable_hash_hex(input: &str) -> String {
+    let mut hash: u32 = 2166136261;
+    for byte in input.as_bytes() {
+        hash ^= *byte as u32;
+        hash = hash.wrapping_mul(16777619);
+    }
+    format!("{hash:08x}")
 }
 
 fn resolve_log_dir(log_dir_flag: &str) -> String {
