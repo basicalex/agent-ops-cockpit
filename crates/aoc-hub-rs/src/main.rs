@@ -278,14 +278,31 @@ impl HubState {
         client.close(reason).await;
         self.clients.write().await.remove(&client.conn_id);
         self.subscribers.write().await.remove(&client.conn_id);
+        let mut offline_event: Option<Vec<u8>> = None;
+        let mut prune_agent_state = false;
         if !client.agent_id.is_empty() {
             let mut pubs = self.publishers_by_agent.write().await;
             if let Some(entries) = pubs.get_mut(&client.agent_id) {
                 entries.remove(&client.conn_id);
                 if entries.is_empty() {
                     pubs.remove(&client.agent_id);
+                    prune_agent_state = true;
                 }
             }
+        }
+        if prune_agent_state {
+            let previous_status = self
+                .state
+                .write()
+                .await
+                .remove(&client.agent_id)
+                .and_then(|state| state.status);
+            offline_event = build_offline_status_event(
+                &self.config.session_id,
+                &client.agent_id,
+                previous_status.as_deref(),
+                reason,
+            );
         }
         info!(
             event = "client_disconnected",
@@ -295,6 +312,9 @@ impl HubState {
             agent_id = %client.agent_id,
             reason = reason
         );
+        if let Some(event) = offline_event {
+            self.broadcast_best_effort(&event).await;
+        }
     }
 
     async fn snapshot_subscribers(&self) -> Vec<Arc<Client>> {
@@ -341,6 +361,15 @@ impl HubState {
             if !sub.send_text(raw).await {
                 warn!(event = "send_error", conn_id = %sub.conn_id);
                 self.remove_client(&sub, "send_error").await;
+            }
+        }
+    }
+
+    async fn broadcast_best_effort(&self, raw: &[u8]) {
+        let subs = self.snapshot_subscribers().await;
+        for sub in subs {
+            if !sub.send_text(raw).await {
+                warn!(event = "send_error", conn_id = %sub.conn_id);
             }
         }
     }
@@ -466,6 +495,7 @@ impl HubState {
             return;
         }
         let interval = self.config.ping_interval;
+        let keepalive_touch = client.role == "subscriber";
         let hub = self.clone();
         tokio::spawn(async move {
             let mut ticker = tokio::time::interval(interval);
@@ -476,7 +506,9 @@ impl HubState {
                     hub.remove_client(&client, "ping_failed").await;
                     return;
                 }
-                client.touch().await;
+                if keepalive_touch {
+                    client.touch().await;
+                }
             }
         });
     }
@@ -831,9 +863,17 @@ impl HubState {
                     break;
                 }
             };
-            let data = match message_bytes(msg) {
-                Some(bytes) => bytes,
-                None => continue,
+            let data = match msg {
+                Message::Text(text) => text.into_bytes(),
+                Message::Binary(bytes) => bytes,
+                Message::Close(_) => {
+                    info!(event = "client_close", conn_id = %client.conn_id);
+                    break;
+                }
+                Message::Ping(_) | Message::Pong(_) => {
+                    client.touch().await;
+                    continue;
+                }
             };
             if data.len() > MAX_ENVELOPE_BYTES {
                 warn!(event = "message_too_large", conn_id = %client.conn_id, size = data.len());
@@ -1237,4 +1277,86 @@ fn parse_error(payload: &Value) -> Result<ErrorPayload, &'static str> {
         return Err("missing_fields");
     }
     Ok(value)
+}
+
+fn build_offline_status_event(
+    session_id: &str,
+    agent_id: &str,
+    previous_status: Option<&[u8]>,
+    reason: &str,
+) -> Option<Vec<u8>> {
+    let (pane_id, project_root, cwd, agent_label) =
+        offline_metadata(agent_id, previous_status);
+    let mut payload = serde_json::Map::new();
+    payload.insert("agent_id".to_string(), Value::String(agent_id.to_string()));
+    payload.insert("status".to_string(), Value::String("offline".to_string()));
+    payload.insert("pane_id".to_string(), Value::String(pane_id));
+    payload.insert("project_root".to_string(), Value::String(project_root));
+    payload.insert(
+        "message".to_string(),
+        Value::String(format!("disconnect:{reason}")),
+    );
+    if let Some(value) = cwd {
+        payload.insert("cwd".to_string(), Value::String(value));
+    }
+    if let Some(value) = agent_label {
+        payload.insert("agent_label".to_string(), Value::String(value));
+    }
+
+    let envelope = Envelope {
+        version: PROTOCOL_VERSION.to_string(),
+        r#type: "agent_status".to_string(),
+        session_id: session_id.to_string(),
+        sender_id: "aoc-hub".to_string(),
+        timestamp: Utc::now().to_rfc3339(),
+        payload: Value::Object(payload),
+        request_id: None,
+    };
+    serde_json::to_vec(&envelope).ok()
+}
+
+fn offline_metadata(
+    agent_id: &str,
+    previous_status: Option<&[u8]>,
+) -> (String, String, Option<String>, Option<String>) {
+    let mut pane_id = fallback_pane_id(agent_id);
+    let mut project_root = "(unknown)".to_string();
+    let mut cwd = None;
+    let mut agent_label = None;
+
+    if let Some(raw) = previous_status {
+        if let Ok(previous) = serde_json::from_slice::<Envelope>(raw) {
+            if let Some(payload) = previous.payload.as_object() {
+                if let Some(value) = payload.get("pane_id").and_then(Value::as_str) {
+                    if !value.is_empty() {
+                        pane_id = value.to_string();
+                    }
+                }
+                if let Some(value) = payload.get("project_root").and_then(Value::as_str) {
+                    if !value.is_empty() {
+                        project_root = value.to_string();
+                    }
+                }
+                if let Some(value) = payload.get("cwd").and_then(Value::as_str) {
+                    if !value.is_empty() {
+                        cwd = Some(value.to_string());
+                    }
+                }
+                if let Some(value) = payload.get("agent_label").and_then(Value::as_str) {
+                    if !value.is_empty() {
+                        agent_label = Some(value.to_string());
+                    }
+                }
+            }
+        }
+    }
+
+    (pane_id, project_root, cwd, agent_label)
+}
+
+fn fallback_pane_id(agent_id: &str) -> String {
+    agent_id
+        .rsplit_once("::")
+        .map(|(_, pane)| pane.to_string())
+        .unwrap_or_else(|| agent_id.to_string())
 }

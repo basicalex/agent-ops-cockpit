@@ -411,34 +411,33 @@ fi
 
 pane_cleanup=0
 if [[ -n "${AOC_PANE_ID:-}" || -n "${ZELLIJ_PANE_ID:-}" ]]; then
-  case "$agent_id" in
-    oc|opencode|open-code) pane_cleanup=1 ;;
-  esac
+  pane_cleanup=1
 fi
 
 cleanup_done=0
-cleanup_pane_agents() {
+kill_pane_agents_by_env() {
   if [[ "$pane_cleanup" != "1" ]]; then
     return
   fi
-  if [[ -z "${AOC_PANE_ID:-}" && -z "${ZELLIJ_PANE_ID:-}" ]]; then
+  local pane_id="${AOC_PANE_ID:-${ZELLIJ_PANE_ID:-}}"
+  local session_id="${AOC_SESSION_ID:-${ZELLIJ_SESSION_NAME:-}}"
+  if [[ -z "$pane_id" ]]; then
     return
   fi
-  if [[ "$cleanup_done" == "1" ]]; then
-    return
-  fi
-  cleanup_done=1
-  python3 - <<'PY'
+
+  python3 - "$pane_id" "$session_id" <<'PY'
 import os
 import signal
 import subprocess
-import re
+import sys
+import time
 
-pane_id = os.environ.get("AOC_PANE_ID") or os.environ.get("ZELLIJ_PANE_ID", "")
+pane_id = sys.argv[1] if len(sys.argv) > 1 else ""
+session_id = sys.argv[2] if len(sys.argv) > 2 else ""
 if not pane_id:
     raise SystemExit(0)
 
-pattern = re.compile(r"(opencode|open-code)", re.IGNORECASE)
+self_pid = os.getpid()
 
 def proc_env(pid):
     try:
@@ -468,25 +467,33 @@ except Exception:
 pids = []
 for line in ps_out.strip().splitlines()[1:]:
     parts = line.strip().split(None, 2)
-    if len(parts) < 2:
+    if not parts:
         continue
     try:
         pid = int(parts[0])
     except ValueError:
         continue
-    comm = parts[1]
-    args = parts[2] if len(parts) > 2 else ""
-    if not (pattern.search(comm) or pattern.search(args)):
+    if pid == self_pid:
         continue
     env = proc_env(pid)
-    if env.get("AOC_PANE_ID") == pane_id or env.get("ZELLIJ_PANE_ID") == pane_id:
-        pids.append(pid)
+    same_pane = env.get("AOC_PANE_ID") == pane_id or env.get("ZELLIJ_PANE_ID") == pane_id
+    if not same_pane:
+        continue
+    if session_id:
+        proc_session = env.get("AOC_SESSION_ID") or env.get("ZELLIJ_SESSION_NAME") or ""
+        if proc_session and proc_session != session_id:
+            continue
+    pids.append(pid)
+
+pids = sorted(set(pids), reverse=True)
 
 for pid in pids:
     try:
         os.kill(pid, signal.SIGTERM)
     except ProcessLookupError:
         pass
+
+time.sleep(0.4)
 
 for pid in pids:
     try:
@@ -496,29 +503,368 @@ for pid in pids:
 PY
 }
 
+cleanup_pane_agents() {
+  if [[ "$cleanup_done" == "1" ]]; then
+    return
+  fi
+  cleanup_done=1
+  kill_pane_agents_by_env
+}
+
+start_orphan_watchdog() {
+  if [[ "$pane_cleanup" != "1" ]]; then
+    return
+  fi
+  local pane_id="${AOC_PANE_ID:-${ZELLIJ_PANE_ID:-}}"
+  local session_id="${AOC_SESSION_ID:-${ZELLIJ_SESSION_NAME:-}}"
+  if [[ -z "$pane_id" ]]; then
+    return
+  fi
+  if ! command -v python3 >/dev/null 2>&1; then
+    return
+  fi
+
+  local parent_pid="$$"
+  local watcher_cmd=(python3 - "$parent_pid" "$pane_id" "$session_id")
+
+  if command -v setsid >/dev/null 2>&1; then
+    setsid "${watcher_cmd[@]}" >/dev/null 2>&1 <<'PY' &
+import os
+import re
+import signal
+import subprocess
+import sys
+import time
+
+parent_pid = int(sys.argv[1])
+pane_id = sys.argv[2]
+session_id = sys.argv[3] if len(sys.argv) > 3 else ""
+
+if not pane_id:
+    raise SystemExit(0)
+
+self_pid = os.getpid()
+
+def parse_int(name, default, minimum=1, maximum=60):
+    raw = os.environ.get(name, "").strip()
+    if not raw:
+        return default
+    try:
+        value = int(raw)
+    except ValueError:
+        return default
+    if value < minimum:
+        return minimum
+    if value > maximum:
+        return maximum
+    return value
+
+pane_miss_limit = parse_int("AOC_ORPHAN_PANE_MISS_MAX", 4, minimum=1, maximum=60)
+
+def pid_alive(pid):
+    try:
+        os.kill(pid, 0)
+        return True
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+
+def proc_env(pid):
+    try:
+        with open(f"/proc/{pid}/environ", "rb") as fh:
+            data = fh.read().split(b"\0")
+    except Exception:
+        return {}
+    env = {}
+    for item in data:
+        if not item or b"=" not in item:
+            continue
+        key, value = item.split(b"=", 1)
+        env[key.decode("utf-8", "ignore")] = value.decode("utf-8", "ignore")
+    return env
+
+def matching_pids():
+    try:
+        ps_out = subprocess.check_output(["ps", "-eo", "pid,comm,args"], text=True)
+    except Exception:
+        return []
+    found = []
+    for line in ps_out.strip().splitlines()[1:]:
+        parts = line.strip().split(None, 2)
+        if not parts:
+            continue
+        try:
+            pid = int(parts[0])
+        except ValueError:
+            continue
+        if pid == self_pid:
+            continue
+        env = proc_env(pid)
+        same_pane = env.get("AOC_PANE_ID") == pane_id or env.get("ZELLIJ_PANE_ID") == pane_id
+        if not same_pane:
+            continue
+        if session_id:
+            proc_session = env.get("AOC_SESSION_ID") or env.get("ZELLIJ_SESSION_NAME") or ""
+            if proc_session and proc_session != session_id:
+                continue
+        found.append(pid)
+    return sorted(set(found), reverse=True)
+
+def session_pane_missing():
+    if not session_id:
+        return False
+    try:
+        sessions_raw = subprocess.check_output(
+            ["zellij", "list-sessions", "--short", "--no-formatting"],
+            text=True,
+            timeout=2,
+        )
+        sessions = {line.strip() for line in sessions_raw.splitlines() if line.strip()}
+        if sessions and session_id not in sessions:
+            return True
+    except Exception:
+        pass
+
+    try:
+        layout = subprocess.check_output(
+            ["zellij", "--session", session_id, "action", "dump-layout"],
+            text=True,
+            timeout=2,
+        )
+    except Exception:
+        return False
+
+    pane_ids = set(re.findall(r'--pane-id"\s+"([^"]+)"', layout))
+    if pane_ids and pane_id not in pane_ids:
+        return True
+    return False
+
+pane_misses = 0
+while True:
+    if not pid_alive(parent_pid):
+        break
+    if session_pane_missing():
+        pane_misses += 1
+        if pane_misses >= pane_miss_limit:
+            break
+    else:
+        pane_misses = 0
+    time.sleep(1.0)
+
+pids = matching_pids()
+for pid in pids:
+    try:
+        os.kill(pid, signal.SIGTERM)
+    except ProcessLookupError:
+        pass
+
+time.sleep(0.4)
+
+for pid in pids:
+    try:
+        os.kill(pid, signal.SIGKILL)
+    except ProcessLookupError:
+        pass
+PY
+  else
+    nohup "${watcher_cmd[@]}" >/dev/null 2>&1 <<'PY' &
+import os
+import re
+import signal
+import subprocess
+import sys
+import time
+
+parent_pid = int(sys.argv[1])
+pane_id = sys.argv[2]
+session_id = sys.argv[3] if len(sys.argv) > 3 else ""
+
+if not pane_id:
+    raise SystemExit(0)
+
+self_pid = os.getpid()
+
+def parse_int(name, default, minimum=1, maximum=60):
+    raw = os.environ.get(name, "").strip()
+    if not raw:
+        return default
+    try:
+        value = int(raw)
+    except ValueError:
+        return default
+    if value < minimum:
+        return minimum
+    if value > maximum:
+        return maximum
+    return value
+
+pane_miss_limit = parse_int("AOC_ORPHAN_PANE_MISS_MAX", 4, minimum=1, maximum=60)
+
+def pid_alive(pid):
+    try:
+        os.kill(pid, 0)
+        return True
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+
+def proc_env(pid):
+    try:
+        with open(f"/proc/{pid}/environ", "rb") as fh:
+            data = fh.read().split(b"\0")
+    except Exception:
+        return {}
+    env = {}
+    for item in data:
+        if not item or b"=" not in item:
+            continue
+        key, value = item.split(b"=", 1)
+        env[key.decode("utf-8", "ignore")] = value.decode("utf-8", "ignore")
+    return env
+
+def matching_pids():
+    try:
+        ps_out = subprocess.check_output(["ps", "-eo", "pid,comm,args"], text=True)
+    except Exception:
+        return []
+    found = []
+    for line in ps_out.strip().splitlines()[1:]:
+        parts = line.strip().split(None, 2)
+        if not parts:
+            continue
+        try:
+            pid = int(parts[0])
+        except ValueError:
+            continue
+        if pid == self_pid:
+            continue
+        env = proc_env(pid)
+        same_pane = env.get("AOC_PANE_ID") == pane_id or env.get("ZELLIJ_PANE_ID") == pane_id
+        if not same_pane:
+            continue
+        if session_id:
+            proc_session = env.get("AOC_SESSION_ID") or env.get("ZELLIJ_SESSION_NAME") or ""
+            if proc_session and proc_session != session_id:
+                continue
+        found.append(pid)
+    return sorted(set(found), reverse=True)
+
+def session_pane_missing():
+    if not session_id:
+        return False
+    try:
+        sessions_raw = subprocess.check_output(
+            ["zellij", "list-sessions", "--short", "--no-formatting"],
+            text=True,
+            timeout=2,
+        )
+        sessions = {line.strip() for line in sessions_raw.splitlines() if line.strip()}
+        if sessions and session_id not in sessions:
+            return True
+    except Exception:
+        pass
+
+    try:
+        layout = subprocess.check_output(
+            ["zellij", "--session", session_id, "action", "dump-layout"],
+            text=True,
+            timeout=2,
+        )
+    except Exception:
+        return False
+
+    pane_ids = set(re.findall(r'--pane-id"\s+"([^"]+)"', layout))
+    if pane_ids and pane_id not in pane_ids:
+        return True
+    return False
+
+pane_misses = 0
+while True:
+    if not pid_alive(parent_pid):
+        break
+    if session_pane_missing():
+        pane_misses += 1
+        if pane_misses >= pane_miss_limit:
+            break
+    else:
+        pane_misses = 0
+    time.sleep(1.0)
+
+pids = matching_pids()
+for pid in pids:
+    try:
+        os.kill(pid, signal.SIGTERM)
+    except ProcessLookupError:
+        pass
+
+time.sleep(0.4)
+
+for pid in pids:
+    try:
+        os.kill(pid, signal.SIGKILL)
+    except ProcessLookupError:
+        pass
+PY
+  fi
+}
+
 handle_cleanup_signal() {
   cleanup_pane_agents
   exit 0
 }
 
+run_with_cleanup() {
+  if [[ "$pane_cleanup" != "1" ]]; then
+    "$@"
+    return $?
+  fi
+  start_orphan_watchdog
+  trap handle_cleanup_signal HUP INT TERM
+  trap cleanup_pane_agents EXIT
+  set +e
+  "$@"
+  local status=$?
+  set -e
+  trap - HUP INT TERM EXIT
+  return "$status"
+}
+
 if [[ "$agent_id" != "codex" ]]; then
   if [[ "$pane_cleanup" == "1" ]]; then
-    trap handle_cleanup_signal HUP INT TERM
-    trap cleanup_pane_agents EXIT
-    "${wrapped_cmd[@]}"
-    status=$?
-    trap - HUP INT TERM EXIT
+    if run_with_cleanup "${wrapped_cmd[@]}"; then
+      status=0
+    else
+      status=$?
+    fi
     exit "$status"
   fi
   exec "${wrapped_cmd[@]}"
 fi
 
 if [[ "${AOC_NO_TMUX:-0}" == "1" ]]; then
+  if [[ "$pane_cleanup" == "1" ]]; then
+    if run_with_cleanup "${wrapped_cmd[@]}"; then
+      status=0
+    else
+      status=$?
+    fi
+    exit "$status"
+  fi
   exec "${wrapped_cmd[@]}"
 fi
 
 if ! command -v tmux >/dev/null 2>&1; then
   echo "aoc-$agent_id: tmux not found; running $agent_bin with handshake but no tmux wrapper." >&2
+  if [[ "$pane_cleanup" == "1" ]]; then
+    if run_with_cleanup "${wrapped_cmd[@]}"; then
+      status=0
+    else
+      status=$?
+    fi
+    exit "$status"
+  fi
   exec "${wrapped_cmd[@]}"
 fi
 
@@ -536,7 +882,18 @@ if [[ -S "$socket_path" ]]; then
 fi
 
 if [[ -f "$conf" ]]; then
-  exec tmux -L "$socket" -f "$conf" new-session -A -s "$session" "${wrapped_cmd[@]}"
+  tmux_cmd=(tmux -L "$socket" -f "$conf" new-session -A -s "$session" "${wrapped_cmd[@]}")
+else
+  tmux_cmd=(tmux -L "$socket" new-session -A -s "$session" "${wrapped_cmd[@]}")
 fi
 
-exec tmux -L "$socket" new-session -A -s "$session" "${wrapped_cmd[@]}"
+if [[ "$pane_cleanup" == "1" ]]; then
+  if run_with_cleanup "${tmux_cmd[@]}"; then
+    status=0
+  else
+    status=$?
+  fi
+  exit "$status"
+fi
+
+exec "${tmux_cmd[@]}"

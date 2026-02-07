@@ -20,6 +20,7 @@ use tokio::{
     io::AsyncReadExt,
     process::Command,
     sync::{mpsc, oneshot, Mutex},
+    time::{sleep_until, Instant},
 };
 use tokio_tungstenite::connect_async;
 use tracing::{error, warn};
@@ -31,6 +32,8 @@ const MAX_PATCH_BYTES: usize = 1024 * 1024;
 const MAX_FILES_LIST: usize = 500;
 const TASK_DEBOUNCE_MS: u64 = 500;
 const DIFF_INTERVAL_SECS: u64 = 2;
+const STATUS_UPDATE_INTERVAL_MS: u64 = 1200;
+const STATUS_MESSAGE_MAX_CHARS: usize = 140;
 const DISABLE_MOUSE_SEQ: &str =
     "\x1b[?1000l\x1b[?1002l\x1b[?1003l\x1b[?1005l\x1b[?1006l\x1b[?1015l\x1b[?1007l\x1b[?1004l";
 
@@ -288,6 +291,7 @@ async fn main() {
 
     let (tx, rx) = mpsc::channel::<String>(256);
     let cache = Arc::new(Mutex::new(CachedMessages::default()));
+    let (activity_tx, activity_rx) = mpsc::unbounded_channel::<String>();
     let hub_cfg = config.client.clone();
     let hub_url = config.hub_url.clone();
     let cache_clone = cache.clone();
@@ -332,16 +336,25 @@ async fn main() {
         diff_summary_loop(diff_cfg, diff_tx, diff_cache).await;
     });
 
+    let status_cfg = config.client.clone();
+    let status_tx = tx.clone();
+    let status_cache = cache.clone();
+    let status_task = tokio::spawn(async move {
+        status_message_loop(status_cfg, status_tx, status_cache, activity_rx).await;
+    });
+
     let use_pty = resolve_use_pty();
     let exit_code = if use_pty {
-        match run_child_pty(&config.cmd).await {
+        match run_child_pty(&config.cmd, Some(activity_tx.clone())).await {
             Ok(code) => code,
             Err(err) => {
                 warn!("pty_spawn_failed: {err}; falling back to pipes");
+                drop(activity_tx);
                 run_child_piped(&config.cmd).await
             }
         }
     } else {
+        drop(activity_tx);
         run_child_piped(&config.cmd).await
     };
 
@@ -356,6 +369,7 @@ async fn main() {
     heartbeat_task.abort();
     task_task.abort();
     diff_task.abort();
+    status_task.abort();
     hub_task.abort();
     std::process::exit(exit_code);
 }
@@ -770,6 +784,112 @@ fn resolve_pty_size() -> PtySize {
     }
 }
 
+async fn status_message_loop(
+    cfg: ClientConfig,
+    tx: mpsc::Sender<String>,
+    cache: Arc<Mutex<CachedMessages>>,
+    mut rx: mpsc::UnboundedReceiver<String>,
+) {
+    let interval = Duration::from_millis(STATUS_UPDATE_INTERVAL_MS);
+    let mut pending: Option<String> = None;
+    let mut next_allowed = Instant::now();
+    let mut last_sent = String::new();
+
+    loop {
+        tokio::select! {
+            maybe_line = rx.recv() => {
+                let line = match maybe_line {
+                    Some(line) => line,
+                    None => break,
+                };
+                if line.is_empty() || line == "exit" {
+                    continue;
+                }
+                pending = Some(line);
+            }
+            _ = sleep_until(next_allowed), if pending.is_some() => {
+                if let Some(message) = pending.take() {
+                    if message != last_sent {
+                        let status = build_agent_status(&cfg, "running", Some(&message));
+                        {
+                            let mut cached = cache.lock().await;
+                            cached.status = Some(status.clone());
+                        }
+                        if tx.send(status).await.is_err() {
+                            break;
+                        }
+                        last_sent = message;
+                    }
+                    next_allowed = Instant::now() + interval;
+                }
+            }
+        }
+
+        if pending.is_some() && Instant::now() >= next_allowed {
+            next_allowed = Instant::now();
+        }
+    }
+}
+
+fn emit_activity_lines(bytes: &[u8], carry: &mut Vec<u8>, tx: &mpsc::UnboundedSender<String>) {
+    carry.extend_from_slice(bytes);
+    while let Some(idx) = carry
+        .iter()
+        .position(|byte| *byte == b'\n' || *byte == b'\r')
+    {
+        let mut chunk = carry.drain(..=idx).collect::<Vec<u8>>();
+        while matches!(chunk.last(), Some(b'\n' | b'\r')) {
+            chunk.pop();
+        }
+        if chunk.is_empty() {
+            continue;
+        }
+        let line = sanitize_activity_line(&String::from_utf8_lossy(&chunk));
+        if !line.is_empty() {
+            let _ = tx.send(line);
+        }
+    }
+
+    if carry.len() > 8192 {
+        let line = sanitize_activity_line(&String::from_utf8_lossy(carry));
+        if !line.is_empty() {
+            let _ = tx.send(line);
+        }
+        carry.clear();
+    }
+}
+
+fn sanitize_activity_line(input: &str) -> String {
+    let stripped = strip_ansi(input);
+    let collapsed = stripped.split_whitespace().collect::<Vec<_>>().join(" ");
+    if collapsed.is_empty() {
+        return String::new();
+    }
+    collapsed.chars().take(STATUS_MESSAGE_MAX_CHARS).collect()
+}
+
+fn strip_ansi(input: &str) -> String {
+    let mut output = String::with_capacity(input.len());
+    let mut in_escape = false;
+    for ch in input.chars() {
+        if in_escape {
+            if ('@'..='~').contains(&ch) {
+                in_escape = false;
+            }
+            continue;
+        }
+        if ch == '\u{1b}' {
+            in_escape = true;
+            continue;
+        }
+        if ch.is_control() {
+            continue;
+        }
+        output.push(ch);
+    }
+    output
+}
+
 async fn run_child_piped(cmd: &[String]) -> i32 {
     let mut child = Command::new(&cmd[0]);
     child
@@ -801,7 +921,10 @@ async fn run_child_piped(cmd: &[String]) -> i32 {
     exit_code
 }
 
-async fn run_child_pty(cmd: &[String]) -> io::Result<i32> {
+async fn run_child_pty(
+    cmd: &[String],
+    activity_tx: Option<mpsc::UnboundedSender<String>>,
+) -> io::Result<i32> {
     let pty_system = native_pty_system();
     let pair = pty_system
         .openpty(resolve_pty_size())
@@ -868,6 +991,7 @@ async fn run_child_pty(cmd: &[String]) -> io::Result<i32> {
     });
 
     let stdout_task = tokio::task::spawn_blocking(move || {
+        let mut line_carry: Vec<u8> = Vec::new();
         let mut stdout = io::stdout();
         let mut buffer = [0u8; 8192];
         let mut mouse_carry: Vec<u8> = Vec::new();
@@ -891,8 +1015,19 @@ async fn run_child_pty(cmd: &[String]) -> io::Result<i32> {
             if filtered.is_empty() {
                 continue;
             }
+            if let Some(tx) = &activity_tx {
+                emit_activity_lines(&filtered, &mut line_carry, tx);
+            }
             let _ = stdout.write_all(&filtered);
             let _ = stdout.flush();
+        }
+        if let Some(tx) = &activity_tx {
+            if !line_carry.is_empty() {
+                let line = sanitize_activity_line(&String::from_utf8_lossy(&line_carry));
+                if !line.is_empty() {
+                    let _ = tx.send(line);
+                }
+            }
         }
     });
 
