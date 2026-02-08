@@ -1,11 +1,13 @@
 use aoc_core::pulse_ipc::{
     decode_frame, encode_frame, AgentState, CommandError, CommandPayload, CommandResultPayload,
-    DeltaPayload, HeartbeatPayload, HelloPayload, ProtocolVersion, SnapshotPayload, StateChange,
-    StateChangeOp, WireEnvelope, WireMsg, CURRENT_PROTOCOL_VERSION, DEFAULT_MAX_FRAME_BYTES,
+    DeltaPayload, HeartbeatPayload, HelloPayload, LayoutPane, LayoutStatePayload, LayoutTab,
+    ProtocolVersion, SnapshotPayload, StateChange, StateChangeOp, SubscribePayload, WireEnvelope,
+    WireMsg, CURRENT_PROTOCOL_VERSION, DEFAULT_MAX_FRAME_BYTES,
 };
 use chrono::Utc;
 use std::{
-    collections::{HashMap, HashSet, VecDeque},
+    collections::{hash_map::DefaultHasher, HashMap, HashSet, VecDeque},
+    hash::{Hash, Hasher},
     io,
     path::PathBuf,
     sync::{
@@ -127,6 +129,69 @@ struct ClientEntry {
 }
 
 #[cfg(unix)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum PulseTopic {
+    AgentState,
+    CommandResult,
+    LayoutState,
+}
+
+#[cfg(unix)]
+#[derive(Clone, Debug)]
+struct TopicFilter {
+    agent_state: bool,
+    command_result: bool,
+    layout_state: bool,
+}
+
+#[cfg(unix)]
+impl TopicFilter {
+    fn baseline() -> Self {
+        Self {
+            agent_state: true,
+            command_result: true,
+            layout_state: false,
+        }
+    }
+
+    fn from_subscribe(payload: &SubscribePayload) -> Self {
+        if payload.topics.is_empty() {
+            return Self::baseline();
+        }
+
+        let mut filter = Self {
+            agent_state: false,
+            command_result: false,
+            layout_state: false,
+        };
+        for topic in &payload.topics {
+            match topic.trim().to_ascii_lowercase().as_str() {
+                "agent_state" | "snapshot" | "delta" => filter.agent_state = true,
+                "command_result" => filter.command_result = true,
+                "layout_state" => filter.layout_state = true,
+                _ => {}
+            }
+        }
+        filter
+    }
+
+    fn allows(&self, topic: PulseTopic) -> bool {
+        match topic {
+            PulseTopic::AgentState => self.agent_state,
+            PulseTopic::CommandResult => self.command_result,
+            PulseTopic::LayoutState => self.layout_state,
+        }
+    }
+}
+
+#[cfg(unix)]
+#[derive(Clone)]
+struct SubscriberEntry {
+    sender: mpsc::Sender<WireEnvelope>,
+    topics: TopicFilter,
+}
+
+#[cfg(unix)]
 struct AgentRecord {
     state: AgentState,
     last_heartbeat: Instant,
@@ -139,18 +204,38 @@ struct CommandCacheEntry {
 }
 
 #[cfg(unix)]
+#[derive(Clone)]
+struct LayoutCacheEntry {
+    signature: u64,
+    payload: LayoutStatePayload,
+}
+
+#[cfg(unix)]
+#[derive(Clone, Debug)]
+struct LayoutSnapshot {
+    pane_ids: HashSet<String>,
+    tabs: Vec<LayoutTab>,
+    panes: Vec<LayoutPane>,
+}
+
+#[cfg(unix)]
 struct PulseUdsHub {
     config: PulseUdsConfig,
     conn_counter: AtomicU64,
     seq: AtomicU64,
+    layout_seq: AtomicU64,
     latency_sample_count: AtomicU64,
+    layout_poll_count: AtomicU64,
+    layout_emit_count: AtomicU64,
+    layout_drop_count: AtomicU64,
     queue_drop_count: AtomicU64,
     backpressure_count: AtomicU64,
     clients: RwLock<HashMap<String, ClientEntry>>,
-    subscribers: RwLock<HashMap<String, mpsc::Sender<WireEnvelope>>>,
+    subscribers: RwLock<HashMap<String, SubscriberEntry>>,
     publishers: RwLock<HashMap<String, HashSet<String>>>,
     state: RwLock<HashMap<String, AgentRecord>>,
     active_panes: RwLock<HashSet<String>>,
+    layout_state: RwLock<Option<LayoutCacheEntry>>,
     command_cache: RwLock<HashMap<String, CommandCacheEntry>>,
     command_cache_order: RwLock<VecDeque<String>>,
 }
@@ -162,7 +247,11 @@ impl PulseUdsHub {
             config,
             conn_counter: AtomicU64::new(0),
             seq: AtomicU64::new(0),
+            layout_seq: AtomicU64::new(0),
             latency_sample_count: AtomicU64::new(0),
+            layout_poll_count: AtomicU64::new(0),
+            layout_emit_count: AtomicU64::new(0),
+            layout_drop_count: AtomicU64::new(0),
             queue_drop_count: AtomicU64::new(0),
             backpressure_count: AtomicU64::new(0),
             clients: RwLock::new(HashMap::new()),
@@ -170,6 +259,7 @@ impl PulseUdsHub {
             publishers: RwLock::new(HashMap::new()),
             state: RwLock::new(HashMap::new()),
             active_panes: RwLock::new(HashSet::new()),
+            layout_state: RwLock::new(None),
             command_cache: RwLock::new(HashMap::new()),
             command_cache_order: RwLock::new(VecDeque::new()),
         }
@@ -186,6 +276,10 @@ impl PulseUdsHub {
 
     fn current_seq(&self) -> u64 {
         self.seq.load(Ordering::SeqCst)
+    }
+
+    fn next_layout_seq(&self) -> u64 {
+        self.layout_seq.fetch_add(1, Ordering::SeqCst) + 1
     }
 
     fn make_envelope(
@@ -212,10 +306,13 @@ impl PulseUdsHub {
 
         match client.role {
             ClientRole::Subscriber => {
-                self.subscribers
-                    .write()
-                    .await
-                    .insert(client.conn_id.clone(), client.sender.clone());
+                self.subscribers.write().await.insert(
+                    client.conn_id.clone(),
+                    SubscriberEntry {
+                        sender: client.sender.clone(),
+                        topics: TopicFilter::baseline(),
+                    },
+                );
             }
             ClientRole::Publisher => {
                 if let Some(agent_id) = &client.agent_id {
@@ -287,15 +384,82 @@ impl PulseUdsHub {
         self.broadcast_to_subscribers(envelope).await;
     }
 
+    async fn build_layout_envelope(&self) -> Option<WireEnvelope> {
+        let payload = {
+            let state = self.layout_state.read().await;
+            state.as_ref().map(|entry| entry.payload.clone())
+        }?;
+        Some(self.make_envelope("aoc-hub", None, WireMsg::LayoutState(payload)))
+    }
+
+    async fn set_subscriber_topics(&self, conn_id: &str, payload: SubscribePayload) {
+        let filter = TopicFilter::from_subscribe(&payload);
+        let updated = {
+            let mut subscribers = self.subscribers.write().await;
+            if let Some(entry) = subscribers.get_mut(conn_id) {
+                entry.topics = filter.clone();
+                true
+            } else {
+                false
+            }
+        };
+
+        if !updated {
+            return;
+        }
+
+        if filter.agent_state {
+            let snapshot = self.build_snapshot_envelope().await;
+            let _ = self.send_to_conn(conn_id, snapshot).await;
+        }
+
+        if filter.layout_state {
+            if let Some(layout) = self.build_layout_envelope().await {
+                let _ = self.send_to_conn(conn_id, layout).await;
+            }
+        }
+    }
+
+    async fn send_subscriber_bootstrap(&self, conn_id: &str) {
+        let filter = {
+            let subscribers = self.subscribers.read().await;
+            subscribers
+                .get(conn_id)
+                .map(|entry| entry.topics.clone())
+                .unwrap_or_else(TopicFilter::baseline)
+        };
+
+        if filter.agent_state {
+            let snapshot = self.build_snapshot_envelope().await;
+            let _ = self.send_to_conn(conn_id, snapshot).await;
+        }
+
+        if filter.layout_state {
+            if let Some(layout) = self.build_layout_envelope().await {
+                let _ = self.send_to_conn(conn_id, layout).await;
+            }
+        }
+    }
+
     async fn broadcast_to_subscribers(&self, envelope: WireEnvelope) {
+        let topic = wire_topic(&envelope.msg);
         let subscribers = self.subscribers.read().await.clone();
         let mut slow = Vec::new();
 
-        for (conn_id, sender) in subscribers {
-            match sender.try_send(envelope.clone()) {
+        for (conn_id, entry) in subscribers {
+            if let Some(topic) = topic {
+                if !entry.topics.allows(topic) {
+                    continue;
+                }
+            }
+
+            match entry.sender.try_send(envelope.clone()) {
                 Ok(()) => {}
                 Err(mpsc::error::TrySendError::Closed(_)) => {
                     let dropped = self.queue_drop_count.fetch_add(1, Ordering::Relaxed) + 1;
+                    if topic == Some(PulseTopic::LayoutState) {
+                        self.layout_drop_count.fetch_add(1, Ordering::Relaxed);
+                    }
                     warn!(
                         event = "pulse_queue_drop",
                         reason = "channel_closed",
@@ -307,6 +471,9 @@ impl PulseUdsHub {
                 }
                 Err(mpsc::error::TrySendError::Full(_)) => {
                     let dropped = self.queue_drop_count.fetch_add(1, Ordering::Relaxed) + 1;
+                    if topic == Some(PulseTopic::LayoutState) {
+                        self.layout_drop_count.fetch_add(1, Ordering::Relaxed);
+                    }
                     warn!(
                         event = "pulse_queue_drop",
                         reason = "slow_consumer",
@@ -465,6 +632,11 @@ impl PulseUdsHub {
             let mut slow_cycles: u64 = 0;
             let mut opened_total: u64 = 0;
             let mut closed_total: u64 = 0;
+            let mut last_health_at = Instant::now();
+            let mut last_poll_total = 0u64;
+            let mut last_emit_total = 0u64;
+            let mut last_layout_drop_total = 0u64;
+            let mut last_queue_drop_total = 0u64;
 
             info!(
                 event = "pulse_layout_watcher_start",
@@ -492,8 +664,9 @@ impl PulseUdsHub {
                         }
 
                         let started = Instant::now();
-                        let active_panes = match collect_active_layout_panes(&session_id).await {
-                            Ok(panes) => panes,
+                        self.layout_poll_count.fetch_add(1, Ordering::Relaxed);
+                        let layout_snapshot = match collect_layout_snapshot(&session_id).await {
+                            Ok(snapshot) => snapshot,
                             Err(err) => {
                                 failure_streak = failure_streak.saturating_add(1);
                                 let backoff_ms = 150u64.saturating_mul(2u64.saturating_pow(failure_streak.min(4)));
@@ -513,7 +686,9 @@ impl PulseUdsHub {
                         }
                         failure_streak = 0;
 
-                        let (opened, closed) = self.reconcile_layout_panes(active_panes).await;
+                        let (opened, closed) = self
+                            .reconcile_layout_panes(layout_snapshot.pane_ids.clone())
+                            .await;
                         opened_total = opened_total.saturating_add(opened.len() as u64);
                         closed_total = closed_total.saturating_add(closed.len() as u64);
                         if !opened.is_empty() {
@@ -524,12 +699,32 @@ impl PulseUdsHub {
                             self.prune_closed_panes(closed).await;
                         }
 
+                        self.emit_layout_state_if_changed(layout_snapshot).await;
+
                         let elapsed_ms = started.elapsed().as_millis() as u64;
                         if elapsed_ms > 500 {
                             slow_cycles = slow_cycles.saturating_add(1);
                             warn!(event = "pulse_layout_watcher_slow", elapsed_ms);
                         }
                         if tick_count % LAYOUT_HEALTH_EVERY_TICKS == 0 {
+                            let now = Instant::now();
+                            let window_secs = now.duration_since(last_health_at).as_secs_f64().max(0.001);
+                            last_health_at = now;
+
+                            let poll_total = self.layout_poll_count.load(Ordering::Relaxed);
+                            let emit_total = self.layout_emit_count.load(Ordering::Relaxed);
+                            let layout_drop_total = self.layout_drop_count.load(Ordering::Relaxed);
+                            let queue_drop_total = self.queue_drop_count.load(Ordering::Relaxed);
+                            let polls_per_sec = (poll_total.saturating_sub(last_poll_total) as f64) / window_secs;
+                            let emits_per_sec = (emit_total.saturating_sub(last_emit_total) as f64) / window_secs;
+                            let layout_drops = layout_drop_total.saturating_sub(last_layout_drop_total);
+                            let queue_drops = queue_drop_total.saturating_sub(last_queue_drop_total);
+
+                            last_poll_total = poll_total;
+                            last_emit_total = emit_total;
+                            last_layout_drop_total = layout_drop_total;
+                            last_queue_drop_total = queue_drop_total;
+
                             let active_panes = self.active_panes.read().await.len();
                             info!(
                                 event = "pulse_layout_watcher_health",
@@ -542,7 +737,14 @@ impl PulseUdsHub {
                                 closed_total,
                                 last_cycle_ms = elapsed_ms,
                                 jitter_ms,
-                                queue_drops = self.queue_drop_count.load(Ordering::Relaxed),
+                                layout_polls_per_sec = polls_per_sec,
+                                layout_emits_per_sec = emits_per_sec,
+                                dropped_layout_events = layout_drops,
+                                subscriber_queue_drops = queue_drops,
+                                layout_polls_total = poll_total,
+                                layout_emits_total = emit_total,
+                                layout_drop_total,
+                                queue_drop_total,
                                 backpressure = self.backpressure_count.load(Ordering::Relaxed)
                             );
                         }
@@ -550,6 +752,35 @@ impl PulseUdsHub {
                 }
             }
         });
+    }
+
+    async fn emit_layout_state_if_changed(&self, snapshot: LayoutSnapshot) {
+        let signature = layout_signature(&snapshot.tabs, &snapshot.panes);
+        let mut layout_state = self.layout_state.write().await;
+        if layout_state
+            .as_ref()
+            .map(|entry| entry.signature == signature)
+            .unwrap_or(false)
+        {
+            return;
+        }
+
+        let payload = LayoutStatePayload {
+            layout_seq: self.next_layout_seq(),
+            session_id: self.config.session_id.clone(),
+            emitted_at_ms: now_ms(),
+            tabs: snapshot.tabs,
+            panes: snapshot.panes,
+        };
+        *layout_state = Some(LayoutCacheEntry {
+            signature,
+            payload: payload.clone(),
+        });
+        drop(layout_state);
+
+        self.layout_emit_count.fetch_add(1, Ordering::Relaxed);
+        let envelope = self.make_envelope("aoc-hub", None, WireMsg::LayoutState(payload));
+        self.broadcast_to_subscribers(envelope).await;
     }
 
     async fn reconcile_layout_panes(&self, latest: HashSet<String>) -> (Vec<String>, Vec<String>) {
@@ -1097,8 +1328,7 @@ impl PulseUdsHub {
         self.register_client(client).await;
 
         if role == ClientRole::Subscriber {
-            let snapshot = self.build_snapshot_envelope().await;
-            let _ = tx.send(snapshot).await;
+            self.send_subscriber_bootstrap(&conn_id).await;
         }
 
         loop {
@@ -1166,7 +1396,9 @@ impl PulseUdsHub {
                 (ClientRole::Subscriber, WireMsg::Command(payload)) => {
                     self.route_command(&conn_id, envelope, payload).await;
                 }
-                (ClientRole::Subscriber, WireMsg::Subscribe(_)) => {}
+                (ClientRole::Subscriber, WireMsg::Subscribe(payload)) => {
+                    self.set_subscriber_topics(&conn_id, payload).await;
+                }
                 (_, WireMsg::Hello(_)) => {
                     warn!(event = "pulse_uds_unexpected_hello", conn_id = %conn_id);
                 }
@@ -1254,9 +1486,23 @@ async fn read_next_valid_frame(reader: &mut BufReader<OwnedReadHalf>) -> Option<
 }
 
 #[cfg(unix)]
-async fn collect_active_layout_panes(session_id: &str) -> Result<HashSet<String>, String> {
+fn wire_topic(msg: &WireMsg) -> Option<PulseTopic> {
+    match msg {
+        WireMsg::Snapshot(_) | WireMsg::Delta(_) => Some(PulseTopic::AgentState),
+        WireMsg::CommandResult(_) => Some(PulseTopic::CommandResult),
+        WireMsg::LayoutState(_) => Some(PulseTopic::LayoutState),
+        _ => None,
+    }
+}
+
+#[cfg(unix)]
+async fn collect_layout_snapshot(session_id: &str) -> Result<LayoutSnapshot, String> {
     if session_id.trim().is_empty() {
-        return Ok(HashSet::new());
+        return Ok(LayoutSnapshot {
+            pane_ids: HashSet::new(),
+            tabs: Vec::new(),
+            panes: Vec::new(),
+        });
     }
     let session = session_id.to_string();
     let output = tokio::task::spawn_blocking(move || {
@@ -1276,26 +1522,142 @@ async fn collect_active_layout_panes(session_id: &str) -> Result<HashSet<String>
     }
 
     let layout = String::from_utf8(output.stdout).map_err(|err| format!("utf8:{err}"))?;
-    Ok(parse_layout_pane_ids(&layout))
+    Ok(parse_layout_snapshot(&layout))
+}
+
+#[cfg(unix)]
+fn parse_layout_snapshot(layout: &str) -> LayoutSnapshot {
+    let mut pane_ids = HashSet::new();
+    let mut tabs = Vec::new();
+    let mut panes = HashMap::new();
+    let mut current_tab_index = 0u64;
+    let mut current_tab_name = String::new();
+    let mut current_tab_focused = false;
+
+    for line in layout.lines() {
+        if line_is_tab_decl(line) {
+            current_tab_index = current_tab_index.saturating_add(1);
+            current_tab_name = extract_layout_attr(line, "name")
+                .unwrap_or_else(|| format!("tab-{current_tab_index}"));
+            current_tab_focused = line.contains("focus=true") || line.contains("focus true");
+            tabs.push(LayoutTab {
+                index: current_tab_index,
+                name: current_tab_name.clone(),
+                focused: current_tab_focused,
+            });
+        }
+
+        for pane_id in extract_pane_ids_from_layout_line(line) {
+            pane_ids.insert(pane_id.clone());
+            if current_tab_index > 0 {
+                panes.insert(
+                    pane_id.clone(),
+                    LayoutPane {
+                        pane_id,
+                        tab_index: current_tab_index,
+                        tab_name: current_tab_name.clone(),
+                        tab_focused: current_tab_focused,
+                    },
+                );
+            }
+        }
+    }
+
+    tabs.sort_by(|left, right| left.index.cmp(&right.index));
+    let mut pane_entries = panes.into_values().collect::<Vec<_>>();
+    pane_entries.sort_by(|left, right| {
+        left.tab_index
+            .cmp(&right.tab_index)
+            .then_with(|| {
+                pane_id_number_u64(&left.pane_id)
+                    .unwrap_or(u64::MAX)
+                    .cmp(&pane_id_number_u64(&right.pane_id).unwrap_or(u64::MAX))
+            })
+            .then_with(|| left.pane_id.cmp(&right.pane_id))
+    });
+
+    LayoutSnapshot {
+        pane_ids,
+        tabs,
+        panes: pane_entries,
+    }
 }
 
 #[cfg(unix)]
 fn parse_layout_pane_ids(layout: &str) -> HashSet<String> {
-    let mut panes = HashSet::new();
-    for line in layout.lines() {
-        for pane_id in extract_pane_ids_from_layout_line(line) {
-            panes.insert(pane_id);
-        }
-    }
-    panes
+    parse_layout_snapshot(layout).pane_ids
 }
 
 #[cfg(unix)]
 fn extract_pane_ids_from_layout_line(line: &str) -> Vec<String> {
-    let mut pane_ids = Vec::new();
+    let mut pane_ids = extract_quoted_flag_values(line, "--pane-id");
+    pane_ids.extend(extract_legacy_flag_values(line, "--pane-id\""));
+    pane_ids.extend(extract_attr_values(line, "pane_id"));
+    pane_ids.extend(extract_attr_values(line, "pane-id"));
+    pane_ids.sort();
+    pane_ids.dedup();
+    pane_ids
+}
+
+#[cfg(unix)]
+fn line_is_tab_decl(line: &str) -> bool {
+    let trimmed = line.trim_start();
+    trimmed.starts_with("tab ") || trimmed == "tab" || trimmed.starts_with("tab\t")
+}
+
+#[cfg(unix)]
+fn extract_layout_attr(line: &str, attr: &str) -> Option<String> {
+    let with_equals = format!("{attr}=\"");
+    if let Some(start) = line.find(&with_equals) {
+        let value_start = start + with_equals.len();
+        let tail = &line[value_start..];
+        let end = tail.find('"')?;
+        let value = tail[..end].trim();
+        if !value.is_empty() {
+            return Some(value.to_string());
+        }
+    }
+
+    let with_space = format!("{attr} \"");
+    if let Some(start) = line.find(&with_space) {
+        let value_start = start + with_space.len();
+        let tail = &line[value_start..];
+        let end = tail.find('"')?;
+        let value = tail[..end].trim();
+        if !value.is_empty() {
+            return Some(value.to_string());
+        }
+    }
+
+    None
+}
+
+#[cfg(unix)]
+fn extract_quoted_flag_values(line: &str, flag: &str) -> Vec<String> {
+    let mut out = Vec::new();
+    let parts: Vec<&str> = line.split('"').collect();
+    if parts.len() < 3 {
+        return out;
+    }
+    let mut idx = 1usize;
+    while idx + 2 < parts.len() {
+        if parts[idx].trim() == flag {
+            let value = parts[idx + 2].trim();
+            if !value.is_empty() {
+                out.push(value.to_string());
+            }
+        }
+        idx += 2;
+    }
+    out
+}
+
+#[cfg(unix)]
+fn extract_legacy_flag_values(line: &str, marker: &str) -> Vec<String> {
+    let mut values = Vec::new();
     let mut cursor = line;
-    while let Some(idx) = cursor.find("--pane-id\"") {
-        let tail = &cursor[idx + "--pane-id\"".len()..];
+    while let Some(idx) = cursor.find(marker) {
+        let tail = &cursor[idx + marker.len()..];
         let Some(start_quote) = tail.find('"') else {
             break;
         };
@@ -1303,29 +1665,45 @@ fn extract_pane_ids_from_layout_line(line: &str) -> Vec<String> {
         let Some(end_quote) = value_tail.find('"') else {
             break;
         };
-        let pane_id = value_tail[..end_quote].trim();
-        if !pane_id.is_empty() {
-            pane_ids.push(pane_id.to_string());
+        let value = value_tail[..end_quote].trim();
+        if !value.is_empty() {
+            values.push(value.to_string());
         }
         cursor = &value_tail[end_quote + 1..];
     }
+    values
+}
 
-    if pane_ids.is_empty() {
-        let mut fallback_cursor = line;
-        while let Some(idx) = fallback_cursor.find("pane_id=\"") {
-            let tail = &fallback_cursor[idx + "pane_id=\"".len()..];
-            let Some(end_quote) = tail.find('"') else {
-                break;
-            };
-            let pane_id = tail[..end_quote].trim();
-            if !pane_id.is_empty() {
-                pane_ids.push(pane_id.to_string());
-            }
-            fallback_cursor = &tail[end_quote + 1..];
+#[cfg(unix)]
+fn extract_attr_values(line: &str, attr: &str) -> Vec<String> {
+    let mut out = Vec::new();
+    let marker = format!("{attr}=\"");
+    let mut cursor = line;
+    while let Some(idx) = cursor.find(&marker) {
+        let tail = &cursor[idx + marker.len()..];
+        let Some(end_quote) = tail.find('"') else {
+            break;
+        };
+        let value = tail[..end_quote].trim();
+        if !value.is_empty() {
+            out.push(value.to_string());
         }
+        cursor = &tail[end_quote + 1..];
     }
+    out
+}
 
-    pane_ids
+#[cfg(unix)]
+fn pane_id_number_u64(value: &str) -> Option<u64> {
+    value.trim().parse::<u64>().ok()
+}
+
+#[cfg(unix)]
+fn layout_signature(tabs: &[LayoutTab], panes: &[LayoutPane]) -> u64 {
+    let mut hasher = DefaultHasher::new();
+    tabs.hash(&mut hasher);
+    panes.hash(&mut hasher);
+    hasher.finish()
 }
 
 #[cfg(unix)]
@@ -1547,6 +1925,43 @@ pane pane_id="44" name="Agent"
         let panes = parse_layout_pane_ids(layout);
         assert!(panes.contains("12"));
         assert!(panes.contains("44"));
+    }
+
+    #[test]
+    fn parse_layout_snapshot_tracks_tabs_and_focus() {
+        let layout = r#"
+tab name="Agent" focus=true
+ pane pane_id="12" name="Agent [core]"
+tab name="Review"
+ pane command="runner" args "--pane-id" "19"
+"#;
+
+        let snapshot = parse_layout_snapshot(layout);
+        assert_eq!(snapshot.tabs.len(), 2);
+        assert_eq!(snapshot.tabs[0].index, 1);
+        assert!(snapshot.tabs[0].focused);
+        assert_eq!(snapshot.panes.len(), 2);
+        assert_eq!(snapshot.panes[0].pane_id, "12");
+        assert_eq!(snapshot.panes[0].tab_index, 1);
+        assert!(snapshot.panes[0].tab_focused);
+    }
+
+    #[test]
+    fn topic_filter_defaults_and_selective_subscribe() {
+        let baseline = TopicFilter::from_subscribe(&SubscribePayload {
+            topics: Vec::new(),
+            since_seq: None,
+        });
+        assert!(baseline.allows(PulseTopic::AgentState));
+        assert!(baseline.allows(PulseTopic::CommandResult));
+        assert!(!baseline.allows(PulseTopic::LayoutState));
+
+        let selective = TopicFilter::from_subscribe(&SubscribePayload {
+            topics: vec!["layout_state".to_string()],
+            since_seq: None,
+        });
+        assert!(!selective.allows(PulseTopic::AgentState));
+        assert!(selective.allows(PulseTopic::LayoutState));
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

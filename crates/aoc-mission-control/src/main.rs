@@ -2,8 +2,8 @@ use aoc_core::{
     pulse_ipc::{
         encode_frame, AgentState, CommandPayload, CommandResultPayload, DeltaPayload,
         HeartbeatPayload as PulseHeartbeatPayload, HelloPayload as PulseHelloPayload,
-        NdjsonFrameDecoder, ProtocolVersion, SnapshotPayload, StateChangeOp, SubscribePayload,
-        WireEnvelope, WireMsg, CURRENT_PROTOCOL_VERSION, DEFAULT_MAX_FRAME_BYTES,
+        LayoutStatePayload, NdjsonFrameDecoder, ProtocolVersion, SnapshotPayload, StateChangeOp,
+        SubscribePayload, WireEnvelope, WireMsg, CURRENT_PROTOCOL_VERSION, DEFAULT_MAX_FRAME_BYTES,
     },
     ProjectData, TaskStatus,
 };
@@ -61,9 +61,17 @@ struct Config {
     pane_id: String,
     pulse_socket_path: PathBuf,
     pulse_vnext_enabled: bool,
+    layout_source: LayoutSource,
     client_id: String,
     project_root: PathBuf,
     state_dir: PathBuf,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum LayoutSource {
+    Hub,
+    Local,
+    Hybrid,
 }
 
 #[derive(Deserialize, Serialize, Clone, Debug)]
@@ -188,7 +196,15 @@ struct HubCache {
     tasks: HashMap<String, TaskSummaryPayload>,
     diffs: HashMap<String, DiffSummaryPayload>,
     health: HashMap<String, HealthSnapshot>,
+    layout: Option<HubLayout>,
     last_seq: u64,
+}
+
+#[derive(Clone, Debug, Default)]
+struct HubLayout {
+    layout_seq: u64,
+    pane_tabs: HashMap<String, TabMeta>,
+    focused_tab_index: Option<usize>,
 }
 
 #[derive(Clone, Debug)]
@@ -344,6 +360,9 @@ enum HubEvent {
     Delta {
         payload: DeltaPayload,
         event_at: DateTime<Utc>,
+    },
+    LayoutState {
+        payload: LayoutStatePayload,
     },
     Heartbeat {
         payload: PulseHeartbeatPayload,
@@ -517,6 +536,22 @@ impl App {
                         }
                     }
                 }
+            }
+            HubEvent::LayoutState { payload } => {
+                if payload.session_id != self.config.session_id {
+                    return;
+                }
+                if self
+                    .hub
+                    .layout
+                    .as_ref()
+                    .map(|layout| payload.layout_seq <= layout.layout_seq)
+                    .unwrap_or(false)
+                {
+                    return;
+                }
+                self.hub.layout = Some(hub_layout_from_payload(&payload));
+                self.update_viewer_tab_index(self.viewer_tab_index_from_hub_layout());
             }
             HubEvent::Heartbeat { payload, event_at } => {
                 let entry = self
@@ -880,12 +915,53 @@ impl App {
     fn set_local_overview(&mut self, overview: Vec<OverviewRow>, viewer_tab_index: Option<usize>) {
         let viewer_tab_index = viewer_tab_index.or(self.local.viewer_tab_index);
         merge_tab_cache(&mut self.tab_cache, &overview);
+        self.update_viewer_tab_index(viewer_tab_index);
+        self.local.overview = overview;
+    }
+
+    fn update_viewer_tab_index(&mut self, viewer_tab_index: Option<usize>) {
+        let viewer_tab_index = viewer_tab_index.or(self.local.viewer_tab_index);
         if viewer_tab_index != self.last_viewer_tab_index {
             self.follow_viewer_tab = true;
         }
         self.last_viewer_tab_index = viewer_tab_index;
-        self.local.overview = overview;
         self.local.viewer_tab_index = viewer_tab_index;
+    }
+
+    fn viewer_tab_index_from_hub_layout(&self) -> Option<usize> {
+        self.active_hub_layout().and_then(|layout| {
+            if self.config.pane_id.trim().is_empty() {
+                return layout.focused_tab_index;
+            }
+            layout
+                .pane_tabs
+                .get(&self.config.pane_id)
+                .map(|meta| meta.index)
+                .or(layout.focused_tab_index)
+        })
+    }
+
+    fn active_hub_layout(&self) -> Option<&HubLayout> {
+        if self.config.layout_source == LayoutSource::Local {
+            return None;
+        }
+        if self.connected || self.hub_reconnect_grace_active() {
+            return self.hub.layout.as_ref();
+        }
+        None
+    }
+
+    fn should_poll_local_layout(&self) -> bool {
+        match self.config.layout_source {
+            LayoutSource::Local => true,
+            LayoutSource::Hybrid => true,
+            LayoutSource::Hub => {
+                if !self.connected {
+                    return true;
+                }
+                self.hub.layout.is_none()
+            }
+        }
     }
 
     fn refresh_local_layout(&mut self) {
@@ -997,6 +1073,7 @@ impl App {
             || !self.hub.tasks.is_empty()
             || !self.hub.diffs.is_empty()
             || !self.hub.health.is_empty()
+            || self.hub.layout.is_some()
     }
 
     fn hub_reconnect_grace_active(&self) -> bool {
@@ -1095,12 +1172,28 @@ impl App {
 
             let mut merged_rows: Vec<OverviewRow> = rows.into_values().collect();
             for row in &mut merged_rows {
+                if let Some(meta) = self
+                    .active_hub_layout()
+                    .and_then(|layout| layout.pane_tabs.get(&row.pane_id))
+                {
+                    row.tab_index = Some(meta.index);
+                    row.tab_name = Some(meta.name.clone());
+                    row.tab_focused = meta.focused;
+                }
                 apply_cached_tab_meta(row, &self.tab_cache);
             }
             return sort_overview_rows(merged_rows);
         }
         let mut local_rows = self.local.overview.clone();
         for row in &mut local_rows {
+            if let Some(meta) = self
+                .active_hub_layout()
+                .and_then(|layout| layout.pane_tabs.get(&row.pane_id))
+            {
+                row.tab_index = Some(meta.index);
+                row.tab_name = Some(meta.name.clone());
+                row.tab_focused = meta.focused;
+            }
             apply_cached_tab_meta(row, &self.tab_cache);
         }
         sort_overview_rows(local_rows)
@@ -1248,8 +1341,10 @@ impl App {
             return 0;
         }
         if self.follow_viewer_tab {
-            if let Some(index) = Self::viewer_tab_overview_index(rows, self.local.viewer_tab_index)
-            {
+            let viewer_tab = self
+                .viewer_tab_index_from_hub_layout()
+                .or(self.local.viewer_tab_index);
+            if let Some(index) = Self::viewer_tab_overview_index(rows, viewer_tab) {
                 return index;
             }
         }
@@ -1423,7 +1518,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
                 snapshot_refresh_requested = true;
             }
             _ = layout_ticker.tick() => {
-                if app.mode == Mode::Overview {
+                if app.mode == Mode::Overview && app.should_poll_local_layout() {
                     layout_refresh_requested = true;
                 }
             }
@@ -3101,6 +3196,9 @@ async fn hub_loop(
                                 last_seq = payload.seq;
                                 let _ = tx.send(HubEvent::Delta { payload, event_at }).await;
                             }
+                            WireMsg::LayoutState(payload) => {
+                                let _ = tx.send(HubEvent::LayoutState { payload }).await;
+                            }
                             WireMsg::Heartbeat(payload) => {
                                 let _ = tx.send(HubEvent::Heartbeat { payload, event_at }).await;
                             }
@@ -3173,6 +3271,7 @@ fn build_pulse_hello(config: &Config) -> WireEnvelope {
                 "heartbeat".to_string(),
                 "command".to_string(),
                 "command_result".to_string(),
+                "layout_state".to_string(),
             ],
             agent_id: None,
             pane_id: None,
@@ -3189,7 +3288,11 @@ fn build_pulse_subscribe(config: &Config) -> WireEnvelope {
         timestamp: Utc::now().to_rfc3339(),
         request_id: None,
         msg: WireMsg::Subscribe(SubscribePayload {
-            topics: vec!["agent_state".to_string(), "command_result".to_string()],
+            topics: vec![
+                "agent_state".to_string(),
+                "command_result".to_string(),
+                "layout_state".to_string(),
+            ],
             since_seq: None,
         }),
     }
@@ -3282,6 +3385,42 @@ fn collect_viewer_tab_index(
     session_layout
         .and_then(|layout| layout.pane_tabs.get(&config.pane_id))
         .map(|meta| meta.index)
+}
+
+fn hub_layout_from_payload(payload: &LayoutStatePayload) -> HubLayout {
+    let mut pane_tabs = HashMap::new();
+    for pane in &payload.panes {
+        let Ok(index) = usize::try_from(pane.tab_index) else {
+            continue;
+        };
+        pane_tabs.insert(
+            pane.pane_id.clone(),
+            TabMeta {
+                index,
+                name: pane.tab_name.clone(),
+                focused: pane.tab_focused,
+            },
+        );
+    }
+
+    let focused_tab_index = payload
+        .tabs
+        .iter()
+        .find(|tab| tab.focused)
+        .and_then(|tab| usize::try_from(tab.index).ok())
+        .or_else(|| {
+            payload
+                .panes
+                .iter()
+                .find(|pane| pane.tab_focused)
+                .and_then(|pane| usize::try_from(pane.tab_index).ok())
+        });
+
+    HubLayout {
+        layout_seq: payload.layout_seq,
+        pane_tabs,
+        focused_tab_index,
+    }
 }
 
 fn collect_runtime_overview(
@@ -4045,6 +4184,7 @@ fn load_config() -> Config {
     let pane_id = resolve_pane_id();
     let pulse_socket_path = resolve_pulse_socket_path(&session_id);
     let pulse_vnext_enabled = resolve_pulse_vnext_enabled();
+    let layout_source = resolve_layout_source();
     let client_id = format!("aoc-pulse-{}", std::process::id());
     let project_root = resolve_project_root();
     let state_dir = resolve_state_dir();
@@ -4053,6 +4193,7 @@ fn load_config() -> Config {
         pane_id,
         pulse_socket_path,
         pulse_vnext_enabled,
+        layout_source,
         client_id,
         project_root,
         state_dir,
@@ -4072,6 +4213,17 @@ fn resolve_pulse_vnext_enabled() -> bool {
         .ok()
         .and_then(|value| parse_bool_flag(&value))
         .unwrap_or(true)
+}
+
+fn resolve_layout_source() -> LayoutSource {
+    match std::env::var("AOC_PULSE_LAYOUT_SOURCE") {
+        Ok(value) => match value.trim().to_ascii_lowercase().as_str() {
+            "local" => LayoutSource::Local,
+            "hybrid" => LayoutSource::Hybrid,
+            _ => LayoutSource::Hub,
+        },
+        Err(_) => LayoutSource::Hub,
+    }
 }
 
 fn init_logging() {
@@ -4233,6 +4385,7 @@ mod tests {
             pane_id: "12".to_string(),
             pulse_socket_path: PathBuf::from("/tmp/pulse-test.sock"),
             pulse_vnext_enabled: true,
+            layout_source: LayoutSource::Hub,
             client_id: "pulse-test".to_string(),
             project_root: PathBuf::from("/tmp"),
             state_dir: PathBuf::from("/tmp"),
@@ -4572,6 +4725,80 @@ mod tests {
         assert_eq!(parse_bool_flag("0"), Some(false));
         assert_eq!(parse_bool_flag("off"), Some(false));
         assert_eq!(parse_bool_flag("maybe"), None);
+    }
+
+    #[test]
+    fn layout_state_event_updates_local_tab_overlay() {
+        let (tx, _rx) = mpsc::channel(4);
+        let mut app = App::new(test_config(), tx, empty_local());
+        app.apply_hub_event(HubEvent::Connected);
+        app.set_local(LocalSnapshot {
+            overview: vec![OverviewRow {
+                identity_key: "session-test::12".to_string(),
+                label: "pane-12".to_string(),
+                lifecycle: "running".to_string(),
+                snippet: None,
+                pane_id: "12".to_string(),
+                tab_index: None,
+                tab_name: None,
+                tab_focused: false,
+                project_root: "/tmp".to_string(),
+                online: true,
+                age_secs: Some(1),
+                source: "runtime".to_string(),
+            }],
+            viewer_tab_index: None,
+            work: Vec::new(),
+            diff: Vec::new(),
+            health: empty_local().health,
+        });
+
+        app.apply_hub_event(HubEvent::LayoutState {
+            payload: LayoutStatePayload {
+                layout_seq: 1,
+                session_id: "session-test".to_string(),
+                emitted_at_ms: 1,
+                tabs: vec![aoc_core::pulse_ipc::LayoutTab {
+                    index: 3,
+                    name: "Agent".to_string(),
+                    focused: true,
+                }],
+                panes: vec![aoc_core::pulse_ipc::LayoutPane {
+                    pane_id: "12".to_string(),
+                    tab_index: 3,
+                    tab_name: "Agent".to_string(),
+                    tab_focused: true,
+                }],
+            },
+        });
+
+        assert_eq!(app.viewer_tab_index_from_hub_layout(), Some(3));
+        let rows = app.overview_rows();
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].tab_index, Some(3));
+        assert!(rows[0].tab_focused);
+    }
+
+    #[test]
+    fn hub_layout_source_disables_local_layout_poll_when_connected() {
+        let (tx, _rx) = mpsc::channel(4);
+        let mut app = App::new(test_config(), tx, empty_local());
+        app.config.layout_source = LayoutSource::Hub;
+        app.connected = true;
+        app.hub.layout = Some(HubLayout {
+            layout_seq: 2,
+            pane_tabs: HashMap::from([(
+                "12".to_string(),
+                TabMeta {
+                    index: 1,
+                    name: "Agent".to_string(),
+                    focused: true,
+                },
+            )]),
+            focused_tab_index: Some(1),
+        });
+
+        assert!(!app.should_poll_local_layout());
     }
 
     #[test]

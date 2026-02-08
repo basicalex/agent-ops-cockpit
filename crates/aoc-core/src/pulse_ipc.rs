@@ -109,6 +109,7 @@ pub enum WireMsg {
     Subscribe(SubscribePayload),
     Snapshot(SnapshotPayload),
     Delta(DeltaPayload),
+    LayoutState(LayoutStatePayload),
     Heartbeat(HeartbeatPayload),
     Command(CommandPayload),
     CommandResult(CommandResultPayload),
@@ -148,6 +149,32 @@ pub struct DeltaPayload {
     pub seq: u64,
     #[serde(default)]
     pub changes: Vec<StateChange>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
+pub struct LayoutStatePayload {
+    pub layout_seq: u64,
+    pub session_id: String,
+    pub emitted_at_ms: i64,
+    #[serde(default)]
+    pub tabs: Vec<LayoutTab>,
+    #[serde(default)]
+    pub panes: Vec<LayoutPane>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
+pub struct LayoutTab {
+    pub index: u64,
+    pub name: String,
+    pub focused: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
+pub struct LayoutPane {
+    pub pane_id: String,
+    pub tab_index: u64,
+    pub tab_name: String,
+    pub tab_focused: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -448,6 +475,41 @@ mod tests {
             }),
             ..hello_envelope()
         };
+        let layout_state = WireEnvelope {
+            sender_id: "aoc-hub".to_string(),
+            msg: WireMsg::LayoutState(LayoutStatePayload {
+                layout_seq: 7,
+                session_id: "session-alpha".to_string(),
+                emitted_at_ms: 1_707_335_222_300,
+                tabs: vec![
+                    LayoutTab {
+                        index: 1,
+                        name: "Agent".to_string(),
+                        focused: false,
+                    },
+                    LayoutTab {
+                        index: 2,
+                        name: "Agent".to_string(),
+                        focused: true,
+                    },
+                ],
+                panes: vec![
+                    LayoutPane {
+                        pane_id: "11".to_string(),
+                        tab_index: 1,
+                        tab_name: "Agent".to_string(),
+                        tab_focused: false,
+                    },
+                    LayoutPane {
+                        pane_id: "12".to_string(),
+                        tab_index: 2,
+                        tab_name: "Agent".to_string(),
+                        tab_focused: true,
+                    },
+                ],
+            }),
+            ..hello_envelope()
+        };
         let command = WireEnvelope {
             sender_id: "pulse-client".to_string(),
             request_id: Some("req-7".to_string()),
@@ -476,6 +538,7 @@ mod tests {
             subscribe,
             snapshot,
             delta,
+            layout_state,
             command,
             command_result,
         ] {
