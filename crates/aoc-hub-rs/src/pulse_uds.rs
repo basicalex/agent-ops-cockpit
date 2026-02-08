@@ -32,6 +32,9 @@ const COMMAND_CACHE_TTL: Duration = Duration::from_secs(30);
 const PULSE_LATENCY_WARN_MS: i64 = 1500;
 const PULSE_LATENCY_INFO_EVERY: u64 = 50;
 const LAYOUT_HEALTH_EVERY_TICKS: u64 = 20;
+const LAYOUT_WATCH_INTERVAL_MS_DEFAULT: u64 = 1000;
+const LAYOUT_WATCH_INTERVAL_MS_MIN: u64 = 250;
+const LAYOUT_WATCH_INTERVAL_MS_MAX: u64 = 5000;
 
 #[derive(Clone, Debug)]
 pub struct PulseUdsConfig {
@@ -447,16 +450,28 @@ impl PulseUdsHub {
     }
 
     fn spawn_layout_watcher(self: Arc<Self>, mut shutdown: watch::Receiver<bool>) {
-        let interval = Duration::from_millis(250);
+        let interval_ms = resolve_layout_watch_interval_ms();
+        let interval = Duration::from_millis(interval_ms);
         let session_id = self.config.session_id.clone();
         tokio::spawn(async move {
-            let mut ticker = tokio::time::interval(interval);
+            let jitter_ms = session_interval_jitter_ms(&session_id, interval_ms);
+            let mut ticker = tokio::time::interval_at(
+                tokio::time::Instant::now() + Duration::from_millis(jitter_ms),
+                interval,
+            );
             let mut previous_tick = Instant::now();
             let mut failure_streak: u32 = 0;
             let mut tick_count: u64 = 0;
             let mut slow_cycles: u64 = 0;
             let mut opened_total: u64 = 0;
             let mut closed_total: u64 = 0;
+
+            info!(
+                event = "pulse_layout_watcher_start",
+                session_id = %session_id,
+                interval_ms,
+                jitter_ms
+            );
 
             loop {
                 tokio::select! {
@@ -1165,6 +1180,24 @@ impl PulseUdsHub {
         drop(tx);
         let _ = writer_task.await;
     }
+}
+
+fn resolve_layout_watch_interval_ms() -> u64 {
+    std::env::var("AOC_PULSE_LAYOUT_WATCH_MS")
+        .ok()
+        .and_then(|value| value.trim().parse::<u64>().ok())
+        .map(|value| value.clamp(LAYOUT_WATCH_INTERVAL_MS_MIN, LAYOUT_WATCH_INTERVAL_MS_MAX))
+        .unwrap_or(LAYOUT_WATCH_INTERVAL_MS_DEFAULT)
+}
+
+fn session_interval_jitter_ms(session_id: &str, interval_ms: u64) -> u64 {
+    if interval_ms <= 1 {
+        return 0;
+    }
+    let seed = session_id.bytes().fold(0u64, |acc, b| {
+        acc.wrapping_mul(131).wrapping_add(u64::from(b))
+    });
+    seed % interval_ms
 }
 
 #[cfg(unix)]
