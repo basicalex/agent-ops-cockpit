@@ -41,11 +41,13 @@ use tokio::{
 use tracing::{info, warn};
 use tracing_subscriber::EnvFilter;
 
-const LOCAL_REFRESH_SECS: u64 = 1;
+const LOCAL_LAYOUT_REFRESH_MS: u64 = 1000;
+const LOCAL_SNAPSHOT_REFRESH_SECS: u64 = 2;
 const HUB_STALE_SECS: i64 = 45;
 const HUB_PRUNE_SECS: i64 = 90;
 const HUB_OFFLINE_GRACE_SECS: i64 = 12;
 const HUB_LOCAL_MISS_PRUNE_SECS: i64 = 2;
+const HUB_LOCAL_ALIGNMENT_MIN_PERCENT: usize = 70;
 const HUB_RECONNECT_GRACE_SECS: i64 = 2;
 const MAX_DIFF_FILES: usize = 8;
 const COMPACT_WIDTH: u16 = 92;
@@ -56,6 +58,7 @@ const PULSE_LATENCY_INFO_EVERY: u64 = 25;
 #[derive(Clone, Debug)]
 struct Config {
     session_id: String,
+    pane_id: String,
     pulse_socket_path: PathBuf,
     pulse_vnext_enabled: bool,
     client_id: String,
@@ -229,6 +232,7 @@ struct TabMeta {
 struct SessionLayout {
     pane_ids: HashSet<String>,
     pane_tabs: HashMap<String, TabMeta>,
+    project_tabs: HashMap<String, TabMeta>,
 }
 
 #[derive(Clone, Debug)]
@@ -295,6 +299,7 @@ struct HealthRow {
 #[derive(Clone, Debug)]
 struct LocalSnapshot {
     overview: Vec<OverviewRow>,
+    viewer_tab_index: Option<usize>,
     work: Vec<WorkProject>,
     diff: Vec<DiffProject>,
     health: HealthSnapshot,
@@ -367,10 +372,13 @@ struct App {
     hub_disconnected_at: Option<DateTime<Utc>>,
     hub: HubCache,
     local: LocalSnapshot,
+    tab_cache: HashMap<String, TabMeta>,
     mode: Mode,
     scroll: u16,
     help_open: bool,
     selected_overview: usize,
+    follow_viewer_tab: bool,
+    last_viewer_tab_index: Option<usize>,
     status_note: Option<String>,
     pending_commands: HashMap<String, PendingCommand>,
     next_request_id: u64,
@@ -379,8 +387,51 @@ struct App {
     latency_sample_count: u64,
 }
 
+fn seed_tab_cache(rows: &[OverviewRow]) -> HashMap<String, TabMeta> {
+    let mut cache = HashMap::new();
+    merge_tab_cache(&mut cache, rows);
+    cache
+}
+
+fn merge_tab_cache(cache: &mut HashMap<String, TabMeta>, rows: &[OverviewRow]) {
+    for row in rows {
+        let Some(index) = row.tab_index else {
+            continue;
+        };
+        let name = row
+            .tab_name
+            .clone()
+            .unwrap_or_else(|| format!("tab-{index}"));
+        cache.insert(
+            row.pane_id.clone(),
+            TabMeta {
+                index,
+                name,
+                focused: row.tab_focused,
+            },
+        );
+    }
+}
+
+fn apply_cached_tab_meta(row: &mut OverviewRow, cache: &HashMap<String, TabMeta>) {
+    let Some(cached) = cache.get(&row.pane_id) else {
+        return;
+    };
+    if row.tab_index.is_none() {
+        row.tab_index = Some(cached.index);
+    }
+    if row.tab_name.is_none() {
+        row.tab_name = Some(cached.name.clone());
+    }
+    if !row.tab_focused && cached.focused {
+        row.tab_focused = true;
+    }
+}
+
 impl App {
     fn new(config: Config, command_tx: mpsc::Sender<HubCommand>, local: LocalSnapshot) -> Self {
+        let tab_cache = seed_tab_cache(&local.overview);
+        let last_viewer_tab_index = local.viewer_tab_index;
         Self {
             config,
             command_tx,
@@ -388,10 +439,13 @@ impl App {
             hub_disconnected_at: None,
             hub: HubCache::default(),
             local,
+            tab_cache,
             mode: Mode::Overview,
             scroll: 0,
             help_open: false,
             selected_overview: 0,
+            follow_viewer_tab: true,
+            last_viewer_tab_index,
             status_note: None,
             pending_commands: HashMap::new(),
             next_request_id: 0,
@@ -777,6 +831,7 @@ impl App {
         };
         match self.command_tx.try_send(outbound) {
             Ok(()) => {
+                let queued_target = target_label.clone();
                 self.pending_commands.insert(
                     request_id,
                     PendingCommand {
@@ -784,7 +839,7 @@ impl App {
                         target: target_label,
                     },
                 );
-                self.status_note = Some(format!("{} queued", command));
+                self.status_note = Some(format!("{command} queued for {queued_target}"));
             }
             Err(mpsc::error::TrySendError::Full(_)) => {
                 warn!(
@@ -809,7 +864,34 @@ impl App {
     }
 
     fn set_local(&mut self, local: LocalSnapshot) {
-        self.local = local;
+        let LocalSnapshot {
+            overview,
+            viewer_tab_index,
+            work,
+            diff,
+            health,
+        } = local;
+        self.set_local_overview(overview, viewer_tab_index);
+        self.local.work = work;
+        self.local.diff = diff;
+        self.local.health = health;
+    }
+
+    fn set_local_overview(&mut self, overview: Vec<OverviewRow>, viewer_tab_index: Option<usize>) {
+        let viewer_tab_index = viewer_tab_index.or(self.local.viewer_tab_index);
+        merge_tab_cache(&mut self.tab_cache, &overview);
+        if viewer_tab_index != self.last_viewer_tab_index {
+            self.follow_viewer_tab = true;
+        }
+        self.last_viewer_tab_index = viewer_tab_index;
+        self.local.overview = overview;
+        self.local.viewer_tab_index = viewer_tab_index;
+    }
+
+    fn refresh_local_layout(&mut self) {
+        let (overview, viewer_tab_index) =
+            collect_layout_overview(&self.config, &self.local.overview, &self.tab_cache);
+        self.set_local_overview(overview, viewer_tab_index);
     }
 
     fn prune_hub_cache(&mut self) {
@@ -821,13 +903,18 @@ impl App {
             .filter(|row| row.online)
             .map(|row| row.identity_key.clone())
             .collect();
+        let hub_agent_ids: HashSet<String> = self.hub.agents.keys().cloned().collect();
+        let overlap = hub_agent_ids.intersection(&local_online).count();
+        let local_alignment_confident = !hub_agent_ids.is_empty()
+            && !local_online.is_empty()
+            && (overlap * 100) >= (hub_agent_ids.len() * HUB_LOCAL_ALIGNMENT_MIN_PERCENT);
         self.hub.agents.retain(|agent_id, agent| {
             let age = now
                 .signed_duration_since(agent.last_seen)
                 .num_seconds()
                 .max(0);
             if self.connected
-                && !local_online.is_empty()
+                && local_alignment_confident
                 && !local_online.contains(agent_id)
                 && age >= HUB_LOCAL_MISS_PRUNE_SECS
             {
@@ -992,7 +1079,7 @@ impl App {
                         existing.label = local.label.clone();
                     }
                     if existing.source == "hub" {
-                        existing.source = format!("hub+{}", local.source);
+                        existing.source = "mix".to_string();
                     }
                     if existing.tab_index.is_none() {
                         existing.tab_index = local.tab_index;
@@ -1006,9 +1093,17 @@ impl App {
                 }
             }
 
-            return sort_overview_rows(rows.into_values().collect());
+            let mut merged_rows: Vec<OverviewRow> = rows.into_values().collect();
+            for row in &mut merged_rows {
+                apply_cached_tab_meta(row, &self.tab_cache);
+            }
+            return sort_overview_rows(merged_rows);
         }
-        sort_overview_rows(self.local.overview.clone())
+        let mut local_rows = self.local.overview.clone();
+        for row in &mut local_rows {
+            apply_cached_tab_meta(row, &self.tab_cache);
+        }
+        sort_overview_rows(local_rows)
     }
 
     fn work_rows(&self) -> Vec<WorkProject> {
@@ -1143,19 +1238,35 @@ impl App {
         }]
     }
 
-    fn selected_overview_index(&self, len: usize) -> usize {
-        self.selected_overview.min(len.saturating_sub(1))
+    fn viewer_tab_overview_index(rows: &[OverviewRow], tab_index: Option<usize>) -> Option<usize> {
+        let tab_index = tab_index?;
+        rows.iter().position(|row| row.tab_index == Some(tab_index))
+    }
+
+    fn selected_overview_index_for_rows(&self, rows: &[OverviewRow]) -> usize {
+        if rows.is_empty() {
+            return 0;
+        }
+        if self.follow_viewer_tab {
+            if let Some(index) = Self::viewer_tab_overview_index(rows, self.local.viewer_tab_index)
+            {
+                return index;
+            }
+        }
+        self.selected_overview.min(rows.len().saturating_sub(1))
     }
 
     fn move_overview_selection(&mut self, step: i32) {
-        let len = self.overview_rows().len();
+        let rows = self.overview_rows();
+        let len = rows.len();
         if len == 0 {
             self.selected_overview = 0;
             return;
         }
-        let current = self.selected_overview_index(len) as i32;
+        let current = self.selected_overview_index_for_rows(&rows) as i32;
         let max = len.saturating_sub(1) as i32;
         let next = (current + step).clamp(0, max) as usize;
+        self.follow_viewer_tab = false;
         self.selected_overview = next;
     }
 
@@ -1168,7 +1279,7 @@ impl App {
             self.status_note = Some("no agents to focus".to_string());
             return;
         }
-        let selected = self.selected_overview_index(rows.len());
+        let selected = self.selected_overview_index_for_rows(&rows);
         self.selected_overview = selected;
         let row = &rows[selected];
         if self.connected {
@@ -1201,7 +1312,10 @@ impl App {
         if let Err(err) = go_to_tab(&self.config.session_id, tab_index) {
             self.status_note = Some(format!("focus failed: {err}"));
         } else {
-            self.status_note = Some(format!("focused tab {}", tab_index));
+            self.status_note = Some(format!(
+                "focused tab {} for pane {}",
+                tab_index, row.pane_id
+            ));
         }
     }
 
@@ -1214,14 +1328,14 @@ impl App {
             self.status_note = Some("no agents to stop".to_string());
             return;
         }
-        let selected = self.selected_overview_index(rows.len());
+        let selected = self.selected_overview_index_for_rows(&rows);
         self.selected_overview = selected;
         let row = &rows[selected];
         self.queue_hub_command(
             "stop_agent",
             Some(row.identity_key.clone()),
             serde_json::json!({"reason": "pulse_user_request"}),
-            row.label.clone(),
+            format!("{}::{}", row.label, row.pane_id),
         );
     }
 }
@@ -1278,13 +1392,26 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let backend = CrosstermBackend::new(stdout);
     let mut terminal = Terminal::new(backend)?;
     let mut events = EventStream::new();
-    let mut ticker = tokio::time::interval(Duration::from_secs(LOCAL_REFRESH_SECS));
-    let mut refresh_requested = false;
+    let jitter_seed = u64::from(std::process::id()) % 5;
+    let mut layout_ticker = tokio::time::interval_at(
+        tokio::time::Instant::now() + Duration::from_millis(jitter_seed * 120),
+        Duration::from_millis(LOCAL_LAYOUT_REFRESH_MS),
+    );
+    let mut snapshot_ticker = tokio::time::interval_at(
+        tokio::time::Instant::now() + Duration::from_millis(jitter_seed * 240),
+        Duration::from_secs(LOCAL_SNAPSHOT_REFRESH_SECS),
+    );
+    let mut layout_refresh_requested = false;
+    let mut snapshot_refresh_requested = false;
 
     loop {
-        if refresh_requested {
+        if snapshot_refresh_requested {
             app.set_local(collect_local(&app.config));
-            refresh_requested = false;
+            snapshot_refresh_requested = false;
+            layout_refresh_requested = false;
+        } else if layout_refresh_requested {
+            app.refresh_local_layout();
+            layout_refresh_requested = false;
         }
 
         app.prune_hub_cache();
@@ -1292,15 +1419,20 @@ async fn main() -> Result<(), Box<dyn Error>> {
         terminal.draw(|frame| render_ui(frame, &app))?;
         app.observe_render_latency();
         tokio::select! {
-            _ = ticker.tick() => {
-                refresh_requested = true;
+            _ = snapshot_ticker.tick() => {
+                snapshot_refresh_requested = true;
+            }
+            _ = layout_ticker.tick() => {
+                if app.mode == Mode::Overview {
+                    layout_refresh_requested = true;
+                }
             }
             Some(event) = hub_rx.recv() => {
                 app.apply_hub_event(event);
             }
             maybe_event = events.next() => {
                 if let Some(Ok(event)) = maybe_event {
-                    if handle_input(event, &mut app, &mut refresh_requested) {
+                    if handle_input(event, &mut app, &mut snapshot_refresh_requested) {
                         break;
                     }
                 }
@@ -1369,7 +1501,7 @@ fn render_ui(frame: &mut ratatui::Frame, app: &App) {
     frame.render_widget(render_header(app, theme, size.width), layout[0]);
     frame.render_widget(render_kpis(app, theme, size.width), layout[1]);
     if app.mode == Mode::Overview {
-        render_overview_panel(frame, app, theme, layout[2], size.width);
+        render_overview_panel(frame, app, theme, layout[2]);
     } else {
         frame.render_widget(render_body(app, theme, size.width), layout[2]);
     }
@@ -1386,40 +1518,31 @@ fn render_header(app: &App, theme: PulseTheme, width: u16) -> Paragraph<'static>
     let session = ellipsize(&app.config.session_id, if compact { 14 } else { 28 });
     let inner_width = width.saturating_sub(4) as usize;
     let status_fields = vec![
-        format!("mode={}", app.mode.title()),
-        format!("hub={hub}"),
-        format!("src={source}"),
-        format!("agents={}/{}", kpis.online_agents, kpis.total_agents),
-        format!("session={session}"),
+        format!("Mode: {}", app.mode.title()),
+        format!("Hub: {hub}"),
+        format!("Source: {source}"),
+        format!(
+            "Agents: {}/{} Online",
+            kpis.online_agents, kpis.total_agents
+        ),
+        format!("Session: {session}"),
     ];
     let status_line = fit_fields(&status_fields, inner_width.max(12));
 
-    let controls_text = if let Some(note) = app.status_note.as_deref() {
-        ellipsize(note, inner_width.max(12))
+    let action_text = if let Some(note) = app.status_note.as_deref() {
+        format!("Last Action: {}", ellipsize(note, inner_width.max(12)))
     } else if compact {
-        "? help".to_string()
+        "Last Action: ready".to_string()
     } else {
-        fit_fields(
-            &[
-                "1-4 mode".to_string(),
-                "Tab next".to_string(),
-                "j/k nav".to_string(),
-                "Enter focus".to_string(),
-                "x stop".to_string(),
-                "r refresh".to_string(),
-                "? help".to_string(),
-                "q quit".to_string(),
-            ],
-            inner_width.max(12),
-        )
+        "Last Action: ready (Enter focus, x stop, ? help)".to_string()
     };
 
     Paragraph::new(Text::from(vec![
         Line::from(Span::styled(status_line, Style::default().fg(theme.text))),
         Line::from(Span::styled(
-            controls_text,
+            ellipsize(&action_text, inner_width.max(12)),
             Style::default().fg(if app.status_note.is_some() {
-                theme.info
+                status_note_color(app.status_note.as_deref().unwrap_or_default(), theme)
             } else {
                 theme.muted
             }),
@@ -1445,13 +1568,16 @@ fn render_kpis(app: &App, theme: PulseTheme, width: u16) -> Paragraph<'static> {
     let kpis = compute_kpis(app);
     let inner_width = width.saturating_sub(4) as usize;
     let mut fields = vec![
-        format!("online {}/{}", kpis.online_agents, kpis.total_agents),
-        format!("in-progress {}", kpis.in_progress),
-        format!("dirty {}", kpis.dirty_files),
-        format!("blocked {}", kpis.blocked),
+        format!(
+            "Agents: {}/{} Online",
+            kpis.online_agents, kpis.total_agents
+        ),
+        format!("Global Tasks: {} Active", kpis.in_progress),
+        format!("Unsynced Changes: {}", kpis.dirty_files),
+        format!("Blocked: {}", kpis.blocked),
     ];
     if !compact {
-        fields.push(format!("churn {}", kpis.churn));
+        fields.push(format!("Churn: {}", kpis.churn));
     }
     let line = fit_fields(&fields, inner_width.max(12));
 
@@ -1499,14 +1625,8 @@ fn render_body(app: &App, theme: PulseTheme, width: u16) -> Paragraph<'static> {
         .scroll((app.scroll, 0))
 }
 
-fn render_overview_panel(
-    frame: &mut ratatui::Frame,
-    app: &App,
-    theme: PulseTheme,
-    area: Rect,
-    width: u16,
-) {
-    let compact = is_compact(width);
+fn render_overview_panel(frame: &mut ratatui::Frame, app: &App, theme: PulseTheme, area: Rect) {
+    let compact = is_compact(area.width);
     let rows = app.overview_rows();
     if rows.is_empty() {
         let paragraph = Paragraph::new(Line::from(Span::styled(
@@ -1532,17 +1652,17 @@ fn render_overview_panel(
 
     let items: Vec<ListItem> = rows
         .iter()
-        .map(|row| ListItem::new(Line::from(overview_row_spans(row, theme, compact, width))))
+        .map(|row| {
+            ListItem::new(Line::from(overview_row_spans(
+                row, theme, compact, area.width,
+            )))
+        })
         .collect();
     let mut state = ListState::default();
-    state.select(Some(app.selected_overview_index(items.len())));
+    state.select(Some(app.selected_overview_index_for_rows(&rows)));
     let list = List::new(items)
-        .highlight_symbol("-> ")
-        .highlight_style(
-            Style::default()
-                .fg(theme.accent)
-                .add_modifier(Modifier::BOLD),
-        )
+        .highlight_symbol(">> ")
+        .highlight_style(Style::default().add_modifier(Modifier::REVERSED))
         .block(
             Block::default()
                 .borders(Borders::ALL)
@@ -1564,64 +1684,33 @@ fn overview_row_spans(
     compact: bool,
     width: u16,
 ) -> Vec<Span<'static>> {
-    let lifecycle = normalize_lifecycle(&row.lifecycle);
-    let status_color = if row.online { theme.ok } else { theme.critical };
+    let presenter = overview_row_presenter(row, compact, width);
+    let lifecycle_color = lifecycle_color(&row.lifecycle, row.online, theme);
     let age_color = age_color(row.age_secs, row.online, theme);
-    let lifecycle_color = lifecycle_color(&lifecycle, row.online, theme);
-    let pane = ellipsize(&row.pane_id, 8);
-    let label = ellipsize(&row.label, if compact { 14 } else { 20 });
-    let tab = row
-        .tab_index
-        .map(|index| format!("t{index}"))
-        .unwrap_or_else(|| "t?".to_string());
-    let tab_name = row
-        .tab_name
-        .as_deref()
-        .map(|value| ellipsize(value, if compact { 8 } else { 12 }))
-        .unwrap_or_else(|| "unknown".to_string());
-    let source_color = if row.source == "hub" {
-        theme.info
-    } else {
-        theme.warn
-    };
-
-    let base_cols = if compact { 56usize } else { 72usize };
-    let root_budget = width.saturating_sub(base_cols as u16) as usize;
-    let root = if compact || row.project_root == "(unknown)" {
-        String::new()
-    } else {
-        format!(
-            " root:{}",
-            ellipsize(&short_project(&row.project_root, 20), root_budget.max(10))
-        )
-    };
-
+    let source_color = source_chip_color(presenter.source_chip, theme);
+    let liveness_color = if row.online { theme.ok } else { theme.critical };
     let mut spans = vec![
         Span::styled(
-            if row.online { "*" } else { "!" },
+            presenter.liveness_chip,
             Style::default()
-                .fg(status_color)
+                .fg(liveness_color)
                 .add_modifier(Modifier::BOLD),
         ),
         Span::raw(" "),
         Span::styled(
-            label,
+            presenter.identity,
             Style::default().fg(theme.text).add_modifier(Modifier::BOLD),
         ),
         Span::raw(" "),
         Span::styled(
-            format!("<{}>", ellipsize(&lifecycle, 11)),
-            Style::default().fg(lifecycle_color),
+            presenter.lifecycle_chip,
+            Style::default()
+                .fg(lifecycle_color)
+                .add_modifier(Modifier::BOLD),
         ),
         Span::raw(" "),
-        Span::styled(format!("({pane})"), Style::default().fg(theme.muted)),
-        Span::raw(" "),
         Span::styled(
-            if row.tab_focused {
-                format!("[{tab}:{tab_name}*]")
-            } else {
-                format!("[{tab}:{tab_name}]")
-            },
+            presenter.location_chip,
             Style::default().fg(if row.tab_focused {
                 theme.accent
             } else {
@@ -1630,33 +1719,281 @@ fn overview_row_spans(
         ),
         Span::raw(" "),
         Span::styled(
-            format!(
-                "{} act:{}",
-                age_meter(row.age_secs, row.online),
-                format_age(row.age_secs)
-            ),
-            Style::default().fg(age_color),
+            presenter.source_chip.bracketed(),
+            Style::default()
+                .fg(source_color)
+                .add_modifier(Modifier::BOLD),
         ),
         Span::raw(" "),
-        Span::styled(
-            format!("[{}]", ellipsize(&row.source, 12)),
-            Style::default().fg(source_color),
-        ),
+        Span::styled(presenter.heartbeat, Style::default().fg(age_color)),
     ];
-    if !root.is_empty() {
-        spans.push(Span::styled(root, Style::default().fg(theme.muted)));
-    }
-    if !compact {
-        if let Some(snippet) = row.snippet.as_deref() {
-            if !snippet.trim().is_empty() {
-                spans.push(Span::styled(
-                    format!(" msg:{}", ellipsize(snippet, 28)),
-                    Style::default().fg(theme.muted),
-                ));
-            }
-        }
+    if let Some(context) = presenter.context {
+        spans.push(Span::raw(" "));
+        spans.push(Span::styled(context, Style::default().fg(theme.muted)));
     }
     spans
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum SourceChip {
+    Hub,
+    Local,
+    Mixed,
+}
+
+impl SourceChip {
+    fn label(self) -> &'static str {
+        match self {
+            SourceChip::Hub => "HUB",
+            SourceChip::Local => "LOC",
+            SourceChip::Mixed => "MIX",
+        }
+    }
+
+    fn bracketed(self) -> String {
+        format!("[{}]", self.label())
+    }
+}
+
+#[derive(Clone, Debug)]
+struct OverviewRowPresenter {
+    liveness_chip: String,
+    identity: String,
+    lifecycle_chip: String,
+    location_chip: String,
+    source_chip: SourceChip,
+    heartbeat: String,
+    context: Option<String>,
+}
+
+#[derive(Clone, Copy, Debug)]
+struct PresenterBudgets {
+    label: usize,
+    pane: usize,
+    tab_name: usize,
+    root: usize,
+    snippet: usize,
+    include_root: bool,
+    include_snippet: bool,
+}
+
+fn overview_row_presenter(row: &OverviewRow, compact: bool, width: u16) -> OverviewRowPresenter {
+    let mut plans = vec![PresenterBudgets {
+        label: if compact { 14 } else { 20 },
+        pane: if compact { 10 } else { 14 },
+        tab_name: if compact { 8 } else { 14 },
+        root: if compact { 0 } else { 16 },
+        snippet: if compact { 0 } else { 22 },
+        include_root: !compact,
+        include_snippet: !compact,
+    }];
+    plans.push(PresenterBudgets {
+        include_snippet: false,
+        ..plans[0]
+    });
+    plans.push(PresenterBudgets {
+        include_snippet: false,
+        include_root: false,
+        ..plans[0]
+    });
+    plans.push(PresenterBudgets {
+        include_snippet: false,
+        include_root: false,
+        tab_name: 6,
+        ..plans[0]
+    });
+    plans.push(PresenterBudgets {
+        include_snippet: false,
+        include_root: false,
+        tab_name: 0,
+        ..plans[0]
+    });
+    plans.push(PresenterBudgets {
+        include_snippet: false,
+        include_root: false,
+        tab_name: 0,
+        label: 12,
+        ..plans[0]
+    });
+    plans.push(PresenterBudgets {
+        include_snippet: false,
+        include_root: false,
+        tab_name: 0,
+        label: 8,
+        pane: 8,
+        ..plans[0]
+    });
+
+    let max_width = width.saturating_sub(8) as usize;
+    for plan in plans {
+        let presenter = overview_row_presenter_with_budget(row, plan);
+        if presenter_text_len(&presenter) <= max_width.max(28) {
+            return presenter;
+        }
+    }
+    overview_row_presenter_with_budget(
+        row,
+        PresenterBudgets {
+            label: 8,
+            pane: 8,
+            tab_name: 0,
+            root: 0,
+            snippet: 0,
+            include_root: false,
+            include_snippet: false,
+        },
+    )
+}
+
+fn overview_row_presenter_with_budget(
+    row: &OverviewRow,
+    budget: PresenterBudgets,
+) -> OverviewRowPresenter {
+    let liveness_chip = format!("[{:<4}]", if row.online { "+ON" } else { "!OFF" });
+    let identity = format!(
+        "{}::{}",
+        ellipsize(&row.label, budget.label.max(4)),
+        ellipsize(&row.pane_id, budget.pane.max(4))
+    );
+    let lifecycle_chip = format!("[{:<5}]", lifecycle_chip_label(&row.lifecycle, row.online));
+    let location_chip = overview_location_chip(row, budget.tab_name);
+    let source_chip = source_chip_from_row(&row.source);
+    let heartbeat = format!(
+        "HB:{} {}",
+        age_meter(row.age_secs, row.online),
+        format_age(row.age_secs)
+    );
+
+    let root_context = if budget.include_root && row.project_root != "(unknown)" {
+        Some(format!(
+            "R:{}",
+            ellipsize(
+                &short_project(&row.project_root, budget.root.max(4)),
+                budget.root.max(4)
+            )
+        ))
+    } else {
+        None
+    };
+    let snippet_context = if budget.include_snippet {
+        row.snippet
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(|value| format!("M:{}", ellipsize(value, budget.snippet.max(8))))
+    } else {
+        None
+    };
+    let context = match (root_context, snippet_context) {
+        (Some(root), Some(snippet)) => Some(format!("{root} {snippet}")),
+        (Some(root), None) => Some(root),
+        (None, Some(snippet)) => Some(snippet),
+        (None, None) => None,
+    };
+
+    OverviewRowPresenter {
+        liveness_chip,
+        identity,
+        lifecycle_chip,
+        location_chip,
+        source_chip,
+        heartbeat,
+        context,
+    }
+}
+
+fn overview_location_chip(row: &OverviewRow, tab_name_budget: usize) -> String {
+    let Some(tab_index) = row.tab_index else {
+        return "T?:???".to_string();
+    };
+    let focused_suffix = if row.tab_focused { "*" } else { "" };
+    if tab_name_budget == 0 {
+        return format!("T{tab_index}{focused_suffix}");
+    }
+    if let Some(tab_name) = row
+        .tab_name
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        return format!(
+            "T{tab_index}:{}{}",
+            ellipsize(tab_name, tab_name_budget),
+            focused_suffix
+        );
+    }
+    format!("T{tab_index}:???{focused_suffix}")
+}
+
+fn lifecycle_chip_label(lifecycle: &str, online: bool) -> &'static str {
+    if !online {
+        return "OFF";
+    }
+    match normalize_lifecycle(lifecycle).as_str() {
+        "error" => "ERR",
+        "blocked" => "BLOCK",
+        "needs-input" => "NEEDS",
+        "busy" => "BUSY",
+        "idle" => "IDLE",
+        _ => "RUN",
+    }
+}
+
+fn source_chip_from_row(source: &str) -> SourceChip {
+    let normalized = source.trim().to_ascii_lowercase();
+    if normalized == "hub" {
+        return SourceChip::Hub;
+    }
+    if normalized.contains("hub+")
+        || normalized.contains("+hub")
+        || normalized == "mix"
+        || normalized.starts_with("mix+")
+    {
+        return SourceChip::Mixed;
+    }
+    SourceChip::Local
+}
+
+fn source_chip_color(chip: SourceChip, theme: PulseTheme) -> Color {
+    match chip {
+        SourceChip::Hub => theme.info,
+        SourceChip::Local => theme.warn,
+        SourceChip::Mixed => theme.accent,
+    }
+}
+
+fn presenter_text_len(presenter: &OverviewRowPresenter) -> usize {
+    let mut len = presenter.liveness_chip.chars().count()
+        + 1
+        + presenter.identity.chars().count()
+        + 1
+        + presenter.lifecycle_chip.chars().count()
+        + 1
+        + presenter.location_chip.chars().count()
+        + 1
+        + presenter.source_chip.bracketed().chars().count()
+        + 1
+        + presenter.heartbeat.chars().count();
+    if let Some(context) = presenter.context.as_ref() {
+        len += 1 + context.chars().count();
+    }
+    len
+}
+
+fn status_note_color(note: &str, theme: PulseTheme) -> Color {
+    let normalized = note.to_ascii_lowercase();
+    if normalized.contains("failed")
+        || normalized.contains("error")
+        || normalized.contains("offline")
+        || normalized.contains("no tab mapping")
+    {
+        return theme.critical;
+    }
+    if normalized.contains("queued") || normalized.contains("focus") || normalized.contains("stop")
+    {
+        return theme.info;
+    }
+    theme.warn
 }
 
 fn render_help_overlay(frame: &mut ratatui::Frame, app: &App, theme: PulseTheme) {
@@ -1734,10 +2071,10 @@ fn mode_help_lines(app: &App, theme: PulseTheme) -> Vec<Line<'static>> {
                     .fg(theme.accent)
                     .add_modifier(Modifier::BOLD),
             )),
-            Line::from("  j/k      select agent row"),
+            Line::from("  j/k      select agent row (>> + reverse)"),
             Line::from("  g        jump to first agent"),
-            Line::from("  Enter    focus selected tab (hub command)"),
-            Line::from("  x        stop selected agent"),
+            Line::from("  Enter    focus selected tab; unmapped -> pane note"),
+            Line::from("  x        request stop selected agent"),
         ],
         Mode::Work => vec![
             Line::from(Span::styled(
@@ -2259,20 +2596,6 @@ fn normalize_lifecycle(raw: &str) -> String {
     }
 }
 
-fn lifecycle_rank(lifecycle: &str, online: bool) -> u8 {
-    if !online {
-        return 0;
-    }
-    match normalize_lifecycle(lifecycle).as_str() {
-        "error" => 0,
-        "needs-input" | "blocked" => 1,
-        "busy" => 2,
-        "running" => 3,
-        "idle" => 4,
-        _ => 5,
-    }
-}
-
 fn lifecycle_color(lifecycle: &str, online: bool, theme: PulseTheme) -> Color {
     if !online {
         return theme.critical;
@@ -2286,16 +2609,32 @@ fn lifecycle_color(lifecycle: &str, online: bool, theme: PulseTheme) -> Color {
     }
 }
 
+fn pane_id_number(pane_id: &str) -> Option<u64> {
+    pane_id.trim().parse::<u64>().ok()
+}
+
 fn sort_overview_rows(mut rows: Vec<OverviewRow>) -> Vec<OverviewRow> {
     rows.sort_by(|left, right| {
-        lifecycle_rank(&left.lifecycle, left.online)
-            .cmp(&lifecycle_rank(&right.lifecycle, right.online))
-            .then_with(|| left.tab_focused.cmp(&right.tab_focused))
+        left.tab_index
+            .is_none()
+            .cmp(&right.tab_index.is_none())
             .then_with(|| {
-                right
-                    .age_secs
-                    .unwrap_or(-1)
-                    .cmp(&left.age_secs.unwrap_or(-1))
+                left.tab_index
+                    .unwrap_or(usize::MAX)
+                    .cmp(&right.tab_index.unwrap_or(usize::MAX))
+            })
+            .then_with(|| {
+                let left_pane = pane_id_number(&left.pane_id);
+                let right_pane = pane_id_number(&right.pane_id);
+                left_pane
+                    .is_none()
+                    .cmp(&right_pane.is_none())
+                    .then_with(|| {
+                        left_pane
+                            .unwrap_or(u64::MAX)
+                            .cmp(&right_pane.unwrap_or(u64::MAX))
+                    })
+                    .then_with(|| left.pane_id.cmp(&right.pane_id))
             })
             .then_with(|| left.identity_key.cmp(&right.identity_key))
     });
@@ -2879,9 +3218,10 @@ fn parse_event_at(timestamp: &str) -> DateTime<Utc> {
 }
 
 fn collect_local(config: &Config) -> LocalSnapshot {
-    let mut overview = collect_runtime_overview(config);
+    let viewer_tab_index = None;
+    let mut overview = collect_runtime_overview(config, None);
     if overview.is_empty() {
-        overview = collect_proc_overview(config);
+        overview = collect_proc_overview(config, None);
     }
     let project_roots = collect_project_roots(&overview, &config.project_root);
     let (work, taskmaster_status) = collect_local_work(&project_roots);
@@ -2889,13 +3229,65 @@ fn collect_local(config: &Config) -> LocalSnapshot {
     let health = collect_health(config, &taskmaster_status);
     LocalSnapshot {
         overview,
+        viewer_tab_index,
         work,
         diff,
         health,
     }
 }
 
-fn collect_runtime_overview(config: &Config) -> Vec<OverviewRow> {
+fn collect_layout_overview(
+    config: &Config,
+    existing_rows: &[OverviewRow],
+    tab_cache: &HashMap<String, TabMeta>,
+) -> (Vec<OverviewRow>, Option<usize>) {
+    let session_layout = collect_session_layout(&config.session_id);
+    let viewer_tab_index = collect_viewer_tab_index(config, session_layout.as_ref());
+    if existing_rows.is_empty() {
+        return (Vec::new(), viewer_tab_index);
+    }
+    let Some(layout) = session_layout.as_ref() else {
+        let mut rows = existing_rows.to_vec();
+        for row in &mut rows {
+            apply_cached_tab_meta(row, tab_cache);
+        }
+        return (sort_overview_rows(rows), viewer_tab_index);
+    };
+
+    let mut rows = existing_rows.to_vec();
+    for row in &mut rows {
+        if let Some(meta) = layout
+            .pane_tabs
+            .get(&row.pane_id)
+            .or_else(|| layout.project_tabs.get(&row.project_root))
+        {
+            row.tab_index = Some(meta.index);
+            row.tab_name = Some(meta.name.clone());
+            row.tab_focused = meta.focused;
+        } else {
+            row.tab_focused = false;
+            apply_cached_tab_meta(row, tab_cache);
+        }
+    }
+    (sort_overview_rows(rows), viewer_tab_index)
+}
+
+fn collect_viewer_tab_index(
+    config: &Config,
+    session_layout: Option<&SessionLayout>,
+) -> Option<usize> {
+    if config.pane_id.trim().is_empty() {
+        return None;
+    }
+    session_layout
+        .and_then(|layout| layout.pane_tabs.get(&config.pane_id))
+        .map(|meta| meta.index)
+}
+
+fn collect_runtime_overview(
+    config: &Config,
+    session_layout: Option<&SessionLayout>,
+) -> Vec<OverviewRow> {
     let mut rows: BTreeMap<String, OverviewRow> = BTreeMap::new();
     let telemetry_dir = config
         .state_dir
@@ -2906,9 +3298,15 @@ fn collect_runtime_overview(config: &Config) -> Vec<OverviewRow> {
         Err(_) => return Vec::new(),
     };
     let now = Utc::now();
-    let session_layout = collect_session_layout(&config.session_id);
-    let active_panes = session_layout.as_ref().map(|layout| &layout.pane_ids);
+    let active_panes = session_layout.as_ref().and_then(|layout| {
+        if layout.pane_ids.is_empty() {
+            None
+        } else {
+            Some(&layout.pane_ids)
+        }
+    });
     let pane_tabs = session_layout.as_ref().map(|layout| &layout.pane_tabs);
+    let project_tabs = session_layout.as_ref().map(|layout| &layout.project_tabs);
     for entry in entries.flatten() {
         let path = entry.path();
         if !path.is_file() {
@@ -2937,15 +3335,19 @@ fn collect_runtime_overview(config: &Config) -> Vec<OverviewRow> {
                     .num_seconds()
                     .max(0)
             });
-        let online =
-            runtime_process_matches(&snapshot) && !snapshot.status.eq_ignore_ascii_case("offline");
+        if !runtime_process_matches(&snapshot) {
+            continue;
+        }
+        let online = !snapshot.status.eq_ignore_ascii_case("offline");
         let expected_identity = build_identity_key(&snapshot.session_id, &snapshot.pane_id);
         let identity_key = if snapshot.agent_id == expected_identity {
             snapshot.agent_id.clone()
         } else {
             expected_identity
         };
-        let tab_meta = pane_tabs.and_then(|tabs| tabs.get(&snapshot.pane_id));
+        let tab_meta = pane_tabs
+            .and_then(|tabs| tabs.get(&snapshot.pane_id))
+            .or_else(|| project_tabs.and_then(|tabs| tabs.get(&snapshot.project_root)));
         rows.insert(
             identity_key.clone(),
             OverviewRow {
@@ -2983,7 +3385,7 @@ fn collect_session_layout(session_id: &str) -> Option<SessionLayout> {
     }
     let layout = String::from_utf8_lossy(&output.stdout);
     let parsed = parse_layout_tabs(&layout);
-    if parsed.pane_ids.is_empty() {
+    if parsed.pane_ids.is_empty() && parsed.project_tabs.is_empty() {
         None
     } else {
         Some(parsed)
@@ -2995,13 +3397,39 @@ fn parse_layout_tabs(layout: &str) -> SessionLayout {
     let mut current_tab_index = 0usize;
     let mut current_tab_name = String::new();
     let mut current_tab_focused = false;
+    let mut base_cwd: Option<String> = None;
 
     for line in layout.lines() {
+        if base_cwd.is_none() {
+            if let Some(cwd) = extract_layout_attr(line, "cwd") {
+                if cwd.starts_with('/') {
+                    base_cwd = Some(cwd);
+                }
+            }
+        }
+
         if line_is_tab_decl(line) {
             current_tab_index += 1;
             current_tab_name = extract_layout_attr(line, "name")
                 .unwrap_or_else(|| format!("tab-{current_tab_index}"));
             current_tab_focused = line.contains("focus=true") || line.contains("focus true");
+        }
+
+        if current_tab_index > 0
+            && (line.contains("name=\"Agent [") || line.contains("name=\"Agent["))
+        {
+            if let Some(cwd) = extract_layout_attr(line, "cwd") {
+                if let Some(project_root) = resolve_layout_cwd(base_cwd.as_deref(), &cwd) {
+                    parsed.project_tabs.insert(
+                        project_root,
+                        TabMeta {
+                            index: current_tab_index,
+                            name: current_tab_name.clone(),
+                            focused: current_tab_focused,
+                        },
+                    );
+                }
+            }
         }
 
         for pane_id in extract_pane_ids_from_layout_line(line) {
@@ -3019,6 +3447,18 @@ fn parse_layout_tabs(layout: &str) -> SessionLayout {
         }
     }
     parsed
+}
+
+fn resolve_layout_cwd(base_cwd: Option<&str>, cwd: &str) -> Option<String> {
+    if cwd.trim().is_empty() {
+        return None;
+    }
+    let path = PathBuf::from(cwd);
+    if path.is_absolute() {
+        return Some(path.to_string_lossy().to_string());
+    }
+    let base = base_cwd?;
+    Some(PathBuf::from(base).join(path).to_string_lossy().to_string())
 }
 
 fn line_is_tab_decl(line: &str) -> bool {
@@ -3052,24 +3492,49 @@ fn extract_layout_attr(line: &str, attr: &str) -> Option<String> {
 }
 
 fn extract_pane_ids_from_layout_line(line: &str) -> Vec<String> {
-    let mut pane_ids = Vec::new();
-    let mut cursor = line;
-    while let Some(idx) = cursor.find("--pane-id\"") {
-        let tail = &cursor[idx + "--pane-id\"".len()..];
-        let Some(start_quote) = tail.find('"') else {
-            break;
-        };
-        let value_tail = &tail[start_quote + 1..];
-        let Some(end_quote) = value_tail.find('"') else {
-            break;
-        };
-        let pane_id = value_tail[..end_quote].trim();
-        if !pane_id.is_empty() {
-            pane_ids.push(pane_id.to_string());
-        }
-        cursor = &value_tail[end_quote + 1..];
-    }
+    let mut pane_ids = extract_quoted_flag_values(line, "--pane-id");
+    pane_ids.extend(extract_attr_values(line, "pane_id"));
+    pane_ids.extend(extract_attr_values(line, "pane-id"));
+    pane_ids.sort();
+    pane_ids.dedup();
     pane_ids
+}
+
+fn extract_quoted_flag_values(line: &str, flag: &str) -> Vec<String> {
+    let mut out = Vec::new();
+    let parts: Vec<&str> = line.split('"').collect();
+    if parts.len() < 3 {
+        return out;
+    }
+    let mut idx = 1usize;
+    while idx + 2 < parts.len() {
+        if parts[idx].trim() == flag {
+            let value = parts[idx + 2].trim();
+            if !value.is_empty() {
+                out.push(value.to_string());
+            }
+        }
+        idx += 2;
+    }
+    out
+}
+
+fn extract_attr_values(line: &str, attr: &str) -> Vec<String> {
+    let mut out = Vec::new();
+    let marker = format!("{attr}=\"");
+    let mut cursor = line;
+    while let Some(idx) = cursor.find(&marker) {
+        let tail = &cursor[idx + marker.len()..];
+        let Some(end_quote) = tail.find('"') else {
+            break;
+        };
+        let value = tail[..end_quote].trim();
+        if !value.is_empty() {
+            out.push(value.to_string());
+        }
+        cursor = &tail[end_quote + 1..];
+    }
+    out
 }
 
 fn runtime_process_matches(snapshot: &RuntimeSnapshot) -> bool {
@@ -3097,10 +3562,14 @@ fn runtime_process_matches(snapshot: &RuntimeSnapshot) -> bool {
     proc_session == snapshot.session_id.as_str() && proc_pane == snapshot.pane_id.as_str()
 }
 
-fn collect_proc_overview(config: &Config) -> Vec<OverviewRow> {
+fn collect_proc_overview(
+    config: &Config,
+    session_layout: Option<&SessionLayout>,
+) -> Vec<OverviewRow> {
     let mut rows: BTreeMap<String, OverviewRow> = BTreeMap::new();
-    let session_layout = collect_session_layout(&config.session_id);
-    let pane_tabs = session_layout.as_ref().map(|layout| &layout.pane_tabs);
+    let pane_tabs = session_layout.map(|layout| &layout.pane_tabs);
+    let project_tabs = session_layout.map(|layout| &layout.project_tabs);
+    let active_panes = session_layout.map(|layout| &layout.pane_ids);
     let proc_entries = match fs::read_dir("/proc") {
         Ok(entries) => entries,
         Err(_) => return Vec::new(),
@@ -3130,6 +3599,11 @@ fn collect_proc_overview(config: &Config) -> Vec<OverviewRow> {
             Some(value) if !value.is_empty() => value,
             _ => continue,
         };
+        if let Some(active_panes) = active_panes {
+            if !active_panes.contains(&pane_id) {
+                continue;
+            }
+        }
         let label = env_map
             .get("AOC_AGENT_LABEL")
             .or_else(|| env_map.get("AOC_AGENT_ID"))
@@ -3142,7 +3616,9 @@ fn collect_proc_overview(config: &Config) -> Vec<OverviewRow> {
                 .unwrap_or_else(|| "(unknown)".to_string())
         });
         let key = build_identity_key(&config.session_id, &pane_id);
-        let tab_meta = pane_tabs.and_then(|tabs| tabs.get(&pane_id));
+        let tab_meta = pane_tabs
+            .and_then(|tabs| tabs.get(&pane_id))
+            .or_else(|| project_tabs.and_then(|tabs| tabs.get(&project_root)));
         rows.entry(key.clone()).or_insert(OverviewRow {
             identity_key: key,
             label,
@@ -3566,6 +4042,7 @@ fn which_cmd(name: &str) -> Option<String> {
 
 fn load_config() -> Config {
     let session_id = resolve_session_id();
+    let pane_id = resolve_pane_id();
     let pulse_socket_path = resolve_pulse_socket_path(&session_id);
     let pulse_vnext_enabled = resolve_pulse_vnext_enabled();
     let client_id = format!("aoc-pulse-{}", std::process::id());
@@ -3573,6 +4050,7 @@ fn load_config() -> Config {
     let state_dir = resolve_state_dir();
     Config {
         session_id,
+        pane_id,
         pulse_socket_path,
         pulse_vnext_enabled,
         client_id,
@@ -3624,6 +4102,20 @@ fn resolve_session_id() -> String {
         }
     }
     format!("pid-{}", std::process::id())
+}
+
+fn resolve_pane_id() -> String {
+    if let Ok(value) = std::env::var("AOC_PANE_ID") {
+        if !value.trim().is_empty() {
+            return value;
+        }
+    }
+    if let Ok(value) = std::env::var("ZELLIJ_PANE_ID") {
+        if !value.trim().is_empty() {
+            return value;
+        }
+    }
+    String::new()
 }
 
 fn resolve_pulse_socket_path(session_id: &str) -> PathBuf {
@@ -3738,6 +4230,7 @@ mod tests {
     fn test_config() -> Config {
         Config {
             session_id: "session-test".to_string(),
+            pane_id: "12".to_string(),
             pulse_socket_path: PathBuf::from("/tmp/pulse-test.sock"),
             pulse_vnext_enabled: true,
             client_id: "pulse-test".to_string(),
@@ -3749,6 +4242,7 @@ mod tests {
     fn empty_local() -> LocalSnapshot {
         LocalSnapshot {
             overview: Vec::new(),
+            viewer_tab_index: None,
             work: Vec::new(),
             diff: Vec::new(),
             health: HealthSnapshot {
@@ -3834,12 +4328,12 @@ mod tests {
     }
 
     #[test]
-    fn overview_sort_prioritizes_attention_states() {
+    fn overview_sort_prioritizes_tab_position() {
         let rows = vec![
             OverviewRow {
                 identity_key: "session-test::2".to_string(),
-                label: "idle-pane".to_string(),
-                lifecycle: "idle".to_string(),
+                label: "needs-input-pane".to_string(),
+                lifecycle: "needs-input".to_string(),
                 snippet: None,
                 pane_id: "2".to_string(),
                 tab_index: Some(2),
@@ -3852,8 +4346,8 @@ mod tests {
             },
             OverviewRow {
                 identity_key: "session-test::1".to_string(),
-                label: "needs-input-pane".to_string(),
-                lifecycle: "needs-input".to_string(),
+                label: "idle-pane".to_string(),
+                lifecycle: "idle".to_string(),
                 snippet: None,
                 pane_id: "1".to_string(),
                 tab_index: Some(1),
@@ -3869,6 +4363,87 @@ mod tests {
         let sorted = sort_overview_rows(rows);
         assert_eq!(sorted[0].identity_key, "session-test::1");
         assert_eq!(sorted[1].identity_key, "session-test::2");
+    }
+
+    #[test]
+    fn overview_sort_uses_numeric_pane_id_within_tab() {
+        let rows = vec![
+            OverviewRow {
+                identity_key: "session-test::10".to_string(),
+                label: "pane-10".to_string(),
+                lifecycle: "running".to_string(),
+                snippet: None,
+                pane_id: "10".to_string(),
+                tab_index: Some(1),
+                tab_name: Some("Agent".to_string()),
+                tab_focused: false,
+                project_root: "/repo".to_string(),
+                online: true,
+                age_secs: Some(1),
+                source: "hub".to_string(),
+            },
+            OverviewRow {
+                identity_key: "session-test::2".to_string(),
+                label: "pane-2".to_string(),
+                lifecycle: "running".to_string(),
+                snippet: None,
+                pane_id: "2".to_string(),
+                tab_index: Some(1),
+                tab_name: Some("Agent".to_string()),
+                tab_focused: false,
+                project_root: "/repo".to_string(),
+                online: true,
+                age_secs: Some(1),
+                source: "hub".to_string(),
+            },
+        ];
+
+        let sorted = sort_overview_rows(rows);
+        assert_eq!(sorted[0].pane_id, "2");
+        assert_eq!(sorted[1].pane_id, "10");
+    }
+
+    #[test]
+    fn overview_selection_follows_viewer_tab_by_default() {
+        let (tx, _rx) = mpsc::channel(4);
+        let mut app = App::new(test_config(), tx, empty_local());
+        let rows = vec![
+            OverviewRow {
+                identity_key: "session-test::1".to_string(),
+                label: "pane-1".to_string(),
+                lifecycle: "running".to_string(),
+                snippet: None,
+                pane_id: "1".to_string(),
+                tab_index: Some(1),
+                tab_name: Some("tab-1".to_string()),
+                tab_focused: false,
+                project_root: "/repo".to_string(),
+                online: true,
+                age_secs: Some(1),
+                source: "runtime".to_string(),
+            },
+            OverviewRow {
+                identity_key: "session-test::2".to_string(),
+                label: "pane-2".to_string(),
+                lifecycle: "running".to_string(),
+                snippet: None,
+                pane_id: "2".to_string(),
+                tab_index: Some(2),
+                tab_name: Some("tab-2".to_string()),
+                tab_focused: false,
+                project_root: "/repo".to_string(),
+                online: true,
+                age_secs: Some(1),
+                source: "runtime".to_string(),
+            },
+        ];
+
+        app.local.viewer_tab_index = Some(2);
+        assert_eq!(app.selected_overview_index_for_rows(&rows), 1);
+
+        app.follow_viewer_tab = false;
+        app.selected_overview = 0;
+        assert_eq!(app.selected_overview_index_for_rows(&rows), 0);
     }
 
     #[test]
@@ -4104,5 +4679,140 @@ mod tests {
         let rows = app.overview_rows();
         assert_eq!(rows.len(), 1);
         assert_eq!(rows[0].identity_key, "session-test::12");
+    }
+
+    #[test]
+    fn overview_reuses_cached_tab_metadata_when_local_row_lacks_it() {
+        let (tx, _rx) = mpsc::channel(4);
+        let mut app = App::new(test_config(), tx, empty_local());
+
+        app.set_local(LocalSnapshot {
+            overview: vec![OverviewRow {
+                identity_key: "session-test::11".to_string(),
+                label: "OpenCode".to_string(),
+                lifecycle: "running".to_string(),
+                snippet: None,
+                pane_id: "11".to_string(),
+                tab_index: Some(2),
+                tab_name: Some("tab-2".to_string()),
+                tab_focused: false,
+                project_root: "/tmp/project".to_string(),
+                online: true,
+                age_secs: Some(1),
+                source: "runtime".to_string(),
+            }],
+            viewer_tab_index: Some(2),
+            work: Vec::new(),
+            diff: Vec::new(),
+            health: empty_local().health,
+        });
+
+        app.set_local(LocalSnapshot {
+            overview: vec![OverviewRow {
+                identity_key: "session-test::11".to_string(),
+                label: "OpenCode".to_string(),
+                lifecycle: "running".to_string(),
+                snippet: None,
+                pane_id: "11".to_string(),
+                tab_index: None,
+                tab_name: None,
+                tab_focused: false,
+                project_root: "/tmp/project".to_string(),
+                online: true,
+                age_secs: Some(1),
+                source: "runtime".to_string(),
+            }],
+            viewer_tab_index: Some(2),
+            work: Vec::new(),
+            diff: Vec::new(),
+            health: empty_local().health,
+        });
+
+        let rows = app.overview_rows();
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].tab_index, Some(2));
+        assert_eq!(rows[0].tab_name.as_deref(), Some("tab-2"));
+    }
+
+    #[test]
+    fn prune_hub_cache_skips_local_miss_prune_when_overlap_is_low() {
+        let (tx, _rx) = mpsc::channel(4);
+        let mut app = App::new(test_config(), tx, empty_local());
+        app.local.overview.push(OverviewRow {
+            identity_key: "session-test::1".to_string(),
+            label: "OpenCode".to_string(),
+            lifecycle: "running".to_string(),
+            snippet: None,
+            pane_id: "1".to_string(),
+            tab_index: Some(1),
+            tab_name: Some("Agent".to_string()),
+            tab_focused: true,
+            project_root: "/tmp/project".to_string(),
+            online: true,
+            age_secs: Some(1),
+            source: "runtime".to_string(),
+        });
+
+        app.apply_hub_event(HubEvent::Connected);
+        app.apply_hub_event(HubEvent::Snapshot {
+            payload: SnapshotPayload {
+                seq: 1,
+                states: vec![
+                    hub_state("session-test::1", "1", "/tmp/project"),
+                    hub_state("session-test::2", "2", "/tmp/project"),
+                    hub_state("session-test::3", "3", "/tmp/project"),
+                ],
+            },
+            event_at: Utc::now() - chrono::Duration::seconds(HUB_LOCAL_MISS_PRUNE_SECS + 1),
+        });
+
+        app.prune_hub_cache();
+        assert_eq!(app.hub.agents.len(), 3);
+    }
+
+    #[test]
+    fn extract_layout_pane_ids_supports_pane_id_attribute() {
+        let line = r#"pane pane_id="44" name="Agent""#;
+        let pane_ids = extract_pane_ids_from_layout_line(line);
+        assert_eq!(pane_ids, vec!["44".to_string()]);
+    }
+
+    #[test]
+    fn extract_layout_pane_ids_supports_flag_and_hyphen_attribute() {
+        let line = r#"pane command="runner" args "--pane-id" "55" pane-id="77""#;
+        let pane_ids = extract_pane_ids_from_layout_line(line);
+        assert_eq!(pane_ids, vec!["55".to_string(), "77".to_string()]);
+    }
+
+    #[test]
+    fn lifecycle_normalization_and_chips_are_stable() {
+        assert_eq!(normalize_lifecycle(" needs_input "), "needs-input");
+        assert_eq!(lifecycle_chip_label("needs_input", true), "NEEDS");
+    }
+
+    #[test]
+    fn overview_presenter_compact_keeps_critical_fields() {
+        let row = OverviewRow {
+            identity_key: "session-test::991122".to_string(),
+            label: "very-long-opencode-agent-label".to_string(),
+            lifecycle: "blocked".to_string(),
+            snippet: Some("waiting on credentials and operator input".to_string()),
+            pane_id: "9911223344".to_string(),
+            tab_index: None,
+            tab_name: None,
+            tab_focused: false,
+            project_root: "/tmp/some/project/with/long/path".to_string(),
+            online: true,
+            age_secs: Some(47),
+            source: "hub+runtime".to_string(),
+        };
+
+        let presenter = overview_row_presenter(&row, true, 80);
+        assert!(presenter.identity.contains("::"));
+        assert_eq!(presenter.location_chip, "T?:???");
+        assert_eq!(presenter.lifecycle_chip, "[BLOCK]");
+        assert_eq!(presenter.source_chip, SourceChip::Mixed);
+        assert!(presenter.heartbeat.contains("47s"));
+        assert!(presenter_text_len(&presenter) <= 72);
     }
 }
