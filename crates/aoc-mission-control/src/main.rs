@@ -45,7 +45,8 @@ const LOCAL_REFRESH_SECS: u64 = 1;
 const HUB_STALE_SECS: i64 = 45;
 const HUB_PRUNE_SECS: i64 = 90;
 const HUB_OFFLINE_GRACE_SECS: i64 = 12;
-const HUB_LOCAL_MISS_PRUNE_SECS: i64 = 0;
+const HUB_LOCAL_MISS_PRUNE_SECS: i64 = 2;
+const HUB_RECONNECT_GRACE_SECS: i64 = 2;
 const MAX_DIFF_FILES: usize = 8;
 const COMPACT_WIDTH: u16 = 92;
 const COMMAND_QUEUE_CAPACITY: usize = 64;
@@ -363,6 +364,7 @@ struct App {
     config: Config,
     command_tx: mpsc::Sender<HubCommand>,
     connected: bool,
+    hub_disconnected_at: Option<DateTime<Utc>>,
     hub: HubCache,
     local: LocalSnapshot,
     mode: Mode,
@@ -383,6 +385,7 @@ impl App {
             config,
             command_tx,
             connected: false,
+            hub_disconnected_at: None,
             hub: HubCache::default(),
             local,
             mode: Mode::Overview,
@@ -402,19 +405,19 @@ impl App {
         match event {
             HubEvent::Connected => {
                 self.connected = true;
+                self.hub_disconnected_at = None;
                 self.status_note = Some("hub connected".to_string());
             }
             HubEvent::Disconnected => {
                 self.connected = false;
-                self.hub.agents.clear();
-                self.hub.tasks.clear();
-                self.hub.diffs.clear();
-                self.hub.health.clear();
-                self.hub.last_seq = 0;
+                self.hub_disconnected_at = Some(Utc::now());
                 self.pending_commands.clear();
                 self.pending_render_latency.clear();
-                self.parser_confidence.clear();
-                self.status_note = Some("hub offline; local fallback active".to_string());
+                self.status_note = Some(if self.has_any_hub_data() {
+                    "hub reconnecting; holding last snapshot".to_string()
+                } else {
+                    "hub offline; local fallback active".to_string()
+                });
             }
             HubEvent::Snapshot { payload, event_at } => {
                 self.hub.agents.clear();
@@ -823,7 +826,8 @@ impl App {
                 .signed_duration_since(agent.last_seen)
                 .num_seconds()
                 .max(0);
-            if !local_online.is_empty()
+            if self.connected
+                && !local_online.is_empty()
                 && !local_online.contains(agent_id)
                 && age >= HUB_LOCAL_MISS_PRUNE_SECS
             {
@@ -861,28 +865,28 @@ impl App {
     fn mode_source(&self) -> &'static str {
         match self.mode {
             Mode::Overview => {
-                if self.connected && !self.hub.agents.is_empty() {
+                if self.prefer_hub_data(!self.hub.agents.is_empty()) {
                     "hub"
                 } else {
                     "local"
                 }
             }
             Mode::Work => {
-                if self.connected && !self.hub.tasks.is_empty() {
+                if self.prefer_hub_data(!self.hub.tasks.is_empty()) {
                     "hub"
                 } else {
                     "local"
                 }
             }
             Mode::Diff => {
-                if self.connected && !self.hub.diffs.is_empty() {
+                if self.prefer_hub_data(!self.hub.diffs.is_empty()) {
                     "hub"
                 } else {
                     "local"
                 }
             }
             Mode::Health => {
-                if self.connected && !self.hub.health.is_empty() {
+                if self.prefer_hub_data(!self.hub.health.is_empty()) {
                     "hub"
                 } else {
                     "local"
@@ -891,8 +895,42 @@ impl App {
         }
     }
 
+    fn hub_status_label(&self) -> &'static str {
+        if self.connected {
+            "online"
+        } else if self.hub_reconnect_grace_active() && self.has_any_hub_data() {
+            "reconnecting"
+        } else {
+            "offline"
+        }
+    }
+
+    fn has_any_hub_data(&self) -> bool {
+        !self.hub.agents.is_empty()
+            || !self.hub.tasks.is_empty()
+            || !self.hub.diffs.is_empty()
+            || !self.hub.health.is_empty()
+    }
+
+    fn hub_reconnect_grace_active(&self) -> bool {
+        if self.connected {
+            return false;
+        }
+        let Some(disconnected_at) = self.hub_disconnected_at else {
+            return false;
+        };
+        Utc::now()
+            .signed_duration_since(disconnected_at)
+            .num_seconds()
+            <= HUB_RECONNECT_GRACE_SECS
+    }
+
+    fn prefer_hub_data(&self, has_hub_data: bool) -> bool {
+        has_hub_data && (self.connected || self.hub_reconnect_grace_active())
+    }
+
     fn overview_rows(&self) -> Vec<OverviewRow> {
-        if self.connected && !self.hub.agents.is_empty() {
+        if self.prefer_hub_data(!self.hub.agents.is_empty()) {
             let now = Utc::now();
             let mut rows: BTreeMap<String, OverviewRow> = BTreeMap::new();
             for (agent_id, agent) in &self.hub.agents {
@@ -965,10 +1003,6 @@ impl App {
                     if local.tab_focused {
                         existing.tab_focused = true;
                     }
-                } else {
-                    let mut row = local.clone();
-                    row.source = format!("local:{}", local.source);
-                    rows.insert(row.identity_key.clone(), row);
                 }
             }
 
@@ -978,7 +1012,7 @@ impl App {
     }
 
     fn work_rows(&self) -> Vec<WorkProject> {
-        if self.connected && !self.hub.tasks.is_empty() {
+        if self.prefer_hub_data(!self.hub.tasks.is_empty()) {
             let mut grouped: BTreeMap<(String, String), BTreeMap<String, WorkTagRow>> =
                 BTreeMap::new();
             for payload in self.hub.tasks.values() {
@@ -1025,7 +1059,7 @@ impl App {
     }
 
     fn diff_rows(&self) -> Vec<DiffProject> {
-        if self.connected && !self.hub.diffs.is_empty() {
+        if self.prefer_hub_data(!self.hub.diffs.is_empty()) {
             let mut grouped: BTreeMap<String, (DiffProject, Vec<String>)> = BTreeMap::new();
             for payload in self.hub.diffs.values() {
                 let scope = self
@@ -1075,7 +1109,7 @@ impl App {
     }
 
     fn health_rows(&self) -> Vec<HealthRow> {
-        if self.connected && !self.hub.health.is_empty() {
+        if self.prefer_hub_data(!self.hub.health.is_empty()) {
             let mut rows = Vec::new();
             for (agent_id, snapshot) in &self.hub.health {
                 let status = self
@@ -1348,7 +1382,7 @@ fn render_header(app: &App, theme: PulseTheme, width: u16) -> Paragraph<'static>
     let compact = is_compact(width);
     let kpis = compute_kpis(app);
     let source = app.mode_source();
-    let hub = if app.connected { "online" } else { "offline" };
+    let hub = app.hub_status_label();
     let session = ellipsize(&app.config.session_id, if compact { 14 } else { 28 });
     let inner_width = width.saturating_sub(4) as usize;
     let status_fields = vec![
@@ -3725,6 +3759,27 @@ mod tests {
         }
     }
 
+    fn hub_state(agent_id: &str, pane_id: &str, project_root: &str) -> AgentState {
+        AgentState {
+            agent_id: agent_id.to_string(),
+            session_id: "session-test".to_string(),
+            pane_id: pane_id.to_string(),
+            lifecycle: "running".to_string(),
+            snippet: Some("working".to_string()),
+            last_heartbeat_ms: Some(1),
+            last_activity_ms: Some(1),
+            updated_at_ms: Some(1),
+            source: Some(serde_json::json!({
+                "agent_status": {
+                    "agent_label": "OpenCode",
+                    "project_root": project_root,
+                    "pane_id": pane_id,
+                    "status": "running"
+                }
+            })),
+        }
+    }
+
     #[test]
     fn status_payload_prefers_source_metadata() {
         let state = AgentState {
@@ -3942,5 +3997,112 @@ mod tests {
         assert_eq!(parse_bool_flag("0"), Some(false));
         assert_eq!(parse_bool_flag("off"), Some(false));
         assert_eq!(parse_bool_flag("maybe"), None);
+    }
+
+    #[test]
+    fn disconnected_hub_uses_cached_rows_during_grace() {
+        let (tx, _rx) = mpsc::channel(4);
+        let mut app = App::new(test_config(), tx, empty_local());
+        app.local.overview.push(OverviewRow {
+            identity_key: "session-test::99".to_string(),
+            label: "local-only".to_string(),
+            lifecycle: "running".to_string(),
+            snippet: None,
+            pane_id: "99".to_string(),
+            tab_index: Some(9),
+            tab_name: Some("Agent".to_string()),
+            tab_focused: false,
+            project_root: "/tmp".to_string(),
+            online: true,
+            age_secs: Some(1),
+            source: "runtime".to_string(),
+        });
+
+        app.apply_hub_event(HubEvent::Connected);
+        app.apply_hub_event(HubEvent::Snapshot {
+            payload: SnapshotPayload {
+                seq: 1,
+                states: vec![hub_state("session-test::12", "12", "/repo")],
+            },
+            event_at: Utc::now(),
+        });
+        app.apply_hub_event(HubEvent::Disconnected);
+
+        assert_eq!(app.mode_source(), "hub");
+        assert_eq!(app.hub_status_label(), "reconnecting");
+        let rows = app.overview_rows();
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].identity_key, "session-test::12");
+    }
+
+    #[test]
+    fn disconnected_hub_falls_back_after_grace_window() {
+        let (tx, _rx) = mpsc::channel(4);
+        let mut app = App::new(test_config(), tx, empty_local());
+        app.local.overview.push(OverviewRow {
+            identity_key: "session-test::99".to_string(),
+            label: "local-only".to_string(),
+            lifecycle: "running".to_string(),
+            snippet: None,
+            pane_id: "99".to_string(),
+            tab_index: Some(9),
+            tab_name: Some("Agent".to_string()),
+            tab_focused: false,
+            project_root: "/tmp".to_string(),
+            online: true,
+            age_secs: Some(1),
+            source: "runtime".to_string(),
+        });
+
+        app.apply_hub_event(HubEvent::Connected);
+        app.apply_hub_event(HubEvent::Snapshot {
+            payload: SnapshotPayload {
+                seq: 1,
+                states: vec![hub_state("session-test::12", "12", "/repo")],
+            },
+            event_at: Utc::now(),
+        });
+        app.apply_hub_event(HubEvent::Disconnected);
+        app.hub_disconnected_at =
+            Some(Utc::now() - chrono::Duration::seconds(HUB_RECONNECT_GRACE_SECS + 1));
+
+        assert_eq!(app.mode_source(), "local");
+        assert_eq!(app.hub_status_label(), "offline");
+        let rows = app.overview_rows();
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].identity_key, "session-test::99");
+    }
+
+    #[test]
+    fn overview_hub_mode_skips_local_only_rows() {
+        let (tx, _rx) = mpsc::channel(4);
+        let mut app = App::new(test_config(), tx, empty_local());
+        app.local.overview.push(OverviewRow {
+            identity_key: "session-test::99".to_string(),
+            label: "local-only".to_string(),
+            lifecycle: "running".to_string(),
+            snippet: None,
+            pane_id: "99".to_string(),
+            tab_index: Some(9),
+            tab_name: Some("Agent".to_string()),
+            tab_focused: false,
+            project_root: "/tmp".to_string(),
+            online: true,
+            age_secs: Some(1),
+            source: "runtime".to_string(),
+        });
+
+        app.apply_hub_event(HubEvent::Connected);
+        app.apply_hub_event(HubEvent::Snapshot {
+            payload: SnapshotPayload {
+                seq: 1,
+                states: vec![hub_state("session-test::12", "12", "/repo")],
+            },
+            event_at: Utc::now(),
+        });
+
+        let rows = app.overview_rows();
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].identity_key, "session-test::12");
     }
 }
