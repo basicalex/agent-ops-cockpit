@@ -1,4 +1,14 @@
-use aoc_core::{ProjectData, Task, TaskStatus};
+use aoc_core::{
+    pulse_ipc::{
+        decode_frame, encode_frame, AgentState as PulseAgentState,
+        CommandError as PulseCommandError, CommandResultPayload as PulseCommandResultPayload,
+        DeltaPayload as PulseDeltaPayload, HeartbeatPayload as PulseHeartbeatPayload,
+        HelloPayload as PulseHelloPayload, ProtocolVersion, StateChange as PulseStateChange,
+        StateChangeOp, WireEnvelope as PulseWireEnvelope, WireMsg, CURRENT_PROTOCOL_VERSION,
+        DEFAULT_MAX_FRAME_BYTES,
+    },
+    ProjectData, Task, TaskStatus,
+};
 use chrono::Utc;
 use clap::Parser;
 use futures_util::{SinkExt, StreamExt};
@@ -24,6 +34,11 @@ use tokio::{
     sync::{mpsc, oneshot, Mutex},
     time::Instant,
 };
+#[cfg(unix)]
+use tokio::{
+    io::{AsyncBufReadExt, AsyncWriteExt, BufReader},
+    net::{unix::OwnedWriteHalf, UnixStream},
+};
 use tokio_tungstenite::connect_async;
 use tracing::{error, info, warn};
 use tracing_subscriber::{fmt::writer::BoxMakeWriter, EnvFilter};
@@ -40,6 +55,7 @@ const TAP_REPORT_INTERVAL_MS: u64 = 250;
 const TAP_RESEND_INTERVAL_MS: u64 = 3000;
 const STOP_SIGINT_GRACE_MS: u64 = 1500;
 const STOP_TERM_GRACE_MS: u64 = 800;
+const HEALTH_INTERVAL_SECS: u64 = 5;
 const DISABLE_MOUSE_SEQ: &str =
     "\x1b[?1000l\x1b[?1002l\x1b[?1003l\x1b[?1005l\x1b[?1006l\x1b[?1015l\x1b[?1007l\x1b[?1004l";
 
@@ -58,6 +74,8 @@ struct Args {
     hub_addr: String,
     #[arg(long, default_value = "")]
     hub_url: String,
+    #[arg(long, default_value = "")]
+    pulse_socket_path: String,
     #[arg(long, default_value = "")]
     log_dir: String,
     #[arg(long, default_value_t = 10)]
@@ -226,10 +244,87 @@ struct TaskSummaryPayload {
     error: Option<PayloadError>,
 }
 
+#[derive(Serialize, Deserialize, Clone, Default)]
+struct CheckOutcome {
+    name: String,
+    #[serde(default)]
+    status: String,
+    #[serde(default)]
+    timestamp: Option<String>,
+    #[serde(default)]
+    details: Option<String>,
+}
+
+#[derive(Serialize, Deserialize, Clone, Default)]
+struct DependencyStatus {
+    name: String,
+    #[serde(default)]
+    available: bool,
+    #[serde(default)]
+    path: Option<String>,
+}
+
+#[derive(Serialize, Deserialize, Clone, Default)]
+struct HealthSnapshotPayload {
+    #[serde(default)]
+    dependencies: Vec<DependencyStatus>,
+    #[serde(default)]
+    checks: Vec<CheckOutcome>,
+    #[serde(default)]
+    taskmaster_status: String,
+}
+
+#[derive(Clone)]
+enum PulseUpdate {
+    Status {
+        lifecycle: String,
+        snippet: Option<String>,
+        parser_confidence: Option<u8>,
+    },
+    TaskSummaries(HashMap<String, TaskSummaryPayload>),
+    DiffSummary(DiffSummaryPayload),
+    Health(HealthSnapshotPayload),
+    Heartbeat {
+        lifecycle: Option<String>,
+    },
+    Remove,
+    Shutdown,
+}
+
+struct PulseState {
+    lifecycle: String,
+    snippet: Option<String>,
+    parser_confidence: Option<u8>,
+    task_summaries: HashMap<String, TaskSummaryPayload>,
+    diff_summary: Option<DiffSummaryPayload>,
+    health: Option<HealthSnapshotPayload>,
+    last_heartbeat_ms: Option<i64>,
+    last_activity_ms: Option<i64>,
+    updated_at_ms: Option<i64>,
+}
+
+impl PulseState {
+    fn new() -> Self {
+        Self {
+            lifecycle: "running".to_string(),
+            snippet: None,
+            parser_confidence: None,
+            task_summaries: HashMap::new(),
+            diff_summary: None,
+            health: None,
+            last_heartbeat_ms: None,
+            last_activity_ms: None,
+            updated_at_ms: None,
+        }
+    }
+}
+
 #[derive(Clone)]
 struct RuntimeConfig {
     client: ClientConfig,
     hub_url: Url,
+    pulse_socket_path: PathBuf,
+    pulse_vnext_enabled: bool,
     heartbeat_interval: Duration,
     cmd: Vec<String>,
     log_dir: String,
@@ -357,6 +452,7 @@ async fn main() {
     }
 
     let (tx, rx) = mpsc::channel::<String>(256);
+    let (pulse_tx, pulse_rx) = mpsc::channel::<PulseUpdate>(256);
     let cache = Arc::new(Mutex::new(CachedMessages::default()));
     let tap_buffer = Arc::new(StdMutex::new(TapBuffer::new(TAP_RING_MAX_BYTES)));
     let hub_cfg = config.client.clone();
@@ -366,6 +462,16 @@ async fn main() {
     let hub_task = tokio::spawn(async move {
         hub_loop(hub_cfg, hub_url, &mut hub_rx, cache_clone).await;
     });
+    let pulse_task = if config.pulse_vnext_enabled {
+        let pulse_cfg = config.client.clone();
+        let pulse_socket_path = config.pulse_socket_path.clone();
+        Some(tokio::spawn(async move {
+            pulse_loop(pulse_cfg, pulse_socket_path, pulse_rx).await;
+        }))
+    } else {
+        drop(pulse_rx);
+        None
+    };
 
     let online = build_agent_status(&config.client, "running", None);
     {
@@ -373,10 +479,19 @@ async fn main() {
         cached.status = Some(online.clone());
     }
     let _ = tx.send(online).await;
+    publish_pulse_update(
+        &pulse_tx,
+        PulseUpdate::Status {
+            lifecycle: "running".to_string(),
+            snippet: None,
+            parser_confidence: Some(1),
+        },
+    );
     let _ = persist_runtime_snapshot(&config.client, "running").await;
 
     let heartbeat_cfg = config.clone();
     let heartbeat_tx = tx.clone();
+    let heartbeat_pulse_tx = pulse_tx.clone();
     let heartbeat_task = tokio::spawn(async move {
         let mut ticker = tokio::time::interval(heartbeat_cfg.heartbeat_interval);
         loop {
@@ -385,6 +500,10 @@ async fn main() {
             if heartbeat_tx.send(msg).await.is_err() {
                 break;
             }
+            publish_pulse_update(
+                &heartbeat_pulse_tx,
+                PulseUpdate::Heartbeat { lifecycle: None },
+            );
             let _ = persist_runtime_snapshot(&heartbeat_cfg.client, "running").await;
         }
     });
@@ -392,23 +511,43 @@ async fn main() {
     let task_cfg = config.client.clone();
     let task_tx = tx.clone();
     let task_cache = cache.clone();
+    let task_pulse_tx = pulse_tx.clone();
     let task_task = tokio::spawn(async move {
-        task_summary_loop(task_cfg, task_tx, task_cache).await;
+        task_summary_loop(task_cfg, task_tx, task_cache, task_pulse_tx).await;
     });
 
     let diff_cfg = config.client.clone();
     let diff_tx = tx.clone();
     let diff_cache = cache.clone();
+    let diff_pulse_tx = pulse_tx.clone();
     let diff_task = tokio::spawn(async move {
-        diff_summary_loop(diff_cfg, diff_tx, diff_cache).await;
+        diff_summary_loop(diff_cfg, diff_tx, diff_cache, diff_pulse_tx).await;
     });
+
+    let health_task = if config.pulse_vnext_enabled {
+        let health_cfg = config.client.clone();
+        let health_pulse_tx = pulse_tx.clone();
+        Some(tokio::spawn(async move {
+            health_summary_loop(health_cfg, health_pulse_tx).await;
+        }))
+    } else {
+        None
+    };
 
     let reporter_cfg = config.client.clone();
     let reporter_tx = tx.clone();
     let reporter_cache = cache.clone();
     let reporter_tap = tap_buffer.clone();
+    let reporter_pulse_tx = pulse_tx.clone();
     let reporter_task = tokio::spawn(async move {
-        tap_state_reporter_loop(reporter_cfg, reporter_tx, reporter_cache, reporter_tap).await;
+        tap_state_reporter_loop(
+            reporter_cfg,
+            reporter_tx,
+            reporter_cache,
+            reporter_tap,
+            reporter_pulse_tx,
+        )
+        .await;
     });
 
     let use_pty = resolve_use_pty();
@@ -430,13 +569,30 @@ async fn main() {
         cached.status = Some(offline.clone());
     }
     let _ = tx.send(offline).await;
+    publish_pulse_update(
+        &pulse_tx,
+        PulseUpdate::Status {
+            lifecycle: "offline".to_string(),
+            snippet: Some("exit".to_string()),
+            parser_confidence: Some(3),
+        },
+    );
+    publish_pulse_update(&pulse_tx, PulseUpdate::Remove);
+    publish_pulse_update(&pulse_tx, PulseUpdate::Shutdown);
     let _ = persist_runtime_snapshot(&config.client, "offline").await;
     drop(tx);
+    drop(pulse_tx);
     heartbeat_task.abort();
     task_task.abort();
     diff_task.abort();
+    if let Some(task) = health_task {
+        task.abort();
+    }
     reporter_task.abort();
     hub_task.abort();
+    if let Some(task) = pulse_task {
+        let _ = tokio::time::timeout(Duration::from_millis(500), task).await;
+    }
     std::process::exit(exit_code);
 }
 
@@ -451,6 +607,8 @@ fn load_config(args: Args) -> RuntimeConfig {
     let agent_label = resolve_agent_label(&args.agent_id, &project_root);
     let agent_key = build_agent_key(&session_id, &pane_id);
     let hub_url = resolve_hub_url(&args.hub_url, &args.hub_addr, &session_id);
+    let pulse_socket_path = resolve_pulse_socket_path(&session_id, &args.pulse_socket_path);
+    let pulse_vnext_enabled = resolve_pulse_vnext_enabled();
     let log_dir = resolve_log_dir(&args.log_dir);
     let log_stdout = resolve_log_stdout();
     RuntimeConfig {
@@ -462,6 +620,8 @@ fn load_config(args: Args) -> RuntimeConfig {
             project_root,
         },
         hub_url,
+        pulse_socket_path,
+        pulse_vnext_enabled,
         heartbeat_interval: Duration::from_secs(args.heartbeat_interval),
         cmd: args.cmd,
         log_dir,
@@ -552,6 +712,492 @@ async fn hub_loop(
             }
         }
         let _ = ws.close(None).await;
+    }
+}
+
+fn publish_pulse_update(tx: &mpsc::Sender<PulseUpdate>, update: PulseUpdate) {
+    match tx.try_send(update) {
+        Ok(()) => {}
+        Err(mpsc::error::TrySendError::Full(_)) => {
+            warn!("pulse_update_drop: queue_full");
+        }
+        Err(mpsc::error::TrySendError::Closed(_)) => {}
+    }
+}
+
+#[cfg(not(unix))]
+async fn pulse_loop(
+    _cfg: ClientConfig,
+    _socket_path: PathBuf,
+    mut rx: mpsc::Receiver<PulseUpdate>,
+) {
+    while rx.recv().await.is_some() {}
+}
+
+#[cfg(unix)]
+async fn pulse_loop(cfg: ClientConfig, socket_path: PathBuf, mut rx: mpsc::Receiver<PulseUpdate>) {
+    let mut state = PulseState::new();
+    let mut last_state_hash: Option<u64> = None;
+    let mut backoff = Duration::from_secs(1);
+
+    loop {
+        let stream = match UnixStream::connect(&socket_path).await {
+            Ok(stream) => stream,
+            Err(err) => {
+                warn!("pulse_connect_error: {err}");
+                let mut sleep = tokio::time::sleep(backoff);
+                tokio::pin!(sleep);
+                loop {
+                    tokio::select! {
+                        _ = &mut sleep => break,
+                        update = rx.recv() => {
+                            match update {
+                                Some(PulseUpdate::Shutdown) | None => return,
+                                Some(PulseUpdate::Remove) => {
+                                    last_state_hash = None;
+                                }
+                                Some(PulseUpdate::Heartbeat { lifecycle }) => {
+                                    state.last_heartbeat_ms = Some(Utc::now().timestamp_millis());
+                                    if let Some(lifecycle) = lifecycle {
+                                        state.lifecycle = normalize_lifecycle_status(&lifecycle);
+                                    }
+                                }
+                                Some(other) => {
+                                    apply_pulse_update(&mut state, other);
+                                }
+                            }
+                        }
+                    }
+                }
+                backoff = next_backoff(backoff);
+                continue;
+            }
+        };
+
+        backoff = Duration::from_secs(1);
+        let (reader_half, mut writer_half) = stream.into_split();
+        if send_pulse_envelope(&mut writer_half, &build_pulse_hello(&cfg))
+            .await
+            .is_err()
+        {
+            continue;
+        }
+
+        last_state_hash = None;
+        if send_pulse_upsert(&cfg, &state, &mut writer_half, &mut last_state_hash)
+            .await
+            .is_err()
+        {
+            continue;
+        }
+
+        let mut reader = BufReader::new(reader_half);
+        loop {
+            tokio::select! {
+                update = rx.recv() => {
+                    match update {
+                        Some(PulseUpdate::Shutdown) => {
+                            let _ = send_pulse_envelope(&mut writer_half, &build_pulse_remove(&cfg)).await;
+                            return;
+                        }
+                        Some(PulseUpdate::Remove) => {
+                            if send_pulse_envelope(&mut writer_half, &build_pulse_remove(&cfg)).await.is_err() {
+                                break;
+                            }
+                            last_state_hash = None;
+                        }
+                        Some(PulseUpdate::Heartbeat { lifecycle }) => {
+                            let now = Utc::now().timestamp_millis();
+                            state.last_heartbeat_ms = Some(now);
+                            if let Some(lifecycle) = lifecycle {
+                                state.lifecycle = normalize_lifecycle_status(&lifecycle);
+                                state.updated_at_ms = Some(now);
+                            }
+                            let heartbeat = build_pulse_heartbeat(&cfg, Some(state.lifecycle.clone()));
+                            if send_pulse_envelope(&mut writer_half, &heartbeat).await.is_err() {
+                                break;
+                            }
+                        }
+                        Some(other) => {
+                            apply_pulse_update(&mut state, other);
+                            if send_pulse_upsert(&cfg, &state, &mut writer_half, &mut last_state_hash)
+                                .await
+                                .is_err()
+                            {
+                                break;
+                            }
+                        }
+                        None => {
+                            let _ = send_pulse_envelope(&mut writer_half, &build_pulse_remove(&cfg)).await;
+                            return;
+                        }
+                    }
+                }
+                inbound = read_next_pulse_frame(&mut reader) => {
+                    let Some(envelope) = inbound else {
+                        break;
+                    };
+                    if envelope.session_id != cfg.session_id || envelope.version.0 > CURRENT_PROTOCOL_VERSION {
+                        continue;
+                    }
+                    if let Some((response, interrupt)) = build_pulse_command_response(&cfg, &envelope) {
+                        if send_pulse_envelope(&mut writer_half, &response).await.is_err() {
+                            break;
+                        }
+                        if interrupt {
+                            if let Err(err) = trigger_self_interrupt() {
+                                warn!("pulse_stop_signal_error: {err}");
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+fn apply_pulse_update(state: &mut PulseState, update: PulseUpdate) {
+    let now = Utc::now().timestamp_millis();
+    match update {
+        PulseUpdate::Status {
+            lifecycle,
+            snippet,
+            parser_confidence,
+        } => {
+            state.lifecycle = normalize_lifecycle_status(&lifecycle);
+            state.snippet = snippet.and_then(|value| {
+                let trimmed = value.trim().to_string();
+                if trimmed.is_empty() {
+                    None
+                } else {
+                    Some(trimmed)
+                }
+            });
+            state.parser_confidence = parser_confidence;
+            state.last_activity_ms = Some(now);
+            state.updated_at_ms = Some(now);
+        }
+        PulseUpdate::TaskSummaries(task_summaries) => {
+            state.task_summaries = task_summaries;
+            state.updated_at_ms = Some(now);
+        }
+        PulseUpdate::DiffSummary(diff_summary) => {
+            state.diff_summary = Some(diff_summary);
+            state.updated_at_ms = Some(now);
+        }
+        PulseUpdate::Health(health) => {
+            state.health = Some(health);
+            state.updated_at_ms = Some(now);
+        }
+        PulseUpdate::Heartbeat { lifecycle } => {
+            state.last_heartbeat_ms = Some(now);
+            if let Some(lifecycle) = lifecycle {
+                state.lifecycle = normalize_lifecycle_status(&lifecycle);
+            }
+        }
+        PulseUpdate::Remove | PulseUpdate::Shutdown => {}
+    }
+}
+
+fn normalize_lifecycle_status(value: &str) -> String {
+    value.trim().to_ascii_lowercase().replace('_', "-")
+}
+
+fn build_pulse_hello(cfg: &ClientConfig) -> PulseWireEnvelope {
+    PulseWireEnvelope {
+        version: ProtocolVersion(CURRENT_PROTOCOL_VERSION),
+        session_id: cfg.session_id.clone(),
+        sender_id: cfg.agent_key.clone(),
+        timestamp: Utc::now().to_rfc3339(),
+        request_id: None,
+        msg: WireMsg::Hello(PulseHelloPayload {
+            client_id: cfg.agent_key.clone(),
+            role: "publisher".to_string(),
+            capabilities: vec![
+                "state_update".to_string(),
+                "heartbeat".to_string(),
+                "command_result".to_string(),
+            ],
+            agent_id: Some(cfg.agent_key.clone()),
+            pane_id: Some(cfg.pane_id.clone()),
+            project_root: Some(cfg.project_root.clone()),
+        }),
+    }
+}
+
+fn build_pulse_remove(cfg: &ClientConfig) -> PulseWireEnvelope {
+    PulseWireEnvelope {
+        version: ProtocolVersion(CURRENT_PROTOCOL_VERSION),
+        session_id: cfg.session_id.clone(),
+        sender_id: cfg.agent_key.clone(),
+        timestamp: Utc::now().to_rfc3339(),
+        request_id: None,
+        msg: WireMsg::Delta(PulseDeltaPayload {
+            seq: 0,
+            changes: vec![PulseStateChange {
+                op: StateChangeOp::Remove,
+                agent_id: cfg.agent_key.clone(),
+                state: None,
+            }],
+        }),
+    }
+}
+
+fn build_pulse_heartbeat(cfg: &ClientConfig, lifecycle: Option<String>) -> PulseWireEnvelope {
+    PulseWireEnvelope {
+        version: ProtocolVersion(CURRENT_PROTOCOL_VERSION),
+        session_id: cfg.session_id.clone(),
+        sender_id: cfg.agent_key.clone(),
+        timestamp: Utc::now().to_rfc3339(),
+        request_id: None,
+        msg: WireMsg::Heartbeat(PulseHeartbeatPayload {
+            agent_id: cfg.agent_key.clone(),
+            last_heartbeat_ms: Utc::now().timestamp_millis(),
+            lifecycle,
+        }),
+    }
+}
+
+fn build_pulse_agent_state(cfg: &ClientConfig, state: &PulseState) -> PulseAgentState {
+    let source = build_pulse_source(cfg, state);
+    PulseAgentState {
+        agent_id: cfg.agent_key.clone(),
+        session_id: cfg.session_id.clone(),
+        pane_id: cfg.pane_id.clone(),
+        lifecycle: state.lifecycle.clone(),
+        snippet: state.snippet.clone(),
+        last_heartbeat_ms: state.last_heartbeat_ms,
+        last_activity_ms: state.last_activity_ms,
+        updated_at_ms: state.updated_at_ms,
+        source: Some(source),
+    }
+}
+
+fn build_pulse_source(cfg: &ClientConfig, state: &PulseState) -> serde_json::Value {
+    let mut source = serde_json::Map::new();
+    let mut agent_status = serde_json::Map::new();
+    agent_status.insert(
+        "agent_id".to_string(),
+        serde_json::Value::String(cfg.agent_key.clone()),
+    );
+    agent_status.insert(
+        "agent_label".to_string(),
+        serde_json::Value::String(cfg.agent_label.clone()),
+    );
+    agent_status.insert(
+        "pane_id".to_string(),
+        serde_json::Value::String(cfg.pane_id.clone()),
+    );
+    agent_status.insert(
+        "project_root".to_string(),
+        serde_json::Value::String(cfg.project_root.clone()),
+    );
+    agent_status.insert(
+        "status".to_string(),
+        serde_json::Value::String(state.lifecycle.clone()),
+    );
+    if let Some(snippet) = state.snippet.as_ref() {
+        agent_status.insert(
+            "message".to_string(),
+            serde_json::Value::String(snippet.clone()),
+        );
+    }
+    if let Ok(cwd) = env::current_dir() {
+        agent_status.insert(
+            "cwd".to_string(),
+            serde_json::Value::String(cwd.to_string_lossy().to_string()),
+        );
+    }
+    if let Some(confidence) = state.parser_confidence {
+        agent_status.insert(
+            "lifecycle_confidence".to_string(),
+            serde_json::Value::Number(serde_json::Number::from(confidence as u64)),
+        );
+        source.insert(
+            "parser_confidence".to_string(),
+            serde_json::Value::Number(serde_json::Number::from(confidence as u64)),
+        );
+    }
+    source.insert(
+        "agent_status".to_string(),
+        serde_json::Value::Object(agent_status),
+    );
+    source.insert(
+        "agent_label".to_string(),
+        serde_json::Value::String(cfg.agent_label.clone()),
+    );
+    source.insert(
+        "project_root".to_string(),
+        serde_json::Value::String(cfg.project_root.clone()),
+    );
+
+    if !state.task_summaries.is_empty() {
+        if let Ok(value) = serde_json::to_value(&state.task_summaries) {
+            source.insert("task_summaries".to_string(), value.clone());
+            source.insert("task_summary".to_string(), value);
+        }
+    }
+    if let Some(diff_summary) = state.diff_summary.as_ref() {
+        if let Ok(value) = serde_json::to_value(diff_summary) {
+            source.insert("diff_summary".to_string(), value);
+        }
+    }
+    if let Some(health) = state.health.as_ref() {
+        if let Ok(value) = serde_json::to_value(health) {
+            source.insert("health".to_string(), value);
+        }
+    }
+    serde_json::Value::Object(source)
+}
+
+#[cfg(unix)]
+async fn send_pulse_upsert(
+    cfg: &ClientConfig,
+    state: &PulseState,
+    writer: &mut OwnedWriteHalf,
+    last_state_hash: &mut Option<u64>,
+) -> io::Result<()> {
+    let agent_state = build_pulse_agent_state(cfg, state);
+    let hash = serde_json::to_string(&agent_state)
+        .ok()
+        .map(|encoded| stable_text_hash(&encoded));
+    if hash.is_some() && hash == *last_state_hash {
+        return Ok(());
+    }
+    let envelope = PulseWireEnvelope {
+        version: ProtocolVersion(CURRENT_PROTOCOL_VERSION),
+        session_id: cfg.session_id.clone(),
+        sender_id: cfg.agent_key.clone(),
+        timestamp: Utc::now().to_rfc3339(),
+        request_id: None,
+        msg: WireMsg::Delta(PulseDeltaPayload {
+            seq: 0,
+            changes: vec![PulseStateChange {
+                op: StateChangeOp::Upsert,
+                agent_id: cfg.agent_key.clone(),
+                state: Some(agent_state),
+            }],
+        }),
+    };
+    send_pulse_envelope(writer, &envelope).await?;
+    *last_state_hash = hash;
+    Ok(())
+}
+
+#[cfg(unix)]
+async fn send_pulse_envelope(
+    writer: &mut OwnedWriteHalf,
+    envelope: &PulseWireEnvelope,
+) -> io::Result<()> {
+    let frame = encode_frame(envelope, DEFAULT_MAX_FRAME_BYTES)
+        .map_err(|err| io::Error::new(io::ErrorKind::InvalidData, err.to_string()))?;
+    writer.write_all(&frame).await?;
+    writer.flush().await
+}
+
+#[cfg(unix)]
+async fn read_next_pulse_frame(
+    reader: &mut BufReader<tokio::net::unix::OwnedReadHalf>,
+) -> Option<PulseWireEnvelope> {
+    loop {
+        let mut line = Vec::new();
+        let read = match reader.read_until(b'\n', &mut line).await {
+            Ok(value) => value,
+            Err(err) => {
+                warn!("pulse_read_error: {err}");
+                return None;
+            }
+        };
+        if read == 0 {
+            return None;
+        }
+        if line.iter().all(|byte| byte.is_ascii_whitespace()) {
+            continue;
+        }
+        match decode_frame::<PulseWireEnvelope>(&line, DEFAULT_MAX_FRAME_BYTES) {
+            Ok(parsed) => return Some(parsed),
+            Err(err) => {
+                warn!("pulse_decode_error: {err}");
+            }
+        }
+    }
+}
+
+fn build_pulse_command_response(
+    cfg: &ClientConfig,
+    envelope: &PulseWireEnvelope,
+) -> Option<(PulseWireEnvelope, bool)> {
+    let WireMsg::Command(payload) = envelope.msg.clone() else {
+        return None;
+    };
+
+    if payload.command != "stop_agent" {
+        let response = PulseCommandResultPayload {
+            command: payload.command,
+            status: "error".to_string(),
+            message: Some("unsupported command".to_string()),
+            error: Some(PulseCommandError {
+                code: "unsupported_command".to_string(),
+                message: "unsupported command".to_string(),
+            }),
+        };
+        let envelope = PulseWireEnvelope {
+            version: ProtocolVersion(CURRENT_PROTOCOL_VERSION),
+            session_id: cfg.session_id.clone(),
+            sender_id: cfg.agent_key.clone(),
+            timestamp: Utc::now().to_rfc3339(),
+            request_id: envelope.request_id.clone(),
+            msg: WireMsg::CommandResult(response),
+        };
+        return Some((envelope, false));
+    }
+
+    if payload.target_agent_id.as_deref() != Some(cfg.agent_key.as_str()) {
+        let response = PulseCommandResultPayload {
+            command: payload.command,
+            status: "error".to_string(),
+            message: Some("target mismatch".to_string()),
+            error: Some(PulseCommandError {
+                code: "invalid_target".to_string(),
+                message: "target_agent_id does not match publisher".to_string(),
+            }),
+        };
+        let envelope = PulseWireEnvelope {
+            version: ProtocolVersion(CURRENT_PROTOCOL_VERSION),
+            session_id: cfg.session_id.clone(),
+            sender_id: cfg.agent_key.clone(),
+            timestamp: Utc::now().to_rfc3339(),
+            request_id: envelope.request_id.clone(),
+            msg: WireMsg::CommandResult(response),
+        };
+        return Some((envelope, false));
+    }
+
+    let response = PulseCommandResultPayload {
+        command: payload.command,
+        status: "ok".to_string(),
+        message: Some("stop signal dispatched".to_string()),
+        error: None,
+    };
+    let envelope = PulseWireEnvelope {
+        version: ProtocolVersion(CURRENT_PROTOCOL_VERSION),
+        session_id: cfg.session_id.clone(),
+        sender_id: cfg.agent_key.clone(),
+        timestamp: Utc::now().to_rfc3339(),
+        request_id: envelope.request_id.clone(),
+        msg: WireMsg::CommandResult(response),
+    };
+    Some((envelope, true))
+}
+
+fn trigger_self_interrupt() -> Result<(), String> {
+    #[cfg(unix)]
+    {
+        send_unix_signal(std::process::id(), "INT").map_err(|err| err.to_string())
+    }
+    #[cfg(not(unix))]
+    {
+        Ok(())
     }
 }
 
@@ -855,6 +1501,7 @@ async fn tap_state_reporter_loop(
     tx: mpsc::Sender<String>,
     cache: Arc<Mutex<CachedMessages>>,
     tap: Arc<StdMutex<TapBuffer>>,
+    pulse_tx: mpsc::Sender<PulseUpdate>,
 ) {
     let mut ticker = tokio::time::interval(Duration::from_millis(TAP_REPORT_INTERVAL_MS));
     let mut current = AgentLifecycle::Running;
@@ -930,10 +1577,16 @@ async fn tap_state_reporter_loop(
                 }
 
                 if should_emit {
+                    let lifecycle = current.as_status().to_string();
+                    let snippet = if message.is_empty() {
+                        None
+                    } else {
+                        Some(message.clone())
+                    };
                     let status = build_agent_status(
                         &cfg,
-                        current.as_status(),
-                        if message.is_empty() { None } else { Some(message.as_str()) },
+                        lifecycle.as_str(),
+                        snippet.as_deref(),
                     );
                     {
                         let mut cached = cache.lock().await;
@@ -942,6 +1595,14 @@ async fn tap_state_reporter_loop(
                     if tx.send(status).await.is_err() {
                         break;
                     }
+                    publish_pulse_update(
+                        &pulse_tx,
+                        PulseUpdate::Status {
+                            lifecycle,
+                            snippet,
+                            parser_confidence: Some(confidence),
+                        },
+                    );
                     last_sent = now;
                 }
 
@@ -1306,6 +1967,7 @@ async fn task_summary_loop(
     cfg: ClientConfig,
     tx: mpsc::Sender<String>,
     cache: Arc<Mutex<CachedMessages>>,
+    pulse_tx: mpsc::Sender<PulseUpdate>,
 ) {
     let tasks_path = tasks_file_path(&cfg.project_root);
     let state_path = state_file_path(&cfg.project_root);
@@ -1324,7 +1986,7 @@ async fn task_summary_loop(
         };
     watch_path(&mut watcher, &tasks_path);
     watch_path(&mut watcher, &state_path);
-    let _ = send_task_summaries(&cfg, &tx, &cache).await;
+    let _ = send_task_summaries(&cfg, &tx, &cache, &pulse_tx).await;
     let mut pending = false;
     let debounce = Duration::from_millis(TASK_DEBOUNCE_MS);
     loop {
@@ -1335,7 +1997,7 @@ async fn task_summary_loop(
             }
             _ = tokio::time::sleep(debounce), if pending => {
                 pending = false;
-                let _ = send_task_summaries(&cfg, &tx, &cache).await;
+                let _ = send_task_summaries(&cfg, &tx, &cache, &pulse_tx).await;
             }
         }
     }
@@ -1345,6 +2007,7 @@ async fn send_task_summaries(
     cfg: &ClientConfig,
     tx: &mpsc::Sender<String>,
     cache: &Arc<Mutex<CachedMessages>>,
+    pulse_tx: &mpsc::Sender<PulseUpdate>,
 ) -> Result<(), ()> {
     let tasks_path = tasks_file_path(&cfg.project_root);
     match load_tasks(&tasks_path).await {
@@ -1352,15 +2015,17 @@ async fn send_task_summaries(
             let mut tags: Vec<_> = data.tags.into_iter().collect();
             tags.sort_by(|a, b| a.0.cmp(&b.0));
             let mut messages: HashMap<String, String> = HashMap::new();
+            let mut pulse_payloads: HashMap<String, TaskSummaryPayload> = HashMap::new();
             for (tag, ctx) in tags {
                 let payload = build_task_summary_payload(cfg, &tag, &ctx.tasks, None);
                 let msg = build_envelope(
                     "task_summary",
                     &cfg.session_id,
                     &cfg.agent_key,
-                    payload,
+                    payload.clone(),
                     None,
                 );
+                pulse_payloads.insert(tag.clone(), payload);
                 messages.insert(tag, msg);
             }
             let mut cache = cache.lock().await;
@@ -1370,10 +2035,18 @@ async fn send_task_summaries(
                     to_send.push(msg.clone());
                 }
             }
+            let removed = cache
+                .task_summary
+                .keys()
+                .any(|tag| !messages.contains_key(tag));
+            let changed = removed || !to_send.is_empty();
             cache.task_summary = messages;
             drop(cache);
             for msg in to_send {
                 let _ = tx.send(msg).await;
+            }
+            if changed {
+                publish_pulse_update(pulse_tx, PulseUpdate::TaskSummaries(pulse_payloads));
             }
             Ok(())
         }
@@ -1392,7 +2065,7 @@ async fn send_task_summaries(
                 "task_summary",
                 &cfg.session_id,
                 &cfg.agent_key,
-                payload,
+                payload.clone(),
                 None,
             );
             let mut cache = cache.lock().await;
@@ -1408,6 +2081,9 @@ async fn send_task_summaries(
             drop(cache);
             if should_send {
                 let _ = tx.send(msg).await;
+                let mut pulse_payloads = HashMap::new();
+                pulse_payloads.insert("default".to_string(), payload);
+                publish_pulse_update(pulse_tx, PulseUpdate::TaskSummaries(pulse_payloads));
             }
             Err(())
         }
@@ -1461,14 +2137,15 @@ async fn diff_summary_loop(
     cfg: ClientConfig,
     tx: mpsc::Sender<String>,
     cache: Arc<Mutex<CachedMessages>>,
+    pulse_tx: mpsc::Sender<PulseUpdate>,
 ) {
-    let _ = send_diff_summary(&cfg, &tx, &cache).await;
+    let _ = send_diff_summary(&cfg, &tx, &cache, &pulse_tx).await;
     let mut ticker = tokio::time::interval(Duration::from_secs(DIFF_INTERVAL_SECS));
     loop {
         tokio::select! {
             _ = tx.closed() => break,
             _ = ticker.tick() => {
-                let _ = send_diff_summary(&cfg, &tx, &cache).await;
+                let _ = send_diff_summary(&cfg, &tx, &cache, &pulse_tx).await;
             }
         }
     }
@@ -1478,13 +2155,14 @@ async fn send_diff_summary(
     cfg: &ClientConfig,
     tx: &mpsc::Sender<String>,
     cache: &Arc<Mutex<CachedMessages>>,
+    pulse_tx: &mpsc::Sender<PulseUpdate>,
 ) -> Result<(), ()> {
     let payload = build_diff_summary_payload(cfg).await;
     let msg = build_envelope(
         "diff_summary",
         &cfg.session_id,
         &cfg.agent_key,
-        payload,
+        payload.clone(),
         None,
     );
     let mut cached = cache.lock().await;
@@ -1494,6 +2172,7 @@ async fn send_diff_summary(
     cached.diff_summary = Some(msg.clone());
     drop(cached);
     let _ = tx.send(msg).await;
+    publish_pulse_update(pulse_tx, PulseUpdate::DiffSummary(payload));
     Ok(())
 }
 
@@ -1533,6 +2212,135 @@ async fn build_diff_summary_payload(cfg: &ClientConfig) -> DiffSummaryPayload {
                 reason: Some(reason.to_string()),
             }
         }
+    }
+}
+
+async fn health_summary_loop(cfg: ClientConfig, pulse_tx: mpsc::Sender<PulseUpdate>) {
+    let mut ticker = tokio::time::interval(Duration::from_secs(HEALTH_INTERVAL_SECS));
+    let mut last_digest = String::new();
+    loop {
+        if pulse_tx.is_closed() {
+            break;
+        }
+        let snapshot = build_health_snapshot(&cfg).await;
+        let digest = serde_json::to_string(&snapshot).unwrap_or_default();
+        if digest != last_digest {
+            publish_pulse_update(&pulse_tx, PulseUpdate::Health(snapshot));
+            last_digest = digest;
+        }
+        ticker.tick().await;
+    }
+}
+
+async fn build_health_snapshot(cfg: &ClientConfig) -> HealthSnapshotPayload {
+    let tasks_path = tasks_file_path(&cfg.project_root);
+    let taskmaster_status = match load_tasks(&tasks_path).await {
+        Ok(_) => "available",
+        Err(TaskError::Missing) => "missing",
+        Err(TaskError::Malformed(_)) => "malformed",
+        Err(TaskError::Io(_)) => "error",
+    }
+    .to_string();
+    let dependencies = [
+        "git",
+        "zellij",
+        "aoc-hub-rs",
+        "aoc-agent-wrap-rs",
+        "aoc-taskmaster",
+    ]
+    .iter()
+    .map(|name| dependency_status(name))
+    .collect();
+    let checks = ["test", "lint", "build"]
+        .iter()
+        .map(|kind| load_check_outcome(Path::new(&cfg.project_root), kind))
+        .collect();
+    HealthSnapshotPayload {
+        dependencies,
+        checks,
+        taskmaster_status,
+    }
+}
+
+fn dependency_status(name: &str) -> DependencyStatus {
+    let path = resolve_binary_path(name);
+    DependencyStatus {
+        name: name.to_string(),
+        available: path.is_some(),
+        path,
+    }
+}
+
+fn resolve_binary_path(name: &str) -> Option<String> {
+    let candidate = Path::new(name);
+    if candidate.is_absolute() && candidate.is_file() {
+        return Some(name.to_string());
+    }
+    let path = env::var("PATH").ok()?;
+    for segment in path.split(':') {
+        if segment.is_empty() {
+            continue;
+        }
+        let candidate = Path::new(segment).join(name);
+        if candidate.is_file() {
+            return Some(candidate.to_string_lossy().to_string());
+        }
+    }
+    None
+}
+
+fn load_check_outcome(project_root: &Path, kind: &str) -> CheckOutcome {
+    let base = project_root.join(".aoc").join("state");
+    let json_path = base.join(format!("last-{kind}.json"));
+    if let Ok(contents) = std::fs::read_to_string(&json_path) {
+        if let Ok(value) = serde_json::from_str::<serde_json::Value>(&contents) {
+            let status = value
+                .get("status")
+                .and_then(serde_json::Value::as_str)
+                .unwrap_or("unknown")
+                .to_string();
+            let timestamp = value
+                .get("timestamp")
+                .and_then(serde_json::Value::as_str)
+                .map(|v| v.to_string());
+            let details = value
+                .get("summary")
+                .and_then(serde_json::Value::as_str)
+                .map(|v| v.to_string());
+            return CheckOutcome {
+                name: kind.to_string(),
+                status,
+                timestamp,
+                details,
+            };
+        }
+    }
+
+    let text_path = base.join(format!("last-{kind}"));
+    if let Ok(contents) = std::fs::read_to_string(&text_path) {
+        let line = contents
+            .lines()
+            .next()
+            .unwrap_or("unknown")
+            .trim()
+            .to_string();
+        return CheckOutcome {
+            name: kind.to_string(),
+            status: if line.is_empty() {
+                "unknown".to_string()
+            } else {
+                line
+            },
+            timestamp: None,
+            details: None,
+        };
+    }
+
+    CheckOutcome {
+        name: kind.to_string(),
+        status: "unknown".to_string(),
+        timestamp: None,
+        details: None,
     }
 }
 
@@ -2291,6 +3099,76 @@ fn resolve_hub_url(flag_url: &str, flag_addr: &str, session_id: &str) -> Url {
     Url::parse(&format!("ws://{addr}/ws")).expect("invalid hub addr")
 }
 
+fn resolve_pulse_socket_path(session_id: &str, path_flag: &str) -> PathBuf {
+    if !path_flag.trim().is_empty() {
+        return PathBuf::from(path_flag);
+    }
+    if let Ok(value) = env::var("AOC_PULSE_SOCK") {
+        if !value.trim().is_empty() {
+            return PathBuf::from(value);
+        }
+    }
+
+    let runtime_dir = if let Ok(value) = env::var("XDG_RUNTIME_DIR") {
+        if !value.trim().is_empty() {
+            PathBuf::from(value)
+        } else {
+            PathBuf::from("/tmp")
+        }
+    } else if let Ok(uid) = env::var("UID") {
+        PathBuf::from(format!("/run/user/{uid}"))
+    } else {
+        PathBuf::from("/tmp")
+    };
+    runtime_dir
+        .join("aoc")
+        .join(session_slug(session_id))
+        .join("pulse.sock")
+}
+
+fn resolve_pulse_vnext_enabled() -> bool {
+    match env::var("AOC_PULSE_VNEXT_ENABLED") {
+        Ok(value) => parse_bool_env(&value).unwrap_or(true),
+        Err(_) => true,
+    }
+}
+
+fn session_slug(session_id: &str) -> String {
+    let mut slug = String::with_capacity(session_id.len());
+    for ch in session_id.chars() {
+        if ch.is_ascii_alphanumeric() || ch == '-' || ch == '_' || ch == '.' {
+            slug.push(ch);
+        } else {
+            slug.push('-');
+        }
+    }
+    while slug.contains("--") {
+        slug = slug.replace("--", "-");
+    }
+    let slug = slug.trim_matches('-').to_string();
+    let base = if slug.is_empty() {
+        "session".to_string()
+    } else {
+        slug
+    };
+    let hash = stable_hash_hex(session_id);
+    let short = if base.len() > 48 {
+        &base[..48]
+    } else {
+        base.as_str()
+    };
+    format!("{short}-{hash}")
+}
+
+fn stable_hash_hex(input: &str) -> String {
+    let mut hash: u32 = 2166136261;
+    for byte in input.as_bytes() {
+        hash ^= *byte as u32;
+        hash = hash.wrapping_mul(16777619);
+    }
+    format!("{hash:08x}")
+}
+
 fn default_hub_addr(session_id: &str) -> String {
     format!("127.0.0.1:{}", derive_port(session_id))
 }
@@ -2339,7 +3217,18 @@ fn next_backoff(current: Duration) -> Duration {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serde_json::Value;
     use std::time::{Duration, Instant};
+
+    fn test_client() -> ClientConfig {
+        ClientConfig {
+            session_id: "session-test".to_string(),
+            agent_key: "session-test::12".to_string(),
+            agent_label: "OpenCode".to_string(),
+            pane_id: "12".to_string(),
+            project_root: "/repo".to_string(),
+        }
+    }
 
     #[test]
     fn tap_buffer_keeps_bounded_tail() {
@@ -2371,6 +3260,123 @@ mod tests {
         let (state, confidence) = detect_lifecycle("Done. Ready for next command.");
         assert_eq!(state, AgentLifecycle::Idle);
         assert_eq!(confidence, 2);
+    }
+
+    #[test]
+    fn pulse_source_includes_task_diff_health_sections() {
+        let cfg = test_client();
+        let mut state = PulseState::new();
+        state.lifecycle = "busy".to_string();
+        state.snippet = Some("working".to_string());
+        state.parser_confidence = Some(3);
+        state.updated_at_ms = Some(1);
+
+        state.task_summaries.insert(
+            "master".to_string(),
+            TaskSummaryPayload {
+                agent_id: cfg.agent_key.clone(),
+                tag: "master".to_string(),
+                counts: TaskCounts {
+                    total: 3,
+                    pending: 1,
+                    in_progress: 1,
+                    done: 1,
+                    blocked: 0,
+                },
+                active_tasks: None,
+                error: None,
+            },
+        );
+        state.diff_summary = Some(DiffSummaryPayload {
+            agent_id: cfg.agent_key.clone(),
+            repo_root: "/repo".to_string(),
+            git_available: true,
+            summary: DiffSummaryCounts::default(),
+            files: Vec::new(),
+            reason: None,
+        });
+        state.health = Some(HealthSnapshotPayload {
+            dependencies: vec![DependencyStatus {
+                name: "git".to_string(),
+                available: true,
+                path: Some("/usr/bin/git".to_string()),
+            }],
+            checks: vec![CheckOutcome {
+                name: "test".to_string(),
+                status: "ok".to_string(),
+                timestamp: Some("now".to_string()),
+                details: Some("pass".to_string()),
+            }],
+            taskmaster_status: "available".to_string(),
+        });
+
+        let source = build_pulse_source(&cfg, &state);
+        let root = source.as_object().expect("source should be object");
+        assert!(root.contains_key("task_summaries"));
+        assert!(root.contains_key("task_summary"));
+        assert!(root.contains_key("diff_summary"));
+        assert!(root.contains_key("health"));
+        assert_eq!(
+            root.get("parser_confidence")
+                .and_then(Value::as_u64)
+                .unwrap_or_default(),
+            3
+        );
+    }
+
+    #[test]
+    fn pulse_stop_command_returns_ok_for_matching_target() {
+        let cfg = test_client();
+        let envelope = PulseWireEnvelope {
+            version: ProtocolVersion(CURRENT_PROTOCOL_VERSION),
+            session_id: cfg.session_id.clone(),
+            sender_id: "aoc-mission-control".to_string(),
+            timestamp: Utc::now().to_rfc3339(),
+            request_id: Some("req-1".to_string()),
+            msg: WireMsg::Command(aoc_core::pulse_ipc::CommandPayload {
+                command: "stop_agent".to_string(),
+                target_agent_id: Some(cfg.agent_key.clone()),
+                args: serde_json::json!({}),
+            }),
+        };
+
+        let (response, interrupt) =
+            build_pulse_command_response(&cfg, &envelope).expect("response expected");
+        let WireMsg::CommandResult(payload) = response.msg else {
+            panic!("expected command_result")
+        };
+        assert_eq!(payload.command, "stop_agent");
+        assert_eq!(payload.status, "ok");
+        assert!(interrupt);
+    }
+
+    #[test]
+    fn pulse_stop_command_rejects_target_mismatch() {
+        let cfg = test_client();
+        let envelope = PulseWireEnvelope {
+            version: ProtocolVersion(CURRENT_PROTOCOL_VERSION),
+            session_id: cfg.session_id.clone(),
+            sender_id: "aoc-mission-control".to_string(),
+            timestamp: Utc::now().to_rfc3339(),
+            request_id: Some("req-2".to_string()),
+            msg: WireMsg::Command(aoc_core::pulse_ipc::CommandPayload {
+                command: "stop_agent".to_string(),
+                target_agent_id: Some("session-test::99".to_string()),
+                args: serde_json::json!({}),
+            }),
+        };
+
+        let (response, interrupt) =
+            build_pulse_command_response(&cfg, &envelope).expect("response expected");
+        let WireMsg::CommandResult(payload) = response.msg else {
+            panic!("expected command_result")
+        };
+        assert_eq!(payload.status, "error");
+        assert_eq!(
+            payload.error.as_ref().map(|err| err.code.as_str()),
+            Some("invalid_target")
+        );
+        assert!(!interrupt);
     }
 
     #[cfg(unix)]
