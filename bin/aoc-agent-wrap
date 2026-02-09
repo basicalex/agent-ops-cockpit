@@ -419,6 +419,7 @@ if ((${#wrap_rs_cmd[@]} > 0)); then
     --pane-id "$AOC_PANE_ID"
     --agent-id "$AOC_AGENT_LABEL"
     --project-root "$AOC_PROJECT_ROOT"
+    --tab-scope "${AOC_TAB_SCOPE:-}"
     --hub-addr "$AOC_HUB_ADDR"
     --
     "$bootloader"
@@ -697,7 +698,22 @@ def parse_int(name, default, minimum=1, maximum=60):
         return maximum
     return value
 
+def parse_float(name, default, minimum=0.2, maximum=60.0):
+    raw = os.environ.get(name, "").strip()
+    if not raw:
+        return default
+    try:
+        value = float(raw)
+    except ValueError:
+        return default
+    if value < minimum:
+        return minimum
+    if value > maximum:
+        return maximum
+    return value
+
 pane_miss_limit = parse_int("AOC_ORPHAN_PANE_MISS_MAX", 4, minimum=1, maximum=60)
+loop_sleep_secs = parse_float("AOC_ORPHAN_PANE_POLL_SECS", 3.0)
 
 def pid_alive(pid):
     try:
@@ -777,19 +793,6 @@ def session_pane_missing():
             return True
     except Exception:
         pass
-
-    try:
-        layout = subprocess.check_output(
-            ["zellij", "--session", session_id, "action", "dump-layout"],
-            text=True,
-            timeout=2,
-        )
-    except Exception:
-        return False
-
-    pane_ids = set(re.findall(r'--pane-id"\s+"([^"]+)"', layout))
-    if pane_ids and pane_id not in pane_ids:
-        return True
     return False
 
 pane_misses = 0
@@ -804,7 +807,7 @@ while True:
             break
     else:
         pane_misses = 0
-    time.sleep(1.0)
+    time.sleep(loop_sleep_secs)
 
 pids = matching_pids()
 for pid in pids:
@@ -855,7 +858,22 @@ def parse_int(name, default, minimum=1, maximum=60):
         return maximum
     return value
 
+def parse_float(name, default, minimum=0.2, maximum=60.0):
+    raw = os.environ.get(name, "").strip()
+    if not raw:
+        return default
+    try:
+        value = float(raw)
+    except ValueError:
+        return default
+    if value < minimum:
+        return minimum
+    if value > maximum:
+        return maximum
+    return value
+
 pane_miss_limit = parse_int("AOC_ORPHAN_PANE_MISS_MAX", 4, minimum=1, maximum=60)
+loop_sleep_secs = parse_float("AOC_ORPHAN_PANE_POLL_SECS", 3.0)
 
 def pid_alive(pid):
     try:
@@ -935,19 +953,6 @@ def session_pane_missing():
             return True
     except Exception:
         pass
-
-    try:
-        layout = subprocess.check_output(
-            ["zellij", "--session", session_id, "action", "dump-layout"],
-            text=True,
-            timeout=2,
-        )
-    except Exception:
-        return False
-
-    pane_ids = set(re.findall(r'--pane-id"\s+"([^"]+)"', layout))
-    if pane_ids and pane_id not in pane_ids:
-        return True
     return False
 
 pane_misses = 0
@@ -962,7 +967,7 @@ while True:
             break
     else:
         pane_misses = 0
-    time.sleep(1.0)
+    time.sleep(loop_sleep_secs)
 
 pids = matching_pids()
 for pid in pids:

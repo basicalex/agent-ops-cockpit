@@ -34,9 +34,12 @@ const COMMAND_CACHE_TTL: Duration = Duration::from_secs(30);
 const PULSE_LATENCY_WARN_MS: i64 = 1500;
 const PULSE_LATENCY_INFO_EVERY: u64 = 50;
 const LAYOUT_HEALTH_EVERY_TICKS: u64 = 20;
-const LAYOUT_WATCH_INTERVAL_MS_DEFAULT: u64 = 1000;
-const LAYOUT_WATCH_INTERVAL_MS_MIN: u64 = 250;
-const LAYOUT_WATCH_INTERVAL_MS_MAX: u64 = 5000;
+const LAYOUT_WATCH_INTERVAL_MS_DEFAULT: u64 = 3000;
+const LAYOUT_WATCH_INTERVAL_MS_MIN: u64 = 500;
+const LAYOUT_WATCH_INTERVAL_MS_MAX: u64 = 30000;
+const LAYOUT_WATCH_IDLE_INTERVAL_MS_DEFAULT: u64 = 12000;
+const LAYOUT_WATCH_IDLE_INTERVAL_MS_MIN: u64 = 1000;
+const LAYOUT_WATCH_IDLE_INTERVAL_MS_MAX: u64 = 60000;
 
 #[derive(Clone, Debug)]
 pub struct PulseUdsConfig {
@@ -69,7 +72,15 @@ pub async fn run(config: PulseUdsConfig, mut shutdown: watch::Receiver<bool>) ->
 
     let hub = Arc::new(PulseUdsHub::new(config.clone()));
     hub.clone().spawn_stale_reaper(shutdown.clone());
-    hub.clone().spawn_layout_watcher(shutdown.clone());
+    if resolve_layout_watch_enabled() {
+        hub.clone().spawn_layout_watcher(shutdown.clone());
+    } else {
+        info!(
+            event = "pulse_layout_watcher_disabled",
+            session_id = %config.session_id,
+            reason = "AOC_PULSE_LAYOUT_WATCH_ENABLED=0"
+        );
+    }
 
     info!(
         event = "pulse_uds_start",
@@ -619,6 +630,8 @@ impl PulseUdsHub {
     fn spawn_layout_watcher(self: Arc<Self>, mut shutdown: watch::Receiver<bool>) {
         let interval_ms = resolve_layout_watch_interval_ms();
         let interval = Duration::from_millis(interval_ms);
+        let idle_interval_ms = resolve_layout_watch_idle_interval_ms(interval_ms);
+        let idle_interval = Duration::from_millis(idle_interval_ms);
         let session_id = self.config.session_id.clone();
         tokio::spawn(async move {
             let jitter_ms = session_interval_jitter_ms(&session_id, interval_ms);
@@ -627,6 +640,7 @@ impl PulseUdsHub {
                 interval,
             );
             let mut previous_tick = Instant::now();
+            let mut last_layout_poll = Instant::now() - idle_interval;
             let mut failure_streak: u32 = 0;
             let mut tick_count: u64 = 0;
             let mut slow_cycles: u64 = 0;
@@ -642,6 +656,7 @@ impl PulseUdsHub {
                 event = "pulse_layout_watcher_start",
                 session_id = %session_id,
                 interval_ms,
+                idle_interval_ms,
                 jitter_ms
             );
 
@@ -662,6 +677,17 @@ impl PulseUdsHub {
                         if jitter > Duration::from_millis(150) {
                             warn!(event = "pulse_layout_watcher_jitter", jitter_ms);
                         }
+
+                        let should_poll_fast = self.has_layout_state_subscribers().await;
+                        let target_interval = if should_poll_fast {
+                            interval
+                        } else {
+                            idle_interval
+                        };
+                        if now.duration_since(last_layout_poll) < target_interval {
+                            continue;
+                        }
+                        last_layout_poll = now;
 
                         let started = Instant::now();
                         self.layout_poll_count.fetch_add(1, Ordering::Relaxed);
@@ -781,6 +807,14 @@ impl PulseUdsHub {
         self.layout_emit_count.fetch_add(1, Ordering::Relaxed);
         let envelope = self.make_envelope("aoc-hub", None, WireMsg::LayoutState(payload));
         self.broadcast_to_subscribers(envelope).await;
+    }
+
+    async fn has_layout_state_subscribers(&self) -> bool {
+        self.subscribers
+            .read()
+            .await
+            .values()
+            .any(|entry| entry.topics.allows(PulseTopic::LayoutState))
     }
 
     async fn reconcile_layout_panes(&self, latest: HashSet<String>) -> (Vec<String>, Vec<String>) {
@@ -1420,6 +1454,35 @@ fn resolve_layout_watch_interval_ms() -> u64 {
         .and_then(|value| value.trim().parse::<u64>().ok())
         .map(|value| value.clamp(LAYOUT_WATCH_INTERVAL_MS_MIN, LAYOUT_WATCH_INTERVAL_MS_MAX))
         .unwrap_or(LAYOUT_WATCH_INTERVAL_MS_DEFAULT)
+}
+
+fn resolve_layout_watch_enabled() -> bool {
+    std::env::var("AOC_PULSE_LAYOUT_WATCH_ENABLED")
+        .ok()
+        .map(|value| {
+            matches!(
+                value.trim().to_ascii_lowercase().as_str(),
+                "1" | "true" | "yes" | "on"
+            )
+        })
+        .unwrap_or(false)
+}
+
+fn resolve_layout_watch_idle_interval_ms(active_interval_ms: u64) -> u64 {
+    let fallback = active_interval_ms
+        .saturating_mul(4)
+        .max(LAYOUT_WATCH_IDLE_INTERVAL_MS_DEFAULT)
+        .min(LAYOUT_WATCH_IDLE_INTERVAL_MS_MAX);
+    std::env::var("AOC_PULSE_LAYOUT_IDLE_WATCH_MS")
+        .ok()
+        .and_then(|value| value.trim().parse::<u64>().ok())
+        .map(|value| {
+            value.clamp(
+                LAYOUT_WATCH_IDLE_INTERVAL_MS_MIN,
+                LAYOUT_WATCH_IDLE_INTERVAL_MS_MAX,
+            )
+        })
+        .unwrap_or(fallback)
 }
 
 fn session_interval_jitter_ms(session_id: &str, interval_ms: u64) -> u64 {

@@ -115,12 +115,19 @@ Control Pulse vNext and the Mission Control Pulse Overview mode:
 |----------|-------------|---------|
 | `AOC_PULSE_VNEXT_ENABLED` | Enable Pulse UDS hub/subscriber paths | `1` |
 | `AOC_PULSE_OVERVIEW_ENABLED` | Enable Pulse Overview pane mode and related polling/display paths | `0` |
+| `AOC_TAB_SCOPE` | Shared logical tab identity for panes in the same tab | Layout-derived tab name |
+| `AOC_PULSE_LAYOUT_WATCH_ENABLED` | Enable hub layout watcher (`zellij action dump-layout`) | `0` |
+| `AOC_PULSE_LAYOUT_WATCH_MS` | Hub layout poll interval when layout watcher is active | `3000` |
+| `AOC_PULSE_LAYOUT_IDLE_WATCH_MS` | Hub layout poll interval with no layout subscribers | `max(4x active, 12000)` |
+| `AOC_MISSION_CONTROL_LAYOUT_REFRESH_MS` | Mission Control local layout refresh interval (local mode only) | `3000` |
+| `AOC_ORPHAN_PANE_POLL_SECS` | Agent wrapper orphan watchdog polling interval | `3.0` |
 
 Notes:
 
 - With `AOC_PULSE_OVERVIEW_ENABLED=0` (default), Mission Control starts in Work mode and cycles Work/Diff/Health.
 - Set `AOC_PULSE_OVERVIEW_ENABLED=1` to re-enable Overview for experimentation.
 - Sidecar/overview code remains in-repo for a later phase; this flag is the rollout gate.
+- With `AOC_PULSE_LAYOUT_WATCH_ENABLED=0` (default), hub background layout polling is disabled.
 
 **Preview Pane Placement:**
 

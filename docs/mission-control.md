@@ -32,7 +32,13 @@ the session_id and the hub must reject mismatched sessions.
 | AOC_PROJECT_ROOT | Project root used for task and git scans | Prefer AOC_PROJECT_ROOT; else current working directory |
 | AOC_HUB_ADDR | Hub listen address (host:port) | 127.0.0.1:<port-from-session> |
 | AOC_HUB_URL | Websocket URL for hub | ws://AOC_HUB_ADDR/ws |
+| AOC_TAB_SCOPE | Logical tab identity shared by panes in the same tab | Derived from launch layout tab name |
 | AOC_PULSE_OVERVIEW_ENABLED | Enable Pulse Overview mode in mission-control | 0 (disabled by default) |
+| AOC_PULSE_LAYOUT_WATCH_ENABLED | Enable hub background layout watcher (`dump-layout`) | 0 (disabled by default) |
+| AOC_PULSE_LAYOUT_WATCH_MS | Hub layout poll interval while layout subscribers are active | 3000 ms |
+| AOC_PULSE_LAYOUT_IDLE_WATCH_MS | Hub layout poll interval when no layout subscribers are active | max(4x active, 12000 ms) |
+| AOC_MISSION_CONTROL_LAYOUT_REFRESH_MS | Mission Control local layout refresh interval (fallback/overview) | 3000 ms |
+| AOC_ORPHAN_PANE_POLL_SECS | Agent orphan watchdog poll interval in `aoc-agent-wrap` | 3.0 s |
 | AOC_LOG_DIR | Log output directory | .aoc/logs |
 
 ## AOC Pulse Data Source Strategy
