@@ -27,7 +27,7 @@ else
   fi
 fi
 
-session_id="${AOC_SESSION_ID:-${ZELLIJ_SESSION_NAME}}"
+session_id="${ZELLIJ_SESSION_NAME:-${AOC_SESSION_ID:-}}"
 if [[ -z "$session_id" ]]; then
   session_id="pid-$$"
 fi

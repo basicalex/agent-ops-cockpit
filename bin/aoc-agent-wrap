@@ -29,12 +29,12 @@ home_bin="${HOME}/bin"
 cargo_bin="$HOME/.cargo/bin"
 
 resolve_session_id() {
-  if [[ -n "${AOC_SESSION_ID:-}" ]]; then
-    printf '%s' "$AOC_SESSION_ID"
-    return
-  fi
   if [[ -n "${ZELLIJ_SESSION_NAME:-}" ]]; then
     printf '%s' "$ZELLIJ_SESSION_NAME"
+    return
+  fi
+  if [[ -n "${AOC_SESSION_ID:-}" ]]; then
+    printf '%s' "$AOC_SESSION_ID"
     return
   fi
   printf 'pid-%s' "$$"
@@ -438,7 +438,7 @@ reap_conflicting_pane_processes() {
     return
   fi
   local pane_id="${AOC_PANE_ID:-${ZELLIJ_PANE_ID:-}}"
-  local session_id="${AOC_SESSION_ID:-${ZELLIJ_SESSION_NAME:-}}"
+  local session_id="${ZELLIJ_SESSION_NAME:-${AOC_SESSION_ID:-}}"
   local project_root="${AOC_PROJECT_ROOT:-}"
   if [[ -z "$pane_id" || -z "$session_id" ]]; then
     return
@@ -496,7 +496,7 @@ for line in ps_out.strip().splitlines()[1:]:
     proc_pane = env.get("AOC_PANE_ID") or env.get("ZELLIJ_PANE_ID") or ""
     if proc_pane != pane_id:
         continue
-    proc_session = env.get("AOC_SESSION_ID") or env.get("ZELLIJ_SESSION_NAME") or ""
+    proc_session = env.get("ZELLIJ_SESSION_NAME") or env.get("AOC_SESSION_ID") or ""
     if proc_session != session_id:
         continue
     if project_root:
@@ -534,7 +534,7 @@ kill_pane_agents_by_env() {
     return
   fi
   local pane_id="${AOC_PANE_ID:-${ZELLIJ_PANE_ID:-}}"
-  local session_id="${AOC_SESSION_ID:-${ZELLIJ_SESSION_NAME:-}}"
+  local session_id="${ZELLIJ_SESSION_NAME:-${AOC_SESSION_ID:-}}"
   local instance_id="${AOC_PANE_INSTANCE_ID:-}"
   if [[ -z "$pane_id" ]]; then
     return
@@ -606,7 +606,7 @@ for line in ps_out.strip().splitlines()[1:]:
         if not same_pane:
             continue
         if session_id:
-            proc_session = env.get("AOC_SESSION_ID") or env.get("ZELLIJ_SESSION_NAME") or ""
+            proc_session = env.get("ZELLIJ_SESSION_NAME") or env.get("AOC_SESSION_ID") or ""
             if proc_session and proc_session != session_id:
                 continue
     pids.append(pid)
@@ -650,7 +650,7 @@ start_orphan_watchdog() {
     return
   fi
   local pane_id="${AOC_PANE_ID:-${ZELLIJ_PANE_ID:-}}"
-  local session_id="${AOC_SESSION_ID:-${ZELLIJ_SESSION_NAME:-}}"
+  local session_id="${ZELLIJ_SESSION_NAME:-${AOC_SESSION_ID:-}}"
   local instance_id="${AOC_PANE_INSTANCE_ID:-}"
   local lease_file="${AOC_PANE_LEASE_FILE:-}"
   if [[ -z "$pane_id" ]]; then
@@ -757,7 +757,7 @@ def matching_pids():
             if not same_pane:
                 continue
             if session_id:
-                proc_session = env.get("AOC_SESSION_ID") or env.get("ZELLIJ_SESSION_NAME") or ""
+                proc_session = env.get("ZELLIJ_SESSION_NAME") or env.get("AOC_SESSION_ID") or ""
                 if proc_session and proc_session != session_id:
                     continue
         found.append(pid)
@@ -915,7 +915,7 @@ def matching_pids():
             if not same_pane:
                 continue
             if session_id:
-                proc_session = env.get("AOC_SESSION_ID") or env.get("ZELLIJ_SESSION_NAME") or ""
+                proc_session = env.get("ZELLIJ_SESSION_NAME") or env.get("AOC_SESSION_ID") or ""
                 if proc_session and proc_session != session_id:
                     continue
         found.append(pid)
