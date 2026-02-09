@@ -13,6 +13,9 @@ AOC (Agent Ops Cockpit) is a terminal-native workspace that brings **context-awa
 
 ---
 
+<img width="3840" height="2096" alt="image" src="https://github.com/user-attachments/assets/fad6e520-c409-49c0-a024-2b29cc236a64" />
+
+
 ## ✨ Why AOC?
 
 ### The Problem with AI Development Today
