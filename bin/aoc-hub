@@ -2,12 +2,12 @@
 set -euo pipefail
 
 resolve_session_id() {
-  if [[ -n "${AOC_SESSION_ID:-}" ]]; then
-    echo "$AOC_SESSION_ID"
-    return
-  fi
   if [[ -n "${ZELLIJ_SESSION_NAME:-}" ]]; then
     echo "$ZELLIJ_SESSION_NAME"
+    return
+  fi
+  if [[ -n "${AOC_SESSION_ID:-}" ]]; then
+    echo "$AOC_SESSION_ID"
     return
   fi
   echo "pid-$$"
