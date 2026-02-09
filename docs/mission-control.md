@@ -32,12 +32,14 @@ the session_id and the hub must reject mismatched sessions.
 | AOC_PROJECT_ROOT | Project root used for task and git scans | Prefer AOC_PROJECT_ROOT; else current working directory |
 | AOC_HUB_ADDR | Hub listen address (host:port) | 127.0.0.1:<port-from-session> |
 | AOC_HUB_URL | Websocket URL for hub | ws://AOC_HUB_ADDR/ws |
+| AOC_PULSE_OVERVIEW_ENABLED | Enable Pulse Overview mode in mission-control | 0 (disabled by default) |
 | AOC_LOG_DIR | Log output directory | .aoc/logs |
 
 ## AOC Pulse Data Source Strategy
 
-The default top-right pane is now **AOC Pulse** with four modes:
-Overview, Work, Diff, and Health.
+The default top-right pane is now **AOC Pulse** with Work, Diff, and Health
+as primary modes. Overview remains available behind
+`AOC_PULSE_OVERVIEW_ENABLED=1` for later-phase validation.
 
 ### v1 Fallback (No Hub Required)
 - Pulse must run headless-safe and useful even when hub is down.
@@ -49,10 +51,16 @@ Overview, Work, Diff, and Health.
 
 ### v2 Preferred (Hub Available)
 - If hub is reachable, Pulse prefers hub snapshots/events for:
-  - `agent_status` + `heartbeat` (Overview)
+  - `agent_status` + `heartbeat` (Overview, when enabled)
   - `task_summary` (Work)
   - `diff_summary` (Diff)
 - If hub disconnects or lacks data, Pulse automatically falls back to v1.
+
+### Overview Deprecation (Current Default)
+- Overview is disabled by default (`AOC_PULSE_OVERVIEW_ENABLED=0`) because
+  operator value did not justify additional display/polling overhead.
+- Work/Diff/Health remain the supported operational path.
+- Re-enable Overview only for explicit testing/bake windows.
 
 ### Identity Model (Collision-Safe)
 - Primary publisher/consumer identity key is always:

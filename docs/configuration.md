@@ -107,6 +107,21 @@ Control layout behavior and appearance:
 | `AOC_CLEANUP_PANE_STRICT` | Allow cleanup within sessions based on pane layout | `0` |
 | `AOC_CLEANUP_INTERACTIVE` | Prompt for cleanup mode when interactive | `1` |
 
+### Pulse and Mission Control
+
+Control Pulse vNext and the Mission Control Pulse Overview mode:
+
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `AOC_PULSE_VNEXT_ENABLED` | Enable Pulse UDS hub/subscriber paths | `1` |
+| `AOC_PULSE_OVERVIEW_ENABLED` | Enable Pulse Overview pane mode and related polling/display paths | `0` |
+
+Notes:
+
+- With `AOC_PULSE_OVERVIEW_ENABLED=0` (default), Mission Control starts in Work mode and cycles Work/Diff/Health.
+- Set `AOC_PULSE_OVERVIEW_ENABLED=1` to re-enable Overview for experimentation.
+- Sidecar/overview code remains in-repo for a later phase; this flag is the rollout gate.
+
 **Preview Pane Placement:**
 
 | Variable | Description | Default |
