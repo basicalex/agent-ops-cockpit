@@ -288,6 +288,16 @@ if cargo_bin="$(cargo_cmd)"; then
   else
     log "WARNING: Failed to build aoc-control."
   fi
+
+  # Build aoc-mission-control (native TUI)
+  log "Building aoc-mission-control..."
+  if "$cargo_bin" build --release -p aoc-mission-control --manifest-path "$ROOT_DIR/crates/Cargo.toml"; then
+    if [[ -f "$ROOT_DIR/crates/target/release/aoc-mission-control" ]]; then
+      install -m 0755 "$ROOT_DIR/crates/target/release/aoc-mission-control" "$BIN_DIR/aoc-mission-control-native"
+    fi
+  else
+    log "WARNING: Failed to build aoc-mission-control."
+  fi
 else
   log "WARNING: cargo not found. Skipping Rust builds. You must install aoc-cli manually."
 fi

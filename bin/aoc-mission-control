@@ -4,6 +4,8 @@ set -euo pipefail
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 local_release="$script_dir/../crates/target/release/aoc-mission-control"
 local_debug="$script_dir/../crates/target/debug/aoc-mission-control"
+bin_home="${XDG_BIN_HOME:-$HOME/.local/bin}"
+cargo_bin="$HOME/.cargo/bin"
 manifest_path=""
 if [[ -n "${AOC_PROJECT_ROOT:-}" && -f "${AOC_PROJECT_ROOT}/crates/Cargo.toml" ]]; then
   manifest_path="${AOC_PROJECT_ROOT}/crates/Cargo.toml"
@@ -25,6 +27,18 @@ fi
 
 if [[ -x "$local_debug" ]]; then
   exec "$local_debug" "$@"
+fi
+
+if command -v aoc-mission-control-native >/dev/null 2>&1; then
+  exec aoc-mission-control-native "$@"
+fi
+
+if [[ -x "$bin_home/aoc-mission-control-native" ]]; then
+  exec "$bin_home/aoc-mission-control-native" "$@"
+fi
+
+if [[ -x "$cargo_bin/aoc-mission-control" ]]; then
+  exec "$cargo_bin/aoc-mission-control" "$@"
 fi
 
 if command -v cargo >/dev/null 2>&1 && [[ -n "$manifest_path" ]]; then
