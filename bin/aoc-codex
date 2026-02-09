@@ -5,6 +5,10 @@ agent_id="codex"
 agent_bin="${AOC_CODEX_BIN:-codex}"
 agent_label="Codex"
 
+if [[ -n "${ZELLIJ:-}" || -n "${ZELLIJ_SESSION_NAME:-}" ]]; then
+  export AOC_AGENT_RUN=1
+fi
+
 if [[ "${AOC_AGENT_RUN:-0}" == "1" ]]; then
   exec aoc-agent-wrap "$agent_id" "$agent_bin" "$agent_label" "$@"
 fi

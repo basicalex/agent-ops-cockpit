@@ -19,6 +19,7 @@ fi
 
 case "$agent" in
   codex)
+    export AOC_AGENT_RUN=1
     exec aoc-codex "$@"
     ;;
   gemini)
