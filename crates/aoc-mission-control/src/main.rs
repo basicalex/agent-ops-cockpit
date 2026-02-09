@@ -61,6 +61,7 @@ struct Config {
     pane_id: String,
     pulse_socket_path: PathBuf,
     pulse_vnext_enabled: bool,
+    overview_enabled: bool,
     layout_source: LayoutSource,
     client_id: String,
     project_root: PathBuf,
@@ -349,6 +350,28 @@ impl Mode {
     }
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum OverviewSortMode {
+    Layout,
+    Attention,
+}
+
+impl OverviewSortMode {
+    fn toggle(self) -> Self {
+        match self {
+            Self::Layout => Self::Attention,
+            Self::Attention => Self::Layout,
+        }
+    }
+
+    fn label(self) -> &'static str {
+        match self {
+            Self::Layout => "layout",
+            Self::Attention => "attention",
+        }
+    }
+}
+
 #[derive(Debug)]
 enum HubEvent {
     Connected,
@@ -396,6 +419,8 @@ struct App {
     scroll: u16,
     help_open: bool,
     selected_overview: usize,
+    overview_sort_mode: OverviewSortMode,
+    overview_show_debug_source: bool,
     follow_viewer_tab: bool,
     last_viewer_tab_index: Option<usize>,
     status_note: Option<String>,
@@ -451,6 +476,16 @@ impl App {
     fn new(config: Config, command_tx: mpsc::Sender<HubCommand>, local: LocalSnapshot) -> Self {
         let tab_cache = seed_tab_cache(&local.overview);
         let last_viewer_tab_index = local.viewer_tab_index;
+        let mode = if config.overview_enabled {
+            Mode::Overview
+        } else {
+            Mode::Work
+        };
+        let status_note = if config.overview_enabled {
+            None
+        } else {
+            Some("overview deprecated; using Work/Diff/Health".to_string())
+        };
         Self {
             config,
             command_tx,
@@ -459,13 +494,15 @@ impl App {
             hub: HubCache::default(),
             local,
             tab_cache,
-            mode: Mode::Overview,
+            mode,
             scroll: 0,
             help_open: false,
             selected_overview: 0,
+            overview_sort_mode: OverviewSortMode::Layout,
+            overview_show_debug_source: false,
             follow_viewer_tab: true,
             last_viewer_tab_index,
-            status_note: None,
+            status_note,
             pending_commands: HashMap::new(),
             next_request_id: 0,
             pending_render_latency: Vec::new(),
@@ -538,6 +575,9 @@ impl App {
                 }
             }
             HubEvent::LayoutState { payload } => {
+                if !self.config.overview_enabled {
+                    return;
+                }
                 if payload.session_id != self.config.session_id {
                     return;
                 }
@@ -1182,7 +1222,7 @@ impl App {
                 }
                 apply_cached_tab_meta(row, &self.tab_cache);
             }
-            return sort_overview_rows(merged_rows);
+            return self.sort_overview_rows_for_mode(merged_rows);
         }
         let mut local_rows = self.local.overview.clone();
         for row in &mut local_rows {
@@ -1196,7 +1236,126 @@ impl App {
             }
             apply_cached_tab_meta(row, &self.tab_cache);
         }
-        sort_overview_rows(local_rows)
+        self.sort_overview_rows_for_mode(local_rows)
+    }
+
+    fn sort_overview_rows_for_mode(&self, rows: Vec<OverviewRow>) -> Vec<OverviewRow> {
+        match self.overview_sort_mode {
+            OverviewSortMode::Layout => sort_overview_rows(rows),
+            OverviewSortMode::Attention => sort_overview_rows_attention(rows),
+        }
+    }
+
+    fn toggle_overview_sort_mode(&mut self) {
+        self.overview_sort_mode = self.overview_sort_mode.toggle();
+        self.follow_viewer_tab = true;
+        self.selected_overview = 0;
+        self.status_note = Some(format!(
+            "overview sort: {}",
+            self.overview_sort_mode.label()
+        ));
+    }
+
+    fn toggle_overview_debug_source(&mut self) {
+        self.overview_show_debug_source = !self.overview_show_debug_source;
+        self.status_note = Some(if self.overview_show_debug_source {
+            "overview badge: source".to_string()
+        } else {
+            "overview badge: attention".to_string()
+        });
+    }
+
+    fn cycle_mode(&mut self) {
+        self.mode = if self.config.overview_enabled {
+            self.mode.next()
+        } else {
+            match self.mode {
+                Mode::Overview => Mode::Work,
+                Mode::Work => Mode::Diff,
+                Mode::Diff => Mode::Health,
+                Mode::Health => Mode::Work,
+            }
+        };
+    }
+
+    fn overview_context_hint(&self, row: &OverviewRow) -> String {
+        if let Some(snippet) = row
+            .snippet
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+        {
+            return snippet.to_string();
+        }
+
+        let mut active_titles = self
+            .hub
+            .tasks
+            .values()
+            .filter(|payload| payload.agent_id == row.identity_key)
+            .flat_map(|payload| payload.active_tasks.clone().unwrap_or_default().into_iter())
+            .filter(|task| {
+                task.status == "in-progress" || task.status == "in_progress" || task.active_agent
+            })
+            .map(|task| task.title)
+            .collect::<Vec<_>>();
+        active_titles.sort();
+        if let Some(title) = active_titles.into_iter().next() {
+            return title;
+        }
+
+        match normalize_lifecycle(&row.lifecycle).as_str() {
+            "needs-input" => "awaiting input".to_string(),
+            "blocked" => "blocked".to_string(),
+            "busy" => "working".to_string(),
+            "idle" => "idle".to_string(),
+            "error" => "error reported".to_string(),
+            _ => "running".to_string(),
+        }
+    }
+
+    fn overview_task_signal(&self, row: &OverviewRow) -> Option<String> {
+        let mut total = 0u32;
+        let mut in_progress = 0u32;
+        for payload in self
+            .hub
+            .tasks
+            .values()
+            .filter(|payload| payload.agent_id == row.identity_key)
+        {
+            total = total.saturating_add(payload.counts.total);
+            in_progress = in_progress.saturating_add(payload.counts.in_progress);
+        }
+        if total == 0 {
+            return None;
+        }
+        Some(format!("W:{in_progress}/{total}"))
+    }
+
+    fn overview_git_signal(&self, row: &OverviewRow) -> Option<String> {
+        let diff = self.hub.diffs.get(&row.identity_key)?;
+        if !diff.git_available {
+            return Some("G:n/a".to_string());
+        }
+        let additions = diff
+            .summary
+            .staged
+            .additions
+            .saturating_add(diff.summary.unstaged.additions);
+        let deletions = diff
+            .summary
+            .staged
+            .deletions
+            .saturating_add(diff.summary.unstaged.deletions);
+        let untracked = diff.summary.untracked.files;
+        if additions == 0 && deletions == 0 && untracked == 0 {
+            return None;
+        }
+        Some(if untracked > 0 {
+            format!("G:+{additions}/-{deletions} ?{untracked}")
+        } else {
+            format!("G:+{additions}/-{deletions}")
+        })
     }
 
     fn work_rows(&self) -> Vec<WorkProject> {
@@ -1515,7 +1674,9 @@ async fn main() -> Result<(), Box<dyn Error>> {
         app.observe_render_latency();
         tokio::select! {
             _ = snapshot_ticker.tick() => {
-                snapshot_refresh_requested = true;
+                if app.config.overview_enabled {
+                    snapshot_refresh_requested = true;
+                }
             }
             _ = layout_ticker.tick() => {
                 if app.mode == Mode::Overview && app.should_poll_local_layout() {
@@ -1595,7 +1756,7 @@ fn render_ui(frame: &mut ratatui::Frame, app: &App) {
         .split(size);
     frame.render_widget(render_header(app, theme, size.width), layout[0]);
     frame.render_widget(render_kpis(app, theme, size.width), layout[1]);
-    if app.mode == Mode::Overview {
+    if app.mode == Mode::Overview && app.config.overview_enabled {
         render_overview_panel(frame, app, theme, layout[2]);
     } else {
         frame.render_widget(render_body(app, theme, size.width), layout[2]);
@@ -1628,8 +1789,10 @@ fn render_header(app: &App, theme: PulseTheme, width: u16) -> Paragraph<'static>
         format!("Last Action: {}", ellipsize(note, inner_width.max(12)))
     } else if compact {
         "Last Action: ready".to_string()
-    } else {
+    } else if app.config.overview_enabled {
         "Last Action: ready (Enter focus, x stop, ? help)".to_string()
+    } else {
+        "Last Action: ready (? help)".to_string()
     };
 
     Paragraph::new(Text::from(vec![
@@ -1723,6 +1886,15 @@ fn render_body(app: &App, theme: PulseTheme, width: u16) -> Paragraph<'static> {
 fn render_overview_panel(frame: &mut ratatui::Frame, app: &App, theme: PulseTheme, area: Rect) {
     let compact = is_compact(area.width);
     let rows = app.overview_rows();
+    let title = format!(
+        "Overview [{} {}]",
+        app.overview_sort_mode.label(),
+        if app.overview_show_debug_source {
+            "src"
+        } else {
+            "attn"
+        }
+    );
     if rows.is_empty() {
         let paragraph = Paragraph::new(Line::from(Span::styled(
             "No active panes detected for this session.",
@@ -1735,7 +1907,7 @@ fn render_overview_panel(frame: &mut ratatui::Frame, app: &App, theme: PulseThem
                 .border_style(Style::default().fg(theme.border))
                 .style(Style::default().bg(theme.surface))
                 .title(Span::styled(
-                    "Overview",
+                    title,
                     Style::default()
                         .fg(theme.title)
                         .add_modifier(Modifier::BOLD),
@@ -1749,7 +1921,7 @@ fn render_overview_panel(frame: &mut ratatui::Frame, app: &App, theme: PulseThem
         .iter()
         .map(|row| {
             ListItem::new(Line::from(overview_row_spans(
-                row, theme, compact, area.width,
+                app, row, theme, compact, area.width,
             )))
         })
         .collect();
@@ -1764,7 +1936,7 @@ fn render_overview_panel(frame: &mut ratatui::Frame, app: &App, theme: PulseThem
                 .border_style(Style::default().fg(theme.border))
                 .style(Style::default().bg(theme.surface))
                 .title(Span::styled(
-                    "Overview",
+                    title,
                     Style::default()
                         .fg(theme.title)
                         .add_modifier(Modifier::BOLD),
@@ -1774,21 +1946,34 @@ fn render_overview_panel(frame: &mut ratatui::Frame, app: &App, theme: PulseThem
 }
 
 fn overview_row_spans(
+    app: &App,
     row: &OverviewRow,
     theme: PulseTheme,
     compact: bool,
     width: u16,
 ) -> Vec<Span<'static>> {
-    let presenter = overview_row_presenter(row, compact, width);
+    let decorations = OverviewDecorations {
+        attention_chip: attention_chip_from_row(row),
+        source_chip: source_chip_from_row(&row.source),
+        context: app.overview_context_hint(row),
+        task_signal: app.overview_task_signal(row),
+        git_signal: app.overview_git_signal(row),
+    };
+    let presenter = overview_row_presenter(
+        row,
+        &decorations,
+        compact,
+        width,
+        app.overview_show_debug_source,
+    );
     let lifecycle_color = lifecycle_color(&row.lifecycle, row.online, theme);
     let age_color = age_color(row.age_secs, row.online, theme);
-    let source_color = source_chip_color(presenter.source_chip, theme);
-    let liveness_color = if row.online { theme.ok } else { theme.critical };
+    let badge_color = overview_badge_color(presenter.badge, theme);
     let mut spans = vec![
         Span::styled(
-            presenter.liveness_chip,
+            presenter.badge.bracketed(),
             Style::default()
-                .fg(liveness_color)
+                .fg(badge_color)
                 .add_modifier(Modifier::BOLD),
         ),
         Span::raw(" "),
@@ -1813,20 +1998,128 @@ fn overview_row_spans(
             }),
         ),
         Span::raw(" "),
-        Span::styled(
-            presenter.source_chip.bracketed(),
-            Style::default()
-                .fg(source_color)
-                .add_modifier(Modifier::BOLD),
-        ),
-        Span::raw(" "),
-        Span::styled(presenter.heartbeat, Style::default().fg(age_color)),
+        Span::styled(presenter.freshness, Style::default().fg(age_color)),
     ];
-    if let Some(context) = presenter.context {
+    if let Some(task_signal) = presenter.task_signal {
         spans.push(Span::raw(" "));
-        spans.push(Span::styled(context, Style::default().fg(theme.muted)));
+        spans.push(Span::styled(task_signal, Style::default().fg(theme.info)));
     }
+    if let Some(git_signal) = presenter.git_signal {
+        spans.push(Span::raw(" "));
+        spans.push(Span::styled(
+            git_signal.clone(),
+            Style::default().fg(if git_signal.contains("+") || git_signal.contains('?') {
+                theme.warn
+            } else {
+                theme.muted
+            }),
+        ));
+    }
+    spans.push(Span::raw(" "));
+    spans.push(Span::styled(
+        presenter.context,
+        Style::default().fg(theme.muted),
+    ));
     spans
+}
+
+#[derive(Clone, Debug)]
+struct OverviewDecorations {
+    attention_chip: AttentionChip,
+    source_chip: SourceChip,
+    context: String,
+    task_signal: Option<String>,
+    git_signal: Option<String>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum AttentionChip {
+    Err,
+    Needs,
+    Blocked,
+    Stale,
+    Drift,
+    Ok,
+}
+
+impl AttentionChip {
+    fn label(self) -> &'static str {
+        match self {
+            AttentionChip::Err => "ERR",
+            AttentionChip::Needs => "NEEDS",
+            AttentionChip::Blocked => "BLOCK",
+            AttentionChip::Stale => "STALE",
+            AttentionChip::Drift => "DRIFT",
+            AttentionChip::Ok => "OK",
+        }
+    }
+
+    fn severity(self) -> u8 {
+        match self {
+            AttentionChip::Err => 0,
+            AttentionChip::Needs => 1,
+            AttentionChip::Blocked => 2,
+            AttentionChip::Stale => 3,
+            AttentionChip::Drift => 4,
+            AttentionChip::Ok => 5,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum OverviewBadge {
+    Attention(AttentionChip),
+    Source(SourceChip),
+}
+
+impl OverviewBadge {
+    fn bracketed(self) -> String {
+        match self {
+            OverviewBadge::Attention(chip) => format!("[{}]", chip.label()),
+            OverviewBadge::Source(chip) => chip.bracketed(),
+        }
+    }
+}
+
+fn attention_chip_from_row(row: &OverviewRow) -> AttentionChip {
+    if !row.online
+        || row
+            .age_secs
+            .map(|secs| secs > HUB_STALE_SECS)
+            .unwrap_or(false)
+    {
+        return AttentionChip::Stale;
+    }
+    match normalize_lifecycle(&row.lifecycle).as_str() {
+        "error" => AttentionChip::Err,
+        "needs-input" => AttentionChip::Needs,
+        "blocked" => AttentionChip::Blocked,
+        _ => {
+            if source_chip_from_row(&row.source) == SourceChip::Mixed {
+                AttentionChip::Drift
+            } else {
+                AttentionChip::Ok
+            }
+        }
+    }
+}
+
+fn attention_chip_color(chip: AttentionChip, theme: PulseTheme) -> Color {
+    match chip {
+        AttentionChip::Err => theme.critical,
+        AttentionChip::Needs => theme.warn,
+        AttentionChip::Blocked => theme.warn,
+        AttentionChip::Stale => theme.critical,
+        AttentionChip::Drift => theme.info,
+        AttentionChip::Ok => theme.ok,
+    }
+}
+
+fn overview_badge_color(chip: OverviewBadge, theme: PulseTheme) -> Color {
+    match chip {
+        OverviewBadge::Attention(value) => attention_chip_color(value, theme),
+        OverviewBadge::Source(value) => source_chip_color(value, theme),
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -1852,13 +2145,14 @@ impl SourceChip {
 
 #[derive(Clone, Debug)]
 struct OverviewRowPresenter {
-    liveness_chip: String,
     identity: String,
     lifecycle_chip: String,
     location_chip: String,
-    source_chip: SourceChip,
-    heartbeat: String,
-    context: Option<String>,
+    badge: OverviewBadge,
+    freshness: String,
+    context: String,
+    task_signal: Option<String>,
+    git_signal: Option<String>,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -1866,85 +2160,89 @@ struct PresenterBudgets {
     label: usize,
     pane: usize,
     tab_name: usize,
-    root: usize,
-    snippet: usize,
-    include_root: bool,
-    include_snippet: bool,
+    context: usize,
+    include_task_signal: bool,
+    include_git_signal: bool,
+    include_meter: bool,
 }
 
-fn overview_row_presenter(row: &OverviewRow, compact: bool, width: u16) -> OverviewRowPresenter {
+fn overview_row_presenter(
+    row: &OverviewRow,
+    decorations: &OverviewDecorations,
+    compact: bool,
+    width: u16,
+    show_debug_source: bool,
+) -> OverviewRowPresenter {
     let mut plans = vec![PresenterBudgets {
         label: if compact { 14 } else { 20 },
-        pane: if compact { 10 } else { 14 },
+        pane: if compact { 8 } else { 12 },
         tab_name: if compact { 8 } else { 14 },
-        root: if compact { 0 } else { 16 },
-        snippet: if compact { 0 } else { 22 },
-        include_root: !compact,
-        include_snippet: !compact,
+        context: if compact { 20 } else { 28 },
+        include_task_signal: true,
+        include_git_signal: !compact,
+        include_meter: !compact,
     }];
     plans.push(PresenterBudgets {
-        include_snippet: false,
+        include_git_signal: false,
         ..plans[0]
     });
     plans.push(PresenterBudgets {
-        include_snippet: false,
-        include_root: false,
+        include_task_signal: false,
         ..plans[0]
     });
     plans.push(PresenterBudgets {
-        include_snippet: false,
-        include_root: false,
         tab_name: 6,
         ..plans[0]
     });
     plans.push(PresenterBudgets {
-        include_snippet: false,
-        include_root: false,
         tab_name: 0,
+        context: 16,
         ..plans[0]
     });
     plans.push(PresenterBudgets {
-        include_snippet: false,
-        include_root: false,
         tab_name: 0,
         label: 12,
+        context: 12,
         ..plans[0]
     });
     plans.push(PresenterBudgets {
-        include_snippet: false,
-        include_root: false,
         tab_name: 0,
         label: 8,
-        pane: 8,
+        pane: 6,
+        context: 10,
         ..plans[0]
     });
 
     let max_width = width.saturating_sub(8) as usize;
     for plan in plans {
-        let presenter = overview_row_presenter_with_budget(row, plan);
+        let presenter =
+            overview_row_presenter_with_budget(row, decorations, plan, show_debug_source);
         if presenter_text_len(&presenter) <= max_width.max(28) {
             return presenter;
         }
     }
     overview_row_presenter_with_budget(
         row,
+        decorations,
         PresenterBudgets {
             label: 8,
-            pane: 8,
+            pane: 6,
             tab_name: 0,
-            root: 0,
-            snippet: 0,
-            include_root: false,
-            include_snippet: false,
+            context: 8,
+            include_task_signal: false,
+            include_git_signal: false,
+            include_meter: false,
         },
+        show_debug_source,
     )
 }
 
 fn overview_row_presenter_with_budget(
     row: &OverviewRow,
+    decorations: &OverviewDecorations,
     budget: PresenterBudgets,
+    show_debug_source: bool,
 ) -> OverviewRowPresenter {
-    let liveness_chip = format!("[{:<4}]", if row.online { "+ON" } else { "!OFF" });
     let identity = format!(
         "{}::{}",
         ellipsize(&row.label, budget.label.max(4)),
@@ -1952,48 +2250,40 @@ fn overview_row_presenter_with_budget(
     );
     let lifecycle_chip = format!("[{:<5}]", lifecycle_chip_label(&row.lifecycle, row.online));
     let location_chip = overview_location_chip(row, budget.tab_name);
-    let source_chip = source_chip_from_row(&row.source);
-    let heartbeat = format!(
-        "HB:{} {}",
-        age_meter(row.age_secs, row.online),
+    let badge = if show_debug_source {
+        OverviewBadge::Source(decorations.source_chip)
+    } else {
+        OverviewBadge::Attention(decorations.attention_chip)
+    };
+    let freshness = if budget.include_meter {
+        format!(
+            "HB:{} {}",
+            age_meter(row.age_secs, row.online),
+            format_age(row.age_secs)
+        )
+    } else {
         format_age(row.age_secs)
+    };
+    let context = format!(
+        "M:{}",
+        ellipsize(&decorations.context, budget.context.max(8))
     );
 
-    let root_context = if budget.include_root && row.project_root != "(unknown)" {
-        Some(format!(
-            "R:{}",
-            ellipsize(
-                &short_project(&row.project_root, budget.root.max(4)),
-                budget.root.max(4)
-            )
-        ))
-    } else {
-        None
-    };
-    let snippet_context = if budget.include_snippet {
-        row.snippet
-            .as_deref()
-            .map(str::trim)
-            .filter(|value| !value.is_empty())
-            .map(|value| format!("M:{}", ellipsize(value, budget.snippet.max(8))))
-    } else {
-        None
-    };
-    let context = match (root_context, snippet_context) {
-        (Some(root), Some(snippet)) => Some(format!("{root} {snippet}")),
-        (Some(root), None) => Some(root),
-        (None, Some(snippet)) => Some(snippet),
-        (None, None) => None,
-    };
-
     OverviewRowPresenter {
-        liveness_chip,
         identity,
         lifecycle_chip,
         location_chip,
-        source_chip,
-        heartbeat,
+        badge,
+        freshness,
         context,
+        task_signal: budget
+            .include_task_signal
+            .then(|| decorations.task_signal.clone())
+            .flatten(),
+        git_signal: budget
+            .include_git_signal
+            .then(|| decorations.git_signal.clone())
+            .flatten(),
     }
 }
 
@@ -2058,7 +2348,7 @@ fn source_chip_color(chip: SourceChip, theme: PulseTheme) -> Color {
 }
 
 fn presenter_text_len(presenter: &OverviewRowPresenter) -> usize {
-    let mut len = presenter.liveness_chip.chars().count()
+    let mut len = presenter.badge.bracketed().chars().count()
         + 1
         + presenter.identity.chars().count()
         + 1
@@ -2066,11 +2356,14 @@ fn presenter_text_len(presenter: &OverviewRowPresenter) -> usize {
         + 1
         + presenter.location_chip.chars().count()
         + 1
-        + presenter.source_chip.bracketed().chars().count()
+        + presenter.freshness.chars().count()
         + 1
-        + presenter.heartbeat.chars().count();
-    if let Some(context) = presenter.context.as_ref() {
-        len += 1 + context.chars().count();
+        + presenter.context.chars().count();
+    if let Some(task_signal) = presenter.task_signal.as_ref() {
+        len += 1 + task_signal.chars().count();
+    }
+    if let Some(git_signal) = presenter.git_signal.as_ref() {
+        len += 1 + git_signal.chars().count();
     }
     len
 }
@@ -2118,7 +2411,11 @@ fn render_help_overlay(frame: &mut ratatui::Frame, app: &App, theme: PulseTheme)
                 .fg(theme.accent)
                 .add_modifier(Modifier::BOLD),
         )),
-        Line::from("  1/2/3/4  switch mode (Overview/Work/Diff/Health)"),
+        Line::from(if app.config.overview_enabled {
+            "  1/2/3/4  switch mode (Overview/Work/Diff/Health)"
+        } else {
+            "  2/3/4    switch mode (Work/Diff/Health)"
+        }),
         Line::from("  Tab      cycle mode"),
         Line::from("  r        refresh local snapshot"),
         Line::from(""),
@@ -2159,18 +2456,32 @@ fn render_help_overlay(frame: &mut ratatui::Frame, app: &App, theme: PulseTheme)
 
 fn mode_help_lines(app: &App, theme: PulseTheme) -> Vec<Line<'static>> {
     match app.mode {
-        Mode::Overview => vec![
-            Line::from(Span::styled(
-                "Overview Mode",
-                Style::default()
-                    .fg(theme.accent)
-                    .add_modifier(Modifier::BOLD),
-            )),
-            Line::from("  j/k      select agent row (>> + reverse)"),
-            Line::from("  g        jump to first agent"),
-            Line::from("  Enter    focus selected tab; unmapped -> pane note"),
-            Line::from("  x        request stop selected agent"),
-        ],
+        Mode::Overview => {
+            if !app.config.overview_enabled {
+                return vec![
+                    Line::from(Span::styled(
+                        "Overview Deprecated",
+                        Style::default().fg(theme.warn).add_modifier(Modifier::BOLD),
+                    )),
+                    Line::from("  Overview display and local polling are disabled."),
+                    Line::from("  Use Work/Diff/Health modes for current operations."),
+                ];
+            }
+            vec![
+                Line::from(Span::styled(
+                    "Overview Mode",
+                    Style::default()
+                        .fg(theme.accent)
+                        .add_modifier(Modifier::BOLD),
+                )),
+                Line::from("  j/k      select agent row (>> + reverse)"),
+                Line::from("  g        jump to first agent"),
+                Line::from("  Enter    focus selected tab; unmapped -> pane note"),
+                Line::from("  x        request stop selected agent"),
+                Line::from("  a        toggle sort (layout/attention)"),
+                Line::from("  d        toggle badge (attention/source)"),
+            ]
+        }
         Mode::Work => vec![
             Line::from(Span::styled(
                 "Work Mode",
@@ -2708,30 +3019,43 @@ fn pane_id_number(pane_id: &str) -> Option<u64> {
     pane_id.trim().parse::<u64>().ok()
 }
 
+fn overview_layout_cmp(left: &OverviewRow, right: &OverviewRow) -> std::cmp::Ordering {
+    left.tab_index
+        .is_none()
+        .cmp(&right.tab_index.is_none())
+        .then_with(|| {
+            left.tab_index
+                .unwrap_or(usize::MAX)
+                .cmp(&right.tab_index.unwrap_or(usize::MAX))
+        })
+        .then_with(|| {
+            let left_pane = pane_id_number(&left.pane_id);
+            let right_pane = pane_id_number(&right.pane_id);
+            left_pane
+                .is_none()
+                .cmp(&right_pane.is_none())
+                .then_with(|| {
+                    left_pane
+                        .unwrap_or(u64::MAX)
+                        .cmp(&right_pane.unwrap_or(u64::MAX))
+                })
+                .then_with(|| left.pane_id.cmp(&right.pane_id))
+        })
+        .then_with(|| left.identity_key.cmp(&right.identity_key))
+}
+
 fn sort_overview_rows(mut rows: Vec<OverviewRow>) -> Vec<OverviewRow> {
+    rows.sort_by(overview_layout_cmp);
+    rows
+}
+
+fn sort_overview_rows_attention(mut rows: Vec<OverviewRow>) -> Vec<OverviewRow> {
     rows.sort_by(|left, right| {
-        left.tab_index
-            .is_none()
-            .cmp(&right.tab_index.is_none())
-            .then_with(|| {
-                left.tab_index
-                    .unwrap_or(usize::MAX)
-                    .cmp(&right.tab_index.unwrap_or(usize::MAX))
-            })
-            .then_with(|| {
-                let left_pane = pane_id_number(&left.pane_id);
-                let right_pane = pane_id_number(&right.pane_id);
-                left_pane
-                    .is_none()
-                    .cmp(&right_pane.is_none())
-                    .then_with(|| {
-                        left_pane
-                            .unwrap_or(u64::MAX)
-                            .cmp(&right_pane.unwrap_or(u64::MAX))
-                    })
-                    .then_with(|| left.pane_id.cmp(&right.pane_id))
-            })
-            .then_with(|| left.identity_key.cmp(&right.identity_key))
+        attention_chip_from_row(left)
+            .severity()
+            .cmp(&attention_chip_from_row(right).severity())
+            .then_with(|| right.tab_focused.cmp(&left.tab_focused))
+            .then_with(|| overview_layout_cmp(left, right))
     });
     rows
 }
@@ -3017,7 +3341,12 @@ fn handle_key(key: KeyEvent, app: &mut App, refresh_requested: &mut bool) -> boo
     match key.code {
         KeyCode::Char('q') => true,
         KeyCode::Char('1') => {
-            app.mode = Mode::Overview;
+            if app.config.overview_enabled {
+                app.mode = Mode::Overview;
+            } else {
+                app.mode = Mode::Work;
+                app.status_note = Some("overview deprecated; switched to Work".to_string());
+            }
             app.scroll = 0;
             false
         }
@@ -3037,7 +3366,7 @@ fn handle_key(key: KeyEvent, app: &mut App, refresh_requested: &mut bool) -> boo
             false
         }
         KeyCode::Tab => {
-            app.mode = app.mode.next();
+            app.cycle_mode();
             app.scroll = 0;
             false
         }
@@ -3047,6 +3376,18 @@ fn handle_key(key: KeyEvent, app: &mut App, refresh_requested: &mut bool) -> boo
         }
         KeyCode::Char('x') => {
             app.stop_selected_overview_agent();
+            false
+        }
+        KeyCode::Char('a') => {
+            if app.mode == Mode::Overview {
+                app.toggle_overview_sort_mode();
+            }
+            false
+        }
+        KeyCode::Char('d') => {
+            if app.mode == Mode::Overview {
+                app.toggle_overview_debug_source();
+            }
             false
         }
         KeyCode::Down | KeyCode::Char('j') => {
@@ -3256,6 +3597,17 @@ async fn send_wire_envelope(
 }
 
 fn build_pulse_hello(config: &Config) -> WireEnvelope {
+    let mut capabilities = vec![
+        "snapshot".to_string(),
+        "delta".to_string(),
+        "heartbeat".to_string(),
+        "command".to_string(),
+        "command_result".to_string(),
+    ];
+    if config.overview_enabled {
+        capabilities.push("layout_state".to_string());
+    }
+
     WireEnvelope {
         version: ProtocolVersion(CURRENT_PROTOCOL_VERSION),
         session_id: config.session_id.clone(),
@@ -3265,14 +3617,7 @@ fn build_pulse_hello(config: &Config) -> WireEnvelope {
         msg: WireMsg::Hello(PulseHelloPayload {
             client_id: config.client_id.clone(),
             role: "subscriber".to_string(),
-            capabilities: vec![
-                "snapshot".to_string(),
-                "delta".to_string(),
-                "heartbeat".to_string(),
-                "command".to_string(),
-                "command_result".to_string(),
-                "layout_state".to_string(),
-            ],
+            capabilities,
             agent_id: None,
             pane_id: None,
             project_root: Some(config.project_root.to_string_lossy().to_string()),
@@ -3281,6 +3626,11 @@ fn build_pulse_hello(config: &Config) -> WireEnvelope {
 }
 
 fn build_pulse_subscribe(config: &Config) -> WireEnvelope {
+    let mut topics = vec!["agent_state".to_string(), "command_result".to_string()];
+    if config.overview_enabled {
+        topics.push("layout_state".to_string());
+    }
+
     WireEnvelope {
         version: ProtocolVersion(CURRENT_PROTOCOL_VERSION),
         session_id: config.session_id.clone(),
@@ -3288,11 +3638,7 @@ fn build_pulse_subscribe(config: &Config) -> WireEnvelope {
         timestamp: Utc::now().to_rfc3339(),
         request_id: None,
         msg: WireMsg::Subscribe(SubscribePayload {
-            topics: vec![
-                "agent_state".to_string(),
-                "command_result".to_string(),
-                "layout_state".to_string(),
-            ],
+            topics,
             since_seq: None,
         }),
     }
@@ -4184,6 +4530,7 @@ fn load_config() -> Config {
     let pane_id = resolve_pane_id();
     let pulse_socket_path = resolve_pulse_socket_path(&session_id);
     let pulse_vnext_enabled = resolve_pulse_vnext_enabled();
+    let overview_enabled = resolve_overview_enabled();
     let layout_source = resolve_layout_source();
     let client_id = format!("aoc-pulse-{}", std::process::id());
     let project_root = resolve_project_root();
@@ -4193,6 +4540,7 @@ fn load_config() -> Config {
         pane_id,
         pulse_socket_path,
         pulse_vnext_enabled,
+        overview_enabled,
         layout_source,
         client_id,
         project_root,
@@ -4213,6 +4561,13 @@ fn resolve_pulse_vnext_enabled() -> bool {
         .ok()
         .and_then(|value| parse_bool_flag(&value))
         .unwrap_or(true)
+}
+
+fn resolve_overview_enabled() -> bool {
+    std::env::var("AOC_PULSE_OVERVIEW_ENABLED")
+        .ok()
+        .and_then(|value| parse_bool_flag(&value))
+        .unwrap_or(false)
 }
 
 fn resolve_layout_source() -> LayoutSource {
@@ -4385,6 +4740,7 @@ mod tests {
             pane_id: "12".to_string(),
             pulse_socket_path: PathBuf::from("/tmp/pulse-test.sock"),
             pulse_vnext_enabled: true,
+            overview_enabled: true,
             layout_source: LayoutSource::Hub,
             client_id: "pulse-test".to_string(),
             project_root: PathBuf::from("/tmp"),
@@ -4554,6 +4910,44 @@ mod tests {
         let sorted = sort_overview_rows(rows);
         assert_eq!(sorted[0].pane_id, "2");
         assert_eq!(sorted[1].pane_id, "10");
+    }
+
+    #[test]
+    fn overview_attention_sort_prioritizes_blockers_over_layout_order() {
+        let rows = vec![
+            OverviewRow {
+                identity_key: "session-test::1".to_string(),
+                label: "pane-1".to_string(),
+                lifecycle: "running".to_string(),
+                snippet: None,
+                pane_id: "1".to_string(),
+                tab_index: Some(1),
+                tab_name: Some("Agent".to_string()),
+                tab_focused: false,
+                project_root: "/repo".to_string(),
+                online: true,
+                age_secs: Some(1),
+                source: "hub".to_string(),
+            },
+            OverviewRow {
+                identity_key: "session-test::2".to_string(),
+                label: "pane-2".to_string(),
+                lifecycle: "needs-input".to_string(),
+                snippet: None,
+                pane_id: "2".to_string(),
+                tab_index: Some(2),
+                tab_name: Some("Agent".to_string()),
+                tab_focused: false,
+                project_root: "/repo".to_string(),
+                online: true,
+                age_secs: Some(1),
+                source: "hub".to_string(),
+            },
+        ];
+
+        let sorted = sort_overview_rows_attention(rows);
+        assert_eq!(sorted[0].identity_key, "session-test::2");
+        assert_eq!(sorted[1].identity_key, "session-test::1");
     }
 
     #[test]
@@ -5034,12 +5428,37 @@ mod tests {
             source: "hub+runtime".to_string(),
         };
 
-        let presenter = overview_row_presenter(&row, true, 80);
+        let decorations = OverviewDecorations {
+            attention_chip: attention_chip_from_row(&row),
+            source_chip: source_chip_from_row(&row.source),
+            context: "waiting on credentials and operator input".to_string(),
+            task_signal: Some("W:1/4".to_string()),
+            git_signal: Some("G:+7/-2 ?1".to_string()),
+        };
+        let presenter = overview_row_presenter(&row, &decorations, true, 80, false);
         assert!(presenter.identity.contains("::"));
         assert_eq!(presenter.location_chip, "T?:???");
         assert_eq!(presenter.lifecycle_chip, "[BLOCK]");
-        assert_eq!(presenter.source_chip, SourceChip::Mixed);
-        assert!(presenter.heartbeat.contains("47s"));
+        assert_eq!(
+            presenter.badge,
+            OverviewBadge::Attention(AttentionChip::Stale)
+        );
+        assert!(presenter.freshness.contains("47s"));
+        assert!(presenter.context.starts_with("M:"));
         assert!(presenter_text_len(&presenter) <= 72);
+    }
+
+    #[test]
+    fn overview_toggle_methods_update_state() {
+        let (tx, _rx) = mpsc::channel(4);
+        let mut app = App::new(test_config(), tx, empty_local());
+        assert_eq!(app.overview_sort_mode, OverviewSortMode::Layout);
+        assert!(!app.overview_show_debug_source);
+
+        app.toggle_overview_sort_mode();
+        assert_eq!(app.overview_sort_mode, OverviewSortMode::Attention);
+
+        app.toggle_overview_debug_source();
+        assert!(app.overview_show_debug_source);
     }
 }
