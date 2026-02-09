@@ -837,12 +837,28 @@ impl HubState {
             return;
         }
 
+        let role = payload.role.clone();
+        let agent_id = if role == "publisher" {
+            match normalize_publisher_agent_id(&self.config.session_id, &payload) {
+                Some(value) => value,
+                None => {
+                    warn!(
+                        event = "publisher_identity_invalid",
+                        remote = %remote,
+                        session_id = %self.config.session_id
+                    );
+                    return;
+                }
+            }
+        } else {
+            String::new()
+        };
+
         let conn_id = self.next_conn_id();
-        let agent_id = payload.agent_id.clone().unwrap_or_default();
         let client = Arc::new(Client {
             conn_id: conn_id.clone(),
             client_id: payload.client_id,
-            role: payload.role,
+            role,
             agent_id,
             capabilities: payload.capabilities,
             sender: tx.clone(),
@@ -1310,10 +1326,35 @@ fn parse_hello(payload: &Value) -> Result<HelloPayload, &'static str> {
     if value.capabilities.is_empty() {
         return Err("missing_capabilities");
     }
-    if value.role == "publisher" && value.agent_id.clone().unwrap_or_default().is_empty() {
+    let publisher_agent = value.agent_id.clone().unwrap_or_default();
+    let publisher_pane = value.pane_id.clone().unwrap_or_default();
+    if value.role == "publisher"
+        && publisher_agent.trim().is_empty()
+        && publisher_pane.trim().is_empty()
+    {
         return Err("missing_agent_id");
     }
     Ok(value)
+}
+
+fn normalize_publisher_agent_id(session_id: &str, hello: &HelloPayload) -> Option<String> {
+    let mut candidate = hello.agent_id.clone().unwrap_or_default();
+    if candidate.trim().is_empty() {
+        let pane = hello.pane_id.clone().unwrap_or_default();
+        if pane.trim().is_empty() {
+            return None;
+        }
+        candidate = format!("{session_id}::{pane}");
+    }
+    if !agent_in_session(session_id, &candidate) {
+        return None;
+    }
+    Some(candidate)
+}
+
+fn agent_in_session(session_id: &str, agent_id: &str) -> bool {
+    let prefix = format!("{session_id}::");
+    agent_id.starts_with(&prefix)
 }
 
 fn parse_agent_status(payload: &Value) -> Result<AgentStatusPayload, &'static str> {
