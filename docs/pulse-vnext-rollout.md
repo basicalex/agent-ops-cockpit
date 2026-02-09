@@ -8,8 +8,22 @@ This document defines rollout controls and the minimum observability signals for
 - `AOC_PULSE_VNEXT_ENABLED=0`: disables Pulse vNext paths and keeps prior behavior available:
   - `aoc-hub-rs` runs websocket hub only (no Pulse UDS task).
   - `aoc-mission-control` stays in local fallback mode.
+- `AOC_PULSE_OVERVIEW_ENABLED=0` (default): keeps Pulse Overview deprecated/off in mission-control and runs Work/Diff/Health as primary modes.
+- `AOC_PULSE_OVERVIEW_ENABLED=1`: opt-in re-enable of Pulse Overview for bake/testing.
 
 Rollback is immediate: set `AOC_PULSE_VNEXT_ENABLED=0` and restart hub/mission-control.
+
+## Overview Deprecation Decision (2026-02-09)
+
+- Decision: deprecate Overview by default due to low operator utility relative to perceived latency/noise.
+- Scope: keep Overview/sidecar implementation in-repo behind `AOC_PULSE_OVERVIEW_ENABLED` for later phase.
+- Expected benefit now: less polling churn, less UI noise, clearer operator focus on Work/Diff/Health.
+
+Re-enable criteria for a future phase:
+
+1. Push-fidelity is demonstrably realtime for operator-critical status transitions.
+2. Overview rows provide actionable context (not only transport/heartbeat diagnostics).
+3. UX gains are visible in day-to-day operation (faster triage and tab jumps).
 
 ## Structured Observability Events
 
