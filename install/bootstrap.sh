@@ -305,7 +305,7 @@ main() {
   ref="$(resolve_ref "$repo")"
   target="$(detect_target)"
   workdir="$(mktemp -d "${TMPDIR:-/tmp}/aoc-bootstrap.XXXXXX")"
-  trap 'rm -rf "$workdir"' EXIT
+  trap "rm -rf '$workdir'" EXIT
 
   if [[ -n "$target" ]]; then
     local installer_args=()

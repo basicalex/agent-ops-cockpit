@@ -4,6 +4,9 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 BIN_DIR="$HOME/.local/bin"
 
+# Ensure user-local bin is discoverable during install checks
+export PATH="$BIN_DIR:$PATH"
+
 # Ensure dirs exist
 mkdir -p "$BIN_DIR"
 mkdir -p "$HOME/.config/zellij/layouts"
@@ -24,6 +27,124 @@ log() { echo ">> $1"; }
 warn() { echo "!! $1"; }
 have() { command -v "$1" >/dev/null 2>&1; }
 have_bat() { have bat || have batcat; }
+
+download_to_file() {
+  local url="$1"
+  local out="$2"
+  if have curl; then
+    curl -fsSL -o "$out" "$url"
+  elif have wget; then
+    wget -qO "$out" "$url"
+  else
+    return 1
+  fi
+}
+
+latest_release_tag() {
+  local repo="$1"
+  local api="https://api.github.com/repos/${repo}/releases/latest"
+  local json tag
+  if have curl; then
+    json="$(curl -fsSL "$api")" || return 1
+  elif have wget; then
+    json="$(wget -qO- "$api")" || return 1
+  else
+    return 1
+  fi
+
+  tag="$(printf '%s\n' "$json" | awk -F'"' '/"tag_name"[[:space:]]*:/ {print $4; exit}')"
+  [[ -n "$tag" ]] || return 1
+  printf '%s\n' "$tag"
+}
+
+linux_arch_target() {
+  local arch
+  arch="$(uname -m)"
+  case "$arch" in
+    x86_64) printf 'x86_64' ;;
+    aarch64|arm64) printf 'aarch64' ;;
+    *) printf '' ;;
+  esac
+}
+
+install_zellij_binary() {
+  [[ "$(uname -s)" == "Linux" ]] || return 1
+  local arch tag tmpdir asset url
+  arch="$(linux_arch_target)"
+  [[ -n "$arch" ]] || return 1
+  tag="$(latest_release_tag "zellij-org/zellij")" || return 1
+
+  tmpdir="$(mktemp -d "${TMPDIR:-/tmp}/aoc-zellij.XXXXXX")"
+  asset="zellij-${arch}-unknown-linux-musl.tar.gz"
+  url="https://github.com/zellij-org/zellij/releases/download/${tag}/${asset}"
+
+  if ! download_to_file "$url" "$tmpdir/$asset"; then
+    rm -rf "$tmpdir"
+    return 1
+  fi
+
+  if ! tar -xzf "$tmpdir/$asset" -C "$tmpdir"; then
+    rm -rf "$tmpdir"
+    return 1
+  fi
+
+  if [[ -f "$tmpdir/zellij" ]]; then
+    install -m 0755 "$tmpdir/zellij" "$BIN_DIR/zellij"
+    rm -rf "$tmpdir"
+    return 0
+  fi
+
+  rm -rf "$tmpdir"
+  return 1
+}
+
+install_yazi_binary() {
+  [[ "$(uname -s)" == "Linux" ]] || return 1
+  local arch tag tmpdir asset url
+  arch="$(linux_arch_target)"
+  [[ -n "$arch" ]] || return 1
+  tag="$(latest_release_tag "sxyazi/yazi")" || return 1
+
+  if ! have unzip; then
+    pm_install unzip || return 1
+  fi
+
+  tmpdir="$(mktemp -d "${TMPDIR:-/tmp}/aoc-yazi.XXXXXX")"
+  asset="yazi-${arch}-unknown-linux-musl.zip"
+  url="https://github.com/sxyazi/yazi/releases/download/${tag}/${asset}"
+
+  if ! download_to_file "$url" "$tmpdir/$asset"; then
+    asset="yazi-${arch}-unknown-linux-gnu.zip"
+    url="https://github.com/sxyazi/yazi/releases/download/${tag}/${asset}"
+    if ! download_to_file "$url" "$tmpdir/$asset"; then
+      rm -rf "$tmpdir"
+      return 1
+    fi
+  fi
+
+  if ! unzip -q "$tmpdir/$asset" -d "$tmpdir"; then
+    rm -rf "$tmpdir"
+    return 1
+  fi
+
+  local yazi_bin ya_bin
+  yazi_bin="$(find "$tmpdir" -type f -name yazi 2>/dev/null | head -n1)"
+  ya_bin="$(find "$tmpdir" -type f -name ya 2>/dev/null | head -n1)"
+
+  if [[ -n "$yazi_bin" && -f "$yazi_bin" ]]; then
+    install -m 0755 "$yazi_bin" "$BIN_DIR/yazi"
+  else
+    rm -rf "$tmpdir"
+    return 1
+  fi
+
+  if [[ -n "$ya_bin" && -f "$ya_bin" ]]; then
+    install -m 0755 "$ya_bin" "$BIN_DIR/ya"
+  fi
+
+  rm -rf "$tmpdir"
+  return 0
+}
 
 cargo_cmd() {
   if [[ -x "$HOME/.cargo/bin/cargo" ]]; then
@@ -125,6 +246,9 @@ install_tool() {
     zellij)
       pm_install zellij || warn "Failed to install zellij via package manager."
       if ! have zellij; then
+        if install_zellij_binary; then
+          return
+        fi
         if cargo_bin="$(cargo_cmd)"; then
           log "Installing zellij via cargo..."
           "$cargo_bin" install --locked zellij || warn "Failed to install zellij via cargo."
@@ -140,6 +264,9 @@ install_tool() {
           ;;
       esac
       if ! have yazi; then
+        if install_yazi_binary; then
+          return
+        fi
         if cargo_bin="$(cargo_cmd)"; then
           log "Installing yazi via cargo (yazi-build)..."
           if ! "$cargo_bin" install --locked --force yazi-build; then
