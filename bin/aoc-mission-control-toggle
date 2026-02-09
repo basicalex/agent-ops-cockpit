@@ -91,7 +91,7 @@ zellij action new-pane \
   --height "$height" \
   --x "$x" \
   --y "$y" \
-  -- bash -lc "export AOC_SESSION_ID=\"${session_id}\"; export AOC_HUB_ADDR=\"${hub_addr}\"; export AOC_MISSION_CONTROL_PID_FILE=\"${pid_file}\"; exec ${mission_cmd}"
+  -- bash -lc "export AOC_SESSION_ID=\"${session_id}\"; export AOC_HUB_ADDR=\"${hub_addr}\"; export AOC_TAB_SCOPE=\"${AOC_TAB_SCOPE:-}\"; export AOC_MISSION_CONTROL_PID_FILE=\"${pid_file}\"; exec ${mission_cmd}"
 
 if [[ "$pinned" == "true" ]]; then
   zellij action toggle-pane-pinned >/dev/null 2>&1 || true

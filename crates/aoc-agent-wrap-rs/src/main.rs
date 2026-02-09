@@ -71,6 +71,8 @@ struct Args {
     #[arg(long, default_value = "")]
     project_root: String,
     #[arg(long, default_value = "")]
+    tab_scope: String,
+    #[arg(long, default_value = "")]
     hub_addr: String,
     #[arg(long, default_value = "")]
     hub_url: String,
@@ -91,6 +93,7 @@ struct ClientConfig {
     agent_label: String,
     pane_id: String,
     project_root: String,
+    tab_scope: Option<String>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -126,6 +129,8 @@ struct AgentStatusPayload {
     pane_id: String,
     project_root: String,
     #[serde(skip_serializing_if = "Option::is_none")]
+    tab_scope: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     agent_label: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     cwd: Option<String>,
@@ -143,6 +148,8 @@ struct HeartbeatPayload {
     pane_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     project_root: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    tab_scope: Option<String>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -374,6 +381,8 @@ struct RuntimeSnapshot {
     agent_id: String,
     agent_label: String,
     project_root: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    tab_scope: Option<String>,
     pid: i32,
     status: String,
     last_update: String,
@@ -605,6 +614,7 @@ fn load_config(args: Args) -> RuntimeConfig {
     let project_root = resolve_project_root(&args.project_root);
     let pane_id = resolve_pane_id(&args.pane_id);
     let agent_label = resolve_agent_label(&args.agent_id, &project_root);
+    let tab_scope = resolve_tab_scope(&args.tab_scope);
     let agent_key = build_agent_key(&session_id, &pane_id);
     let hub_url = resolve_hub_url(&args.hub_url, &args.hub_addr, &session_id);
     let pulse_socket_path = resolve_pulse_socket_path(&session_id, &args.pulse_socket_path);
@@ -618,6 +628,7 @@ fn load_config(args: Args) -> RuntimeConfig {
             agent_label,
             pane_id,
             project_root,
+            tab_scope,
         },
         hub_url,
         pulse_socket_path,
@@ -992,6 +1003,12 @@ fn build_pulse_source(cfg: &ClientConfig, state: &PulseState) -> serde_json::Val
         "project_root".to_string(),
         serde_json::Value::String(cfg.project_root.clone()),
     );
+    if let Some(tab_scope) = cfg.tab_scope.as_ref() {
+        agent_status.insert(
+            "tab_scope".to_string(),
+            serde_json::Value::String(tab_scope.clone()),
+        );
+    }
     agent_status.insert(
         "status".to_string(),
         serde_json::Value::String(state.lifecycle.clone()),
@@ -1030,6 +1047,12 @@ fn build_pulse_source(cfg: &ClientConfig, state: &PulseState) -> serde_json::Val
         "project_root".to_string(),
         serde_json::Value::String(cfg.project_root.clone()),
     );
+    if let Some(tab_scope) = cfg.tab_scope.as_ref() {
+        source.insert(
+            "tab_scope".to_string(),
+            serde_json::Value::String(tab_scope.clone()),
+        );
+    }
 
     if !state.task_summaries.is_empty() {
         if let Ok(value) = serde_json::to_value(&state.task_summaries) {
@@ -1227,6 +1250,7 @@ fn build_agent_status(cfg: &ClientConfig, status: &str, message: Option<&str>) -
         status: status.to_string(),
         pane_id: cfg.pane_id.clone(),
         project_root: cfg.project_root.clone(),
+        tab_scope: cfg.tab_scope.clone(),
         agent_label: Some(cfg.agent_label.clone()),
         cwd: env::current_dir()
             .ok()
@@ -1252,6 +1276,7 @@ fn build_heartbeat(cfg: &ClientConfig) -> String {
         last_update: Utc::now().to_rfc3339(),
         pane_id: Some(cfg.pane_id.clone()),
         project_root: Some(cfg.project_root.clone()),
+        tab_scope: cfg.tab_scope.clone(),
     };
     build_envelope("heartbeat", &cfg.session_id, &cfg.agent_key, payload, None)
 }
@@ -2989,6 +3014,7 @@ async fn persist_runtime_snapshot(cfg: &ClientConfig, status: &str) -> io::Resul
         agent_id: cfg.agent_key.clone(),
         agent_label: cfg.agent_label.clone(),
         project_root: cfg.project_root.clone(),
+        tab_scope: cfg.tab_scope.clone(),
         pid: std::process::id() as i32,
         status: status.to_string(),
         last_update: Utc::now().to_rfc3339(),
@@ -3074,6 +3100,28 @@ fn resolve_pane_id(flag: &str) -> String {
         }
     }
     std::process::id().to_string()
+}
+
+fn resolve_tab_scope(flag: &str) -> Option<String> {
+    if !flag.trim().is_empty() {
+        return Some(flag.trim().to_string());
+    }
+    if let Ok(value) = env::var("AOC_TAB_SCOPE") {
+        if !value.trim().is_empty() {
+            return Some(value.trim().to_string());
+        }
+    }
+    if let Ok(value) = env::var("AOC_TAB_NAME") {
+        if !value.trim().is_empty() {
+            return Some(value.trim().to_string());
+        }
+    }
+    if let Ok(value) = env::var("ZELLIJ_TAB_NAME") {
+        if !value.trim().is_empty() {
+            return Some(value.trim().to_string());
+        }
+    }
+    None
 }
 
 fn resolve_hub_url(flag_url: &str, flag_addr: &str, session_id: &str) -> Url {
@@ -3227,6 +3275,7 @@ mod tests {
             agent_label: "OpenCode".to_string(),
             pane_id: "12".to_string(),
             project_root: "/repo".to_string(),
+            tab_scope: Some("agent".to_string()),
         }
     }
 
@@ -3316,6 +3365,12 @@ mod tests {
         assert!(root.contains_key("task_summary"));
         assert!(root.contains_key("diff_summary"));
         assert!(root.contains_key("health"));
+        assert_eq!(
+            root.get("tab_scope")
+                .and_then(Value::as_str)
+                .unwrap_or_default(),
+            "agent"
+        );
         assert_eq!(
             root.get("parser_confidence")
                 .and_then(Value::as_u64)

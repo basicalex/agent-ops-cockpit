@@ -41,7 +41,9 @@ use tokio::{
 use tracing::{info, warn};
 use tracing_subscriber::EnvFilter;
 
-const LOCAL_LAYOUT_REFRESH_MS: u64 = 1000;
+const LOCAL_LAYOUT_REFRESH_MS_DEFAULT: u64 = 3000;
+const LOCAL_LAYOUT_REFRESH_MS_MIN: u64 = 500;
+const LOCAL_LAYOUT_REFRESH_MS_MAX: u64 = 15000;
 const LOCAL_SNAPSHOT_REFRESH_SECS: u64 = 2;
 const HUB_STALE_SECS: i64 = 45;
 const HUB_PRUNE_SECS: i64 = 90;
@@ -59,6 +61,7 @@ const PULSE_LATENCY_INFO_EVERY: u64 = 25;
 struct Config {
     session_id: String,
     pane_id: String,
+    tab_scope: Option<String>,
     pulse_socket_path: PathBuf,
     pulse_vnext_enabled: bool,
     overview_enabled: bool,
@@ -81,6 +84,8 @@ struct AgentStatusPayload {
     status: String,
     pane_id: String,
     project_root: String,
+    #[serde(default)]
+    tab_scope: Option<String>,
     #[serde(default)]
     agent_label: Option<String>,
     #[serde(default)]
@@ -607,6 +612,7 @@ impl App {
                                 .unwrap_or_else(|| "running".to_string()),
                             pane_id: extract_pane_id(&payload.agent_id),
                             project_root: "(unknown)".to_string(),
+                            tab_scope: None,
                             agent_label: Some(extract_label(&payload.agent_id)),
                             message: None,
                         }),
@@ -994,13 +1000,8 @@ impl App {
     fn should_poll_local_layout(&self) -> bool {
         match self.config.layout_source {
             LayoutSource::Local => true,
-            LayoutSource::Hybrid => true,
-            LayoutSource::Hub => {
-                if !self.connected {
-                    return true;
-                }
-                self.hub.layout.is_none()
-            }
+            LayoutSource::Hybrid => !self.connected,
+            LayoutSource::Hub => false,
         }
     }
 
@@ -1134,11 +1135,13 @@ impl App {
     }
 
     fn overview_rows(&self) -> Vec<OverviewRow> {
+        let viewer_scope = self.config.tab_scope.as_deref();
         if self.prefer_hub_data(!self.hub.agents.is_empty()) {
             let now = Utc::now();
             let mut rows: BTreeMap<String, OverviewRow> = BTreeMap::new();
             for (agent_id, agent) in &self.hub.agents {
                 let status = agent.status.as_ref();
+                let row_tab_scope = status.and_then(|s| s.tab_scope.as_deref());
                 let pane_id = status
                     .map(|s| s.pane_id.clone())
                     .unwrap_or_else(|| extract_pane_id(agent_id));
@@ -1174,8 +1177,8 @@ impl App {
                     snippet: status.and_then(|s| s.message.clone()),
                     pane_id,
                     tab_index: None,
-                    tab_name: None,
-                    tab_focused: false,
+                    tab_name: status.and_then(|s| s.tab_scope.clone()),
+                    tab_focused: tab_scope_matches(viewer_scope, row_tab_scope),
                     project_root,
                     online,
                     age_secs,
@@ -1216,11 +1219,17 @@ impl App {
                     .active_hub_layout()
                     .and_then(|layout| layout.pane_tabs.get(&row.pane_id))
                 {
-                    row.tab_index = Some(meta.index);
-                    row.tab_name = Some(meta.name.clone());
-                    row.tab_focused = meta.focused;
+                    if row.tab_index.is_none() {
+                        row.tab_index = Some(meta.index);
+                    }
+                    if row.tab_name.is_none() {
+                        row.tab_name = Some(meta.name.clone());
+                    }
                 }
                 apply_cached_tab_meta(row, &self.tab_cache);
+                if !row.tab_focused {
+                    row.tab_focused = tab_scope_matches(viewer_scope, row.tab_name.as_deref());
+                }
             }
             return self.sort_overview_rows_for_mode(merged_rows);
         }
@@ -1230,11 +1239,17 @@ impl App {
                 .active_hub_layout()
                 .and_then(|layout| layout.pane_tabs.get(&row.pane_id))
             {
-                row.tab_index = Some(meta.index);
-                row.tab_name = Some(meta.name.clone());
-                row.tab_focused = meta.focused;
+                if row.tab_index.is_none() {
+                    row.tab_index = Some(meta.index);
+                }
+                if row.tab_name.is_none() {
+                    row.tab_name = Some(meta.name.clone());
+                }
             }
             apply_cached_tab_meta(row, &self.tab_cache);
+            if !row.tab_focused {
+                row.tab_focused = tab_scope_matches(viewer_scope, row.tab_name.as_deref());
+            }
         }
         self.sort_overview_rows_for_mode(local_rows)
     }
@@ -1506,6 +1521,9 @@ impl App {
             if let Some(index) = Self::viewer_tab_overview_index(rows, viewer_tab) {
                 return index;
             }
+            if let Some(index) = rows.iter().position(|row| row.tab_focused) {
+                return index;
+            }
         }
         self.selected_overview.min(rows.len().saturating_sub(1))
     }
@@ -1601,6 +1619,8 @@ struct RuntimeSnapshot {
     agent_id: String,
     agent_label: String,
     project_root: String,
+    #[serde(default)]
+    tab_scope: Option<String>,
     pid: i32,
     status: String,
     last_update: String,
@@ -1619,6 +1639,7 @@ struct GitStatusEntry {
 async fn main() -> Result<(), Box<dyn Error>> {
     let config = load_config();
     init_logging();
+    let local_layout_refresh_ms = resolve_local_layout_refresh_ms();
 
     let initial_local = collect_local(&config);
     let (cmd_tx, cmd_rx) = mpsc::channel(COMMAND_QUEUE_CAPACITY);
@@ -1649,7 +1670,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let jitter_seed = u64::from(std::process::id()) % 5;
     let mut layout_ticker = tokio::time::interval_at(
         tokio::time::Instant::now() + Duration::from_millis(jitter_seed * 120),
-        Duration::from_millis(LOCAL_LAYOUT_REFRESH_MS),
+        Duration::from_millis(local_layout_refresh_ms),
     );
     let mut snapshot_ticker = tokio::time::interval_at(
         tokio::time::Instant::now() + Duration::from_millis(jitter_seed * 240),
@@ -3068,6 +3089,7 @@ fn status_payload_from_state(state: &AgentState) -> AgentStatusPayload {
     let lifecycle = normalize_lifecycle(&state.lifecycle);
     let project_root = source_string_field(&state.source, "project_root")
         .unwrap_or_else(|| "(unknown)".to_string());
+    let tab_scope = source_string_field(&state.source, "tab_scope");
     let agent_label = source_string_field(&state.source, "agent_label")
         .or_else(|| source_string_field(&state.source, "label"))
         .or_else(|| Some(extract_label(&state.agent_id)));
@@ -3076,6 +3098,7 @@ fn status_payload_from_state(state: &AgentState) -> AgentStatusPayload {
         status: lifecycle,
         pane_id: state.pane_id.clone(),
         project_root,
+        tab_scope,
         agent_label,
         message: state.snippet.clone(),
     }
@@ -3087,6 +3110,24 @@ fn source_string_field(source: &Option<Value>, key: &str) -> Option<String> {
         .map(str::trim)
         .filter(|value| !value.is_empty())
         .map(|value| value.to_string())
+}
+
+fn canonical_tab_scope(value: &str) -> Option<String> {
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+    Some(trimmed.to_ascii_lowercase())
+}
+
+fn tab_scope_matches(viewer_scope: Option<&str>, candidate_scope: Option<&str>) -> bool {
+    let Some(viewer) = viewer_scope.and_then(canonical_tab_scope) else {
+        return false;
+    };
+    let Some(candidate) = candidate_scope.and_then(canonical_tab_scope) else {
+        return false;
+    };
+    viewer == candidate
 }
 
 fn source_value_by_keys<'a>(source: &'a Option<Value>, keys: &[&str]) -> Option<&'a Value> {
@@ -3597,16 +3638,13 @@ async fn send_wire_envelope(
 }
 
 fn build_pulse_hello(config: &Config) -> WireEnvelope {
-    let mut capabilities = vec![
+    let capabilities = vec![
         "snapshot".to_string(),
         "delta".to_string(),
         "heartbeat".to_string(),
         "command".to_string(),
         "command_result".to_string(),
     ];
-    if config.overview_enabled {
-        capabilities.push("layout_state".to_string());
-    }
 
     WireEnvelope {
         version: ProtocolVersion(CURRENT_PROTOCOL_VERSION),
@@ -3626,10 +3664,7 @@ fn build_pulse_hello(config: &Config) -> WireEnvelope {
 }
 
 fn build_pulse_subscribe(config: &Config) -> WireEnvelope {
-    let mut topics = vec!["agent_state".to_string(), "command_result".to_string()];
-    if config.overview_enabled {
-        topics.push("layout_state".to_string());
-    }
+    let topics = vec!["agent_state".to_string(), "command_result".to_string()];
 
     WireEnvelope {
         version: ProtocolVersion(CURRENT_PROTOCOL_VERSION),
@@ -3774,6 +3809,7 @@ fn collect_runtime_overview(
     session_layout: Option<&SessionLayout>,
 ) -> Vec<OverviewRow> {
     let mut rows: BTreeMap<String, OverviewRow> = BTreeMap::new();
+    let viewer_scope = config.tab_scope.as_deref();
     let telemetry_dir = config
         .state_dir
         .join("telemetry")
@@ -3833,6 +3869,11 @@ fn collect_runtime_overview(
         let tab_meta = pane_tabs
             .and_then(|tabs| tabs.get(&snapshot.pane_id))
             .or_else(|| project_tabs.and_then(|tabs| tabs.get(&snapshot.project_root)));
+        let tab_name = tab_meta
+            .map(|meta| meta.name.clone())
+            .or_else(|| snapshot.tab_scope.clone());
+        let tab_focused = tab_scope_matches(viewer_scope, snapshot.tab_scope.as_deref())
+            || tab_scope_matches(viewer_scope, tab_name.as_deref());
         rows.insert(
             identity_key.clone(),
             OverviewRow {
@@ -3842,8 +3883,8 @@ fn collect_runtime_overview(
                 snippet: None,
                 pane_id: snapshot.pane_id,
                 tab_index: tab_meta.map(|meta| meta.index),
-                tab_name: tab_meta.map(|meta| meta.name.clone()),
-                tab_focused: tab_meta.map(|meta| meta.focused).unwrap_or(false),
+                tab_name,
+                tab_focused,
                 project_root: snapshot.project_root,
                 online,
                 age_secs: heartbeat_age,
@@ -4052,6 +4093,7 @@ fn collect_proc_overview(
     session_layout: Option<&SessionLayout>,
 ) -> Vec<OverviewRow> {
     let mut rows: BTreeMap<String, OverviewRow> = BTreeMap::new();
+    let viewer_scope = config.tab_scope.as_deref();
     let pane_tabs = session_layout.map(|layout| &layout.pane_tabs);
     let project_tabs = session_layout.map(|layout| &layout.project_tabs);
     let active_panes = session_layout.map(|layout| &layout.pane_ids);
@@ -4104,6 +4146,12 @@ fn collect_proc_overview(
         let tab_meta = pane_tabs
             .and_then(|tabs| tabs.get(&pane_id))
             .or_else(|| project_tabs.and_then(|tabs| tabs.get(&project_root)));
+        let proc_tab_scope = env_map.get("AOC_TAB_SCOPE").cloned();
+        let tab_name = tab_meta
+            .map(|meta| meta.name.clone())
+            .or(proc_tab_scope.clone());
+        let tab_focused = tab_scope_matches(viewer_scope, proc_tab_scope.as_deref())
+            || tab_scope_matches(viewer_scope, tab_name.as_deref());
         rows.entry(key.clone()).or_insert(OverviewRow {
             identity_key: key,
             label,
@@ -4111,8 +4159,8 @@ fn collect_proc_overview(
             snippet: None,
             pane_id,
             tab_index: tab_meta.map(|meta| meta.index),
-            tab_name: tab_meta.map(|meta| meta.name.clone()),
-            tab_focused: tab_meta.map(|meta| meta.focused).unwrap_or(false),
+            tab_name,
+            tab_focused,
             project_root,
             online: true,
             age_secs: None,
@@ -4528,6 +4576,7 @@ fn which_cmd(name: &str) -> Option<String> {
 fn load_config() -> Config {
     let session_id = resolve_session_id();
     let pane_id = resolve_pane_id();
+    let tab_scope = resolve_tab_scope();
     let pulse_socket_path = resolve_pulse_socket_path(&session_id);
     let pulse_vnext_enabled = resolve_pulse_vnext_enabled();
     let overview_enabled = resolve_overview_enabled();
@@ -4538,6 +4587,7 @@ fn load_config() -> Config {
     Config {
         session_id,
         pane_id,
+        tab_scope,
         pulse_socket_path,
         pulse_vnext_enabled,
         overview_enabled,
@@ -4546,6 +4596,14 @@ fn load_config() -> Config {
         project_root,
         state_dir,
     }
+}
+
+fn resolve_local_layout_refresh_ms() -> u64 {
+    std::env::var("AOC_MISSION_CONTROL_LAYOUT_REFRESH_MS")
+        .ok()
+        .and_then(|raw| raw.trim().parse::<u64>().ok())
+        .map(|value| value.clamp(LOCAL_LAYOUT_REFRESH_MS_MIN, LOCAL_LAYOUT_REFRESH_MS_MAX))
+        .unwrap_or(LOCAL_LAYOUT_REFRESH_MS_DEFAULT)
 }
 
 fn parse_bool_flag(value: &str) -> Option<bool> {
@@ -4623,6 +4681,18 @@ fn resolve_pane_id() -> String {
         }
     }
     String::new()
+}
+
+fn resolve_tab_scope() -> Option<String> {
+    for key in ["AOC_TAB_SCOPE", "AOC_TAB_NAME", "ZELLIJ_TAB_NAME"] {
+        if let Ok(value) = std::env::var(key) {
+            let trimmed = value.trim();
+            if !trimmed.is_empty() {
+                return Some(trimmed.to_string());
+            }
+        }
+    }
+    None
 }
 
 fn resolve_pulse_socket_path(session_id: &str) -> PathBuf {
@@ -4738,6 +4808,7 @@ mod tests {
         Config {
             session_id: "session-test".to_string(),
             pane_id: "12".to_string(),
+            tab_scope: Some("agent".to_string()),
             pulse_socket_path: PathBuf::from("/tmp/pulse-test.sock"),
             pulse_vnext_enabled: true,
             overview_enabled: true,
@@ -4805,6 +4876,36 @@ mod tests {
         assert_eq!(payload.project_root, "/repo");
         assert_eq!(payload.agent_label.as_deref(), Some("OpenCode"));
         assert_eq!(payload.message.as_deref(), Some("awaiting input"));
+        assert_eq!(payload.tab_scope, None);
+    }
+
+    #[test]
+    fn status_payload_extracts_tab_scope_from_source() {
+        let state = AgentState {
+            agent_id: "session-test::12".to_string(),
+            session_id: "session-test".to_string(),
+            pane_id: "12".to_string(),
+            lifecycle: "running".to_string(),
+            snippet: None,
+            last_heartbeat_ms: Some(1),
+            last_activity_ms: Some(1),
+            updated_at_ms: Some(1),
+            source: Some(serde_json::json!({
+                "agent_status": {
+                    "project_root": "/repo",
+                    "tab_scope": "Agent"
+                }
+            })),
+        };
+
+        let payload = status_payload_from_state(&state);
+        assert_eq!(payload.tab_scope.as_deref(), Some("Agent"));
+    }
+
+    #[test]
+    fn tab_scope_matches_ignores_case_and_whitespace() {
+        assert!(tab_scope_matches(Some(" Agent  "), Some("agent")));
+        assert!(!tab_scope_matches(Some("agent"), Some("review")));
     }
 
     #[test]
@@ -5190,6 +5291,28 @@ mod tests {
                 },
             )]),
             focused_tab_index: Some(1),
+        });
+
+        assert!(!app.should_poll_local_layout());
+    }
+
+    #[test]
+    fn hybrid_layout_source_uses_hub_layout_when_connected() {
+        let (tx, _rx) = mpsc::channel(4);
+        let mut app = App::new(test_config(), tx, empty_local());
+        app.config.layout_source = LayoutSource::Hybrid;
+        app.connected = true;
+        app.hub.layout = Some(HubLayout {
+            layout_seq: 3,
+            pane_tabs: HashMap::from([(
+                "12".to_string(),
+                TabMeta {
+                    index: 2,
+                    name: "Agent".to_string(),
+                    focused: true,
+                },
+            )]),
+            focused_tab_index: Some(2),
         });
 
         assert!(!app.should_poll_local_layout());
