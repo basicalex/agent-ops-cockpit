@@ -290,20 +290,25 @@ aoc-rlm chunk --pattern "src/**/*.rs"
 
 ---
 
-### Scene 12: Mission Control (Optional) (3:00-3:15)
+### Scene 12: Mission Control + Pulse (Optional) (3:00-3:15)
 **Duration:** 15 seconds
 
 **Recording:**
 - Toggle Mission Control (`Alt+a`)
 - Show summary list and a patch preview
+- Highlight live updates (task/diff/health) if visible
 
-**Narration:** *"Mission Control surfaces key updates and quick actions."*
+**Narration:** *"Mission Control surfaces key updates and quick actions, now fed by Pulse for real-time task, diff, and health updates."*
 
 **On-Screen Text:**
 - "Alt+a Mission Control"
+- "Pulse: realtime task/diff/health"
 
 **Actions:**
 - Toggle on, then off
+
+**Technical Notes:**
+- Mission Control now prefers the native launcher; no extra setup required
 
 ---
 
