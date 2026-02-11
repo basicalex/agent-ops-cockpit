@@ -252,6 +252,13 @@ export AOC_PROJECT_ROOT="$project_root"
 export AOC_HUB_ADDR="$hub_addr"
 export AOC_HUB_URL="$hub_url"
 export AOC_AGENT_LABEL="$agent_label"
+if [[ -z "${AOC_TAB_SCOPE:-}" ]]; then
+  if [[ -n "${AOC_TAB_NAME:-}" ]]; then
+    export AOC_TAB_SCOPE="$AOC_TAB_NAME"
+  elif [[ -n "${ZELLIJ_TAB_NAME:-}" ]]; then
+    export AOC_TAB_SCOPE="$ZELLIJ_TAB_NAME"
+  fi
+fi
 if [[ -z "${AOC_AGENT_PTY:-}" ]]; then
   export AOC_AGENT_PTY=0
 fi
@@ -413,14 +420,32 @@ chmod +x "$bootloader"
 resolve_wrap_rs_cmd
 wrapped_cmd=()
 if ((${#wrap_rs_cmd[@]} > 0)); then
+  wrap_rs_help=""
+  wrap_rs_supports_hub_addr=0
+  wrap_rs_supports_tab_scope=0
+  if [[ -n "${AOC_TAB_SCOPE:-}" || -n "${AOC_HUB_ADDR:-}" ]]; then
+    wrap_rs_help="$("${wrap_rs_cmd[@]}" --help 2>/dev/null || true)"
+    if [[ "$wrap_rs_help" == *"--hub-addr"* ]]; then
+      wrap_rs_supports_hub_addr=1
+    fi
+    if [[ "$wrap_rs_help" == *"--tab-scope"* ]]; then
+      wrap_rs_supports_tab_scope=1
+    fi
+  fi
   wrapped_cmd=(
     "${wrap_rs_cmd[@]}"
     --session "$AOC_SESSION_ID"
     --pane-id "$AOC_PANE_ID"
     --agent-id "$AOC_AGENT_LABEL"
     --project-root "$AOC_PROJECT_ROOT"
-    --tab-scope "${AOC_TAB_SCOPE:-}"
-    --hub-addr "$AOC_HUB_ADDR"
+  )
+  if [[ "$wrap_rs_supports_tab_scope" == "1" && -n "${AOC_TAB_SCOPE:-}" ]]; then
+    wrapped_cmd+=(--tab-scope "${AOC_TAB_SCOPE:-}")
+  fi
+  if [[ "$wrap_rs_supports_hub_addr" == "1" ]]; then
+    wrapped_cmd+=(--hub-addr "$AOC_HUB_ADDR")
+  fi
+  wrapped_cmd+=(
     --
     "$bootloader"
     "$@"
