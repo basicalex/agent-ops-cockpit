@@ -94,6 +94,7 @@ This file defines the always-on rules for agents in this repo. Procedural playbo
 - `taskmaster-ops`: manage tasks and tags.
 - `rlm-analysis`: large codebase analysis flow.
 - `prd-dev`: draft the Taskmaster PRD.
+- `prd-intake`: parse a project PRD into actionable tasks.
 - `prd-align`: align tasks with the PRD.
 - `tag-align`: normalize task tags and dependencies.
 - `task-breakdown`: expand tasks into subtasks.
@@ -117,6 +118,7 @@ EOF
 - `taskmaster-ops`: manage tasks and tags.
 - `rlm-analysis`: large codebase analysis flow.
 - `prd-dev`: draft the Taskmaster PRD.
+- `prd-intake`: parse a project PRD into actionable tasks.
 - `prd-align`: align tasks with the PRD.
 - `tag-align`: normalize task tags and dependencies.
 - `task-breakdown`: expand tasks into subtasks.
@@ -330,54 +332,73 @@ setup_agents() {
 # 1d. Setup OpenCode Commands (.opencode/commands)
 setup_opencode_commands() {
   local opencode_commands_dir="$project_root/.opencode/commands"
-  local seed_file=""
   local candidate=""
-
-  for candidate in \
-    "$aoc_config_dir/commands/opencode/stm.md" \
-    "$script_dir/../.aoc/commands/opencode/stm.md"; do
-    if [[ -f "$candidate" ]]; then
-      seed_file="$candidate"
-      break
-    fi
-  done
-
-  if [[ -z "$seed_file" ]]; then
-    warn "No OpenCode /stm command template found; skipping command seeding."
-    return
-  fi
+  local commands_seed_dirs=(
+    "$aoc_config_dir/commands/opencode"
+    "$script_dir/../.aoc/commands/opencode"
+  )
 
   if [[ ! -d "$opencode_commands_dir" ]]; then
     mkdir -p "$opencode_commands_dir"
   fi
 
-  if [[ ! -f "$opencode_commands_dir/stm.md" ]]; then
-    cp "$seed_file" "$opencode_commands_dir/stm.md"
-    log "Seeded OpenCode command: /stm"
-  else
-    log "OpenCode command /stm already present. Preserving."
+  local seeded_any=0
+  local seed_file=""
+  local target_file=""
+  for candidate in "${commands_seed_dirs[@]}"; do
+    [[ -d "$candidate" ]] || continue
+    shopt -s nullglob
+    for seed_file in "$candidate"/*.md; do
+      target_file="$opencode_commands_dir/$(basename "$seed_file")"
+      if [[ ! -f "$target_file" ]]; then
+        cp "$seed_file" "$target_file"
+        log "Seeded OpenCode command: /$(basename "$seed_file" .md)"
+      else
+        log "OpenCode command /$(basename "$seed_file" .md) already present. Preserving."
+      fi
+      seeded_any=1
+    done
+    shopt -u nullglob
+  done
+
+  if [[ "$seeded_any" != "1" ]]; then
+    warn "No OpenCode command templates found; skipping command seeding."
   fi
 }
 
 # 2. Setup Taskmaster (.taskmaster/)
 setup_tasks() {
-  if [[ ! -d "$task_dir" ]]; then
-    log "Initializing Taskmaster..."
-    if command -v task-master >/dev/null 2>&1; then
-      # We use 'task-master init -y' to create the structure if missing.
-      # Note: We do this inside the dir to ensure it picks up the right place.
-      (cd "$project_root" && task-master init -y >/dev/null)
+  log "Initializing Taskmaster..."
+
+  mkdir -p "$task_dir/tasks" "$task_dir/docs/prds" "$task_dir/reports" "$task_dir/templates"
+
+  local native_init_ok=0
+  if command -v aoc-task >/dev/null 2>&1; then
+    if (cd "$project_root" && aoc-task init >/dev/null 2>&1); then
+      native_init_ok=1
     else
-      mkdir -p "$task_dir/tasks"
+      warn "aoc-task init failed; using shell fallback for task scaffolding."
+    fi
+  elif command -v aoc-cli >/dev/null 2>&1; then
+    if (cd "$project_root" && aoc-cli task init >/dev/null 2>&1); then
+      native_init_ok=1
+    else
+      warn "aoc-cli task init failed; using shell fallback for task scaffolding."
+    fi
+  fi
+
+  if [[ "$native_init_ok" != "1" ]]; then
+    if [[ ! -f "$task_dir/tasks/tasks.json" ]]; then
       cat <<EOF > "$task_dir/tasks/tasks.json"
 {
-  "tags": {
-    "master": {
-      "tasks": []
-    }
+  "master": {
+    "tasks": []
   }
 }
 EOF
+    fi
+
+    if [[ ! -f "$task_dir/state.json" ]]; then
       now_stamp="$(date -u +%Y-%m-%dT%H:%M:%S.%3NZ)"
       cat <<EOF > "$task_dir/state.json"
 {
@@ -391,7 +412,78 @@ EOF
     fi
   fi
 
-  mkdir -p "$task_dir/docs/prds"
+  local template_name=""
+  local template_src=""
+  local candidate=""
+  local template_candidates=(
+    "$aoc_config_dir/taskmaster/templates"
+    "$script_dir/../.taskmaster/templates"
+  )
+
+  for template_name in "example_prd.txt" "example_prd_rpg.txt"; do
+    if [[ -f "$task_dir/templates/$template_name" ]]; then
+      continue
+    fi
+    template_src=""
+    for candidate in "${template_candidates[@]}"; do
+      if [[ -f "$candidate/$template_name" ]]; then
+        template_src="$candidate/$template_name"
+        break
+      fi
+    done
+    if [[ -n "$template_src" ]]; then
+      cp "$template_src" "$task_dir/templates/$template_name"
+      log "Seeded Taskmaster template: $task_dir/templates/$template_name"
+    else
+      warn "No upstream template found for $template_name."
+    fi
+  done
+
+  local project_prd="$task_dir/docs/prd.md"
+  if [[ ! -f "$project_prd" ]]; then
+    if [[ -f "$task_dir/templates/example_prd.txt" ]]; then
+      cp "$task_dir/templates/example_prd.txt" "$project_prd"
+      log "Seeded project PRD from upstream template: $project_prd"
+    else
+      cat <<'EOF' > "$project_prd"
+# Product Requirements Document
+
+## Problem
+Describe the core user problem this project solves.
+
+## Goals
+-
+
+## Non-Goals
+-
+
+## User Stories
+- As a <user>, I want <capability> so that <outcome>.
+
+## Requirements
+-
+
+## Acceptance Criteria
+- [ ]
+
+## Constraints
+-
+
+## Risks
+-
+
+## Test Strategy
+-
+EOF
+      log "Seeded fallback project PRD template: $project_prd"
+    fi
+  fi
+
+  local project_prd_txt="$task_dir/docs/prd.txt"
+  if [[ -f "$project_prd" && ! -f "$project_prd_txt" ]]; then
+    cp "$project_prd" "$project_prd_txt"
+    log "Seeded Taskmaster-compatible project PRD copy: $project_prd_txt"
+  fi
 
   # Config Seeding (Preserve existing logic, but ensure Gemini preference)
   local local_conf="$task_dir/config.json"

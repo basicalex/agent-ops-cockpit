@@ -1,5 +1,5 @@
 use anyhow::{Context, Result};
-use aoc_core::{ProjectData, Task, TaskStatus};
+use aoc_core::{ProjectData, TagContext, Task, TaskStatus};
 use crossterm::event::{KeyCode, KeyEvent, MouseButton, MouseEvent, MouseEventKind};
 use ratatui::{
     layout::Rect,
@@ -14,11 +14,14 @@ use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicU8, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
 
+pub const ALL_TAG_VIEW: &str = "__all__";
+
 #[derive(Debug, Clone, Default)]
 pub struct DisplayRow {
     pub task_idx: usize,
     pub subtask_path: Vec<usize>,
     pub depth: usize,
+    pub tag_name: String,
 }
 
 #[derive(Debug, Clone)]
@@ -44,6 +47,13 @@ pub enum FilterMode {
     Done,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum SortMode {
+    #[default]
+    TaskNumber,
+    Tag,
+}
+
 #[derive(Debug, Clone, Default, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct TaskmasterState {
@@ -61,10 +71,12 @@ pub struct App {
     pub state_path: PathBuf,
     pub project: Option<ProjectData>,
     pub tasks: Vec<Task>,
+    pub task_tags: Vec<String>,
     pub display_rows: Vec<DisplayRow>,
     pub expanded_tasks: HashSet<String>,
     pub table_state: TableState,
     pub filter: FilterMode,
+    pub sort_mode: SortMode,
     pub current_tag: String,
     pub show_detail: bool,
     pub show_help: bool,
@@ -83,10 +95,12 @@ pub struct App {
     pub should_quit: bool,
     pub tag_items: Vec<TagItem>,
     pub tag_list_state: ListState,
+    pub tag_color_seed: u64,
 }
 
 #[derive(Debug, Clone)]
 struct SelectionKey {
+    tag_name: String,
     task_id: String,
     subtask_id: Option<u32>,
 }
@@ -152,6 +166,22 @@ impl FilterMode {
     }
 }
 
+impl SortMode {
+    pub fn label(self) -> &'static str {
+        match self {
+            SortMode::TaskNumber => "task#",
+            SortMode::Tag => "tag",
+        }
+    }
+
+    pub fn next(self) -> Self {
+        match self {
+            SortMode::TaskNumber => SortMode::Tag,
+            SortMode::Tag => SortMode::TaskNumber,
+        }
+    }
+}
+
 impl App {
     pub fn new(root: PathBuf) -> Self {
         let tasks_path = root.join(".taskmaster/tasks/tasks.json");
@@ -163,10 +193,12 @@ impl App {
             state_path,
             project: None,
             tasks: Vec::new(),
+            task_tags: Vec::new(),
             display_rows: Vec::new(),
             expanded_tasks: HashSet::new(),
             table_state: TableState::default(),
             filter: FilterMode::All,
+            sort_mode: SortMode::TaskNumber,
             current_tag: String::new(),
             show_detail: false,
             show_help: false,
@@ -185,6 +217,10 @@ impl App {
             should_quit: false,
             tag_items: Vec::new(),
             tag_list_state: ListState::default(),
+            tag_color_seed: SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .map(|d| d.as_nanos() as u64)
+                .unwrap_or(0),
         }
     }
 
@@ -230,7 +266,7 @@ impl App {
 
         if sync_tags_enabled() {
             if let Some(tag) = state.current_tag.clone() {
-                if tag != self.current_tag {
+                if self.current_tag != ALL_TAG_VIEW && tag != self.current_tag {
                     self.current_tag = tag;
                     self.apply_current_tag();
                 }
@@ -253,6 +289,7 @@ impl App {
             ));
             self.project = None;
             self.tasks.clear();
+            self.task_tags.clear();
             self.display_rows.clear();
             return;
         }
@@ -278,7 +315,7 @@ impl App {
             }
         };
 
-        let project = match serde_json::from_str::<ProjectData>(&content) {
+        let project = match parse_project_compat(&content) {
             Ok(data) => data,
             Err(err) => {
                 self.set_error(format!("Failed to parse tasks.json: {err}"));
@@ -308,20 +345,57 @@ impl App {
             return;
         };
 
-        let mut tag = if self.current_tag.is_empty() {
+        let tag = if self.current_tag.is_empty() {
             "master".to_string()
         } else {
             self.current_tag.clone()
         };
 
-        if let Some(ctx) = project.tags.get(&tag) {
+        if tag == ALL_TAG_VIEW {
+            let mut combined: Vec<(String, Task)> = Vec::new();
+            let mut tag_names: Vec<String> = project.tags.keys().cloned().collect();
+            tag_names.sort();
+
+            for tag_name in tag_names {
+                if let Some(ctx) = project.tags.get(&tag_name) {
+                    for task in &ctx.tasks {
+                        combined.push((tag_name.clone(), task.clone()));
+                    }
+                }
+            }
+
+            match self.sort_mode {
+                SortMode::TaskNumber => {
+                    combined.sort_by(|(tag_a, task_a), (tag_b, task_b)| {
+                        task_sort_key(&task_a.id)
+                            .cmp(&task_sort_key(&task_b.id))
+                            .then_with(|| tag_a.cmp(tag_b))
+                            .then_with(|| task_a.id.cmp(&task_b.id))
+                    });
+                }
+                SortMode::Tag => {
+                    combined.sort_by(|(tag_a, task_a), (tag_b, task_b)| {
+                        tag_a
+                            .cmp(tag_b)
+                            .then_with(|| task_sort_key(&task_a.id).cmp(&task_sort_key(&task_b.id)))
+                            .then_with(|| task_a.id.cmp(&task_b.id))
+                    });
+                }
+            }
+
+            self.tasks = combined.iter().map(|(_, task)| task.clone()).collect();
+            self.task_tags = combined.into_iter().map(|(tag_name, _)| tag_name).collect();
+        } else if let Some(ctx) = project.tags.get(&tag) {
             self.tasks = ctx.tasks.clone();
+            self.task_tags = vec![tag; self.tasks.len()];
         } else if let Some((first_tag, ctx)) = project.tags.iter().next() {
-            tag = first_tag.clone();
-            self.current_tag = tag.clone();
+            let first = first_tag.clone();
+            self.current_tag = first.clone();
             self.tasks = ctx.tasks.clone();
+            self.task_tags = vec![first; self.tasks.len()];
         } else {
             self.tasks.clear();
+            self.task_tags.clear();
         }
 
         self.recalc_display_rows();
@@ -372,6 +446,18 @@ impl App {
             })
             .collect();
         items.sort_by(|a, b| a.name.cmp(&b.name));
+        if !items.is_empty() {
+            let total: usize = items.iter().map(|item| item.total).sum();
+            let done: usize = items.iter().map(|item| item.done).sum();
+            items.insert(
+                0,
+                TagItem {
+                    name: ALL_TAG_VIEW.to_string(),
+                    total,
+                    done,
+                },
+            );
+        }
         items
     }
 
@@ -500,6 +586,11 @@ impl App {
                 task_idx: idx,
                 subtask_path: vec![],
                 depth: 0,
+                tag_name: self
+                    .task_tags
+                    .get(idx)
+                    .cloned()
+                    .unwrap_or_else(|| self.current_tag_or_default()),
             });
 
             if self.expanded_tasks.contains(&task.id) {
@@ -508,6 +599,11 @@ impl App {
                         task_idx: idx,
                         subtask_path: vec![s_i],
                         depth: 1,
+                        tag_name: self
+                            .task_tags
+                            .get(idx)
+                            .cloned()
+                            .unwrap_or_else(|| self.current_tag_or_default()),
                     });
                 }
             }
@@ -532,8 +628,23 @@ impl App {
             return;
         }
         match key.code {
-            KeyCode::Char('q') | KeyCode::Esc => {
+            KeyCode::Char('q') => {
                 self.should_quit = true;
+            }
+            KeyCode::Esc => {
+                if self.show_help {
+                    self.show_help = false;
+                    if self.show_detail {
+                        self.focus = FocusMode::Details;
+                    } else {
+                        self.focus = FocusMode::List;
+                    }
+                } else if self.show_detail {
+                    self.show_detail = false;
+                    self.details_scroll = 0;
+                    self.details_max_scroll = 0;
+                    self.focus = FocusMode::List;
+                }
             }
             KeyCode::Down | KeyCode::Char('j') => {
                 self.move_selection(1);
@@ -598,6 +709,9 @@ impl App {
             KeyCode::Char('f') => {
                 self.filter = self.filter.next();
                 self.recalc_display_rows();
+            }
+            KeyCode::Char('s') => {
+                self.cycle_sort_mode();
             }
             KeyCode::Char('t') => {
                 self.cycle_tag();
@@ -669,6 +783,7 @@ impl App {
             .first()
             .and_then(|idx| task.subtasks.get(*idx).map(|sub| sub.id));
         Some(SelectionKey {
+            tag_name: row.tag_name.clone(),
             task_id: task.id.clone(),
             subtask_id,
         })
@@ -683,6 +798,9 @@ impl App {
                     None => continue,
                 };
                 if task.id != key.task_id {
+                    continue;
+                }
+                if row.tag_name != key.tag_name {
                     continue;
                 }
 
@@ -749,6 +867,8 @@ impl App {
         }
         let row = &self.display_rows[idx];
         let task_idx = row.task_idx;
+        let tag_name = row.tag_name.clone();
+        let task_id = self.tasks[task_idx].id.clone();
 
         if let Some(sub_idx) = row.subtask_path.first() {
             let new_status = match self.tasks[task_idx].subtasks[*sub_idx].status {
@@ -757,11 +877,14 @@ impl App {
             };
             self.tasks[task_idx].subtasks[*sub_idx].status = new_status.clone();
 
-            let tag = self.current_tag_or_default();
             if let Some(project) = &mut self.project {
-                if let Some(ctx) = project.tags.get_mut(&tag) {
-                    if task_idx < ctx.tasks.len() && *sub_idx < ctx.tasks[task_idx].subtasks.len() {
-                        ctx.tasks[task_idx].subtasks[*sub_idx].status = new_status;
+                if let Some(ctx) = project.tags.get_mut(&tag_name) {
+                    if let Some(project_task_idx) =
+                        ctx.tasks.iter().position(|task| task.id == task_id)
+                    {
+                        if *sub_idx < ctx.tasks[project_task_idx].subtasks.len() {
+                            ctx.tasks[project_task_idx].subtasks[*sub_idx].status = new_status;
+                        }
                     }
                 }
             }
@@ -772,11 +895,12 @@ impl App {
             };
             self.tasks[task_idx].status = new_status.clone();
 
-            let tag = self.current_tag_or_default();
             if let Some(project) = &mut self.project {
-                if let Some(ctx) = project.tags.get_mut(&tag) {
-                    if task_idx < ctx.tasks.len() {
-                        ctx.tasks[task_idx].status = new_status;
+                if let Some(ctx) = project.tags.get_mut(&tag_name) {
+                    if let Some(project_task_idx) =
+                        ctx.tasks.iter().position(|task| task.id == task_id)
+                    {
+                        ctx.tasks[project_task_idx].status = new_status;
                     }
                 }
             }
@@ -797,14 +921,16 @@ impl App {
         }
 
         let task_idx = row.task_idx;
+        let tag_name = row.tag_name.clone();
+        let task_id = self.tasks[task_idx].id.clone();
         let new_value = !self.tasks[task_idx].active_agent;
         self.tasks[task_idx].active_agent = new_value;
 
-        let tag = self.current_tag_or_default();
         if let Some(project) = &mut self.project {
-            if let Some(ctx) = project.tags.get_mut(&tag) {
-                if task_idx < ctx.tasks.len() {
-                    ctx.tasks[task_idx].active_agent = new_value;
+            if let Some(ctx) = project.tags.get_mut(&tag_name) {
+                if let Some(project_task_idx) = ctx.tasks.iter().position(|task| task.id == task_id)
+                {
+                    ctx.tasks[project_task_idx].active_agent = new_value;
                 }
             }
         }
@@ -817,6 +943,14 @@ impl App {
             "master".to_string()
         } else {
             self.current_tag.clone()
+        }
+    }
+
+    pub fn display_tag_name<'a>(&self, tag: &'a str) -> &'a str {
+        if tag == ALL_TAG_VIEW {
+            "all"
+        } else {
+            tag
         }
     }
 
@@ -956,18 +1090,24 @@ impl App {
         let Some(project) = &self.project else {
             return;
         };
-        let mut tags: Vec<&String> = project.tags.keys().collect();
+        let mut tags: Vec<String> = project.tags.keys().cloned().collect();
         tags.sort();
+        tags.insert(0, ALL_TAG_VIEW.to_string());
         if tags.is_empty() {
             return;
         }
 
         let current = self.current_tag_or_default();
-        let pos = tags.iter().position(|&t| *t == current).unwrap_or(0);
+        let pos = tags.iter().position(|t| *t == current).unwrap_or(0);
         let next_idx = (pos + 1) % tags.len();
         self.current_tag = tags[next_idx].clone();
         self.apply_current_tag();
         self.touch_state_file();
+    }
+
+    fn cycle_sort_mode(&mut self) {
+        self.sort_mode = self.sort_mode.next();
+        self.apply_current_tag();
     }
 
     fn save_project(&mut self) {
@@ -1016,7 +1156,10 @@ impl App {
 
         if let Value::Object(map) = &mut state {
             map.insert("lastUpdated".to_string(), Value::String(now));
-            if sync_tags_enabled() && !self.current_tag.is_empty() {
+            if sync_tags_enabled()
+                && !self.current_tag.is_empty()
+                && self.current_tag != ALL_TAG_VIEW
+            {
                 map.insert(
                     "currentTag".to_string(),
                     Value::String(self.current_tag.clone()),
@@ -1042,7 +1185,7 @@ impl App {
         let tag = if self.current_tag.is_empty() {
             "master"
         } else {
-            self.current_tag.as_str()
+            self.display_tag_name(self.current_tag.as_str())
         };
         let total = self.tasks.len();
         let done = self.tasks.iter().filter(|t| t.status.is_done()).count();
@@ -1056,12 +1199,13 @@ impl App {
         let bar = format!("[{}{}]", "=".repeat(filled), " ".repeat(bar_width - filled));
 
         let title = format!(
-            "[{}] {} {}/{} | Filter: {}",
+            "[{}] {} {}/{} | Filter: {} | Sort: {}",
             tag,
             bar,
             done,
             total,
-            self.filter.label()
+            self.filter.label(),
+            self.sort_mode.label()
         );
 
         title
@@ -1081,6 +1225,12 @@ impl App {
             self.last_title = Some(title);
         }
     }
+}
+
+fn task_sort_key(id: &str) -> (u64, String) {
+    let digits: String = id.chars().take_while(|ch| ch.is_ascii_digit()).collect();
+    let number = digits.parse::<u64>().unwrap_or(u64::MAX);
+    (number, id.to_string())
 }
 
 fn rename_pane(title: &str) -> bool {
@@ -1147,6 +1297,51 @@ fn sync_tags_enabled() -> bool {
     matches!(
         std::env::var("AOC_TASKMASTER_SYNC_TAG").ok().as_deref(),
         Some("1") | Some("true") | Some("TRUE")
+    )
+}
+
+fn parse_project_compat(content: &str) -> std::result::Result<ProjectData, String> {
+    if let Ok(project) = serde_json::from_str::<ProjectData>(content) {
+        return Ok(project);
+    }
+
+    let raw: Value = serde_json::from_str(content)
+        .map_err(|err| format!("tasks.json is not valid JSON: {err}"))?;
+    let root = raw
+        .as_object()
+        .ok_or_else(|| "tasks.json root must be a JSON object".to_string())?;
+
+    if let Some(tasks_value) = root.get("tasks") {
+        let tasks: Vec<Task> = serde_json::from_value(tasks_value.clone())
+            .map_err(|err| format!("legacy tasks array is invalid: {err}"))?;
+
+        let mut extra = HashMap::new();
+        if let Some(metadata) = root.get("metadata") {
+            extra.insert("metadata".to_string(), metadata.clone());
+        }
+
+        let mut tags = HashMap::new();
+        tags.insert("master".to_string(), TagContext { tasks, extra });
+        return Ok(ProjectData { tags });
+    }
+
+    if let Some(tags_value) = root.get("tags") {
+        let tags_obj = tags_value.as_object().ok_or_else(|| {
+            "legacy wrapped tags format requires object at key 'tags'".to_string()
+        })?;
+
+        let mut tags = HashMap::new();
+        for (tag_name, tag_ctx_value) in tags_obj {
+            let tag_ctx: TagContext = serde_json::from_value(tag_ctx_value.clone())
+                .map_err(|err| format!("invalid tag context for '{tag_name}': {err}"))?;
+            tags.insert(tag_name.clone(), tag_ctx);
+        }
+        return Ok(ProjectData { tags });
+    }
+
+    Err(
+        "unsupported tasks format; expected top-level tags map, legacy {\"tasks\": [...]}, or wrapped {\"tags\": {...}}"
+            .to_string(),
     )
 }
 

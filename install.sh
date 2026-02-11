@@ -17,6 +17,7 @@ mkdir -p "$HOME/.config/yazi/plugins"
 mkdir -p "${XDG_CONFIG_HOME:-$HOME/.config}/aoc"
 mkdir -p "${XDG_CONFIG_HOME:-$HOME/.config}/aoc/btop"
 mkdir -p "${XDG_CONFIG_HOME:-$HOME/.config}/aoc/skills"
+mkdir -p "${XDG_CONFIG_HOME:-$HOME/.config}/aoc/taskmaster/templates"
 mkdir -p "${XDG_CONFIG_HOME:-$HOME/.config}/aoc/agents/opencode"
 mkdir -p "${XDG_CONFIG_HOME:-$HOME/.config}/aoc/commands/opencode"
 mkdir -p "${XDG_CONFIG_HOME:-$HOME/.config}/aoc/skills-optional"
@@ -156,6 +157,24 @@ cargo_cmd() {
     return 0
   fi
   return 1
+}
+
+cargo_with_retry() {
+  local max_attempts="${AOC_CARGO_RETRIES:-3}"
+  local delay_secs="${AOC_CARGO_RETRY_DELAY_SECS:-5}"
+  local attempt=1
+
+  while true; do
+    if "$@"; then
+      return 0
+    fi
+    if (( attempt >= max_attempts )); then
+      return 1
+    fi
+    warn "Cargo command failed (attempt ${attempt}/${max_attempts}); retrying in ${delay_secs}s..."
+    sleep "$delay_secs"
+    attempt=$((attempt + 1))
+  done
 }
 
 detect_pm() {
@@ -374,6 +393,9 @@ if cargo_bin="$(cargo_cmd)"; then
   if [[ "$cargo_bin" == "$HOME/.cargo/bin/cargo" ]]; then
     export PATH="$HOME/.cargo/bin:$PATH"
   fi
+  export CARGO_NET_RETRY="${CARGO_NET_RETRY:-5}"
+  export CARGO_HTTP_TIMEOUT="${CARGO_HTTP_TIMEOUT:-120}"
+
   cargo_version="$($cargo_bin --version | awk '{print $2}')"
   cargo_major="${cargo_version%%.*}"
   cargo_minor="${cargo_version#*.}"
@@ -386,9 +408,15 @@ if cargo_bin="$(cargo_cmd)"; then
       "$cargo_bin" generate-lockfile --manifest-path "$ROOT_DIR/crates/Cargo.toml"
     fi
   fi
+
+  log "Resolving Rust dependencies (first run may take a few minutes)..."
+  if ! cargo_with_retry "$cargo_bin" fetch --manifest-path "$ROOT_DIR/crates/Cargo.toml"; then
+    warn "Cargo fetch failed; continuing and letting build/install attempt recover."
+  fi
+
   # Build aoc-cli
   log "Building aoc-cli..."
-  "$cargo_bin" install --path "$ROOT_DIR/crates/aoc-cli" --root "$HOME/.local" --force --quiet || {
+  cargo_with_retry "$cargo_bin" install --path "$ROOT_DIR/crates/aoc-cli" --root "$HOME/.local" --force || {
     # Fallback for older cargos that don't support --root in the same way or if it fails
     # Try direct build
     log "Cargo install failed, trying build --release..."
@@ -576,6 +604,18 @@ if [[ -d "$ROOT_DIR/.aoc/skills" ]]; then
   fi
 fi
 
+# Upstream Taskmaster PRD templates for project seeding
+if [[ -d "$ROOT_DIR/.taskmaster/templates" ]]; then
+  for f in "$ROOT_DIR/.taskmaster/templates"/example_prd*.txt; do
+    [[ -f "$f" ]] || continue
+    dest="${XDG_CONFIG_HOME:-$HOME/.config}/aoc/taskmaster/templates/$(basename "$f")"
+    if [[ -f "$dest" ]]; then
+      continue
+    fi
+    cp "$f" "$dest"
+  done
+fi
+
 # AOC default agents (OpenCode)
 if [[ -f "$ROOT_DIR/.aoc/agents/opencode/aoc-ops.md" ]]; then
   dest="${XDG_CONFIG_HOME:-$HOME/.config}/aoc/agents/opencode/aoc-ops.md"
@@ -585,11 +625,14 @@ if [[ -f "$ROOT_DIR/.aoc/agents/opencode/aoc-ops.md" ]]; then
 fi
 
 # AOC default OpenCode commands
-if [[ -f "$ROOT_DIR/.aoc/commands/opencode/stm.md" ]]; then
-  dest="${XDG_CONFIG_HOME:-$HOME/.config}/aoc/commands/opencode/stm.md"
-  if [[ ! -f "$dest" ]]; then
-    cp "$ROOT_DIR/.aoc/commands/opencode/stm.md" "$dest"
-  fi
+if [[ -d "$ROOT_DIR/.aoc/commands/opencode" ]]; then
+  for f in "$ROOT_DIR/.aoc/commands/opencode"/*.md; do
+    [[ -f "$f" ]] || continue
+    dest="${XDG_CONFIG_HOME:-$HOME/.config}/aoc/commands/opencode/$(basename "$f")"
+    if [[ ! -f "$dest" ]]; then
+      cp "$f" "$dest"
+    fi
+  done
 fi
 
 # Optional skills and agents (MoreMotion)

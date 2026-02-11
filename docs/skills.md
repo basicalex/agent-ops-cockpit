@@ -68,6 +68,7 @@ aoc-skill validate
 - `taskmaster-ops`
 - `rlm-analysis`
 - `prd-dev`
+- `prd-intake`
 - `prd-align`
 - `tag-align`
 - `task-breakdown`

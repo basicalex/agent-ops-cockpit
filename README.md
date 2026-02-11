@@ -173,7 +173,7 @@ aoc-skill sync --agent oc
 aoc-skill sync --existing
 ```
 
-**Included skills:** `aoc-workflow`, `memory-ops`, `taskmaster-ops`, `rlm-analysis`, `prd-dev`, `prd-align`, `tag-align`, `task-breakdown`, `task-checker`, `release-notes`, `skill-creator`.
+**Included skills:** `aoc-workflow`, `memory-ops`, `taskmaster-ops`, `rlm-analysis`, `prd-dev`, `prd-intake`, `prd-align`, `tag-align`, `task-breakdown`, `task-checker`, `release-notes`, `skill-creator`.
 
 Skills are synced automatically when you switch agents via `aoc-agent --set`. `aoc-init` also seeds default skills and syncs the active agent. Sync is additive and preserves existing agent skills.
 
@@ -251,7 +251,7 @@ AOC's architecture solves the fundamental problem of **context management in AI-
 - **Role:** Task-level implementation specification
 - **Content:** Problem framing, requirements, acceptance criteria, validation plan
 - **Linking:** Stored on each task as `aocPrd` (task-level only; no subtask PRDs)
-- **Update:** Via `aoc-task prd show|init|set|clear`
+- **Update:** Via `aoc-task prd show|init|set|clear|parse`
 
 #### 5. Short-Term Memory (`.aoc/stm/`) - The "Handoff Buffer"
 - **Role:** Ephemeral session continuity near context limits
@@ -280,12 +280,13 @@ When you start working in AOC:
 1. **Orient:** `aoc-mem read` - Ingest past decisions and preferences
 2. **Context:** `.aoc/context.md` - Automatically provides current project map
 3. **Plan:** `aoc-task add "..."` - Track your work plan
-4. **Spec:** `aoc-task prd show <id>` - Read linked PRD before implementation
-5. **Execute:** Edit files, run commands, collaborate with AI agent
-6. **Handoff Prep (OpenCode):** `/stm` - Ask the agent to write a concise `.aoc/stm/current.md`
-7. **Handoff:** `aoc-stm` (default `--last`) - Archive STM and continue in a fresh tab/session with STM injected
-8. **Update:** Mark tasks done in Taskmaster TUI
-9. **Record:** `aoc-mem add "..."` - Document significant decisions
+4. **Intake (optional):** In OpenCode use `/prd` for orchestrated intake and task persistence via `aoc-task add/edit`.
+5. **Spec:** `aoc-task prd show <id>` - Read linked PRD before implementation
+6. **Execute:** Edit files, run commands, collaborate with AI agent
+7. **Handoff Prep (OpenCode):** `/stm` - Ask the agent to write a concise `.aoc/stm/current.md`
+8. **Handoff:** `aoc-stm` (default `--last`) - Archive STM and continue in a fresh tab/session with STM injected
+9. **Update:** Mark tasks done in Taskmaster TUI
+10. **Record:** `aoc-mem add "..."` - Document significant decisions
 
 ---
 
@@ -445,7 +446,7 @@ aoc-mem read        # Check memory system
 | Issue | Solution |
 |-------|----------|
 | Missing previews | Install `chafa`, `poppler-utils`, `librsvg2-bin` |
-| Blank task list | Run `aoc-task list` or install `task-master` npm CLI |
+| Blank task list | Run `aoc-task init` then `aoc-task list` |
 | Widget not rendering | Run `aoc-doctor`, check `ffmpeg` and `chafa` |
 | RLM not working | Build with `cargo build --release -p aoc-cli` |
 | TeX preview errors | Install `tectonic` via Cargo |

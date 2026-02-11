@@ -26,6 +26,7 @@ This file defines the always-on rules for agents in this repo. Procedural playbo
 - `taskmaster-ops`: manage tasks and tags.
 - `rlm-analysis`: large codebase analysis flow.
 - `prd-dev`: draft the Taskmaster PRD.
+- `prd-intake`: parse a project PRD into initial task sets.
 - `prd-align`: align tasks with the PRD.
 - `tag-align`: normalize task tags and dependencies.
 - `task-breakdown`: expand tasks into subtasks.

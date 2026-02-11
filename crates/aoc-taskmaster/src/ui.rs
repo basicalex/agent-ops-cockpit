@@ -1,4 +1,4 @@
-use crate::state::{App, FocusMode};
+use crate::state::{App, FocusMode, ALL_TAG_VIEW};
 use crate::theme::{self, icons};
 use ratatui::{
     layout::{Constraint, Direction, Layout, Rect},
@@ -7,6 +7,7 @@ use ratatui::{
     widgets::{Block, Borders, Cell, List, ListItem, Paragraph, Row, Table, Wrap},
     Frame,
 };
+use std::collections::HashMap;
 
 pub fn render(f: &mut Frame, app: &mut App) {
     let area = f.size();
@@ -84,8 +85,12 @@ fn render_help(f: &mut Frame, area: Rect) {
             Span::raw("          Cycle filter"),
         ]),
         Line::from(vec![
+            Span::styled("s", Color::Cyan),
+            Span::raw("          Cycle sort (task#/tag)"),
+        ]),
+        Line::from(vec![
             Span::styled("t", Color::Cyan),
-            Span::raw("          Cycle tag"),
+            Span::raw("          Cycle tag (includes all)"),
         ]),
         Line::from(vec![
             Span::styled("T", Color::Cyan),
@@ -139,10 +144,13 @@ fn render_main(f: &mut Frame, app: &mut App, area: Rect) {
         return;
     }
 
+    let mut tag_tone_index: HashMap<String, usize> = HashMap::new();
+    let mut next_tag_tone: usize = 0;
     let rows: Vec<Row> = app
         .display_rows
         .iter()
-        .map(|row| {
+        .enumerate()
+        .map(|(visual_idx, row)| {
             let task = &app.tasks[row.task_idx];
 
             let (title, status, priority, is_subtask) =
@@ -218,18 +226,47 @@ fn render_main(f: &mut Frame, app: &mut App, area: Rect) {
             title_spans.push(Span::raw(title));
 
             let id_cell = if is_subtask { "" } else { task.id.as_str() };
+            let tag_cell = if is_subtask {
+                Span::raw("")
+            } else {
+                let tag_label = if row.tag_name == ALL_TAG_VIEW {
+                    "all"
+                } else {
+                    row.tag_name.as_str()
+                };
+                Span::styled(
+                    format!("[{}]", tag_label),
+                    theme::tag_badge_style(tag_label, app.tag_color_seed),
+                )
+            };
+
+            let row_style = if app.current_tag == ALL_TAG_VIEW {
+                let tone = *tag_tone_index
+                    .entry(row.tag_name.clone())
+                    .or_insert_with(|| {
+                        let assigned = next_tag_tone;
+                        next_tag_tone += 1;
+                        assigned
+                    });
+                theme::zebra_row_style(tone % 2)
+            } else {
+                theme::zebra_row_style(visual_idx)
+            };
 
             Row::new(vec![
                 Cell::from(Span::raw(id_cell)),
+                Cell::from(tag_cell),
                 Cell::from(Span::styled(s_icon, s_color)),
                 Cell::from(Span::styled(p_icon, p_color)),
                 Cell::from(Line::from(title_spans)),
             ])
+            .style(row_style)
         })
         .collect();
 
     let widths = [
         Constraint::Length(4),
+        Constraint::Length(16),
         Constraint::Length(2),
         Constraint::Length(2),
         Constraint::Min(10),
@@ -242,7 +279,7 @@ fn render_main(f: &mut Frame, app: &mut App, area: Rect) {
     };
 
     let table = Table::new(rows, widths)
-        .header(Row::new(vec!["ID", "S", "P", "Title"]).style(theme::HEADER_STYLE))
+        .header(Row::new(vec!["ID", "Tag", "S", "P", "Title"]).style(theme::HEADER_STYLE))
         .block(
             Block::default()
                 .borders(Borders::ALL)
@@ -273,6 +310,11 @@ fn render_details(f: &mut Frame, app: &mut App, area: Rect) {
     }
     let row = &app.display_rows[idx];
     let task = &app.tasks[row.task_idx];
+    let task_tag = if row.tag_name == ALL_TAG_VIEW {
+        "all".to_string()
+    } else {
+        row.tag_name.clone()
+    };
 
     let mut lines = Vec::new();
     if let Some(sub_idx) = row.subtask_path.first() {
@@ -281,6 +323,13 @@ fn render_details(f: &mut Frame, app: &mut App, area: Rect) {
             lines.push(Line::from(vec![
                 Span::styled("Parent: ", Style::default().fg(Color::DarkGray)),
                 Span::raw(format!("{} {}", task.id, task.title)),
+            ]));
+            lines.push(Line::from(vec![
+                Span::styled("Tag: ", Style::default().fg(Color::DarkGray)),
+                Span::styled(
+                    task_tag,
+                    theme::tag_badge_style(&row.tag_name, app.tag_color_seed),
+                ),
             ]));
             lines.push(Line::from(vec![
                 Span::styled("Subtask: ", Style::default().fg(Color::DarkGray)),
@@ -318,6 +367,13 @@ fn render_details(f: &mut Frame, app: &mut App, area: Rect) {
             Span::styled(
                 format!("[{}]", task.status),
                 theme::status_color(task.status.as_str()),
+            ),
+        ]));
+        lines.push(Line::from(vec![
+            Span::styled("Tag: ", Style::default().fg(Color::DarkGray)),
+            Span::styled(
+                task_tag,
+                theme::tag_badge_style(&row.tag_name, app.tag_color_seed),
             ),
         ]));
         lines.push(Line::from(Span::styled(
@@ -438,9 +494,9 @@ fn render_tag_selector(f: &mut Frame, app: &mut App, area: Rect) {
     }
 
     let active_tag = if app.current_tag.is_empty() {
-        "master"
+        "master".to_string()
     } else {
-        app.current_tag.as_str()
+        app.current_tag.clone()
     };
 
     let items: Vec<ListItem> = app
@@ -448,7 +504,12 @@ fn render_tag_selector(f: &mut Frame, app: &mut App, area: Rect) {
         .iter()
         .map(|item| {
             let marker = if item.name == active_tag { "* " } else { "  " };
-            let label = format!("{}{}  ({}/{})", marker, item.name, item.done, item.total);
+            let shown_name = if item.name == ALL_TAG_VIEW {
+                "all"
+            } else {
+                item.name.as_str()
+            };
+            let label = format!("{}{}  ({}/{})", marker, shown_name, item.done, item.total);
             ListItem::new(Line::from(Span::raw(label)))
         })
         .collect();
