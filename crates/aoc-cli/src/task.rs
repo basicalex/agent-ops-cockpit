@@ -1,9 +1,9 @@
-use anyhow::{bail, Context, Result};
+use anyhow::{anyhow, bail, Context, Result};
 use aoc_core::{ProjectData, Subtask, TagContext, Task, TaskPrd, TaskPriority, TaskStatus};
 use chrono::{SecondsFormat, Utc};
 use clap::{Args, Subcommand, ValueEnum};
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
+use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -12,6 +12,7 @@ use std::path::{Path, PathBuf};
 #[command(rename_all = "kebab-case")]
 pub enum TaskCommand {
     List(TaskListArgs),
+    Init(TaskInitArgs),
     #[command(alias = "add-task")]
     Add(TaskAddArgs),
     Show(TaskShowArgs),
@@ -84,6 +85,14 @@ pub struct TaskListArgs {
     pub json: bool,
     #[arg(long)]
     pub all_tags: bool,
+}
+
+#[derive(Args, Debug)]
+pub struct TaskInitArgs {
+    #[arg(long, default_value = "master")]
+    pub tag: String,
+    #[arg(long)]
+    pub force: bool,
 }
 
 #[derive(Args, Debug)]
@@ -391,6 +400,7 @@ pub fn handle_task_command(command: TaskCommand) -> Result<()> {
 
     match command {
         TaskCommand::List(args) => list_tasks(&ctx, &args),
+        TaskCommand::Init(args) => init_task_storage(&ctx, &args),
         TaskCommand::Add(args) => add_task(&ctx, &args),
         TaskCommand::Show(args) => show_task(&ctx, &args),
         TaskCommand::Edit(args) => edit_task(&ctx, &args),
@@ -572,13 +582,56 @@ fn load_project(paths: &TaskPaths) -> Result<ProjectLoad> {
 
     let content = fs::read_to_string(&paths.tasks_path)
         .with_context(|| format!("Failed to read {}", paths.tasks_path.display()))?;
-    let project: ProjectData = serde_json::from_str(&content)
+    let project = parse_project(&content)
         .with_context(|| format!("Failed to parse {}", paths.tasks_path.display()))?;
     validate_project(&project)?;
     Ok(ProjectLoad {
         project,
         exists: true,
     })
+}
+
+fn parse_project(content: &str) -> Result<ProjectData> {
+    if let Ok(project) = serde_json::from_str::<ProjectData>(content) {
+        return Ok(project);
+    }
+
+    let raw: Value = serde_json::from_str(content).context("Tasks file is not valid JSON")?;
+    let root = raw
+        .as_object()
+        .ok_or_else(|| anyhow!("Tasks file root must be a JSON object"))?;
+
+    if let Some(tasks_value) = root.get("tasks") {
+        let tasks: Vec<Task> = serde_json::from_value(tasks_value.clone())
+            .context("Legacy tasks format has invalid tasks array")?;
+
+        let mut extra = HashMap::new();
+        if let Some(metadata) = root.get("metadata") {
+            extra.insert("metadata".to_string(), metadata.clone());
+        }
+
+        let mut tags = HashMap::new();
+        tags.insert("master".to_string(), TagContext { tasks, extra });
+        return Ok(ProjectData { tags });
+    }
+
+    if let Some(tags_value) = root.get("tags") {
+        let tags_obj = tags_value
+            .as_object()
+            .ok_or_else(|| anyhow!("Legacy wrapped tags format requires object at key 'tags'"))?;
+
+        let mut tags = HashMap::new();
+        for (tag_name, tag_ctx_value) in tags_obj {
+            let tag_ctx: TagContext = serde_json::from_value(tag_ctx_value.clone())
+                .with_context(|| format!("Invalid legacy tag context for '{}'", tag_name))?;
+            tags.insert(tag_name.clone(), tag_ctx);
+        }
+        return Ok(ProjectData { tags });
+    }
+
+    bail!(
+        "Unsupported tasks format. Expected top-level tags map, legacy {{\"tasks\": [...]}}, or wrapped {{\"tags\": {{...}}}}"
+    )
 }
 
 fn validate_project(project: &ProjectData) -> Result<()> {
@@ -604,7 +657,7 @@ fn validate_project(project: &ProjectData) -> Result<()> {
     Ok(())
 }
 
-fn save_project(paths: &TaskPaths, project: &ProjectData) -> Result<()> {
+fn write_project_file(paths: &TaskPaths, project: &ProjectData) -> Result<()> {
     if let Some(parent) = paths.tasks_path.parent() {
         fs::create_dir_all(parent)
             .with_context(|| format!("Failed to create {}", parent.display()))?;
@@ -613,7 +666,94 @@ fn save_project(paths: &TaskPaths, project: &ProjectData) -> Result<()> {
     let tmp_path = paths.tasks_path.with_extension("json.tmp");
     fs::write(&tmp_path, payload).context("Failed to write temp tasks file")?;
     fs::rename(&tmp_path, &paths.tasks_path).context("Failed to save tasks file")?;
+    Ok(())
+}
+
+fn save_project(paths: &TaskPaths, project: &ProjectData) -> Result<()> {
+    write_project_file(paths, project)?;
     touch_state(paths, None)?;
+    Ok(())
+}
+
+fn init_task_storage(ctx: &TaskContext, args: &TaskInitArgs) -> Result<()> {
+    let tag = args.tag.trim();
+    if tag.is_empty() {
+        bail!("Tag cannot be empty");
+    }
+
+    let taskmaster_dir = ctx.paths.root.join(".taskmaster");
+    fs::create_dir_all(taskmaster_dir.join("tasks")).with_context(|| {
+        format!(
+            "Failed to create {}",
+            taskmaster_dir.join("tasks").display()
+        )
+    })?;
+    fs::create_dir_all(taskmaster_dir.join("docs"))
+        .with_context(|| format!("Failed to create {}", taskmaster_dir.join("docs").display()))?;
+    fs::create_dir_all(taskmaster_dir.join("docs/prds")).with_context(|| {
+        format!(
+            "Failed to create {}",
+            taskmaster_dir.join("docs/prds").display()
+        )
+    })?;
+    fs::create_dir_all(taskmaster_dir.join("reports")).with_context(|| {
+        format!(
+            "Failed to create {}",
+            taskmaster_dir.join("reports").display()
+        )
+    })?;
+    fs::create_dir_all(taskmaster_dir.join("templates")).with_context(|| {
+        format!(
+            "Failed to create {}",
+            taskmaster_dir.join("templates").display()
+        )
+    })?;
+
+    if args.force || !ctx.paths.tasks_path.exists() {
+        let mut tags = HashMap::new();
+        tags.insert(
+            tag.to_string(),
+            TagContext {
+                tasks: Vec::new(),
+                extra: HashMap::new(),
+            },
+        );
+        write_project_file(&ctx.paths, &ProjectData { tags })?;
+    }
+
+    if args.force || !ctx.paths.state_path.exists() {
+        let now = now_timestamp();
+        let state_payload = json!({
+            "currentTag": tag,
+            "lastUpdated": now,
+            "lastSwitched": now,
+            "branchTagMapping": {},
+            "migrationNoticeShown": true
+        });
+        let payload = serde_json::to_string_pretty(&state_payload)?;
+        fs::write(&ctx.paths.state_path, payload)
+            .with_context(|| format!("Failed to write {}", ctx.paths.state_path.display()))?;
+    } else {
+        let tag_owned = tag.to_string();
+        update_state(&ctx.paths, |state| {
+            if state
+                .current_tag
+                .as_ref()
+                .map(|existing| existing.trim().is_empty())
+                .unwrap_or(true)
+            {
+                state.current_tag = Some(tag_owned);
+            }
+            if state.last_updated.is_none() {
+                state.last_updated = Some(now_timestamp());
+            }
+        })?;
+    }
+
+    println!(
+        "Initialized task storage at {}",
+        ctx.paths.tasks_path.display()
+    );
     Ok(())
 }
 

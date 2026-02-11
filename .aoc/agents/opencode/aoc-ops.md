@@ -22,6 +22,7 @@ Focus on:
 - Ensuring `AGENTS.md` includes the AOC guidance and skills list.
 - Ensuring task-level PRD links (`aocPrd`) and `.taskmaster/docs/prds/` usage are documented and consistent.
 - Ensuring short-term memory workflow (`.aoc/stm/`, `aoc-stm`, and OpenCode `/stm`) is seeded and consistent.
+- Ensuring PRD intake workflow (OpenCode `/prd`) is seeded and consistent.
 - Preserving existing skills and avoiding collisions.
 
 Rules:

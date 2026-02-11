@@ -34,6 +34,11 @@ type = "planning"
 summary = "Draft and refine a task-level Taskmaster PRD linked via aocPrd."
 
 [[skill]]
+name = "prd-intake"
+type = "planning"
+summary = "Parse a project PRD into initial tasks and orchestrate refinement."
+
+[[skill]]
 name = "prd-align"
 type = "planning"
 summary = "Align tasks and implementation with each task's linked PRD."

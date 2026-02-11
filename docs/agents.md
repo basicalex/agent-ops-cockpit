@@ -42,6 +42,23 @@ This command asks the agent to contextualize current work into `.aoc/stm/current
 
 `aoc-init` will not overwrite an existing `.opencode/commands/stm.md`.
 
+## OpenCode PRD Command
+`aoc-init` also seeds a PRD orchestration command for OpenCode:
+
+```
+.opencode/commands/prd.md
+```
+
+Usage in OpenCode:
+
+```
+/prd
+```
+
+This command asks the agent to orchestrate PRD intake directly from the PRD document, refine with sub-agents, then persist tasks via `aoc-task add/edit` (+ `aoc-task prd set`) safely.
+
+`aoc-init` will not overwrite an existing `.opencode/commands/prd.md`.
+
 ## MoreMotion (optional)
 Run `aoc-momo init` in a repo to seed the `momo` subagent:
 
