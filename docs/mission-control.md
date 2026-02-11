@@ -33,7 +33,7 @@ the session_id and the hub must reject mismatched sessions.
 | AOC_HUB_ADDR | Hub listen address (host:port) | 127.0.0.1:<port-from-session> |
 | AOC_HUB_URL | Websocket URL for hub | ws://AOC_HUB_ADDR/ws |
 | AOC_TAB_SCOPE | Logical tab identity shared by panes in the same tab | Derived from launch layout tab name |
-| AOC_PULSE_OVERVIEW_ENABLED | Enable Pulse Overview mode in mission-control | 0 (disabled by default) |
+| AOC_PULSE_OVERVIEW_ENABLED | Enable Pulse Overview mode in mission-control | 1 (enabled by default) |
 | AOC_PULSE_LAYOUT_WATCH_ENABLED | Enable hub background layout watcher (`dump-layout`) | 0 (disabled by default) |
 | AOC_PULSE_LAYOUT_WATCH_MS | Hub layout poll interval while layout subscribers are active | 3000 ms |
 | AOC_PULSE_LAYOUT_IDLE_WATCH_MS | Hub layout poll interval when no layout subscribers are active | max(4x active, 12000 ms) |
@@ -43,9 +43,8 @@ the session_id and the hub must reject mismatched sessions.
 
 ## AOC Pulse Data Source Strategy
 
-The default top-right pane is now **AOC Pulse** with Work, Diff, and Health
-as primary modes. Overview remains available behind
-`AOC_PULSE_OVERVIEW_ENABLED=1` for later-phase validation.
+The default top-right pane is **AOC Pulse** and starts in Overview mode.
+Work, Diff, and Health remain available as companion operational modes.
 
 ### v1 Fallback (No Hub Required)
 - Pulse must run headless-safe and useful even when hub is down.
@@ -62,11 +61,11 @@ as primary modes. Overview remains available behind
   - `diff_summary` (Diff)
 - If hub disconnects or lacks data, Pulse automatically falls back to v1.
 
-### Overview Deprecation (Current Default)
-- Overview is disabled by default (`AOC_PULSE_OVERVIEW_ENABLED=0`) because
-  operator value did not justify additional display/polling overhead.
-- Work/Diff/Health remain the supported operational path.
-- Re-enable Overview only for explicit testing/bake windows.
+### Overview Availability
+- Overview is enabled by default (`AOC_PULSE_OVERVIEW_ENABLED=1`).
+- Set `AOC_PULSE_OVERVIEW_ENABLED=0` to run Work/Diff/Health-only mode.
+- Layout polling remains decoupled; keep `AOC_PULSE_LAYOUT_WATCH_ENABLED=0`
+  unless layout-state streaming is explicitly required.
 
 ### Identity Model (Collision-Safe)
 - Primary publisher/consumer identity key is always:

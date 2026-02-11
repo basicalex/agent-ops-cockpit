@@ -425,7 +425,6 @@ struct App {
     help_open: bool,
     selected_overview: usize,
     overview_sort_mode: OverviewSortMode,
-    overview_show_debug_source: bool,
     follow_viewer_tab: bool,
     last_viewer_tab_index: Option<usize>,
     status_note: Option<String>,
@@ -489,7 +488,7 @@ impl App {
         let status_note = if config.overview_enabled {
             None
         } else {
-            Some("overview deprecated; using Work/Diff/Health".to_string())
+            Some("overview disabled by config; using Work/Diff/Health".to_string())
         };
         Self {
             config,
@@ -504,7 +503,6 @@ impl App {
             help_open: false,
             selected_overview: 0,
             overview_sort_mode: OverviewSortMode::Layout,
-            overview_show_debug_source: false,
             follow_viewer_tab: true,
             last_viewer_tab_index,
             status_note,
@@ -1099,6 +1097,15 @@ impl App {
         }
     }
 
+    fn has_any_hub_data(&self) -> bool {
+        !self.hub.agents.is_empty()
+            || !self.hub.tasks.is_empty()
+            || !self.hub.diffs.is_empty()
+            || !self.hub.health.is_empty()
+            || self.hub.layout.is_some()
+    }
+
+    #[allow(dead_code)]
     fn hub_status_label(&self) -> &'static str {
         if self.connected {
             "online"
@@ -1107,14 +1114,6 @@ impl App {
         } else {
             "offline"
         }
-    }
-
-    fn has_any_hub_data(&self) -> bool {
-        !self.hub.agents.is_empty()
-            || !self.hub.tasks.is_empty()
-            || !self.hub.diffs.is_empty()
-            || !self.hub.health.is_empty()
-            || self.hub.layout.is_some()
     }
 
     fn hub_reconnect_grace_active(&self) -> bool {
@@ -1269,15 +1268,6 @@ impl App {
             "overview sort: {}",
             self.overview_sort_mode.label()
         ));
-    }
-
-    fn toggle_overview_debug_source(&mut self) {
-        self.overview_show_debug_source = !self.overview_show_debug_source;
-        self.status_note = Some(if self.overview_show_debug_source {
-            "overview badge: source".to_string()
-        } else {
-            "overview badge: attention".to_string()
-        });
     }
 
     fn cycle_mode(&mut self) {
@@ -1565,7 +1555,7 @@ impl App {
                 }
             }
             if args.is_empty() {
-                self.status_note = Some(format!("no tab mapping for pane {}", row.pane_id));
+                self.status_note = Some(format!("no tab id/name for pane {}", row.pane_id));
                 return;
             }
             self.queue_hub_command(
@@ -1578,7 +1568,7 @@ impl App {
         }
 
         let Some(tab_index) = row.tab_index else {
-            self.status_note = Some(format!("no tab mapping for pane {}", row.pane_id));
+            self.status_note = Some(format!("no tab id/name for pane {}", row.pane_id));
             return;
         };
         if let Err(err) = go_to_tab(&self.config.session_id, tab_index) {
@@ -1725,7 +1715,6 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
 #[derive(Clone, Copy)]
 struct PulseTheme {
-    bg: Color,
     surface: Color,
     border: Color,
     title: Color,
@@ -1738,19 +1727,8 @@ struct PulseTheme {
     info: Color,
 }
 
-#[derive(Default)]
-struct PulseKpis {
-    total_agents: usize,
-    online_agents: usize,
-    in_progress: u32,
-    blocked: u32,
-    dirty_files: u32,
-    churn: u32,
-}
-
 fn pulse_theme() -> PulseTheme {
     PulseTheme {
-        bg: Color::Rgb(11, 18, 32),
         surface: Color::Rgb(17, 26, 46),
         border: Color::Rgb(71, 85, 105),
         title: Color::Rgb(191, 219, 254),
@@ -1769,114 +1747,16 @@ fn render_ui(frame: &mut ratatui::Frame, app: &App) {
     let theme = pulse_theme();
     let layout = Layout::default()
         .direction(Direction::Vertical)
-        .constraints([
-            Constraint::Length(4),
-            Constraint::Length(3),
-            Constraint::Min(0),
-        ])
+        .constraints([Constraint::Min(0)])
         .split(size);
-    frame.render_widget(render_header(app, theme, size.width), layout[0]);
-    frame.render_widget(render_kpis(app, theme, size.width), layout[1]);
     if app.mode == Mode::Overview && app.config.overview_enabled {
-        render_overview_panel(frame, app, theme, layout[2]);
+        render_overview_panel(frame, app, theme, layout[0]);
     } else {
-        frame.render_widget(render_body(app, theme, size.width), layout[2]);
+        frame.render_widget(render_body(app, theme, size.width), layout[0]);
     }
     if app.help_open {
         render_help_overlay(frame, app, theme);
     }
-}
-
-fn render_header(app: &App, theme: PulseTheme, width: u16) -> Paragraph<'static> {
-    let compact = is_compact(width);
-    let kpis = compute_kpis(app);
-    let source = app.mode_source();
-    let hub = app.hub_status_label();
-    let session = ellipsize(&app.config.session_id, if compact { 14 } else { 28 });
-    let inner_width = width.saturating_sub(4) as usize;
-    let status_fields = vec![
-        format!("Mode: {}", app.mode.title()),
-        format!("Hub: {hub}"),
-        format!("Source: {source}"),
-        format!(
-            "Agents: {}/{} Online",
-            kpis.online_agents, kpis.total_agents
-        ),
-        format!("Session: {session}"),
-    ];
-    let status_line = fit_fields(&status_fields, inner_width.max(12));
-
-    let action_text = if let Some(note) = app.status_note.as_deref() {
-        format!("Last Action: {}", ellipsize(note, inner_width.max(12)))
-    } else if compact {
-        "Last Action: ready".to_string()
-    } else if app.config.overview_enabled {
-        "Last Action: ready (Enter focus, x stop, ? help)".to_string()
-    } else {
-        "Last Action: ready (? help)".to_string()
-    };
-
-    Paragraph::new(Text::from(vec![
-        Line::from(Span::styled(status_line, Style::default().fg(theme.text))),
-        Line::from(Span::styled(
-            ellipsize(&action_text, inner_width.max(12)),
-            Style::default().fg(if app.status_note.is_some() {
-                status_note_color(app.status_note.as_deref().unwrap_or_default(), theme)
-            } else {
-                theme.muted
-            }),
-        )),
-    ]))
-    .style(Style::default().fg(theme.text).bg(theme.bg))
-    .block(
-        Block::default()
-            .borders(Borders::ALL)
-            .border_style(Style::default().fg(theme.border))
-            .style(Style::default().bg(theme.bg))
-            .title(Span::styled(
-                "Status",
-                Style::default()
-                    .fg(theme.title)
-                    .add_modifier(Modifier::BOLD),
-            )),
-    )
-}
-
-fn render_kpis(app: &App, theme: PulseTheme, width: u16) -> Paragraph<'static> {
-    let compact = is_compact(width);
-    let kpis = compute_kpis(app);
-    let inner_width = width.saturating_sub(4) as usize;
-    let mut fields = vec![
-        format!(
-            "Agents: {}/{} Online",
-            kpis.online_agents, kpis.total_agents
-        ),
-        format!("Global Tasks: {} Active", kpis.in_progress),
-        format!("Unsynced Changes: {}", kpis.dirty_files),
-        format!("Blocked: {}", kpis.blocked),
-    ];
-    if !compact {
-        fields.push(format!("Churn: {}", kpis.churn));
-    }
-    let line = fit_fields(&fields, inner_width.max(12));
-
-    Paragraph::new(Line::from(Span::styled(
-        line,
-        Style::default().fg(theme.text),
-    )))
-    .style(Style::default().fg(theme.text).bg(theme.surface))
-    .block(
-        Block::default()
-            .borders(Borders::ALL)
-            .border_style(Style::default().fg(theme.border))
-            .style(Style::default().bg(theme.surface))
-            .title(Span::styled(
-                "Pulse",
-                Style::default()
-                    .fg(theme.title)
-                    .add_modifier(Modifier::BOLD),
-            )),
-    )
 }
 
 fn render_body(app: &App, theme: PulseTheme, width: u16) -> Paragraph<'static> {
@@ -1907,15 +1787,7 @@ fn render_body(app: &App, theme: PulseTheme, width: u16) -> Paragraph<'static> {
 fn render_overview_panel(frame: &mut ratatui::Frame, app: &App, theme: PulseTheme, area: Rect) {
     let compact = is_compact(area.width);
     let rows = app.overview_rows();
-    let title = format!(
-        "Overview [{} {}]",
-        app.overview_sort_mode.label(),
-        if app.overview_show_debug_source {
-            "src"
-        } else {
-            "attn"
-        }
-    );
+    let title = format!("Overview [{}]", app.overview_sort_mode.label());
     if rows.is_empty() {
         let paragraph = Paragraph::new(Line::from(Span::styled(
             "No active panes detected for this session.",
@@ -1975,18 +1847,11 @@ fn overview_row_spans(
 ) -> Vec<Span<'static>> {
     let decorations = OverviewDecorations {
         attention_chip: attention_chip_from_row(row),
-        source_chip: source_chip_from_row(&row.source),
         context: app.overview_context_hint(row),
         task_signal: app.overview_task_signal(row),
         git_signal: app.overview_git_signal(row),
     };
-    let presenter = overview_row_presenter(
-        row,
-        &decorations,
-        compact,
-        width,
-        app.overview_show_debug_source,
-    );
+    let presenter = overview_row_presenter(row, &decorations, compact, width);
     let lifecycle_color = lifecycle_color(&row.lifecycle, row.online, theme);
     let age_color = age_color(row.age_secs, row.online, theme);
     let badge_color = overview_badge_color(presenter.badge, theme);
@@ -2047,7 +1912,6 @@ fn overview_row_spans(
 #[derive(Clone, Debug)]
 struct OverviewDecorations {
     attention_chip: AttentionChip,
-    source_chip: SourceChip,
     context: String,
     task_signal: Option<String>,
     git_signal: Option<String>,
@@ -2090,25 +1954,18 @@ impl AttentionChip {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum OverviewBadge {
     Attention(AttentionChip),
-    Source(SourceChip),
 }
 
 impl OverviewBadge {
     fn bracketed(self) -> String {
         match self {
             OverviewBadge::Attention(chip) => format!("[{}]", chip.label()),
-            OverviewBadge::Source(chip) => chip.bracketed(),
         }
     }
 }
 
 fn attention_chip_from_row(row: &OverviewRow) -> AttentionChip {
-    if !row.online
-        || row
-            .age_secs
-            .map(|secs| secs > HUB_STALE_SECS)
-            .unwrap_or(false)
-    {
+    if !row.online {
         return AttentionChip::Stale;
     }
     match normalize_lifecycle(&row.lifecycle).as_str() {
@@ -2139,7 +1996,6 @@ fn attention_chip_color(chip: AttentionChip, theme: PulseTheme) -> Color {
 fn overview_badge_color(chip: OverviewBadge, theme: PulseTheme) -> Color {
     match chip {
         OverviewBadge::Attention(value) => attention_chip_color(value, theme),
-        OverviewBadge::Source(value) => source_chip_color(value, theme),
     }
 }
 
@@ -2148,20 +2004,6 @@ enum SourceChip {
     Hub,
     Local,
     Mixed,
-}
-
-impl SourceChip {
-    fn label(self) -> &'static str {
-        match self {
-            SourceChip::Hub => "HUB",
-            SourceChip::Local => "LOC",
-            SourceChip::Mixed => "MIX",
-        }
-    }
-
-    fn bracketed(self) -> String {
-        format!("[{}]", self.label())
-    }
 }
 
 #[derive(Clone, Debug)]
@@ -2192,7 +2034,6 @@ fn overview_row_presenter(
     decorations: &OverviewDecorations,
     compact: bool,
     width: u16,
-    show_debug_source: bool,
 ) -> OverviewRowPresenter {
     let mut plans = vec![PresenterBudgets {
         label: if compact { 14 } else { 20 },
@@ -2236,8 +2077,7 @@ fn overview_row_presenter(
 
     let max_width = width.saturating_sub(8) as usize;
     for plan in plans {
-        let presenter =
-            overview_row_presenter_with_budget(row, decorations, plan, show_debug_source);
+        let presenter = overview_row_presenter_with_budget(row, decorations, plan);
         if presenter_text_len(&presenter) <= max_width.max(28) {
             return presenter;
         }
@@ -2254,7 +2094,6 @@ fn overview_row_presenter(
             include_git_signal: false,
             include_meter: false,
         },
-        show_debug_source,
     )
 }
 
@@ -2262,7 +2101,6 @@ fn overview_row_presenter_with_budget(
     row: &OverviewRow,
     decorations: &OverviewDecorations,
     budget: PresenterBudgets,
-    show_debug_source: bool,
 ) -> OverviewRowPresenter {
     let identity = format!(
         "{}::{}",
@@ -2271,11 +2109,7 @@ fn overview_row_presenter_with_budget(
     );
     let lifecycle_chip = format!("[{:<5}]", lifecycle_chip_label(&row.lifecycle, row.online));
     let location_chip = overview_location_chip(row, budget.tab_name);
-    let badge = if show_debug_source {
-        OverviewBadge::Source(decorations.source_chip)
-    } else {
-        OverviewBadge::Attention(decorations.attention_chip)
-    };
+    let badge = OverviewBadge::Attention(decorations.attention_chip);
     let freshness = if budget.include_meter {
         format!(
             "HB:{} {}",
@@ -2309,19 +2143,25 @@ fn overview_row_presenter_with_budget(
 }
 
 fn overview_location_chip(row: &OverviewRow, tab_name_budget: usize) -> String {
-    let Some(tab_index) = row.tab_index else {
-        return "T?:???".to_string();
-    };
     let focused_suffix = if row.tab_focused { "*" } else { "" };
-    if tab_name_budget == 0 {
-        return format!("T{tab_index}{focused_suffix}");
-    }
-    if let Some(tab_name) = row
+    let tab_name = row
         .tab_name
         .as_deref()
         .map(str::trim)
-        .filter(|value| !value.is_empty())
-    {
+        .filter(|value| !value.is_empty());
+    let Some(tab_index) = row.tab_index else {
+        if let Some(name) = tab_name {
+            if tab_name_budget == 0 {
+                return format!("T?{focused_suffix}");
+            }
+            return format!("T?:{}{}", ellipsize(name, tab_name_budget), focused_suffix);
+        }
+        return "T?:???".to_string();
+    };
+    if tab_name_budget == 0 {
+        return format!("T{tab_index}{focused_suffix}");
+    }
+    if let Some(tab_name) = tab_name {
         return format!(
             "T{tab_index}:{}{}",
             ellipsize(tab_name, tab_name_budget),
@@ -2360,14 +2200,6 @@ fn source_chip_from_row(source: &str) -> SourceChip {
     SourceChip::Local
 }
 
-fn source_chip_color(chip: SourceChip, theme: PulseTheme) -> Color {
-    match chip {
-        SourceChip::Hub => theme.info,
-        SourceChip::Local => theme.warn,
-        SourceChip::Mixed => theme.accent,
-    }
-}
-
 fn presenter_text_len(presenter: &OverviewRowPresenter) -> usize {
     let mut len = presenter.badge.bracketed().chars().count()
         + 1
@@ -2387,22 +2219,6 @@ fn presenter_text_len(presenter: &OverviewRowPresenter) -> usize {
         len += 1 + git_signal.chars().count();
     }
     len
-}
-
-fn status_note_color(note: &str, theme: PulseTheme) -> Color {
-    let normalized = note.to_ascii_lowercase();
-    if normalized.contains("failed")
-        || normalized.contains("error")
-        || normalized.contains("offline")
-        || normalized.contains("no tab mapping")
-    {
-        return theme.critical;
-    }
-    if normalized.contains("queued") || normalized.contains("focus") || normalized.contains("stop")
-    {
-        return theme.info;
-    }
-    theme.warn
 }
 
 fn render_help_overlay(frame: &mut ratatui::Frame, app: &App, theme: PulseTheme) {
@@ -2500,7 +2316,6 @@ fn mode_help_lines(app: &App, theme: PulseTheme) -> Vec<Line<'static>> {
                 Line::from("  Enter    focus selected tab; unmapped -> pane note"),
                 Line::from("  x        request stop selected agent"),
                 Line::from("  a        toggle sort (layout/attention)"),
-                Line::from("  d        toggle badge (attention/source)"),
             ]
         }
         Mode::Work => vec![
@@ -2879,48 +2694,6 @@ fn push_health_snapshot_lines(
                 Style::default().fg(theme.muted),
             ),
         ]));
-    }
-}
-
-fn compute_kpis(app: &App) -> PulseKpis {
-    let overview = app.overview_rows();
-    let work = app.work_rows();
-    let diff = app.diff_rows();
-
-    let total_agents = overview.len();
-    let online_agents = overview.iter().filter(|row| row.online).count();
-
-    let mut in_progress = 0;
-    let mut blocked = 0;
-    for project in work {
-        for tag in project.tags {
-            in_progress += tag.counts.in_progress;
-            blocked += tag.counts.blocked;
-        }
-    }
-
-    let mut dirty_files = 0;
-    let mut churn = 0;
-    for project in diff {
-        if !project.git_available {
-            continue;
-        }
-        dirty_files += project.summary.staged.files
-            + project.summary.unstaged.files
-            + project.summary.untracked.files;
-        churn += project.summary.staged.additions
-            + project.summary.staged.deletions
-            + project.summary.unstaged.additions
-            + project.summary.unstaged.deletions;
-    }
-
-    PulseKpis {
-        total_agents,
-        online_agents,
-        in_progress,
-        blocked,
-        dirty_files,
-        churn,
     }
 }
 
@@ -3386,7 +3159,7 @@ fn handle_key(key: KeyEvent, app: &mut App, refresh_requested: &mut bool) -> boo
                 app.mode = Mode::Overview;
             } else {
                 app.mode = Mode::Work;
-                app.status_note = Some("overview deprecated; switched to Work".to_string());
+                app.status_note = Some("overview disabled; switched to Work".to_string());
             }
             app.scroll = 0;
             false
@@ -3422,12 +3195,6 @@ fn handle_key(key: KeyEvent, app: &mut App, refresh_requested: &mut bool) -> boo
         KeyCode::Char('a') => {
             if app.mode == Mode::Overview {
                 app.toggle_overview_sort_mode();
-            }
-            false
-        }
-        KeyCode::Char('d') => {
-            if app.mode == Mode::Overview {
-                app.toggle_overview_debug_source();
             }
             false
         }
@@ -4131,10 +3898,24 @@ fn collect_proc_overview(
                 continue;
             }
         }
-        let label = env_map
-            .get("AOC_AGENT_LABEL")
-            .or_else(|| env_map.get("AOC_AGENT_ID"))
-            .cloned()
+        let agent_label = env_map.get("AOC_AGENT_LABEL").cloned();
+        let agent_id = env_map.get("AOC_AGENT_ID").cloned();
+        let agent_run = env_map
+            .get("AOC_AGENT_RUN")
+            .and_then(|value| parse_bool_flag(value))
+            .unwrap_or(false);
+        let has_agent_identity = agent_label
+            .as_deref()
+            .is_some_and(|value| !value.trim().is_empty())
+            || agent_id
+                .as_deref()
+                .is_some_and(|value| !value.trim().is_empty());
+        if !has_agent_identity && !agent_run {
+            continue;
+        }
+        let label = agent_label
+            .filter(|value| !value.trim().is_empty())
+            .or_else(|| agent_id.filter(|value| !value.trim().is_empty()))
             .unwrap_or_else(|| format!("pane-{}", pane_id));
         let project_root = env_map.get("AOC_PROJECT_ROOT").cloned().unwrap_or_else(|| {
             fs::read_link(entry.path().join("cwd"))
@@ -4146,7 +3927,11 @@ fn collect_proc_overview(
         let tab_meta = pane_tabs
             .and_then(|tabs| tabs.get(&pane_id))
             .or_else(|| project_tabs.and_then(|tabs| tabs.get(&project_root)));
-        let proc_tab_scope = env_map.get("AOC_TAB_SCOPE").cloned();
+        let proc_tab_scope = env_map
+            .get("AOC_TAB_SCOPE")
+            .or_else(|| env_map.get("AOC_TAB_NAME"))
+            .or_else(|| env_map.get("ZELLIJ_TAB_NAME"))
+            .cloned();
         let tab_name = tab_meta
             .map(|meta| meta.name.clone())
             .or(proc_tab_scope.clone());
@@ -4625,7 +4410,7 @@ fn resolve_overview_enabled() -> bool {
     std::env::var("AOC_PULSE_OVERVIEW_ENABLED")
         .ok()
         .and_then(|value| parse_bool_flag(&value))
-        .unwrap_or(false)
+        .unwrap_or(true)
 }
 
 fn resolve_layout_source() -> LayoutSource {
@@ -4656,12 +4441,12 @@ fn init_logging() {
 }
 
 fn resolve_session_id() -> String {
-    if let Ok(value) = std::env::var("AOC_SESSION_ID") {
+    if let Ok(value) = std::env::var("ZELLIJ_SESSION_NAME") {
         if !value.trim().is_empty() {
             return value;
         }
     }
-    if let Ok(value) = std::env::var("ZELLIJ_SESSION_NAME") {
+    if let Ok(value) = std::env::var("AOC_SESSION_ID") {
         if !value.trim().is_empty() {
             return value;
         }
@@ -5553,18 +5338,17 @@ mod tests {
 
         let decorations = OverviewDecorations {
             attention_chip: attention_chip_from_row(&row),
-            source_chip: source_chip_from_row(&row.source),
             context: "waiting on credentials and operator input".to_string(),
             task_signal: Some("W:1/4".to_string()),
             git_signal: Some("G:+7/-2 ?1".to_string()),
         };
-        let presenter = overview_row_presenter(&row, &decorations, true, 80, false);
+        let presenter = overview_row_presenter(&row, &decorations, true, 80);
         assert!(presenter.identity.contains("::"));
         assert_eq!(presenter.location_chip, "T?:???");
         assert_eq!(presenter.lifecycle_chip, "[BLOCK]");
         assert_eq!(
             presenter.badge,
-            OverviewBadge::Attention(AttentionChip::Stale)
+            OverviewBadge::Attention(AttentionChip::Blocked)
         );
         assert!(presenter.freshness.contains("47s"));
         assert!(presenter.context.starts_with("M:"));
@@ -5576,12 +5360,8 @@ mod tests {
         let (tx, _rx) = mpsc::channel(4);
         let mut app = App::new(test_config(), tx, empty_local());
         assert_eq!(app.overview_sort_mode, OverviewSortMode::Layout);
-        assert!(!app.overview_show_debug_source);
 
         app.toggle_overview_sort_mode();
         assert_eq!(app.overview_sort_mode, OverviewSortMode::Attention);
-
-        app.toggle_overview_debug_source();
-        assert!(app.overview_show_debug_source);
     }
 }

@@ -20,11 +20,11 @@ Key components:
 
 ## Pulse Overview Status (2026-02)
 
-- Decision: Pulse Overview is deprecated by default.
-- Default behavior: Mission Control runs Pulse modes `Work`, `Diff`, and `Health`.
-- Gate: set `AOC_PULSE_OVERVIEW_ENABLED=1` to temporarily re-enable Overview.
-- Rationale: current Overview signals were not high-value enough for operator flow
-  relative to latency/noise; code remains in repo for a later phase.
+- Decision: Pulse Overview is re-enabled by default.
+- Default behavior: Mission Control starts in `Overview` mode.
+- Gate: set `AOC_PULSE_OVERVIEW_ENABLED=0` to run `Work`/`Diff`/`Health` only.
+- CPU guardrail: keep background layout watcher off by default with
+  `AOC_PULSE_LAYOUT_WATCH_ENABLED=0`.
 
 ## 2) Session Scoping and Environment
 
