@@ -32,6 +32,30 @@ sanitize_name() {
   printf '%s' "${raw:-tab}"
 }
 
+generate_whimsical_session_id() {
+  local nouns=(
+    otter badger alpaca ferret penguin walrus narwhal yak koala gecko
+    capybara platypus lemur puffin iguana beaver hedgehog squirrel raccoon
+    aardvark wombat lynx mojito noodle waffle pixel
+  )
+  local verbs=(
+    juggles debugs compiles refactors lints ships rebases squashes syncs
+    profiles benches deploys patches bisects tests tidies wrangles explores
+    orchestrates untangles snapshots autopilots
+  )
+  local noun="${nouns[RANDOM % ${#nouns[@]}]}"
+  local verb="${verbs[RANDOM % ${#verbs[@]}]}"
+  printf '%s-%s' "$noun" "$verb"
+}
+
+session_name_exists() {
+  local candidate="$1"
+  if ! command -v zellij >/dev/null 2>&1; then
+    return 1
+  fi
+  zellij list-sessions --short --no-formatting 2>/dev/null | grep -Fxq "$candidate"
+}
+
 resolve_session_id() {
   if [[ -n "${ZELLIJ_SESSION_NAME:-}" ]]; then
     printf '%s' "$ZELLIJ_SESSION_NAME"
@@ -41,6 +65,16 @@ resolve_session_id() {
     printf '%s' "$AOC_SESSION_ID"
     return
   fi
+  local candidate=""
+  local attempt
+  for attempt in 1 2 3 4 5 6 7 8 9 10 11 12; do
+    candidate="$(generate_whimsical_session_id)"
+    if session_name_exists "$candidate"; then
+      continue
+    fi
+    printf '%s' "$candidate"
+    return
+  done
   printf 'pid-%s' "$$"
 }
 
