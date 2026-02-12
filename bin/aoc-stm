@@ -13,31 +13,34 @@ aoc_dir="$project_root/.aoc"
 stm_dir="$aoc_dir/stm"
 archive_dir="$stm_dir/archive"
 current_file="$stm_dir/current.md"
-next_handoff_file="$stm_dir/next.path"
 
 usage() {
   cat <<EOF
 Usage: aoc-stm [command] [args...]
 
-Short-term memory (STM) handoff manager for AOC agent sessions.
+Short-term memory (STM) manager for AOC.
+
+Default behavior:
+  aoc-stm
+    Print the latest archived STM entry to stdout.
 
 Commands:
-  --last, last, start   Archive current STM, then use latest archived STM as handoff (default).
-  add "note"            Append a timestamped note to current STM.
-  edit                  Open current STM in your editor.
-  read                  Print current STM file.
-  path                  Print current STM path.
-  archive               Archive current STM and clear current file.
-  clear                 Clear current STM file.
+  read [archive]        Print archived STM (latest by default).
+  read-current          Print current STM draft file.
+  current               Alias of read-current.
+  add "note"            Append a timestamped note to current STM draft.
+  edit                  Open current STM draft in your editor.
+  archive               Archive current STM draft and clear current file.
+  load [archive]        Copy archived STM back into current STM draft.
   history [limit]       List archived STM snapshots (newest first).
-  use [archive]         Launch AOC/new tab using an archived snapshot.
-  load [archive]        Copy archived snapshot back into current STM.
+  path [archive]        Print archive path (latest by default).
+  path current          Print current STM draft path.
+  clear                 Clear current STM draft file.
   help                  Show this message.
 
-Aliases:
-  --last, --l           Same as: last
-  --history, --h        Same as: history
-  -h, --help            Show help
+Legacy aliases (non-launching):
+  last, start, --last, --l
+  use [archive]
 EOF
 }
 
@@ -59,72 +62,61 @@ sanitize_name() {
   printf '%s' "${raw:-session}"
 }
 
-archive_current() {
-  setup
-  if ! has_current_content; then
-    return 1
-  fi
-
-  local ts session_label project_label archive_file
-  ts="$(date -u '+%Y%m%d-%H%M%SZ')"
-  session_label="$(sanitize_name "${ZELLIJ_SESSION_NAME:-${AOC_SESSION_ID:-adhoc}}")"
-  project_label="$(sanitize_name "$(basename "$project_root")")"
-  archive_file="$archive_dir/${ts}-${session_label}-${project_label}.md"
-
-  cp "$current_file" "$archive_file"
-  : > "$current_file"
-  printf '%s' "$archive_file"
-}
-
-queue_handoff() {
-  local handoff_file="$1"
-  setup
-  printf '%s\n' "$handoff_file" > "$next_handoff_file"
-}
-
-launch_with_handoff() {
-  local handoff_file="$1"
-  if [[ -n "${ZELLIJ:-}" || -n "${ZELLIJ_SESSION_NAME:-}" ]]; then
-    AOC_STM_INJECT_FILE="$handoff_file" AOC_STM_ACTIVE_FILE="$current_file" aoc-new-tab --aoc
-  else
-    AOC_STM_INJECT_FILE="$handoff_file" AOC_STM_ACTIVE_FILE="$current_file" aoc-launch
-  fi
-}
-
-launch_without_handoff() {
-  if [[ -n "${ZELLIJ:-}" || -n "${ZELLIJ_SESSION_NAME:-}" ]]; then
-    aoc-new-tab --aoc
-  else
-    aoc-launch
-  fi
-}
-
 latest_archive() {
   setup
   ls -1t "$archive_dir"/*.md 2>/dev/null | head -n 1 || true
 }
 
-archive_current_if_present() {
-  local archived_now=""
-  if archived_now="$(archive_current 2>/dev/null)"; then
-    echo "Archived STM to $archived_now"
-  fi
-}
+resolve_archive() {
+  setup
+  local spec="${1:-}"
+  local selected=""
 
-use_latest_archive() {
-  archive_current_if_present
-
-  local handoff_file=""
-  handoff_file="$(latest_archive)"
-  if [[ -z "$handoff_file" ]]; then
-    echo "No STM archive available in $archive_dir. Create STM notes first: aoc-stm add \"...\"" >&2
-    echo "Then archive/start handoff: aoc-stm archive (or just aoc-stm)." >&2
+  if [[ -z "$spec" ]]; then
+    selected="$(latest_archive)"
+    if [[ -n "$selected" ]]; then
+      printf '%s' "$selected"
+      return 0
+    fi
     return 1
   fi
 
-  queue_handoff "$handoff_file"
-  echo "Queued STM handoff: $handoff_file"
-  launch_with_handoff "$handoff_file"
+  if [[ -f "$spec" ]]; then
+    printf '%s' "$spec"
+    return 0
+  fi
+  if [[ -f "$archive_dir/$spec" ]]; then
+    printf '%s' "$archive_dir/$spec"
+    return 0
+  fi
+  if [[ -f "$archive_dir/$spec.md" ]]; then
+    printf '%s' "$archive_dir/$spec.md"
+    return 0
+  fi
+
+  selected="$(ls -1t "$archive_dir"/*"$spec"*.md 2>/dev/null | head -n 1 || true)"
+  if [[ -n "$selected" ]]; then
+    printf '%s' "$selected"
+    return 0
+  fi
+
+  return 1
+}
+
+read_archive() {
+  local archive_file=""
+  archive_file="$(resolve_archive "${1:-}" || true)"
+  if [[ -z "$archive_file" ]]; then
+    echo "No STM archive available in $archive_dir." >&2
+    echo "Create STM notes with 'aoc-stm add <note>' then run 'aoc-stm archive'." >&2
+    return 1
+  fi
+  cat "$archive_file"
+}
+
+read_current() {
+  setup
+  cat "$current_file"
 }
 
 list_history() {
@@ -152,47 +144,21 @@ list_history() {
   done
 }
 
-resolve_archive() {
+archive_current() {
   setup
-  local spec="${1:-}"
-  local selected=""
-
-  if [[ -z "$spec" ]]; then
-    selected="$(latest_archive)"
-    if [[ -n "$selected" ]]; then
-      printf '%s' "$selected"
-      return 0
-    fi
-    if command -v fzf >/dev/null 2>&1; then
-      selected="$(ls -1t "$archive_dir"/*.md 2>/dev/null | fzf --prompt='STM archive > ' || true)"
-      if [[ -n "$selected" ]]; then
-        printf '%s' "$selected"
-        return 0
-      fi
-    fi
+  if ! has_current_content; then
     return 1
   fi
 
-  if [[ -f "$spec" ]]; then
-    printf '%s' "$spec"
-    return 0
-  fi
-  if [[ -f "$archive_dir/$spec" ]]; then
-    printf '%s' "$archive_dir/$spec"
-    return 0
-  fi
-  if [[ -f "$archive_dir/$spec.md" ]]; then
-    printf '%s' "$archive_dir/$spec.md"
-    return 0
-  fi
+  local ts session_label project_label archive_file
+  ts="$(date -u '+%Y%m%d-%H%M%SZ')"
+  session_label="$(sanitize_name "${ZELLIJ_SESSION_NAME:-${AOC_SESSION_ID:-adhoc}}")"
+  project_label="$(sanitize_name "$(basename "$project_root")")"
+  archive_file="$archive_dir/${ts}-${session_label}-${project_label}.md"
 
-  selected="$(ls -1t "$archive_dir"/*"$spec"*.md 2>/dev/null | head -n 1 || true)"
-  if [[ -n "$selected" ]]; then
-    printf '%s' "$selected"
-    return 0
-  fi
-
-  return 1
+  cp "$current_file" "$archive_file"
+  : > "$current_file"
+  printf '%s' "$archive_file"
 }
 
 add_note() {
@@ -204,11 +170,15 @@ add_note() {
   echo "STM note added."
 }
 
-cmd="${1:---last}"
+cmd="${1:-read}"
 
 case "$cmd" in
-  ""|start|last|--last|--l)
-    use_latest_archive
+  read)
+    shift || true
+    read_archive "${1:-}"
+    ;;
+  read-current|current)
+    read_current
     ;;
   add)
     shift
@@ -222,18 +192,9 @@ case "$cmd" in
     setup
     "${EDITOR:-micro}" "$current_file"
     ;;
-  read)
-    setup
-    cat "$current_file"
-    ;;
-  path)
-    echo "$current_file"
-    ;;
   archive)
     if archived="$(archive_current)"; then
-      queue_handoff "$archived"
       echo "Archived STM to $archived"
-      echo "Queued as next handoff in $next_handoff_file"
     else
       echo "No STM content to archive."
     fi
@@ -247,18 +208,6 @@ case "$cmd" in
     shift || true
     list_history "${1:-20}"
     ;;
-  use)
-    shift || true
-    archive_current_if_present
-    archive_file="$(resolve_archive "${1:-}" || true)"
-    if [[ -z "$archive_file" ]]; then
-      echo "No archive selected/found." >&2
-      exit 1
-    fi
-    queue_handoff "$archive_file"
-    echo "Queued STM handoff: $archive_file"
-    launch_with_handoff "$archive_file"
-    ;;
   load)
     shift || true
     archive_file="$(resolve_archive "${1:-}" || true)"
@@ -270,11 +219,33 @@ case "$cmd" in
     cp "$archive_file" "$current_file"
     echo "Loaded $archive_file into $current_file"
     ;;
+  path)
+    shift || true
+    if [[ "${1:-}" == "current" ]]; then
+      echo "$current_file"
+      exit 0
+    fi
+    archive_file="$(resolve_archive "${1:-}" || true)"
+    if [[ -z "$archive_file" ]]; then
+      echo "No archive selected/found." >&2
+      exit 1
+    fi
+    echo "$archive_file"
+    ;;
+  ""|start|last|--last|--l)
+    echo "aoc-stm: '$cmd' is deprecated and no longer launches a new tab. Printing latest archive." >&2
+    read_archive
+    ;;
+  use)
+    echo "aoc-stm: 'use' is deprecated and no longer launches a new tab. Printing selected archive." >&2
+    shift || true
+    read_archive "${1:-}"
+    ;;
   help|-h|--help)
     usage
     ;;
   *)
-    echo "Unknown command: $1" >&2
+    echo "Unknown command: $cmd" >&2
     usage
     exit 1
     ;;

@@ -9,7 +9,8 @@ description: Use aoc-mem to read, search, and record project decisions.
 - `aoc-mem add "<decision>"`
 - `aoc-stm add "<handoff note>"`
 - `aoc-stm edit`
-- `aoc-stm --last`
+- `aoc-stm archive`
+- `aoc-stm` (read latest archive)
 - `aoc-stm history`
 
 ## Recording guidelines
@@ -19,4 +20,4 @@ description: Use aoc-mem to read, search, and record project decisions.
 
 ## Guardrail
 - Never edit `.aoc/memory.md` directly.
-- Keep `.aoc/stm/current.md` ephemeral; archive/hand off with `aoc-stm` and store durable decisions in `aoc-mem`.
+- Keep `.aoc/stm/current.md` as an in-progress draft and archive it often so STM becomes a durable project diary.

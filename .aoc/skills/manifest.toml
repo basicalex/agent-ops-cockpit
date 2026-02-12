@@ -16,7 +16,7 @@ summary = "Read, search, and record decisions with aoc-mem."
 [[skill]]
 name = "stm-ops"
 type = "ops"
-summary = "Capture and hand off short-term session memory with aoc-stm."
+summary = "Capture and read short-term diary context with aoc-stm."
 
 [[skill]]
 name = "taskmaster-ops"

@@ -73,7 +73,7 @@ This file defines the always-on rules for agents in this repo. Procedural playbo
 ## Always-on rules
 - Use `.aoc/context.md` for orientation; run `aoc-init` if it is missing or stale.
 - `.aoc/memory.md` is append-only; use `aoc-mem` to read/search/add. Do not edit the file directly.
-- `.aoc/stm/current.md` is short-term working state; use `aoc-stm` to add/edit/handoff/archive. Do not store long-term decisions here.
+- `.aoc/stm/current.md` is STM draft state; use `aoc-stm` to add/edit/archive/read. STM archives are a durable project diary; store architectural decisions in `aoc-mem`.
 - `.taskmaster/tasks/tasks.json` is task state; use the Taskmaster TUI or `aoc-task` commands. Do not edit the file directly.
 - Task PRDs are linked per task (not subtask) via `aocPrd`; keep PRD documents in `.taskmaster/docs/prds/` and resolve via `aoc-task prd` commands.
 - Record major decisions and constraints in memory (`aoc-mem add "..."`).
@@ -81,8 +81,8 @@ This file defines the always-on rules for agents in this repo. Procedural playbo
 ## Core files
 - `.aoc/context.md`: auto-generated project snapshot.
 - `.aoc/memory.md`: persistent decision log.
-- `.aoc/stm/current.md`: ephemeral short-term handoff state.
-- `.aoc/stm/archive/`: archived STM snapshots used for handoffs/history.
+- `.aoc/stm/current.md`: in-progress STM draft state.
+- `.aoc/stm/archive/`: archived STM diary snapshots.
 - `.taskmaster/tasks/tasks.json`: dynamic task queue.
 - `.taskmaster/docs/prds/`: task-level PRD documents linked from tasks.
 
@@ -90,7 +90,7 @@ This file defines the always-on rules for agents in this repo. Procedural playbo
 - `aoc-workflow`: standard project workflow.
 - `aoc-init-ops`: initialize or repair AOC files.
 - `memory-ops`: read/search/add to memory.
-- `stm-ops`: manage short-term handoff memory and resume flow.
+- `stm-ops`: manage short-term diary memory and STM context loading.
 - `taskmaster-ops`: manage tasks and tags.
 - `rlm-analysis`: large codebase analysis flow.
 - `prd-dev`: draft the Taskmaster PRD.
@@ -114,7 +114,7 @@ EOF
 - `aoc-workflow`: standard project workflow.
 - `aoc-init-ops`: initialize or repair AOC files.
 - `memory-ops`: read/search/add to memory.
-- `stm-ops`: manage short-term handoff memory and resume flow.
+- `stm-ops`: manage short-term diary memory and STM context loading.
 - `taskmaster-ops`: manage tasks and tags.
 - `rlm-analysis`: large codebase analysis flow.
 - `prd-dev`: draft the Taskmaster PRD.
@@ -136,7 +136,7 @@ Use the AOC tools for context, memory, and tasks in this repo.
 
 - **Context:** `.aoc/context.md` (read-only)
 - **Memory:** `.aoc/memory.md` via `aoc-mem read/add` (do not edit directly)
-- **Short-term memory:** `.aoc/stm/current.md` via `aoc-stm` (ephemeral handoff state)
+- **Short-term memory:** `.aoc/stm/current.md` via `aoc-stm` (draft + archived STM diary state)
 - **Tasks:** `.taskmaster/tasks/tasks.json` via `aoc-task list/add/status` (do not edit directly)
 - **Task PRDs:** `.taskmaster/docs/prds/` linked with `aoc-task prd` (task-level only, no subtask PRDs)
 - **Skills:** load AOC skills as needed for workflows
@@ -167,8 +167,8 @@ $(tree -L 2 --gitignore -I '.git|.taskmaster|.aoc|.gemini|node_modules|target|di
 **Commands:** \`aoc-mem read\`, \`aoc-mem add "fact"\`.
 
 ## 3. Short-Term Memory (\`aoc-stm\`)
-**Purpose:** Ephemeral handoff state for context-window continuation.
-**Commands:** \`aoc-stm add "note"\`, \`aoc-stm --last\`, \`aoc-stm history\`.
+**Purpose:** STM diary state for short-term continuity and long-term auditability.
+**Commands:** \`aoc-stm add "note"\`, \`aoc-stm archive\`, \`aoc-stm\`.
 
 ## 4. Task Management (\`aoc-task\`)
 **Purpose:** Granular tracking of work.

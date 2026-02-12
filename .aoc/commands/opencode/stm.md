@@ -19,4 +19,4 @@ Rules:
 - Do not duplicate long-term memory entries; only include ephemeral execution state.
 - If there is a durable architectural decision, explicitly note: "Promote to aoc-mem".
 
-When finished, remind me I can run `aoc-stm` (default `--last`) to archive and continue in a fresh tab/session with STM injected.
+When finished, remind me to run `aoc-stm archive` to persist this snapshot, then `aoc-stm` to print the latest archived STM context into the terminal transcript.

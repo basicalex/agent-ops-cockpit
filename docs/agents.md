@@ -38,7 +38,7 @@ Usage in OpenCode:
 /stm
 ```
 
-This command asks the agent to contextualize current work into `.aoc/stm/current.md` so you can then run `aoc-stm` to archive and resume in a fresh tab/session.
+This command asks the agent to contextualize current work into `.aoc/stm/current.md` so you can archive it with `aoc-stm archive`, then load the latest archived context any time with `aoc-stm`.
 
 `aoc-init` will not overwrite an existing `.opencode/commands/stm.md`.
 

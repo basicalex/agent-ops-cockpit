@@ -198,6 +198,7 @@ Keyboard-driven file management with rich previews:
 | `Enter` | Smart open (dir enter, text edit, media default app) |
 | `e` | Edit with `$EDITOR` (micro) |
 | `g s` | Edit short-term memory |
+| `g S` | Jump to `.aoc/stm` |
 | `W` | Set widget media path |
 | `p` | Send to floating preview |
 
@@ -254,11 +255,11 @@ AOC's architecture solves the fundamental problem of **context management in AI-
 - **Update:** Via `aoc-task prd show|init|set|clear|parse`
 
 #### 5. Short-Term Memory (`.aoc/stm/`) - The "Handoff Buffer"
-- **Role:** Ephemeral session continuity near context limits
-- **Content:** current handoff (`current.md`) and archived snapshots (`archive/*.md`)
-- **Update:** Via `aoc-stm add|edit|archive|history|use|--last` (`aoc-stm` defaults to `--last`)
-- **Lifecycle:** Promote durable decisions to `aoc-mem`; keep STM temporary
-- **Behavior:** `aoc-stm --last` fails hard if no archive exists (create one with `aoc-stm add "..."` then `aoc-stm archive`)
+- **Role:** Session diary + handoff context for transparent agent continuity
+- **Content:** working draft (`current.md`) and archived snapshots (`archive/*.md`)
+- **Update:** Via `aoc-stm add|edit|archive|history|read` (`aoc-stm` defaults to `read`)
+- **Lifecycle:** Keep STM entries as project diary artifacts; promote durable architecture decisions to `aoc-mem`
+- **Behavior:** `aoc-stm` prints the latest archived STM entry to stdout (no tab/session launch side effects)
 
 ### Per-Tab Isolation
 
@@ -284,7 +285,7 @@ When you start working in AOC:
 5. **Spec:** `aoc-task prd show <id>` - Read linked PRD before implementation
 6. **Execute:** Edit files, run commands, collaborate with AI agent
 7. **Handoff Prep (OpenCode):** `/stm` - Ask the agent to write a concise `.aoc/stm/current.md`
-8. **Handoff:** `aoc-stm` (default `--last`) - Archive STM and continue in a fresh tab/session with STM injected
+8. **Load STM Context:** `aoc-stm` - Print latest archived STM context into terminal/agent transcript
 9. **Update:** Mark tasks done in Taskmaster TUI
 10. **Record:** `aoc-mem add "..."` - Document significant decisions
 

@@ -5,7 +5,7 @@ This file defines the always-on rules for agents in this repo. Procedural playbo
 ## Always-on rules
 - Use `.aoc/context.md` for orientation; run `aoc-init` if it is missing or stale.
 - `.aoc/memory.md` is append-only; use `aoc-mem` to read/search/add. Do not edit the file directly.
-- `.aoc/stm/current.md` is short-term working state; use `aoc-stm` to add/edit/handoff/archive. Do not store long-term decisions here.
+- `.aoc/stm/current.md` is STM draft state; use `aoc-stm` to add/edit/archive/read. STM archives are a durable project diary; store architectural decisions in `aoc-mem`.
 - `.taskmaster/tasks/tasks.json` is task state; use the Taskmaster TUI or `aoc-task` commands. Do not edit the file directly.
 - Task PRDs are linked per task (not subtask) via `aocPrd`; keep PRD documents in `.taskmaster/docs/prds/` and resolve via `aoc-task prd` commands.
 - Record major decisions and constraints in memory (`aoc-mem add "..."`).
@@ -13,8 +13,8 @@ This file defines the always-on rules for agents in this repo. Procedural playbo
 ## Core files
 - `.aoc/context.md`: auto-generated project snapshot.
 - `.aoc/memory.md`: persistent decision log.
-- `.aoc/stm/current.md`: ephemeral short-term handoff state.
-- `.aoc/stm/archive/`: archived STM snapshots used for handoffs/history.
+- `.aoc/stm/current.md`: in-progress STM draft state.
+- `.aoc/stm/archive/`: archived STM diary snapshots.
 - `.taskmaster/tasks/tasks.json`: dynamic task queue.
 - `.taskmaster/docs/prds/`: task-level PRD documents linked from tasks.
 
@@ -22,7 +22,7 @@ This file defines the always-on rules for agents in this repo. Procedural playbo
 - `aoc-workflow`: standard project workflow.
 - `aoc-init-ops`: initialize or repair AOC files.
 - `memory-ops`: read/search/add to memory.
-- `stm-ops`: manage short-term handoff memory and resume flow.
+- `stm-ops`: manage short-term diary memory and STM context loading.
 - `taskmaster-ops`: manage tasks and tags.
 - `rlm-analysis`: large codebase analysis flow.
 - `prd-dev`: draft the Taskmaster PRD.
