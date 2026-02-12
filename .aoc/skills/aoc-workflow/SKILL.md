@@ -13,7 +13,7 @@ Use this when you start a new task or need to re-orient inside a project.
 4. For the active task, check PRD linkage with `aoc-task prd show <id>`; if missing, create/link via `aoc-task prd init <id>` or `aoc-task prd set <id> <path>`.
 5. Plan: add or refine tasks with `aoc-task add "<task>"` and set status.
 6. Execute changes and run tests.
-7. If context gets tight, capture handoff state (`aoc-stm add/edit`; in OpenCode you can run `/stm`) and then run `aoc-stm` to continue in a new tab/session.
+7. If context gets tight, capture state (`aoc-stm add/edit`; in OpenCode you can run `/stm`), archive it (`aoc-stm archive`), and run `aoc-stm` to load latest diary context into the transcript.
 8. Update tasks and record decisions: `aoc-task status <id> done`, `aoc-mem add "<decision>"`.
 
 ## Guardrails

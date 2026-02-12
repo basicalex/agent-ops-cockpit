@@ -10,6 +10,7 @@ prepend_keymap = [
   { on = ["g", "c"], run = "cd .aoc", desc = "Go to Context" },
   { on = ["g", "m"], run = "shell --block 'zellij action resize increase right && zellij action resize increase right && zellij action resize increase right && zellij action resize increase right && zellij action resize increase right && zellij action resize increase right && zellij action resize increase right && zellij action resize increase right && zellij action resize increase right && zellij action resize increase right && zellij action resize increase right && zellij action resize increase right && ${EDITOR:-micro} .aoc/memory.md; zellij action resize decrease right && zellij action resize decrease right && zellij action resize decrease right && zellij action resize decrease right && zellij action resize decrease right && zellij action resize decrease right && zellij action resize decrease right && zellij action resize decrease right && zellij action resize decrease right && zellij action resize decrease right && zellij action resize decrease right'", desc = "Edit Memory" },
   { on = ["g", "s"], run = "shell --block 'aoc-stm edit'", desc = "Edit STM" },
+  { on = ["g", "S"], run = "cd .aoc/stm", desc = "Go to STM" },
   { on = ["g", "t"], run = "cd .taskmaster", desc = "Go to Tasks" },
   { on = ["g", "l"], run = "shell 'cd \"${XDG_STATE_HOME:-$HOME/.local/state}/aoc\" && yazi'", desc = "Go to Logs" },
 

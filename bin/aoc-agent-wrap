@@ -330,23 +330,19 @@ find_aoc_dir() {
 
 construct_handshake() {
   local aoc_dir=""
-  local stm_file=""
+  local stm_latest=""
+  local stm_current=""
+  local stm_current_has_content=0
   if ! aoc_dir="$(find_aoc_dir)"; then
     return
   fi
 
-  if [[ -n "${AOC_STM_INJECT_FILE:-}" ]]; then
-    stm_file="$AOC_STM_INJECT_FILE"
-    if [[ -f "$aoc_dir/stm/next.path" ]]; then
-      local queued_stm=""
-      queued_stm="$(head -n 1 "$aoc_dir/stm/next.path" 2>/dev/null || true)"
-      if [[ "$queued_stm" == "$stm_file" ]]; then
-        rm -f "$aoc_dir/stm/next.path"
-      fi
-    fi
-  elif [[ -f "$aoc_dir/stm/next.path" ]]; then
-    stm_file="$(head -n 1 "$aoc_dir/stm/next.path" 2>/dev/null || true)"
-    rm -f "$aoc_dir/stm/next.path"
+  stm_current="$aoc_dir/stm/current.md"
+  if [[ -d "$aoc_dir/stm/archive" ]]; then
+    stm_latest="$(ls -1t "$aoc_dir/stm/archive"/*.md 2>/dev/null | head -n 1 || true)"
+  fi
+  if [[ -f "$stm_current" ]] && grep -q '[^[:space:]]' "$stm_current"; then
+    stm_current_has_content=1
   fi
 
   echo "──────────────────────────────────────────────────────────────────────────────"
@@ -378,14 +374,23 @@ construct_handshake() {
     task-master list --tag "${AOC_TAG:-master}" 2>/dev/null | head -n 20 || echo "No active tasks."
   fi
 
-  if [[ -n "$stm_file" && -f "$stm_file" ]]; then
-    echo
-    echo "⚡ SHORT-TERM MEMORY HANDOFF ($stm_file):"
-    head -n 120 "$stm_file"
-    echo "... [end of STM handoff]"
-    if [[ -n "${AOC_STM_ACTIVE_FILE:-}" ]]; then
-      : > "$AOC_STM_ACTIVE_FILE" 2>/dev/null || true
+  echo
+  if [[ -n "$stm_latest" || "$stm_current_has_content" == "1" ]]; then
+    echo "⚡ STM DIARY AVAILABLE:"
+    if [[ -n "$stm_latest" ]]; then
+      echo "Latest archive: $stm_latest"
+    else
+      echo "Latest archive: none"
     fi
+    if [[ "$stm_current_has_content" == "1" ]]; then
+      echo "Current draft: $stm_current (has unarchived notes)"
+    fi
+    echo "Do not auto-read STM unless the user asks for it (eg: starts with 'stm ...')."
+    echo "If not requested, mention STM availability at the end of your first response."
+    echo "To load STM context explicitly, run: aoc-stm (or aoc-stm-read)."
+    echo "To inspect draft notes without archiving, run: aoc-stm read-current"
+  else
+    echo "⚡ STM DIARY AVAILABLE: none"
   fi
 
   echo
@@ -395,7 +400,7 @@ construct_handshake() {
   echo "3. Use 'aoc-task' (or 'task-master') tools to track your progress."
   echo "4. If a task has a PRD link, read it before implementation (aoc-task prd show <task-id>)."
   echo "5. PRD links are task-level only; subtasks must not define PRD links."
-  echo "6. Track ephemeral session state with aoc-stm add/edit; use aoc-stm to hand off when context gets tight."
+  echo "6. Use aoc-stm add/edit/archive to maintain STM diary entries; run aoc-stm to read latest archive or aoc-stm read-current to inspect draft notes."
   echo
   echo "──────────────────────────────────────────────────────────────────────────────"
   echo "Starting ${AOC_AGENT_LABEL:-$agent_label} CLI..."
