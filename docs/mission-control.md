@@ -25,7 +25,7 @@ the session_id and the hub must reject mismatched sessions.
 ### Environment Variables
 | Env var | Purpose | Default / Derivation |
 |--------|---------|----------------------|
-| AOC_SESSION_ID | Unique session identifier used for routing | Prefer ZELLIJ_SESSION_NAME; else existing AOC_SESSION_ID; else "pid-<pid>" |
+| AOC_SESSION_ID | Unique session identifier used for routing | Prefer ZELLIJ_SESSION_NAME; else existing AOC_SESSION_ID; else generated "<noun>-<verb>" |
 | AOC_PANE_ID | Pane identifier for this client | Prefer ZELLIJ_PANE_ID; else "pid-<pid>" |
 | AOC_AGENT_ID | Human-readable agent label metadata | Prefer explicit AOC_AGENT_ID; else project name |
 | AOC_AGENT_LABEL | Optional explicit label for display only | Empty |

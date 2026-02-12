@@ -33,7 +33,7 @@ All routing is scoped to a session ID. Session scope is enforced by the hub.
 Session ID resolution (shared across tools):
 1) `AOC_SESSION_ID`
 2) `ZELLIJ_SESSION_NAME`
-3) `pid-<pid>`
+3) generated `<noun>-<verb>` fallback (eg, `otter-refactors`)
 
 Hub address and URL:
 - `AOC_HUB_ADDR` default: `127.0.0.1:<port>`
