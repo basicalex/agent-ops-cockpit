@@ -13,5 +13,23 @@ Status.redraw = function(self)
 	}
 end
 
+function Entity:click(event, up)
+	if up or event.is_middle then
+		return
+	end
+
+	local was_hovered = self._file.is_hovered
+	ya.emit("reveal", { self._file.url })
+
+	if event.is_right then
+		ya.emit("open", {})
+		return
+	end
+
+	if was_hovered then
+		ya.emit("plugin", { "aoc-open" })
+	end
+end
+
 -- Initialize AOC title management by running the plugin
 ya.emit("plugin", { "aoc-title" })

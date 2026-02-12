@@ -1,0 +1,6 @@
+{
+  "MouseWheelLeft": "CursorLeft",
+  "MouseWheelRight": "CursorRight",
+  "Shift-MouseWheelUp": "CursorLeft",
+  "Shift-MouseWheelDown": "CursorRight"
+}
