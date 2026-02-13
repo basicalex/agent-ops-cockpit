@@ -63,12 +63,20 @@ struct Config {
     pane_id: String,
     tab_scope: Option<String>,
     pulse_socket_path: PathBuf,
+    pulse_theme: PulseThemeMode,
     pulse_vnext_enabled: bool,
     overview_enabled: bool,
     layout_source: LayoutSource,
     client_id: String,
     project_root: PathBuf,
     state_dir: PathBuf,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum PulseThemeMode {
+    Terminal,
+    Dark,
+    Light,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -1733,24 +1741,50 @@ struct PulseTheme {
     info: Color,
 }
 
-fn pulse_theme() -> PulseTheme {
-    PulseTheme {
-        surface: Color::Rgb(17, 26, 46),
-        border: Color::Rgb(71, 85, 105),
-        title: Color::Rgb(191, 219, 254),
-        text: Color::Rgb(226, 232, 240),
-        muted: Color::Rgb(148, 163, 184),
-        accent: Color::Rgb(56, 189, 248),
-        ok: Color::Rgb(34, 197, 94),
-        warn: Color::Rgb(245, 158, 11),
-        critical: Color::Rgb(239, 68, 68),
-        info: Color::Rgb(59, 130, 246),
+fn pulse_theme(mode: PulseThemeMode) -> PulseTheme {
+    match mode {
+        PulseThemeMode::Terminal => PulseTheme {
+            surface: Color::Reset,
+            border: Color::DarkGray,
+            title: Color::Cyan,
+            text: Color::Reset,
+            muted: Color::DarkGray,
+            accent: Color::Blue,
+            ok: Color::Green,
+            warn: Color::Yellow,
+            critical: Color::Red,
+            info: Color::Cyan,
+        },
+        PulseThemeMode::Dark => PulseTheme {
+            surface: Color::Rgb(17, 26, 46),
+            border: Color::Rgb(71, 85, 105),
+            title: Color::Rgb(191, 219, 254),
+            text: Color::Rgb(226, 232, 240),
+            muted: Color::Rgb(148, 163, 184),
+            accent: Color::Rgb(56, 189, 248),
+            ok: Color::Rgb(34, 197, 94),
+            warn: Color::Rgb(245, 158, 11),
+            critical: Color::Rgb(239, 68, 68),
+            info: Color::Rgb(59, 130, 246),
+        },
+        PulseThemeMode::Light => PulseTheme {
+            surface: Color::Rgb(245, 247, 250),
+            border: Color::Rgb(148, 163, 184),
+            title: Color::Rgb(30, 64, 175),
+            text: Color::Rgb(15, 23, 42),
+            muted: Color::Rgb(100, 116, 139),
+            accent: Color::Rgb(2, 132, 199),
+            ok: Color::Rgb(22, 163, 74),
+            warn: Color::Rgb(217, 119, 6),
+            critical: Color::Rgb(220, 38, 38),
+            info: Color::Rgb(37, 99, 235),
+        },
     }
 }
 
 fn render_ui(frame: &mut ratatui::Frame, app: &App) {
     let size = frame.size();
-    let theme = pulse_theme();
+    let theme = pulse_theme(app.config.pulse_theme);
     let layout = Layout::default()
         .direction(Direction::Vertical)
         .constraints([Constraint::Min(0)])
@@ -4369,6 +4403,7 @@ fn load_config() -> Config {
     let pane_id = resolve_pane_id();
     let tab_scope = resolve_tab_scope();
     let pulse_socket_path = resolve_pulse_socket_path(&session_id);
+    let pulse_theme = resolve_pulse_theme_mode();
     let pulse_vnext_enabled = resolve_pulse_vnext_enabled();
     let overview_enabled = resolve_overview_enabled();
     let layout_source = resolve_layout_source();
@@ -4380,6 +4415,7 @@ fn load_config() -> Config {
         pane_id,
         tab_scope,
         pulse_socket_path,
+        pulse_theme,
         pulse_vnext_enabled,
         overview_enabled,
         layout_source,
@@ -4428,6 +4464,23 @@ fn resolve_layout_source() -> LayoutSource {
         },
         Err(_) => LayoutSource::Hub,
     }
+}
+
+fn parse_pulse_theme_mode(value: &str) -> Option<PulseThemeMode> {
+    match value.trim().to_ascii_lowercase().as_str() {
+        "terminal" | "auto" => Some(PulseThemeMode::Terminal),
+        "dark" => Some(PulseThemeMode::Dark),
+        "light" => Some(PulseThemeMode::Light),
+        _ => None,
+    }
+}
+
+fn resolve_pulse_theme_mode() -> PulseThemeMode {
+    std::env::var("AOC_PULSE_THEME")
+        .ok()
+        .as_deref()
+        .and_then(parse_pulse_theme_mode)
+        .unwrap_or(PulseThemeMode::Terminal)
 }
 
 fn init_logging() {
@@ -4601,6 +4654,7 @@ mod tests {
             pane_id: "12".to_string(),
             tab_scope: Some("agent".to_string()),
             pulse_socket_path: PathBuf::from("/tmp/pulse-test.sock"),
+            pulse_theme: PulseThemeMode::Terminal,
             pulse_vnext_enabled: true,
             overview_enabled: true,
             layout_source: LayoutSource::Hub,
@@ -5011,6 +5065,21 @@ mod tests {
         assert_eq!(parse_bool_flag("0"), Some(false));
         assert_eq!(parse_bool_flag("off"), Some(false));
         assert_eq!(parse_bool_flag("maybe"), None);
+    }
+
+    #[test]
+    fn parse_pulse_theme_mode_accepts_known_values() {
+        assert_eq!(
+            parse_pulse_theme_mode("terminal"),
+            Some(PulseThemeMode::Terminal)
+        );
+        assert_eq!(
+            parse_pulse_theme_mode("AUTO"),
+            Some(PulseThemeMode::Terminal)
+        );
+        assert_eq!(parse_pulse_theme_mode("dark"), Some(PulseThemeMode::Dark));
+        assert_eq!(parse_pulse_theme_mode("light"), Some(PulseThemeMode::Light));
+        assert_eq!(parse_pulse_theme_mode("solarized"), None);
     }
 
     #[test]
