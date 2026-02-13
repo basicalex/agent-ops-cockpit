@@ -39,7 +39,7 @@ Commands:
   help                  Show this message.
 
 Legacy aliases (non-launching):
-  last, start, --last, --l
+  last, latest, start, --last, --latest, --l
   use [archive]
 EOF
 }
@@ -232,7 +232,7 @@ case "$cmd" in
     fi
     echo "$archive_file"
     ;;
-  ""|start|last|--last|--l)
+  ""|start|last|latest|--last|--latest|--l)
     echo "aoc-stm: '$cmd' is deprecated and no longer launches a new tab. Printing latest archive." >&2
     read_archive
     ;;
