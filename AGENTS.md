@@ -15,6 +15,7 @@ This file defines the always-on rules for agents in this repo. Procedural playbo
 - `.aoc/memory.md`: persistent decision log.
 - `.aoc/stm/current.md`: in-progress STM draft state.
 - `.aoc/stm/archive/`: archived STM diary snapshots.
+- `.aoc/layouts/`: project-shared Zellij layouts for AOC (`*.kdl`).
 - `.taskmaster/tasks/tasks.json`: dynamic task queue.
 - `.taskmaster/docs/prds/`: task-level PRD documents linked from tasks.
 

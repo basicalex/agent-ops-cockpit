@@ -45,4 +45,6 @@ crates/target/
 !/.aoc/agents-optional/**
 !/.aoc/commands/
 !/.aoc/commands/**
+!/.aoc/layouts/
+!/.aoc/layouts/**
 /.taskmaster/

@@ -1140,24 +1140,49 @@ fn load_projects(base: &Path) -> io::Result<Vec<ProjectEntry>> {
 
 fn layout_options() -> Vec<String> {
     let mut options = vec!["aoc".to_string()];
-    let layouts_dir = config_dir().join("zellij/layouts");
+    if let Some(project_root) = find_project_root() {
+        append_layout_options(&project_root.join(".aoc/layouts"), &mut options);
+    }
+    append_layout_options(&config_dir().join("zellij/layouts"), &mut options);
+    options.sort();
+    options.dedup();
+    options
+}
+
+fn append_layout_options(layouts_dir: &Path, options: &mut Vec<String>) {
     if let Ok(entries) = fs::read_dir(layouts_dir) {
         for entry in entries.flatten() {
             let path = entry.path();
-            if let Some(ext) = path.extension() {
-                if ext == "kdl" {
-                    if let Some(name) = path.file_stem() {
-                        let name = name.to_string_lossy().to_string();
-                        if !options.contains(&name) {
-                            options.push(name);
-                        }
-                    }
+            if path.extension().is_some_and(|ext| ext == "kdl") {
+                if let Some(name) = path.file_stem() {
+                    options.push(name.to_string_lossy().to_string());
                 }
             }
         }
     }
-    options.sort();
-    options
+}
+
+fn find_project_root() -> Option<PathBuf> {
+    if let Ok(value) = env::var("AOC_PROJECT_ROOT") {
+        let trimmed = value.trim();
+        if !trimmed.is_empty() {
+            let root = PathBuf::from(trimmed);
+            if root.join(".aoc").is_dir() {
+                return Some(root);
+            }
+        }
+    }
+
+    let mut probe = env::current_dir().ok()?;
+    loop {
+        if probe.join(".aoc").is_dir() {
+            return Some(probe);
+        }
+        if !probe.pop() {
+            break;
+        }
+    }
+    None
 }
 
 fn agent_options() -> Vec<String> {

@@ -220,7 +220,12 @@ aoc-layout --set minimal
 - `aoc` (default) - Full cockpit with all features
 - `minimal` - Streamlined for focused work
 
-**Create your own** with context injection placeholders (`__AOC_PROJECT_ROOT__`, `__AOC_TAB_NAME__`, `__AOC_AGENT_ID__`). See [Custom Layouts Guide](./docs/layouts.md).
+**Create your own** with context injection placeholders (`__AOC_PROJECT_ROOT__`, `__AOC_TAB_NAME__`, `__AOC_AGENT_ID__`).
+
+- Team-shared layouts: `.aoc/layouts/` (commit to git)
+- Personal layouts: `~/.config/zellij/layouts/`
+
+Named layout resolution prefers project layouts first, then global layouts. See [Custom Layouts Guide](./docs/layouts.md).
 
 ---
 

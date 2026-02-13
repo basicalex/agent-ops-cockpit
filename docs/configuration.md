@@ -106,6 +106,15 @@ Control layout behavior and appearance:
 | `AOC_CLEANUP_SESSIONS` | Limit cleanup to sessions (`current` or comma list) | All sessions |
 | `AOC_CLEANUP_PANE_STRICT` | Allow cleanup within sessions based on pane layout | `0` |
 | `AOC_CLEANUP_INTERACTIVE` | Prompt for cleanup mode when interactive | `1` |
+| `AOC_CLEANUP_REQUIRE_ACTIVE_SIGNALS` | Skip kill pass unless active pane signals are detected | `0` |
+| `AOC_CLEANUP_SKIP_IF_NO_SESSIONS` | Skip cleanup when no Zellij sessions are active | `0` |
+| `AOC_CLEANUP_MIN_PROCESS_AGE_SECS` | Skip killing agents younger than this age (seconds) | `0` |
+| `AOC_CLEANUP_LAUNCH_DELAY_SECS` | Delay auto-cleanup started by `aoc-launch`/`aoc-new-tab` | `6` |
+| `AOC_CLEANUP_LAUNCH_MIN_AGE_SECS` | Minimum process age for auto-cleanup from launch wrappers | `45` |
+
+Cleanup note:
+
+- Auto-cleanup launched by `aoc-launch` and `aoc-new-tab` is guarded by default (`AOC_CLEANUP_SESSIONS=current`, `AOC_CLEANUP_REQUIRE_ACTIVE_SIGNALS=1`, `AOC_CLEANUP_SKIP_IF_NO_SESSIONS=1`, plus age delay filters).
 
 ### Pulse and Mission Control
 
@@ -183,7 +192,8 @@ aoc-new-tab --layout minimal
 # Set default layout
 aoc-layout --set minimal
 
-# Create custom layout in ~/.config/zellij/layouts/
+# Create shared team layouts in .aoc/layouts/
+# Create personal layouts in ~/.config/zellij/layouts/
 ```
 
 **Layout Placeholders:**
@@ -193,6 +203,13 @@ When creating custom layouts, AOC automatically replaces these tokens:
 - `__AOC_TAB_NAME__` → Tab name
 - `__AOC_PROJECT_ROOT__` → Absolute project path
 - `__AOC_AGENT_ID__` → Unique agent/project ID
+- `__AOC_SESSION_ID__` → Session identifier
+- `__AOC_HUB_ADDR__` → Session hub host:port
+- `__AOC_HUB_URL__` → Session hub websocket URL
+
+Layout name resolution order:
+1. `.aoc/layouts/<name>.kdl`
+2. `~/.config/zellij/layouts/<name>.kdl`
 
 ## Per-Project Configuration
 

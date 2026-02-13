@@ -6,6 +6,7 @@ usage() {
 Usage: aoc-layout [--set [layout]] [--tab [layout]] [--current]
 
 Interactive dashboard for selecting the default layout or launching tabs.
+Layouts are discovered from project `.aoc/layouts/` and global `~/.config/zellij/layouts/`.
 EOF
 }
 
@@ -15,13 +16,43 @@ default_file="${state_dir}/layout_default"
 mkdir -p "$state_dir"
 
 list_layouts() {
-  # List .kdl files in ~/.config/zellij/layouts/
-  # Also always include "aoc" as it's the standard default
-  # Remove extension for display
+  # List .kdl files from project and global layout directories.
+  # Project layouts are checked first so shared repo layouts are visible.
+  local project_root=""
+  local project_layout_dir=""
+  project_root="$(resolve_project_root || true)"
+  if [[ -n "$project_root" ]]; then
+    project_layout_dir="$project_root/.aoc/layouts"
+  fi
+
   {
     echo "aoc"
+    if [[ -n "$project_layout_dir" ]]; then
+      find "$project_layout_dir" -maxdepth 1 -name "*.kdl" -printf "%f\n" 2>/dev/null | sed 's/\.kdl$//'
+    fi
     find "$HOME/.config/zellij/layouts" -maxdepth 1 -name "*.kdl" -printf "%f\n" 2>/dev/null | sed 's/\.kdl$//'
-  } | sort -u
+  } | awk 'NF && !seen[$0]++'
+}
+
+resolve_project_root() {
+  local probe="${AOC_PROJECT_ROOT:-${ZELLIJ_PROJECT_ROOT:-$PWD}}"
+  if [[ ! -d "$probe" ]]; then
+    probe="$PWD"
+  fi
+  probe="$(cd "$probe" >/dev/null 2>&1 && pwd -P || pwd -P)"
+
+  while :; do
+    if [[ -d "$probe/.aoc" ]]; then
+      printf '%s' "$probe"
+      return 0
+    fi
+    if [[ "$probe" == "/" ]]; then
+      break
+    fi
+    probe="$(dirname "$probe")"
+  done
+
+  return 1
 }
 
 pick_layout() {
