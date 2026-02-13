@@ -67,25 +67,14 @@ Fine-tune the clock widget appearance:
 | `AOC_CLOCK_DATE_FORMAT` | Date format (date format string) | `%A, %B %d` |
 | `AOC_CLOCK_FONT` | Figlet font name | `small` |
 | `AOC_CLOCK_BACKEND` | Backend selection | `auto` |
-| `AOC_CLOCK_CLOCKTEMP_CMD` | ClockTemp binary name | Auto-detect |
-| `AOC_CLOCK_CLOCKTEMP_FLAGS` | Flags for ClockTemp | None |
 | `AOC_CLOCK_TTY_FLAGS` | Flags for tty-clock | None |
-| `AOC_CLOCK_AUTO_GEO` | Auto-detect location | `1` (enabled) |
-| `AOC_CLOCK_GEO_TTL` | Geo cache TTL in seconds | `86400` (24h) |
 | `AOC_CLOCK_SPAWN` | Spawn new pane when running in Zellij | `1` |
 | `AOC_CLOCK_PANE_NAME` | Name for clock pane | `Clock` |
 | `AOC_CLOCK_PANE_DIRECTION` | Split direction for clock pane | `up` |
 
 **Backend Priority (when `AOC_CLOCK_BACKEND=auto`):**
-1. ClockTemp (if installed)
-2. tty-clock (if installed)
-3. Figlet fallback
-
-**Manual Location Refresh:**
-
-```bash
-aoc-clock-geo
-```
+1. tty-clock (if installed)
+2. Figlet fallback
 
 **Persist Clock Settings:**
 
