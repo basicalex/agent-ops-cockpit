@@ -61,6 +61,13 @@ EOF
     log "Short-term memory exists ($stm_current). Preserving."
   fi
 
+  # Shared project layouts
+  local layouts_dir="$aoc_dir/layouts"
+  if [[ ! -d "$layouts_dir" ]]; then
+    log "Creating shared layouts directory ($layouts_dir)..."
+    mkdir -p "$layouts_dir"
+  fi
+
   # AGENTS.md (project-level agent contract)
   local agents_file="$project_root/AGENTS.md"
   if [[ ! -f "$agents_file" ]]; then
@@ -83,6 +90,7 @@ This file defines the always-on rules for agents in this repo. Procedural playbo
 - `.aoc/memory.md`: persistent decision log.
 - `.aoc/stm/current.md`: in-progress STM draft state.
 - `.aoc/stm/archive/`: archived STM diary snapshots.
+- `.aoc/layouts/`: project-shared Zellij layouts for AOC (`*.kdl`).
 - `.taskmaster/tasks/tasks.json`: dynamic task queue.
 - `.taskmaster/docs/prds/`: task-level PRD documents linked from tasks.
 
@@ -321,11 +329,24 @@ setup_agents() {
     mkdir -p "$opencode_agents_dir"
   fi
 
-  if [[ ! -f "$opencode_agents_dir/aoc-ops.md" ]]; then
-    cp "$seed_file" "$opencode_agents_dir/aoc-ops.md"
+  local agent_file="$opencode_agents_dir/aoc-ops.md"
+
+  if [[ ! -f "$agent_file" ]]; then
+    cp "$seed_file" "$agent_file"
     log "Seeded OpenCode agent: aoc-ops"
   else
-    log "OpenCode agent already present. Preserving."
+    if ! grep -Fq '.aoc/layouts/' "$agent_file"; then
+      cat <<'EOF' >> "$agent_file"
+
+## Layout Operations
+- Manage project-shared layouts in `.aoc/layouts/`.
+- Prefer `.aoc/layouts/<name>.kdl` over `~/.config/zellij/layouts/<name>.kdl` when names overlap.
+- Validate layouts via `aoc-layout --tab <name>`.
+EOF
+      log "Updated OpenCode agent with project layout guidance."
+    else
+      log "OpenCode agent already present. Preserving."
+    fi
   fi
 }
 
@@ -354,6 +375,20 @@ setup_opencode_commands() {
         cp "$seed_file" "$target_file"
         log "Seeded OpenCode command: /$(basename "$seed_file" .md)"
       else
+        if [[ "$(basename "$target_file")" == "stm.md" ]] && grep -Fq "default \\`--last\\`) to archive and continue in a fresh tab/session with STM injected." "$target_file"; then
+          python3 - "$target_file" <<'PY'
+from pathlib import Path
+import sys
+
+path = Path(sys.argv[1])
+text = path.read_text(encoding="utf-8")
+old = "When finished, remind me I can run `aoc-stm` (default `--last`) to archive and continue in a fresh tab/session with STM injected."
+new = "When finished, remind me to run `aoc-stm archive` to persist this snapshot, then `aoc-stm` to print the latest archived STM context into the transcript."
+if old in text:
+    path.write_text(text.replace(old, new), encoding="utf-8")
+PY
+          log "Updated OpenCode command /stm with non-launching STM guidance."
+        fi
         log "OpenCode command /$(basename "$seed_file" .md) already present. Preserving."
       fi
       seeded_any=1

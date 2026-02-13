@@ -1209,6 +1209,12 @@ impl App {
                     if local.tab_focused {
                         existing.tab_focused = true;
                     }
+                } else {
+                    let mut local_row = local.clone();
+                    if local_row.source == "runtime" || local_row.source == "proc" {
+                        local_row.source = "loc".to_string();
+                    }
+                    rows.insert(local_row.identity_key.clone(), local_row);
                 }
             }
 
@@ -5135,8 +5141,13 @@ mod tests {
         assert_eq!(app.mode_source(), "hub");
         assert_eq!(app.hub_status_label(), "reconnecting");
         let rows = app.overview_rows();
-        assert_eq!(rows.len(), 1);
-        assert_eq!(rows[0].identity_key, "session-test::12");
+        assert_eq!(rows.len(), 2);
+        assert!(rows
+            .iter()
+            .any(|row| row.identity_key == "session-test::12"));
+        assert!(rows
+            .iter()
+            .any(|row| row.identity_key == "session-test::99"));
     }
 
     #[test]
@@ -5178,7 +5189,7 @@ mod tests {
     }
 
     #[test]
-    fn overview_hub_mode_skips_local_only_rows() {
+    fn overview_hub_mode_includes_local_only_rows() {
         let (tx, _rx) = mpsc::channel(4);
         let mut app = App::new(test_config(), tx, empty_local());
         app.local.overview.push(OverviewRow {
@@ -5206,8 +5217,13 @@ mod tests {
         });
 
         let rows = app.overview_rows();
-        assert_eq!(rows.len(), 1);
-        assert_eq!(rows[0].identity_key, "session-test::12");
+        assert_eq!(rows.len(), 2);
+        assert!(rows
+            .iter()
+            .any(|row| row.identity_key == "session-test::12"));
+        assert!(rows
+            .iter()
+            .any(|row| row.identity_key == "session-test::99"));
     }
 
     #[test]

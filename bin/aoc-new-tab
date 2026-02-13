@@ -20,7 +20,17 @@ if [[ "${AOC_CLEANUP:-1}" != "0" ]]; then
   if command -v aoc-cleanup >/dev/null 2>&1; then
     cleanup_log="$state_dir/cleanup.log"
     mkdir -p "$state_dir"
-    (aoc-cleanup >>"$cleanup_log" 2>&1) &
+    cleanup_delay_secs="${AOC_CLEANUP_LAUNCH_DELAY_SECS:-6}"
+    cleanup_min_age_secs="${AOC_CLEANUP_LAUNCH_MIN_AGE_SECS:-45}"
+    (
+      sleep "$cleanup_delay_secs"
+      AOC_CLEANUP_INTERACTIVE=0 \
+      AOC_CLEANUP_SESSIONS=current \
+      AOC_CLEANUP_REQUIRE_ACTIVE_SIGNALS=1 \
+      AOC_CLEANUP_SKIP_IF_NO_SESSIONS=1 \
+      AOC_CLEANUP_MIN_PROCESS_AGE_SECS="$cleanup_min_age_secs" \
+      aoc-cleanup >>"$cleanup_log" 2>&1
+    ) &
   fi
 fi
 
@@ -196,10 +206,20 @@ cleanup_state() {
 
 resolve_layout_path() {
   local layout_name="$1"
+  local layout_root="${2:-}"
   if [[ "$layout_name" == /* || "$layout_name" == *.kdl ]]; then
     printf '%s' "$layout_name"
     return
   fi
+
+  if [[ -n "$layout_root" ]]; then
+    local project_layout="$layout_root/.aoc/layouts/${layout_name}.kdl"
+    if [[ -f "$project_layout" ]]; then
+      printf '%s' "$project_layout"
+      return
+    fi
+  fi
+
   printf '%s' "$HOME/.config/zellij/layouts/${layout_name}.kdl"
 }
 
@@ -278,7 +298,7 @@ tab_name_to_use="${tab_name:-$computed_tab_name}"
 agent_id="$raw_name"
 
 layout_arg="$layout_choice"
-layout_path="$(resolve_layout_path "$layout_choice")"
+layout_path="$(resolve_layout_path "$layout_choice" "$project_root")"
 
 # Process layout file if it exists (for ALL layouts, not just "aoc")
 if [[ -f "$layout_path" ]]; then

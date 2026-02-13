@@ -17,7 +17,16 @@ aoc-layout --set minimal
 
 ## Creating Your Own Layout
 
-Layouts live in `~/.config/zellij/layouts/`. Any standard [Zellij KDL layout](https://zellij.dev/documentation/layouts.html) works, but AOC adds a special layer of "Context Injection" that makes them powerful.
+Layouts can live in either location:
+
+- **Project shared (recommended for teams):** `.aoc/layouts/` (commit to git)
+- **Personal global:** `~/.config/zellij/layouts/`
+
+Any standard [Zellij KDL layout](https://zellij.dev/documentation/layouts.html) works, but AOC adds a special layer of "Context Injection" that makes them powerful.
+
+When a layout name exists in both places, AOC resolves it in this order:
+1. `.aoc/layouts/<name>.kdl`
+2. `~/.config/zellij/layouts/<name>.kdl`
 
 ### The Magic Placeholders
 
@@ -28,10 +37,13 @@ When you launch a tab, AOC reads your layout and replaces these tokens with real
 | `__AOC_TAB_NAME__` | The name of the tab | "Agent" or "MyProject" |
 | `__AOC_PROJECT_ROOT__` | Absolute path to the project | `/home/user/dev/my-app` |
 | `__AOC_AGENT_ID__` | Unique ID for the project/tab | `my-app` |
+| `__AOC_SESSION_ID__` | Current Zellij session ID | `otter-debugs` |
+| `__AOC_HUB_ADDR__` | Hub host:port for this session | `127.0.0.1:42017` |
+| `__AOC_HUB_URL__` | Hub websocket URL for this session | `ws://127.0.0.1:42017/ws` |
 
 ### Example: The "Review" Layout
 
-Create `~/.config/zellij/layouts/review.kdl`:
+Create `.aoc/layouts/review.kdl`:
 
 ```kdl
 layout {
@@ -58,7 +70,7 @@ Now you can run: `aoc-new-tab --layout review` inside any project, and it will o
 
 ## Managing Layouts (`aoc-layout`)
 
-The `aoc-layout` tool is your dashboard for managing these modes.
+The `aoc-layout` tool is your dashboard for managing these modes. It lists both project and global layouts.
 
 ### Commands
 
@@ -83,7 +95,7 @@ We encourage sharing layouts! If you create a useful mode (e.g., for Rust dev, P
 
 ## Troubleshooting
 
-*   **Layout not found?** Ensure it ends in `.kdl` and is located in `~/.config/zellij/layouts/`.
+*   **Layout not found?** Ensure it ends in `.kdl` and is located in `.aoc/layouts/` or `~/.config/zellij/layouts/`.
 *   **Terminals starting in home dir?** Make sure you used the `__AOC_PROJECT_ROOT__` placeholder in your `args`.
     *   *Correct:* `args "-lc" "cd \"__AOC_PROJECT_ROOT__\" && ..."`
     *   *Incorrect:* `cwd "__AOC_PROJECT_ROOT__"` (Zellij 0.43+ supports `cwd`, but our injection method ensures robust variable expansion even inside command arguments).

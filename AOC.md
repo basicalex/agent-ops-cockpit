@@ -116,5 +116,5 @@ aoc-doctor
 ### 6. Custom Layouts
 AOC supports user-defined layouts with context injection.
 *   **Documentation:** See [docs/layouts.md](docs/layouts.md) for a full guide on creating custom "AOC Modes".
-*   **Tool:** `aoc-layout` allows selecting and persisting a default layout from `~/.config/zellij/layouts/`.
+*   **Tool:** `aoc-layout` allows selecting and persisting a default layout from project `.aoc/layouts/` (team-shared) and `~/.config/zellij/layouts/` (personal).
 *   **Placeholders:** `__AOC_TAB_NAME__`, `__AOC_AGENT_ID__`, `__AOC_PROJECT_ROOT__`.

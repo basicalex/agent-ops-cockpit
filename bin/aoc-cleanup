@@ -296,7 +296,23 @@ def env_truthy(name):
     raw = os.environ.get(name, "").strip().lower()
     return raw not in {"", "0", "false", "no", "off"}
 
+def env_int(name, default=0, minimum=0):
+    raw = os.environ.get(name, "").strip()
+    if not raw:
+        return default
+    try:
+        value = int(raw)
+    except ValueError:
+        print(f"Warning: {name} must be an integer; using {default}.")
+        return default
+    if value < minimum:
+        return minimum
+    return value
+
 dry_run = env_truthy("AOC_CLEANUP_DRY_RUN")
+require_active_signals = env_truthy("AOC_CLEANUP_REQUIRE_ACTIVE_SIGNALS")
+skip_if_no_sessions = env_truthy("AOC_CLEANUP_SKIP_IF_NO_SESSIONS")
+min_process_age_secs = env_int("AOC_CLEANUP_MIN_PROCESS_AGE_SECS", 0, 0)
 
 def dump_layout(session=None):
     if session:
@@ -680,8 +696,8 @@ def proc_cmd(args, comm):
 
 def get_process_map():
     try:
-        # Get more info: pid, ppid, comm (executable name), and full command line
-        ps_out = subprocess.check_output(["ps", "-eo", "pid,ppid,tty,comm,args"], text=True)
+        # Get more info: pid, ppid, elapsed seconds, tty, comm, and full command line
+        ps_out = subprocess.check_output(["ps", "-eo", "pid,ppid,etimes,tty,comm,args"], text=True)
     except subprocess.CalledProcessError:
         return {}, {}
         
@@ -689,18 +705,24 @@ def get_process_map():
     children = collections.defaultdict(list)
     
     for line in ps_out.strip().splitlines()[1:]:
-        # format: PID PPID COMM ARGS...
-        parts = line.strip().split(None, 4)
-        if len(parts) < 5:
+        # format: PID PPID ETIMES TTY COMM ARGS...
+        parts = line.strip().split(None, 5)
+        if len(parts) < 6:
             continue
         try:
             pid = int(parts[0])
             ppid = int(parts[1])
-            tty = parts[2]
-            comm = parts[3]
-            args = parts[4]
+            etimes_raw = parts[2]
+            tty = parts[3]
+            comm = parts[4]
+            args = parts[5]
+            try:
+                etimes = int(etimes_raw)
+            except ValueError:
+                etimes = None
             processes[pid] = {
                 "ppid": ppid,
+                "etimes": etimes,
                 "tty": tty,
                 "comm": comm,
                 "args": args
@@ -755,6 +777,9 @@ processes, children = get_process_map()
 session_filter = parse_session_filter()
 pane_strict = env_truthy("AOC_CLEANUP_PANE_STRICT")
 all_sessions = list_sessions()
+if skip_if_no_sessions and not all_sessions:
+    print("No active Zellij sessions found; skipping cleanup (AOC_CLEANUP_SKIP_IF_NO_SESSIONS=1).")
+    raise SystemExit(0)
 if session_filter is None:
     active_sessions = set(all_sessions)
 else:
@@ -827,6 +852,11 @@ if dry_run:
     print("Dry run mode: on")
 if not have_active_signals:
     print("Warning: No active agent panes discovered; falling back to safe-pid logic only.")
+if require_active_signals and not have_active_signals:
+    print("Skipping cleanup because active pane signals are required (AOC_CLEANUP_REQUIRE_ACTIVE_SIGNALS=1).")
+    raise SystemExit(0)
+if min_process_age_secs > 0:
+    print(f"Minimum process age filter: {min_process_age_secs}s")
 
 # 5. Identify Targets (Orphan Agents)
 kill_list = []
@@ -872,6 +902,7 @@ for pid, info in processes.items():
         agent_candidates.append({
             "pid": pid,
             "ppid": info.get("ppid"),
+            "etimes": info.get("etimes"),
             "args": args,
             "comm": comm,
             "cwd": cwd,
@@ -992,6 +1023,8 @@ keep_tree = set()
 if keep_pids:
     keep_tree = get_descendants(keep_pids, children)
 
+skipped_young = 0
+
 for proc in agent_candidates:
     pid = proc["pid"]
     args = proc["args"]
@@ -1027,6 +1060,12 @@ for proc in agent_candidates:
         if active_hit:
             continue
 
+    if min_process_age_secs > 0:
+        proc_age = proc.get("etimes")
+        if proc_age is None or proc_age < min_process_age_secs:
+            skipped_young += 1
+            continue
+
     kill_list.append((pid, args))
 
 # 6. Execute
@@ -1053,6 +1092,9 @@ else:
                 os.kill(pid, signal.SIGKILL)
             except ProcessLookupError:
                 pass
+
+if skipped_young:
+    print(f"Skipped {skipped_young} young/unknown-age agent processes (< {min_process_age_secs}s).")
 
 removed_snapshots = prune_runtime_snapshots(
     active_panes_by_session,

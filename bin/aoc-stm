@@ -105,10 +105,16 @@ resolve_archive() {
 
 read_archive() {
   local archive_file=""
+  local spec="${1:-}"
   archive_file="$(resolve_archive "${1:-}" || true)"
   if [[ -z "$archive_file" ]]; then
     echo "No STM archive available in $archive_dir." >&2
-    echo "Create STM notes with 'aoc-stm add <note>' then run 'aoc-stm archive'." >&2
+    if [[ -n "$spec" ]]; then
+      echo "Requested archive: $spec" >&2
+      echo "Tip: run 'aoc-stm history' to list local archives, or pass an absolute archive path." >&2
+    else
+      echo "Create STM notes with 'aoc-stm add <note>' then run 'aoc-stm archive'." >&2
+    fi
     return 1
   fi
   cat "$archive_file"
@@ -237,7 +243,7 @@ case "$cmd" in
     read_archive
     ;;
   use)
-    echo "aoc-stm: 'use' is deprecated and no longer launches a new tab. Printing selected archive." >&2
+    echo "aoc-stm: 'use' is deprecated. Use 'aoc-stm read [archive]' or 'aoc-stm load [archive]'." >&2
     shift || true
     read_archive "${1:-}"
     ;;
