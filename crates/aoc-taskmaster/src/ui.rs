@@ -493,11 +493,7 @@ fn render_tag_selector(f: &mut Frame, app: &mut App, area: Rect) {
         return;
     }
 
-    let active_tag = if app.current_tag.is_empty() {
-        "master".to_string()
-    } else {
-        app.current_tag.clone()
-    };
+    let active_tag = app.current_tag_or_default();
 
     let items: Vec<ListItem> = app
         .tag_items
