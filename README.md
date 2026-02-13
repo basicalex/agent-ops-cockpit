@@ -2,7 +2,7 @@
 
 [![Version](https://img.shields.io/badge/version-0.1.0-blue.svg)](./CHANGELOG.md)
 [![Zellij](https://img.shields.io/badge/zellij-%E2%89%A50.43.1-green.svg)](https://zellij.dev)
-[![License](https://img.shields.io/badge/license-MIT-yellow.svg)](./LICENSE)
+[![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](./LICENSE)
 [![Build](https://github.com/basicalex/agent-ops-cockpit/actions/workflows/ci.yml/badge.svg)](https://github.com/basicalex/agent-ops-cockpit/actions/workflows/ci.yml)
 
 > **The Distributed Cognitive Architecture for AI-Assisted Development**
@@ -481,7 +481,7 @@ AOC builds on excellent open-source tools:
 
 ## 📄 License
 
-MIT License - see [LICENSE](./LICENSE) file for details.
+Apache License 2.0 - see [LICENSE](./LICENSE) file for details.
 
 ---
 
