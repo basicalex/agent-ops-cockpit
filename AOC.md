@@ -14,7 +14,6 @@ The project is polyglot, consisting primarily of:
 *   **Shell Scripts (`bin/`):** The core logic for launching the environment, managing agents, and wrapping tools.
 *   **Zellij Layouts (`zellij/`):** KDL files defining pane structure and command wiring.
 *   **Rust (`crates/aoc-taskmaster`):** Native Taskmaster TUI for task management.
-*   **Python (`ClockTemp/`):** Scripts for the clock and weather widget.
 
 ## Key Components
 
@@ -37,11 +36,7 @@ A Rust-based Ratatui TUI that provides an interactive task list.
 *   **Source:** `crates/aoc-taskmaster/src/main.rs`
 *   **Binary:** `aoc-taskmaster`
 
-### 4. ClockTemp (`ClockTemp/`)
-A Python-based utility for rendering the clock and weather information.
-*   **Scripts:** `script/*.py` handle the logic.
-
-### 5. RLM Skill (`aoc-rlm`)
+### 4. RLM Skill (`aoc-rlm`)
 Rust-based Recursive Language Model tooling for large codebase analysis.
 *   **Commands:** `aoc-rlm scan`, `aoc-rlm peek`, `aoc-rlm chunk`.
 *   **Default usage:** prefer RLM for large repos to avoid context overflows.
@@ -113,7 +108,7 @@ aoc-doctor
 *   **Wrappers:** Agents are typically wrapped (via `aoc-agent-wrap`) to ensure consistent behavior (scrollback, signal handling) within the Zellij panes.
 *   **State:** The system uses `~/.local/state/aoc` to persist state like the current project root or the active default agent.
 
-### 6. Custom Layouts
+### 5. Custom Layouts
 AOC supports user-defined layouts with context injection.
 *   **Documentation:** See [docs/layouts.md](docs/layouts.md) for a full guide on creating custom "AOC Modes".
 *   **Tool:** `aoc-layout` allows selecting and persisting a default layout from project `.aoc/layouts/` (team-shared) and `~/.config/zellij/layouts/` (personal).
