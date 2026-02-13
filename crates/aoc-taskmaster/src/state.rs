@@ -345,11 +345,10 @@ impl App {
             return;
         };
 
-        let tag = if self.current_tag.is_empty() {
-            "master".to_string()
-        } else {
-            self.current_tag.clone()
-        };
+        let tag = self.current_tag_or_default();
+        if self.current_tag.is_empty() {
+            self.current_tag = tag.clone();
+        }
 
         if tag == ALL_TAG_VIEW {
             let mut combined: Vec<(String, Task)> = Vec::new();
@@ -938,12 +937,33 @@ impl App {
         self.save_project();
     }
 
-    fn current_tag_or_default(&self) -> String {
-        if self.current_tag.is_empty() {
-            "master".to_string()
-        } else {
-            self.current_tag.clone()
+    pub fn current_tag_or_default(&self) -> String {
+        if !self.current_tag.is_empty() {
+            return self.current_tag.clone();
         }
+        self.inferred_default_tag()
+    }
+
+    fn inferred_default_tag(&self) -> String {
+        let Some(project) = &self.project else {
+            return "master".to_string();
+        };
+
+        if project.tags.len() > 1 {
+            return ALL_TAG_VIEW.to_string();
+        }
+
+        if project.tags.contains_key("master") {
+            return "master".to_string();
+        }
+
+        let mut tag_names: Vec<&String> = project.tags.keys().collect();
+        tag_names.sort();
+        if let Some(first) = tag_names.first() {
+            return (*first).clone();
+        }
+
+        "master".to_string()
     }
 
     pub fn display_tag_name<'a>(&self, tag: &'a str) -> &'a str {
@@ -1182,11 +1202,8 @@ impl App {
     }
 
     fn build_pane_title(&self) -> String {
-        let tag = if self.current_tag.is_empty() {
-            "master"
-        } else {
-            self.display_tag_name(self.current_tag.as_str())
-        };
+        let current_tag = self.current_tag_or_default();
+        let tag = self.display_tag_name(current_tag.as_str());
         let total = self.tasks.len();
         let done = self.tasks.iter().filter(|t| t.status.is_done()).count();
         let percent = if total > 0 {

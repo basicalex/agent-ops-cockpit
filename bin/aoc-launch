@@ -10,17 +10,32 @@ default_layout_file="${state_dir}/layout_default"
 if [[ "${AOC_CLEANUP:-1}" != "0" ]]; then
   if command -v aoc-cleanup >/dev/null 2>&1; then
     cleanup_log="$state_dir/cleanup.log"
+    cleanup_lock="$state_dir/cleanup.lock"
     mkdir -p "$state_dir"
     cleanup_delay_secs="${AOC_CLEANUP_LAUNCH_DELAY_SECS:-6}"
-    cleanup_min_age_secs="${AOC_CLEANUP_LAUNCH_MIN_AGE_SECS:-45}"
+    cleanup_min_age_secs="${AOC_CLEANUP_LAUNCH_MIN_AGE_SECS:-300}"
     (
       sleep "$cleanup_delay_secs"
-      AOC_CLEANUP_INTERACTIVE=0 \
-      AOC_CLEANUP_SESSIONS=current \
-      AOC_CLEANUP_REQUIRE_ACTIVE_SIGNALS=1 \
-      AOC_CLEANUP_SKIP_IF_NO_SESSIONS=1 \
-      AOC_CLEANUP_MIN_PROCESS_AGE_SECS="$cleanup_min_age_secs" \
-      aoc-cleanup >>"$cleanup_log" 2>&1
+      if command -v flock >/dev/null 2>&1; then
+        (
+          flock -n 9 || exit 0
+          AOC_CLEANUP_INTERACTIVE=0 \
+          AOC_CLEANUP_SESSIONS=current \
+          AOC_CLEANUP_PANE_STRICT=0 \
+          AOC_CLEANUP_REQUIRE_ACTIVE_SIGNALS=1 \
+          AOC_CLEANUP_SKIP_IF_NO_SESSIONS=1 \
+          AOC_CLEANUP_MIN_PROCESS_AGE_SECS="$cleanup_min_age_secs" \
+          aoc-cleanup >>"$cleanup_log" 2>&1
+        ) 9>"$cleanup_lock"
+      else
+        AOC_CLEANUP_INTERACTIVE=0 \
+        AOC_CLEANUP_SESSIONS=current \
+        AOC_CLEANUP_PANE_STRICT=0 \
+        AOC_CLEANUP_REQUIRE_ACTIVE_SIGNALS=1 \
+        AOC_CLEANUP_SKIP_IF_NO_SESSIONS=1 \
+        AOC_CLEANUP_MIN_PROCESS_AGE_SECS="$cleanup_min_age_secs" \
+        aoc-cleanup >>"$cleanup_log" 2>&1
+      fi
     ) &
   fi
 fi
