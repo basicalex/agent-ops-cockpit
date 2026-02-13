@@ -1041,7 +1041,14 @@ for proc in agent_candidates:
         if pane_strict and pane_layout_signals:
             kill_list.append((pid, args))
         else:
-            skipped_pane_miss += 1
+            if min_process_age_secs <= 0:
+                skipped_pane_miss += 1
+                continue
+            proc_age = proc.get("etimes")
+            if proc_age is None or proc_age < min_process_age_secs:
+                skipped_pane_miss += 1
+                continue
+            kill_list.append((pid, args))
         continue
     if pid in safe_pids:
         if not (pane_strict and pane_layout_signals):
@@ -1100,7 +1107,10 @@ else:
 if skipped_young:
     print(f"Skipped {skipped_young} young/unknown-age agent processes (< {min_process_age_secs}s).")
 if skipped_pane_miss:
-    print(f"Skipped {skipped_pane_miss} pane-miss candidates (non-strict mode).")
+    print(
+        f"Skipped {skipped_pane_miss} pane-miss candidates "
+        "(non-strict mode; set AOC_CLEANUP_MIN_PROCESS_AGE_SECS>0 to age out)."
+    )
 
 removed_snapshots = prune_runtime_snapshots(
     active_panes_by_session,
