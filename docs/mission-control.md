@@ -33,6 +33,7 @@ the session_id and the hub must reject mismatched sessions.
 | AOC_HUB_ADDR | Hub listen address (host:port) | 127.0.0.1:<port-from-session> |
 | AOC_HUB_URL | Websocket URL for hub | ws://AOC_HUB_ADDR/ws |
 | AOC_TAB_SCOPE | Logical tab identity shared by panes in the same tab | Derived from launch layout tab name |
+| AOC_PULSE_THEME | Pulse palette mode (`terminal`, `auto`, `dark`, `light`) | `terminal` |
 | AOC_PULSE_OVERVIEW_ENABLED | Enable Pulse Overview mode in mission-control | 1 (enabled by default) |
 | AOC_PULSE_LAYOUT_WATCH_ENABLED | Enable hub background layout watcher (`dump-layout`) | 0 (disabled by default) |
 | AOC_PULSE_LAYOUT_WATCH_MS | Hub layout poll interval while layout subscribers are active | 3000 ms |
@@ -45,6 +46,9 @@ the session_id and the hub must reject mismatched sessions.
 
 The default top-right pane is **AOC Pulse** and starts in Overview mode.
 Work, Diff, and Health remain available as companion operational modes.
+
+By default, Pulse uses `AOC_PULSE_THEME=terminal`, which keeps the pane surface
+and text aligned with the active terminal/system theme.
 
 ### v1 Fallback (No Hub Required)
 - Pulse must run headless-safe and useful even when hub is down.
