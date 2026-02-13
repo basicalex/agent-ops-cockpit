@@ -8,17 +8,17 @@ layout {
         args "-lc" "export PATH=\"$HOME/.cargo/bin:$PATH\"; export AOC_TAB_SCOPE=\"__AOC_TAB_NAME__\"; cd \"__AOC_PROJECT_ROOT__\" && exec ${AOC_TERMINAL_CMD:-$SHELL}"
       }
     }
-    pane size=1 borderless=true {
+    pane size=2 borderless=true {
       plugin location="file:{{HOME}}/.config/zellij/plugins/zjstatus.wasm" {
         format_left   "{mode} #[fg=#89B4FA,bold]{session}"
         format_center "{tabs}"
         format_right  "{command_cwd}"
         format_space  ""
 
-        border_enabled  "false"
-        border_char     "─"
-        border_format   "#[fg=#6C7086]{char}"
-        border_position "bottom"
+        border_enabled  "true"
+        border_char     " "
+        border_format   "{char}"
+        border_position "top"
 
         hide_frame_for_single_pane "true"
 

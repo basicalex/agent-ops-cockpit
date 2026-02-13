@@ -5,7 +5,7 @@ This file defines the always-on rules for agents in this repo. Procedural playbo
 ## Always-on rules
 - Use `.aoc/context.md` for orientation; run `aoc-init` if it is missing or stale.
 - `.aoc/memory.md` is append-only; use `aoc-mem` to read/search/add. Do not edit the file directly.
-- `.aoc/stm/current.md` is STM draft state; use `aoc-stm` to add/edit/archive/read. STM archives are a durable project diary; store architectural decisions in `aoc-mem`.
+- `.aoc/stm/current.md` is STM draft state; use `aoc-stm` to read current draft, `aoc-stm archive` to persist snapshots, and `aoc-stm read` for archived entries. Store architectural decisions in `aoc-mem`.
 - `.taskmaster/tasks/tasks.json` is task state; use the Taskmaster TUI or `aoc-task` commands. Do not edit the file directly.
 - Task PRDs are linked per task (not subtask) via `aocPrd`; keep PRD documents in `.taskmaster/docs/prds/` and resolve via `aoc-task prd` commands.
 - Record major decisions and constraints in memory (`aoc-mem add "..."`).

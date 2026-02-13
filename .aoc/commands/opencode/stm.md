@@ -19,4 +19,4 @@ Rules:
 - Do not duplicate long-term memory entries; only include ephemeral execution state.
 - If there is a durable architectural decision, explicitly note: "Promote to aoc-mem".
 
-When finished, remind me to run `aoc-stm archive` to persist this snapshot, then `aoc-stm` to print the latest archived STM context into the terminal transcript.
+When finished, remind me that `aoc-stm` reads the current draft, `aoc-stm archive` persists this snapshot, and `aoc-stm read` prints the latest archived STM context into the terminal transcript.

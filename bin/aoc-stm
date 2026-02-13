@@ -1,8 +1,26 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-project_root=""
-if command -v aoc-align >/dev/null 2>&1; then
+discover_pwd_root() {
+  local probe="$PWD"
+
+  while [[ -n "$probe" && "$probe" != "/" ]]; do
+    if [[ -d "$probe/.aoc" ]]; then
+      printf '%s' "$probe"
+      return 0
+    fi
+    if [[ -d "$probe/.git" ]]; then
+      printf '%s' "$probe"
+      return 0
+    fi
+    probe="$(dirname "$probe")"
+  done
+
+  return 1
+}
+
+project_root="$(discover_pwd_root 2>/dev/null || true)"
+if [[ -z "$project_root" ]] && command -v aoc-align >/dev/null 2>&1; then
   project_root="$(aoc-align --print-root 2>/dev/null || true)"
 fi
 if [[ -z "$project_root" ]]; then
@@ -22,7 +40,7 @@ Short-term memory (STM) manager for AOC.
 
 Default behavior:
   aoc-stm
-    Print the latest archived STM entry to stdout.
+    Print current STM draft file.
 
 Commands:
   read [archive]        Print archived STM (latest by default).
@@ -53,6 +71,32 @@ setup() {
 
 has_current_content() {
   [[ -f "$current_file" ]] && grep -q '[^[:space:]]' "$current_file"
+}
+
+file_mtime_epoch() {
+  local file="$1"
+  if stat -c %Y "$file" >/dev/null 2>&1; then
+    stat -c %Y "$file"
+    return 0
+  fi
+  stat -f %m "$file"
+}
+
+current_newer_than_archive() {
+  local archive_file="$1"
+  local current_mtime archive_mtime
+
+  if ! has_current_content; then
+    return 1
+  fi
+
+  current_mtime="$(file_mtime_epoch "$current_file" 2>/dev/null || printf '0')"
+  archive_mtime="$(file_mtime_epoch "$archive_file" 2>/dev/null || printf '0')"
+
+  [[ "$current_mtime" =~ ^[0-9]+$ ]] || current_mtime=0
+  [[ "$archive_mtime" =~ ^[0-9]+$ ]] || archive_mtime=0
+
+  (( current_mtime > archive_mtime ))
 }
 
 sanitize_name() {
@@ -108,6 +152,12 @@ read_archive() {
   local spec="${1:-}"
   archive_file="$(resolve_archive "${1:-}" || true)"
   if [[ -z "$archive_file" ]]; then
+    if [[ -z "$spec" ]] && has_current_content; then
+      echo "No STM archive available in $archive_dir." >&2
+      echo "Current STM draft has notes; run 'aoc-stm' to read draft notes." >&2
+      echo "Run 'aoc-stm archive' to persist your first snapshot." >&2
+      return 1
+    fi
     echo "No STM archive available in $archive_dir." >&2
     if [[ -n "$spec" ]]; then
       echo "Requested archive: $spec" >&2
@@ -117,6 +167,12 @@ read_archive() {
     fi
     return 1
   fi
+
+  if [[ -z "$spec" ]] && current_newer_than_archive "$archive_file"; then
+    echo "Note: current STM draft is newer than the latest archive." >&2
+    echo "Run 'aoc-stm archive' to persist it, or 'aoc-stm read-current' to inspect draft notes." >&2
+  fi
+
   cat "$archive_file"
 }
 
@@ -173,10 +229,11 @@ add_note() {
   timestamp="$(date '+%Y-%m-%d %H:%M')"
   setup
   printf -- "- [%s] %s\n" "$timestamp" "$note" >> "$current_file"
-  echo "STM note added."
+  echo "STM note added to $current_file"
+  echo "Use 'aoc-stm' to read current draft or 'aoc-stm archive' to persist a snapshot."
 }
 
-cmd="${1:-read}"
+cmd="${1:-current}"
 
 case "$cmd" in
   read)
@@ -238,7 +295,7 @@ case "$cmd" in
     fi
     echo "$archive_file"
     ;;
-  ""|start|last|latest|--last|--latest|--l)
+  start|last|latest|--last|--latest|--l)
     echo "aoc-stm: '$cmd' is deprecated and no longer launches a new tab. Printing latest archive." >&2
     read_archive
     ;;
