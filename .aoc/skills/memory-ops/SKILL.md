@@ -9,8 +9,9 @@ description: Use aoc-mem to read, search, and record project decisions.
 - `aoc-mem add "<decision>"`
 - `aoc-stm add "<handoff note>"`
 - `aoc-stm edit`
+- `aoc-stm` (read current draft)
 - `aoc-stm archive`
-- `aoc-stm` (read latest archive)
+- `aoc-stm read` (read latest archive)
 - `aoc-stm history`
 
 ## Recording guidelines

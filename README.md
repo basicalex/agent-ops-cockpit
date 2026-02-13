@@ -262,9 +262,9 @@ AOC's architecture solves the fundamental problem of **context management in AI-
 #### 5. Short-Term Memory (`.aoc/stm/`) - The "Handoff Buffer"
 - **Role:** Session diary + handoff context for transparent agent continuity
 - **Content:** working draft (`current.md`) and archived snapshots (`archive/*.md`)
-- **Update:** Via `aoc-stm add|edit|archive|history|read` (`aoc-stm` defaults to `read`)
+- **Update:** Via `aoc-stm add|edit|archive|history|read` (`aoc-stm` defaults to current draft)
 - **Lifecycle:** Keep STM entries as project diary artifacts; promote durable architecture decisions to `aoc-mem`
-- **Behavior:** `aoc-stm` prints the latest archived STM entry to stdout (no tab/session launch side effects)
+- **Behavior:** `aoc-stm` prints current STM draft to stdout; use `aoc-stm read` for latest archived STM (no tab/session launch side effects)
 
 ### Per-Tab Isolation
 
@@ -290,7 +290,7 @@ When you start working in AOC:
 5. **Spec:** `aoc-task prd show <id>` - Read linked PRD before implementation
 6. **Execute:** Edit files, run commands, collaborate with AI agent
 7. **Handoff Prep (OpenCode):** `/stm` - Ask the agent to write a concise `.aoc/stm/current.md`
-8. **Load STM Context:** `aoc-stm` - Print latest archived STM context into terminal/agent transcript
+8. **Load STM Context:** `aoc-stm` - Print current STM draft into terminal/agent transcript (`aoc-stm read` for latest archive)
 9. **Update:** Mark tasks done in Taskmaster TUI
 10. **Record:** `aoc-mem add "..."` - Document significant decisions
 

@@ -39,7 +39,7 @@ Usage in OpenCode:
 /stm
 ```
 
-This command asks the agent to contextualize current work into `.aoc/stm/current.md` so you can archive it with `aoc-stm archive`, then load the latest archived context any time with `aoc-stm`.
+This command asks the agent to contextualize current work into `.aoc/stm/current.md`; review that draft with `aoc-stm`, archive it with `aoc-stm archive`, and load archived context any time with `aoc-stm read`.
 
 `aoc-init` will not overwrite an existing `.opencode/commands/stm.md`.
 

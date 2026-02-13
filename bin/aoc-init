@@ -80,7 +80,7 @@ This file defines the always-on rules for agents in this repo. Procedural playbo
 ## Always-on rules
 - Use `.aoc/context.md` for orientation; run `aoc-init` if it is missing or stale.
 - `.aoc/memory.md` is append-only; use `aoc-mem` to read/search/add. Do not edit the file directly.
-- `.aoc/stm/current.md` is STM draft state; use `aoc-stm` to add/edit/archive/read. STM archives are a durable project diary; store architectural decisions in `aoc-mem`.
+- `.aoc/stm/current.md` is STM draft state; use `aoc-stm` to read the current draft, `aoc-stm archive` to persist snapshots, and `aoc-stm read` for archived entries. STM archives are a durable project diary; store architectural decisions in `aoc-mem`.
 - `.taskmaster/tasks/tasks.json` is task state; use the Taskmaster TUI or `aoc-task` commands. Do not edit the file directly.
 - Task PRDs are linked per task (not subtask) via `aocPrd`; keep PRD documents in `.taskmaster/docs/prds/` and resolve via `aoc-task prd` commands.
 - Record major decisions and constraints in memory (`aoc-mem add "..."`).
@@ -113,6 +113,26 @@ EOF
   else
     if grep -Eq "AOC Architecture & Agent Guidelines|Agent Ops Cockpit \(AOC\)" "$agents_file"; then
       if grep -Eq "Skills \(load when needed\)|aoc-workflow" "$agents_file"; then
+        if grep -Fq '.aoc/stm/current.md` is STM draft state; use `aoc-stm` to add/edit/archive/read.' "$agents_file" || grep -Fq '`.aoc/stm/current.md` via `aoc-stm` (draft + archived STM diary state)' "$agents_file"; then
+          python3 - "$agents_file" <<'PY'
+from pathlib import Path
+import sys
+
+path = Path(sys.argv[1])
+text = path.read_text(encoding="utf-8")
+updated = text.replace(
+    "- `.aoc/stm/current.md` is STM draft state; use `aoc-stm` to add/edit/archive/read. STM archives are a durable project diary; store architectural decisions in `aoc-mem`.",
+    "- `.aoc/stm/current.md` is STM draft state; use `aoc-stm` to read current draft, `aoc-stm archive` to persist snapshots, and `aoc-stm read` for archived entries. Store architectural decisions in `aoc-mem`.",
+)
+updated = updated.replace(
+    "- **Short-term memory:** `.aoc/stm/current.md` via `aoc-stm` (draft + archived STM diary state)",
+    "- **Short-term memory:** `.aoc/stm/current.md` via `aoc-stm` (current draft), archived snapshots via `aoc-stm archive` and `aoc-stm read`",
+)
+if updated != text:
+    path.write_text(updated, encoding="utf-8")
+PY
+          log "Updated AGENTS.md STM guidance to current-vs-archive semantics."
+        fi
         log "AGENTS.md already includes AOC guidance. Skipping."
       else
         log "Appending AOC skills guidance to AGENTS.md..."
@@ -144,7 +164,7 @@ Use the AOC tools for context, memory, and tasks in this repo.
 
 - **Context:** `.aoc/context.md` (read-only)
 - **Memory:** `.aoc/memory.md` via `aoc-mem read/add` (do not edit directly)
-- **Short-term memory:** `.aoc/stm/current.md` via `aoc-stm` (draft + archived STM diary state)
+- **Short-term memory:** `.aoc/stm/current.md` via `aoc-stm` (current draft), archived snapshots via `aoc-stm archive` and `aoc-stm read`
 - **Tasks:** `.taskmaster/tasks/tasks.json` via `aoc-task list/add/status` (do not edit directly)
 - **Task PRDs:** `.taskmaster/docs/prds/` linked with `aoc-task prd` (task-level only, no subtask PRDs)
 - **Skills:** load AOC skills as needed for workflows
@@ -176,7 +196,7 @@ $(tree -L 2 --gitignore -I '.git|.taskmaster|.aoc|.gemini|node_modules|target|di
 
 ## 3. Short-Term Memory (\`aoc-stm\`)
 **Purpose:** STM diary state for short-term continuity and long-term auditability.
-**Commands:** \`aoc-stm add "note"\`, \`aoc-stm archive\`, \`aoc-stm\`.
+**Commands:** \`aoc-stm\` (current draft), \`aoc-stm archive\`, \`aoc-stm read\`.
 
 ## 4. Task Management (\`aoc-task\`)
 **Purpose:** Granular tracking of work.
@@ -292,6 +312,8 @@ setup_skills() {
     warn "No default skills source found; leaving .aoc/skills as-is."
   fi
 
+  upgrade_stm_skill_guidance "$skills_dir"
+
   if [[ -x "$script_dir/aoc-skill" ]]; then
     log "Syncing skills for active agent..."
     (cd "$project_root" && "$script_dir/aoc-skill" sync --active --root "$project_root" || true)
@@ -302,6 +324,153 @@ setup_skills() {
     (cd "$project_root" && aoc-skill sync --active --root "$project_root" || true)
     log "Syncing skills for existing agent targets..."
     (cd "$project_root" && aoc-skill sync --existing --root "$project_root" || true)
+  fi
+}
+
+upgrade_stm_skill_guidance() {
+  local skills_dir="$1"
+  local stm_skill="$skills_dir/stm-ops/SKILL.md"
+  local memory_skill="$skills_dir/memory-ops/SKILL.md"
+  local workflow_skill="$skills_dir/aoc-workflow/SKILL.md"
+  local init_ops_skill="$skills_dir/aoc-init-ops/SKILL.md"
+
+  if [[ -f "$stm_skill" ]] && (
+    grep -Fq 'aoc-stm --last' "$stm_skill" ||
+    grep -Fq 'aoc-stm use <archive>' "$stm_skill" ||
+    grep -Fq 'fresh tab/session' "$stm_skill"
+  ); then
+    cat <<'EOF' > "$stm_skill"
+---
+name: stm-ops
+description: Capture and read short-term diary context with aoc-stm.
+---
+
+## When to use
+- Context window is getting tight and you need to summarize current execution state.
+- You need to load current draft STM context into the terminal transcript.
+
+## Commands
+- `aoc-stm add "<note>"`
+- `aoc-stm edit`
+- `aoc-stm` (default read current draft)
+- `aoc-stm read-current`
+- `aoc-stm archive`
+- `aoc-stm read` (read latest archive)
+- `aoc-stm history`
+- `aoc-stm read <archive>`
+
+## Handoff format (recommended)
+- Objective and task/subtask IDs
+- Done / in-progress / blocked
+- Files touched and key command outcomes
+- Open decisions + assumptions
+- Next 3-5 concrete steps
+
+## Guardrails
+- Keep STM as a project diary: work in current draft via `aoc-stm`, then archive frequently with `aoc-stm archive`.
+- Promote durable decisions to `aoc-mem add`, not STM.
+- Do not edit `tasks.json` directly while preparing handoff state.
+EOF
+    log "Updated stm-ops skill with current-vs-archive STM guidance."
+  fi
+
+  if [[ -f "$memory_skill" ]] && (
+    grep -Fq '`aoc-mem add "<decision>"`' "$memory_skill" &&
+    ! grep -Fq 'aoc-stm read' "$memory_skill"
+  ); then
+    cat <<'EOF' > "$memory_skill"
+---
+name: memory-ops
+description: Use aoc-mem to read, search, and record project decisions.
+---
+
+## Commands
+- `aoc-mem read`
+- `aoc-mem search "<term>"`
+- `aoc-mem add "<decision>"`
+- `aoc-stm add "<handoff note>"`
+- `aoc-stm edit`
+- `aoc-stm` (read current draft)
+- `aoc-stm archive`
+- `aoc-stm read` (read latest archive)
+- `aoc-stm history`
+
+## Recording guidelines
+- Capture the "why" behind decisions.
+- Keep entries short and scoped.
+- Record one decision per line.
+
+## Guardrail
+- Never edit `.aoc/memory.md` directly.
+- Keep `.aoc/stm/current.md` as an in-progress draft and archive it often so STM becomes a durable project diary.
+EOF
+    log "Updated memory-ops skill with STM command guidance."
+  fi
+
+  if [[ -f "$workflow_skill" ]] && (
+    grep -Fq 'aoc task list' "$workflow_skill" ||
+    grep -Fq 'aoc task add' "$workflow_skill" ||
+    grep -Fq 'aoc task status' "$workflow_skill" ||
+    ! grep -Fq 'aoc-stm read' "$workflow_skill"
+  ); then
+    cat <<'EOF' > "$workflow_skill"
+---
+name: aoc-workflow
+description: Standard AOC workflow using context, memory, and tasks.
+---
+
+## When to use
+Use this when you start a new task or need to re-orient inside a project.
+
+## Steps
+1. If AOC files are missing or stale, run `aoc-init` from the project root.
+2. Read memory: `aoc-mem read` and `aoc-mem search "<topic>"` as needed.
+3. Review tasks: `aoc-task list` or the Taskmaster TUI.
+4. For the active task, check PRD linkage with `aoc-task prd show <id>`; if missing, create/link via `aoc-task prd init <id>` or `aoc-task prd set <id> <path>`.
+5. Plan: add or refine tasks with `aoc-task add "<task>"` and set status.
+6. Execute changes and run tests.
+7. If context gets tight, capture state (`aoc-stm add/edit`; in OpenCode you can run `/stm`), review current draft with `aoc-stm`, archive it with `aoc-stm archive`, and use `aoc-stm read` to load archived diary context when needed.
+8. Update tasks and record decisions: `aoc-task status <id> done`, `aoc-mem add "<decision>"`.
+
+## Guardrails
+- Do not edit `.aoc/memory.md` directly.
+- Do not keep long-term decisions in `.aoc/stm/current.md`; promote durable decisions to `aoc-mem`.
+- Do not edit `.taskmaster/tasks/tasks.json` directly.
+- Do not add PRD links to subtasks; PRDs are task-level only (`aocPrd`).
+EOF
+    log "Updated aoc-workflow skill with current STM workflow guidance."
+  fi
+
+  if [[ -f "$init_ops_skill" ]] && (
+    ! grep -Fq '.aoc/stm/current.md' "$init_ops_skill" ||
+    ! grep -Fq 'OpenCode `/stm` command' "$init_ops_skill"
+  ); then
+    cat <<'EOF' > "$init_ops_skill"
+---
+name: aoc-init-ops
+description: Initialize or repair AOC context, memory, and tasks safely.
+---
+
+## When to use
+- New repository setup
+- Missing `.aoc/` or `.taskmaster/`
+- Stale or inconsistent context
+
+## Run
+- `aoc-init`
+- To skip Rust builds: `AOC_INIT_SKIP_BUILD=1 aoc-init`
+
+## What it does
+- Creates `.aoc/` and `.taskmaster/` if missing
+- Generates `.aoc/context.md`
+- Seeds `.aoc/memory.md`
+- Seeds `.aoc/stm/current.md` and `.aoc/stm/archive/` without overwriting existing STM files
+- Ensures task-level PRD directory `.taskmaster/docs/prds/` is available when used
+- Seeds OpenCode `/stm` command in `.opencode/commands/stm.md` when missing and keeps STM guidance aligned (`aoc-stm` = current draft, `aoc-stm read` = archive)
+- Seeds OpenCode `/prd` command in `.opencode/commands/prd.md` when missing
+- Syncs skills for existing agent targets
+EOF
+    log "Updated aoc-init-ops skill with STM seeding guidance."
   fi
 }
 
@@ -375,19 +544,32 @@ setup_opencode_commands() {
         cp "$seed_file" "$target_file"
         log "Seeded OpenCode command: /$(basename "$seed_file" .md)"
       else
-        if [[ "$(basename "$target_file")" == "stm.md" ]] && grep -Fq "default \\`--last\\`) to archive and continue in a fresh tab/session with STM injected." "$target_file"; then
+        if [[ "$(basename "$target_file")" == "stm.md" ]] && (
+          grep -Fq 'default `--last`) to archive and continue in a fresh tab/session with STM injected.' "$target_file" ||
+          grep -Fq 'then `aoc-stm` to print the latest archived STM context into the transcript.' "$target_file" ||
+          grep -Fq 'then `aoc-stm` to print the latest archived STM context into the terminal transcript.' "$target_file"
+        ); then
           python3 - "$target_file" <<'PY'
 from pathlib import Path
 import sys
 
 path = Path(sys.argv[1])
 text = path.read_text(encoding="utf-8")
-old = "When finished, remind me I can run `aoc-stm` (default `--last`) to archive and continue in a fresh tab/session with STM injected."
-new = "When finished, remind me to run `aoc-stm archive` to persist this snapshot, then `aoc-stm` to print the latest archived STM context into the transcript."
-if old in text:
-    path.write_text(text.replace(old, new), encoding="utf-8")
+updated = text
+legacy_lines = [
+    "When finished, remind me I can run `aoc-stm` (default `--last`) to archive and continue in a fresh tab/session with STM injected.",
+    "When finished, remind me to run `aoc-stm archive` to persist this snapshot, then `aoc-stm` to print the latest archived STM context into the transcript.",
+    "When finished, remind me to run `aoc-stm archive` to persist this snapshot, then `aoc-stm` to print the latest archived STM context into the terminal transcript.",
+]
+new_line = "When finished, remind me that `aoc-stm` reads the current draft, `aoc-stm archive` persists this snapshot, and `aoc-stm read` prints the latest archived STM context into the terminal transcript."
+
+for line in legacy_lines:
+    updated = updated.replace(line, new_line)
+
+if updated != text:
+    path.write_text(updated, encoding="utf-8")
 PY
-          log "Updated OpenCode command /stm with non-launching STM guidance."
+          log "Updated OpenCode command /stm with current-vs-archive STM guidance."
         fi
         log "OpenCode command /$(basename "$seed_file" .md) already present. Preserving."
       fi

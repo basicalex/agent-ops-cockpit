@@ -421,8 +421,8 @@ construct_handshake() {
     fi
     echo "Do not auto-read STM unless the user asks for it (eg: starts with 'stm ...')."
     echo "If not requested, mention STM availability at the end of your first response."
-    echo "To load STM context explicitly, run: aoc-stm (or aoc-stm-read)."
-    echo "To inspect draft notes without archiving, run: aoc-stm read-current"
+    echo "To load current STM draft explicitly, run: aoc-stm (or aoc-stm read-current)."
+    echo "To read the latest archived snapshot, run: aoc-stm read (or aoc-stm-read)."
   else
     echo "⚡ STM DIARY AVAILABLE: none"
   fi
@@ -434,7 +434,7 @@ construct_handshake() {
   echo "3. Use 'aoc-task' (or 'task-master') tools to track your progress."
   echo "4. If a task has a PRD link, read it before implementation (aoc-task prd show <task-id>)."
   echo "5. PRD links are task-level only; subtasks must not define PRD links."
-  echo "6. Use aoc-stm add/edit/archive to maintain STM diary entries; run aoc-stm to read latest archive or aoc-stm read-current to inspect draft notes."
+  echo "6. Use aoc-stm add/edit/archive to maintain STM diary entries; run aoc-stm for current draft and aoc-stm read for archived snapshots."
   echo
   echo "──────────────────────────────────────────────────────────────────────────────"
   echo "Starting ${AOC_AGENT_LABEL:-$agent_label} CLI..."
