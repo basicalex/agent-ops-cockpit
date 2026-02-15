@@ -30,31 +30,118 @@ warn() { echo "!! $1"; }
 have() { command -v "$1" >/dev/null 2>&1; }
 have_bat() { have bat || have batcat; }
 
-download_to_file() {
+github_token() {
+  if [[ -n "${AOC_GITHUB_TOKEN:-}" ]]; then
+    printf '%s\n' "$AOC_GITHUB_TOKEN"
+    return
+  fi
+  if [[ -n "${GITHUB_TOKEN:-}" ]]; then
+    printf '%s\n' "$GITHUB_TOKEN"
+    return
+  fi
+  if [[ -n "${GH_TOKEN:-}" ]]; then
+    printf '%s\n' "$GH_TOKEN"
+    return
+  fi
+  printf '\n'
+}
+
+is_github_api_url() {
+  [[ "$1" == https://api.github.com/* ]]
+}
+
+fetch_stdout() {
   local url="$1"
-  local out="$2"
+  local token
+  token="$(github_token)"
   if have curl; then
-    curl -fsSL -o "$out" "$url"
+    local curl_args=(-fsSL --retry 5 --retry-delay 2 --retry-all-errors --connect-timeout 20 --max-time 300)
+    if [[ -n "$token" ]] && is_github_api_url "$url"; then
+      curl "${curl_args[@]}" \
+        -H "Authorization: Bearer $token" \
+        -H "X-GitHub-Api-Version: 2022-11-28" \
+        "$url"
+    else
+      curl "${curl_args[@]}" "$url"
+    fi
   elif have wget; then
-    wget -qO "$out" "$url"
+    local wget_args=(--tries=5 --waitretry=2 --retry-connrefused --timeout=30 -qO-)
+    if [[ -n "$token" ]] && is_github_api_url "$url"; then
+      wget "${wget_args[@]}" \
+        --header="Authorization: Bearer $token" \
+        --header="X-GitHub-Api-Version: 2022-11-28" \
+        "$url"
+    else
+      wget "${wget_args[@]}" "$url"
+    fi
   else
     return 1
   fi
 }
 
-latest_release_tag() {
-  local repo="$1"
-  local api="https://api.github.com/repos/${repo}/releases/latest"
-  local json tag
+download_to_file() {
+  local url="$1"
+  local out="$2"
+  local token
+  token="$(github_token)"
   if have curl; then
-    json="$(curl -fsSL "$api")" || return 1
+    local curl_args=(-fsSL --retry 5 --retry-delay 2 --retry-all-errors --connect-timeout 20 --max-time 300 -o "$out")
+    if [[ -n "$token" ]] && is_github_api_url "$url"; then
+      curl "${curl_args[@]}" \
+        -H "Authorization: Bearer $token" \
+        -H "X-GitHub-Api-Version: 2022-11-28" \
+        "$url"
+    else
+      curl "${curl_args[@]}" "$url"
+    fi
   elif have wget; then
-    json="$(wget -qO- "$api")" || return 1
+    local wget_args=(--tries=5 --waitretry=2 --retry-connrefused --timeout=30 -qO "$out")
+    if [[ -n "$token" ]] && is_github_api_url "$url"; then
+      wget "${wget_args[@]}" \
+        --header="Authorization: Bearer $token" \
+        --header="X-GitHub-Api-Version: 2022-11-28" \
+        "$url"
+    else
+      wget "${wget_args[@]}" "$url"
+    fi
   else
     return 1
   fi
+}
 
-  tag="$(printf '%s\n' "$json" | awk -F'"' '/"tag_name"[[:space:]]*:/ {print $4; exit}')"
+latest_release_tag_from_redirect() {
+  local repo="$1"
+  local resolved tag
+
+  if ! have curl; then
+    return 1
+  fi
+
+  resolved="$(curl -fsSL --retry 5 --retry-delay 2 --retry-all-errors \
+    -o /dev/null -w '%{url_effective}' "https://github.com/${repo}/releases/latest")" || return 1
+  resolved="${resolved%%\?*}"
+  if [[ "$resolved" != *"/releases/tag/"* ]]; then
+    return 1
+  fi
+
+  tag="${resolved##*/}"
+  [[ -n "$tag" ]] || return 1
+  printf '%s\n' "$tag"
+}
+
+latest_release_tag() {
+  local repo="$1"
+  local api="https://api.github.com/repos/${repo}/releases/latest"
+  local json tag=""
+
+  if json="$(fetch_stdout "$api" 2>/dev/null)"; then
+    tag="$(printf '%s\n' "$json" | awk -F'"' '/"tag_name"[[:space:]]*:/ {print $4; exit}')"
+  fi
+
+  if [[ -z "$tag" ]]; then
+    tag="$(latest_release_tag_from_redirect "$repo" 2>/dev/null || true)"
+  fi
+
   [[ -n "$tag" ]] || return 1
   printf '%s\n' "$tag"
 }
