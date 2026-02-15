@@ -173,9 +173,27 @@ aoc-skill sync --agent oc
 aoc-skill sync --existing
 ```
 
-**Included skills:** `aoc-workflow`, `memory-ops`, `taskmaster-ops`, `rlm-analysis`, `prd-dev`, `prd-intake`, `prd-align`, `tag-align`, `task-breakdown`, `task-checker`, `release-notes`, `skill-creator`, `zellij-theme-ops`.
+**Included skills:** `aoc-workflow`, `teach-workflow`, `memory-ops`, `taskmaster-ops`, `rlm-analysis`, `prd-dev`, `prd-intake`, `prd-align`, `tag-align`, `task-breakdown`, `task-checker`, `release-notes`, `skill-creator`, `zellij-theme-ops`.
 
 Skills are synced automatically when you switch agents via `aoc-agent --set`. `aoc-init` also seeds default skills and syncs the active agent. Sync is additive and preserves existing agent skills.
+
+**Teach mode (OpenCode):**
+
+```bash
+# Repo mentor subagent
+@teach
+
+# Full architecture scan + checkpoint
+/teach-full
+
+# Deep dive one subsystem
+/teach-dive ingestion
+
+# Direct Q&A with answer-only output
+/teach-ask how are you useful?
+```
+
+Teach mode is read-first by default, explains implementation with file references, and stores optional local continuity notes under `.aoc/insight/`.
 
 **Optional MoreMotion (React projects):**
 
