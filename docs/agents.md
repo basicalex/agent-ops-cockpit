@@ -22,6 +22,7 @@ In OpenCode, invoke it with:
 - Running `aoc-init` and verifying `.aoc/` and `.taskmaster/`
 - Managing skills with `aoc-skill validate` and `aoc-skill sync`
 - Managing custom layouts with project `.aoc/layouts/` + `aoc-layout`
+- Managing global Zellij themes with `aoc-theme` (`aoc-theme tui`, presets, custom themes)
 - Preserving existing repo skills and avoiding collisions
 
 `aoc-init` will not overwrite existing `.opencode/agents/aoc-ops.md`.

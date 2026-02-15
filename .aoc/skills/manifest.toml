@@ -21,7 +21,7 @@ summary = "Capture and read short-term diary context with aoc-stm."
 [[skill]]
 name = "taskmaster-ops"
 type = "ops"
-summary = "Operate tasks via aoc-task and the Taskmaster TUI."
+summary = "Operate tasks via aoc-task, tm alias, and the Taskmaster TUI."
 
 [[skill]]
 name = "rlm-analysis"
@@ -67,3 +67,8 @@ summary = "Draft changelog entries and release notes."
 name = "skill-creator"
 type = "ops"
 summary = "Create or update AOC skills with the correct structure."
+
+[[skill]]
+name = "zellij-theme-ops"
+type = "ops"
+summary = "Create and manage global Zellij themes."

@@ -10,6 +10,8 @@ files=(
   bin/aoc-doctor
   bin/aoc-launch
   bin/aoc-task
+  bin/tm
+  bin/aoc-tm
   bin/aoc-sys
   bin/aoc-taskmaster
   bin/aoc-test

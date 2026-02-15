@@ -31,6 +31,12 @@ keybinds {
                 close_on_exit true
             };
         }
+        bind "Alt t" {
+            Run "bash" "-lc" "export PATH=\"$HOME/.local/bin:$HOME/.cargo/bin:$PATH\"; exec aoc-theme tui" {
+                floating true
+                close_on_exit true
+            };
+        }
         bind "Alt s" { NextSwapLayout; }
         bind "Alt i" { GoToPreviousTab; }
         bind "Alt o" { GoToNextTab; }

@@ -400,7 +400,9 @@ construct_handshake() {
   fi
   echo
   echo "📋 ACTIVE TASKS (.taskmaster/):"
-  if command -v aoc-task >/dev/null 2>&1; then
+  if command -v tm >/dev/null 2>&1; then
+    tm list --tag "${AOC_TAG:-master}" 2>/dev/null | head -n 20 || echo "No active tasks."
+  elif command -v aoc-task >/dev/null 2>&1; then
     aoc-task list --tag "${AOC_TAG:-master}" 2>/dev/null | head -n 20 || echo "No active tasks."
   elif command -v aoc-cli >/dev/null 2>&1; then
     aoc-cli task list --tag "${AOC_TAG:-master}" 2>/dev/null | head -n 20 || echo "No active tasks."
@@ -431,7 +433,7 @@ construct_handshake() {
   echo "💡 OPERATIONAL DIRECTIVE:"
   echo "1. The file '$aoc_dir/memory.md' is the LIVE source of truth for architectural decisions."
   echo "2. Use 'aoc-mem add \"fact\"' to record new decisions."
-  echo "3. Use 'aoc-task' (or 'task-master') tools to track your progress."
+  echo "3. Use 'tm' (alias for 'aoc-task') to track your progress."
   echo "4. If a task has a PRD link, read it before implementation (aoc-task prd show <task-id>)."
   echo "5. PRD links are task-level only; subtasks must not define PRD links."
   echo "6. Use aoc-stm add/edit/archive to maintain STM diary entries; run aoc-stm for current draft and aoc-stm read for archived snapshots."

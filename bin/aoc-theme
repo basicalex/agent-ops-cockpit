@@ -1,0 +1,1363 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+usage() {
+  cat <<'EOF'
+Usage:
+  aoc-theme init --name <theme-name> [--scope global] [--force]
+  aoc-theme list [--scope global]
+  aoc-theme presets list
+  aoc-theme presets install [--name <preset>|--all] [--force]
+  aoc-theme apply --name <theme-name> [--scope global]
+  aoc-theme set-default --name <theme-name> [--scope global] [--config <path>]
+  aoc-theme sync [--name <theme-name>] [--scope global] [--config <path>]
+  aoc-theme tui
+
+Manage Zellij themes for global AOC workflows.
+
+Scopes:
+  global   Theme file in ~/.config/zellij/themes/<name>.kdl
+
+Notes:
+  - Theme names must match: ^[a-z0-9]+(-[a-z0-9]+)*$
+  - Project scope was removed; global themes are the only supported scope
+  - TUI groups preset themes and custom user-defined themes
+  - apply/set-default/sync regenerate AOC theme artifacts for zjstatus, Pulse, and Yazi
+EOF
+}
+
+die() {
+  echo "Error: $*" >&2
+  exit 1
+}
+
+warn() {
+  echo "Warning: $*" >&2
+}
+
+validate_theme_name() {
+  local name="$1"
+  if [[ ! "$name" =~ ^[a-z0-9]+(-[a-z0-9]+)*$ ]]; then
+    die "Invalid theme name '$name'. Use lowercase letters/numbers with single hyphens."
+  fi
+}
+
+normalize_scope() {
+  local command_name="$1"
+  local scope_raw="${2:-global}"
+
+  case "$scope_raw" in
+    ""|global)
+      printf 'global'
+      ;;
+    auto|all)
+      warn "$command_name --scope $scope_raw is deprecated and treated as global."
+      printf 'global'
+      ;;
+    project)
+      die "Project theme scope was removed because Zellij theming is session-wide. Use global themes only."
+      ;;
+    *)
+      die "$command_name --scope must be global"
+      ;;
+  esac
+}
+
+resolve_zellij_config_dir() {
+  local fallback="${XDG_CONFIG_HOME:-$HOME/.config}/zellij"
+  if ! command -v zellij >/dev/null 2>&1; then
+    printf '%s' "$fallback"
+    return 0
+  fi
+
+  local config_dir
+  config_dir="$(zellij setup --check 2>/dev/null | awk -F': ' '/^\[CONFIG DIR\]:/ {print $2; exit}' | tr -d '"')"
+  if [[ -n "$config_dir" ]]; then
+    printf '%s' "$config_dir"
+  else
+    printf '%s' "$fallback"
+  fi
+}
+
+resolve_zellij_config_file() {
+  local config_dir="$1"
+  local explicit="${2:-}"
+
+  if [[ -n "$explicit" ]]; then
+    printf '%s' "$explicit"
+    return 0
+  fi
+  if [[ -n "${AOC_ZELLIJ_CONFIG:-}" ]]; then
+    printf '%s' "$AOC_ZELLIJ_CONFIG"
+    return 0
+  fi
+  if [[ -f "$config_dir/aoc.config.kdl" ]]; then
+    printf '%s' "$config_dir/aoc.config.kdl"
+    return 0
+  fi
+
+  if command -v zellij >/dev/null 2>&1; then
+    local discovered
+    discovered="$(zellij setup --check 2>/dev/null | awk -F': ' '/^\[LOOKING FOR CONFIG FILE FROM\]:/ {print $2; exit}' | tr -d '"')"
+    if [[ -n "$discovered" ]]; then
+      printf '%s' "$discovered"
+      return 0
+    fi
+  fi
+
+  printf '%s' "$config_dir/config.kdl"
+}
+
+aoc_theme_profile_path() {
+  local config_home="${XDG_CONFIG_HOME:-$HOME/.config}"
+  printf '%s/aoc/theme.env' "$config_home"
+}
+
+aoc_yazi_theme_path() {
+  local config_home="${XDG_CONFIG_HOME:-$HOME/.config}"
+  printf '%s/yazi/theme.toml' "$config_home"
+}
+
+parse_theme_block_hex_colors() {
+  local file_path="$1"
+  local block_name="$2"
+  python3 - "$file_path" "$block_name" <<'PY'
+import re
+import sys
+from pathlib import Path
+
+path = Path(sys.argv[1])
+block_name = sys.argv[2]
+text = path.read_text(encoding="utf-8")
+
+required = [
+    "fg", "bg", "black", "red", "green", "yellow",
+    "blue", "magenta", "cyan", "white", "orange",
+]
+
+clean_lines = []
+for raw in text.splitlines():
+    line = raw.split("//", 1)[0].rstrip()
+    if line:
+        clean_lines.append(line)
+
+in_themes = False
+themes_depth = 0
+in_target = False
+target_depth = 0
+colors = {}
+
+for line in clean_lines:
+    opens = line.count("{")
+    closes = line.count("}")
+
+    if not in_themes and re.match(r"^\s*themes\s*\{\s*$", line):
+        in_themes = True
+        themes_depth = 1
+        continue
+
+    if in_themes and not in_target:
+        m = re.match(r"^\s*([A-Za-z0-9_-]+)\s*\{\s*$", line)
+        if m and m.group(1) == block_name:
+            in_target = True
+            target_depth = 1
+            continue
+
+    if in_target:
+        m = re.match(r"^\s*([a-z]+)\s+(\d{1,3})\s+(\d{1,3})\s+(\d{1,3})\s*$", line)
+        if m:
+            key = m.group(1)
+            if key in required:
+                r, g, b = (int(m.group(2)), int(m.group(3)), int(m.group(4)))
+                if not (0 <= r <= 255 and 0 <= g <= 255 and 0 <= b <= 255):
+                    raise SystemExit(f"invalid RGB for {key} in {path}")
+                colors[key] = f"#{r:02X}{g:02X}{b:02X}"
+
+        target_depth += opens - closes
+        if target_depth <= 0:
+            in_target = False
+
+    if in_themes:
+        themes_depth += opens - closes
+        if themes_depth <= 0:
+            in_themes = False
+
+missing = [k for k in required if k not in colors]
+if missing:
+    raise SystemExit(
+        f"missing required theme keys in block '{block_name}' from {path}: {', '.join(missing)}"
+    )
+
+for key in required:
+    print(f"AOC_THEME_{key.upper()}={colors[key]}")
+PY
+}
+
+write_aoc_theme_profile() {
+  local theme_name="$1"
+  local theme_path="$2"
+  shift 2
+  local profile_path
+  profile_path="$(aoc_theme_profile_path)"
+  mkdir -p "$(dirname "$profile_path")"
+
+  cat <<EOF > "$profile_path"
+#!/usr/bin/env bash
+# Auto-generated by aoc-theme. Safe to source.
+export AOC_THEME_NAME="$theme_name"
+export AOC_THEME_SOURCE_PATH="$theme_path"
+EOF
+
+  local line
+  for line in "$@"; do
+    [[ -n "$line" ]] || continue
+    local key="${line%%=*}"
+    local value="${line#*=}"
+    printf 'export %s="%s"\n' "$key" "$value" >> "$profile_path"
+  done
+
+  cat <<'EOF' >> "$profile_path"
+export AOC_THEME_STATUS_MUTED="$AOC_THEME_BLACK"
+export AOC_THEME_STATUS_ACCENT="$AOC_THEME_BLUE"
+export AOC_THEME_STATUS_HINT="$AOC_THEME_GREEN"
+export AOC_THEME_STATUS_WARNING="$AOC_THEME_YELLOW"
+export AOC_THEME_STATUS_LOCKED="$AOC_THEME_RED"
+export AOC_THEME_STATUS_RENAME="$AOC_THEME_MAGENTA"
+export AOC_THEME_STATUS_TAB_ACTIVE="$AOC_THEME_WHITE"
+export AOC_THEME_STATUS_TMUX="$AOC_THEME_ORANGE"
+EOF
+}
+
+write_yazi_theme_from_profile() {
+  local profile_path
+  profile_path="$(aoc_theme_profile_path)"
+  [[ -f "$profile_path" ]] || return 0
+  # shellcheck disable=SC1090
+  source "$profile_path"
+
+  local yazi_theme
+  yazi_theme="$(aoc_yazi_theme_path)"
+  mkdir -p "$(dirname "$yazi_theme")"
+
+  cat <<EOF > "$yazi_theme"
+[mgr]
+cwd = { fg = "$AOC_THEME_CYAN" }
+hovered = { fg = "$AOC_THEME_BG", bg = "$AOC_THEME_BLUE", bold = true }
+preview_hovered = { underline = true }
+file = { fg = "$AOC_THEME_FG" }
+directory = { fg = "$AOC_THEME_BLUE", bold = true }
+symlink = { fg = "$AOC_THEME_CYAN" }
+border_symbol = "│"
+border_style = { fg = "$AOC_THEME_BLACK" }
+
+[status]
+separator_open = ""
+separator_close = ""
+separator_style = { fg = "$AOC_THEME_BLACK" }
+mode_normal = { fg = "$AOC_THEME_BLUE", bg = "$AOC_THEME_BG", bold = true }
+mode_select = { fg = "$AOC_THEME_RED", bg = "$AOC_THEME_BG", bold = true }
+mode_unset = { fg = "$AOC_THEME_BLACK", bg = "$AOC_THEME_BG" }
+
+[mode]
+normal_main = { fg = "$AOC_THEME_BG", bg = "$AOC_THEME_BLUE", bold = true }
+normal_alt = { fg = "$AOC_THEME_BLUE", bg = "$AOC_THEME_BLACK" }
+select_main = { fg = "$AOC_THEME_BG", bg = "$AOC_THEME_RED", bold = true }
+select_alt = { fg = "$AOC_THEME_RED", bg = "$AOC_THEME_BLACK" }
+unset_main = { fg = "$AOC_THEME_BG", bg = "$AOC_THEME_BLACK", bold = true }
+unset_alt = { fg = "$AOC_THEME_BLACK", bg = "$AOC_THEME_BG" }
+
+[filetype]
+rules = [
+  { name = "*/", fg = "$AOC_THEME_BLUE" },
+  { name = "*.rs", fg = "$AOC_THEME_ORANGE" },
+  { name = "*.py", fg = "$AOC_THEME_YELLOW" },
+  { name = "*.js", fg = "$AOC_THEME_YELLOW" },
+  { name = "*.ts", fg = "$AOC_THEME_BLUE" },
+  { name = "*.tsx", fg = "$AOC_THEME_BLUE" },
+  { name = "*.sh", fg = "$AOC_THEME_GREEN" },
+  { name = "*.toml", fg = "$AOC_THEME_ORANGE" },
+  { name = "*.yaml", fg = "$AOC_THEME_RED" },
+  { name = "*.yml", fg = "$AOC_THEME_RED" },
+  { name = "*.json", fg = "$AOC_THEME_YELLOW" },
+  { name = "*.kdl", fg = "$AOC_THEME_MAGENTA" },
+  { name = "*.md", fg = "$AOC_THEME_MAGENTA" },
+  { name = "*.txt", fg = "$AOC_THEME_FG" },
+]
+EOF
+}
+
+sync_aoc_theme_artifacts() {
+  local theme_name="$1"
+  local theme_path="$2"
+  local -a palette_lines=()
+  local line=""
+
+  while IFS= read -r line; do
+    [[ -n "$line" ]] || continue
+    palette_lines+=("$line")
+  done < <(parse_theme_block_hex_colors "$theme_path" "$theme_name")
+
+  if ((${#palette_lines[@]} == 0)); then
+    die "Failed to parse palette from $theme_path ($theme_name)."
+  fi
+
+  write_aoc_theme_profile "$theme_name" "$theme_path" "${palette_lines[@]}"
+  write_yazi_theme_from_profile
+}
+
+write_theme_file() {
+  local file_path="$1"
+  local theme_name="$2"
+  cat <<EOF > "$file_path"
+themes {
+    $theme_name {
+        fg 216 222 233
+        bg 36 41 51
+        black 59 66 82
+        red 191 97 106
+        green 163 190 140
+        yellow 235 203 139
+        blue 129 161 193
+        magenta 180 142 173
+        cyan 136 192 208
+        white 236 239 244
+        orange 208 135 112
+    }
+}
+EOF
+}
+
+preset_theme_names() {
+  cat <<'EOF'
+catppuccin
+dracula
+everforest
+gruvbox
+kanagawa
+monokai
+nord
+onedark
+rose-pine
+solarized-dark
+solarized-light
+tokyo-night
+EOF
+}
+
+is_preset_theme() {
+  local name="$1"
+  while IFS= read -r preset; do
+    if [[ "$preset" == "$name" ]]; then
+      return 0
+    fi
+  done < <(preset_theme_names)
+  return 1
+}
+
+write_preset_theme_file() {
+  local file_path="$1"
+  local theme_name="$2"
+
+  case "$theme_name" in
+    catppuccin)
+      cat <<EOF > "$file_path"
+themes {
+    catppuccin {
+        fg 205 214 244
+        bg 30 30 46
+        black 69 71 90
+        red 243 139 168
+        green 166 227 161
+        yellow 249 226 175
+        blue 137 180 250
+        magenta 245 194 231
+        cyan 148 226 213
+        white 186 194 222
+        orange 250 179 135
+    }
+}
+EOF
+      ;;
+    dracula)
+      cat <<EOF > "$file_path"
+themes {
+    dracula {
+        fg 248 248 242
+        bg 40 42 54
+        black 68 71 90
+        red 255 85 85
+        green 80 250 123
+        yellow 241 250 140
+        blue 189 147 249
+        magenta 255 121 198
+        cyan 139 233 253
+        white 248 248 242
+        orange 255 184 108
+    }
+}
+EOF
+      ;;
+    everforest)
+      cat <<EOF > "$file_path"
+themes {
+    everforest {
+        fg 211 198 170
+        bg 45 53 41
+        black 92 106 89
+        red 230 126 128
+        green 167 192 128
+        yellow 219 188 127
+        blue 127 187 179
+        magenta 214 153 182
+        cyan 131 192 146
+        white 211 198 170
+        orange 231 165 120
+    }
+}
+EOF
+      ;;
+    gruvbox)
+      cat <<EOF > "$file_path"
+themes {
+    gruvbox {
+        fg 235 219 178
+        bg 40 40 40
+        black 60 56 54
+        red 251 73 52
+        green 184 187 38
+        yellow 250 189 47
+        blue 131 165 152
+        magenta 211 134 155
+        cyan 142 192 124
+        white 213 196 161
+        orange 254 128 25
+    }
+}
+EOF
+      ;;
+    kanagawa)
+      cat <<EOF > "$file_path"
+themes {
+    kanagawa {
+        fg 220 215 186
+        bg 31 31 40
+        black 54 60 79
+        red 195 64 67
+        green 152 187 108
+        yellow 199 167 101
+        blue 125 167 216
+        magenta 149 127 184
+        cyan 106 171 146
+        white 196 187 167
+        orange 255 160 102
+    }
+}
+EOF
+      ;;
+    monokai)
+      cat <<EOF > "$file_path"
+themes {
+    monokai {
+        fg 248 248 242
+        bg 39 40 34
+        black 73 72 62
+        red 249 38 114
+        green 166 226 46
+        yellow 230 219 116
+        blue 102 217 239
+        magenta 174 129 255
+        cyan 166 226 46
+        white 248 248 242
+        orange 253 151 31
+    }
+}
+EOF
+      ;;
+    nord)
+      cat <<EOF > "$file_path"
+themes {
+    nord {
+        fg 216 222 233
+        bg 46 52 64
+        black 59 66 82
+        red 191 97 106
+        green 163 190 140
+        yellow 235 203 139
+        blue 129 161 193
+        magenta 180 142 173
+        cyan 136 192 208
+        white 236 239 244
+        orange 208 135 112
+    }
+}
+EOF
+      ;;
+    onedark)
+      cat <<EOF > "$file_path"
+themes {
+    onedark {
+        fg 171 178 191
+        bg 40 44 52
+        black 92 99 112
+        red 224 108 117
+        green 152 195 121
+        yellow 229 192 123
+        blue 97 175 239
+        magenta 198 120 221
+        cyan 86 182 194
+        white 220 223 228
+        orange 209 154 102
+    }
+}
+EOF
+      ;;
+    rose-pine)
+      cat <<EOF > "$file_path"
+themes {
+    rose-pine {
+        fg 224 222 244
+        bg 25 23 36
+        black 57 53 82
+        red 235 111 146
+        green 156 207 216
+        yellow 246 193 119
+        blue 49 116 143
+        magenta 196 167 231
+        cyan 234 154 151
+        white 224 222 244
+        orange 241 143 173
+    }
+}
+EOF
+      ;;
+    solarized-dark)
+      cat <<EOF > "$file_path"
+themes {
+    solarized-dark {
+        fg 131 148 150
+        bg 0 43 54
+        black 7 54 66
+        red 220 50 47
+        green 133 153 0
+        yellow 181 137 0
+        blue 38 139 210
+        magenta 211 54 130
+        cyan 42 161 152
+        white 238 232 213
+        orange 203 75 22
+    }
+}
+EOF
+      ;;
+    solarized-light)
+      cat <<EOF > "$file_path"
+themes {
+    solarized-light {
+        fg 101 123 131
+        bg 253 246 227
+        black 238 232 213
+        red 220 50 47
+        green 133 153 0
+        yellow 181 137 0
+        blue 38 139 210
+        magenta 211 54 130
+        cyan 42 161 152
+        white 7 54 66
+        orange 203 75 22
+    }
+}
+EOF
+      ;;
+    tokyo-night)
+      cat <<EOF > "$file_path"
+themes {
+    tokyo-night {
+        fg 169 177 214
+        bg 26 27 38
+        black 56 62 90
+        red 249 51 87
+        green 158 206 106
+        yellow 224 175 104
+        blue 122 162 247
+        magenta 187 154 247
+        cyan 42 195 222
+        white 192 202 245
+        orange 255 158 100
+    }
+}
+EOF
+      ;;
+    *)
+      die "Unsupported preset theme: $theme_name"
+      ;;
+  esac
+}
+
+install_preset_theme() {
+  local preset_name="$1"
+  local force="$2"
+  local config_dir="$3"
+  local global_theme_dir="$config_dir/themes"
+
+  is_preset_theme "$preset_name" || die "Unknown preset: $preset_name"
+  local output_file="$global_theme_dir/$preset_name.kdl"
+
+  mkdir -p "$global_theme_dir"
+  if [[ -e "$output_file" && "$force" != "1" ]]; then
+    return 0
+  fi
+
+  write_preset_theme_file "$output_file" "$preset_name"
+}
+
+install_all_presets() {
+  local force="$1"
+  local config_dir="$2"
+  local count=0
+
+  while IFS= read -r preset; do
+    [[ -n "$preset" ]] || continue
+    install_preset_theme "$preset" "$force" "$config_dir"
+    count=$((count + 1))
+  done < <(preset_theme_names)
+
+  echo "Installed or updated $count preset themes in $config_dir/themes"
+}
+
+init_theme() {
+  local name="$1"
+  local force="$2"
+
+  validate_theme_name "$name"
+
+  local config_dir
+  config_dir="$(resolve_zellij_config_dir)"
+  local global_theme_dir="$config_dir/themes"
+
+  local global_file="$global_theme_dir/$name.kdl"
+  mkdir -p "$global_theme_dir"
+  if [[ -e "$global_file" && "$force" != "1" ]]; then
+    die "Theme already exists: $global_file (use --force to overwrite)"
+  fi
+  write_theme_file "$global_file" "$name"
+  echo "Created global theme: $global_file"
+}
+
+resolve_global_theme() {
+  local name="$1"
+  local config_dir="$2"
+  local global_theme_dir="$config_dir/themes"
+
+  validate_theme_name "$name"
+
+  local global_file="$global_theme_dir/$name.kdl"
+
+  [[ -f "$global_file" ]] || die "Global theme not found: $global_file"
+  printf '%s|%s\n' "$name" "$global_file"
+}
+
+theme_name_from_config_file() {
+  local config_file="$1"
+  if [[ ! -f "$config_file" ]]; then
+    return 1
+  fi
+  awk '
+    /^[[:space:]]*theme[[:space:]]+"/ {
+      line=$0
+      sub(/^[[:space:]]*theme[[:space:]]+"/, "", line)
+      sub(/".*/, "", line)
+      print line
+      exit 0
+    }
+  ' "$config_file"
+}
+
+sync_theme_selection() {
+  local name="$1"
+  local explicit_config="$2"
+
+  local config_dir
+  config_dir="$(resolve_zellij_config_dir)"
+
+  if [[ -z "$name" ]]; then
+    local config_file
+    config_file="$(resolve_zellij_config_file "$config_dir" "$explicit_config")"
+    name="$(theme_name_from_config_file "$config_file" || true)"
+  fi
+
+  if [[ -z "$name" ]]; then
+    if [[ -f "$config_dir/themes/tokyo-night.kdl" ]]; then
+      name="tokyo-night"
+    else
+      die "No theme name provided and no theme set in config."
+    fi
+  fi
+
+  local resolved
+  resolved="$(resolve_global_theme "$name" "$config_dir")"
+
+  local theme_name theme_path
+  IFS='|' read -r theme_name theme_path <<< "$resolved"
+  sync_aoc_theme_artifacts "$theme_name" "$theme_path"
+  echo "Synced AOC theme artifacts from global theme '$theme_name'."
+}
+
+apply_theme() {
+  local name="$1"
+
+  if ! command -v zellij >/dev/null 2>&1; then
+    die "zellij command not found."
+  fi
+  if [[ -z "${ZELLIJ:-}" && -z "${ZELLIJ_SESSION_NAME:-}" ]]; then
+    die "Live apply requires running inside an active Zellij pane."
+  fi
+
+  local config_dir
+  config_dir="$(resolve_zellij_config_dir)"
+  local resolved
+  resolved="$(resolve_global_theme "$name" "$config_dir")"
+  local theme_name theme_path
+  IFS='|' read -r theme_name theme_path <<< "$resolved"
+
+  zellij options --theme "$theme_name"
+  sync_aoc_theme_artifacts "$theme_name" "$theme_path"
+  echo "Applied global theme '$theme_name' from $theme_path"
+}
+
+set_default_theme() {
+  local name="$1"
+  local explicit_config="$2"
+
+  local config_dir
+  config_dir="$(resolve_zellij_config_dir)"
+  local resolved
+  resolved="$(resolve_global_theme "$name" "$config_dir")"
+
+  local theme_name theme_path
+  IFS='|' read -r theme_name theme_path <<< "$resolved"
+
+  local config_file
+  config_file="$(resolve_zellij_config_file "$config_dir" "$explicit_config")"
+  mkdir -p "$(dirname "$config_file")"
+
+  if [[ ! -f "$config_file" ]]; then
+    printf 'theme "%s"\n' "$theme_name" > "$config_file"
+    echo "Created $config_file with theme '$theme_name'."
+    return 0
+  fi
+
+  local tmp_file
+  tmp_file="$(mktemp "${TMPDIR:-/tmp}/aoc-theme.XXXXXX")"
+  awk -v theme="$theme_name" '
+    BEGIN { replaced=0 }
+    {
+      if (!replaced && $0 ~ /^[[:space:]]*theme[[:space:]]+"[^"]+"/) {
+        sub(/theme[[:space:]]+"[^"]+"/, "theme \"" theme "\"")
+        replaced=1
+      }
+      print
+    }
+    END {
+      if (!replaced) {
+        print ""
+        print "theme \"" theme "\""
+      }
+    }
+  ' "$config_file" > "$tmp_file"
+
+  mv "$tmp_file" "$config_file"
+  sync_aoc_theme_artifacts "$theme_name" "$theme_path"
+  echo "Set default global theme '$theme_name' in $config_file (source: $theme_path)."
+}
+
+list_global_themes() {
+  local config_dir="$1"
+  local global_theme_dir="$config_dir/themes"
+  local found=0
+
+  if [[ -d "$global_theme_dir" ]]; then
+    shopt -s nullglob
+    local file
+    for file in "$global_theme_dir"/*.kdl; do
+      found=1
+      echo "global  $(basename "$file" .kdl)  $file"
+    done
+    shopt -u nullglob
+  fi
+
+  if [[ "$found" == "0" ]]; then
+    echo "global  (none)"
+  fi
+}
+
+list_preset_themes() {
+  local config_dir="$1"
+  local global_theme_dir="$config_dir/themes"
+
+  while IFS= read -r preset; do
+    [[ -n "$preset" ]] || continue
+    local status="available"
+    local path="$global_theme_dir/$preset.kdl"
+    if [[ -f "$path" ]]; then
+      status="installed"
+    fi
+    echo "preset  $preset  $status  $path"
+  done < <(preset_theme_names)
+}
+
+list_global_custom_theme_names() {
+  local global_theme_dir="$1"
+  if [[ ! -d "$global_theme_dir" ]]; then
+    return 0
+  fi
+
+  shopt -s nullglob
+  local file
+  for file in "$global_theme_dir"/*.kdl; do
+    local name
+    name="$(basename "$file" .kdl)"
+
+    if is_preset_theme "$name"; then
+      continue
+    fi
+
+    printf '%s\n' "$name"
+  done
+  shopt -u nullglob
+}
+
+choose_item() {
+  local prompt="$1"
+  local -n items_ref="$2"
+  local header="${3:-}"
+
+  if ((${#items_ref[@]} == 0)); then
+    return 1
+  fi
+
+  local selected=""
+  if command -v fzf >/dev/null 2>&1; then
+    local height=$(( ${#items_ref[@]} + 8 ))
+    if ((height < 12)); then
+      height=12
+    elif ((height > 24)); then
+      height=24
+    fi
+
+    local header_text="Enter select  f search  ? help  q quit"
+    if [[ -n "$header" ]]; then
+      header_text="$header"
+      header_text+=$'\n'
+      header_text+="Enter select  f search  ? help  q quit"
+    fi
+
+    local -a fzf_args=(
+      --prompt "$prompt > "
+      --height "$height"
+      --layout=reverse-list
+      --border=rounded
+      --cycle
+      --no-multi
+      --no-sort
+      --disabled
+      --info=inline-right
+      --pointer ">"
+      --marker "+"
+      --preview-window "right:45%:hidden:border-left"
+      --preview "cat <<'EOF'
+aoc-theme TUI help
+
+Navigation
+  j / k         move down / up
+  h / l         half-page up / down
+  Enter         select
+
+Search
+  f             enter search mode
+  Esc           leave search mode
+
+Help
+  ?             toggle help panel
+  Esc           close help panel
+
+Exit
+  q             cancel this menu
+  Ctrl-C        cancel this menu
+EOF"
+      --bind "j:down,k:up,h:half-page-up,l:half-page-down"
+      --bind "f:enable-search+change-prompt(Search > )+unbind(j,k,h,l)"
+      --bind "esc:hide-preview+disable-search+clear-query+change-prompt($prompt > )+rebind(j,k,h,l)"
+      --bind "?:toggle-preview"
+      --bind "q:abort"
+      --color "fg:#C0CAF5,bg:#1A1B26,hl:#7AA2F7,fg+:#FFFFFF,bg+:#2A2F45,hl+:#7DCFFF,border:#3B4261,prompt:#9ECE6A,pointer:#F7768E,marker:#E0AF68,header:#A9B1D6,info:#7DCFFF"
+      --header "$header_text"
+    )
+
+    selected="$(printf '%s\n' "${items_ref[@]}" | FZF_DEFAULT_OPTS= FZF_DEFAULT_COMMAND= fzf "${fzf_args[@]}" || true)"
+    printf '%s' "$selected"
+    return 0
+  fi
+
+  echo
+  echo "$prompt"
+  echo "----------------"
+  if [[ -n "$header" ]]; then
+    echo "$header"
+    echo
+  fi
+  local i=1
+  local item=""
+  for item in "${items_ref[@]}"; do
+    echo "  $i) $item"
+    i=$((i + 1))
+  done
+
+  local choice=""
+  read -r -p "Choice > " choice
+  if [[ "$choice" =~ ^[0-9]+$ ]] && ((choice >= 1 && choice <= ${#items_ref[@]})); then
+    printf '%s' "${items_ref[$((choice - 1))]}"
+  fi
+}
+
+prompt_theme_name() {
+  local theme_name=""
+  read -r -p "Enter theme name (kebab-case) > " theme_name
+  validate_theme_name "$theme_name"
+  printf '%s' "$theme_name"
+}
+
+theme_action_menu() {
+  local allow_install_only="$1"
+  local target_label="${2:-}"
+  local -a actions=(
+    "Apply now (live)"
+    "Set as default"
+    "Apply now + set default"
+  )
+  if [[ "$allow_install_only" == "1" ]]; then
+    actions+=("Install preset only")
+  fi
+  actions+=("Back")
+
+  local header=""
+  if [[ -n "$target_label" ]]; then
+    header="Selected theme: $target_label"
+  fi
+
+  choose_item "Theme action" actions "$header"
+}
+
+current_default_theme_name() {
+  local config_dir="$1"
+  local config_file
+  config_file="$(resolve_zellij_config_file "$config_dir" "")"
+  theme_name_from_config_file "$config_file" || true
+}
+
+current_active_theme_name() {
+  local profile_path
+  profile_path="$(aoc_theme_profile_path)"
+  if [[ ! -f "$profile_path" ]]; then
+    return 0
+  fi
+
+  awk -F '"' '
+    /^[[:space:]]*export[[:space:]]+AOC_THEME_NAME="/ {
+      print $2
+      exit 0
+    }
+  ' "$profile_path"
+}
+
+join_labels() {
+  local out=""
+  local label=""
+  for label in "$@"; do
+    [[ -n "$label" ]] || continue
+    if [[ -z "$out" ]]; then
+      out="$label"
+    else
+      out+="; $label"
+    fi
+  done
+  printf '%s' "$out"
+}
+
+theme_tui() {
+  local config_dir
+  config_dir="$(resolve_zellij_config_dir)"
+  local global_theme_dir="$config_dir/themes"
+
+  while :; do
+    local current_default
+    current_default="$(current_default_theme_name "$config_dir")"
+    local current_active
+    current_active="$(current_active_theme_name)"
+    local current_summary=""
+    if [[ -n "$current_active" && -n "$current_default" && "$current_active" != "$current_default" ]]; then
+      current_summary="Current: $current_active  Default: $current_default"
+    elif [[ -n "$current_active" ]]; then
+      current_summary="Current theme: $current_active"
+    elif [[ -n "$current_default" ]]; then
+      current_summary="Default theme: $current_default"
+    else
+      current_summary="Current theme: none"
+    fi
+
+    local -a sections=(
+      "Preset themes"
+      "Custom global themes"
+      "Create custom global theme"
+      "Install all preset themes"
+    )
+    sections+=("Exit")
+
+    local section
+    section="$(choose_item "Theme section" sections "$current_summary")"
+    [[ -n "$section" ]] || return 0
+
+    case "$section" in
+      "Preset themes")
+        local -a presets=()
+        local preset_name=""
+        while IFS= read -r preset_name; do
+          [[ -n "$preset_name" ]] || continue
+          local -a labels=()
+          if [[ -f "$global_theme_dir/$preset_name.kdl" ]]; then
+            labels+=("installed")
+          else
+            labels+=("available")
+          fi
+          if [[ -n "$current_default" && "$preset_name" == "$current_default" ]]; then
+            labels+=("default")
+          fi
+          if [[ -n "$current_active" && "$preset_name" == "$current_active" ]]; then
+            labels+=("active")
+          fi
+          local tag
+          tag="$(join_labels "${labels[@]}")"
+          presets+=("$preset_name [$tag]")
+        done < <(preset_theme_names)
+        presets+=("Back")
+
+        local preset_entry
+        preset_entry="$(choose_item "Preset themes" presets)"
+        [[ -n "$preset_entry" ]] || continue
+        [[ "$preset_entry" == "Back" ]] && continue
+
+        local picked_preset
+        picked_preset="${preset_entry%% *}"
+        local action
+        action="$(theme_action_menu "1" "$picked_preset")"
+        [[ -n "$action" ]] || continue
+
+        case "$action" in
+          "Apply now (live)")
+            install_preset_theme "$picked_preset" "0" "$config_dir"
+            apply_theme "$picked_preset"
+            ;;
+          "Set as default")
+            install_preset_theme "$picked_preset" "0" "$config_dir"
+            set_default_theme "$picked_preset" ""
+            ;;
+          "Apply now + set default")
+            install_preset_theme "$picked_preset" "0" "$config_dir"
+            apply_theme "$picked_preset"
+            set_default_theme "$picked_preset" ""
+            ;;
+          "Install preset only")
+            install_preset_theme "$picked_preset" "0" "$config_dir"
+            echo "Installed preset '$picked_preset'."
+            ;;
+          "Back")
+            ;;
+        esac
+        ;;
+
+      "Custom global themes")
+        local -a global_custom=()
+        while IFS= read -r theme_name; do
+          [[ -n "$theme_name" ]] || continue
+          local -a labels=()
+          if [[ -n "$current_default" && "$theme_name" == "$current_default" ]]; then
+            labels+=("default")
+          fi
+          if [[ -n "$current_active" && "$theme_name" == "$current_active" ]]; then
+            labels+=("active")
+          fi
+          if ((${#labels[@]} > 0)); then
+            global_custom+=("$theme_name [$(join_labels "${labels[@]}")]")
+          else
+            global_custom+=("$theme_name")
+          fi
+        done < <(list_global_custom_theme_names "$global_theme_dir")
+
+        if ((${#global_custom[@]} == 0)); then
+          warn "No custom global themes found in $global_theme_dir"
+          continue
+        fi
+        global_custom+=("Back")
+
+        local global_theme
+        global_theme="$(choose_item "Global custom themes" global_custom)"
+        [[ -n "$global_theme" ]] || continue
+        [[ "$global_theme" == "Back" ]] && continue
+        global_theme="${global_theme%% *}"
+
+        local global_action
+        global_action="$(theme_action_menu "0" "$global_theme")"
+        [[ -n "$global_action" ]] || continue
+        case "$global_action" in
+          "Apply now (live)") apply_theme "$global_theme" ;;
+          "Set as default") set_default_theme "$global_theme" "" ;;
+          "Apply now + set default")
+            apply_theme "$global_theme"
+            set_default_theme "$global_theme" ""
+            ;;
+          "Back") ;;
+        esac
+        ;;
+
+      "Create custom global theme")
+        local new_global_theme
+        new_global_theme="$(prompt_theme_name)"
+        init_theme "$new_global_theme" "0"
+        ;;
+
+      "Install all preset themes")
+        install_all_presets "0" "$config_dir"
+        ;;
+
+      "Exit")
+        return 0
+        ;;
+    esac
+  done
+}
+
+if [[ $# -lt 1 ]]; then
+  if [[ -t 0 && -t 1 ]]; then
+    theme_tui
+    exit 0
+  fi
+  usage
+  exit 1
+fi
+
+command="$1"
+shift
+
+case "$command" in
+  init)
+    name=""
+    scope="global"
+    force=0
+    while [[ $# -gt 0 ]]; do
+      case "$1" in
+        --name)
+          shift
+          name="${1:-}"
+          ;;
+        --scope)
+          shift
+          scope="${1:-}"
+          ;;
+        --force)
+          force=1
+          ;;
+        -h|--help)
+          usage
+          exit 0
+          ;;
+        *)
+          die "Unknown option for init: $1"
+          ;;
+      esac
+      shift || true
+    done
+    [[ -n "$name" ]] || die "init requires --name"
+    scope="$(normalize_scope "init" "$scope")"
+    init_theme "$name" "$force"
+    ;;
+
+  list)
+    scope="global"
+    while [[ $# -gt 0 ]]; do
+      case "$1" in
+        --scope)
+          shift
+          scope="${1:-}"
+          ;;
+        -h|--help)
+          usage
+          exit 0
+          ;;
+        *)
+          die "Unknown option for list: $1"
+          ;;
+      esac
+      shift || true
+    done
+
+    scope="$(normalize_scope "list" "$scope")"
+    config_dir="$(resolve_zellij_config_dir)"
+    list_global_themes "$config_dir"
+    ;;
+
+  presets)
+    subcommand="${1:-list}"
+    if [[ $# -gt 0 ]]; then
+      shift
+    fi
+    config_dir="$(resolve_zellij_config_dir)"
+
+    case "$subcommand" in
+      list)
+        list_preset_themes "$config_dir"
+        ;;
+      install)
+        preset_name=""
+        install_all=0
+        force=0
+        while [[ $# -gt 0 ]]; do
+          case "$1" in
+            --name)
+              shift
+              preset_name="${1:-}"
+              ;;
+            --all)
+              install_all=1
+              ;;
+            --force)
+              force=1
+              ;;
+            -h|--help)
+              usage
+              exit 0
+              ;;
+            *)
+              die "Unknown option for presets install: $1"
+              ;;
+          esac
+          shift || true
+        done
+
+        if [[ "$install_all" == "1" ]]; then
+          install_all_presets "$force" "$config_dir"
+        else
+          [[ -n "$preset_name" ]] || die "presets install requires --name <preset> or --all"
+          install_preset_theme "$preset_name" "$force" "$config_dir"
+          echo "Installed preset '$preset_name' in $config_dir/themes"
+        fi
+        ;;
+      *)
+        die "Unknown presets subcommand: $subcommand"
+        ;;
+    esac
+    ;;
+
+  apply)
+    name=""
+    scope="global"
+    while [[ $# -gt 0 ]]; do
+      case "$1" in
+        --name)
+          shift
+          name="${1:-}"
+          ;;
+        --scope)
+          shift
+          scope="${1:-}"
+          ;;
+        -h|--help)
+          usage
+          exit 0
+          ;;
+        *)
+          die "Unknown option for apply: $1"
+          ;;
+      esac
+      shift || true
+    done
+    [[ -n "$name" ]] || die "apply requires --name"
+    scope="$(normalize_scope "apply" "$scope")"
+    apply_theme "$name"
+    ;;
+
+  set-default)
+    name=""
+    scope="global"
+    config_file=""
+    while [[ $# -gt 0 ]]; do
+      case "$1" in
+        --name)
+          shift
+          name="${1:-}"
+          ;;
+        --scope)
+          shift
+          scope="${1:-}"
+          ;;
+        --config)
+          shift
+          config_file="${1:-}"
+          ;;
+        -h|--help)
+          usage
+          exit 0
+          ;;
+        *)
+          die "Unknown option for set-default: $1"
+          ;;
+      esac
+      shift || true
+    done
+    [[ -n "$name" ]] || die "set-default requires --name"
+    scope="$(normalize_scope "set-default" "$scope")"
+    set_default_theme "$name" "$config_file"
+    ;;
+
+  sync)
+    name=""
+    scope="global"
+    config_file=""
+    while [[ $# -gt 0 ]]; do
+      case "$1" in
+        --name)
+          shift
+          name="${1:-}"
+          ;;
+        --scope)
+          shift
+          scope="${1:-}"
+          ;;
+        --config)
+          shift
+          config_file="${1:-}"
+          ;;
+        -h|--help)
+          usage
+          exit 0
+          ;;
+        *)
+          die "Unknown option for sync: $1"
+          ;;
+      esac
+      shift || true
+    done
+    scope="$(normalize_scope "sync" "$scope")"
+    sync_theme_selection "$name" "$config_file"
+    ;;
+
+  tui)
+    theme_tui
+    ;;
+
+  -h|--help)
+    usage
+    ;;
+
+  *)
+    die "Unknown command: $command"
+    ;;
+esac

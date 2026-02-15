@@ -176,6 +176,7 @@ aoc-doctor
 Ensure taskmaster is working:
 
 ```bash
+tm list
 aoc-task list
 ```
 

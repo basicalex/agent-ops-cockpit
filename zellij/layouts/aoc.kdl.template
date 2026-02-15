@@ -3,33 +3,33 @@ layout {
     pane split_direction="horizontal" {
       pane size=1 borderless=true {
         plugin location="file:{{HOME}}/.config/zellij/plugins/zjstatus.wasm" {
-          format_left   "{mode} #[fg=#89B4FA,bold]{session}"
+          format_left   "{mode} #[fg=__AOC_THEME_BLUE__,bold]{session}"
           format_center "{tabs}"
           format_right  "{command_cwd}"
           format_space  ""
 
           border_enabled  "false"
           border_char     "─"
-          border_format   "#[fg=#6C7086]{char}"
+          border_format   "#[fg=__AOC_THEME_BLACK__]{char}"
           border_position "bottom"
 
           hide_frame_for_single_pane "true"
 
-          mode_normal  "#[bg=blue] "
-          mode_tmux    "#[bg=#ffc387] "
+          mode_normal  "#[bg=__AOC_THEME_BLUE__] "
+          mode_tmux    "#[bg=__AOC_THEME_ORANGE__] "
 
-          tab_normal   "#[fg=#6C7086] {name} "
-          tab_active   "#[fg=#9399B2,bold,italic] {name} "
+          tab_normal   "#[fg=__AOC_THEME_BLACK__] {name} "
+          tab_active   "#[fg=__AOC_THEME_WHITE__,bold,italic] {name} "
 
           command_cwd_command  "pwd | sed 's|.*/||'"
-          command_cwd_format   "#[fg=#6C7086] {stdout} "
+          command_cwd_format   "#[fg=__AOC_THEME_BLACK__] {stdout} "
           command_cwd_interval "2"
         }
       }
       pane split_direction="vertical" {
         // LEFT: Yazi (tree + preview). Starts in project root.
         pane size="13%" name="Explorer" command="bash" {
-          args "-lc" "export PATH=\"$HOME/.cargo/bin:$PATH\"; export EDITOR=micro; export VISUAL=$EDITOR; export AOC_SESSION_ID=\"__AOC_SESSION_ID__\"; export AOC_HUB_ADDR=\"__AOC_HUB_ADDR__\"; export AOC_HUB_URL=\"__AOC_HUB_URL__\"; export AOC_PROJECT_ROOT=\"__AOC_PROJECT_ROOT__\"; export AOC_TAB_SCOPE=\"__AOC_TAB_NAME__\"; cd \"__AOC_PROJECT_ROOT__\" && exec ${AOC_FILETREE_CMD:-yazi} ."
+          args "-lc" "export PATH=\"$HOME/.cargo/bin:$PATH\"; theme_env=\"${XDG_CONFIG_HOME:-$HOME/.config}/aoc/theme.env\"; if [[ -f \"$theme_env\" ]]; then source \"$theme_env\"; fi; export EDITOR=micro; export VISUAL=$EDITOR; export AOC_SESSION_ID=\"__AOC_SESSION_ID__\"; export AOC_HUB_ADDR=\"__AOC_HUB_ADDR__\"; export AOC_HUB_URL=\"__AOC_HUB_URL__\"; export AOC_PROJECT_ROOT=\"__AOC_PROJECT_ROOT__\"; export AOC_TAB_SCOPE=\"__AOC_TAB_NAME__\"; cd \"__AOC_PROJECT_ROOT__\" && exec ${AOC_FILETREE_CMD:-yazi} ."
         }
 
         // CENTER + RIGHT COLUMN
@@ -38,21 +38,21 @@ layout {
           // CENTER stack: Agent (top) + Taskmaster (bottom)
           pane split_direction="horizontal" stacked=true {
             pane name="Agent [__AOC_AGENT_ID__]" expanded=true focus=true command="bash" {
-              args "-lc" "export PATH=\"$HOME/.cargo/bin:$PATH\"; export AOC_SESSION_ID=\"__AOC_SESSION_ID__\"; export AOC_HUB_ADDR=\"__AOC_HUB_ADDR__\"; export AOC_HUB_URL=\"__AOC_HUB_URL__\"; export AOC_PROJECT_ROOT=\"__AOC_PROJECT_ROOT__\"; export AOC_TAB_SCOPE=\"__AOC_TAB_NAME__\"; export AOC_PANE_ID=\"${ZELLIJ_PANE_ID:-}\"; cd \"__AOC_PROJECT_ROOT__\" && AOC_AGENT_RUN=1 exec ${AOC_AGENT_CMD:-${AOC_CODEX_CMD:-aoc-agent-run}}"
+              args "-lc" "export PATH=\"$HOME/.cargo/bin:$PATH\"; theme_env=\"${XDG_CONFIG_HOME:-$HOME/.config}/aoc/theme.env\"; if [[ -f \"$theme_env\" ]]; then source \"$theme_env\"; fi; export AOC_SESSION_ID=\"__AOC_SESSION_ID__\"; export AOC_HUB_ADDR=\"__AOC_HUB_ADDR__\"; export AOC_HUB_URL=\"__AOC_HUB_URL__\"; export AOC_PROJECT_ROOT=\"__AOC_PROJECT_ROOT__\"; export AOC_TAB_SCOPE=\"__AOC_TAB_NAME__\"; export AOC_PANE_ID=\"${ZELLIJ_PANE_ID:-}\"; cd \"__AOC_PROJECT_ROOT__\" && AOC_AGENT_RUN=1 exec ${AOC_AGENT_CMD:-${AOC_CODEX_CMD:-aoc-agent-run}}"
             }
 
             pane command="bash" {
-              args "-lc" "export PATH=\"$HOME/.cargo/bin:$PATH\"; export AOC_SESSION_ID=\"__AOC_SESSION_ID__\"; export AOC_HUB_ADDR=\"__AOC_HUB_ADDR__\"; export AOC_HUB_URL=\"__AOC_HUB_URL__\"; export AOC_PROJECT_ROOT=\"__AOC_PROJECT_ROOT__\"; export AOC_TAB_SCOPE=\"__AOC_TAB_NAME__\"; export AOC_TASKMASTER_NATIVE=1; cd \"__AOC_PROJECT_ROOT__\" && exec aoc-taskmaster"
+              args "-lc" "export PATH=\"$HOME/.cargo/bin:$PATH\"; theme_env=\"${XDG_CONFIG_HOME:-$HOME/.config}/aoc/theme.env\"; if [[ -f \"$theme_env\" ]]; then source \"$theme_env\"; fi; export AOC_SESSION_ID=\"__AOC_SESSION_ID__\"; export AOC_HUB_ADDR=\"__AOC_HUB_ADDR__\"; export AOC_HUB_URL=\"__AOC_HUB_URL__\"; export AOC_PROJECT_ROOT=\"__AOC_PROJECT_ROOT__\"; export AOC_TAB_SCOPE=\"__AOC_TAB_NAME__\"; export AOC_TASKMASTER_NATIVE=1; cd \"__AOC_PROJECT_ROOT__\" && exec ${AOC_TASKMASTER_CMD:-aoc-taskmaster}"
             }
           }
 
           // RIGHT COLUMN: AOC Pulse (top), Terminal (bottom)
           pane size="23%" split_direction="horizontal" {
             pane size="52%" name="AOC Pulse" command="bash" {
-              args "-lc" "export PATH=\"$HOME/.cargo/bin:$PATH\"; export AOC_SESSION_ID=\"__AOC_SESSION_ID__\"; export AOC_HUB_ADDR=\"__AOC_HUB_ADDR__\"; export AOC_HUB_URL=\"__AOC_HUB_URL__\"; export AOC_PROJECT_ROOT=\"__AOC_PROJECT_ROOT__\"; export AOC_TAB_SCOPE=\"__AOC_TAB_NAME__\"; export AOC_PANE_ID=\"${ZELLIJ_PANE_ID:-}\"; cd \"__AOC_PROJECT_ROOT__\" && exec ${AOC_PULSE_CMD:-aoc-mission-control}"
+              args "-lc" "export PATH=\"$HOME/.cargo/bin:$PATH\"; theme_env=\"${XDG_CONFIG_HOME:-$HOME/.config}/aoc/theme.env\"; if [[ -f \"$theme_env\" ]]; then source \"$theme_env\"; fi; export AOC_SESSION_ID=\"__AOC_SESSION_ID__\"; export AOC_HUB_ADDR=\"__AOC_HUB_ADDR__\"; export AOC_HUB_URL=\"__AOC_HUB_URL__\"; export AOC_PROJECT_ROOT=\"__AOC_PROJECT_ROOT__\"; export AOC_TAB_SCOPE=\"__AOC_TAB_NAME__\"; export AOC_PANE_ID=\"${ZELLIJ_PANE_ID:-}\"; cd \"__AOC_PROJECT_ROOT__\" && exec ${AOC_PULSE_CMD:-aoc-mission-control}"
             }
             pane size="48%" command="bash" {
-              args "-lc" "export PATH=\"$HOME/.cargo/bin:$PATH\"; export AOC_SESSION_ID=\"__AOC_SESSION_ID__\"; export AOC_HUB_ADDR=\"__AOC_HUB_ADDR__\"; export AOC_HUB_URL=\"__AOC_HUB_URL__\"; export AOC_PROJECT_ROOT=\"__AOC_PROJECT_ROOT__\"; export AOC_TAB_SCOPE=\"__AOC_TAB_NAME__\"; cd \"__AOC_PROJECT_ROOT__\" && exec ${AOC_TERMINAL_CMD:-$SHELL}"
+              args "-lc" "export PATH=\"$HOME/.cargo/bin:$PATH\"; theme_env=\"${XDG_CONFIG_HOME:-$HOME/.config}/aoc/theme.env\"; if [[ -f \"$theme_env\" ]]; then source \"$theme_env\"; fi; export AOC_SESSION_ID=\"__AOC_SESSION_ID__\"; export AOC_HUB_ADDR=\"__AOC_HUB_ADDR__\"; export AOC_HUB_URL=\"__AOC_HUB_URL__\"; export AOC_PROJECT_ROOT=\"__AOC_PROJECT_ROOT__\"; export AOC_TAB_SCOPE=\"__AOC_TAB_NAME__\"; cd \"__AOC_PROJECT_ROOT__\" && exec ${AOC_TERMINAL_CMD:-$SHELL}"
             }
           }
         }
@@ -66,27 +66,27 @@ layout {
 
           border_enabled  "false"
           border_char     "─"
-          border_format   "#[fg=#6C7086]{char}"
+          border_format   "#[fg=__AOC_THEME_BLACK__]{char}"
           border_position "top"
 
           hide_frame_for_single_pane "true"
 
-          mode_normal "#[fg=#89B4FA,bold]NORMAL #[fg=#6C7086]| #[fg=#A6E3A1]Ctrl #[fg=#6C7086]g Lock  p Pane  t Tab  n Resize  s Scroll  h Move  o Session  b Tmux"
-          mode_locked "#[fg=#F38BA8,bold]LOCKED #[fg=#6C7086]| #[fg=#A6E3A1]Ctrl #[fg=#6C7086]g Unlock"
-          mode_resize "#[fg=#FAB387,bold]RESIZE #[fg=#6C7086]| #[fg=#A6E3A1]h/j/k/l #[fg=#6C7086]Resize #[fg=#A6E3A1]H/J/K/L #[fg=#6C7086]Fine #[fg=#A6E3A1]+/- #[fg=#6C7086]Resize #[fg=#A6E3A1]Ctrl #[fg=#6C7086]n Normal"
-          mode_pane "#[fg=#A6E3A1,bold]PANE #[fg=#6C7086]| #[fg=#A6E3A1]h/j/k/l #[fg=#6C7086]Move #[fg=#A6E3A1]n #[fg=#6C7086]New #[fg=#A6E3A1]d #[fg=#6C7086]Down #[fg=#A6E3A1]r #[fg=#6C7086]Right #[fg=#A6E3A1]x #[fg=#6C7086]Close #[fg=#A6E3A1]f #[fg=#6C7086]Fullscreen #[fg=#A6E3A1]w #[fg=#6C7086]Float #[fg=#A6E3A1]Ctrl #[fg=#6C7086]p Normal"
-          mode_tab "#[fg=#94E2D5,bold]TAB #[fg=#6C7086]| #[fg=#A6E3A1]h/l #[fg=#6C7086]Prev/Next #[fg=#A6E3A1]n #[fg=#6C7086]New #[fg=#A6E3A1]x #[fg=#6C7086]Close #[fg=#A6E3A1]r #[fg=#6C7086]Rename #[fg=#A6E3A1]1-9 #[fg=#6C7086]Go #[fg=#A6E3A1]Ctrl #[fg=#6C7086]t Normal"
-          mode_scroll "#[fg=#F9E2AF,bold]SCROLL #[fg=#6C7086]| #[fg=#A6E3A1]j/k #[fg=#6C7086]Scroll #[fg=#A6E3A1]Ctrl #[fg=#6C7086]f/b Page  c Bottom  s Normal #[fg=#A6E3A1]d/u #[fg=#6C7086]Half #[fg=#A6E3A1]s #[fg=#6C7086]Search #[fg=#A6E3A1]e #[fg=#6C7086]Edit"
-          mode_enter_search "#[fg=#F9E2AF,bold]SEARCH #[fg=#6C7086]| #[fg=#A6E3A1]Enter #[fg=#6C7086]Find #[fg=#A6E3A1]Esc/Ctrl #[fg=#6C7086]c Back"
-          mode_search "#[fg=#F9E2AF,bold]SEARCH #[fg=#6C7086]| #[fg=#A6E3A1]n/p #[fg=#6C7086]Next/Prev #[fg=#A6E3A1]c #[fg=#6C7086]Case #[fg=#A6E3A1]w #[fg=#6C7086]Wrap #[fg=#A6E3A1]o #[fg=#6C7086]Word #[fg=#A6E3A1]Ctrl #[fg=#6C7086]c Normal"
-          mode_rename_tab "#[fg=#CBA6F7,bold]RENAME TAB #[fg=#6C7086]| #[fg=#A6E3A1]Enter #[fg=#6C7086]Save #[fg=#A6E3A1]Esc #[fg=#6C7086]Cancel"
-          mode_rename_pane "#[fg=#CBA6F7,bold]RENAME PANE #[fg=#6C7086]| #[fg=#A6E3A1]Enter #[fg=#6C7086]Save #[fg=#A6E3A1]Esc #[fg=#6C7086]Cancel"
-          mode_session "#[fg=#89B4FA,bold]SESSION #[fg=#6C7086]| #[fg=#A6E3A1]w #[fg=#6C7086]Manager #[fg=#A6E3A1]c #[fg=#6C7086]Config #[fg=#A6E3A1]p #[fg=#6C7086]Plugins #[fg=#A6E3A1]d #[fg=#6C7086]Detach #[fg=#A6E3A1]Ctrl #[fg=#6C7086]o Normal"
-          mode_move "#[fg=#89B4FA,bold]MOVE #[fg=#6C7086]| #[fg=#A6E3A1]h/j/k/l #[fg=#6C7086]Move #[fg=#A6E3A1]n/Tab #[fg=#6C7086]Next #[fg=#A6E3A1]p #[fg=#6C7086]Prev #[fg=#A6E3A1]Ctrl #[fg=#6C7086]h Normal"
-          mode_tmux "#[fg=#F38BA8,bold]TMUX #[fg=#6C7086]| #[fg=#A6E3A1]Ctrl #[fg=#6C7086]b Prefix  % Split R  \" Split D  z Fullscreen  c New Tab  p/n Prev/Next  b Normal"
+          mode_normal "#[fg=__AOC_THEME_BLUE__,bold]NORMAL #[fg=__AOC_THEME_BLACK__]| #[fg=__AOC_THEME_GREEN__]Ctrl #[fg=__AOC_THEME_BLACK__]g Lock  p Pane  t Tab  n Resize  s Scroll  h Move  o Session  b Tmux"
+          mode_locked "#[fg=__AOC_THEME_RED__,bold]LOCKED #[fg=__AOC_THEME_BLACK__]| #[fg=__AOC_THEME_GREEN__]Ctrl #[fg=__AOC_THEME_BLACK__]g Unlock"
+          mode_resize "#[fg=__AOC_THEME_ORANGE__,bold]RESIZE #[fg=__AOC_THEME_BLACK__]| #[fg=__AOC_THEME_GREEN__]h/j/k/l #[fg=__AOC_THEME_BLACK__]Resize #[fg=__AOC_THEME_GREEN__]H/J/K/L #[fg=__AOC_THEME_BLACK__]Fine #[fg=__AOC_THEME_GREEN__]+/- #[fg=__AOC_THEME_BLACK__]Resize #[fg=__AOC_THEME_GREEN__]Ctrl #[fg=__AOC_THEME_BLACK__]n Normal"
+          mode_pane "#[fg=__AOC_THEME_GREEN__,bold]PANE #[fg=__AOC_THEME_BLACK__]| #[fg=__AOC_THEME_GREEN__]h/j/k/l #[fg=__AOC_THEME_BLACK__]Move #[fg=__AOC_THEME_GREEN__]n #[fg=__AOC_THEME_BLACK__]New #[fg=__AOC_THEME_GREEN__]d #[fg=__AOC_THEME_BLACK__]Down #[fg=__AOC_THEME_GREEN__]r #[fg=__AOC_THEME_BLACK__]Right #[fg=__AOC_THEME_GREEN__]x #[fg=__AOC_THEME_BLACK__]Close #[fg=__AOC_THEME_GREEN__]f #[fg=__AOC_THEME_BLACK__]Fullscreen #[fg=__AOC_THEME_GREEN__]w #[fg=__AOC_THEME_BLACK__]Float #[fg=__AOC_THEME_GREEN__]Ctrl #[fg=__AOC_THEME_BLACK__]p Normal"
+          mode_tab "#[fg=__AOC_THEME_CYAN__,bold]TAB #[fg=__AOC_THEME_BLACK__]| #[fg=__AOC_THEME_GREEN__]h/l #[fg=__AOC_THEME_BLACK__]Prev/Next #[fg=__AOC_THEME_GREEN__]n #[fg=__AOC_THEME_BLACK__]New #[fg=__AOC_THEME_GREEN__]x #[fg=__AOC_THEME_BLACK__]Close #[fg=__AOC_THEME_GREEN__]r #[fg=__AOC_THEME_BLACK__]Rename #[fg=__AOC_THEME_GREEN__]1-9 #[fg=__AOC_THEME_BLACK__]Go #[fg=__AOC_THEME_GREEN__]Ctrl #[fg=__AOC_THEME_BLACK__]t Normal"
+          mode_scroll "#[fg=__AOC_THEME_YELLOW__,bold]SCROLL #[fg=__AOC_THEME_BLACK__]| #[fg=__AOC_THEME_GREEN__]j/k #[fg=__AOC_THEME_BLACK__]Scroll #[fg=__AOC_THEME_GREEN__]Ctrl #[fg=__AOC_THEME_BLACK__]f/b Page  c Bottom  s Normal #[fg=__AOC_THEME_GREEN__]d/u #[fg=__AOC_THEME_BLACK__]Half #[fg=__AOC_THEME_GREEN__]s #[fg=__AOC_THEME_BLACK__]Search #[fg=__AOC_THEME_GREEN__]e #[fg=__AOC_THEME_BLACK__]Edit"
+          mode_enter_search "#[fg=__AOC_THEME_YELLOW__,bold]SEARCH #[fg=__AOC_THEME_BLACK__]| #[fg=__AOC_THEME_GREEN__]Enter #[fg=__AOC_THEME_BLACK__]Find #[fg=__AOC_THEME_GREEN__]Esc/Ctrl #[fg=__AOC_THEME_BLACK__]c Back"
+          mode_search "#[fg=__AOC_THEME_YELLOW__,bold]SEARCH #[fg=__AOC_THEME_BLACK__]| #[fg=__AOC_THEME_GREEN__]n/p #[fg=__AOC_THEME_BLACK__]Next/Prev #[fg=__AOC_THEME_GREEN__]c #[fg=__AOC_THEME_BLACK__]Case #[fg=__AOC_THEME_GREEN__]w #[fg=__AOC_THEME_BLACK__]Wrap #[fg=__AOC_THEME_GREEN__]o #[fg=__AOC_THEME_BLACK__]Word #[fg=__AOC_THEME_GREEN__]Ctrl #[fg=__AOC_THEME_BLACK__]c Normal"
+          mode_rename_tab "#[fg=__AOC_THEME_MAGENTA__,bold]RENAME TAB #[fg=__AOC_THEME_BLACK__]| #[fg=__AOC_THEME_GREEN__]Enter #[fg=__AOC_THEME_BLACK__]Save #[fg=__AOC_THEME_GREEN__]Esc #[fg=__AOC_THEME_BLACK__]Cancel"
+          mode_rename_pane "#[fg=__AOC_THEME_MAGENTA__,bold]RENAME PANE #[fg=__AOC_THEME_BLACK__]| #[fg=__AOC_THEME_GREEN__]Enter #[fg=__AOC_THEME_BLACK__]Save #[fg=__AOC_THEME_GREEN__]Esc #[fg=__AOC_THEME_BLACK__]Cancel"
+          mode_session "#[fg=__AOC_THEME_BLUE__,bold]SESSION #[fg=__AOC_THEME_BLACK__]| #[fg=__AOC_THEME_GREEN__]w #[fg=__AOC_THEME_BLACK__]Manager #[fg=__AOC_THEME_GREEN__]c #[fg=__AOC_THEME_BLACK__]Config #[fg=__AOC_THEME_GREEN__]p #[fg=__AOC_THEME_BLACK__]Plugins #[fg=__AOC_THEME_GREEN__]d #[fg=__AOC_THEME_BLACK__]Detach #[fg=__AOC_THEME_GREEN__]Ctrl #[fg=__AOC_THEME_BLACK__]o Normal"
+          mode_move "#[fg=__AOC_THEME_BLUE__,bold]MOVE #[fg=__AOC_THEME_BLACK__]| #[fg=__AOC_THEME_GREEN__]h/j/k/l #[fg=__AOC_THEME_BLACK__]Move #[fg=__AOC_THEME_GREEN__]n/Tab #[fg=__AOC_THEME_BLACK__]Next #[fg=__AOC_THEME_GREEN__]p #[fg=__AOC_THEME_BLACK__]Prev #[fg=__AOC_THEME_GREEN__]Ctrl #[fg=__AOC_THEME_BLACK__]h Normal"
+          mode_tmux "#[fg=__AOC_THEME_RED__,bold]TMUX #[fg=__AOC_THEME_BLACK__]| #[fg=__AOC_THEME_GREEN__]Ctrl #[fg=__AOC_THEME_BLACK__]b Prefix  % Split R  \" Split D  z Fullscreen  c New Tab  p/n Prev/Next  b Normal"
 
           command_alt_command  "printf 'Alt f Float  n NewPane  i Tab<  o Tab>  u/p MoveTab  [ Group  h/j/k/l Focus  =/- Resize'"
-          command_alt_format   "#[fg=#A6E3A1]{stdout} "
+          command_alt_format   "#[fg=__AOC_THEME_GREEN__]{stdout} "
           command_alt_interval "60"
         }
       }
@@ -99,7 +99,7 @@ swap_layouts {
       pane split_direction="vertical" {
         // LEFT: Yazi (tree + preview). Starts in project root.
         pane size="10%" name="Explorer" command="bash" {
-          args "-lc" "export PATH=\"$HOME/.cargo/bin:$PATH\"; export EDITOR=micro; export VISUAL=$EDITOR; export AOC_SESSION_ID=\"__AOC_SESSION_ID__\"; export AOC_HUB_ADDR=\"__AOC_HUB_ADDR__\"; export AOC_HUB_URL=\"__AOC_HUB_URL__\"; export AOC_PROJECT_ROOT=\"__AOC_PROJECT_ROOT__\"; export AOC_TAB_SCOPE=\"__AOC_TAB_NAME__\"; cd \"__AOC_PROJECT_ROOT__\" && exec ${AOC_FILETREE_CMD:-yazi} ."
+          args "-lc" "export PATH=\"$HOME/.cargo/bin:$PATH\"; theme_env=\"${XDG_CONFIG_HOME:-$HOME/.config}/aoc/theme.env\"; if [[ -f \"$theme_env\" ]]; then source \"$theme_env\"; fi; export EDITOR=micro; export VISUAL=$EDITOR; export AOC_SESSION_ID=\"__AOC_SESSION_ID__\"; export AOC_HUB_ADDR=\"__AOC_HUB_ADDR__\"; export AOC_HUB_URL=\"__AOC_HUB_URL__\"; export AOC_PROJECT_ROOT=\"__AOC_PROJECT_ROOT__\"; export AOC_TAB_SCOPE=\"__AOC_TAB_NAME__\"; cd \"__AOC_PROJECT_ROOT__\" && exec ${AOC_FILETREE_CMD:-yazi} ."
         }
 
         // CENTER + RIGHT COLUMN
@@ -108,21 +108,21 @@ swap_layouts {
           // CENTER stack: Agent (top) + Taskmaster (bottom)
           pane split_direction="horizontal" stacked=true {
             pane name="Agent [__AOC_AGENT_ID__]" expanded=true focus=true command="bash" {
-              args "-lc" "export PATH=\"$HOME/.cargo/bin:$PATH\"; export AOC_SESSION_ID=\"__AOC_SESSION_ID__\"; export AOC_HUB_ADDR=\"__AOC_HUB_ADDR__\"; export AOC_HUB_URL=\"__AOC_HUB_URL__\"; export AOC_PROJECT_ROOT=\"__AOC_PROJECT_ROOT__\"; export AOC_TAB_SCOPE=\"__AOC_TAB_NAME__\"; export AOC_PANE_ID=\"${ZELLIJ_PANE_ID:-}\"; cd \"__AOC_PROJECT_ROOT__\" && AOC_AGENT_RUN=1 exec ${AOC_AGENT_CMD:-${AOC_CODEX_CMD:-aoc-agent-run}}"
+              args "-lc" "export PATH=\"$HOME/.cargo/bin:$PATH\"; theme_env=\"${XDG_CONFIG_HOME:-$HOME/.config}/aoc/theme.env\"; if [[ -f \"$theme_env\" ]]; then source \"$theme_env\"; fi; export AOC_SESSION_ID=\"__AOC_SESSION_ID__\"; export AOC_HUB_ADDR=\"__AOC_HUB_ADDR__\"; export AOC_HUB_URL=\"__AOC_HUB_URL__\"; export AOC_PROJECT_ROOT=\"__AOC_PROJECT_ROOT__\"; export AOC_TAB_SCOPE=\"__AOC_TAB_NAME__\"; export AOC_PANE_ID=\"${ZELLIJ_PANE_ID:-}\"; cd \"__AOC_PROJECT_ROOT__\" && AOC_AGENT_RUN=1 exec ${AOC_AGENT_CMD:-${AOC_CODEX_CMD:-aoc-agent-run}}"
             }
 
             pane command="bash" {
-              args "-lc" "export PATH=\"$HOME/.cargo/bin:$PATH\"; export AOC_SESSION_ID=\"__AOC_SESSION_ID__\"; export AOC_HUB_ADDR=\"__AOC_HUB_ADDR__\"; export AOC_HUB_URL=\"__AOC_HUB_URL__\"; export AOC_PROJECT_ROOT=\"__AOC_PROJECT_ROOT__\"; export AOC_TAB_SCOPE=\"__AOC_TAB_NAME__\"; export AOC_TASKMASTER_NATIVE=1; cd \"__AOC_PROJECT_ROOT__\" && exec aoc-taskmaster"
+              args "-lc" "export PATH=\"$HOME/.cargo/bin:$PATH\"; theme_env=\"${XDG_CONFIG_HOME:-$HOME/.config}/aoc/theme.env\"; if [[ -f \"$theme_env\" ]]; then source \"$theme_env\"; fi; export AOC_SESSION_ID=\"__AOC_SESSION_ID__\"; export AOC_HUB_ADDR=\"__AOC_HUB_ADDR__\"; export AOC_HUB_URL=\"__AOC_HUB_URL__\"; export AOC_PROJECT_ROOT=\"__AOC_PROJECT_ROOT__\"; export AOC_TAB_SCOPE=\"__AOC_TAB_NAME__\"; export AOC_TASKMASTER_NATIVE=1; cd \"__AOC_PROJECT_ROOT__\" && exec ${AOC_TASKMASTER_CMD:-aoc-taskmaster}"
             }
           }
 
           // RIGHT COLUMN: AOC Pulse (top), Terminal (bottom)
           pane size="26%" split_direction="horizontal" {
             pane size="52%" name="AOC Pulse" command="bash" {
-              args "-lc" "export PATH=\"$HOME/.cargo/bin:$PATH\"; export AOC_SESSION_ID=\"__AOC_SESSION_ID__\"; export AOC_HUB_ADDR=\"__AOC_HUB_ADDR__\"; export AOC_HUB_URL=\"__AOC_HUB_URL__\"; export AOC_PROJECT_ROOT=\"__AOC_PROJECT_ROOT__\"; export AOC_TAB_SCOPE=\"__AOC_TAB_NAME__\"; export AOC_PANE_ID=\"${ZELLIJ_PANE_ID:-}\"; cd \"__AOC_PROJECT_ROOT__\" && exec ${AOC_PULSE_CMD:-aoc-mission-control}"
+              args "-lc" "export PATH=\"$HOME/.cargo/bin:$PATH\"; theme_env=\"${XDG_CONFIG_HOME:-$HOME/.config}/aoc/theme.env\"; if [[ -f \"$theme_env\" ]]; then source \"$theme_env\"; fi; export AOC_SESSION_ID=\"__AOC_SESSION_ID__\"; export AOC_HUB_ADDR=\"__AOC_HUB_ADDR__\"; export AOC_HUB_URL=\"__AOC_HUB_URL__\"; export AOC_PROJECT_ROOT=\"__AOC_PROJECT_ROOT__\"; export AOC_TAB_SCOPE=\"__AOC_TAB_NAME__\"; export AOC_PANE_ID=\"${ZELLIJ_PANE_ID:-}\"; cd \"__AOC_PROJECT_ROOT__\" && exec ${AOC_PULSE_CMD:-aoc-mission-control}"
             }
             pane size="48%" command="bash" {
-              args "-lc" "export PATH=\"$HOME/.cargo/bin:$PATH\"; export AOC_SESSION_ID=\"__AOC_SESSION_ID__\"; export AOC_HUB_ADDR=\"__AOC_HUB_ADDR__\"; export AOC_HUB_URL=\"__AOC_HUB_URL__\"; export AOC_PROJECT_ROOT=\"__AOC_PROJECT_ROOT__\"; export AOC_TAB_SCOPE=\"__AOC_TAB_NAME__\"; cd \"__AOC_PROJECT_ROOT__\" && exec ${AOC_TERMINAL_CMD:-$SHELL}"
+              args "-lc" "export PATH=\"$HOME/.cargo/bin:$PATH\"; theme_env=\"${XDG_CONFIG_HOME:-$HOME/.config}/aoc/theme.env\"; if [[ -f \"$theme_env\" ]]; then source \"$theme_env\"; fi; export AOC_SESSION_ID=\"__AOC_SESSION_ID__\"; export AOC_HUB_ADDR=\"__AOC_HUB_ADDR__\"; export AOC_HUB_URL=\"__AOC_HUB_URL__\"; export AOC_PROJECT_ROOT=\"__AOC_PROJECT_ROOT__\"; export AOC_TAB_SCOPE=\"__AOC_TAB_NAME__\"; cd \"__AOC_PROJECT_ROOT__\" && exec ${AOC_TERMINAL_CMD:-$SHELL}"
             }
           }
         }

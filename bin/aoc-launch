@@ -241,6 +241,36 @@ resolve_layout_path() {
   printf '%s' "$HOME/.config/zellij/layouts/${layout_name}.kdl"
 }
 
+sync_aoc_theme_profile() {
+  local script_dir
+  script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+  if [[ -x "$HOME/.local/bin/aoc-theme" ]]; then
+    "$HOME/.local/bin/aoc-theme" sync >/dev/null 2>&1 || true
+  elif command -v aoc-theme >/dev/null 2>&1; then
+    aoc-theme sync >/dev/null 2>&1 || true
+  elif [[ -x "$script_dir/aoc-theme" ]]; then
+    "$script_dir/aoc-theme" sync >/dev/null 2>&1 || true
+  fi
+}
+
+load_aoc_theme_values() {
+  AOC_THEME_BLUE="#89B4FA"
+  AOC_THEME_GREEN="#A6E3A1"
+  AOC_THEME_RED="#F38BA8"
+  AOC_THEME_ORANGE="#FAB387"
+  AOC_THEME_YELLOW="#F9E2AF"
+  AOC_THEME_CYAN="#94E2D5"
+  AOC_THEME_MAGENTA="#CBA6F7"
+  AOC_THEME_BLACK="#6C7086"
+  AOC_THEME_WHITE="#9399B2"
+
+  local theme_env="${XDG_CONFIG_HOME:-$HOME/.config}/aoc/theme.env"
+  if [[ -f "$theme_env" ]]; then
+    # shellcheck disable=SC1090
+    source "$theme_env"
+  fi
+}
+
 
 if [[ -z "$layout" ]]; then
   layout="aoc"
@@ -256,6 +286,8 @@ fi
 project_root="${ZELLIJ_PROJECT_ROOT:-$PWD}"
 mkdir -p "$state_dir"
 cleanup_state "$state_dir"
+sync_aoc_theme_profile
+load_aoc_theme_values
 
 session_id="$(resolve_session_id)"
 hub_addr="$(resolve_hub_addr "$session_id")"
@@ -284,7 +316,16 @@ if [[ -f "$layout_path" ]]; then
       -v proj_root="$project_root" \
       -v session_id="$session_id" \
       -v hub_addr="$hub_addr" \
-      -v hub_url="$hub_url" '
+      -v hub_url="$hub_url" \
+      -v theme_blue="$AOC_THEME_BLUE" \
+      -v theme_green="$AOC_THEME_GREEN" \
+      -v theme_red="$AOC_THEME_RED" \
+      -v theme_orange="$AOC_THEME_ORANGE" \
+      -v theme_yellow="$AOC_THEME_YELLOW" \
+      -v theme_cyan="$AOC_THEME_CYAN" \
+      -v theme_magenta="$AOC_THEME_MAGENTA" \
+      -v theme_black="$AOC_THEME_BLACK" \
+      -v theme_white="$AOC_THEME_WHITE" '
   {
     gsub(/__AOC_TAB_NAME__/, tab_name)
     gsub(/__AOC_AGENT_ID__/, agent_id)
@@ -292,6 +333,26 @@ if [[ -f "$layout_path" ]]; then
     gsub(/__AOC_SESSION_ID__/, session_id)
     gsub(/__AOC_HUB_ADDR__/, hub_addr)
     gsub(/__AOC_HUB_URL__/, hub_url)
+    gsub(/__AOC_THEME_BLUE__/, theme_blue)
+    gsub(/__AOC_THEME_GREEN__/, theme_green)
+    gsub(/__AOC_THEME_RED__/, theme_red)
+    gsub(/__AOC_THEME_ORANGE__/, theme_orange)
+    gsub(/__AOC_THEME_YELLOW__/, theme_yellow)
+    gsub(/__AOC_THEME_CYAN__/, theme_cyan)
+    gsub(/__AOC_THEME_MAGENTA__/, theme_magenta)
+    gsub(/__AOC_THEME_BLACK__/, theme_black)
+    gsub(/__AOC_THEME_WHITE__/, theme_white)
+    gsub(/#89B4FA/, theme_blue)
+    gsub(/#A6E3A1/, theme_green)
+    gsub(/#F38BA8/, theme_red)
+    gsub(/#FAB387/, theme_orange)
+    gsub(/#F9E2AF/, theme_yellow)
+    gsub(/#94E2D5/, theme_cyan)
+    gsub(/#CBA6F7/, theme_magenta)
+    gsub(/#6C7086/, theme_black)
+    gsub(/#9399B2/, theme_white)
+    gsub(/#ffc387/, theme_orange)
+    gsub(/\[bg=blue\]/, "[bg=" theme_blue "]")
     print
   }
 ' "$layout_path" > "$layout_tmp"
