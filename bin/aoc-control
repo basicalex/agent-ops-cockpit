@@ -13,78 +13,12 @@ fi
 
 pane_name="${AOC_CONTROL_PANE_NAME:-Control}"
 
-control_in_focused_tab() {
-  local layout
-  layout="$(zellij action dump-layout 2>/dev/null || true)"
-  local focused_found
-  focused_found=$(awk -v target="$pane_name" '
-    function brace_delta(line, open_count, close_count) {
-      open_count = gsub(/\{/, "", line)
-      close_count = gsub(/\}/, "", line)
-      return open_count - close_count
-    }
-    /tab .*focus=true/ {
-      in_tab = 1
-      depth = 0
-      tab_line = 1
-    }
-    {
-      if (in_tab && index($0, "name=\"" target "\"") > 0) {
-        found = 1
-      }
-      if (in_tab) {
-        line = $0
-        delta = brace_delta(line)
-        if (tab_line && delta == 0) {
-          delta = 1
-        }
-        tab_line = 0
-        depth += delta
-        if (depth <= 0) {
-          in_tab = 0
-          depth = 0
-        }
-      }
-    }
-    END { print found + 0 }
-  ' <<<"$layout")
-  if [[ "$focused_found" == "1" ]]; then
-    printf '%s' "$focused_found"
-    return
-  fi
-  if printf '%s' "$layout" | grep -q "name=\"$pane_name\""; then
-    printf '1'
-  else
-    printf '0'
-  fi
-}
-
-if [[ -n "${ZELLIJ:-}" || -n "${ZELLIJ_SESSION_NAME:-}" ]]; then
-  if [[ "$(control_in_focused_tab)" == "1" ]]; then
-    zellij action toggle-floating-panes
-    exit 0
-  fi
-fi
-
 if [[ ( -n "${ZELLIJ:-}" || -n "${ZELLIJ_SESSION_NAME:-}" ) && "${AOC_CONTROL_NO_FLOAT:-0}" != "1" && "${AOC_CONTROL_FLOATING:-1}" != "0" ]]; then
   width="${AOC_CONTROL_WIDTH:-70%}"
   height="${AOC_CONTROL_HEIGHT:-70%}"
   x="${AOC_CONTROL_X:-15%}"
   y="${AOC_CONTROL_Y:-15%}"
   pinned="${AOC_CONTROL_PINNED:-true}"
-
-  layout="$(zellij action dump-layout 2>/dev/null || true)"
-  if command -v rg >/dev/null 2>&1; then
-    if printf '%s' "$layout" | rg -q "name=\"$pane_name\""; then
-      zellij action toggle-floating-panes
-      exit 0
-    fi
-  else
-    if printf '%s' "$layout" | grep -q "name=\"$pane_name\""; then
-      zellij action toggle-floating-panes
-      exit 0
-    fi
-  fi
 
   zellij action new-pane \
     --floating \
