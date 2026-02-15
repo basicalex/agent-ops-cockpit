@@ -15,44 +15,76 @@ x="${AOC_CONTROL_X:-15%}"
 y="${AOC_CONTROL_Y:-15%}"
 pinned="${AOC_CONTROL_PINNED:-true}"
 control_bin="${AOC_CONTROL_BIN:-aoc-control}"
+open_mode="${AOC_CONTROL_TOGGLE_OPEN_MODE:-inplace}"
+
+if ! command -v "$control_bin" >/dev/null 2>&1; then
+  script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+  if [[ -x "$script_dir/aoc-control" ]]; then
+    control_bin="$script_dir/aoc-control"
+  fi
+fi
 
 layout="$(zellij action dump-layout 2>/dev/null || true)"
+
+floating_hidden="0"
+if command -v awk >/dev/null 2>&1; then
+  floating_hidden=$(printf '%s\n' "$layout" | awk '
+    /tab .*focus=true/ {
+      if (index($0, "hide_floating_panes=true") > 0) {
+        print 1
+      } else {
+        print 0
+      }
+      exit
+    }
+    END {
+      if (NR == 0) {
+        print 0
+      }
+    }
+  ')
+fi
+
+if [[ "$floating_hidden" == "1" ]]; then
+  zellij action toggle-floating-panes >/dev/null 2>&1 || true
+  layout="$(zellij action dump-layout 2>/dev/null || true)"
+fi
+
 has_control="0"
 if command -v awk >/dev/null 2>&1; then
   has_control=$(printf '%s\n' "$layout" | awk -v target="$pane_name" '
-    function braces(line, open_count, close_count, total) {
-      open_count = gsub(/\{/, "", line)
-      close_count = gsub(/\}/, "", line)
-      total = open_count - close_count
-      return total
-    }
-    /tab .*focus=true/ {
-      in_tab = 1
-      depth = 0
-    }
-    {
-      if (in_tab && index($0, "name=\"" target "\"") > 0) {
+    /^[[:space:]]*pane / {
+      if (index($0, "name=\"" target "\"") > 0) {
         found = 1
-      }
-      if (in_tab) {
-        depth += braces($0)
-        if (depth <= 0 && $0 !~ /tab .*focus=true/) {
-          in_tab = 0
-          depth = 0
-        }
       }
     }
     END { print found + 0 }
   ')
 fi
-if [[ "$has_control" == "0" ]]; then
-  if printf '%s' "$layout" | grep -q "name=\"$pane_name\""; then
-    has_control="1"
-  fi
+
+if [[ "$has_control" == "0" ]] && printf '%s' "$layout" | grep -q "name=\"$pane_name\""; then
+  has_control="1"
 fi
+
 if [[ "$has_control" == "1" ]]; then
-  zellij action toggle-floating-panes
   exit 0
+fi
+
+drain_tty_input() {
+  if [[ ! -t 0 ]]; then
+    return
+  fi
+  local _discard
+  while IFS= read -r -s -n 1 -t 0.005 _discard; do
+    :
+  done
+}
+
+if [[ "$open_mode" != "new-pane" ]]; then
+  drain_tty_input
+  export AOC_CONTROL_NO_FLOAT=1
+  export AOC_CONTROL_FLOATING_ACTIVE=1
+  exec "$control_bin"
 fi
 
 close_pane_flag="${AOC_CONTROL_CLOSE_PANE:-}"
@@ -75,7 +107,7 @@ zellij action new-pane \
   --x "$x" \
   --y "$y" \
   --pinned "$pinned" \
-  -- bash -lc "export PATH=\"$HOME/.local/bin:$HOME/.cargo/bin:$PATH\"; export AOC_CONTROL_NO_FLOAT=1; export AOC_CONTROL_FLOATING_ACTIVE=1; exec $control_bin"
+  -- bash -lc "export PATH=\"$HOME/.local/bin:$HOME/.cargo/bin:$PATH\"; export AOC_CONTROL_NO_FLOAT=1; export AOC_CONTROL_FLOATING_ACTIVE=1; exec \"$control_bin\""
 
 if [[ "$close_pane_flag" == "1" ]]; then
   if [[ -n "$caller_pane_id" ]]; then

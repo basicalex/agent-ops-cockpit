@@ -52,6 +52,11 @@ enum Mode {
     EditProjectsBase,
     SearchProjects,
     NewProject,
+    NewTheme,
+    ThemeSections,
+    ThemePresets,
+    ThemeCustoms,
+    ThemeActions,
     Help,
 }
 
@@ -73,6 +78,24 @@ struct PendingLaunch {
     env_overrides: Vec<(String, String)>,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum ThemeSource {
+    Preset,
+    Custom,
+}
+
+#[derive(Clone, Debug)]
+struct ThemePresetEntry {
+    name: String,
+    installed: bool,
+}
+
+#[derive(Clone, Debug)]
+struct ThemeSelection {
+    name: String,
+    source: ThemeSource,
+}
+
 #[derive(Clone, Debug)]
 struct App {
     active_tab: Tab,
@@ -86,6 +109,10 @@ struct App {
     sessions_state: ListState,
     layout_picker_state: ListState,
     agent_picker_state: ListState,
+    theme_sections_state: ListState,
+    theme_presets_state: ListState,
+    theme_customs_state: ListState,
+    theme_actions_state: ListState,
     default_layout: String,
     default_agent: String,
     config: AocConfig,
@@ -96,6 +123,10 @@ struct App {
     filtered_projects: Vec<usize>,
     input_buffer: String,
     input_snapshot: String,
+    theme_presets: Vec<ThemePresetEntry>,
+    theme_customs: Vec<String>,
+    theme_actions: Vec<String>,
+    theme_selection: Option<ThemeSelection>,
     session_overrides: SessionOverrides,
     in_zellij: bool,
     floating_active: bool,
@@ -121,6 +152,10 @@ impl App {
             sessions_state: ListState::default(),
             layout_picker_state: ListState::default(),
             agent_picker_state: ListState::default(),
+            theme_sections_state: ListState::default(),
+            theme_presets_state: ListState::default(),
+            theme_customs_state: ListState::default(),
+            theme_actions_state: ListState::default(),
             default_layout: read_default(&layout_default_path())
                 .unwrap_or_else(|| "aoc".to_string()),
             default_agent: read_default(&agent_default_path())
@@ -133,6 +168,10 @@ impl App {
             filtered_projects: Vec::new(),
             input_buffer: String::new(),
             input_snapshot: String::new(),
+            theme_presets: Vec::new(),
+            theme_customs: Vec::new(),
+            theme_actions: Vec::new(),
+            theme_selection: None,
             session_overrides: SessionOverrides::default(),
             in_zellij: in_zellij(),
             floating_active: is_floating_active(),
@@ -145,11 +184,18 @@ impl App {
     }
 
     fn ensure_selections(&mut self) {
-        ensure_selection(&mut self.defaults_state, 3);
+        ensure_selection(&mut self.defaults_state, 4);
         ensure_selection(&mut self.projects_state, self.filtered_projects.len());
         ensure_selection(&mut self.sessions_state, 4);
         ensure_selection(&mut self.layout_picker_state, layout_options().len());
         ensure_selection(&mut self.agent_picker_state, agent_options().len());
+        ensure_selection(
+            &mut self.theme_sections_state,
+            theme_section_options().len(),
+        );
+        ensure_selection(&mut self.theme_presets_state, self.theme_presets.len());
+        ensure_selection(&mut self.theme_customs_state, self.theme_customs.len());
+        ensure_selection(&mut self.theme_actions_state, self.theme_actions.len());
     }
 
     fn set_status<S: Into<String>>(&mut self, message: S) {
@@ -319,6 +365,146 @@ impl App {
         self.set_status("Cleared overrides");
     }
 
+    fn refresh_themes(&mut self) {
+        match load_theme_presets() {
+            Ok(entries) => self.theme_presets = entries,
+            Err(err) => {
+                self.theme_presets.clear();
+                self.set_status(format!("Failed to load presets: {err}"));
+            }
+        }
+
+        match load_theme_customs() {
+            Ok(entries) => self.theme_customs = entries,
+            Err(err) => {
+                self.theme_customs.clear();
+                self.set_status(format!("Failed to load custom themes: {err}"));
+            }
+        }
+
+        ensure_selection(
+            &mut self.theme_sections_state,
+            theme_section_options().len(),
+        );
+        ensure_selection(&mut self.theme_presets_state, self.theme_presets.len());
+        ensure_selection(&mut self.theme_customs_state, self.theme_customs.len());
+    }
+
+    fn open_theme_manager(&mut self) {
+        self.refresh_themes();
+        self.mode = Mode::ThemeSections;
+    }
+
+    fn open_theme_presets(&mut self) {
+        self.refresh_themes();
+        if self.theme_presets.is_empty() {
+            self.set_status("No preset themes found");
+            return;
+        }
+        ensure_selection(&mut self.theme_presets_state, self.theme_presets.len());
+        self.mode = Mode::ThemePresets;
+    }
+
+    fn open_theme_customs(&mut self) {
+        self.refresh_themes();
+        if self.theme_customs.is_empty() {
+            self.set_status("No custom themes found");
+            return;
+        }
+        ensure_selection(&mut self.theme_customs_state, self.theme_customs.len());
+        self.mode = Mode::ThemeCustoms;
+    }
+
+    fn open_theme_actions(&mut self, selection: ThemeSelection) {
+        self.theme_actions = theme_action_options(selection.source);
+        self.theme_selection = Some(selection);
+        ensure_selection(&mut self.theme_actions_state, self.theme_actions.len());
+        self.mode = Mode::ThemeActions;
+    }
+
+    fn back_from_theme_actions(&mut self) {
+        if let Some(selection) = &self.theme_selection {
+            self.mode = match selection.source {
+                ThemeSource::Preset => Mode::ThemePresets,
+                ThemeSource::Custom => Mode::ThemeCustoms,
+            };
+        } else {
+            self.mode = Mode::ThemeSections;
+        }
+    }
+
+    fn commit_new_theme(&mut self) {
+        let theme_name = self.input_buffer.trim().to_string();
+        if theme_name.is_empty() {
+            self.set_status("Theme name cannot be empty");
+            return;
+        }
+
+        match run_theme_command(&["init", "--name", &theme_name]) {
+            Ok(message) => {
+                self.set_status(if message.is_empty() {
+                    format!("Created global theme '{theme_name}'")
+                } else {
+                    message
+                });
+                self.input_buffer.clear();
+                self.input_snapshot.clear();
+                self.refresh_themes();
+                self.mode = Mode::ThemeSections;
+            }
+            Err(err) => self.set_status(format!("Theme init failed: {err}")),
+        }
+    }
+
+    fn install_all_presets(&mut self) {
+        match run_theme_command(&["presets", "install", "--all"]) {
+            Ok(message) => {
+                if message.is_empty() {
+                    self.set_status("Installed preset themes");
+                } else {
+                    self.set_status(message);
+                }
+                self.refresh_themes();
+            }
+            Err(err) => self.set_status(format!("Preset install failed: {err}")),
+        }
+    }
+
+    fn run_selected_theme_action(&mut self) {
+        let Some(selection) = self.theme_selection.clone() else {
+            self.mode = Mode::ThemeSections;
+            return;
+        };
+        let index = self.theme_actions_state.selected().unwrap_or(0);
+
+        let result = match (selection.source, index) {
+            (ThemeSource::Preset, 0) => run_preset_apply(&selection.name),
+            (ThemeSource::Preset, 1) => run_preset_set_default(&selection.name),
+            (ThemeSource::Preset, 2) => run_preset_apply_and_set_default(&selection.name),
+            (ThemeSource::Preset, 3) => run_preset_install_only(&selection.name),
+            (ThemeSource::Preset, 4) => {
+                self.back_from_theme_actions();
+                return;
+            }
+            (ThemeSource::Custom, 0) => run_custom_apply(&selection.name),
+            (ThemeSource::Custom, 1) => run_custom_set_default(&selection.name),
+            (ThemeSource::Custom, 2) => run_custom_apply_and_set_default(&selection.name),
+            (ThemeSource::Custom, 3) => {
+                self.back_from_theme_actions();
+                return;
+            }
+            _ => return,
+        };
+
+        match result {
+            Ok(message) => {
+                self.set_status(message);
+                self.refresh_themes();
+            }
+            Err(err) => self.set_status(format!("Theme action failed: {err}")),
+        }
+    }
+
     fn tick(&mut self) {
         if self.pane_rename_remaining == 0 {
             return;
@@ -372,6 +558,11 @@ fn handle_key(app: &mut App, key: KeyEvent) {
         Mode::EditProjectsBase => handle_key_input(app, key, InputMode::ProjectsBase),
         Mode::SearchProjects => handle_key_input(app, key, InputMode::Search),
         Mode::NewProject => handle_key_input(app, key, InputMode::NewProject),
+        Mode::NewTheme => handle_key_input(app, key, InputMode::NewTheme),
+        Mode::ThemeSections => handle_key_theme_sections(app, key),
+        Mode::ThemePresets => handle_key_theme_presets(app, key),
+        Mode::ThemeCustoms => handle_key_theme_customs(app, key),
+        Mode::ThemeActions => handle_key_theme_actions(app, key),
         Mode::Help => handle_key_help(app, key),
     }
 }
@@ -443,6 +634,9 @@ fn handle_key_normal(app: &mut App, key: KeyEvent) {
         KeyCode::Char('c') if app.active_tab == Tab::Sessions && app.focus == Focus::Detail => {
             app.clear_overrides()
         }
+        KeyCode::Char('t') if app.active_tab == Tab::Defaults && app.focus == Focus::Detail => {
+            app.open_theme_manager()
+        }
         KeyCode::Char('?') => {
             app.mode = Mode::Help;
         }
@@ -500,18 +694,26 @@ enum InputMode {
     ProjectsBase,
     Search,
     NewProject,
+    NewTheme,
 }
 
 fn handle_key_input(app: &mut App, key: KeyEvent, mode: InputMode) {
     match key.code {
         KeyCode::Esc => {
             app.input_buffer = app.input_snapshot.clone();
-            app.cancel_input();
+            if matches!(mode, InputMode::NewTheme) {
+                app.input_buffer.clear();
+                app.input_snapshot.clear();
+                app.mode = Mode::ThemeSections;
+            } else {
+                app.cancel_input();
+            }
         }
         KeyCode::Enter => match mode {
             InputMode::ProjectsBase => app.commit_projects_base(),
             InputMode::Search => app.commit_search(),
             InputMode::NewProject => app.commit_new_project(),
+            InputMode::NewTheme => app.commit_new_theme(),
         },
         KeyCode::Backspace => {
             app.input_buffer.pop();
@@ -519,6 +721,85 @@ fn handle_key_input(app: &mut App, key: KeyEvent, mode: InputMode) {
         KeyCode::Char(ch) => {
             app.input_buffer.push(ch);
         }
+        _ => {}
+    }
+}
+
+fn handle_key_theme_sections(app: &mut App, key: KeyEvent) {
+    match key.code {
+        KeyCode::Esc => app.mode = Mode::Normal,
+        KeyCode::Char('j') | KeyCode::Down => {
+            list_next_state(&mut app.theme_sections_state, theme_section_options().len())
+        }
+        KeyCode::Char('k') | KeyCode::Up => {
+            list_prev_state(&mut app.theme_sections_state, theme_section_options().len())
+        }
+        KeyCode::Enter => match app.theme_sections_state.selected().unwrap_or(0) {
+            0 => app.open_theme_presets(),
+            1 => app.open_theme_customs(),
+            2 => app.start_input(Mode::NewTheme, String::new()),
+            3 => app.install_all_presets(),
+            4 => app.mode = Mode::Normal,
+            _ => {}
+        },
+        _ => {}
+    }
+}
+
+fn handle_key_theme_presets(app: &mut App, key: KeyEvent) {
+    match key.code {
+        KeyCode::Esc => app.mode = Mode::ThemeSections,
+        KeyCode::Char('j') | KeyCode::Down => {
+            list_next_state(&mut app.theme_presets_state, app.theme_presets.len())
+        }
+        KeyCode::Char('k') | KeyCode::Up => {
+            list_prev_state(&mut app.theme_presets_state, app.theme_presets.len())
+        }
+        KeyCode::Enter => {
+            let index = app.theme_presets_state.selected().unwrap_or(0);
+            if let Some(entry) = app.theme_presets.get(index).cloned() {
+                app.open_theme_actions(ThemeSelection {
+                    name: entry.name,
+                    source: ThemeSource::Preset,
+                });
+            }
+        }
+        _ => {}
+    }
+}
+
+fn handle_key_theme_customs(app: &mut App, key: KeyEvent) {
+    match key.code {
+        KeyCode::Esc => app.mode = Mode::ThemeSections,
+        KeyCode::Char('j') | KeyCode::Down => {
+            list_next_state(&mut app.theme_customs_state, app.theme_customs.len())
+        }
+        KeyCode::Char('k') | KeyCode::Up => {
+            list_prev_state(&mut app.theme_customs_state, app.theme_customs.len())
+        }
+        KeyCode::Enter => {
+            let index = app.theme_customs_state.selected().unwrap_or(0);
+            if let Some(name) = app.theme_customs.get(index).cloned() {
+                app.open_theme_actions(ThemeSelection {
+                    name,
+                    source: ThemeSource::Custom,
+                });
+            }
+        }
+        _ => {}
+    }
+}
+
+fn handle_key_theme_actions(app: &mut App, key: KeyEvent) {
+    match key.code {
+        KeyCode::Esc => app.back_from_theme_actions(),
+        KeyCode::Char('j') | KeyCode::Down => {
+            list_next_state(&mut app.theme_actions_state, app.theme_actions.len())
+        }
+        KeyCode::Char('k') | KeyCode::Up => {
+            list_prev_state(&mut app.theme_actions_state, app.theme_actions.len())
+        }
+        KeyCode::Enter => app.run_selected_theme_action(),
         _ => {}
     }
 }
@@ -543,7 +824,7 @@ fn cycle_tab(app: &mut App, forward: bool) {
 
 fn list_next(app: &mut App) {
     match app.active_tab {
-        Tab::Defaults => list_next_state(&mut app.defaults_state, 3),
+        Tab::Defaults => list_next_state(&mut app.defaults_state, 4),
         Tab::Projects => list_next_state(&mut app.projects_state, app.filtered_projects.len()),
         Tab::Sessions => list_next_state(&mut app.sessions_state, 4),
     }
@@ -551,7 +832,7 @@ fn list_next(app: &mut App) {
 
 fn list_prev(app: &mut App) {
     match app.active_tab {
-        Tab::Defaults => list_prev_state(&mut app.defaults_state, 3),
+        Tab::Defaults => list_prev_state(&mut app.defaults_state, 4),
         Tab::Projects => list_prev_state(&mut app.projects_state, app.filtered_projects.len()),
         Tab::Sessions => list_prev_state(&mut app.sessions_state, 4),
     }
@@ -570,7 +851,8 @@ fn activate_selection(app: &mut App) {
                 select_picker(&mut app.agent_picker_state, &agent_options(), &current);
                 app.mode = Mode::PickAgent(PickTarget::Defaults);
             }
-            2 => app.start_input(
+            2 => app.open_theme_manager(),
+            3 => app.start_input(
                 Mode::EditProjectsBase,
                 app.projects_base.to_string_lossy().to_string(),
             ),
@@ -661,6 +943,7 @@ fn draw_defaults(frame: &mut ratatui::Frame, area: Rect, app: &mut App, focused:
     let items = vec![
         ListItem::new(format!("Set layout: {}", app.default_layout)),
         ListItem::new(format!("Set agent: {}", app.default_agent)),
+        ListItem::new("Theme manager"),
         ListItem::new(format!(
             "Projects base: {}",
             app.projects_base.to_string_lossy()
@@ -807,6 +1090,100 @@ fn draw_modal(frame: &mut ratatui::Frame, app: &mut App) {
         Mode::EditProjectsBase => draw_input_modal(frame, area, "Projects base", &app.input_buffer),
         Mode::SearchProjects => draw_input_modal(frame, area, "Search projects", &app.input_buffer),
         Mode::NewProject => draw_input_modal(frame, area, "New project", &app.input_buffer),
+        Mode::NewTheme => {
+            draw_input_modal(frame, area, "New theme (kebab-case)", &app.input_buffer)
+        }
+        Mode::ThemeSections => {
+            let items: Vec<ListItem> = theme_section_options()
+                .into_iter()
+                .map(ListItem::new)
+                .collect();
+            let list = List::new(items)
+                .block(
+                    Block::default()
+                        .borders(Borders::ALL)
+                        .title("Theme Manager"),
+                )
+                .highlight_style(
+                    Style::default()
+                        .fg(Color::Cyan)
+                        .add_modifier(Modifier::BOLD),
+                )
+                .highlight_symbol("> ");
+            frame.render_stateful_widget(list, area, &mut app.theme_sections_state);
+        }
+        Mode::ThemePresets => {
+            let items: Vec<ListItem> = app
+                .theme_presets
+                .iter()
+                .map(|entry| {
+                    let status = if entry.installed {
+                        "installed"
+                    } else {
+                        "available"
+                    };
+                    ListItem::new(format!("{} ({status})", entry.name))
+                })
+                .collect();
+            let list = List::new(items)
+                .block(
+                    Block::default()
+                        .borders(Borders::ALL)
+                        .title("Preset Themes"),
+                )
+                .highlight_style(
+                    Style::default()
+                        .fg(Color::Cyan)
+                        .add_modifier(Modifier::BOLD),
+                )
+                .highlight_symbol("> ");
+            frame.render_stateful_widget(list, area, &mut app.theme_presets_state);
+        }
+        Mode::ThemeCustoms => {
+            let items: Vec<ListItem> = app
+                .theme_customs
+                .iter()
+                .map(|name| ListItem::new(name.as_str()))
+                .collect();
+            let list = List::new(items)
+                .block(
+                    Block::default()
+                        .borders(Borders::ALL)
+                        .title("Custom Themes"),
+                )
+                .highlight_style(
+                    Style::default()
+                        .fg(Color::Cyan)
+                        .add_modifier(Modifier::BOLD),
+                )
+                .highlight_symbol("> ");
+            frame.render_stateful_widget(list, area, &mut app.theme_customs_state);
+        }
+        Mode::ThemeActions => {
+            let target = app
+                .theme_selection
+                .as_ref()
+                .map(|selection| selection.name.as_str())
+                .unwrap_or("Theme");
+            let items: Vec<ListItem> = app
+                .theme_actions
+                .iter()
+                .map(|action| ListItem::new(action.as_str()))
+                .collect();
+            let list = List::new(items)
+                .block(
+                    Block::default()
+                        .borders(Borders::ALL)
+                        .title(format!("Theme Actions: {target}")),
+                )
+                .highlight_style(
+                    Style::default()
+                        .fg(Color::Cyan)
+                        .add_modifier(Modifier::BOLD),
+                )
+                .highlight_symbol("> ");
+            frame.render_stateful_widget(list, area, &mut app.theme_actions_state);
+        }
         Mode::Help => draw_help_modal(frame, area),
         Mode::Normal => {}
     }
@@ -833,7 +1210,8 @@ fn draw_help_modal(frame: &mut ratatui::Frame, area: Rect) {
         Line::from("  q                  quit"),
         Line::from(""),
         Line::from("Settings:"),
-        Line::from("  Enter  change layout/agent/base"),
+        Line::from("  Enter  change layout/agent/theme/base"),
+        Line::from("  t      open theme manager"),
         Line::from(""),
         Line::from("Projects:"),
         Line::from("  Enter or o  open project"),
@@ -906,7 +1284,7 @@ fn footer_lines(app: &App) -> Vec<Line<'_>> {
     ]));
 
     let action_line = match app.mode {
-        Mode::EditProjectsBase | Mode::SearchProjects | Mode::NewProject => vec![
+        Mode::EditProjectsBase | Mode::SearchProjects | Mode::NewProject | Mode::NewTheme => vec![
             keycap("Enter"),
             Span::raw(" save  "),
             keycap("Esc"),
@@ -919,8 +1297,25 @@ fn footer_lines(app: &App) -> Vec<Line<'_>> {
             Span::raw(" cancel"),
         ],
         Mode::Help => vec![keycap("Esc"), Span::raw(" close help")],
+        Mode::ThemeSections => vec![
+            keycap("Enter"),
+            Span::raw(" select  "),
+            keycap("Esc"),
+            Span::raw(" close"),
+        ],
+        Mode::ThemePresets | Mode::ThemeCustoms | Mode::ThemeActions => vec![
+            keycap("Enter"),
+            Span::raw(" choose  "),
+            keycap("Esc"),
+            Span::raw(" back"),
+        ],
         Mode::Normal => match app.active_tab {
-            Tab::Defaults => vec![keycap("Enter"), Span::raw(" adjust settings")],
+            Tab::Defaults => vec![
+                keycap("Enter"),
+                Span::raw(" adjust settings  "),
+                keycap("t"),
+                Span::raw(" theme manager"),
+            ],
             Tab::Projects => vec![
                 keycap("Enter"),
                 Span::raw(" open  "),
@@ -1038,6 +1433,193 @@ fn list_prev_state(state: &mut ListState, len: usize) {
         Some(idx) => idx - 1,
     };
     state.select(Some(next));
+}
+
+fn theme_section_options() -> Vec<String> {
+    vec![
+        "Preset themes".to_string(),
+        "Custom global themes".to_string(),
+        "Create custom global theme".to_string(),
+        "Install all preset themes".to_string(),
+        "Back".to_string(),
+    ]
+}
+
+fn theme_action_options(source: ThemeSource) -> Vec<String> {
+    match source {
+        ThemeSource::Preset => vec![
+            "Apply now (live)".to_string(),
+            "Set as default".to_string(),
+            "Apply now + set default".to_string(),
+            "Install preset only".to_string(),
+            "Back".to_string(),
+        ],
+        ThemeSource::Custom => vec![
+            "Apply now (live)".to_string(),
+            "Set as default".to_string(),
+            "Apply now + set default".to_string(),
+            "Back".to_string(),
+        ],
+    }
+}
+
+fn preset_theme_names() -> &'static [&'static str] {
+    &[
+        "catppuccin",
+        "dracula",
+        "everforest",
+        "gruvbox",
+        "kanagawa",
+        "monokai",
+        "nord",
+        "onedark",
+        "rose-pine",
+        "solarized-dark",
+        "solarized-light",
+        "tokyo-night",
+    ]
+}
+
+fn is_preset_theme(name: &str) -> bool {
+    preset_theme_names().iter().any(|preset| *preset == name)
+}
+
+fn load_theme_presets() -> io::Result<Vec<ThemePresetEntry>> {
+    let output = Command::new("aoc-theme")
+        .args(["presets", "list"])
+        .output()?;
+    if !output.status.success() {
+        return Err(command_failure("aoc-theme presets list", &output));
+    }
+
+    let mut entries = Vec::new();
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    for line in stdout.lines() {
+        let parts: Vec<&str> = line.split_whitespace().collect();
+        if parts.len() < 3 || parts[0] != "preset" {
+            continue;
+        }
+        entries.push(ThemePresetEntry {
+            name: parts[1].to_string(),
+            installed: parts[2] == "installed",
+        });
+    }
+    Ok(entries)
+}
+
+fn load_theme_customs() -> io::Result<Vec<String>> {
+    let output = Command::new("aoc-theme").arg("list").output()?;
+    if !output.status.success() {
+        return Err(command_failure("aoc-theme list", &output));
+    }
+
+    let mut themes = Vec::new();
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    for line in stdout.lines() {
+        let parts: Vec<&str> = line.split_whitespace().collect();
+        if parts.len() < 2 || parts[0] != "global" {
+            continue;
+        }
+        let name = parts[1];
+        if name == "(none)" || is_preset_theme(name) {
+            continue;
+        }
+        themes.push(name.to_string());
+    }
+    Ok(themes)
+}
+
+fn run_theme_command(args: &[&str]) -> io::Result<String> {
+    let output = Command::new("aoc-theme").args(args).output()?;
+    if !output.status.success() {
+        let rendered = if args.is_empty() {
+            "aoc-theme".to_string()
+        } else {
+            format!("aoc-theme {}", args.join(" "))
+        };
+        return Err(command_failure(&rendered, &output));
+    }
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    let first_line = stdout
+        .lines()
+        .find(|line| !line.trim().is_empty())
+        .or_else(|| stderr.lines().find(|line| !line.trim().is_empty()))
+        .unwrap_or("")
+        .trim()
+        .to_string();
+    Ok(first_line)
+}
+
+fn run_theme_command_interactive(args: &[&str]) -> io::Result<()> {
+    let status = Command::new("aoc-theme").args(args).status()?;
+    if status.success() {
+        Ok(())
+    } else {
+        let rendered = if args.is_empty() {
+            "aoc-theme".to_string()
+        } else {
+            format!("aoc-theme {}", args.join(" "))
+        };
+        Err(io::Error::new(
+            io::ErrorKind::Other,
+            format!("{rendered} exited with status {status}"),
+        ))
+    }
+}
+
+fn run_preset_install_only(theme_name: &str) -> io::Result<String> {
+    let _ = run_theme_command(&["presets", "install", "--name", theme_name])?;
+    Ok(format!("Installed preset '{theme_name}'"))
+}
+
+fn run_preset_apply(theme_name: &str) -> io::Result<String> {
+    let _ = run_theme_command(&["presets", "install", "--name", theme_name])?;
+    run_theme_command_interactive(&["apply", "--name", theme_name])?;
+    Ok(format!("Applied preset '{theme_name}'"))
+}
+
+fn run_preset_set_default(theme_name: &str) -> io::Result<String> {
+    let _ = run_theme_command(&["presets", "install", "--name", theme_name])?;
+    let _ = run_theme_command(&["set-default", "--name", theme_name])?;
+    Ok(format!("Set default theme '{theme_name}'"))
+}
+
+fn run_preset_apply_and_set_default(theme_name: &str) -> io::Result<String> {
+    let _ = run_theme_command(&["presets", "install", "--name", theme_name])?;
+    run_theme_command_interactive(&["apply", "--name", theme_name])?;
+    let _ = run_theme_command(&["set-default", "--name", theme_name])?;
+    Ok(format!("Applied and set default theme '{theme_name}'"))
+}
+
+fn run_custom_apply(theme_name: &str) -> io::Result<String> {
+    run_theme_command_interactive(&["apply", "--name", theme_name])?;
+    Ok(format!("Applied custom theme '{theme_name}'"))
+}
+
+fn run_custom_set_default(theme_name: &str) -> io::Result<String> {
+    let _ = run_theme_command(&["set-default", "--name", theme_name])?;
+    Ok(format!("Set default theme '{theme_name}'"))
+}
+
+fn run_custom_apply_and_set_default(theme_name: &str) -> io::Result<String> {
+    run_theme_command_interactive(&["apply", "--name", theme_name])?;
+    let _ = run_theme_command(&["set-default", "--name", theme_name])?;
+    Ok(format!("Applied and set default theme '{theme_name}'"))
+}
+
+fn command_failure(command: &str, output: &std::process::Output) -> io::Error {
+    let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+    let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    let details = if !stderr.is_empty() {
+        stderr
+    } else if !stdout.is_empty() {
+        stdout
+    } else {
+        format!("{command} exited with status {}", output.status)
+    };
+    io::Error::new(io::ErrorKind::Other, details)
 }
 
 fn load_config(path: &Path) -> io::Result<AocConfig> {

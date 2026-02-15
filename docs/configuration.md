@@ -92,6 +92,7 @@ Control layout behavior and appearance:
 | `AOC_ZELLIJ_CONFIG` | Custom Zellij config file | `~/.config/zellij/aoc.config.kdl` |
 | `AOC_FULLSCREEN` | Auto-fullscreen on launch | `1` (Linux X11 only) |
 | `AOC_CONTROL_FLOATING` | Open aoc-control as floating pane | `1` |
+| `AOC_CONTROL_TOGGLE_OPEN_MODE` | `aoc-control-toggle` open behavior (`inplace` or `new-pane`) | `inplace` |
 | `AOC_CLEANUP` | Run cleanup on launch | `1` |
 | `AOC_CLEANUP_SESSIONS` | Limit cleanup to sessions (`current` or comma list) | All sessions |
 | `AOC_CLEANUP_PANE_STRICT` | Allow cleanup within sessions based on pane layout | `0` |
@@ -146,8 +147,7 @@ AOC ships a custom Zellij keybind layer in `~/.config/zellij/aoc.config.kdl` (or
 
 | Key | Action |
 |----------|-------------|
-| `Alt c` | Toggle AOC control (floating) |
-| `Alt t` | Open theme selector TUI (floating) |
+| `Alt c` | Open AOC control (no-op if already open) |
 | `Alt s` | Next swap layout |
 | `Alt f` | Toggle floating panes |
 | `Alt n` | New pane |
@@ -159,6 +159,8 @@ AOC ships a custom Zellij keybind layer in `~/.config/zellij/aoc.config.kdl` (or
 | `Alt ]` | Next tab (alias) |
 | `Alt h/j/k/l` | Move focus |
 | `Alt =/-` | Resize |
+
+Theme management now lives inside `aoc-control` under Settings -> Theme manager.
 
 ### Agent Configuration
 
