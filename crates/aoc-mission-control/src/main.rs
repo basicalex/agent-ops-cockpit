@@ -64,6 +64,7 @@ struct Config {
     tab_scope: Option<String>,
     pulse_socket_path: PathBuf,
     pulse_theme: PulseThemeMode,
+    pulse_custom_theme: Option<PulseTheme>,
     pulse_vnext_enabled: bool,
     overview_enabled: bool,
     layout_source: LayoutSource,
@@ -1727,7 +1728,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 struct PulseTheme {
     surface: Color,
     border: Color,
@@ -1782,9 +1783,46 @@ fn pulse_theme(mode: PulseThemeMode) -> PulseTheme {
     }
 }
 
+fn parse_hex_color(value: &str) -> Option<Color> {
+    let trimmed = value.trim();
+    let hex = trimmed.strip_prefix('#').unwrap_or(trimmed);
+    if hex.len() != 6 || !hex.chars().all(|c| c.is_ascii_hexdigit()) {
+        return None;
+    }
+    let r = u8::from_str_radix(&hex[0..2], 16).ok()?;
+    let g = u8::from_str_radix(&hex[2..4], 16).ok()?;
+    let b = u8::from_str_radix(&hex[4..6], 16).ok()?;
+    Some(Color::Rgb(r, g, b))
+}
+
+fn resolve_custom_pulse_theme() -> Option<PulseTheme> {
+    let env_color = |key: &str| -> Option<Color> {
+        std::env::var(key)
+            .ok()
+            .as_deref()
+            .and_then(parse_hex_color)
+    };
+
+    Some(PulseTheme {
+        surface: env_color("AOC_THEME_BG")?,
+        border: env_color("AOC_THEME_BLACK")?,
+        title: env_color("AOC_THEME_BLUE")?,
+        text: env_color("AOC_THEME_FG")?,
+        muted: env_color("AOC_THEME_BLACK")?,
+        accent: env_color("AOC_THEME_BLUE")?,
+        ok: env_color("AOC_THEME_GREEN")?,
+        warn: env_color("AOC_THEME_YELLOW")?,
+        critical: env_color("AOC_THEME_RED")?,
+        info: env_color("AOC_THEME_CYAN")?,
+    })
+}
+
 fn render_ui(frame: &mut ratatui::Frame, app: &App) {
     let size = frame.size();
-    let theme = pulse_theme(app.config.pulse_theme);
+    let theme = app
+        .config
+        .pulse_custom_theme
+        .unwrap_or_else(|| pulse_theme(app.config.pulse_theme));
     let layout = Layout::default()
         .direction(Direction::Vertical)
         .constraints([Constraint::Min(0)])
@@ -4404,6 +4442,7 @@ fn load_config() -> Config {
     let tab_scope = resolve_tab_scope();
     let pulse_socket_path = resolve_pulse_socket_path(&session_id);
     let pulse_theme = resolve_pulse_theme_mode();
+    let pulse_custom_theme = resolve_custom_pulse_theme();
     let pulse_vnext_enabled = resolve_pulse_vnext_enabled();
     let overview_enabled = resolve_overview_enabled();
     let layout_source = resolve_layout_source();
@@ -4416,6 +4455,7 @@ fn load_config() -> Config {
         tab_scope,
         pulse_socket_path,
         pulse_theme,
+        pulse_custom_theme,
         pulse_vnext_enabled,
         overview_enabled,
         layout_source,
@@ -4655,6 +4695,7 @@ mod tests {
             tab_scope: Some("agent".to_string()),
             pulse_socket_path: PathBuf::from("/tmp/pulse-test.sock"),
             pulse_theme: PulseThemeMode::Terminal,
+            pulse_custom_theme: None,
             pulse_vnext_enabled: true,
             overview_enabled: true,
             layout_source: LayoutSource::Hub,

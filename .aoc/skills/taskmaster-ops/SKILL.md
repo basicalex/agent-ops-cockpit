@@ -1,12 +1,16 @@
 ---
 name: taskmaster-ops
-description: Manage tasks with aoc-task and the Taskmaster TUI.
+description: Manage tasks with aoc-task, tm alias, and the Taskmaster TUI.
 ---
 
 ## CLI basics
+- `tm list`
 - `aoc-task list`
+- `tm add "<task>"`
 - `aoc-task add "<task>"`
+- `tm status <id> <status>`
 - `aoc-task status <id> <status>`
+- `tm tag list`
 - `aoc-task tag list`
 - `aoc-task prd show <id>`
 - `aoc-task prd init <id>`

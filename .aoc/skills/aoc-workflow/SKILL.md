@@ -9,7 +9,7 @@ Use this when you start a new task or need to re-orient inside a project.
 ## Steps
 1. If AOC files are missing or stale, run `aoc-init` from the project root.
 2. Read memory: `aoc-mem read` and `aoc-mem search "<topic>"` as needed.
-3. Review tasks: `aoc-task list` or the Taskmaster TUI.
+3. Review tasks: `tm list`, `aoc-task list`, or the Taskmaster TUI.
 4. For the active task, check PRD linkage with `aoc-task prd show <id>`; if missing, create/link via `aoc-task prd init <id>` or `aoc-task prd set <id> <path>`.
 5. Plan: add or refine tasks with `aoc-task add "<task>"` and set status.
 6. Execute changes and run tests.

@@ -2,15 +2,15 @@ layout {
   tab name="__AOC_TAB_NAME__" focus=true {
     pane split_direction="vertical" {
       pane name="Editor" size="60%" command="bash" {
-        args "-lc" "export PATH=\"$HOME/.cargo/bin:$PATH\"; export AOC_TAB_SCOPE=\"__AOC_TAB_NAME__\"; cd \"__AOC_PROJECT_ROOT__\" && ${EDITOR:-micro} ."
+        args "-lc" "export PATH=\"$HOME/.cargo/bin:$PATH\"; theme_env=\"${XDG_CONFIG_HOME:-$HOME/.config}/aoc/theme.env\"; if [[ -f \"$theme_env\" ]]; then source \"$theme_env\"; fi; export AOC_TAB_SCOPE=\"__AOC_TAB_NAME__\"; cd \"__AOC_PROJECT_ROOT__\" && ${EDITOR:-micro} ."
       }
       pane size="40%" command="bash" {
-        args "-lc" "export PATH=\"$HOME/.cargo/bin:$PATH\"; export AOC_TAB_SCOPE=\"__AOC_TAB_NAME__\"; cd \"__AOC_PROJECT_ROOT__\" && exec ${AOC_TERMINAL_CMD:-$SHELL}"
+        args "-lc" "export PATH=\"$HOME/.cargo/bin:$PATH\"; theme_env=\"${XDG_CONFIG_HOME:-$HOME/.config}/aoc/theme.env\"; if [[ -f \"$theme_env\" ]]; then source \"$theme_env\"; fi; export AOC_TAB_SCOPE=\"__AOC_TAB_NAME__\"; cd \"__AOC_PROJECT_ROOT__\" && exec ${AOC_TERMINAL_CMD:-$SHELL}"
       }
     }
     pane size=2 borderless=true {
       plugin location="file:{{HOME}}/.config/zellij/plugins/zjstatus.wasm" {
-        format_left   "{mode} #[fg=#89B4FA,bold]{session}"
+        format_left   "{mode} #[fg=__AOC_THEME_BLUE__,bold]{session}"
         format_center "{tabs}"
         format_right  "{command_cwd}"
         format_space  ""
@@ -22,14 +22,14 @@ layout {
 
         hide_frame_for_single_pane "true"
 
-        mode_normal  "#[bg=blue] "
-        mode_tmux    "#[bg=#ffc387] "
+        mode_normal  "#[bg=__AOC_THEME_BLUE__] "
+        mode_tmux    "#[bg=__AOC_THEME_ORANGE__] "
 
-        tab_normal   "#[fg=#6C7086] {name} "
-        tab_active   "#[fg=#9399B2,bold,italic] {name} "
+        tab_normal   "#[fg=__AOC_THEME_BLACK__] {name} "
+        tab_active   "#[fg=__AOC_THEME_WHITE__,bold,italic] {name} "
 
         command_cwd_command  "pwd | sed 's|.*/||'"
-        command_cwd_format   "#[fg=#6C7086] {stdout} "
+        command_cwd_format   "#[fg=__AOC_THEME_BLACK__] {stdout} "
         command_cwd_interval "2"
       }
     }

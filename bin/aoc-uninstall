@@ -10,6 +10,8 @@ state_dir="${XDG_STATE_HOME:-$HOME/.local/state}/aoc"
 
 files=(
   "$HOME/.local/bin/aoc-sys"
+  "$HOME/.local/bin/tm"
+  "$HOME/.local/bin/aoc-tm"
   "$HOME/.local/bin/aoc-taskmaster"
   "$HOME/.local/bin/aoc-hub"
   "$HOME/.local/bin/aoc-mission-control"

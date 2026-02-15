@@ -75,6 +75,9 @@ aoc-skill validate
 - `task-checker`
 - `release-notes`
 - `skill-creator`
+- `zellij-theme-ops`
+
+`zellij-theme-ops` pairs with the `aoc-theme` CLI for global theme workflows (`~/.config/zellij/themes`), including `aoc-theme tui` for interactive selection.
 
 ## Optional skills
 Use `aoc-momo init` to add:

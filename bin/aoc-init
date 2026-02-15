@@ -81,7 +81,7 @@ This file defines the always-on rules for agents in this repo. Procedural playbo
 - Use `.aoc/context.md` for orientation; run `aoc-init` if it is missing or stale.
 - `.aoc/memory.md` is append-only; use `aoc-mem` to read/search/add. Do not edit the file directly.
 - `.aoc/stm/current.md` is STM draft state; use `aoc-stm` to read the current draft, `aoc-stm archive` to persist snapshots, and `aoc-stm read` for archived entries. STM archives are a durable project diary; store architectural decisions in `aoc-mem`.
-- `.taskmaster/tasks/tasks.json` is task state; use the Taskmaster TUI or `aoc-task` commands. Do not edit the file directly.
+- `.taskmaster/tasks/tasks.json` is task state; use the Taskmaster TUI, `aoc-task`, or `tm` (alias for `aoc-task`). Do not edit the file directly.
 - Task PRDs are linked per task (not subtask) via `aocPrd`; keep PRD documents in `.taskmaster/docs/prds/` and resolve via `aoc-task prd` commands.
 - Record major decisions and constraints in memory (`aoc-mem add "..."`).
 
@@ -109,11 +109,12 @@ This file defines the always-on rules for agents in this repo. Procedural playbo
 - `task-checker`: verify implementation vs. testStrategy.
 - `release-notes`: draft changelog and release notes.
 - `skill-creator`: create or update AOC skills.
+- `zellij-theme-ops`: create and manage global Zellij themes.
 EOF
   else
     if grep -Eq "AOC Architecture & Agent Guidelines|Agent Ops Cockpit \(AOC\)" "$agents_file"; then
       if grep -Eq "Skills \(load when needed\)|aoc-workflow" "$agents_file"; then
-        if grep -Fq '.aoc/stm/current.md` is STM draft state; use `aoc-stm` to add/edit/archive/read.' "$agents_file" || grep -Fq '`.aoc/stm/current.md` via `aoc-stm` (draft + archived STM diary state)' "$agents_file"; then
+        if grep -Fq '.aoc/stm/current.md` is STM draft state; use `aoc-stm` to add/edit/archive/read.' "$agents_file" || grep -Fq '`.aoc/stm/current.md` via `aoc-stm` (draft + archived STM diary state)' "$agents_file" || grep -Fq '.taskmaster/tasks/tasks.json` is task state; use the Taskmaster TUI or `aoc-task` commands.' "$agents_file"; then
           python3 - "$agents_file" <<'PY'
 from pathlib import Path
 import sys
@@ -128,6 +129,23 @@ updated = updated.replace(
     "- **Short-term memory:** `.aoc/stm/current.md` via `aoc-stm` (draft + archived STM diary state)",
     "- **Short-term memory:** `.aoc/stm/current.md` via `aoc-stm` (current draft), archived snapshots via `aoc-stm archive` and `aoc-stm read`",
 )
+updated = updated.replace(
+    "- `.taskmaster/tasks/tasks.json` is task state; use the Taskmaster TUI or `aoc-task` commands. Do not edit the file directly.",
+    "- `.taskmaster/tasks/tasks.json` is task state; use the Taskmaster TUI, `aoc-task`, or `tm` (alias for `aoc-task`). Do not edit the file directly.",
+)
+updated = updated.replace(
+    "- **Tasks:** `.taskmaster/tasks/tasks.json` via `aoc-task list/add/status` (do not edit directly)",
+    "- **Tasks:** `.taskmaster/tasks/tasks.json` via `tm` or `aoc-task` (do not edit directly)",
+)
+updated = updated.replace(
+    "- `zellij-theme-ops`: create and manage global/project Zellij themes.",
+    "- `zellij-theme-ops`: create and manage global Zellij themes.",
+)
+if "## Skills (load when needed)" in updated and "- `zellij-theme-ops`: create and manage global Zellij themes." not in updated:
+    updated = updated.replace(
+        "- `skill-creator`: create or update AOC skills.",
+        "- `skill-creator`: create or update AOC skills.\n- `zellij-theme-ops`: create and manage global Zellij themes.",
+    )
 if updated != text:
     path.write_text(updated, encoding="utf-8")
 PY
@@ -153,6 +171,7 @@ PY
 - `task-checker`: verify implementation vs. testStrategy.
 - `release-notes`: draft changelog and release notes.
 - `skill-creator`: create or update AOC skills.
+- `zellij-theme-ops`: create and manage global Zellij themes.
 EOF
       fi
     else
@@ -165,7 +184,7 @@ Use the AOC tools for context, memory, and tasks in this repo.
 - **Context:** `.aoc/context.md` (read-only)
 - **Memory:** `.aoc/memory.md` via `aoc-mem read/add` (do not edit directly)
 - **Short-term memory:** `.aoc/stm/current.md` via `aoc-stm` (current draft), archived snapshots via `aoc-stm archive` and `aoc-stm read`
-- **Tasks:** `.taskmaster/tasks/tasks.json` via `aoc-task list/add/status` (do not edit directly)
+- **Tasks:** `.taskmaster/tasks/tasks.json` via `tm` or `aoc-task` (do not edit directly)
 - **Task PRDs:** `.taskmaster/docs/prds/` linked with `aoc-task prd` (task-level only, no subtask PRDs)
 - **Skills:** load AOC skills as needed for workflows
 
@@ -200,11 +219,11 @@ $(tree -L 2 --gitignore -I '.git|.taskmaster|.aoc|.gemini|node_modules|target|di
 
 ## 4. Task Management (\`aoc-task\`)
 **Purpose:** Granular tracking of work.
-**Commands:** \`aoc-task list\`, \`aoc-task add "Task"\`.
+**Commands:** \`tm list\`, \`tm add "Task"\` (or \`aoc-task\`).
 
 ## 5. Operational Rules
 - **No Amnesia:** Always check \`aoc-mem\` first.
-- **No Ghost Work:** Track all work in \`aoc-task\` (or \`task-master\`).
+- **No Ghost Work:** Track all work in \`tm\` (alias for \`aoc-task\`).
 EOF
   
   # Append README if it exists
@@ -215,11 +234,13 @@ EOF
   fi
 
   # Append Taskmaster Tags if available
-  if command -v aoc-task >/dev/null 2>&1 || command -v aoc-cli >/dev/null 2>&1 || command -v task-master >/dev/null 2>&1; then
+  if command -v tm >/dev/null 2>&1 || command -v aoc-task >/dev/null 2>&1 || command -v aoc-cli >/dev/null 2>&1 || command -v task-master >/dev/null 2>&1; then
     echo >> "$context_file"
     echo "## 7. Active Workstreams (Tags)" >> "$context_file"
     # Run in subshell to preserve cwd, capture output
-    if command -v aoc-task >/dev/null 2>&1; then
+    if command -v tm >/dev/null 2>&1; then
+      tags_output="$(cd "$project_root" && tm tag list 2>/dev/null || echo "No tags found.")"
+    elif command -v aoc-task >/dev/null 2>&1; then
       tags_output="$(cd "$project_root" && aoc-task tag list 2>/dev/null || echo "No tags found.")"
     elif command -v aoc-cli >/dev/null 2>&1; then
       tags_output="$(cd "$project_root" && aoc-cli task tag list 2>/dev/null || echo "No tags found.")"
@@ -425,7 +446,7 @@ Use this when you start a new task or need to re-orient inside a project.
 ## Steps
 1. If AOC files are missing or stale, run `aoc-init` from the project root.
 2. Read memory: `aoc-mem read` and `aoc-mem search "<topic>"` as needed.
-3. Review tasks: `aoc-task list` or the Taskmaster TUI.
+3. Review tasks: `tm list`, `aoc-task list`, or the Taskmaster TUI.
 4. For the active task, check PRD linkage with `aoc-task prd show <id>`; if missing, create/link via `aoc-task prd init <id>` or `aoc-task prd set <id> <path>`.
 5. Plan: add or refine tasks with `aoc-task add "<task>"` and set status.
 6. Execute changes and run tests.
@@ -504,6 +525,28 @@ setup_agents() {
     cp "$seed_file" "$agent_file"
     log "Seeded OpenCode agent: aoc-ops"
   else
+    local updated_agent=0
+    if grep -Fq '.aoc/themes/' "$agent_file" || grep -Fq 'Prefer project themes over global themes when names overlap.' "$agent_file"; then
+      python3 - "$agent_file" <<'PY'
+from pathlib import Path
+import sys
+
+path = Path(sys.argv[1])
+text = path.read_text(encoding="utf-8")
+updated = text.replace(
+    "- Managing custom Zellij themes with `aoc-theme` (`tui`, `presets`, and manual) for global (`~/.config/zellij/themes/`) and project (`.aoc/themes/`) scopes.",
+    "- Managing custom Zellij themes with `aoc-theme` (`tui`, `presets`, and manual) in global scope (`~/.config/zellij/themes/`).",
+)
+updated = updated.replace(
+    "- Prefer project themes over global themes when names overlap.",
+    "- Use global themes only (Zellij theme selection is session-wide).",
+)
+if updated != text:
+    path.write_text(updated, encoding="utf-8")
+PY
+      log "Updated OpenCode agent with global-only theme guidance."
+      updated_agent=1
+    fi
     if ! grep -Fq '.aoc/layouts/' "$agent_file"; then
       cat <<'EOF' >> "$agent_file"
 
@@ -513,7 +556,20 @@ setup_agents() {
 - Validate layouts via `aoc-layout --tab <name>`.
 EOF
       log "Updated OpenCode agent with project layout guidance."
-    else
+      updated_agent=1
+    fi
+    if ! grep -Fq 'aoc-theme' "$agent_file"; then
+      cat <<'EOF' >> "$agent_file"
+
+## Theme Operations
+- Manage global themes in `~/.config/zellij/themes/`.
+- Use `aoc-theme tui` for interactive selection (preset + custom sections).
+- Use `aoc-theme apply --name <theme>` for live apply and `aoc-theme set-default --name <theme>` to persist.
+EOF
+      log "Updated OpenCode agent with theme guidance."
+      updated_agent=1
+    fi
+    if [[ "$updated_agent" == "0" ]]; then
       log "OpenCode agent already present. Preserving."
     fi
   fi

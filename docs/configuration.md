@@ -11,6 +11,7 @@ Advanced configuration options for Agent Ops Cockpit (AOC).
   - [Layout and Display](#layout-and-display)
   - [Agent Configuration](#agent-configuration)
 - [Custom Layouts](#custom-layouts)
+- [Theme Management](#theme-management)
 - [Per-Project Configuration](#per-project-configuration)
 
 ## Environment Variables
@@ -146,6 +147,7 @@ AOC ships a custom Zellij keybind layer in `~/.config/zellij/aoc.config.kdl` (or
 | Key | Action |
 |----------|-------------|
 | `Alt c` | Toggle AOC control (floating) |
+| `Alt t` | Open theme selector TUI (floating) |
 | `Alt s` | Next swap layout |
 | `Alt f` | Toggle floating panes |
 | `Alt n` | New pane |
@@ -201,6 +203,53 @@ When creating custom layouts, AOC automatically replaces these tokens:
 Layout name resolution order:
 1. `.aoc/layouts/<name>.kdl`
 2. `~/.config/zellij/layouts/<name>.kdl`
+
+## Theme Management
+
+AOC provides `aoc-theme` to manage global Zellij themes.
+
+```bash
+# Interactive selector (preset + custom sections)
+aoc-theme tui
+
+# Install curated mainstream preset themes
+aoc-theme presets install --all
+
+# Create a global theme template
+aoc-theme init --name ocean-slate
+
+# Live apply in an active Zellij pane
+aoc-theme apply --name ocean-slate
+
+# Persist theme selection in your active Zellij config
+aoc-theme set-default --name ocean-slate
+
+# Re-sync AOC-wide theme artifacts from current config theme
+aoc-theme sync
+```
+
+Theme paths:
+
+- Global source: `~/.config/zellij/themes/<name>.kdl`
+
+Scope compatibility:
+
+- `--scope global` is the supported mode.
+- Legacy `--scope auto`/`--scope all` are treated as global with a warning.
+- `--scope project` is rejected.
+
+`aoc-theme apply` uses `zellij options --theme ...`, so it works as a real-time switch while attached to a session.
+
+`aoc-theme` also writes shared AOC theme artifacts used by:
+
+- `zjstatus` colors in shipped AOC layouts
+- `aoc-mission-control` (Pulse) via exported `AOC_THEME_*` env vars
+- `yazi` via generated `~/.config/yazi/theme.toml`
+
+Curated preset themes include:
+
+- `catppuccin`, `dracula`, `everforest`, `gruvbox`, `kanagawa`, `monokai`
+- `nord`, `onedark`, `rose-pine`, `solarized-dark`, `solarized-light`, `tokyo-night`
 
 ## Per-Project Configuration
 

@@ -173,7 +173,7 @@ aoc-skill sync --agent oc
 aoc-skill sync --existing
 ```
 
-**Included skills:** `aoc-workflow`, `memory-ops`, `taskmaster-ops`, `rlm-analysis`, `prd-dev`, `prd-intake`, `prd-align`, `tag-align`, `task-breakdown`, `task-checker`, `release-notes`, `skill-creator`.
+**Included skills:** `aoc-workflow`, `memory-ops`, `taskmaster-ops`, `rlm-analysis`, `prd-dev`, `prd-intake`, `prd-align`, `tag-align`, `task-breakdown`, `task-checker`, `release-notes`, `skill-creator`, `zellij-theme-ops`.
 
 Skills are synced automatically when you switch agents via `aoc-agent --set`. `aoc-init` also seeds default skills and syncs the active agent. Sync is additive and preserves existing agent skills.
 
@@ -250,7 +250,7 @@ AOC's architecture solves the fundamental problem of **context management in AI-
 #### 3. Tasks (`.taskmaster/tasks/tasks.json`) - The "Todo List"
 - **Role:** Dynamic work queue
 - **Content:** Active tasks, subtasks, dependencies, priorities
-- **Update:** Via Taskmaster TUI or `aoc-task` CLI
+- **Update:** Via Taskmaster TUI, `tm`, or `aoc-task` CLI
 - **Agent Usage:** Track work, update status, create new items
 
 #### 4. Task PRDs (`.taskmaster/docs/prds/`) - The "Spec Layer"
@@ -285,8 +285,8 @@ When you start working in AOC:
 
 1. **Orient:** `aoc-mem read` - Ingest past decisions and preferences
 2. **Context:** `.aoc/context.md` - Automatically provides current project map
-3. **Plan:** `aoc-task add "..."` - Track your work plan
-4. **Intake (optional):** In OpenCode use `/prd` for orchestrated intake and task persistence via `aoc-task add/edit`.
+3. **Plan:** `tm add "..."` (alias: `aoc-task add`) - Track your work plan
+4. **Intake (optional):** In OpenCode use `/prd` for orchestrated intake and task persistence via `tm add/edit` (alias: `aoc-task add/edit`).
 5. **Spec:** `aoc-task prd show <id>` - Read linked PRD before implementation
 6. **Execute:** Edit files, run commands, collaborate with AI agent
 7. **Handoff Prep (OpenCode):** `/stm` - Ask the agent to write a concise `.aoc/stm/current.md`
@@ -377,6 +377,28 @@ AOC_FULLSCREEN=0 aoc
 AOC_AGENT_ID=gemini aoc
 ```
 
+### Theme Quickstart
+
+```bash
+# Open interactive TUI selector
+aoc-theme tui
+
+# Create a custom global theme template
+aoc-theme init --name review-mode
+
+# Install curated preset packs
+aoc-theme presets install --all
+
+# Apply immediately in active Zellij session
+aoc-theme apply --name review-mode
+
+# Persist as default theme for future launches
+aoc-theme set-default --name review-mode
+
+# Re-sync AOC-wide theme artifacts if needed
+aoc-theme sync
+```
+
 ### Environment Variables
 
 AOC supports extensive customization via environment variables:
@@ -443,7 +465,8 @@ cargo build --workspace
 
 ```bash
 aoc-doctor          # Check all dependencies
-aoc-task list       # Verify taskmaster works
+tm list             # Verify task controls work
+aoc-task list       # Canonical command
 aoc-mem read        # Check memory system
 ```
 
@@ -452,7 +475,7 @@ aoc-mem read        # Check memory system
 | Issue | Solution |
 |-------|----------|
 | Missing previews | Install `chafa`, `poppler-utils`, `librsvg2-bin` |
-| Blank task list | Run `aoc-task init` then `aoc-task list` |
+| Blank task list | Run `aoc-task init` then `tm list` |
 | Widget not rendering | Run `aoc-doctor`, check `ffmpeg` and `chafa` |
 | RLM not working | Build with `cargo build --release -p aoc-cli` |
 | TeX preview errors | Install `tectonic` via Cargo |
