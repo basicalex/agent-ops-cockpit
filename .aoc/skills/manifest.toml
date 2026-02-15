@@ -4,6 +4,11 @@ type = "workflow"
 summary = "Standard AOC workflow using context, memory, and tasks."
 
 [[skill]]
+name = "teach-workflow"
+type = "workflow"
+summary = "Guided teach-mode scans, dives, and local insight logging."
+
+[[skill]]
 name = "aoc-init-ops"
 type = "ops"
 summary = "Initialize or repair AOC context, memory, and tasks."
