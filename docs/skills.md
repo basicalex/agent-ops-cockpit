@@ -62,6 +62,7 @@ aoc-skill validate
 
 ## Built-in skills
 - `aoc-workflow`
+- `teach-workflow`
 - `aoc-init-ops`
 - `memory-ops`
 - `stm-ops`

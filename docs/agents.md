@@ -27,6 +27,56 @@ In OpenCode, invoke it with:
 
 `aoc-init` will not overwrite existing `.opencode/agents/aoc-ops.md`.
 
+## OpenCode Teach Subagent
+`teach` is a project subagent focused on guided repository learning.
+
+### Location
+`aoc-init` seeds the agent into:
+
+```
+.opencode/agents/teach.md
+```
+
+### Usage
+In OpenCode, invoke it with:
+
+```
+@teach
+```
+
+### Behavior
+`teach` focuses on:
+- Explaining architecture and subsystem boundaries in plain English
+- Mapping implementation details to concrete file references
+- Discussing tradeoffs and practical alternatives
+- Providing verification/debug checklists and hands-on exercises
+- Keeping teach-session continuity in local `.aoc/insight/` artifacts
+
+Default mode is read-only exploration. `teach` should not edit product code unless explicitly asked.
+
+## OpenCode Teach Commands
+`aoc-init` also seeds teach-mode commands for OpenCode:
+
+```
+.opencode/commands/teach-full.md
+.opencode/commands/teach-dive.md
+.opencode/commands/teach-ask.md
+```
+
+Usage in OpenCode:
+
+```
+/teach-full
+/teach-dive ingestion
+/teach-ask how are you useful?
+```
+
+`/teach-full` runs a broad subsystem scan and pauses with numbered next-step choices.
+`/teach-dive` deep-dives one subsystem with tradeoffs, debugging checklist, and exercises.
+`/teach-ask` is a direct answer-only teaching path that suppresses orchestration/meta wrapper text.
+
+`aoc-init` will not overwrite existing teach command or agent files.
+
 ## OpenCode STM Command
 `aoc-init` also seeds a project command for OpenCode:
 

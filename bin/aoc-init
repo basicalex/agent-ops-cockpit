@@ -489,6 +489,7 @@ description: Initialize or repair AOC context, memory, and tasks safely.
 - Ensures task-level PRD directory `.taskmaster/docs/prds/` is available when used
 - Seeds OpenCode `/stm` command in `.opencode/commands/stm.md` when missing and keeps STM guidance aligned (`aoc-stm` = current draft, `aoc-stm read` = archive)
 - Seeds OpenCode `/prd` command in `.opencode/commands/prd.md` when missing
+- Seeds OpenCode teach-mode subagent/commands (`@teach`, `/teach-full`, `/teach-dive`, `/teach-ask`) when missing
 - Syncs skills for existing agent targets
 EOF
     log "Updated aoc-init-ops skill with STM seeding guidance."
@@ -571,6 +572,26 @@ EOF
     fi
     if [[ "$updated_agent" == "0" ]]; then
       log "OpenCode agent already present. Preserving."
+    fi
+  fi
+
+  local teach_seed=""
+  for candidate in \
+    "$aoc_config_dir/agents/opencode/teach.md" \
+    "$script_dir/../.aoc/agents/opencode/teach.md"; do
+    if [[ -f "$candidate" ]]; then
+      teach_seed="$candidate"
+      break
+    fi
+  done
+
+  if [[ -n "$teach_seed" ]]; then
+    local teach_agent_file="$opencode_agents_dir/teach.md"
+    if [[ ! -f "$teach_agent_file" ]]; then
+      cp "$teach_seed" "$teach_agent_file"
+      log "Seeded OpenCode agent: teach"
+    else
+      log "OpenCode agent @teach already present. Preserving."
     fi
   fi
 }

@@ -11,6 +11,7 @@ description: Run guided teach-mode scans, dives, and local insight logging.
 ## Core commands
 - `/teach-full` for broad architecture scan + pause checkpoint.
 - `/teach-dive <subsystem>` for targeted deep dives.
+- `/teach-ask <question>` for direct answer-only mentoring responses.
 
 ## Standard flow
 1. Ensure context is loaded from:

@@ -21,6 +21,7 @@ This file defines the always-on rules for agents in this repo. Procedural playbo
 
 ## Skills (load when needed)
 - `aoc-workflow`: standard project workflow.
+- `teach-workflow`: guided teach-mode scans, dives, and local insight logging.
 - `aoc-init-ops`: initialize or repair AOC files.
 - `memory-ops`: read/search/add to memory.
 - `stm-ops`: manage short-term diary memory and STM context loading.
