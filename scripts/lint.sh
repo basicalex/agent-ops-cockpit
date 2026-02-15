@@ -22,4 +22,4 @@ files=(
   yazi/preview.sh
 )
 
-shellcheck -x "${files[@]}"
+shellcheck -S error -x "${files[@]}"

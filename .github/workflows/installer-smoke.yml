@@ -26,7 +26,7 @@ jobs:
             apt-get install -y ca-certificates curl git sudo
             useradd -m -s /bin/bash tester
             echo "tester ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/tester
-            sudo -E -u tester bash -lc "
+            sudo --preserve-env=GITHUB_TOKEN -u tester bash -lc "
               set -euo pipefail
               curl -fsSL https://raw.githubusercontent.com/${{ github.repository }}/main/install/bootstrap.sh \
                 | bash -s -- --repo ${{ github.repository }} --ref main --yes --skip-doctor
@@ -68,7 +68,7 @@ jobs:
             apt-get install -y ca-certificates curl git sudo
             useradd -m -s /bin/bash tester
             echo "tester ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/tester
-            sudo -E -u tester bash -lc "
+            sudo --preserve-env=GITHUB_TOKEN -u tester bash -lc "
               set -euo pipefail
               curl -fsSL https://raw.githubusercontent.com/${{ github.repository }}/main/install/bootstrap.sh \
                 | bash -s -- --repo ${{ github.repository }} --ref ${{ github.ref_name }} --yes --skip-doctor
