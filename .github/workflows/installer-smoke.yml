@@ -20,13 +20,13 @@ jobs:
     steps:
       - name: Run fallback installer path as non-root user
         run: |
-          docker run --rm "ubuntu:${{ matrix.ubuntu_image }}" bash -lc '
+          docker run --rm -e GITHUB_TOKEN="${{ github.token }}" "ubuntu:${{ matrix.ubuntu_image }}" bash -lc '
             set -euo pipefail
             apt-get update
             apt-get install -y ca-certificates curl git sudo
             useradd -m -s /bin/bash tester
             echo "tester ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/tester
-            sudo -u tester bash -lc "
+            sudo -E -u tester bash -lc "
               set -euo pipefail
               curl -fsSL https://raw.githubusercontent.com/${{ github.repository }}/main/install/bootstrap.sh \
                 | bash -s -- --repo ${{ github.repository }} --ref main --yes --skip-doctor
@@ -62,13 +62,13 @@ jobs:
     steps:
       - name: Run release installer asset path as non-root user
         run: |
-          docker run --rm "ubuntu:${{ matrix.ubuntu_image }}" bash -lc '
+          docker run --rm -e GITHUB_TOKEN="${{ github.token }}" "ubuntu:${{ matrix.ubuntu_image }}" bash -lc '
             set -euo pipefail
             apt-get update
             apt-get install -y ca-certificates curl git sudo
             useradd -m -s /bin/bash tester
             echo "tester ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/tester
-            sudo -u tester bash -lc "
+            sudo -E -u tester bash -lc "
               set -euo pipefail
               curl -fsSL https://raw.githubusercontent.com/${{ github.repository }}/main/install/bootstrap.sh \
                 | bash -s -- --repo ${{ github.repository }} --ref ${{ github.ref_name }} --yes --skip-doctor
