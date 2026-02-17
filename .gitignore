@@ -47,4 +47,3 @@ crates/target/
 !/.aoc/commands/**
 !/.aoc/layouts/
 !/.aoc/layouts/**
-/.taskmaster/
