@@ -97,7 +97,7 @@ Choose your path:
 
 | 🚀 **Start Coding** | 🤖 **Configure Agents** | 🔧 **Customize** |
 |---------------------|------------------------|------------------|
-| `aoc` in any project dir | `aoc-agent --set` | `aoc-layout --set minimal` |
+| `aoc` in any project dir | `aoc-agent --set` | `aoc.minimal` |
 | Open files in Yazi | Switch between Codex, Gemini, Claude, OpenCode | Create your own "AOC Modes" |
 | Press `Enter` to edit with `micro` | Each agent gets isolated context | [Custom Layouts Guide](./docs/layouts.md) |
 
@@ -228,11 +228,17 @@ Create specialized layouts for different workflows:
 
 ```bash
 # Try the minimal layout
-aoc-new-tab --layout minimal
+aoc.minimal
+
+# See available layout shortcuts in this project
+# (type and press Tab for completion)
+aoc.
 
 # Set as default
 aoc-layout --set minimal
 ```
+
+`aoc` still opens your regular default tab/session. `aoc.<layout>` opens a tab/session with that layout (for example `aoc.hybrid`).
 
 **Included layouts:**
 - `aoc` (default) - Full cockpit with all features

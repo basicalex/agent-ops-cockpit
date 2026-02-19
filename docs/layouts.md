@@ -9,11 +9,17 @@ AOC comes with a `minimal` layout out of the box.
 **Try it now:**
 ```bash
 # Open a new tab in Minimal Mode
-aoc-new-tab --layout minimal
+aoc.minimal
+
+# List available shortcuts in current project
+# (or type `aoc.` then press Tab)
+aoc.
 
 # Or set it as your default for all future tabs
 aoc-layout --set minimal
 ```
+
+`aoc` remains the regular/default launch path. `aoc.<layout>` opens that specific layout directly.
 
 ## Creating Your Own Layout
 
@@ -79,7 +85,25 @@ The `aoc-layout` tool is your dashboard for managing these modes. It lists both 
 | `aoc-layout --set [name]` | Sets the **default** layout for new tabs/sessions. |
 | `aoc-layout --tab [name]` | Opens a **single** new tab with the specified layout. |
 | `aoc-layout --current` | Prints the name of the currently active default layout. |
+| `aoc-layout --list` | Prints discovered layouts (project first, then global). |
+| `aoc-layout --shell-init bash` | Emits Bash integration for dynamic `aoc.<layout>` shortcuts. |
 | `aoc-layout` | Interactive menu to select any of the above. |
+
+## Bash Shortcut Integration
+
+After install, AOC enables a Bash integration snippet in `~/.bashrc` that evaluates `aoc-layout --shell-init bash`.
+Open a new shell (or run `source ~/.bashrc`) after install to activate shortcuts.
+
+This provides:
+
+- Dynamic commands like `aoc.minimal`, `aoc.hybrid`, etc.
+- Per-project refresh when your working directory changes
+- `aoc.` helper output plus command completion support for shortcut discovery
+
+Shortcut names are derived from layout names:
+
+- `minimal.kdl` -> `aoc.minimal`
+- `aoc.hybrid.kdl` -> `aoc.hybrid` (leading `aoc.` is normalized)
 
 ### "AOC Mode" vs. Standard Zellij Layouts
 

@@ -3,7 +3,7 @@ set -euo pipefail
 
 usage() {
   cat <<'EOF'
-Usage: aoc-layout [--set [layout]] [--tab [layout]] [--current]
+Usage: aoc-layout [--set [layout]] [--tab [layout]] [--current] [--list] [--cwd PATH] [--shell-init bash]
 
 Interactive dashboard for selecting the default layout or launching tabs.
 Layouts are discovered from project `.aoc/layouts/` and global `~/.config/zellij/layouts/`.
@@ -12,6 +12,7 @@ EOF
 
 state_dir="${XDG_STATE_HOME:-$HOME/.local/state}/aoc"
 default_file="${state_dir}/layout_default"
+cwd_override=""
 
 mkdir -p "$state_dir"
 
@@ -35,7 +36,7 @@ list_layouts() {
 }
 
 resolve_project_root() {
-  local probe="${AOC_PROJECT_ROOT:-${ZELLIJ_PROJECT_ROOT:-$PWD}}"
+  local probe="${cwd_override:-${AOC_PROJECT_ROOT:-${ZELLIJ_PROJECT_ROOT:-$PWD}}}"
   if [[ ! -d "$probe" ]]; then
     probe="$PWD"
   fi
@@ -53,6 +54,121 @@ resolve_project_root() {
   done
 
   return 1
+}
+
+emit_shell_init_bash() {
+  local layout_cmd
+  layout_cmd="$(cd "$(dirname "${BASH_SOURCE[0]}")" >/dev/null 2>&1 && pwd)/$(basename "${BASH_SOURCE[0]}")"
+  printf '__AOC_LAYOUT_CMD=%q\n' "$layout_cmd"
+  cat <<'EOF'
+__aoc_layout_valid_name() {
+  [[ "$1" =~ ^[A-Za-z0-9._-]+$ ]]
+}
+
+__aoc_layout_register_shortcut() {
+  local shortcut="$1"
+  local layout="$2"
+  local fn_name
+  local fn_body
+  fn_name="aoc.${shortcut}"
+  printf -v fn_body '%s(){ command "$__AOC_LAYOUT_CMD" --tab %q "$@"; }' "$fn_name" "$layout"
+  eval "$fn_body"
+}
+
+__aoc_layout_rebuild_shortcuts() {
+  local cwd="$1"
+  local layout
+  local shortcut
+  local -a discovered=()
+
+  while IFS= read -r layout; do
+    [[ -n "$layout" ]] || continue
+    if ! __aoc_layout_valid_name "$layout"; then
+      continue
+    fi
+    discovered+=("$layout")
+  done < <(command "$__AOC_LAYOUT_CMD" --list --cwd "$cwd" 2>/dev/null || true)
+
+  for shortcut in "${__AOC_LAYOUT_SHORTCUTS[@]}"; do
+    unset -f "aoc.${shortcut}" 2>/dev/null || true
+  done
+
+  __AOC_LAYOUT_SHORTCUTS=()
+  __AOC_LAYOUT_SHORTCUT_MAP=()
+
+  for layout in "${discovered[@]}"; do
+    if [[ "$layout" == "aoc" ]]; then
+      continue
+    fi
+
+    shortcut="$layout"
+    if [[ "$shortcut" == aoc.* ]]; then
+      shortcut="${shortcut#aoc.}"
+    fi
+
+    if ! __aoc_layout_valid_name "$shortcut"; then
+      continue
+    fi
+
+    if [[ -n "${__AOC_LAYOUT_SHORTCUT_MAP[$shortcut]:-}" ]]; then
+      continue
+    fi
+
+    __aoc_layout_register_shortcut "$shortcut" "$layout"
+    __AOC_LAYOUT_SHORTCUTS+=("$shortcut")
+    __AOC_LAYOUT_SHORTCUT_MAP["$shortcut"]="$layout"
+  done
+}
+
+__aoc_layout_refresh() {
+  local cwd
+  cwd="$(pwd -P 2>/dev/null || pwd)"
+  if [[ "$cwd" == "${__AOC_LAYOUT_SHORTCUTS_PWD:-}" ]]; then
+    return
+  fi
+  __AOC_LAYOUT_SHORTCUTS_PWD="$cwd"
+  __aoc_layout_rebuild_shortcuts "$cwd"
+}
+
+__aoc_layout_install_prompt_hook() {
+  local prompt_decl
+  prompt_decl="$(declare -p PROMPT_COMMAND 2>/dev/null || true)"
+
+  if [[ "$prompt_decl" == declare\ -a* ]]; then
+    local entry
+    for entry in "${PROMPT_COMMAND[@]}"; do
+      if [[ "$entry" == "__aoc_layout_refresh" ]]; then
+        return
+      fi
+    done
+    PROMPT_COMMAND=("__aoc_layout_refresh" "${PROMPT_COMMAND[@]}")
+    return
+  fi
+
+  if [[ -z "${PROMPT_COMMAND:-}" ]]; then
+    PROMPT_COMMAND="__aoc_layout_refresh"
+    return
+  fi
+
+  if [[ ";$PROMPT_COMMAND;" != *";__aoc_layout_refresh;"* ]]; then
+    PROMPT_COMMAND="__aoc_layout_refresh;${PROMPT_COMMAND}"
+  fi
+}
+
+aoc.() {
+  __aoc_layout_refresh
+  local shortcut
+  for shortcut in "${__AOC_LAYOUT_SHORTCUTS[@]}"; do
+    printf 'aoc.%s\n' "$shortcut"
+  done
+}
+
+declare -ga __AOC_LAYOUT_SHORTCUTS=()
+declare -gA __AOC_LAYOUT_SHORTCUT_MAP=()
+__AOC_LAYOUT_SHORTCUTS_PWD=""
+__aoc_layout_refresh
+__aoc_layout_install_prompt_hook
+EOF
 }
 
 pick_layout() {
@@ -117,31 +233,92 @@ open_tab() {
   fi
 }
 
-case "${1:-}" in
-  --set)
-    shift
-    set_default "${1:-}"
+action="interactive"
+value=""
+shell_target=""
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --set)
+      action="set"
+      if [[ $# -gt 1 && "${2:-}" != --* ]]; then
+        value="$2"
+        shift
+      fi
+      ;;
+    --tab)
+      action="tab"
+      if [[ $# -gt 1 && "${2:-}" != --* ]]; then
+        value="$2"
+        shift
+      fi
+      ;;
+    --current)
+      action="current"
+      ;;
+    --list)
+      action="list"
+      ;;
+    --cwd)
+      shift
+      cwd_override="${1:-}"
+      if [[ -z "$cwd_override" ]]; then
+        echo "--cwd requires a path." >&2
+        exit 1
+      fi
+      ;;
+    --shell-init)
+      action="shell-init"
+      shift
+      shell_target="${1:-}"
+      if [[ -z "$shell_target" ]]; then
+        echo "--shell-init requires a shell name (bash)." >&2
+        exit 1
+      fi
+      ;;
+    -h|--help)
+      usage
+      exit 0
+      ;;
+    *)
+      echo "Unknown option: $1" >&2
+      usage
+      exit 1
+      ;;
+  esac
+  shift || true
+done
+
+case "$action" in
+  set)
+    set_default "$value"
     exit 0
     ;;
-  --tab)
-    shift
-    open_tab "${1:-}"
+  tab)
+    open_tab "$value"
     exit 0
     ;;
-  --current)
+  current)
     current_layout
     exit 0
     ;;
-  -h|--help)
-    usage
+  list)
+    list_layouts
     exit 0
     ;;
-  "")
+  shell-init)
+    if [[ "$shell_target" != "bash" ]]; then
+      echo "Unsupported shell for --shell-init: $shell_target" >&2
+      exit 1
+    fi
+    emit_shell_init_bash
+    exit 0
+    ;;
+  interactive)
     :
     ;;
   *)
-    echo "Unknown option: $1" >&2
-    usage
+    echo "Unknown action: $action" >&2
     exit 1
     ;;
 esac
