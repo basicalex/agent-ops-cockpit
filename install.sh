@@ -706,11 +706,14 @@ if [[ -d "$ROOT_DIR/.taskmaster/templates" ]]; then
 fi
 
 # AOC default agents (OpenCode)
-if [[ -f "$ROOT_DIR/.aoc/agents/opencode/aoc-ops.md" ]]; then
-  dest="${XDG_CONFIG_HOME:-$HOME/.config}/aoc/agents/opencode/aoc-ops.md"
-  if [[ ! -f "$dest" ]]; then
-    cp "$ROOT_DIR/.aoc/agents/opencode/aoc-ops.md" "$dest"
-  fi
+if [[ -d "$ROOT_DIR/.aoc/agents/opencode" ]]; then
+  for f in "$ROOT_DIR/.aoc/agents/opencode"/*.md; do
+    [[ -f "$f" ]] || continue
+    dest="${XDG_CONFIG_HOME:-$HOME/.config}/aoc/agents/opencode/$(basename "$f")"
+    if [[ ! -f "$dest" ]]; then
+      cp "$f" "$dest"
+    fi
+  done
 fi
 
 # AOC default OpenCode commands
@@ -759,6 +762,26 @@ if [[ -d "$ROOT_DIR/yazi/plugins" ]]; then
     done
   done
   shopt -u nullglob
+fi
+
+# Bash integration for dynamic layout shortcuts (aoc.<layout>)
+bashrc_file="$HOME/.bashrc"
+bashrc_block_start="# >>> AOC bash integration >>>"
+
+if [[ ! -f "$bashrc_file" ]]; then
+  : > "$bashrc_file"
+fi
+
+if ! grep -Fq "$bashrc_block_start" "$bashrc_file"; then
+  cat <<'EOF' >> "$bashrc_file"
+
+# >>> AOC bash integration >>>
+if command -v aoc-layout >/dev/null 2>&1; then
+  eval "$(aoc-layout --shell-init bash)"
+fi
+# <<< AOC bash integration <<<
+EOF
+  log "Enabled Bash layout shortcuts in $bashrc_file"
 fi
 
 log "AOC Installed Successfully!"

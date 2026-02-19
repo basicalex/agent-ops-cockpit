@@ -70,6 +70,10 @@ Empower users to create, share, and use custom Zellij layouts for different "AOC
 - Create `aoc-layout` tool for selection and persistence
 - Update `aoc-new-tab` to support generic layout variable substitution
 - Standardize layout placeholders (`__AOC_TAB_NAME__`, etc.)
+- Provide Bash shortcut integration (`aoc.<layout>` + `aoc.` completion) for fast tab/session launch
+
+**Next extension:**
+- Port `aoc.<layout>` shell integration to Zsh and Fish with parity behavior (project-local refresh + completion)
 
 **Tracking:** Task #42 in `.taskmaster/tasks/tasks.json`
 
