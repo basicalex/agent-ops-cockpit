@@ -1,6 +1,12 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+source "$(dirname "$0")/aoc-utils.sh"
+
+if [[ "${AOC_SMOKE_TEST:-0}" == "1" ]]; then
+  exit 0
+fi
+
 agent_id="${1:-}"
 agent_bin="${2:-}"
 agent_label="${3:-}"
@@ -27,30 +33,6 @@ env_hint="AOC_${agent_id^^}_BIN"
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 home_bin="${HOME}/bin"
 cargo_bin="$HOME/.cargo/bin"
-
-generate_whimsical_session_id() {
-  local nouns=(
-    otter badger alpaca ferret penguin walrus narwhal yak koala gecko
-    capybara platypus lemur puffin iguana beaver hedgehog squirrel raccoon
-    aardvark wombat lynx mojito noodle waffle pixel
-  )
-  local verbs=(
-    juggles debugs compiles refactors lints ships rebases squashes syncs
-    profiles benches deploys patches bisects tests tidies wrangles explores
-    orchestrates untangles snapshots autopilots
-  )
-  local noun="${nouns[RANDOM % ${#nouns[@]}]}"
-  local verb="${verbs[RANDOM % ${#verbs[@]}]}"
-  printf '%s-%s' "$noun" "$verb"
-}
-
-session_name_exists() {
-  local candidate="$1"
-  if ! command -v zellij >/dev/null 2>&1; then
-    return 1
-  fi
-  zellij list-sessions --short --no-formatting 2>/dev/null | grep -Fxq "$candidate"
-}
 
 resolve_session_id() {
   if [[ -n "${ZELLIJ_SESSION_NAME:-}" ]]; then
@@ -92,44 +74,6 @@ resolve_project_root() {
     return
   fi
   printf '%s' "$PWD"
-}
-
-derive_port() {
-  local session="$1"
-  if ! command -v python3 >/dev/null 2>&1; then
-    printf '42000'
-    return
-  fi
-  python3 - <<'PY' "$session"
-import sys
-session = sys.argv[1].encode()
-hash_value = 2166136261
-for byte in session:
-    hash_value ^= byte
-    hash_value = (hash_value * 16777619) & 0xFFFFFFFF
-port = 42000 + (hash_value % 2000)
-print(port)
-PY
-}
-
-resolve_hub_addr() {
-  local session_id="$1"
-  if [[ -n "${AOC_HUB_ADDR:-}" ]]; then
-    printf '%s' "$AOC_HUB_ADDR"
-    return
-  fi
-  local port
-  port="$(derive_port "$session_id")"
-  printf '127.0.0.1:%s' "$port"
-}
-
-resolve_hub_url() {
-  local hub_addr="$1"
-  if [[ -n "${AOC_HUB_URL:-}" ]]; then
-    printf '%s' "$AOC_HUB_URL"
-    return
-  fi
-  printf 'ws://%s/ws' "$hub_addr"
 }
 
 wrap_rs_cmd=()
@@ -388,10 +332,9 @@ construct_handshake() {
   echo
   echo "📂 PROJECT CONTEXT ($aoc_dir/context.md):"
   if [[ -f "$aoc_dir/context.md" ]]; then
-    head -n 50 "$aoc_dir/context.md"
-    echo "... [see file for full content]"
+    cat "$aoc_dir/context.md"
   elif [[ -f "$aoc_dir/GEMINI.md" ]]; then
-    head -n 50 "$aoc_dir/GEMINI.md"
+    cat "$aoc_dir/GEMINI.md"
   fi
   echo
   echo "🧠 PROJECT MEMORY ($aoc_dir/memory.md):"
@@ -701,6 +644,7 @@ cleanup_pane_agents() {
     return
   fi
   cleanup_done=1
+
   kill_pane_agents_by_env
   if [[ -n "${AOC_PANE_LEASE_FILE:-}" && -n "${AOC_PANE_INSTANCE_ID:-}" ]]; then
     if [[ -f "$AOC_PANE_LEASE_FILE" ]]; then
@@ -730,8 +674,7 @@ start_orphan_watchdog() {
   local parent_pid="$$"
   local watcher_cmd=(python3 - "$parent_pid" "$pane_id" "$session_id" "$instance_id" "$lease_file")
 
-  if command -v setsid >/dev/null 2>&1; then
-    setsid "${watcher_cmd[@]}" >/dev/null 2>&1 <<'PY' &
+  nohup "${watcher_cmd[@]}" >/dev/null 2>&1 <<'PY' &
 import os
 import re
 import signal
@@ -890,167 +833,6 @@ for pid in pids:
     except ProcessLookupError:
         pass
 PY
-  else
-    nohup "${watcher_cmd[@]}" >/dev/null 2>&1 <<'PY' &
-import os
-import re
-import signal
-import subprocess
-import sys
-import time
-
-parent_pid = int(sys.argv[1])
-pane_id = sys.argv[2]
-session_id = sys.argv[3] if len(sys.argv) > 3 else ""
-instance_id = sys.argv[4] if len(sys.argv) > 4 else ""
-lease_file = sys.argv[5] if len(sys.argv) > 5 else ""
-
-if not pane_id:
-    raise SystemExit(0)
-
-self_pid = os.getpid()
-
-def parse_int(name, default, minimum=1, maximum=60):
-    raw = os.environ.get(name, "").strip()
-    if not raw:
-        return default
-    try:
-        value = int(raw)
-    except ValueError:
-        return default
-    if value < minimum:
-        return minimum
-    if value > maximum:
-        return maximum
-    return value
-
-def parse_float(name, default, minimum=0.2, maximum=60.0):
-    raw = os.environ.get(name, "").strip()
-    if not raw:
-        return default
-    try:
-        value = float(raw)
-    except ValueError:
-        return default
-    if value < minimum:
-        return minimum
-    if value > maximum:
-        return maximum
-    return value
-
-pane_miss_limit = parse_int("AOC_ORPHAN_PANE_MISS_MAX", 4, minimum=1, maximum=60)
-loop_sleep_secs = parse_float("AOC_ORPHAN_PANE_POLL_SECS", 3.0)
-
-def pid_alive(pid):
-    try:
-        os.kill(pid, 0)
-        return True
-    except ProcessLookupError:
-        return False
-    except PermissionError:
-        return True
-
-def proc_env(pid):
-    try:
-        with open(f"/proc/{pid}/environ", "rb") as fh:
-            data = fh.read().split(b"\0")
-    except Exception:
-        return {}
-    env = {}
-    for item in data:
-        if not item or b"=" not in item:
-            continue
-        key, value = item.split(b"=", 1)
-        env[key.decode("utf-8", "ignore")] = value.decode("utf-8", "ignore")
-    return env
-
-def lease_owned():
-    if not instance_id or not lease_file:
-        return True
-    try:
-        with open(lease_file, "r", encoding="utf-8") as fh:
-            owner = fh.readline().strip()
-    except Exception:
-        return False
-    return owner == instance_id
-
-def matching_pids():
-    try:
-        ps_out = subprocess.check_output(["ps", "-eo", "pid,comm,args"], text=True)
-    except Exception:
-        return []
-    found = []
-    for line in ps_out.strip().splitlines()[1:]:
-        parts = line.strip().split(None, 2)
-        if not parts:
-            continue
-        try:
-            pid = int(parts[0])
-        except ValueError:
-            continue
-        if pid == self_pid:
-            continue
-        env = proc_env(pid)
-        if instance_id:
-            if env.get("AOC_PANE_INSTANCE_ID") != instance_id:
-                continue
-        else:
-            same_pane = env.get("AOC_PANE_ID") == pane_id or env.get("ZELLIJ_PANE_ID") == pane_id
-            if not same_pane:
-                continue
-            if session_id:
-                proc_session = env.get("ZELLIJ_SESSION_NAME") or env.get("AOC_SESSION_ID") or ""
-                if proc_session and proc_session != session_id:
-                    continue
-        found.append(pid)
-    return sorted(set(found), reverse=True)
-
-def session_pane_missing():
-    if not session_id:
-        return False
-    try:
-        sessions_raw = subprocess.check_output(
-            ["zellij", "list-sessions", "--short", "--no-formatting"],
-            text=True,
-            timeout=2,
-        )
-        sessions = {line.strip() for line in sessions_raw.splitlines() if line.strip()}
-        if sessions and session_id not in sessions:
-            return True
-    except Exception:
-        pass
-    return False
-
-pane_misses = 0
-while True:
-    if not pid_alive(parent_pid):
-        break
-    if not lease_owned():
-        break
-    if session_pane_missing():
-        pane_misses += 1
-        if pane_misses >= pane_miss_limit:
-            break
-    else:
-        pane_misses = 0
-    time.sleep(loop_sleep_secs)
-
-pids = matching_pids()
-for pid in pids:
-    try:
-        os.kill(pid, signal.SIGTERM)
-    except ProcessLookupError:
-        pass
-
-time.sleep(0.4)
-
-for pid in pids:
-    try:
-        os.kill(pid, signal.SIGKILL)
-    except ProcessLookupError:
-        pass
-PY
-  fi
 }
 
 handle_cleanup_signal() {
@@ -1070,6 +852,7 @@ run_with_cleanup() {
   "$@"
   local status=$?
   set -e
+
   cleanup_pane_agents
   trap - HUP INT TERM EXIT
   return "$status"
