@@ -14,6 +14,7 @@ use clap::Parser;
 use futures_util::{SinkExt, StreamExt};
 use notify::{RecommendedWatcher, RecursiveMode, Watcher};
 use portable_pty::{native_pty_system, CommandBuilder, PtySize};
+use regex::Regex;
 use serde::{Deserialize, Serialize};
 use std::{
     collections::hash_map::DefaultHasher,
@@ -24,7 +25,7 @@ use std::{
     io::{self, Read, Write},
     path::{Path, PathBuf},
     process::Stdio,
-    sync::{Arc, Mutex as StdMutex},
+    sync::{Arc, Mutex as StdMutex, OnceLock},
     time::Duration,
 };
 use tokio::{
@@ -56,6 +57,22 @@ const TAP_RESEND_INTERVAL_MS: u64 = 3000;
 const STOP_SIGINT_GRACE_MS: u64 = 1500;
 const STOP_TERM_GRACE_MS: u64 = 800;
 const HEALTH_INTERVAL_SECS: u64 = 5;
+const REDACTED_SECRET: &str = "[REDACTED]";
+const TELEMETRY_SECRET_KEYS: [&str; 13] = [
+    "access_token",
+    "api_key",
+    "apikey",
+    "auth_token",
+    "client_secret",
+    "id_token",
+    "password",
+    "passwd",
+    "private_key",
+    "refresh_token",
+    "secret",
+    "session_token",
+    "token",
+];
 const DISABLE_MOUSE_SEQ: &str =
     "\x1b[?1000l\x1b[?1002l\x1b[?1003l\x1b[?1005l\x1b[?1006l\x1b[?1015l\x1b[?1007l\x1b[?1004l";
 
@@ -877,7 +894,7 @@ fn apply_pulse_update(state: &mut PulseState, update: PulseUpdate) {
         } => {
             state.lifecycle = normalize_lifecycle_status(&lifecycle);
             state.snippet = snippet.and_then(|value| {
-                let trimmed = value.trim().to_string();
+                let trimmed = redact_telemetry_text(&value).trim().to_string();
                 if trimmed.is_empty() {
                     None
                 } else {
@@ -1245,6 +1262,14 @@ fn build_hello(cfg: &ClientConfig) -> String {
 }
 
 fn build_agent_status(cfg: &ClientConfig, status: &str, message: Option<&str>) -> String {
+    let redacted_message = message.map(redact_telemetry_text).and_then(|value| {
+        let trimmed = value.trim().to_string();
+        if trimmed.is_empty() {
+            None
+        } else {
+            Some(trimmed)
+        }
+    });
     let payload = AgentStatusPayload {
         agent_id: cfg.agent_key.clone(),
         status: status.to_string(),
@@ -1255,7 +1280,7 @@ fn build_agent_status(cfg: &ClientConfig, status: &str, message: Option<&str>) -
         cwd: env::current_dir()
             .ok()
             .map(|p| p.to_string_lossy().to_string()),
-        message: message.map(|m| m.to_string()),
+        message: redacted_message,
     };
     build_envelope(
         "agent_status",
@@ -1720,7 +1745,116 @@ fn sanitize_activity_line(input: &str) -> String {
     if collapsed.is_empty() {
         return String::new();
     }
-    collapsed.chars().take(STATUS_MESSAGE_MAX_CHARS).collect()
+    let redacted = redact_telemetry_text(&collapsed);
+    redacted.chars().take(STATUS_MESSAGE_MAX_CHARS).collect()
+}
+
+fn redact_telemetry_text(input: &str) -> String {
+    if input.is_empty() {
+        return String::new();
+    }
+
+    let mut redacted = authorization_scheme_regex()
+        .replace_all(input, |caps: &regex::Captures| {
+            let prefix = if let Some(scheme) = caps.name("scheme") {
+                format!("{} ", scheme.as_str())
+            } else {
+                String::new()
+            };
+            format!(
+                "{}{}{}{REDACTED_SECRET}",
+                &caps["key"], &caps["sep"], prefix
+            )
+        })
+        .into_owned();
+
+    redacted = telemetry_secret_kv_regex()
+        .replace_all(&redacted, |caps: &regex::Captures| {
+            format!("{}{}{}", &caps["key"], &caps["sep"], REDACTED_SECRET)
+        })
+        .into_owned();
+
+    redacted = bearer_token_regex()
+        .replace_all(&redacted, |caps: &regex::Captures| {
+            format!("{} {}", &caps["scheme"], REDACTED_SECRET)
+        })
+        .into_owned();
+
+    for pattern in inline_secret_regexes() {
+        redacted = pattern.replace_all(&redacted, REDACTED_SECRET).into_owned();
+    }
+
+    redacted
+}
+
+fn telemetry_secret_kv_regex() -> &'static Regex {
+    static REGEX: OnceLock<Regex> = OnceLock::new();
+    REGEX.get_or_init(|| {
+        let key_pattern = telemetry_secret_key_pattern();
+        Regex::new(&format!(
+            r#"(?i)\b(?P<key>{key_pattern})\b(?P<sep>\s*[:=]\s*)(?P<value>"[^"]*"|'[^']*'|[^\s,;]+)"#
+        ))
+        .expect("valid telemetry secret key-value regex")
+    })
+}
+
+fn authorization_scheme_regex() -> &'static Regex {
+    static REGEX: OnceLock<Regex> = OnceLock::new();
+    REGEX.get_or_init(|| {
+        Regex::new(
+            r"(?i)\b(?P<key>authorization)\b(?P<sep>\s*:\s*)(?:(?P<scheme>bearer|token|basic)\s+)?[^\s,;]+",
+        )
+        .expect("valid authorization redaction regex")
+    })
+}
+
+fn bearer_token_regex() -> &'static Regex {
+    static REGEX: OnceLock<Regex> = OnceLock::new();
+    REGEX.get_or_init(|| {
+        Regex::new(r"(?i)\b(?P<scheme>bearer|token)\s+[A-Za-z0-9\-\._~\+/=]{12,}")
+            .expect("valid bearer token regex")
+    })
+}
+
+fn inline_secret_regexes() -> &'static [Regex] {
+    static REGEXES: OnceLock<Vec<Regex>> = OnceLock::new();
+    REGEXES
+        .get_or_init(|| {
+            vec![
+                Regex::new(r"\bgh[pousr]_[A-Za-z0-9]{8,}\b").expect("valid GitHub token regex"),
+                Regex::new(r"\bsk-[A-Za-z0-9]{12,}\b").expect("valid OpenAI-style key regex"),
+                Regex::new(r"\bAKIA[0-9A-Z]{16}\b").expect("valid AWS access key regex"),
+                Regex::new(r"\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\b")
+                    .expect("valid JWT regex"),
+            ]
+        })
+        .as_slice()
+}
+
+fn telemetry_secret_key_pattern() -> String {
+    let mut keys: Vec<String> = TELEMETRY_SECRET_KEYS
+        .iter()
+        .map(|key| regex::escape(key))
+        .collect();
+
+    if let Ok(extra) = env::var("AOC_TELEMETRY_REDACT_KEYS") {
+        for key in extra.split(',') {
+            let normalized = key.trim().to_ascii_lowercase();
+            if normalized.is_empty() {
+                continue;
+            }
+            keys.push(regex::escape(&normalized));
+        }
+    }
+
+    keys.sort_unstable();
+    keys.dedup();
+
+    if keys.is_empty() {
+        return "secret".to_string();
+    }
+
+    keys.join("|")
 }
 
 fn strip_ansi(input: &str) -> String {
@@ -3287,6 +3421,40 @@ mod tests {
         tap.append(b"abcdef");
         let (_version, bytes) = tap.snapshot();
         assert_eq!(String::from_utf8_lossy(&bytes), "7890abcdef");
+    }
+
+    #[test]
+    fn sanitize_activity_line_redacts_common_secret_patterns() {
+        let with_key = sanitize_activity_line("api_key=sk-verysecretvalue0000");
+        assert_eq!(with_key, format!("api_key={REDACTED_SECRET}"));
+
+        let with_auth =
+            sanitize_activity_line("Authorization: Bearer abcdefghijklmnopqrstuvwxyz123456");
+        assert_eq!(
+            with_auth,
+            format!("Authorization: Bearer {REDACTED_SECRET}")
+        );
+
+        let inline = sanitize_activity_line("publishing token ghp_abcdEFGHijklMNOPqrstUVWX");
+        assert_eq!(inline, format!("publishing token {REDACTED_SECRET}"));
+    }
+
+    #[test]
+    fn build_agent_status_redacts_message_before_serialization() {
+        let cfg = test_client();
+        let status = build_agent_status(
+            &cfg,
+            "running",
+            Some("deploying with access_token=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.abc.def"),
+        );
+
+        let envelope: Envelope<AgentStatusPayload> =
+            serde_json::from_str(&status).expect("valid status envelope");
+        assert_eq!(envelope.r#type, "agent_status");
+        assert_eq!(
+            envelope.payload.message.as_deref(),
+            Some("deploying with access_token=[REDACTED]")
+        );
     }
 
     #[test]
