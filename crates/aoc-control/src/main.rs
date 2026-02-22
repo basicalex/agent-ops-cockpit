@@ -57,6 +57,7 @@ enum Mode {
     ThemePresets,
     ThemeCustoms,
     ThemeActions,
+    RtkActions,
     Help,
 }
 
@@ -97,6 +98,29 @@ struct ThemeSelection {
 }
 
 #[derive(Clone, Debug)]
+struct RtkStatus {
+    mode: String,
+    installed: bool,
+    fail_open: bool,
+    config_exists: bool,
+    config_path: String,
+    allow_count: usize,
+}
+
+impl Default for RtkStatus {
+    fn default() -> Self {
+        Self {
+            mode: "off".to_string(),
+            installed: false,
+            fail_open: true,
+            config_exists: false,
+            config_path: String::new(),
+            allow_count: 0,
+        }
+    }
+}
+
+#[derive(Clone, Debug)]
 struct App {
     active_tab: Tab,
     focus: Focus,
@@ -113,8 +137,10 @@ struct App {
     theme_presets_state: ListState,
     theme_customs_state: ListState,
     theme_actions_state: ListState,
+    rtk_actions_state: ListState,
     default_layout: String,
     default_agent: String,
+    rtk_status: RtkStatus,
     config: AocConfig,
     config_path: PathBuf,
     projects_base: PathBuf,
@@ -156,10 +182,12 @@ impl App {
             theme_presets_state: ListState::default(),
             theme_customs_state: ListState::default(),
             theme_actions_state: ListState::default(),
+            rtk_actions_state: ListState::default(),
             default_layout: read_default(&layout_default_path())
                 .unwrap_or_else(|| "aoc".to_string()),
             default_agent: read_default(&agent_default_path())
                 .unwrap_or_else(|| "codex".to_string()),
+            rtk_status: RtkStatus::default(),
             config,
             config_path,
             projects_base,
@@ -179,12 +207,13 @@ impl App {
             pane_rename_remaining: if in_zellij() { 6 } else { 0 },
         };
         app.apply_project_filter();
+        app.refresh_rtk_status_quiet();
         app.ensure_selections();
         Ok(app)
     }
 
     fn ensure_selections(&mut self) {
-        ensure_selection(&mut self.defaults_state, 4);
+        ensure_selection(&mut self.defaults_state, 5);
         ensure_selection(&mut self.projects_state, self.filtered_projects.len());
         ensure_selection(&mut self.sessions_state, 4);
         ensure_selection(&mut self.layout_picker_state, layout_options().len());
@@ -196,6 +225,7 @@ impl App {
         ensure_selection(&mut self.theme_presets_state, self.theme_presets.len());
         ensure_selection(&mut self.theme_customs_state, self.theme_customs.len());
         ensure_selection(&mut self.theme_actions_state, self.theme_actions.len());
+        ensure_selection(&mut self.rtk_actions_state, rtk_action_options().len());
     }
 
     fn set_status<S: Into<String>>(&mut self, message: S) {
@@ -505,6 +535,64 @@ impl App {
         }
     }
 
+    fn refresh_rtk_status_quiet(&mut self) {
+        if let Ok(status) = load_rtk_status() {
+            self.rtk_status = status;
+        }
+    }
+
+    fn refresh_rtk_status(&mut self) {
+        match load_rtk_status() {
+            Ok(status) => {
+                self.rtk_status = status;
+                self.set_status(format!("RTK: {}", rtk_summary(&self.rtk_status)));
+            }
+            Err(err) => self.set_status(format!("RTK status failed: {err}")),
+        }
+    }
+
+    fn open_rtk_actions(&mut self) {
+        self.refresh_rtk_status_quiet();
+        ensure_selection(&mut self.rtk_actions_state, rtk_action_options().len());
+        self.mode = Mode::RtkActions;
+    }
+
+    fn run_selected_rtk_action(&mut self) {
+        match self.rtk_actions_state.selected().unwrap_or(0) {
+            0 => self.refresh_rtk_status(),
+            1 => match run_rtk_command(&["install", "--auto"]) {
+                Ok(msg) => {
+                    self.set_status(msg);
+                    self.refresh_rtk_status_quiet();
+                }
+                Err(err) => self.set_status(format!("RTK install failed: {err}")),
+            },
+            2 => match run_rtk_command(&["enable"]) {
+                Ok(msg) => {
+                    self.set_status(msg);
+                    self.refresh_rtk_status_quiet();
+                }
+                Err(err) => self.set_status(format!("RTK enable failed: {err}")),
+            },
+            3 => match run_rtk_command(&["disable"]) {
+                Ok(msg) => {
+                    self.set_status(msg);
+                    self.refresh_rtk_status_quiet();
+                }
+                Err(err) => self.set_status(format!("RTK disable failed: {err}")),
+            },
+            4 => match run_rtk_command(&["doctor"]) {
+                Ok(msg) => {
+                    self.set_status(msg);
+                    self.refresh_rtk_status_quiet();
+                }
+                Err(err) => self.set_status(format!("RTK doctor failed: {err}")),
+            },
+            5 => self.mode = Mode::Normal,
+            _ => {}
+        }
+    }
+
     fn tick(&mut self) {
         if self.pane_rename_remaining == 0 {
             return;
@@ -563,6 +651,7 @@ fn handle_key(app: &mut App, key: KeyEvent) {
         Mode::ThemePresets => handle_key_theme_presets(app, key),
         Mode::ThemeCustoms => handle_key_theme_customs(app, key),
         Mode::ThemeActions => handle_key_theme_actions(app, key),
+        Mode::RtkActions => handle_key_rtk_actions(app, key),
         Mode::Help => handle_key_help(app, key),
     }
 }
@@ -804,6 +893,20 @@ fn handle_key_theme_actions(app: &mut App, key: KeyEvent) {
     }
 }
 
+fn handle_key_rtk_actions(app: &mut App, key: KeyEvent) {
+    match key.code {
+        KeyCode::Esc => app.mode = Mode::Normal,
+        KeyCode::Char('j') | KeyCode::Down => {
+            list_next_state(&mut app.rtk_actions_state, rtk_action_options().len())
+        }
+        KeyCode::Char('k') | KeyCode::Up => {
+            list_prev_state(&mut app.rtk_actions_state, rtk_action_options().len())
+        }
+        KeyCode::Enter => app.run_selected_rtk_action(),
+        _ => {}
+    }
+}
+
 fn handle_key_help(app: &mut App, key: KeyEvent) {
     match key.code {
         KeyCode::Esc | KeyCode::Char('?') => app.mode = Mode::Normal,
@@ -824,7 +927,7 @@ fn cycle_tab(app: &mut App, forward: bool) {
 
 fn list_next(app: &mut App) {
     match app.active_tab {
-        Tab::Defaults => list_next_state(&mut app.defaults_state, 4),
+        Tab::Defaults => list_next_state(&mut app.defaults_state, 5),
         Tab::Projects => list_next_state(&mut app.projects_state, app.filtered_projects.len()),
         Tab::Sessions => list_next_state(&mut app.sessions_state, 4),
     }
@@ -832,7 +935,7 @@ fn list_next(app: &mut App) {
 
 fn list_prev(app: &mut App) {
     match app.active_tab {
-        Tab::Defaults => list_prev_state(&mut app.defaults_state, 4),
+        Tab::Defaults => list_prev_state(&mut app.defaults_state, 5),
         Tab::Projects => list_prev_state(&mut app.projects_state, app.filtered_projects.len()),
         Tab::Sessions => list_prev_state(&mut app.sessions_state, 4),
     }
@@ -856,6 +959,7 @@ fn activate_selection(app: &mut App) {
                 Mode::EditProjectsBase,
                 app.projects_base.to_string_lossy().to_string(),
             ),
+            4 => app.open_rtk_actions(),
             _ => {}
         },
         Tab::Projects => {
@@ -948,6 +1052,7 @@ fn draw_defaults(frame: &mut ratatui::Frame, area: Rect, app: &mut App, focused:
             "Projects base: {}",
             app.projects_base.to_string_lossy()
         )),
+        ListItem::new(format!("RTK routing: {}", rtk_summary(&app.rtk_status))),
     ];
     let list = List::new(items)
         .block(titled_block("Settings", focused))
@@ -1184,6 +1289,22 @@ fn draw_modal(frame: &mut ratatui::Frame, app: &mut App) {
                 .highlight_symbol("> ");
             frame.render_stateful_widget(list, area, &mut app.theme_actions_state);
         }
+        Mode::RtkActions => {
+            let title = format!("RTK Controls ({})", rtk_summary(&app.rtk_status));
+            let items: Vec<ListItem> = rtk_action_options()
+                .into_iter()
+                .map(ListItem::new)
+                .collect();
+            let list = List::new(items)
+                .block(Block::default().borders(Borders::ALL).title(title))
+                .highlight_style(
+                    Style::default()
+                        .fg(Color::Cyan)
+                        .add_modifier(Modifier::BOLD),
+                )
+                .highlight_symbol("> ");
+            frame.render_stateful_widget(list, area, &mut app.rtk_actions_state);
+        }
         Mode::Help => draw_help_modal(frame, area),
         Mode::Normal => {}
     }
@@ -1212,6 +1333,7 @@ fn draw_help_modal(frame: &mut ratatui::Frame, area: Rect) {
         Line::from("Settings:"),
         Line::from("  Enter  change layout/agent/theme/base"),
         Line::from("  t      open theme manager"),
+        Line::from("  Enter on RTK routing  open RTK setup/actions"),
         Line::from(""),
         Line::from("Projects:"),
         Line::from("  Enter or o  open project"),
@@ -1309,10 +1431,16 @@ fn footer_lines(app: &App) -> Vec<Line<'_>> {
             keycap("Esc"),
             Span::raw(" back"),
         ],
+        Mode::RtkActions => vec![
+            keycap("Enter"),
+            Span::raw(" run action  "),
+            keycap("Esc"),
+            Span::raw(" close"),
+        ],
         Mode::Normal => match app.active_tab {
             Tab::Defaults => vec![
                 keycap("Enter"),
-                Span::raw(" adjust settings  "),
+                Span::raw(" adjust settings/RTK  "),
                 keycap("t"),
                 Span::raw(" theme manager"),
             ],
@@ -1463,6 +1591,32 @@ fn theme_action_options(source: ThemeSource) -> Vec<String> {
     }
 }
 
+fn rtk_action_options() -> Vec<String> {
+    vec![
+        "Refresh status".to_string(),
+        "Install RTK (auto-fetch)".to_string(),
+        "Enable routing".to_string(),
+        "Disable routing".to_string(),
+        "Run doctor".to_string(),
+        "Back".to_string(),
+    ]
+}
+
+fn rtk_summary(status: &RtkStatus) -> String {
+    let mode = if status.mode == "on" { "on" } else { "off" };
+    let install = if status.installed {
+        "installed"
+    } else {
+        "missing"
+    };
+    let fail_open = if status.fail_open {
+        "fail-open"
+    } else {
+        "strict"
+    };
+    format!("{mode}, {install}, {fail_open}")
+}
+
 fn preset_theme_names() -> &'static [&'static str] {
     &[
         "catppuccin",
@@ -1547,6 +1701,96 @@ fn run_theme_command(args: &[&str]) -> io::Result<String> {
         .find(|line| !line.trim().is_empty())
         .or_else(|| stderr.lines().find(|line| !line.trim().is_empty()))
         .unwrap_or("")
+        .trim()
+        .to_string();
+    Ok(first_line)
+}
+
+fn parse_truthy(value: &str) -> bool {
+    matches!(
+        value.trim().to_ascii_lowercase().as_str(),
+        "1" | "true" | "yes" | "on"
+    )
+}
+
+fn binary_in_path(name: &str) -> bool {
+    let trimmed = name.trim();
+    if trimmed.is_empty() {
+        return false;
+    }
+
+    let direct = PathBuf::from(trimmed);
+    if direct.components().count() > 1 {
+        return fs::metadata(direct)
+            .map(|meta| meta.is_file())
+            .unwrap_or(false);
+    }
+
+    let Some(path_os) = env::var_os("PATH") else {
+        return false;
+    };
+
+    env::split_paths(&path_os).any(|dir| {
+        let candidate = dir.join(trimmed);
+        fs::metadata(candidate)
+            .map(|meta| meta.is_file())
+            .unwrap_or(false)
+    })
+}
+
+fn load_rtk_status() -> io::Result<RtkStatus> {
+    let output = Command::new("aoc-rtk")
+        .args(["status", "--shell"])
+        .output()?;
+    if !output.status.success() {
+        return Err(command_failure("aoc-rtk status --shell", &output));
+    }
+
+    let mut status = RtkStatus::default();
+    let mut binary_name = "rtk".to_string();
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    for line in stdout.lines() {
+        let Some((key, value)) = line.split_once('=') else {
+            continue;
+        };
+        let value = value.trim();
+        match key {
+            "mode" => status.mode = value.to_string(),
+            "config_exists" => status.config_exists = parse_truthy(value),
+            "fail_open" => status.fail_open = parse_truthy(value),
+            "config_path" => status.config_path = value.to_string(),
+            "binary" => binary_name = value.to_string(),
+            "allow" => status.allow_count += 1,
+            _ => {}
+        }
+    }
+
+    if status.mode != "on" {
+        status.mode = "off".to_string();
+    }
+    status.installed = binary_in_path(&binary_name);
+    Ok(status)
+}
+
+fn run_rtk_command(args: &[&str]) -> io::Result<String> {
+    let output = Command::new("aoc-rtk").args(args).output()?;
+    if !output.status.success() {
+        let rendered = if args.is_empty() {
+            "aoc-rtk".to_string()
+        } else {
+            format!("aoc-rtk {}", args.join(" "))
+        };
+        return Err(command_failure(&rendered, &output));
+    }
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    let first_line = stdout
+        .lines()
+        .find(|line| !line.trim().is_empty())
+        .or_else(|| stderr.lines().find(|line| !line.trim().is_empty()))
+        .unwrap_or("RTK action completed")
         .trim()
         .to_string();
     Ok(first_line)

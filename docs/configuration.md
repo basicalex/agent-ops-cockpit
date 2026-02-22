@@ -9,6 +9,7 @@ Advanced configuration options for Agent Ops Cockpit (AOC).
   - [Widget Configuration](#widget-configuration)
   - [Clock Configuration](#clock-configuration)
   - [Layout and Display](#layout-and-display)
+  - [RTK Routing](#rtk-routing)
   - [Agent Configuration](#agent-configuration)
 - [Custom Layouts](#custom-layouts)
 - [Theme Management](#theme-management)
@@ -129,6 +130,80 @@ Notes:
 - Set `AOC_PULSE_OVERVIEW_ENABLED=0` to run only Work/Diff/Health.
 - With `AOC_PULSE_LAYOUT_WATCH_ENABLED=0` (default), hub background layout polling is disabled.
 - `AOC_PULSE_THEME=terminal` (default) keeps Pulse integrated with your terminal/system theme.
+
+### RTK Routing
+
+RTK routing is optional, per-project, and fail-open by default. It only activates inside AOC-managed agent sessions (`aoc-agent-wrap`) when routing mode is enabled.
+
+Primary benefit: route noisy shell output through RTK so agents keep higher signal density in-context (less output bloat, lower token pressure, faster coding loops).
+
+You can manage RTK from `Alt+C` (`aoc-control`) via **Settings -> RTK routing**.
+
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `AOC_RTK_BYPASS` | Disable RTK routing for the current process/session | `0` |
+| `AOC_RTK_MODE` | Force mode override (`off` to bypass) | From `.aoc/rtk.toml` |
+| `AOC_RTK_CONFIG` | Override RTK config file location | `<project>/.aoc/rtk.toml` |
+| `AOC_RTK_BINARY` | Override RTK binary name/path | `rtk` |
+| `AOC_RTK_GAIN_MODE` | RTK invocation mode (`double-dash` or `positional`) | `double-dash` |
+| `AOC_RTK_FAIL_OPEN` | Fallback to native command on RTK execution error | `1` |
+| `AOC_RTK_INSTALL_URL` | Pinned installer artifact URL for `aoc-rtk install` | None |
+| `AOC_RTK_INSTALL_SHA256` | SHA256 for pinned installer artifact | None |
+| `AOC_RTK_INSTALL_DIR` | Install target directory for `aoc-rtk install` | `~/.local/bin` |
+| `AOC_RTK_RELEASE_REPO` | Upstream repo used by `aoc-rtk install --auto` | `rtk-ai/rtk` |
+| `AOC_RTK_RELEASE_TAG` | Override release tag for `aoc-rtk install --auto` | latest |
+
+Runtime/debug variables (usually set by `aoc-agent-wrap`):
+
+| Variable | Description |
+|----------|-------------|
+| `AOC_RTK_ACTIVE` | `1` when RTK shims are active in the current agent session |
+| `AOC_RTK_SHIM_DIR` | Session-local shim directory prepended to PATH |
+
+Project config file: `.aoc/rtk.toml` (seeded by `aoc-init`).
+
+By default, new `aoc-init` runs seed RTK with `mode = "on"` for context health. Existing projects with `mode = "off"` are preserved as-is.
+
+```toml
+mode = "on"
+fail_open = true
+gain_mode = "double-dash"
+binary = "rtk"
+allowlist = ["git status", "git diff", "rg", "pytest"]
+denylist = ["git push", "git reset --hard", "rm -rf"]
+install_url = ""
+install_sha256 = ""
+```
+
+Operator commands:
+
+```bash
+aoc-rtk status
+aoc-rtk enable
+aoc-rtk disable
+aoc-rtk doctor
+aoc-rtk install
+aoc-rtk install --auto
+# Manual routing test (shorthand)
+aoc-rtk git status
+# Manual routing test (explicit)
+aoc-rtk run rg "TODO"
+```
+
+Recommended rollout order:
+
+1. Run `aoc-rtk install --auto` (or use Alt+C -> Settings -> RTK routing -> Install RTK (auto-fetch)).
+2. Optionally review pinned `install_url` + `install_sha256` in `.aoc/rtk.toml`.
+3. Validate with `aoc-rtk doctor`.
+4. If needed, disable quickly with `aoc-rtk disable`.
+5. If needed, bypass immediately with `AOC_RTK_BYPASS=1`.
+
+Safety model:
+
+- Allowlist-first routing through `aoc-rtk-proxy` command shims.
+- Session-local PATH wiring (no global command hijack).
+- Explicit bypass via `AOC_RTK_BYPASS=1`.
+- Fail-open fallback to native execution when RTK is unavailable.
 
 **Preview Pane Placement:**
 
@@ -255,12 +330,12 @@ Curated preset themes include:
 
 ## Per-Project Configuration
 
-AOC uses a **Distributed Cognitive Architecture** with three layers:
+AOC uses a **Distributed Cognitive Architecture** with four layers:
 
 ### 1. Project Context (`.aoc/context.md`)
 
 - **Purpose:** Auto-generated project map
-- **Content:** File tree, README snapshot
+- **Content:** Project-specific snapshot (repo facts, key files, structure tree, README headings, workstream tags, task PRD location)
 - **Refresh:** `aoc-init` (manual) or `aoc-watcher` (auto)
 
 ### 2. Long-Term Memory (`.aoc/memory.md`)
@@ -272,6 +347,11 @@ AOC uses a **Distributed Cognitive Architecture** with three layers:
 
 - **Purpose:** Active work queue
 - **Management:** `aoc-task` commands
+
+### 4. RTK Routing Policy (`.aoc/rtk.toml`)
+
+- **Purpose:** Project-local routing mode, allowlist/denylist, and pinned install contract
+- **Management:** `aoc-rtk status|enable|disable|doctor|install --auto`
 
 ### Global Configuration
 

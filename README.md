@@ -54,8 +54,8 @@ AOC implements a **Distributed Cognitive Architecture** that separates concerns 
         │                                                  │
         │  .aoc/context.md  .aoc/memory.md     tasks.json  │
         │  Auto-updated     Append-only        Real-time   │
-        │  File tree +      Architectural      Status &    │
-        │  README snapshot  decisions          priorities  │
+        │  Project facts +  Architectural      Status &    │
+        │  structure map    decisions          priorities  │
         │                                                  │
         └──────────────────────────────────────────────────┘
 ```
@@ -261,7 +261,7 @@ AOC's architecture solves the fundamental problem of **context management in AI-
 
 #### 1. Context (`.aoc/context.md`) - The "Project Map"
 - **Role:** Reactive, auto-generated snapshot
-- **Content:** File tree, README summary, project structure
+- **Content:** Project-specific facts, key files, structure tree, README headings, and workstream tags
 - **Update:** Automatic via `aoc-watcher` or manual via `aoc-init`
 - **Agent Usage:** Read at task start to understand current codebase state
 
@@ -427,6 +427,10 @@ aoc-theme sync
 
 AOC supports extensive customization via environment variables:
 
+**RTK Routing:** `AOC_RTK_BYPASS`, `AOC_RTK_MODE`, `AOC_RTK_CONFIG`, `AOC_RTK_BINARY` (new `aoc-init` projects default RTK mode to `on`; existing explicit `off` is preserved)
+
+RTK keeps agent context healthier by condensing noisy command output while preserving safety via fail-open fallback to native command execution.
+
 **Command Overrides:** `AOC_AGENT_CMD`, `AOC_CODEX_CMD`, `AOC_TASKMASTER_CMD`, `AOC_FILETREE_CMD`
 
 **Widget:** `AOC_WIDGET_SYMBOLS`, `AOC_WIDGET_COLORS`, `AOC_WIDGET_DITHER`, `AOC_WIDGET_SCALE`
@@ -492,6 +496,8 @@ aoc-doctor          # Check all dependencies
 tm list             # Verify task controls work
 aoc-task list       # Canonical command
 aoc-mem read        # Check memory system
+aoc-rtk status      # Check RTK routing state
+aoc-rtk git status  # Manual RTK routing smoke check
 ```
 
 **Common issues:**
