@@ -47,6 +47,20 @@ curl -fsSL https://raw.githubusercontent.com/basicalex/agent-ops-cockpit/main/in
 
 If you already cloned the repo, you can still run `./install.sh` directly.
 
+By default, `install.sh` now runs `aoc-init` for your current working directory (`$PWD`) after installation so AOC files (including `.aoc/rtk.toml`) are seeded immediately.
+
+RTK routing defaults to `mode = "on"` for newly initialized projects. If a project already has `.aoc/rtk.toml` with `mode = "off"`, `aoc-init` preserves that explicit disable and logs it.
+
+Install-time overrides:
+
+```bash
+# Skip automatic project initialization
+AOC_INSTALL_AUTO_INIT=0 ./install.sh
+
+# Initialize a specific project path after install
+AOC_INIT_TARGET=~/dev/my-project ./install.sh
+```
+
 ## Platform-Specific Instructions
 
 ### Ubuntu/Debian

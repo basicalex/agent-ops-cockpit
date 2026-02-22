@@ -1,0 +1,217 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+if [[ $# -lt 1 ]]; then
+  echo "Usage: aoc-rtk-proxy <command> [args...]" >&2
+  exit 2
+fi
+
+script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+command_name="$1"
+shift
+
+if [[ "$command_name" == "aoc-rtk" || "$command_name" == "aoc-rtk-proxy" ]]; then
+  echo "aoc-rtk-proxy: refusing to route internal command '$command_name'" >&2
+  exit 126
+fi
+
+resolve_passthrough_bin() {
+  local cmd="$1"
+
+  if [[ "$cmd" == */* ]]; then
+    if [[ -x "$cmd" ]]; then
+      printf '%s' "$cmd"
+      return 0
+    fi
+    return 1
+  fi
+
+  local part=""
+  local candidate=""
+  IFS=':' read -r -a parts <<<"$PATH"
+  for part in "${parts[@]}"; do
+    [[ -n "$part" ]] || continue
+    if [[ -n "${AOC_RTK_SHIM_DIR:-}" && "$part" == "$AOC_RTK_SHIM_DIR" ]]; then
+      continue
+    fi
+    candidate="$part/$cmd"
+    if [[ -x "$candidate" ]]; then
+      printf '%s' "$candidate"
+      return 0
+    fi
+  done
+
+  return 1
+}
+
+run_passthrough() {
+  local cmd="$1"
+  shift
+  local target=""
+  if ! target="$(resolve_passthrough_bin "$cmd")"; then
+    echo "$cmd: command not found" >&2
+    return 127
+  fi
+  exec "$target" "$@"
+}
+
+unshimmed_path() {
+  local original_path="$1"
+  local filtered=()
+  local part=""
+
+  IFS=':' read -r -a parts <<<"$original_path"
+  for part in "${parts[@]}"; do
+    [[ -n "$part" ]] || continue
+    if [[ -n "${AOC_RTK_SHIM_DIR:-}" && "$part" == "$AOC_RTK_SHIM_DIR" ]]; then
+      continue
+    fi
+    filtered+=("$part")
+  done
+
+  if [[ ${#filtered[@]} -eq 0 ]]; then
+    printf '%s' "$original_path"
+    return
+  fi
+
+  local joined=""
+  local item=""
+  for item in "${filtered[@]}"; do
+    if [[ -z "$joined" ]]; then
+      joined="$item"
+    else
+      joined="$joined:$item"
+    fi
+  done
+  printf '%s' "$joined"
+}
+
+is_truthy() {
+  local value="${1:-}"
+  value="$(printf '%s' "$value" | tr '[:upper:]' '[:lower:]')"
+  case "$value" in
+    1|true|yes|on) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+if is_truthy "${AOC_RTK_BYPASS:-0}" || [[ "${AOC_RTK_MODE:-}" == "off" ]]; then
+  run_passthrough "$command_name" "$@"
+fi
+
+rtk_ctl="$script_dir/aoc-rtk"
+if [[ ! -x "$rtk_ctl" ]]; then
+  rtk_ctl="$(command -v aoc-rtk 2>/dev/null || true)"
+fi
+if [[ -z "$rtk_ctl" ]]; then
+  run_passthrough "$command_name" "$@"
+fi
+
+status_shell="$($rtk_ctl status --shell 2>/dev/null || true)"
+if [[ -z "$status_shell" ]]; then
+  run_passthrough "$command_name" "$@"
+fi
+
+mode="off"
+fail_open="1"
+gain_mode="double-dash"
+binary="rtk"
+allowlist=()
+denylist=()
+
+line=""
+key=""
+value=""
+while IFS= read -r line; do
+  [[ -n "$line" ]] || continue
+  key="${line%%=*}"
+  value="${line#*=}"
+  case "$key" in
+    mode) mode="$value" ;;
+    fail_open) fail_open="$value" ;;
+    gain_mode) gain_mode="$value" ;;
+    binary) binary="$value" ;;
+    allow) allowlist+=("$value") ;;
+    deny) denylist+=("$value") ;;
+    *) ;;
+  esac
+done <<<"$status_shell"
+
+if [[ "$mode" != "on" ]]; then
+  run_passthrough "$command_name" "$@"
+fi
+
+full_command="$command_name"
+arg=""
+for arg in "$@"; do
+  full_command="$full_command $arg"
+done
+
+allowed=0
+pattern=""
+for pattern in "${allowlist[@]}"; do
+  if [[ "$full_command" == "$pattern" || "$full_command" == "$pattern "* ]]; then
+    allowed=1
+    break
+  fi
+done
+if [[ "$allowed" != "1" ]]; then
+  run_passthrough "$command_name" "$@"
+fi
+
+for pattern in "${denylist[@]}"; do
+  if [[ "$full_command" == "$pattern" || "$full_command" == "$pattern "* ]]; then
+    run_passthrough "$command_name" "$@"
+  fi
+done
+
+binary="${AOC_RTK_BINARY:-$binary}"
+if ! command -v "$binary" >/dev/null 2>&1; then
+  run_passthrough "$command_name" "$@"
+fi
+
+resolved_bin=""
+if ! resolved_bin="$(resolve_passthrough_bin "$command_name")"; then
+  echo "$command_name: command not found" >&2
+  exit 127
+fi
+
+safe_path="$(unshimmed_path "$PATH")"
+
+# Preserve native stdin behavior for heredocs/pipes/process substitution.
+if [[ ! -t 0 ]]; then
+  exec env AOC_RTK_BYPASS=1 PATH="$safe_path" "$resolved_bin" "$@"
+fi
+
+# Prompt/status commands can fire very frequently; keep them native.
+if [[ "$command_name" == "git" && "${1:-}" == "rev-parse" ]]; then
+  exec env AOC_RTK_BYPASS=1 PATH="$safe_path" "$resolved_bin" "$@"
+fi
+
+effective_gain_mode="${AOC_RTK_GAIN_MODE:-$gain_mode}"
+route_cmd=()
+if "$binary" proxy --help >/dev/null 2>&1; then
+  if "$binary" help "$command_name" >/dev/null 2>&1; then
+    route_cmd=("$binary" "$command_name" "$@")
+  else
+    route_cmd=("$binary" proxy "$resolved_bin" "$@")
+  fi
+else
+  route_cmd=("$binary" gain)
+  if [[ "$effective_gain_mode" == "positional" ]]; then
+    route_cmd+=("$resolved_bin" "$@")
+  else
+    route_cmd+=(-- "$resolved_bin" "$@")
+  fi
+fi
+
+if AOC_RTK_BYPASS=1 PATH="$safe_path" "${route_cmd[@]}"; then
+  exit 0
+fi
+
+route_status=$?
+if is_truthy "${AOC_RTK_FAIL_OPEN:-$fail_open}"; then
+  exec env AOC_RTK_BYPASS=1 PATH="$safe_path" "$resolved_bin" "$@"
+fi
+
+exit "$route_status"
