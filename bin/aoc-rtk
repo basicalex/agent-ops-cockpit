@@ -1,0 +1,920 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+usage() {
+  cat <<'EOF'
+Usage: aoc-rtk <command>
+
+Commands:
+  <external-cmd> ...  Route one command through RTK proxy (manual testing)
+  status [--shell]   Show RTK routing status (or machine-readable shell lines)
+  enable             Enable RTK routing for this project
+  disable            Disable RTK routing for this project
+  install [--auto]   Install RTK from pinned artifact URL + sha256
+  doctor             Run RTK diagnostics
+  run <cmd> ...      Explicit alias for routing mode
+  help               Show this help
+
+Config resolution order:
+  1) AOC_RTK_CONFIG
+  2) <project-root>/.aoc/rtk.toml
+  3) ~/.config/aoc/rtk.toml
+
+Install requires a pinned artifact and checksum via either:
+  - .aoc/rtk.toml (install_url, install_sha256)
+  - env vars (AOC_RTK_INSTALL_URL, AOC_RTK_INSTALL_SHA256)
+
+With '--auto', AOC resolves a pinned artifact/checksum from rtk-ai/rtk
+for the current OS/architecture and writes that install contract to config.
+EOF
+}
+
+find_project_root() {
+  if [[ -n "${AOC_PROJECT_ROOT:-}" && -d "${AOC_PROJECT_ROOT:-}" ]]; then
+    printf '%s' "$AOC_PROJECT_ROOT"
+    return
+  fi
+
+  local probe="$PWD"
+  while [[ -n "$probe" && "$probe" != "/" ]]; do
+    if [[ -d "$probe/.aoc" || -d "$probe/.git" ]]; then
+      printf '%s' "$probe"
+      return
+    fi
+    probe="$(dirname "$probe")"
+  done
+}
+
+resolve_config_path() {
+  if [[ -n "${AOC_RTK_CONFIG:-}" ]]; then
+    printf '%s' "$AOC_RTK_CONFIG"
+    return
+  fi
+
+  local root=""
+  root="$(find_project_root || true)"
+  if [[ -n "$root" ]]; then
+    printf '%s/.aoc/rtk.toml' "$root"
+    return
+  fi
+
+  printf '%s/aoc/rtk.toml' "${XDG_CONFIG_HOME:-$HOME/.config}"
+}
+
+download_to_file() {
+  local url="$1"
+  local target="$2"
+
+  if command -v curl >/dev/null 2>&1; then
+    curl -fsSL "$url" -o "$target"
+    return
+  fi
+
+  if command -v wget >/dev/null 2>&1; then
+    wget -qO "$target" "$url"
+    return
+  fi
+
+  python3 - "$url" "$target" <<'PY'
+import sys
+import urllib.request
+
+url = sys.argv[1]
+target = sys.argv[2]
+with urllib.request.urlopen(url, timeout=60) as resp:
+    data = resp.read()
+with open(target, "wb") as fh:
+    fh.write(data)
+PY
+}
+
+detect_rtk_release_asset() {
+  local os=""
+  local arch=""
+  os="$(uname -s 2>/dev/null | tr '[:upper:]' '[:lower:]')"
+  arch="$(uname -m 2>/dev/null | tr '[:upper:]' '[:lower:]')"
+
+  case "$os/$arch" in
+    linux/x86_64|linux/amd64)
+      printf '%s' "rtk-x86_64-unknown-linux-gnu.tar.gz"
+      ;;
+    linux/aarch64|linux/arm64)
+      printf '%s' "rtk-aarch64-unknown-linux-gnu.tar.gz"
+      ;;
+    darwin/x86_64|darwin/amd64)
+      printf '%s' "rtk-x86_64-apple-darwin.tar.gz"
+      ;;
+    darwin/aarch64|darwin/arm64)
+      printf '%s' "rtk-aarch64-apple-darwin.tar.gz"
+      ;;
+    *)
+      echo "Unsupported platform for RTK auto install: $os/$arch" >&2
+      return 1
+      ;;
+  esac
+}
+
+resolve_auto_install_contract() {
+  local repo="${AOC_RTK_RELEASE_REPO:-rtk-ai/rtk}"
+  local release_tag="${AOC_RTK_RELEASE_TAG:-}"
+  local asset=""
+  asset="$(detect_rtk_release_asset)" || return 1
+
+  local tmp_dir=""
+  tmp_dir="$(mktemp -d)"
+  local release_json="$tmp_dir/release.json"
+  local checksums_file="$tmp_dir/checksums.txt"
+
+  if [[ -z "$release_tag" ]]; then
+    local latest_api="https://api.github.com/repos/${repo}/releases/latest"
+    if ! download_to_file "$latest_api" "$release_json"; then
+      rm -rf "$tmp_dir"
+      echo "Failed to query RTK latest release metadata" >&2
+      return 1
+    fi
+    release_tag="$(python3 - "$release_json" <<'PY'
+import json
+import sys
+
+path = sys.argv[1]
+try:
+    with open(path, "r", encoding="utf-8") as fh:
+        payload = json.load(fh)
+except Exception:
+    payload = {}
+
+tag = str(payload.get("tag_name", "")).strip()
+print(tag)
+PY
+)"
+  fi
+
+  if [[ -z "$release_tag" ]]; then
+    rm -rf "$tmp_dir"
+    echo "Unable to resolve RTK release tag for auto install" >&2
+    return 1
+  fi
+
+  local checksums_url="https://github.com/${repo}/releases/download/${release_tag}/checksums.txt"
+  if ! download_to_file "$checksums_url" "$checksums_file"; then
+    rm -rf "$tmp_dir"
+    echo "Failed to fetch RTK checksums for ${release_tag}" >&2
+    return 1
+  fi
+
+  local install_sha256=""
+  install_sha256="$(python3 - "$checksums_file" "$asset" <<'PY'
+import re
+import sys
+
+checksums_path = sys.argv[1]
+asset_name = sys.argv[2]
+sha_pattern = re.compile(r"^[0-9a-fA-F]{64}$")
+
+resolved = ""
+with open(checksums_path, "r", encoding="utf-8", errors="replace") as fh:
+    for raw in fh:
+        line = raw.strip()
+        if not line:
+            continue
+        parts = line.split()
+        if len(parts) < 2:
+            continue
+        sha = parts[0].strip().lower()
+        name = parts[-1].strip().lstrip("*")
+        if name == asset_name and sha_pattern.match(sha):
+            resolved = sha
+            break
+
+print(resolved)
+PY
+)"
+
+  if [[ -z "$install_sha256" ]]; then
+    rm -rf "$tmp_dir"
+    echo "Failed to resolve checksum for RTK asset '${asset}'" >&2
+    return 1
+  fi
+
+  local install_url="https://github.com/${repo}/releases/download/${release_tag}/${asset}"
+  printf 'install_url=%s\n' "$install_url"
+  printf 'install_sha256=%s\n' "$install_sha256"
+  printf 'release_tag=%s\n' "$release_tag"
+  printf 'asset=%s\n' "$asset"
+  rm -rf "$tmp_dir"
+}
+
+emit_shell_config() {
+  local config_path="$1"
+  python3 - "$config_path" <<'PY'
+import os
+import sys
+from pathlib import Path
+
+try:
+    import tomllib
+except Exception:
+    tomllib = None
+
+path = Path(sys.argv[1])
+
+defaults = {
+    "mode": "off",
+    "fail_open": True,
+    "gain_mode": "double-dash",
+    "binary": "rtk",
+    "allowlist": [
+        "git status",
+        "git diff",
+        "git log",
+        "git show",
+        "git branch",
+        "git rev-parse",
+        "rg",
+        "fd",
+        "ls",
+        "du",
+        "wc",
+        "cat",
+        "head",
+        "tail",
+        "pytest",
+        "cargo test",
+        "npm test",
+        "pnpm test",
+        "bun test",
+    ],
+    "denylist": [
+        "git add",
+        "git commit",
+        "git checkout",
+        "git switch",
+        "git merge",
+        "git rebase",
+        "git push",
+        "git reset --hard",
+        "git clean -fd",
+        "rm -rf",
+        "sudo",
+        "ssh",
+        "scp",
+    ],
+    "install_url": "",
+    "install_sha256": "",
+}
+
+
+def parse_bool(value, fallback):
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, int):
+        return value != 0
+    if isinstance(value, str):
+        lowered = value.strip().lower()
+        if lowered in {"1", "true", "yes", "on"}:
+            return True
+        if lowered in {"0", "false", "no", "off"}:
+            return False
+    return fallback
+
+
+def parse_list(value, fallback):
+    if isinstance(value, list):
+        cleaned = []
+        for item in value:
+            if not isinstance(item, str):
+                continue
+            text = item.strip()
+            if text:
+                cleaned.append(text)
+        if cleaned:
+            return cleaned
+    return list(fallback)
+
+
+data = {}
+if path.exists() and tomllib is not None:
+    try:
+        data = tomllib.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        data = {}
+
+cfg = {}
+cfg["mode"] = str(data.get("mode", defaults["mode"])).strip().lower()
+if cfg["mode"] not in {"on", "off"}:
+    cfg["mode"] = defaults["mode"]
+
+cfg["fail_open"] = parse_bool(data.get("fail_open", defaults["fail_open"]), defaults["fail_open"])
+
+cfg["gain_mode"] = str(data.get("gain_mode", defaults["gain_mode"])).strip().lower()
+if cfg["gain_mode"] not in {"double-dash", "positional"}:
+    cfg["gain_mode"] = defaults["gain_mode"]
+
+binary = str(data.get("binary", defaults["binary"])).strip()
+if not binary or any(ch.isspace() for ch in binary):
+    binary = defaults["binary"]
+cfg["binary"] = binary
+
+cfg["allowlist"] = parse_list(data.get("allowlist", defaults["allowlist"]), defaults["allowlist"])
+cfg["denylist"] = parse_list(data.get("denylist", defaults["denylist"]), defaults["denylist"])
+
+cfg["install_url"] = str(data.get("install_url", defaults["install_url"])).strip()
+cfg["install_sha256"] = str(data.get("install_sha256", defaults["install_sha256"])).strip().lower()
+
+print(f"config_path={path}")
+print(f"config_exists={1 if path.exists() else 0}")
+print(f"mode={cfg['mode']}")
+print(f"enabled={1 if cfg['mode'] == 'on' else 0}")
+print(f"fail_open={1 if cfg['fail_open'] else 0}")
+print(f"gain_mode={cfg['gain_mode']}")
+print(f"binary={cfg['binary']}")
+print(f"install_url={cfg['install_url']}")
+print(f"install_sha256={cfg['install_sha256']}")
+for entry in cfg["allowlist"]:
+    print(f"allow={entry}")
+for entry in cfg["denylist"]:
+    print(f"deny={entry}")
+PY
+}
+
+write_config() {
+  local config_path="$1"
+  local mode_override="${2:-}"
+  local install_url_override="${3:-}"
+  local install_sha_override="${4:-}"
+  python3 - "$config_path" "$mode_override" "$install_url_override" "$install_sha_override" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+try:
+    import tomllib
+except Exception:
+    tomllib = None
+
+path = Path(sys.argv[1])
+mode_override = sys.argv[2].strip().lower()
+install_url_override = sys.argv[3].strip()
+install_sha_override = sys.argv[4].strip().lower()
+
+defaults = {
+    "mode": "off",
+    "fail_open": True,
+    "gain_mode": "double-dash",
+    "binary": "rtk",
+    "allowlist": [
+        "git status",
+        "git diff",
+        "git log",
+        "git show",
+        "git branch",
+        "git rev-parse",
+        "rg",
+        "fd",
+        "ls",
+        "du",
+        "wc",
+        "cat",
+        "head",
+        "tail",
+        "pytest",
+        "cargo test",
+        "npm test",
+        "pnpm test",
+        "bun test",
+    ],
+    "denylist": [
+        "git add",
+        "git commit",
+        "git checkout",
+        "git switch",
+        "git merge",
+        "git rebase",
+        "git push",
+        "git reset --hard",
+        "git clean -fd",
+        "rm -rf",
+        "sudo",
+        "ssh",
+        "scp",
+    ],
+    "install_url": "",
+    "install_sha256": "",
+}
+
+
+def parse_bool(value, fallback):
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, int):
+        return value != 0
+    if isinstance(value, str):
+        lowered = value.strip().lower()
+        if lowered in {"1", "true", "yes", "on"}:
+            return True
+        if lowered in {"0", "false", "no", "off"}:
+            return False
+    return fallback
+
+
+def parse_list(value, fallback):
+    if isinstance(value, list):
+        cleaned = []
+        for item in value:
+            if not isinstance(item, str):
+                continue
+            text = item.strip()
+            if text:
+                cleaned.append(text)
+        if cleaned:
+            return cleaned
+    return list(fallback)
+
+
+data = {}
+if path.exists() and tomllib is not None:
+    try:
+        data = tomllib.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        data = {}
+
+cfg = {}
+cfg["mode"] = str(data.get("mode", defaults["mode"])).strip().lower()
+if cfg["mode"] not in {"on", "off"}:
+    cfg["mode"] = defaults["mode"]
+
+if mode_override in {"on", "off"}:
+    cfg["mode"] = mode_override
+
+cfg["fail_open"] = parse_bool(data.get("fail_open", defaults["fail_open"]), defaults["fail_open"])
+
+cfg["gain_mode"] = str(data.get("gain_mode", defaults["gain_mode"])).strip().lower()
+if cfg["gain_mode"] not in {"double-dash", "positional"}:
+    cfg["gain_mode"] = defaults["gain_mode"]
+
+binary = str(data.get("binary", defaults["binary"])).strip()
+if not binary or any(ch.isspace() for ch in binary):
+    binary = defaults["binary"]
+cfg["binary"] = binary
+
+cfg["allowlist"] = parse_list(data.get("allowlist", defaults["allowlist"]), defaults["allowlist"])
+cfg["denylist"] = parse_list(data.get("denylist", defaults["denylist"]), defaults["denylist"])
+
+cfg["install_url"] = str(data.get("install_url", defaults["install_url"])).strip()
+cfg["install_sha256"] = str(data.get("install_sha256", defaults["install_sha256"])).strip().lower()
+
+if install_url_override:
+    cfg["install_url"] = install_url_override
+if install_sha_override:
+    cfg["install_sha256"] = install_sha_override
+
+lines = [
+    "# AOC RTK routing config (project-local, seeded by aoc-init)",
+    "# mode: off|on",
+    "mode = " + json.dumps(cfg["mode"]),
+    "fail_open = " + ("true" if cfg["fail_open"] else "false"),
+    "# gain_mode: double-dash|positional",
+    "gain_mode = " + json.dumps(cfg["gain_mode"]),
+    "binary = " + json.dumps(cfg["binary"]),
+    "allowlist = [",
+]
+
+for entry in cfg["allowlist"]:
+    lines.append("  " + json.dumps(entry) + ",")
+
+lines.extend([
+    "]",
+    "denylist = [",
+])
+
+for entry in cfg["denylist"]:
+    lines.append("  " + json.dumps(entry) + ",")
+
+lines.extend([
+    "]",
+    "# Install contract: pinned URL + pinned sha256",
+    "install_url = " + json.dumps(cfg["install_url"]),
+    "install_sha256 = " + json.dumps(cfg["install_sha256"]),
+    "",
+])
+
+output = "\n".join(lines)
+path.parent.mkdir(parents=True, exist_ok=True)
+path.write_text(output, encoding="utf-8")
+PY
+}
+
+parse_shell_config() {
+  local shell_output="$1"
+  rtk_config_exists=0
+  rtk_mode="off"
+  rtk_enabled=0
+  rtk_fail_open=1
+  rtk_gain_mode="double-dash"
+  rtk_binary="rtk"
+  rtk_install_url=""
+  rtk_install_sha256=""
+  rtk_allowlist=()
+  rtk_denylist=()
+
+  local line=""
+  local key=""
+  local value=""
+  while IFS= read -r line; do
+    [[ -n "$line" ]] || continue
+    key="${line%%=*}"
+    value="${line#*=}"
+    case "$key" in
+      config_exists) rtk_config_exists="$value" ;;
+      mode) rtk_mode="$value" ;;
+      enabled) rtk_enabled="$value" ;;
+      fail_open) rtk_fail_open="$value" ;;
+      gain_mode) rtk_gain_mode="$value" ;;
+      binary) rtk_binary="$value" ;;
+      install_url) rtk_install_url="$value" ;;
+      install_sha256) rtk_install_sha256="$value" ;;
+      allow) rtk_allowlist+=("$value") ;;
+      deny) rtk_denylist+=("$value") ;;
+      *) ;;
+    esac
+  done <<< "$shell_output"
+}
+
+cmd_status() {
+  local shell_mode=0
+  if [[ "${1:-}" == "--shell" ]]; then
+    shell_mode=1
+    shift
+  fi
+
+  if [[ $# -gt 0 ]]; then
+    echo "aoc-rtk status: unexpected argument '$1'" >&2
+    exit 2
+  fi
+
+  local config_path=""
+  config_path="$(resolve_config_path)"
+  local shell_output=""
+  shell_output="$(emit_shell_config "$config_path")"
+
+  if [[ "$shell_mode" == "1" ]]; then
+    printf '%s\n' "$shell_output"
+    return
+  fi
+
+  parse_shell_config "$shell_output"
+
+  local binary_path=""
+  binary_path="$(command -v "$rtk_binary" 2>/dev/null || true)"
+  local installed=0
+  local routing_available=0
+  local routing_adapter="unavailable"
+  local version=""
+  if [[ -n "$binary_path" ]]; then
+    installed=1
+    version="$($rtk_binary --version 2>/dev/null | head -n 1 || true)"
+    if "$rtk_binary" proxy --help >/dev/null 2>&1; then
+      routing_available=1
+      routing_adapter="proxy"
+    elif "$rtk_binary" gain --help >/dev/null 2>&1; then
+      routing_available=1
+      routing_adapter="gain"
+    fi
+  fi
+
+  echo "RTK config: $config_path"
+  if [[ "$rtk_config_exists" == "1" ]]; then
+    echo "Config file: present"
+  else
+    echo "Config file: missing (defaults in effect)"
+  fi
+  echo "Mode: $rtk_mode"
+  if [[ "$installed" == "1" ]]; then
+    if [[ -n "$version" ]]; then
+      echo "Binary: $rtk_binary ($version)"
+    else
+      echo "Binary: $rtk_binary (installed)"
+    fi
+    echo "Binary path: $binary_path"
+  else
+    echo "Binary: $rtk_binary (not found in PATH)"
+  fi
+  if [[ "$routing_available" == "1" ]]; then
+    echo "Routing support: available ($routing_adapter)"
+  elif [[ "$installed" == "1" ]]; then
+    echo "Routing support: unavailable"
+  else
+    echo "Routing support: unknown (RTK not installed)"
+  fi
+  echo "Fail-open: $rtk_fail_open"
+  echo "Allowlist entries: ${#rtk_allowlist[@]}"
+  echo "Denylist entries: ${#rtk_denylist[@]}"
+}
+
+cmd_enable() {
+  local config_path=""
+  config_path="$(resolve_config_path)"
+  write_config "$config_path" "on"
+  echo "RTK routing enabled (mode=on)."
+  echo "Config: $config_path"
+}
+
+cmd_disable() {
+  local config_path=""
+  config_path="$(resolve_config_path)"
+  write_config "$config_path" "off"
+  echo "RTK routing disabled (mode=off)."
+  echo "Config: $config_path"
+}
+
+cmd_install() {
+  local auto_bootstrap=0
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --auto|--bootstrap)
+        auto_bootstrap=1
+        ;;
+      *)
+        echo "aoc-rtk install: unknown option '$1'" >&2
+        echo "Usage: aoc-rtk install [--auto]" >&2
+        return 2
+        ;;
+    esac
+    shift
+  done
+
+  local config_path=""
+  config_path="$(resolve_config_path)"
+  write_config "$config_path"
+
+  local shell_output=""
+  shell_output="$(emit_shell_config "$config_path")"
+  parse_shell_config "$shell_output"
+
+  local binary_name="${AOC_RTK_BINARY:-$rtk_binary}"
+  local install_url="${AOC_RTK_INSTALL_URL:-$rtk_install_url}"
+  local install_sha256="${AOC_RTK_INSTALL_SHA256:-$rtk_install_sha256}"
+  local resolved_release_tag=""
+  local resolved_asset=""
+
+  if command -v "$binary_name" >/dev/null 2>&1; then
+    echo "RTK already installed: $(command -v "$binary_name")"
+    return
+  fi
+
+  if [[ -z "$install_url" || -z "$install_sha256" ]]; then
+    if [[ "$auto_bootstrap" == "1" ]]; then
+      local contract_output=""
+      contract_output="$(resolve_auto_install_contract)" || return 1
+      local line=""
+      local key=""
+      local value=""
+      while IFS= read -r line; do
+        [[ -n "$line" ]] || continue
+        key="${line%%=*}"
+        value="${line#*=}"
+        case "$key" in
+          install_url) install_url="$value" ;;
+          install_sha256) install_sha256="$value" ;;
+          release_tag) resolved_release_tag="$value" ;;
+          asset) resolved_asset="$value" ;;
+          *) ;;
+        esac
+      done <<< "$contract_output"
+
+      if [[ -z "$install_url" || -z "$install_sha256" ]]; then
+        echo "Failed to resolve RTK install contract in auto mode" >&2
+        return 1
+      fi
+
+      write_config "$config_path" "" "$install_url" "$install_sha256"
+    else
+      cat <<'EOF' >&2
+aoc-rtk install requires a pinned artifact URL and SHA256 checksum.
+
+Set one of these sources:
+  1) .aoc/rtk.toml values:
+     - install_url
+     - install_sha256
+  2) Environment variables:
+     - AOC_RTK_INSTALL_URL
+     - AOC_RTK_INSTALL_SHA256
+
+Or let AOC resolve and pin automatically:
+  aoc-rtk install --auto
+EOF
+      return 1
+    fi
+  fi
+
+  local tmp_dir=""
+  tmp_dir="$(mktemp -d)"
+  local artifact="$tmp_dir/rtk-artifact"
+  local unpack_dir="$tmp_dir/unpack"
+  mkdir -p "$unpack_dir"
+
+  cleanup_install_tmp() {
+    rm -rf "${tmp_dir:-}"
+  }
+  trap cleanup_install_tmp EXIT
+
+  if ! download_to_file "$install_url" "$artifact"; then
+    echo "Failed to download RTK artifact: $install_url" >&2
+    return 1
+  fi
+
+  local actual_sha256=""
+  actual_sha256="$(python3 - "$artifact" <<'PY'
+import hashlib
+import sys
+
+path = sys.argv[1]
+h = hashlib.sha256()
+with open(path, "rb") as fh:
+    for chunk in iter(lambda: fh.read(1024 * 1024), b""):
+        h.update(chunk)
+print(h.hexdigest())
+PY
+)"
+
+  local expected_sha256=""
+  expected_sha256="$(printf '%s' "$install_sha256" | tr '[:upper:]' '[:lower:]')"
+  local observed_sha256=""
+  observed_sha256="$(printf '%s' "$actual_sha256" | tr '[:upper:]' '[:lower:]')"
+
+  if [[ "$observed_sha256" != "$expected_sha256" ]]; then
+    echo "Checksum mismatch for RTK artifact." >&2
+    echo "Expected: $expected_sha256" >&2
+    echo "Actual:   $observed_sha256" >&2
+    return 1
+  fi
+
+  local source_bin=""
+  case "$install_url" in
+    *.tar.gz|*.tgz)
+      tar -xzf "$artifact" -C "$unpack_dir"
+      ;;
+    *.zip)
+      if ! command -v unzip >/dev/null 2>&1; then
+        echo "unzip is required to install RTK zip artifacts." >&2
+        return 1
+      fi
+      unzip -q "$artifact" -d "$unpack_dir"
+      ;;
+    *)
+      cp "$artifact" "$unpack_dir/$binary_name"
+      ;;
+  esac
+
+  source_bin="$(python3 - "$unpack_dir" "$binary_name" <<'PY'
+import os
+import sys
+
+root = sys.argv[1]
+target = sys.argv[2]
+
+for dirpath, _dirnames, filenames in os.walk(root):
+    if target in filenames:
+        print(os.path.join(dirpath, target))
+        break
+PY
+)"
+
+  if [[ -z "$source_bin" ]]; then
+    echo "Unable to locate '$binary_name' in downloaded artifact." >&2
+    return 1
+  fi
+
+  local install_dir="${AOC_RTK_INSTALL_DIR:-$HOME/.local/bin}"
+  mkdir -p "$install_dir"
+  local install_target="$install_dir/$binary_name"
+  cp "$source_bin" "$install_target"
+  chmod +x "$install_target"
+
+  if ! "$install_target" --version >/dev/null 2>&1; then
+    echo "Installed binary does not execute correctly: $install_target" >&2
+    return 1
+  fi
+
+  echo "Installed RTK binary: $install_target"
+  if [[ -n "$resolved_release_tag" && -n "$resolved_asset" ]]; then
+    echo "Resolved from ${resolved_release_tag}/${resolved_asset}"
+  fi
+  if ! command -v "$binary_name" >/dev/null 2>&1; then
+    echo "Add '$install_dir' to PATH so '$binary_name' is discoverable."
+  fi
+}
+
+cmd_doctor() {
+  local config_path=""
+  config_path="$(resolve_config_path)"
+  local shell_output=""
+  shell_output="$(emit_shell_config "$config_path")"
+  parse_shell_config "$shell_output"
+
+  local issues=0
+  local binary_path=""
+  local routing_available=0
+  local routing_adapter="unavailable"
+
+  echo "RTK doctor"
+  echo "- Config: $config_path"
+  if [[ "$rtk_config_exists" == "1" ]]; then
+    echo "- Config file: present"
+  else
+    echo "- Config file: missing (defaults in effect)"
+    issues=$((issues + 1))
+  fi
+
+  echo "- Mode: $rtk_mode"
+  binary_path="$(command -v "$rtk_binary" 2>/dev/null || true)"
+  if [[ -n "$binary_path" ]]; then
+    echo "- Binary: found at $binary_path"
+    if "$rtk_binary" proxy --help >/dev/null 2>&1; then
+      routing_available=1
+      routing_adapter="proxy"
+      echo "- Routing adapter: available (proxy)"
+    elif "$rtk_binary" gain --help >/dev/null 2>&1; then
+      routing_available=1
+      routing_adapter="gain"
+      echo "- Routing adapter: available (gain)"
+    else
+      echo "- Routing adapter: unavailable"
+      issues=$((issues + 1))
+    fi
+  else
+    echo "- Binary: missing ($rtk_binary)"
+    issues=$((issues + 1))
+  fi
+
+  if [[ "$rtk_mode" == "on" && "$routing_available" != "1" ]]; then
+    echo "- Routing readiness: blocked (mode=on but RTK adapter is unavailable)"
+    issues=$((issues + 1))
+  elif [[ "$rtk_mode" == "on" ]]; then
+    echo "- Routing readiness: ready ($routing_adapter)"
+  else
+    echo "- Routing readiness: disabled by mode"
+  fi
+
+  if [[ "$issues" -gt 0 ]]; then
+    echo "- Result: $issues issue(s) found"
+    return 1
+  fi
+
+  echo "- Result: healthy"
+}
+
+cmd_route() {
+  if [[ $# -lt 1 ]]; then
+    echo "aoc-rtk: missing command to route" >&2
+    echo "Usage: aoc-rtk <external-command> [args...]" >&2
+    return 2
+  fi
+
+  local proxy="$script_dir/aoc-rtk-proxy"
+  if [[ ! -x "$proxy" ]]; then
+    proxy="$(command -v aoc-rtk-proxy 2>/dev/null || true)"
+  fi
+
+  if [[ -z "$proxy" ]]; then
+    echo "aoc-rtk: aoc-rtk-proxy not found in PATH" >&2
+    return 1
+  fi
+
+  "$proxy" "$@"
+}
+
+main() {
+  local cmd="${1:-help}"
+  if [[ $# -gt 0 ]]; then
+    shift
+  fi
+
+  case "$cmd" in
+    status) cmd_status "$@" ;;
+    enable) cmd_enable "$@" ;;
+    disable) cmd_disable "$@" ;;
+    install) cmd_install "$@" ;;
+    doctor) cmd_doctor "$@" ;;
+    run|route|exec)
+      if [[ $# -lt 1 ]]; then
+        echo "aoc-rtk $cmd: missing command to route" >&2
+        exit 2
+      fi
+      cmd_route "$@"
+      ;;
+    --)
+      if [[ $# -lt 1 ]]; then
+        echo "aoc-rtk --: missing command to route" >&2
+        exit 2
+      fi
+      cmd_route "$@"
+      ;;
+    help|-h|--help) usage ;;
+    *) cmd_route "$cmd" "$@" ;;
+  esac
+}
+
+main "$@"

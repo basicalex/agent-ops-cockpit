@@ -18,6 +18,232 @@ script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 log() { echo ">> $1"; }
 warn() { echo "!! $1"; }
 
+positive_int_or_default() {
+  local candidate="$1"
+  local fallback="$2"
+  if [[ "$candidate" =~ ^[0-9]+$ ]] && (( candidate > 0 )); then
+    printf '%s' "$candidate"
+  else
+    printf '%s' "$fallback"
+  fi
+}
+
+write_aoc_agents_contract() {
+  local target_file="$1"
+  cat <<'EOF' > "$target_file"
+# AOC Architecture & Agent Guidelines
+
+This file defines the always-on rules for agents in this repo. Procedural playbooks live in AOC skills.
+
+## Always-on rules
+- Use `.aoc/context.md` for orientation; run `aoc-init` if it is missing or stale.
+- **DO NOT manually read these files** - use the Bash tool to run CLI commands instead (see below).
+- Run AOC commands via Bash tool - do NOT use Read tool for `.aoc/memory.md`, `.aoc/stm/current.md`, or `.taskmaster/tasks/tasks.json`.
+- RTK routing is default-on for new AOC projects (`.aoc/rtk.toml` mode=`on`); existing explicit mode=`off` is preserved.
+- RTK exists to improve context health: allowlisted noisy commands are condensed for better signal density, with fail-open native fallback.
+
+## AOC CLI Commands (run via Bash tool - NOT Read tool)
+These commands are in PATH and work without loading any skill:
+
+**Memory:**
+- `aoc-mem read` - read persistent memory
+- `aoc-mem add "decision"` - record architectural decision
+
+**Short-Term Memory (STM):**
+- `aoc-stm` - print current draft (shortcut for `aoc-stm read-current`)
+- `aoc-stm read` - read latest archived snapshot
+- `aoc-stm archive` - archive current draft
+- `aoc-stm add "note"` - add to current draft
+- `aoc-stm edit` - edit current draft in editor
+
+**Tasks:**
+- `tm list` - list tasks (alias for `aoc-task`)
+- `tm add "Task name"` - add new task
+- `tm` - open Taskmaster TUI
+
+**Other:**
+- `aoc-init` - initialize/repair AOC files
+- `aoc-mem search "query"` - search memory
+- `aoc-rtk status` - check RTK routing status
+- `aoc-rtk enable|disable` - toggle RTK routing mode
+- `aoc-rtk doctor` - run RTK diagnostics
+- `aoc-rtk install --auto` - auto-fetch and install pinned RTK binary
+
+## Core files
+- `.aoc/context.md`: auto-generated project snapshot.
+- `.aoc/rtk.toml`: project-local RTK routing policy and install contract.
+- `.aoc/layouts/`: project-shared Zellij layouts for AOC (`*.kdl`).
+- `.taskmaster/docs/prds/`: task-level PRD documents linked from tasks.
+- Task PRDs are linked per task via `aocPrd`; resolve via `aoc-task prd show <id>`.
+
+## Task Management
+- `.taskmaster/tasks/tasks.json` is task state; use the Taskmaster TUI, `aoc-task`, or `tm` (alias for `aoc-task`). Do not edit the file directly.
+- Record major decisions and constraints in memory (`aoc-mem add "..."`).
+
+## Skills (load when needed)
+- `aoc-workflow`: standard project workflow.
+- `teach-workflow`: guided teach-mode scans, dives, and local insight logging.
+- `rlm-analysis`: large codebase analysis flow.
+- `prd-dev`: draft the Taskmaster PRD.
+- `prd-intake`: parse a project PRD into initial task sets.
+- `prd-align`: align tasks with the PRD.
+- `tag-align`: normalize task tags and dependencies.
+- `task-breakdown`: expand a task into clear subtasks.
+- `task-checker`: verify implementation vs. testStrategy.
+- `release-notes`: draft changelog and release notes.
+- `skill-creator`: create or update AOC skills.
+- `zellij-theme-ops`: create and manage global Zellij themes.
+
+Note: `aoc-mem`, `aoc-stm`, and `tm` are basic CLI commands (see above) - no skill needed.
+EOF
+}
+
+ensure_agents_contract() {
+  local agents_file="$1"
+
+  if [[ ! -f "$agents_file" ]]; then
+    log "Creating AGENTS.md..."
+    write_aoc_agents_contract "$agents_file"
+    return
+  fi
+
+  if grep -Eq "AOC Architecture & Agent Guidelines|Agent Ops Cockpit \(AOC\)" "$agents_file"; then
+    local tmp_agents
+    tmp_agents="$(mktemp)"
+    write_aoc_agents_contract "$tmp_agents"
+    if ! cmp -s "$tmp_agents" "$agents_file"; then
+      cp "$tmp_agents" "$agents_file"
+      log "Updated AGENTS.md to latest AOC contract."
+    else
+      log "AGENTS.md already up to date."
+    fi
+    rm -f "$tmp_agents"
+    return
+  fi
+
+  if grep -Fq "## Agent Ops Cockpit (AOC)" "$agents_file"; then
+    log "Existing AGENTS.md already includes an AOC section. Preserving."
+    return
+  fi
+
+  log "Appending AOC command guidance to existing AGENTS.md..."
+  cat <<'EOF' >> "$agents_file"
+
+## Agent Ops Cockpit (AOC)
+Use the AOC tools for context, memory, and tasks in this repo.
+
+- **Context:** `.aoc/context.md` (auto-generated project map)
+- **Memory:** use `aoc-mem read/search/add` via Bash tool (do not edit `.aoc/memory.md` directly)
+- **Short-term memory:** use `aoc-stm` / `aoc-stm read` via Bash tool (do not read `.aoc/stm/current.md` directly)
+- **Tasks:** use `tm` or `aoc-task` via Bash tool (do not edit `.taskmaster/tasks/tasks.json` directly)
+- **Task PRDs:** task-level links only (`aocPrd`), resolve with `aoc-task prd show <id>`
+- **RTK routing (default-on for new AOC repos):** allowlisted commands route via RTK in AOC panes; manage with `aoc-rtk status|enable|disable|doctor|install --auto` and `.aoc/rtk.toml`
+
+If AOC files are missing or stale, run `aoc-init` at the repo root.
+EOF
+}
+
+write_default_rtk_config() {
+  local target_file="$1"
+  cat <<'EOF' > "$target_file"
+# AOC RTK routing config (project-local, seeded by aoc-init)
+# mode: off|on
+mode = "on"
+fail_open = true
+# gain_mode: double-dash|positional
+gain_mode = "double-dash"
+binary = "rtk"
+allowlist = [
+  "git status",
+  "git diff",
+  "git log",
+  "git show",
+  "git branch",
+  "git rev-parse",
+  "rg",
+  "fd",
+  "ls",
+  "du",
+  "wc",
+  "cat",
+  "head",
+  "tail",
+  "pytest",
+  "cargo test",
+  "npm test",
+  "pnpm test",
+  "bun test",
+]
+denylist = [
+  "git add",
+  "git commit",
+  "git checkout",
+  "git switch",
+  "git merge",
+  "git rebase",
+  "git push",
+  "git reset --hard",
+  "git clean -fd",
+  "rm -rf",
+  "sudo",
+  "ssh",
+  "scp",
+]
+# Install contract: pinned URL + pinned sha256
+install_url = ""
+install_sha256 = ""
+EOF
+}
+
+read_rtk_mode() {
+  local rtk_file="$1"
+  if ! command -v python3 >/dev/null 2>&1; then
+    return
+  fi
+
+  python3 - "$rtk_file" <<'PY'
+import sys
+from pathlib import Path
+
+try:
+    import tomllib
+except Exception:
+    tomllib = None
+
+path = Path(sys.argv[1])
+if tomllib is None or not path.exists():
+    raise SystemExit(0)
+
+mode = ""
+try:
+    data = tomllib.loads(path.read_text(encoding="utf-8"))
+    mode = str(data.get("mode", "")).strip().lower()
+except Exception:
+    mode = ""
+
+if mode in {"on", "off"}:
+    print(mode)
+PY
+}
+
+ensure_rtk_config() {
+  local rtk_file="$aoc_dir/rtk.toml"
+  if [[ ! -f "$rtk_file" ]]; then
+    write_default_rtk_config "$rtk_file"
+    log "Seeded RTK routing config ($rtk_file, mode=on default)."
+  else
+    local existing_mode=""
+    existing_mode="$(read_rtk_mode "$rtk_file" || true)"
+    if [[ "$existing_mode" == "off" ]]; then
+      log "RTK routing config exists with mode=off ($rtk_file). Preserving explicit disable."
+    elif [[ "$existing_mode" == "on" ]]; then
+      log "RTK routing config exists with mode=on ($rtk_file). Preserving."
+    else
+      log "RTK routing config exists ($rtk_file). Preserving."
+    fi
+  fi
+}
+
 # 1. Setup Context & Memory (.aoc/)
 setup_memory() {
   # Migration Logic
@@ -70,186 +296,139 @@ EOF
 
   # AGENTS.md (project-level agent contract)
   local agents_file="$project_root/AGENTS.md"
-  if [[ ! -f "$agents_file" ]]; then
-    log "Creating AGENTS.md..."
-    cat <<'EOF' > "$agents_file"
-# AOC Architecture & Agent Guidelines
+  ensure_agents_contract "$agents_file"
 
-This file defines the always-on rules for agents in this repo. Procedural playbooks live in AOC skills.
+  ensure_rtk_config
 
-## Always-on rules
-- Use `.aoc/context.md` for orientation; run `aoc-init` if it is missing or stale.
-- `.aoc/memory.md` is append-only; use `aoc-mem` to read/search/add. Do not edit the file directly.
-- `.aoc/stm/current.md` is STM draft state; use `aoc-stm` to read the current draft, `aoc-stm archive` to persist snapshots, and `aoc-stm read` for archived entries. STM archives are a durable project diary; store architectural decisions in `aoc-mem`.
-- `.taskmaster/tasks/tasks.json` is task state; use the Taskmaster TUI, `aoc-task`, or `tm` (alias for `aoc-task`). Do not edit the file directly.
-- Task PRDs are linked per task (not subtask) via `aocPrd`; keep PRD documents in `.taskmaster/docs/prds/` and resolve via `aoc-task prd` commands.
-- Record major decisions and constraints in memory (`aoc-mem add "..."`).
+  # Context Generation (project-specific, concise, full injection safe)
+  local context_file="$aoc_dir/context.md"
+  local context_tmp
+  local context_line_budget
+  local context_tree_depth
+  local context_tree_line_budget
+  local readme_heading_limit
+  local project_name
+  local current_branch="unknown"
+  local tree_output=""
+  local tree_lines=0
+  local context_lines=0
+  local readme_headings=""
 
-## Core files
-- `.aoc/context.md`: auto-generated project snapshot.
-- `.aoc/memory.md`: persistent decision log.
-- `.aoc/stm/current.md`: in-progress STM draft state.
-- `.aoc/stm/archive/`: archived STM diary snapshots.
-- `.aoc/layouts/`: project-shared Zellij layouts for AOC (`*.kdl`).
-- `.taskmaster/tasks/tasks.json`: dynamic task queue.
-- `.taskmaster/docs/prds/`: task-level PRD documents linked from tasks.
+  project_name="$(basename "$project_root")"
+  context_tmp="$(mktemp)"
+  context_line_budget="$(positive_int_or_default "${AOC_CONTEXT_LINE_BUDGET:-320}" 320)"
+  context_tree_depth="$(positive_int_or_default "${AOC_CONTEXT_TREE_DEPTH:-2}" 2)"
+  context_tree_line_budget="$(positive_int_or_default "${AOC_CONTEXT_TREE_LINE_BUDGET:-180}" 180)"
+  readme_heading_limit="$(positive_int_or_default "${AOC_CONTEXT_README_HEADING_LIMIT:-40}" 40)"
 
-## Skills (load when needed)
-- `aoc-workflow`: standard project workflow.
-- `aoc-init-ops`: initialize or repair AOC files.
-- `memory-ops`: read/search/add to memory.
-- `stm-ops`: manage short-term diary memory and STM context loading.
-- `taskmaster-ops`: manage tasks and tags.
-- `rlm-analysis`: large codebase analysis flow.
-- `prd-dev`: draft the Taskmaster PRD.
-- `prd-intake`: parse a project PRD into actionable tasks.
-- `prd-align`: align tasks with the PRD.
-- `tag-align`: normalize task tags and dependencies.
-- `task-breakdown`: expand tasks into subtasks.
-- `task-checker`: verify implementation vs. testStrategy.
-- `release-notes`: draft changelog and release notes.
-- `skill-creator`: create or update AOC skills.
-- `zellij-theme-ops`: create and manage global Zellij themes.
-EOF
-  else
-    if grep -Eq "AOC Architecture & Agent Guidelines|Agent Ops Cockpit \(AOC\)" "$agents_file"; then
-      if grep -Eq "Skills \(load when needed\)|aoc-workflow" "$agents_file"; then
-        if grep -Fq '.aoc/stm/current.md` is STM draft state; use `aoc-stm` to add/edit/archive/read.' "$agents_file" || grep -Fq '`.aoc/stm/current.md` via `aoc-stm` (draft + archived STM diary state)' "$agents_file" || grep -Fq '.taskmaster/tasks/tasks.json` is task state; use the Taskmaster TUI or `aoc-task` commands.' "$agents_file"; then
-          python3 - "$agents_file" <<'PY'
-from pathlib import Path
-import sys
+  if command -v git >/dev/null 2>&1 && git -C "$project_root" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+    current_branch="$(git -C "$project_root" branch --show-current 2>/dev/null || true)"
+    if [[ -z "$current_branch" ]]; then
+      current_branch="$(git -C "$project_root" rev-parse --short HEAD 2>/dev/null || echo "detached")"
+    fi
+  fi
 
-path = Path(sys.argv[1])
-text = path.read_text(encoding="utf-8")
-updated = text.replace(
-    "- `.aoc/stm/current.md` is STM draft state; use `aoc-stm` to add/edit/archive/read. STM archives are a durable project diary; store architectural decisions in `aoc-mem`.",
-    "- `.aoc/stm/current.md` is STM draft state; use `aoc-stm` to read current draft, `aoc-stm archive` to persist snapshots, and `aoc-stm read` for archived entries. Store architectural decisions in `aoc-mem`.",
-)
-updated = updated.replace(
-    "- **Short-term memory:** `.aoc/stm/current.md` via `aoc-stm` (draft + archived STM diary state)",
-    "- **Short-term memory:** `.aoc/stm/current.md` via `aoc-stm` (current draft), archived snapshots via `aoc-stm archive` and `aoc-stm read`",
-)
-updated = updated.replace(
-    "- `.taskmaster/tasks/tasks.json` is task state; use the Taskmaster TUI or `aoc-task` commands. Do not edit the file directly.",
-    "- `.taskmaster/tasks/tasks.json` is task state; use the Taskmaster TUI, `aoc-task`, or `tm` (alias for `aoc-task`). Do not edit the file directly.",
-)
-updated = updated.replace(
-    "- **Tasks:** `.taskmaster/tasks/tasks.json` via `aoc-task list/add/status` (do not edit directly)",
-    "- **Tasks:** `.taskmaster/tasks/tasks.json` via `tm` or `aoc-task` (do not edit directly)",
-)
-updated = updated.replace(
-    "- `zellij-theme-ops`: create and manage global/project Zellij themes.",
-    "- `zellij-theme-ops`: create and manage global Zellij themes.",
-)
-if "## Skills (load when needed)" in updated and "- `zellij-theme-ops`: create and manage global Zellij themes." not in updated:
-    updated = updated.replace(
-        "- `skill-creator`: create or update AOC skills.",
-        "- `skill-creator`: create or update AOC skills.\n- `zellij-theme-ops`: create and manage global Zellij themes.",
-    )
-if updated != text:
-    path.write_text(updated, encoding="utf-8")
-PY
-          log "Updated AGENTS.md STM guidance to current-vs-archive semantics."
-        fi
-        log "AGENTS.md already includes AOC guidance. Skipping."
+  if command -v tree >/dev/null 2>&1; then
+    tree_output="$(tree -L "$context_tree_depth" --gitignore -I '.git|.taskmaster|.aoc|.gemini|node_modules|target|dist|archive|deprecated|.venv|venv|__pycache__' "$project_root" 2>/dev/null || true)"
+    tree_lines="$(printf '%s\n' "$tree_output" | wc -l | tr -d ' ')"
+  fi
+
+  if [[ -f "$project_root/README.md" ]]; then
+    readme_headings="$(grep -E '^#{1,6} ' "$project_root/README.md" | head -n "$readme_heading_limit" || true)"
+  fi
+
+  log "Generating/Updating Context ($context_file)..."
+
+  {
+    echo "# Project Context Snapshot"
+    echo
+    echo "## Repository"
+    echo "- Name: $project_name"
+    echo "- Root: $project_root"
+    echo "- Git branch: $current_branch"
+
+    echo
+    echo "## Key Files"
+    local found_key_file=0
+    local key_file
+    for key_file in \
+      "README.md" \
+      "Makefile" \
+      "justfile" \
+      "package.json" \
+      "pnpm-lock.yaml" \
+      "yarn.lock" \
+      "bun.lockb" \
+      "Cargo.toml" \
+      "go.mod" \
+      "pyproject.toml" \
+      "requirements.txt" \
+      "Dockerfile" \
+      "docker-compose.yml" \
+      "docker-compose.yaml"; do
+      if [[ -f "$project_root/$key_file" ]]; then
+        echo "- $key_file"
+        found_key_file=1
+      fi
+    done
+    if [[ "$found_key_file" == "0" ]]; then
+      echo "- No common manifest files detected."
+    fi
+
+    echo
+    echo "## Project Structure (tree -L $context_tree_depth)"
+    echo '```'
+    if [[ -n "$tree_output" ]]; then
+      if (( tree_lines > context_tree_line_budget )); then
+        printf '%s\n' "$tree_output" | head -n "$context_tree_line_budget"
+        echo "... [tree truncated to ${context_tree_line_budget} lines]"
       else
-        log "Appending AOC skills guidance to AGENTS.md..."
-        cat <<'EOF' >> "$agents_file"
-
-## Skills (load when needed)
-- `aoc-workflow`: standard project workflow.
-- `aoc-init-ops`: initialize or repair AOC files.
-- `memory-ops`: read/search/add to memory.
-- `stm-ops`: manage short-term diary memory and STM context loading.
-- `taskmaster-ops`: manage tasks and tags.
-- `rlm-analysis`: large codebase analysis flow.
-- `prd-dev`: draft the Taskmaster PRD.
-- `prd-intake`: parse a project PRD into actionable tasks.
-- `prd-align`: align tasks with the PRD.
-- `tag-align`: normalize task tags and dependencies.
-- `task-breakdown`: expand tasks into subtasks.
-- `task-checker`: verify implementation vs. testStrategy.
-- `release-notes`: draft changelog and release notes.
-- `skill-creator`: create or update AOC skills.
-- `zellij-theme-ops`: create and manage global Zellij themes.
-EOF
+        printf '%s\n' "$tree_output"
       fi
     else
-      log "Appending AOC agent guidance to AGENTS.md..."
-      cat <<'EOF' >> "$agents_file"
-
-## Agent Ops Cockpit (AOC)
-Use the AOC tools for context, memory, and tasks in this repo.
-
-- **Context:** `.aoc/context.md` (read-only)
-- **Memory:** `.aoc/memory.md` via `aoc-mem read/add` (do not edit directly)
-- **Short-term memory:** `.aoc/stm/current.md` via `aoc-stm` (current draft), archived snapshots via `aoc-stm archive` and `aoc-stm read`
-- **Tasks:** `.taskmaster/tasks/tasks.json` via `tm` or `aoc-task` (do not edit directly)
-- **Task PRDs:** `.taskmaster/docs/prds/` linked with `aoc-task prd` (task-level only, no subtask PRDs)
-- **Skills:** load AOC skills as needed for workflows
-
-If the AOC files are missing, run `aoc-init` at the repo root.
-EOF
+      echo "tree command not found"
     fi
-  fi
+    echo '```'
 
-  # Context Generation (context.md)
-  local context_file="$aoc_dir/context.md"
-  log "Generating/Updating Context ($context_file)..."
-  
-  # Start with header
-  cat <<EOF > "$context_file"
-# Agent Ops Cockpit (AOC) Global Context
+    if [[ -n "$readme_headings" ]]; then
+      echo
+      echo "## README Headings"
+      printf '%s\n' "$readme_headings"
+    fi
 
-## Core Philosophy
-This machine uses the **Agent Ops Cockpit (AOC)** system. All agents (Gemini, Claude, OpenCode) running here share a unified set of tools for **Memory** and **Task Management**.
-
-## 1. Project Structure
-\`\`\`
-$(tree -L 2 --gitignore -I '.git|.taskmaster|.aoc|.gemini|node_modules|target|dist|archive|deprecated' "$project_root" || echo "tree command not found")
-\`\`\`
-
-## 2. Long-Term Memory (\`aoc-mem\`)
-**Purpose:** Persistent storage of architectural decisions.
-**Commands:** \`aoc-mem read\`, \`aoc-mem add "fact"\`.
-
-## 3. Short-Term Memory (\`aoc-stm\`)
-**Purpose:** STM diary state for short-term continuity and long-term auditability.
-**Commands:** \`aoc-stm\` (current draft), \`aoc-stm archive\`, \`aoc-stm read\`.
-
-## 4. Task Management (\`aoc-task\`)
-**Purpose:** Granular tracking of work.
-**Commands:** \`tm list\`, \`tm add "Task"\` (or \`aoc-task\`).
-
-## 5. Operational Rules
-- **No Amnesia:** Always check \`aoc-mem\` first.
-- **No Ghost Work:** Track all work in \`tm\` (alias for \`aoc-task\`).
-EOF
-  
-  # Append README if it exists
-  if [[ -f "$project_root/README.md" ]]; then
-    echo >> "$context_file"
-    echo "## 6. README Content" >> "$context_file"
-    cat "$project_root/README.md" >> "$context_file"
-  fi
-
-  # Append Taskmaster Tags if available
-  if command -v tm >/dev/null 2>&1 || command -v aoc-task >/dev/null 2>&1 || command -v aoc-cli >/dev/null 2>&1 || command -v task-master >/dev/null 2>&1; then
-    echo >> "$context_file"
-    echo "## 7. Active Workstreams (Tags)" >> "$context_file"
-    # Run in subshell to preserve cwd, capture output
+    echo
+    echo "## Active Workstreams (Tags)"
+    echo '```'
     if command -v tm >/dev/null 2>&1; then
-      tags_output="$(cd "$project_root" && tm tag list 2>/dev/null || echo "No tags found.")"
+      (cd "$project_root" && tm tag list 2>/dev/null || echo "No tags found.")
     elif command -v aoc-task >/dev/null 2>&1; then
-      tags_output="$(cd "$project_root" && aoc-task tag list 2>/dev/null || echo "No tags found.")"
+      (cd "$project_root" && aoc-task tag list 2>/dev/null || echo "No tags found.")
     elif command -v aoc-cli >/dev/null 2>&1; then
-      tags_output="$(cd "$project_root" && aoc-cli task tag list 2>/dev/null || echo "No tags found.")"
+      (cd "$project_root" && aoc-cli task tag list 2>/dev/null || echo "No tags found.")
+    elif command -v task-master >/dev/null 2>&1; then
+      (cd "$project_root" && task-master tags 2>/dev/null || echo "No tags found.")
     else
-      tags_output="$(cd "$project_root" && task-master tags 2>/dev/null || echo "No tags found.")"
+      echo "Task command not found."
     fi
-    echo "\`\`\`" >> "$context_file"
-    echo "$tags_output" >> "$context_file"
-    echo "\`\`\`" >> "$context_file"
+    echo '```'
+
+    echo
+    echo "## Task PRD Location"
+    echo "- Directory: .taskmaster/docs/prds"
+    echo "- Resolve linked task PRD with: aoc-task prd show <id>"
+  } > "$context_tmp"
+
+  context_lines="$(wc -l < "$context_tmp" | tr -d ' ')"
+  if (( context_lines > context_line_budget )); then
+    {
+      head -n "$context_line_budget" "$context_tmp"
+      echo
+      echo "... [context capped at ${context_line_budget} lines; adjust AOC_CONTEXT_LINE_BUDGET if needed]"
+    } > "$context_file"
+    rm -f "$context_tmp"
+    log "Context exceeded budget (${context_lines} lines); wrote capped context (${context_line_budget} lines)."
+  else
+    mv "$context_tmp" "$context_file"
   fi
 
   # Setup .cursorrules symlink for universal agent awareness
@@ -263,20 +442,6 @@ EOF
     log "Existing .cursorrules file found. Skipping."
   fi
 
-  # Update context with RLM Protocol if aoc-rlm is available
-  if command -v aoc-rlm >/dev/null 2>&1 || [[ -x "$project_root/bin/aoc-rlm" ]]; then
-    log "Adding RLM Protocol to context..."
-    cat <<EOF >> "$context_file"
-
-## 8. RLM Skill (Large Codebase Analysis)
-When you need to analyze more files than fit in your context:
-1. **Scan:** Run \`aoc-rlm scan\` (or \`rlm scan\`) to see the scale of the codebase.
-2. **Peek:** Run \`aoc-rlm peek "search_term"\` (or \`rlm peek\`) to find relevant snippets and file paths.
-3. **Slice:** Run \`aoc-rlm chunk --pattern "src/relevant/*.rs"\` (or \`rlm chunk\`) to get JSON chunks.
-4. **Process:** Use your available sub-agent tools (like \`Task\`) to process chunks in parallel.
-5. **Reduce:** Synthesize the sub-agent outputs into a final answer.
-EOF
-  fi
 }
 
 # 1b. Setup Skills (.aoc/skills)
