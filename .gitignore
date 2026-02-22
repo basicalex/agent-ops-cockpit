@@ -32,6 +32,10 @@ crates/target/
 # tasks.json
 # tasks/ 
 
+# Task PRDs must stay tracked
+!.taskmaster/docs/prds/
+!.taskmaster/docs/prds/**
+
 # Local AOC state
 .opencode/
 /.aoc/*
@@ -47,3 +51,10 @@ crates/target/
 !/.aoc/commands/**
 !/.aoc/layouts/
 !/.aoc/layouts/**
+
+# AOC tracking policy (managed by aoc-init)
+!/.aoc/
+!/.aoc/**
+!/.taskmaster/
+!/.taskmaster/**
+
