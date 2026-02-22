@@ -42,6 +42,8 @@ These commands are in PATH and work without loading any skill:
 - `.aoc/layouts/`: project-shared Zellij layouts for AOC (`*.kdl`).
 - `.taskmaster/docs/prds/`: task-level PRD documents linked from tasks.
 - Task PRDs are linked per task via `aocPrd`; resolve via `aoc-task prd show <id>`.
+- Keep task PRDs in git: `.taskmaster/docs/prds/**` should always be tracked.
+- Keep AOC/task state in git: `.aoc/**` and `.taskmaster/**` should not be ignored.
 
 ## Task Management
 - `.taskmaster/tasks/tasks.json` is task state; use the Taskmaster TUI, `aoc-task`, or `tm` (alias for `aoc-task`). Do not edit the file directly.
