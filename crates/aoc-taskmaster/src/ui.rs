@@ -424,13 +424,26 @@ fn render_details(f: &mut Frame, app: &mut App, area: Rect) {
             lines.push(Line::from(task.test_strategy.clone()));
         }
 
+        let tag_prd = app
+            .project
+            .as_ref()
+            .and_then(|project| project.tags.get(&row.tag_name))
+            .and_then(|tag_ctx| tag_ctx.tag_prd());
+
         if let Some(prd) = &task.aoc_prd {
             lines.push(Line::from(""));
             lines.push(Line::from(Span::styled(
-                "PRD:",
+                "PRD (task):",
                 Style::default().fg(Color::Blue),
             )));
             lines.push(Line::from(prd.path.clone()));
+        } else if let Some(prd) = tag_prd {
+            lines.push(Line::from(""));
+            lines.push(Line::from(Span::styled(
+                "PRD (tag default):",
+                Style::default().fg(Color::Blue),
+            )));
+            lines.push(Line::from(prd.path));
         }
 
         if !task.dependencies.is_empty() {

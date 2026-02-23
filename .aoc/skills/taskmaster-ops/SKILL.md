@@ -12,8 +12,13 @@ description: Manage tasks with aoc-task, tm alias, and the Taskmaster TUI.
 - `aoc-task status <id> <status>`
 - `tm tag list`
 - `tm tag current`
+- `tm tag prd show`
 - `aoc-task tag list`
 - `aoc-task tag current`
+- `aoc-task tag prd show --tag <tag>`
+- `aoc-task tag prd init --tag <tag>`
+- `aoc-task tag prd set <path> --tag <tag>`
+- `aoc-task tag prd clear --tag <tag>`
 - `aoc-task prd show <id>`
 - `aoc-task prd init <id>`
 - `aoc-task prd set <id> <path>`
@@ -25,4 +30,4 @@ description: Manage tasks with aoc-task, tm alias, and the Taskmaster TUI.
 
 ## Guardrail
 - Never edit `.taskmaster/tasks/tasks.json` directly.
-- PRD links are task-level only; do not add PRDs to subtasks.
+- Use tag-level PRD defaults with task-level overrides; do not add PRDs to subtasks.

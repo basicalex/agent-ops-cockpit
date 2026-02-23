@@ -274,6 +274,8 @@ struct TaskSummaryPayload {
 struct CurrentTagPayload {
     tag: String,
     task_count: usize,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    prd_path: Option<String>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Default)]
@@ -2261,8 +2263,14 @@ async fn send_task_summaries(
             tags.sort_by(|a, b| a.0.cmp(&b.0));
             let mut messages: HashMap<String, String> = HashMap::new();
             let mut pulse_payloads: HashMap<String, TaskSummaryPayload> = HashMap::new();
+            let mut tag_prd_paths: HashMap<String, String> = HashMap::new();
             for (tag, ctx) in tags {
                 let payload = build_task_summary_payload(cfg, &tag, &ctx.tasks, None);
+                if let Some(prd) = ctx.tag_prd() {
+                    if !prd.path.trim().is_empty() {
+                        tag_prd_paths.insert(tag.clone(), prd.path);
+                    }
+                }
                 let msg = build_envelope(
                     "task_summary",
                     &cfg.session_id,
@@ -2273,7 +2281,8 @@ async fn send_task_summaries(
                 pulse_payloads.insert(tag.clone(), payload);
                 messages.insert(tag, msg);
             }
-            let current_tag = build_current_tag_payload(&pulse_payloads, &state_path).await;
+            let current_tag =
+                build_current_tag_payload(&pulse_payloads, &tag_prd_paths, &state_path).await;
             let mut cache = cache.lock().await;
             let mut to_send = Vec::new();
             for (tag, msg) in &messages {
@@ -2319,7 +2328,8 @@ async fn send_task_summaries(
                 payload.clone(),
                 None,
             );
-            let current_tag = build_current_tag_payload(&HashMap::new(), &state_path).await;
+            let current_tag =
+                build_current_tag_payload(&HashMap::new(), &HashMap::new(), &state_path).await;
             let mut cache = cache.lock().await;
             let should_send = cache
                 .task_summary
@@ -2392,6 +2402,7 @@ fn build_task_summary_payload(
 
 async fn build_current_tag_payload(
     task_summaries: &HashMap<String, TaskSummaryPayload>,
+    tag_prd_paths: &HashMap<String, String>,
     state_path: &Path,
 ) -> CurrentTagPayload {
     let tag = if let Some(tag) = env_override_tag() {
@@ -2407,7 +2418,13 @@ async fn build_current_tag_payload(
         .map(|summary| summary.counts.total as usize)
         .unwrap_or(0);
 
-    CurrentTagPayload { tag, task_count }
+    let prd_path = tag_prd_paths.get(&tag).cloned();
+
+    CurrentTagPayload {
+        tag,
+        task_count,
+        prd_path,
+    }
 }
 
 fn env_override_tag() -> Option<String> {
@@ -3671,6 +3688,7 @@ mod tests {
         state.current_tag = Some(CurrentTagPayload {
             tag: "master".to_string(),
             task_count: 3,
+            prd_path: Some(".taskmaster/docs/prds/tag-master-prd.md".to_string()),
         });
         state.diff_summary = Some(DiffSummaryPayload {
             agent_id: cfg.agent_key.clone(),

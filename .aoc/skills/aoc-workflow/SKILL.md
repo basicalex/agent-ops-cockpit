@@ -11,7 +11,9 @@ Use this when you start a new task or need to re-orient inside a project.
 2. Read memory: `aoc-mem read` and `aoc-mem search "<topic>"` as needed.
 3. Resolve active Taskmaster tag at session start with `tm tag current` (or `aoc-task tag current`).
 4. Review tasks: `tm list`, `aoc-task list`, or the Taskmaster TUI.
-5. For the active task, check PRD linkage with `aoc-task prd show <id>`; if missing, create/link via `aoc-task prd init <id>` or `aoc-task prd set <id> <path>`.
+5. Check PRD linkage for both scope and task:
+   - Tag default: `aoc-task tag prd show --tag <tag>` (set/init with `aoc-task tag prd set|init`)
+   - Task override: `aoc-task prd show <id> --tag <tag>` (set/init with `aoc-task prd set|init`)
 6. Plan: add or refine tasks with `aoc-task add "<task>"` and set status.
 7. Execute changes and run tests.
 8. If context gets tight, capture state (`aoc-stm add/edit`; in OpenCode you can run `/stm`), review current draft with `aoc-stm`, archive it with `aoc-stm archive`, and use `aoc-stm read` to load archived diary context when needed.
@@ -21,4 +23,5 @@ Use this when you start a new task or need to re-orient inside a project.
 - Do not edit `.aoc/memory.md` directly.
 - Do not keep long-term decisions in `.aoc/stm/current.md`; promote durable decisions to `aoc-mem`.
 - Do not edit `.taskmaster/tasks/tasks.json` directly.
-- Do not add PRD links to subtasks; PRDs are task-level only (`aocPrd`).
+- Do not add PRD links to subtasks.
+- Use tag-level PRD defaults with task-level overrides (`aocPrd`), with precedence task -> tag.
