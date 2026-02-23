@@ -439,6 +439,22 @@ EOF
     fi
 
     echo
+    echo "## Current Task Tag"
+    echo '```'
+    if command -v tm >/dev/null 2>&1; then
+      (cd "$project_root" && tm tag current 2>/dev/null || echo "unknown")
+    elif command -v aoc-task >/dev/null 2>&1; then
+      (cd "$project_root" && aoc-task tag current 2>/dev/null || echo "unknown")
+    elif command -v aoc-cli >/dev/null 2>&1; then
+      (cd "$project_root" && aoc-cli task tag current 2>/dev/null || echo "unknown")
+    elif command -v task-master >/dev/null 2>&1; then
+      echo "task-master does not expose current tag"
+    else
+      echo "Task command not found."
+    fi
+    echo '```'
+
+    echo
     echo "## Active Workstreams (Tags)"
     echo '```'
     if command -v tm >/dev/null 2>&1; then

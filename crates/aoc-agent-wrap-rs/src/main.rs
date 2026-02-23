@@ -57,6 +57,8 @@ const TAP_RESEND_INTERVAL_MS: u64 = 3000;
 const STOP_SIGINT_GRACE_MS: u64 = 1500;
 const STOP_TERM_GRACE_MS: u64 = 800;
 const HEALTH_INTERVAL_SECS: u64 = 5;
+const TASK_CONTEXT_HEARTBEAT_SECS: u64 = 20;
+const TASK_CONTEXT_COMMAND_DEBOUNCE_MS: u64 = 1500;
 const REDACTED_SECRET: &str = "[REDACTED]";
 const TELEMETRY_SECRET_KEYS: [&str; 13] = [
     "access_token",
@@ -268,6 +270,12 @@ struct TaskSummaryPayload {
     error: Option<PayloadError>,
 }
 
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
+struct CurrentTagPayload {
+    tag: String,
+    task_count: usize,
+}
+
 #[derive(Serialize, Deserialize, Clone, Default)]
 struct CheckOutcome {
     name: String,
@@ -306,6 +314,7 @@ enum PulseUpdate {
         parser_confidence: Option<u8>,
     },
     TaskSummaries(HashMap<String, TaskSummaryPayload>),
+    CurrentTag(CurrentTagPayload),
     DiffSummary(DiffSummaryPayload),
     Health(HealthSnapshotPayload),
     Heartbeat {
@@ -320,6 +329,7 @@ struct PulseState {
     snippet: Option<String>,
     parser_confidence: Option<u8>,
     task_summaries: HashMap<String, TaskSummaryPayload>,
+    current_tag: Option<CurrentTagPayload>,
     diff_summary: Option<DiffSummaryPayload>,
     health: Option<HealthSnapshotPayload>,
     last_heartbeat_ms: Option<i64>,
@@ -334,6 +344,7 @@ impl PulseState {
             snippet: None,
             parser_confidence: None,
             task_summaries: HashMap::new(),
+            current_tag: None,
             diff_summary: None,
             health: None,
             last_heartbeat_ms: None,
@@ -360,6 +371,7 @@ struct CachedMessages {
     status: Option<String>,
     diff_summary: Option<String>,
     task_summary: HashMap<String, String>,
+    current_tag: Option<CurrentTagPayload>,
 }
 
 struct LogGuard {
@@ -381,6 +393,13 @@ enum TaskError {
     Missing,
     Malformed(String),
     Io(String),
+}
+
+#[derive(Default, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct TaskmasterStateFile {
+    #[serde(default)]
+    current_tag: Option<String>,
 }
 
 struct GitStatusEntry {
@@ -479,6 +498,7 @@ async fn main() {
 
     let (tx, rx) = mpsc::channel::<String>(256);
     let (pulse_tx, pulse_rx) = mpsc::channel::<PulseUpdate>(256);
+    let (task_context_refresh_tx, task_context_refresh_rx) = mpsc::unbounded_channel::<()>();
     let cache = Arc::new(Mutex::new(CachedMessages::default()));
     let tap_buffer = Arc::new(StdMutex::new(TapBuffer::new(TAP_RING_MAX_BYTES)));
     let hub_cfg = config.client.clone();
@@ -538,8 +558,16 @@ async fn main() {
     let task_tx = tx.clone();
     let task_cache = cache.clone();
     let task_pulse_tx = pulse_tx.clone();
+    let task_context_rx = task_context_refresh_rx;
     let task_task = tokio::spawn(async move {
-        task_summary_loop(task_cfg, task_tx, task_cache, task_pulse_tx).await;
+        task_summary_loop(
+            task_cfg,
+            task_tx,
+            task_cache,
+            task_pulse_tx,
+            task_context_rx,
+        )
+        .await;
     });
 
     let diff_cfg = config.client.clone();
@@ -565,6 +593,7 @@ async fn main() {
     let reporter_cache = cache.clone();
     let reporter_tap = tap_buffer.clone();
     let reporter_pulse_tx = pulse_tx.clone();
+    let reporter_task_context_tx = task_context_refresh_tx.clone();
     let reporter_task = tokio::spawn(async move {
         tap_state_reporter_loop(
             reporter_cfg,
@@ -572,6 +601,7 @@ async fn main() {
             reporter_cache,
             reporter_tap,
             reporter_pulse_tx,
+            reporter_task_context_tx,
         )
         .await;
     });
@@ -909,6 +939,10 @@ fn apply_pulse_update(state: &mut PulseState, update: PulseUpdate) {
             state.task_summaries = task_summaries;
             state.updated_at_ms = Some(now);
         }
+        PulseUpdate::CurrentTag(current_tag) => {
+            state.current_tag = Some(current_tag);
+            state.updated_at_ms = Some(now);
+        }
         PulseUpdate::DiffSummary(diff_summary) => {
             state.diff_summary = Some(diff_summary);
             state.updated_at_ms = Some(now);
@@ -1075,6 +1109,11 @@ fn build_pulse_source(cfg: &ClientConfig, state: &PulseState) -> serde_json::Val
         if let Ok(value) = serde_json::to_value(&state.task_summaries) {
             source.insert("task_summaries".to_string(), value.clone());
             source.insert("task_summary".to_string(), value);
+        }
+    }
+    if let Some(current_tag) = state.current_tag.as_ref() {
+        if let Ok(value) = serde_json::to_value(current_tag) {
+            source.insert("current_tag".to_string(), value);
         }
     }
     if let Some(diff_summary) = state.diff_summary.as_ref() {
@@ -1552,11 +1591,13 @@ async fn tap_state_reporter_loop(
     cache: Arc<Mutex<CachedMessages>>,
     tap: Arc<StdMutex<TapBuffer>>,
     pulse_tx: mpsc::Sender<PulseUpdate>,
+    task_context_refresh_tx: mpsc::UnboundedSender<()>,
 ) {
     let mut ticker = tokio::time::interval(Duration::from_millis(TAP_REPORT_INTERVAL_MS));
     let mut current = AgentLifecycle::Running;
     let mut pending: Option<(AgentLifecycle, u8)> = None;
     let mut last_parser_sample: Option<(AgentLifecycle, u8)> = None;
+    let mut last_task_context_refresh: Option<Instant> = None;
     let mut last_version = 0u64;
     let mut last_hash = 0u64;
     let mut last_sent = Instant::now();
@@ -1592,6 +1633,16 @@ async fn tap_state_reporter_loop(
                 }
 
                 let now = Instant::now();
+                if detect_taskmaster_command(&decoded) {
+                    let cooldown = Duration::from_millis(TASK_CONTEXT_COMMAND_DEBOUNCE_MS);
+                    let allow_refresh = last_task_context_refresh
+                        .map(|last| now.duration_since(last) >= cooldown)
+                        .unwrap_or(true);
+                    if allow_refresh {
+                        let _ = task_context_refresh_tx.send(());
+                        last_task_context_refresh = Some(now);
+                    }
+                }
                 let changed = version != last_version || hash != last_hash;
                 if !changed && now.duration_since(last_sent) < Duration::from_millis(TAP_RESEND_INTERVAL_MS) {
                     continue;
@@ -1731,6 +1782,30 @@ fn extract_significant_message(input: &str) -> String {
         }
     }
     String::new()
+}
+
+fn detect_taskmaster_command(input: &str) -> bool {
+    if input.trim().is_empty() {
+        return false;
+    }
+    let normalized = strip_ansi(input).to_ascii_lowercase();
+    let tail = normalized
+        .lines()
+        .rev()
+        .take(40)
+        .collect::<Vec<_>>()
+        .join(" ");
+    taskmaster_command_regex().is_match(&tail)
+}
+
+fn taskmaster_command_regex() -> &'static Regex {
+    static REGEX: OnceLock<Regex> = OnceLock::new();
+    REGEX.get_or_init(|| {
+        Regex::new(
+            r"\b(?:tm|aoc-task|aoc-cli\s+task)\b\s+(?:tag\b|list\b|show\b|add\b|edit\b|remove\b|rm\b|status\b|done\b|reopen\b|next\b|search\b|move\b|agent\b|sub\b|subtask\b|prd\b)",
+        )
+        .expect("valid taskmaster command detection regex")
+    })
 }
 
 fn stable_text_hash(input: &str) -> u64 {
@@ -2127,6 +2202,7 @@ async fn task_summary_loop(
     tx: mpsc::Sender<String>,
     cache: Arc<Mutex<CachedMessages>>,
     pulse_tx: mpsc::Sender<PulseUpdate>,
+    mut task_context_refresh_rx: mpsc::UnboundedReceiver<()>,
 ) {
     let tasks_path = tasks_file_path(&cfg.project_root);
     let state_path = state_file_path(&cfg.project_root);
@@ -2148,14 +2224,23 @@ async fn task_summary_loop(
     let _ = send_task_summaries(&cfg, &tx, &cache, &pulse_tx).await;
     let mut pending = false;
     let debounce = Duration::from_millis(TASK_DEBOUNCE_MS);
+    let mut heartbeat = tokio::time::interval(Duration::from_secs(TASK_CONTEXT_HEARTBEAT_SECS));
     loop {
         tokio::select! {
             _ = tx.closed() => break,
             Some(_) = event_rx.recv() => {
                 pending = true;
             }
+            refresh = task_context_refresh_rx.recv() => {
+                if refresh.is_some() {
+                    pending = true;
+                }
+            }
             _ = tokio::time::sleep(debounce), if pending => {
                 pending = false;
+                let _ = send_task_summaries(&cfg, &tx, &cache, &pulse_tx).await;
+            }
+            _ = heartbeat.tick() => {
                 let _ = send_task_summaries(&cfg, &tx, &cache, &pulse_tx).await;
             }
         }
@@ -2169,6 +2254,7 @@ async fn send_task_summaries(
     pulse_tx: &mpsc::Sender<PulseUpdate>,
 ) -> Result<(), ()> {
     let tasks_path = tasks_file_path(&cfg.project_root);
+    let state_path = state_file_path(&cfg.project_root);
     match load_tasks(&tasks_path).await {
         Ok(data) => {
             let mut tags: Vec<_> = data.tags.into_iter().collect();
@@ -2187,6 +2273,7 @@ async fn send_task_summaries(
                 pulse_payloads.insert(tag.clone(), payload);
                 messages.insert(tag, msg);
             }
+            let current_tag = build_current_tag_payload(&pulse_payloads, &state_path).await;
             let mut cache = cache.lock().await;
             let mut to_send = Vec::new();
             for (tag, msg) in &messages {
@@ -2199,13 +2286,18 @@ async fn send_task_summaries(
                 .keys()
                 .any(|tag| !messages.contains_key(tag));
             let changed = removed || !to_send.is_empty();
+            let current_tag_changed = cache.current_tag.as_ref() != Some(&current_tag);
             cache.task_summary = messages;
+            cache.current_tag = Some(current_tag.clone());
             drop(cache);
             for msg in to_send {
                 let _ = tx.send(msg).await;
             }
             if changed {
                 publish_pulse_update(pulse_tx, PulseUpdate::TaskSummaries(pulse_payloads));
+            }
+            if changed || current_tag_changed {
+                publish_pulse_update(pulse_tx, PulseUpdate::CurrentTag(current_tag));
             }
             Ok(())
         }
@@ -2227,22 +2319,28 @@ async fn send_task_summaries(
                 payload.clone(),
                 None,
             );
+            let current_tag = build_current_tag_payload(&HashMap::new(), &state_path).await;
             let mut cache = cache.lock().await;
             let should_send = cache
                 .task_summary
                 .get("default")
                 .map(|value| value.as_str())
                 != Some(&msg);
+            let current_tag_changed = cache.current_tag.as_ref() != Some(&current_tag);
             cache.task_summary.clear();
             cache
                 .task_summary
                 .insert("default".to_string(), msg.clone());
+            cache.current_tag = Some(current_tag.clone());
             drop(cache);
             if should_send {
                 let _ = tx.send(msg).await;
                 let mut pulse_payloads = HashMap::new();
                 pulse_payloads.insert("default".to_string(), payload);
                 publish_pulse_update(pulse_tx, PulseUpdate::TaskSummaries(pulse_payloads));
+            }
+            if should_send || current_tag_changed {
+                publish_pulse_update(pulse_tx, PulseUpdate::CurrentTag(current_tag));
             }
             Err(())
         }
@@ -2290,6 +2388,58 @@ fn build_task_summary_payload(
         active_tasks,
         error,
     }
+}
+
+async fn build_current_tag_payload(
+    task_summaries: &HashMap<String, TaskSummaryPayload>,
+    state_path: &Path,
+) -> CurrentTagPayload {
+    let tag = if let Some(tag) = env_override_tag() {
+        tag
+    } else if let Some(tag) = load_state_current_tag(state_path).await {
+        tag
+    } else {
+        infer_default_task_tag(task_summaries)
+    };
+
+    let task_count = task_summaries
+        .get(&tag)
+        .map(|summary| summary.counts.total as usize)
+        .unwrap_or(0);
+
+    CurrentTagPayload { tag, task_count }
+}
+
+fn env_override_tag() -> Option<String> {
+    env::var("AOC_TASK_TAG")
+        .ok()
+        .filter(|value| !value.trim().is_empty())
+        .or_else(|| {
+            env::var("TASKMASTER_TAG")
+                .ok()
+                .filter(|value| !value.trim().is_empty())
+        })
+}
+
+fn infer_default_task_tag(task_summaries: &HashMap<String, TaskSummaryPayload>) -> String {
+    if task_summaries.contains_key("master") {
+        return "master".to_string();
+    }
+
+    let mut tags: Vec<_> = task_summaries.keys().cloned().collect();
+    tags.sort();
+    tags.into_iter()
+        .next()
+        .unwrap_or_else(|| "master".to_string())
+}
+
+async fn load_state_current_tag(path: &Path) -> Option<String> {
+    let content = fs::read_to_string(path).await.ok()?;
+    let state = serde_json::from_str::<TaskmasterStateFile>(&content).ok()?;
+    state
+        .current_tag
+        .map(|tag| tag.trim().to_string())
+        .filter(|tag| !tag.is_empty())
 }
 
 async fn diff_summary_loop(
@@ -3480,6 +3630,20 @@ mod tests {
     }
 
     #[test]
+    fn taskmaster_command_detection_finds_tm_invocations() {
+        assert!(detect_taskmaster_command(
+            "Running command: tm tag current --json"
+        ));
+        assert!(detect_taskmaster_command(
+            "$ aoc-task status 91 in-progress --tag omo"
+        ));
+        assert!(detect_taskmaster_command("aoc-cli task list --tag omo"));
+        assert!(!detect_taskmaster_command(
+            "reviewing docs and planning next step"
+        ));
+    }
+
+    #[test]
     fn pulse_source_includes_task_diff_health_sections() {
         let cfg = test_client();
         let mut state = PulseState::new();
@@ -3504,6 +3668,10 @@ mod tests {
                 error: None,
             },
         );
+        state.current_tag = Some(CurrentTagPayload {
+            tag: "master".to_string(),
+            task_count: 3,
+        });
         state.diff_summary = Some(DiffSummaryPayload {
             agent_id: cfg.agent_key.clone(),
             repo_root: "/repo".to_string(),
@@ -3531,6 +3699,7 @@ mod tests {
         let root = source.as_object().expect("source should be object");
         assert!(root.contains_key("task_summaries"));
         assert!(root.contains_key("task_summary"));
+        assert!(root.contains_key("current_tag"));
         assert!(root.contains_key("diff_summary"));
         assert!(root.contains_key("health"));
         assert_eq!(

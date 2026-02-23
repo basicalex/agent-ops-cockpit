@@ -51,6 +51,7 @@ pub enum TagCommand {
     Rename(TagRenameArgs),
     Remove(TagRemoveArgs),
     Set(TagSetArgs),
+    Current(TagCurrentArgs),
 }
 
 #[derive(Subcommand, Debug)]
@@ -262,6 +263,12 @@ pub struct TagSetArgs {
 }
 
 #[derive(Args, Debug)]
+pub struct TagCurrentArgs {
+    #[arg(long)]
+    pub json: bool,
+}
+
+#[derive(Args, Debug)]
 pub struct SubAddArgs {
     pub task_id: String,
     pub title: String,
@@ -425,6 +432,7 @@ pub fn handle_task_command(command: TaskCommand) -> Result<()> {
             TagCommand::Rename(args) => rename_tag(&ctx, &args),
             TagCommand::Remove(args) => remove_tag(&ctx, &args),
             TagCommand::Set(args) => set_tag(&ctx, &args),
+            TagCommand::Current(args) => current_tag(&ctx, &args),
         },
         TaskCommand::Sub { action } => match action {
             SubCommand::Add(args) => add_subtask(&ctx, &args),
@@ -1253,6 +1261,32 @@ fn set_task_prd(ctx: &TaskContext, args: &PrdSetArgs) -> Result<()> {
     println!("Linked task [{}] to PRD {}", task_id, resolved.display());
     Ok(())
 }
+fn current_tag(ctx: &TaskContext, args: &TagCurrentArgs) -> Result<()> {
+    let tag = ctx.resolve_tag(None);
+    let ProjectLoad { project, exists } = load_project(&ctx.paths)?;
+    let task_count = if exists {
+        project
+            .tags
+            .get(&tag)
+            .map(|tag_ctx| tag_ctx.tasks.len())
+            .unwrap_or(0)
+    } else {
+        0
+    };
+
+    if args.json {
+        let payload = json!({
+            "tag": tag,
+            "task_count": task_count,
+        });
+        println!("{}", serde_json::to_string_pretty(&payload)?);
+    } else {
+        println!("{}", tag);
+    }
+
+    Ok(())
+}
+
 
 fn clear_task_prd(ctx: &TaskContext, args: &PrdClearArgs) -> Result<()> {
     let mut load = load_project(&ctx.paths)?;

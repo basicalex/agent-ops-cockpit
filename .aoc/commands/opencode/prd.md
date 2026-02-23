@@ -16,6 +16,7 @@ Execution flow:
    - dependencies and test strategy hints
    - dedupe by intent
 5. Create/update tasks through `aoc-task` primitives:
+   - Resolve active tag first with `aoc-task tag current` (or `tm tag current`) when tag input is omitted.
    - Create new tasks with `aoc-task add "<title>" --desc "..." --details "..." --test-strategy "..." --priority <high|medium|low> --tag <tag>`
    - Update existing tasks with `aoc-task edit <id> --title "..." --desc "..." --details "..." --test-strategy "..." --tag <tag>`
    - Link each created/updated task to the project PRD with `aoc-task prd set <id> <prd-path> --tag <tag>`
