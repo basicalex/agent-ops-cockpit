@@ -26,6 +26,9 @@ These commands are in PATH and work without loading any skill:
 **Tasks:**
 - `tm list` - list tasks (alias for `aoc-task`)
 - `tm add "Task name"` - add new task
+- `tm tag current` - print effective active tag
+- `tm tag prd show` - show PRD linked to active tag
+- `aoc-task tag prd show --tag <tag>` - show PRD linked to a specific tag
 - `tm` - open Taskmaster TUI
 
 **Other:**
@@ -40,8 +43,10 @@ These commands are in PATH and work without loading any skill:
 - `.aoc/context.md`: auto-generated project snapshot.
 - `.aoc/rtk.toml`: project-local RTK routing policy and install contract.
 - `.aoc/layouts/`: project-shared Zellij layouts for AOC (`*.kdl`).
-- `.taskmaster/docs/prds/`: task-level PRD documents linked from tasks.
-- Task PRDs are linked per task via `aocPrd`; resolve via `aoc-task prd show <id>`.
+- `.taskmaster/docs/prds/`: PRD documents linked to tags and tasks.
+- Tag PRD defaults are linked via tag `aocPrd`; resolve with `aoc-task tag prd show --tag <tag>`.
+- Task PRD overrides are linked via task `aocPrd`; resolve with `aoc-task prd show <id> --tag <tag>`.
+- Effective precedence is task PRD override -> tag PRD default.
 - Keep task PRDs in git: `.taskmaster/docs/prds/**` should always be tracked.
 - Keep AOC/task state in git: `.aoc/**` and `.taskmaster/**` should not be ignored.
 

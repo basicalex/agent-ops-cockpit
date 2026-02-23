@@ -1,5 +1,7 @@
 use anyhow::{anyhow, bail, Context, Result};
-use aoc_core::{ProjectData, Subtask, TagContext, Task, TaskPrd, TaskPriority, TaskStatus};
+use aoc_core::{
+    ProjectData, Subtask, TagContext, Task, TaskPrd, TaskPriority, TaskStatus, TAG_PRD_KEY,
+};
 use chrono::{SecondsFormat, Utc};
 use clap::{Args, Subcommand, ValueEnum};
 use serde::{Deserialize, Serialize};
@@ -52,6 +54,19 @@ pub enum TagCommand {
     Remove(TagRemoveArgs),
     Set(TagSetArgs),
     Current(TagCurrentArgs),
+    Prd {
+        #[command(subcommand)]
+        action: TagPrdCommand,
+    },
+}
+
+#[derive(Subcommand, Debug)]
+#[command(rename_all = "kebab-case")]
+pub enum TagPrdCommand {
+    Show(TagPrdShowArgs),
+    Set(TagPrdSetArgs),
+    Clear(TagPrdClearArgs),
+    Init(TagPrdInitArgs),
 }
 
 #[derive(Subcommand, Debug)]
@@ -269,6 +284,37 @@ pub struct TagCurrentArgs {
 }
 
 #[derive(Args, Debug)]
+pub struct TagPrdShowArgs {
+    #[arg(long)]
+    pub tag: Option<String>,
+    #[arg(long)]
+    pub json: bool,
+}
+
+#[derive(Args, Debug)]
+pub struct TagPrdSetArgs {
+    pub path: String,
+    #[arg(long)]
+    pub tag: Option<String>,
+}
+
+#[derive(Args, Debug)]
+pub struct TagPrdClearArgs {
+    #[arg(long)]
+    pub tag: Option<String>,
+}
+
+#[derive(Args, Debug)]
+pub struct TagPrdInitArgs {
+    #[arg(long)]
+    pub path: Option<PathBuf>,
+    #[arg(long)]
+    pub tag: Option<String>,
+    #[arg(long)]
+    pub force: bool,
+}
+
+#[derive(Args, Debug)]
 pub struct SubAddArgs {
     pub task_id: String,
     pub title: String,
@@ -433,6 +479,12 @@ pub fn handle_task_command(command: TaskCommand) -> Result<()> {
             TagCommand::Remove(args) => remove_tag(&ctx, &args),
             TagCommand::Set(args) => set_tag(&ctx, &args),
             TagCommand::Current(args) => current_tag(&ctx, &args),
+            TagCommand::Prd { action } => match action {
+                TagPrdCommand::Show(args) => show_tag_prd(&ctx, &args),
+                TagPrdCommand::Set(args) => set_tag_prd(&ctx, &args),
+                TagPrdCommand::Clear(args) => clear_tag_prd(&ctx, &args),
+                TagPrdCommand::Init(args) => init_tag_prd(&ctx, &args),
+            },
         },
         TaskCommand::Sub { action } => match action {
             SubCommand::Add(args) => add_subtask(&ctx, &args),
@@ -644,6 +696,13 @@ fn parse_project(content: &str) -> Result<ProjectData> {
 
 fn validate_project(project: &ProjectData) -> Result<()> {
     for (tag, tag_ctx) in &project.tags {
+        if let Some(raw_prd) = tag_ctx.extra.get(TAG_PRD_KEY) {
+            let prd: TaskPrd = serde_json::from_value(raw_prd.clone())
+                .with_context(|| format!("Tag '{}' has malformed {} payload", tag, TAG_PRD_KEY))?;
+            if prd.path.trim().is_empty() {
+                bail!("Tag '{}' has empty {}.path", tag, TAG_PRD_KEY);
+            }
+        }
         for task in &tag_ctx.tasks {
             if let Some(prd) = &task.aoc_prd {
                 if prd.path.trim().is_empty() {
@@ -653,7 +712,7 @@ fn validate_project(project: &ProjectData) -> Result<()> {
             for sub in &task.subtasks {
                 if sub.extra.contains_key("aocPrd") {
                     bail!(
-                        "Subtask [{}] in task [{}] tag '{}' has unsupported aocPrd (task-level only)",
+                        "Subtask [{}] in task [{}] tag '{}' has unsupported aocPrd",
                         sub.id,
                         task.id,
                         tag
@@ -1199,6 +1258,164 @@ fn set_tag(ctx: &TaskContext, args: &TagSetArgs) -> Result<()> {
     Ok(())
 }
 
+fn current_tag(ctx: &TaskContext, args: &TagCurrentArgs) -> Result<()> {
+    let tag = ctx.resolve_tag(None);
+    let ProjectLoad { project, exists } = load_project(&ctx.paths)?;
+    let task_count = if exists {
+        project
+            .tags
+            .get(&tag)
+            .map(|tag_ctx| tag_ctx.tasks.len())
+            .unwrap_or(0)
+    } else {
+        0
+    };
+
+    if args.json {
+        let payload = json!({
+            "tag": tag,
+            "task_count": task_count,
+        });
+        println!("{}", serde_json::to_string_pretty(&payload)?);
+    } else {
+        println!("{}", tag);
+    }
+
+    Ok(())
+}
+
+fn show_tag_prd(ctx: &TaskContext, args: &TagPrdShowArgs) -> Result<()> {
+    let load = load_project(&ctx.paths)?;
+    let tag = ctx.resolve_tag(args.tag.as_deref());
+    let tag_ctx = load
+        .project
+        .tags
+        .get(&tag)
+        .ok_or_else(|| anyhow::anyhow!("No tag named '{tag}' found."))?;
+    let prd = read_tag_prd(tag_ctx, &tag)?;
+
+    if args.json {
+        println!("{}", serde_json::to_string_pretty(&prd)?);
+        return Ok(());
+    }
+
+    if let Some(prd) = prd {
+        let resolved = resolve_user_path(&ctx.paths.root, &prd.path);
+        println!("Tag '{}' PRD: {}", tag, prd.path);
+        println!("Resolved: {}", resolved.display());
+        println!("Exists: {}", if resolved.exists() { "yes" } else { "no" });
+    } else {
+        println!("Tag '{}' has no PRD link.", tag);
+    }
+
+    Ok(())
+}
+
+fn set_tag_prd(ctx: &TaskContext, args: &TagPrdSetArgs) -> Result<()> {
+    if args.path.trim().is_empty() {
+        bail!("PRD path cannot be empty.");
+    }
+
+    let mut load = load_project(&ctx.paths)?;
+    let tag = ctx.resolve_tag(args.tag.as_deref());
+    let tag_ctx = load
+        .project
+        .tags
+        .get_mut(&tag)
+        .ok_or_else(|| anyhow::anyhow!("No tag named '{tag}' found."))?;
+
+    let resolved = resolve_user_path(&ctx.paths.root, &args.path);
+    let stored_path = normalize_prd_path(&ctx.paths.root, &resolved);
+    tag_ctx.set_tag_prd(TaskPrd {
+        path: stored_path,
+        updated_at: Some(now_timestamp()),
+        version: Some(1),
+        extra: HashMap::new(),
+    });
+
+    save_project(&ctx.paths, &load.project)?;
+    println!("Linked tag '{}' to PRD {}", tag, resolved.display());
+    Ok(())
+}
+
+fn clear_tag_prd(ctx: &TaskContext, args: &TagPrdClearArgs) -> Result<()> {
+    let mut load = load_project(&ctx.paths)?;
+    let tag = ctx.resolve_tag(args.tag.as_deref());
+    let tag_ctx = load
+        .project
+        .tags
+        .get_mut(&tag)
+        .ok_or_else(|| anyhow::anyhow!("No tag named '{tag}' found."))?;
+
+    tag_ctx.clear_tag_prd();
+    save_project(&ctx.paths, &load.project)?;
+    println!("Cleared PRD link for tag '{}'.", tag);
+    Ok(())
+}
+
+fn init_tag_prd(ctx: &TaskContext, args: &TagPrdInitArgs) -> Result<()> {
+    let mut load = load_project(&ctx.paths)?;
+    let tag = ctx.resolve_tag(args.tag.as_deref());
+    let tag_ctx = load
+        .project
+        .tags
+        .get_mut(&tag)
+        .ok_or_else(|| anyhow::anyhow!("No tag named '{tag}' found."))?;
+
+    let target_abs = if let Some(path) = &args.path {
+        resolve_path_arg(&ctx.paths.root, path)
+    } else {
+        default_tag_prd_path(&ctx.paths.root, &tag)
+    };
+
+    if target_abs.exists() && !args.force {
+        bail!(
+            "PRD already exists at {} (use --force to overwrite)",
+            target_abs.display()
+        );
+    }
+    if let Some(parent) = target_abs.parent() {
+        fs::create_dir_all(parent)
+            .with_context(|| format!("Failed to create {}", parent.display()))?;
+    }
+
+    let content = render_tag_prd_template(&tag, &tag_ctx.tasks);
+    fs::write(&target_abs, content)
+        .with_context(|| format!("Failed to write {}", target_abs.display()))?;
+
+    let stored_path = normalize_prd_path(&ctx.paths.root, &target_abs);
+    tag_ctx.set_tag_prd(TaskPrd {
+        path: stored_path,
+        updated_at: Some(now_timestamp()),
+        version: Some(1),
+        extra: HashMap::new(),
+    });
+    save_project(&ctx.paths, &load.project)?;
+    println!(
+        "Initialized PRD for tag '{}' at {}",
+        tag,
+        target_abs.display()
+    );
+    Ok(())
+}
+
+fn read_tag_prd(tag_ctx: &TagContext, tag: &str) -> Result<Option<TaskPrd>> {
+    let Some(raw) = tag_ctx.extra.get(TAG_PRD_KEY) else {
+        return Ok(None);
+    };
+
+    let prd: TaskPrd = serde_json::from_value(raw.clone()).with_context(|| {
+        format!(
+            "Tag '{}' has malformed {} payload in tasks.json",
+            tag, TAG_PRD_KEY
+        )
+    })?;
+    if prd.path.trim().is_empty() {
+        bail!("Tag '{}' has empty {}.path", tag, TAG_PRD_KEY);
+    }
+    Ok(Some(prd))
+}
+
 fn show_task_prd(ctx: &TaskContext, args: &PrdShowArgs) -> Result<()> {
     let load = load_project(&ctx.paths)?;
     let tag = ctx.resolve_tag(args.tag.as_deref());
@@ -1224,7 +1441,13 @@ fn show_task_prd(ctx: &TaskContext, args: &PrdShowArgs) -> Result<()> {
         println!("Resolved: {}", resolved.display());
         println!("Exists: {}", if resolved.exists() { "yes" } else { "no" });
     } else {
-        println!("Task [{}] has no PRD link.", task.id);
+        println!("Task [{}] has no task-level PRD link.", task.id);
+        if let Some(tag_prd) = read_tag_prd(tag_ctx, &tag)? {
+            let resolved = resolve_user_path(&ctx.paths.root, &tag_prd.path);
+            println!("Tag fallback ({}): {}", tag, tag_prd.path);
+            println!("Resolved: {}", resolved.display());
+            println!("Exists: {}", if resolved.exists() { "yes" } else { "no" });
+        }
     }
     Ok(())
 }
@@ -1261,32 +1484,6 @@ fn set_task_prd(ctx: &TaskContext, args: &PrdSetArgs) -> Result<()> {
     println!("Linked task [{}] to PRD {}", task_id, resolved.display());
     Ok(())
 }
-fn current_tag(ctx: &TaskContext, args: &TagCurrentArgs) -> Result<()> {
-    let tag = ctx.resolve_tag(None);
-    let ProjectLoad { project, exists } = load_project(&ctx.paths)?;
-    let task_count = if exists {
-        project
-            .tags
-            .get(&tag)
-            .map(|tag_ctx| tag_ctx.tasks.len())
-            .unwrap_or(0)
-    } else {
-        0
-    };
-
-    if args.json {
-        let payload = json!({
-            "tag": tag,
-            "task_count": task_count,
-        });
-        println!("{}", serde_json::to_string_pretty(&payload)?);
-    } else {
-        println!("{}", tag);
-    }
-
-    Ok(())
-}
-
 
 fn clear_task_prd(ctx: &TaskContext, args: &PrdClearArgs) -> Result<()> {
     let mut load = load_project(&ctx.paths)?;
@@ -1391,6 +1588,19 @@ fn normalize_prd_path(root: &Path, abs_path: &Path) -> String {
     abs_path.to_string_lossy().to_string()
 }
 
+fn default_tag_prd_path(root: &Path, tag: &str) -> PathBuf {
+    let slug = slugify(tag);
+    let file = if slug.is_empty() {
+        "tag-prd.md".to_string()
+    } else {
+        format!("tag-{}-prd.md", slug)
+    };
+    root.join(".taskmaster")
+        .join("docs")
+        .join("prds")
+        .join(file)
+}
+
 fn default_prd_path(root: &Path, task: &Task) -> PathBuf {
     let slug = slugify(&task.title);
     let file = if slug.is_empty() {
@@ -1402,6 +1612,30 @@ fn default_prd_path(root: &Path, task: &Task) -> PathBuf {
         .join("docs")
         .join("prds")
         .join(file)
+}
+
+fn render_tag_prd_template(tag: &str, tasks: &[Task]) -> String {
+    let mut out = String::new();
+    out.push_str(&format!("# Tag PRD: {}\n\n", tag));
+    out.push_str("## Metadata\n");
+    out.push_str(&format!("- Tag: {}\n", tag));
+    out.push_str(&format!("- Task Count: {}\n\n", tasks.len()));
+    out.push_str("## Problem\n");
+    out.push_str("Describe the product/problem scope for this tag/workstream.\n\n");
+    out.push_str("## Goals\n- \n\n");
+    out.push_str("## Non-Goals\n- \n\n");
+    out.push_str("## Requirements\n- \n\n");
+    out.push_str("## Acceptance Criteria\n- [ ] \n\n");
+    out.push_str("## Test Strategy\n- Define validation commands and expected outcomes.\n\n");
+    out.push_str("## Related Tasks\n");
+    if tasks.is_empty() {
+        out.push_str("- (no tasks yet)\n");
+    } else {
+        for task in tasks {
+            out.push_str(&format!("- [{}] {}\n", task.id, task.title));
+        }
+    }
+    out
 }
 
 fn render_prd_template(task: &Task, tag: &str) -> String {

@@ -6,6 +6,8 @@ use std::str::FromStr;
 
 pub mod pulse_ipc;
 
+pub const TAG_PRD_KEY: &str = "aocPrd";
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ProjectData {
     #[serde(flatten)]
@@ -55,6 +57,24 @@ pub struct TaskPrd {
     pub version: Option<u32>,
     #[serde(default, flatten)]
     pub extra: HashMap<String, Value>,
+}
+
+impl TagContext {
+    pub fn tag_prd(&self) -> Option<TaskPrd> {
+        self.extra
+            .get(TAG_PRD_KEY)
+            .and_then(|value| serde_json::from_value::<TaskPrd>(value.clone()).ok())
+    }
+
+    pub fn set_tag_prd(&mut self, prd: TaskPrd) {
+        if let Ok(value) = serde_json::to_value(prd) {
+            self.extra.insert(TAG_PRD_KEY.to_string(), value);
+        }
+    }
+
+    pub fn clear_tag_prd(&mut self) {
+        self.extra.remove(TAG_PRD_KEY);
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
