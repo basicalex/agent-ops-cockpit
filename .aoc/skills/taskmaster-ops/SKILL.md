@@ -11,7 +11,9 @@ description: Manage tasks with aoc-task, tm alias, and the Taskmaster TUI.
 - `tm status <id> <status>`
 - `aoc-task status <id> <status>`
 - `tm tag list`
+- `tm tag current`
 - `aoc-task tag list`
+- `aoc-task tag current`
 - `aoc-task prd show <id>`
 - `aoc-task prd init <id>`
 - `aoc-task prd set <id> <path>`
