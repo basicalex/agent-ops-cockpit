@@ -17,6 +17,7 @@ Execution flow:
    - dedupe by intent
 5. Create/update tasks through `aoc-task` primitives:
    - Resolve active tag first with `aoc-task tag current` (or `tm tag current`) when tag input is omitted.
+   - Ensure tag default PRD is linked when needed: `aoc-task tag prd set <prd-path> --tag <tag>`
    - Create new tasks with `aoc-task add "<title>" --desc "..." --details "..." --test-strategy "..." --priority <high|medium|low> --tag <tag>`
    - Update existing tasks with `aoc-task edit <id> --title "..." --desc "..." --details "..." --test-strategy "..." --tag <tag>`
    - Link each created/updated task to the project PRD with `aoc-task prd set <id> <prd-path> --tag <tag>`
@@ -26,7 +27,8 @@ Execution flow:
 
 Rules:
 - Do not edit `.taskmaster/tasks/tasks.json` directly.
-- Keep PRD links task-level only.
+- Use tag-level PRD defaults with optional task-level overrides; never add PRD links to subtasks.
+- Treat effective PRD precedence as task override -> tag default.
 - For replace mode, require explicit tag targeting.
 - Report assumptions and what was inferred from the PRD.
 

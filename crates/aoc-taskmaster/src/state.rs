@@ -1,5 +1,5 @@
 use anyhow::{Context, Result};
-use aoc_core::{ProjectData, TagContext, Task, TaskStatus};
+use aoc_core::{ProjectData, TagContext, Task, TaskPrd, TaskStatus, TAG_PRD_KEY};
 use crossterm::event::{KeyCode, KeyEvent, MouseButton, MouseEvent, MouseEventKind};
 use ratatui::{
     layout::Rect,
@@ -1298,15 +1298,44 @@ fn write_atomic(path: &Path, payload: &str) -> Result<()> {
             .with_context(|| format!("Failed to create parent directory {}", parent.display()))?;
     }
 
+    let lock_path = match path.file_name() {
+        Some(name) => path.with_file_name(format!("{}.lock", name.to_string_lossy())),
+        None => path.with_extension("lock"),
+    };
+
+    use fs2::FileExt;
+    let lock_file = std::fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .create(true)
+        .open(&lock_path)
+        .ok();
+
+    if let Some(f) = &lock_file {
+        let _ = f.lock_exclusive();
+    }
+
     let temp_path = match path.file_name() {
         Some(name) => path.with_file_name(format!("{}.tmp", name.to_string_lossy())),
         None => path.with_extension("tmp"),
     };
 
-    std::fs::write(&temp_path, payload)
-        .with_context(|| format!("Failed to write temp file {}", temp_path.display()))?;
-    std::fs::rename(&temp_path, path)
-        .with_context(|| format!("Failed to replace {}", path.display()))?;
+    let write_res = std::fs::write(&temp_path, payload)
+        .with_context(|| format!("Failed to write temp file {}", temp_path.display()));
+
+    let rename_res = if write_res.is_ok() {
+        std::fs::rename(&temp_path, path)
+            .with_context(|| format!("Failed to replace {}", path.display()))
+    } else {
+        Ok(())
+    };
+
+    if let Some(f) = lock_file {
+        let _ = f.unlock();
+    }
+
+    write_res?;
+    rename_res?;
     Ok(())
 }
 
@@ -1364,6 +1393,20 @@ fn parse_project_compat(content: &str) -> std::result::Result<ProjectData, Strin
 
 fn validate_project(project: &ProjectData) -> std::result::Result<(), String> {
     for (tag, tag_ctx) in &project.tags {
+        if let Some(raw_prd) = tag_ctx.extra.get(TAG_PRD_KEY) {
+            let prd: TaskPrd = serde_json::from_value(raw_prd.clone()).map_err(|err| {
+                format!(
+                    "Invalid tasks.json: tag '{}' has malformed {} payload: {}",
+                    tag, TAG_PRD_KEY, err
+                )
+            })?;
+            if prd.path.trim().is_empty() {
+                return Err(format!(
+                    "Invalid tasks.json: tag '{}' has empty {}.path",
+                    tag, TAG_PRD_KEY
+                ));
+            }
+        }
         for task in &tag_ctx.tasks {
             if let Some(prd) = &task.aoc_prd {
                 if prd.path.trim().is_empty() {

@@ -59,6 +59,9 @@ These commands are in PATH and work without loading any skill:
 **Tasks:**
 - `tm list` - list tasks (alias for `aoc-task`)
 - `tm add "Task name"` - add new task
+- `tm tag current` - print effective active tag
+- `tm tag prd show` - show PRD linked to active tag
+- `aoc-task tag prd show --tag <tag>` - show PRD linked to a specific tag
 - `tm` - open Taskmaster TUI
 
 **Other:**
@@ -73,8 +76,10 @@ These commands are in PATH and work without loading any skill:
 - `.aoc/context.md`: auto-generated project snapshot.
 - `.aoc/rtk.toml`: project-local RTK routing policy and install contract.
 - `.aoc/layouts/`: project-shared Zellij layouts for AOC (`*.kdl`).
-- `.taskmaster/docs/prds/`: task-level PRD documents linked from tasks.
-- Task PRDs are linked per task via `aocPrd`; resolve via `aoc-task prd show <id>`.
+- `.taskmaster/docs/prds/`: PRD documents linked to tags and tasks.
+- Tag PRD defaults are linked via tag `aocPrd`; resolve with `aoc-task tag prd show --tag <tag>`.
+- Task PRD overrides are linked via task `aocPrd`; resolve with `aoc-task prd show <id> --tag <tag>`.
+- Effective precedence is task PRD override -> tag PRD default.
 - Keep task PRDs in git: `.taskmaster/docs/prds/**` should always be tracked.
 - Keep AOC/task state in git: `.aoc/**` and `.taskmaster/**` should not be ignored.
 
@@ -138,7 +143,7 @@ Use the AOC tools for context, memory, and tasks in this repo.
 - **Memory:** use `aoc-mem read/search/add` via Bash tool (do not edit `.aoc/memory.md` directly)
 - **Short-term memory:** use `aoc-stm` / `aoc-stm read` via Bash tool (do not read `.aoc/stm/current.md` directly)
 - **Tasks:** use `tm` or `aoc-task` via Bash tool (do not edit `.taskmaster/tasks/tasks.json` directly)
-- **Task PRDs:** task-level links only (`aocPrd`), resolve with `aoc-task prd show <id>`
+- **Task PRDs:** tag-level defaults + task-level overrides via `aocPrd` (resolve with `aoc-task tag prd show --tag <tag>` and `aoc-task prd show <id> --tag <tag>`)
 - **RTK routing (default-on for new AOC repos):** allowlisted commands route via RTK in AOC panes; manage with `aoc-rtk status|enable|disable|doctor|install --auto` and `.aoc/rtk.toml`
 
 If AOC files are missing or stale, run `aoc-init` at the repo root.
@@ -473,7 +478,9 @@ EOF
     echo
     echo "## Task PRD Location"
     echo "- Directory: .taskmaster/docs/prds"
-    echo "- Resolve linked task PRD with: aoc-task prd show <id>"
+    echo "- Resolve tag PRD default with: aoc-task tag prd show --tag <tag>"
+    echo "- Resolve task PRD override with: aoc-task prd show <id> --tag <tag>"
+    echo "- Effective precedence: task PRD override -> tag PRD default"
   } > "$context_tmp"
 
   context_lines="$(wc -l < "$context_tmp" | tr -d ' ')"
@@ -669,18 +676,22 @@ Use this when you start a new task or need to re-orient inside a project.
 ## Steps
 1. If AOC files are missing or stale, run `aoc-init` from the project root.
 2. Read memory: `aoc-mem read` and `aoc-mem search "<topic>"` as needed.
-3. Review tasks: `tm list`, `aoc-task list`, or the Taskmaster TUI.
-4. For the active task, check PRD linkage with `aoc-task prd show <id>`; if missing, create/link via `aoc-task prd init <id>` or `aoc-task prd set <id> <path>`.
-5. Plan: add or refine tasks with `aoc-task add "<task>"` and set status.
-6. Execute changes and run tests.
-7. If context gets tight, capture state (`aoc-stm add/edit`; in OpenCode you can run `/stm`), review current draft with `aoc-stm`, archive it with `aoc-stm archive`, and use `aoc-stm read` to load archived diary context when needed.
-8. Update tasks and record decisions: `aoc-task status <id> done`, `aoc-mem add "<decision>"`.
+3. Resolve active tag at session start with `tm tag current` (or `aoc-task tag current`).
+4. Review tasks: `tm list`, `aoc-task list`, or the Taskmaster TUI.
+5. Check PRD linkage for scope and task:
+   - Tag default: `aoc-task tag prd show --tag <tag>`
+   - Task override: `aoc-task prd show <id> --tag <tag>`
+6. Plan: add or refine tasks with `aoc-task add "<task>"` and set status.
+7. Execute changes and run tests.
+8. If context gets tight, capture state (`aoc-stm add/edit`; in OpenCode you can run `/stm`), review current draft with `aoc-stm`, archive it with `aoc-stm archive`, and use `aoc-stm read` to load archived diary context when needed.
+9. Update tasks and record decisions: `aoc-task status <id> done`, `aoc-mem add "<decision>"`.
 
 ## Guardrails
 - Do not edit `.aoc/memory.md` directly.
 - Do not keep long-term decisions in `.aoc/stm/current.md`; promote durable decisions to `aoc-mem`.
 - Do not edit `.taskmaster/tasks/tasks.json` directly.
-- Do not add PRD links to subtasks; PRDs are task-level only (`aocPrd`).
+- Do not add PRD links to subtasks.
+- Use tag-level PRD defaults with task-level overrides (`aocPrd`), with precedence task -> tag.
 EOF
     log "Updated aoc-workflow skill with current STM workflow guidance."
   fi
@@ -709,7 +720,7 @@ description: Initialize or repair AOC context, memory, and tasks safely.
 - Generates `.aoc/context.md`
 - Seeds `.aoc/memory.md`
 - Seeds `.aoc/stm/current.md` and `.aoc/stm/archive/` without overwriting existing STM files
-- Ensures task-level PRD directory `.taskmaster/docs/prds/` is available when used
+- Ensures PRD directory `.taskmaster/docs/prds/` is available for tag/task links
 - Seeds OpenCode `/stm` command in `.opencode/commands/stm.md` when missing and keeps STM guidance aligned (`aoc-stm` = current draft, `aoc-stm read` = archive)
 - Seeds OpenCode `/prd` command in `.opencode/commands/prd.md` when missing
 - Seeds OpenCode teach-mode subagent/commands (`@teach`, `/teach-full`, `/teach-dive`, `/teach-ask`) when missing
