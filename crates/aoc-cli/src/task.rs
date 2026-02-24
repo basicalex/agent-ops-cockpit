@@ -164,6 +164,15 @@ pub struct TaskEditArgs {
     pub active_agent: bool,
     #[arg(long, conflicts_with = "active_agent")]
     pub inactive_agent: bool,
+    #[arg(
+        long,
+        alias = "parentId",
+        value_name = "ID",
+        conflicts_with = "clear_parent"
+    )]
+    pub parent_id: Option<String>,
+    #[arg(long, conflicts_with = "parent_id")]
+    pub clear_parent: bool,
     #[arg(long)]
     pub tag: Option<String>,
 }
@@ -839,6 +848,17 @@ fn find_subtask_index(task: &Task, sub_id: u32) -> Option<usize> {
     task.subtasks.iter().position(|sub| sub.id == sub_id)
 }
 
+fn task_parent_id(task: &Task) -> Option<&str> {
+    task.extra
+        .get("parentId")
+        .and_then(|value| value.as_str())
+        .or_else(|| {
+            task.extra
+                .get("parentTaskId")
+                .and_then(|value| value.as_str())
+        })
+}
+
 fn next_task_id(project: &ProjectData) -> String {
     let mut max_id = 0u64;
     for ctx in project.tags.values() {
@@ -1020,6 +1040,9 @@ fn show_task(ctx: &TaskContext, args: &TaskShowArgs) -> Result<()> {
     if !task.dependencies.is_empty() {
         println!("Depends: {}", task.dependencies.join(", "));
     }
+    if let Some(parent_id) = task_parent_id(task) {
+        println!("Parent ID: {}", parent_id);
+    }
     if !task.subtasks.is_empty() {
         println!("Subtasks:");
         for sub in &task.subtasks {
@@ -1039,6 +1062,22 @@ fn edit_task(ctx: &TaskContext, args: &TaskEditArgs) -> Result<()> {
         .ok_or_else(|| anyhow::anyhow!("No tag named '{tag}' found."))?;
     let task_idx = find_task_index(tag_ctx, &args.id)
         .ok_or_else(|| anyhow::anyhow!("Task [{}] not found in tag '{tag}'.", args.id))?;
+    let parent_id_to_set = if let Some(parent_id_raw) = &args.parent_id {
+        let parent_id = parent_id_raw.trim();
+        if parent_id.is_empty() {
+            bail!("Parent ID cannot be empty.");
+        }
+        if parent_id == args.id {
+            bail!("Task [{}] cannot be its own parent.", args.id);
+        }
+        if find_task_index(tag_ctx, parent_id).is_none() {
+            bail!("Parent task [{}] not found in tag '{tag}'.", parent_id);
+        }
+        Some(parent_id.to_string())
+    } else {
+        None
+    };
+
     let task = &mut tag_ctx.tasks[task_idx];
 
     if let Some(title) = &args.title {
@@ -1068,6 +1107,14 @@ fn edit_task(ctx: &TaskContext, args: &TaskEditArgs) -> Result<()> {
         task.active_agent = true;
     } else if args.inactive_agent {
         task.active_agent = false;
+    }
+    if let Some(parent_id) = parent_id_to_set {
+        task.extra
+            .insert("parentId".to_string(), Value::String(parent_id));
+        task.extra.remove("parentTaskId");
+    } else if args.clear_parent {
+        task.extra.remove("parentId");
+        task.extra.remove("parentTaskId");
     }
     task.updated_at = Some(now_timestamp());
     save_project(&ctx.paths, &load.project)?;
