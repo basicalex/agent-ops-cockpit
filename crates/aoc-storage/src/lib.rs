@@ -1,6 +1,7 @@
 use aoc_core::mind_contracts::{
     ArtifactTaskLink, ArtifactTaskRelation, ConversationRole, RawEvent, RawEventBody, RouteOrigin,
-    SegmentCandidate, SegmentRoute, T0CompactEvent, ToolMetadataLine,
+    SegmentCandidate, SegmentRoute, SemanticFailureKind, SemanticProvenance, SemanticRuntime,
+    SemanticStage, T0CompactEvent, ToolMetadataLine,
 };
 use chrono::{DateTime, Utc};
 use rusqlite::{params, Connection, OptionalExtension};
@@ -8,7 +9,7 @@ use std::collections::BTreeSet;
 use std::path::Path;
 use thiserror::Error;
 
-pub const MIND_SCHEMA_VERSION: i64 = 1;
+pub const MIND_SCHEMA_VERSION: i64 = 2;
 
 #[derive(Debug, Error)]
 pub enum StorageError {
@@ -90,7 +91,7 @@ impl MindStore {
     }
 
     pub fn migrate(&self) -> Result<(), StorageError> {
-        let current = self.schema_version()?;
+        let mut current = self.schema_version()?;
         if current > MIND_SCHEMA_VERSION {
             return Err(StorageError::UnsupportedSchemaVersion {
                 found: current,
@@ -98,11 +99,20 @@ impl MindStore {
             });
         }
 
-        if current == 0 {
+        if current < 1 {
             let sql = include_str!("../migrations/0001_mind_schema.sql");
             self.conn.execute_batch(sql)?;
             self.conn
                 .execute("PRAGMA user_version = 1", [])
+                .map(|_| ())?;
+            current = 1;
+        }
+
+        if current < 2 {
+            let sql = include_str!("../migrations/0002_semantic_runtime.sql");
+            self.conn.execute_batch(sql)?;
+            self.conn
+                .execute("PRAGMA user_version = 2", [])
                 .map(|_| ())?;
         }
 
@@ -520,6 +530,141 @@ impl MindStore {
             ],
         )?;
         Ok(())
+    }
+
+    pub fn upsert_semantic_provenance(
+        &self,
+        provenance: &SemanticProvenance,
+    ) -> Result<(), StorageError> {
+        self.conn.execute(
+            "
+            INSERT OR REPLACE INTO semantic_runtime_provenance (
+                artifact_id,
+                stage,
+                runtime,
+                provider_name,
+                model_id,
+                prompt_version,
+                input_hash,
+                output_hash,
+                latency_ms,
+                attempt_count,
+                fallback_used,
+                fallback_reason,
+                failure_kind,
+                created_at
+            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)
+            ",
+            params![
+                provenance.artifact_id,
+                semantic_stage_as_str(provenance.stage),
+                semantic_runtime_as_str(provenance.runtime),
+                provenance.provider_name,
+                provenance.model_id,
+                provenance.prompt_version,
+                provenance.input_hash,
+                provenance.output_hash,
+                provenance.latency_ms.map(|value| value as i64),
+                i64::from(provenance.attempt_count),
+                if provenance.fallback_used {
+                    1_i64
+                } else {
+                    0_i64
+                },
+                provenance.fallback_reason,
+                provenance.failure_kind.map(semantic_failure_kind_as_str),
+                provenance.created_at.to_rfc3339(),
+            ],
+        )?;
+        Ok(())
+    }
+
+    pub fn semantic_provenance_for_artifact(
+        &self,
+        artifact_id: &str,
+    ) -> Result<Vec<SemanticProvenance>, StorageError> {
+        let mut statement = self.conn.prepare(
+            "
+            SELECT artifact_id, stage, runtime, provider_name, model_id, prompt_version,
+                   input_hash, output_hash, latency_ms, attempt_count, fallback_used,
+                   fallback_reason, failure_kind, created_at
+            FROM semantic_runtime_provenance
+            WHERE artifact_id = ?1
+            ORDER BY attempt_count ASC
+            ",
+        )?;
+
+        let rows = statement.query_map([artifact_id], |row| {
+            let stage_raw: String = row.get(1)?;
+            let runtime_raw: String = row.get(2)?;
+            let stage = parse_semantic_stage(&stage_raw).ok_or_else(|| {
+                rusqlite::Error::FromSqlConversionFailure(
+                    1,
+                    rusqlite::types::Type::Text,
+                    Box::new(std::io::Error::new(
+                        std::io::ErrorKind::InvalidData,
+                        format!("invalid semantic stage: {stage_raw}"),
+                    )),
+                )
+            })?;
+            let runtime = parse_semantic_runtime(&runtime_raw).ok_or_else(|| {
+                rusqlite::Error::FromSqlConversionFailure(
+                    2,
+                    rusqlite::types::Type::Text,
+                    Box::new(std::io::Error::new(
+                        std::io::ErrorKind::InvalidData,
+                        format!("invalid semantic runtime: {runtime_raw}"),
+                    )),
+                )
+            })?;
+
+            let failure_kind = row
+                .get::<_, Option<String>>(12)?
+                .map(|value| {
+                    parse_semantic_failure_kind(&value).ok_or_else(|| {
+                        rusqlite::Error::FromSqlConversionFailure(
+                            12,
+                            rusqlite::types::Type::Text,
+                            Box::new(std::io::Error::new(
+                                std::io::ErrorKind::InvalidData,
+                                format!("invalid semantic failure kind: {value}"),
+                            )),
+                        )
+                    })
+                })
+                .transpose()?;
+
+            let created_at = parse_timestamp(row.get::<_, String>(13)?).map_err(|err| {
+                rusqlite::Error::FromSqlConversionFailure(
+                    13,
+                    rusqlite::types::Type::Text,
+                    Box::new(err),
+                )
+            })?;
+
+            Ok(SemanticProvenance {
+                artifact_id: row.get(0)?,
+                stage,
+                runtime,
+                provider_name: row.get(3)?,
+                model_id: row.get(4)?,
+                prompt_version: row.get(5)?,
+                input_hash: row.get(6)?,
+                output_hash: row.get(7)?,
+                latency_ms: row.get::<_, Option<i64>>(8)?.map(|value| value as u64),
+                attempt_count: row.get::<_, i64>(9)? as u16,
+                fallback_used: row.get::<_, i64>(10)? != 0,
+                fallback_reason: row.get(11)?,
+                failure_kind,
+                created_at,
+            })
+        })?;
+
+        let mut entries = Vec::new();
+        for row in rows {
+            entries.push(row?);
+        }
+        Ok(entries)
     }
 
     pub fn artifacts_for_conversation(
@@ -1031,6 +1176,49 @@ fn parse_route_origin(value: &str) -> Option<RouteOrigin> {
     }
 }
 
+fn semantic_stage_as_str(stage: SemanticStage) -> &'static str {
+    match stage {
+        SemanticStage::T1Observer => "t1_observer",
+        SemanticStage::T2Reflector => "t2_reflector",
+    }
+}
+
+fn parse_semantic_stage(value: &str) -> Option<SemanticStage> {
+    match value {
+        "t1_observer" => Some(SemanticStage::T1Observer),
+        "t2_reflector" => Some(SemanticStage::T2Reflector),
+        _ => None,
+    }
+}
+
+fn semantic_runtime_as_str(runtime: SemanticRuntime) -> &'static str {
+    runtime.as_str()
+}
+
+fn parse_semantic_runtime(value: &str) -> Option<SemanticRuntime> {
+    match value {
+        "deterministic" => Some(SemanticRuntime::Deterministic),
+        "pi-semantic" => Some(SemanticRuntime::PiSemantic),
+        "external-semantic" => Some(SemanticRuntime::ExternalSemantic),
+        _ => None,
+    }
+}
+
+fn semantic_failure_kind_as_str(kind: SemanticFailureKind) -> &'static str {
+    kind.as_str()
+}
+
+fn parse_semantic_failure_kind(value: &str) -> Option<SemanticFailureKind> {
+    match value {
+        "timeout" => Some(SemanticFailureKind::Timeout),
+        "invalid_output" => Some(SemanticFailureKind::InvalidOutput),
+        "budget_exceeded" => Some(SemanticFailureKind::BudgetExceeded),
+        "provider_error" => Some(SemanticFailureKind::ProviderError),
+        "lock_conflict" => Some(SemanticFailureKind::LockConflict),
+        _ => None,
+    }
+}
+
 fn strip_route_rank_suffix(reason: &str) -> String {
     reason
         .split(" | rank=")
@@ -1106,6 +1294,7 @@ mod tests {
             "artifact_task_links",
             "conversation_context_state",
             "segment_routes",
+            "semantic_runtime_provenance",
             "aoc_mem_decisions",
             "ingestion_checkpoints",
         ] {
@@ -1230,6 +1419,57 @@ mod tests {
         assert_eq!(snapshot.signal_task_ids, vec!["101".to_string()]);
         assert_eq!(snapshot.signal_source, "task_summary");
         assert_eq!(db.context_state_count("conv-4").expect("count"), 1);
+    }
+
+    #[test]
+    fn semantic_provenance_roundtrip_preserves_runtime_and_failure_metadata() {
+        let db = MindStore::open_in_memory().expect("open db");
+
+        db.upsert_semantic_provenance(&SemanticProvenance {
+            artifact_id: "obs:1".to_string(),
+            stage: SemanticStage::T1Observer,
+            runtime: SemanticRuntime::PiSemantic,
+            provider_name: Some("pi".to_string()),
+            model_id: Some("small-background".to_string()),
+            prompt_version: "observer.v1".to_string(),
+            input_hash: "in-hash".to_string(),
+            output_hash: Some("out-hash".to_string()),
+            latency_ms: Some(123),
+            attempt_count: 1,
+            fallback_used: false,
+            fallback_reason: None,
+            failure_kind: None,
+            created_at: ts(),
+        })
+        .expect("insert semantic provenance");
+
+        db.upsert_semantic_provenance(&SemanticProvenance {
+            artifact_id: "obs:1".to_string(),
+            stage: SemanticStage::T1Observer,
+            runtime: SemanticRuntime::Deterministic,
+            provider_name: None,
+            model_id: None,
+            prompt_version: "observer.v1".to_string(),
+            input_hash: "in-hash".to_string(),
+            output_hash: None,
+            latency_ms: None,
+            attempt_count: 2,
+            fallback_used: true,
+            fallback_reason: Some("provider timeout".to_string()),
+            failure_kind: Some(SemanticFailureKind::Timeout),
+            created_at: ts(),
+        })
+        .expect("insert fallback provenance");
+
+        let rows = db
+            .semantic_provenance_for_artifact("obs:1")
+            .expect("load provenance");
+
+        assert_eq!(rows.len(), 2);
+        assert_eq!(rows[0].runtime, SemanticRuntime::PiSemantic);
+        assert_eq!(rows[1].runtime, SemanticRuntime::Deterministic);
+        assert!(rows[1].fallback_used);
+        assert_eq!(rows[1].failure_kind, Some(SemanticFailureKind::Timeout));
     }
 
     #[test]
