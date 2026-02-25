@@ -36,6 +36,13 @@ pub enum MindContractError {
     InvalidContextBudget,
     #[error("invalid temporal range: end_ts must be >= start_ts")]
     InvalidTemporalRange,
+    #[error("semantic output invalid: {reason}")]
+    InvalidSemanticOutput { reason: String },
+    #[error("semantic adapter error ({kind}): {message}")]
+    SemanticAdapter {
+        kind: SemanticFailureKind,
+        message: String,
+    },
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
@@ -260,7 +267,7 @@ fn bounded_snippet(
     output.chars().take(max_chars).collect()
 }
 
-fn sha256_hex(bytes: &[u8]) -> String {
+pub fn sha256_hex(bytes: &[u8]) -> String {
     let mut hasher = Sha256::new();
     hasher.update(bytes);
     let digest = hasher.finalize();
@@ -277,6 +284,11 @@ pub fn canonical_json<T: Serialize>(value: &T) -> Result<String, MindContractErr
     let canonical = canonicalize_value(json);
     serde_json::to_string(&canonical)
         .map_err(|err| MindContractError::Serialization(err.to_string()))
+}
+
+pub fn canonical_payload_hash<T: Serialize>(value: &T) -> Result<String, MindContractError> {
+    let rendered = canonical_json(value)?;
+    Ok(sha256_hex(rendered.as_bytes()))
 }
 
 fn canonicalize_value(value: Value) -> Value {
@@ -381,6 +393,342 @@ pub fn build_t2_workstream_batch(
         observation_ids,
         conversation_ids,
     })
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum SemanticRuntimeMode {
+    DeterministicOnly,
+    SemanticWithFallback,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "kebab-case")]
+pub enum SemanticRuntime {
+    Deterministic,
+    PiSemantic,
+    ExternalSemantic,
+}
+
+impl SemanticRuntime {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Deterministic => "deterministic",
+            Self::PiSemantic => "pi-semantic",
+            Self::ExternalSemantic => "external-semantic",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum SemanticStage {
+    T1Observer,
+    T2Reflector,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum SemanticFailureKind {
+    Timeout,
+    InvalidOutput,
+    BudgetExceeded,
+    ProviderError,
+    LockConflict,
+}
+
+impl SemanticFailureKind {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Timeout => "timeout",
+            Self::InvalidOutput => "invalid_output",
+            Self::BudgetExceeded => "budget_exceeded",
+            Self::ProviderError => "provider_error",
+            Self::LockConflict => "lock_conflict",
+        }
+    }
+}
+
+impl std::fmt::Display for SemanticFailureKind {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct SemanticAdapterError {
+    pub kind: SemanticFailureKind,
+    pub message: String,
+}
+
+impl SemanticAdapterError {
+    pub fn new(kind: SemanticFailureKind, message: impl Into<String>) -> Self {
+        Self {
+            kind,
+            message: message.into(),
+        }
+    }
+}
+
+impl From<SemanticAdapterError> for MindContractError {
+    fn from(value: SemanticAdapterError) -> Self {
+        MindContractError::SemanticAdapter {
+            kind: value.kind,
+            message: value.message,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct SemanticModelProfile {
+    pub provider_name: String,
+    pub model_id: String,
+    pub prompt_version: String,
+    pub max_input_tokens: u32,
+    pub max_output_tokens: u32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct SemanticGuardrails {
+    pub timeout_ms: u64,
+    pub max_retries: u8,
+    pub max_budget_tokens: u32,
+    pub max_budget_cost_micros: u64,
+    pub queue_debounce_ms: u64,
+    pub reflector_lease_ttl_ms: u64,
+}
+
+impl Default for SemanticGuardrails {
+    fn default() -> Self {
+        Self {
+            timeout_ms: 8_000,
+            max_retries: 1,
+            max_budget_tokens: 4_096,
+            max_budget_cost_micros: 0,
+            queue_debounce_ms: 250,
+            reflector_lease_ttl_ms: 30_000,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ObserverInput {
+    pub conversation_id: String,
+    pub active_tag: String,
+    pub compact_event_ids: Vec<String>,
+    pub compact_payload_lines: Vec<String>,
+    pub estimated_tokens: u32,
+    pub prompt_version: String,
+    pub input_hash: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+struct ObserverInputCore {
+    pub conversation_id: String,
+    pub active_tag: String,
+    pub compact_event_ids: Vec<String>,
+    pub compact_payload_lines: Vec<String>,
+    pub estimated_tokens: u32,
+    pub prompt_version: String,
+}
+
+impl ObserverInput {
+    pub fn new(
+        conversation_id: impl Into<String>,
+        active_tag: impl Into<String>,
+        mut compact_event_ids: Vec<String>,
+        compact_payload_lines: Vec<String>,
+        estimated_tokens: u32,
+        prompt_version: impl Into<String>,
+    ) -> Result<Self, MindContractError> {
+        compact_event_ids.sort();
+        compact_event_ids.dedup();
+
+        let core = ObserverInputCore {
+            conversation_id: conversation_id.into(),
+            active_tag: active_tag.into(),
+            compact_event_ids,
+            compact_payload_lines,
+            estimated_tokens,
+            prompt_version: prompt_version.into(),
+        };
+        let input_hash = canonical_payload_hash(&core)?;
+
+        Ok(Self {
+            conversation_id: core.conversation_id,
+            active_tag: core.active_tag,
+            compact_event_ids: core.compact_event_ids,
+            compact_payload_lines: core.compact_payload_lines,
+            estimated_tokens: core.estimated_tokens,
+            prompt_version: core.prompt_version,
+            input_hash,
+        })
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ReflectorInput {
+    pub active_tag: String,
+    pub observation_ids: Vec<String>,
+    pub conversation_ids: Vec<String>,
+    pub observation_payload_lines: Vec<String>,
+    pub estimated_tokens: u32,
+    pub prompt_version: String,
+    pub input_hash: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+struct ReflectorInputCore {
+    pub active_tag: String,
+    pub observation_ids: Vec<String>,
+    pub conversation_ids: Vec<String>,
+    pub observation_payload_lines: Vec<String>,
+    pub estimated_tokens: u32,
+    pub prompt_version: String,
+}
+
+impl ReflectorInput {
+    pub fn new(
+        active_tag: impl Into<String>,
+        mut observation_ids: Vec<String>,
+        mut conversation_ids: Vec<String>,
+        observation_payload_lines: Vec<String>,
+        estimated_tokens: u32,
+        prompt_version: impl Into<String>,
+    ) -> Result<Self, MindContractError> {
+        observation_ids.sort();
+        observation_ids.dedup();
+        conversation_ids.sort();
+        conversation_ids.dedup();
+
+        let core = ReflectorInputCore {
+            active_tag: active_tag.into(),
+            observation_ids,
+            conversation_ids,
+            observation_payload_lines,
+            estimated_tokens,
+            prompt_version: prompt_version.into(),
+        };
+        let input_hash = canonical_payload_hash(&core)?;
+
+        Ok(Self {
+            active_tag: core.active_tag,
+            observation_ids: core.observation_ids,
+            conversation_ids: core.conversation_ids,
+            observation_payload_lines: core.observation_payload_lines,
+            estimated_tokens: core.estimated_tokens,
+            prompt_version: core.prompt_version,
+            input_hash,
+        })
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct ObserverOutput {
+    pub summary: String,
+    #[serde(default)]
+    pub key_points: Vec<String>,
+    #[serde(default)]
+    pub citations: Vec<String>,
+}
+
+impl ObserverOutput {
+    pub fn validate(&self) -> Result<(), MindContractError> {
+        if self.summary.trim().is_empty() {
+            return Err(MindContractError::InvalidSemanticOutput {
+                reason: "observer summary must be non-empty".to_string(),
+            });
+        }
+        if self.key_points.iter().any(|point| point.trim().is_empty()) {
+            return Err(MindContractError::InvalidSemanticOutput {
+                reason: "observer key_points cannot contain empty lines".to_string(),
+            });
+        }
+        Ok(())
+    }
+
+    pub fn parse_json(raw: &str) -> Result<Self, MindContractError> {
+        let output = serde_json::from_str::<Self>(raw).map_err(|err| {
+            MindContractError::InvalidSemanticOutput {
+                reason: format!("observer output parse error: {err}"),
+            }
+        })?;
+        output.validate()?;
+        Ok(output)
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct ReflectorOutput {
+    pub reflection: String,
+    #[serde(default)]
+    pub action_items: Vec<String>,
+    #[serde(default)]
+    pub citations: Vec<String>,
+}
+
+impl ReflectorOutput {
+    pub fn validate(&self) -> Result<(), MindContractError> {
+        if self.reflection.trim().is_empty() {
+            return Err(MindContractError::InvalidSemanticOutput {
+                reason: "reflector reflection must be non-empty".to_string(),
+            });
+        }
+        if self.action_items.iter().any(|item| item.trim().is_empty()) {
+            return Err(MindContractError::InvalidSemanticOutput {
+                reason: "reflector action_items cannot contain empty lines".to_string(),
+            });
+        }
+        Ok(())
+    }
+
+    pub fn parse_json(raw: &str) -> Result<Self, MindContractError> {
+        let output = serde_json::from_str::<Self>(raw).map_err(|err| {
+            MindContractError::InvalidSemanticOutput {
+                reason: format!("reflector output parse error: {err}"),
+            }
+        })?;
+        output.validate()?;
+        Ok(output)
+    }
+}
+
+pub trait ObserverAdapter {
+    fn observe_t1(
+        &self,
+        input: &ObserverInput,
+        profile: &SemanticModelProfile,
+        guardrails: &SemanticGuardrails,
+    ) -> Result<ObserverOutput, SemanticAdapterError>;
+}
+
+pub trait ReflectorAdapter {
+    fn reflect_t2(
+        &self,
+        input: &ReflectorInput,
+        profile: &SemanticModelProfile,
+        guardrails: &SemanticGuardrails,
+    ) -> Result<ReflectorOutput, SemanticAdapterError>;
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct SemanticProvenance {
+    pub artifact_id: String,
+    pub stage: SemanticStage,
+    pub runtime: SemanticRuntime,
+    pub provider_name: Option<String>,
+    pub model_id: Option<String>,
+    pub prompt_version: String,
+    pub input_hash: String,
+    pub output_hash: Option<String>,
+    pub latency_ms: Option<u64>,
+    pub attempt_count: u16,
+    pub fallback_used: bool,
+    pub fallback_reason: Option<String>,
+    pub failure_kind: Option<SemanticFailureKind>,
+    pub created_at: DateTime<Utc>,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
@@ -877,5 +1225,61 @@ mod tests {
             ]
         );
         assert!(first.truncated);
+    }
+
+    #[test]
+    fn observer_input_hash_is_stable_for_equivalent_payloads() {
+        let a = ObserverInput::new(
+            "conv-1",
+            "mind",
+            vec!["t0:b".to_string(), "t0:a".to_string()],
+            vec!["user: build contracts".to_string()],
+            42,
+            "prompt.observer.v1",
+        )
+        .expect("observer input");
+
+        let b = ObserverInput::new(
+            "conv-1",
+            "mind",
+            vec!["t0:a".to_string(), "t0:b".to_string(), "t0:a".to_string()],
+            vec!["user: build contracts".to_string()],
+            42,
+            "prompt.observer.v1",
+        )
+        .expect("observer input");
+
+        assert_eq!(a.input_hash, b.input_hash);
+    }
+
+    #[test]
+    fn observer_output_json_parse_rejects_empty_summary() {
+        let err = ObserverOutput::parse_json(r#"{"summary":"   ","key_points":["a"]}"#)
+            .expect_err("empty summary must fail");
+
+        assert!(matches!(
+            err,
+            MindContractError::InvalidSemanticOutput { .. }
+        ));
+    }
+
+    #[test]
+    fn reflector_output_json_parse_accepts_valid_payload() {
+        let output = ReflectorOutput::parse_json(
+            r#"{"reflection":"Ship singleton reflector","action_items":["add lease tests"]}"#,
+        )
+        .expect("valid reflector output");
+
+        assert_eq!(output.reflection, "Ship singleton reflector");
+        assert_eq!(output.action_items, vec!["add lease tests".to_string()]);
+    }
+
+    #[test]
+    fn canonical_payload_hash_matches_sha_of_canonical_json() {
+        let payload = serde_json::json!({"z": 1, "a": {"b": 2, "a": 1}});
+        let rendered = canonical_json(&payload).expect("canonical");
+        let hash = canonical_payload_hash(&payload).expect("hash");
+
+        assert_eq!(hash, sha256_hex(rendered.as_bytes()));
     }
 }

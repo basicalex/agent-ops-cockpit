@@ -1,6 +1,7 @@
 use aoc_core::mind_contracts::{
-    build_t2_workstream_batch, validate_t1_scope, ConversationRole, MindContractError,
-    ObservationRef, T1Batch, T1_PARSER_HARD_CAP_TOKENS, T1_PARSER_TARGET_TOKENS,
+    build_t2_workstream_batch, canonical_payload_hash, validate_t1_scope, ConversationRole,
+    MindContractError, ObservationRef, SemanticProvenance, SemanticRuntime, SemanticStage, T1Batch,
+    T1_PARSER_HARD_CAP_TOKENS, T1_PARSER_TARGET_TOKENS,
 };
 use aoc_storage::{ConversationContextState, MindStore, StorageError, StoredCompactEvent};
 use aoc_task_attribution::{AttributionConfig, AttributionError, TaskAttributionEngine};
@@ -140,6 +141,19 @@ impl DeterministicDistiller {
                 &text,
                 &batch.compact_event_ids,
             )?;
+            persist_deterministic_provenance(
+                store,
+                &artifact_id,
+                SemanticStage::T1Observer,
+                "deterministic.observer.v1",
+                canonical_payload_hash(&(
+                    conversation_id,
+                    &batch.compact_event_ids,
+                    batch.estimated_tokens,
+                ))?,
+                Some(canonical_payload_hash(&text)?),
+                ts,
+            )?;
 
             let active_tag = active_tag_for_ts(&context_states, ts)
                 .unwrap_or_else(|| "global".to_string())
@@ -233,6 +247,15 @@ impl DeterministicDistiller {
                     deterministic_artifact_id("ref", conversation_id, &obs_ids, max_chars as u64);
 
                 store.insert_reflection(&artifact_id, conversation_id, ts, &text, &obs_ids)?;
+                persist_deterministic_provenance(
+                    store,
+                    &artifact_id,
+                    SemanticStage::T2Reflector,
+                    "deterministic.reflector.v1",
+                    canonical_payload_hash(&(conversation_id, &tag, &obs_ids))?,
+                    Some(canonical_payload_hash(&text)?),
+                    ts,
+                )?;
                 created += 1;
             }
         }
@@ -443,6 +466,34 @@ fn hex_prefix(digest: &[u8], bytes: usize) -> String {
     output
 }
 
+fn persist_deterministic_provenance(
+    store: &MindStore,
+    artifact_id: &str,
+    stage: SemanticStage,
+    prompt_version: &str,
+    input_hash: String,
+    output_hash: Option<String>,
+    created_at: chrono::DateTime<chrono::Utc>,
+) -> Result<(), DistillationError> {
+    store.upsert_semantic_provenance(&SemanticProvenance {
+        artifact_id: artifact_id.to_string(),
+        stage,
+        runtime: SemanticRuntime::Deterministic,
+        provider_name: None,
+        model_id: None,
+        prompt_version: prompt_version.to_string(),
+        input_hash,
+        output_hash,
+        latency_ms: None,
+        attempt_count: 1,
+        fallback_used: false,
+        fallback_reason: None,
+        failure_kind: None,
+        created_at,
+    })?;
+    Ok(())
+}
+
 fn role_label(role: ConversationRole) -> &'static str {
     match role {
         ConversationRole::System => "system",
@@ -579,6 +630,13 @@ mod tests {
         assert_eq!(artifacts.len(), 1);
         assert_eq!(artifacts[0].kind, "t1");
         assert_eq!(artifacts[0].trace_ids.len(), 2);
+
+        let provenance = store
+            .semantic_provenance_for_artifact(&artifacts[0].artifact_id)
+            .expect("provenance");
+        assert_eq!(provenance.len(), 1);
+        assert_eq!(provenance[0].runtime, SemanticRuntime::Deterministic);
+        assert_eq!(provenance[0].stage, SemanticStage::T1Observer);
     }
 
     #[test]
@@ -749,6 +807,12 @@ mod tests {
             for trace_id in &reflection.trace_ids {
                 assert!(trace_id.starts_with("obs:"));
             }
+            let provenance = store
+                .semantic_provenance_for_artifact(&reflection.artifact_id)
+                .expect("provenance");
+            assert!(!provenance.is_empty());
+            assert_eq!(provenance[0].stage, SemanticStage::T2Reflector);
+            assert_eq!(provenance[0].runtime, SemanticRuntime::Deterministic);
         }
     }
 
