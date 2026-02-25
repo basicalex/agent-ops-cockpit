@@ -7,19 +7,19 @@ if ! command -v shellcheck >/dev/null 2>&1; then
 fi
 
 files=(
-  bin/aoc-doctor
-  bin/aoc-launch
-  bin/aoc-task
-  bin/tm
-  bin/aoc-tm
-  bin/aoc-sys
-  bin/aoc-taskmaster
-  bin/aoc-test
-  bin/aoc-uninstall
-  bin/aoc-widget
+  bin/*
   install.sh
   install/bootstrap.sh
+  scripts/opencode/*.sh
   yazi/preview.sh
 )
 
-shellcheck -S error -x "${files[@]}"
+# Filter out non-files or directories just in case
+check_files=()
+for f in "${files[@]}"; do
+  if [ -f "$f" ]; then
+    check_files+=("$f")
+  fi
+done
+
+shellcheck -S error -x "${check_files[@]}"

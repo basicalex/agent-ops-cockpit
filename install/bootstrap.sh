@@ -212,12 +212,16 @@ run_fallback_source_install() {
   local archive="$workdir/aoc-src.tar.gz"
   local tag_url="https://github.com/${repo}/archive/refs/tags/${ref}.tar.gz"
   local head_url="https://github.com/${repo}/archive/refs/heads/${ref}.tar.gz"
+  local plain_url="https://github.com/${repo}/archive/${ref}.tar.gz"
   local src_root=""
   local candidate
 
   if ! download_file "$tag_url" "$archive"; then
     warn "Tag archive not found for '$ref'; trying branch archive."
-    download_file "$head_url" "$archive"
+    if ! download_file "$head_url" "$archive"; then
+      warn "Branch archive not found for '$ref'; trying plain ref archive (e.g. SHA)."
+      download_file "$plain_url" "$archive"
+    fi
   fi
 
   tar -xzf "$archive" -C "$workdir"

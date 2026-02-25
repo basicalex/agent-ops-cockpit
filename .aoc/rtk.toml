@@ -1,0 +1,46 @@
+# AOC RTK routing config (project-local, seeded by aoc-init)
+# mode: off|on
+mode = "on"
+fail_open = true
+# gain_mode: double-dash|positional
+gain_mode = "double-dash"
+binary = "rtk"
+allowlist = [
+  "git status",
+  "git diff",
+  "git log",
+  "git show",
+  "git branch",
+  "git rev-parse",
+  "rg",
+  "fd",
+  "ls",
+  "du",
+  "wc",
+  "cat",
+  "head",
+  "tail",
+  "pytest",
+  "cargo test",
+  "npm test",
+  "pnpm test",
+  "bun test",
+]
+denylist = [
+  "git add",
+  "git commit",
+  "git checkout",
+  "git switch",
+  "git merge",
+  "git rebase",
+  "git push",
+  "git reset --hard",
+  "git clean -fd",
+  "rm -rf",
+  "sudo",
+  "ssh",
+  "scp",
+]
+# Install contract: pinned URL + pinned sha256
+install_url = "https://github.com/rtk-ai/rtk/releases/download/v0.22.2/rtk-x86_64-unknown-linux-gnu.tar.gz"
+install_sha256 = "e6122ede16d4bcad2954db0f6a923a29ba6f75caeabdaaa6c8fa9e1d7c826da8"

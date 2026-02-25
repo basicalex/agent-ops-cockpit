@@ -1,0 +1,19 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+agent_id="pi"
+agent_bin="${AOC_PI_BIN:-pi}"
+agent_label="PI Agent (npm)"
+
+if [[ "${AOC_AGENT_RUN:-0}" == "1" ]]; then
+  if [[ -z "${AOC_HANDSHAKE_MODE:-}" ]]; then
+    export AOC_HANDSHAKE_MODE="full"
+  fi
+  exec aoc-agent-wrap "$agent_id" "$agent_bin" "$agent_label" "$@"
+fi
+
+if [[ -n "${ZELLIJ:-}" || -n "${ZELLIJ_SESSION_NAME:-}" ]]; then
+  AOC_LAUNCH_AGENT_ID="$agent_id" aoc-new-tab --aoc --name "$agent_label" "$@"
+else
+  AOC_LAUNCH_AGENT_ID="$agent_id" aoc-launch
+fi

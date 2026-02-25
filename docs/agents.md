@@ -90,7 +90,7 @@ Usage in OpenCode:
 /stm
 ```
 
-This command asks the agent to contextualize current work into `.aoc/stm/current.md`; review that draft with `aoc-stm`, archive it with `aoc-stm archive`, and load archived context any time with `aoc-stm read`.
+This command asks the agent to contextualize current work into `.aoc/stm/current.md`; review that draft with `aoc-stm`, persist and print the handoff with `aoc-stm handoff`, and resume context in a new session with `aoc-stm resume` (or `aoc-stm read`).
 
 `aoc-init` will not overwrite an existing `.opencode/commands/stm.md`.
 

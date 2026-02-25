@@ -23,7 +23,7 @@ Workflow:
 2. Refresh context sources relevant to the target subsystem:
    - `.aoc/context.md`
    - `aoc-mem read`
-   - `aoc-stm read-current` (fallback `aoc-stm read`)
+   - `aoc-stm resume` (fallback `aoc-stm read-current` when no archive exists)
    - `aoc-task list`
 3. Explore target subsystem deeply; use parallel sub-exploration when it improves coverage.
 4. Produce output with exactly these sections:

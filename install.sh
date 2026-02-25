@@ -21,6 +21,7 @@ mkdir -p "${XDG_CONFIG_HOME:-$HOME/.config}/aoc/skills"
 mkdir -p "${XDG_CONFIG_HOME:-$HOME/.config}/aoc/taskmaster/templates"
 mkdir -p "${XDG_CONFIG_HOME:-$HOME/.config}/aoc/agents/opencode"
 mkdir -p "${XDG_CONFIG_HOME:-$HOME/.config}/aoc/commands/opencode"
+mkdir -p "${XDG_CONFIG_HOME:-$HOME/.config}/aoc/opencode"
 mkdir -p "${XDG_CONFIG_HOME:-$HOME/.config}/aoc/skills-optional"
 mkdir -p "${XDG_CONFIG_HOME:-$HOME/.config}/aoc/agents-optional/opencode"
 mkdir -p "${XDG_STATE_HOME:-$HOME/.local/state}/aoc"
@@ -29,6 +30,100 @@ log() { echo ">> $1"; }
 warn() { echo "!! $1"; }
 have() { command -v "$1" >/dev/null 2>&1; }
 have_bat() { have bat || have batcat; }
+is_truthy() {
+  local value="${1:-}"
+  value="$(printf '%s' "$value" | tr '[:upper:]' '[:lower:]')"
+  case "$value" in
+    1|true|yes|on) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+pi_consent_file_path() {
+  printf '%s\n' "${XDG_CONFIG_HOME:-$HOME/.config}/aoc/pi-install-consent"
+}
+
+persist_pi_install_consent() {
+  local consent_file
+  consent_file="$(pi_consent_file_path)"
+  mkdir -p "$(dirname "$consent_file")"
+  printf '%s\n' "I_ACCEPT_PI_UPSTREAM" > "$consent_file"
+  chmod 0600 "$consent_file" 2>/dev/null || true
+}
+
+capture_pi_install_consent() {
+  if [[ "${AOC_PI_INSTALL_CONSENT:-}" == "I_ACCEPT_PI_UPSTREAM" ]]; then
+    persist_pi_install_consent
+    log "Saved PI installer consent at $(pi_consent_file_path)."
+    return
+  fi
+
+  if ! is_truthy "${AOC_PI_CONSENT_PROMPT:-1}"; then
+    return
+  fi
+
+  if [[ ! -t 0 || ! -t 1 ]]; then
+    return
+  fi
+
+  if [[ -f "$(pi_consent_file_path)" ]]; then
+    return
+  fi
+
+  log "PI installer uses upstream scripts and requires explicit consent."
+  printf "Accept PI upstream installer rider now for Alt+C Agent installers? [y/N]: "
+  local answer=""
+  read -r answer || true
+  answer="$(printf '%s' "$answer" | tr '[:upper:]' '[:lower:]')"
+  case "$answer" in
+    y|yes)
+      persist_pi_install_consent
+      log "Saved PI installer consent at $(pi_consent_file_path)."
+      ;;
+    *)
+      log "PI installer consent not saved. You can set AOC_PI_INSTALL_CONSENT=I_ACCEPT_PI_UPSTREAM later."
+      ;;
+  esac
+}
+
+install_omo_if_enabled() {
+  if ! is_truthy "${AOC_INSTALL_OMO:-0}"; then
+    log "Skipping OmO install (set AOC_INSTALL_OMO=1 to enable)."
+    return
+  fi
+
+  local script_path="$ROOT_DIR/scripts/opencode/install-omo.sh"
+  if [[ ! -f "$script_path" ]]; then
+    warn "OmO installer wrapper not found at $script_path"
+    if is_truthy "${AOC_INSTALL_OMO_REQUIRED:-0}"; then
+      exit 1
+    fi
+    return
+  fi
+
+  local profile_name="${AOC_OMO_PROFILE:-sandbox}"
+  local claude="${AOC_OMO_CLAUDE:-no}"
+  local openai="${AOC_OMO_OPENAI:-no}"
+  local gemini="${AOC_OMO_GEMINI:-no}"
+  local copilot="${AOC_OMO_COPILOT:-no}"
+  local opencode_zen="${AOC_OMO_OPENCODE_ZEN:-no}"
+  local zai_coding_plan="${AOC_OMO_ZAI_CODING_PLAN:-no}"
+
+  log "Installing OmO into OpenCode profile '$profile_name'..."
+  if ! bash "$script_path" install \
+    --profile "$profile_name" \
+    --claude "$claude" \
+    --openai "$openai" \
+    --gemini "$gemini" \
+    --copilot "$copilot" \
+    --opencode-zen "$opencode_zen" \
+    --zai-coding-plan "$zai_coding_plan"; then
+    warn "OmO install failed for profile '$profile_name'."
+    if is_truthy "${AOC_INSTALL_OMO_REQUIRED:-0}"; then
+      exit 1
+    fi
+  fi
+}
 
 github_token() {
   if [[ -n "${AOC_GITHUB_TOKEN:-}" ]]; then
@@ -783,6 +878,39 @@ fi
 EOF
   log "Enabled Bash layout shortcuts in $bashrc_file"
 fi
+
+if is_truthy "${AOC_INSTALL_AUTO_INIT:-1}"; then
+  init_target="${AOC_INIT_TARGET:-$PWD}"
+  if [[ -d "$init_target" ]]; then
+    init_bin=""
+    if [[ -x "$BIN_DIR/aoc-init" ]]; then
+      init_bin="$BIN_DIR/aoc-init"
+    elif have aoc-init; then
+      init_bin="$(command -v aoc-init)"
+    elif [[ -x "$ROOT_DIR/bin/aoc-init" ]]; then
+      init_bin="$ROOT_DIR/bin/aoc-init"
+    fi
+
+    if [[ -n "$init_bin" ]]; then
+      log "Running aoc-init in $init_target..."
+      if "$init_bin" "$init_target"; then
+        log "aoc-init completed (RTK config seeded in $init_target/.aoc/rtk.toml)."
+      else
+        warn "aoc-init failed for $init_target. Run 'aoc-init $init_target' manually."
+      fi
+    else
+      warn "aoc-init binary not found after install; run it manually in your project."
+    fi
+  else
+    warn "AOC_INIT_TARGET does not exist: $init_target"
+  fi
+else
+  log "Skipping automatic aoc-init (set AOC_INSTALL_AUTO_INIT=1 to enable)."
+fi
+
+capture_pi_install_consent
+
+install_omo_if_enabled
 
 log "AOC Installed Successfully!"
 log "Run 'aoc' to start."

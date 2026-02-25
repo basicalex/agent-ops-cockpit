@@ -42,6 +42,18 @@ This file defines the always-on rules for agents in this repo. Procedural playbo
 - RTK routing is default-on for new AOC projects (`.aoc/rtk.toml` mode=`on`); existing explicit mode=`off` is preserved.
 - RTK exists to improve context health: allowlisted noisy commands are condensed for better signal density, with fail-open native fallback.
 
+## Low-Token Default Mode
+- Keep responses concise by default; do not print full files or raw logs unless explicitly requested.
+- Start with the smallest viable step; use narrow, path-scoped searches before broad scans.
+- Read files in bounded chunks and avoid rereading unchanged large files.
+- Summarize command/tool output with actionable lines only (key errors, next actions).
+- Run targeted checks/tests first; run full-suite commands only when required.
+- If targeted inspection fails, escalate scope gradually and state why.
+- Use fresh sessions after major milestones or context drift to reduce replay overhead.
+- For narrow diagnostics/Q&A, use at most 3 tool calls before first answer; ask before broader escalation.
+- Do not open/read image binaries unless the user explicitly asks to view/open one now.
+- Use one narrow diagnostic path first; avoid retry spray with variant commands unless first attempt fails.
+
 ## AOC CLI Commands (run via Bash tool - NOT Read tool)
 These commands are in PATH and work without loading any skill:
 
@@ -51,6 +63,8 @@ These commands are in PATH and work without loading any skill:
 
 **Short-Term Memory (STM):**
 - `aoc-stm` - print current draft (shortcut for `aoc-stm read-current`)
+- `aoc-stm handoff` - archive current draft and print handoff snapshot
+- `aoc-stm resume` - print archived handoff snapshot (latest by default)
 - `aoc-stm read` - read latest archived snapshot
 - `aoc-stm archive` - archive current draft
 - `aoc-stm add "note"` - add to current draft
@@ -105,6 +119,28 @@ Note: `aoc-mem`, `aoc-stm`, and `tm` are basic CLI commands (see above) - no ski
 EOF
 }
 
+write_pi_low_token_prompt() {
+  local target_file="$1"
+  cat <<'EOF' > "$target_file"
+# PI Low-Token Mode (AOC Default)
+
+Apply these defaults unless the user asks for higher detail.
+
+- Keep replies concise and actionable (default: <= 8 bullets).
+- Start with direct path guesses before searching. Example: if asked about screenshot tool, check `.pi/extensions/latest-screenshot.ts` first.
+- Avoid broad scans by default. Do NOT run `tm list`, `git status`, or repo-wide `rg` unless the user asks or a targeted check fails.
+- Use the fewest tool calls needed. For simple locate/explain requests, limit to 1-3 focused reads.
+- Hard budget before first answer: at most 3 tool calls unless the first attempt fails.
+- If unresolved after 3 calls, ask before broader escalation.
+- For "does tool X work" checks, do only: (1) read tool file/settings, (2) run the tool once, then report.
+- Read only minimal slices first; avoid rereading unchanged large files.
+- Never dump large raw output. Summarize key lines and include file paths only.
+- Do not read/open image files unless the user explicitly asks to view/open the image now.
+- Run targeted tests/checks first; escalate to full-suite only when required.
+- If you must widen scope, state why in one short line and widen one step at a time.
+EOF
+}
+
 ensure_agents_contract() {
   local agents_file="$1"
 
@@ -141,7 +177,7 @@ Use the AOC tools for context, memory, and tasks in this repo.
 
 - **Context:** `.aoc/context.md` (auto-generated project map)
 - **Memory:** use `aoc-mem read/search/add` via Bash tool (do not edit `.aoc/memory.md` directly)
-- **Short-term memory:** use `aoc-stm` / `aoc-stm read` via Bash tool (do not read `.aoc/stm/current.md` directly)
+- **Short-term memory:** use `aoc-stm` (draft), `aoc-stm handoff` (seal), and `aoc-stm resume`/`aoc-stm read` (resume) via Bash tool (do not read `.aoc/stm/current.md` directly)
 - **Tasks:** use `tm` or `aoc-task` via Bash tool (do not edit `.taskmaster/tasks/tasks.json` directly)
 - **Task PRDs:** tag-level defaults + task-level overrides via `aocPrd` (resolve with `aoc-task tag prd show --tag <tag>` and `aoc-task prd show <id> --tag <tag>`)
 - **RTK routing (default-on for new AOC repos):** allowlisted commands route via RTK in AOC panes; manage with `aoc-rtk status|enable|disable|doctor|install --auto` and `.aoc/rtk.toml`
@@ -347,6 +383,20 @@ EOF
 
   ensure_rtk_config
 
+  # PI default prompt contract
+  local prompts_dir="$aoc_dir/prompts"
+  local pi_low_token_prompt="$prompts_dir/pi-low-token.md"
+  if [[ ! -d "$prompts_dir" ]]; then
+    log "Creating prompts directory ($prompts_dir)..."
+    mkdir -p "$prompts_dir"
+  fi
+  if [[ ! -f "$pi_low_token_prompt" ]]; then
+    log "Seeding PI low-token prompt ($pi_low_token_prompt)..."
+    write_pi_low_token_prompt "$pi_low_token_prompt"
+  else
+    log "PI low-token prompt exists ($pi_low_token_prompt). Preserving."
+  fi
+
   # Context Generation (project-specific, concise, full injection safe)
   local context_file="$aoc_dir/context.md"
   local context_tmp
@@ -522,45 +572,73 @@ setup_skills() {
   local seed_has_skills=0
   local seed_dirs=()
   local skill_list=()
+  local disable_default_seeding=0
+  local seed_toggle="${AOC_INIT_SEED_DEFAULT_SKILLS:-}"
+  local no_seed_file="$skills_dir/.aoc-no-default-seed"
 
-  for candidate in "$aoc_config_dir/skills" "$script_dir/../.aoc/skills"; do
-    if [[ -d "$candidate" ]]; then
-      shopt -s nullglob
-      skill_list=("$candidate"/*/SKILL.md)
-      shopt -u nullglob
-      if ((${#skill_list[@]} > 0)); then
-        seed_dirs+=("$candidate")
-        seed_has_skills=1
+  if [[ -f "$no_seed_file" ]]; then
+    disable_default_seeding=1
+    log "Default skill seeding disabled by marker: .aoc/skills/.aoc-no-default-seed"
+  fi
+
+  if [[ -n "$seed_toggle" ]]; then
+    case "${seed_toggle,,}" in
+      0|false|no|off)
+        disable_default_seeding=1
+        log "Default skill seeding disabled by AOC_INIT_SEED_DEFAULT_SKILLS=$seed_toggle"
+        ;;
+      1|true|yes|on)
+        disable_default_seeding=0
+        log "Default skill seeding enabled by AOC_INIT_SEED_DEFAULT_SKILLS=$seed_toggle"
+        ;;
+      *)
+        warn "Unrecognized AOC_INIT_SEED_DEFAULT_SKILLS='$seed_toggle' (expected true/false); keeping current behavior."
+        ;;
+    esac
+  fi
+
+  if [[ "$disable_default_seeding" != "1" ]]; then
+    for candidate in "$aoc_config_dir/skills" "$script_dir/../.aoc/skills"; do
+      if [[ -d "$candidate" ]]; then
+        shopt -s nullglob
+        skill_list=("$candidate"/*/SKILL.md)
+        shopt -u nullglob
+        if ((${#skill_list[@]} > 0)); then
+          seed_dirs+=("$candidate")
+          seed_has_skills=1
+        fi
       fi
-    fi
-  done
+    done
 
-  if [[ "$seed_has_skills" == "1" ]]; then
-    local copied=0
-    local entry=""
-    for seed_dir in "${seed_dirs[@]}"; do
-      shopt -s nullglob
-      local seed_entries=("$seed_dir"/*)
-      shopt -u nullglob
-      for entry in "${seed_entries[@]}"; do
-        [[ -d "$entry" ]] || continue
-        local name
-        name="$(basename "$entry")"
-        if [[ ! -e "$skills_dir/$name" ]]; then
-          cp -R "$entry" "$skills_dir/$name"
+    if [[ "$seed_has_skills" == "1" ]]; then
+      local copied=0
+      local entry=""
+      for seed_dir in "${seed_dirs[@]}"; do
+        shopt -s nullglob
+        local seed_entries=("$seed_dir"/*)
+        shopt -u nullglob
+        for entry in "${seed_entries[@]}"; do
+          [[ -d "$entry" ]] || continue
+          local name
+          name="$(basename "$entry")"
+          if [[ ! -e "$skills_dir/$name" ]]; then
+            cp -R "$entry" "$skills_dir/$name"
+            copied=1
+          fi
+        done
+        if [[ -f "$seed_dir/manifest.toml" && ! -f "$skills_dir/manifest.toml" ]]; then
+          cp "$seed_dir/manifest.toml" "$skills_dir/manifest.toml"
           copied=1
         fi
       done
-      if [[ -f "$seed_dir/manifest.toml" && ! -f "$skills_dir/manifest.toml" ]]; then
-        cp "$seed_dir/manifest.toml" "$skills_dir/manifest.toml"
-        copied=1
+      if [[ "$copied" == "1" ]]; then
+        log "Seeded AOC skills into .aoc/skills."
       fi
-    done
-    if [[ "$copied" == "1" ]]; then
-      log "Seeded AOC skills into .aoc/skills."
+    else
+      warn "No default skills source found; leaving .aoc/skills as-is."
     fi
   else
-    warn "No default skills source found; leaving .aoc/skills as-is."
+    log "Skipping default skill seeding; preserving curated .aoc/skills."
   fi
 
   upgrade_stm_skill_guidance "$skills_dir"
@@ -588,7 +666,9 @@ upgrade_stm_skill_guidance() {
   if [[ -f "$stm_skill" ]] && (
     grep -Fq 'aoc-stm --last' "$stm_skill" ||
     grep -Fq 'aoc-stm use <archive>' "$stm_skill" ||
-    grep -Fq 'fresh tab/session' "$stm_skill"
+    grep -Fq 'fresh tab/session' "$stm_skill" ||
+    grep -Fq 'aoc-stm handoff` (read current draft, fallback to latest archive)' "$stm_skill" ||
+    ! grep -Fq 'aoc-stm resume' "$stm_skill"
   ); then
     cat <<'EOF' > "$stm_skill"
 ---
@@ -605,6 +685,8 @@ description: Capture and read short-term diary context with aoc-stm.
 - `aoc-stm edit`
 - `aoc-stm` (default read current draft)
 - `aoc-stm read-current`
+- `aoc-stm handoff` (archive current draft and print handoff snapshot)
+- `aoc-stm resume` (read archived handoff snapshot; latest by default)
 - `aoc-stm archive`
 - `aoc-stm read` (read latest archive)
 - `aoc-stm history`
@@ -618,16 +700,16 @@ description: Capture and read short-term diary context with aoc-stm.
 - Next 3-5 concrete steps
 
 ## Guardrails
-- Keep STM as a project diary: work in current draft via `aoc-stm`, then archive frequently with `aoc-stm archive`.
+- Keep STM as a project diary: write/edit in current draft via `aoc-stm`, then seal clean checkpoints with `aoc-stm handoff`.
 - Promote durable decisions to `aoc-mem add`, not STM.
 - Do not edit `tasks.json` directly while preparing handoff state.
 EOF
-    log "Updated stm-ops skill with current-vs-archive STM guidance."
+    log "Updated stm-ops skill with draft-seal-resume STM guidance."
   fi
 
   if [[ -f "$memory_skill" ]] && (
-    grep -Fq '`aoc-mem add "<decision>"`' "$memory_skill" &&
-    ! grep -Fq 'aoc-stm read' "$memory_skill"
+    grep -Fq 'aoc-stm handoff` (read current draft, fallback to latest archive)' "$memory_skill" ||
+    ! grep -Fq 'aoc-stm resume' "$memory_skill"
   ); then
     cat <<'EOF' > "$memory_skill"
 ---
@@ -642,6 +724,8 @@ description: Use aoc-mem to read, search, and record project decisions.
 - `aoc-stm add "<handoff note>"`
 - `aoc-stm edit`
 - `aoc-stm` (read current draft)
+- `aoc-stm handoff` (archive current draft and print handoff snapshot)
+- `aoc-stm resume` (read archived handoff snapshot; latest by default)
 - `aoc-stm archive`
 - `aoc-stm read` (read latest archive)
 - `aoc-stm history`
@@ -662,7 +746,8 @@ EOF
     grep -Fq 'aoc task list' "$workflow_skill" ||
     grep -Fq 'aoc task add' "$workflow_skill" ||
     grep -Fq 'aoc task status' "$workflow_skill" ||
-    ! grep -Fq 'aoc-stm read' "$workflow_skill"
+    grep -Fq 'review current draft with `aoc-stm`' "$workflow_skill" ||
+    ! grep -Fq 'aoc-stm resume' "$workflow_skill"
   ); then
     cat <<'EOF' > "$workflow_skill"
 ---
@@ -683,7 +768,7 @@ Use this when you start a new task or need to re-orient inside a project.
    - Task override: `aoc-task prd show <id> --tag <tag>`
 6. Plan: add or refine tasks with `aoc-task add "<task>"` and set status.
 7. Execute changes and run tests.
-8. If context gets tight, capture state (`aoc-stm add/edit`; in OpenCode you can run `/stm`), review current draft with `aoc-stm`, archive it with `aoc-stm archive`, and use `aoc-stm read` to load archived diary context when needed.
+8. If context gets tight, capture state (`aoc-stm add/edit`; in OpenCode you can run `/stm`), seal a clean checkpoint with `aoc-stm handoff`, and use `aoc-stm resume` (or `aoc-stm read`) to load resumable archived context in a new session.
 9. Update tasks and record decisions: `aoc-task status <id> done`, `aoc-mem add "<decision>"`.
 
 ## Guardrails
@@ -693,12 +778,14 @@ Use this when you start a new task or need to re-orient inside a project.
 - Do not add PRD links to subtasks.
 - Use tag-level PRD defaults with task-level overrides (`aocPrd`), with precedence task -> tag.
 EOF
-    log "Updated aoc-workflow skill with current STM workflow guidance."
+    log "Updated aoc-workflow skill with draft-seal-resume STM guidance."
   fi
 
   if [[ -f "$init_ops_skill" ]] && (
     ! grep -Fq '.aoc/stm/current.md' "$init_ops_skill" ||
-    ! grep -Fq 'OpenCode `/stm` command' "$init_ops_skill"
+    ! grep -Fq 'OpenCode `/stm` command' "$init_ops_skill" ||
+    ! grep -Fq 'aoc-stm handoff' "$init_ops_skill" ||
+    ! grep -Fq 'aoc-stm resume' "$init_ops_skill"
   ); then
     cat <<'EOF' > "$init_ops_skill"
 ---
@@ -721,7 +808,7 @@ description: Initialize or repair AOC context, memory, and tasks safely.
 - Seeds `.aoc/memory.md`
 - Seeds `.aoc/stm/current.md` and `.aoc/stm/archive/` without overwriting existing STM files
 - Ensures PRD directory `.taskmaster/docs/prds/` is available for tag/task links
-- Seeds OpenCode `/stm` command in `.opencode/commands/stm.md` when missing and keeps STM guidance aligned (`aoc-stm` = current draft, `aoc-stm read` = archive)
+- Seeds OpenCode `/stm` command in `.opencode/commands/stm.md` when missing and keeps STM guidance aligned (`aoc-stm` = current draft, `aoc-stm handoff` = seal+print handoff, `aoc-stm resume` = archived resume)
 - Seeds OpenCode `/prd` command in `.opencode/commands/prd.md` when missing
 - Seeds OpenCode teach-mode subagent/commands (`@teach`, `/teach-full`, `/teach-dive`, `/teach-ask`) when missing
 - Syncs skills for existing agent targets
@@ -858,10 +945,14 @@ setup_opencode_commands() {
         if [[ "$(basename "$target_file")" == "stm.md" ]] && (
           grep -Fq 'default `--last`) to archive and continue in a fresh tab/session with STM injected.' "$target_file" ||
           grep -Fq 'then `aoc-stm` to print the latest archived STM context into the transcript.' "$target_file" ||
-          grep -Fq 'then `aoc-stm` to print the latest archived STM context into the terminal transcript.' "$target_file"
+          grep -Fq 'then `aoc-stm` to print the latest archived STM context into the terminal transcript.' "$target_file" ||
+          grep -Fq 'aoc-stm archive` persists this snapshot, and `aoc-stm read` prints the latest archived STM context into the terminal transcript.' "$target_file" ||
+          grep -Fq 'aoc-stm handoff` prints current draft with archive fallback for fast resume.' "$target_file" ||
+          ! grep -Fq 'aoc-stm resume' "$target_file"
         ); then
           python3 - "$target_file" <<'PY'
 from pathlib import Path
+import re
 import sys
 
 path = Path(sys.argv[1])
@@ -871,16 +962,21 @@ legacy_lines = [
     "When finished, remind me I can run `aoc-stm` (default `--last`) to archive and continue in a fresh tab/session with STM injected.",
     "When finished, remind me to run `aoc-stm archive` to persist this snapshot, then `aoc-stm` to print the latest archived STM context into the transcript.",
     "When finished, remind me to run `aoc-stm archive` to persist this snapshot, then `aoc-stm` to print the latest archived STM context into the terminal transcript.",
+    "When finished, remind me that `aoc-stm` reads the current draft, `aoc-stm archive` persists this snapshot, and `aoc-stm read` prints the latest archived STM context into the terminal transcript.",
+    "When finished, remind me that `aoc-stm` reads the current draft, `aoc-stm archive` persists this snapshot, `aoc-stm read` prints the latest archived STM context, and `aoc-stm handoff` prints current draft with archive fallback for fast resume.",
 ]
-new_line = "When finished, remind me that `aoc-stm` reads the current draft, `aoc-stm archive` persists this snapshot, and `aoc-stm read` prints the latest archived STM context into the terminal transcript."
+new_line = "When finished, remind me that `aoc-stm` reads the current draft, `aoc-stm handoff` archives the draft and prints the handoff snapshot, and `aoc-stm resume` (or `aoc-stm read`) loads archived resume context in a new session."
 
 for line in legacy_lines:
     updated = updated.replace(line, new_line)
 
+if "aoc-stm resume" not in updated:
+    updated = re.sub(r"When finished, remind me[^\n]*", new_line, updated, count=1)
+
 if updated != text:
     path.write_text(updated, encoding="utf-8")
 PY
-          log "Updated OpenCode command /stm with current-vs-archive STM guidance."
+          log "Updated OpenCode command /stm with draft-seal-resume STM guidance."
         fi
         log "OpenCode command /$(basename "$seed_file" .md) already present. Preserving."
       fi

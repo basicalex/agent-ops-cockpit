@@ -1,0 +1,2 @@
+# Marker file: when present, aoc-init skips default skill seeding in this repo.
+# Remove this file if you want aoc-init to repopulate built-in skills.

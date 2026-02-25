@@ -107,7 +107,126 @@ if [[ -z "$rtk_ctl" ]]; then
   run_passthrough "$command_name" "$@"
 fi
 
-status_shell="$($rtk_ctl status --shell 2>/dev/null || true)"
+safe_path="$(unshimmed_path "$PATH")"
+
+sanitize_component() {
+  local input="$1"
+  local output
+  output="$(printf '%s' "$input" | tr -c 'A-Za-z0-9._-' '_')"
+  printf '%s' "${output:-unknown}"
+}
+
+status_cache_ttl_raw="${AOC_RTK_STATUS_CACHE_TTL_SECS:-5}"
+status_cache_ttl=5
+if [[ "$status_cache_ttl_raw" =~ ^[0-9]+$ ]]; then
+  status_cache_ttl="$status_cache_ttl_raw"
+fi
+
+cache_root="${XDG_RUNTIME_DIR:-/tmp}/aoc-rtk-status"
+cache_scope="$(sanitize_component "${AOC_SESSION_ID:-nosession}-${AOC_PANE_ID:-nopane}")"
+cache_file="$cache_root/${cache_scope}.shell"
+cache_lock_dir="$cache_root/${cache_scope}.lock"
+
+acquire_status_lock() {
+  local attempts="${AOC_RTK_STATUS_LOCK_ATTEMPTS:-25}"
+  local sleep_secs="${AOC_RTK_STATUS_LOCK_SLEEP_SECS:-0.02}"
+  local attempt=0
+
+  while (( attempt < attempts )); do
+    if mkdir "$cache_lock_dir" 2>/dev/null; then
+      return 0
+    fi
+
+    # If another process refreshed the cache while we waited, skip refresh.
+    if read_cached_status >/dev/null 2>&1; then
+      return 1
+    fi
+
+    sleep "$sleep_secs"
+    attempt=$((attempt + 1))
+  done
+
+  return 1
+}
+
+release_status_lock() {
+  rmdir "$cache_lock_dir" 2>/dev/null || true
+}
+
+read_cached_status() {
+  local now="$(date +%s)"
+  local mtime="0"
+  local cached=""
+  if [[ ! -f "$cache_file" ]]; then
+    return 1
+  fi
+  mtime="$(stat -c %Y "$cache_file" 2>/dev/null || stat -f %m "$cache_file" 2>/dev/null || printf '0')"
+  if [[ ! "$mtime" =~ ^[0-9]+$ ]]; then
+    return 1
+  fi
+  if (( now - mtime > status_cache_ttl )); then
+    return 1
+  fi
+  cached="$(<"$cache_file")"
+  printf '%s' "$cached"
+}
+
+refresh_status() {
+  local status=""
+  status="$(AOC_RTK_BYPASS=1 PATH="$safe_path" "$rtk_ctl" status --shell 2>/dev/null || true)"
+  if [[ -n "$status" ]]; then
+    mkdir -p "$cache_root" 2>/dev/null || true
+    printf '%s\n' "$status" >"$cache_file" 2>/dev/null || true
+  fi
+  printf '%s' "$status"
+}
+
+resolve_status_shell() {
+  local status=""
+
+  status="$(read_cached_status || true)"
+  if [[ -n "$status" ]]; then
+    printf '%s' "$status"
+    return
+  fi
+
+  if acquire_status_lock; then
+    status="$(read_cached_status || true)"
+    if [[ -z "$status" ]]; then
+      status="$(refresh_status || true)"
+    fi
+    release_status_lock
+    printf '%s' "$status"
+    return
+  fi
+
+  # Lock contention path: prefer cached status, else fail-open to passthrough.
+  status="$(read_cached_status || true)"
+  printf '%s' "$status"
+}
+
+status_shell=""
+if [[ "${AOC_RTK_MODE:-}" == "on" && -n "${AOC_RTK_ALLOWLIST:-}" ]]; then
+  status_shell="mode=${AOC_RTK_MODE:-on}
+fail_open=${AOC_RTK_FAIL_OPEN:-1}
+gain_mode=${AOC_RTK_GAIN_MODE:-double-dash}
+binary=${AOC_RTK_BINARY:-rtk}"
+
+  while IFS= read -r line; do
+    [[ -n "$line" ]] || continue
+    status_shell+="
+allow=$line"
+  done <<<"${AOC_RTK_ALLOWLIST:-}"
+
+  while IFS= read -r line; do
+    [[ -n "$line" ]] || continue
+    status_shell+="
+deny=$line"
+  done <<<"${AOC_RTK_DENYLIST:-}"
+else
+  status_shell="$(resolve_status_shell)"
+fi
+
 if [[ -z "$status_shell" ]]; then
   run_passthrough "$command_name" "$@"
 fi
@@ -170,17 +289,27 @@ if ! command -v "$binary" >/dev/null 2>&1; then
   run_passthrough "$command_name" "$@"
 fi
 
+rtk_common_flags=()
+if is_truthy "${AOC_RTK_ULTRA_COMPACT:-0}"; then
+  rtk_common_flags+=(-u)
+fi
+
 resolved_bin=""
 if ! resolved_bin="$(resolve_passthrough_bin "$command_name")"; then
   echo "$command_name: command not found" >&2
   exit 127
 fi
 
-safe_path="$(unshimmed_path "$PATH")"
-
 # Preserve native stdin behavior for heredocs/pipes/process substitution.
+# Optional opt-in allows routing in non-interactive command runners that use
+# non-tty stdin without actual piped/file payloads.
 if [[ ! -t 0 ]]; then
-  exec env AOC_RTK_BYPASS=1 PATH="$safe_path" "$resolved_bin" "$@"
+  if ! is_truthy "${AOC_RTK_ROUTE_NON_TTY_STDIN:-0}"; then
+    exec env AOC_RTK_BYPASS=1 PATH="$safe_path" "$resolved_bin" "$@"
+  fi
+  if [[ -p /dev/stdin || -f /dev/stdin ]]; then
+    exec env AOC_RTK_BYPASS=1 PATH="$safe_path" "$resolved_bin" "$@"
+  fi
 fi
 
 # Prompt/status commands can fire very frequently; keep them native.
@@ -188,16 +317,32 @@ if [[ "$command_name" == "git" && "${1:-}" == "rev-parse" ]]; then
   exec env AOC_RTK_BYPASS=1 PATH="$safe_path" "$resolved_bin" "$@"
 fi
 
+if [[ "$command_name" == "git" && "${1:-}" == "status" ]]; then
+  case "${2:-}" in
+    --porcelain*|--short|-s)
+      exec env AOC_RTK_BYPASS=1 PATH="$safe_path" "$resolved_bin" "$@"
+      ;;
+  esac
+fi
+
+if [[ "$command_name" == "git" && "${1:-}" == "diff" ]]; then
+  case "${2:-}" in
+    --numstat|--shortstat)
+      exec env AOC_RTK_BYPASS=1 PATH="$safe_path" "$resolved_bin" "$@"
+      ;;
+  esac
+fi
+
 effective_gain_mode="${AOC_RTK_GAIN_MODE:-$gain_mode}"
 route_cmd=()
 if "$binary" proxy --help >/dev/null 2>&1; then
   if "$binary" help "$command_name" >/dev/null 2>&1; then
-    route_cmd=("$binary" "$command_name" "$@")
+    route_cmd=("$binary" "${rtk_common_flags[@]}" "$command_name" "$@")
   else
-    route_cmd=("$binary" proxy "$resolved_bin" "$@")
+    route_cmd=("$binary" "${rtk_common_flags[@]}" proxy "$resolved_bin" "$@")
   fi
 else
-  route_cmd=("$binary" gain)
+  route_cmd=("$binary" "${rtk_common_flags[@]}" gain)
   if [[ "$effective_gain_mode" == "positional" ]]; then
     route_cmd+=("$resolved_bin" "$@")
   else

@@ -21,3 +21,4 @@ description: Initialize or repair AOC context, memory, and tasks safely.
 - Seeds OpenCode `/stm` command in `.opencode/commands/stm.md` when missing and keeps STM guidance aligned (`aoc-stm` = current draft, `aoc-stm handoff` = seal+print handoff, `aoc-stm resume` = archived resume)
 - Seeds OpenCode `/prd` command in `.opencode/commands/prd.md` when missing
 - Syncs skills for existing agent targets
+- Seeds default skills unless disabled via `.aoc/skills/.aoc-no-default-seed` or `AOC_INIT_SEED_DEFAULT_SKILLS=false`

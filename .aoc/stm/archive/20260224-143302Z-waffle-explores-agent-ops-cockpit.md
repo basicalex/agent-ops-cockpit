@@ -1,0 +1,11 @@
+- [2026-02-24 05:31] [2026-02-24] Clean handoff: implement Alt+C Settings -> Agent installers modal in aoc-control, parallel to RTK controls.
+- [2026-02-24 05:31] Scope: installer UX for codex, gemini, cc, kimi, oc, omo, and pi; keep Apache-2.0 by fetch/install wrappers only (no bundling third-party binaries).
+- [2026-02-24 05:31] aoc-control changes: add AgentInstallActions mode + list state, key handler, modal render, footer hints, and a new Settings row for Agent installers; bump defaults list count accordingly.
+- [2026-02-24 05:31] Flow: open Agent installers list with per-agent status (installed/missing), then Enter runs install/update action and reports status/error in footer.
+- [2026-02-24 05:31] Add wrapper script bin/aoc-agent-install with subcommands status/install/update <agent>; aoc-control should call this script instead of embedding installer logic.
+- [2026-02-24 05:31] PI policy: include explicit rider warning + consent gate before upstream install command; do not mirror or bundle PI artifacts.
+- [2026-02-24 05:31] Docs after implementation: README.md, docs/configuration.md, docs/installation.md for Agent installers flow and env vars.
+- [2026-02-24 05:31] Validation: cargo check -p aoc-control --manifest-path crates/Cargo.toml; bash -n bin/aoc-agent-install; bash ./scripts/lint.sh; bash ./scripts/smoke.sh (plus installer smoke coverage).
+- [2026-02-24 15:33] [2026-02-24 handoff] Task 108 (mind) is in-progress with subtask 108.1 in-progress. Completed prior: task 106 segment routing and task 107 deterministic T1/T2 runtime.
+- [2026-02-24 15:33] [2026-02-24 handoff] Added and linked task-level PRD override for 108: .taskmaster/docs/prds/task-108_semantic-om-background-layer_prd.md (Zen-only semantic Observer/Reflector scope; Roam/Ouros deferred).
+- [2026-02-24 15:33] [2026-02-24 handoff] Next implementation target: 108.1 define semantic adapter interfaces in aoc-mind (ObserverAdapter/ReflectorAdapter), keep deterministic runtime as fail-open fallback, then proceed to Zen adapter wiring and guardrails.

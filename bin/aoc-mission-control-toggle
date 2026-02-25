@@ -1,26 +1,16 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+source "$(dirname "$0")/aoc-utils.sh"
+
+if [[ "${AOC_SMOKE_TEST:-0}" == "1" ]]; then
+  exit 0
+fi
+
 if [[ -z "${ZELLIJ_SESSION_NAME:-}" ]]; then
   echo "Not running inside a Zellij session." >&2
   exit 1
 fi
-
-generate_whimsical_session_id() {
-  local nouns=(
-    otter badger alpaca ferret penguin walrus narwhal yak koala gecko
-    capybara platypus lemur puffin iguana beaver hedgehog squirrel raccoon
-    aardvark wombat lynx mojito noodle waffle pixel
-  )
-  local verbs=(
-    juggles debugs compiles refactors lints ships rebases squashes syncs
-    profiles benches deploys patches bisects tests tidies wrangles explores
-    orchestrates untangles snapshots autopilots
-  )
-  local noun="${nouns[RANDOM % ${#nouns[@]}]}"
-  local verb="${verbs[RANDOM % ${#verbs[@]}]}"
-  printf '%s-%s' "$noun" "$verb"
-}
 
 pane_name="${AOC_MISSION_CONTROL_PANE_NAME:-Mission Control}"
 width="${AOC_MISSION_CONTROL_WIDTH:-70%}"
@@ -49,13 +39,6 @@ if [[ -z "$session_id" ]]; then
 fi
 mkdir -p "$state_dir"
 
-sanitize_name() {
-  local raw="$1"
-  raw="$(printf '%s' "$raw" | tr '[:upper:]' '[:lower:]')"
-  raw="$(printf '%s' "$raw" | sed -E 's/[^a-z0-9]+/-/g; s/^-+|-+$//g')"
-  printf '%s' "${raw:-tab}"
-}
-
 session_slug="$(sanitize_name "$session_id")"
 pid_file="${AOC_MISSION_CONTROL_PID_FILE:-$state_dir/mission-control-${session_slug}.pid}"
 close_pane_flag="${AOC_MISSION_CONTROL_CLOSE_PANE:-}"
@@ -78,24 +61,10 @@ if [[ -f "$pid_file" ]]; then
   fi
   rm -f "$pid_file"
 fi
+
 hub_addr="${AOC_HUB_ADDR:-}"
 if [[ -z "$hub_addr" ]]; then
-  if command -v python3 >/dev/null 2>&1; then
-    port="$(python3 - <<'PY' "$session_id"
-import sys
-session = sys.argv[1].encode()
-hash_value = 2166136261
-for byte in session:
-    hash_value ^= byte
-    hash_value = (hash_value * 16777619) & 0xFFFFFFFF
-port = 42000 + (hash_value % 2000)
-print(port)
-PY
-)"
-    hub_addr="127.0.0.1:${port}"
-  else
-    hub_addr="127.0.0.1:42000"
-  fi
+  hub_addr="$(resolve_hub_addr "$session_id")"
 fi
 
 mission_cmd="${AOC_MISSION_CONTROL_CMD:-aoc-mission-control}"

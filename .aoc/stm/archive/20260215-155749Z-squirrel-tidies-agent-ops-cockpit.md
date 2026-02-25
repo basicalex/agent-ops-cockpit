@@ -1,0 +1,12 @@
+- [2026-02-15 16:57] HANDOFF: Mermaid renderer integration strategy discussion
+- [2026-02-15 16:57] Objective: evaluate integrating 1jehuang/mermaid-rs-renderer into AOC with minimal risk and strong UX.
+- [2026-02-15 16:57] User requirement captured: Mermaid SVG output directory must be configurable per project; default should be ./renders beside each Mermaid source file.
+- [2026-02-15 16:57] Proposed output-dir precedence: CLI --out-dir > env override > project config > default source-local renders/.
+- [2026-02-15 16:57] Licensing finding: upstream renderer is MIT; combining with AOC Apache-2.0 is generally compatible if attribution notices are preserved.
+- [2026-02-15 16:57] Submodule risk analysis: repo currently has no submodules; CI uses actions/checkout without recursive submodules; bootstrap fallback installs from GitHub source tarballs that omit submodule contents, so submodule-first could break fallback path unless installer logic is expanded.
+- [2026-02-15 16:57] Architecture recommendation: keep Mission Control focused on Pulse overview; extend existing aoc-control TUI into a Tool Manager for device-level optional tools (including mmdr).
+- [2026-02-15 16:57] Phase 1 (recommended first): optional external mmdr binary integration + per-project render config + doctor/install checks + graceful fallback when mmdr missing.
+- [2026-02-15 16:57] Phase 2 (optional later): deeper Rust embedding (crate/git/submodule path) behind feature flags after Phase 1 validates UX and reliability.
+- [2026-02-15 16:57] Current user direction: favorable to control-interface approach where users can opt-in installing mmdr per device rather than forcing hard dependency immediately.
+- [2026-02-15 16:57] Open decision for next session: Tool Manager install scope (user-space only first, or include privileged package-manager flows). Recommendation: user-space first.
+- [2026-02-15 16:57] No code changes were made in this session; this was architecture/strategy planning only.

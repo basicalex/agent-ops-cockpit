@@ -39,12 +39,10 @@ strip_path_dir() {
 
 is_wrapper() {
   local candidate="$1"
-  local head=""
   if [[ ! -f "$candidate" ]]; then
     return 1
   fi
-  head="$(head -n 1 "$candidate" 2>/dev/null || true)"
-  if [[ "$head" == "#!/usr/bin/env bash" ]]; then
+  if LC_ALL=C head -n 1 "$candidate" 2>/dev/null | grep -Fxq "#!/usr/bin/env bash"; then
     if grep -q "aoc-codex" "$candidate" 2>/dev/null; then
       return 0
     fi
