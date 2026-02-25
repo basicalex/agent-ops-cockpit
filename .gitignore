@@ -38,23 +38,54 @@ crates/target/
 
 # Local AOC state
 .opencode/
-/.aoc/*
-!/.aoc/skills/
-!/.aoc/skills/**
-!/.aoc/agents/
-!/.aoc/agents/**
-!/.aoc/skills-optional/
-!/.aoc/skills-optional/**
-!/.aoc/agents-optional/
-!/.aoc/agents-optional/**
-!/.aoc/commands/
-!/.aoc/commands/**
-!/.aoc/layouts/
-!/.aoc/layouts/**
+.pi/
 
 # AOC tracking policy (managed by aoc-init)
 !/.aoc/
 !/.aoc/**
 !/.taskmaster/
 !/.taskmaster/**
+
+# Ignore high-churn runtime artifacts
+/.aoc/logs/
+/.aoc/**/*.log
+/.aoc/*.lock
+/.aoc/**/*.lock
+/.taskmaster/logs/
+/.taskmaster/**/*.log
+/.taskmaster/**/*.lock
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 

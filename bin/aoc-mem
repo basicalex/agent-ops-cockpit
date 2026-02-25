@@ -47,7 +47,11 @@ add_memory() {
   local timestamp
   timestamp="$(date '+%Y-%m-%d %H:%M')"
   setup
-  echo "- [$timestamp] $fact" >> "$mem_file"
+  local lock_file="${mem_file}.lock"
+  (
+    flock -x 9
+    echo "- [$timestamp] $fact" >> "$mem_file"
+  ) 9>> "$lock_file"
   echo "Memory saved."
 }
 

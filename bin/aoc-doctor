@@ -23,6 +23,38 @@ esac
 have() { command -v "$1" >/dev/null 2>&1; }
 have_bat() { have bat || have batcat; }
 
+detect_task_control_backend() {
+  if have aoc-task; then
+    echo "aoc-task"
+    return 0
+  fi
+  if have aoc-cli && aoc-cli task --help >/dev/null 2>&1; then
+    echo "aoc-cli task"
+    return 0
+  fi
+  if have tm && (tm help >/dev/null 2>&1 || tm --help >/dev/null 2>&1); then
+    echo "tm"
+    return 0
+  fi
+  if have aoc-taskmaster-native; then
+    echo "aoc-taskmaster-native"
+    return 0
+  fi
+  if have aoc-taskmaster; then
+    echo "aoc-taskmaster"
+    return 0
+  fi
+  if have task-master; then
+    echo "task-master"
+    return 0
+  fi
+  if have task-master-ai; then
+    echo "task-master-ai"
+    return 0
+  fi
+  return 1
+}
+
 detect_pm() {
   if have apt-get; then echo "apt"; return; fi
   if have dnf; then echo "dnf"; return; fi
@@ -33,6 +65,7 @@ detect_pm() {
 }
 
 pm="$(detect_pm)"
+task_control_backend="$(detect_task_control_backend || true)"
 
 hint_for() {
   local tool="$1"
@@ -72,6 +105,12 @@ hint_for() {
       ;;
     codex)
       echo "Install the Codex CLI and ensure it is in PATH."
+      ;;
+    pi)
+      echo "Install the PI Agent CLI and ensure it is in PATH (or set AOC_PI_BIN)."
+      ;;
+    pi-r)
+      echo "Install the PI Rust CLI and ensure it is in PATH (or set AOC_PIR_BIN)."
       ;;
     chafa)
       case "$pm" in
@@ -144,7 +183,7 @@ hint_for() {
       esac
       ;;
     task-master)
-      echo "Install task-master for npm-based task control (optional if using 'aoc-task')."
+      echo "Install task control backend (task-master) or use built-in 'tm'/'aoc-task'."
       ;;
     python3)
       case "$pm" in
@@ -173,7 +212,7 @@ hint_for() {
 }
 
 required=(zellij yazi fzf codex)
-optional=(tmux chafa ffmpeg rsvg-convert pdftoppm rg bat tectonic task-master python3 git)
+optional=(tmux chafa ffmpeg rsvg-convert pdftoppm rg bat tectonic pi pi-r task-master python3 git)
 
 missing_required=()
 missing_optional=()
@@ -190,10 +229,7 @@ for tool in "${optional[@]}"; do
       missing_optional+=("$tool")
     fi
   elif [[ "$tool" == "task-master" ]]; then
-    if have aoc || have aoc-cli; then
-      continue
-    fi
-    if ! have task-master && ! have task-master-ai; then
+    if [[ -z "$task_control_backend" ]]; then
       missing_optional+=("$tool")
     fi
   elif ! have "$tool"; then
@@ -244,6 +280,13 @@ if [[ "$quiet" -eq 0 ]]; then
         echo "  [ok] bat (via batcat)"
       else
         echo "  [missing] bat"
+        echo "    -> $(hint_for "$tool")"
+      fi
+    elif [[ "$tool" == "task-master" ]]; then
+      if [[ -n "$task_control_backend" ]]; then
+        echo "  [ok] task control (via $task_control_backend)"
+      else
+        echo "  [missing] task control"
         echo "    -> $(hint_for "$tool")"
       fi
     elif have "$tool"; then

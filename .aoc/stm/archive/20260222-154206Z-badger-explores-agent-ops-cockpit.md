@@ -1,0 +1,14 @@
+- [2026-02-22 16:42] ## Session Handoff (OmO integration prep)
+- [2026-02-22 16:42] - Completed planning artifacts for OmO additive integration in AOC with sandbox-first strategy.
+- [2026-02-22 16:42] - Created PRD: .taskmaster/docs/prds/omo-integration_prd_rpg.md (RPG format, full dependency graph + roadmap + risks + test strategy).
+- [2026-02-22 16:42] - Created Taskmaster tag: omo and set it active via tm tag set omo.
+- [2026-02-22 16:42] - Added tasks [91]-[99] under tag omo with dependencies and 4 subtasks each; linked all to PRD path above.
+- [2026-02-22 16:42] - Durable architecture decision recorded: AOC remains context authority (.aoc), Taskmaster remains sole task authority, OmO is additive with loop-heavy/autonomous defaults disabled by default.
+- [2026-02-22 16:42] - Existing critical safety constraint remains in force: do NOT reintroduce wrapper-level setsid for interactive agent launch (prevents raw CSI/mouse leakage).
+- [2026-02-22 16:42] - Recent implementation commits in repo: 06cd708 (wrapper setsid removal), 98dcb3d (telemetry secret redaction).
+- [2026-02-22 16:42] ## Recommended Next Session Start
+- [2026-02-22 16:42] 1) Start task [91] (sandbox profile manager) and implement profile contract + init/resolve helpers.
+- [2026-02-22 16:42] 2) Implement task [92] install wrapper for OmO sandbox profile with provider/plugin merge safety.
+- [2026-02-22 16:42] 3) Then task [93]/[94]/[95] to lock control policy + Taskmaster governance + context pack bridge before installer wiring in [96].
+- [2026-02-22 16:42] ## Acceptance Target
+- [2026-02-22 16:42] - End state: clean machine/profile can run ./install.sh then aoc-init and get policy-correct OmO-enabled AOC setup with Taskmaster/AOC governance intact.

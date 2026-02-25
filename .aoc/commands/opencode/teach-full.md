@@ -19,7 +19,7 @@ Workflow:
 2. Read AOC context sources in this order:
    - `.aoc/context.md`
    - `aoc-mem read`
-   - `aoc-stm read-current` (fallback to `aoc-stm read` when current is empty)
+   - `aoc-stm resume` (fallback to `aoc-stm read-current` when no archive exists)
    - `aoc-task list`
    - `.taskmaster/docs/prd.txt` (fallback `.taskmaster/docs/prd.md`)
 3. Dispatch parallel exploration tracks across these major subsystems:

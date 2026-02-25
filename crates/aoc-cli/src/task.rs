@@ -623,9 +623,41 @@ fn update_state(paths: &TaskPaths, mutator: impl FnOnce(&mut TaskmasterState)) -
         fs::create_dir_all(parent)
             .with_context(|| format!("Failed to create {}", parent.display()))?;
     }
+    let lock_path = match paths.state_path.file_name() {
+        Some(name) => paths
+            .state_path
+            .with_file_name(format!("{}.lock", name.to_string_lossy())),
+        None => paths.state_path.with_extension("lock"),
+    };
+    use fs2::FileExt;
+    let lock_file = std::fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .create(true)
+        .open(&lock_path)
+        .ok();
+    if let Some(f) = &lock_file {
+        let _ = f.lock_exclusive();
+    }
+
     let payload = serde_json::to_string_pretty(&state)?;
-    fs::write(&paths.state_path, payload)
-        .with_context(|| format!("Failed to write {}", paths.state_path.display()))?;
+    let tmp_path = paths.state_path.with_extension("json.tmp");
+    let write_res = fs::write(&tmp_path, payload)
+        .with_context(|| format!("Failed to write temp state file {}", tmp_path.display()));
+
+    let rename_res = if write_res.is_ok() {
+        fs::rename(&tmp_path, &paths.state_path)
+            .with_context(|| format!("Failed to save state file {}", paths.state_path.display()))
+    } else {
+        Ok(())
+    };
+
+    if let Some(f) = lock_file {
+        let _ = f.unlock();
+    }
+
+    write_res?;
+    rename_res?;
     Ok(())
 }
 
@@ -738,10 +770,40 @@ fn write_project_file(paths: &TaskPaths, project: &ProjectData) -> Result<()> {
         fs::create_dir_all(parent)
             .with_context(|| format!("Failed to create {}", parent.display()))?;
     }
+
+    let lock_path = match paths.tasks_path.file_name() {
+        Some(name) => paths
+            .tasks_path
+            .with_file_name(format!("{}.lock", name.to_string_lossy())),
+        None => paths.tasks_path.with_extension("lock"),
+    };
+    use fs2::FileExt;
+    let lock_file = std::fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .create(true)
+        .open(&lock_path)
+        .ok();
+    if let Some(f) = &lock_file {
+        let _ = f.lock_exclusive();
+    }
+
     let payload = serde_json::to_string_pretty(project).context("Failed to serialize tasks")?;
     let tmp_path = paths.tasks_path.with_extension("json.tmp");
-    fs::write(&tmp_path, payload).context("Failed to write temp tasks file")?;
-    fs::rename(&tmp_path, &paths.tasks_path).context("Failed to save tasks file")?;
+    let write_res = fs::write(&tmp_path, payload).context("Failed to write temp tasks file");
+
+    let rename_res = if write_res.is_ok() {
+        fs::rename(&tmp_path, &paths.tasks_path).context("Failed to save tasks file")
+    } else {
+        Ok(())
+    };
+
+    if let Some(f) = lock_file {
+        let _ = f.unlock();
+    }
+
+    write_res?;
+    rename_res?;
     Ok(())
 }
 

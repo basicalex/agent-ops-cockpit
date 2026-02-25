@@ -1,0 +1,339 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+agent_id="omo"
+agent_bin="${AOC_OMO_BIN:-${AOC_OC_BIN:-opencode}}"
+agent_label="OmO (OpenCode)"
+
+usage() {
+  cat <<'EOF'
+Usage: aoc-omo [--profile NAME] [--print-config-dir] [--help] [-- <opencode args...>]
+
+Launch OpenCode in Oh-My-OpenCode mode with isolated profile routing.
+
+Options:
+  --profile NAME       Profile name for OPENCODE_CONFIG_DIR (default: sandbox)
+  --print-config-dir   Print resolved profile path and exit
+  -h, --help           Show this help
+EOF
+}
+
+to_lower() {
+  printf '%s' "$1" | tr '[:upper:]' '[:lower:]'
+}
+
+is_truthy() {
+  local value="${1:-}"
+  value="$(to_lower "$value")"
+  case "$value" in
+    1|true|yes|on)
+      return 0
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+}
+
+die() {
+  echo "Error: $*" >&2
+  exit 1
+}
+
+is_valid_profile_name() {
+  local name="$1"
+  [[ "$name" =~ ^[a-z0-9][a-z0-9._-]*$ ]] || return 1
+  [[ "$name" != "." && "$name" != ".." ]]
+}
+
+fallback_profile_path() {
+  local profile_name="$1"
+  local config_home="${XDG_CONFIG_HOME:-$HOME/.config}"
+
+  case "$profile_name" in
+    main|default)
+      printf '%s/opencode' "$config_home"
+      ;;
+    sandbox)
+      printf '%s/aoc/opencode/profiles/sandbox' "$config_home"
+      ;;
+    *)
+      if ! is_valid_profile_name "$profile_name"; then
+        die "invalid profile name: $profile_name"
+      fi
+      printf '%s/aoc/opencode/profiles/%s' "$config_home" "$profile_name"
+      ;;
+  esac
+}
+
+resolve_profile_tool() {
+  local script_dir=""
+  script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+  if command -v aoc-opencode-profile >/dev/null 2>&1; then
+    command -v aoc-opencode-profile
+    return
+  fi
+  if [[ -x "$script_dir/aoc-opencode-profile" ]]; then
+    printf '%s' "$script_dir/aoc-opencode-profile"
+    return
+  fi
+}
+
+resolve_config_dir() {
+  local profile_name="$1"
+  local profile_tool=""
+  local resolved=""
+
+  if [[ -n "${AOC_OMO_CONFIG_DIR:-}" ]]; then
+    printf '%s' "$AOC_OMO_CONFIG_DIR"
+    return
+  fi
+
+  profile_tool="$(resolve_profile_tool || true)"
+  if [[ -n "$profile_tool" ]]; then
+    resolved="$($profile_tool init "$profile_name" 2>/dev/null || true)"
+    if [[ -z "$resolved" ]]; then
+      resolved="$($profile_tool resolve "$profile_name" 2>/dev/null || true)"
+    fi
+  fi
+
+  if [[ -z "$resolved" ]]; then
+    resolved="$(fallback_profile_path "$profile_name")"
+    mkdir -p "$resolved"
+    if [[ ! -f "$resolved/opencode.json" ]]; then
+      printf '{}\n' > "$resolved/opencode.json"
+    fi
+  fi
+
+  printf '%s' "$resolved"
+}
+
+resolve_install_script() {
+  local script_dir=""
+  script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+  if [[ -n "${AOC_OMO_INSTALL_SCRIPT:-}" && -f "${AOC_OMO_INSTALL_SCRIPT}" ]]; then
+    printf '%s' "$AOC_OMO_INSTALL_SCRIPT"
+    return
+  fi
+
+  if [[ -n "${AOC_PROJECT_ROOT:-}" && -f "${AOC_PROJECT_ROOT}/scripts/opencode/install-omo.sh" ]]; then
+    printf '%s' "${AOC_PROJECT_ROOT}/scripts/opencode/install-omo.sh"
+    return
+  fi
+
+  if [[ -f "$script_dir/../scripts/opencode/install-omo.sh" ]]; then
+    printf '%s' "$script_dir/../scripts/opencode/install-omo.sh"
+    return
+  fi
+
+  if [[ -f "$HOME/dev/agent-ops-cockpit/scripts/opencode/install-omo.sh" ]]; then
+    printf '%s' "$HOME/dev/agent-ops-cockpit/scripts/opencode/install-omo.sh"
+    return
+  fi
+}
+
+resolve_policy_source() {
+  local script_dir=""
+  script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+  if [[ -n "${AOC_OMO_POLICY_SOURCE:-}" && -f "${AOC_OMO_POLICY_SOURCE}" ]]; then
+    printf '%s' "$AOC_OMO_POLICY_SOURCE"
+    return
+  fi
+
+  if [[ -n "${AOC_PROJECT_ROOT:-}" && -f "${AOC_PROJECT_ROOT}/config/opencode/oh-my-opencode.policy.jsonc" ]]; then
+    printf '%s' "${AOC_PROJECT_ROOT}/config/opencode/oh-my-opencode.policy.jsonc"
+    return
+  fi
+
+  if [[ -f "$script_dir/../config/opencode/oh-my-opencode.policy.jsonc" ]]; then
+    printf '%s' "$script_dir/../config/opencode/oh-my-opencode.policy.jsonc"
+    return
+  fi
+
+  if [[ -f "$HOME/dev/agent-ops-cockpit/config/opencode/oh-my-opencode.policy.jsonc" ]]; then
+    printf '%s' "$HOME/dev/agent-ops-cockpit/config/opencode/oh-my-opencode.policy.jsonc"
+    return
+  fi
+}
+
+resolve_main_profile_dir() {
+  local profile_tool=""
+  profile_tool="$(resolve_profile_tool || true)"
+  if [[ -n "$profile_tool" ]]; then
+    "$profile_tool" resolve main 2>/dev/null || true
+    return
+  fi
+
+  local config_home="${XDG_CONFIG_HOME:-$HOME/.config}"
+  printf '%s/opencode' "$config_home"
+}
+
+seed_provider_from_main_if_missing() {
+  local profile_dir="$1"
+  local profile_json="$profile_dir/opencode.json"
+  local main_dir=""
+  local main_json=""
+
+  main_dir="$(resolve_main_profile_dir)"
+  main_json="$main_dir/opencode.json"
+
+  [[ -f "$profile_json" ]] || return
+  [[ -f "$main_json" ]] || return
+
+  python3 - "$profile_json" "$main_json" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+profile_path = Path(sys.argv[1])
+main_path = Path(sys.argv[2])
+
+def load(path: Path) -> dict:
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+    return data if isinstance(data, dict) else {}
+
+profile = load(profile_path)
+main = load(main_path)
+
+if not profile:
+    profile = {}
+
+has_provider = "provider" in profile or "providers" in profile
+if has_provider:
+    raise SystemExit(0)
+
+changed = False
+if "provider" in main:
+    profile["provider"] = main["provider"]
+    changed = True
+if "providers" in main:
+    profile["providers"] = main["providers"]
+    changed = True
+
+if changed:
+    profile_path.write_text(json.dumps(profile, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+PY
+}
+
+seed_policy_if_missing() {
+  local profile_dir="$1"
+  local policy_source=""
+  local policy_dst=""
+
+  policy_dst="$profile_dir/oh-my-opencode.jsonc"
+  if [[ -f "$policy_dst" || -f "$profile_dir/oh-my-opencode.json" ]]; then
+    return
+  fi
+
+  policy_source="$(resolve_policy_source || true)"
+  if [[ -z "$policy_source" ]]; then
+    return
+  fi
+
+  cp "$policy_source" "$policy_dst"
+}
+
+ensure_omo_profile_ready() {
+  local profile_name="$1"
+  local profile_dir="$2"
+  local install_script=""
+  local claude="${AOC_OMO_CLAUDE:-no}"
+  local openai="${AOC_OMO_OPENAI:-no}"
+  local gemini="${AOC_OMO_GEMINI:-no}"
+  local copilot="${AOC_OMO_COPILOT:-no}"
+  local opencode_zen="${AOC_OMO_OPENCODE_ZEN:-no}"
+  local zai_coding_plan="${AOC_OMO_ZAI_CODING_PLAN:-no}"
+
+  if ! is_truthy "${AOC_OMO_AUTO_INSTALL:-1}"; then
+    return
+  fi
+
+  install_script="$(resolve_install_script || true)"
+  if [[ -z "$install_script" ]]; then
+    return
+  fi
+
+  seed_provider_from_main_if_missing "$profile_dir"
+
+  if bash "$install_script" verify --profile "$profile_name" >/dev/null 2>&1; then
+    return
+  fi
+
+  seed_policy_if_missing "$profile_dir"
+  echo "OmO profile '$profile_name' is not ready. Running bootstrap install..." >&2
+  if ! bash "$install_script" install \
+    --profile "$profile_name" \
+    --claude "$claude" \
+    --openai "$openai" \
+    --gemini "$gemini" \
+    --copilot "$copilot" \
+    --opencode-zen "$opencode_zen" \
+    --zai-coding-plan "$zai_coding_plan"; then
+    die "OmO bootstrap install failed for profile '$profile_name'"
+  fi
+
+  if ! bash "$install_script" verify --profile "$profile_name" >/dev/null 2>&1; then
+    die "OmO profile '$profile_name' is still unhealthy after bootstrap"
+  fi
+
+  seed_provider_from_main_if_missing "$profile_dir"
+}
+
+profile_name="${AOC_OMO_PROFILE:-sandbox}"
+print_config_dir=0
+pass_args=()
+
+while (($# > 0)); do
+  case "$1" in
+    --profile)
+      [[ $# -ge 2 ]] || die "--profile requires a value"
+      profile_name="$2"
+      shift 2
+      ;;
+    --print-config-dir)
+      print_config_dir=1
+      shift
+      ;;
+    -h|--help)
+      usage
+      exit 0
+      ;;
+    --)
+      shift
+      pass_args+=("$@")
+      break
+      ;;
+    *)
+      pass_args+=("$1")
+      shift
+      ;;
+  esac
+done
+
+profile_name="$(to_lower "$profile_name")"
+profile_dir="$(resolve_config_dir "$profile_name")"
+
+if ((print_config_dir == 1)); then
+  printf '%s\n' "$profile_dir"
+  exit 0
+fi
+
+if [[ "${AOC_SMOKE_TEST:-0}" == "1" ]]; then
+  exit 0
+fi
+
+if [[ "${AOC_AGENT_RUN:-0}" == "1" ]]; then
+  ensure_omo_profile_ready "$profile_name" "$profile_dir"
+  OPENCODE_CONFIG_DIR="$profile_dir" exec aoc-agent-wrap "$agent_id" "$agent_bin" "$agent_label" "${pass_args[@]}"
+fi
+
+if [[ -n "${ZELLIJ:-}" || -n "${ZELLIJ_SESSION_NAME:-}" ]]; then
+  AOC_CLEANUP=0 AOC_LAUNCH_AGENT_ID="$agent_id" AOC_OMO_PROFILE="$profile_name" aoc-new-tab --aoc --name "$agent_label" "${pass_args[@]}"
+else
+  AOC_CLEANUP=0 AOC_LAUNCH_AGENT_ID="$agent_id" AOC_OMO_PROFILE="$profile_name" aoc-launch
+fi

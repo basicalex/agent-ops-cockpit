@@ -5,7 +5,7 @@
 **Agent Ops Cockpit (AOC)** is a highly specialized, terminal-first workspace configuration designed to optimize coding sessions with AI agents. It leverages **Zellij** as the terminal multiplexer to create a "cockpit" layout that integrates:
 
 *   **File Management:** `yazi` (left pane)
-*   **AI Agent Interaction:** A dedicated pane for agents like `codex`, `gemini`, `claude`, and `opencode` (center top).
+*   **AI Agent Interaction:** A dedicated pane for agents like `codex`, `gemini`, `claude`, `opencode`, and `pi` (center top).
 *   **Task Management:** A custom "Taskmaster" tool (center bottom).
 *   **Widgets:** Calendar, clock, media, and system stats (right column).
 *   **Project Terminal:** A standard shell pane rooted in the project directory (right bottom).

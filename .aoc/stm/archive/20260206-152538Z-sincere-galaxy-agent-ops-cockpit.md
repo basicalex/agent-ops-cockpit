@@ -1,0 +1,12 @@
+- [2026-02-06 16:25] Priority: AOC Pulse polish and UX hardening is next.
+- [2026-02-06 16:25] Layout state: default AOC right column is AOC Pulse (top) + Terminal (bottom); Widget/Clock path removed.
+- [2026-02-06 16:25] Runtime wiring: aoc-launch and aoc-new-tab inject AOC_SESSION_ID, AOC_PANE_ID, AOC_PROJECT_ROOT, AOC_HUB_ADDR, AOC_HUB_URL into panes.
+- [2026-02-06 16:25] Hub startup fix landed: removed duplicate --session/--addr when calling aoc-hub wrapper; resolves hub start failure and pulse connection-refused spam.
+- [2026-02-06 16:25] Identity model: telemetry agent_id is session_id::pane_id; human agent label remains metadata only to avoid cross-tab collisions.
+- [2026-02-06 16:25] Pulse behavior: hub-preferred data path (agent_status/heartbeat/task_summary/diff_summary) with local fallback collectors when hub unavailable.
+- [2026-02-06 16:25] No-thought-parsing constraint preserved: pulse and wrappers do not parse model thought/internal streams.
+- [2026-02-06 16:25] OpenCode compatibility: aoc-agent-wrap-rs now defaults PTY off (AOC_AGENT_PTY=0) and uses inherited stdio in non-pty mode to prevent startup deadlock/capability collisions.
+- [2026-02-06 16:25] Context injection verification: wrapper handshake is visible; model-level injection confirmed via OPENCODE_CONFIG_CONTENT canary (CFG_CANARY_31B observed in response).
+- [2026-02-06 16:25] Main polish targets: (1) task root discovery edge cases in Work mode from nested cwd, (2) clearer overview labels/age/source, (3) health panel signal quality for last test/lint/build markers, (4) smoother hub<->fallback source transitions.
+- [2026-02-06 16:25] Validation checklist for next session: cargo check workspace + touched crates; verify layout has no Clock/Widget references; smoke no-hub fallback + hub mode + multi-tab same-label identity separation.
+- [2026-02-06 16:25] Taskmaster status: mission-control task 49 updated with implementation evidence; continue under mission-control tag for polish pass.

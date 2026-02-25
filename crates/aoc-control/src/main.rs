@@ -58,6 +58,7 @@ enum Mode {
     ThemeCustoms,
     ThemeActions,
     RtkActions,
+    AgentInstallActions,
     Help,
 }
 
@@ -107,6 +108,13 @@ struct RtkStatus {
     allow_count: usize,
 }
 
+#[derive(Clone, Debug)]
+struct AgentInstallEntry {
+    id: String,
+    label: String,
+    installed: bool,
+}
+
 impl Default for RtkStatus {
     fn default() -> Self {
         Self {
@@ -138,9 +146,11 @@ struct App {
     theme_customs_state: ListState,
     theme_actions_state: ListState,
     rtk_actions_state: ListState,
+    agent_install_actions_state: ListState,
     default_layout: String,
     default_agent: String,
     rtk_status: RtkStatus,
+    agent_install_entries: Vec<AgentInstallEntry>,
     config: AocConfig,
     config_path: PathBuf,
     projects_base: PathBuf,
@@ -183,11 +193,13 @@ impl App {
             theme_customs_state: ListState::default(),
             theme_actions_state: ListState::default(),
             rtk_actions_state: ListState::default(),
+            agent_install_actions_state: ListState::default(),
             default_layout: read_default(&layout_default_path())
                 .unwrap_or_else(|| "aoc".to_string()),
             default_agent: read_default(&agent_default_path())
                 .unwrap_or_else(|| "codex".to_string()),
             rtk_status: RtkStatus::default(),
+            agent_install_entries: Vec::new(),
             config,
             config_path,
             projects_base,
@@ -208,12 +220,13 @@ impl App {
         };
         app.apply_project_filter();
         app.refresh_rtk_status_quiet();
+        app.refresh_agent_install_statuses_quiet();
         app.ensure_selections();
         Ok(app)
     }
 
     fn ensure_selections(&mut self) {
-        ensure_selection(&mut self.defaults_state, 5);
+        ensure_selection(&mut self.defaults_state, 6);
         ensure_selection(&mut self.projects_state, self.filtered_projects.len());
         ensure_selection(&mut self.sessions_state, 4);
         ensure_selection(&mut self.layout_picker_state, layout_options().len());
@@ -226,6 +239,10 @@ impl App {
         ensure_selection(&mut self.theme_customs_state, self.theme_customs.len());
         ensure_selection(&mut self.theme_actions_state, self.theme_actions.len());
         ensure_selection(&mut self.rtk_actions_state, rtk_action_options().len());
+        ensure_selection(
+            &mut self.agent_install_actions_state,
+            self.agent_install_entries.len(),
+        );
     }
 
     fn set_status<S: Into<String>>(&mut self, message: S) {
@@ -325,13 +342,15 @@ impl App {
 
     fn open_project(&mut self, path: PathBuf) {
         if self.in_zellij {
-            if let Err(err) = run_open_in_zellij(&path, &self.session_overrides) {
+            if let Err(err) =
+                run_open_in_zellij(&path, &self.session_overrides, &self.default_agent)
+            {
                 self.set_status(format!("Failed to open tab: {err}"));
             } else {
                 self.set_status(format!("Opened {}", path.to_string_lossy()));
             }
         } else {
-            let envs = build_env_overrides(&self.session_overrides);
+            let envs = build_env_overrides(&self.session_overrides, &self.default_agent);
             self.pending_launch = Some(PendingLaunch {
                 cwd: path,
                 env_overrides: envs,
@@ -343,13 +362,14 @@ impl App {
     fn launch_session(&mut self) {
         let cwd = env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
         if self.in_zellij {
-            if let Err(err) = run_open_in_zellij(&cwd, &self.session_overrides) {
+            if let Err(err) = run_open_in_zellij(&cwd, &self.session_overrides, &self.default_agent)
+            {
                 self.set_status(format!("Failed to open tab: {err}"));
             } else {
                 self.set_status("Opened new tab".to_string());
             }
         } else {
-            let envs = build_env_overrides(&self.session_overrides);
+            let envs = build_env_overrides(&self.session_overrides, &self.default_agent);
             self.pending_launch = Some(PendingLaunch {
                 cwd,
                 env_overrides: envs,
@@ -557,6 +577,42 @@ impl App {
         self.mode = Mode::RtkActions;
     }
 
+    fn refresh_agent_install_statuses_quiet(&mut self) {
+        self.agent_install_entries = load_agent_install_entries();
+    }
+
+    fn refresh_agent_install_statuses(&mut self) {
+        self.refresh_agent_install_statuses_quiet();
+        self.set_status(format!(
+            "Agent installers: {}",
+            agent_install_summary(&self.agent_install_entries)
+        ));
+    }
+
+    fn open_agent_install_actions(&mut self) {
+        self.refresh_agent_install_statuses_quiet();
+        ensure_selection(
+            &mut self.agent_install_actions_state,
+            self.agent_install_entries.len(),
+        );
+        self.mode = Mode::AgentInstallActions;
+    }
+
+    fn run_selected_agent_install_action(&mut self) {
+        let index = self.agent_install_actions_state.selected().unwrap_or(0);
+        let Some(entry) = self.agent_install_entries.get(index).cloned() else {
+            return;
+        };
+        let action = if entry.installed { "update" } else { "install" };
+        match run_agent_install_command(action, &entry.id) {
+            Ok(message) => {
+                self.set_status(message);
+                self.refresh_agent_install_statuses_quiet();
+            }
+            Err(err) => self.set_status(format!("{} {} failed: {err}", entry.label, action)),
+        }
+    }
+
     fn run_selected_rtk_action(&mut self) {
         match self.rtk_actions_state.selected().unwrap_or(0) {
             0 => self.refresh_rtk_status(),
@@ -652,6 +708,7 @@ fn handle_key(app: &mut App, key: KeyEvent) {
         Mode::ThemeCustoms => handle_key_theme_customs(app, key),
         Mode::ThemeActions => handle_key_theme_actions(app, key),
         Mode::RtkActions => handle_key_rtk_actions(app, key),
+        Mode::AgentInstallActions => handle_key_agent_install_actions(app, key),
         Mode::Help => handle_key_help(app, key),
     }
 }
@@ -907,6 +964,23 @@ fn handle_key_rtk_actions(app: &mut App, key: KeyEvent) {
     }
 }
 
+fn handle_key_agent_install_actions(app: &mut App, key: KeyEvent) {
+    match key.code {
+        KeyCode::Esc => app.mode = Mode::Normal,
+        KeyCode::Char('j') | KeyCode::Down => list_next_state(
+            &mut app.agent_install_actions_state,
+            app.agent_install_entries.len(),
+        ),
+        KeyCode::Char('k') | KeyCode::Up => list_prev_state(
+            &mut app.agent_install_actions_state,
+            app.agent_install_entries.len(),
+        ),
+        KeyCode::Char('r') => app.refresh_agent_install_statuses(),
+        KeyCode::Enter => app.run_selected_agent_install_action(),
+        _ => {}
+    }
+}
+
 fn handle_key_help(app: &mut App, key: KeyEvent) {
     match key.code {
         KeyCode::Esc | KeyCode::Char('?') => app.mode = Mode::Normal,
@@ -927,7 +1001,7 @@ fn cycle_tab(app: &mut App, forward: bool) {
 
 fn list_next(app: &mut App) {
     match app.active_tab {
-        Tab::Defaults => list_next_state(&mut app.defaults_state, 5),
+        Tab::Defaults => list_next_state(&mut app.defaults_state, 6),
         Tab::Projects => list_next_state(&mut app.projects_state, app.filtered_projects.len()),
         Tab::Sessions => list_next_state(&mut app.sessions_state, 4),
     }
@@ -935,7 +1009,7 @@ fn list_next(app: &mut App) {
 
 fn list_prev(app: &mut App) {
     match app.active_tab {
-        Tab::Defaults => list_prev_state(&mut app.defaults_state, 5),
+        Tab::Defaults => list_prev_state(&mut app.defaults_state, 6),
         Tab::Projects => list_prev_state(&mut app.projects_state, app.filtered_projects.len()),
         Tab::Sessions => list_prev_state(&mut app.sessions_state, 4),
     }
@@ -959,7 +1033,8 @@ fn activate_selection(app: &mut App) {
                 Mode::EditProjectsBase,
                 app.projects_base.to_string_lossy().to_string(),
             ),
-            4 => app.open_rtk_actions(),
+            4 => app.open_agent_install_actions(),
+            5 => app.open_rtk_actions(),
             _ => {}
         },
         Tab::Projects => {
@@ -1051,6 +1126,10 @@ fn draw_defaults(frame: &mut ratatui::Frame, area: Rect, app: &mut App, focused:
         ListItem::new(format!(
             "Projects base: {}",
             app.projects_base.to_string_lossy()
+        )),
+        ListItem::new(format!(
+            "Agent installers: {}",
+            agent_install_summary(&app.agent_install_entries)
         )),
         ListItem::new(format!("RTK routing: {}", rtk_summary(&app.rtk_status))),
     ];
@@ -1305,6 +1384,33 @@ fn draw_modal(frame: &mut ratatui::Frame, app: &mut App) {
                 .highlight_symbol("> ");
             frame.render_stateful_widget(list, area, &mut app.rtk_actions_state);
         }
+        Mode::AgentInstallActions => {
+            let items: Vec<ListItem> = app
+                .agent_install_entries
+                .iter()
+                .map(|entry| {
+                    let status = if entry.installed {
+                        "installed"
+                    } else {
+                        "missing"
+                    };
+                    let action = if entry.installed { "update" } else { "install" };
+                    ListItem::new(format!("{} ({status})  Enter: {action}", entry.label))
+                })
+                .collect();
+            let list = List::new(items)
+                .block(Block::default().borders(Borders::ALL).title(format!(
+                    "Agent Installers ({})",
+                    agent_install_summary(&app.agent_install_entries)
+                )))
+                .highlight_style(
+                    Style::default()
+                        .fg(Color::Cyan)
+                        .add_modifier(Modifier::BOLD),
+                )
+                .highlight_symbol("> ");
+            frame.render_stateful_widget(list, area, &mut app.agent_install_actions_state);
+        }
         Mode::Help => draw_help_modal(frame, area),
         Mode::Normal => {}
     }
@@ -1331,8 +1437,9 @@ fn draw_help_modal(frame: &mut ratatui::Frame, area: Rect) {
         Line::from("  q                  quit"),
         Line::from(""),
         Line::from("Settings:"),
-        Line::from("  Enter  change layout/agent/theme/base"),
+        Line::from("  Enter  change layout/agent/theme/base/installers"),
         Line::from("  t      open theme manager"),
+        Line::from("  Enter on Agent installers  open install/update actions"),
         Line::from("  Enter on RTK routing  open RTK setup/actions"),
         Line::from(""),
         Line::from("Projects:"),
@@ -1437,10 +1544,18 @@ fn footer_lines(app: &App) -> Vec<Line<'_>> {
             keycap("Esc"),
             Span::raw(" close"),
         ],
+        Mode::AgentInstallActions => vec![
+            keycap("Enter"),
+            Span::raw(" install/update  "),
+            keycap("r"),
+            Span::raw(" refresh  "),
+            keycap("Esc"),
+            Span::raw(" close"),
+        ],
         Mode::Normal => match app.active_tab {
             Tab::Defaults => vec![
                 keycap("Enter"),
-                Span::raw(" adjust settings/RTK  "),
+                Span::raw(" settings/installers/RTK  "),
                 keycap("t"),
                 Span::raw(" theme manager"),
             ],
@@ -1600,6 +1715,27 @@ fn rtk_action_options() -> Vec<String> {
         "Run doctor".to_string(),
         "Back".to_string(),
     ]
+}
+
+fn agent_install_targets() -> Vec<(&'static str, &'static str)> {
+    vec![
+        ("codex", "Codex"),
+        ("gemini", "Gemini"),
+        ("cc", "Claude Code"),
+        ("kimi", "Kimi"),
+        ("oc", "OpenCode"),
+        ("omo", "OmO"),
+        ("pi", "PI Agent (npm)"),
+        ("pi-r", "PI Agent (Rust)"),
+    ]
+}
+
+fn agent_install_summary(entries: &[AgentInstallEntry]) -> String {
+    if entries.is_empty() {
+        return "0/0 installed".to_string();
+    }
+    let installed = entries.iter().filter(|entry| entry.installed).count();
+    format!("{installed}/{} installed", entries.len())
 }
 
 fn rtk_summary(status: &RtkStatus) -> String {
@@ -1791,6 +1927,65 @@ fn run_rtk_command(args: &[&str]) -> io::Result<String> {
         .find(|line| !line.trim().is_empty())
         .or_else(|| stderr.lines().find(|line| !line.trim().is_empty()))
         .unwrap_or("RTK action completed")
+        .trim()
+        .to_string();
+    Ok(first_line)
+}
+
+fn load_agent_install_entries() -> Vec<AgentInstallEntry> {
+    let mut entries = Vec::new();
+    for (id, label) in agent_install_targets() {
+        let installed = load_agent_install_status(id).unwrap_or(false);
+        entries.push(AgentInstallEntry {
+            id: id.to_string(),
+            label: label.to_string(),
+            installed,
+        });
+    }
+    entries
+}
+
+fn load_agent_install_status(agent: &str) -> io::Result<bool> {
+    let output = Command::new("aoc-agent-install")
+        .args(["status", agent])
+        .output()?;
+    if !output.status.success() {
+        return Err(command_failure(
+            &format!("aoc-agent-install status {agent}"),
+            &output,
+        ));
+    }
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    let first_line = stdout
+        .lines()
+        .find(|line| !line.trim().is_empty())
+        .or_else(|| stderr.lines().find(|line| !line.trim().is_empty()))
+        .unwrap_or("missing")
+        .trim()
+        .to_ascii_lowercase();
+    Ok(first_line.contains("installed"))
+}
+
+fn run_agent_install_command(action: &str, agent: &str) -> io::Result<String> {
+    let output = Command::new("aoc-agent-install")
+        .args([action, agent])
+        .output()?;
+    if !output.status.success() {
+        return Err(command_failure(
+            &format!("aoc-agent-install {action} {agent}"),
+            &output,
+        ));
+    }
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    let first_line = stdout
+        .lines()
+        .find(|line| !line.trim().is_empty())
+        .or_else(|| stderr.lines().find(|line| !line.trim().is_empty()))
+        .unwrap_or("Agent installer action completed")
         .trim()
         .to_string();
     Ok(first_line)
@@ -2018,6 +2213,9 @@ fn agent_options() -> Vec<String> {
         "kimi".to_string(),
         "cc".to_string(),
         "oc".to_string(),
+        "omo".to_string(),
+        "pi".to_string(),
+        "pi-r".to_string(),
     ]
 }
 
@@ -2046,10 +2244,14 @@ fn run_aoc_init(path: &Path) -> io::Result<()> {
     }
 }
 
-fn run_open_in_zellij(path: &Path, overrides: &SessionOverrides) -> io::Result<()> {
+fn run_open_in_zellij(
+    path: &Path,
+    overrides: &SessionOverrides,
+    default_agent: &str,
+) -> io::Result<()> {
     let mut cmd = Command::new("aoc-new-tab");
     cmd.arg("--cwd").arg(path);
-    for (key, value) in build_env_overrides(overrides) {
+    for (key, value) in build_env_overrides(overrides, default_agent) {
         cmd.env(key, value);
     }
     cmd.stdout(Stdio::null()).stderr(Stdio::null());
@@ -2061,13 +2263,17 @@ fn run_open_in_zellij(path: &Path, overrides: &SessionOverrides) -> io::Result<(
     }
 }
 
-fn build_env_overrides(overrides: &SessionOverrides) -> Vec<(String, String)> {
+fn build_env_overrides(overrides: &SessionOverrides, default_agent: &str) -> Vec<(String, String)> {
     let mut envs = Vec::new();
     if let Some(layout) = overrides.layout.clone() {
         envs.push(("AOC_LAYOUT".to_string(), layout));
     }
-    if let Some(agent) = overrides.agent.clone() {
-        envs.push(("AOC_AGENT_ID".to_string(), agent));
+    let agent = overrides
+        .agent
+        .clone()
+        .unwrap_or_else(|| default_agent.to_string());
+    if !agent.trim().is_empty() {
+        envs.push(("AOC_LAUNCH_AGENT_ID".to_string(), agent));
     }
     envs
 }

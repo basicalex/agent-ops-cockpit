@@ -1,0 +1,12 @@
+- [2026-02-21 14:03] [2026-02-21] RTK handoff for fresh-tab validation.
+- [2026-02-21 14:03] Goal: verify routing behavior, fail-open safety, and practical context savings in a new AOC tab/agent.
+- [2026-02-21 14:03] Precheck: run 'aoc-rtk status'; if .aoc/rtk.toml missing run 'aoc-init'.
+- [2026-02-21 14:03] Test 1 (manual route shorthand): 'aoc-rtk git status' and 'aoc-rtk run rg TODO'. Expect normal output and no hard failure.
+- [2026-02-21 14:03] Test 2 (toggle): run 'aoc-rtk enable' then 'aoc-rtk status'; expect mode=on. Run 'aoc-rtk disable' then status; expect mode=off.
+- [2026-02-21 14:03] Test 3 (doctor safety): run 'aoc-rtk doctor'. If RTK missing, expect issues reported but command path still fail-open in normal usage.
+- [2026-02-21 14:03] Test 4 (bypass): set 'AOC_RTK_BYPASS=1' for one command (e.g. AOC_RTK_BYPASS=1 aoc-rtk git status). Expect direct passthrough behavior.
+- [2026-02-21 14:03] Test 5 (denylist safety): with mode=on run mutating commands (e.g. git add/commit) only if needed; they should not be RTK-routed by policy.
+- [2026-02-21 14:03] Test 6 (fresh agent pane routing): open new tab via aoc-new-tab, enter agent pane, run 'aoc-rtk enable', then run allowlisted read commands (git status/diff/rg). Expect no breakage and stable output.
+- [2026-02-21 14:03] Context-savings check: compare bytes of routed vs raw output for noisy commands (e.g. aoc-rtk git diff > /tmp/rtk.out ; git diff > /tmp/raw.out ; wc -c /tmp/rtk.out /tmp/raw.out). Smaller routed output indicates savings.
+- [2026-02-21 14:03] Rollback: 'aoc-rtk disable' (project), or temporary bypass via 'AOC_RTK_BYPASS=1'.
+- [2026-02-21 14:06] [2026-02-21] STM handoff: verified AOC setup smoke checks. Done: aoc-doctor (core tools OK; optional task-master missing), tm list (task DB readable), aoc-mem read (memory accessible), aoc-rtk status/doctor (config present, mode off, RTK binary missing, fail-open enabled). Blocked: none. Open decision: install RTK/task-master now vs keep optional. Next: (1) install rtk if routing tests needed, (2) optionally install task-master npm tool, (3) rerun aoc-rtk doctor and aoc-doctor.

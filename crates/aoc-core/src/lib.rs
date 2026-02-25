@@ -4,6 +4,7 @@ use std::collections::HashMap;
 use std::fmt;
 use std::str::FromStr;
 
+pub mod mind_contracts;
 pub mod pulse_ipc;
 
 pub const TAG_PRD_KEY: &str = "aocPrd";

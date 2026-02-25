@@ -1,29 +1,11 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-generate_whimsical_session_id() {
-  local nouns=(
-    otter badger alpaca ferret penguin walrus narwhal yak koala gecko
-    capybara platypus lemur puffin iguana beaver hedgehog squirrel raccoon
-    aardvark wombat lynx mojito noodle waffle pixel
-  )
-  local verbs=(
-    juggles debugs compiles refactors lints ships rebases squashes syncs
-    profiles benches deploys patches bisects tests tidies wrangles explores
-    orchestrates untangles snapshots autopilots
-  )
-  local noun="${nouns[RANDOM % ${#nouns[@]}]}"
-  local verb="${verbs[RANDOM % ${#verbs[@]}]}"
-  printf '%s-%s' "$noun" "$verb"
-}
+source "$(dirname "$0")/aoc-utils.sh"
 
-session_name_exists() {
-  local candidate="$1"
-  if ! command -v zellij >/dev/null 2>&1; then
-    return 1
-  fi
-  zellij list-sessions --short --no-formatting 2>/dev/null | grep -Fxq "$candidate"
-}
+if [[ "${AOC_SMOKE_TEST:-0}" == "1" ]]; then
+  exit 0
+fi
 
 resolve_session_id() {
   if [[ -n "${ZELLIJ_SESSION_NAME:-}" ]]; then
@@ -45,35 +27,6 @@ resolve_session_id() {
     return
   done
   echo "pid-$$"
-}
-
-derive_port() {
-  local session="$1"
-  if ! command -v python3 >/dev/null 2>&1; then
-    echo "42000"
-    return
-  fi
-  python3 - <<'PY' "$session"
-import sys
-session = sys.argv[1].encode()
-hash_value = 2166136261
-for byte in session:
-    hash_value ^= byte
-    hash_value = (hash_value * 16777619) & 0xFFFFFFFF
-port = 42000 + (hash_value % 2000)
-print(port)
-PY
-}
-
-resolve_hub_addr() {
-  local session_id="$1"
-  if [[ -n "${AOC_HUB_ADDR:-}" ]]; then
-    echo "$AOC_HUB_ADDR"
-    return
-  fi
-  local port
-  port="$(derive_port "$session_id")"
-  echo "127.0.0.1:${port}"
 }
 
 session_id="$(resolve_session_id)"

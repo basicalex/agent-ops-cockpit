@@ -28,8 +28,8 @@ jobs:
             echo "tester ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/tester
             sudo --preserve-env=GITHUB_TOKEN -u tester bash -lc "
               set -euo pipefail
-              curl -fsSL https://raw.githubusercontent.com/${{ github.repository }}/main/install/bootstrap.sh \
-                | bash -s -- --repo ${{ github.repository }} --ref main --yes --skip-doctor
+              curl -fsSL https://raw.githubusercontent.com/${{ github.repository }}/${{ github.sha }}/install/bootstrap.sh \
+                | bash -s -- --repo ${{ github.repository }} --ref ${{ github.sha }} --yes --skip-doctor
 
               export PATH=\"\$HOME/.local/bin:\$PATH\"
               command -v aoc
@@ -45,8 +45,8 @@ jobs:
               test -f .aoc/memory.md
               test -f .taskmaster/tasks/tasks.json
 
-              curl -fsSL https://raw.githubusercontent.com/${{ github.repository }}/main/install/bootstrap.sh \
-                | bash -s -- --repo ${{ github.repository }} --ref main --yes --skip-doctor
+              curl -fsSL https://raw.githubusercontent.com/${{ github.repository }}/${{ github.sha }}/install/bootstrap.sh \
+                | bash -s -- --repo ${{ github.repository }} --ref ${{ github.sha }} --yes --skip-doctor
             "
           '
 
@@ -70,7 +70,7 @@ jobs:
             echo "tester ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/tester
             sudo --preserve-env=GITHUB_TOKEN -u tester bash -lc "
               set -euo pipefail
-              curl -fsSL https://raw.githubusercontent.com/${{ github.repository }}/main/install/bootstrap.sh \
+              curl -fsSL https://raw.githubusercontent.com/${{ github.repository }}/${{ github.ref_name }}/install/bootstrap.sh \
                 | bash -s -- --repo ${{ github.repository }} --ref ${{ github.ref_name }} --yes --skip-doctor
 
               export PATH=\"\$HOME/.local/bin:\$PATH\"
@@ -87,7 +87,7 @@ jobs:
               test -f .aoc/memory.md
               test -f .taskmaster/tasks/tasks.json
 
-              curl -fsSL https://raw.githubusercontent.com/${{ github.repository }}/main/install/bootstrap.sh \
+              curl -fsSL https://raw.githubusercontent.com/${{ github.repository }}/${{ github.ref_name }}/install/bootstrap.sh \
                 | bash -s -- --repo ${{ github.repository }} --ref ${{ github.ref_name }} --yes --skip-doctor
             "
           '

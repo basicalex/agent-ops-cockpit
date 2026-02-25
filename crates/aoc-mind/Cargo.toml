@@ -1,0 +1,15 @@
+[package]
+name = "aoc-mind"
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+
+[dependencies]
+aoc-core = { path = "../aoc-core" }
+aoc-storage = { path = "../aoc-storage" }
+aoc-task-attribution = { path = "../aoc-task-attribution" }
+chrono = { version = "0.4", features = ["serde"] }
+sha2 = "0.10"
+thiserror = "1.0"
+
+[dev-dependencies]

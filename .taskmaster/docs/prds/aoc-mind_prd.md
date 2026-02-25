@@ -122,25 +122,58 @@ A local-first memory layer that distills conversations into structured, durable 
 
 - **Description**: Read agent conversations as they are written by OpenCode (source of truth).
 - **Inputs**: OpenCode conversation storage location(s)
-- **Outputs**: Normalized event stream (messages, tool calls, metadata)
-- **Behavior**: Incremental ingestion with checkpoints; multi-agent safe
+- **Outputs**: Normalized raw event stream (messages, tool calls, metadata) plus deterministic T0-ready inputs
+- **Behavior**: Incremental ingestion with checkpoints; multi-agent safe; tolerant of partial writes/corrupt records
+
+#### Feature: T0 Transcript Compaction (Pre-Distillation)
+
+- **Description**: Build a deterministic compact transcript lane before T1/T2 distillation to reduce context bloat.
+- **Inputs**: Normalized raw events, compaction policy, allowlist policy, redaction policy
+- **Outputs**: T0 compact transcript containing message text plus lightweight tool metadata and optional allowlisted snippets
+- **Behavior**:
+  - Keep `system`/`user`/`assistant` conversational content by default
+  - Strip bulky tool outputs by default
+  - Retain one-line tool metadata (`tool_name`, success/fail, latency, exit code when present, output size)
+  - Allow policy-versioned tool snippet retention for explicitly allowlisted tools only
+  - Preserve dual-lane provenance: raw remains authoritative history; T0 is deterministic derived view
 
 #### Feature: Observational Memory Distillation (OM-like)
 
 - **Description**: Distill raw conversation into observations at thresholds (Mastra-inspired).
-- **Inputs**: Raw conversation chunks, token counters, thresholds
+- **Inputs**: T0 compact conversation chunks, token counters, thresholds, parser budget policy
 - **Outputs**: Observation blocks (tier-1) and Reflections (tier-2)
 - **Behavior**:
-  - Tier-1 “Observer” pass at ~T1 tokens per conversation (configurable)
+  - Tier-1 “Observer” pass at ~T1 tokens per conversation (configurable) with one-conversation-per-pass policy
+  - If a conversation T0 payload fits parser budget (target ~28k, hard cap 32k), run single-pass T1 on that conversation only
+  - If over budget, chunk within the same conversation only (never mix multiple conversations in one T1 pass)
   - Tier-2 “Reflector” pass when observation block exceeds ~T2 tokens
+  - T2 may aggregate across multiple T1 observation blocks when they share the same active Taskmaster tag/workstream (project-level synthesis)
+  - T2 cross-tag mixing is disallowed by default; route to separate reflections or `global` synthesis only when policy explicitly allows
   - Maintain append-only artifacts with traceability
 
 #### Feature: Segmented Mind Routing (Monorepo Domains)
 
-- **Description**: Route distilled insights into correct “mind segments” (frontend, dashboards, gamification, branding, etc.).
-- **Inputs**: Distilled observations + segment definitions + routing rules
-- **Outputs**: Segment-specific mind artifacts + global rollup
-- **Behavior**: Auto-routing with confidence score; allow manual override/patch
+- **Description**: Route distilled insights into retrieval segments using Taskmaster context first, then heuristics and semantic fallback.
+- **Inputs**: Distilled observations, `tm tag current --json`, task tags, task IDs, segment map, routing rules
+- **Outputs**: Segment metadata (`primary`, `secondary`, confidence), global rollup, and routing provenance
+- **Behavior**: Prioritize Taskmaster tag-to-segment mapping; keep `global`/`uncertain` fallback; allow manual override/patch
+
+#### Feature: Task/Tag Attribution and Backfill
+
+- **Description**: Attach each artifact to one or more Taskmaster tasks/tags, even when task references appear late in long conversations.
+- **Inputs**: Conversation events, Taskmaster command/tool events, active tag snapshots, previous attribution state
+- **Outputs**: Many-to-many artifact-task links with relation and confidence
+- **Behavior**:
+  - Linear ingestion carries forward attribution context per conversation/session
+  - Supports multiple task relationships per artifact (`active`, `worked_on`, `mentioned`, `completed`)
+  - Runs retroactive backfill when stronger evidence appears later (for example, task completion at end of chat)
+
+#### Feature: Provider-Aware Distillation Runtime (Optional External Enhancers)
+
+- **Description**: Distill artifacts deterministically by default, while allowing optional quality boosters (Zen inference, Roam retrieval, Ouros runtime) behind guarded adapters.
+- **Inputs**: Distillation job payload, provider availability, timeout budgets, redaction rules, cache state
+- **Outputs**: Distilled artifacts with provider provenance, latency, and confidence metadata
+- **Behavior**: Local deterministic baseline first; optional provider chain is additive with strict timeout/fallback/cost controls
 
 #### Feature: Additive Decision Memory (AOC Mem)
 
@@ -152,9 +185,9 @@ A local-first memory layer that distills conversations into structured, durable 
 #### Feature: Handoff Generator (STM / Context Refresh)
 
 - **Description**: Generate handoff text for starting a new chat/context window.
-- **Inputs**: Segment + active task + recent observations/decisions
+- **Inputs**: `aoc-mem`, `aoc-stm`, active tag/task context, segmented mind artifacts
 - **Outputs**: Compact handoff payload
-- **Behavior**: Deterministic format; ≤ 1 screen by default; expandable
+- **Behavior**: Deterministic precedence (`aoc-mem` → `aoc-stm` → `aoc-mind`); ≤ 1 screen by default; expandable
 
 ---
 
@@ -178,6 +211,13 @@ A local CLI that answers natural-language queries using Mind artifacts (+ option
 - **Inputs**: Flags
 - **Outputs**: Structured terminal output
 - **Behavior**: Never dump huge walls; always bounded by size
+
+#### Feature: Structural Retrieval Enrichment (Optional)
+
+- **Description**: Optionally enrich Insight output with structural graph evidence (for example from Roam) while preserving local-first behavior.
+- **Inputs**: Query, local artifacts, optional structural provider adapter
+- **Outputs**: Ranked answer with structural citations and confidence
+- **Behavior**: Local artifacts remain primary source of truth; enrichment is additive and can be disabled globally
 
 ---
 
@@ -240,6 +280,10 @@ aoc/
 │   ├── aoc-insight/             # `aoc-insight` CLI (retrieve + synthesize)
 │   ├── aoc-storage/             # SQLite schema + migrations + access layer
 │   ├── aoc-opencode-adapter/    # reads OpenCode conversation store
+│   ├── aoc-task-attribution/    # task/tag attribution + backfill engine
+│   ├── aoc-provider-zen/        # optional external synthesis adapter
+│   ├── aoc-provider-roam/       # optional structural retrieval adapter
+│   ├── aoc-provider-ouros/      # optional sandboxed runtime adapter
 │   ├── aoc-zvec/                # optional vector index + embed/retrieval
 │   ├── aoc-zellij-bridge/       # helpers: tab mapping, jump actions
 │   └── aoc-zellij-plugin/       # optional: last-used-tab toggle plugin (WASM)
@@ -293,18 +337,52 @@ aoc/
 ### Module: `aoc-opencode-adapter`
 
 - **Maps to capability**: Conversation ingestion
-- **Responsibility**: Tail/parse OpenCode conversation store events
+- **Responsibility**: Tail/parse OpenCode conversation store events and materialize deterministic T0 compact transcripts
 - **Exports**:
   - `stream_conversation_events()`
+  - `stream_t0_compact_events()`
+
+### Module: `aoc-task-attribution`
+
+- **Maps to capability**: Task/Tag Attribution and Backfill
+- **Responsibility**: Resolve artifact-task relationships from Taskmaster signals + conversation state
+- **Exports**:
+  - `apply_task_signal(event)`
+  - `link_artifact_to_tasks(artifact_id, context)`
+  - `run_backfill(conversation_id, window)`
 
 ### Module: `aoc-mind`
 
 - **Maps to capability**: AOC Mind engine
-- **Responsibility**: OM distillation, segmentation routing, handoffs, artifacts
+- **Responsibility**: T0-aware OM distillation, segmentation routing, handoffs, artifacts
 - **Exports**:
   - `distill_conversation(convo_id)`
+  - `compose_t0_transcript(convo_id, policy_version)`
   - `route_observations(observations)`
   - `generate_handoff(project, segment)`
+  - `compose_context_pack(project, tag)`
+
+### Module: `aoc-provider-zen` (Optional)
+
+- **Maps to capability**: Provider-Aware Distillation Runtime
+- **Responsibility**: Time-bounded external synthesis adapter with token/cost guardrails
+- **Exports**:
+  - `synthesize_with_zen(input, policy)`
+
+### Module: `aoc-provider-roam` (Optional)
+
+- **Maps to capability**: Structural Retrieval Enrichment
+- **Responsibility**: Pull structural context (callers/callees/blast-radius) from optional Roam integration
+- **Exports**:
+  - `query_roam_context(symbol_or_query)`
+
+### Module: `aoc-provider-ouros` (Optional)
+
+- **Maps to capability**: Provider-Aware Distillation Runtime
+- **Responsibility**: Run isolated/forkable background reasoning jobs with replay-safe snapshots
+- **Exports**:
+  - `run_ouros_job(job)`
+  - `resume_ouros_snapshot(snapshot_id)`
 
 ### Module: `aoc-storage`
 
@@ -312,6 +390,7 @@ aoc/
 - **Responsibility**: SQLite schema, migrations, query layer
 - **Exports**:
   - `insert_raw_event()`
+  - `upsert_t0_compact_event()`
   - `upsert_observations()`
   - `fetch_agent_history()`
 
@@ -357,33 +436,34 @@ aoc/
 No dependencies.
 
 - **aoc-storage**: SQLite schema + migrations + data access
-- **aoc-zellij-bridge**: Zellij action wrappers + env conventions
-- **aoc-layouts**: Layout templates + rendering utilities
 - **aoc-opencode-adapter**: Conversation store reader + parser primitives
+- **Mind routing policy config**: tag→segment map + confidence thresholds + output budgets
+- **Mind T0 compaction policy config**: role keep/drop rules, tool metadata retention, allowlisted snippet controls, parser budgets
 
-### Live State Layer (Phase 1)
+### Attribution Layer (Phase 1)
 
-- **aoc-hub**: Depends on [aoc-storage] (optional persistence of heartbeats) and uses [aoc-zellij-bridge] for mappings
+- **aoc-task-attribution**: Depends on [aoc-storage, aoc-opencode-adapter] and Taskmaster command signals (`tm tag current --json`, task lifecycle commands)
 
 ### Mind Layer (Phase 2)
 
-- **aoc-mind**: Depends on [aoc-storage, aoc-opencode-adapter]
-  - Optional dependency: [aoc-zvec] if semantic retrieval enabled
+- **aoc-mind**: Depends on [aoc-storage, aoc-opencode-adapter, aoc-task-attribution]
+  - Optional dependencies: [aoc-provider-zen, aoc-provider-roam, aoc-provider-ouros, aoc-zvec]
 
-### UI Layer (Phase 3)
-
-- **aoc-mission-control**: Depends on [aoc-hub, aoc-storage, aoc-zellij-bridge]
-  - Optional dependency: [aoc-mind] for showing mind snapshots in MC
-
-### Tooling Layer (Phase 4)
+### Output Layer (Phase 3)
 
 - **aoc-insight**: Depends on [aoc-mind, aoc-storage]
-  - Optional dependency: [aoc-zvec]
+- **Mind Insight renderer**: Depends on [aoc-mind] for bounded segment snapshots
+
+### Optional Provider Layer (Phase 4)
+
+- **aoc-provider-zen**: Depends on [aoc-mind provider interface] + external inference credentials/policies
+- **aoc-provider-roam**: Depends on [aoc-mind provider interface] + optional Roam CLI availability
+- **aoc-provider-ouros**: Depends on [aoc-mind provider interface] + optional Ouros runtime availability
+- **aoc-zvec**: Optional semantic index for recall augmentation
 
 ### Orchestration Layer (Phase 5)
 
-- **aoc-cli**: Depends on [aoc-layouts, aoc-mission-control, aoc-zellij-bridge]
-  - Also starts/ensures availability of [aoc-hub, aoc-mind]
+- **aoc-cli / aoc-init integration**: Depends on [aoc-mind, aoc-insight] and enforces policy defaults (Taskmaster authority + provider guardrails)
 
 ### Optional Plugin Layer (Phase 6)
 
@@ -397,175 +477,189 @@ No dependencies.
 
 ## Development Phases
 
-### Phase 0: Foundations
+### Phase -1: Baseline (Completed)
 
-**Goal**: Stable storage + layout + adapter primitives
+**Goal**: Establish stable runtime foundation before Mind-specific implementation.
 
-**Entry Criteria**: Repo builds; basic CI; Rust workspace compiles
+**Status**: Completed in prior workstreams (`mission-control`, `safety`, `rtk`).
 
-**Tasks**:
+**Includes**:
+- Mission Control + hub baseline
+- Agent wrapper hardening + telemetry redaction
+- RTK routing integration and safety controls
 
-- [ ] Implement `aoc-storage` SQLite schema + migrations
-  - Acceptance criteria: can insert/fetch raw events and observation artifacts
-  - Test strategy: unit tests for migrations + queries; temp DB per test
-- [ ] Implement `aoc-opencode-adapter` minimal parser + event stream abstraction
-  - Acceptance criteria: can read existing OpenCode logs and emit normalized events
-  - Test strategy: golden fixtures for log formats
-- [ ] Implement `aoc-layouts` with two layout templates: `mc.kdl`, `dev.kdl`
-  - Acceptance criteria: layouts render with correct panes/commands/paths
-  - Test strategy: snapshot tests on rendered KDL strings
-- [ ] Implement `aoc-zellij-bridge` (goto tab by name/index, focus pane)
-  - Acceptance criteria: commands generated correctly for Zellij
-  - Test strategy: unit tests on command generation
-
-**Exit Criteria**: Can boot layouts manually and read conversation logs offline
-
-**Delivers**: Building blocks to create MC + Dev flows without live hub yet
+**Delivers**: Stable platform to build Mind v1 without reopening solved runtime issues.
 
 ---
 
-### Phase 1: Live Hub (Now-State)
+### Phase 0: Mind Contracts and Persistence Foundations
 
-**Goal**: Real-time agent status without per-tab polling
+**Goal**: Define deterministic artifact contracts and persistent schema for Mind v1.
 
-**Entry Criteria**: Phase 0 complete
+**Entry Criteria**: Repo builds; CI/smoke baseline is green.
 
 **Tasks**:
 
-- [ ] Implement `aoc-hub` IPC (Unix socket) + snapshot model
-  - Acceptance criteria: publish heartbeat; subscribe to snapshot stream
-  - Test strategy: integration tests with in-process server + client
-- [ ] Add optional advisory lock system (files/scopes)
-  - Acceptance criteria: grant/deny locks; TTL expires; no deadlocks
-  - Test strategy: concurrency tests (multi-client)
+- [ ] Define Mind artifact schemas and routing contracts
+  - Acceptance criteria: versioned schemas for `raw_events`, `compact_events_t0`, `observations_t1`, `reflections_t2`, task links, and segment routing metadata
+  - Test strategy: schema validation tests + fixture compatibility tests
+- [ ] Define T0 compaction contract and policy model
+  - Acceptance criteria: deterministic role/message retention rules, default tool-output stripping, mandatory tool metadata retention, and policy-versioned allowlist snippet controls
+  - Test strategy: fixture tests proving stable compaction output for fixed policy and deterministic serialization hashes
+- [ ] Implement `aoc-storage` migrations for Mind v1 tables
+  - Acceptance criteria: create/read/write for raw events, T0 compact events, artifacts, task links, segment routes, and context state
+  - Test strategy: migration + query tests using temp DB per test
+- [ ] Define provider interface contracts (local + optional external)
+  - Acceptance criteria: one adapter interface with deterministic local baseline and optional provider fallbacks
+  - Test strategy: trait/contract tests with mock adapters
 
-**Exit Criteria**: Hub can represent 10+ agents reliably with correct TTL behavior
+**Exit Criteria**: Storage and schema contracts are stable and testable.
 
-**Delivers**: A single source of truth for live status and coordination
+**Delivers**: Deterministic data layer for all Mind workflows.
 
 ---
 
-### Phase 2: AOC Mind (OM-like Distillation + Segmentation)
+### Phase 1: Ingestion and Task Signal Capture
 
-**Goal**: Local memory engine producing useful artifacts
+**Goal**: Capture normalized conversation events plus reliable Taskmaster context signals.
 
-**Entry Criteria**: Phase 0 complete (hub optional)
+**Entry Criteria**: Phase 0 complete.
 
 **Tasks**:
 
-- [ ] Define Mind artifact formats:
-  - `raw_events` (normalized)
-  - `observations_tier1`
-  - `reflections_tier2`
-  - `aoc_mem_decisions` (append-only)
-  - Acceptance criteria: versioned JSON or markdown schema in `docs/mind.md`
-  - Test strategy: schema validation tests
-- [ ] Implement token thresholding + distillation pipeline
-  - Acceptance criteria: at configurable thresholds T1/T2, produce stable artifacts
-  - Test strategy: deterministic “mock model” tests + golden output fixtures
-- [ ] Implement segmentation router (auto + override)
-  - Acceptance criteria: observations routed to correct segments with confidence; manual override patches routing
-  - Test strategy: rule-based baseline tests + regression fixtures
+- [ ] Implement `aoc-opencode-adapter` incremental ingestion with checkpoints
+  - Acceptance criteria: can parse known log formats, resume after restart, and tolerate truncation/corruption
+  - Test strategy: golden fixtures + partial-write recovery tests
+- [ ] Implement deterministic T0 compaction pass in ingestion pipeline
+  - Acceptance criteria: keep conversational roles (`system`/`user`/`assistant`), strip bulky tool outputs by default, retain one-line tool metadata, and apply optional allowlisted snippets by policy version
+  - Test strategy: mixed-event fixtures validating keep/drop policy, metadata retention, and deterministic outputs across reruns
+- [ ] Implement Taskmaster signal adapter using command/event capture
+  - Acceptance criteria: captures active tag (`tm tag current --json`) and task lifecycle signals for attribution context
+  - Test strategy: fixture-driven signal parsing tests and command-simulation integration tests
+- [ ] Persist conversation context state snapshots
+  - Acceptance criteria: state carries forward across chunks/sessions and survives process restart
+  - Test strategy: restart resilience integration tests
 
-**Exit Criteria**: Given a set of OpenCode logs, Mind artifacts are generated consistently and are readable in dev top-right pane
+**Exit Criteria**: Event stream and task/tag context can be replayed deterministically.
 
-**Delivers**: Project memory that evolves without needing cloud keys
+**Delivers**: High-quality attribution inputs.
 
 ---
 
-### Phase 3: Mission Control TUI (MC Tab)
+### Phase 2: Attribution, Backfill, and Segmentation
 
-**Goal**: The one place to monitor and control everything
+**Goal**: Build Taskmaster-first routing and many-to-many artifact-task linking.
 
-**Entry Criteria**: Phase 1 complete (hub); Phase 0 bridge/layout complete
+**Entry Criteria**: Phase 1 complete.
 
 **Tasks**:
 
-- [ ] Build MC TUI with 3-pane structure:
+- [ ] Implement `aoc-task-attribution` linking engine
+  - Acceptance criteria: artifacts can link to multiple tasks with relation + confidence metadata
+  - Test strategy: multi-task fixture tests and confidence-scoring assertions
+- [ ] Implement retroactive backfill pass
+  - Acceptance criteria: late task evidence updates earlier artifact links without dropping provenance
+  - Test strategy: long-conversation fixtures where task IDs appear late
+- [ ] Implement Taskmaster-first segment router
+  - Acceptance criteria: tag-to-segment mapping is primary, with path/semantic fallback and `global`/`uncertain` buckets
+  - Test strategy: rule-based routing tests + override patch regression tests
 
-  1) Conversations index (left)
-  2) Active agents list (center)
-  3) Details inspector (right)
+**Exit Criteria**: Artifacts are attributed and segmented with auditable provenance.
 
-  - Acceptance criteria: keyboard navigation, selection, search, preview
-  - Test strategy: unit tests for state reducer; minimal “smoke render” tests
-
-- [ ] Add jump-to-tab/layout action
-
-  - Acceptance criteria: selecting agent → jump to its dev tab reliably
-  - Test strategy: mocked bridge + contract tests
-
-- [ ] Add “open transcript” action
-
-  - Acceptance criteria: open local transcript view quickly (pager or TUI modal)
-  - Test strategy: fixture-driven
-
-**Exit Criteria**: MC replaces old buggy per-tab mission panel completely
-
-**Delivers**: Command center tab that starts first and stays lean
+**Delivers**: Retrieval-grade metadata for context filtering.
 
 ---
 
-### Phase 4: AOC Dev Layout Integration (Top-Right Mind)
+### Phase 3: Distillation Runtime and Optional Provider Adapters
 
-**Goal**: Dev tabs become focused; mind is a compass, not a status dashboard
+**Goal**: Produce stable T1/T2 artifacts with optional quality enhancers under strict guardrails.
 
-**Entry Criteria**: Phase 2 artifacts exist; Phase 0 layouts exist
+**Entry Criteria**: Phase 2 complete.
 
 **Tasks**:
 
-- [ ] Implement Mind Insight renderer pane (read-only)
-  - Acceptance criteria: shows current project segment summary + “what changed”
-  - Test strategy: fixture outputs; bounded render tests
-- [ ] Remove old per-tab mission control pane (deprecate binary/panel)
-  - Acceptance criteria: dev layout includes no live overview sync
-  - Test strategy: config snapshot + runtime smoke
+- [ ] Implement deterministic local T1/T2 distillation pipeline
+  - Acceptance criteria: stable output for fixed fixtures and config; T1 consumes T0 compact transcript lane; no cross-conversation mixing in a single T1 pass
+  - Test strategy: deterministic golden tests + model-mock integration tests + parser-budget fixtures (single-pass <=32k, deterministic intra-conversation chunking when over cap)
+- [ ] Add optional Zen synthesis adapter (`aoc-provider-zen`)
+  - Acceptance criteria: strict timeout, retry, redaction, budget caps, and fallback behavior; Zen runs as optional background enhancer for T2 synthesis first
+  - Test strategy: adapter integration tests with fake provider + timeout failure tests + non-blocking/background execution checks
+- [ ] Add optional structural enrichment adapter (`aoc-provider-roam`)
+  - Acceptance criteria: enrichment is additive and can be disabled without affecting baseline outputs
+  - Test strategy: adapter availability/no-availability contract tests
+- [ ] Add optional isolated runtime adapter (`aoc-provider-ouros`)
+  - Acceptance criteria: background jobs can fork/resume safely without blocking interactive workflow
+  - Test strategy: snapshot/resume integration tests with bounded runtime limits
 
-**Exit Criteria**: Two-tab workflow works: MC first → dev tab(s) after
+**Exit Criteria**: Mind distillation is production-usable with safe optional enhancers.
 
-**Delivers**: Less noise, better performance, clearer focus
+**Delivers**: High-quality artifacts with deterministic fallback path.
 
 ---
 
-### Phase 5: AOC Insight CLI
+### Phase 4: Handoff and Context Pack Integration
 
-**Goal**: Developer can ask questions from terminal and get actionable answers
+**Goal**: Generate compact, deterministic context payloads for agents and handoffs.
 
-**Entry Criteria**: Phase 2 Mind artifacts exist
+**Entry Criteria**: Phase 3 complete.
 
 **Tasks**:
 
-- [ ] Implement `aoc-insight "<query>"` with modes (`--brief`, `--refs`, `--snips`)
-  - Acceptance criteria: returns bounded output with citations to artifacts/files
-  - Test strategy: golden tests on known queries + fixtures
-- [ ] Optional local model synthesis (if available) with strict timeouts
-  - Acceptance criteria: graceful fallback to retrieval-only mode if slow
-  - Test strategy: timeboxed integration tests
+- [ ] Implement handoff/context pack composer in `aoc-mind`
+  - Acceptance criteria: precedence `aoc-mem` → `aoc-stm` → `aoc-mind`; bounded output; stable formatting
+  - Test strategy: fixture tests for ordering, line limits, and deterministic rendering
+- [ ] Integrate active tag/task filtering in pack generation
+  - Acceptance criteria: context is segment/task aware and includes cross-segment watchlist when relevant
+  - Test strategy: integration tests with synthetic task/tag timelines
+- [ ] Wire Mind Insight read model for dev pane
+  - Acceptance criteria: pane displays bounded snapshot and “what changed” deltas without streaming spam
+  - Test strategy: render fixture tests + runtime smoke
 
-**Exit Criteria**: AOC Insight is useful standalone and can be used by agents as a tool
+**Exit Criteria**: New sessions start with concise, high-signal context.
 
-**Delivers**: Local-first “smart grep+” for humans and agents
+**Delivers**: Optimized contextualization engine for daily agent workflows.
 
 ---
 
-### Phase 6 (Optional): ZVec Semantic Index + Plugin
+### Phase 5: AOC Insight and Operationalization
 
-**Goal**: Add semantic retrieval and last-tab toggle without forcing complexity
+**Goal**: Expose Mind retrieval to terminal and harden operational checks.
 
-**Entry Criteria**: Phase 5 complete
+**Entry Criteria**: Phase 4 complete.
 
 **Tasks**:
 
-- [ ] Implement `aoc-zvec` indexing for reflections/docs
-  - Acceptance criteria: index/search returns stable chunks fast
+- [ ] Implement `aoc-insight "<query>"` modes (`--brief`, `--refs`, `--snips`)
+  - Acceptance criteria: bounded output with citations to artifacts/files/tasks
+  - Test strategy: golden query tests + missing-artifact fallback tests
+- [ ] Add smoke/ops checks for Mind data health
+  - Acceptance criteria: checks catch stale checkpoints, schema drift, and attribution gaps
+  - Test strategy: integration smoke tests + failure-mode fixtures
+- [ ] Publish runbook for backfill/routing/provider policy operations
+  - Acceptance criteria: maintainers can diagnose and recover from common failures quickly
+  - Test strategy: dry-run validation from docs
+
+**Exit Criteria**: Mind is queryable, operable, and safe under real workflows.
+
+**Delivers**: Practical retrieval and maintenance loop.
+
+---
+
+### Phase 6 (Optional): Semantic Index Layer
+
+**Goal**: Add semantic recall acceleration without changing baseline behavior.
+
+**Entry Criteria**: Phase 5 complete.
+
+**Tasks**:
+
+- [ ] Implement `aoc-zvec` indexing for stable reflections/docs
+  - Acceptance criteria: index/search is fast and deterministic with patch/re-embed support
   - Test strategy: index build + retrieval regression tests
-- [ ] Add `aoc-zellij-plugin` last-used-tab toggle
-  - Acceptance criteria: keybind toggles previous visited tab
-  - Test strategy: plugin event handling tests + manual validation doc
 
-**Exit Criteria**: Optional enhancements do not degrade baseline UX
+**Exit Criteria**: Optional semantic indexing improves recall without degrading reliability.
 
-**Delivers**: Semantic recall + smoother navigation for power users
+**Delivers**: Scalable semantic retrieval for large repositories.
 
 </implementation-roadmap>
 
@@ -599,7 +693,7 @@ No dependencies.
 **Happy path**:
 
 - parse known OpenCode log fixtures
-- Expected: normalized events in correct order
+- Expected: normalized raw events in correct order and deterministic T0 compact outputs
 
 **Edge cases**:
 
@@ -611,47 +705,82 @@ No dependencies.
 - corrupted entry
 - Expected: skip with warning + continue; no crash loop
 
+- oversized tool outputs
+- Expected: outputs are stripped from T0 by default while metadata is retained
+
+### aoc-task-attribution
+
+**Happy path**:
+
+- single-task flow with clear task lifecycle events
+- Expected: artifacts link to correct task with high confidence and correct relation type
+
+**Edge cases**:
+
+- multiple tasks active/mentioned in same window
+- Expected: many-to-many links preserved with ranked confidence and provenance
+
+**Error cases**:
+
+- task evidence appears late in long chat
+- Expected: backfill updates prior links within valid window; no data loss
+
 ### aoc-mind
 
 **Happy path**:
 
 - distill at T1, reflect at T2
-- Expected: deterministic observation + reflection artifacts
+- Expected: deterministic observation + reflection artifacts from T0 compact transcript
 
 **Edge cases**:
 
 - multi-agent interleaved logs
 - Expected: correct convo separation, no cross contamination
 
+- one conversation fits parser budget
+- Expected: single-pass T1 for that conversation only (no multi-conversation batching)
+
+- one conversation exceeds parser budget
+- Expected: deterministic chunking within that conversation only
+
+- T2 reflection across multiple conversations in same active tag
+- Expected: deterministic cross-conversation synthesis is allowed only from T1 observations sharing the same tag/workstream; provenance remains intact
+
+- segment routing with Taskmaster-first mapping
+- Expected: primary segment follows active tag map; fallback to `global`/`uncertain` when confidence is low
+
 **Error cases**:
 
 - model unavailable / slow
 - Expected: retrieval-only mode; mark artifact “stale” with timestamp
 
-### aoc-hub
+- optional provider adapter unavailable (Roam/Ouros/Zen)
+- Expected: baseline local path continues; output remains bounded and deterministic
+
+### handoff/context pack
 
 **Happy path**:
 
-- 10 agents heartbeat
-- Expected: stable snapshots + delta updates
+- compose pack from `aoc-mem`, `aoc-stm`, `aoc-mind`
+- Expected: strict precedence order, bounded output, stable formatting
 
 **Edge cases**:
 
-- agent disappears
-- Expected: offline after TTL; no ghost online
+- missing one source layer (for example, no recent STM archive)
+- Expected: graceful degradation with clear status markers
 
 **Error cases**:
 
-- client disconnect storms
-- Expected: hub remains stable; no memory leak
+- oversized candidate context from one segment
+- Expected: truncation policy keeps total output within budget
 
-### aoc-mission-control
+### provider adapters
 
 **Integration points**:
 
-- hub stream updates UI without blocking
-- open transcript is lazy and bounded
-- jump-to-tab works via bridge
+- Zen adapter timeout/retry/fallback behavior
+- Roam adapter enrichment on/off behavior
+- Ouros adapter snapshot/resume behavior
 
 ### aoc-insight
 
@@ -670,7 +799,10 @@ No dependencies.
 - Favor fixture-driven tests for parsing and distillation outputs
 - Ensure all terminal outputs are bounded (golden tests assert max lines)
 - Model calls must be mockable and time-boxed in tests
-- Concurrency tests for locks and hub must include race conditions
+- Attribution tests must include long-conversation backfill and multi-task overlap
+- Provider tests must enforce fail-open deterministic fallback to local baseline
+- T0 tests must verify default tool-output stripping, mandatory metadata retention, and policy-versioned allowlist behavior
+- Distillation tests must assert one-conversation-per-pass behavior and prohibit cross-conversation T1 mixing
 
 </test-strategy>
 
@@ -692,16 +824,26 @@ No dependencies.
    - Real-time written conversation logs per agent/session
 
 4) **AOC Mind Engine**
-   - Ingests OpenCode logs
-   - Runs OM-like distillation (T1 → observations, T2 → reflections)
-   - Routes artifacts into mind segments + global rollup
-   - Generates handoffs
+     - Ingests OpenCode logs
+     - Builds deterministic T0 compact transcripts (raw + compact dual-lane)
+     - Runs OM-like distillation (T1 → observations, T2 → reflections)
+     - Routes artifacts into mind segments + global rollup
+     - Generates handoffs
 
-5) **AOC Insight CLI**
+5) **Taskmaster Signal Adapter**
+   - Captures active tag and task lifecycle signals (for example via `tm tag current --json`)
+   - Feeds attribution and backfill state used by Mind routing
+
+6) **AOC Insight CLI**
    - Retrieves artifacts (+ optional vectors)
    - Produces actionable answers in terminal
 
-6) **Optional ZVec**
+7) **Optional Provider Adapters**
+   - Zen inference (quality booster for T2 synth)
+   - Roam structural enrichment (graph evidence)
+   - Ouros background runtime (isolated fork/resume jobs)
+
+8) **Optional ZVec**
    - Semantic indexing for stable artifacts/docs
    - Supports patch + re-embed flows
 
@@ -713,13 +855,19 @@ No dependencies.
 - `SegmentId`: domain bucket (frontend, dashboards, gamification, branding, etc.)
 - `AgentId`: unique per running agent instance
 - `ConversationId`: per OpenCode conversation thread
+- `ArtifactId`: unique identifier for each observation/reflection artifact
+- `TaskId`: Taskmaster task ID
+- `TagId`: Taskmaster tag name captured at event time
 
 ### SQLite Tables (high-level)
 
 - `raw_events(conversation_id, agent_id, ts, kind, payload_json)`
-- `observations_t1(conversation_id, ts, importance, text, trace_ids[])`
-- `reflections_t2(conversation_id, ts, text, trace_ids[])`
-- `segment_routes(artifact_id, segment_id, confidence, overridden_by?)`
+- `compact_events_t0(conversation_id, ts, role, text, source_event_ids_json, tool_meta_json, policy_version, compact_hash)`
+- `observations_t1(artifact_id, conversation_id, ts, importance, text, trace_ids[])`
+- `reflections_t2(artifact_id, conversation_id, ts, text, trace_ids[])`
+- `artifact_task_links(artifact_id, task_id, relation, confidence, source, start_ts, end_ts)`
+- `conversation_context_state(conversation_id, ts, active_tag, active_tasks_json, signal_source)`
+- `segment_routes(artifact_id, segment_id, confidence, routed_by, reason, overridden_by?)`
 - `aoc_mem_decisions(ts, project_id, segment_id?, text, supersedes_id?)`
 - `locks(agent_id, path, ttl, acquired_ts)` (optional)
 - `agent_snapshots(agent_id, ts, status_json)` (optional)
@@ -745,6 +893,30 @@ No dependencies.
 - **Rationale**: scalable memory without constant retrieval; stable artifacts; traceability
 - **Trade-offs**: distillation quality depends on model; needs good prompts + deterministic formats
 - **Alternatives considered**: pure vector store memory (rejected as primary; too “static” alone)
+
+**Decision: T0 compact transcript lane before T1/T2**
+
+- **Rationale**: removes tool-output bloat early, preserves conversational signal, and keeps parser costs predictable
+- **Trade-offs**: some deep debugging detail is omitted from T1/T2 input by default; requires policy governance
+- **Alternatives considered**: distill directly from full raw events (rejected due to context inefficiency/noise)
+
+**Decision: Taskmaster-first segmentation and attribution**
+
+- **Rationale**: Task tags/tasks are already canonical workflow metadata and provide high-signal routing context
+- **Trade-offs**: requires signal capture + retroactive backfill for late task evidence
+- **Alternatives considered**: semantic-only routing (rejected due to instability and cost)
+
+**Decision: Many-to-many artifact-task relationships**
+
+- **Rationale**: long/multi-task conversations need multiple valid links per artifact
+- **Trade-offs**: more complex ranking and storage queries
+- **Alternatives considered**: single `task_id` per artifact (rejected due to information loss)
+
+**Decision: Optional provider chain (Zen/Roam/Ouros) behind deterministic baseline**
+
+- **Rationale**: enables quality improvements without making external systems mandatory
+- **Trade-offs**: adapter maintenance + policy complexity
+- **Alternatives considered**: mandatory external provider stack (rejected for reliability/control)
 
 **Decision: Vector store optional**
 
@@ -781,6 +953,27 @@ No dependencies.
 - **Mitigation**: confidence threshold + “uncertain” bucket; manual override + patch flow; audit UI in MC
 - **Fallback**: default to global mind only until segments stabilized
 
+**Risk**: Task attribution drift in long multi-task chats  
+
+- **Impact**: High
+- **Likelihood**: Medium
+- **Mitigation**: Taskmaster signal capture + retroactive backfill + provenance/confidence scoring
+- **Fallback**: downgrade uncertain links and rely on active-tag filtering + manual patch
+
+**Risk**: External provider instability or cost spikes (Zen/Roam/Ouros)  
+
+- **Impact**: Medium/High
+- **Likelihood**: Medium
+- **Mitigation**: strict timeout/budget policies, cache by input hash, deterministic local fallback
+- **Fallback**: disable optional providers and run local baseline only
+
+**Risk**: T0 compaction strips useful tool detail needed for attribution or diagnostics  
+
+- **Impact**: Medium
+- **Likelihood**: Medium
+- **Mitigation**: always retain tool metadata, support policy-versioned allowlist snippets, and preserve raw lane for provenance queries
+- **Fallback**: expand allowlist or temporarily route specific workflows to raw-assisted replay mode
+
 **Risk**: File locking creates friction  
 
 - **Impact**: Medium
@@ -793,6 +986,9 @@ No dependencies.
 - Zellij capabilities may limit “pin tab” semantics
   - Mitigation: enforce MC as first tab via layout; stable naming; optional plugin for last-tab toggle
 
+- Optional provider interfaces may change upstream
+  - Mitigation: adapter isolation, contract tests, and version pinning for optional integrations
+
 ## Scope Risks
 
 **Risk**: Trying to build MC + Mind + Insight + Vectors + Plugin all at once  
@@ -801,6 +997,13 @@ No dependencies.
 - **Likelihood**: High
 - **Mitigation**: ship in phases; keep ZVec/plugin optional; prioritize MC + Mind artifacts first
 - **Fallback**: lock MVP to Phase 0–4 only
+
+**Risk**: Over-optimizing for providers before deterministic baseline quality is proven
+
+- **Impact**: High
+- **Likelihood**: Medium
+- **Mitigation**: enforce baseline-first acceptance gates before enabling optional providers
+- **Fallback**: defer provider adapters to post-MVP phase
 
 </risks>
 
@@ -812,6 +1015,9 @@ No dependencies.
 
 - Observational memory concept (Mastra-inspired OM pattern: raw → observations → reflections)
 - Zellij layouts (KDL) and CLI actions for tab navigation
+- Roam Code (optional structural retrieval inspiration): `https://github.com/Cranot/roam-code`
+- just-bash (sandbox execution policy patterns): `https://github.com/vercel-labs/just-bash`
+- Ouros (optional stateful sandbox runtime inspiration): `https://github.com/parcadei/ouros`
 
 ## Glossary
 
@@ -826,9 +1032,10 @@ No dependencies.
 ## Open Questions
 
 1) What exact OpenCode conversation store formats/paths must be supported (versions)?
-2) Exact thresholds T1/T2 (tokens) and how token counting is implemented deterministically
-3) Minimum viable segmentation set for a 1M LOC monorepo (initial domain taxonomy)
-4) Lock granularity: file, directory, or “task scope”?
-5) How MC maps agents to dev tabs when tabs are created/destroyed dynamically
+2) Exact thresholds T1/T2 (tokens), T1 parser budget targets (for example 28k target / 32k hard cap), and deterministic token counting method
+3) Final initial tag→segment mapping for production (beyond current core tags)
+4) Provider rollout policy: which optional adapter is enabled first in default install
+5) Cost budget defaults for Zen-enhanced synthesis paths
+6) Default T0 tool allowlist/snippet policy (which tools, max snippet size, and redaction rules)
 
 </appendix>
