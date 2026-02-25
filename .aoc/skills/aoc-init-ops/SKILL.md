@@ -17,8 +17,8 @@ description: Initialize or repair AOC context, memory, and tasks safely.
 - Generates `.aoc/context.md`
 - Seeds `.aoc/memory.md`
 - Seeds `.aoc/stm/current.md` and `.aoc/stm/archive/` without overwriting existing STM files
-- Ensures task-level PRD directory `.taskmaster/docs/prds/` is available when used
-- Seeds OpenCode `/stm` command in `.opencode/commands/stm.md` when missing and keeps STM guidance aligned (`aoc-stm` = current draft, `aoc-stm handoff` = seal+print handoff, `aoc-stm resume` = archived resume)
-- Seeds OpenCode `/prd` command in `.opencode/commands/prd.md` when missing
+- Ensures PRD directory `.taskmaster/docs/prds/` is available for tag/task links
+- Seeds `.pi/settings.json` when missing
+- Seeds PI prompt templates in `.pi/prompts/` (`/aoc-ops`, `/teach`, `/teach-full`, `/teach-dive`, `/teach-ask`, `/tm-cc`) when missing
+- Optional MoreMotion prompt `/momo` is seeded by `aoc-momo init`
 - Syncs skills for existing agent targets
-- Seeds default skills unless disabled via `.aoc/skills/.aoc-no-default-seed` or `AOC_INIT_SEED_DEFAULT_SKILLS=false`

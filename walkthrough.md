@@ -327,24 +327,24 @@ aoc-rlm chunk --pattern "src/**/*.rs"
 
 ---
 
-### Scene 14: MoreMotion Init + Agent (3:25-3:55)
+### Scene 14: MoreMotion Init + Prompt (3:25-3:55)
 **Duration:** 30 seconds
 
 **Recording:**
 - Run `aoc-momo init`
-- Show `.opencode/agents/momo.md`
-- Use `@momo` with a short prompt
+- Show `.pi/prompts/momo.md`
+- Use `/momo` with a short prompt
 
-**Narration:** *"Initialize MoreMotion, then ask the momo agent for animation guidance."*
+**Narration:** *"Initialize MoreMotion, then use the PI momo prompt for animation guidance."*
 
 **On-Screen Text:**
 ```
-@momo
+/momo
 ```
 
 **Actions:**
-- Run command and open the agent file
-- Type a short prompt in OpenCode
+- Run command and open the prompt file
+- Type a short prompt in PI
 
 **Technical Notes:**
 - Keep the prompt small so the response fits on screen

@@ -122,8 +122,8 @@ seed_skill() {
   log "Added MoreMotion skill to .aoc/skills."
 }
 
-seed_agent() {
-  local dest_dir="$root/.opencode/agents"
+seed_pi_prompt() {
+  local dest_dir="$root/.pi/prompts"
   local dest="$dest_dir/momo.md"
   if [[ -f "$dest" ]]; then
     return 0
@@ -132,18 +132,18 @@ seed_agent() {
   script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
   local config_dir="${XDG_CONFIG_HOME:-$HOME/.config}/aoc"
   local source_file=""
-  if [[ -f "$config_dir/agents-optional/opencode/momo.md" ]]; then
-    source_file="$config_dir/agents-optional/opencode/momo.md"
-  elif [[ -f "$script_dir/../.aoc/agents-optional/opencode/momo.md" ]]; then
-    source_file="$script_dir/../.aoc/agents-optional/opencode/momo.md"
+  if [[ -f "$config_dir/prompts-optional/pi/momo.md" ]]; then
+    source_file="$config_dir/prompts-optional/pi/momo.md"
+  elif [[ -f "$script_dir/../.aoc/prompts-optional/pi/momo.md" ]]; then
+    source_file="$script_dir/../.aoc/prompts-optional/pi/momo.md"
   fi
   if [[ -z "$source_file" ]]; then
-    warn "No OpenCode momo agent template found."
+    warn "No PI momo prompt template found."
     return 0
   fi
   mkdir -p "$dest_dir"
   cp "$source_file" "$dest"
-  log "Added OpenCode subagent: momo"
+  log "Added PI prompt: /momo"
 }
 
 sync_skills() {
@@ -258,7 +258,7 @@ fi
 clone_moremotion
 ensure_gitignore
 seed_skill
-seed_agent
+seed_pi_prompt
 sync_skills
 
 log "MoreMotion integration ready."

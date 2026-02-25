@@ -1,6 +1,5 @@
 ---
 description: Ask teach-mode a direct question with clean, answer-only output.
-agent: teach
 ---
 Answer the user's teach-mode question directly.
 

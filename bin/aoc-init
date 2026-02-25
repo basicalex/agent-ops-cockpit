@@ -76,6 +76,7 @@ These commands are in PATH and work without loading any skill:
 - `tm tag current` - print effective active tag
 - `tm tag prd show` - show PRD linked to active tag
 - `aoc-task tag prd show --tag <tag>` - show PRD linked to a specific tag
+- `tm --tm-root <path> ...` - run Taskmaster commands against another project
 - `tm` - open Taskmaster TUI
 
 **Other:**
@@ -95,7 +96,7 @@ These commands are in PATH and work without loading any skill:
 - Task PRD overrides are linked via task `aocPrd`; resolve with `aoc-task prd show <id> --tag <tag>`.
 - Effective precedence is task PRD override -> tag PRD default.
 - Keep task PRDs in git: `.taskmaster/docs/prds/**` should always be tracked.
-- Keep AOC/task state in git: `.aoc/**` and `.taskmaster/**` should not be ignored.
+- Keep AOC/task state in git: `.aoc/**`, `.taskmaster/**`, and `.pi/**` should not be ignored.
 
 ## Task Management
 - `.taskmaster/tasks/tasks.json` is task state; use the Taskmaster TUI, `aoc-task`, or `tm` (alias for `aoc-task`). Do not edit the file directly.
@@ -114,6 +115,7 @@ These commands are in PATH and work without loading any skill:
 - `release-notes`: draft changelog and release notes.
 - `skill-creator`: create or update AOC skills.
 - `zellij-theme-ops`: create and manage global Zellij themes.
+- `tm-cc`: cross-project Taskmaster control with explicit tm root targeting.
 
 Note: `aoc-mem`, `aoc-stm`, and `tm` are basic CLI commands (see above) - no skill needed.
 EOF
@@ -311,6 +313,8 @@ ensure_git_tracking_policy() {
     "!/.aoc/**"
     "!/.taskmaster/"
     "!/.taskmaster/**"
+    "!/.pi/"
+    "!/.pi/**"
   )
 
   for line in "${rules[@]}"; do
@@ -321,9 +325,9 @@ ensure_git_tracking_policy() {
   done
 
   if [[ "$changed" == "1" ]]; then
-    log "Updated .gitignore to keep .aoc/ and .taskmaster/ tracked."
+    log "Updated .gitignore to keep .aoc/, .taskmaster/, and .pi/ tracked."
   else
-    log ".gitignore already keeps .aoc/ and .taskmaster/ tracked."
+    log ".gitignore already keeps .aoc/, .taskmaster/, and .pi/ tracked."
   fi
 }
 
@@ -768,7 +772,7 @@ Use this when you start a new task or need to re-orient inside a project.
    - Task override: `aoc-task prd show <id> --tag <tag>`
 6. Plan: add or refine tasks with `aoc-task add "<task>"` and set status.
 7. Execute changes and run tests.
-8. If context gets tight, capture state (`aoc-stm add/edit`; in OpenCode you can run `/stm`), seal a clean checkpoint with `aoc-stm handoff`, and use `aoc-stm resume` (or `aoc-stm read`) to load resumable archived context in a new session.
+8. If context gets tight, capture state (`aoc-stm add/edit`), seal a clean checkpoint with `aoc-stm handoff`, and use `aoc-stm resume` (or `aoc-stm read`) to load resumable archived context in a new session.
 9. Update tasks and record decisions: `aoc-task status <id> done`, `aoc-mem add "<decision>"`.
 
 ## Guardrails
@@ -783,7 +787,8 @@ EOF
 
   if [[ -f "$init_ops_skill" ]] && (
     ! grep -Fq '.aoc/stm/current.md' "$init_ops_skill" ||
-    ! grep -Fq 'OpenCode `/stm` command' "$init_ops_skill" ||
+    ! grep -Fq '.pi/prompts/' "$init_ops_skill" ||
+    ! grep -Fq '/tm-cc' "$init_ops_skill" ||
     ! grep -Fq 'aoc-stm handoff' "$init_ops_skill" ||
     ! grep -Fq 'aoc-stm resume' "$init_ops_skill"
   ); then
@@ -808,177 +813,62 @@ description: Initialize or repair AOC context, memory, and tasks safely.
 - Seeds `.aoc/memory.md`
 - Seeds `.aoc/stm/current.md` and `.aoc/stm/archive/` without overwriting existing STM files
 - Ensures PRD directory `.taskmaster/docs/prds/` is available for tag/task links
-- Seeds OpenCode `/stm` command in `.opencode/commands/stm.md` when missing and keeps STM guidance aligned (`aoc-stm` = current draft, `aoc-stm handoff` = seal+print handoff, `aoc-stm resume` = archived resume)
-- Seeds OpenCode `/prd` command in `.opencode/commands/prd.md` when missing
-- Seeds OpenCode teach-mode subagent/commands (`@teach`, `/teach-full`, `/teach-dive`, `/teach-ask`) when missing
+- Seeds `.pi/settings.json` when missing
+- Seeds PI prompt templates in `.pi/prompts/` (`/aoc-ops`, `/teach`, `/teach-full`, `/teach-dive`, `/teach-ask`, `/tm-cc`) when missing
+- Optional MoreMotion prompt `/momo` is seeded by `aoc-momo init`
 - Syncs skills for existing agent targets
 EOF
     log "Updated aoc-init-ops skill with STM seeding guidance."
   fi
 }
 
-# 1c. Setup OpenCode Agents (.opencode/agents)
-setup_agents() {
-  local opencode_agents_dir="$project_root/.opencode/agents"
-  local seed_file=""
-  local candidate=""
+# 1c. Setup PI settings (.pi/settings.json)
+setup_pi_settings() {
+  local pi_dir="$project_root/.pi"
+  local pi_settings="$pi_dir/settings.json"
 
-  for candidate in \
-    "$aoc_config_dir/agents/opencode/aoc-ops.md" \
-    "$script_dir/../.aoc/agents/opencode/aoc-ops.md"; do
-    if [[ -f "$candidate" ]]; then
-      seed_file="$candidate"
-      break
-    fi
-  done
-
-  if [[ -z "$seed_file" ]]; then
-    warn "No OpenCode agent template found; skipping agent seeding."
-    return
+  if [[ ! -d "$pi_dir" ]]; then
+    mkdir -p "$pi_dir"
   fi
 
-  if [[ ! -d "$opencode_agents_dir" ]]; then
-    mkdir -p "$opencode_agents_dir"
-  fi
-
-  local agent_file="$opencode_agents_dir/aoc-ops.md"
-
-  if [[ ! -f "$agent_file" ]]; then
-    cp "$seed_file" "$agent_file"
-    log "Seeded OpenCode agent: aoc-ops"
+  if [[ ! -f "$pi_settings" ]]; then
+    cat <<'EOF' > "$pi_settings"
+{
+  "extensions": []
+}
+EOF
+    log "Seeded PI settings: $pi_settings"
   else
-    local updated_agent=0
-    if grep -Fq '.aoc/themes/' "$agent_file" || grep -Fq 'Prefer project themes over global themes when names overlap.' "$agent_file"; then
-      python3 - "$agent_file" <<'PY'
-from pathlib import Path
-import sys
-
-path = Path(sys.argv[1])
-text = path.read_text(encoding="utf-8")
-updated = text.replace(
-    "- Managing custom Zellij themes with `aoc-theme` (`tui`, `presets`, and manual) for global (`~/.config/zellij/themes/`) and project (`.aoc/themes/`) scopes.",
-    "- Managing custom Zellij themes with `aoc-theme` (`tui`, `presets`, and manual) in global scope (`~/.config/zellij/themes/`).",
-)
-updated = updated.replace(
-    "- Prefer project themes over global themes when names overlap.",
-    "- Use global themes only (Zellij theme selection is session-wide).",
-)
-if updated != text:
-    path.write_text(updated, encoding="utf-8")
-PY
-      log "Updated OpenCode agent with global-only theme guidance."
-      updated_agent=1
-    fi
-    if ! grep -Fq '.aoc/layouts/' "$agent_file"; then
-      cat <<'EOF' >> "$agent_file"
-
-## Layout Operations
-- Manage project-shared layouts in `.aoc/layouts/`.
-- Prefer `.aoc/layouts/<name>.kdl` over `~/.config/zellij/layouts/<name>.kdl` when names overlap.
-- Validate layouts via `aoc-layout --tab <name>`.
-EOF
-      log "Updated OpenCode agent with project layout guidance."
-      updated_agent=1
-    fi
-    if ! grep -Fq 'aoc-theme' "$agent_file"; then
-      cat <<'EOF' >> "$agent_file"
-
-## Theme Operations
-- Manage global themes in `~/.config/zellij/themes/`.
-- Use `aoc-theme tui` for interactive selection (preset + custom sections).
-- Use `aoc-theme apply --name <theme>` for live apply and `aoc-theme set-default --name <theme>` to persist.
-EOF
-      log "Updated OpenCode agent with theme guidance."
-      updated_agent=1
-    fi
-    if [[ "$updated_agent" == "0" ]]; then
-      log "OpenCode agent already present. Preserving."
-    fi
-  fi
-
-  local teach_seed=""
-  for candidate in \
-    "$aoc_config_dir/agents/opencode/teach.md" \
-    "$script_dir/../.aoc/agents/opencode/teach.md"; do
-    if [[ -f "$candidate" ]]; then
-      teach_seed="$candidate"
-      break
-    fi
-  done
-
-  if [[ -n "$teach_seed" ]]; then
-    local teach_agent_file="$opencode_agents_dir/teach.md"
-    if [[ ! -f "$teach_agent_file" ]]; then
-      cp "$teach_seed" "$teach_agent_file"
-      log "Seeded OpenCode agent: teach"
-    else
-      log "OpenCode agent @teach already present. Preserving."
-    fi
+    log "PI settings exist ($pi_settings). Preserving."
   fi
 }
 
-# 1d. Setup OpenCode Commands (.opencode/commands)
-setup_opencode_commands() {
-  local opencode_commands_dir="$project_root/.opencode/commands"
+# 1d. Setup PI Prompt Templates (.pi/prompts)
+setup_pi_prompts() {
+  local pi_prompts_dir="$project_root/.pi/prompts"
   local candidate=""
-  local commands_seed_dirs=(
-    "$aoc_config_dir/commands/opencode"
-    "$script_dir/../.aoc/commands/opencode"
+  local prompts_seed_dirs=(
+    "$aoc_config_dir/prompts/pi"
+    "$script_dir/../.aoc/prompts/pi"
   )
 
-  if [[ ! -d "$opencode_commands_dir" ]]; then
-    mkdir -p "$opencode_commands_dir"
+  if [[ ! -d "$pi_prompts_dir" ]]; then
+    mkdir -p "$pi_prompts_dir"
   fi
 
   local seeded_any=0
   local seed_file=""
   local target_file=""
-  for candidate in "${commands_seed_dirs[@]}"; do
+  for candidate in "${prompts_seed_dirs[@]}"; do
     [[ -d "$candidate" ]] || continue
     shopt -s nullglob
     for seed_file in "$candidate"/*.md; do
-      target_file="$opencode_commands_dir/$(basename "$seed_file")"
+      target_file="$pi_prompts_dir/$(basename "$seed_file")"
       if [[ ! -f "$target_file" ]]; then
         cp "$seed_file" "$target_file"
-        log "Seeded OpenCode command: /$(basename "$seed_file" .md)"
+        log "Seeded PI prompt: /$(basename "$seed_file" .md)"
       else
-        if [[ "$(basename "$target_file")" == "stm.md" ]] && (
-          grep -Fq 'default `--last`) to archive and continue in a fresh tab/session with STM injected.' "$target_file" ||
-          grep -Fq 'then `aoc-stm` to print the latest archived STM context into the transcript.' "$target_file" ||
-          grep -Fq 'then `aoc-stm` to print the latest archived STM context into the terminal transcript.' "$target_file" ||
-          grep -Fq 'aoc-stm archive` persists this snapshot, and `aoc-stm read` prints the latest archived STM context into the terminal transcript.' "$target_file" ||
-          grep -Fq 'aoc-stm handoff` prints current draft with archive fallback for fast resume.' "$target_file" ||
-          ! grep -Fq 'aoc-stm resume' "$target_file"
-        ); then
-          python3 - "$target_file" <<'PY'
-from pathlib import Path
-import re
-import sys
-
-path = Path(sys.argv[1])
-text = path.read_text(encoding="utf-8")
-updated = text
-legacy_lines = [
-    "When finished, remind me I can run `aoc-stm` (default `--last`) to archive and continue in a fresh tab/session with STM injected.",
-    "When finished, remind me to run `aoc-stm archive` to persist this snapshot, then `aoc-stm` to print the latest archived STM context into the transcript.",
-    "When finished, remind me to run `aoc-stm archive` to persist this snapshot, then `aoc-stm` to print the latest archived STM context into the terminal transcript.",
-    "When finished, remind me that `aoc-stm` reads the current draft, `aoc-stm archive` persists this snapshot, and `aoc-stm read` prints the latest archived STM context into the terminal transcript.",
-    "When finished, remind me that `aoc-stm` reads the current draft, `aoc-stm archive` persists this snapshot, `aoc-stm read` prints the latest archived STM context, and `aoc-stm handoff` prints current draft with archive fallback for fast resume.",
-]
-new_line = "When finished, remind me that `aoc-stm` reads the current draft, `aoc-stm handoff` archives the draft and prints the handoff snapshot, and `aoc-stm resume` (or `aoc-stm read`) loads archived resume context in a new session."
-
-for line in legacy_lines:
-    updated = updated.replace(line, new_line)
-
-if "aoc-stm resume" not in updated:
-    updated = re.sub(r"When finished, remind me[^\n]*", new_line, updated, count=1)
-
-if updated != text:
-    path.write_text(updated, encoding="utf-8")
-PY
-          log "Updated OpenCode command /stm with draft-seal-resume STM guidance."
-        fi
-        log "OpenCode command /$(basename "$seed_file" .md) already present. Preserving."
+        log "PI prompt /$(basename "$seed_file" .md) already present. Preserving."
       fi
       seeded_any=1
     done
@@ -986,7 +876,7 @@ PY
   done
 
   if [[ "$seeded_any" != "1" ]]; then
-    warn "No OpenCode command templates found; skipping command seeding."
+    warn "No PI prompt templates found; skipping PI prompt seeding."
   fi
 }
 
@@ -1191,8 +1081,8 @@ main() {
   log "Initializing AOC in: $project_root"
   setup_memory
   setup_skills
-  setup_agents
-  setup_opencode_commands
+  setup_pi_settings
+  setup_pi_prompts
   setup_tasks
   ensure_git_tracking_policy
   setup_env
