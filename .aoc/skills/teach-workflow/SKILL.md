@@ -17,7 +17,7 @@ description: Run guided teach-mode scans, dives, and local insight logging.
 1. Ensure context is loaded from:
    - `.aoc/context.md`
    - `aoc-mem read`
-   - `aoc-stm read-current` (fallback `aoc-stm read`)
+   - `aoc-stm resume` (fallback `aoc-stm read-current` when no archive exists)
    - `aoc-task list`
    - `.taskmaster/docs/prd.txt` (fallback `.taskmaster/docs/prd.md`)
 2. For full scan, explore subsystem tracks in parallel.
