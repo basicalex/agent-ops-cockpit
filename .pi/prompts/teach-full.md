@@ -1,6 +1,5 @@
 ---
 description: Run a full teach-mode architecture scan, then pause for user-selected deep dive.
-agent: teach
 ---
 Run an interactive teach-mode full scan of this repository.
 

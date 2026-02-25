@@ -169,30 +169,26 @@ Reusable workflow playbooks stored in `.aoc/skills/` and synced to the active ag
 
 ```bash
 # Sync skills for the active agent
-aoc-skill sync --agent oc
+aoc-skill sync --agent pi
 
 # Re-sync existing targets (no new agent dirs)
 aoc-skill sync --existing
 ```
 
-**Included skills:** `aoc-workflow`, `teach-workflow`, `memory-ops`, `taskmaster-ops`, `rlm-analysis`, `prd-dev`, `prd-intake`, `prd-align`, `tag-align`, `task-breakdown`, `task-checker`, `release-notes`, `skill-creator`, `zellij-theme-ops`.
+**Included skills:** `aoc-workflow`, `teach-workflow`, `memory-ops`, `taskmaster-ops`, `tm-cc`, `rlm-analysis`, `prd-dev`, `prd-intake`, `prd-align`, `tag-align`, `task-breakdown`, `task-checker`, `release-notes`, `skill-creator`, `zellij-theme-ops`.
 
 Skills are synced automatically when you switch agents via `aoc-agent --set`. `aoc-init` also seeds default skills and syncs the active agent. Sync is additive and preserves existing agent skills.
 
-**Teach mode (OpenCode):**
+**Teach mode (PI):**
+
+PI (project prompt templates seeded by `aoc-init`):
 
 ```bash
-# Repo mentor subagent
-@teach
-
-# Full architecture scan + checkpoint
+/teach
 /teach-full
-
-# Deep dive one subsystem
 /teach-dive ingestion
-
-# Direct Q&A with answer-only output
 /teach-ask how are you useful?
+/tm-cc
 ```
 
 Teach mode is read-first by default, explains implementation with file references, and stores optional local continuity notes under `.aoc/insight/`.
@@ -203,10 +199,10 @@ Teach mode is read-first by default, explains implementation with file reference
 aoc-momo init
 ```
 
-Then in OpenCode:
+Then use:
 
-```
-@momo
+```text
+PI: /momo
 ```
 
 ### 5. Yazi File Manager Integration
@@ -312,10 +308,10 @@ When you start working in AOC:
 1. **Orient:** `aoc-mem read` - Ingest past decisions and preferences
 2. **Context:** `.aoc/context.md` - Automatically provides current project map
 3. **Plan:** `tm add "..."` (alias: `aoc-task add`) - Track your work plan
-4. **Intake (optional):** In OpenCode use `/prd` for orchestrated intake and task persistence via `tm add/edit` (alias: `aoc-task add/edit`).
+4. **Intake (optional):** Use Taskmaster commands (`tm add/edit`, alias: `aoc-task add/edit`) to capture/shape implementation tasks from your PRD.
 5. **Spec:** `aoc-task prd show <id>` - Read linked PRD before implementation
 6. **Execute:** Edit files, run commands, collaborate with AI agent
-7. **Handoff Prep (OpenCode):** `/stm` - Ask the agent to write a concise `.aoc/stm/current.md`
+7. **Handoff Prep:** Use `aoc-stm add` / `aoc-stm edit` to write a concise `.aoc/stm/current.md` draft
 8. **Load STM Context:** `aoc-stm resume` - Load archived handoff context into terminal/agent transcript (`aoc-stm` remains draft-only)
 9. **Update:** Mark tasks done in Taskmaster TUI
 10. **Record:** `aoc-mem add "..."` - Document significant decisions
@@ -435,7 +431,7 @@ AOC supports extensive customization via environment variables:
 
 RTK keeps agent context healthier by condensing noisy command output while preserving safety via fail-open fallback to native command execution.
 
-**Command Overrides:** `AOC_AGENT_CMD`, `AOC_CODEX_CMD`, `AOC_TASKMASTER_CMD`, `AOC_FILETREE_CMD`
+**Command Overrides:** `AOC_AGENT_CMD`, `AOC_CODEX_CMD`, `AOC_TASKMASTER_CMD`, `AOC_TASKMASTER_ROOT`, `AOC_FILETREE_CMD`
 
 **Agent Installer Overrides:** `AOC_CODEX_INSTALL_CMD`, `AOC_GEMINI_INSTALL_CMD`, `AOC_CC_INSTALL_CMD`, `AOC_KIMI_INSTALL_CMD`, `AOC_OC_INSTALL_CMD`, `AOC_OMO_INSTALL_CMD`, `AOC_PI_INSTALL_CMD`, `AOC_PIR_INSTALL_CMD` (plus matching `*_UPDATE_CMD` vars)
 
@@ -502,6 +498,7 @@ cargo build --workspace
 ```bash
 aoc-doctor          # Check all dependencies
 tm list             # Verify task controls work
+tm --tm-root ~/dev/other-project tag list  # Cross-project Taskmaster targeting
 aoc-task list       # Canonical command
 aoc-mem read        # Check memory system
 aoc-rtk status      # Check RTK routing state

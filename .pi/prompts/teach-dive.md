@@ -1,6 +1,5 @@
 ---
 description: Deep-dive a selected subsystem with implementation details, tradeoffs, and exercises.
-agent: teach
 ---
 Run a targeted teach-mode deep dive.
 
