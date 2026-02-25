@@ -39,7 +39,6 @@ the session_id and the hub must reject mismatched sessions.
 | AOC_PULSE_LAYOUT_WATCH_MS | Hub layout poll interval while layout subscribers are active | 3000 ms |
 | AOC_PULSE_LAYOUT_IDLE_WATCH_MS | Hub layout poll interval when no layout subscribers are active | max(4x active, 12000 ms) |
 | AOC_MISSION_CONTROL_LAYOUT_REFRESH_MS | Mission Control local layout refresh interval (fallback/overview) | 3000 ms |
-| AOC_ORPHAN_PANE_POLL_SECS | Agent orphan watchdog poll interval in `aoc-agent-wrap` | 3.0 s |
 | AOC_LOG_DIR | Log output directory | .aoc/logs |
 
 ## AOC Pulse Data Source Strategy

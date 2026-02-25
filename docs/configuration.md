@@ -10,6 +10,7 @@ Advanced configuration options for Agent Ops Cockpit (AOC).
   - [Clock Configuration](#clock-configuration)
   - [Layout and Display](#layout-and-display)
   - [RTK Routing](#rtk-routing)
+  - [Agent Installers (Alt+C)](#agent-installers-altc)
   - [Agent Configuration](#agent-configuration)
 - [Custom Layouts](#custom-layouts)
 - [Theme Management](#theme-management)
@@ -122,7 +123,6 @@ Control Pulse vNext and the Mission Control Pulse Overview mode:
 | `AOC_PULSE_LAYOUT_WATCH_MS` | Hub layout poll interval when layout watcher is active | `3000` |
 | `AOC_PULSE_LAYOUT_IDLE_WATCH_MS` | Hub layout poll interval with no layout subscribers | `max(4x active, 12000)` |
 | `AOC_MISSION_CONTROL_LAYOUT_REFRESH_MS` | Mission Control local layout refresh interval (local mode only) | `3000` |
-| `AOC_ORPHAN_PANE_POLL_SECS` | Agent wrapper orphan watchdog polling interval | `3.0` |
 
 Notes:
 
@@ -147,6 +147,8 @@ You can manage RTK from `Alt+C` (`aoc-control`) via **Settings -> RTK routing**.
 | `AOC_RTK_BINARY` | Override RTK binary name/path | `rtk` |
 | `AOC_RTK_GAIN_MODE` | RTK invocation mode (`double-dash` or `positional`) | `double-dash` |
 | `AOC_RTK_FAIL_OPEN` | Fallback to native command on RTK execution error | `1` |
+| `AOC_RTK_ULTRA_COMPACT` | Pass `-u` to RTK commands for tighter output | `0` |
+| `AOC_RTK_ROUTE_NON_TTY_STDIN` | Allow RTK routing when stdin is non-tty and not piped/file redirected | `0` |
 | `AOC_RTK_INSTALL_URL` | Pinned installer artifact URL for `aoc-rtk install` | None |
 | `AOC_RTK_INSTALL_SHA256` | SHA256 for pinned installer artifact | None |
 | `AOC_RTK_INSTALL_DIR` | Install target directory for `aoc-rtk install` | `~/.local/bin` |
@@ -237,6 +239,39 @@ AOC ships a custom Zellij keybind layer in `~/.config/zellij/aoc.config.kdl` (or
 
 Theme management now lives inside `aoc-control` under Settings -> Theme manager.
 
+### Agent Installers (Alt+C)
+
+`aoc-control` also includes **Settings -> Agent installers**. It shows per-agent install status (`installed` or `missing`) and runs:
+
+- `install` for missing agents
+- `update` for installed agents
+
+Back-end command used by the TUI: `aoc-agent-install <status|install|update> <agent>`.
+
+Default command overrides:
+
+| Variable | Description |
+|----------|-------------|
+| `AOC_CODEX_INSTALL_CMD` / `AOC_CODEX_UPDATE_CMD` | Codex install/update command |
+| `AOC_GEMINI_INSTALL_CMD` / `AOC_GEMINI_UPDATE_CMD` | Gemini install/update command |
+| `AOC_CC_INSTALL_CMD` / `AOC_CC_UPDATE_CMD` | Claude Code install/update command |
+| `AOC_KIMI_INSTALL_CMD` / `AOC_KIMI_UPDATE_CMD` | Kimi install/update command |
+| `AOC_OC_INSTALL_CMD` / `AOC_OC_UPDATE_CMD` | OpenCode install/update command |
+| `AOC_OMO_INSTALL_CMD` / `AOC_OMO_UPDATE_CMD` | OmO install/update command |
+| `AOC_PI_INSTALL_CMD` / `AOC_PI_UPDATE_CMD` | PI (npm) install/update command |
+| `AOC_PIR_INSTALL_CMD` / `AOC_PIR_UPDATE_CMD` | PI Rust install/update command |
+| `AOC_PIR_INSTALL_URL` | Override PI Rust upstream install URL |
+| `AOC_PI_INSTALL_URL` | Legacy alias for PI Rust installer URL override | None |
+| `AOC_PI_INSTALL_CONSENT` | Required PI Rust consent gate (`I_ACCEPT_PI_UPSTREAM`) |
+
+PI Rust safety rider:
+
+- PI Rust install/update is blocked unless `AOC_PI_INSTALL_CONSENT=I_ACCEPT_PI_UPSTREAM` is set.
+- `install.sh` can persist consent interactively to `~/.config/aoc/pi-install-consent` (disable prompt with `AOC_PI_CONSENT_PROMPT=0`).
+- By default, `pi` installs from npm (`pnpm add -g @mariozechner/pi-coding-agent`).
+- By default, `pi-r` uses the upstream Rust installer URL in `aoc-agent-install`; override with `AOC_PIR_INSTALL_CMD` or `AOC_PIR_INSTALL_URL` as needed (`AOC_PI_INSTALL_URL` remains a legacy alias).
+- AOC does not bundle PI artifacts; it only executes installer commands.
+
 ### Agent Configuration
 
 | Variable | Description | Default |
@@ -245,9 +280,27 @@ Theme management now lives inside `aoc-control` under Settings -> Theme manager.
 | `AOC_GEMINI_BIN` | Gemini binary path | Auto-detect |
 | `AOC_CC_BIN` | Claude Code binary path | Auto-detect |
 | `AOC_OC_BIN` | OpenCode binary path | Auto-detect |
+| `AOC_PI_BIN` | PI Agent (npm) binary path | `pi` |
+| `AOC_PIR_BIN` | PI Agent (Rust) binary path | `pi-r` |
+| `AOC_PI_LOW_TOKEN_MODE` | Enable default PI low-token prompt append (`1`/`0`) | `1` |
+| `AOC_PI_LOW_TOKEN_PROMPT` | Override PI low-token prompt file path | `<project>/.aoc/prompts/pi-low-token.md` |
+| `AOC_PI_APPEND_SYSTEM_PROMPT` | Extra `--append-system-prompt` text/path passed to PI | None |
+| `AOC_PI_HANDSHAKE_MODE` | PI handshake verbosity (`compact`, `full`, `off`) | `compact` |
+| `AOC_HANDSHAKE_MODE` | Global handshake verbosity override (`compact`, `full`, `off`) | Agent default |
 | `AOC_AGENT_PATTERN` | Additional agent names for cleanup | None |
 | `AOC_CODEX_TMUX_CONF` | Custom tmux config for Codex | Default |
-| `AOC_AGENT_TMUX_CONF` | Custom tmux config for other agents | Default |
+| `AOC_AGENT_TMUX_CONF` | Custom tmux config for tmux-enabled agents | Default |
+| `AOC_TMUX_AGENT_ALLOWLIST` | Comma-separated agent IDs that should run inside tmux | `codex,pi,pi-r` |
+
+Valid `AOC_AGENT_ID` values include `codex`, `gemini`, `kimi`, `cc`, `oc`, `omo`, `pi`, and `pi-r`.
+
+- `oc` launches standalone OpenCode.
+- `omo` launches OpenCode with OmO profile routing (sandbox by default).
+- `pi` launches the original npm PI Agent CLI.
+- `pi-r` launches the Rust PI Agent CLI.
+- `pi` auto-appends `.aoc/prompts/pi-low-token.md` unless disabled by `AOC_PI_LOW_TOKEN_MODE=0` or overridden by explicit PI prompt flags.
+- `pi` and `pi-r` default to compact handshake output; set `AOC_PI_HANDSHAKE_MODE=full` for full context dump.
+- `pi` and `pi-r` enable RTK ultra-compact output and non-tty routing by default (`AOC_RTK_ULTRA_COMPACT=1`, `AOC_RTK_ROUTE_NON_TTY_STDIN=1`) unless you override them.
 
 ## Custom Layouts
 

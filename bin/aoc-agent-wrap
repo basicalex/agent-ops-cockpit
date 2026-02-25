@@ -118,12 +118,10 @@ resolve_wrap_rs_cmd() {
 
 is_wrapper() {
   local candidate="$1"
-  local head=""
   if [[ ! -f "$candidate" ]]; then
     return 1
   fi
-  head="$(head -n 1 "$candidate" 2>/dev/null || true)"
-  if [[ "$head" == "#!/usr/bin/env bash" ]]; then
+  if LC_ALL=C head -n 1 "$candidate" 2>/dev/null | grep -Fxq "#!/usr/bin/env bash"; then
     # Heuristic: if it mentions "aoc-" or "tmux -L aoc-" it's likely a wrapper
     if grep -E -q "aoc-|tmux -L aoc-" "$candidate" 2>/dev/null; then
       return 0
@@ -263,6 +261,115 @@ printf '%s\n' "$pane_instance_id" >"$lease_file" 2>/dev/null || true
 export AOC_PANE_INSTANCE_ID="$pane_instance_id"
 export AOC_PANE_LEASE_FILE="$lease_file"
 
+setup_rtk_routing() {
+  is_truthy() {
+    local value="${1:-}"
+    value="$(printf '%s' "$value" | tr '[:upper:]' '[:lower:]')"
+    case "$value" in
+      1|true|yes|on) return 0 ;;
+      *) return 1 ;;
+    esac
+  }
+
+  if is_truthy "${AOC_RTK_BYPASS:-0}" || [[ "${AOC_RTK_MODE:-}" == "off" ]]; then
+    export AOC_RTK_ACTIVE=0
+    return
+  fi
+
+  local rtk_ctl="$script_dir/aoc-rtk"
+  if [[ ! -x "$rtk_ctl" ]]; then
+    rtk_ctl="$(command -v aoc-rtk 2>/dev/null || true)"
+  fi
+
+  local rtk_proxy="$script_dir/aoc-rtk-proxy"
+  if [[ ! -x "$rtk_proxy" ]]; then
+    rtk_proxy="$(command -v aoc-rtk-proxy 2>/dev/null || true)"
+  fi
+
+  if [[ -z "$rtk_ctl" || -z "$rtk_proxy" ]]; then
+    export AOC_RTK_ACTIVE=0
+    return
+  fi
+
+  local status_shell=""
+  status_shell="$($rtk_ctl status --shell 2>/dev/null || true)"
+  if [[ -z "$status_shell" ]]; then
+    export AOC_RTK_ACTIVE=0
+    return
+  fi
+
+  local mode="off"
+  local fail_open="1"
+  local gain_mode="double-dash"
+  local binary="rtk"
+  local allowlist=()
+  local denylist=()
+  local line=""
+  local key=""
+  local value=""
+
+  while IFS= read -r line; do
+    [[ -n "$line" ]] || continue
+    key="${line%%=*}"
+    value="${line#*=}"
+    case "$key" in
+      mode) mode="$value" ;;
+      fail_open) fail_open="$value" ;;
+      gain_mode) gain_mode="$value" ;;
+      binary) binary="$value" ;;
+      allow) allowlist+=("$value") ;;
+      deny) denylist+=("$value") ;;
+      *) ;;
+    esac
+  done <<< "$status_shell"
+
+  if [[ "$mode" != "on" || ${#allowlist[@]} -eq 0 ]]; then
+    export AOC_RTK_ACTIVE=0
+    return
+  fi
+
+  local shim_root="${XDG_STATE_HOME:-$HOME/.local/state}/aoc/rtk-shims"
+  local shim_dir="$shim_root/$(sanitize_component "${AOC_SESSION_ID:-unknown}")/$(sanitize_component "${AOC_PANE_ID:-unknown}")"
+  mkdir -p "$shim_dir"
+  rm -f "$shim_dir"/* 2>/dev/null || true
+
+  local created=0
+  local allow_pattern=""
+  local cmd_name=""
+  local seen=" "
+
+  for allow_pattern in "${allowlist[@]}"; do
+    cmd_name="${allow_pattern%% *}"
+    if [[ ! "$cmd_name" =~ ^[A-Za-z0-9._+-]+$ ]]; then
+      continue
+    fi
+    if [[ "$seen" == *" $cmd_name "* ]]; then
+      continue
+    fi
+    seen="$seen$cmd_name "
+    printf '#!/usr/bin/env bash\nexec "%s" "%s" "$@"\n' "$rtk_proxy" "$cmd_name" > "$shim_dir/$cmd_name"
+    chmod +x "$shim_dir/$cmd_name"
+    created=1
+  done
+
+  if [[ "$created" != "1" ]]; then
+    export AOC_RTK_ACTIVE=0
+    return
+  fi
+
+  export AOC_RTK_ACTIVE=1
+  export AOC_RTK_SHIM_DIR="$shim_dir"
+  export AOC_RTK_MODE="$mode"
+  export AOC_RTK_FAIL_OPEN="$fail_open"
+  export AOC_RTK_GAIN_MODE="$gain_mode"
+  export AOC_RTK_BINARY="$binary"
+  export AOC_RTK_ALLOWLIST="$(printf '%s\n' "${allowlist[@]}")"
+  export AOC_RTK_DENYLIST="$(printf '%s\n' "${denylist[@]}")"
+  export PATH="$shim_dir:$PATH"
+}
+
+setup_rtk_routing
+
 # --- Context Injection (Handshake) ---
 
 find_aoc_dir() {
@@ -323,12 +430,66 @@ construct_handshake() {
     stm_current_has_content=1
   fi
 
+  local handshake_mode="${AOC_HANDSHAKE_MODE:-}"
+  if [[ -z "$handshake_mode" ]]; then
+    if [[ "${AOC_AGENT_ID:-}" == "pi" || "${AOC_AGENT_ID:-}" == "pi-r" ]]; then
+      handshake_mode="${AOC_PI_HANDSHAKE_MODE:-compact}"
+    else
+      handshake_mode="full"
+    fi
+  fi
+  handshake_mode="$(printf '%s' "$handshake_mode" | tr '[:upper:]' '[:lower:]')"
+  case "$handshake_mode" in
+    full|compact|off) ;;
+    *) handshake_mode="full" ;;
+  esac
+
+  if [[ "$handshake_mode" == "off" ]]; then
+    return
+  fi
+
   echo "──────────────────────────────────────────────────────────────────────────────"
   echo "🚀 AOC SYSTEM HANDSHAKE (Agent Orientation)"
   echo "──────────────────────────────────────────────────────────────────────────────"
   echo
   echo "You are running in an Agent Ops Cockpit (AOC) managed environment."
   echo "This terminal history contains your initial project orientation."
+
+  if [[ "$handshake_mode" == "compact" ]]; then
+    echo
+    echo "📂 PROJECT ROOT: ${AOC_PROJECT_ROOT:-$PWD}"
+    echo "Context map: $aoc_dir/context.md (open on demand)"
+    echo "Memory log: $aoc_dir/memory.md (use: aoc-mem read)"
+    echo "Tasks: use tm list / aoc-task list on demand"
+
+    echo
+    echo "🧪 RTK ROUTING:"
+    if [[ "${AOC_RTK_ACTIVE:-0}" == "1" ]]; then
+      echo "Active (mode=${AOC_RTK_MODE:-on}, fail-open=${AOC_RTK_FAIL_OPEN:-1})."
+    elif is_truthy "${AOC_RTK_BYPASS:-0}" || [[ "${AOC_RTK_MODE:-}" == "off" ]]; then
+      echo "Bypassed (AOC_RTK_BYPASS=1 or AOC_RTK_MODE=off)."
+    else
+      echo "Inactive (run: aoc-rtk status)"
+    fi
+
+    echo
+    echo "⚡ STM DIARY:"
+    if [[ -n "$stm_latest" ]]; then
+      echo "Latest archive: $stm_latest"
+    else
+      echo "Latest archive: none"
+    fi
+    if [[ "$stm_current_has_content" == "1" ]]; then
+      echo "Current draft has unarchived notes: $stm_current"
+    fi
+    echo "Resume command: aoc-stm handoff"
+
+    echo
+    echo "──────────────────────────────────────────────────────────────────────────────"
+    echo "Starting ${AOC_AGENT_LABEL:-$agent_label} CLI..."
+    echo "──────────────────────────────────────────────────────────────────────────────"
+    return
+  fi
   echo
   echo "📂 PROJECT CONTEXT ($aoc_dir/context.md):"
   if [[ -f "$aoc_dir/context.md" ]]; then
@@ -354,6 +515,16 @@ construct_handshake() {
   fi
 
   echo
+  echo "🧪 RTK ROUTING:"
+  if [[ "${AOC_RTK_ACTIVE:-0}" == "1" ]]; then
+    echo "Active (mode=${AOC_RTK_MODE:-on}, fail-open=${AOC_RTK_FAIL_OPEN:-1})."
+  elif is_truthy "${AOC_RTK_BYPASS:-0}" || [[ "${AOC_RTK_MODE:-}" == "off" ]]; then
+    echo "Bypassed (AOC_RTK_BYPASS=1 or AOC_RTK_MODE=off)."
+  else
+    echo "Inactive (run: aoc-rtk status)"
+  fi
+
+  echo
   if [[ -n "$stm_latest" || "$stm_current_has_content" == "1" ]]; then
     echo "⚡ STM DIARY AVAILABLE:"
     if [[ -n "$stm_latest" ]]; then
@@ -366,6 +537,7 @@ construct_handshake() {
     fi
     echo "Do not auto-read STM unless the user asks for it (eg: starts with 'stm ...')."
     echo "If not requested, mention STM availability at the end of your first response."
+    echo "If the user asks to continue/resume/handoff, run: aoc-stm handoff (current first, archive fallback)."
     echo "To load current STM draft explicitly, run: aoc-stm (or aoc-stm read-current)."
     echo "To read the latest archived snapshot, run: aoc-stm read (or aoc-stm-read)."
   else
@@ -438,461 +610,62 @@ else
   wrapped_cmd=("$bootloader" "$@")
 fi
 
-pane_cleanup=0
-if [[ -n "${AOC_PANE_ID:-}" || -n "${ZELLIJ_PANE_ID:-}" ]]; then
-  pane_cleanup=1
+agent_runtime_id="${AOC_AGENT_ID:-$agent_id}"
+is_omo_agent=0
+if [[ "$agent_runtime_id" == "omo" ]]; then
+  is_omo_agent=1
+fi
+is_pi_family_agent=0
+if [[ "$agent_runtime_id" == "pi" || "$agent_runtime_id" == "pi-r" ]]; then
+  is_pi_family_agent=1
 fi
 
-reap_conflicting_pane_processes() {
-  if [[ "$pane_cleanup" != "1" ]]; then
-    return
-  fi
-  local pane_id="${AOC_PANE_ID:-${ZELLIJ_PANE_ID:-}}"
-  local session_id="${ZELLIJ_SESSION_NAME:-${AOC_SESSION_ID:-}}"
-  local project_root="${AOC_PROJECT_ROOT:-}"
-  if [[ -z "$pane_id" || -z "$session_id" ]]; then
-    return
-  fi
+stderr_capture_enabled="${AOC_AGENT_CAPTURE_STDERR:-0}"
+if [[ "$is_omo_agent" == "1" ]]; then
+  stderr_capture_enabled="${AOC_OMO_CAPTURE_STDERR:-1}"
+elif [[ "$is_pi_family_agent" == "1" ]]; then
+  stderr_capture_enabled="${AOC_PI_CAPTURE_STDERR:-1}"
+fi
+stderr_log_file=""
+if [[ "$stderr_capture_enabled" == "1" ]]; then
+  stderr_log_dir="${AOC_AGENT_STDERR_LOG_DIR:-$state_dir/stderr}"
+  mkdir -p "$stderr_log_dir" 2>/dev/null || true
+  stderr_log_file="$stderr_log_dir/$(sanitize_component "$AOC_SESSION_ID")-$(sanitize_component "$AOC_PANE_ID")-$(sanitize_component "$agent_runtime_id").log"
+fi
 
-  python3 - "$pane_id" "$session_id" "$project_root" "${BASHPID:-$$}" <<'PY'
-import os
-import signal
-import subprocess
-import sys
-import time
-
-pane_id = sys.argv[1] if len(sys.argv) > 1 else ""
-session_id = sys.argv[2] if len(sys.argv) > 2 else ""
-project_root = sys.argv[3] if len(sys.argv) > 3 else ""
-self_pid = int(sys.argv[4]) if len(sys.argv) > 4 and sys.argv[4].isdigit() else 0
-
-if not pane_id or not session_id:
-    raise SystemExit(0)
-
-def proc_env(pid):
-    try:
-        with open(f"/proc/{pid}/environ", "rb") as fh:
-            data = fh.read().split(b"\0")
-    except Exception:
-        return {}
-    env = {}
-    for item in data:
-        if not item or b"=" not in item:
-            continue
-        key, value = item.split(b"=", 1)
-        env[key.decode("utf-8", "ignore")] = value.decode("utf-8", "ignore")
-    return env
-
-try:
-    ps_out = subprocess.check_output(["ps", "-eo", "pid,args"], text=True)
-except Exception:
-    raise SystemExit(0)
-
-targets = []
-for line in ps_out.strip().splitlines()[1:]:
-    parts = line.strip().split(None, 1)
-    if len(parts) != 2:
-        continue
-    try:
-        pid = int(parts[0])
-    except ValueError:
-        continue
-    if pid <= 0 or pid == self_pid:
-        continue
-    args = parts[1]
-    if "aoc-agent-wrap" not in args and "opencode" not in args and "codex" not in args and "gemini" not in args and "claude" not in args and "kimi" not in args:
-        continue
-    env = proc_env(pid)
-    proc_pane = env.get("AOC_PANE_ID") or env.get("ZELLIJ_PANE_ID") or ""
-    if proc_pane != pane_id:
-        continue
-    proc_session = env.get("ZELLIJ_SESSION_NAME") or env.get("AOC_SESSION_ID") or ""
-    if proc_session != session_id:
-        continue
-    if project_root:
-        proc_root = env.get("AOC_PROJECT_ROOT") or ""
-        if proc_root == project_root:
-            # same pane/session/root implies duplicate stale instance
-            pass
-    targets.append(pid)
-
-if not targets:
-    raise SystemExit(0)
-
-targets = sorted(set(targets), reverse=True)
-for pid in targets:
-    try:
-        os.kill(pid, signal.SIGTERM)
-    except ProcessLookupError:
-        pass
-
-time.sleep(0.3)
-
-for pid in targets:
-    try:
-        os.kill(pid, signal.SIGKILL)
-    except ProcessLookupError:
-        pass
-PY
-}
-
-reap_conflicting_pane_processes
-
-cleanup_done=0
-kill_pane_agents_by_env() {
-  if [[ "$pane_cleanup" != "1" ]]; then
-    return
-  fi
-  local pane_id="${AOC_PANE_ID:-${ZELLIJ_PANE_ID:-}}"
-  local session_id="${ZELLIJ_SESSION_NAME:-${AOC_SESSION_ID:-}}"
-  local instance_id="${AOC_PANE_INSTANCE_ID:-}"
-  if [[ -z "$pane_id" ]]; then
-    return
-  fi
-
-  python3 - "$pane_id" "$session_id" "${BASHPID:-$$}" "$instance_id" <<'PY'
-import os
-import signal
-import subprocess
-import sys
-import time
-
-pane_id = sys.argv[1] if len(sys.argv) > 1 else ""
-session_id = sys.argv[2] if len(sys.argv) > 2 else ""
-skip_pid = 0
-instance_id = sys.argv[4] if len(sys.argv) > 4 else ""
-if len(sys.argv) > 3:
-    try:
-        skip_pid = int(sys.argv[3])
-    except ValueError:
-        skip_pid = 0
-if not pane_id:
-    raise SystemExit(0)
-
-self_pid = os.getpid()
-
-def proc_env(pid):
-    try:
-        with open(f"/proc/{pid}/environ", "rb") as fh:
-            data = fh.read().split(b"\0")
-    except Exception:
-        return {}
-    env = {}
-    for item in data:
-        if not item or b"=" not in item:
-            continue
-        key, value = item.split(b"=", 1)
-        try:
-            k = key.decode("utf-8", errors="ignore")
-            v = value.decode("utf-8", errors="ignore")
-        except Exception:
-            continue
-        if k:
-            env[k] = v
-    return env
-
-try:
-    ps_out = subprocess.check_output(["ps", "-eo", "pid,comm,args"], text=True)
-except Exception:
-    raise SystemExit(0)
-
-pids = []
-for line in ps_out.strip().splitlines()[1:]:
-    parts = line.strip().split(None, 2)
-    if not parts:
-        continue
-    try:
-        pid = int(parts[0])
-    except ValueError:
-        continue
-    if pid == self_pid or (skip_pid and pid == skip_pid):
-        continue
-    env = proc_env(pid)
-    if instance_id:
-        if env.get("AOC_PANE_INSTANCE_ID") != instance_id:
-            continue
-    else:
-        same_pane = env.get("AOC_PANE_ID") == pane_id or env.get("ZELLIJ_PANE_ID") == pane_id
-        if not same_pane:
-            continue
-        if session_id:
-            proc_session = env.get("ZELLIJ_SESSION_NAME") or env.get("AOC_SESSION_ID") or ""
-            if proc_session and proc_session != session_id:
-                continue
-    pids.append(pid)
-
-pids = sorted(set(pids), reverse=True)
-
-for pid in pids:
-    try:
-        os.kill(pid, signal.SIGTERM)
-    except ProcessLookupError:
-        pass
-
-time.sleep(0.4)
-
-for pid in pids:
-    try:
-        os.kill(pid, signal.SIGKILL)
-    except ProcessLookupError:
-        pass
-PY
-}
-
-cleanup_pane_agents() {
-  if [[ "$cleanup_done" == "1" ]]; then
-    return
-  fi
-  cleanup_done=1
-
-  kill_pane_agents_by_env
-  if [[ -n "${AOC_PANE_LEASE_FILE:-}" && -n "${AOC_PANE_INSTANCE_ID:-}" ]]; then
-    if [[ -f "$AOC_PANE_LEASE_FILE" ]]; then
-      lease_owner="$(head -n 1 "$AOC_PANE_LEASE_FILE" 2>/dev/null || true)"
-      if [[ "$lease_owner" == "$AOC_PANE_INSTANCE_ID" ]]; then
-        rm -f "$AOC_PANE_LEASE_FILE" 2>/dev/null || true
-      fi
-    fi
-  fi
-}
-
-start_orphan_watchdog() {
-  if [[ "$pane_cleanup" != "1" ]]; then
-    return
-  fi
-  local pane_id="${AOC_PANE_ID:-${ZELLIJ_PANE_ID:-}}"
-  local session_id="${ZELLIJ_SESSION_NAME:-${AOC_SESSION_ID:-}}"
-  local instance_id="${AOC_PANE_INSTANCE_ID:-}"
-  local lease_file="${AOC_PANE_LEASE_FILE:-}"
-  if [[ -z "$pane_id" ]]; then
-    return
-  fi
-  if ! command -v python3 >/dev/null 2>&1; then
-    return
-  fi
-
-  local parent_pid="$$"
-  local watcher_cmd=(python3 - "$parent_pid" "$pane_id" "$session_id" "$instance_id" "$lease_file")
-
-  nohup "${watcher_cmd[@]}" >/dev/null 2>&1 <<'PY' &
-import os
-import re
-import signal
-import subprocess
-import sys
-import time
-
-parent_pid = int(sys.argv[1])
-pane_id = sys.argv[2]
-session_id = sys.argv[3] if len(sys.argv) > 3 else ""
-instance_id = sys.argv[4] if len(sys.argv) > 4 else ""
-lease_file = sys.argv[5] if len(sys.argv) > 5 else ""
-
-if not pane_id:
-    raise SystemExit(0)
-
-self_pid = os.getpid()
-
-def parse_int(name, default, minimum=1, maximum=60):
-    raw = os.environ.get(name, "").strip()
-    if not raw:
-        return default
-    try:
-        value = int(raw)
-    except ValueError:
-        return default
-    if value < minimum:
-        return minimum
-    if value > maximum:
-        return maximum
-    return value
-
-def parse_float(name, default, minimum=0.2, maximum=60.0):
-    raw = os.environ.get(name, "").strip()
-    if not raw:
-        return default
-    try:
-        value = float(raw)
-    except ValueError:
-        return default
-    if value < minimum:
-        return minimum
-    if value > maximum:
-        return maximum
-    return value
-
-pane_miss_limit = parse_int("AOC_ORPHAN_PANE_MISS_MAX", 4, minimum=1, maximum=60)
-loop_sleep_secs = parse_float("AOC_ORPHAN_PANE_POLL_SECS", 3.0)
-
-def pid_alive(pid):
-    try:
-        os.kill(pid, 0)
-        return True
-    except ProcessLookupError:
-        return False
-    except PermissionError:
-        return True
-
-def proc_env(pid):
-    try:
-        with open(f"/proc/{pid}/environ", "rb") as fh:
-            data = fh.read().split(b"\0")
-    except Exception:
-        return {}
-    env = {}
-    for item in data:
-        if not item or b"=" not in item:
-            continue
-        key, value = item.split(b"=", 1)
-        env[key.decode("utf-8", "ignore")] = value.decode("utf-8", "ignore")
-    return env
-
-def lease_owned():
-    if not instance_id or not lease_file:
-        return True
-    try:
-        with open(lease_file, "r", encoding="utf-8") as fh:
-            owner = fh.readline().strip()
-    except Exception:
-        return False
-    return owner == instance_id
-
-def matching_pids():
-    try:
-        ps_out = subprocess.check_output(["ps", "-eo", "pid,comm,args"], text=True)
-    except Exception:
-        return []
-    found = []
-    for line in ps_out.strip().splitlines()[1:]:
-        parts = line.strip().split(None, 2)
-        if not parts:
-            continue
-        try:
-            pid = int(parts[0])
-        except ValueError:
-            continue
-        if pid == self_pid:
-            continue
-        env = proc_env(pid)
-        if instance_id:
-            if env.get("AOC_PANE_INSTANCE_ID") != instance_id:
-                continue
-        else:
-            same_pane = env.get("AOC_PANE_ID") == pane_id or env.get("ZELLIJ_PANE_ID") == pane_id
-            if not same_pane:
-                continue
-            if session_id:
-                proc_session = env.get("ZELLIJ_SESSION_NAME") or env.get("AOC_SESSION_ID") or ""
-                if proc_session and proc_session != session_id:
-                    continue
-        found.append(pid)
-    return sorted(set(found), reverse=True)
-
-def session_pane_missing():
-    if not session_id:
-        return False
-    try:
-        sessions_raw = subprocess.check_output(
-            ["zellij", "list-sessions", "--short", "--no-formatting"],
-            text=True,
-            timeout=2,
-        )
-        sessions = {line.strip() for line in sessions_raw.splitlines() if line.strip()}
-        if sessions and session_id not in sessions:
-            return True
-    except Exception:
-        pass
-    return False
-
-pane_misses = 0
-while True:
-    if not pid_alive(parent_pid):
-        break
-    if not lease_owned():
-        break
-    if session_pane_missing():
-        pane_misses += 1
-        if pane_misses >= pane_miss_limit:
-            break
-    else:
-        pane_misses = 0
-    time.sleep(loop_sleep_secs)
-
-pids = matching_pids()
-for pid in pids:
-    try:
-        os.kill(pid, signal.SIGTERM)
-    except ProcessLookupError:
-        pass
-
-time.sleep(0.4)
-
-for pid in pids:
-    try:
-        os.kill(pid, signal.SIGKILL)
-    except ProcessLookupError:
-        pass
-PY
-}
-
-handle_cleanup_signal() {
-  cleanup_pane_agents
-  exit 0
-}
-
-run_with_cleanup() {
-  if [[ "$pane_cleanup" != "1" ]]; then
-    "$@"
+run_wrapped_cmd() {
+  if [[ -n "$stderr_log_file" ]]; then
+    "$@" 2> >(tee -a "$stderr_log_file" >&2)
     return $?
   fi
-  start_orphan_watchdog
-  trap handle_cleanup_signal HUP INT TERM
-  trap cleanup_pane_agents EXIT
-  set +e
   "$@"
-  local status=$?
-  set -e
-
-  cleanup_pane_agents
-  trap - HUP INT TERM EXIT
-  return "$status"
 }
 
-if [[ "$agent_id" != "codex" ]]; then
-  if [[ "$pane_cleanup" == "1" ]]; then
-    if run_with_cleanup "${wrapped_cmd[@]}"; then
-      status=0
-    else
-      status=$?
-    fi
+run_wrapped_exec() {
+  if [[ -n "$stderr_log_file" ]]; then
+    set +e
+    run_wrapped_cmd "$@"
+    local status=$?
+    set -e
     exit "$status"
   fi
-  exec "${wrapped_cmd[@]}"
+  exec "$@"
+}
+
+tmux_allowlist=",${AOC_TMUX_AGENT_ALLOWLIST:-codex,pi,pi-r},"
+tmux_allowlist="${tmux_allowlist//[[:space:]]/}"
+
+if [[ "$tmux_allowlist" != *",$agent_id,"* ]]; then
+  run_wrapped_exec "${wrapped_cmd[@]}"
 fi
 
 if [[ "${AOC_NO_TMUX:-0}" == "1" ]]; then
-  if [[ "$pane_cleanup" == "1" ]]; then
-    if run_with_cleanup "${wrapped_cmd[@]}"; then
-      status=0
-    else
-      status=$?
-    fi
-    exit "$status"
-  fi
-  exec "${wrapped_cmd[@]}"
+  run_wrapped_exec "${wrapped_cmd[@]}"
 fi
 
 if ! command -v tmux >/dev/null 2>&1; then
   echo "aoc-$agent_id: tmux not found; running $agent_bin with handshake but no tmux wrapper." >&2
-  if [[ "$pane_cleanup" == "1" ]]; then
-    if run_with_cleanup "${wrapped_cmd[@]}"; then
-      status=0
-    else
-      status=$?
-    fi
-    exit "$status"
-  fi
-  exec "${wrapped_cmd[@]}"
+  run_wrapped_exec "${wrapped_cmd[@]}"
 fi
 
 conf="${AOC_AGENT_TMUX_CONF:-${XDG_CONFIG_HOME:-$HOME/.config}/aoc/codex-tmux.conf}"
@@ -914,13 +687,4 @@ else
   tmux_cmd=(tmux -L "$socket" new-session -A -s "$session" "${wrapped_cmd[@]}")
 fi
 
-if [[ "$pane_cleanup" == "1" ]]; then
-  if run_with_cleanup "${tmux_cmd[@]}"; then
-    status=0
-  else
-    status=$?
-  fi
-  exit "$status"
-fi
-
-exec "${tmux_cmd[@]}"
+run_wrapped_exec "${tmux_cmd[@]}"
