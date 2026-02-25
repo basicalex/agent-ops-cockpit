@@ -1,0 +1,4 @@
+- [2026-02-24 16:15] [2026-02-24 handoff-clean] mind/106 completed: segment routing engine with Taskmaster-first mapping, heuristic fallback, uncertain/global handling, override provenance, and storage persistence/tests.
+- [2026-02-24 16:15] [2026-02-24 handoff-clean] mind/107 completed: deterministic T1/T2 distillation runtime in aoc-mind with single-pass under budget, deterministic chunking over budget, strict per-conversation T1 scope, deterministic IDs, traceability, and tests.
+- [2026-02-24 16:15] [2026-02-24 handoff-clean] mind/108 in progress (108.1 started): semantic Observer/Reflector adapter layer planned; Zen-only provider scope for this phase; Roam/Ouros deferred.
+- [2026-02-24 16:15] [2026-02-24 handoff-clean] Task 108 PRD override linked: .taskmaster/docs/prds/task-108_semantic-om-background-layer_prd.md. Next step is implementing ObserverAdapter/ReflectorAdapter in aoc-mind with deterministic fail-open fallback.

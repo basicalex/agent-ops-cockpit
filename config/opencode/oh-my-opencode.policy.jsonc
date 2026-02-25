@@ -1,0 +1,70 @@
+{
+  "$schema": "https://raw.githubusercontent.com/code-yeongyu/oh-my-opencode/master/assets/oh-my-opencode.schema.json",
+  "experimental": {
+    "task_system": false,
+    "auto_resume": false,
+    "aggressive_truncation": false,
+    "truncate_all_tool_outputs": false
+  },
+  "sisyphus_agent": {
+    "disabled": false,
+    "default_builder_enabled": false,
+    "planner_enabled": true,
+    "replace_plan": true
+  },
+  "agents": {
+    "sisyphus": {
+      "model": "opencode/minimax-2.5",
+      "prompt_append": "Task authority is Taskmaster only. Use tm or aoc-task for task lifecycle operations. Do not use or create .sisyphus/tasks artifacts."
+    },
+    "prometheus": {
+      "prompt_append": "Planning must use Taskmaster only. Record plans against tm or aoc-task and keep .sisyphus/tasks unused."
+    },
+    "metis": {
+      "prompt_append": "Consulting output must preserve Taskmaster-only governance: tm/aoc-task only, never .sisyphus/tasks."
+    }
+  },
+  "background_task": {
+    "defaultConcurrency": 3,
+    "staleTimeoutMs": 180000,
+    "providerConcurrency": {
+      "anthropic": 2,
+      "openai": 2,
+      "google": 2,
+      "github-copilot": 2,
+      "opencode": 4,
+      "zai-coding-plan": 4,
+      "kimi-for-coding": 2
+    },
+    "modelConcurrency": {
+      "anthropic/claude-opus-4-6": 1,
+      "openai/gpt-5.3-codex": 1
+    }
+  },
+  "runtime_fallback": {
+    "enabled": false,
+    "retry_on_errors": [
+      400,
+      429,
+      503,
+      529
+    ],
+    "max_fallback_attempts": 1,
+    "cooldown_seconds": 60,
+    "timeout_seconds": 0,
+    "notify_on_fallback": true
+  },
+  "disabled_hooks": [
+    "keyword-detector",
+    "auto-slash-command",
+    "ralph-loop",
+    "todo-continuation-enforcer",
+    "start-work"
+  ],
+  "disabled_commands": [
+    "start-work"
+  ],
+  "tmux": {
+    "enabled": false
+  }
+}

@@ -1,0 +1,222 @@
+# Project Context Snapshot
+
+## Repository
+- Name: .
+- Root: .
+- Git branch: main
+
+## Key Files
+- README.md
+
+## Project Structure (tree -L 2)
+```
+.
+├── AGENTS.md
+├── AOC.md
+├── bin
+│   ├── aoc
+│   ├── aoc-agent
+│   ├── aoc-agent-install
+│   ├── aoc-agent-run
+│   ├── aoc-agent-wrap
+│   ├── aoc-align
+│   ├── aoc-cc
+│   ├── aoc-cleanup
+│   ├── aoc-clock
+│   ├── aoc-clock-set
+│   ├── aoc-codex
+│   ├── aoc-codex-tab
+│   ├── aoc-control
+│   ├── aoc-control-toggle
+│   ├── aoc-doctor
+│   ├── aoc-gemini
+│   ├── aoc-hub
+│   ├── aoc-init
+│   ├── aoc-kimi
+│   ├── aoc-launch
+│   ├── aoc-layout
+│   ├── aoc-mem
+│   ├── aoc-mission-control
+│   ├── aoc-mission-control-toggle
+│   ├── aoc-momo
+│   ├── aoc-new-tab
+│   ├── aoc-oc
+│   ├── aoc-omo
+│   ├── aoc-opencode-profile
+│   ├── aoc-open-explorer
+│   ├── aoc-open-file
+│   ├── aoc-pane-rename
+│   ├── aoc-pi
+│   ├── aoc-pi-r
+│   ├── aoc-preview
+│   ├── aoc-preview-set
+│   ├── aoc-preview-toggle
+│   ├── aoc-rlm
+│   ├── aoc-rtk
+│   ├── aoc-rtk-proxy
+│   ├── aoc-skill
+│   ├── aoc-stm
+│   ├── aoc-stm-read
+│   ├── aoc-sys
+│   ├── aoc-task
+│   ├── aoc-taskmaster
+│   ├── aoc-test
+│   ├── aoc-theme
+│   ├── aoc-tm
+│   ├── aoc-uninstall
+│   ├── aoc-utils.sh
+│   ├── aoc-widget
+│   ├── aoc-widget-set
+│   ├── aoc-yazi
+│   ├── aoc-zellij-resize
+│   ├── claude
+│   ├── codex
+│   ├── gemini
+│   ├── kimi
+│   ├── opencode
+│   ├── rlm
+│   ├── tm
+│   └── tm-editor
+├── CHANGELOG.md
+├── cmd
+│   ├── aoc-agent-wrap-go
+│   ├── aoc-hub
+│   └── aoc-taskmaster
+├── CODE_OF_CONDUCT.md
+├── config
+│   ├── btop.conf
+│   ├── codex-tmux.conf
+│   └── opencode
+├── CONTRIBUTING.md
+├── crates
+│   ├── aoc-agent-wrap-rs
+│   ├── aoc-cli
+│   ├── aoc-control
+│   ├── aoc-core
+│   ├── aoc-hub-rs
+│   ├── aoc-installer
+│   ├── aoc-mind
+│   ├── aoc-mission-control
+│   ├── aoc-opencode-adapter
+│   ├── aoc-segment-routing
+│   ├── aoc-storage
+│   ├── aoc-task-attribution
+│   ├── aoc-taskmaster
+│   ├── Cargo.lock
+│   └── Cargo.toml
+├── docs
+│   ├── agents.md
+│   ├── assets
+│   ├── configuration.md
+│   ├── feature-upgrade-collection-key.md
+│   ├── installation.md
+│   ├── layouts.md
+│   ├── mission-control.md
+│   ├── mission-control-ops.md
+│   ├── moremotion.md
+│   ├── omo-regression-checklist.md
+│   ├── pulse-ipc-protocol.md
+│   ├── pulse-vnext-rollout.md
+│   └── skills.md
+├── install
+│   └── bootstrap.sh
+├── install.sh
+├── lib
+│   └── aoc_cleanup
+├── LICENSE
+├── micro
+│   └── bindings.json
+├── plugins
+├── README.md
+├── ROADMAP.md
+├── scripts
+│   ├── lint.sh
+│   ├── opencode
+│   └── smoke.sh
+├── SECURITY.md
+├── shellcheck-v0.10.0
+│   ├── LICENSE.txt
+│   ├── README.txt
+│   └── shellcheck
+├── SUPPORT.md
+├── walkthrough.md
+├── yazi
+│   ├── init.lua
+│   ├── keymap.toml
+│   ├── plugins
+│   ├── preview.sh
+│   ├── theme.toml
+│   └── yazi.toml
+└── zellij
+    ├── aoc.config.kdl.template
+    └── layouts
+
+36 directories, 104 files
+```
+
+## README Headings
+# AOC - Terminal-First AI Workspace
+## ✨ Why AOC?
+### The Problem with AI Development Today
+### The AOC Solution
+## 🚀 Quick Start
+### One-Line Install
+### Verify Installation
+### Next Steps
+## 🎯 Key Features
+### 1. Multi-Agent Support
+# Switch agents interactively
+# Or launch specific agents directly
+### 2. Native Taskmaster TUI
+### 3. RLM Skill - Large Codebase Analysis
+# Measure repository scale
+# Search across codebase
+# Process in manageable chunks
+### 4. Agent Skills
+# Sync skills for the active agent
+# Re-sync existing targets (no new agent dirs)
+# Repo mentor subagent
+# Full architecture scan + checkpoint
+# Deep dive one subsystem
+# Direct Q&A with answer-only output
+### 5. Yazi File Manager Integration
+### 6. Custom Layouts ("AOC Modes")
+# Try the minimal layout
+# See available layout shortcuts in this project
+# (type and press Tab for completion)
+# Set as default
+## 🏗️ Distributed Cognitive Architecture
+### The Three Layers
+#### 1. Context (`.aoc/context.md`) - The "Project Map"
+#### 2. Memory (`.aoc/memory.md`) - The "Logbook"
+#### 3. Tasks (`.taskmaster/tasks/tasks.json`) - The "Todo List"
+#### 4. Task PRDs (`.taskmaster/docs/prds/`) - The "Spec Layer"
+#### 5. Short-Term Memory (`.aoc/stm/`) - The "Handoff Buffer"
+### Per-Tab Isolation
+### Standard Agent Workflow
+## 📋 Requirements
+
+## Current Task Tag
+```
+mind
+```
+
+## Active Workstreams (Tags)
+```
+deprecation (10)
+master (44)
+mermaid (1)
+mind (10)
+mission-control (17)
+omo (10)
+pulse-hub-spoke (8)
+rtk (5)
+safety (9)
+sub-agents (6)
+```
+
+## Task PRD Location
+- Directory: .taskmaster/docs/prds
+- Resolve tag PRD default with: aoc-task tag prd show --tag <tag>
+- Resolve task PRD override with: aoc-task prd show <id> --tag <tag>
+- Effective precedence: task PRD override -> tag PRD default

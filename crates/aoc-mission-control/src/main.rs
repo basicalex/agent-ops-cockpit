@@ -1797,10 +1797,7 @@ fn parse_hex_color(value: &str) -> Option<Color> {
 
 fn resolve_custom_pulse_theme() -> Option<PulseTheme> {
     let env_color = |key: &str| -> Option<Color> {
-        std::env::var(key)
-            .ok()
-            .as_deref()
-            .and_then(parse_hex_color)
+        std::env::var(key).ok().as_deref().and_then(parse_hex_color)
     };
 
     Some(PulseTheme {

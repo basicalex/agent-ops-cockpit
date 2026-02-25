@@ -6,7 +6,7 @@ usage() {
 Usage: aoc-agent [--set [agent]] [--tab [agent]] [--run [agent]] [--current]
 
 Interactive dashboard for selecting the default agent or launching tabs.
-Agents: codex, gemini, kimi, cc, oc
+Agents: codex, gemini, kimi, cc, oc, omo, pi, pi-r
 EOF
 }
 
@@ -21,6 +21,9 @@ list_agents() {
   printf "kimi\tKimi\n"
   printf "cc\tClaude Code\n"
   printf "oc\tOpenCode\n"
+  printf "omo\tOmO (OpenCode)\n"
+  printf "pi\tPI Agent (npm)\n"
+  printf "pi-r\tPI Agent (Rust)\n"
 }
 
 agent_label() {
@@ -30,17 +33,29 @@ agent_label() {
     kimi) echo "Kimi" ;;
     cc) echo "Claude Code" ;;
     oc) echo "OpenCode" ;;
+    omo) echo "OmO (OpenCode)" ;;
+    pi) echo "PI Agent (npm)" ;;
+    pi-r|pir) echo "PI Agent (Rust)" ;;
     *) echo "$1" ;;
   esac
 }
 
 normalize_agent() {
-  printf "%s" "$1" | tr '[:upper:]' '[:lower:]'
+  local normalized
+  normalized="$(printf "%s" "$1" | tr '[:upper:]' '[:lower:]')"
+  case "$normalized" in
+    omo|oh-my-opencode) printf "omo" ;;
+    oc|opencode|open-code) printf "oc" ;;
+    cc|claude|claude-code) printf "cc" ;;
+    pi|pi-agent|pi_agent) printf "pi" ;;
+    pi-r|pir|pi-rust|pi_agent_rust|pi-agent-rust) printf "pi-r" ;;
+    *) printf "%s" "$normalized" ;;
+  esac
 }
 
 valid_agent() {
   case "$1" in
-    codex|gemini|kimi|cc|oc) return 0 ;;
+    codex|gemini|kimi|cc|oc|omo|pi|pi-r) return 0 ;;
     *) return 1 ;;
   esac
 }
@@ -107,9 +122,9 @@ open_tab() {
   fi
   maybe_sync_skills "$agent"
   if [[ -n "${ZELLIJ:-}" || -n "${ZELLIJ_SESSION_NAME:-}" ]]; then
-    AOC_AGENT_ID="$agent" aoc-new-tab --aoc --name "$(agent_label "$agent")"
+    AOC_LAUNCH_AGENT_ID="$agent" aoc-new-tab --aoc --name "$(agent_label "$agent")"
   else
-    AOC_AGENT_ID="$agent" aoc-launch
+    AOC_LAUNCH_AGENT_ID="$agent" aoc-launch
   fi
 }
 

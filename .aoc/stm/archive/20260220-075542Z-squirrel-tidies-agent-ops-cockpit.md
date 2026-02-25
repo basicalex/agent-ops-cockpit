@@ -1,0 +1,8 @@
+- [2026-02-20 08:55] Handoff prepared for safety hardening workstream in agent-ops-cockpit.
+- [2026-02-20 08:55] Created Taskmaster tag safety and added tasks 77 through 85 for CI gates installer validation shell lint expansion shell smoke tests file locking process cleanup cleanup extraction and telemetry redaction.
+- [2026-02-20 08:55] Set current Taskmaster tag to safety.
+- [2026-02-20 08:55] Recovered broken scripts from prior regression and kept utility extraction: bin/aoc-utils.sh plus sourcing in aoc-launch aoc-new-tab aoc-hub aoc-mission-control-toggle and aoc-agent-wrap.
+- [2026-02-20 08:55] Working tree is intentionally dirty and uncommitted in: bin/aoc-agent-wrap bin/aoc-hub bin/aoc-launch bin/aoc-mission-control-toggle bin/aoc-new-tab bin/aoc-utils.sh .taskmaster/state.json .taskmaster/tasks/tasks.json.
+- [2026-02-20 08:55] Validated current gaps: CI lacks cargo test clippy fmt gates; installer smoke PR path still points to main; shell lint scope is narrow; task and memory writes lack cross-process locking; agent-wrap and cleanup process logic remains high complexity; telemetry stream redaction is not implemented.
+- [2026-02-20 08:55] Recommended execution order: 77 and 79 and 80 first, then 78, then 81 and 82, then 83 and 84, then 85.
+- [2026-02-20 08:55] Rust workspace tests pass locally; warnings remain in aoc-agent-wrap-rs and aoc-hub-rs and should be addressed when CI warning policy is tightened.

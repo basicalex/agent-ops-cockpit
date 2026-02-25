@@ -89,9 +89,9 @@ Note: Hub is started only once per session by `aoc-launch`, not by `aoc-new-tab`
 
 ## 5) Agent Wrapper Chain
 
-Goal: keep tmux scrollback (Codex) while capturing stdout/stderr for streaming.
+Goal: keep tmux scrollback (Codex/PI by default) while capturing stdout/stderr for streaming.
 
-Wrapper chain (Codex case):
+Wrapper chain (tmux-enabled agents, default `codex,pi`):
 ```
 tmux
   -> aoc-agent-wrap-rs (Rust wrapper)
@@ -99,7 +99,7 @@ tmux
       -> codex
 ```
 
-Wrapper chain (OC/CC/Gemini cases):
+Wrapper chain (other agents, unless allowlisted for tmux):
 ```
 aoc-agent-wrap-rs
   -> aoc-agent-wrap (bootloader + handshake)
@@ -108,7 +108,7 @@ aoc-agent-wrap-rs
 
 How it is wired:
 - `bin/aoc-agent-run` chooses agent based on `AOC_AGENT_ID` or state file.
-- `bin/aoc-oc`, `bin/aoc-cc`, `bin/aoc-gemini`, and `bin/aoc-codex` all respect
+- `bin/aoc-oc`, `bin/aoc-cc`, `bin/aoc-gemini`, `bin/aoc-pi`, `bin/aoc-pi-r`, and `bin/aoc-codex` all respect
   `AOC_AGENT_RUN=1` and exec `aoc-agent-wrap`.
 - `bin/aoc-agent-wrap` resolves the real agent binary, runs the bootloader for
   the handshake, and then (if available) wraps the bootloader with

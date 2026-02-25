@@ -98,7 +98,7 @@ Choose your path:
 | 🚀 **Start Coding** | 🤖 **Configure Agents** | 🔧 **Customize** |
 |---------------------|------------------------|------------------|
 | `aoc` in any project dir | `aoc-agent --set` | `aoc.minimal` |
-| Open files in Yazi | Switch between Codex, Gemini, Claude, OpenCode | Create your own "AOC Modes" |
+| Open files in Yazi | Switch between Codex, Gemini, Claude, OpenCode, PI (npm), PI (Rust) | Create your own "AOC Modes" |
 | Press `Enter` to edit with `micro` | Each agent gets isolated context | [Custom Layouts Guide](./docs/layouts.md) |
 
 ---
@@ -118,6 +118,8 @@ aoc-codex-tab    # Open tab with Codex
 aoc-gemini       # Open tab with Gemini
 aoc-cc           # Open tab with Claude Code
 aoc-oc           # Open tab with OpenCode
+aoc-pi           # Open tab with PI Agent (npm)
+aoc-pi-r         # Open tab with PI Agent (Rust)
 ```
 
 **All agents get:**
@@ -286,9 +288,9 @@ AOC's architecture solves the fundamental problem of **context management in AI-
 #### 5. Short-Term Memory (`.aoc/stm/`) - The "Handoff Buffer"
 - **Role:** Session diary + handoff context for transparent agent continuity
 - **Content:** working draft (`current.md`) and archived snapshots (`archive/*.md`)
-- **Update:** Via `aoc-stm add|edit|archive|history|read` (`aoc-stm` defaults to current draft)
+- **Update:** Via `aoc-stm add|edit|archive|history|read|handoff|resume` (`aoc-stm` defaults to current draft)
 - **Lifecycle:** Keep STM entries as project diary artifacts; promote durable architecture decisions to `aoc-mem`
-- **Behavior:** `aoc-stm` prints current STM draft to stdout; use `aoc-stm read` for latest archived STM (no tab/session launch side effects)
+- **Behavior:** `aoc-stm` prints current draft; `aoc-stm handoff` archives current draft and prints the handoff snapshot; `aoc-stm resume` (or `aoc-stm read`) loads archived resume context
 
 ### Per-Tab Isolation
 
@@ -314,7 +316,7 @@ When you start working in AOC:
 5. **Spec:** `aoc-task prd show <id>` - Read linked PRD before implementation
 6. **Execute:** Edit files, run commands, collaborate with AI agent
 7. **Handoff Prep (OpenCode):** `/stm` - Ask the agent to write a concise `.aoc/stm/current.md`
-8. **Load STM Context:** `aoc-stm` - Print current STM draft into terminal/agent transcript (`aoc-stm read` for latest archive)
+8. **Load STM Context:** `aoc-stm resume` - Load archived handoff context into terminal/agent transcript (`aoc-stm` remains draft-only)
 9. **Update:** Mark tasks done in Taskmaster TUI
 10. **Record:** `aoc-mem add "..."` - Document significant decisions
 
@@ -423,15 +425,21 @@ aoc-theme set-default --name review-mode
 aoc-theme sync
 ```
 
+From `Alt+C` (`aoc-control`), open **Settings -> Agent installers** to view install status and run install/update actions for supported CLIs.
+
 ### Environment Variables
 
 AOC supports extensive customization via environment variables:
 
-**RTK Routing:** `AOC_RTK_BYPASS`, `AOC_RTK_MODE`, `AOC_RTK_CONFIG`, `AOC_RTK_BINARY` (new `aoc-init` projects default RTK mode to `on`; existing explicit `off` is preserved)
+**RTK Routing:** `AOC_RTK_BYPASS`, `AOC_RTK_MODE`, `AOC_RTK_CONFIG`, `AOC_RTK_BINARY`, `AOC_RTK_ULTRA_COMPACT`, `AOC_RTK_ROUTE_NON_TTY_STDIN` (new `aoc-init` projects default RTK mode to `on`; existing explicit `off` is preserved)
 
 RTK keeps agent context healthier by condensing noisy command output while preserving safety via fail-open fallback to native command execution.
 
 **Command Overrides:** `AOC_AGENT_CMD`, `AOC_CODEX_CMD`, `AOC_TASKMASTER_CMD`, `AOC_FILETREE_CMD`
+
+**Agent Installer Overrides:** `AOC_CODEX_INSTALL_CMD`, `AOC_GEMINI_INSTALL_CMD`, `AOC_CC_INSTALL_CMD`, `AOC_KIMI_INSTALL_CMD`, `AOC_OC_INSTALL_CMD`, `AOC_OMO_INSTALL_CMD`, `AOC_PI_INSTALL_CMD`, `AOC_PIR_INSTALL_CMD` (plus matching `*_UPDATE_CMD` vars)
+
+**PI Runtime Tuning:** `AOC_PI_BIN`, `AOC_PIR_BIN`, `AOC_PI_LOW_TOKEN_MODE`, `AOC_PI_LOW_TOKEN_PROMPT`, `AOC_PI_APPEND_SYSTEM_PROMPT`, `AOC_PI_HANDSHAKE_MODE`
 
 **Widget:** `AOC_WIDGET_SYMBOLS`, `AOC_WIDGET_COLORS`, `AOC_WIDGET_DITHER`, `AOC_WIDGET_SCALE`
 

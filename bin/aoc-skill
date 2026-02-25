@@ -9,7 +9,7 @@ Usage: aoc-skill sync [--agent AGENT] [--active] [--existing] [--root PATH] [--q
 Sync AOC skills for the active agent or existing targets only.
 
 Options:
-  --agent AGENT   Sync skills for a specific agent (codex, kimi, cc, oc).
+  --agent AGENT   Sync skills for a specific agent (codex, kimi, cc, oc, omo, pi, pi-r).
   --active        Sync skills for the current default agent.
   --existing      Sync only targets already synced in this repo (default).
   --root PATH     Project root to use (defaults to searching for .aoc).
@@ -45,7 +45,9 @@ normalize_agent() {
     gemini) echo "gemini" ;;
     kimi) echo "kimi" ;;
     cc|claude|claude-code) echo "cc" ;;
+    omo|oh-my-opencode) echo "oc" ;;
     oc|opencode|open-code) echo "oc" ;;
+    pi|pi-agent|pi_agent|pi-r|pir|pi-rust|pi-agent-rust|pi_agent_rust) echo "pi" ;;
     *) echo "" ;;
   esac
 }
@@ -143,6 +145,7 @@ target_dir_for_agent() {
     cc) echo "$root/.claude/skills" ;;
     oc) echo "$root/.opencode/skills" ;;
     kimi) echo "$root/.agents/skills" ;;
+    pi) echo "$root/.pi/skills" ;;
     *) echo "" ;;
   esac
 }
@@ -379,6 +382,7 @@ marker_path() {
     cc) echo "$root/.claude/skills/.aoc-skill-sync" ;;
     oc) echo "$root/.opencode/skills/.aoc-skill-sync" ;;
     kimi) echo "$root/.agents/skills/.aoc-skill-sync" ;;
+    pi) echo "$root/.pi/skills/.aoc-skill-sync" ;;
     *) echo "" ;;
   esac
 }
@@ -409,6 +413,12 @@ sync_agent() {
     kimi)
       local target="$(target_dir_for_agent "$root" "$agent_name")"
       log "Syncing skills for Kimi"
+      sync_symlinks "$skills_dir" "$target"
+      write_marker "$(marker_path "$root" "$agent_name")" "$agent_name"
+      ;;
+    pi)
+      local target="$(target_dir_for_agent "$root" "$agent_name")"
+      log "Syncing skills for PI Agent"
       sync_symlinks "$skills_dir" "$target"
       write_marker "$(marker_path "$root" "$agent_name")" "$agent_name"
       ;;
@@ -504,7 +514,7 @@ if [[ "$mode" == "agent" ]]; then
   fi
   targets=("$agent")
 else
-  for candidate in codex kimi cc oc; do
+  for candidate in codex kimi cc oc pi; do
     marker="$(marker_path "$root" "$candidate")"
     if [[ -n "$marker" && -f "$marker" ]]; then
       targets+=("$candidate")

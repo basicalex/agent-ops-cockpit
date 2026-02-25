@@ -9,6 +9,18 @@ This file defines the always-on rules for agents in this repo. Procedural playbo
 - RTK routing is default-on for new AOC projects (`.aoc/rtk.toml` mode=`on`); existing explicit mode=`off` is preserved.
 - RTK exists to improve context health: allowlisted noisy commands are condensed for better signal density, with fail-open native fallback.
 
+## Low-Token Default Mode
+- Keep responses concise by default; do not print full files or raw logs unless explicitly requested.
+- Start with the smallest viable step; use narrow, path-scoped searches before broad scans.
+- Read files in bounded chunks and avoid rereading unchanged large files.
+- Summarize command/tool output with actionable lines only (key errors, next actions).
+- Run targeted checks/tests first; run full-suite commands only when required.
+- If targeted inspection fails, escalate scope gradually and state why.
+- Use fresh sessions after major milestones or context drift to reduce replay overhead.
+- For narrow diagnostics/Q&A, use at most 3 tool calls before first answer; ask before broader escalation.
+- Do not open/read image binaries unless the user explicitly asks to view/open one now.
+- Use one narrow diagnostic path first; avoid retry spray with variant commands unless first attempt fails.
+
 ## AOC CLI Commands (run via Bash tool - NOT Read tool)
 These commands are in PATH and work without loading any skill:
 
@@ -18,6 +30,8 @@ These commands are in PATH and work without loading any skill:
 
 **Short-Term Memory (STM):**
 - `aoc-stm` - print current draft (shortcut for `aoc-stm read-current`)
+- `aoc-stm handoff` - archive current draft and print handoff snapshot
+- `aoc-stm resume` - print archived handoff snapshot (latest by default)
 - `aoc-stm read` - read latest archived snapshot
 - `aoc-stm archive` - archive current draft
 - `aoc-stm add "note"` - add to current draft

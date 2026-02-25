@@ -9,6 +9,7 @@ Task PRD workflows use task-level links (`aocPrd`) and PRD docs under `.taskmast
 - `aoc-agent --set <agent>` syncs skills for that agent.
 - `aoc-agent --run <agent>` and `aoc-agent-run` re-sync before launch.
 - `aoc-init` seeds default skills (if missing), syncs the active agent, and re-syncs existing targets.
+- To preserve a curated skill set, create `.aoc/skills/.aoc-no-default-seed` (or run `AOC_INIT_SEED_DEFAULT_SKILLS=false aoc-init`).
 
 Sync is additive: existing skills in agent directories are preserved. If a name collision exists, AOC skips that skill and logs a warning.
 
@@ -27,12 +28,14 @@ aoc-skill sync --existing
 - Claude Code
 - OpenCode
 - Kimi
+- PI Agent
 
 ## Sync targets
 - Codex: `.codex/skills/<name>/SKILL.md`
 - Claude Code: `.claude/skills/<name>/SKILL.md`
 - OpenCode: `.opencode/skills/<name>/SKILL.md`
 - Kimi: `.agents/skills/<name>/SKILL.md`
+- PI Agent: `.pi/skills/<name>/SKILL.md`
 
 Skills are symlinked to the canonical `.aoc/skills` definitions. Custom skills per repo can be added directly under `.aoc/skills/<name>/SKILL.md`.
 
