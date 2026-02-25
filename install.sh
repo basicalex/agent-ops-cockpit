@@ -19,11 +19,9 @@ mkdir -p "${XDG_CONFIG_HOME:-$HOME/.config}/aoc"
 mkdir -p "${XDG_CONFIG_HOME:-$HOME/.config}/aoc/btop"
 mkdir -p "${XDG_CONFIG_HOME:-$HOME/.config}/aoc/skills"
 mkdir -p "${XDG_CONFIG_HOME:-$HOME/.config}/aoc/taskmaster/templates"
-mkdir -p "${XDG_CONFIG_HOME:-$HOME/.config}/aoc/agents/opencode"
-mkdir -p "${XDG_CONFIG_HOME:-$HOME/.config}/aoc/commands/opencode"
-mkdir -p "${XDG_CONFIG_HOME:-$HOME/.config}/aoc/opencode"
+mkdir -p "${XDG_CONFIG_HOME:-$HOME/.config}/aoc/prompts/pi"
 mkdir -p "${XDG_CONFIG_HOME:-$HOME/.config}/aoc/skills-optional"
-mkdir -p "${XDG_CONFIG_HOME:-$HOME/.config}/aoc/agents-optional/opencode"
+mkdir -p "${XDG_CONFIG_HOME:-$HOME/.config}/aoc/prompts-optional/pi"
 mkdir -p "${XDG_STATE_HOME:-$HOME/.local/state}/aoc"
 
 log() { echo ">> $1"; }
@@ -800,29 +798,18 @@ if [[ -d "$ROOT_DIR/.taskmaster/templates" ]]; then
   done
 fi
 
-# AOC default agents (OpenCode)
-if [[ -d "$ROOT_DIR/.aoc/agents/opencode" ]]; then
-  for f in "$ROOT_DIR/.aoc/agents/opencode"/*.md; do
+# AOC default PI prompt templates
+if [[ -d "$ROOT_DIR/.aoc/prompts/pi" ]]; then
+  for f in "$ROOT_DIR/.aoc/prompts/pi"/*.md; do
     [[ -f "$f" ]] || continue
-    dest="${XDG_CONFIG_HOME:-$HOME/.config}/aoc/agents/opencode/$(basename "$f")"
+    dest="${XDG_CONFIG_HOME:-$HOME/.config}/aoc/prompts/pi/$(basename "$f")"
     if [[ ! -f "$dest" ]]; then
       cp "$f" "$dest"
     fi
   done
 fi
 
-# AOC default OpenCode commands
-if [[ -d "$ROOT_DIR/.aoc/commands/opencode" ]]; then
-  for f in "$ROOT_DIR/.aoc/commands/opencode"/*.md; do
-    [[ -f "$f" ]] || continue
-    dest="${XDG_CONFIG_HOME:-$HOME/.config}/aoc/commands/opencode/$(basename "$f")"
-    if [[ ! -f "$dest" ]]; then
-      cp "$f" "$dest"
-    fi
-  done
-fi
-
-# Optional skills and agents (MoreMotion)
+# Optional skills and PI prompts (MoreMotion)
 if [[ -d "$ROOT_DIR/.aoc/skills-optional" ]]; then
   for d in "$ROOT_DIR/.aoc/skills-optional"/*; do
     [[ -d "$d" ]] || continue
@@ -833,10 +820,10 @@ if [[ -d "$ROOT_DIR/.aoc/skills-optional" ]]; then
     cp -R "$d" "$dest"
   done
 fi
-if [[ -d "$ROOT_DIR/.aoc/agents-optional/opencode" ]]; then
-  for f in "$ROOT_DIR/.aoc/agents-optional/opencode"/*.md; do
+if [[ -d "$ROOT_DIR/.aoc/prompts-optional/pi" ]]; then
+  for f in "$ROOT_DIR/.aoc/prompts-optional/pi"/*.md; do
     [[ -f "$f" ]] || continue
-    dest="${XDG_CONFIG_HOME:-$HOME/.config}/aoc/agents-optional/opencode/$(basename "$f")"
+    dest="${XDG_CONFIG_HOME:-$HOME/.config}/aoc/prompts-optional/pi/$(basename "$f")"
     if [[ -f "$dest" ]]; then
       continue
     fi

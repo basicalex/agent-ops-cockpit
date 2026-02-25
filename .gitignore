@@ -50,6 +50,8 @@ __pycache__/
 !/.aoc/**
 !/.taskmaster/
 !/.taskmaster/**
+!/.pi/
+!/.pi/**
 
 # Ignore high-churn runtime artifacts
 /.aoc/logs/
@@ -59,6 +61,9 @@ __pycache__/
 /.taskmaster/logs/
 /.taskmaster/**/*.log
 /.taskmaster/**/*.lock
+
+
+
 
 
 
