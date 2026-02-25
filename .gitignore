@@ -18,6 +18,11 @@ plugins/aoc-watcher/target/
 crates/target/
 # Environment variables
 .env
+
+# Python cache artifacts
+__pycache__/
+*.pyc
+
 # Editor directories and files
 .idea
 .vscode
