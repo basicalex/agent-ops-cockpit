@@ -1107,8 +1107,39 @@ set_default_theme() {
   ' "$config_file" > "$tmp_file"
 
   mv "$tmp_file" "$config_file"
-  sync_aoc_theme_artifacts "$theme_name" "$theme_path"
+  if [[ "${AOC_THEME_SKIP_SYNC:-0}" != "1" ]]; then
+    sync_aoc_theme_artifacts "$theme_name" "$theme_path"
+  fi
   info "Set default global theme '$theme_name' in $config_file (source: $theme_path)."
+}
+
+activate_theme() {
+  local name="$1"
+  local explicit_config="$2"
+
+  local config_dir
+  config_dir="$(resolve_zellij_config_dir)"
+
+  if is_preset_theme "$name"; then
+    install_preset_theme "$name" "0" "$config_dir"
+  fi
+
+  local did_apply=0
+  if command -v zellij >/dev/null 2>&1 && [[ -n "${ZELLIJ:-}${ZELLIJ_SESSION_NAME:-}" ]]; then
+    AOC_THEME_SKIP_SYNC=1 apply_theme "$name"
+    did_apply=1
+  else
+    warn "No active Zellij session detected; skipped live apply during activate."
+  fi
+
+  AOC_THEME_SKIP_SYNC=1 set_default_theme "$name" "$explicit_config"
+  sync_theme_selection "$name" "$explicit_config"
+
+  if [[ "$did_apply" == "1" ]]; then
+    info "Activated theme '$name' (live + default + synced artifacts)."
+  else
+    info "Activated theme '$name' (default + synced artifacts)."
+  fi
 }
 
 list_global_themes() {
@@ -1402,9 +1433,7 @@ theme_tui() {
             set_default_theme "$picked_preset" ""
             ;;
           "Apply now + set default")
-            install_preset_theme "$picked_preset" "0" "$config_dir"
-            apply_theme "$picked_preset"
-            set_default_theme "$picked_preset" ""
+            activate_theme "$picked_preset" ""
             ;;
           "Install preset only")
             install_preset_theme "$picked_preset" "0" "$config_dir"
