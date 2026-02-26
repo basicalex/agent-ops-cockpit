@@ -582,8 +582,54 @@ impl TaskContext {
 }
 
 fn resolve_root() -> Result<PathBuf> {
+    let cwd = std::env::current_dir()?;
+    if let Some(override_root) = resolve_root_override(&cwd)? {
+        return Ok(override_root);
+    }
+
     // The CLI runs inside the project directory - current_dir is truth
-    Ok(std::env::current_dir()?)
+    Ok(cwd)
+}
+
+fn resolve_root_override(cwd: &Path) -> Result<Option<PathBuf>> {
+    const ROOT_OVERRIDE_VARS: [&str; 3] = ["AOC_TASKMASTER_ROOT", "TM_ROOT", "TASKMASTER_ROOT"];
+
+    for key in ROOT_OVERRIDE_VARS {
+        let Ok(raw) = std::env::var(key) else {
+            continue;
+        };
+        let trimmed = raw.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+
+        let path = PathBuf::from(trimmed);
+        let candidate = if path.is_absolute() {
+            path
+        } else {
+            cwd.join(path)
+        };
+
+        let resolved = candidate.canonicalize().with_context(|| {
+            format!(
+                "Failed to resolve {}='{}' as a directory",
+                key,
+                candidate.display()
+            )
+        })?;
+
+        if !resolved.is_dir() {
+            bail!(
+                "{} must point to a directory (resolved to {})",
+                key,
+                resolved.display()
+            );
+        }
+
+        return Ok(Some(resolved));
+    }
+
+    Ok(None)
 }
 
 fn load_config(paths: &TaskPaths) -> Option<TaskmasterConfig> {

@@ -22,3 +22,8 @@ summary = "Guided teach-mode scans, dives, and local insight logging."
 name = "zellij-theme-ops"
 type = "ops"
 summary = "Create and manage global Zellij themes."
+
+[[skill]]
+name = "tm-cc"
+type = "workflow"
+summary = "Cross-project Taskmaster control with explicit tm root targeting and CRUD flows."

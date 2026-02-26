@@ -5,6 +5,7 @@ use std::fmt;
 use std::str::FromStr;
 
 pub mod mind_contracts;
+pub mod mind_observer_feed;
 pub mod pulse_ipc;
 
 pub const TAG_PRD_KEY: &str = "aocPrd";

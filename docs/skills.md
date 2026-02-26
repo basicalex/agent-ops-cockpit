@@ -1,43 +1,26 @@
 # Agent Skills
 
 ## Overview
-Skills are reusable workflow playbooks stored in `.aoc/skills/<name>/SKILL.md`. AOC syncs skills only for the active agent to avoid repo bloat.
+Skills are reusable workflow playbooks stored in `.pi/skills/<name>/SKILL.md` (PI-first canonical path).
 
 Task PRD workflows use task-level links (`aocPrd`) and PRD docs under `.taskmaster/docs/prds/`.
 
-## Sync behavior
-- `aoc-agent --set <agent>` syncs skills for that agent.
-- `aoc-agent --run <agent>` and `aoc-agent-run` re-sync before launch.
-- `aoc-init` seeds default skills (if missing), syncs the active agent, and re-syncs existing targets.
-- To preserve a curated skill set, create `.aoc/skills/.aoc-no-default-seed` (or run `AOC_INIT_SEED_DEFAULT_SKILLS=false aoc-init`).
-
-Sync is additive: existing skills in agent directories are preserved. If a name collision exists, AOC skips that skill and logs a warning.
-
-Manual commands:
+## Sync behavior (PI-first)
+- `aoc-init` seeds default PI skills into `.pi/skills` (if missing) and syncs PI skills only.
+- `aoc-agent --set pi` and `aoc-agent --run pi` re-sync PI skills before launch.
+- Manual sync:
 
 ```bash
-# Sync skills for one agent
-aoc-skill sync --agent oc
-
-# Re-sync existing targets only
-aoc-skill sync --existing
+aoc-skill sync --agent pi
 ```
 
-## Supported agents
-- Codex
-- Claude Code
-- OpenCode
-- Kimi
-- PI Agent
+Sync is additive: existing skills in target directories are preserved. If a name collision exists, AOC skips that skill and logs a warning.
 
-## Sync targets
-- Codex: `.codex/skills/<name>/SKILL.md`
-- Claude Code: `.claude/skills/<name>/SKILL.md`
-- OpenCode: `.opencode/skills/<name>/SKILL.md`
-- Kimi: `.agents/skills/<name>/SKILL.md`
-- PI Agent: `.pi/skills/<name>/SKILL.md`
-
-Skills are symlinked to the canonical `.aoc/skills` definitions. Custom skills per repo can be added directly under `.aoc/skills/<name>/SKILL.md`.
+## Compatibility window
+- Legacy `.aoc/skills` remains a fallback **source** only while migration is in progress.
+- `aoc-init` migrates missing project-local legacy skills from `.aoc/skills` to `.pi/skills` (non-destructive).
+- Non-PI skill targets are no longer auto-synced by `aoc-init`.
+- In PI-only mode, use `aoc-skill sync --agent pi` as the canonical sync path.
 
 ## Skill format
 Each `SKILL.md` must include YAML frontmatter with the required fields:
@@ -49,7 +32,7 @@ description: One-line description of the workflow
 ---
 ```
 
-Naming rules (OpenCode-compatible):
+Naming rules:
 - Lowercase letters, numbers, and single hyphens
 - 1-64 characters
 - Must match the directory name
@@ -70,6 +53,7 @@ aoc-skill validate
 - `memory-ops`
 - `stm-ops`
 - `taskmaster-ops`
+- `tm-cc`
 - `rlm-analysis`
 - `prd-dev`
 - `prd-intake`

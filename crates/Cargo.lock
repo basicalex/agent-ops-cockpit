@@ -181,6 +181,7 @@ dependencies = [
  "aoc-storage",
  "aoc-task-attribution",
  "chrono",
+ "fs2",
  "sha2",
  "thiserror",
 ]

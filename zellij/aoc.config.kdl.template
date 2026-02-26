@@ -26,7 +26,7 @@ keybinds {
     shared_except "locked" {
         unbind "Alt a";
         bind "Alt c" {
-            Run "bash" "-lc" "export PATH=\"$HOME/.local/bin:$HOME/.cargo/bin:$PATH\"; export AOC_CONTROL_TOGGLE_OPEN_MODE=inplace; exec aoc-control-toggle" {
+            Run "aoc-control-toggle" {
                 floating true
                 close_on_exit true
             };

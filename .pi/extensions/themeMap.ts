@@ -75,20 +75,27 @@ export function applyExtensionTheme(fileUrl: string, ctx?: ExtensionContext): bo
 	}
 
 	let themeName = THEME_MAP[name];
-	
 	if (!themeName) {
 		themeName = "synthwave";
 	}
 
 	const setTheme = (ctx as any).ui?.setTheme;
 	if (typeof setTheme !== "function") return false;
+
+	const aocThemeName = (process.env.AOC_PI_THEME_NAME || "").trim();
+	if (aocThemeName.length > 0) {
+		const aocResult = setTheme(aocThemeName);
+		if (aocResult?.success) {
+			return true;
+		}
+	}
+
 	const result = setTheme(themeName);
-	
 	if (!result?.success && themeName !== "synthwave") {
 		const fallback = setTheme("synthwave");
 		return !!fallback?.success;
 	}
-	
+
 	return !!result?.success;
 }
 // ── Title ──────────────────────────────────────────────────────────────────
