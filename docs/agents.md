@@ -36,6 +36,8 @@ Use `/momo` for Remotion animation work.
 ## Runtime support
 OpenCode project subagent seeding (`.opencode/agents`, `.opencode/commands`) is removed from the active init path. Non-PI runtime launchers/installers are removed from AOC. PI prompt templates and runtime (`pi`) are the supported path.
 
+Need a non-PI CLI anyway? Use the bring-your-own wrapper path in [Agent Extensibility](agent-extensibility.md). Core support remains PI-only, but extension is intentionally open.
+
 ## PI-first migration checklist
 1. Run `aoc-init` at repo root (`AOC_INIT_SKIP_BUILD=1 aoc-init` for doc-only migration).
 2. Verify canonical runtime paths exist:

@@ -68,7 +68,7 @@ Flow:
 
 Layout (default `~/.config/zellij/layouts/aoc.kdl`):
 - Agent pane launches with:
-  `AOC_AGENT_RUN=1 exec ${AOC_AGENT_CMD:-${AOC_CODEX_CMD:-aoc-agent-run}}`
+  `AOC_AGENT_RUN=1 exec ${AOC_AGENT_CMD:-aoc-agent-run}`
 - Taskmaster pane runs `aoc-taskmaster`.
 - Other panes (yazi, widget, clock, terminal) get `AOC_SESSION_ID` and
   `AOC_HUB_ADDR` exported.
@@ -89,14 +89,14 @@ Note: Hub is started only once per session by `aoc-launch`, not by `aoc-new-tab`
 
 ## 5) Agent Wrapper Chain
 
-Goal: keep tmux scrollback (Codex/PI by default) while capturing stdout/stderr for streaming.
+Goal: keep tmux scrollback (PI by default) while capturing stdout/stderr for streaming.
 
-Wrapper chain (tmux-enabled agents, default `codex,pi`):
+Wrapper chain (tmux-enabled agents, default `pi`):
 ```
 tmux
   -> aoc-agent-wrap-rs (Rust wrapper)
     -> aoc-agent-wrap (bootloader + handshake)
-      -> codex
+      -> pi
 ```
 
 Wrapper chain (other agents, unless allowlisted for tmux):
@@ -105,6 +105,8 @@ aoc-agent-wrap-rs
   -> aoc-agent-wrap (bootloader + handshake)
     -> agent CLI
 ```
+
+To run a custom agent via the main layout, set `AOC_AGENT_CMD` to your wrapper command/script.
 
 How it is wired:
 - `bin/aoc-agent-run` chooses agent based on `AOC_AGENT_ID` or state file.

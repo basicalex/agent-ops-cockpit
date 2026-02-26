@@ -26,7 +26,9 @@ if [[ -z "$agent_label" ]]; then
   agent_label="$agent_id"
 fi
 
-env_hint="AOC_${agent_id^^}_BIN"
+agent_env_component="${agent_id^^}"
+agent_env_component="${agent_env_component//[^A-Z0-9]/_}"
+env_hint="AOC_${agent_env_component}_BIN"
 
 # --- Resolution Logic ---
 

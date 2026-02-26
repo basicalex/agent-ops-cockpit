@@ -98,8 +98,8 @@ Choose your path:
 | 🚀 **Start Coding** | 🤖 **Configure Agents** | 🔧 **Customize** |
 |---------------------|------------------------|------------------|
 | `aoc` in any project dir | `aoc-agent --set` | `aoc.minimal` |
-| Open files in Yazi | Choose PI Agent (npm) | Create your own "AOC Modes" |
-| Press `Enter` to edit with `micro` | PI-only runtime with persistent context | [Custom Layouts Guide](./docs/layouts.md) |
+| Open files in Yazi | Choose PI Agent (npm, recommended) | Create your own "AOC Modes" |
+| Press `Enter` to edit with `micro` | PI-first core + optional BYO wrappers | [Custom Layouts Guide](./docs/layouts.md) |
 
 ---
 
@@ -122,6 +122,8 @@ aoc-pi           # Open tab with PI Agent (npm)
 - Real-time context updates (`.aoc/context.md`)
 - Task integration (Taskmaster TUI)
 - tmux-backed scrollback for reliability
+
+Need another agent CLI? AOC keeps core support PI-only, but you can plug in alternatives via wrappers: [Agent Extensibility](./docs/agent-extensibility.md).
 
 ### 2. Native Taskmaster TUI
 
@@ -374,7 +376,7 @@ Media path + media render settings are stored per project. Gallery settings are 
 | Feature | AOC | tmux+vim | Standard IDE |
 |---------|-----|----------|--------------|
 | **Per-project AI context** | ✅ Auto | ❌ Manual | ❌ None |
-| **Multi-agent support** | ✅ Native | ⚠️ Complex | ❌ None |
+| **Alternative agent CLIs** | ✅ BYO wrappers (`AOC_AGENT_CMD`) | ⚠️ Complex | ❌ None |
 | **Terminal-native** | ✅ Yes | ✅ Yes | ❌ No |
 | **Task integration** | ✅ Built-in | ❌ None | ⚠️ Plugin |
 | **File manager** | ✅ Yazi | ⚠️ Optional | ✅ Yes |
@@ -482,6 +484,7 @@ cargo build --workspace
 | [Configuration Guide](./docs/configuration.md) | Environment variables and customization |
 | [Agent Skills](./docs/skills.md) | Skill format and sync workflow |
 | [Agents](./docs/agents.md) | PI prompts and PI-only runtime reference |
+| [Agent Extensibility](./docs/agent-extensibility.md) | Bring-your-own agent CLI wrappers with PI-first core |
 | [MoreMotion](./docs/moremotion.md) | Optional Remotion integration |
 | [Custom Layouts](./docs/layouts.md) | Creating "AOC Modes" |
 | [Mission Control](./docs/mission-control.md) | Architecture and event schema |
