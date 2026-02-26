@@ -6,10 +6,11 @@ usage() {
 Usage: aoc-skill sync [--agent AGENT] [--active] [--existing] [--root PATH] [--quiet]
        aoc-skill validate [--root PATH] [--quiet]
 
-Sync AOC skills for the active agent or existing targets only.
+Sync AOC skills for PI targets.
+PI-first canonical source is `.pi/skills` (fallback: `.aoc/skills` during compatibility window).
 
 Options:
-  --agent AGENT   Sync skills for a specific agent (codex, kimi, cc, oc, omo, pi, pi-r).
+  --agent AGENT   Sync skills for a specific agent (pi).
   --active        Sync skills for the current default agent.
   --existing      Sync only targets already synced in this repo (default).
   --root PATH     Project root to use (defaults to searching for .aoc).
@@ -41,13 +42,7 @@ normalize_agent() {
   local input="${1:-}"
   input="$(printf '%s' "$input" | tr '[:upper:]' '[:lower:]')"
   case "$input" in
-    codex) echo "codex" ;;
-    gemini) echo "gemini" ;;
-    kimi) echo "kimi" ;;
-    cc|claude|claude-code) echo "cc" ;;
-    omo|oh-my-opencode) echo "oc" ;;
-    oc|opencode|open-code) echo "oc" ;;
-    pi|pi-agent|pi_agent|pi-r|pir|pi-rust|pi-agent-rust|pi_agent_rust) echo "pi" ;;
+    pi|pi-agent|pi_agent) echo "pi" ;;
     *) echo "" ;;
   esac
 }
@@ -79,7 +74,7 @@ active_agent() {
     current="$(cat "$default_file" 2>/dev/null || true)"
   fi
   if [[ -z "$current" ]]; then
-    current="codex"
+    current="pi"
   fi
   normalize_agent "$current"
 }
@@ -137,14 +132,38 @@ skills_present() {
   return 1
 }
 
+resolve_source_skills_dir() {
+  local root="$1"
+  local canonical="$root/.pi/skills"
+  local legacy="$root/.aoc/skills"
+
+  if [[ -d "$canonical" ]] && skills_present "$canonical"; then
+    printf '%s\n' "$canonical"
+    return 0
+  fi
+
+  if [[ -d "$legacy" ]] && skills_present "$legacy"; then
+    printf '%s\n' "$legacy"
+    return 0
+  fi
+
+  if [[ -d "$canonical" ]]; then
+    printf '%s\n' "$canonical"
+    return 0
+  fi
+
+  if [[ -d "$legacy" ]]; then
+    printf '%s\n' "$legacy"
+    return 0
+  fi
+
+  return 1
+}
+
 target_dir_for_agent() {
   local root="$1"
   local agent_name="$2"
   case "$agent_name" in
-    codex) echo "$root/.codex/skills" ;;
-    cc) echo "$root/.claude/skills" ;;
-    oc) echo "$root/.opencode/skills" ;;
-    kimi) echo "$root/.agents/skills" ;;
     pi) echo "$root/.pi/skills" ;;
     *) echo "" ;;
   esac
@@ -262,13 +281,18 @@ sync_gemini_commands() {
 
 validate_skills() {
   local root="$1"
-  local skills_dir="$root/.aoc/skills"
+  local skills_dir=""
   local errors=0
   local warnings=0
 
-  if [[ ! -d "$skills_dir" ]]; then
-    warn "No .aoc/skills directory present."
+  skills_dir="$(resolve_source_skills_dir "$root" || true)"
+  if [[ -z "$skills_dir" || ! -d "$skills_dir" ]]; then
+    warn "No skills directory present (.pi/skills or .aoc/skills)."
     return 1
+  fi
+
+  if [[ "$skills_dir" == "$root/.aoc/skills" ]]; then
+    log "Validating skills from legacy source (.aoc/skills compatibility mode)."
   fi
 
   shopt -s nullglob
@@ -378,10 +402,6 @@ marker_path() {
   local root="$1"
   local agent_name="$2"
   case "$agent_name" in
-    codex) echo "$root/.codex/skills/.aoc-skill-sync" ;;
-    cc) echo "$root/.claude/skills/.aoc-skill-sync" ;;
-    oc) echo "$root/.opencode/skills/.aoc-skill-sync" ;;
-    kimi) echo "$root/.agents/skills/.aoc-skill-sync" ;;
     pi) echo "$root/.pi/skills/.aoc-skill-sync" ;;
     *) echo "" ;;
   esac
@@ -391,42 +411,28 @@ sync_agent() {
   local root="$1"
   local skills_dir="$2"
   local agent_name="$3"
+  local target=""
+  local label="$agent_name"
+
+  target="$(target_dir_for_agent "$root" "$agent_name")"
+  if [[ -z "$target" ]]; then
+    warn "Unknown agent: $agent_name"
+    return 1
+  fi
+
   case "$agent_name" in
-    codex)
-      local target="$(target_dir_for_agent "$root" "$agent_name")"
-      log "Syncing skills for Codex"
-      sync_symlinks "$skills_dir" "$target"
-      write_marker "$(marker_path "$root" "$agent_name")" "$agent_name"
-      ;;
-    cc)
-      local target="$(target_dir_for_agent "$root" "$agent_name")"
-      log "Syncing skills for Claude Code"
-      sync_symlinks "$skills_dir" "$target"
-      write_marker "$(marker_path "$root" "$agent_name")" "$agent_name"
-      ;;
-    oc)
-      local target="$(target_dir_for_agent "$root" "$agent_name")"
-      log "Syncing skills for OpenCode"
-      sync_symlinks "$skills_dir" "$target"
-      write_marker "$(marker_path "$root" "$agent_name")" "$agent_name"
-      ;;
-    kimi)
-      local target="$(target_dir_for_agent "$root" "$agent_name")"
-      log "Syncing skills for Kimi"
-      sync_symlinks "$skills_dir" "$target"
-      write_marker "$(marker_path "$root" "$agent_name")" "$agent_name"
-      ;;
-    pi)
-      local target="$(target_dir_for_agent "$root" "$agent_name")"
-      log "Syncing skills for PI Agent"
-      sync_symlinks "$skills_dir" "$target"
-      write_marker "$(marker_path "$root" "$agent_name")" "$agent_name"
-      ;;
-    *)
-      warn "Unknown agent: $agent_name"
-      return 1
-      ;;
+    pi) label="PI Agent" ;;
   esac
+
+  if [[ "$skills_dir" == "$target" ]]; then
+    log "$label skills already canonical at $target."
+    write_marker "$(marker_path "$root" "$agent_name")" "$agent_name"
+    return 0
+  fi
+
+  log "Syncing skills for $label"
+  sync_symlinks "$skills_dir" "$target"
+  write_marker "$(marker_path "$root" "$agent_name")" "$agent_name"
 }
 
 command="${1:-sync}"
@@ -490,15 +496,19 @@ if [[ -z "$root" ]]; then
   exit 0
 fi
 
-skills_dir="$root/.aoc/skills"
-if [[ ! -d "$skills_dir" ]]; then
-  log "No .aoc/skills directory present. Skipping."
+skills_dir="$(resolve_source_skills_dir "$root" || true)"
+if [[ -z "$skills_dir" || ! -d "$skills_dir" ]]; then
+  log "No skills directory present (.pi/skills or .aoc/skills). Skipping."
   exit 0
 fi
 
 if ! skills_present "$skills_dir"; then
   log "No skills found in $skills_dir. Skipping."
   exit 0
+fi
+
+if [[ "$skills_dir" == "$root/.aoc/skills" ]]; then
+  log "Using legacy skill source (.aoc/skills compatibility mode)."
 fi
 
 targets=()
@@ -509,12 +519,12 @@ if [[ "$mode" == "agent" ]]; then
     agent="$(normalize_agent "$agent")"
   fi
   if [[ -z "$agent" ]]; then
-    warn "Unable to determine active agent."
+    warn "Unsupported agent. PI-only mode supports 'pi'."
     exit 1
   fi
   targets=("$agent")
 else
-  for candidate in codex kimi cc oc pi; do
+  for candidate in pi; do
     marker="$(marker_path "$root" "$candidate")"
     if [[ -n "$marker" && -f "$marker" ]]; then
       targets+=("$candidate")
@@ -535,10 +545,6 @@ if ((${#targets[@]} == 0)); then
 fi
 
 for target in "${targets[@]}"; do
-  if [[ "$target" == "gemini" ]]; then
-    log "Gemini skill sync is not enabled."
-    continue
-  fi
   sync_agent "$root" "$skills_dir" "$target"
 done
 

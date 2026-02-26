@@ -6,7 +6,7 @@ set -euo pipefail
 # any currently running Zellij server (i.e. orphaned/zombie processes).
 # Handles agents running inside tmux sessions by bridging the client-server gap.
 
-AGENT_PATTERN="opencode|open-code|codex|gemini|claude|kimi|pi-r|pi-agent|pi_agent|aoc-pi|aoc-pi-r"
+AGENT_PATTERN="pi-agent|pi_agent|aoc-pi"
 
 show_help() {
   cat <<'USAGE'
@@ -233,7 +233,7 @@ import collections
 import shlex
 import json
 
-AGENT_PATTERN = r"opencode|open-code|codex|gemini|claude|kimi|omo|pi-r|pi-agent|pi_agent|aoc-pi|aoc-pi-r"
+AGENT_PATTERN = r"pi-agent|pi_agent|aoc-pi"
 
 PROTECTED_COMMANDS = [
     "aoc-session-watch", 
@@ -256,25 +256,12 @@ else:
     combined = AGENT_PATTERN
 AGENT_NAME_PATTERN = re.compile(f"({combined})", re.IGNORECASE)
 AGENT_BINARIES = {
-    "opencode",
-    "open-code",
-    "codex",
-    "gemini",
-    "claude",
-    "kimi",
     "pi",
-    "pi-r",
     "pi-agent",
     "pi_agent",
     "aoc-agent",
     "aoc-agent-run",
-    "aoc-omo",
-    "aoc-oc",
-    "aoc-cc",
-    "aoc-gemini",
-    "aoc-kimi",
     "aoc-pi",
-    "aoc-pi-r",
 }
 
 ENV_CACHE = {}
@@ -365,7 +352,7 @@ def parse_agent_id_set(raw, default=None):
         if token.strip()
     }
 
-skip_agent_ids = parse_agent_id_set(os.environ.get("AOC_CLEANUP_SKIP_AGENT_IDS"), default=["omo"])
+skip_agent_ids = parse_agent_id_set(os.environ.get("AOC_CLEANUP_SKIP_AGENT_IDS"), default=[])
 
 def dump_layout(session=None):
     if session:
@@ -410,11 +397,6 @@ def is_real_agent_command(cmd):
     if base in {
         "aoc-agent",
         "aoc-agent-run",
-        "aoc-omo",
-        "aoc-oc",
-        "aoc-cc",
-        "aoc-gemini",
-        "aoc-kimi",
         "bash",
     }:
         return False
@@ -423,9 +405,7 @@ def is_real_agent_command(cmd):
 def is_agent_process(args, comm):
     cmd = proc_cmd(args, comm)
     base = os.path.basename(cmd) if cmd else ""
-    if base in AGENT_BINARIES or base.startswith("opencode"):
-        return True
-    if comm == "node" and "opencode" in (args or ""):
+    if base in AGENT_BINARIES:
         return True
     if AGENT_NAME_PATTERN.search(args or "") or AGENT_NAME_PATTERN.search(comm or ""):
         return True
@@ -924,10 +904,8 @@ for pid, info in processes.items():
         cmd = proc_cmd(args, comm)
         base = os.path.basename(cmd) if cmd else ""
         kind = "other"
-        if base in AGENT_BINARIES or base.startswith("opencode"):
+        if base in AGENT_BINARIES:
             kind = "agent_bin"
-        elif comm == "node" and "opencode" in (args or ""):
-            kind = "agent_node"
         env = proc_env(pid)
         session_name = env.get("AOC_SESSION_ID") or env.get("ZELLIJ_SESSION_NAME") or env.get("ZELLIJ_SESSION") or ""
         pane_id = env.get("AOC_PANE_ID") or env.get("ZELLIJ_PANE_ID") or ""

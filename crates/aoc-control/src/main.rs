@@ -176,6 +176,12 @@ impl App {
         let config = load_config(&config_path).unwrap_or_default();
         let projects_base = resolve_projects_base(&config);
         let projects = load_projects(&projects_base).unwrap_or_default();
+        let default_agent_raw =
+            read_default(&agent_default_path()).unwrap_or_else(|| "pi".to_string());
+        let default_agent = match default_agent_raw.as_str() {
+            "pi" => default_agent_raw,
+            _ => "pi".to_string(),
+        };
         let mut app = Self {
             active_tab: Tab::Defaults,
             focus: Focus::Nav,
@@ -196,8 +202,7 @@ impl App {
             agent_install_actions_state: ListState::default(),
             default_layout: read_default(&layout_default_path())
                 .unwrap_or_else(|| "aoc".to_string()),
-            default_agent: read_default(&agent_default_path())
-                .unwrap_or_else(|| "codex".to_string()),
+            default_agent,
             rtk_status: RtkStatus::default(),
             agent_install_entries: Vec::new(),
             config,
@@ -1718,16 +1723,7 @@ fn rtk_action_options() -> Vec<String> {
 }
 
 fn agent_install_targets() -> Vec<(&'static str, &'static str)> {
-    vec![
-        ("codex", "Codex"),
-        ("gemini", "Gemini"),
-        ("cc", "Claude Code"),
-        ("kimi", "Kimi"),
-        ("oc", "OpenCode"),
-        ("omo", "OmO"),
-        ("pi", "PI Agent (npm)"),
-        ("pi-r", "PI Agent (Rust)"),
-    ]
+    vec![("pi", "PI Agent (npm)")]
 }
 
 fn agent_install_summary(entries: &[AgentInstallEntry]) -> String {
@@ -2207,16 +2203,7 @@ fn find_project_root() -> Option<PathBuf> {
 }
 
 fn agent_options() -> Vec<String> {
-    vec![
-        "codex".to_string(),
-        "gemini".to_string(),
-        "kimi".to_string(),
-        "cc".to_string(),
-        "oc".to_string(),
-        "omo".to_string(),
-        "pi".to_string(),
-        "pi-r".to_string(),
-    ]
+    vec!["pi".to_string()]
 }
 
 fn resolve_project_path(input: &str, base: &Path) -> PathBuf {

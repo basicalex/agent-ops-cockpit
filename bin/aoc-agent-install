@@ -5,32 +5,20 @@ usage() {
   cat <<'EOF'
 Usage: aoc-agent-install <status|install|update> <agent>
 
-Agents: codex, gemini, cc, kimi, oc, omo, pi, pi-r
+Agents: pi
 
 Examples:
-  aoc-agent-install status codex
-  aoc-agent-install install gemini
-  aoc-agent-install update oc
-
-PI Rust policy:
-  - Default upstream installer is built in for agent 'pi-r' (override with AOC_PIR_INSTALL_CMD / AOC_PIR_UPDATE_CMD)
-  - Set AOC_PI_INSTALL_CONSENT=I_ACCEPT_PI_UPSTREAM
-  - Or persist consent in ${XDG_CONFIG_HOME:-$HOME/.config}/aoc/pi-install-consent
+  aoc-agent-install status pi
+  aoc-agent-install install pi
 EOF
 }
 
 normalize_agent() {
-  local agent="$1"
-  local normalized="$(printf '%s' "$agent" | tr '[:upper:]' '[:lower:]')"
+  local normalized
+  normalized="$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]')"
   case "$normalized" in
-    codex|gemini|cc|kimi|oc|omo|pi|pi-r)
-      printf '%s\n' "$normalized"
-      ;;
-    pi-agent|pi_agent)
+    pi|pi-agent|pi_agent)
       printf '%s\n' "pi"
-      ;;
-    pi-rust|pir|pi-agent-rust|pi_agent_rust)
-      printf '%s\n' "pi-r"
       ;;
     *)
       return 1
@@ -39,107 +27,16 @@ normalize_agent() {
 }
 
 agent_label() {
-  local agent="$1"
-  case "$agent" in
-    codex) printf '%s\n' "Codex" ;;
-    gemini) printf '%s\n' "Gemini" ;;
-    cc) printf '%s\n' "Claude Code" ;;
-    kimi) printf '%s\n' "Kimi" ;;
-    oc) printf '%s\n' "OpenCode" ;;
-    omo) printf '%s\n' "OmO" ;;
-    pi) printf '%s\n' "PI Agent (npm)" ;;
-    pi-r) printf '%s\n' "PI Agent (Rust)" ;;
-  esac
+  printf '%s\n' "PI Agent (npm)"
 }
 
-is_wrapper_script() {
-  local candidate="$1"
-
-  [[ -f "$candidate" ]] || return 1
-  LC_ALL=C head -n 1 "$candidate" 2>/dev/null | grep -Fxq "#!/usr/bin/env bash" || return 1
-
-  grep -E -q "aoc-agent-wrap|aoc-codex|aoc-gemini|aoc-cc|aoc-kimi|aoc-oc|aoc-pi|aoc-pi-r|AOC_AGENT_RUN" "$candidate" 2>/dev/null
-}
-
-resolve_path() {
-  local bin_name="$1"
-  if [[ "$bin_name" == */* ]]; then
-    [[ -x "$bin_name" ]] && printf '%s\n' "$bin_name"
-    return
-  fi
-  command -v "$bin_name" 2>/dev/null || true
-}
-
-binary_installed() {
-  local bin_name="$1"
-  local resolved=""
-
-  resolved="$(resolve_path "$bin_name")"
-  [[ -n "$resolved" ]] || return 1
-  if is_wrapper_script "$resolved"; then
-    return 1
-  fi
-  return 0
-}
-
-resolve_kimi_bin() {
-  if [[ -n "${AOC_KIMI_BIN:-}" ]]; then
-    printf '%s\n' "$AOC_KIMI_BIN"
-    return
-  fi
-
-  if command -v uv >/dev/null 2>&1; then
-    local uv_dir=""
-    uv_dir="$(uv tool dir 2>/dev/null || true)"
-    if [[ -n "$uv_dir" && -x "$uv_dir/kimi-cli/bin/kimi" ]]; then
-      printf '%s\n' "$uv_dir/kimi-cli/bin/kimi"
-      return
-    fi
-  fi
-
-  printf '%s\n' "kimi"
-}
-
-resolve_omo_install_script() {
-  local script_dir=""
-  script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-
-  if [[ -f "$script_dir/../scripts/opencode/install-omo.sh" ]]; then
-    printf '%s\n' "$script_dir/../scripts/opencode/install-omo.sh"
-    return
-  fi
-
-  if [[ -f "$HOME/dev/agent-ops-cockpit/scripts/opencode/install-omo.sh" ]]; then
-    printf '%s\n' "$HOME/dev/agent-ops-cockpit/scripts/opencode/install-omo.sh"
-    return
-  fi
+have() {
+  command -v "$1" >/dev/null 2>&1
 }
 
 status_agent() {
-  local agent="$1"
-  local bin_name=""
-  local omo_script=""
-
-  case "$agent" in
-    codex) bin_name="${AOC_CODEX_BIN:-codex}" ;;
-    gemini) bin_name="${AOC_GEMINI_BIN:-gemini}" ;;
-    cc) bin_name="${AOC_CC_BIN:-claude}" ;;
-    kimi) bin_name="$(resolve_kimi_bin)" ;;
-    oc) bin_name="${AOC_OC_BIN:-opencode}" ;;
-    pi) bin_name="${AOC_PI_BIN:-pi}" ;;
-    pi-r) bin_name="${AOC_PIR_BIN:-pi-r}" ;;
-    omo)
-      omo_script="$(resolve_omo_install_script || true)"
-      if [[ -n "$omo_script" ]] && bash "$omo_script" verify --profile "${AOC_OMO_PROFILE:-sandbox}" >/dev/null 2>&1; then
-        printf '%s\n' "installed"
-      else
-        printf '%s\n' "missing"
-      fi
-      return
-      ;;
-  esac
-
-  if binary_installed "$bin_name"; then
+  local bin_name="${AOC_PI_BIN:-pi}"
+  if have "$bin_name"; then
     printf '%s\n' "installed"
   else
     printf '%s\n' "missing"
@@ -147,167 +44,44 @@ status_agent() {
 }
 
 default_install_cmd() {
-  local agent="$1"
-  local omo_script=""
-  local pi_url=""
-  case "$agent" in
-    codex) printf '%s\n' "npm install -g @openai/codex" ;;
-    gemini) printf '%s\n' "npm install -g @google/gemini-cli" ;;
-    cc) printf '%s\n' "npm install -g @anthropic-ai/claude-code" ;;
-    kimi) printf '%s\n' "uv tool install kimi-cli" ;;
-    oc) printf '%s\n' "npm install -g opencode-ai" ;;
-    omo)
-      omo_script="$(resolve_omo_install_script || true)"
-      if [[ -n "$omo_script" ]]; then
-        printf '%s\n' "bash \"$omo_script\" install --profile \"${AOC_OMO_PROFILE:-sandbox}\""
-      else
-        printf '%s\n' ""
-      fi
-      ;;
-    pi)
-      printf '%s\n' "pnpm add -g @mariozechner/pi-coding-agent"
-      ;;
-    pi-r)
-      pi_url="${AOC_PIR_INSTALL_URL:-${AOC_PI_INSTALL_URL:-https://raw.githubusercontent.com/Dicklesworthstone/pi_agent_rust/main/install.sh}}"
-      printf '%s\n' "curl -fsSL \"${pi_url}?$(date +%s)\" | bash && (command -v pi-rust >/dev/null 2>&1 && ln -sf \"\$(command -v pi-rust)\" \"$HOME/.local/bin/pi-r\" || true)"
-      ;;
-  esac
+  printf '%s\n' "pnpm add -g @mariozechner/pi-coding-agent"
 }
 
 default_update_cmd() {
-  local agent="$1"
-  case "$agent" in
-    codex) printf '%s\n' "npm install -g @openai/codex@latest" ;;
-    gemini) printf '%s\n' "npm install -g @google/gemini-cli@latest" ;;
-    cc) printf '%s\n' "npm install -g @anthropic-ai/claude-code@latest" ;;
-    kimi) printf '%s\n' "uv tool install --upgrade kimi-cli" ;;
-    oc) printf '%s\n' "npm install -g opencode-ai@latest" ;;
-    omo) default_install_cmd "omo" ;;
-    pi) printf '%s\n' "pnpm add -g @mariozechner/pi-coding-agent@latest" ;;
-    pi-r) default_install_cmd "pi-r" ;;
-  esac
+  printf '%s\n' "pnpm add -g @mariozechner/pi-coding-agent@latest"
 }
 
 action_var_hint() {
-  local agent="$1"
-  local action="$2"
-  local suffix=""
+  local action="$1"
   if [[ "$action" == "install" ]]; then
-    suffix="INSTALL"
+    printf '%s\n' "AOC_PI_INSTALL_CMD"
   else
-    suffix="UPDATE"
+    printf '%s\n' "AOC_PI_UPDATE_CMD"
   fi
-
-  case "$agent" in
-    codex) printf '%s\n' "AOC_CODEX_${suffix}_CMD" ;;
-    gemini) printf '%s\n' "AOC_GEMINI_${suffix}_CMD" ;;
-    cc) printf '%s\n' "AOC_CC_${suffix}_CMD" ;;
-    kimi) printf '%s\n' "AOC_KIMI_${suffix}_CMD" ;;
-    oc) printf '%s\n' "AOC_OC_${suffix}_CMD" ;;
-    omo) printf '%s\n' "AOC_OMO_${suffix}_CMD" ;;
-    pi) printf '%s\n' "AOC_PI_${suffix}_CMD" ;;
-    pi-r) printf '%s\n' "AOC_PIR_${suffix}_CMD" ;;
-  esac
 }
 
 resolve_action_cmd() {
   local action="$1"
-  local agent="$2"
-
-  case "$agent" in
-    codex)
-      if [[ "$action" == "install" ]]; then
-        printf '%s\n' "${AOC_CODEX_INSTALL_CMD:-$(default_install_cmd "$agent")}";
-      else
-        printf '%s\n' "${AOC_CODEX_UPDATE_CMD:-${AOC_CODEX_INSTALL_CMD:-$(default_update_cmd "$agent")}}"
-      fi
-      ;;
-    gemini)
-      if [[ "$action" == "install" ]]; then
-        printf '%s\n' "${AOC_GEMINI_INSTALL_CMD:-$(default_install_cmd "$agent")}";
-      else
-        printf '%s\n' "${AOC_GEMINI_UPDATE_CMD:-${AOC_GEMINI_INSTALL_CMD:-$(default_update_cmd "$agent")}}"
-      fi
-      ;;
-    cc)
-      if [[ "$action" == "install" ]]; then
-        printf '%s\n' "${AOC_CC_INSTALL_CMD:-$(default_install_cmd "$agent")}";
-      else
-        printf '%s\n' "${AOC_CC_UPDATE_CMD:-${AOC_CC_INSTALL_CMD:-$(default_update_cmd "$agent")}}"
-      fi
-      ;;
-    kimi)
-      if [[ "$action" == "install" ]]; then
-        printf '%s\n' "${AOC_KIMI_INSTALL_CMD:-$(default_install_cmd "$agent")}";
-      else
-        printf '%s\n' "${AOC_KIMI_UPDATE_CMD:-${AOC_KIMI_INSTALL_CMD:-$(default_update_cmd "$agent")}}"
-      fi
-      ;;
-    oc)
-      if [[ "$action" == "install" ]]; then
-        printf '%s\n' "${AOC_OC_INSTALL_CMD:-$(default_install_cmd "$agent")}";
-      else
-        printf '%s\n' "${AOC_OC_UPDATE_CMD:-${AOC_OC_INSTALL_CMD:-$(default_update_cmd "$agent")}}"
-      fi
-      ;;
-    omo)
-      if [[ "$action" == "install" ]]; then
-        printf '%s\n' "${AOC_OMO_INSTALL_CMD:-$(default_install_cmd "$agent")}";
-      else
-        printf '%s\n' "${AOC_OMO_UPDATE_CMD:-${AOC_OMO_INSTALL_CMD:-$(default_update_cmd "$agent")}}"
-      fi
-      ;;
-    pi)
-      if [[ "$action" == "install" ]]; then
-        printf '%s\n' "${AOC_PI_INSTALL_CMD:-$(default_install_cmd "$agent")}";
-      else
-        printf '%s\n' "${AOC_PI_UPDATE_CMD:-${AOC_PI_INSTALL_CMD:-$(default_update_cmd "$agent")}}"
-      fi
-      ;;
-    pi-r)
-      if [[ "$action" == "install" ]]; then
-        printf '%s\n' "${AOC_PIR_INSTALL_CMD:-$(default_install_cmd "$agent")}";
-      else
-        printf '%s\n' "${AOC_PIR_UPDATE_CMD:-${AOC_PIR_INSTALL_CMD:-$(default_update_cmd "$agent")}}"
-      fi
-      ;;
-  esac
-}
-
-ensure_pi_consent() {
-  local consent="${AOC_PI_INSTALL_CONSENT:-}"
-  local consent_file="${AOC_PI_CONSENT_FILE:-${XDG_CONFIG_HOME:-$HOME/.config}/aoc/pi-install-consent}"
-  if [[ "$consent" != "I_ACCEPT_PI_UPSTREAM" ]]; then
-    if [[ -f "$consent_file" ]] && grep -q "^I_ACCEPT_PI_UPSTREAM$" "$consent_file" 2>/dev/null; then
-      return 0
-    fi
-    cat >&2 <<'EOF'
-PI installer blocked.
-Set AOC_PI_INSTALL_CONSENT=I_ACCEPT_PI_UPSTREAM to acknowledge the upstream PI installer rider.
-EOF
-    return 1
+  if [[ "$action" == "install" ]]; then
+    printf '%s\n' "${AOC_PI_INSTALL_CMD:-$(default_install_cmd)}"
+  else
+    printf '%s\n' "${AOC_PI_UPDATE_CMD:-${AOC_PI_INSTALL_CMD:-$(default_update_cmd)}}"
   fi
-  return 0
 }
 
 run_action() {
   local action="$1"
-  local agent="$2"
   local cmd=""
   local label=""
   local verb=""
   local output=""
 
-  label="$(agent_label "$agent")"
-  cmd="$(resolve_action_cmd "$action" "$agent")"
+  label="$(agent_label)"
+  cmd="$(resolve_action_cmd "$action")"
 
   if [[ -z "${cmd// }" ]]; then
-    echo "No $action command configured for $label. Set $(action_var_hint "$agent" "$action")." >&2
+    echo "No $action command configured for $label. Set $(action_var_hint "$action")." >&2
     return 1
-  fi
-
-  if [[ "$agent" == "pi-r" ]]; then
-    ensure_pi_consent || return 1
   fi
 
   if output="$(bash -lc "$cmd" 2>&1)"; then
@@ -348,10 +122,10 @@ fi
 
 case "$action" in
   status)
-    status_agent "$agent"
+    status_agent
     ;;
   install|update)
-    run_action "$action" "$agent"
+    run_action "$action"
     ;;
   -h|--help|help)
     usage
