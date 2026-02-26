@@ -61,11 +61,38 @@ AOC_INSTALL_AUTO_INIT=0 ./install.sh
 AOC_INIT_TARGET=~/dev/my-project ./install.sh
 ```
 
+### Post-install setup contract (`aoc-init`)
+
+After install (or manual `aoc-init`), a PI-first project should include:
+
+- `.pi/settings.json`
+- `.pi/prompts/tm-cc.md`
+- `.pi/skills/aoc-init-ops/SKILL.md` (plus other seeded skills)
+- `.pi/extensions/minimal.ts`
+- `.pi/extensions/themeMap.ts`
+- `.aoc/context.md`
+- `.aoc/rtk.toml`
+
+Quick verification:
+
+```bash
+test -f .pi/extensions/minimal.ts
+test -f .pi/extensions/themeMap.ts
+test -f .pi/prompts/tm-cc.md
+test -f .pi/settings.json
+```
+
+If anything is missing, run:
+
+```bash
+AOC_INIT_SKIP_BUILD=1 aoc-init
+```
+
 ### Agent CLI Installers from Alt+C
 
 After install, open `Alt+C` -> **Settings -> Agent installers** to check runtime status and run install/update actions for `pi`.
 
-Non-PI agent harnesses are removed from AOC.
+Non-PI agent harnesses are removed from AOC (see [Deprecations and removals](deprecations.md)).
 
 - AOC only runs installer commands (no third-party binaries are bundled).
 - You can override installer commands with `AOC_PI_INSTALL_CMD` and `AOC_PI_UPDATE_CMD` (see [Configuration](configuration.md)).

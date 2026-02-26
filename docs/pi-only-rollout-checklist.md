@@ -32,6 +32,7 @@ cargo check --manifest-path crates/Cargo.toml -p aoc-control
   - bootstrap install
   - `aoc-doctor`
   - `aoc-agent --set` shows only `pi`
+  - `.pi/extensions/minimal.ts` and `.pi/extensions/themeMap.ts` exist after init
 - Existing install migration smoke:
   - upgrade via `./install.sh`
   - verify retired wrappers are absent from `~/.local/bin` (and `~/bin` when previously managed by AOC)
