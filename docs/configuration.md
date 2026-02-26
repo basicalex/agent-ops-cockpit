@@ -33,6 +33,14 @@ Override default commands used in AOC layouts:
 | `AOC_SYS_CMD` | System stats command | `aoc-sys` |
 | `AOC_TERMINAL_CMD` | Terminal shell | `$SHELL` |
 
+For low-pain custom agent integration, point `AOC_AGENT_CMD` at your own wrapper script (recommended):
+
+```bash
+AOC_AGENT_CMD=~/.local/bin/aoc-agent-acme aoc
+```
+
+Use `aoc-agent-wrap` inside that script to keep hub/session wiring intact. See [Agent Extensibility](agent-extensibility.md).
+
 ### Widget Configuration
 
 Control the media/calendar widget rendering:
