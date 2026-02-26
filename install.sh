@@ -37,53 +37,6 @@ is_truthy() {
   esac
 }
 
-pi_consent_file_path() {
-  printf '%s\n' "${XDG_CONFIG_HOME:-$HOME/.config}/aoc/pi-install-consent"
-}
-
-persist_pi_install_consent() {
-  local consent_file
-  consent_file="$(pi_consent_file_path)"
-  mkdir -p "$(dirname "$consent_file")"
-  printf '%s\n' "I_ACCEPT_PI_UPSTREAM" > "$consent_file"
-  chmod 0600 "$consent_file" 2>/dev/null || true
-}
-
-capture_pi_install_consent() {
-  if [[ "${AOC_PI_INSTALL_CONSENT:-}" == "I_ACCEPT_PI_UPSTREAM" ]]; then
-    persist_pi_install_consent
-    log "Saved PI installer consent at $(pi_consent_file_path)."
-    return
-  fi
-
-  if ! is_truthy "${AOC_PI_CONSENT_PROMPT:-1}"; then
-    return
-  fi
-
-  if [[ ! -t 0 || ! -t 1 ]]; then
-    return
-  fi
-
-  if [[ -f "$(pi_consent_file_path)" ]]; then
-    return
-  fi
-
-  log "PI installer uses upstream scripts and requires explicit consent."
-  printf "Accept PI upstream installer rider now for Alt+C Agent installers? [y/N]: "
-  local answer=""
-  read -r answer || true
-  answer="$(printf '%s' "$answer" | tr '[:upper:]' '[:lower:]')"
-  case "$answer" in
-    y|yes)
-      persist_pi_install_consent
-      log "Saved PI installer consent at $(pi_consent_file_path)."
-      ;;
-    *)
-      log "PI installer consent not saved. You can set AOC_PI_INSTALL_CONSENT=I_ACCEPT_PI_UPSTREAM later."
-      ;;
-  esac
-}
-
 install_omo_if_enabled() {
   if ! is_truthy "${AOC_INSTALL_OMO:-0}"; then
     log "Skipping OmO install (set AOC_INSTALL_OMO=1 to enable)."
@@ -562,9 +515,47 @@ for f in "$ROOT_DIR/bin/"*; do
   install -m 0755 "$f" "$BIN_DIR/$filename"
 done
 
-# Ensure codex shim
+# Remove retired non-PI wrappers from previous installs.
+retired_prefixed_wrappers=(
+  aoc-codex
+  aoc-gemini
+  aoc-cc
+  aoc-oc
+  aoc-kimi
+  aoc-omo
+  aoc-codex-tab
+  aoc-opencode-profile
+)
+retired_legacy_aliases=(
+  codex
+  gemini
+  claude
+  opencode
+  kimi
+)
+
+remove_if_pi_deprecation_stub() {
+  local target="$1"
+  [[ -f "$target" ]] || return 0
+  if grep -Fq "removed in PI-only mode" "$target" 2>/dev/null; then
+    rm -f "$target"
+  fi
+}
+
+for wrapper in "${retired_prefixed_wrappers[@]}"; do
+  rm -f "$BIN_DIR/$wrapper"
+done
+for wrapper in "${retired_legacy_aliases[@]}"; do
+  remove_if_pi_deprecation_stub "$BIN_DIR/$wrapper"
+done
+
 if [[ -d "$HOME/bin" && -w "$HOME/bin" ]]; then
-  install -m 0755 "$ROOT_DIR/bin/codex" "$HOME/bin/codex"
+  for wrapper in "${retired_prefixed_wrappers[@]}"; do
+    rm -f "$HOME/bin/$wrapper"
+  done
+  for wrapper in "${retired_legacy_aliases[@]}"; do
+    remove_if_pi_deprecation_stub "$HOME/bin/$wrapper"
+  done
 fi
 
 # 2. Rust Build & Install
@@ -894,8 +885,6 @@ if is_truthy "${AOC_INSTALL_AUTO_INIT:-1}"; then
 else
   log "Skipping automatic aoc-init (set AOC_INSTALL_AUTO_INIT=1 to enable)."
 fi
-
-capture_pi_install_consent
 
 install_omo_if_enabled
 

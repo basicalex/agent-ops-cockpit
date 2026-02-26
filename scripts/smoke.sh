@@ -3,22 +3,21 @@ set -euo pipefail
 
 export AOC_SMOKE_TEST=1
 
+echo "Running shell integration smoke tests..."
+
 scripts=(
   bin/aoc-launch
   bin/aoc-new-tab
   bin/aoc-hub
   bin/aoc-mission-control-toggle
   bin/aoc-agent-wrap
-  bin/aoc-omo
   bin/aoc-pi
-  bin/aoc-pi-r
+  bin/aoc-agent-run
 )
-
-echo "Running shell integration smoke tests..."
 
 for script in "${scripts[@]}"; do
   echo "Smoke testing $script..."
-  if ! bash "$script"; then
+  if ! bash "$script" >/dev/null; then
     echo "ERROR: Smoke test failed for $script"
     exit 1
   fi
@@ -49,24 +48,22 @@ if ! AOC_RTK_CONFIG="$tmp_dir/rtk.toml" bash bin/aoc-rtk echo smoke-test >/dev/n
 fi
 rm -rf "$tmp_dir"
 
+echo "Smoke testing bin/aoc-agent current..."
+if ! bash bin/aoc-agent --current >/dev/null; then
+  echo "ERROR: Smoke test failed for bin/aoc-agent --current"
+  exit 1
+fi
+
 echo "Smoke testing bin/aoc-agent-install status..."
-if ! bash bin/aoc-agent-install status codex >/dev/null; then
-  echo "ERROR: Smoke test failed for bin/aoc-agent-install status"
+if ! bash bin/aoc-agent-install status pi >/dev/null; then
+  echo "ERROR: Smoke test failed for bin/aoc-agent-install status pi"
   exit 1
 fi
 
-echo "Smoke testing bin/aoc-agent-install PI Rust consent gate..."
-if AOC_PI_CONSENT_FILE="$(mktemp -u)" AOC_PIR_INSTALL_CMD="printf 'noop'" bash bin/aoc-agent-install install pi-r >/dev/null 2>&1; then
-  echo "ERROR: PI Rust consent gate smoke test unexpectedly passed"
+echo "Smoke testing non-PI agent rejection..."
+if bash bin/aoc-agent-install status codex >/dev/null 2>&1; then
+  echo "ERROR: non-PI agent status unexpectedly succeeded"
   exit 1
-fi
-
-if [[ -f "scripts/opencode/verify-omo.sh" && -f "config/opencode/oh-my-opencode.policy.jsonc" ]]; then
-  echo "Smoke testing OmO governance checks..."
-  if ! bash scripts/opencode/verify-omo.sh regression --policy "config/opencode/oh-my-opencode.policy.jsonc" --project-root "$PWD" --profile sandbox --max-chars 4096 >/dev/null; then
-    echo "ERROR: Smoke test failed for OmO governance checks"
-    exit 1
-  fi
 fi
 
 echo "All shell integration smoke tests passed successfully."

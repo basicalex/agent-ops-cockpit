@@ -36,8 +36,8 @@ AOC implements a **Distributed Cognitive Architecture** that separates concerns 
 │                    AOC Workspace Layout                         │
 ├──────────────────┬──────────────────┬───────────────────────────┤
 │   📁 Yazi        │   🤖 Agent       │   📅 Widget               │
-│   File Manager   │   (codex/gemini/ │   Calendar/Media          │
-│                  │   claude/opencode)│   Clock                  │
+│   File Manager   │   (pi)           │   Calendar/Media          │
+│                  │   PI-only mode   │   Clock                  │
 ├──────────────────┼──────────────────┴───────────────────────────┤
 │   Project Files  │   📋 Taskmaster TUI                          │
 │                  │   Interactive task & subtask management      │
@@ -98,31 +98,26 @@ Choose your path:
 | 🚀 **Start Coding** | 🤖 **Configure Agents** | 🔧 **Customize** |
 |---------------------|------------------------|------------------|
 | `aoc` in any project dir | `aoc-agent --set` | `aoc.minimal` |
-| Open files in Yazi | Switch between Codex, Gemini, Claude, OpenCode, PI (npm), PI (Rust) | Create your own "AOC Modes" |
-| Press `Enter` to edit with `micro` | Each agent gets isolated context | [Custom Layouts Guide](./docs/layouts.md) |
+| Open files in Yazi | Choose PI Agent (npm) | Create your own "AOC Modes" |
+| Press `Enter` to edit with `micro` | PI-only runtime with persistent context | [Custom Layouts Guide](./docs/layouts.md) |
 
 ---
 
 ## 🎯 Key Features
 
-### 1. Multi-Agent Support
+### 1. PI-Only Agent Runtime
 
-Seamlessly work with multiple AI agents, each maintaining isolated project context:
+AOC now runs in PI-only mode with a single runtime:
 
 ```bash
-# Switch agents interactively
-aoc-agent --set
+# Set/select runtime
+aoc-agent --set pi
 
-# Or launch specific agents directly
-aoc-codex-tab    # Open tab with Codex
-aoc-gemini       # Open tab with Gemini
-aoc-cc           # Open tab with Claude Code
-aoc-oc           # Open tab with OpenCode
+# Or launch directly
 aoc-pi           # Open tab with PI Agent (npm)
-aoc-pi-r         # Open tab with PI Agent (Rust)
 ```
 
-**All agents get:**
+**PI runtime gets:**
 - Persistent project memory (`.aoc/memory.md`)
 - Real-time context updates (`.aoc/context.md`)
 - Task integration (Taskmaster TUI)
@@ -165,19 +160,23 @@ aoc-rlm chunk --pattern "src/relevant/*.rs"
 
 ### 4. Agent Skills
 
-Reusable workflow playbooks stored in `.aoc/skills/` and synced to the active agent:
+Reusable workflow playbooks stored in `.pi/skills/` (PI-first canonical):
 
 ```bash
-# Sync skills for the active agent
+# Sync PI skills
 aoc-skill sync --agent pi
-
-# Re-sync existing targets (no new agent dirs)
-aoc-skill sync --existing
 ```
 
 **Included skills:** `aoc-workflow`, `teach-workflow`, `memory-ops`, `taskmaster-ops`, `tm-cc`, `rlm-analysis`, `prd-dev`, `prd-intake`, `prd-align`, `tag-align`, `task-breakdown`, `task-checker`, `release-notes`, `skill-creator`, `zellij-theme-ops`.
 
-Skills are synced automatically when you switch agents via `aoc-agent --set`. `aoc-init` also seeds default skills and syncs the active agent. Sync is additive and preserves existing agent skills.
+`aoc-init` seeds default PI skills in `.pi/skills` and syncs PI skills only. PI is the only supported runtime direction in AOC.
+
+PI smoke checks:
+
+```bash
+bash scripts/pi/test-aoc-init-pi-first.sh
+bash scripts/pi/test-pi-only-agent-surface.sh
+```
 
 **Teach mode (PI):**
 
@@ -396,7 +395,7 @@ AOC_ZELLIJ_CONFIG=~/.config/zellij/my-layout.kdl aoc
 AOC_FULLSCREEN=0 aoc
 
 # Override agent for one session
-AOC_AGENT_ID=gemini aoc
+AOC_AGENT_ID=pi aoc
 ```
 
 ### Theme Quickstart
@@ -431,11 +430,11 @@ AOC supports extensive customization via environment variables:
 
 RTK keeps agent context healthier by condensing noisy command output while preserving safety via fail-open fallback to native command execution.
 
-**Command Overrides:** `AOC_AGENT_CMD`, `AOC_CODEX_CMD`, `AOC_TASKMASTER_CMD`, `AOC_TASKMASTER_ROOT`, `AOC_FILETREE_CMD`
+**Command Overrides:** `AOC_AGENT_CMD`, `AOC_TASKMASTER_CMD`, `AOC_TASKMASTER_ROOT`, `AOC_FILETREE_CMD`
 
-**Agent Installer Overrides:** `AOC_CODEX_INSTALL_CMD`, `AOC_GEMINI_INSTALL_CMD`, `AOC_CC_INSTALL_CMD`, `AOC_KIMI_INSTALL_CMD`, `AOC_OC_INSTALL_CMD`, `AOC_OMO_INSTALL_CMD`, `AOC_PI_INSTALL_CMD`, `AOC_PIR_INSTALL_CMD` (plus matching `*_UPDATE_CMD` vars)
+**Agent Installer Overrides:** `AOC_PI_INSTALL_CMD`, `AOC_PI_UPDATE_CMD`
 
-**PI Runtime Tuning:** `AOC_PI_BIN`, `AOC_PIR_BIN`, `AOC_PI_LOW_TOKEN_MODE`, `AOC_PI_LOW_TOKEN_PROMPT`, `AOC_PI_APPEND_SYSTEM_PROMPT`, `AOC_PI_HANDSHAKE_MODE`
+**PI Runtime Tuning:** `AOC_PI_BIN`, `AOC_PI_LOW_TOKEN_MODE`, `AOC_PI_LOW_TOKEN_PROMPT`, `AOC_PI_APPEND_SYSTEM_PROMPT`, `AOC_PI_HANDSHAKE_MODE`
 
 **Widget:** `AOC_WIDGET_SYMBOLS`, `AOC_WIDGET_COLORS`, `AOC_WIDGET_DITHER`, `AOC_WIDGET_SCALE`
 
@@ -482,10 +481,11 @@ cargo build --workspace
 | [Installation Guide](./docs/installation.md) | Platform-specific setup instructions |
 | [Configuration Guide](./docs/configuration.md) | Environment variables and customization |
 | [Agent Skills](./docs/skills.md) | Skill format and sync workflow |
-| [Agents](./docs/agents.md) | Built-in agent helpers |
+| [Agents](./docs/agents.md) | PI prompts and PI-only runtime reference |
 | [MoreMotion](./docs/moremotion.md) | Optional Remotion integration |
 | [Custom Layouts](./docs/layouts.md) | Creating "AOC Modes" |
 | [Mission Control](./docs/mission-control.md) | Architecture and event schema |
+| [PI-only Rollout Checklist](./docs/pi-only-rollout-checklist.md) | Release closeout + post-release verification |
 | [CHANGELOG.md](./CHANGELOG.md) | Release history |
 | [ROADMAP.md](./ROADMAP.md) | Future development plans |
 
@@ -521,7 +521,7 @@ aoc-rtk git status  # Manual RTK routing smoke check
 
 ## 🔍 Keywords
 
-terminal workspace, AI agent IDE, zellij layout, terminal multiplexer, ai-assisted development, codex cli, gemini cli, claude cli, opencode, rust tui, yazi file manager, task management, context isolation, distributed cognitive architecture
+terminal workspace, AI agent IDE, zellij layout, terminal multiplexer, ai-assisted development, pi agent, rust tui, yazi file manager, task management, context isolation, distributed cognitive architecture
 
 ---
 

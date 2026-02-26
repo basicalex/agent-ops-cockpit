@@ -6,7 +6,7 @@ usage() {
 Usage: aoc-agent [--set [agent]] [--tab [agent]] [--run [agent]] [--current]
 
 Interactive dashboard for selecting the default agent or launching tabs.
-Agents: codex, gemini, kimi, cc, oc, omo, pi, pi-r
+Agents: pi
 EOF
 }
 
@@ -16,26 +16,12 @@ default_file="${AOC_AGENT_DEFAULT_FILE:-$state_dir/agent_default}"
 mkdir -p "$state_dir"
 
 list_agents() {
-  printf "codex\tCodex\n"
-  printf "gemini\tGemini\n"
-  printf "kimi\tKimi\n"
-  printf "cc\tClaude Code\n"
-  printf "oc\tOpenCode\n"
-  printf "omo\tOmO (OpenCode)\n"
   printf "pi\tPI Agent (npm)\n"
-  printf "pi-r\tPI Agent (Rust)\n"
 }
 
 agent_label() {
   case "$1" in
-    codex) echo "Codex" ;;
-    gemini) echo "Gemini" ;;
-    kimi) echo "Kimi" ;;
-    cc) echo "Claude Code" ;;
-    oc) echo "OpenCode" ;;
-    omo) echo "OmO (OpenCode)" ;;
     pi) echo "PI Agent (npm)" ;;
-    pi-r|pir) echo "PI Agent (Rust)" ;;
     *) echo "$1" ;;
   esac
 }
@@ -44,20 +30,13 @@ normalize_agent() {
   local normalized
   normalized="$(printf "%s" "$1" | tr '[:upper:]' '[:lower:]')"
   case "$normalized" in
-    omo|oh-my-opencode) printf "omo" ;;
-    oc|opencode|open-code) printf "oc" ;;
-    cc|claude|claude-code) printf "cc" ;;
     pi|pi-agent|pi_agent) printf "pi" ;;
-    pi-r|pir|pi-rust|pi_agent_rust|pi-agent-rust) printf "pi-r" ;;
     *) printf "%s" "$normalized" ;;
   esac
 }
 
 valid_agent() {
-  case "$1" in
-    codex|gemini|kimi|cc|oc|omo|pi|pi-r) return 0 ;;
-    *) return 1 ;;
-  esac
+  [[ "$1" == "pi" ]]
 }
 
 maybe_sync_skills() {
@@ -87,7 +66,7 @@ current_agent() {
   fi
 }
 
-set_default() {
+resolve_or_pick_agent() {
   local agent="$1"
   if [[ -z "$agent" ]]; then
     agent="$(pick_agent)"
@@ -99,8 +78,15 @@ set_default() {
   fi
   if ! valid_agent "$agent"; then
     echo "Unknown agent: $agent" >&2
+    echo "Supported agents: pi" >&2
     exit 1
   fi
+  printf "%s" "$agent"
+}
+
+set_default() {
+  local agent="$1"
+  agent="$(resolve_or_pick_agent "$agent")"
   echo "$agent" >"$default_file"
   maybe_sync_skills "$agent"
   echo "Default agent set to $(agent_label "$agent")."
@@ -108,18 +94,7 @@ set_default() {
 
 open_tab() {
   local agent="$1"
-  if [[ -z "$agent" ]]; then
-    agent="$(pick_agent)"
-  fi
-  agent="$(normalize_agent "$agent")"
-  if [[ -z "$agent" ]]; then
-    echo "No agent selected." >&2
-    exit 1
-  fi
-  if ! valid_agent "$agent"; then
-    echo "Unknown agent: $agent" >&2
-    exit 1
-  fi
+  agent="$(resolve_or_pick_agent "$agent")"
   maybe_sync_skills "$agent"
   if [[ -n "${ZELLIJ:-}" || -n "${ZELLIJ_SESSION_NAME:-}" ]]; then
     AOC_LAUNCH_AGENT_ID="$agent" aoc-new-tab --aoc --name "$(agent_label "$agent")"
@@ -130,18 +105,7 @@ open_tab() {
 
 run_here() {
   local agent="$1"
-  if [[ -z "$agent" ]]; then
-    agent="$(pick_agent)"
-  fi
-  agent="$(normalize_agent "$agent")"
-  if [[ -z "$agent" ]]; then
-    echo "No agent selected." >&2
-    exit 1
-  fi
-  if ! valid_agent "$agent"; then
-    echo "Unknown agent: $agent" >&2
-    exit 1
-  fi
+  agent="$(resolve_or_pick_agent "$agent")"
   maybe_sync_skills "$agent"
   AOC_AGENT_ID="$agent" aoc-agent-run
 }
@@ -163,7 +127,11 @@ case "${1:-}" in
     exit 0
     ;;
   --current)
-    current_agent
+    current="$(normalize_agent "$(current_agent)")"
+    if ! valid_agent "$current"; then
+      current="pi"
+    fi
+    echo "$current"
     exit 0
     ;;
   -h|--help)
@@ -197,9 +165,9 @@ case "$action" in
   "Open new tab") open_tab "" ;;
   "Run agent here") run_here "" ;;
   "Show current")
-    current="$(current_agent)"
-    if [[ -z "$current" ]]; then
-      echo "No default agent set."
+    current="$(normalize_agent "$(current_agent)")"
+    if [[ -z "$current" ]] || ! valid_agent "$current"; then
+      echo "Default agent: PI Agent (npm)."
     else
       echo "Default agent: $(agent_label "$current")."
     fi

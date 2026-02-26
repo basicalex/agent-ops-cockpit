@@ -108,8 +108,7 @@ aoc-agent-wrap-rs
 
 How it is wired:
 - `bin/aoc-agent-run` chooses agent based on `AOC_AGENT_ID` or state file.
-- `bin/aoc-oc`, `bin/aoc-cc`, `bin/aoc-gemini`, `bin/aoc-pi`, `bin/aoc-pi-r`, and `bin/aoc-codex` all respect
-  `AOC_AGENT_RUN=1` and exec `aoc-agent-wrap`.
+- `bin/aoc-pi` respects `AOC_AGENT_RUN=1` and execs `aoc-agent-wrap`.
 - `bin/aoc-agent-wrap` resolves the real agent binary, runs the bootloader for
   the handshake, and then (if available) wraps the bootloader with
   `aoc-agent-wrap-rs`.

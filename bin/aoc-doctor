@@ -103,14 +103,8 @@ hint_for() {
         *) echo "Install tmux via your package manager." ;;
       esac
       ;;
-    codex)
-      echo "Install the Codex CLI and ensure it is in PATH."
-      ;;
     pi)
       echo "Install the PI Agent CLI and ensure it is in PATH (or set AOC_PI_BIN)."
-      ;;
-    pi-r)
-      echo "Install the PI Rust CLI and ensure it is in PATH (or set AOC_PIR_BIN)."
       ;;
     chafa)
       case "$pm" in
@@ -211,8 +205,8 @@ hint_for() {
   esac
 }
 
-required=(zellij yazi fzf codex)
-optional=(tmux chafa ffmpeg rsvg-convert pdftoppm rg bat tectonic pi pi-r task-master python3 git)
+required=(zellij yazi fzf pi)
+optional=(tmux chafa ffmpeg rsvg-convert pdftoppm rg bat tectonic task-master python3 git)
 
 missing_required=()
 missing_optional=()
