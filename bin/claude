@@ -1,8 +1,0 @@
-#!/usr/bin/env bash
-set -euo pipefail
-
-agent_id="cc"
-agent_bin="${AOC_CC_BIN:-claude}"
-agent_label="Claude Code"
-
-exec aoc-agent-wrap "$agent_id" "$agent_bin" "$agent_label" "$@"

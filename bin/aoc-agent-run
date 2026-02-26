@@ -4,53 +4,36 @@ set -euo pipefail
 state_dir="${XDG_STATE_HOME:-$HOME/.local/state}/aoc"
 default_file="${AOC_AGENT_DEFAULT_FILE:-$state_dir/agent_default}"
 
+normalize_agent() {
+  local normalized
+  normalized="$(printf "%s" "$1" | tr '[:upper:]' '[:lower:]')"
+  case "$normalized" in
+    pi|pi-agent|pi_agent)
+      printf "pi"
+      ;;
+    *)
+      printf "%s" "$normalized"
+      ;;
+  esac
+}
+
 agent="${AOC_AGENT_ID:-}"
 if [[ -z "$agent" && -f "$default_file" ]]; then
   agent="$(cat "$default_file" 2>/dev/null || true)"
 fi
 if [[ -z "$agent" ]]; then
-  agent="codex"
+  agent="pi"
 fi
-agent="$(printf "%s" "$agent" | tr '[:upper:]' '[:lower:]')"
+agent="$(normalize_agent "$agent")"
+
+if [[ "$agent" != "pi" ]]; then
+  echo "Unsupported agent '$agent'. Supported agents: pi. Falling back to 'pi'." >&2
+  agent="pi"
+fi
 
 if command -v aoc-skill >/dev/null 2>&1; then
   aoc-skill sync --agent "$agent" --quiet || true
 fi
 
-case "$agent" in
-  codex)
-    export AOC_AGENT_RUN=1
-    exec aoc-codex "$@"
-    ;;
-  gemini)
-    export AOC_AGENT_RUN=1
-    exec aoc-gemini "$@"
-    ;;
-  kimi)
-    export AOC_AGENT_RUN=1
-    exec aoc-kimi "$@"
-    ;;
-  cc|claude|claude-code)
-    export AOC_AGENT_RUN=1
-    exec aoc-cc "$@"
-    ;;
-  oc|opencode|open-code)
-    export AOC_AGENT_RUN=1
-    exec aoc-oc "$@"
-    ;;
-  omo|oh-my-opencode)
-    export AOC_AGENT_RUN=1
-    exec aoc-omo "$@"
-    ;;
-  pi|pi-agent|pi_agent)
-    export AOC_AGENT_RUN=1
-    exec aoc-pi "$@"
-    ;;
-  pi-r|pir|pi-rust|pi-agent-rust|pi_agent_rust)
-    export AOC_AGENT_RUN=1
-    exec aoc-pi-r "$@"
-    ;;
-  *)
-    exec aoc-codex "$@"
-    ;;
-esac
+export AOC_AGENT_RUN=1
+exec aoc-pi "$@"

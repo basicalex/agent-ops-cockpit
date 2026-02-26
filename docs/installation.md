@@ -63,13 +63,13 @@ AOC_INIT_TARGET=~/dev/my-project ./install.sh
 
 ### Agent CLI Installers from Alt+C
 
-After install, open `Alt+C` -> **Settings -> Agent installers** to check agent CLI status and run install/update actions for `codex`, `gemini`, `cc`, `kimi`, `oc`, `omo`, `pi`, and `pi-r`.
+After install, open `Alt+C` -> **Settings -> Agent installers** to check runtime status and run install/update actions for `pi`.
+
+Non-PI agent harnesses are removed from AOC.
 
 - AOC only runs installer commands (no third-party binaries are bundled).
-- You can override installer commands with `AOC_*_INSTALL_CMD` and `AOC_*_UPDATE_CMD` vars (see [Configuration](configuration.md)).
-- `pi` uses npm by default: `pnpm add -g @mariozechner/pi-coding-agent` (override via `AOC_PI_INSTALL_CMD`).
-- `pi-r` uses the upstream Rust installer by default (override via `AOC_PIR_INSTALL_CMD` or `AOC_PIR_INSTALL_URL`; `AOC_PI_INSTALL_URL` is also accepted as a legacy alias).
-- `pi-r` installs require explicit consent: `AOC_PI_INSTALL_CONSENT=I_ACCEPT_PI_UPSTREAM` (or accept once in the interactive `install.sh` consent prompt).
+- You can override installer commands with `AOC_PI_INSTALL_CMD` and `AOC_PI_UPDATE_CMD` (see [Configuration](configuration.md)).
+- `pi` uses npm by default: `pnpm add -g @mariozechner/pi-coding-agent`.
 
 ## Platform-Specific Instructions
 

@@ -25,8 +25,8 @@ Override default commands used in AOC layouts:
 | Variable | Description | Default |
 |----------|-------------|---------|
 | `AOC_AGENT_CMD` | Command to run in agent pane | Auto-detected |
-| `AOC_CODEX_CMD` | Codex-specific command | `codex` |
 | `AOC_TASKMASTER_CMD` | Taskmaster TUI command | `aoc-taskmaster` |
+| `AOC_TASKMASTER_ROOT` | Override Taskmaster project root for `tm`/`aoc-task`/`aoc-taskmaster` | Current working directory |
 | `AOC_FILETREE_CMD` | File manager command | `yazi` |
 | `AOC_WIDGET_CMD` | Widget pane command | `aoc-widget` |
 | `AOC_CLOCK_CMD` | Clock command | Auto-detected |
@@ -207,6 +207,24 @@ Safety model:
 - Explicit bypass via `AOC_RTK_BYPASS=1`.
 - Fail-open fallback to native execution when RTK is unavailable.
 
+### PI-first init migration behavior
+
+`aoc-init` is the one-command repair path for PI-first repos.
+
+What it guarantees:
+- Seeds/repairs canonical PI runtime paths under `.pi/**` (`settings.json`, prompts, skills, extensions).
+- Keeps AOC control-plane state under `.aoc/**`.
+- Migrates missing project-local legacy assets from `.aoc/prompts/pi/` and `.aoc/skills/` into `.pi/**` without overwriting existing canonical files.
+- Cleans safe prompt alias duplicates (`.pi/prompts/tmcc.md` -> `.pi/prompts/tm-cc.md`) and warns when manual merge is required.
+- Does not auto-sync non-PI skill targets (`.codex/.claude/.opencode/.agents`) in PI-first mode.
+
+Validation commands:
+
+```bash
+bash scripts/pi/test-aoc-init-pi-first.sh
+bash scripts/pi/test-pi-only-agent-surface.sh
+```
+
 **Preview Pane Placement:**
 
 | Variable | Description | Default |
@@ -241,10 +259,10 @@ Theme management now lives inside `aoc-control` under Settings -> Theme manager.
 
 ### Agent Installers (Alt+C)
 
-`aoc-control` also includes **Settings -> Agent installers**. It shows per-agent install status (`installed` or `missing`) and runs:
+`aoc-control` includes **Settings -> Agent installers** for PI runtimes only. It shows install status (`installed` or `missing`) and runs:
 
-- `install` for missing agents
-- `update` for installed agents
+- `install` for missing runtimes
+- `update` for installed runtimes
 
 Back-end command used by the TUI: `aoc-agent-install <status|install|update> <agent>`.
 
@@ -252,24 +270,11 @@ Default command overrides:
 
 | Variable | Description |
 |----------|-------------|
-| `AOC_CODEX_INSTALL_CMD` / `AOC_CODEX_UPDATE_CMD` | Codex install/update command |
-| `AOC_GEMINI_INSTALL_CMD` / `AOC_GEMINI_UPDATE_CMD` | Gemini install/update command |
-| `AOC_CC_INSTALL_CMD` / `AOC_CC_UPDATE_CMD` | Claude Code install/update command |
-| `AOC_KIMI_INSTALL_CMD` / `AOC_KIMI_UPDATE_CMD` | Kimi install/update command |
-| `AOC_OC_INSTALL_CMD` / `AOC_OC_UPDATE_CMD` | OpenCode install/update command |
-| `AOC_OMO_INSTALL_CMD` / `AOC_OMO_UPDATE_CMD` | OmO install/update command |
 | `AOC_PI_INSTALL_CMD` / `AOC_PI_UPDATE_CMD` | PI (npm) install/update command |
-| `AOC_PIR_INSTALL_CMD` / `AOC_PIR_UPDATE_CMD` | PI Rust install/update command |
-| `AOC_PIR_INSTALL_URL` | Override PI Rust upstream install URL |
-| `AOC_PI_INSTALL_URL` | Legacy alias for PI Rust installer URL override | None |
-| `AOC_PI_INSTALL_CONSENT` | Required PI Rust consent gate (`I_ACCEPT_PI_UPSTREAM`) |
 
-PI Rust safety rider:
+PI installer behavior:
 
-- PI Rust install/update is blocked unless `AOC_PI_INSTALL_CONSENT=I_ACCEPT_PI_UPSTREAM` is set.
-- `install.sh` can persist consent interactively to `~/.config/aoc/pi-install-consent` (disable prompt with `AOC_PI_CONSENT_PROMPT=0`).
 - By default, `pi` installs from npm (`pnpm add -g @mariozechner/pi-coding-agent`).
-- By default, `pi-r` uses the upstream Rust installer URL in `aoc-agent-install`; override with `AOC_PIR_INSTALL_CMD` or `AOC_PIR_INSTALL_URL` as needed (`AOC_PI_INSTALL_URL` remains a legacy alias).
 - AOC does not bundle PI artifacts; it only executes installer commands.
 
 ### Agent Configuration
@@ -277,30 +282,22 @@ PI Rust safety rider:
 | Variable | Description | Default |
 |----------|-------------|---------|
 | `AOC_AGENT_ID` | Override default agent for session | From `aoc-agent` |
-| `AOC_GEMINI_BIN` | Gemini binary path | Auto-detect |
-| `AOC_CC_BIN` | Claude Code binary path | Auto-detect |
-| `AOC_OC_BIN` | OpenCode binary path | Auto-detect |
 | `AOC_PI_BIN` | PI Agent (npm) binary path | `pi` |
-| `AOC_PIR_BIN` | PI Agent (Rust) binary path | `pi-r` |
 | `AOC_PI_LOW_TOKEN_MODE` | Enable default PI low-token prompt append (`1`/`0`) | `1` |
 | `AOC_PI_LOW_TOKEN_PROMPT` | Override PI low-token prompt file path | `<project>/.aoc/prompts/pi-low-token.md` |
 | `AOC_PI_APPEND_SYSTEM_PROMPT` | Extra `--append-system-prompt` text/path passed to PI | None |
 | `AOC_PI_HANDSHAKE_MODE` | PI handshake verbosity (`compact`, `full`, `off`) | `compact` |
 | `AOC_HANDSHAKE_MODE` | Global handshake verbosity override (`compact`, `full`, `off`) | Agent default |
 | `AOC_AGENT_PATTERN` | Additional agent names for cleanup | None |
-| `AOC_CODEX_TMUX_CONF` | Custom tmux config for Codex | Default |
 | `AOC_AGENT_TMUX_CONF` | Custom tmux config for tmux-enabled agents | Default |
-| `AOC_TMUX_AGENT_ALLOWLIST` | Comma-separated agent IDs that should run inside tmux | `codex,pi,pi-r` |
+| `AOC_TMUX_AGENT_ALLOWLIST` | Comma-separated agent IDs that should run inside tmux | `pi` |
 
-Valid `AOC_AGENT_ID` values include `codex`, `gemini`, `kimi`, `cc`, `oc`, `omo`, `pi`, and `pi-r`.
+Valid `AOC_AGENT_ID` value is `pi`.
 
-- `oc` launches standalone OpenCode.
-- `omo` launches OpenCode with OmO profile routing (sandbox by default).
-- `pi` launches the original npm PI Agent CLI.
-- `pi-r` launches the Rust PI Agent CLI.
+- `pi` launches the npm PI Agent CLI.
 - `pi` auto-appends `.aoc/prompts/pi-low-token.md` unless disabled by `AOC_PI_LOW_TOKEN_MODE=0` or overridden by explicit PI prompt flags.
-- `pi` and `pi-r` default to compact handshake output; set `AOC_PI_HANDSHAKE_MODE=full` for full context dump.
-- `pi` and `pi-r` enable RTK ultra-compact output and non-tty routing by default (`AOC_RTK_ULTRA_COMPACT=1`, `AOC_RTK_ROUTE_NON_TTY_STDIN=1`) unless you override them.
+- `pi` defaults to compact handshake output; set `AOC_PI_HANDSHAKE_MODE=full` for full context dump.
+- `pi` enables RTK ultra-compact output and non-tty routing by default (`AOC_RTK_ULTRA_COMPACT=1`, `AOC_RTK_ROUTE_NON_TTY_STDIN=1`) unless you override them.
 
 ## Custom Layouts
 

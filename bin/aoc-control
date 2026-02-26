@@ -36,16 +36,16 @@ if [[ -n "${AOC_CONTROL_BIN:-}" ]]; then
   exec "$AOC_CONTROL_BIN" "$@"
 fi
 
-if command -v aoc-control-native >/dev/null 2>&1; then
-  exec aoc-control-native "$@"
-fi
-
 if [[ -x "$local_release" ]]; then
   exec "$local_release" "$@"
 fi
 
 if [[ -x "$local_debug" ]]; then
   exec "$local_debug" "$@"
+fi
+
+if command -v aoc-control-native >/dev/null 2>&1; then
+  exec aoc-control-native "$@"
 fi
 
 if command -v cargo >/dev/null 2>&1 && [[ -n "$manifest_path" ]]; then

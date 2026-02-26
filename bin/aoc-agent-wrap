@@ -432,7 +432,7 @@ construct_handshake() {
 
   local handshake_mode="${AOC_HANDSHAKE_MODE:-}"
   if [[ -z "$handshake_mode" ]]; then
-    if [[ "${AOC_AGENT_ID:-}" == "pi" || "${AOC_AGENT_ID:-}" == "pi-r" ]]; then
+    if [[ "${AOC_AGENT_ID:-}" == "pi" ]]; then
       handshake_mode="${AOC_PI_HANDSHAKE_MODE:-compact}"
     else
       handshake_mode="full"
@@ -616,7 +616,7 @@ if [[ "$agent_runtime_id" == "omo" ]]; then
   is_omo_agent=1
 fi
 is_pi_family_agent=0
-if [[ "$agent_runtime_id" == "pi" || "$agent_runtime_id" == "pi-r" ]]; then
+if [[ "$agent_runtime_id" == "pi" ]]; then
   is_pi_family_agent=1
 fi
 
@@ -652,7 +652,7 @@ run_wrapped_exec() {
   exec "$@"
 }
 
-tmux_allowlist=",${AOC_TMUX_AGENT_ALLOWLIST:-codex,pi,pi-r},"
+tmux_allowlist=",${AOC_TMUX_AGENT_ALLOWLIST:-pi},"
 tmux_allowlist="${tmux_allowlist//[[:space:]]/}"
 
 if [[ "$tmux_allowlist" != *",$agent_id,"* ]]; then
