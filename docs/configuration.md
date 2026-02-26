@@ -221,8 +221,10 @@ Safety model:
 
 What it guarantees:
 - Seeds/repairs canonical PI runtime paths under `.pi/**` (`settings.json`, prompts, skills, extensions).
+- Seeds default PI extensions when missing: `.pi/extensions/minimal.ts` and `.pi/extensions/themeMap.ts`.
 - Keeps AOC control-plane state under `.aoc/**`.
 - Migrates missing project-local legacy assets from `.aoc/prompts/pi/` and `.aoc/skills/` into `.pi/**` without overwriting existing canonical files.
+- Preserves existing `.pi/extensions/*` files (non-destructive).
 - Cleans safe prompt alias duplicates (`.pi/prompts/tmcc.md` -> `.pi/prompts/tm-cc.md`) and warns when manual merge is required.
 - Does not auto-sync non-PI skill targets (`.codex/.claude/.opencode/.agents`) in PI-first mode.
 
