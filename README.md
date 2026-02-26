@@ -478,12 +478,19 @@ cargo build --workspace
 
 ## 📚 Documentation
 
+**PI-first docs map (recommended reading order):**
+1. [Installation Guide](./docs/installation.md) — install + post-install setup contract
+2. [Agents](./docs/agents.md) — canonical `.pi/**` runtime contract and migration checklist
+3. [Configuration Guide](./docs/configuration.md) — env vars, RTK, and PI-first init guarantees
+4. [Deprecations and removals](./docs/deprecations.md) — what was removed/simplified and current support boundary
+
 | Document | Description |
 |----------|-------------|
-| [Installation Guide](./docs/installation.md) | Platform-specific setup instructions |
+| [Installation Guide](./docs/installation.md) | Platform-specific setup instructions + post-install contract |
+| [Agents](./docs/agents.md) | PI-first runtime contract (`.pi/**`), prompts, extensions, migration checks |
 | [Configuration Guide](./docs/configuration.md) | Environment variables and customization |
+| [Deprecations and removals](./docs/deprecations.md) | PI-only transition summary and legacy-path behavior |
 | [Agent Skills](./docs/skills.md) | Skill format and sync workflow |
-| [Agents](./docs/agents.md) | PI prompts and PI-only runtime reference |
 | [Agent Extensibility](./docs/agent-extensibility.md) | Bring-your-own agent CLI wrappers with PI-first core |
 | [MoreMotion](./docs/moremotion.md) | Optional Remotion integration |
 | [Custom Layouts](./docs/layouts.md) | Creating "AOC Modes" |
