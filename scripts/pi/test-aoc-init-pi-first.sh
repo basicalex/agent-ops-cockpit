@@ -53,6 +53,8 @@ assert_exists "$project_fresh/.aoc/stm/current.md"
 assert_exists "$project_fresh/.pi/settings.json"
 assert_exists "$project_fresh/.pi/prompts/tm-cc.md"
 assert_exists "$project_fresh/.pi/skills/aoc-init-ops/SKILL.md"
+assert_exists "$project_fresh/.pi/extensions/minimal.ts"
+assert_exists "$project_fresh/.pi/extensions/themeMap.ts"
 
 assert_not_exists "$project_fresh/.aoc/skills"
 assert_not_exists "$project_fresh/.codex/skills"
