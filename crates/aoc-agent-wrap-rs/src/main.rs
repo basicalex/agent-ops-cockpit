@@ -1,4 +1,8 @@
 use aoc_core::{
+    mind_observer_feed::{
+        MindObserverFeedEvent, MindObserverFeedPayload, MindObserverFeedStatus,
+        MindObserverFeedTriggerKind,
+    },
     pulse_ipc::{
         decode_frame, encode_frame, AgentState as PulseAgentState,
         CommandError as PulseCommandError, CommandResultPayload as PulseCommandResultPayload,
@@ -59,6 +63,7 @@ const STOP_TERM_GRACE_MS: u64 = 800;
 const HEALTH_INTERVAL_SECS: u64 = 5;
 const TASK_CONTEXT_HEARTBEAT_SECS: u64 = 20;
 const TASK_CONTEXT_COMMAND_DEBOUNCE_MS: u64 = 1500;
+const MAX_MIND_OBSERVER_EVENTS: usize = 40;
 const REDACTED_SECRET: &str = "[REDACTED]";
 const TELEMETRY_SECRET_KEYS: [&str; 13] = [
     "access_token",
@@ -319,6 +324,7 @@ enum PulseUpdate {
     CurrentTag(CurrentTagPayload),
     DiffSummary(DiffSummaryPayload),
     Health(HealthSnapshotPayload),
+    MindObserverEvent(MindObserverFeedEvent),
     Heartbeat {
         lifecycle: Option<String>,
     },
@@ -334,6 +340,7 @@ struct PulseState {
     current_tag: Option<CurrentTagPayload>,
     diff_summary: Option<DiffSummaryPayload>,
     health: Option<HealthSnapshotPayload>,
+    mind_observer: MindObserverFeedPayload,
     last_heartbeat_ms: Option<i64>,
     last_activity_ms: Option<i64>,
     updated_at_ms: Option<i64>,
@@ -349,6 +356,7 @@ impl PulseState {
             current_tag: None,
             diff_summary: None,
             health: None,
+            mind_observer: MindObserverFeedPayload::default(),
             last_heartbeat_ms: None,
             last_activity_ms: None,
             updated_at_ms: None,
@@ -373,6 +381,7 @@ struct CachedMessages {
     status: Option<String>,
     diff_summary: Option<String>,
     task_summary: HashMap<String, String>,
+    task_done_counts: HashMap<String, u32>,
     current_tag: Option<CurrentTagPayload>,
 }
 
@@ -900,11 +909,20 @@ async fn pulse_loop(cfg: ClientConfig, socket_path: PathBuf, mut rx: mpsc::Recei
                     if envelope.session_id != cfg.session_id || envelope.version.0 > CURRENT_PROTOCOL_VERSION {
                         continue;
                     }
-                    if let Some((response, interrupt)) = build_pulse_command_response(&cfg, &envelope) {
-                        if send_pulse_envelope(&mut writer_half, &response).await.is_err() {
+                    if let Some(command) = build_pulse_command_response(&cfg, &envelope) {
+                        if send_pulse_envelope(&mut writer_half, &command.response).await.is_err() {
                             break;
                         }
-                        if interrupt {
+                        if let Some(update) = command.pulse_update {
+                            apply_pulse_update(&mut state, update);
+                            if send_pulse_upsert(&cfg, &state, &mut writer_half, &mut last_state_hash)
+                                .await
+                                .is_err()
+                            {
+                                break;
+                            }
+                        }
+                        if command.interrupt {
                             if let Err(err) = trigger_self_interrupt() {
                                 warn!("pulse_stop_signal_error: {err}");
                             }
@@ -953,6 +971,17 @@ fn apply_pulse_update(state: &mut PulseState, update: PulseUpdate) {
             state.health = Some(health);
             state.updated_at_ms = Some(now);
         }
+        PulseUpdate::MindObserverEvent(event) => {
+            state.mind_observer.updated_at_ms = Some(now);
+            state.mind_observer.events.insert(0, event);
+            if state.mind_observer.events.len() > MAX_MIND_OBSERVER_EVENTS {
+                state
+                    .mind_observer
+                    .events
+                    .truncate(MAX_MIND_OBSERVER_EVENTS);
+            }
+            state.updated_at_ms = Some(now);
+        }
         PulseUpdate::Heartbeat { lifecycle } => {
             state.last_heartbeat_ms = Some(now);
             if let Some(lifecycle) = lifecycle {
@@ -965,6 +994,28 @@ fn apply_pulse_update(state: &mut PulseState, update: PulseUpdate) {
 
 fn normalize_lifecycle_status(value: &str) -> String {
     value.trim().to_ascii_lowercase().replace('_', "-")
+}
+
+fn mind_observer_event(
+    status: MindObserverFeedStatus,
+    trigger: MindObserverFeedTriggerKind,
+    reason: Option<String>,
+) -> MindObserverFeedEvent {
+    let now = Utc::now().to_rfc3339();
+    MindObserverFeedEvent {
+        status,
+        trigger,
+        conversation_id: None,
+        runtime: None,
+        attempt_count: None,
+        latency_ms: None,
+        reason,
+        failure_kind: None,
+        enqueued_at: Some(now.clone()),
+        started_at: None,
+        completed_at: None,
+        progress: None,
+    }
 }
 
 fn build_pulse_hello(cfg: &ClientConfig) -> PulseWireEnvelope {
@@ -1128,6 +1179,11 @@ fn build_pulse_source(cfg: &ClientConfig, state: &PulseState) -> serde_json::Val
             source.insert("health".to_string(), value);
         }
     }
+    if !state.mind_observer.events.is_empty() {
+        if let Ok(value) = serde_json::to_value(&state.mind_observer) {
+            source.insert("mind_observer".to_string(), value);
+        }
+    }
     serde_json::Value::Object(source)
 }
 
@@ -1204,71 +1260,112 @@ async fn read_next_pulse_frame(
     }
 }
 
+struct PulseCommandHandling {
+    response: PulseWireEnvelope,
+    interrupt: bool,
+    pulse_update: Option<PulseUpdate>,
+}
+
 fn build_pulse_command_response(
     cfg: &ClientConfig,
     envelope: &PulseWireEnvelope,
-) -> Option<(PulseWireEnvelope, bool)> {
+) -> Option<PulseCommandHandling> {
     let WireMsg::Command(payload) = envelope.msg.clone() else {
         return None;
     };
 
-    if payload.command != "stop_agent" {
-        let response = PulseCommandResultPayload {
-            command: payload.command,
-            status: "error".to_string(),
-            message: Some("unsupported command".to_string()),
-            error: Some(PulseCommandError {
+    let command = payload.command.clone();
+    let result = |status: &str,
+                  message: Option<String>,
+                  error: Option<PulseCommandError>,
+                  interrupt: bool,
+                  pulse_update: Option<PulseUpdate>| {
+        PulseCommandHandling {
+            response: PulseWireEnvelope {
+                version: ProtocolVersion(CURRENT_PROTOCOL_VERSION),
+                session_id: cfg.session_id.clone(),
+                sender_id: cfg.agent_key.clone(),
+                timestamp: Utc::now().to_rfc3339(),
+                request_id: envelope.request_id.clone(),
+                msg: WireMsg::CommandResult(PulseCommandResultPayload {
+                    command: command.clone(),
+                    status: status.to_string(),
+                    message,
+                    error,
+                }),
+            },
+            interrupt,
+            pulse_update,
+        }
+    };
+
+    match payload.command.as_str() {
+        "stop_agent" => {
+            if payload.target_agent_id.as_deref() != Some(cfg.agent_key.as_str()) {
+                return Some(result(
+                    "error",
+                    Some("target mismatch".to_string()),
+                    Some(PulseCommandError {
+                        code: "invalid_target".to_string(),
+                        message: "target_agent_id does not match publisher".to_string(),
+                    }),
+                    false,
+                    None,
+                ));
+            }
+            Some(result(
+                "ok",
+                Some("stop signal dispatched".to_string()),
+                None,
+                true,
+                None,
+            ))
+        }
+        "run_observer" => {
+            if payload.target_agent_id.as_deref() != Some(cfg.agent_key.as_str()) {
+                return Some(result(
+                    "error",
+                    Some("target mismatch".to_string()),
+                    Some(PulseCommandError {
+                        code: "invalid_target".to_string(),
+                        message: "target_agent_id does not match publisher".to_string(),
+                    }),
+                    false,
+                    None,
+                ));
+            }
+            let reason = payload
+                .args
+                .as_object()
+                .and_then(|args| args.get("reason"))
+                .and_then(serde_json::Value::as_str)
+                .map(str::trim)
+                .filter(|reason| !reason.is_empty())
+                .map(|reason| reason.to_string())
+                .unwrap_or_else(|| "manual observer trigger requested".to_string());
+            Some(result(
+                "ok",
+                Some("observer trigger queued".to_string()),
+                None,
+                false,
+                Some(PulseUpdate::MindObserverEvent(mind_observer_event(
+                    MindObserverFeedStatus::Queued,
+                    MindObserverFeedTriggerKind::ManualShortcut,
+                    Some(reason),
+                ))),
+            ))
+        }
+        _ => Some(result(
+            "error",
+            Some("unsupported command".to_string()),
+            Some(PulseCommandError {
                 code: "unsupported_command".to_string(),
                 message: "unsupported command".to_string(),
             }),
-        };
-        let envelope = PulseWireEnvelope {
-            version: ProtocolVersion(CURRENT_PROTOCOL_VERSION),
-            session_id: cfg.session_id.clone(),
-            sender_id: cfg.agent_key.clone(),
-            timestamp: Utc::now().to_rfc3339(),
-            request_id: envelope.request_id.clone(),
-            msg: WireMsg::CommandResult(response),
-        };
-        return Some((envelope, false));
+            false,
+            None,
+        )),
     }
-
-    if payload.target_agent_id.as_deref() != Some(cfg.agent_key.as_str()) {
-        let response = PulseCommandResultPayload {
-            command: payload.command,
-            status: "error".to_string(),
-            message: Some("target mismatch".to_string()),
-            error: Some(PulseCommandError {
-                code: "invalid_target".to_string(),
-                message: "target_agent_id does not match publisher".to_string(),
-            }),
-        };
-        let envelope = PulseWireEnvelope {
-            version: ProtocolVersion(CURRENT_PROTOCOL_VERSION),
-            session_id: cfg.session_id.clone(),
-            sender_id: cfg.agent_key.clone(),
-            timestamp: Utc::now().to_rfc3339(),
-            request_id: envelope.request_id.clone(),
-            msg: WireMsg::CommandResult(response),
-        };
-        return Some((envelope, false));
-    }
-
-    let response = PulseCommandResultPayload {
-        command: payload.command,
-        status: "ok".to_string(),
-        message: Some("stop signal dispatched".to_string()),
-        error: None,
-    };
-    let envelope = PulseWireEnvelope {
-        version: ProtocolVersion(CURRENT_PROTOCOL_VERSION),
-        session_id: cfg.session_id.clone(),
-        sender_id: cfg.agent_key.clone(),
-        timestamp: Utc::now().to_rfc3339(),
-        request_id: envelope.request_id.clone(),
-        msg: WireMsg::CommandResult(response),
-    };
-    Some((envelope, true))
 }
 
 fn trigger_self_interrupt() -> Result<(), String> {
@@ -2290,6 +2387,19 @@ async fn send_task_summaries(
                     to_send.push(msg.clone());
                 }
             }
+            let done_counts = pulse_payloads
+                .iter()
+                .map(|(tag, payload)| (tag.clone(), payload.counts.done))
+                .collect::<HashMap<_, _>>();
+            let mut completion_events = Vec::new();
+            for (tag, next_done) in &done_counts {
+                let Some(previous_done) = cache.task_done_counts.get(tag).copied() else {
+                    continue;
+                };
+                if *next_done > previous_done {
+                    completion_events.push((tag.clone(), previous_done, *next_done));
+                }
+            }
             let removed = cache
                 .task_summary
                 .keys()
@@ -2297,6 +2407,7 @@ async fn send_task_summaries(
             let changed = removed || !to_send.is_empty();
             let current_tag_changed = cache.current_tag.as_ref() != Some(&current_tag);
             cache.task_summary = messages;
+            cache.task_done_counts = done_counts;
             cache.current_tag = Some(current_tag.clone());
             drop(cache);
             for msg in to_send {
@@ -2307,6 +2418,18 @@ async fn send_task_summaries(
             }
             if changed || current_tag_changed {
                 publish_pulse_update(pulse_tx, PulseUpdate::CurrentTag(current_tag));
+            }
+            for (tag, previous_done, next_done) in completion_events {
+                publish_pulse_update(
+                    pulse_tx,
+                    PulseUpdate::MindObserverEvent(mind_observer_event(
+                        MindObserverFeedStatus::Queued,
+                        MindObserverFeedTriggerKind::TaskCompleted,
+                        Some(format!(
+                            "task done count increased for tag {tag}: {previous_done} -> {next_done}"
+                        )),
+                    )),
+                );
             }
             Ok(())
         }
@@ -2338,6 +2461,7 @@ async fn send_task_summaries(
                 != Some(&msg);
             let current_tag_changed = cache.current_tag.as_ref() != Some(&current_tag);
             cache.task_summary.clear();
+            cache.task_done_counts.clear();
             cache
                 .task_summary
                 .insert("default".to_string(), msg.clone());
@@ -3661,7 +3785,7 @@ mod tests {
     }
 
     #[test]
-    fn pulse_source_includes_task_diff_health_sections() {
+    fn pulse_source_includes_task_diff_health_and_mind_sections() {
         let cfg = test_client();
         let mut state = PulseState::new();
         state.lifecycle = "busy".to_string();
@@ -3712,6 +3836,11 @@ mod tests {
             }],
             taskmaster_status: "available".to_string(),
         });
+        state.mind_observer.events.push(mind_observer_event(
+            MindObserverFeedStatus::Fallback,
+            MindObserverFeedTriggerKind::TaskCompleted,
+            Some("semantic observer failed (timeout)".to_string()),
+        ));
 
         let source = build_pulse_source(&cfg, &state);
         let root = source.as_object().expect("source should be object");
@@ -3720,6 +3849,7 @@ mod tests {
         assert!(root.contains_key("current_tag"));
         assert!(root.contains_key("diff_summary"));
         assert!(root.contains_key("health"));
+        assert!(root.contains_key("mind_observer"));
         assert_eq!(
             root.get("tab_scope")
                 .and_then(Value::as_str)
@@ -3750,14 +3880,14 @@ mod tests {
             }),
         };
 
-        let (response, interrupt) =
-            build_pulse_command_response(&cfg, &envelope).expect("response expected");
-        let WireMsg::CommandResult(payload) = response.msg else {
+        let command = build_pulse_command_response(&cfg, &envelope).expect("response expected");
+        let WireMsg::CommandResult(payload) = command.response.msg else {
             panic!("expected command_result")
         };
         assert_eq!(payload.command, "stop_agent");
         assert_eq!(payload.status, "ok");
-        assert!(interrupt);
+        assert!(command.interrupt);
+        assert!(command.pulse_update.is_none());
     }
 
     #[test]
@@ -3776,9 +3906,8 @@ mod tests {
             }),
         };
 
-        let (response, interrupt) =
-            build_pulse_command_response(&cfg, &envelope).expect("response expected");
-        let WireMsg::CommandResult(payload) = response.msg else {
+        let command = build_pulse_command_response(&cfg, &envelope).expect("response expected");
+        let WireMsg::CommandResult(payload) = command.response.msg else {
             panic!("expected command_result")
         };
         assert_eq!(payload.status, "error");
@@ -3786,7 +3915,40 @@ mod tests {
             payload.error.as_ref().map(|err| err.code.as_str()),
             Some("invalid_target")
         );
-        assert!(!interrupt);
+        assert!(!command.interrupt);
+        assert!(command.pulse_update.is_none());
+    }
+
+    #[test]
+    fn pulse_run_observer_command_enqueues_manual_feed_event() {
+        let cfg = test_client();
+        let envelope = PulseWireEnvelope {
+            version: ProtocolVersion(CURRENT_PROTOCOL_VERSION),
+            session_id: cfg.session_id.clone(),
+            sender_id: "aoc-mission-control".to_string(),
+            timestamp: Utc::now().to_rfc3339(),
+            request_id: Some("req-3".to_string()),
+            msg: WireMsg::Command(aoc_core::pulse_ipc::CommandPayload {
+                command: "run_observer".to_string(),
+                target_agent_id: Some(cfg.agent_key.clone()),
+                args: serde_json::json!({"reason": "pulse_user_request"}),
+            }),
+        };
+
+        let command = build_pulse_command_response(&cfg, &envelope).expect("response expected");
+        let WireMsg::CommandResult(payload) = command.response.msg else {
+            panic!("expected command_result")
+        };
+        assert_eq!(payload.status, "ok");
+        assert!(!command.interrupt);
+        match command.pulse_update {
+            Some(PulseUpdate::MindObserverEvent(event)) => {
+                assert_eq!(event.status, MindObserverFeedStatus::Queued);
+                assert_eq!(event.trigger, MindObserverFeedTriggerKind::ManualShortcut);
+                assert_eq!(event.reason.as_deref(), Some("pulse_user_request"));
+            }
+            _ => panic!("expected mind observer feed event"),
+        }
     }
 
     #[cfg(unix)]

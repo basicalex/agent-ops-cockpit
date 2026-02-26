@@ -1,8 +1,8 @@
 # Project Context Snapshot
 
 ## Repository
-- Name: .
-- Root: .
+- Name: agent-ops-cockpit
+- Root: /home/ceii/dev/agent-ops-cockpit
 - Git branch: main
 
 ## Key Files
@@ -10,7 +10,7 @@
 
 ## Project Structure (tree -L 2)
 ```
-.
+/home/ceii/dev/agent-ops-cockpit
 ├── AGENTS.md
 ├── AOC.md
 ├── bin
@@ -20,19 +20,14 @@
 │   ├── aoc-agent-run
 │   ├── aoc-agent-wrap
 │   ├── aoc-align
-│   ├── aoc-cc
 │   ├── aoc-cleanup
 │   ├── aoc-clock
 │   ├── aoc-clock-set
-│   ├── aoc-codex
-│   ├── aoc-codex-tab
 │   ├── aoc-control
 │   ├── aoc-control-toggle
 │   ├── aoc-doctor
-│   ├── aoc-gemini
 │   ├── aoc-hub
 │   ├── aoc-init
-│   ├── aoc-kimi
 │   ├── aoc-launch
 │   ├── aoc-layout
 │   ├── aoc-mem
@@ -40,14 +35,10 @@
 │   ├── aoc-mission-control-toggle
 │   ├── aoc-momo
 │   ├── aoc-new-tab
-│   ├── aoc-oc
-│   ├── aoc-omo
-│   ├── aoc-opencode-profile
 │   ├── aoc-open-explorer
 │   ├── aoc-open-file
 │   ├── aoc-pane-rename
 │   ├── aoc-pi
-│   ├── aoc-pi-r
 │   ├── aoc-preview
 │   ├── aoc-preview-set
 │   ├── aoc-preview-toggle
@@ -69,11 +60,6 @@
 │   ├── aoc-widget-set
 │   ├── aoc-yazi
 │   ├── aoc-zellij-resize
-│   ├── claude
-│   ├── codex
-│   ├── gemini
-│   ├── kimi
-│   ├── opencode
 │   ├── rlm
 │   ├── tm
 │   └── tm-editor
@@ -105,6 +91,7 @@
 │   ├── Cargo.lock
 │   └── Cargo.toml
 ├── docs
+│   ├── agent-extensibility.md
 │   ├── agents.md
 │   ├── assets
 │   ├── configuration.md
@@ -115,6 +102,7 @@
 │   ├── mission-control-ops.md
 │   ├── moremotion.md
 │   ├── omo-regression-checklist.md
+│   ├── pi-only-rollout-checklist.md
 │   ├── pulse-ipc-protocol.md
 │   ├── pulse-vnext-rollout.md
 │   └── skills.md
@@ -132,6 +120,7 @@
 ├── scripts
 │   ├── lint.sh
 │   ├── opencode
+│   ├── pi
 │   └── smoke.sh
 ├── SECURITY.md
 ├── shellcheck-v0.10.0
@@ -151,7 +140,7 @@
     ├── aoc.config.kdl.template
     └── layouts
 
-36 directories, 104 files
+37 directories, 92 files
 ```
 
 ## README Headings
@@ -164,21 +153,16 @@
 ### Verify Installation
 ### Next Steps
 ## 🎯 Key Features
-### 1. Multi-Agent Support
-# Switch agents interactively
-# Or launch specific agents directly
+### 1. PI-Only Agent Runtime
+# Set/select runtime
+# Or launch directly
 ### 2. Native Taskmaster TUI
 ### 3. RLM Skill - Large Codebase Analysis
 # Measure repository scale
 # Search across codebase
 # Process in manageable chunks
 ### 4. Agent Skills
-# Sync skills for the active agent
-# Re-sync existing targets (no new agent dirs)
-# Repo mentor subagent
-# Full architecture scan + checkpoint
-# Deep dive one subsystem
-# Direct Q&A with answer-only output
+# Sync PI skills
 ### 5. Yazi File Manager Integration
 ### 6. Custom Layouts ("AOC Modes")
 # Try the minimal layout
@@ -195,18 +179,24 @@
 ### Per-Tab Isolation
 ### Standard Agent Workflow
 ## 📋 Requirements
+## 🎮 Widget Controls
+## 📊 Comparison with Alternatives
+## 🛠️ Configuration
+### Quick Overrides
+# Use a different layout
 
 ## Current Task Tag
 ```
-mind
+aoc/pi_cleanup
 ```
 
 ## Active Workstreams (Tags)
 ```
+aoc/pi_cleanup (9)
 deprecation (10)
 master (44)
 mermaid (1)
-mind (10)
+mind (13)
 mission-control (17)
 omo (10)
 pulse-hub-spoke (8)

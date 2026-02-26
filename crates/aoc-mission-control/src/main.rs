@@ -1,4 +1,8 @@
 use aoc_core::{
+    mind_observer_feed::{
+        MindObserverFeedEvent, MindObserverFeedPayload, MindObserverFeedProgress,
+        MindObserverFeedStatus, MindObserverFeedTriggerKind,
+    },
     pulse_ipc::{
         encode_frame, AgentState, CommandPayload, CommandResultPayload, DeltaPayload,
         HeartbeatPayload as PulseHeartbeatPayload, HelloPayload as PulseHelloPayload,
@@ -211,6 +215,7 @@ struct HubCache {
     tasks: HashMap<String, TaskSummaryPayload>,
     diffs: HashMap<String, DiffSummaryPayload>,
     health: HashMap<String, HealthSnapshot>,
+    mind: HashMap<String, MindObserverFeedPayload>,
     layout: Option<HubLayout>,
     last_seq: u64,
 }
@@ -328,6 +333,17 @@ struct HealthRow {
 }
 
 #[derive(Clone, Debug)]
+struct MindObserverRow {
+    agent_id: String,
+    scope: String,
+    pane_id: String,
+    tab_scope: Option<String>,
+    tab_focused: bool,
+    event: MindObserverFeedEvent,
+    source: String,
+}
+
+#[derive(Clone, Debug)]
 struct LocalSnapshot {
     overview: Vec<OverviewRow>,
     viewer_tab_index: Option<usize>,
@@ -339,6 +355,7 @@ struct LocalSnapshot {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Mode {
     Overview,
+    Mind,
     Work,
     Diff,
     Health,
@@ -348,6 +365,7 @@ impl Mode {
     fn title(self) -> &'static str {
         match self {
             Mode::Overview => "Overview",
+            Mode::Mind => "Mind",
             Mode::Work => "Work",
             Mode::Diff => "Diff",
             Mode::Health => "Health",
@@ -356,7 +374,8 @@ impl Mode {
 
     fn next(self) -> Self {
         match self {
-            Mode::Overview => Mode::Work,
+            Mode::Overview => Mode::Mind,
+            Mode::Mind => Mode::Work,
             Mode::Work => Mode::Diff,
             Mode::Diff => Mode::Health,
             Mode::Health => Mode::Overview,
@@ -492,12 +511,12 @@ impl App {
         let mode = if config.overview_enabled {
             Mode::Overview
         } else {
-            Mode::Work
+            Mode::Mind
         };
         let status_note = if config.overview_enabled {
             None
         } else {
-            Some("overview disabled by config; using Work/Diff/Health".to_string())
+            Some("overview disabled by config; using Mind/Work/Diff/Health".to_string())
         };
         Self {
             config,
@@ -546,6 +565,7 @@ impl App {
                 self.hub.tasks.clear();
                 self.hub.diffs.clear();
                 self.hub.health.clear();
+                self.hub.mind.clear();
                 self.hub.last_seq = payload.seq;
                 for state in payload.states {
                     self.upsert_hub_state(state, event_at, "snapshot");
@@ -560,6 +580,7 @@ impl App {
                     self.hub.tasks.clear();
                     self.hub.diffs.clear();
                     self.hub.health.clear();
+                    self.hub.mind.clear();
                     self.status_note = Some("hub delta gap detected; awaiting resync".to_string());
                 }
                 self.hub.last_seq = payload.seq;
@@ -574,6 +595,7 @@ impl App {
                             self.hub.agents.remove(&change.agent_id);
                             self.hub.diffs.remove(&change.agent_id);
                             self.hub.health.remove(&change.agent_id);
+                            self.hub.mind.remove(&change.agent_id);
                             self.hub.tasks.retain(|key, payload| {
                                 if payload.agent_id == change.agent_id {
                                     return false;
@@ -734,6 +756,28 @@ impl App {
                     );
                 }
             }
+        }
+
+        if let Some(source_value) = source_value_by_keys(&state.source, &["mind_observer"]) {
+            match parse_mind_observer_from_source(source_value) {
+                Ok(Some(feed)) => {
+                    self.hub.mind.insert(state.agent_id.clone(), feed);
+                }
+                Ok(None) => {
+                    self.hub.mind.remove(&state.agent_id);
+                }
+                Err(err) => {
+                    warn!(
+                        event = "pulse_source_parse_error",
+                        kind = "mind_observer",
+                        channel,
+                        agent_id = %state.agent_id,
+                        error = %err
+                    );
+                }
+            }
+        } else {
+            self.hub.mind.remove(&state.agent_id);
         }
     }
 
@@ -1063,6 +1107,9 @@ impl App {
         self.hub
             .health
             .retain(|agent_id, _| active_agents.contains(agent_id));
+        self.hub
+            .mind
+            .retain(|agent_id, _| active_agents.contains(agent_id));
         self.hub.tasks.retain(|key, payload| {
             if active_agents.contains(&payload.agent_id) {
                 return true;
@@ -1077,6 +1124,13 @@ impl App {
         match self.mode {
             Mode::Overview => {
                 if self.prefer_hub_data(!self.hub.agents.is_empty()) {
+                    "hub"
+                } else {
+                    "local"
+                }
+            }
+            Mode::Mind => {
+                if self.prefer_hub_data(!self.hub.mind.is_empty()) {
                     "hub"
                 } else {
                     "local"
@@ -1111,6 +1165,7 @@ impl App {
             || !self.hub.tasks.is_empty()
             || !self.hub.diffs.is_empty()
             || !self.hub.health.is_empty()
+            || !self.hub.mind.is_empty()
             || self.hub.layout.is_some()
     }
 
@@ -1290,10 +1345,11 @@ impl App {
             self.mode.next()
         } else {
             match self.mode {
-                Mode::Overview => Mode::Work,
+                Mode::Overview => Mode::Mind,
+                Mode::Mind => Mode::Work,
                 Mode::Work => Mode::Diff,
                 Mode::Diff => Mode::Health,
-                Mode::Health => Mode::Work,
+                Mode::Health => Mode::Mind,
             }
         };
     }
@@ -1508,6 +1564,83 @@ impl App {
             project_root: self.config.project_root.to_string_lossy().to_string(),
             snapshot: self.local.health.clone(),
         }]
+    }
+
+    fn mind_rows(&self) -> Vec<MindObserverRow> {
+        if !self.prefer_hub_data(!self.hub.mind.is_empty()) {
+            return Vec::new();
+        }
+
+        let viewer_scope = self.config.tab_scope.as_deref();
+        let mut rows = Vec::new();
+        for (agent_id, feed) in &self.hub.mind {
+            if feed.events.is_empty() {
+                continue;
+            }
+            let status = self
+                .hub
+                .agents
+                .get(agent_id)
+                .and_then(|agent| agent.status.as_ref());
+            let scope = status
+                .and_then(|value| value.agent_label.clone())
+                .unwrap_or_else(|| extract_label(agent_id));
+            let pane_id = status
+                .map(|value| value.pane_id.clone())
+                .unwrap_or_else(|| extract_pane_id(agent_id));
+            let tab_scope = status.and_then(|value| value.tab_scope.clone());
+            let tab_focused = tab_scope_matches(viewer_scope, tab_scope.as_deref());
+            if viewer_scope.is_some() && !tab_focused {
+                continue;
+            }
+
+            for event in &feed.events {
+                rows.push(MindObserverRow {
+                    agent_id: agent_id.clone(),
+                    scope: scope.clone(),
+                    pane_id: pane_id.clone(),
+                    tab_scope: tab_scope.clone(),
+                    tab_focused,
+                    event: event.clone(),
+                    source: "hub".to_string(),
+                });
+            }
+        }
+
+        rows.sort_by(|left, right| {
+            let left_ts = mind_event_sort_ms(left.event.completed_at.as_deref())
+                .or_else(|| mind_event_sort_ms(left.event.started_at.as_deref()))
+                .or_else(|| mind_event_sort_ms(left.event.enqueued_at.as_deref()))
+                .unwrap_or(0);
+            let right_ts = mind_event_sort_ms(right.event.completed_at.as_deref())
+                .or_else(|| mind_event_sort_ms(right.event.started_at.as_deref()))
+                .or_else(|| mind_event_sort_ms(right.event.enqueued_at.as_deref()))
+                .unwrap_or(0);
+            right_ts
+                .cmp(&left_ts)
+                .then_with(|| right.tab_focused.cmp(&left.tab_focused))
+                .then_with(|| left.scope.cmp(&right.scope))
+                .then_with(|| left.pane_id.cmp(&right.pane_id))
+        });
+        rows
+    }
+
+    fn request_manual_observer_run(&mut self) {
+        let rows = self.overview_rows();
+        let target = rows
+            .iter()
+            .find(|row| row.tab_focused)
+            .or_else(|| rows.first());
+        let Some(target) = target else {
+            self.status_note = Some("no target pane for observer run".to_string());
+            return;
+        };
+        self.queue_hub_command(
+            "run_observer",
+            Some(target.identity_key.clone()),
+            serde_json::json!({"trigger": "manual_shortcut", "reason": "pulse_user_request"}),
+            format!("{}::{}", target.label, target.pane_id),
+        );
     }
 
     fn viewer_tab_overview_index(rows: &[OverviewRow], tab_index: Option<usize>) -> Option<usize> {
@@ -1838,9 +1971,15 @@ fn render_body(app: &App, theme: PulseTheme, width: u16) -> Paragraph<'static> {
     let compact = is_compact(width);
     let lines = match app.mode {
         Mode::Overview => Vec::new(),
+        Mode::Mind => render_mind_lines(app, theme, compact),
         Mode::Work => render_work_lines(app, theme, compact),
         Mode::Diff => render_diff_lines(app, theme, compact, width),
         Mode::Health => render_health_lines(app, theme, compact),
+    };
+    let panel_title = if app.mode == Mode::Mind {
+        "✦ Mind".to_string()
+    } else {
+        app.mode.title().to_string()
     };
     Paragraph::new(Text::from(lines))
         .style(Style::default().fg(theme.text).bg(theme.surface))
@@ -1850,7 +1989,7 @@ fn render_body(app: &App, theme: PulseTheme, width: u16) -> Paragraph<'static> {
                 .border_style(Style::default().fg(theme.border))
                 .style(Style::default().bg(theme.surface))
                 .title(Span::styled(
-                    app.mode.title(),
+                    panel_title,
                     Style::default()
                         .fg(theme.title)
                         .add_modifier(Modifier::BOLD),
@@ -2324,9 +2463,9 @@ fn render_help_overlay(frame: &mut ratatui::Frame, app: &App, theme: PulseTheme)
                 .add_modifier(Modifier::BOLD),
         )),
         Line::from(if app.config.overview_enabled {
-            "  1/2/3/4  switch mode (Overview/Work/Diff/Health)"
+            "  1/2/3/4/5 switch mode (Overview/Mind/Work/Diff/Health)"
         } else {
-            "  2/3/4    switch mode (Work/Diff/Health)"
+            "  2/3/4/5  switch mode (Mind/Work/Diff/Health)"
         }),
         Line::from("  Tab      cycle mode"),
         Line::from("  r        refresh local snapshot"),
@@ -2376,7 +2515,7 @@ fn mode_help_lines(app: &App, theme: PulseTheme) -> Vec<Line<'static>> {
                         Style::default().fg(theme.warn).add_modifier(Modifier::BOLD),
                     )),
                     Line::from("  Overview display and local polling are disabled."),
-                    Line::from("  Use Work/Diff/Health modes for current operations."),
+                    Line::from("  Use Mind/Work/Diff/Health modes for current operations."),
                 ];
             }
             vec![
@@ -2391,8 +2530,20 @@ fn mode_help_lines(app: &App, theme: PulseTheme) -> Vec<Line<'static>> {
                 Line::from("  Enter    focus selected tab; unmapped -> pane note"),
                 Line::from("  x        request stop selected agent"),
                 Line::from("  a        toggle sort (layout/attention)"),
+                Line::from("  o        request manual observer run"),
             ]
         }
+        Mode::Mind => vec![
+            Line::from(Span::styled(
+                "✦ Mind Mode",
+                Style::default()
+                    .fg(theme.accent)
+                    .add_modifier(Modifier::BOLD),
+            )),
+            Line::from("  j/k      scroll observer timeline"),
+            Line::from("  g        jump to top"),
+            Line::from("  o        request manual observer run"),
+        ],
         Mode::Work => vec![
             Line::from(Span::styled(
                 "Work Mode",
@@ -2443,6 +2594,122 @@ fn centered_rect(percent_x: u16, percent_y: u16, area: Rect) -> Rect {
             Constraint::Percentage((100u16.saturating_sub(percent_x)) / 2),
         ])
         .split(vertical[1])[1]
+}
+
+fn render_mind_lines(app: &App, theme: PulseTheme, compact: bool) -> Vec<Line<'static>> {
+    let rows = app.mind_rows();
+    if rows.is_empty() {
+        return vec![Line::from(Span::styled(
+            "No observer activity yet.",
+            Style::default().fg(theme.muted),
+        ))];
+    }
+
+    let mut lines = Vec::new();
+    for row in rows {
+        let status_label = mind_status_label(row.event.status);
+        let status_color = mind_status_color(row.event.status, theme);
+        let trigger_label = mind_trigger_label(row.event.trigger);
+        let runtime_label = row
+            .event
+            .runtime
+            .as_deref()
+            .map(mind_runtime_label)
+            .unwrap_or("runtime:n/a".to_string());
+        let latency = row
+            .event
+            .latency_ms
+            .map(|ms| format!("{ms}ms"))
+            .unwrap_or_else(|| "n/a".to_string());
+        let attempts = row
+            .event
+            .attempt_count
+            .map(|value| value.to_string())
+            .unwrap_or_else(|| "n/a".to_string());
+        let when = row
+            .event
+            .completed_at
+            .as_deref()
+            .or(row.event.started_at.as_deref())
+            .or(row.event.enqueued_at.as_deref())
+            .and_then(mind_timestamp_label)
+            .unwrap_or_else(|| "--:--:--".to_string());
+
+        let mut primary_spans = vec![
+            Span::styled("✦", Style::default().fg(theme.muted)),
+            Span::raw(" "),
+            Span::styled(
+                format!("[{}]", status_label),
+                Style::default()
+                    .fg(status_color)
+                    .add_modifier(Modifier::BOLD),
+            ),
+            Span::raw(" "),
+            Span::styled(
+                format!("[{}]", trigger_label),
+                Style::default().fg(theme.info),
+            ),
+            Span::raw(" "),
+            Span::styled(
+                format!("[{}]", runtime_label),
+                Style::default().fg(theme.accent),
+            ),
+            Span::raw(" "),
+            Span::styled(
+                format!("{}::{}", row.scope, row.pane_id),
+                Style::default()
+                    .fg(if row.tab_focused {
+                        theme.accent
+                    } else {
+                        theme.text
+                    })
+                    .add_modifier(Modifier::BOLD),
+            ),
+            Span::raw(" "),
+            Span::styled(format!("lat:{latency}"), Style::default().fg(theme.muted)),
+            Span::raw(" "),
+            Span::styled(format!("att:{attempts}"), Style::default().fg(theme.muted)),
+        ];
+        if let Some(progress) = row.event.progress.as_ref() {
+            primary_spans.push(Span::raw(" "));
+            primary_spans.push(Span::styled(
+                mind_progress_label(progress),
+                Style::default().fg(theme.muted),
+            ));
+        }
+        primary_spans.push(Span::raw(" "));
+        primary_spans.push(Span::styled(
+            format!("@{when}"),
+            Style::default().fg(theme.muted),
+        ));
+        lines.push(Line::from(primary_spans));
+
+        let mut context = row
+            .event
+            .reason
+            .clone()
+            .or_else(|| row.event.failure_kind.clone())
+            .or_else(|| row.event.conversation_id.map(|id| format!("conv:{id}")))
+            .unwrap_or_else(|| {
+                format!(
+                    "source:{} tab:{} agent:{}",
+                    row.source,
+                    row.tab_scope
+                        .as_deref()
+                        .filter(|value| !value.trim().is_empty())
+                        .unwrap_or("n/a"),
+                    row.agent_id
+                )
+            });
+        if compact {
+            context = ellipsize(&context, 52);
+        }
+        lines.push(Line::from(vec![
+            Span::raw("  -> "),
+            Span::styled(context, Style::default().fg(theme.muted)),
+        ]));
+    }
+    lines
 }
 
 fn render_work_lines(app: &App, theme: PulseTheme, compact: bool) -> Vec<Line<'static>> {
@@ -2832,6 +3099,70 @@ fn check_status_color(status: &str, theme: PulseTheme) -> Color {
     }
 }
 
+fn mind_status_label(status: MindObserverFeedStatus) -> &'static str {
+    match status {
+        MindObserverFeedStatus::Queued => "queued",
+        MindObserverFeedStatus::Running => "running",
+        MindObserverFeedStatus::Success => "success",
+        MindObserverFeedStatus::Fallback => "fallback",
+        MindObserverFeedStatus::Error => "error",
+    }
+}
+
+fn mind_status_color(status: MindObserverFeedStatus, theme: PulseTheme) -> Color {
+    match status {
+        MindObserverFeedStatus::Queued => theme.warn,
+        MindObserverFeedStatus::Running => theme.info,
+        MindObserverFeedStatus::Success => theme.ok,
+        MindObserverFeedStatus::Fallback => theme.warn,
+        MindObserverFeedStatus::Error => theme.critical,
+    }
+}
+
+fn mind_trigger_label(trigger: MindObserverFeedTriggerKind) -> &'static str {
+    match trigger {
+        MindObserverFeedTriggerKind::TokenThreshold => "token",
+        MindObserverFeedTriggerKind::TaskCompleted => "task",
+        MindObserverFeedTriggerKind::ManualShortcut => "manual",
+    }
+}
+
+fn mind_progress_label(progress: &MindObserverFeedProgress) -> String {
+    if progress.t1_target_tokens == 0 {
+        return format!("t0:{}", progress.t0_estimated_tokens);
+    }
+    format!(
+        "t0:{}/{} next:{}",
+        progress.t0_estimated_tokens, progress.t1_target_tokens, progress.tokens_until_next_run
+    )
+}
+
+fn mind_runtime_label(runtime: &str) -> String {
+    if runtime.trim().is_empty() {
+        return "runtime:n/a".to_string();
+    }
+    let compact = runtime.trim().to_ascii_lowercase();
+    match compact.as_str() {
+        "pi-semantic" => "runtime:pi".to_string(),
+        "deterministic" => "runtime:det".to_string(),
+        "external-semantic" => "runtime:ext".to_string(),
+        _ => format!("runtime:{}", ellipsize(&compact, 12)),
+    }
+}
+
+fn mind_timestamp_label(value: &str) -> Option<String> {
+    DateTime::parse_from_rfc3339(value)
+        .ok()
+        .map(|dt| dt.with_timezone(&Utc).format("%H:%M:%S").to_string())
+}
+
+fn mind_event_sort_ms(value: Option<&str>) -> Option<i64> {
+    let value = value?;
+    DateTime::parse_from_rfc3339(value)
+        .ok()
+        .map(|dt| dt.with_timezone(&Utc).timestamp_millis())
+}
+
 fn format_age(age: Option<i64>) -> String {
     age.map(|value| format!("{value}s"))
         .unwrap_or_else(|| "n/a".to_string())
@@ -3129,6 +3460,49 @@ fn parse_health_from_source(value: &Value) -> Result<Option<HealthSnapshot>, Str
     Ok(Some(snapshot))
 }
 
+fn parse_mind_observer_from_source(
+    value: &Value,
+) -> Result<Option<MindObserverFeedPayload>, String> {
+    if value.is_null() {
+        return Ok(None);
+    }
+    let mut payload: MindObserverFeedPayload =
+        serde_json::from_value(value.clone()).map_err(|err| err.to_string())?;
+    for event in &mut payload.events {
+        event.reason = event
+            .reason
+            .as_ref()
+            .map(|reason| reason.trim().to_string())
+            .filter(|reason| !reason.is_empty());
+        event.runtime = event
+            .runtime
+            .as_ref()
+            .map(|runtime| runtime.trim().to_string())
+            .filter(|runtime| !runtime.is_empty());
+        event.failure_kind = event
+            .failure_kind
+            .as_ref()
+            .map(|kind| kind.trim().to_string())
+            .filter(|kind| !kind.is_empty());
+        if let Some(progress) = event.progress.as_mut() {
+            if progress.t1_target_tokens == 0 {
+                event.progress = None;
+                continue;
+            }
+            if progress.t1_hard_cap_tokens < progress.t1_target_tokens {
+                progress.t1_hard_cap_tokens = progress.t1_target_tokens;
+            }
+            progress.tokens_until_next_run = progress
+                .tokens_until_next_run
+                .min(progress.t1_target_tokens);
+        }
+    }
+    if payload.events.is_empty() {
+        return Ok(None);
+    }
+    Ok(Some(payload))
+}
+
 fn source_confidence(source: &Option<Value>) -> Option<u8> {
     source
         .as_ref()
@@ -3233,23 +3607,28 @@ fn handle_key(key: KeyEvent, app: &mut App, refresh_requested: &mut bool) -> boo
             if app.config.overview_enabled {
                 app.mode = Mode::Overview;
             } else {
-                app.mode = Mode::Work;
-                app.status_note = Some("overview disabled; switched to Work".to_string());
+                app.mode = Mode::Mind;
+                app.status_note = Some("overview disabled; switched to Mind".to_string());
             }
             app.scroll = 0;
             false
         }
-        KeyCode::Char('2') => {
-            app.mode = Mode::Work;
+        KeyCode::Char('2') | KeyCode::Char('m') => {
+            app.mode = Mode::Mind;
             app.scroll = 0;
             false
         }
         KeyCode::Char('3') => {
-            app.mode = Mode::Diff;
+            app.mode = Mode::Work;
             app.scroll = 0;
             false
         }
         KeyCode::Char('4') => {
+            app.mode = Mode::Diff;
+            app.scroll = 0;
+            false
+        }
+        KeyCode::Char('5') => {
             app.mode = Mode::Health;
             app.scroll = 0;
             false
@@ -3265,6 +3644,10 @@ fn handle_key(key: KeyEvent, app: &mut App, refresh_requested: &mut bool) -> boo
         }
         KeyCode::Char('x') => {
             app.stop_selected_overview_agent();
+            false
+        }
+        KeyCode::Char('o') => {
+            app.request_manual_observer_run();
             false
         }
         KeyCode::Char('a') => {
@@ -5053,6 +5436,21 @@ mod tests {
                     "checks": [
                         {"name": "test", "status": "ok", "timestamp": "now", "details": "pass"}
                     ]
+                },
+                "mind_observer": {
+                    "events": [
+                        {
+                            "status": "fallback",
+                            "trigger": "task_completed",
+                            "runtime": "deterministic",
+                            "attempt_count": 2,
+                            "latency_ms": 95,
+                            "reason": "semantic observer failed (timeout)",
+                            "failure_kind": "timeout",
+                            "conversation_id": "conv-1",
+                            "completed_at": "2026-02-25T16:30:00Z"
+                        }
+                    ]
                 }
             })),
         };
@@ -5091,9 +5489,160 @@ mod tests {
             .expect("health payload should exist");
         assert_eq!(health.taskmaster_status, "available");
 
+        assert_eq!(app.hub.mind.len(), 1);
+        let mind = app
+            .hub
+            .mind
+            .get("session-test::12")
+            .expect("mind observer payload should exist");
+        assert_eq!(mind.events.len(), 1);
+        assert_eq!(mind.events[0].status, MindObserverFeedStatus::Fallback);
+
         app.mode = Mode::Health;
         assert_eq!(app.mode_source(), "hub");
         assert_eq!(app.health_rows().len(), 1);
+    }
+
+    #[test]
+    fn mind_rows_filter_to_active_tab_scope_and_render_fallback_badge() {
+        let (tx, _rx) = mpsc::channel(4);
+        let mut app = App::new(test_config(), tx, empty_local());
+        app.apply_hub_event(HubEvent::Connected);
+        app.mode = Mode::Mind;
+
+        let fallback_event = serde_json::json!({
+            "status": "fallback",
+            "trigger": "task_completed",
+            "runtime": "deterministic",
+            "attempt_count": 2,
+            "latency_ms": 220,
+            "reason": "semantic observer failed (timeout)",
+            "completed_at": "2026-02-26T06:45:00Z",
+            "progress": {
+                "t0_estimated_tokens": 7612,
+                "t1_target_tokens": 28000,
+                "t1_hard_cap_tokens": 32000,
+                "tokens_until_next_run": 20388
+            }
+        });
+        let success_event = serde_json::json!({
+            "status": "success",
+            "trigger": "token_threshold",
+            "runtime": "pi-semantic",
+            "attempt_count": 1,
+            "latency_ms": 80,
+            "completed_at": "2026-02-26T06:44:00Z"
+        });
+
+        app.apply_hub_event(HubEvent::Snapshot {
+            payload: SnapshotPayload {
+                seq: 1,
+                states: vec![
+                    AgentState {
+                        agent_id: "session-test::12".to_string(),
+                        session_id: "session-test".to_string(),
+                        pane_id: "12".to_string(),
+                        lifecycle: "running".to_string(),
+                        snippet: None,
+                        last_heartbeat_ms: Some(1),
+                        last_activity_ms: Some(1),
+                        updated_at_ms: Some(1),
+                        source: Some(serde_json::json!({
+                            "agent_status": {
+                                "agent_label": "OpenCode",
+                                "project_root": "/repo",
+                                "tab_scope": "agent"
+                            },
+                            "mind_observer": {
+                                "events": [fallback_event]
+                            }
+                        })),
+                    },
+                    AgentState {
+                        agent_id: "session-test::99".to_string(),
+                        session_id: "session-test".to_string(),
+                        pane_id: "99".to_string(),
+                        lifecycle: "running".to_string(),
+                        snippet: None,
+                        last_heartbeat_ms: Some(1),
+                        last_activity_ms: Some(1),
+                        updated_at_ms: Some(1),
+                        source: Some(serde_json::json!({
+                            "agent_status": {
+                                "agent_label": "Other",
+                                "project_root": "/repo",
+                                "tab_scope": "review"
+                            },
+                            "mind_observer": {
+                                "events": [success_event]
+                            }
+                        })),
+                    },
+                ],
+            },
+            event_at: Utc::now(),
+        });
+
+        let rows = app.mind_rows();
+        assert_eq!(rows.len(), 1, "non-active tab rows should be filtered out");
+        assert_eq!(rows[0].pane_id, "12");
+        assert_eq!(rows[0].event.status, MindObserverFeedStatus::Fallback);
+
+        let lines = render_mind_lines(&app, pulse_theme(PulseThemeMode::Terminal), false);
+        let rendered = lines
+            .iter()
+            .map(|line| {
+                line.spans
+                    .iter()
+                    .map(|span| span.content.to_string())
+                    .collect::<String>()
+            })
+            .collect::<Vec<_>>()
+            .join("\n");
+        assert!(rendered.contains("[fallback]"));
+        assert!(rendered.contains("[task]"));
+        assert!(rendered.contains("runtime:det"));
+        assert!(rendered.contains("t0:7612/28000"));
+    }
+
+    #[test]
+    fn manual_observer_shortcut_queues_run_observer_command() {
+        let (tx, mut rx) = mpsc::channel(4);
+        let mut app = App::new(test_config(), tx, empty_local());
+        app.connected = true;
+        app.set_local(LocalSnapshot {
+            overview: vec![OverviewRow {
+                identity_key: "session-test::12".to_string(),
+                label: "OpenCode".to_string(),
+                lifecycle: "running".to_string(),
+                snippet: None,
+                pane_id: "12".to_string(),
+                tab_index: Some(1),
+                tab_name: Some("Agent".to_string()),
+                tab_focused: true,
+                project_root: "/repo".to_string(),
+                online: true,
+                age_secs: Some(1),
+                source: "runtime".to_string(),
+            }],
+            viewer_tab_index: Some(1),
+            work: Vec::new(),
+            diff: Vec::new(),
+            health: empty_local().health,
+        });
+
+        app.request_manual_observer_run();
+        let command = rx.try_recv().expect("manual command should be queued");
+        assert_eq!(command.command, "run_observer");
+        assert_eq!(command.target_agent_id.as_deref(), Some("session-test::12"));
+        assert_eq!(
+            command
+                .args
+                .get("trigger")
+                .and_then(Value::as_str)
+                .unwrap_or_default(),
+            "manual_shortcut"
+        );
     }
 
     #[test]

@@ -3,12 +3,45 @@ set -euo pipefail
 
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" >/dev/null 2>&1 && pwd)"
 
+tm_root="${AOC_TASKMASTER_ROOT:-}"
+args=()
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --tm-root|--tm-source|--taskmaster-root)
+      if [[ $# -lt 2 ]]; then
+        echo "aoc-task: missing value for $1" >&2
+        exit 2
+      fi
+      tm_root="$2"
+      shift 2
+      ;;
+    --tm-root=*|--tm-source=*|--taskmaster-root=*)
+      tm_root="${1#*=}"
+      shift
+      ;;
+    *)
+      args+=("$1")
+      shift
+      ;;
+  esac
+done
+
+if [[ -n "$tm_root" ]]; then
+  if [[ ! -d "$tm_root" ]]; then
+    echo "aoc-task: tm root '$tm_root' is not a directory" >&2
+    exit 2
+  fi
+  export AOC_TASKMASTER_ROOT="$(cd "$tm_root" && pwd -P)"
+  cd "$AOC_TASKMASTER_ROOT"
+fi
+
 if [[ -x "$script_dir/aoc-cli" ]]; then
-  exec "$script_dir/aoc-cli" task "$@"
+  exec "$script_dir/aoc-cli" task "${args[@]}"
 fi
 
 if command -v aoc-cli >/dev/null 2>&1; then
-  exec aoc-cli task "$@"
+  exec aoc-cli task "${args[@]}"
 fi
 
 echo "aoc-task: aoc-cli not found. Install via ./install.sh or ensure aoc-cli is in PATH." >&2

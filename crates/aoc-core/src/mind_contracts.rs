@@ -43,6 +43,8 @@ pub enum MindContractError {
         kind: SemanticFailureKind,
         message: String,
     },
+    #[error("invalid lineage metadata: {reason}")]
+    InvalidLineageMetadata { reason: String },
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
@@ -80,6 +82,167 @@ pub struct RawEvent {
     pub body: RawEventBody,
     #[serde(default)]
     pub attrs: BTreeMap<String, Value>,
+}
+
+pub const LINEAGE_ATTRS_KEY: &str = "mind_lineage";
+pub const LINEAGE_SESSION_ID_KEY: &str = "session_id";
+pub const LINEAGE_PARENT_CONVERSATION_ID_KEY: &str = "parent_conversation_id";
+pub const LINEAGE_ROOT_CONVERSATION_ID_KEY: &str = "root_conversation_id";
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ConversationLineageMetadata {
+    pub session_id: String,
+    pub parent_conversation_id: Option<String>,
+    pub root_conversation_id: String,
+}
+
+pub fn canonical_lineage_attrs(metadata: &ConversationLineageMetadata) -> BTreeMap<String, Value> {
+    let mut lineage = Map::new();
+    lineage.insert(
+        LINEAGE_SESSION_ID_KEY.to_string(),
+        Value::String(metadata.session_id.clone()),
+    );
+    if let Some(parent) = metadata.parent_conversation_id.as_ref() {
+        lineage.insert(
+            LINEAGE_PARENT_CONVERSATION_ID_KEY.to_string(),
+            Value::String(parent.clone()),
+        );
+    }
+    lineage.insert(
+        LINEAGE_ROOT_CONVERSATION_ID_KEY.to_string(),
+        Value::String(metadata.root_conversation_id.clone()),
+    );
+
+    let mut attrs = BTreeMap::new();
+    attrs.insert(LINEAGE_ATTRS_KEY.to_string(), Value::Object(lineage));
+    attrs
+}
+
+pub fn parse_conversation_lineage_metadata(
+    attrs: &BTreeMap<String, Value>,
+    conversation_id: &str,
+    agent_id: &str,
+) -> Result<Option<ConversationLineageMetadata>, MindContractError> {
+    let nested = attrs.get(LINEAGE_ATTRS_KEY).and_then(Value::as_object);
+
+    let explicit_session = attr_string(
+        attrs,
+        nested,
+        &[
+            LINEAGE_SESSION_ID_KEY,
+            "sessionId",
+            "zellij_session_id",
+            "zellijSessionId",
+        ],
+    );
+    let parent_conversation_id = attr_string(
+        attrs,
+        nested,
+        &[
+            LINEAGE_PARENT_CONVERSATION_ID_KEY,
+            "parentConversationId",
+            "parent_id",
+            "branch_parent_conversation_id",
+            "branchParentConversationId",
+        ],
+    );
+    let root_conversation_id = attr_string(
+        attrs,
+        nested,
+        &[
+            LINEAGE_ROOT_CONVERSATION_ID_KEY,
+            "rootConversationId",
+            "conversation_root_id",
+            "conversationRootId",
+        ],
+    );
+
+    let lineage_declared = nested.is_some()
+        || has_any_key(
+            attrs,
+            &[
+                LINEAGE_SESSION_ID_KEY,
+                "sessionId",
+                "zellij_session_id",
+                "zellijSessionId",
+                LINEAGE_PARENT_CONVERSATION_ID_KEY,
+                "parentConversationId",
+                "parent_id",
+                "branch_parent_conversation_id",
+                "branchParentConversationId",
+                LINEAGE_ROOT_CONVERSATION_ID_KEY,
+                "rootConversationId",
+                "conversation_root_id",
+                "conversationRootId",
+            ],
+        );
+
+    if (parent_conversation_id.is_some() || root_conversation_id.is_some())
+        && explicit_session.is_none()
+    {
+        return Err(MindContractError::InvalidLineageMetadata {
+            reason: "branch lineage requires explicit session_id".to_string(),
+        });
+    }
+
+    let session_id = explicit_session.or_else(|| {
+        agent_id
+            .split_once("::")
+            .map(|(session, _)| session.trim().to_string())
+            .filter(|session| !session.is_empty())
+    });
+
+    let Some(session_id) = session_id else {
+        if lineage_declared {
+            return Err(MindContractError::InvalidLineageMetadata {
+                reason: "lineage metadata present but session_id is missing".to_string(),
+            });
+        }
+        return Ok(None);
+    };
+
+    if let Some(parent) = parent_conversation_id.as_ref() {
+        if parent == conversation_id {
+            return Err(MindContractError::InvalidLineageMetadata {
+                reason: "parent_conversation_id must not equal conversation_id".to_string(),
+            });
+        }
+    }
+
+    let root_conversation_id = match (parent_conversation_id.as_ref(), root_conversation_id) {
+        (Some(_), Some(root)) => {
+            if root == conversation_id {
+                return Err(MindContractError::InvalidLineageMetadata {
+                    reason:
+                        "root_conversation_id must refer to the branch root for child conversations"
+                            .to_string(),
+                });
+            }
+            root
+        }
+        (Some(_), None) => {
+            return Err(MindContractError::InvalidLineageMetadata {
+                reason: "parent_conversation_id requires root_conversation_id".to_string(),
+            });
+        }
+        (None, Some(root)) => {
+            if root != conversation_id {
+                return Err(MindContractError::InvalidLineageMetadata {
+                    reason:
+                        "root_conversation_id without parent_conversation_id must equal conversation_id"
+                            .to_string(),
+                });
+            }
+            root
+        }
+        (None, None) => conversation_id.to_string(),
+    };
+
+    Ok(Some(ConversationLineageMetadata {
+        session_id,
+        parent_conversation_id,
+        root_conversation_id,
+    }))
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -248,6 +411,44 @@ pub fn compact_raw_event_to_t0(
         source_event_ids: core.source_event_ids,
         policy_version: core.policy_version,
     }))
+}
+
+fn attr_string(
+    attrs: &BTreeMap<String, Value>,
+    nested: Option<&Map<String, Value>>,
+    keys: &[&str],
+) -> Option<String> {
+    for key in keys {
+        if let Some(value) = attrs
+            .get(*key)
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+        {
+            return Some(value.to_string());
+        }
+    }
+
+    let Some(nested) = nested else {
+        return None;
+    };
+
+    for key in keys {
+        if let Some(value) = nested
+            .get(*key)
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+        {
+            return Some(value.to_string());
+        }
+    }
+
+    None
+}
+
+fn has_any_key(attrs: &BTreeMap<String, Value>, keys: &[&str]) -> bool {
+    keys.iter().any(|key| attrs.contains_key(*key))
 }
 
 fn bounded_snippet(
@@ -1013,6 +1214,52 @@ mod tests {
             }),
             attrs: BTreeMap::new(),
         }
+    }
+
+    #[test]
+    fn lineage_parser_accepts_canonical_nested_metadata() {
+        let attrs = BTreeMap::from([(
+            LINEAGE_ATTRS_KEY.to_string(),
+            serde_json::json!({
+                "session_id": "session-a",
+                "parent_conversation_id": "conv-root",
+                "root_conversation_id": "conv-root"
+            }),
+        )]);
+
+        let lineage = parse_conversation_lineage_metadata(&attrs, "conv-branch", "ignored::12")
+            .expect("lineage should parse")
+            .expect("lineage should exist");
+
+        assert_eq!(lineage.session_id, "session-a");
+        assert_eq!(lineage.parent_conversation_id.as_deref(), Some("conv-root"));
+        assert_eq!(lineage.root_conversation_id, "conv-root");
+    }
+
+    #[test]
+    fn lineage_parser_rejects_partial_branch_metadata() {
+        let attrs = BTreeMap::from([(
+            LINEAGE_PARENT_CONVERSATION_ID_KEY.to_string(),
+            Value::String("conv-root".to_string()),
+        )]);
+
+        let err = parse_conversation_lineage_metadata(&attrs, "conv-branch", "session-a::12")
+            .expect_err("partial branch metadata must fail");
+        assert!(matches!(
+            err,
+            MindContractError::InvalidLineageMetadata { .. }
+        ));
+    }
+
+    #[test]
+    fn lineage_parser_falls_back_to_agent_session_for_legacy_events() {
+        let lineage =
+            parse_conversation_lineage_metadata(&BTreeMap::new(), "conv-legacy", "session-z::42")
+                .expect("lineage parse")
+                .expect("legacy session should still be inferred");
+        assert_eq!(lineage.session_id, "session-z");
+        assert_eq!(lineage.parent_conversation_id, None);
+        assert_eq!(lineage.root_conversation_id, "conv-legacy");
     }
 
     #[test]

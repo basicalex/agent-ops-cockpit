@@ -43,6 +43,7 @@ These commands are in PATH and work without loading any skill:
 - `tm tag current` - print effective active tag
 - `tm tag prd show` - show PRD linked to active tag
 - `aoc-task tag prd show --tag <tag>` - show PRD linked to a specific tag
+- `tm --tm-root <path> ...` - run Taskmaster commands against another project
 - `tm` - open Taskmaster TUI
 
 **Other:**
@@ -62,7 +63,7 @@ These commands are in PATH and work without loading any skill:
 - Task PRD overrides are linked via task `aocPrd`; resolve with `aoc-task prd show <id> --tag <tag>`.
 - Effective precedence is task PRD override -> tag PRD default.
 - Keep task PRDs in git: `.taskmaster/docs/prds/**` should always be tracked.
-- Keep AOC/task state in git: `.aoc/**` and `.taskmaster/**` should not be ignored.
+- Keep AOC/task state in git: `.aoc/**`, `.taskmaster/**`, and `.pi/**` should not be ignored.
 
 ## Task Management
 - `.taskmaster/tasks/tasks.json` is task state; use the Taskmaster TUI, `aoc-task`, or `tm` (alias for `aoc-task`). Do not edit the file directly.
@@ -81,5 +82,6 @@ These commands are in PATH and work without loading any skill:
 - `release-notes`: draft changelog and release notes.
 - `skill-creator`: create or update AOC skills.
 - `zellij-theme-ops`: create and manage global Zellij themes.
+- `tm-cc`: cross-project Taskmaster control with explicit tm root targeting.
 
 Note: `aoc-mem`, `aoc-stm`, and `tm` are basic CLI commands (see above) - no skill needed.

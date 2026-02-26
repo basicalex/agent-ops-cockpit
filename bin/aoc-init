@@ -563,101 +563,34 @@ EOF
 
 }
 
-# 1b. Setup Skills (.aoc/skills)
+# 1b. Setup skill sync (PI-first)
 setup_skills() {
-  local skills_dir="$aoc_dir/skills"
-  if [[ ! -d "$skills_dir" ]]; then
-    log "Creating .aoc/skills directory..."
-    mkdir -p "$skills_dir"
-  fi
+  local pi_skills_dir="$project_root/.pi/skills"
+  local legacy_target=""
+  local legacy_targets=(
+    "$project_root/.codex/skills"
+    "$project_root/.claude/skills"
+    "$project_root/.opencode/skills"
+    "$project_root/.agents/skills"
+  )
 
-  local seed_dir=""
-  local candidate=""
-  local seed_has_skills=0
-  local seed_dirs=()
-  local skill_list=()
-  local disable_default_seeding=0
-  local seed_toggle="${AOC_INIT_SEED_DEFAULT_SKILLS:-}"
-  local no_seed_file="$skills_dir/.aoc-no-default-seed"
-
-  if [[ -f "$no_seed_file" ]]; then
-    disable_default_seeding=1
-    log "Default skill seeding disabled by marker: .aoc/skills/.aoc-no-default-seed"
-  fi
-
-  if [[ -n "$seed_toggle" ]]; then
-    case "${seed_toggle,,}" in
-      0|false|no|off)
-        disable_default_seeding=1
-        log "Default skill seeding disabled by AOC_INIT_SEED_DEFAULT_SKILLS=$seed_toggle"
-        ;;
-      1|true|yes|on)
-        disable_default_seeding=0
-        log "Default skill seeding enabled by AOC_INIT_SEED_DEFAULT_SKILLS=$seed_toggle"
-        ;;
-      *)
-        warn "Unrecognized AOC_INIT_SEED_DEFAULT_SKILLS='$seed_toggle' (expected true/false); keeping current behavior."
-        ;;
-    esac
-  fi
-
-  if [[ "$disable_default_seeding" != "1" ]]; then
-    for candidate in "$aoc_config_dir/skills" "$script_dir/../.aoc/skills"; do
-      if [[ -d "$candidate" ]]; then
-        shopt -s nullglob
-        skill_list=("$candidate"/*/SKILL.md)
-        shopt -u nullglob
-        if ((${#skill_list[@]} > 0)); then
-          seed_dirs+=("$candidate")
-          seed_has_skills=1
-        fi
-      fi
-    done
-
-    if [[ "$seed_has_skills" == "1" ]]; then
-      local copied=0
-      local entry=""
-      for seed_dir in "${seed_dirs[@]}"; do
-        shopt -s nullglob
-        local seed_entries=("$seed_dir"/*)
-        shopt -u nullglob
-        for entry in "${seed_entries[@]}"; do
-          [[ -d "$entry" ]] || continue
-          local name
-          name="$(basename "$entry")"
-          if [[ ! -e "$skills_dir/$name" ]]; then
-            cp -R "$entry" "$skills_dir/$name"
-            copied=1
-          fi
-        done
-        if [[ -f "$seed_dir/manifest.toml" && ! -f "$skills_dir/manifest.toml" ]]; then
-          cp "$seed_dir/manifest.toml" "$skills_dir/manifest.toml"
-          copied=1
-        fi
-      done
-      if [[ "$copied" == "1" ]]; then
-        log "Seeded AOC skills into .aoc/skills."
-      fi
-    else
-      warn "No default skills source found; leaving .aoc/skills as-is."
-    fi
-  else
-    log "Skipping default skill seeding; preserving curated .aoc/skills."
-  fi
-
-  upgrade_stm_skill_guidance "$skills_dir"
+  upgrade_stm_skill_guidance "$pi_skills_dir"
 
   if [[ -x "$script_dir/aoc-skill" ]]; then
-    log "Syncing skills for active agent..."
-    (cd "$project_root" && "$script_dir/aoc-skill" sync --active --root "$project_root" || true)
-    log "Syncing skills for existing agent targets..."
-    (cd "$project_root" && "$script_dir/aoc-skill" sync --existing --root "$project_root" || true)
+    log "Ensuring PI skill baseline (.pi/skills)..."
+    (cd "$project_root" && "$script_dir/aoc-skill" sync --agent pi --root "$project_root" || true)
   elif command -v aoc-skill >/dev/null 2>&1; then
-    log "Syncing skills for active agent..."
-    (cd "$project_root" && aoc-skill sync --active --root "$project_root" || true)
-    log "Syncing skills for existing agent targets..."
-    (cd "$project_root" && aoc-skill sync --existing --root "$project_root" || true)
+    log "Ensuring PI skill baseline (.pi/skills)..."
+    (cd "$project_root" && aoc-skill sync --agent pi --root "$project_root" || true)
+  else
+    warn "aoc-skill not found; .pi/skills baseline may be incomplete."
   fi
+
+  for legacy_target in "${legacy_targets[@]}"; do
+    if [[ -d "$legacy_target" ]]; then
+      warn "Legacy non-PI skill target detected ($legacy_target); aoc-init no longer syncs it automatically in PI-first mode."
+    fi
+  done
 }
 
 upgrade_stm_skill_guidance() {
@@ -790,7 +723,9 @@ EOF
     ! grep -Fq '.pi/prompts/' "$init_ops_skill" ||
     ! grep -Fq '/tm-cc' "$init_ops_skill" ||
     ! grep -Fq 'aoc-stm handoff' "$init_ops_skill" ||
-    ! grep -Fq 'aoc-stm resume' "$init_ops_skill"
+    ! grep -Fq 'aoc-stm resume' "$init_ops_skill" ||
+    ! grep -Fq '.pi/extensions/' "$init_ops_skill" ||
+    grep -Fq 'Syncs skills for existing agent targets' "$init_ops_skill"
   ); then
     cat <<'EOF' > "$init_ops_skill"
 ---
@@ -815,14 +750,16 @@ description: Initialize or repair AOC context, memory, and tasks safely.
 - Ensures PRD directory `.taskmaster/docs/prds/` is available for tag/task links
 - Seeds `.pi/settings.json` when missing
 - Seeds PI prompt templates in `.pi/prompts/` (`/aoc-ops`, `/teach`, `/teach-full`, `/teach-dive`, `/teach-ask`, `/tm-cc`) when missing
+- Seeds PI default extensions in `.pi/extensions/` (`minimal.ts`, `themeMap.ts`) when missing
+- Migrates missing legacy PI prompts/skills from `.aoc/prompts/pi/` and `.aoc/skills/` into `.pi/**` (non-destructive), and cleans safe `tmcc` prompt alias duplicates
 - Optional MoreMotion prompt `/momo` is seeded by `aoc-momo init`
-- Syncs skills for existing agent targets
+- Ensures `.pi/skills` baseline (PI-first canonical)
 EOF
     log "Updated aoc-init-ops skill with STM seeding guidance."
   fi
 }
 
-# 1c. Setup PI settings (.pi/settings.json)
+# 1c. Setup PI settings + baseline directories (.pi/)
 setup_pi_settings() {
   local pi_dir="$project_root/.pi"
   local pi_settings="$pi_dir/settings.json"
@@ -830,6 +767,9 @@ setup_pi_settings() {
   if [[ ! -d "$pi_dir" ]]; then
     mkdir -p "$pi_dir"
   fi
+
+  # Deterministic PI-first baseline directory contract.
+  mkdir -p "$pi_dir/prompts" "$pi_dir/skills" "$pi_dir/extensions"
 
   if [[ ! -f "$pi_settings" ]]; then
     cat <<'EOF' > "$pi_settings"
@@ -843,13 +783,148 @@ EOF
   fi
 }
 
-# 1d. Setup PI Prompt Templates (.pi/prompts)
+# 1d. Setup PI default extensions (.pi/extensions)
+setup_pi_extensions() {
+  local pi_extensions_dir="$project_root/.pi/extensions"
+  local candidate=""
+  local canonical_seed_dirs=(
+    "$aoc_config_dir/pi/extensions"
+    "$script_dir/../.pi/extensions"
+  )
+  local required_extensions=(
+    "minimal.ts"
+    "themeMap.ts"
+  )
+
+  mkdir -p "$pi_extensions_dir"
+
+  local seeded_any=0
+  local extension_file=""
+  local seed_file=""
+  local target_file=""
+  for extension_file in "${required_extensions[@]}"; do
+    target_file="$pi_extensions_dir/$extension_file"
+    if [[ -f "$target_file" ]]; then
+      log "PI extension $extension_file already present. Preserving."
+      continue
+    fi
+
+    seed_file=""
+    for candidate in "${canonical_seed_dirs[@]}"; do
+      if [[ -f "$candidate/$extension_file" ]]; then
+        seed_file="$candidate/$extension_file"
+        break
+      fi
+    done
+
+    if [[ -z "$seed_file" ]]; then
+      warn "Missing PI extension template: $extension_file"
+      continue
+    fi
+
+    cp "$seed_file" "$target_file"
+    log "Seeded PI extension: $extension_file"
+    seeded_any=1
+  done
+
+  if [[ "$seeded_any" != "1" ]]; then
+    log "PI default extensions already present in .pi/extensions. Preserving."
+  fi
+}
+
+# 1e. Migrate legacy PI runtime assets from project-local .aoc paths
+migrate_legacy_pi_assets() {
+  local pi_prompts_dir="$project_root/.pi/prompts"
+  local pi_skills_dir="$project_root/.pi/skills"
+  local legacy_prompts_dir="$aoc_dir/prompts/pi"
+  local legacy_skills_dir="$aoc_dir/skills"
+
+  local legacy_prompt=""
+  local legacy_prompt_name=""
+  local canonical_prompt_name=""
+  local target_prompt=""
+
+  if [[ -d "$legacy_prompts_dir" ]]; then
+    shopt -s nullglob
+    local legacy_prompts=("$legacy_prompts_dir"/*.md)
+    shopt -u nullglob
+    for legacy_prompt in "${legacy_prompts[@]}"; do
+      legacy_prompt_name="$(basename "$legacy_prompt")"
+      canonical_prompt_name="$legacy_prompt_name"
+      if [[ "$legacy_prompt_name" == "tmcc.md" ]]; then
+        canonical_prompt_name="tm-cc.md"
+      fi
+      target_prompt="$pi_prompts_dir/$canonical_prompt_name"
+      if [[ ! -f "$target_prompt" ]]; then
+        cp "$legacy_prompt" "$target_prompt"
+        log "Migrated legacy PI prompt: .aoc/prompts/pi/$legacy_prompt_name -> .pi/prompts/$canonical_prompt_name"
+      elif ! cmp -s "$legacy_prompt" "$target_prompt"; then
+        warn "Legacy prompt differs from canonical (.aoc/prompts/pi/$legacy_prompt_name vs .pi/prompts/$canonical_prompt_name). Preserving canonical file."
+      fi
+    done
+  fi
+
+  local alias_prompt="$pi_prompts_dir/tmcc.md"
+  local canonical_tmcc_prompt="$pi_prompts_dir/tm-cc.md"
+  if [[ -f "$alias_prompt" ]]; then
+    if [[ ! -f "$canonical_tmcc_prompt" ]]; then
+      mv "$alias_prompt" "$canonical_tmcc_prompt"
+      log "Migrated legacy PI prompt alias: .pi/prompts/tmcc.md -> .pi/prompts/tm-cc.md"
+    elif cmp -s "$alias_prompt" "$canonical_tmcc_prompt"; then
+      rm -f "$alias_prompt"
+      log "Removed legacy PI prompt alias duplicate: .pi/prompts/tmcc.md"
+    else
+      warn "Legacy PI prompt alias .pi/prompts/tmcc.md differs from .pi/prompts/tm-cc.md; preserving both for manual merge."
+    fi
+  fi
+
+  local legacy_skill_dir=""
+  local legacy_skill_name=""
+  local canonical_skill_name=""
+  local target_skill_dir=""
+  if [[ -d "$legacy_skills_dir" ]]; then
+    shopt -s nullglob
+    local legacy_skill_entries=("$legacy_skills_dir"/*)
+    shopt -u nullglob
+    for legacy_skill_dir in "${legacy_skill_entries[@]}"; do
+      [[ -d "$legacy_skill_dir" ]] || continue
+      [[ -f "$legacy_skill_dir/SKILL.md" ]] || continue
+      legacy_skill_name="$(basename "$legacy_skill_dir")"
+      canonical_skill_name="$legacy_skill_name"
+      if [[ "$legacy_skill_name" == "tmcc" ]]; then
+        canonical_skill_name="tm-cc"
+      fi
+      target_skill_dir="$pi_skills_dir/$canonical_skill_name"
+      if [[ ! -e "$target_skill_dir" ]]; then
+        mkdir -p "$target_skill_dir"
+        cp -R "$legacy_skill_dir"/. "$target_skill_dir"/
+        log "Migrated legacy PI skill: .aoc/skills/$legacy_skill_name -> .pi/skills/$canonical_skill_name"
+      elif [[ -f "$target_skill_dir/SKILL.md" ]] && ! cmp -s "$legacy_skill_dir/SKILL.md" "$target_skill_dir/SKILL.md"; then
+        warn "Legacy skill differs from canonical (.aoc/skills/$legacy_skill_name vs .pi/skills/$canonical_skill_name). Preserving canonical skill."
+      fi
+    done
+  fi
+}
+
+# 1f. Setup PI Prompt Templates (.pi/prompts)
 setup_pi_prompts() {
   local pi_prompts_dir="$project_root/.pi/prompts"
   local candidate=""
-  local prompts_seed_dirs=(
+  local canonical_seed_dirs=(
+    "$aoc_config_dir/pi/prompts"
+    "$script_dir/../.pi/prompts"
+  )
+  local legacy_seed_dirs=(
     "$aoc_config_dir/prompts/pi"
     "$script_dir/../.aoc/prompts/pi"
+  )
+  local required_prompts=(
+    "aoc-ops"
+    "teach"
+    "teach-full"
+    "teach-dive"
+    "teach-ask"
+    "tm-cc"
   )
 
   if [[ ! -d "$pi_prompts_dir" ]]; then
@@ -857,26 +932,138 @@ setup_pi_prompts() {
   fi
 
   local seeded_any=0
+  local prompt_name=""
   local seed_file=""
+  local seed_mode=""
   local target_file=""
-  for candidate in "${prompts_seed_dirs[@]}"; do
-    [[ -d "$candidate" ]] || continue
-    shopt -s nullglob
-    for seed_file in "$candidate"/*.md; do
-      target_file="$pi_prompts_dir/$(basename "$seed_file")"
-      if [[ ! -f "$target_file" ]]; then
-        cp "$seed_file" "$target_file"
-        log "Seeded PI prompt: /$(basename "$seed_file" .md)"
-      else
-        log "PI prompt /$(basename "$seed_file" .md) already present. Preserving."
+  for prompt_name in "${required_prompts[@]}"; do
+    seed_file=""
+    seed_mode=""
+
+    for candidate in "${canonical_seed_dirs[@]}"; do
+      if [[ -f "$candidate/${prompt_name}.md" ]]; then
+        seed_file="$candidate/${prompt_name}.md"
+        seed_mode="canonical"
+        break
       fi
-      seeded_any=1
     done
-    shopt -u nullglob
+
+    if [[ -z "$seed_file" ]]; then
+      for candidate in "${legacy_seed_dirs[@]}"; do
+        if [[ -f "$candidate/${prompt_name}.md" ]]; then
+          seed_file="$candidate/${prompt_name}.md"
+          seed_mode="legacy"
+          break
+        fi
+      done
+    fi
+
+    if [[ -z "$seed_file" ]]; then
+      warn "Missing PI prompt template: /$prompt_name"
+      continue
+    fi
+
+    if [[ "$seed_mode" == "legacy" ]]; then
+      log "Using legacy prompt source for /$prompt_name (compatibility window)."
+    fi
+
+    target_file="$pi_prompts_dir/${prompt_name}.md"
+    if [[ ! -f "$target_file" ]]; then
+      cp "$seed_file" "$target_file"
+      log "Seeded PI prompt: /$prompt_name"
+    else
+      log "PI prompt /$prompt_name already present. Preserving."
+    fi
+    seeded_any=1
   done
 
   if [[ "$seeded_any" != "1" ]]; then
     warn "No PI prompt templates found; skipping PI prompt seeding."
+  fi
+
+  if [[ -f "$pi_prompts_dir/tmcc.md" ]]; then
+    log "Legacy PI prompt alias /tmcc detected; preserving file but alias is no longer seeded."
+  fi
+}
+
+# 1g. Setup PI Skill Templates (.pi/skills)
+setup_pi_skills() {
+  local pi_skills_dir="$project_root/.pi/skills"
+  local candidate=""
+  local canonical_seed_dirs=(
+    "$aoc_config_dir/pi/skills"
+    "$script_dir/../.pi/skills"
+  )
+  local legacy_seed_dirs=(
+    "$aoc_config_dir/skills"
+    "$script_dir/../.aoc/skills"
+  )
+
+  mkdir -p "$pi_skills_dir"
+
+  local seed_dir=""
+  local seed_mode=""
+  local skill_list=()
+
+  for candidate in "${canonical_seed_dirs[@]}"; do
+    [[ -d "$candidate" ]] || continue
+    shopt -s nullglob
+    skill_list=("$candidate"/*/SKILL.md)
+    shopt -u nullglob
+    if ((${#skill_list[@]} > 0)); then
+      seed_dir="$candidate"
+      seed_mode="canonical"
+      break
+    fi
+  done
+
+  if [[ -z "$seed_dir" ]]; then
+    for candidate in "${legacy_seed_dirs[@]}"; do
+      [[ -d "$candidate" ]] || continue
+      shopt -s nullglob
+      skill_list=("$candidate"/*/SKILL.md)
+      shopt -u nullglob
+      if ((${#skill_list[@]} > 0)); then
+        seed_dir="$candidate"
+        seed_mode="legacy"
+        break
+      fi
+    done
+  fi
+
+  if [[ -z "$seed_dir" ]]; then
+    warn "No PI skill templates found; skipping PI skill seeding."
+    return
+  fi
+
+  if [[ "$seed_mode" == "legacy" ]]; then
+    log "Using legacy skill source for PI skill seeding (compatibility window)."
+  fi
+
+  local copied_any=0
+  local seed_skill_dir=""
+  local skill_name=""
+  local target_skill_dir=""
+
+  shopt -s nullglob
+  local seed_entries=("$seed_dir"/*)
+  shopt -u nullglob
+  for seed_skill_dir in "${seed_entries[@]}"; do
+    [[ -d "$seed_skill_dir" ]] || continue
+    [[ -f "$seed_skill_dir/SKILL.md" ]] || continue
+    skill_name="$(basename "$seed_skill_dir")"
+    target_skill_dir="$pi_skills_dir/$skill_name"
+    if [[ ! -e "$target_skill_dir" ]]; then
+      mkdir -p "$target_skill_dir"
+      cp "$seed_skill_dir/SKILL.md" "$target_skill_dir/SKILL.md"
+      copied_any=1
+    fi
+  done
+
+  if [[ "$copied_any" == "1" ]]; then
+    log "Seeded PI skills into .pi/skills."
+  else
+    log "PI skills already present in .pi/skills. Preserving."
   fi
 }
 
@@ -1080,9 +1267,12 @@ setup_binaries() {
 main() {
   log "Initializing AOC in: $project_root"
   setup_memory
-  setup_skills
   setup_pi_settings
+  setup_pi_extensions
+  migrate_legacy_pi_assets
   setup_pi_prompts
+  setup_pi_skills
+  setup_skills
   setup_tasks
   ensure_git_tracking_policy
   setup_env
