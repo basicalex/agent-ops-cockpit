@@ -1,7 +1,10 @@
 use crossterm::{
     event::{self, Event, KeyCode, KeyEvent},
     execute,
-    terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
+    terminal::{
+        disable_raw_mode, enable_raw_mode, is_raw_mode_enabled, EnterAlternateScreen,
+        LeaveAlternateScreen,
+    },
 };
 use ratatui::{
     backend::CrosstermBackend,
@@ -16,8 +19,9 @@ use std::{
     env, fs,
     io::{self, Write},
     path::{Path, PathBuf},
-    process::{Command, Stdio},
-    time::Duration,
+    process::{Command, ExitStatus, Stdio},
+    thread,
+    time::{Duration, Instant},
 };
 
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
@@ -163,6 +167,9 @@ struct App {
     theme_customs: Vec<String>,
     theme_actions: Vec<String>,
     theme_selection: Option<ThemeSelection>,
+    theme_preview_base: Option<String>,
+    theme_preview_selected: Option<String>,
+    theme_preview_live: Option<String>,
     session_overrides: SessionOverrides,
     in_zellij: bool,
     floating_active: bool,
@@ -217,6 +224,9 @@ impl App {
             theme_customs: Vec::new(),
             theme_actions: Vec::new(),
             theme_selection: None,
+            theme_preview_base: None,
+            theme_preview_selected: None,
+            theme_preview_live: None,
             session_overrides: SessionOverrides::default(),
             in_zellij: in_zellij(),
             floating_active: is_floating_active(),
@@ -446,6 +456,9 @@ impl App {
     }
 
     fn open_theme_manager(&mut self) {
+        self.theme_preview_base = None;
+        self.theme_preview_selected = None;
+        self.theme_preview_live = None;
         self.refresh_themes();
         self.mode = Mode::ThemeSections;
     }
@@ -457,6 +470,7 @@ impl App {
             return;
         }
         ensure_selection(&mut self.theme_presets_state, self.theme_presets.len());
+        self.begin_theme_preview();
         self.mode = Mode::ThemePresets;
     }
 
@@ -467,7 +481,110 @@ impl App {
             return;
         }
         ensure_selection(&mut self.theme_customs_state, self.theme_customs.len());
+        self.begin_theme_preview();
         self.mode = Mode::ThemeCustoms;
+    }
+
+    fn selected_preset_entry(&self) -> Option<ThemePresetEntry> {
+        let index = self.theme_presets_state.selected().unwrap_or(0);
+        self.theme_presets.get(index).cloned()
+    }
+
+    fn selected_custom_name(&self) -> Option<String> {
+        let index = self.theme_customs_state.selected().unwrap_or(0);
+        self.theme_customs.get(index).cloned()
+    }
+
+    fn begin_theme_preview(&mut self) {
+        if self.theme_preview_base.is_some() {
+            return;
+        }
+        let active = load_active_theme_name().ok().flatten();
+        self.theme_preview_base = active.clone();
+        self.theme_preview_selected = active;
+        self.theme_preview_live = None;
+    }
+
+    fn end_theme_preview(&mut self) {
+        let fallback = self
+            .theme_preview_selected
+            .clone()
+            .or_else(|| self.theme_preview_base.clone());
+
+        if let (Some(live_name), Some(theme_name)) = (self.theme_preview_live.clone(), fallback) {
+            if live_name != theme_name {
+                if let Err(err) = run_theme_apply_quiet(&theme_name) {
+                    self.set_status(format!("Theme preview restore failed: {err}"));
+                }
+            }
+        }
+
+        self.theme_preview_base = None;
+        self.theme_preview_selected = None;
+        self.theme_preview_live = None;
+    }
+
+    fn preview_theme_name(&mut self, source: ThemeSource, theme_name: &str) -> io::Result<()> {
+        if matches!(source, ThemeSource::Preset) {
+            let needs_install = self
+                .theme_presets
+                .iter()
+                .find(|entry| entry.name == theme_name)
+                .map(|entry| !entry.installed)
+                .unwrap_or(false);
+            if needs_install {
+                let _ = run_theme_command(&["presets", "install", "--name", theme_name])?;
+                if let Some(entry) = self
+                    .theme_presets
+                    .iter_mut()
+                    .find(|entry| entry.name == theme_name)
+                {
+                    entry.installed = true;
+                }
+            }
+        }
+
+        if self.theme_preview_live.as_deref() == Some(theme_name) {
+            return Ok(());
+        }
+
+        run_theme_apply_quiet(theme_name)?;
+        self.theme_preview_live = Some(theme_name.to_string());
+        Ok(())
+    }
+
+    fn preview_selected_theme(&mut self, source: ThemeSource) {
+        let theme_name = match source {
+            ThemeSource::Preset => self.selected_preset_entry().map(|entry| entry.name),
+            ThemeSource::Custom => self.selected_custom_name(),
+        };
+
+        let Some(theme_name) = theme_name else {
+            return;
+        };
+
+        if let Err(err) = self.preview_theme_name(source, &theme_name) {
+            self.set_status(format!("Theme preview failed: {err}"));
+        }
+    }
+
+    fn select_preview_theme(&mut self, source: ThemeSource) {
+        let theme_name = match source {
+            ThemeSource::Preset => self.selected_preset_entry().map(|entry| entry.name),
+            ThemeSource::Custom => self.selected_custom_name(),
+        };
+
+        let Some(theme_name) = theme_name else {
+            return;
+        };
+
+        match self.preview_theme_name(source, &theme_name) {
+            Ok(_) => {
+                self.theme_preview_selected = Some(theme_name.clone());
+                self.set_status(format!("Selected '{theme_name}' as preview fallback theme"));
+            }
+            Err(err) => self.set_status(format!("Theme select failed: {err}")),
+        }
     }
 
     fn open_theme_actions(&mut self, selection: ThemeSelection) {
@@ -532,6 +649,14 @@ impl App {
         };
         let index = self.theme_actions_state.selected().unwrap_or(0);
 
+        let updates_preview_selection = matches!(
+            (selection.source, index),
+            (ThemeSource::Preset, 0)
+                | (ThemeSource::Preset, 2)
+                | (ThemeSource::Custom, 0)
+                | (ThemeSource::Custom, 2)
+        );
+
         let result = match (selection.source, index) {
             (ThemeSource::Preset, 0) => run_preset_apply(&selection.name),
             (ThemeSource::Preset, 1) => run_preset_set_default(&selection.name),
@@ -554,6 +679,10 @@ impl App {
         match result {
             Ok(message) => {
                 self.set_status(message);
+                if updates_preview_selection {
+                    self.theme_preview_selected = Some(selection.name.clone());
+                    self.theme_preview_live = Some(selection.name.clone());
+                }
                 self.refresh_themes();
             }
             Err(err) => self.set_status(format!("Theme action failed: {err}")),
@@ -899,16 +1028,21 @@ fn handle_key_theme_sections(app: &mut App, key: KeyEvent) {
 
 fn handle_key_theme_presets(app: &mut App, key: KeyEvent) {
     match key.code {
-        KeyCode::Esc => app.mode = Mode::ThemeSections,
+        KeyCode::Esc => {
+            app.end_theme_preview();
+            app.mode = Mode::ThemeSections;
+        }
         KeyCode::Char('j') | KeyCode::Down => {
-            list_next_state(&mut app.theme_presets_state, app.theme_presets.len())
+            list_next_state(&mut app.theme_presets_state, app.theme_presets.len());
+            app.preview_selected_theme(ThemeSource::Preset);
         }
         KeyCode::Char('k') | KeyCode::Up => {
-            list_prev_state(&mut app.theme_presets_state, app.theme_presets.len())
+            list_prev_state(&mut app.theme_presets_state, app.theme_presets.len());
+            app.preview_selected_theme(ThemeSource::Preset);
         }
-        KeyCode::Enter => {
-            let index = app.theme_presets_state.selected().unwrap_or(0);
-            if let Some(entry) = app.theme_presets.get(index).cloned() {
+        KeyCode::Enter => app.select_preview_theme(ThemeSource::Preset),
+        KeyCode::Char('a') => {
+            if let Some(entry) = app.selected_preset_entry() {
                 app.open_theme_actions(ThemeSelection {
                     name: entry.name,
                     source: ThemeSource::Preset,
@@ -921,16 +1055,21 @@ fn handle_key_theme_presets(app: &mut App, key: KeyEvent) {
 
 fn handle_key_theme_customs(app: &mut App, key: KeyEvent) {
     match key.code {
-        KeyCode::Esc => app.mode = Mode::ThemeSections,
+        KeyCode::Esc => {
+            app.end_theme_preview();
+            app.mode = Mode::ThemeSections;
+        }
         KeyCode::Char('j') | KeyCode::Down => {
-            list_next_state(&mut app.theme_customs_state, app.theme_customs.len())
+            list_next_state(&mut app.theme_customs_state, app.theme_customs.len());
+            app.preview_selected_theme(ThemeSource::Custom);
         }
         KeyCode::Char('k') | KeyCode::Up => {
-            list_prev_state(&mut app.theme_customs_state, app.theme_customs.len())
+            list_prev_state(&mut app.theme_customs_state, app.theme_customs.len());
+            app.preview_selected_theme(ThemeSource::Custom);
         }
-        KeyCode::Enter => {
-            let index = app.theme_customs_state.selected().unwrap_or(0);
-            if let Some(name) = app.theme_customs.get(index).cloned() {
+        KeyCode::Enter => app.select_preview_theme(ThemeSource::Custom),
+        KeyCode::Char('a') => {
+            if let Some(name) = app.selected_custom_name() {
                 app.open_theme_actions(ThemeSelection {
                     name,
                     source: ThemeSource::Custom,
@@ -1311,14 +1450,20 @@ fn draw_modal(frame: &mut ratatui::Frame, app: &mut App) {
                     } else {
                         "available"
                     };
-                    ListItem::new(format!("{} ({status})", entry.name))
+                    let selected_tag =
+                        if app.theme_preview_selected.as_deref() == Some(entry.name.as_str()) {
+                            ", selected"
+                        } else {
+                            ""
+                        };
+                    ListItem::new(format!("{} ({status}{selected_tag})", entry.name))
                 })
                 .collect();
             let list = List::new(items)
                 .block(
                     Block::default()
                         .borders(Borders::ALL)
-                        .title("Preset Themes"),
+                        .title("Preset Themes (live preview)"),
                 )
                 .highlight_style(
                     Style::default()
@@ -1332,13 +1477,20 @@ fn draw_modal(frame: &mut ratatui::Frame, app: &mut App) {
             let items: Vec<ListItem> = app
                 .theme_customs
                 .iter()
-                .map(|name| ListItem::new(name.as_str()))
+                .map(|name| {
+                    let label = if app.theme_preview_selected.as_deref() == Some(name.as_str()) {
+                        format!("{name} (selected)")
+                    } else {
+                        name.clone()
+                    };
+                    ListItem::new(label)
+                })
                 .collect();
             let list = List::new(items)
                 .block(
                     Block::default()
                         .borders(Borders::ALL)
-                        .title("Custom Themes"),
+                        .title("Custom Themes (live preview)"),
                 )
                 .highlight_style(
                     Style::default()
@@ -1446,6 +1598,7 @@ fn draw_help_modal(frame: &mut ratatui::Frame, area: Rect) {
         Line::from("  t      open theme manager"),
         Line::from("  Enter on Agent installers  open install/update actions"),
         Line::from("  Enter on RTK routing  open RTK setup/actions"),
+        Line::from("  Theme lists: j/k live-preview, Enter select fallback, a actions"),
         Line::from(""),
         Line::from("Projects:"),
         Line::from("  Enter or o  open project"),
@@ -1537,9 +1690,19 @@ fn footer_lines(app: &App) -> Vec<Line<'_>> {
             keycap("Esc"),
             Span::raw(" close"),
         ],
-        Mode::ThemePresets | Mode::ThemeCustoms | Mode::ThemeActions => vec![
+        Mode::ThemePresets | Mode::ThemeCustoms => vec![
+            keycap("j/k"),
+            Span::raw(" preview  "),
             keycap("Enter"),
-            Span::raw(" choose  "),
+            Span::raw(" select fallback  "),
+            keycap("a"),
+            Span::raw(" actions  "),
+            keycap("Esc"),
+            Span::raw(" restore + back"),
+        ],
+        Mode::ThemeActions => vec![
+            keycap("Enter"),
+            Span::raw(" run action  "),
             keycap("Esc"),
             Span::raw(" back"),
         ],
@@ -1815,6 +1978,28 @@ fn load_theme_customs() -> io::Result<Vec<String>> {
     Ok(themes)
 }
 
+fn load_active_theme_name() -> io::Result<Option<String>> {
+    let profile_path = config_dir().join("aoc/theme.env");
+    if !profile_path.exists() {
+        return Ok(None);
+    }
+
+    let contents = fs::read_to_string(profile_path)?;
+    for line in contents.lines() {
+        let trimmed = line.trim();
+        if !trimmed.starts_with("export AOC_THEME_NAME=") {
+            continue;
+        }
+        let raw = trimmed.trim_start_matches("export AOC_THEME_NAME=").trim();
+        let value = raw.trim_matches('"').trim_matches('\'');
+        if !value.is_empty() {
+            return Ok(Some(value.to_string()));
+        }
+    }
+
+    Ok(None)
+}
+
 fn run_theme_command(args: &[&str]) -> io::Result<String> {
     let output = Command::new("aoc-theme").args(args).output()?;
     if !output.status.success() {
@@ -1987,8 +2172,43 @@ fn run_agent_install_command(action: &str, agent: &str) -> io::Result<String> {
     Ok(first_line)
 }
 
+fn with_cooked_mode<T>(f: impl FnOnce() -> io::Result<T>) -> io::Result<T> {
+    let was_raw = is_raw_mode_enabled().unwrap_or(false);
+    if was_raw {
+        disable_raw_mode()?;
+    }
+
+    let result = f();
+
+    if was_raw {
+        enable_raw_mode()?;
+    }
+
+    result
+}
+
+fn wait_with_timeout(mut child: std::process::Child, timeout: Duration) -> io::Result<ExitStatus> {
+    let started = Instant::now();
+    loop {
+        if let Some(status) = child.try_wait()? {
+            return Ok(status);
+        }
+
+        if started.elapsed() >= timeout {
+            let _ = child.kill();
+            let _ = child.wait();
+            return Err(io::Error::new(
+                io::ErrorKind::TimedOut,
+                format!("timed out after {}ms", timeout.as_millis()),
+            ));
+        }
+
+        thread::sleep(Duration::from_millis(20));
+    }
+}
+
 fn run_theme_command_interactive(args: &[&str]) -> io::Result<()> {
-    let status = Command::new("aoc-theme").args(args).status()?;
+    let status = with_cooked_mode(|| Command::new("aoc-theme").args(args).status())?;
     if status.success() {
         Ok(())
     } else {
@@ -2000,6 +2220,25 @@ fn run_theme_command_interactive(args: &[&str]) -> io::Result<()> {
         Err(io::Error::new(
             io::ErrorKind::Other,
             format!("{rendered} exited with status {status}"),
+        ))
+    }
+}
+
+fn run_theme_apply_quiet(theme_name: &str) -> io::Result<()> {
+    let status = with_cooked_mode(|| {
+        let child = Command::new("aoc-theme")
+            .env("AOC_THEME_QUIET", "1")
+            .args(["apply", "--name", theme_name])
+            .spawn()?;
+        wait_with_timeout(child, Duration::from_millis(2500))
+    })?;
+
+    if status.success() {
+        Ok(())
+    } else {
+        Err(io::Error::new(
+            io::ErrorKind::Other,
+            format!("aoc-theme apply --name {theme_name} exited with status {status}"),
         ))
     }
 }

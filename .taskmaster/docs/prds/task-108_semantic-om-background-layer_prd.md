@@ -1,111 +1,43 @@
 <context>
 # Overview
 
-Task 108 defines the semantic observational-memory runtime for AOC Mind's background memory layer.
+Task 108 defines the semantic observational-memory runtime for AOC Mind's background layer.
 
-Current state:
-- T0 compaction is deterministic and policy-driven.
-- T1/T2 runtime exists with deterministic, non-LLM synthesis for correctness and fallback.
-- Task/tag attribution and segment routing foundations are implemented.
+Baseline already delivered:
+- Deterministic T0 compaction and ingest checkpoints.
+- Deterministic T1/T2 fallback distiller.
+- Task/tag attribution and segment routing contracts.
 
-Gap:
-- The current T1/T2 outputs are structurally stable but not semantically inferred.
-- To align with observational-memory architecture (Observer + Reflector), T1 and T2 must support model-based semantic inference while preserving deterministic fail-open behavior.
+Re-scoped strategy for production:
+- Use **Pi-native inference runtime** (existing Pi OAuth/provider setup) instead of making an external provider stack the primary path.
+- Run **one T1 Observer sidecar per active Pi session**.
+- Run **one singleton T2 Reflector worker per project/session scope** (detached), triggered by observation thresholds.
+- Keep deterministic distillation as authoritative fail-open baseline.
 
-Primary objective for Task 108:
-- Add a semantic background agentic layer (Observer and Reflector) using the OpenCode Zen inference provider, with strict guardrails and deterministic fallback.
+This keeps quality scaling while preserving reliability and operator control.
 
-Scope decision (explicit):
-- In scope: Zen-backed semantic T1/T2.
-- Out of scope for this task: Roam and Ouros adapters.
+## Scope
 
-# Research Summary (Mastra OM + AOC adaptation)
+In scope for Task 108:
+1. Session-scoped semantic T1 observer sidecars.
+2. Singleton semantic T2 reflector runtime.
+3. Lock/lease coordination preventing duplicate reflection passes.
+4. Pi-provider model profile selection (low-cost defaults).
+5. Timeout/budget/retry guardrails + deterministic fallback.
+6. Provenance and failure metadata persistence.
 
-Key findings from Mastra's public docs and source implementation:
+Out of scope for Task 108:
+- Autonomous multi-agent swarms.
+- Multiple concurrent reflector workers writing the same workstream.
+- Mandatory external provider dependencies.
+- Specialist role UX (Scout/Planner/Builder/Reviewer/Documenter/Red Team) orchestration logic beyond memory runtime contracts.
 
-1) Observer and Reflector are semantic model calls, not deterministic parsing.
-2) Observation and reflection are token-threshold driven (message threshold for Observer, observation threshold for Reflector).
-3) They use strict output contracts and parsing layers, with retry handling for malformed/degenerate outputs.
-4) They include buffering/activation mechanics so context does not stall while long memory is processed.
-5) Reflection has compression validation and escalating retry guidance.
-6) The architecture keeps a stable, append-oriented memory prefix for better continuity and cacheability.
+## Product/UX Intent
 
-What this means for AOC Mind:
-- Preserve AOC's deterministic T0 compaction and provenance.
-- Introduce semantic inference only at T1/T2 via pluggable adapter contracts.
-- Keep deterministic fallback as baseline system of record when provider path is unavailable or rejected by validation.
-
-# Core Features
-
-## Feature 1: Semantic Observer (T1)
-
-What it does:
-- Converts per-conversation T0 chunks into semantically inferred T1 observations.
-
-Why it matters:
-- Improves signal density and continuity quality over extractive deterministic text packing.
-
-How it works (high-level):
-- Input remains single-conversation only.
-- Planner respects parser budgets (target and hard cap).
-- Prompted Observer model returns structured T1 payloads.
-- Output is validated, bounded, normalized, persisted with full provenance.
-- On validation/provider failure, deterministic T1 synthesis is used for that batch.
-
-## Feature 2: Semantic Reflector (T2)
-
-What it does:
-- Condenses and restructures T1 observations into higher-order reflections.
-
-Why it matters:
-- Prevents T1 accumulation from becoming noisy and enables better long-horizon recall.
-
-How it works (high-level):
-- T2 batches are grouped by active tag/workstream policy.
-- Reflector inference runs with explicit compression targets and bounded output.
-- Compression/quality checks decide accept/retry/fallback.
-
-## Feature 3: Zen Provider Runtime Selection
-
-What it does:
-- Adds runtime-selectable Zen model profiles for Observer and Reflector.
-
-Why it matters:
-- Allows low-cost default operation and easy model swaps without code changes.
-
-How it works (high-level):
-- Default profile is low-cost (for example Minimax M2.5 class).
-- Configuration can override model IDs and runtime limits per environment/tag.
-
-## Feature 4: Guardrails + Fail-Open Fallback
-
-What it does:
-- Enforces timeout/token/cost/retry bounds and deterministic fallback behavior.
-
-Why it matters:
-- Prevents semantic mode from blocking ingestion and preserves operational reliability.
-
-How it works (high-level):
-- Bounded retries with deterministic retry policy.
-- Validation gate for output schema and size.
-- Immediate fallback to deterministic runtime for failed batches.
-- Persist failure reason and provenance for observability.
-
-# User Experience
-
-Personas:
-- Solo power developer using AOC Mind for long-running coding sessions.
-- Maintainer/operator responsible for quality and reliability of background memory.
-
-Key flows:
-1) Conversation ingestion -> T0 compaction -> semantic T1 observation.
-2) T1 accumulation over threshold -> semantic T2 reflection.
-3) Provider fault or invalid output -> deterministic fallback without blocking.
-4) Operator changes model profile -> runtime uses new profile on next cycle.
-
-UX constraints:
-- User-facing continuity must not degrade when provider path is unstable.
-- Observations/reflections remain bounded and traceable.
+- Users continue normal Pi sessions.
+- T1 observer runs in background with bounded cadence and no interaction blocking.
+- T2 reflector runs detached and only when threshold policy triggers.
+- If semantic path fails, users still get deterministic artifacts and uninterrupted workflow.
 
 </context>
 
@@ -116,256 +48,250 @@ UX constraints:
 
 1) `aoc-opencode-adapter`
 - Source of local conversation events.
-- Produces deterministic T0 lane and context snapshots.
+- Produces deterministic T0 compact lane and checkpoints.
 
 2) `aoc-mind`
-- Owns distillation orchestration (planner + runtime).
-- Introduces provider interface and semantic execution path.
+- Distillation planner + runtime orchestration.
+- Owns Observer/Reflector adapter contracts.
+- Manages queueing and trigger policy.
 
-3) `aoc-task-attribution`
-- Links generated artifacts to tasks with confidence/provenance.
+3) `pi` background observer sidecar (new runtime path)
+- Spawned from active Pi sessions.
+- Performs semantic T1 inference on eligible conversation chunks.
 
-4) `aoc-segment-routing`
-- Routes artifacts to segments after generation.
+4) singleton reflector worker (new runtime path)
+- Detached process.
+- Claims lock/lease and executes semantic T2 reflection jobs.
 
-5) Zen provider adapter (Task 108)
-- Implements semantic Observer and Reflector calls.
-- Applies provider-specific transport, timeout, and retry rules.
+5) `aoc-storage`
+- Persists artifacts, attribution links, context state, checkpoints.
+- Persists provenance metadata and lock/lease/job state for recovery.
 
-6) `aoc-storage`
-- Persists artifacts, links, context, routes, and provider provenance metadata.
+6) Optional enhancer adapters (deferred priority)
+- External adapters may remain additive later, but are not required for this phase.
 
-## Adapter Contracts (new)
+## Runtime Topology
 
-Add provider-agnostic interfaces in `aoc-mind`:
+### T1 Observer (per active Pi session)
+- Trigger source: session events (`turn_end`/batch thresholds).
+- Scope: one conversation per pass (same invariants as deterministic planner).
+- Execution: low-cost model profile via Pi runtime.
+- Behavior: debounced queue; max one active observer execution per session.
+
+### T2 Reflector (singleton detached worker)
+- Trigger source: accumulated T1 observations crossing threshold per tag/workstream.
+- Scope: can aggregate multiple conversations only within same tag/workstream policy.
+- Execution: detached worker process with lease heartbeats.
+- Behavior: only one active reflector owner for a project/session scope at a time.
+
+## Locking & Coordination Model
+
+Use a two-layer safety model:
+
+1. **Advisory file lock**
+- Path: `.aoc/mind/locks/reflector.lock`
+- Contains owner id, pid, started/heartbeat timestamps, TTL.
+- Fast path to prevent accidental duplicate startup.
+
+2. **Durable DB lease/job claiming**
+- Lease record confirms runtime ownership with heartbeat/expiry.
+- Reflection jobs are atomically claimed (single consumer semantics).
+- Stale owner takeover allowed only after TTL expiry.
+
+This combination prevents duplicate reflection writes even if one lock layer fails.
+
+## Adapter Contracts
+
+Provider-agnostic interfaces in `aoc-mind`:
 
 - `ObserverAdapter::observe_t1(input) -> T1Result`
 - `ReflectorAdapter::reflect_t2(input) -> T2Result`
 
 Required properties:
-- Deterministic input canonicalization and hashable payloads.
-- Structured output contract (strict schema parse).
-- Explicit failure kinds (`timeout`, `invalid_output`, `budget_exceeded`, `provider_error`).
+- Deterministic canonicalization of inputs.
+- Stable input hashes.
+- Strict output schema parse/validation.
+- Explicit failure kinds (`timeout`, `invalid_output`, `budget_exceeded`, `provider_error`, `lock_conflict`).
 
 ## Runtime Mode Selection
 
-Distillation runtime mode:
+Modes:
 - `deterministic_only`
-- `semantic_with_fallback` (default for Task 108)
+- `semantic_with_fallback` (default target mode)
 
-Model profile config (example shape):
-- observer model id
-- reflector model id
-- max input tokens
-- max output tokens
+Semantic provider selection:
+- Primary runtime: Pi provider/model config (inherits existing OAuth/provider setup).
+- Per-stage profiles: separate observer and reflector model ids.
+- Default profile: low-cost model class for background cadence.
+
+Config knobs:
+- max input/output tokens
 - timeout ms
 - max retries
-- cost guardrails
-
-Default profile:
-- low-cost Zen model profile (e.g., Minimax M2.5 class), configurable.
+- max budget tokens/cost
+- queue debounce interval
+- reflector lease TTL
 
 ## Data Model Extensions
 
-Persist provider provenance per artifact:
-- `provider_name` (e.g., `zen`)
-- `model_id`
-- `prompt_version`
-- `input_hash`
-- `output_hash`
-- `latency_ms`
-- `attempt_count`
-- `fallback_used` (bool)
-- `fallback_reason` (nullable string)
+Persist semantic provenance and runtime outcomes per artifact:
+- runtime (`deterministic` | `pi-semantic` | `external-semantic`)
+- provider_name
+- model_id
+- prompt_version
+- input_hash
+- output_hash
+- latency_ms
+- attempt_count
+- fallback_used
+- fallback_reason
 
-Notes:
-- Raw and T0 remain authoritative provenance lanes.
-- T1/T2 store semantic output plus trace IDs to source T0/T1 inputs.
+Persist coordination state (lease/job metadata) for singleton behavior and crash recovery.
 
-## Inference and Validation Pipeline
+## Processing Pipeline
 
-1) Planner selects batch/chunk (single conversation for T1).
-2) Canonicalize input and compute input hash.
-3) Execute adapter with guardrails.
-4) Parse and validate structured output.
-5) Enforce output bounds and compression quality checks.
-6) Persist semantic artifact with provenance.
-7) If any step fails and mode allows fallback -> run deterministic synthesis and persist fallback metadata.
+1. Ingest events and produce T0 compact transcript.
+2. Planner determines T1 batch/chunk boundaries.
+3. Session observer executes semantic T1 with guardrails.
+4. Validate, bound, and persist T1 artifacts + provenance.
+5. If threshold reached, enqueue T2 workstream jobs.
+6. Singleton reflector claims lease + job, executes semantic T2.
+7. Validate, bound, and persist T2 artifacts + provenance.
+8. On any semantic failure, fallback to deterministic output and persist fallback reason.
 
-## Policy Rules (must hold)
+## Invariants and Policy Rules
 
 - T1 never mixes multiple conversations.
 - T1 under target budget runs single pass.
-- T1 over target uses deterministic chunk ordering within the same conversation only.
-- T2 may aggregate across conversations only when same active tag/workstream policy allows.
+- T1 over budget uses deterministic intra-conversation chunk ordering.
+- T2 cross-conversation synthesis only within same tag/workstream policy.
 - Cross-tag T2 mixing remains disabled by default.
+- At most one reflector owner active for a given project scope.
 
-## Security and Privacy
+## Security & Privacy
 
-- Apply existing redaction policies before provider call.
-- Never send raw unbounded tool outputs when policy says stripped.
-- Log provider metadata, not sensitive raw payload content.
+- Apply redaction before semantic calls.
+- Never send stripped raw tool output unless allowlisted by policy.
+- Store metadata/provenance; avoid persisting sensitive raw provider payloads.
 
-## Performance Requirements
+## Performance & Reliability
 
-- Provider path must be bounded by timeout and retry caps.
-- Fallback path must keep end-to-end progress without operator intervention.
-- No pipeline stall if provider is unavailable.
+- Observer sidecars must be non-blocking for interactive user turns.
+- Reflector worker bounded by timeout/retry/budget limits.
+- Fail-open fallback guarantees progress without operator intervention.
+- Crash/restart recovery preserves idempotence via hashes and leases.
 
 # Development Roadmap
 
-## Phase 108.1 - Interface + Contracts
+## Phase 108.1 - Contracts + Canonicalization
+- Finalize Observer/Reflector adapter DTOs.
+- Finalize canonical payload hashing.
+- Keep deterministic compatibility path.
 
-- Define `ObserverAdapter` and `ReflectorAdapter`.
-- Add strict input/output DTOs and validation.
-- Add runtime switch: deterministic vs semantic-with-fallback.
+## Phase 108.2 - Session Observer Sidecar (T1)
+- Implement per-session observer queue + debounce.
+- Spawn Pi-based semantic T1 runtime with low-cost default model profile.
+- Enforce one active observer execution per session.
 
-Deliverable:
-- Semantic contract layer in `aoc-mind` with deterministic compatibility.
+## Phase 108.3 - Singleton Reflector Worker (T2)
+- Implement detached reflector process.
+- Add file lock + DB lease + atomic job claim.
+- Add stale-lease recovery and takeover rules.
 
-## Phase 108.2 - Zen Adapter Implementation
+## Phase 108.4 - Guardrails + Fallback + Provenance
+- Add timeout/retry/token/cost limits.
+- Add strict output validation and rejection handling.
+- Persist fallback reasons and runtime provenance.
 
-- Implement Zen-backed Observer and Reflector adapter.
-- Add prompt templates and versioning.
-- Implement canonical request/response normalization.
-
-Deliverable:
-- Runnable semantic T1/T2 via Zen for controlled fixtures.
-
-## Phase 108.3 - Model Profile and Configuration
-
-- Add config/env-driven model selection.
-- Set low-cost default profile.
-- Support separate Observer and Reflector model IDs.
-
-Deliverable:
-- Zero-code model swap capability.
-
-## Phase 108.4 - Guardrails + Fallback
-
-- Add timeout, retry, token and cost limits.
-- Add output validation failure handling.
-- Route failures to deterministic fallback and persist reason.
-
-Deliverable:
-- Safe fail-open semantic pipeline.
-
-## Phase 108.5 - Test and Verification
-
-- Add mock Zen fixtures for deterministic testability.
-- Add golden tests for output bounds and schema.
-- Add regression tests for no cross-conversation T1 mixing and deterministic chunk ordering.
-
-Deliverable:
-- Reliable semantic OM test suite with fallback assertions.
-
-# Logical Dependency Chain
-
-1) Contracts first (108.1)
-2) Provider implementation (108.2)
-3) Runtime model selection (108.3)
-4) Guardrails/fallback (108.4)
-5) Full fixture matrix (108.5)
-
-Reasoning:
-- This sequence prevents provider-specific coupling and keeps fallback safe from day one.
+## Phase 108.5 - End-to-End Verification
+- Add multi-session concurrency fixtures.
+- Add lock-contention and stale-lease recovery tests.
+- Add semantic failure fixtures verifying deterministic fallback.
 
 # Requirements
 
 ## Functional Requirements
 
-FR-1: System SHALL run semantic T1 Observer via Zen when mode is semantic-with-fallback.
+FR-1: System SHALL run semantic T1 Observer per active Pi session in semantic mode.
 
-FR-2: System SHALL run semantic T2 Reflector via Zen when trigger policy is met.
+FR-2: System SHALL run semantic T2 Reflector through a singleton detached worker.
 
-FR-3: System SHALL validate semantic outputs against strict parseable schema before persist.
+FR-3: System SHALL prevent concurrent reflector ownership for the same project scope.
 
-FR-4: System SHALL fall back to deterministic T1/T2 when semantic path fails validation or provider guardrails.
+FR-4: System SHALL validate semantic outputs before persistence.
 
-FR-5: System SHALL persist provenance and fallback metadata per generated artifact.
+FR-5: System SHALL fall back to deterministic runtime on semantic failure.
 
-FR-6: System SHALL keep T1 one-conversation-per-pass invariant.
+FR-6: System SHALL persist provenance/fallback metadata for every semantic attempt.
 
-FR-7: System SHALL keep T2 tag/workstream boundary policy as configured.
+FR-7: System SHALL preserve T1/T2 scope invariants (no cross-conversation T1 mixing, policy-bounded T2 aggregation).
 
 ## Non-Functional Requirements
 
-NFR-1: Semantic calls SHALL respect configured timeout and max retry limits.
+NFR-1: Background semantic processing SHALL not block interactive Pi turns.
 
-NFR-2: Distillation pipeline SHALL remain non-blocking at system level (fail-open).
+NFR-2: Runtime SHALL enforce configured timeout/retry/budget limits.
 
-NFR-3: Output size SHALL remain bounded by configured max chars/tokens.
+NFR-3: Lock/lease coordination SHALL recover from crashed owners via TTL expiry.
 
-NFR-4: All persisted artifacts SHALL include reproducibility metadata.
+NFR-4: Reruns SHALL remain deterministic for planner/chunking invariants and idempotent artifact persistence.
 
 # Acceptance Criteria
 
-1) Semantic Observer and Reflector both execute through Zen adapter in integration tests.
-2) Invalid or degenerate semantic output triggers deterministic fallback and records reason.
-3) Under-budget conversation produces single semantic T1 pass.
-4) Over-budget conversation produces deterministic intra-conversation chunk sequence.
-5) T2 reflection respects tag/workstream policy and remains bounded.
-6) Model profile can be changed via config/env without code modification.
-7) Provenance fields (`provider/model/prompt/input-hash/output-hash/fallback`) are persisted and queryable.
+1) T1 semantic observer runs from active Pi sessions with bounded queueing.
+2) T2 semantic reflector runs as singleton; duplicate concurrent runs are prevented.
+3) Lock contention tests prove no double-processing of the same reflection job.
+4) Provider or schema failures trigger deterministic fallback with persisted reason.
+5) Under-budget T1 remains single-pass; over-budget T1 chunking remains deterministic.
+6) Model/profile selection uses Pi provider configuration without code edits.
+7) Provenance fields are queryable for both success and fallback artifacts.
 
 # Test Strategy
 
 Unit:
-- Prompt/input canonicalization hash stability.
-- Schema parser/validator acceptance and rejection cases.
-- Guardrail decision logic (retry/fallback conditions).
+- Input canonicalization and hash stability.
+- Lock/lease TTL behavior and stale-owner takeover.
+- Guardrail decision logic and failure classification.
 
 Integration:
-- `ingest -> T0 -> semantic T1 -> semantic T2 -> attribution -> routing` fixture flow.
-- Provider failure paths (`timeout`, malformed output, empty output).
-- Deterministic fallback equivalence checks.
+- `ingest -> T0 -> semantic T1 -> semantic T2 -> attribution -> routing` across multiple simulated sessions.
+- Reflector singleton acquisition with forced contention.
+- Provider failures (`timeout`, malformed output, budget exceed) with deterministic fallback assertions.
 
 Regression:
 - No cross-conversation T1 mixing.
-- Deterministic chunk ordering remains stable across reruns.
-- Cross-tag T2 disabled by default unless policy toggled.
+- Deterministic chunk ordering for over-budget conversations.
+- Cross-tag T2 disabled unless policy explicitly enables it.
 
-Operational checks:
-- Verify latency budget compliance.
-- Verify fallback rate metric emission and persistence.
+Operational:
+- Background queue latency within configured budget.
+- Reflector lock health and recovery path validated after forced crash.
 
 # Success Metrics
 
-- Semantic path success rate above target in normal conditions.
-- Fallback path success at 100% for forced provider-failure fixtures.
-- No data-loss incidents in T1/T2 artifact generation.
-- Deterministic rerun stability for planning/chunking invariants.
+- Semantic path success rate meets target under normal conditions.
+- Forced-failure fixtures achieve 100% deterministic fallback completion.
+- Zero duplicate reflection writes under lock-contention tests.
+- No interactive-turn blocking incidents from observer sidecars.
 
 # Risks and Mitigations
 
-Risk 1: Provider output drift or malformed payloads.
-- Mitigation: strict parser, bounded retries, deterministic fallback.
+Risk: Too many concurrent observer sidecars increase local resource contention.
+- Mitigation: per-session debounce + max concurrency controls + low-cost model defaults.
 
-Risk 2: Cost or latency spikes under heavy load.
-- Mitigation: low-cost default model, hard timeouts, per-run budgets, profile overrides.
+Risk: Lock drift causes orphaned reflector ownership.
+- Mitigation: heartbeat TTL + stale-owner takeover + durable job claiming.
 
-Risk 3: Semantic over-compression removing important details.
-- Mitigation: validation checks, compression targets, prompt versioning, test fixtures with expected retention.
+Risk: Semantic over-compression reduces retrieval quality.
+- Mitigation: schema checks, compression bounds, prompt versioning, golden fixtures.
 
-Risk 4: Policy violations (cross-conversation T1 or cross-tag T2).
-- Mitigation: enforce planner invariants before inference and before persist.
+Risk: Provider instability/cost spikes.
+- Mitigation: hard budgets/timeouts and deterministic fallback baseline.
 
-# Appendix
+# Explicit Deferrals (Task 108)
 
-## References
-
-- Mastra OM docs: https://mastra.ai/docs/memory/observational-memory
-- Mastra research article: https://mastra.ai/research/observational-memory
-- Mastra source (observer):
-  https://raw.githubusercontent.com/mastra-ai/mastra/main/packages/memory/src/processors/observational-memory/observer-agent.ts
-- Mastra source (reflector):
-  https://raw.githubusercontent.com/mastra-ai/mastra/main/packages/memory/src/processors/observational-memory/reflector-agent.ts
-- Mastra source (runtime orchestration):
-  https://raw.githubusercontent.com/mastra-ai/mastra/main/packages/memory/src/processors/observational-memory/observational-memory.ts
-
-## Explicit Task-108 Deferrals
-
-- Roam adapter integration (deferred).
-- Ouros adapter integration (deferred).
+- Multi-reflector parallel fan-out per project.
+- Autonomous specialist-team orchestration.
+- Mandatory external provider stack.
 
 </PRD>

@@ -1,17 +1,50 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+tm_root="${AOC_TASKMASTER_ROOT:-}"
+args=()
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --tm-root|--tm-source|--taskmaster-root)
+      if [[ $# -lt 2 ]]; then
+        echo "tm: missing value for $1" >&2
+        exit 2
+      fi
+      tm_root="$2"
+      shift 2
+      ;;
+    --tm-root=*|--tm-source=*|--taskmaster-root=*)
+      tm_root="${1#*=}"
+      shift
+      ;;
+    *)
+      args+=("$1")
+      shift
+      ;;
+  esac
+done
+
+if [[ -n "$tm_root" ]]; then
+  if [[ ! -d "$tm_root" ]]; then
+    echo "tm: tm root '$tm_root' is not a directory" >&2
+    exit 2
+  fi
+  export AOC_TASKMASTER_ROOT="$(cd "$tm_root" && pwd -P)"
+  cd "$AOC_TASKMASTER_ROOT"
+fi
+
 if command -v aoc-task >/dev/null 2>&1; then
-  exec aoc-task "$@"
+  exec aoc-task "${args[@]}"
 fi
 
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" >/dev/null 2>&1 && pwd)"
 if [[ -x "$script_dir/aoc-task" ]]; then
-  exec "$script_dir/aoc-task" "$@"
+  exec "$script_dir/aoc-task" "${args[@]}"
 fi
 
 if command -v aoc-cli >/dev/null 2>&1; then
-  exec aoc-cli task "$@"
+  exec aoc-cli task "${args[@]}"
 fi
 
 echo "tm: 'aoc-task' not found. Install via ./install.sh" >&2

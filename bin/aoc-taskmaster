@@ -14,6 +14,9 @@ Commands:
   status     Set task status
   next       Show next task
   ...        Pass-through to underlying task-master CLI
+
+Options:
+  --tm-root <path>  Read/write tasks from a different project root
 EOF
 }
 
@@ -23,18 +26,51 @@ script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 native_release="$script_dir/../crates/target/release/aoc-taskmaster"
 native_debug="$script_dir/../crates/target/debug/aoc-taskmaster"
 
-if [[ "${AOC_TASKMASTER_NATIVE:-0}" == "1" || $# -eq 0 ]]; then
+tm_root="${AOC_TASKMASTER_ROOT:-}"
+args=()
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --tm-root|--tm-source|--taskmaster-root)
+      if [[ $# -lt 2 ]]; then
+        echo "aoc-taskmaster: missing value for $1" >&2
+        exit 2
+      fi
+      tm_root="$2"
+      shift 2
+      ;;
+    --tm-root=*|--tm-source=*|--taskmaster-root=*)
+      tm_root="${1#*=}"
+      shift
+      ;;
+    *)
+      args+=("$1")
+      shift
+      ;;
+  esac
+done
+
+if [[ -n "$tm_root" ]]; then
+  if [[ ! -d "$tm_root" ]]; then
+    echo "aoc-taskmaster: tm root '$tm_root' is not a directory" >&2
+    exit 2
+  fi
+  export AOC_TASKMASTER_ROOT="$(cd "$tm_root" && pwd -P)"
+  cd "$AOC_TASKMASTER_ROOT"
+fi
+
+if [[ "${AOC_TASKMASTER_NATIVE:-0}" == "1" || ${#args[@]} -eq 0 ]]; then
   if [[ -n "${AOC_TASKMASTER_BIN:-}" ]]; then
-    exec "$AOC_TASKMASTER_BIN" "$@"
+    exec "$AOC_TASKMASTER_BIN" "${args[@]}"
   fi
   if command -v aoc-taskmaster-native >/dev/null 2>&1; then
-    exec aoc-taskmaster-native "$@"
+    exec aoc-taskmaster-native "${args[@]}"
   fi
   if [[ -x "$native_release" ]]; then
-    exec "$native_release" "$@"
+    exec "$native_release" "${args[@]}"
   fi
   if [[ -x "$native_debug" ]]; then
-    exec "$native_debug" "$@"
+    exec "$native_debug" "${args[@]}"
   fi
   if command -v cargo >/dev/null 2>&1; then
     manifest_path=""
@@ -44,7 +80,7 @@ if [[ "${AOC_TASKMASTER_NATIVE:-0}" == "1" || $# -eq 0 ]]; then
       manifest_path="$script_dir/../crates/Cargo.toml"
     fi
     if [[ -n "$manifest_path" ]]; then
-      exec cargo run --manifest-path "$manifest_path" -p aoc-taskmaster -- "$@"
+      exec cargo run --manifest-path "$manifest_path" -p aoc-taskmaster -- "${args[@]}"
     fi
   fi
 fi
@@ -70,27 +106,27 @@ seed_config() {
 # Check if the real task-master CLI is available
 if command -v "$TM_CMD" >/dev/null 2>&1; then
   # Try to seed config before running
-  seed_config "${1:-}"
+  seed_config "${args[0]:-}"
   
-  if [[ $# -eq 0 ]]; then
+  if [[ ${#args[@]} -eq 0 ]]; then
     # Interactive mode (TUI) if supported, or just list
     "$TM_CMD" list
   else
     # Pass-through all args
-    exec "$TM_CMD" "$@"
+    exec "$TM_CMD" "${args[@]}"
   fi
 else
   # Fallback for when the rust plugin/CLI isn't installed
   if command -v aoc-task >/dev/null 2>&1; then
-    if [[ $# -eq 0 ]]; then
+    if [[ ${#args[@]} -eq 0 ]]; then
       exec aoc-task list
     fi
-    exec aoc-task "$@"
+    exec aoc-task "${args[@]}"
   elif command -v aoc-cli >/dev/null 2>&1; then
-    if [[ $# -eq 0 ]]; then
+    if [[ ${#args[@]} -eq 0 ]]; then
       exec aoc-cli task list
     fi
-    exec aoc-cli task "$@"
+    exec aoc-cli task "${args[@]}"
   fi
   echo "aoc-taskmaster: '$TM_CMD' not found and aoc-cli unavailable."
   echo "Install task-master or build the Rust CLI." >&2

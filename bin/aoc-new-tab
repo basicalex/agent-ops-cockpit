@@ -22,7 +22,7 @@ tab_cwd=""
 state_dir="${XDG_STATE_HOME:-$HOME/.local/state}/aoc"
 default_layout_file="${state_dir}/layout_default"
 
-if [[ "${AOC_CLEANUP:-1}" != "0" && "${AOC_LAUNCH_AGENT_ID:-${AOC_AGENT_ID:-}}" != "omo" ]]; then
+if [[ "${AOC_CLEANUP:-1}" != "0" ]]; then
   if command -v aoc-cleanup >/dev/null 2>&1; then
     cleanup_log="$state_dir/cleanup.log"
     cleanup_lock="$state_dir/cleanup.lock"

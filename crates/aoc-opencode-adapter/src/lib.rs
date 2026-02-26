@@ -1,12 +1,14 @@
 use aoc_core::mind_contracts::{
-    canonical_json, compact_raw_event_to_t0, ConversationRole, MessageEvent, RawEvent,
-    RawEventBody, T0CompactionPolicy, TaskSignalEvent, ToolExecutionStatus, ToolResultEvent,
+    canonical_json, canonical_lineage_attrs, compact_raw_event_to_t0, ConversationLineageMetadata,
+    ConversationRole, MessageEvent, RawEvent, RawEventBody, T0CompactionPolicy, TaskSignalEvent,
+    ToolExecutionStatus, ToolResultEvent, LINEAGE_ATTRS_KEY, LINEAGE_PARENT_CONVERSATION_ID_KEY,
+    LINEAGE_ROOT_CONVERSATION_ID_KEY, LINEAGE_SESSION_ID_KEY,
 };
 use aoc_storage::{ConversationContextState, IngestionCheckpoint, MindStore, StorageError};
 use chrono::{DateTime, TimeZone, Utc};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::path::Path;
 use thiserror::Error;
@@ -281,8 +283,135 @@ fn normalize_raw_event(
         agent_id: agent_id.to_string(),
         ts,
         body,
-        attrs: Default::default(),
+        attrs: extract_lineage_attrs(object, conversation_id),
     })
+}
+
+fn extract_lineage_attrs(
+    object: Option<&serde_json::Map<String, Value>>,
+    conversation_id: &str,
+) -> BTreeMap<String, Value> {
+    let Some(object) = object else {
+        return BTreeMap::new();
+    };
+
+    let lineage = object
+        .get(LINEAGE_ATTRS_KEY)
+        .and_then(Value::as_object)
+        .or_else(|| {
+            object
+                .get("lineage")
+                .and_then(Value::as_object)
+                .or_else(|| {
+                    object
+                        .get("conversation_lineage")
+                        .and_then(Value::as_object)
+                })
+        })
+        .or_else(|| {
+            payload_object(object).and_then(|payload| {
+                payload
+                    .get(LINEAGE_ATTRS_KEY)
+                    .and_then(Value::as_object)
+                    .or_else(|| payload.get("lineage").and_then(Value::as_object))
+                    .or_else(|| {
+                        payload
+                            .get("conversation_lineage")
+                            .and_then(Value::as_object)
+                    })
+            })
+        });
+
+    let session_id = first_string(object, &[LINEAGE_SESSION_ID_KEY, "sessionId"]).or_else(|| {
+        lineage.and_then(|lineage| {
+            first_string_from_object(lineage, &[LINEAGE_SESSION_ID_KEY, "sessionId"])
+        })
+    });
+    let parent_conversation_id = first_string(
+        object,
+        &[
+            LINEAGE_PARENT_CONVERSATION_ID_KEY,
+            "parentConversationId",
+            "parent_id",
+            "branch_parent_conversation_id",
+            "branchParentConversationId",
+        ],
+    )
+    .or_else(|| {
+        lineage.and_then(|lineage| {
+            first_string_from_object(
+                lineage,
+                &[
+                    LINEAGE_PARENT_CONVERSATION_ID_KEY,
+                    "parentConversationId",
+                    "parent_id",
+                    "branch_parent_conversation_id",
+                    "branchParentConversationId",
+                ],
+            )
+        })
+    });
+    let root_conversation_id = first_string(
+        object,
+        &[
+            LINEAGE_ROOT_CONVERSATION_ID_KEY,
+            "rootConversationId",
+            "conversation_root_id",
+            "conversationRootId",
+        ],
+    )
+    .or_else(|| {
+        lineage.and_then(|lineage| {
+            first_string_from_object(
+                lineage,
+                &[
+                    LINEAGE_ROOT_CONVERSATION_ID_KEY,
+                    "rootConversationId",
+                    "conversation_root_id",
+                    "conversationRootId",
+                ],
+            )
+        })
+    });
+
+    if let Some(session_id) = session_id {
+        return canonical_lineage_attrs(&ConversationLineageMetadata {
+            session_id,
+            parent_conversation_id,
+            root_conversation_id: root_conversation_id
+                .unwrap_or_else(|| conversation_id.to_string()),
+        });
+    }
+
+    let mut attrs = BTreeMap::new();
+    if let Some(parent_conversation_id) = parent_conversation_id {
+        attrs.insert(
+            LINEAGE_PARENT_CONVERSATION_ID_KEY.to_string(),
+            Value::String(parent_conversation_id),
+        );
+    }
+    if let Some(root_conversation_id) = root_conversation_id {
+        attrs.insert(
+            LINEAGE_ROOT_CONVERSATION_ID_KEY.to_string(),
+            Value::String(root_conversation_id),
+        );
+    }
+    attrs
+}
+
+fn first_string_from_object(
+    object: &serde_json::Map<String, Value>,
+    keys: &[&str],
+) -> Option<String> {
+    for key in keys {
+        if let Some(value) = object.get(*key).and_then(Value::as_str) {
+            let value = value.trim();
+            if !value.is_empty() {
+                return Some(value.to_string());
+            }
+        }
+    }
+    None
 }
 
 fn parse_message_event(object: Option<&serde_json::Map<String, Value>>) -> Option<MessageEvent> {
@@ -822,6 +951,58 @@ mod tests {
         assert_eq!(report.processed_raw_events, 1);
         assert_eq!(report.produced_t0_events, 1);
         assert_eq!(store.t0_event_count("conv-3").expect("t0 count"), 1);
+    }
+
+    #[test]
+    fn ingest_normalizes_nested_lineage_metadata_for_graph_contract() {
+        let db_file = NamedTempFile::new().expect("temp db");
+        let store = MindStore::open(db_file.path()).expect("open store");
+
+        let mut log = NamedTempFile::new().expect("temp log");
+        writeln!(
+            log,
+            "{{\"event_id\":\"m-lineage\",\"timestamp\":\"2026-02-23T12:00:00Z\",\"role\":\"user\",\"text\":\"branch\",\"mind_lineage\":{{\"session_id\":\"session-graph\",\"parent_conversation_id\":\"conv-root\",\"root_conversation_id\":\"conv-root\"}}}}"
+        )
+        .expect("write");
+        log.flush().expect("flush");
+
+        let ingestor = OpenCodeIngestor::new(IngestionOptions::default());
+        let report = ingestor
+            .ingest_conversation_file(&store, "conv-branch", "session-graph::12", log.path())
+            .expect("ingest");
+        assert_eq!(report.processed_raw_events, 1);
+
+        let lineage = store
+            .conversation_lineage("conv-branch")
+            .expect("lineage query")
+            .expect("lineage exists");
+        assert_eq!(lineage.session_id, "session-graph");
+        assert_eq!(lineage.parent_conversation_id.as_deref(), Some("conv-root"));
+        assert_eq!(lineage.root_conversation_id, "conv-root");
+    }
+
+    #[test]
+    fn ingest_rejects_partial_branch_lineage_contract() {
+        let db_file = NamedTempFile::new().expect("temp db");
+        let store = MindStore::open(db_file.path()).expect("open store");
+
+        let mut log = NamedTempFile::new().expect("temp log");
+        writeln!(
+            log,
+            "{{\"event_id\":\"m-invalid\",\"timestamp\":\"2026-02-23T12:00:00Z\",\"role\":\"user\",\"text\":\"branch\",\"parent_conversation_id\":\"conv-root\"}}"
+        )
+        .expect("write");
+        log.flush().expect("flush");
+
+        let ingestor = OpenCodeIngestor::new(IngestionOptions::default());
+        let err = ingestor
+            .ingest_conversation_file(&store, "conv-branch", "session-graph::12", log.path())
+            .expect_err("partial branch lineage should fail");
+
+        assert!(matches!(
+            err,
+            AdapterError::Storage(StorageError::Serialization(_))
+        ));
     }
 
     #[test]

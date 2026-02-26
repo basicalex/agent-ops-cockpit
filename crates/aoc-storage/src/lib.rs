@@ -1,7 +1,8 @@
 use aoc_core::mind_contracts::{
-    ArtifactTaskLink, ArtifactTaskRelation, ConversationRole, RawEvent, RawEventBody, RouteOrigin,
-    SegmentCandidate, SegmentRoute, SemanticFailureKind, SemanticProvenance, SemanticRuntime,
-    SemanticStage, T0CompactEvent, ToolMetadataLine,
+    canonical_payload_hash, parse_conversation_lineage_metadata, ArtifactTaskLink,
+    ArtifactTaskRelation, ConversationRole, RawEvent, RawEventBody, RouteOrigin, SegmentCandidate,
+    SegmentRoute, SemanticFailureKind, SemanticProvenance, SemanticRuntime, SemanticStage,
+    T0CompactEvent, ToolMetadataLine,
 };
 use chrono::{DateTime, Utc};
 use rusqlite::{params, Connection, OptionalExtension};
@@ -9,7 +10,7 @@ use std::collections::BTreeSet;
 use std::path::Path;
 use thiserror::Error;
 
-pub const MIND_SCHEMA_VERSION: i64 = 2;
+pub const MIND_SCHEMA_VERSION: i64 = 4;
 
 #[derive(Debug, Error)]
 pub enum StorageError {
@@ -44,6 +45,15 @@ pub struct ConversationContextState {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ConversationLineage {
+    pub conversation_id: String,
+    pub session_id: String,
+    pub parent_conversation_id: Option<String>,
+    pub root_conversation_id: String,
+    pub updated_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct StoredArtifact {
     pub artifact_id: String,
     pub conversation_id: String,
@@ -63,6 +73,40 @@ pub struct StoredCompactEvent {
     pub tool_meta: Option<ToolMetadataLine>,
     pub source_event_ids: Vec<String>,
     pub policy_version: String,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ReflectorJobStatus {
+    Pending,
+    Claimed,
+    Completed,
+    Failed,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ReflectorLease {
+    pub scope_id: String,
+    pub owner_id: String,
+    pub owner_pid: Option<i64>,
+    pub acquired_at: DateTime<Utc>,
+    pub heartbeat_at: DateTime<Utc>,
+    pub expires_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ReflectorJob {
+    pub job_id: String,
+    pub active_tag: String,
+    pub observation_ids: Vec<String>,
+    pub conversation_ids: Vec<String>,
+    pub estimated_tokens: u32,
+    pub status: ReflectorJobStatus,
+    pub claimed_by: Option<String>,
+    pub claimed_at: Option<DateTime<Utc>>,
+    pub attempts: u16,
+    pub last_error: Option<String>,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
 }
 
 pub struct MindStore {
@@ -114,6 +158,24 @@ impl MindStore {
             self.conn
                 .execute("PRAGMA user_version = 2", [])
                 .map(|_| ())?;
+            current = 2;
+        }
+
+        if current < 3 {
+            let sql = include_str!("../migrations/0003_reflector_runtime.sql");
+            self.conn.execute_batch(sql)?;
+            self.conn
+                .execute("PRAGMA user_version = 3", [])
+                .map(|_| ())?;
+            current = 3;
+        }
+
+        if current < 4 {
+            let sql = include_str!("../migrations/0004_session_conversation_tree.sql");
+            self.conn.execute_batch(sql)?;
+            self.conn
+                .execute("PRAGMA user_version = 4", [])
+                .map(|_| ())?;
         }
 
         Ok(())
@@ -154,7 +216,156 @@ impl MindStore {
             ],
         )?;
 
+        if changes > 0 {
+            self.upsert_conversation_lineage_from_event(event)?;
+        }
+
         Ok(changes > 0)
+    }
+
+    pub fn conversation_lineage(
+        &self,
+        conversation_id: &str,
+    ) -> Result<Option<ConversationLineage>, StorageError> {
+        self.conn
+            .query_row(
+                "
+                SELECT conversation_id, session_id, parent_conversation_id, root_conversation_id, updated_at
+                FROM conversation_lineage
+                WHERE conversation_id = ?1
+                ",
+                [conversation_id],
+                |row| {
+                    let updated_at = parse_timestamp(row.get::<_, String>(4)?).map_err(|err| {
+                        rusqlite::Error::FromSqlConversionFailure(
+                            4,
+                            rusqlite::types::Type::Text,
+                            Box::new(err),
+                        )
+                    })?;
+                    Ok(ConversationLineage {
+                        conversation_id: row.get(0)?,
+                        session_id: row.get(1)?,
+                        parent_conversation_id: row.get(2)?,
+                        root_conversation_id: row.get(3)?,
+                        updated_at,
+                    })
+                },
+            )
+            .optional()
+            .map_err(StorageError::from)
+    }
+
+    pub fn session_tree_conversations(
+        &self,
+        session_id: &str,
+        seed_conversation_id: &str,
+    ) -> Result<Vec<String>, StorageError> {
+        let seed = self.conversation_lineage(seed_conversation_id)?;
+
+        let (query, args): (&str, Vec<&str>) = if let Some(seed) = seed.as_ref() {
+            (
+                "
+                SELECT conversation_id
+                FROM conversation_lineage
+                WHERE session_id = ?1 AND root_conversation_id = ?2
+                ORDER BY conversation_id ASC
+                ",
+                vec![session_id, seed.root_conversation_id.as_str()],
+            )
+        } else {
+            (
+                "
+                SELECT conversation_id
+                FROM conversation_lineage
+                WHERE session_id = ?1
+                ORDER BY conversation_id ASC
+                ",
+                vec![session_id],
+            )
+        };
+
+        let mut statement = self.conn.prepare(query)?;
+        let rows =
+            statement.query_map(rusqlite::params_from_iter(args.iter()), |row| row.get(0))?;
+        let mut conversation_ids = Vec::new();
+        for row in rows {
+            conversation_ids.push(row?);
+        }
+
+        if !conversation_ids
+            .iter()
+            .any(|conversation_id| conversation_id == seed_conversation_id)
+        {
+            conversation_ids.push(seed_conversation_id.to_string());
+        }
+        conversation_ids.sort();
+        conversation_ids.dedup();
+        Ok(conversation_ids)
+    }
+
+    pub fn conversation_needs_observer_run(
+        &self,
+        conversation_id: &str,
+    ) -> Result<bool, StorageError> {
+        let (latest_t0, latest_t1): (Option<String>, Option<String>) = self.conn.query_row(
+            "
+            SELECT
+                (SELECT MAX(ts) FROM compact_events_t0 WHERE conversation_id = ?1),
+                (SELECT MAX(ts) FROM observations_t1 WHERE conversation_id = ?1)
+            ",
+            [conversation_id],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )?;
+
+        let Some(latest_t0) = latest_t0 else {
+            return Ok(false);
+        };
+        let latest_t0 = parse_timestamp(latest_t0)?;
+        let Some(latest_t1) = latest_t1 else {
+            return Ok(true);
+        };
+        let latest_t1 = parse_timestamp(latest_t1)?;
+        Ok(latest_t0 > latest_t1)
+    }
+
+    fn upsert_conversation_lineage_from_event(&self, event: &RawEvent) -> Result<(), StorageError> {
+        let metadata = parse_conversation_lineage_metadata(
+            &event.attrs,
+            &event.conversation_id,
+            &event.agent_id,
+        )
+        .map_err(|err| StorageError::Serialization(err.to_string()))?;
+
+        let Some(metadata) = metadata else {
+            return Ok(());
+        };
+
+        self.conn.execute(
+            "
+            INSERT INTO conversation_lineage (
+                conversation_id,
+                session_id,
+                parent_conversation_id,
+                root_conversation_id,
+                updated_at
+            ) VALUES (?1, ?2, ?3, ?4, ?5)
+            ON CONFLICT(conversation_id) DO UPDATE SET
+                session_id=excluded.session_id,
+                parent_conversation_id=excluded.parent_conversation_id,
+                root_conversation_id=excluded.root_conversation_id,
+                updated_at=excluded.updated_at
+            ",
+            params![
+                event.conversation_id,
+                metadata.session_id,
+                metadata.parent_conversation_id,
+                metadata.root_conversation_id,
+                event.ts.to_rfc3339(),
+            ],
+        )?;
+
+        Ok(())
     }
 
     pub fn upsert_t0_compact_event(&self, event: &T0CompactEvent) -> Result<(), StorageError> {
@@ -665,6 +876,366 @@ impl MindStore {
             entries.push(row?);
         }
         Ok(entries)
+    }
+
+    pub fn try_acquire_reflector_lease(
+        &self,
+        scope_id: &str,
+        owner_id: &str,
+        owner_pid: Option<i64>,
+        now: DateTime<Utc>,
+        ttl_ms: u64,
+    ) -> Result<bool, StorageError> {
+        let expires_at = now + chrono::Duration::milliseconds(ttl_ms.min(i64::MAX as u64) as i64);
+        let now_rfc3339 = now.to_rfc3339();
+        let expires_rfc3339 = expires_at.to_rfc3339();
+
+        let changes = self.conn.execute(
+            "
+            INSERT INTO reflector_runtime_leases (
+                scope_id,
+                owner_id,
+                owner_pid,
+                acquired_at,
+                heartbeat_at,
+                expires_at,
+                metadata_json
+            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, '{}')
+            ON CONFLICT(scope_id) DO UPDATE SET
+                owner_id=excluded.owner_id,
+                owner_pid=excluded.owner_pid,
+                acquired_at=CASE
+                    WHEN reflector_runtime_leases.owner_id = excluded.owner_id
+                    THEN reflector_runtime_leases.acquired_at
+                    ELSE excluded.acquired_at
+                END,
+                heartbeat_at=excluded.heartbeat_at,
+                expires_at=excluded.expires_at
+            WHERE reflector_runtime_leases.owner_id = excluded.owner_id
+               OR reflector_runtime_leases.expires_at <= excluded.acquired_at
+            ",
+            params![
+                scope_id,
+                owner_id,
+                owner_pid,
+                now_rfc3339,
+                now_rfc3339,
+                expires_rfc3339,
+            ],
+        )?;
+
+        Ok(changes > 0)
+    }
+
+    pub fn heartbeat_reflector_lease(
+        &self,
+        scope_id: &str,
+        owner_id: &str,
+        now: DateTime<Utc>,
+        ttl_ms: u64,
+    ) -> Result<bool, StorageError> {
+        let expires_at = now + chrono::Duration::milliseconds(ttl_ms.min(i64::MAX as u64) as i64);
+
+        let changes = self.conn.execute(
+            "
+            UPDATE reflector_runtime_leases
+            SET heartbeat_at = ?3,
+                expires_at = ?4
+            WHERE scope_id = ?1
+              AND owner_id = ?2
+            ",
+            params![
+                scope_id,
+                owner_id,
+                now.to_rfc3339(),
+                expires_at.to_rfc3339(),
+            ],
+        )?;
+
+        Ok(changes > 0)
+    }
+
+    pub fn release_reflector_lease(
+        &self,
+        scope_id: &str,
+        owner_id: &str,
+    ) -> Result<(), StorageError> {
+        self.conn.execute(
+            "
+            DELETE FROM reflector_runtime_leases
+            WHERE scope_id = ?1
+              AND owner_id = ?2
+            ",
+            params![scope_id, owner_id],
+        )?;
+        Ok(())
+    }
+
+    pub fn reflector_lease(&self, scope_id: &str) -> Result<Option<ReflectorLease>, StorageError> {
+        let lease = self
+            .conn
+            .query_row(
+                "
+                SELECT scope_id, owner_id, owner_pid, acquired_at, heartbeat_at, expires_at
+                FROM reflector_runtime_leases
+                WHERE scope_id = ?1
+                ",
+                [scope_id],
+                |row| {
+                    Ok(ReflectorLease {
+                        scope_id: row.get(0)?,
+                        owner_id: row.get(1)?,
+                        owner_pid: row.get(2)?,
+                        acquired_at: parse_timestamp(row.get::<_, String>(3)?).map_err(|err| {
+                            rusqlite::Error::FromSqlConversionFailure(
+                                3,
+                                rusqlite::types::Type::Text,
+                                Box::new(err),
+                            )
+                        })?,
+                        heartbeat_at: parse_timestamp(row.get::<_, String>(4)?).map_err(|err| {
+                            rusqlite::Error::FromSqlConversionFailure(
+                                4,
+                                rusqlite::types::Type::Text,
+                                Box::new(err),
+                            )
+                        })?,
+                        expires_at: parse_timestamp(row.get::<_, String>(5)?).map_err(|err| {
+                            rusqlite::Error::FromSqlConversionFailure(
+                                5,
+                                rusqlite::types::Type::Text,
+                                Box::new(err),
+                            )
+                        })?,
+                    })
+                },
+            )
+            .optional()?;
+
+        Ok(lease)
+    }
+
+    pub fn enqueue_reflector_job(
+        &self,
+        active_tag: &str,
+        observation_ids: &[String],
+        conversation_ids: &[String],
+        estimated_tokens: u32,
+        now: DateTime<Utc>,
+    ) -> Result<String, StorageError> {
+        let mut observation_ids = observation_ids.to_vec();
+        observation_ids.sort();
+        observation_ids.dedup();
+
+        let mut conversation_ids = conversation_ids.to_vec();
+        conversation_ids.sort();
+        conversation_ids.dedup();
+
+        let payload_hash =
+            canonical_payload_hash(&(active_tag, &observation_ids, &conversation_ids))
+                .map_err(|err| StorageError::Serialization(err.to_string()))?;
+        let job_id = format!("rfj:{}", &payload_hash[..16]);
+
+        self.conn.execute(
+            "
+            INSERT OR IGNORE INTO reflector_jobs_t2 (
+                job_id,
+                active_tag,
+                observation_ids_json,
+                conversation_ids_json,
+                estimated_tokens,
+                status,
+                claimed_by,
+                claimed_at,
+                attempts,
+                last_error,
+                created_at,
+                updated_at
+            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, NULL, NULL, 0, NULL, ?7, ?7)
+            ",
+            params![
+                job_id,
+                active_tag,
+                serde_json::to_string(&observation_ids)
+                    .map_err(|err| StorageError::Serialization(err.to_string()))?,
+                serde_json::to_string(&conversation_ids)
+                    .map_err(|err| StorageError::Serialization(err.to_string()))?,
+                i64::from(estimated_tokens),
+                reflector_job_status_as_str(ReflectorJobStatus::Pending),
+                now.to_rfc3339(),
+            ],
+        )?;
+
+        Ok(job_id)
+    }
+
+    pub fn claim_next_reflector_job(
+        &self,
+        scope_id: &str,
+        owner_id: &str,
+        now: DateTime<Utc>,
+    ) -> Result<Option<ReflectorJob>, StorageError> {
+        let lease = self.reflector_lease(scope_id)?;
+        let Some(lease) = lease else {
+            return Ok(None);
+        };
+        if lease.owner_id != owner_id || lease.expires_at < now {
+            return Ok(None);
+        }
+
+        for _ in 0..4 {
+            let candidate: Option<String> = self
+                .conn
+                .query_row(
+                    "
+                    SELECT job_id
+                    FROM reflector_jobs_t2
+                    WHERE status = ?1
+                    ORDER BY created_at ASC, job_id ASC
+                    LIMIT 1
+                    ",
+                    [reflector_job_status_as_str(ReflectorJobStatus::Pending)],
+                    |row| row.get(0),
+                )
+                .optional()?;
+
+            let Some(job_id) = candidate else {
+                return Ok(None);
+            };
+
+            let changes = self.conn.execute(
+                "
+                UPDATE reflector_jobs_t2
+                SET status = ?4,
+                    claimed_by = ?2,
+                    claimed_at = ?3,
+                    attempts = attempts + 1,
+                    updated_at = ?3
+                WHERE job_id = ?1
+                  AND status = ?5
+                ",
+                params![
+                    job_id,
+                    owner_id,
+                    now.to_rfc3339(),
+                    reflector_job_status_as_str(ReflectorJobStatus::Claimed),
+                    reflector_job_status_as_str(ReflectorJobStatus::Pending),
+                ],
+            )?;
+
+            if changes == 0 {
+                continue;
+            }
+
+            let job = self.reflector_job_by_id(&job_id)?;
+            return Ok(job);
+        }
+
+        Ok(None)
+    }
+
+    pub fn complete_reflector_job(
+        &self,
+        job_id: &str,
+        owner_id: &str,
+        now: DateTime<Utc>,
+    ) -> Result<bool, StorageError> {
+        let changes = self.conn.execute(
+            "
+            UPDATE reflector_jobs_t2
+            SET status = ?4,
+                updated_at = ?3
+            WHERE job_id = ?1
+              AND claimed_by = ?2
+              AND status = ?5
+            ",
+            params![
+                job_id,
+                owner_id,
+                now.to_rfc3339(),
+                reflector_job_status_as_str(ReflectorJobStatus::Completed),
+                reflector_job_status_as_str(ReflectorJobStatus::Claimed),
+            ],
+        )?;
+
+        Ok(changes > 0)
+    }
+
+    pub fn fail_reflector_job(
+        &self,
+        job_id: &str,
+        owner_id: &str,
+        error: &str,
+        now: DateTime<Utc>,
+        requeue: bool,
+    ) -> Result<bool, StorageError> {
+        let (status, claimed_by, claimed_at) = if requeue {
+            (
+                reflector_job_status_as_str(ReflectorJobStatus::Pending),
+                None::<String>,
+                None::<String>,
+            )
+        } else {
+            (
+                reflector_job_status_as_str(ReflectorJobStatus::Failed),
+                Some(owner_id.to_string()),
+                Some(now.to_rfc3339()),
+            )
+        };
+
+        let changes = self.conn.execute(
+            "
+            UPDATE reflector_jobs_t2
+            SET status = ?4,
+                claimed_by = ?5,
+                claimed_at = ?6,
+                last_error = ?3,
+                updated_at = ?2
+            WHERE job_id = ?1
+              AND status = ?7
+              AND claimed_by = ?8
+            ",
+            params![
+                job_id,
+                now.to_rfc3339(),
+                error,
+                status,
+                claimed_by,
+                claimed_at,
+                reflector_job_status_as_str(ReflectorJobStatus::Claimed),
+                owner_id,
+            ],
+        )?;
+
+        Ok(changes > 0)
+    }
+
+    pub fn pending_reflector_jobs(&self) -> Result<i64, StorageError> {
+        let count = self.conn.query_row(
+            "SELECT COUNT(*) FROM reflector_jobs_t2 WHERE status = ?1",
+            [reflector_job_status_as_str(ReflectorJobStatus::Pending)],
+            |row| row.get(0),
+        )?;
+        Ok(count)
+    }
+
+    pub fn reflector_job_by_id(&self, job_id: &str) -> Result<Option<ReflectorJob>, StorageError> {
+        let job = self
+            .conn
+            .query_row(
+                "
+                SELECT job_id, active_tag, observation_ids_json, conversation_ids_json,
+                       estimated_tokens, status, claimed_by, claimed_at, attempts,
+                       last_error, created_at, updated_at
+                FROM reflector_jobs_t2
+                WHERE job_id = ?1
+                ",
+                [job_id],
+                |row| parse_reflector_job_row(row),
+            )
+            .optional()?;
+
+        Ok(job)
     }
 
     pub fn artifacts_for_conversation(
@@ -1219,6 +1790,85 @@ fn parse_semantic_failure_kind(value: &str) -> Option<SemanticFailureKind> {
     }
 }
 
+fn reflector_job_status_as_str(status: ReflectorJobStatus) -> &'static str {
+    match status {
+        ReflectorJobStatus::Pending => "pending",
+        ReflectorJobStatus::Claimed => "claimed",
+        ReflectorJobStatus::Completed => "completed",
+        ReflectorJobStatus::Failed => "failed",
+    }
+}
+
+fn parse_reflector_job_status(value: &str) -> Option<ReflectorJobStatus> {
+    match value {
+        "pending" => Some(ReflectorJobStatus::Pending),
+        "claimed" => Some(ReflectorJobStatus::Claimed),
+        "completed" => Some(ReflectorJobStatus::Completed),
+        "failed" => Some(ReflectorJobStatus::Failed),
+        _ => None,
+    }
+}
+
+fn parse_reflector_job_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<ReflectorJob> {
+    let observation_ids_json: String = row.get(2)?;
+    let mut observation_ids: Vec<String> =
+        serde_json::from_str(&observation_ids_json).map_err(|err| {
+            rusqlite::Error::FromSqlConversionFailure(2, rusqlite::types::Type::Text, Box::new(err))
+        })?;
+    observation_ids.sort();
+    observation_ids.dedup();
+
+    let conversation_ids_json: String = row.get(3)?;
+    let mut conversation_ids: Vec<String> =
+        serde_json::from_str(&conversation_ids_json).map_err(|err| {
+            rusqlite::Error::FromSqlConversionFailure(3, rusqlite::types::Type::Text, Box::new(err))
+        })?;
+    conversation_ids.sort();
+    conversation_ids.dedup();
+
+    let status_raw: String = row.get(5)?;
+    let status = parse_reflector_job_status(&status_raw).ok_or_else(|| {
+        rusqlite::Error::FromSqlConversionFailure(
+            5,
+            rusqlite::types::Type::Text,
+            Box::new(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                format!("invalid reflector job status: {status_raw}"),
+            )),
+        )
+    })?;
+
+    let claimed_at = row
+        .get::<_, Option<String>>(7)?
+        .map(parse_timestamp)
+        .transpose()
+        .map_err(|err| {
+            rusqlite::Error::FromSqlConversionFailure(7, rusqlite::types::Type::Text, Box::new(err))
+        })?;
+
+    let created_at = parse_timestamp(row.get::<_, String>(10)?).map_err(|err| {
+        rusqlite::Error::FromSqlConversionFailure(10, rusqlite::types::Type::Text, Box::new(err))
+    })?;
+    let updated_at = parse_timestamp(row.get::<_, String>(11)?).map_err(|err| {
+        rusqlite::Error::FromSqlConversionFailure(11, rusqlite::types::Type::Text, Box::new(err))
+    })?;
+
+    Ok(ReflectorJob {
+        job_id: row.get(0)?,
+        active_tag: row.get(1)?,
+        observation_ids,
+        conversation_ids,
+        estimated_tokens: row.get::<_, i64>(4)? as u32,
+        status,
+        claimed_by: row.get(6)?,
+        claimed_at,
+        attempts: row.get::<_, i64>(8)? as u16,
+        last_error: row.get(9)?,
+        created_at,
+        updated_at,
+    })
+}
+
 fn strip_route_rank_suffix(reason: &str) -> String {
     reason
         .split(" | rank=")
@@ -1295,6 +1945,9 @@ mod tests {
             "conversation_context_state",
             "segment_routes",
             "semantic_runtime_provenance",
+            "reflector_runtime_leases",
+            "reflector_jobs_t2",
+            "conversation_lineage",
             "aoc_mem_decisions",
             "ingestion_checkpoints",
         ] {
@@ -1419,6 +2072,131 @@ mod tests {
         assert_eq!(snapshot.signal_task_ids, vec!["101".to_string()]);
         assert_eq!(snapshot.signal_source, "task_summary");
         assert_eq!(db.context_state_count("conv-4").expect("count"), 1);
+    }
+
+    #[test]
+    fn raw_event_lineage_tracks_session_and_branch_relationships() {
+        let db = MindStore::open_in_memory().expect("open db");
+
+        let root = RawEvent {
+            event_id: "evt-root".to_string(),
+            conversation_id: "conv-root".to_string(),
+            agent_id: "session-a::12".to_string(),
+            ts: ts(),
+            body: RawEventBody::Message(MessageEvent {
+                role: ConversationRole::User,
+                text: "root conversation".to_string(),
+            }),
+            attrs: Default::default(),
+        };
+        let mut branch_attrs = std::collections::BTreeMap::new();
+        branch_attrs.insert(
+            "session_id".to_string(),
+            serde_json::Value::String("session-a".to_string()),
+        );
+        branch_attrs.insert(
+            "parent_conversation_id".to_string(),
+            serde_json::Value::String("conv-root".to_string()),
+        );
+        branch_attrs.insert(
+            "root_conversation_id".to_string(),
+            serde_json::Value::String("conv-root".to_string()),
+        );
+        let branch = RawEvent {
+            event_id: "evt-branch".to_string(),
+            conversation_id: "conv-branch".to_string(),
+            agent_id: "session-a::12".to_string(),
+            ts: ts() + chrono::Duration::seconds(1),
+            body: RawEventBody::Message(MessageEvent {
+                role: ConversationRole::User,
+                text: "branch conversation".to_string(),
+            }),
+            attrs: branch_attrs,
+        };
+
+        db.insert_raw_event(&root).expect("insert root raw");
+        db.insert_raw_event(&branch).expect("insert branch raw");
+
+        let root_lineage = db
+            .conversation_lineage("conv-root")
+            .expect("load root lineage")
+            .expect("root lineage exists");
+        assert_eq!(root_lineage.session_id, "session-a");
+        assert_eq!(root_lineage.parent_conversation_id, None);
+        assert_eq!(root_lineage.root_conversation_id, "conv-root");
+
+        let branch_lineage = db
+            .conversation_lineage("conv-branch")
+            .expect("load branch lineage")
+            .expect("branch lineage exists");
+        assert_eq!(branch_lineage.session_id, "session-a");
+        assert_eq!(
+            branch_lineage.parent_conversation_id.as_deref(),
+            Some("conv-root")
+        );
+        assert_eq!(branch_lineage.root_conversation_id, "conv-root");
+
+        let session_tree = db
+            .session_tree_conversations("session-a", "conv-root")
+            .expect("session tree");
+        assert_eq!(
+            session_tree,
+            vec!["conv-branch".to_string(), "conv-root".to_string()]
+        );
+    }
+
+    #[test]
+    fn raw_event_lineage_rejects_partial_branch_metadata() {
+        let db = MindStore::open_in_memory().expect("open db");
+
+        let mut attrs = std::collections::BTreeMap::new();
+        attrs.insert(
+            "parent_conversation_id".to_string(),
+            serde_json::Value::String("conv-root".to_string()),
+        );
+
+        let event = RawEvent {
+            event_id: "evt-invalid-branch".to_string(),
+            conversation_id: "conv-branch".to_string(),
+            agent_id: "session-a::12".to_string(),
+            ts: ts(),
+            body: RawEventBody::Message(MessageEvent {
+                role: ConversationRole::User,
+                text: "invalid branch metadata".to_string(),
+            }),
+            attrs,
+        };
+
+        let err = db.insert_raw_event(&event).expect_err("insert must fail");
+        assert!(matches!(err, StorageError::Serialization(_)));
+    }
+
+    #[test]
+    fn conversation_needs_observer_run_compares_latest_t0_and_t1() {
+        let db = MindStore::open_in_memory().expect("open db");
+
+        let raw = sample_message_event("evt-observer", "conv-observer");
+        let compact = compact_raw_event_to_t0(&raw, &T0CompactionPolicy::default())
+            .expect("compact")
+            .expect("kept");
+        db.upsert_t0_compact_event(&compact).expect("insert t0");
+
+        assert!(db
+            .conversation_needs_observer_run("conv-observer")
+            .expect("needs run before t1"));
+
+        db.insert_observation(
+            "obs:conv-observer:1",
+            "conv-observer",
+            compact.ts,
+            "t1 observer output",
+            &[compact.compact_id.clone()],
+        )
+        .expect("insert t1");
+
+        assert!(!db
+            .conversation_needs_observer_run("conv-observer")
+            .expect("does not need run after t1"));
     }
 
     #[test]
@@ -1554,5 +2332,105 @@ mod tests {
         assert!(loaded.secondary.is_empty());
         assert_eq!(loaded.routed_by, RouteOrigin::ManualOverride);
         assert_eq!(loaded.overridden_by.as_deref(), Some("patch-1"));
+    }
+
+    #[test]
+    fn reflector_lease_allows_single_owner_and_stale_takeover() {
+        let db = MindStore::open_in_memory().expect("open db");
+        let now = ts();
+
+        assert!(db
+            .try_acquire_reflector_lease("scope-a", "owner-a", Some(111), now, 1_000)
+            .expect("acquire a"));
+
+        assert!(!db
+            .try_acquire_reflector_lease(
+                "scope-a",
+                "owner-b",
+                Some(222),
+                now + chrono::Duration::milliseconds(500),
+                1_000,
+            )
+            .expect("owner-b blocked"));
+
+        assert!(db
+            .try_acquire_reflector_lease(
+                "scope-a",
+                "owner-b",
+                Some(222),
+                now + chrono::Duration::milliseconds(1_500),
+                1_000,
+            )
+            .expect("owner-b takeover"));
+
+        let lease = db
+            .reflector_lease("scope-a")
+            .expect("lease query")
+            .expect("lease present");
+        assert_eq!(lease.owner_id, "owner-b");
+        assert_eq!(lease.owner_pid, Some(222));
+    }
+
+    #[test]
+    fn reflector_job_claim_complete_and_failure_requeue_roundtrip() {
+        let db = MindStore::open_in_memory().expect("open db");
+        let now = ts();
+
+        db.try_acquire_reflector_lease("scope-a", "owner-a", Some(101), now, 5_000)
+            .expect("acquire lease");
+
+        let job_id = db
+            .enqueue_reflector_job(
+                "mind",
+                &["obs:2".to_string(), "obs:1".to_string()],
+                &["conv-1".to_string()],
+                120,
+                now,
+            )
+            .expect("enqueue job");
+
+        let claimed = db
+            .claim_next_reflector_job(
+                "scope-a",
+                "owner-a",
+                now + chrono::Duration::milliseconds(1),
+            )
+            .expect("claim")
+            .expect("job present");
+        assert_eq!(claimed.job_id, job_id);
+        assert_eq!(claimed.status, ReflectorJobStatus::Claimed);
+        assert_eq!(claimed.attempts, 1);
+
+        assert!(db
+            .fail_reflector_job(
+                &job_id,
+                "owner-a",
+                "temporary timeout",
+                now + chrono::Duration::milliseconds(2),
+                true,
+            )
+            .expect("requeue"));
+        assert_eq!(db.pending_reflector_jobs().expect("pending"), 1);
+
+        let claimed_again = db
+            .claim_next_reflector_job(
+                "scope-a",
+                "owner-a",
+                now + chrono::Duration::milliseconds(3),
+            )
+            .expect("claim again")
+            .expect("job present");
+        assert_eq!(claimed_again.attempts, 2);
+
+        assert!(db
+            .complete_reflector_job(&job_id, "owner-a", now + chrono::Duration::milliseconds(4),)
+            .expect("complete"));
+
+        let completed = db
+            .reflector_job_by_id(&job_id)
+            .expect("load job")
+            .expect("job exists");
+        assert_eq!(completed.status, ReflectorJobStatus::Completed);
+        assert_eq!(completed.attempts, 2);
     }
 }

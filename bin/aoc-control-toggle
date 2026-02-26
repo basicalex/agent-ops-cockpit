@@ -57,12 +57,15 @@ if command -v awk >/dev/null 2>&1; then
       if (index($0, "name=\"" target "\"") > 0) {
         found = 1
       }
+      if ($0 ~ /command=\"[^\"]*aoc-control([^\"]*)\"/) {
+        found = 1
+      }
     }
     END { print found + 0 }
   ')
 fi
 
-if [[ "$has_control" == "0" ]] && printf '%s' "$layout" | grep -q "name=\"$pane_name\""; then
+if [[ "$has_control" == "0" ]] && printf '%s' "$layout" | grep -Eq "name=\"$pane_name\"|command=\"[^\"]*aoc-control([^\"]*)\""; then
   has_control="1"
 fi
 
