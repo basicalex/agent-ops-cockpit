@@ -12,6 +12,8 @@ Usage:
   aoc-theme set-default --name <theme-name> [--scope global] [--config <path>]
   aoc-theme activate --name <theme-name> [--scope global] [--config <path>]
   aoc-theme sync [--name <theme-name>] [--scope global] [--config <path>]
+  aoc-theme background list
+  aoc-theme background set --profile <follow-theme|deeper|softer|high-contrast|low-glare> [--config <path>]
   aoc-theme tui
 
 Manage Zellij themes for global AOC workflows.
@@ -122,9 +124,328 @@ aoc_theme_profile_path() {
   printf '%s/aoc/theme.env' "$config_home"
 }
 
+aoc_theme_overrides_path() {
+  local config_home="${XDG_CONFIG_HOME:-$HOME/.config}"
+  printf '%s/aoc/theme-overrides.env' "$config_home"
+}
+
 aoc_yazi_theme_path() {
   local config_home="${XDG_CONFIG_HOME:-$HOME/.config}"
   printf '%s/yazi/theme.toml' "$config_home"
+}
+
+normalize_bg_profile() {
+  local raw="${1:-follow-theme}"
+  case "$raw" in
+    follow-theme|deeper|softer|high-contrast|low-glare)
+      printf '%s' "$raw"
+      ;;
+    *)
+      die "Unknown background profile '$raw'. Use: follow-theme, deeper, softer, high-contrast, low-glare"
+      ;;
+  esac
+}
+
+list_bg_profiles() {
+  local current="${1:-follow-theme}"
+  local profile
+  for profile in follow-theme deeper softer high-contrast low-glare; do
+    if [[ "$profile" == "$current" ]]; then
+      echo "background  $profile  current"
+    else
+      echo "background  $profile  available"
+    fi
+  done
+}
+
+bg_profile_suffix() {
+  local profile
+  profile="$(normalize_bg_profile "$1")"
+  printf '%s' "-aocbg-$profile"
+}
+
+derived_theme_name_for_profile() {
+  local base_name="$1"
+  local profile
+  profile="$(normalize_bg_profile "$2")"
+  if [[ "$profile" == "follow-theme" ]]; then
+    printf '%s' "$base_name"
+    return 0
+  fi
+  printf '%s%s' "$base_name" "$(bg_profile_suffix "$profile")"
+}
+
+split_derived_theme_name() {
+  local raw_name="$1"
+  local profile
+  for profile in follow-theme deeper softer high-contrast low-glare; do
+    local suffix
+    suffix="$(bg_profile_suffix "$profile")"
+    if [[ "$raw_name" == *"$suffix" ]]; then
+      local base_name="${raw_name%$suffix}"
+      if [[ -n "$base_name" ]]; then
+        printf '%s|%s\n' "$base_name" "$profile"
+        return 0
+      fi
+    fi
+  done
+  return 1
+}
+
+logical_theme_name() {
+  local raw_name="$1"
+  local split
+  split="$(split_derived_theme_name "$raw_name" || true)"
+  if [[ -n "$split" ]]; then
+    printf '%s' "${split%%|*}"
+  else
+    printf '%s' "$raw_name"
+  fi
+}
+
+profile_from_derived_theme_name() {
+  local raw_name="$1"
+  local split
+  split="$(split_derived_theme_name "$raw_name" || true)"
+  if [[ -n "$split" ]]; then
+    printf '%s' "${split#*|}"
+  fi
+}
+
+background_profile_from_overrides_file() {
+  local overrides_path
+  overrides_path="$(aoc_theme_overrides_path)"
+  if [[ ! -f "$overrides_path" ]]; then
+    return 1
+  fi
+
+  awk '
+    /^[[:space:]]*export[[:space:]]+AOC_THEME_BG_PROFILE="/ {
+      line=$0
+      sub(/^[[:space:]]*export[[:space:]]+AOC_THEME_BG_PROFILE="/, "", line)
+      sub(/".*/, "", line)
+      if (length(line) > 0) {
+        print line
+        exit 0
+      }
+    }
+  ' "$overrides_path"
+}
+
+current_background_profile_preference() {
+  local profile
+  profile="$(background_profile_from_overrides_file || true)"
+  if [[ -z "$profile" ]]; then
+    profile="$(background_profile_from_profile_file || true)"
+  fi
+  if [[ -z "$profile" ]]; then
+    profile="follow-theme"
+  fi
+  normalize_bg_profile "$profile"
+}
+
+adjust_hex_color() {
+  local hex="$1"
+  local delta="$2"
+  python3 - "$hex" "$delta" <<'PY'
+import sys
+
+hex_value = sys.argv[1].strip().lstrip('#')
+delta = int(sys.argv[2])
+if len(hex_value) != 6:
+    raise SystemExit(1)
+
+r = int(hex_value[0:2], 16)
+g = int(hex_value[2:4], 16)
+b = int(hex_value[4:6], 16)
+
+
+def clamp(v: int) -> int:
+    return max(0, min(255, v))
+
+r = clamp(r + delta)
+g = clamp(g + delta)
+b = clamp(b + delta)
+print(f"#{r:02X}{g:02X}{b:02X}")
+PY
+}
+
+is_dark_color() {
+  local hex="$1"
+  python3 - "$hex" <<'PY'
+import sys
+
+hex_value = sys.argv[1].strip().lstrip('#')
+if len(hex_value) != 6:
+    raise SystemExit(1)
+
+r = int(hex_value[0:2], 16)
+g = int(hex_value[2:4], 16)
+b = int(hex_value[4:6], 16)
+
+# Perceived luminance (sRGB approximation)
+luma = 0.299 * r + 0.587 * g + 0.114 * b
+print("1" if luma < 128 else "0")
+PY
+}
+
+derive_muted_color() {
+  local fg="$1"
+  local bg="$2"
+  if [[ "$(is_dark_color "$bg")" == "1" ]]; then
+    adjust_hex_color "$fg" -64
+  else
+    adjust_hex_color "$fg" 64
+  fi
+}
+
+bg_profile_values() {
+  local profile
+  profile="$(normalize_bg_profile "$1")"
+  local bg="$2"
+  local _black="$3"
+  local blue="$4"
+
+  local base=""
+  local elevated=""
+  local subtle=""
+  local accent=""
+
+  case "$profile" in
+    follow-theme)
+      base="$bg"
+      elevated="$(adjust_hex_color "$bg" -8)"
+      subtle="$(adjust_hex_color "$bg" -4)"
+      accent="$blue"
+      ;;
+    deeper)
+      base="$(adjust_hex_color "$bg" -12)"
+      elevated="$(adjust_hex_color "$bg" -22)"
+      subtle="$(adjust_hex_color "$bg" -16)"
+      accent="$(adjust_hex_color "$blue" -18)"
+      ;;
+    softer)
+      base="$(adjust_hex_color "$bg" 8)"
+      elevated="$(adjust_hex_color "$bg" 3)"
+      subtle="$(adjust_hex_color "$bg" 12)"
+      accent="$(adjust_hex_color "$blue" 6)"
+      ;;
+    high-contrast)
+      base="$bg"
+      elevated="$(adjust_hex_color "$bg" -24)"
+      subtle="$(adjust_hex_color "$bg" 14)"
+      accent="$blue"
+      ;;
+    low-glare)
+      base="$(adjust_hex_color "$bg" -6)"
+      elevated="$(adjust_hex_color "$bg" -12)"
+      subtle="$(adjust_hex_color "$bg" -8)"
+      accent="$(adjust_hex_color "$blue" -10)"
+      ;;
+  esac
+
+  printf 'AOC_THEME_BG_PROFILE=%s\n' "$profile"
+  printf 'AOC_THEME_BG_BASE=%s\n' "$base"
+  printf 'AOC_THEME_BG_ELEVATED=%s\n' "$elevated"
+  printf 'AOC_THEME_BG_SUBTLE=%s\n' "$subtle"
+  printf 'AOC_THEME_BG_ACCENT=%s\n' "$accent"
+}
+
+resolve_effective_theme() {
+  local requested_name="$1"
+  local config_dir="$2"
+  local explicit_profile="${3:-}"
+
+  local base_name
+  base_name="$(logical_theme_name "$requested_name")"
+
+  local resolved_base
+  resolved_base="$(resolve_global_theme "$base_name" "$config_dir")"
+
+  local resolved_name base_theme_path
+  IFS='|' read -r resolved_name base_theme_path <<< "$resolved_base"
+
+  local profile="$explicit_profile"
+  if [[ -z "$profile" ]]; then
+    profile="$(profile_from_derived_theme_name "$requested_name")"
+  fi
+  if [[ -z "$profile" ]]; then
+    profile="$(current_background_profile_preference)"
+  fi
+  profile="$(normalize_bg_profile "$profile")"
+
+  if [[ "$profile" == "follow-theme" ]]; then
+    printf '%s|%s|%s|%s|%s\n' "$resolved_name" "$base_theme_path" "$resolved_name" "$base_theme_path" "$profile"
+    return 0
+  fi
+
+  local fg=""
+  local bg=""
+  local black=""
+  local red=""
+  local green=""
+  local yellow=""
+  local blue=""
+  local magenta=""
+  local cyan=""
+  local white=""
+  local orange=""
+  local line=""
+
+  while IFS= read -r line; do
+    [[ -n "$line" ]] || continue
+    case "${line%%=*}" in
+      AOC_THEME_FG) fg="${line#*=}" ;;
+      AOC_THEME_BG) bg="${line#*=}" ;;
+      AOC_THEME_BLACK) black="${line#*=}" ;;
+      AOC_THEME_RED) red="${line#*=}" ;;
+      AOC_THEME_GREEN) green="${line#*=}" ;;
+      AOC_THEME_YELLOW) yellow="${line#*=}" ;;
+      AOC_THEME_BLUE) blue="${line#*=}" ;;
+      AOC_THEME_MAGENTA) magenta="${line#*=}" ;;
+      AOC_THEME_CYAN) cyan="${line#*=}" ;;
+      AOC_THEME_WHITE) white="${line#*=}" ;;
+      AOC_THEME_ORANGE) orange="${line#*=}" ;;
+    esac
+  done < <(parse_theme_block_hex_colors "$base_theme_path" "$resolved_name")
+
+  [[ -n "$fg" && -n "$bg" && -n "$black" && -n "$red" && -n "$green" && -n "$yellow" && -n "$blue" && -n "$magenta" && -n "$cyan" && -n "$white" && -n "$orange" ]] || die "Failed to parse base palette from $base_theme_path ($resolved_name)."
+
+  local bg_base=""
+  while IFS= read -r line; do
+    [[ -n "$line" ]] || continue
+    if [[ "${line%%=*}" == "AOC_THEME_BG_BASE" ]]; then
+      bg_base="${line#*=}"
+      break
+    fi
+  done < <(bg_profile_values "$profile" "$bg" "$black" "$blue")
+
+  [[ -n "$bg_base" ]] || die "Failed to derive background base for profile '$profile'."
+
+  local effective_name
+  effective_name="$(derived_theme_name_for_profile "$resolved_name" "$profile")"
+  local effective_path="$config_dir/themes/$effective_name.kdl"
+  mkdir -p "$(dirname "$effective_path")"
+
+  cat <<EOF > "$effective_path"
+themes {
+    $effective_name {
+        fg "$fg"
+        bg "$bg_base"
+        black "$black"
+        red "$red"
+        green "$green"
+        yellow "$yellow"
+        blue "$blue"
+        magenta "$magenta"
+        cyan "$cyan"
+        white "$white"
+        orange "$orange"
+    }
+}
+EOF
+
+  printf '%s|%s|%s|%s|%s\n' "$resolved_name" "$base_theme_path" "$effective_name" "$effective_path" "$profile"
 }
 
 aoc_pi_theme_name() {
@@ -222,9 +543,10 @@ PY
 }
 
 write_aoc_theme_profile() {
-  local theme_name="$1"
-  local theme_path="$2"
-  shift 2
+  local logical_theme_name="$1"
+  local effective_theme_name="$2"
+  local theme_path="$3"
+  shift 3
   local profile_path
   profile_path="$(aoc_theme_profile_path)"
   mkdir -p "$(dirname "$profile_path")"
@@ -232,7 +554,9 @@ write_aoc_theme_profile() {
   cat <<EOF > "$profile_path"
 #!/usr/bin/env bash
 # Auto-generated by aoc-theme. Safe to source.
-export AOC_THEME_NAME="$theme_name"
+export AOC_THEME_NAME="$logical_theme_name"
+export AOC_THEME_BASE_NAME="$logical_theme_name"
+export AOC_THEME_EFFECTIVE_NAME="$effective_theme_name"
 export AOC_THEME_SOURCE_PATH="$theme_path"
 EOF
 
@@ -244,19 +568,84 @@ EOF
     printf 'export %s="%s"\n' "$key" "$value" >> "$profile_path"
   done
 
+  # shellcheck disable=SC1090
+  source "$profile_path"
+
+  # Semantic roles: keep UI (foreground accents) independent from background surfaces.
+  AOC_THEME_UI_PRIMARY="$AOC_THEME_FG"
+  AOC_THEME_UI_MUTED="$(derive_muted_color "$AOC_THEME_FG" "$AOC_THEME_BG")"
+  AOC_THEME_UI_ACCENT="$AOC_THEME_BLUE"
+  AOC_THEME_UI_SUCCESS="$AOC_THEME_GREEN"
+  AOC_THEME_UI_WARNING="$AOC_THEME_YELLOW"
+  AOC_THEME_UI_DANGER="$AOC_THEME_RED"
+  AOC_THEME_UI_INFO="$AOC_THEME_CYAN"
+  AOC_THEME_UI_RENAME="$AOC_THEME_MAGENTA"
+  AOC_THEME_UI_TMUX="$AOC_THEME_ORANGE"
+
+  AOC_THEME_BG_PROFILE="follow-theme"
+  AOC_THEME_BG_BASE="$AOC_THEME_BG"
+  AOC_THEME_BG_ELEVATED="$AOC_THEME_BLACK"
+  AOC_THEME_BG_SUBTLE="$AOC_THEME_BLACK"
+  AOC_THEME_BG_ACCENT="$AOC_THEME_BLUE"
+
+  local overrides_path
+  overrides_path="$(aoc_theme_overrides_path)"
+  if [[ -f "$overrides_path" ]]; then
+    # shellcheck disable=SC1090
+    source "$overrides_path"
+
+    local selected_bg_profile
+    selected_bg_profile="$(normalize_bg_profile "${AOC_THEME_BG_PROFILE:-follow-theme}")"
+
+    local profile_line
+    while IFS= read -r profile_line; do
+      [[ -n "$profile_line" ]] || continue
+      local pkey="${profile_line%%=*}"
+      local pvalue="${profile_line#*=}"
+      case "$pkey" in
+        AOC_THEME_BG_PROFILE) AOC_THEME_BG_PROFILE="$pvalue" ;;
+        AOC_THEME_BG_BASE) AOC_THEME_BG_BASE="$pvalue" ;;
+        AOC_THEME_BG_ELEVATED) AOC_THEME_BG_ELEVATED="$pvalue" ;;
+        AOC_THEME_BG_SUBTLE) AOC_THEME_BG_SUBTLE="$pvalue" ;;
+        AOC_THEME_BG_ACCENT) AOC_THEME_BG_ACCENT="$pvalue" ;;
+      esac
+    done < <(bg_profile_values "$selected_bg_profile" "$AOC_THEME_BG" "$AOC_THEME_BLACK" "$AOC_THEME_BLUE")
+
+    # Source again so explicit overrides in the file win over profile defaults.
+    # shellcheck disable=SC1090
+    source "$overrides_path"
+  fi
+
   cat <<EOF >> "$profile_path"
 export AOC_PI_THEME_NAME="$(aoc_pi_theme_name)"
 export AOC_PI_THEME_PATH="$(aoc_pi_theme_path "$(aoc_pi_theme_name)")"
 export AOC_PI_SETTINGS_PATH="$(aoc_pi_settings_path)"
 export AOC_PI_THEME_LOCKED="1"
-export AOC_THEME_STATUS_MUTED="$AOC_THEME_BLACK"
-export AOC_THEME_STATUS_ACCENT="$AOC_THEME_BLUE"
-export AOC_THEME_STATUS_HINT="$AOC_THEME_GREEN"
-export AOC_THEME_STATUS_WARNING="$AOC_THEME_YELLOW"
-export AOC_THEME_STATUS_LOCKED="$AOC_THEME_RED"
-export AOC_THEME_STATUS_RENAME="$AOC_THEME_MAGENTA"
-export AOC_THEME_STATUS_TAB_ACTIVE="$AOC_THEME_WHITE"
-export AOC_THEME_STATUS_TMUX="$AOC_THEME_ORANGE"
+
+export AOC_THEME_UI_PRIMARY="$AOC_THEME_UI_PRIMARY"
+export AOC_THEME_UI_MUTED="$AOC_THEME_UI_MUTED"
+export AOC_THEME_UI_ACCENT="$AOC_THEME_UI_ACCENT"
+export AOC_THEME_UI_SUCCESS="$AOC_THEME_UI_SUCCESS"
+export AOC_THEME_UI_WARNING="$AOC_THEME_UI_WARNING"
+export AOC_THEME_UI_DANGER="$AOC_THEME_UI_DANGER"
+export AOC_THEME_UI_INFO="$AOC_THEME_UI_INFO"
+export AOC_THEME_UI_RENAME="$AOC_THEME_UI_RENAME"
+export AOC_THEME_UI_TMUX="$AOC_THEME_UI_TMUX"
+
+export AOC_THEME_BG_PROFILE="$AOC_THEME_BG_PROFILE"
+export AOC_THEME_BG_BASE="$AOC_THEME_BG_BASE"
+export AOC_THEME_BG_ELEVATED="$AOC_THEME_BG_ELEVATED"
+export AOC_THEME_BG_SUBTLE="$AOC_THEME_BG_SUBTLE"
+export AOC_THEME_BG_ACCENT="$AOC_THEME_BG_ACCENT"
+
+export AOC_THEME_STATUS_MUTED="$AOC_THEME_UI_MUTED"
+export AOC_THEME_STATUS_ACCENT="$AOC_THEME_UI_ACCENT"
+export AOC_THEME_STATUS_HINT="$AOC_THEME_UI_SUCCESS"
+export AOC_THEME_STATUS_WARNING="$AOC_THEME_UI_WARNING"
+export AOC_THEME_STATUS_LOCKED="$AOC_THEME_UI_DANGER"
+export AOC_THEME_STATUS_RENAME="$AOC_THEME_UI_RENAME"
+export AOC_THEME_STATUS_TAB_ACTIVE="$AOC_THEME_UI_PRIMARY"
+export AOC_THEME_STATUS_TMUX="$AOC_THEME_UI_TMUX"
 EOF
 }
 
@@ -267,36 +656,50 @@ write_yazi_theme_from_profile() {
   # shellcheck disable=SC1090
   source "$profile_path"
 
+  local bg_base bg_elevated bg_subtle bg_accent
+  local ui_primary ui_muted ui_accent ui_success ui_warning ui_danger ui_info
+  bg_base="${AOC_THEME_BG_BASE:-$AOC_THEME_BG}"
+  bg_elevated="${AOC_THEME_BG_ELEVATED:-$AOC_THEME_BLACK}"
+  bg_subtle="${AOC_THEME_BG_SUBTLE:-$AOC_THEME_BLACK}"
+  bg_accent="${AOC_THEME_BG_ACCENT:-$AOC_THEME_BLUE}"
+  ui_primary="${AOC_THEME_UI_PRIMARY:-$AOC_THEME_FG}"
+  ui_muted="${AOC_THEME_UI_MUTED:-$AOC_THEME_WHITE}"
+  ui_accent="${AOC_THEME_UI_ACCENT:-$AOC_THEME_BLUE}"
+  ui_success="${AOC_THEME_UI_SUCCESS:-$AOC_THEME_GREEN}"
+  ui_warning="${AOC_THEME_UI_WARNING:-$AOC_THEME_YELLOW}"
+  ui_danger="${AOC_THEME_UI_DANGER:-$AOC_THEME_RED}"
+  ui_info="${AOC_THEME_UI_INFO:-$AOC_THEME_CYAN}"
+
   local yazi_theme
   yazi_theme="$(aoc_yazi_theme_path)"
   mkdir -p "$(dirname "$yazi_theme")"
 
   cat <<EOF > "$yazi_theme"
 [mgr]
-cwd = { fg = "$AOC_THEME_CYAN" }
-hovered = { fg = "$AOC_THEME_BG", bg = "$AOC_THEME_BLUE", bold = true }
+cwd = { fg = "$ui_info" }
+hovered = { fg = "$bg_base", bg = "$bg_accent", bold = true }
 preview_hovered = { underline = true }
-file = { fg = "$AOC_THEME_FG" }
-directory = { fg = "$AOC_THEME_BLUE", bold = true }
-symlink = { fg = "$AOC_THEME_CYAN" }
+file = { fg = "$ui_primary" }
+directory = { fg = "$ui_accent", bold = true }
+symlink = { fg = "$ui_info" }
 border_symbol = "│"
-border_style = { fg = "$AOC_THEME_BLACK" }
+border_style = { fg = "$ui_muted" }
 
 [status]
 separator_open = ""
 separator_close = ""
-separator_style = { fg = "$AOC_THEME_BLACK" }
-mode_normal = { fg = "$AOC_THEME_BLUE", bg = "$AOC_THEME_BG", bold = true }
-mode_select = { fg = "$AOC_THEME_RED", bg = "$AOC_THEME_BG", bold = true }
-mode_unset = { fg = "$AOC_THEME_BLACK", bg = "$AOC_THEME_BG" }
+separator_style = { fg = "$ui_muted" }
+mode_normal = { fg = "$ui_accent", bg = "$bg_base", bold = true }
+mode_select = { fg = "$ui_danger", bg = "$bg_base", bold = true }
+mode_unset = { fg = "$ui_muted", bg = "$bg_base" }
 
 [mode]
-normal_main = { fg = "$AOC_THEME_BG", bg = "$AOC_THEME_BLUE", bold = true }
-normal_alt = { fg = "$AOC_THEME_BLUE", bg = "$AOC_THEME_BLACK" }
-select_main = { fg = "$AOC_THEME_BG", bg = "$AOC_THEME_RED", bold = true }
-select_alt = { fg = "$AOC_THEME_RED", bg = "$AOC_THEME_BLACK" }
-unset_main = { fg = "$AOC_THEME_BG", bg = "$AOC_THEME_BLACK", bold = true }
-unset_alt = { fg = "$AOC_THEME_BLACK", bg = "$AOC_THEME_BG" }
+normal_main = { fg = "$bg_base", bg = "$ui_accent", bold = true }
+normal_alt = { fg = "$ui_accent", bg = "$bg_elevated" }
+select_main = { fg = "$bg_base", bg = "$ui_danger", bold = true }
+select_alt = { fg = "$ui_danger", bg = "$bg_elevated" }
+unset_main = { fg = "$bg_base", bg = "$bg_subtle", bold = true }
+unset_alt = { fg = "$ui_muted", bg = "$bg_base" }
 
 [filetype]
 rules = [
@@ -335,6 +738,15 @@ write_pi_theme_from_profile() {
   theme_path="$(aoc_pi_theme_path "$theme_name")"
   mkdir -p "$(dirname "$theme_path")"
 
+  local bg_base bg_elevated bg_subtle
+  local ui_primary ui_accent pi_gray
+  bg_base="${AOC_THEME_BG_BASE:-$AOC_THEME_BG}"
+  bg_elevated="${AOC_THEME_BG_ELEVATED:-$AOC_THEME_BLACK}"
+  bg_subtle="${AOC_THEME_BG_SUBTLE:-$AOC_THEME_BLACK}"
+  ui_primary="${AOC_THEME_UI_PRIMARY:-$AOC_THEME_FG}"
+  ui_accent="${AOC_THEME_UI_ACCENT:-$AOC_THEME_BLUE}"
+  pi_gray="$(derive_muted_color "$ui_primary" "$bg_base")"
+
   cat <<EOF > "$theme_path"
 {
   "\$schema": "https://raw.githubusercontent.com/badlogic/pi-mono/main/packages/coding-agent/src/modes/interactive/theme/theme-schema.json",
@@ -345,16 +757,16 @@ write_pi_theme_from_profile() {
     "green": "$AOC_THEME_GREEN",
     "red": "$AOC_THEME_RED",
     "yellow": "$AOC_THEME_YELLOW",
-    "gray": "$AOC_THEME_WHITE",
-    "dimGray": "$AOC_THEME_BLACK",
-    "darkGray": "$AOC_THEME_BLACK",
-    "accent": "$AOC_THEME_BLUE",
-    "selectedBg": "$AOC_THEME_BLACK",
-    "userMsgBg": "$AOC_THEME_BG",
-    "toolPendingBg": "$AOC_THEME_BLACK",
-    "toolSuccessBg": "$AOC_THEME_BG",
-    "toolErrorBg": "$AOC_THEME_BG",
-    "customMsgBg": "$AOC_THEME_BG"
+    "gray": "$pi_gray",
+    "dimGray": "$bg_elevated",
+    "darkGray": "$bg_subtle",
+    "accent": "$ui_accent",
+    "selectedBg": "$bg_subtle",
+    "userMsgBg": "$bg_base",
+    "toolPendingBg": "$bg_elevated",
+    "toolSuccessBg": "$bg_elevated",
+    "toolErrorBg": "$bg_elevated",
+    "customMsgBg": "$bg_elevated"
   },
   "colors": {
     "accent": "accent",
@@ -385,8 +797,8 @@ write_pi_theme_from_profile() {
     "mdLink": "$AOC_THEME_BLUE",
     "mdLinkUrl": "dimGray",
     "mdCode": "accent",
-    "mdCodeBlock": "green",
-    "mdCodeBlockBorder": "gray",
+    "mdCodeBlock": "dimGray",
+    "mdCodeBlockBorder": "darkGray",
     "mdQuote": "gray",
     "mdQuoteBorder": "gray",
     "mdHr": "gray",
@@ -416,9 +828,9 @@ write_pi_theme_from_profile() {
     "bashMode": "green"
   },
   "export": {
-    "pageBg": "$AOC_THEME_BG",
-    "cardBg": "$AOC_THEME_BLACK",
-    "infoBg": "$AOC_THEME_BLACK"
+    "pageBg": "$bg_base",
+    "cardBg": "$bg_elevated",
+    "infoBg": "$bg_subtle"
   }
 }
 EOF
@@ -459,21 +871,22 @@ PY
 }
 
 sync_aoc_theme_artifacts() {
-  local theme_name="$1"
-  local theme_path="$2"
+  local logical_theme_name="$1"
+  local effective_theme_name="$2"
+  local theme_path="$3"
   local -a palette_lines=()
   local line=""
 
   while IFS= read -r line; do
     [[ -n "$line" ]] || continue
     palette_lines+=("$line")
-  done < <(parse_theme_block_hex_colors "$theme_path" "$theme_name")
+  done < <(parse_theme_block_hex_colors "$theme_path" "$effective_theme_name")
 
   if ((${#palette_lines[@]} == 0)); then
-    die "Failed to parse palette from $theme_path ($theme_name)."
+    die "Failed to parse palette from $theme_path ($effective_theme_name)."
   fi
 
-  write_aoc_theme_profile "$theme_name" "$theme_path" "${palette_lines[@]}"
+  write_aoc_theme_profile "$logical_theme_name" "$effective_theme_name" "$theme_path" "${palette_lines[@]}"
   write_yazi_theme_from_profile
   write_pi_theme_from_profile
   sync_pi_settings_theme "$(aoc_pi_theme_name)"
@@ -1009,6 +1422,26 @@ theme_name_from_config_file() {
   ' "$config_file"
 }
 
+theme_name_from_profile_file() {
+  local profile_path
+  profile_path="$(aoc_theme_profile_path)"
+  if [[ ! -f "$profile_path" ]]; then
+    return 1
+  fi
+
+  awk '
+    /^[[:space:]]*export[[:space:]]+AOC_THEME_NAME="/ {
+      line=$0
+      sub(/^[[:space:]]*export[[:space:]]+AOC_THEME_NAME="/, "", line)
+      sub(/".*/, "", line)
+      if (length(line) > 0) {
+        print line
+        exit 0
+      }
+    }
+  ' "$profile_path"
+}
+
 sync_theme_selection() {
   local name="$1"
   local explicit_config="$2"
@@ -1023,20 +1456,142 @@ sync_theme_selection() {
   fi
 
   if [[ -z "$name" ]]; then
+    name="$(theme_name_from_profile_file || true)"
+  fi
+
+  if [[ -z "$name" ]]; then
     if [[ -f "$config_dir/themes/tokyo-night.kdl" ]]; then
       name="tokyo-night"
     else
-      die "No theme name provided and no theme set in config."
+      die "No theme name provided and no theme set in config/profile."
     fi
   fi
 
   local resolved
-  resolved="$(resolve_global_theme "$name" "$config_dir")"
+  resolved="$(resolve_effective_theme "$name" "$config_dir")"
 
-  local theme_name theme_path
-  IFS='|' read -r theme_name theme_path <<< "$resolved"
-  sync_aoc_theme_artifacts "$theme_name" "$theme_path"
-  info "Synced AOC theme artifacts from global theme '$theme_name'."
+  local logical_name _base_path effective_name effective_path profile
+  IFS='|' read -r logical_name _base_path effective_name effective_path profile <<< "$resolved"
+  sync_aoc_theme_artifacts "$logical_name" "$effective_name" "$effective_path"
+  info "Synced AOC theme artifacts from '$logical_name' (background profile: $profile; effective theme: $effective_name)."
+}
+
+background_profile_from_profile_file() {
+  local profile_path
+  profile_path="$(aoc_theme_profile_path)"
+  if [[ ! -f "$profile_path" ]]; then
+    return 1
+  fi
+
+  awk '
+    /^[[:space:]]*export[[:space:]]+AOC_THEME_BG_PROFILE="/ {
+      line=$0
+      sub(/^[[:space:]]*export[[:space:]]+AOC_THEME_BG_PROFILE="/, "", line)
+      sub(/".*/, "", line)
+      if (length(line) > 0) {
+        print line
+        exit 0
+      }
+    }
+  ' "$profile_path"
+}
+
+set_background_profile() {
+  local raw_profile="$1"
+  local explicit_config="$2"
+  local profile
+  profile="$(normalize_bg_profile "$raw_profile")"
+
+  local config_dir
+  config_dir="$(resolve_zellij_config_dir)"
+
+  local theme_name=""
+  local config_file
+  config_file="$(resolve_zellij_config_file "$config_dir" "$explicit_config")"
+  theme_name="$(theme_name_from_config_file "$config_file" || true)"
+  if [[ -z "$theme_name" ]]; then
+    theme_name="$(theme_name_from_profile_file || true)"
+  fi
+  if [[ -z "$theme_name" ]]; then
+    if [[ -f "$config_dir/themes/tokyo-night.kdl" ]]; then
+      theme_name="tokyo-night"
+    else
+      die "Unable to resolve active theme for background profile update."
+    fi
+  fi
+
+  local base_theme_name
+  base_theme_name="$(logical_theme_name "$theme_name")"
+
+  local resolved_base
+  resolved_base="$(resolve_global_theme "$base_theme_name" "$config_dir")"
+  local resolved_name theme_path
+  IFS='|' read -r resolved_name theme_path <<< "$resolved_base"
+
+  local bg=""
+  local black=""
+  local blue=""
+  local line=""
+  while IFS= read -r line; do
+    [[ -n "$line" ]] || continue
+    case "${line%%=*}" in
+      AOC_THEME_BG) bg="${line#*=}" ;;
+      AOC_THEME_BLACK) black="${line#*=}" ;;
+      AOC_THEME_BLUE) blue="${line#*=}" ;;
+    esac
+  done < <(parse_theme_block_hex_colors "$theme_path" "$resolved_name")
+
+  [[ -n "$bg" && -n "$black" && -n "$blue" ]] || die "Failed to derive palette for background profile update."
+
+  local overrides_path
+  overrides_path="$(aoc_theme_overrides_path)"
+  mkdir -p "$(dirname "$overrides_path")"
+
+  local tmp_file
+  tmp_file="$(mktemp "${TMPDIR:-/tmp}/aoc-theme-overrides.XXXXXX")"
+
+  if [[ -f "$overrides_path" ]]; then
+    awk '
+      !/^[[:space:]]*export[[:space:]]+AOC_THEME_BG_PROFILE=/ &&
+      !/^[[:space:]]*export[[:space:]]+AOC_THEME_BG_BASE=/ &&
+      !/^[[:space:]]*export[[:space:]]+AOC_THEME_BG_ELEVATED=/ &&
+      !/^[[:space:]]*export[[:space:]]+AOC_THEME_BG_SUBTLE=/ &&
+      !/^[[:space:]]*export[[:space:]]+AOC_THEME_BG_ACCENT=/
+    ' "$overrides_path" > "$tmp_file"
+  else
+    cat <<'EOF' > "$tmp_file"
+#!/usr/bin/env bash
+# Optional AOC theme role overrides.
+EOF
+  fi
+
+  {
+    echo ""
+    while IFS= read -r line; do
+      [[ -n "$line" ]] || continue
+      local key="${line%%=*}"
+      local value="${line#*=}"
+      printf 'export %s="%s"\n' "$key" "$value"
+    done < <(bg_profile_values "$profile" "$bg" "$black" "$blue")
+  } >> "$tmp_file"
+
+  mv "$tmp_file" "$overrides_path"
+
+  AOC_THEME_SKIP_SYNC=1 AOC_THEME_QUIET=1 set_default_theme "$resolved_name" "$config_file"
+
+  local effective
+  effective="$(resolve_effective_theme "$resolved_name" "$config_dir" "$profile")"
+  local logical_name _base_path effective_name effective_path _resolved_profile
+  IFS='|' read -r logical_name _base_path effective_name effective_path _resolved_profile <<< "$effective"
+
+  sync_aoc_theme_artifacts "$logical_name" "$effective_name" "$effective_path"
+  info "Set background profile '$profile' (theme: $logical_name; effective: $effective_name)."
+}
+
+list_background_profiles() {
+  local current
+  current="$(current_background_profile_preference)"
+  list_bg_profiles "$current"
 }
 
 apply_theme() {
@@ -1045,24 +1600,31 @@ apply_theme() {
   if ! command -v zellij >/dev/null 2>&1; then
     die "zellij command not found."
   fi
-  if [[ -z "${ZELLIJ:-}" && -z "${ZELLIJ_SESSION_NAME:-}" ]]; then
+  if [[ -z "${ZELLIJ_SESSION_NAME:-}" ]]; then
     die "Live apply requires running inside an active Zellij pane."
+  fi
+  if [[ ! -t 0 ]]; then
+    die "Live apply requires an interactive TTY attached to the target Zellij pane."
   fi
 
   local config_dir
   config_dir="$(resolve_zellij_config_dir)"
   local resolved
-  resolved="$(resolve_global_theme "$name" "$config_dir")"
-  local theme_name theme_path
-  IFS='|' read -r theme_name theme_path <<< "$resolved"
+  resolved="$(resolve_effective_theme "$name" "$config_dir")"
+  local logical_name _base_path effective_name effective_path profile
+  IFS='|' read -r logical_name _base_path effective_name effective_path profile <<< "$resolved"
 
-  if ! zellij options --theme "$theme_name"; then
-    die "Failed to apply theme '$theme_name' in the current Zellij session."
-  fi
+  local config_file
+  config_file="$(resolve_zellij_config_file "$config_dir" "")"
+
+  # Zellij 0.43.x can nest a client when invoked with `zellij options --theme` from inside
+  # an attached pane. Use config mutation path instead (picked up by config watcher when supported).
+  AOC_THEME_SKIP_SYNC=1 AOC_THEME_QUIET=1 set_default_theme "$logical_name" "$config_file"
+
   if [[ "${AOC_THEME_SKIP_SYNC:-0}" != "1" ]]; then
-    sync_aoc_theme_artifacts "$theme_name" "$theme_path"
+    sync_aoc_theme_artifacts "$logical_name" "$effective_name" "$effective_path"
   fi
-  info "Applied global theme '$theme_name' from $theme_path"
+  info "Applied global theme '$logical_name' (background profile: $profile; effective: $effective_name) via config update ($config_file). If colors do not repaint instantly, detach and reattach."
 }
 
 set_default_theme() {
@@ -1072,24 +1634,27 @@ set_default_theme() {
   local config_dir
   config_dir="$(resolve_zellij_config_dir)"
   local resolved
-  resolved="$(resolve_global_theme "$name" "$config_dir")"
+  resolved="$(resolve_effective_theme "$name" "$config_dir")"
 
-  local theme_name theme_path
-  IFS='|' read -r theme_name theme_path <<< "$resolved"
+  local logical_name _base_path effective_name effective_path profile
+  IFS='|' read -r logical_name _base_path effective_name effective_path profile <<< "$resolved"
 
   local config_file
   config_file="$(resolve_zellij_config_file "$config_dir" "$explicit_config")"
   mkdir -p "$(dirname "$config_file")"
 
   if [[ ! -f "$config_file" ]]; then
-    printf 'theme "%s"\n' "$theme_name" > "$config_file"
-    info "Created $config_file with theme '$theme_name'."
+    printf 'theme "%s"\n' "$effective_name" > "$config_file"
+    if [[ "${AOC_THEME_SKIP_SYNC:-0}" != "1" ]]; then
+      sync_aoc_theme_artifacts "$logical_name" "$effective_name" "$effective_path"
+    fi
+    info "Created $config_file with theme '$effective_name' (base: $logical_name; profile: $profile)."
     return 0
   fi
 
   local tmp_file
   tmp_file="$(mktemp "${TMPDIR:-/tmp}/aoc-theme.XXXXXX")"
-  awk -v theme="$theme_name" '
+  awk -v theme="$effective_name" '
     BEGIN { replaced=0 }
     {
       if (!replaced && $0 ~ /^[[:space:]]*theme[[:space:]]+"[^"]+"/) {
@@ -1108,9 +1673,9 @@ set_default_theme() {
 
   mv "$tmp_file" "$config_file"
   if [[ "${AOC_THEME_SKIP_SYNC:-0}" != "1" ]]; then
-    sync_aoc_theme_artifacts "$theme_name" "$theme_path"
+    sync_aoc_theme_artifacts "$logical_name" "$effective_name" "$effective_path"
   fi
-  info "Set default global theme '$theme_name' in $config_file (source: $theme_path)."
+  info "Set default global theme '$logical_name' (profile: $profile; effective: $effective_name) in $config_file (source: $effective_path)."
 }
 
 activate_theme() {
@@ -1125,18 +1690,22 @@ activate_theme() {
   fi
 
   local did_apply=0
-  if command -v zellij >/dev/null 2>&1 && [[ -n "${ZELLIJ:-}${ZELLIJ_SESSION_NAME:-}" ]]; then
+  if command -v zellij >/dev/null 2>&1 \
+    && [[ -n "${ZELLIJ_SESSION_NAME:-}" ]] \
+    && [[ -t 0 && -t 1 ]]; then
     AOC_THEME_SKIP_SYNC=1 apply_theme "$name"
     did_apply=1
   else
-    warn "No active Zellij session detected; skipped live apply during activate."
+    warn "Skipped live apply during activate (requires an interactive Zellij pane with a TTY)."
   fi
 
-  AOC_THEME_SKIP_SYNC=1 set_default_theme "$name" "$explicit_config"
+  if [[ "$did_apply" != "1" ]]; then
+    AOC_THEME_SKIP_SYNC=1 set_default_theme "$name" "$explicit_config"
+  fi
   sync_theme_selection "$name" "$explicit_config"
 
   if [[ "$did_apply" == "1" ]]; then
-    info "Activated theme '$name' (live + default + synced artifacts)."
+    info "Activated theme '$name' (apply/config + synced artifacts)."
   else
     info "Activated theme '$name' (default + synced artifacts)."
   fi
@@ -1151,8 +1720,13 @@ list_global_themes() {
     shopt -s nullglob
     local file
     for file in "$global_theme_dir"/*.kdl; do
+      local name
+      name="$(basename "$file" .kdl)"
+      if split_derived_theme_name "$name" >/dev/null; then
+        continue
+      fi
       found=1
-      echo "global  $(basename "$file" .kdl)  $file"
+      echo "global  $name  $file"
     done
     shopt -u nullglob
   fi
@@ -1190,6 +1764,9 @@ list_global_custom_theme_names() {
     name="$(basename "$file" .kdl)"
 
     if is_preset_theme "$name"; then
+      continue
+    fi
+    if split_derived_theme_name "$name" >/dev/null; then
       continue
     fi
 
@@ -1323,7 +1900,11 @@ current_default_theme_name() {
   local config_dir="$1"
   local config_file
   config_file="$(resolve_zellij_config_file "$config_dir" "")"
-  theme_name_from_config_file "$config_file" || true
+  local raw
+  raw="$(theme_name_from_config_file "$config_file" || true)"
+  if [[ -n "$raw" ]]; then
+    logical_theme_name "$raw"
+  fi
 }
 
 current_active_theme_name() {
@@ -1333,12 +1914,17 @@ current_active_theme_name() {
     return 0
   fi
 
-  awk -F '"' '
+  local raw
+  raw="$(awk -F '"' '
     /^[[:space:]]*export[[:space:]]+AOC_THEME_NAME="/ {
       print $2
       exit 0
     }
-  ' "$profile_path"
+  ' "$profile_path")"
+
+  if [[ -n "$raw" ]]; then
+    logical_theme_name "$raw"
+  fi
 }
 
 join_labels() {
@@ -1480,10 +2066,7 @@ theme_tui() {
         case "$global_action" in
           "Apply now (live)") apply_theme "$global_theme" ;;
           "Set as default") set_default_theme "$global_theme" "" ;;
-          "Apply now + set default")
-            apply_theme "$global_theme"
-            set_default_theme "$global_theme" ""
-            ;;
+          "Apply now + set default") activate_theme "$global_theme" "" ;;
           "Back") ;;
         esac
         ;;
@@ -1687,6 +2270,39 @@ case "$command" in
     set_default_theme "$name" "$config_file"
     ;;
 
+  activate)
+    name=""
+    scope="global"
+    config_file=""
+    while [[ $# -gt 0 ]]; do
+      case "$1" in
+        --name)
+          shift
+          name="${1:-}"
+          ;;
+        --scope)
+          shift
+          scope="${1:-}"
+          ;;
+        --config)
+          shift
+          config_file="${1:-}"
+          ;;
+        -h|--help)
+          usage
+          exit 0
+          ;;
+        *)
+          die "Unknown option for activate: $1"
+          ;;
+      esac
+      shift || true
+    done
+    [[ -n "$name" ]] || die "activate requires --name"
+    scope="$(normalize_scope "activate" "$scope")"
+    activate_theme "$name" "$config_file"
+    ;;
+
   sync)
     name=""
     scope="global"
@@ -1717,6 +2333,48 @@ case "$command" in
     done
     scope="$(normalize_scope "sync" "$scope")"
     sync_theme_selection "$name" "$config_file"
+    ;;
+
+  background)
+    subcommand="${1:-list}"
+    if [[ $# -gt 0 ]]; then
+      shift
+    fi
+
+    case "$subcommand" in
+      list)
+        list_background_profiles
+        ;;
+      set)
+        profile=""
+        config_file=""
+        while [[ $# -gt 0 ]]; do
+          case "$1" in
+            --profile|--name)
+              shift
+              profile="${1:-}"
+              ;;
+            --config)
+              shift
+              config_file="${1:-}"
+              ;;
+            -h|--help)
+              usage
+              exit 0
+              ;;
+            *)
+              die "Unknown option for background set: $1"
+              ;;
+          esac
+          shift || true
+        done
+        [[ -n "$profile" ]] || die "background set requires --profile"
+        set_background_profile "$profile" "$config_file"
+        ;;
+      *)
+        die "Unknown background subcommand: $subcommand"
+        ;;
+    esac
     ;;
 
   tui)

@@ -53,6 +53,7 @@ enum Mode {
     Normal,
     PickLayout(PickTarget),
     PickAgent(PickTarget),
+    PickBackgroundProfile,
     EditProjectsBase,
     SearchProjects,
     NewProject,
@@ -103,6 +104,13 @@ struct ThemeSelection {
 }
 
 #[derive(Clone, Debug)]
+struct PendingThemePreview {
+    source: ThemeSource,
+    name: String,
+    due_at: Instant,
+}
+
+#[derive(Clone, Debug)]
 struct RtkStatus {
     mode: String,
     installed: bool,
@@ -145,6 +153,7 @@ struct App {
     sessions_state: ListState,
     layout_picker_state: ListState,
     agent_picker_state: ListState,
+    background_picker_state: ListState,
     theme_sections_state: ListState,
     theme_presets_state: ListState,
     theme_customs_state: ListState,
@@ -153,6 +162,9 @@ struct App {
     agent_install_actions_state: ListState,
     default_layout: String,
     default_agent: String,
+    active_theme_name: String,
+    effective_theme_name: String,
+    background_profile: String,
     rtk_status: RtkStatus,
     agent_install_entries: Vec<AgentInstallEntry>,
     config: AocConfig,
@@ -170,6 +182,7 @@ struct App {
     theme_preview_base: Option<String>,
     theme_preview_selected: Option<String>,
     theme_preview_live: Option<String>,
+    theme_preview_pending: Option<PendingThemePreview>,
     session_overrides: SessionOverrides,
     in_zellij: bool,
     floating_active: bool,
@@ -201,6 +214,7 @@ impl App {
             sessions_state: ListState::default(),
             layout_picker_state: ListState::default(),
             agent_picker_state: ListState::default(),
+            background_picker_state: ListState::default(),
             theme_sections_state: ListState::default(),
             theme_presets_state: ListState::default(),
             theme_customs_state: ListState::default(),
@@ -210,6 +224,17 @@ impl App {
             default_layout: read_default(&layout_default_path())
                 .unwrap_or_else(|| "aoc".to_string()),
             default_agent,
+            active_theme_name: load_active_theme_name()
+                .ok()
+                .flatten()
+                .unwrap_or_else(|| "unknown".to_string()),
+            effective_theme_name: load_effective_theme_name()
+                .ok()
+                .flatten()
+                .or_else(|| load_active_theme_name().ok().flatten())
+                .unwrap_or_else(|| "unknown".to_string()),
+            background_profile: load_background_profile_name()
+                .unwrap_or_else(|_| "follow-theme".to_string()),
             rtk_status: RtkStatus::default(),
             agent_install_entries: Vec::new(),
             config,
@@ -227,6 +252,7 @@ impl App {
             theme_preview_base: None,
             theme_preview_selected: None,
             theme_preview_live: None,
+            theme_preview_pending: None,
             session_overrides: SessionOverrides::default(),
             in_zellij: in_zellij(),
             floating_active: is_floating_active(),
@@ -236,16 +262,21 @@ impl App {
         app.apply_project_filter();
         app.refresh_rtk_status_quiet();
         app.refresh_agent_install_statuses_quiet();
+        app.refresh_theme_identity_quiet();
         app.ensure_selections();
         Ok(app)
     }
 
     fn ensure_selections(&mut self) {
-        ensure_selection(&mut self.defaults_state, 6);
+        ensure_selection(&mut self.defaults_state, 7);
         ensure_selection(&mut self.projects_state, self.filtered_projects.len());
         ensure_selection(&mut self.sessions_state, 4);
         ensure_selection(&mut self.layout_picker_state, layout_options().len());
         ensure_selection(&mut self.agent_picker_state, agent_options().len());
+        ensure_selection(
+            &mut self.background_picker_state,
+            background_profile_options().len(),
+        );
         ensure_selection(
             &mut self.theme_sections_state,
             theme_section_options().len(),
@@ -262,6 +293,31 @@ impl App {
 
     fn set_status<S: Into<String>>(&mut self, message: S) {
         self.status = message.into();
+    }
+
+    fn refresh_theme_identity_quiet(&mut self) {
+        if let Ok(Some(name)) = load_active_theme_name() {
+            self.active_theme_name = name;
+        }
+        if let Ok(Some(effective)) = load_effective_theme_name() {
+            self.effective_theme_name = effective;
+        } else {
+            self.effective_theme_name = self.active_theme_name.clone();
+        }
+        if let Ok(profile) = load_background_profile_name() {
+            self.background_profile = profile;
+        }
+    }
+
+    fn theme_identity_label(&self) -> String {
+        if self.active_theme_name == self.effective_theme_name {
+            self.active_theme_name.clone()
+        } else {
+            format!(
+                "{} -> {}",
+                self.active_theme_name, self.effective_theme_name
+            )
+        }
     }
 
     fn apply_project_filter(&mut self) {
@@ -413,6 +469,33 @@ impl App {
         self.mode = Mode::Normal;
     }
 
+    fn open_background_picker(&mut self) {
+        let options = background_profile_options();
+        select_picker(
+            &mut self.background_picker_state,
+            &options,
+            &self.background_profile,
+        );
+        self.mode = Mode::PickBackgroundProfile;
+    }
+
+    fn set_background_profile(&mut self, profile: String) {
+        match run_theme_command(&["background", "set", "--profile", profile.as_str()]) {
+            Ok(message) => {
+                self.background_profile =
+                    load_background_profile_name().unwrap_or_else(|_| profile.clone());
+                self.refresh_theme_identity_quiet();
+                self.set_status(if message.is_empty() {
+                    format!("Background profile set to {}", self.background_profile)
+                } else {
+                    message
+                });
+                self.mode = Mode::Normal;
+            }
+            Err(err) => self.set_status(format!("Background profile update failed: {err}")),
+        }
+    }
+
     fn set_override_layout(&mut self, layout: String) {
         self.session_overrides.layout = Some(layout.clone());
         self.set_status(format!("Override layout set to {layout}"));
@@ -459,6 +542,7 @@ impl App {
         self.theme_preview_base = None;
         self.theme_preview_selected = None;
         self.theme_preview_live = None;
+        self.theme_preview_pending = None;
         self.refresh_themes();
         self.mode = Mode::ThemeSections;
     }
@@ -472,6 +556,7 @@ impl App {
         ensure_selection(&mut self.theme_presets_state, self.theme_presets.len());
         self.begin_theme_preview();
         self.mode = Mode::ThemePresets;
+        self.queue_preview_theme(ThemeSource::Preset);
     }
 
     fn open_theme_customs(&mut self) {
@@ -483,6 +568,7 @@ impl App {
         ensure_selection(&mut self.theme_customs_state, self.theme_customs.len());
         self.begin_theme_preview();
         self.mode = Mode::ThemeCustoms;
+        self.queue_preview_theme(ThemeSource::Custom);
     }
 
     fn selected_preset_entry(&self) -> Option<ThemePresetEntry> {
@@ -503,6 +589,7 @@ impl App {
         self.theme_preview_base = active.clone();
         self.theme_preview_selected = active;
         self.theme_preview_live = None;
+        self.theme_preview_pending = None;
     }
 
     fn end_theme_preview(&mut self) {
@@ -522,6 +609,7 @@ impl App {
         self.theme_preview_base = None;
         self.theme_preview_selected = None;
         self.theme_preview_live = None;
+        self.theme_preview_pending = None;
     }
 
     fn preview_theme_name(&mut self, source: ThemeSource, theme_name: &str) -> io::Result<()> {
@@ -553,7 +641,7 @@ impl App {
         Ok(())
     }
 
-    fn preview_selected_theme(&mut self, source: ThemeSource) {
+    fn queue_preview_theme(&mut self, source: ThemeSource) {
         let theme_name = match source {
             ThemeSource::Preset => self.selected_preset_entry().map(|entry| entry.name),
             ThemeSource::Custom => self.selected_custom_name(),
@@ -563,8 +651,34 @@ impl App {
             return;
         };
 
-        if let Err(err) = self.preview_theme_name(source, &theme_name) {
-            self.set_status(format!("Theme preview failed: {err}"));
+        if self.theme_preview_live.as_deref() == Some(theme_name.as_str()) {
+            return;
+        }
+
+        self.theme_preview_pending = Some(PendingThemePreview {
+            source,
+            name: theme_name,
+            due_at: Instant::now() + Duration::from_millis(90),
+        });
+    }
+
+    fn flush_pending_theme_preview(&mut self) {
+        let Some(pending) = self.theme_preview_pending.clone() else {
+            return;
+        };
+
+        if Instant::now() < pending.due_at {
+            return;
+        }
+
+        self.theme_preview_pending = None;
+
+        if let Err(err) = self.preview_theme_name(pending.source, &pending.name) {
+            if err.kind() == io::ErrorKind::TimedOut {
+                self.set_status("Theme preview busy (timeout); keep navigating");
+            } else {
+                self.set_status(format!("Theme preview failed: {err}"));
+            }
         }
     }
 
@@ -578,12 +692,19 @@ impl App {
             return;
         };
 
+        self.theme_preview_pending = None;
         match self.preview_theme_name(source, &theme_name) {
             Ok(_) => {
                 self.theme_preview_selected = Some(theme_name.clone());
                 self.set_status(format!("Selected '{theme_name}' as preview fallback theme"));
             }
-            Err(err) => self.set_status(format!("Theme select failed: {err}")),
+            Err(err) => {
+                if err.kind() == io::ErrorKind::TimedOut {
+                    self.set_status("Theme select timed out; try Enter again");
+                } else {
+                    self.set_status(format!("Theme select failed: {err}"));
+                }
+            }
         }
     }
 
@@ -684,6 +805,7 @@ impl App {
                     self.theme_preview_live = Some(selection.name.clone());
                 }
                 self.refresh_themes();
+                self.refresh_theme_identity_quiet();
             }
             Err(err) => self.set_status(format!("Theme action failed: {err}")),
         }
@@ -784,6 +906,8 @@ impl App {
     }
 
     fn tick(&mut self) {
+        self.flush_pending_theme_preview();
+
         if self.pane_rename_remaining == 0 {
             return;
         }
@@ -801,7 +925,7 @@ fn main() -> io::Result<()> {
 
     let mut app = App::new()?;
     app.tick();
-    let tick = Duration::from_millis(200);
+    let tick = Duration::from_millis(75);
 
     while !app.should_exit {
         terminal.draw(|frame| draw_ui(frame, &mut app))?;
@@ -833,6 +957,7 @@ fn handle_key(app: &mut App, key: KeyEvent) {
         Mode::Normal => handle_key_normal(app, key),
         Mode::PickLayout(target) => handle_key_picker(app, key, Picker::Layout(target)),
         Mode::PickAgent(target) => handle_key_picker(app, key, Picker::Agent(target)),
+        Mode::PickBackgroundProfile => handle_key_picker(app, key, Picker::BackgroundProfile),
         Mode::EditProjectsBase => handle_key_input(app, key, InputMode::ProjectsBase),
         Mode::SearchProjects => handle_key_input(app, key, InputMode::Search),
         Mode::NewProject => handle_key_input(app, key, InputMode::NewProject),
@@ -927,6 +1052,7 @@ fn handle_key_normal(app: &mut App, key: KeyEvent) {
 enum Picker {
     Layout(PickTarget),
     Agent(PickTarget),
+    BackgroundProfile,
 }
 
 fn handle_key_picker(app: &mut App, key: KeyEvent, picker: Picker) {
@@ -937,12 +1063,20 @@ fn handle_key_picker(app: &mut App, key: KeyEvent, picker: Picker) {
                 list_next_state(&mut app.layout_picker_state, layout_options().len())
             }
             Picker::Agent(_) => list_next_state(&mut app.agent_picker_state, agent_options().len()),
+            Picker::BackgroundProfile => list_next_state(
+                &mut app.background_picker_state,
+                background_profile_options().len(),
+            ),
         },
         KeyCode::Char('k') | KeyCode::Up => match picker {
             Picker::Layout(_) => {
                 list_prev_state(&mut app.layout_picker_state, layout_options().len())
             }
             Picker::Agent(_) => list_prev_state(&mut app.agent_picker_state, agent_options().len()),
+            Picker::BackgroundProfile => list_prev_state(
+                &mut app.background_picker_state,
+                background_profile_options().len(),
+            ),
         },
         KeyCode::Enter => match picker {
             Picker::Layout(target) => {
@@ -963,6 +1097,13 @@ fn handle_key_picker(app: &mut App, key: KeyEvent, picker: Picker) {
                         PickTarget::Defaults => app.set_default_agent(choice),
                         PickTarget::Override => app.set_override_agent(choice),
                     }
+                }
+            }
+            Picker::BackgroundProfile => {
+                let index = app.background_picker_state.selected().unwrap_or(0);
+                let options = background_profile_options();
+                if let Some(choice) = options.get(index).cloned() {
+                    app.set_background_profile(choice);
                 }
             }
         },
@@ -1034,11 +1175,11 @@ fn handle_key_theme_presets(app: &mut App, key: KeyEvent) {
         }
         KeyCode::Char('j') | KeyCode::Down => {
             list_next_state(&mut app.theme_presets_state, app.theme_presets.len());
-            app.preview_selected_theme(ThemeSource::Preset);
+            app.queue_preview_theme(ThemeSource::Preset);
         }
         KeyCode::Char('k') | KeyCode::Up => {
             list_prev_state(&mut app.theme_presets_state, app.theme_presets.len());
-            app.preview_selected_theme(ThemeSource::Preset);
+            app.queue_preview_theme(ThemeSource::Preset);
         }
         KeyCode::Enter => app.select_preview_theme(ThemeSource::Preset),
         KeyCode::Char('a') => {
@@ -1061,11 +1202,11 @@ fn handle_key_theme_customs(app: &mut App, key: KeyEvent) {
         }
         KeyCode::Char('j') | KeyCode::Down => {
             list_next_state(&mut app.theme_customs_state, app.theme_customs.len());
-            app.preview_selected_theme(ThemeSource::Custom);
+            app.queue_preview_theme(ThemeSource::Custom);
         }
         KeyCode::Char('k') | KeyCode::Up => {
             list_prev_state(&mut app.theme_customs_state, app.theme_customs.len());
-            app.preview_selected_theme(ThemeSource::Custom);
+            app.queue_preview_theme(ThemeSource::Custom);
         }
         KeyCode::Enter => app.select_preview_theme(ThemeSource::Custom),
         KeyCode::Char('a') => {
@@ -1145,7 +1286,7 @@ fn cycle_tab(app: &mut App, forward: bool) {
 
 fn list_next(app: &mut App) {
     match app.active_tab {
-        Tab::Defaults => list_next_state(&mut app.defaults_state, 6),
+        Tab::Defaults => list_next_state(&mut app.defaults_state, 7),
         Tab::Projects => list_next_state(&mut app.projects_state, app.filtered_projects.len()),
         Tab::Sessions => list_next_state(&mut app.sessions_state, 4),
     }
@@ -1153,7 +1294,7 @@ fn list_next(app: &mut App) {
 
 fn list_prev(app: &mut App) {
     match app.active_tab {
-        Tab::Defaults => list_prev_state(&mut app.defaults_state, 6),
+        Tab::Defaults => list_prev_state(&mut app.defaults_state, 7),
         Tab::Projects => list_prev_state(&mut app.projects_state, app.filtered_projects.len()),
         Tab::Sessions => list_prev_state(&mut app.sessions_state, 4),
     }
@@ -1162,23 +1303,24 @@ fn list_prev(app: &mut App) {
 fn activate_selection(app: &mut App) {
     match app.active_tab {
         Tab::Defaults => match app.defaults_state.selected().unwrap_or(0) {
-            0 => {
+            0 => app.open_theme_manager(),
+            1 => app.open_background_picker(),
+            2 => {
                 let current = app.default_layout.clone();
                 select_picker(&mut app.layout_picker_state, &layout_options(), &current);
                 app.mode = Mode::PickLayout(PickTarget::Defaults);
             }
-            1 => {
+            3 => {
                 let current = app.default_agent.clone();
                 select_picker(&mut app.agent_picker_state, &agent_options(), &current);
                 app.mode = Mode::PickAgent(PickTarget::Defaults);
             }
-            2 => app.open_theme_manager(),
-            3 => app.start_input(
+            4 => app.start_input(
                 Mode::EditProjectsBase,
                 app.projects_base.to_string_lossy().to_string(),
             ),
-            4 => app.open_agent_install_actions(),
-            5 => app.open_rtk_actions(),
+            5 => app.open_agent_install_actions(),
+            6 => app.open_rtk_actions(),
             _ => {}
         },
         Tab::Projects => {
@@ -1237,7 +1379,7 @@ fn draw_ui(frame: &mut ratatui::Frame, app: &mut App) {
 
 fn draw_nav(frame: &mut ratatui::Frame, area: Rect, app: &mut App, focused: bool) {
     let items = vec![
-        ListItem::new("Settings"),
+        ListItem::new("Settings Hub"),
         ListItem::new("Projects"),
         ListItem::new("Launch"),
     ];
@@ -1264,21 +1406,34 @@ fn draw_detail(frame: &mut ratatui::Frame, area: Rect, app: &mut App, focused: b
 
 fn draw_defaults(frame: &mut ratatui::Frame, area: Rect, app: &mut App, focused: bool) {
     let items = vec![
-        ListItem::new(format!("Set layout: {}", app.default_layout)),
-        ListItem::new(format!("Set agent: {}", app.default_agent)),
-        ListItem::new("Theme manager"),
         ListItem::new(format!(
-            "Projects base: {}",
+            "Appearance · Theme manager: {}",
+            app.theme_identity_label()
+        )),
+        ListItem::new(format!(
+            "Appearance · Background profile: {}",
+            app.background_profile
+        )),
+        ListItem::new(format!(
+            "Workspace · Default layout: {}",
+            app.default_layout
+        )),
+        ListItem::new(format!("Workspace · Default agent: {}", app.default_agent)),
+        ListItem::new(format!(
+            "Workspace · Projects base: {}",
             app.projects_base.to_string_lossy()
         )),
         ListItem::new(format!(
-            "Agent installers: {}",
+            "System · Agent installers: {}",
             agent_install_summary(&app.agent_install_entries)
         )),
-        ListItem::new(format!("RTK routing: {}", rtk_summary(&app.rtk_status))),
+        ListItem::new(format!(
+            "System · RTK routing: {}",
+            rtk_summary(&app.rtk_status)
+        )),
     ];
     let list = List::new(items)
-        .block(titled_block("Settings", focused))
+        .block(titled_block("Settings Hub", focused))
         .highlight_style(detail_highlight_style(focused))
         .highlight_symbol("> ");
     frame.render_stateful_widget(list, area, &mut app.defaults_state);
@@ -1414,6 +1569,24 @@ fn draw_modal(frame: &mut ratatui::Frame, app: &mut App) {
                         .add_modifier(Modifier::BOLD),
                 );
             frame.render_stateful_widget(list, area, &mut app.agent_picker_state);
+        }
+        Mode::PickBackgroundProfile => {
+            let items: Vec<ListItem> = background_profile_options()
+                .into_iter()
+                .map(ListItem::new)
+                .collect();
+            let list = List::new(items)
+                .block(
+                    Block::default()
+                        .borders(Borders::ALL)
+                        .title("Select Background Profile"),
+                )
+                .highlight_style(
+                    Style::default()
+                        .fg(Color::Cyan)
+                        .add_modifier(Modifier::BOLD),
+                );
+            frame.render_stateful_widget(list, area, &mut app.background_picker_state);
         }
         Mode::EditProjectsBase => draw_input_modal(frame, area, "Projects base", &app.input_buffer),
         Mode::SearchProjects => draw_input_modal(frame, area, "Search projects", &app.input_buffer),
@@ -1593,9 +1766,10 @@ fn draw_help_modal(frame: &mut ratatui::Frame, area: Rect) {
         Line::from("  Esc                back (quit from menu)"),
         Line::from("  q                  quit"),
         Line::from(""),
-        Line::from("Settings:"),
-        Line::from("  Enter  change layout/agent/theme/base/installers"),
+        Line::from("Settings Hub:"),
+        Line::from("  Enter  run selected settings action"),
         Line::from("  t      open theme manager"),
+        Line::from("  Background profile selector is under Appearance"),
         Line::from("  Enter on Agent installers  open install/update actions"),
         Line::from("  Enter on RTK routing  open RTK setup/actions"),
         Line::from("  Theme lists: j/k live-preview, Enter select fallback, a actions"),
@@ -1642,10 +1816,13 @@ fn centered_rect(percent_x: u16, percent_y: u16, rect: Rect) -> Rect {
 fn footer_lines(app: &App) -> Vec<Line<'_>> {
     let mut lines = Vec::new();
     if app.status.is_empty() {
-        lines.push(Line::from(vec![Span::styled(
-            "Status: Ready",
-            Style::default().fg(Color::DarkGray),
-        )]));
+        lines.push(Line::from(vec![
+            Span::styled("Status: Ready", Style::default().fg(Color::DarkGray)),
+            Span::styled(
+                format!("  ·  Theme: {}", app.theme_identity_label()),
+                Style::default().fg(Color::DarkGray),
+            ),
+        ]));
     } else {
         lines.push(Line::from(vec![
             Span::styled("Status: ", Style::default().fg(Color::Yellow)),
@@ -1677,7 +1854,7 @@ fn footer_lines(app: &App) -> Vec<Line<'_>> {
             keycap("Esc"),
             Span::raw(" cancel"),
         ],
-        Mode::PickLayout(_) | Mode::PickAgent(_) => vec![
+        Mode::PickLayout(_) | Mode::PickAgent(_) | Mode::PickBackgroundProfile => vec![
             keycap("Enter"),
             Span::raw(" choose  "),
             keycap("Esc"),
@@ -1723,7 +1900,7 @@ fn footer_lines(app: &App) -> Vec<Line<'_>> {
         Mode::Normal => match app.active_tab {
             Tab::Defaults => vec![
                 keycap("Enter"),
-                Span::raw(" settings/installers/RTK  "),
+                Span::raw(" open settings action  "),
                 keycap("t"),
                 Span::raw(" theme manager"),
             ],
@@ -1915,16 +2092,21 @@ fn rtk_summary(status: &RtkStatus) -> String {
 fn preset_theme_names() -> &'static [&'static str] {
     &[
         "catppuccin",
+        "catppuccin-mocha",
+        "cyberpunk",
         "dracula",
         "everforest",
         "gruvbox",
         "kanagawa",
+        "midnight-ocean",
         "monokai",
         "nord",
+        "ocean-breeze",
         "onedark",
         "rose-pine",
         "solarized-dark",
         "solarized-light",
+        "synthwave",
         "tokyo-night",
     ]
 }
@@ -1998,6 +2180,54 @@ fn load_active_theme_name() -> io::Result<Option<String>> {
     }
 
     Ok(None)
+}
+
+fn load_effective_theme_name() -> io::Result<Option<String>> {
+    let profile_path = config_dir().join("aoc/theme.env");
+    if !profile_path.exists() {
+        return Ok(None);
+    }
+
+    let contents = fs::read_to_string(profile_path)?;
+    for line in contents.lines() {
+        let trimmed = line.trim();
+        if !trimmed.starts_with("export AOC_THEME_EFFECTIVE_NAME=") {
+            continue;
+        }
+        let raw = trimmed
+            .trim_start_matches("export AOC_THEME_EFFECTIVE_NAME=")
+            .trim();
+        let value = raw.trim_matches('"').trim_matches('\'');
+        if !value.is_empty() {
+            return Ok(Some(value.to_string()));
+        }
+    }
+
+    Ok(None)
+}
+
+fn load_background_profile_name() -> io::Result<String> {
+    let profile_path = config_dir().join("aoc/theme.env");
+    if !profile_path.exists() {
+        return Ok("follow-theme".to_string());
+    }
+
+    let contents = fs::read_to_string(profile_path)?;
+    for line in contents.lines() {
+        let trimmed = line.trim();
+        if !trimmed.starts_with("export AOC_THEME_BG_PROFILE=") {
+            continue;
+        }
+        let raw = trimmed
+            .trim_start_matches("export AOC_THEME_BG_PROFILE=")
+            .trim();
+        let value = raw.trim_matches('"').trim_matches('\'');
+        if !value.is_empty() {
+            return Ok(value.to_string());
+        }
+    }
+
+    Ok("follow-theme".to_string())
 }
 
 fn run_theme_command(args: &[&str]) -> io::Result<String> {
@@ -2228,9 +2458,12 @@ fn run_theme_apply_quiet(theme_name: &str) -> io::Result<()> {
     let status = with_cooked_mode(|| {
         let child = Command::new("aoc-theme")
             .env("AOC_THEME_QUIET", "1")
+            .env("AOC_THEME_SKIP_SYNC", "1")
             .args(["apply", "--name", theme_name])
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
             .spawn()?;
-        wait_with_timeout(child, Duration::from_millis(2500))
+        wait_with_timeout(child, Duration::from_millis(900))
     })?;
 
     if status.success() {
@@ -2262,9 +2495,8 @@ fn run_preset_set_default(theme_name: &str) -> io::Result<String> {
 
 fn run_preset_apply_and_set_default(theme_name: &str) -> io::Result<String> {
     let _ = run_theme_command(&["presets", "install", "--name", theme_name])?;
-    run_theme_command_interactive(&["apply", "--name", theme_name])?;
-    let _ = run_theme_command(&["set-default", "--name", theme_name])?;
-    Ok(format!("Applied and set default theme '{theme_name}'"))
+    run_theme_command_interactive(&["activate", "--name", theme_name])?;
+    Ok(format!("Activated preset theme '{theme_name}'"))
 }
 
 fn run_custom_apply(theme_name: &str) -> io::Result<String> {
@@ -2278,9 +2510,8 @@ fn run_custom_set_default(theme_name: &str) -> io::Result<String> {
 }
 
 fn run_custom_apply_and_set_default(theme_name: &str) -> io::Result<String> {
-    run_theme_command_interactive(&["apply", "--name", theme_name])?;
-    let _ = run_theme_command(&["set-default", "--name", theme_name])?;
-    Ok(format!("Applied and set default theme '{theme_name}'"))
+    run_theme_command_interactive(&["activate", "--name", theme_name])?;
+    Ok(format!("Activated theme '{theme_name}'"))
 }
 
 fn command_failure(command: &str, output: &std::process::Output) -> io::Error {
@@ -2443,6 +2674,16 @@ fn find_project_root() -> Option<PathBuf> {
 
 fn agent_options() -> Vec<String> {
     vec!["pi".to_string()]
+}
+
+fn background_profile_options() -> Vec<String> {
+    vec![
+        "follow-theme".to_string(),
+        "deeper".to_string(),
+        "softer".to_string(),
+        "high-contrast".to_string(),
+        "low-glare".to_string(),
+    ]
 }
 
 fn resolve_project_path(input: &str, base: &Path) -> PathBuf {

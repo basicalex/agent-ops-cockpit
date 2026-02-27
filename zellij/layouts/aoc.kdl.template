@@ -3,26 +3,26 @@ layout {
     pane split_direction="horizontal" {
       pane size=1 borderless=true {
         plugin location="file:{{HOME}}/.config/zellij/plugins/zjstatus.wasm" {
-          format_left   "{mode} #[fg=__AOC_THEME_BLUE__,bold]{session}"
+          format_left   "{mode} #[fg=blue,bold]{session}"
           format_center "{tabs}"
           format_right  "{command_cwd}"
           format_space  ""
 
           border_enabled  "false"
           border_char     "─"
-          border_format   "#[fg=__AOC_THEME_BLACK__]{char}"
+          border_format   "#[fg=black]{char}"
           border_position "bottom"
 
           hide_frame_for_single_pane "true"
 
-          mode_normal  "#[bg=__AOC_THEME_BLUE__] "
-          mode_tmux    "#[bg=__AOC_THEME_ORANGE__] "
+          mode_normal  "#[bg=blue] "
+          mode_tmux    "#[bg=orange] "
 
-          tab_normal   "#[fg=__AOC_THEME_BLACK__] {name} "
-          tab_active   "#[fg=__AOC_THEME_WHITE__,bold,italic] {name} "
+          tab_normal   "#[fg=black] {name} "
+          tab_active   "#[fg=white,bold,italic] {name} "
 
           command_cwd_command  "pwd | sed 's|.*/||'"
-          command_cwd_format   "#[fg=__AOC_THEME_BLACK__] {stdout} "
+          command_cwd_format   "#[fg=black] {stdout} "
           command_cwd_interval "2"
         }
       }
@@ -66,27 +66,27 @@ layout {
 
           border_enabled  "false"
           border_char     "─"
-          border_format   "#[fg=__AOC_THEME_BLACK__]{char}"
+          border_format   "#[fg=black]{char}"
           border_position "top"
 
           hide_frame_for_single_pane "true"
 
-          mode_normal "#[fg=__AOC_THEME_BLUE__,bold]NORMAL #[fg=__AOC_THEME_BLACK__]| #[fg=__AOC_THEME_GREEN__]Ctrl #[fg=__AOC_THEME_BLACK__]g Lock  p Pane  t Tab  n Resize  s Scroll  h Move  o Session  b Tmux"
-          mode_locked "#[fg=__AOC_THEME_RED__,bold]LOCKED #[fg=__AOC_THEME_BLACK__]| #[fg=__AOC_THEME_GREEN__]Ctrl #[fg=__AOC_THEME_BLACK__]g Unlock"
-          mode_resize "#[fg=__AOC_THEME_ORANGE__,bold]RESIZE #[fg=__AOC_THEME_BLACK__]| #[fg=__AOC_THEME_GREEN__]h/j/k/l #[fg=__AOC_THEME_BLACK__]Resize #[fg=__AOC_THEME_GREEN__]H/J/K/L #[fg=__AOC_THEME_BLACK__]Fine #[fg=__AOC_THEME_GREEN__]+/- #[fg=__AOC_THEME_BLACK__]Resize #[fg=__AOC_THEME_GREEN__]Ctrl #[fg=__AOC_THEME_BLACK__]n Normal"
-          mode_pane "#[fg=__AOC_THEME_GREEN__,bold]PANE #[fg=__AOC_THEME_BLACK__]| #[fg=__AOC_THEME_GREEN__]h/j/k/l #[fg=__AOC_THEME_BLACK__]Move #[fg=__AOC_THEME_GREEN__]n #[fg=__AOC_THEME_BLACK__]New #[fg=__AOC_THEME_GREEN__]d #[fg=__AOC_THEME_BLACK__]Down #[fg=__AOC_THEME_GREEN__]r #[fg=__AOC_THEME_BLACK__]Right #[fg=__AOC_THEME_GREEN__]x #[fg=__AOC_THEME_BLACK__]Close #[fg=__AOC_THEME_GREEN__]f #[fg=__AOC_THEME_BLACK__]Fullscreen #[fg=__AOC_THEME_GREEN__]w #[fg=__AOC_THEME_BLACK__]Float #[fg=__AOC_THEME_GREEN__]Ctrl #[fg=__AOC_THEME_BLACK__]p Normal"
-          mode_tab "#[fg=__AOC_THEME_CYAN__,bold]TAB #[fg=__AOC_THEME_BLACK__]| #[fg=__AOC_THEME_GREEN__]h/l #[fg=__AOC_THEME_BLACK__]Prev/Next #[fg=__AOC_THEME_GREEN__]n #[fg=__AOC_THEME_BLACK__]New #[fg=__AOC_THEME_GREEN__]x #[fg=__AOC_THEME_BLACK__]Close #[fg=__AOC_THEME_GREEN__]r #[fg=__AOC_THEME_BLACK__]Rename #[fg=__AOC_THEME_GREEN__]1-9 #[fg=__AOC_THEME_BLACK__]Go #[fg=__AOC_THEME_GREEN__]Ctrl #[fg=__AOC_THEME_BLACK__]t Normal"
-          mode_scroll "#[fg=__AOC_THEME_YELLOW__,bold]SCROLL #[fg=__AOC_THEME_BLACK__]| #[fg=__AOC_THEME_GREEN__]j/k #[fg=__AOC_THEME_BLACK__]Scroll #[fg=__AOC_THEME_GREEN__]Ctrl #[fg=__AOC_THEME_BLACK__]f/b Page  c Bottom  s Normal #[fg=__AOC_THEME_GREEN__]d/u #[fg=__AOC_THEME_BLACK__]Half #[fg=__AOC_THEME_GREEN__]s #[fg=__AOC_THEME_BLACK__]Search #[fg=__AOC_THEME_GREEN__]e #[fg=__AOC_THEME_BLACK__]Edit"
-          mode_enter_search "#[fg=__AOC_THEME_YELLOW__,bold]SEARCH #[fg=__AOC_THEME_BLACK__]| #[fg=__AOC_THEME_GREEN__]Enter #[fg=__AOC_THEME_BLACK__]Find #[fg=__AOC_THEME_GREEN__]Esc/Ctrl #[fg=__AOC_THEME_BLACK__]c Back"
-          mode_search "#[fg=__AOC_THEME_YELLOW__,bold]SEARCH #[fg=__AOC_THEME_BLACK__]| #[fg=__AOC_THEME_GREEN__]n/p #[fg=__AOC_THEME_BLACK__]Next/Prev #[fg=__AOC_THEME_GREEN__]c #[fg=__AOC_THEME_BLACK__]Case #[fg=__AOC_THEME_GREEN__]w #[fg=__AOC_THEME_BLACK__]Wrap #[fg=__AOC_THEME_GREEN__]o #[fg=__AOC_THEME_BLACK__]Word #[fg=__AOC_THEME_GREEN__]Ctrl #[fg=__AOC_THEME_BLACK__]c Normal"
-          mode_rename_tab "#[fg=__AOC_THEME_MAGENTA__,bold]RENAME TAB #[fg=__AOC_THEME_BLACK__]| #[fg=__AOC_THEME_GREEN__]Enter #[fg=__AOC_THEME_BLACK__]Save #[fg=__AOC_THEME_GREEN__]Esc #[fg=__AOC_THEME_BLACK__]Cancel"
-          mode_rename_pane "#[fg=__AOC_THEME_MAGENTA__,bold]RENAME PANE #[fg=__AOC_THEME_BLACK__]| #[fg=__AOC_THEME_GREEN__]Enter #[fg=__AOC_THEME_BLACK__]Save #[fg=__AOC_THEME_GREEN__]Esc #[fg=__AOC_THEME_BLACK__]Cancel"
-          mode_session "#[fg=__AOC_THEME_BLUE__,bold]SESSION #[fg=__AOC_THEME_BLACK__]| #[fg=__AOC_THEME_GREEN__]w #[fg=__AOC_THEME_BLACK__]Manager #[fg=__AOC_THEME_GREEN__]c #[fg=__AOC_THEME_BLACK__]Config #[fg=__AOC_THEME_GREEN__]p #[fg=__AOC_THEME_BLACK__]Plugins #[fg=__AOC_THEME_GREEN__]d #[fg=__AOC_THEME_BLACK__]Detach #[fg=__AOC_THEME_GREEN__]Ctrl #[fg=__AOC_THEME_BLACK__]o Normal"
-          mode_move "#[fg=__AOC_THEME_BLUE__,bold]MOVE #[fg=__AOC_THEME_BLACK__]| #[fg=__AOC_THEME_GREEN__]h/j/k/l #[fg=__AOC_THEME_BLACK__]Move #[fg=__AOC_THEME_GREEN__]n/Tab #[fg=__AOC_THEME_BLACK__]Next #[fg=__AOC_THEME_GREEN__]p #[fg=__AOC_THEME_BLACK__]Prev #[fg=__AOC_THEME_GREEN__]Ctrl #[fg=__AOC_THEME_BLACK__]h Normal"
-          mode_tmux "#[fg=__AOC_THEME_RED__,bold]TMUX #[fg=__AOC_THEME_BLACK__]| #[fg=__AOC_THEME_GREEN__]Ctrl #[fg=__AOC_THEME_BLACK__]b Prefix  % Split R  \" Split D  z Fullscreen  c New Tab  p/n Prev/Next  b Normal"
+          mode_normal "#[fg=blue,bold]NORMAL #[fg=black]| #[fg=green]Ctrl #[fg=black]g Lock  p Pane  t Tab  n Resize  s Scroll  h Move  o Session  b Tmux"
+          mode_locked "#[fg=red,bold]LOCKED #[fg=black]| #[fg=green]Ctrl #[fg=black]g Unlock"
+          mode_resize "#[fg=orange,bold]RESIZE #[fg=black]| #[fg=green]h/j/k/l #[fg=black]Resize #[fg=green]H/J/K/L #[fg=black]Fine #[fg=green]+/- #[fg=black]Resize #[fg=green]Ctrl #[fg=black]n Normal"
+          mode_pane "#[fg=green,bold]PANE #[fg=black]| #[fg=green]h/j/k/l #[fg=black]Move #[fg=green]n #[fg=black]New #[fg=green]d #[fg=black]Down #[fg=green]r #[fg=black]Right #[fg=green]x #[fg=black]Close #[fg=green]f #[fg=black]Fullscreen #[fg=green]w #[fg=black]Float #[fg=green]Ctrl #[fg=black]p Normal"
+          mode_tab "#[fg=cyan,bold]TAB #[fg=black]| #[fg=green]h/l #[fg=black]Prev/Next #[fg=green]n #[fg=black]New #[fg=green]x #[fg=black]Close #[fg=green]r #[fg=black]Rename #[fg=green]1-9 #[fg=black]Go #[fg=green]Ctrl #[fg=black]t Normal"
+          mode_scroll "#[fg=yellow,bold]SCROLL #[fg=black]| #[fg=green]j/k #[fg=black]Scroll #[fg=green]Ctrl #[fg=black]f/b Page  c Bottom  s Normal #[fg=green]d/u #[fg=black]Half #[fg=green]s #[fg=black]Search #[fg=green]e #[fg=black]Edit"
+          mode_enter_search "#[fg=yellow,bold]SEARCH #[fg=black]| #[fg=green]Enter #[fg=black]Find #[fg=green]Esc/Ctrl #[fg=black]c Back"
+          mode_search "#[fg=yellow,bold]SEARCH #[fg=black]| #[fg=green]n/p #[fg=black]Next/Prev #[fg=green]c #[fg=black]Case #[fg=green]w #[fg=black]Wrap #[fg=green]o #[fg=black]Word #[fg=green]Ctrl #[fg=black]c Normal"
+          mode_rename_tab "#[fg=magenta,bold]RENAME TAB #[fg=black]| #[fg=green]Enter #[fg=black]Save #[fg=green]Esc #[fg=black]Cancel"
+          mode_rename_pane "#[fg=magenta,bold]RENAME PANE #[fg=black]| #[fg=green]Enter #[fg=black]Save #[fg=green]Esc #[fg=black]Cancel"
+          mode_session "#[fg=blue,bold]SESSION #[fg=black]| #[fg=green]w #[fg=black]Manager #[fg=green]c #[fg=black]Config #[fg=green]p #[fg=black]Plugins #[fg=green]d #[fg=black]Detach #[fg=green]Ctrl #[fg=black]o Normal"
+          mode_move "#[fg=blue,bold]MOVE #[fg=black]| #[fg=green]h/j/k/l #[fg=black]Move #[fg=green]n/Tab #[fg=black]Next #[fg=green]p #[fg=black]Prev #[fg=green]Ctrl #[fg=black]h Normal"
+          mode_tmux "#[fg=red,bold]TMUX #[fg=black]| #[fg=green]Ctrl #[fg=black]b Prefix  % Split R  \" Split D  z Fullscreen  c New Tab  p/n Prev/Next  b Normal"
 
           command_alt_command  "printf 'Alt f Float  n NewPane  i Tab<  o Tab>  u/p MoveTab  [ Group  h/j/k/l Focus  =/- Resize'"
-          command_alt_format   "#[fg=__AOC_THEME_GREEN__]{stdout} "
+          command_alt_format   "#[fg=green]{stdout} "
           command_alt_interval "60"
         }
       }
