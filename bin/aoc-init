@@ -783,48 +783,227 @@ EOF
   fi
 }
 
+discover_pi_extension_template() {
+  local extension_file="$1"
+  local -a search_roots=(
+    "$HOME/dev"
+    "$HOME"
+  )
+
+  local root=""
+  local found=""
+  for root in "${search_roots[@]}"; do
+    [[ -d "$root" ]] || continue
+    found="$(find "$root" -maxdepth 6 -type f -path "*/.pi/extensions/$extension_file" 2>/dev/null | head -n 1 || true)"
+    if [[ -n "$found" ]]; then
+      printf '%s' "$found"
+      return 0
+    fi
+  done
+
+  return 1
+}
+
+write_builtin_pi_extension_template() {
+  local extension_file="$1"
+  local target_file="$2"
+
+  case "$extension_file" in
+    minimal.ts)
+      cat <<'EOF' > "$target_file"
+import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
+import { applyExtensionDefaults } from "./themeMap.ts";
+
+export default function ({ pi }: ExtensionAPI) {
+  pi.on("session_start", async (_event, ctx) => {
+    applyExtensionDefaults(import.meta.url, ctx);
+  });
+}
+EOF
+      ;;
+    themeMap.ts)
+      cat <<'EOF' > "$target_file"
+import type { ExtensionContext } from "@mariozechner/pi-coding-agent";
+import { basename } from "path";
+import { fileURLToPath } from "url";
+
+export const THEME_MAP: Record<string, string> = {
+  "minimal": "synthwave",
+};
+
+function extensionName(fileUrl: string): string {
+  const filePath = fileUrl.startsWith("file://") ? fileURLToPath(fileUrl) : fileUrl;
+  return basename(filePath).replace(/\.[^.]+$/, "");
+}
+
+function primaryExtensionName(): string | null {
+  const argv = process.argv;
+  for (let i = 0; i < argv.length - 1; i++) {
+    if (argv[i] === "-e" || argv[i] === "--extension") {
+      return basename(argv[i + 1]).replace(/\.[^.]+$/, "");
+    }
+  }
+  return null;
+}
+
+export function applyExtensionTheme(fileUrl: string, ctx?: ExtensionContext): boolean {
+  if (!ctx || !ctx.hasUI || !(ctx as any).ui) return false;
+
+  const name = extensionName(fileUrl);
+  const primaryExt = primaryExtensionName();
+  if (primaryExt && primaryExt !== name) return true;
+
+  const setTheme = (ctx as any).ui?.setTheme;
+  if (typeof setTheme !== "function") return false;
+
+  const aocThemeName = (process.env.AOC_PI_THEME_NAME || "").trim();
+  const aocThemeLocked = /^(1|true|yes|on)$/i.test((process.env.AOC_PI_THEME_LOCKED || "").trim());
+
+  if (aocThemeName.length > 0) {
+    const aocResult = setTheme(aocThemeName);
+    if (aocResult?.success) return true;
+    if (aocThemeLocked) return false;
+  }
+
+  if (aocThemeLocked) return false;
+
+  const themeName = THEME_MAP[name] || "synthwave";
+  const result = setTheme(themeName);
+  return !!result?.success;
+}
+
+export function applyExtensionDefaults(fileUrl: string, ctx?: ExtensionContext): void {
+  applyExtensionTheme(fileUrl, ctx);
+}
+
+export default function (): void {}
+EOF
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+
+  return 0
+}
+
+is_legacy_pi_extension_template() {
+  local extension_file="$1"
+  local target_file="$2"
+
+  [[ -f "$target_file" ]] || return 1
+
+  case "$extension_file" in
+    minimal.ts)
+      if grep -Fq 'const mindPart = `✦ [${bar(mindLoadPct)}] ${Math.round(mindLoadPct * 100)}%`;' "$target_file" 2>/dev/null; then
+        return 0
+      fi
+      ;;
+  esac
+
+  return 1
+}
+
 # 1d. Setup PI default extensions (.pi/extensions)
 setup_pi_extensions() {
   local pi_extensions_dir="$project_root/.pi/extensions"
+  local global_template_dir="$aoc_config_dir/pi/extensions"
   local candidate=""
   local canonical_seed_dirs=(
-    "$aoc_config_dir/pi/extensions"
     "$script_dir/../.pi/extensions"
+    "$global_template_dir"
   )
   local required_extensions=(
     "minimal.ts"
     "themeMap.ts"
   )
 
-  mkdir -p "$pi_extensions_dir"
+  mkdir -p "$pi_extensions_dir" "$global_template_dir"
 
   local seeded_any=0
   local extension_file=""
-  local seed_file=""
+  local preferred_seed_file=""
+  local discovered_file=""
   local target_file=""
+  local cache_file=""
+  local managed_target=""
   for extension_file in "${required_extensions[@]}"; do
     target_file="$pi_extensions_dir/$extension_file"
-    if [[ -f "$target_file" ]]; then
-      log "PI extension $extension_file already present. Preserving."
-      continue
-    fi
+    cache_file="$global_template_dir/$extension_file"
 
-    seed_file=""
+    preferred_seed_file=""
     for candidate in "${canonical_seed_dirs[@]}"; do
       if [[ -f "$candidate/$extension_file" ]]; then
-        seed_file="$candidate/$extension_file"
+        preferred_seed_file="$candidate/$extension_file"
         break
       fi
     done
 
-    if [[ -z "$seed_file" ]]; then
-      warn "Missing PI extension template: $extension_file"
+    discovered_file=""
+    if [[ -z "$preferred_seed_file" ]]; then
+      discovered_file="$(discover_pi_extension_template "$extension_file" || true)"
+      if [[ -n "$discovered_file" ]]; then
+        preferred_seed_file="$discovered_file"
+      fi
+    fi
+
+    if [[ -f "$target_file" ]]; then
+      if [[ -n "$preferred_seed_file" ]] && ! cmp -s "$target_file" "$preferred_seed_file"; then
+        managed_target="0"
+        for candidate in "${canonical_seed_dirs[@]}"; do
+          if [[ -f "$candidate/$extension_file" ]] && cmp -s "$target_file" "$candidate/$extension_file"; then
+            managed_target="1"
+            break
+          fi
+        done
+
+        if [[ "$managed_target" != "1" ]] && is_legacy_pi_extension_template "$extension_file" "$target_file"; then
+          managed_target="1"
+        fi
+
+        if [[ "$managed_target" == "1" ]]; then
+          cp "$preferred_seed_file" "$target_file"
+          log "Updated PI extension from current template: $extension_file"
+          seeded_any=1
+        else
+          log "PI extension $extension_file already present. Preserving."
+        fi
+      else
+        log "PI extension $extension_file already present. Preserving."
+      fi
+
+      if [[ -n "$preferred_seed_file" && "$preferred_seed_file" != "$cache_file" ]]; then
+        if [[ ! -f "$cache_file" ]] || ! cmp -s "$preferred_seed_file" "$cache_file"; then
+          cp "$preferred_seed_file" "$cache_file" || true
+          log "Refreshed global PI extension template: $extension_file"
+        fi
+      fi
       continue
     fi
 
-    cp "$seed_file" "$target_file"
-    log "Seeded PI extension: $extension_file"
-    seeded_any=1
+    if [[ -n "$preferred_seed_file" ]]; then
+      cp "$preferred_seed_file" "$target_file"
+      log "Seeded PI extension: $extension_file"
+      seeded_any=1
+      if [[ -n "$preferred_seed_file" && "$preferred_seed_file" != "$cache_file" ]]; then
+        if [[ ! -f "$cache_file" ]] || ! cmp -s "$preferred_seed_file" "$cache_file"; then
+          cp "$preferred_seed_file" "$cache_file" || true
+          log "Refreshed global PI extension template: $extension_file"
+        fi
+      fi
+      continue
+    fi
+
+    if write_builtin_pi_extension_template "$extension_file" "$target_file"; then
+      log "Seeded PI extension (builtin fallback): $extension_file"
+      seeded_any=1
+      if [[ ! -f "$cache_file" ]]; then
+        cp "$target_file" "$cache_file" || true
+      fi
+      continue
+    fi
+
+    warn "Missing PI extension template: $extension_file"
   done
 
   if [[ "$seeded_any" != "1" ]]; then

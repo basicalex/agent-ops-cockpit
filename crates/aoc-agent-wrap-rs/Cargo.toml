@@ -6,6 +6,8 @@ license = "Apache-2.0"
 
 [dependencies]
 aoc-core = { path = "../aoc-core" }
+aoc-mind = { path = "../aoc-mind" }
+aoc-storage = { path = "../aoc-storage" }
 chrono = { version = "0.4", features = ["serde"] }
 clap = { version = "4.5", features = ["derive"] }
 futures-util = "0.3"

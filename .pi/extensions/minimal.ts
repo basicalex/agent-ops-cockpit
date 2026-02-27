@@ -34,6 +34,8 @@ type ExtensionState = {
 	filteredTokens: number;
 	samples: Sample[];
 	lastEstimateAtMs?: number;
+	lastTokenRecomputeAtMs?: number;
+	sessionStartAnimationStartedAtMs?: number;
 	mindStatus: MindStatus;
 	mindReason?: string;
 	mindUpdatedAtMs?: number;
@@ -48,7 +50,12 @@ type ExtensionState = {
 
 const T1_TARGET_TOKENS = 28_000;
 const SAMPLE_WINDOW_MS = 10 * 60 * 1000;
-const REFRESH_INTERVAL_MS = 2_000;
+const REFRESH_INTERVAL_MS = 117;
+const TOKEN_RECOMPUTE_INTERVAL_MS = 2_000;
+const RUNNING_ANIMATION_STEP_MS = 117;
+const MIND_BAR_WIDTH = 10;
+const SESSION_START_ANIMATION_STEPS = Math.max(1, (MIND_BAR_WIDTH - 1) * 2);
+const SESSION_START_ANIMATION_MS = (SESSION_START_ANIMATION_STEPS + 1) * RUNNING_ANIMATION_STEP_MS;
 
 const state: ExtensionState = {
 	initialized: false,
@@ -165,6 +172,7 @@ function recomputeFilteredTokens(ctx: ExtensionContext): void {
 
 	state.filteredTokens = tokens;
 	state.lastEstimateAtMs = Date.now();
+	state.lastTokenRecomputeAtMs = state.lastEstimateAtMs;
 	state.samples.push({ at: state.lastEstimateAtMs, tokens });
 	const cutoff = state.lastEstimateAtMs - SAMPLE_WINDOW_MS;
 	state.samples = state.samples.filter((s) => s.at >= cutoff);
@@ -174,6 +182,56 @@ function bar(pct: number, width = 10): string {
 	const clamped = Math.max(0, Math.min(1, pct));
 	const filled = Math.round(clamped * width);
 	return "#".repeat(filled) + "-".repeat(Math.max(0, width - filled));
+}
+
+function barAtPosition(pos: number, width = MIND_BAR_WIDTH): string {
+	const safeWidth = Math.max(1, width);
+	const clampedPos = Math.max(0, Math.min(safeWidth - 1, Math.floor(pos)));
+	const chars = Array.from({ length: safeWidth }, () => "-");
+	chars[clampedPos] = "#";
+	return chars.join("");
+}
+
+function pingPongPosition(step: number, maxIndex: number): number {
+	if (maxIndex <= 0) return 0;
+	const cycle = maxIndex * 2;
+	const stepInCycle = ((step % cycle) + cycle) % cycle;
+	return stepInCycle <= maxIndex ? stepInCycle : cycle - stepInCycle;
+}
+
+function runningBar(width = MIND_BAR_WIDTH): string {
+	const safeWidth = Math.max(1, width);
+	const maxIndex = Math.max(0, safeWidth - 1);
+	const step = Math.floor(Date.now() / RUNNING_ANIMATION_STEP_MS);
+	return barAtPosition(pingPongPosition(step, maxIndex), safeWidth);
+}
+
+function isSessionStartAnimating(now = Date.now()): boolean {
+	return Boolean(
+		state.sessionStartAnimationStartedAtMs
+		&& now - state.sessionStartAnimationStartedAtMs < SESSION_START_ANIMATION_MS,
+	);
+}
+
+function sessionStartBar(width = MIND_BAR_WIDTH, now = Date.now()): string {
+	const safeWidth = Math.max(1, width);
+	const startedAt = state.sessionStartAnimationStartedAtMs;
+	if (!startedAt) return barAtPosition(0, safeWidth);
+
+	const elapsed = Math.max(0, now - startedAt);
+	const step = Math.floor(elapsed / RUNNING_ANIMATION_STEP_MS);
+	const maxIndex = Math.max(0, safeWidth - 1);
+	const pathLen = Math.max(1, maxIndex * 2);
+	const boundedStep = Math.min(pathLen, step);
+	const pos = boundedStep <= maxIndex ? boundedStep : pathLen - boundedStep;
+	return barAtPosition(pos, safeWidth);
+}
+
+function mindBar(pct: number, status: MindStatus, width = MIND_BAR_WIDTH): string {
+	const now = Date.now();
+	if (status === "running") return runningBar(width);
+	if (isSessionStartAnimating(now)) return sessionStartBar(width, now);
+	return bar(pct, width);
 }
 
 function parseMindProgress(input: any): MindFeedProgress | undefined {
@@ -226,7 +284,7 @@ function renderFooter(width: number, _theme: any): string {
 	const t0Tokens = state.mindProgress?.t0_estimated_tokens ?? state.filteredTokens;
 	const t1Target = state.mindProgress?.t1_target_tokens ?? T1_TARGET_TOKENS;
 	const mindLoadPct = Math.min(1, t0Tokens / Math.max(1, t1Target));
-	const mindPart = `✦ [${bar(mindLoadPct)}] ${Math.round(mindLoadPct * 100)}%`;
+	const mindPart = `✦ [${mindBar(mindLoadPct, state.mindStatus, MIND_BAR_WIDTH)}]✦`;
 	const ctxPart = `[${bar(ctxPct)}] ${Math.round(ctxPct * 100)}%`;
 
 	return composeCenteredFooterLine(` ${model}`, mindPart, `${ctxPart} `, width);
@@ -284,14 +342,42 @@ function writeEnvelope(socket: Socket | undefined, envelope: any): void {
 	socket.write(JSON.stringify(envelope) + "\n");
 }
 
-function startPulse(ctx: ExtensionContext): void {
+function pulseIdentity(ctx: ExtensionContext): { sessionId: string; paneId: string; senderId: string; agentId: string } | undefined {
 	const sessionId = process.env.AOC_SESSION_ID?.trim();
 	const paneId = process.env.AOC_PANE_ID?.trim();
-	if (!sessionId || !paneId) return;
-
-	const socketPath = pulseSocketPath(sessionId);
+	if (!sessionId || !paneId) return undefined;
 	const senderId = `pi-minimal-${process.pid}`;
 	const agentId = `${sessionId}::${paneId}`;
+	return { sessionId, paneId, senderId, agentId };
+}
+
+function sendPulseCommand(ctx: ExtensionContext, command: string, args: Record<string, unknown>): boolean {
+	const identity = pulseIdentity(ctx);
+	if (!identity) return false;
+	const socket = state.pulseSocket;
+	if (!socket || socket.destroyed || !state.pulseConnected) return false;
+	writeEnvelope(socket, {
+		version: "1",
+		type: "command",
+		session_id: identity.sessionId,
+		sender_id: identity.senderId,
+		request_id: `${command}-${Date.now()}`,
+		timestamp: nowIso(),
+		payload: {
+			command,
+			target_agent_id: identity.agentId,
+			args,
+		},
+	});
+	return true;
+}
+
+function startPulse(ctx: ExtensionContext): void {
+	const identity = pulseIdentity(ctx);
+	if (!identity) return;
+	const { sessionId, paneId, senderId, agentId } = identity;
+
+	const socketPath = pulseSocketPath(sessionId);
 
 	const connect = () => {
 		if (state.pulseSocket && !state.pulseSocket.destroyed) return;
@@ -384,29 +470,120 @@ function startPulse(ctx: ExtensionContext): void {
 	connect();
 }
 
+function extractCommandHintFromToolResult(message: any): string | undefined {
+	const details = message?.details;
+	if (details && typeof details === "object") {
+		const command = (details as any).command;
+		if (typeof command === "string" && command.trim().length > 0) {
+			return command.trim();
+		}
+	}
+	const text = blocksToText(message?.content);
+	const cmdPrefix = "Command:";
+	const idx = text.indexOf(cmdPrefix);
+	if (idx >= 0) {
+		const line = text.slice(idx + cmdPrefix.length).split("\n")[0]?.trim();
+		if (line) return line;
+	}
+	return undefined;
+}
+
+function buildMindIngestPayload(message: any, ctx: ExtensionContext): Record<string, unknown> | undefined {
+	const conversationId = ctx.sessionManager.getSessionId?.();
+	if (!conversationId || typeof conversationId !== "string") return undefined;
+	const timestampMs = typeof message?.timestamp === "number" ? Math.round(message.timestamp) : Date.now();
+	const role = typeof message?.role === "string" ? message.role : "";
+	const eventIdSeed = JSON.stringify({
+		role,
+		timestampMs,
+		text: blocksToText(message?.content),
+		tool: message?.toolName,
+		details: message?.details,
+	});
+	const eventId = `pi:${conversationId}:${stableHashHex(eventIdSeed)}`;
+
+	if (role === "user" || role === "assistant" || role === "system") {
+		return {
+			conversation_id: conversationId,
+			event_id: eventId,
+			timestamp_ms: timestampMs,
+			body: {
+				kind: "message",
+				role,
+				text: blocksToText(message?.content),
+			},
+		};
+	}
+
+	if (role === "toolResult") {
+		const toolName = typeof message?.toolName === "string" ? message.toolName : "tool";
+		const details = message?.details ?? {};
+		const outputText = blocksToText(message?.content);
+		return {
+			conversation_id: conversationId,
+			event_id: eventId,
+			timestamp_ms: timestampMs,
+			body: {
+				kind: "tool_result",
+				tool_name: toolName,
+				is_error: Boolean(message?.isError),
+				latency_ms: typeof details?.latencyMs === "number"
+					? details.latencyMs
+					: (typeof details?.latency_ms === "number" ? details.latency_ms : undefined),
+				exit_code: typeof details?.exitCode === "number"
+					? details.exitCode
+					: (typeof details?.exit_code === "number" ? details.exit_code : undefined),
+				output: outputText || undefined,
+				redacted: Boolean(details?.redacted),
+			},
+		};
+	}
+
+	return undefined;
+}
+
+function maybeIngestMindEvent(message: any, ctx: ExtensionContext): void {
+	const payload = buildMindIngestPayload(message, ctx);
+	if (!payload) return;
+	sendPulseCommand(ctx, "mind_ingest_event", payload);
+
+	if (message?.role === "toolResult") {
+		const toolName = typeof message?.toolName === "string" ? message.toolName.toLowerCase() : "";
+		if (toolName === "bash") {
+			const commandHint = extractCommandHintFromToolResult(message) ?? "";
+			if (/\baoc-stm\s+handoff\b/i.test(commandHint)) {
+				sendPulseCommand(ctx, "mind_handoff", {
+					conversation_id: ctx.sessionManager.getSessionId?.(),
+					reason: "stm handoff",
+				});
+			}
+		}
+	}
+}
+
 function requestManualObserverRun(ctx: ExtensionContext): boolean {
-	const sessionId = process.env.AOC_SESSION_ID?.trim();
-	const paneId = process.env.AOC_PANE_ID?.trim();
-	if (!sessionId || !paneId) return false;
+	const identity = pulseIdentity(ctx);
+	if (!identity) return false;
 	const socket = state.pulseSocket;
 	if (!socket || socket.destroyed || !state.pulseConnected) return false;
 
-	const senderId = `pi-minimal-${process.pid}`;
-	const agentId = `${sessionId}::${paneId}`;
 	const requestId = `mind-run-${Date.now()}`;
 	state.lastPulseRequestId = requestId;
 
 	writeEnvelope(socket, {
 		version: "1",
 		type: "command",
-		session_id: sessionId,
-		sender_id: senderId,
+		session_id: identity.sessionId,
+		sender_id: identity.senderId,
 		request_id: requestId,
 		timestamp: nowIso(),
 		payload: {
 			command: "run_observer",
-			target_agent_id: agentId,
-			args: { reason: "pi shortcut" },
+			target_agent_id: identity.agentId,
+			args: {
+				reason: "pi shortcut",
+				conversation_id: ctx.sessionManager.getSessionId?.(),
+			},
 		},
 	});
 	state.mindStatus = "queued";
@@ -416,12 +593,20 @@ function requestManualObserverRun(ctx: ExtensionContext): boolean {
 function startRefreshLoop(ctx: ExtensionContext): void {
 	if (state.refreshTimer) clearInterval(state.refreshTimer);
 	state.refreshTimer = setInterval(() => {
-		recomputeFilteredTokens(ctx);
+		const now = Date.now();
+		if (!state.lastTokenRecomputeAtMs || now - state.lastTokenRecomputeAtMs >= TOKEN_RECOMPUTE_INTERVAL_MS) {
+			recomputeFilteredTokens(ctx);
+		}
 		applyFooter(ctx);
 	}, REFRESH_INTERVAL_MS);
 }
 
-function bootstrap(ctx: ExtensionContext): void {
+function bootstrap(ctx: ExtensionContext, options?: { animateOnStart?: boolean }): void {
+	if (options?.animateOnStart) {
+		state.sessionStartAnimationStartedAtMs = Date.now();
+	} else {
+		state.sessionStartAnimationStartedAtMs = undefined;
+	}
 	applyExtensionDefaults(import.meta.url, ctx);
 	recomputeFilteredTokens(ctx);
 	applyFooter(ctx);
@@ -433,12 +618,18 @@ function bootstrap(ctx: ExtensionContext): void {
 export default function (pi: ExtensionAPI) {
 	pi.on("session_start", async (_event, ctx) => {
 		if (!ctx?.ui) return;
-		bootstrap(ctx);
+		bootstrap(ctx, { animateOnStart: true });
 	});
 
 	pi.on("session_switch", async (_event, ctx) => {
 		if (!ctx?.ui) return;
 		bootstrap(ctx);
+	});
+
+	pi.on("message_end", async (event, ctx) => {
+		maybeIngestMindEvent((event as any)?.message, ctx);
+		recomputeFilteredTokens(ctx);
+		applyFooter(ctx);
 	});
 
 	pi.on("turn_end", async (_event, ctx) => {

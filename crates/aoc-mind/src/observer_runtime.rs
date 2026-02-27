@@ -24,6 +24,7 @@ pub enum ObserverTriggerKind {
     TokenThreshold,
     TaskCompleted,
     ManualShortcut,
+    Handoff,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -53,6 +54,14 @@ impl ObserverTrigger {
     pub fn manual_shortcut() -> Self {
         Self {
             kind: ObserverTriggerKind::ManualShortcut,
+            priority: ObserverTriggerPriority::Urgent,
+            bypass_debounce: true,
+        }
+    }
+
+    pub fn handoff() -> Self {
+        Self {
+            kind: ObserverTriggerKind::Handoff,
             priority: ObserverTriggerPriority::Urgent,
             bypass_debounce: true,
         }
@@ -354,6 +363,17 @@ mod tests {
         let claimed = queue.claim_ready(ts(110)).expect("one run should be ready");
         assert_eq!(claimed.session_id, "session-b");
         assert_eq!(claimed.trigger.kind, ObserverTriggerKind::ManualShortcut);
+    }
+
+    #[test]
+    fn handoff_trigger_bypasses_debounce_and_runs_immediately() {
+        let mut queue = SessionObserverQueue::new(ObserverQueueConfig { debounce_ms: 500 });
+        queue.enqueue_with_trigger("session-a", "conv-1", ObserverTrigger::handoff(), ts(0));
+
+        let claimed = queue
+            .claim_ready(ts(0))
+            .expect("handoff should claim immediately");
+        assert_eq!(claimed.trigger.kind, ObserverTriggerKind::Handoff);
     }
 
     #[test]
