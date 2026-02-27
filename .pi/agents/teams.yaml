@@ -1,0 +1,7 @@
+insight-core:
+  - insight-t1-observer
+  - insight-t2-reflector
+
+insight-bootstrap:
+  - insight-t1-observer
+  - insight-t2-reflector
