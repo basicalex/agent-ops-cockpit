@@ -1932,18 +1932,20 @@ fn resolve_custom_pulse_theme() -> Option<PulseTheme> {
     let env_color = |key: &str| -> Option<Color> {
         std::env::var(key).ok().as_deref().and_then(parse_hex_color)
     };
+    let env_color_any =
+        |keys: &[&str]| -> Option<Color> { keys.iter().find_map(|key| env_color(key)) };
 
     Some(PulseTheme {
-        surface: env_color("AOC_THEME_BG")?,
-        border: env_color("AOC_THEME_BLACK")?,
-        title: env_color("AOC_THEME_BLUE")?,
-        text: env_color("AOC_THEME_FG")?,
-        muted: env_color("AOC_THEME_BLACK")?,
-        accent: env_color("AOC_THEME_BLUE")?,
-        ok: env_color("AOC_THEME_GREEN")?,
-        warn: env_color("AOC_THEME_YELLOW")?,
-        critical: env_color("AOC_THEME_RED")?,
-        info: env_color("AOC_THEME_CYAN")?,
+        surface: env_color_any(&["AOC_THEME_BG_BASE", "AOC_THEME_BG"])?,
+        border: env_color_any(&["AOC_THEME_BG_ELEVATED", "AOC_THEME_BLACK"])?,
+        title: env_color_any(&["AOC_THEME_UI_ACCENT", "AOC_THEME_BLUE"])?,
+        text: env_color_any(&["AOC_THEME_UI_PRIMARY", "AOC_THEME_FG"])?,
+        muted: env_color_any(&["AOC_THEME_UI_MUTED", "AOC_THEME_WHITE"])?,
+        accent: env_color_any(&["AOC_THEME_UI_ACCENT", "AOC_THEME_BLUE"])?,
+        ok: env_color_any(&["AOC_THEME_UI_SUCCESS", "AOC_THEME_GREEN"])?,
+        warn: env_color_any(&["AOC_THEME_UI_WARNING", "AOC_THEME_YELLOW"])?,
+        critical: env_color_any(&["AOC_THEME_UI_DANGER", "AOC_THEME_RED"])?,
+        info: env_color_any(&["AOC_THEME_UI_INFO", "AOC_THEME_CYAN"])?,
     })
 }
 
@@ -3124,6 +3126,7 @@ fn mind_trigger_label(trigger: MindObserverFeedTriggerKind) -> &'static str {
         MindObserverFeedTriggerKind::TokenThreshold => "token",
         MindObserverFeedTriggerKind::TaskCompleted => "task",
         MindObserverFeedTriggerKind::ManualShortcut => "manual",
+        MindObserverFeedTriggerKind::Handoff => "handoff",
     }
 }
 

@@ -26,6 +26,12 @@ assert_contains() {
   grep -Fq "$needle" "$file" || fail "Expected '$needle' in $file"
 }
 
+assert_same_file() {
+  local left="$1"
+  local right="$2"
+  cmp -s "$left" "$right" || fail "Expected files to match: $left == $right"
+}
+
 run_init() {
   local project_root="$1"
   local log_file="$2"
@@ -65,6 +71,24 @@ assert_not_exists "$project_fresh/.agents/skills"
 printf 'custom teach marker\n' > "$project_fresh/.pi/prompts/teach.md"
 run_init "$project_fresh" "$fresh_log_2"
 assert_contains "custom teach marker" "$project_fresh/.pi/prompts/teach.md"
+
+# --- Managed extension refresh flow (stale global/project template upgraded) ---
+project_refresh="$tmp_root/refresh"
+mkdir -p "$project_refresh/.git" "$project_refresh/.pi/extensions"
+mkdir -p "$XDG_CONFIG_HOME/aoc/pi/extensions"
+
+cat > "$XDG_CONFIG_HOME/aoc/pi/extensions/minimal.ts" <<'EOF'
+// stale minimal template
+export default {};
+EOF
+cat > "$project_refresh/.pi/extensions/minimal.ts" <<'EOF'
+// stale minimal template
+export default {};
+EOF
+
+refresh_log="$tmp_root/refresh-init.log"
+run_init "$project_refresh" "$refresh_log"
+assert_same_file "$repo_root/.pi/extensions/minimal.ts" "$project_refresh/.pi/extensions/minimal.ts"
 
 # --- Existing repo migration flow ---
 project_migration="$tmp_root/migration"

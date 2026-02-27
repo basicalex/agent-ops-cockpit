@@ -99,6 +99,8 @@ name = "aoc-agent-wrap-rs"
 version = "0.1.0"
 dependencies = [
  "aoc-core",
+ "aoc-mind",
+ "aoc-storage",
  "chrono",
  "clap",
  "futures-util",

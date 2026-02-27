@@ -1,7 +1,12 @@
 use aoc_core::{
+    mind_contracts::{
+        canonical_lineage_attrs, compact_raw_event_to_t0, ConversationLineageMetadata,
+        ConversationRole, MessageEvent, RawEvent, RawEventBody, T0CompactionPolicy,
+        ToolExecutionStatus, ToolResultEvent,
+    },
     mind_observer_feed::{
-        MindObserverFeedEvent, MindObserverFeedPayload, MindObserverFeedStatus,
-        MindObserverFeedTriggerKind,
+        MindObserverFeedEvent, MindObserverFeedPayload, MindObserverFeedProgress,
+        MindObserverFeedStatus, MindObserverFeedTriggerKind,
     },
     pulse_ipc::{
         decode_frame, encode_frame, AgentState as PulseAgentState,
@@ -13,7 +18,12 @@ use aoc_core::{
     },
     ProjectData, Task, TaskStatus,
 };
-use chrono::Utc;
+use aoc_mind::{
+    observer_feed_event_from_outcome, DistillationConfig, PiObserverAdapter,
+    SemanticObserverConfig, SessionObserverSidecar,
+};
+use aoc_storage::MindStore;
+use chrono::{TimeZone, Utc};
 use clap::Parser;
 use futures_util::{SinkExt, StreamExt};
 use notify::{RecommendedWatcher, RecursiveMode, Watcher};
@@ -64,6 +74,7 @@ const HEALTH_INTERVAL_SECS: u64 = 5;
 const TASK_CONTEXT_HEARTBEAT_SECS: u64 = 20;
 const TASK_CONTEXT_COMMAND_DEBOUNCE_MS: u64 = 1500;
 const MAX_MIND_OBSERVER_EVENTS: usize = 40;
+const MIND_DEBOUNCE_RUN_MS: i64 = 300;
 const REDACTED_SECRET: &str = "[REDACTED]";
 const TELEMETRY_SECRET_KEYS: [&str; 13] = [
     "access_token",
@@ -808,6 +819,13 @@ async fn pulse_loop(cfg: ClientConfig, socket_path: PathBuf, mut rx: mpsc::Recei
     let mut state = PulseState::new();
     let mut last_state_hash: Option<u64> = None;
     let mut backoff = Duration::from_secs(1);
+    let mut mind_runtime = match MindRuntime::new(&cfg) {
+        Ok(runtime) => Some(runtime),
+        Err(err) => {
+            warn!("mind_runtime_init_failed: {err}");
+            None
+        }
+    };
 
     loop {
         let stream = match UnixStream::connect(&socket_path).await {
@@ -909,12 +927,14 @@ async fn pulse_loop(cfg: ClientConfig, socket_path: PathBuf, mut rx: mpsc::Recei
                     if envelope.session_id != cfg.session_id || envelope.version.0 > CURRENT_PROTOCOL_VERSION {
                         continue;
                     }
-                    if let Some(command) = build_pulse_command_response(&cfg, &envelope) {
+                    if let Some(command) = build_pulse_command_response(&cfg, &envelope, mind_runtime.as_mut()) {
                         if send_pulse_envelope(&mut writer_half, &command.response).await.is_err() {
                             break;
                         }
-                        if let Some(update) = command.pulse_update {
-                            apply_pulse_update(&mut state, update);
+                        if !command.pulse_updates.is_empty() {
+                            for update in command.pulse_updates {
+                                apply_pulse_update(&mut state, update);
+                            }
                             if send_pulse_upsert(&cfg, &state, &mut writer_half, &mut last_state_hash)
                                 .await
                                 .is_err()
@@ -1263,75 +1283,413 @@ async fn read_next_pulse_frame(
 struct PulseCommandHandling {
     response: PulseWireEnvelope,
     interrupt: bool,
-    pulse_update: Option<PulseUpdate>,
+    pulse_updates: Vec<PulseUpdate>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+enum MindIngestBody {
+    Message {
+        role: String,
+        text: String,
+    },
+    ToolResult {
+        tool_name: String,
+        #[serde(default)]
+        is_error: bool,
+        #[serde(default)]
+        latency_ms: Option<u64>,
+        #[serde(default)]
+        exit_code: Option<i32>,
+        #[serde(default)]
+        output: Option<String>,
+        #[serde(default)]
+        redacted: Option<bool>,
+    },
+}
+
+#[derive(Debug, Deserialize)]
+struct MindIngestEventPayload {
+    conversation_id: String,
+    event_id: String,
+    #[serde(default)]
+    timestamp_ms: Option<i64>,
+    body: MindIngestBody,
+    #[serde(default)]
+    parent_conversation_id: Option<String>,
+    #[serde(default)]
+    root_conversation_id: Option<String>,
+}
+
+struct MindRuntime {
+    store: MindStore,
+    sidecar: SessionObserverSidecar<PiObserverAdapter>,
+    policy: T0CompactionPolicy,
+    distill: DistillationConfig,
+    latest_conversation_id: Option<String>,
+}
+
+impl MindRuntime {
+    fn new(cfg: &ClientConfig) -> Result<Self, String> {
+        let path = resolve_mind_store_path(cfg);
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent)
+                .map_err(|err| format!("failed to create mind store dir: {err}"))?;
+        }
+
+        let store =
+            MindStore::open(path).map_err(|err| format!("mind store open failed: {err}"))?;
+        let distill = DistillationConfig::default();
+        let sidecar = SessionObserverSidecar::new(
+            distill.clone(),
+            SemanticObserverConfig::default(),
+            PiObserverAdapter::default(),
+        );
+
+        Ok(Self {
+            store,
+            sidecar,
+            policy: T0CompactionPolicy::default(),
+            distill,
+            latest_conversation_id: None,
+        })
+    }
+
+    fn ingest_event(
+        &mut self,
+        cfg: &ClientConfig,
+        payload: MindIngestEventPayload,
+    ) -> Result<MindObserverFeedProgress, String> {
+        let conversation_id = payload.conversation_id.trim();
+        if conversation_id.is_empty() {
+            return Err("conversation_id is required".to_string());
+        }
+
+        let ts = payload
+            .timestamp_ms
+            .and_then(|ms| Utc.timestamp_millis_opt(ms).single())
+            .unwrap_or_else(Utc::now);
+
+        let body = match payload.body {
+            MindIngestBody::Message { role, text } => {
+                let role = match role.trim().to_ascii_lowercase().as_str() {
+                    "system" => ConversationRole::System,
+                    "user" => ConversationRole::User,
+                    "assistant" => ConversationRole::Assistant,
+                    _ => return Err(format!("unsupported message role: {role}")),
+                };
+                RawEventBody::Message(MessageEvent { role, text })
+            }
+            MindIngestBody::ToolResult {
+                tool_name,
+                is_error,
+                latency_ms,
+                exit_code,
+                output,
+                redacted,
+            } => RawEventBody::ToolResult(ToolResultEvent {
+                tool_name,
+                status: ToolExecutionStatus::from(!is_error),
+                latency_ms,
+                exit_code,
+                output,
+                redacted: redacted.unwrap_or(false),
+            }),
+        };
+
+        let parent_conversation_id = payload
+            .parent_conversation_id
+            .map(|value| value.trim().to_string())
+            .filter(|value| !value.is_empty());
+        let root_conversation_id = payload
+            .root_conversation_id
+            .map(|value| value.trim().to_string())
+            .filter(|value| !value.is_empty())
+            .unwrap_or_else(|| conversation_id.to_string());
+        let attrs = canonical_lineage_attrs(&ConversationLineageMetadata {
+            session_id: cfg.session_id.clone(),
+            parent_conversation_id,
+            root_conversation_id,
+        });
+
+        let raw = RawEvent {
+            event_id: payload.event_id,
+            conversation_id: conversation_id.to_string(),
+            agent_id: cfg.agent_key.clone(),
+            ts,
+            body,
+            attrs,
+        };
+
+        let _ = self
+            .store
+            .insert_raw_event(&raw)
+            .map_err(|err| format!("mind raw ingest failed: {err}"))?;
+
+        if let Some(compact) = compact_raw_event_to_t0(&raw, &self.policy)
+            .map_err(|err| format!("mind compaction failed: {err}"))?
+        {
+            self.store
+                .upsert_t0_compact_event(&compact)
+                .map_err(|err| format!("mind t0 upsert failed: {err}"))?;
+        }
+
+        self.latest_conversation_id = Some(conversation_id.to_string());
+        self.progress_for_conversation(conversation_id)
+            .ok_or_else(|| "mind progress unavailable".to_string())
+    }
+
+    fn resolve_conversation_id(&self, args: &serde_json::Value) -> Option<String> {
+        args.as_object()
+            .and_then(|value| value.get("conversation_id"))
+            .and_then(serde_json::Value::as_str)
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(|value| value.to_string())
+            .or_else(|| self.latest_conversation_id.clone())
+    }
+
+    fn progress_for_conversation(&self, conversation_id: &str) -> Option<MindObserverFeedProgress> {
+        let t0_events = self
+            .store
+            .t0_events_for_conversation(conversation_id)
+            .ok()?;
+        let t0_estimated_tokens = t0_events.iter().fold(0_u32, |total, event| {
+            total.saturating_add(estimate_compact_tokens(event))
+        });
+        Some(MindObserverFeedProgress {
+            t0_estimated_tokens,
+            t1_target_tokens: self.distill.t1_target_tokens,
+            t1_hard_cap_tokens: self.distill.t1_hard_cap_tokens,
+            tokens_until_next_run: self
+                .distill
+                .t1_target_tokens
+                .saturating_sub(t0_estimated_tokens),
+        })
+    }
+
+    fn enqueue_and_run(
+        &mut self,
+        cfg: &ClientConfig,
+        conversation_id: &str,
+        trigger: MindObserverFeedTriggerKind,
+        reason: Option<String>,
+    ) -> Vec<PulseUpdate> {
+        let now = Utc::now();
+        match trigger {
+            MindObserverFeedTriggerKind::TokenThreshold => {
+                self.sidecar
+                    .enqueue_token_threshold(&cfg.session_id, conversation_id, now)
+            }
+            MindObserverFeedTriggerKind::TaskCompleted => {
+                self.sidecar
+                    .enqueue_task_completed(&cfg.session_id, conversation_id, now)
+            }
+            MindObserverFeedTriggerKind::ManualShortcut => {
+                self.sidecar
+                    .enqueue_manual(&cfg.session_id, conversation_id, now)
+            }
+            MindObserverFeedTriggerKind::Handoff => {
+                self.sidecar
+                    .enqueue_handoff(&cfg.session_id, conversation_id, now)
+            }
+        }
+
+        let progress = self.progress_for_conversation(conversation_id);
+        let mut updates = vec![PulseUpdate::MindObserverEvent(MindObserverFeedEvent {
+            status: MindObserverFeedStatus::Queued,
+            trigger,
+            conversation_id: Some(conversation_id.to_string()),
+            runtime: None,
+            attempt_count: None,
+            latency_ms: None,
+            reason,
+            failure_kind: None,
+            enqueued_at: Some(now.to_rfc3339()),
+            started_at: None,
+            completed_at: None,
+            progress: progress.clone(),
+        })];
+
+        let run_at = if trigger == MindObserverFeedTriggerKind::TokenThreshold {
+            now + chrono::Duration::milliseconds(MIND_DEBOUNCE_RUN_MS)
+        } else {
+            now
+        };
+        let outcomes = self.sidecar.run_ready(&self.store, run_at);
+        let completed_at = Utc::now();
+        for outcome in outcomes {
+            updates.push(PulseUpdate::MindObserverEvent(MindObserverFeedEvent {
+                status: MindObserverFeedStatus::Running,
+                trigger: map_observer_trigger(outcome.trigger.kind),
+                conversation_id: Some(outcome.conversation_id.clone()),
+                runtime: None,
+                attempt_count: None,
+                latency_ms: None,
+                reason: None,
+                failure_kind: None,
+                enqueued_at: Some(outcome.enqueued_at.to_rfc3339()),
+                started_at: Some(outcome.started_at.to_rfc3339()),
+                completed_at: None,
+                progress: outcome.progress.clone(),
+            }));
+            updates.push(PulseUpdate::MindObserverEvent(
+                observer_feed_event_from_outcome(&self.store, &outcome, completed_at),
+            ));
+        }
+
+        updates
+    }
+
+    fn maybe_run_token_threshold(
+        &mut self,
+        cfg: &ClientConfig,
+        conversation_id: &str,
+    ) -> Vec<PulseUpdate> {
+        let Some(progress) = self.progress_for_conversation(conversation_id) else {
+            return Vec::new();
+        };
+        if progress.t0_estimated_tokens < self.distill.t1_target_tokens {
+            return Vec::new();
+        }
+
+        match self.store.conversation_needs_observer_run(conversation_id) {
+            Ok(true) => self.enqueue_and_run(
+                cfg,
+                conversation_id,
+                MindObserverFeedTriggerKind::TokenThreshold,
+                Some("t0 target reached".to_string()),
+            ),
+            Ok(false) => Vec::new(),
+            Err(err) => vec![PulseUpdate::MindObserverEvent(mind_observer_event(
+                MindObserverFeedStatus::Error,
+                MindObserverFeedTriggerKind::TokenThreshold,
+                Some(format!("mind threshold check failed: {err}")),
+            ))],
+        }
+    }
+}
+
+fn map_observer_trigger(kind: aoc_mind::ObserverTriggerKind) -> MindObserverFeedTriggerKind {
+    match kind {
+        aoc_mind::ObserverTriggerKind::TokenThreshold => {
+            MindObserverFeedTriggerKind::TokenThreshold
+        }
+        aoc_mind::ObserverTriggerKind::TaskCompleted => MindObserverFeedTriggerKind::TaskCompleted,
+        aoc_mind::ObserverTriggerKind::ManualShortcut => {
+            MindObserverFeedTriggerKind::ManualShortcut
+        }
+        aoc_mind::ObserverTriggerKind::Handoff => MindObserverFeedTriggerKind::Handoff,
+    }
+}
+
+fn estimate_compact_tokens(event: &aoc_storage::StoredCompactEvent) -> u32 {
+    let text_tokens = event
+        .text
+        .as_deref()
+        .map(estimate_text_tokens)
+        .unwrap_or_default();
+    let tool_tokens = event
+        .tool_meta
+        .as_ref()
+        .map(|meta| 14 + ((meta.output_bytes as u32) / 180))
+        .unwrap_or_default();
+    (text_tokens + tool_tokens).max(1)
+}
+
+fn estimate_text_tokens(text: &str) -> u32 {
+    (text.chars().count() as u32 / 4).max(1)
+}
+
+fn command_result(
+    cfg: &ClientConfig,
+    envelope: &PulseWireEnvelope,
+    command: &str,
+    status: &str,
+    message: Option<String>,
+    error: Option<PulseCommandError>,
+    interrupt: bool,
+    pulse_updates: Vec<PulseUpdate>,
+) -> PulseCommandHandling {
+    PulseCommandHandling {
+        response: PulseWireEnvelope {
+            version: ProtocolVersion(CURRENT_PROTOCOL_VERSION),
+            session_id: cfg.session_id.clone(),
+            sender_id: cfg.agent_key.clone(),
+            timestamp: Utc::now().to_rfc3339(),
+            request_id: envelope.request_id.clone(),
+            msg: WireMsg::CommandResult(PulseCommandResultPayload {
+                command: command.to_string(),
+                status: status.to_string(),
+                message,
+                error,
+            }),
+        },
+        interrupt,
+        pulse_updates,
+    }
+}
+
+fn ensure_target_matches(
+    cfg: &ClientConfig,
+    target: Option<&str>,
+) -> Result<(), PulseCommandError> {
+    if target != Some(cfg.agent_key.as_str()) {
+        return Err(PulseCommandError {
+            code: "invalid_target".to_string(),
+            message: "target_agent_id does not match publisher".to_string(),
+        });
+    }
+    Ok(())
 }
 
 fn build_pulse_command_response(
     cfg: &ClientConfig,
     envelope: &PulseWireEnvelope,
+    mut mind_runtime: Option<&mut MindRuntime>,
 ) -> Option<PulseCommandHandling> {
     let WireMsg::Command(payload) = envelope.msg.clone() else {
         return None;
     };
 
     let command = payload.command.clone();
-    let result = |status: &str,
-                  message: Option<String>,
-                  error: Option<PulseCommandError>,
-                  interrupt: bool,
-                  pulse_update: Option<PulseUpdate>| {
-        PulseCommandHandling {
-            response: PulseWireEnvelope {
-                version: ProtocolVersion(CURRENT_PROTOCOL_VERSION),
-                session_id: cfg.session_id.clone(),
-                sender_id: cfg.agent_key.clone(),
-                timestamp: Utc::now().to_rfc3339(),
-                request_id: envelope.request_id.clone(),
-                msg: WireMsg::CommandResult(PulseCommandResultPayload {
-                    command: command.clone(),
-                    status: status.to_string(),
-                    message,
-                    error,
-                }),
-            },
-            interrupt,
-            pulse_update,
-        }
-    };
 
     match payload.command.as_str() {
         "stop_agent" => {
-            if payload.target_agent_id.as_deref() != Some(cfg.agent_key.as_str()) {
-                return Some(result(
+            if let Err(error) = ensure_target_matches(cfg, payload.target_agent_id.as_deref()) {
+                return Some(command_result(
+                    cfg,
+                    envelope,
+                    &command,
                     "error",
                     Some("target mismatch".to_string()),
-                    Some(PulseCommandError {
-                        code: "invalid_target".to_string(),
-                        message: "target_agent_id does not match publisher".to_string(),
-                    }),
+                    Some(error),
                     false,
-                    None,
+                    Vec::new(),
                 ));
             }
-            Some(result(
+            Some(command_result(
+                cfg,
+                envelope,
+                &command,
                 "ok",
                 Some("stop signal dispatched".to_string()),
                 None,
                 true,
-                None,
+                Vec::new(),
             ))
         }
         "run_observer" => {
-            if payload.target_agent_id.as_deref() != Some(cfg.agent_key.as_str()) {
-                return Some(result(
+            if let Err(error) = ensure_target_matches(cfg, payload.target_agent_id.as_deref()) {
+                return Some(command_result(
+                    cfg,
+                    envelope,
+                    &command,
                     "error",
                     Some("target mismatch".to_string()),
-                    Some(PulseCommandError {
-                        code: "invalid_target".to_string(),
-                        message: "target_agent_id does not match publisher".to_string(),
-                    }),
+                    Some(error),
                     false,
-                    None,
+                    Vec::new(),
                 ));
             }
             let reason = payload
@@ -1343,19 +1701,205 @@ fn build_pulse_command_response(
                 .filter(|reason| !reason.is_empty())
                 .map(|reason| reason.to_string())
                 .unwrap_or_else(|| "manual observer trigger requested".to_string());
-            Some(result(
+
+            let updates = if let Some(runtime) = mind_runtime.as_deref_mut() {
+                if let Some(conversation_id) = runtime.resolve_conversation_id(&payload.args) {
+                    runtime.enqueue_and_run(
+                        cfg,
+                        &conversation_id,
+                        MindObserverFeedTriggerKind::ManualShortcut,
+                        Some(reason.clone()),
+                    )
+                } else {
+                    vec![PulseUpdate::MindObserverEvent(mind_observer_event(
+                        MindObserverFeedStatus::Queued,
+                        MindObserverFeedTriggerKind::ManualShortcut,
+                        Some(reason.clone()),
+                    ))]
+                }
+            } else {
+                vec![PulseUpdate::MindObserverEvent(mind_observer_event(
+                    MindObserverFeedStatus::Queued,
+                    MindObserverFeedTriggerKind::ManualShortcut,
+                    Some(reason.clone()),
+                ))]
+            };
+
+            Some(command_result(
+                cfg,
+                envelope,
+                &command,
                 "ok",
                 Some("observer trigger queued".to_string()),
                 None,
                 false,
-                Some(PulseUpdate::MindObserverEvent(mind_observer_event(
-                    MindObserverFeedStatus::Queued,
-                    MindObserverFeedTriggerKind::ManualShortcut,
-                    Some(reason),
-                ))),
+                updates,
             ))
         }
-        _ => Some(result(
+        "mind_ingest_event" => {
+            if let Err(error) = ensure_target_matches(cfg, payload.target_agent_id.as_deref()) {
+                return Some(command_result(
+                    cfg,
+                    envelope,
+                    &command,
+                    "error",
+                    Some("target mismatch".to_string()),
+                    Some(error),
+                    false,
+                    Vec::new(),
+                ));
+            }
+            let Some(runtime) = mind_runtime.as_deref_mut() else {
+                return Some(command_result(
+                    cfg,
+                    envelope,
+                    &command,
+                    "error",
+                    Some("mind runtime unavailable".to_string()),
+                    Some(PulseCommandError {
+                        code: "mind_unavailable".to_string(),
+                        message: "mind runtime unavailable".to_string(),
+                    }),
+                    false,
+                    Vec::new(),
+                ));
+            };
+
+            let ingest =
+                match serde_json::from_value::<MindIngestEventPayload>(payload.args.clone()) {
+                    Ok(event) => runtime.ingest_event(cfg, event),
+                    Err(err) => Err(err.to_string()),
+                };
+
+            match ingest {
+                Ok(progress) => {
+                    let conversation_id = runtime
+                        .latest_conversation_id
+                        .clone()
+                        .unwrap_or_else(|| "unknown".to_string());
+                    let mut updates = vec![PulseUpdate::MindObserverEvent(MindObserverFeedEvent {
+                        status: MindObserverFeedStatus::Queued,
+                        trigger: MindObserverFeedTriggerKind::TokenThreshold,
+                        conversation_id: Some(conversation_id.clone()),
+                        runtime: None,
+                        attempt_count: None,
+                        latency_ms: None,
+                        reason: Some("t0 updated".to_string()),
+                        failure_kind: None,
+                        enqueued_at: Some(Utc::now().to_rfc3339()),
+                        started_at: None,
+                        completed_at: None,
+                        progress: Some(progress),
+                    })];
+                    updates.extend(runtime.maybe_run_token_threshold(cfg, &conversation_id));
+                    Some(command_result(
+                        cfg,
+                        envelope,
+                        &command,
+                        "ok",
+                        Some("mind event ingested".to_string()),
+                        None,
+                        false,
+                        updates,
+                    ))
+                }
+                Err(err) => Some(command_result(
+                    cfg,
+                    envelope,
+                    &command,
+                    "error",
+                    Some("mind ingest failed".to_string()),
+                    Some(PulseCommandError {
+                        code: "mind_ingest_failed".to_string(),
+                        message: err.to_string(),
+                    }),
+                    false,
+                    vec![PulseUpdate::MindObserverEvent(mind_observer_event(
+                        MindObserverFeedStatus::Error,
+                        MindObserverFeedTriggerKind::TokenThreshold,
+                        Some(format!("mind ingest failed: {err}")),
+                    ))],
+                )),
+            }
+        }
+        "mind_handoff" => {
+            if let Err(error) = ensure_target_matches(cfg, payload.target_agent_id.as_deref()) {
+                return Some(command_result(
+                    cfg,
+                    envelope,
+                    &command,
+                    "error",
+                    Some("target mismatch".to_string()),
+                    Some(error),
+                    false,
+                    Vec::new(),
+                ));
+            }
+            let Some(runtime) = mind_runtime.as_deref_mut() else {
+                return Some(command_result(
+                    cfg,
+                    envelope,
+                    &command,
+                    "error",
+                    Some("mind runtime unavailable".to_string()),
+                    Some(PulseCommandError {
+                        code: "mind_unavailable".to_string(),
+                        message: "mind runtime unavailable".to_string(),
+                    }),
+                    false,
+                    Vec::new(),
+                ));
+            };
+
+            let reason = payload
+                .args
+                .as_object()
+                .and_then(|args| args.get("reason"))
+                .and_then(serde_json::Value::as_str)
+                .map(str::trim)
+                .filter(|reason| !reason.is_empty())
+                .map(|reason| reason.to_string())
+                .unwrap_or_else(|| "stm handoff".to_string());
+
+            let Some(conversation_id) = runtime.resolve_conversation_id(&payload.args) else {
+                return Some(command_result(
+                    cfg,
+                    envelope,
+                    &command,
+                    "error",
+                    Some("conversation unavailable".to_string()),
+                    Some(PulseCommandError {
+                        code: "conversation_missing".to_string(),
+                        message: "no conversation available for handoff observer trigger"
+                            .to_string(),
+                    }),
+                    false,
+                    Vec::new(),
+                ));
+            };
+
+            let updates = runtime.enqueue_and_run(
+                cfg,
+                &conversation_id,
+                MindObserverFeedTriggerKind::Handoff,
+                Some(reason),
+            );
+
+            Some(command_result(
+                cfg,
+                envelope,
+                &command,
+                "ok",
+                Some("handoff observer trigger queued".to_string()),
+                None,
+                false,
+                updates,
+            ))
+        }
+        _ => Some(command_result(
+            cfg,
+            envelope,
+            &command,
             "error",
             Some("unsupported command".to_string()),
             Some(PulseCommandError {
@@ -1363,7 +1907,7 @@ fn build_pulse_command_response(
                 message: "unsupported command".to_string(),
             }),
             false,
-            None,
+            Vec::new(),
         )),
     }
 }
@@ -3432,6 +3976,19 @@ fn runtime_snapshot_path(session_id: &str, pane_id: &str) -> PathBuf {
         .join(format!("{}.json", sanitize_component(pane_id)))
 }
 
+fn resolve_mind_store_path(cfg: &ClientConfig) -> PathBuf {
+    if let Ok(value) = env::var("AOC_MIND_STORE_PATH") {
+        if !value.trim().is_empty() {
+            return PathBuf::from(value);
+        }
+    }
+    PathBuf::from(&cfg.project_root)
+        .join(".aoc")
+        .join("mind")
+        .join(sanitize_component(&cfg.session_id))
+        .join(format!("{}.sqlite", sanitize_component(&cfg.pane_id)))
+}
+
 async fn persist_runtime_snapshot(cfg: &ClientConfig, status: &str) -> io::Result<()> {
     let snapshot = RuntimeSnapshot {
         session_id: cfg.session_id.clone(),
@@ -3704,6 +4261,32 @@ mod tests {
         }
     }
 
+    fn test_client_with_root(project_root: &str) -> ClientConfig {
+        let mut cfg = test_client();
+        cfg.project_root = project_root.to_string();
+        cfg
+    }
+
+    fn command_envelope_for_test(
+        cfg: &ClientConfig,
+        request_id: &str,
+        command: &str,
+        args: serde_json::Value,
+    ) -> PulseWireEnvelope {
+        PulseWireEnvelope {
+            version: ProtocolVersion(CURRENT_PROTOCOL_VERSION),
+            session_id: cfg.session_id.clone(),
+            sender_id: "aoc-mission-control".to_string(),
+            timestamp: Utc::now().to_rfc3339(),
+            request_id: Some(request_id.to_string()),
+            msg: WireMsg::Command(aoc_core::pulse_ipc::CommandPayload {
+                command: command.to_string(),
+                target_agent_id: Some(cfg.agent_key.clone()),
+                args,
+            }),
+        }
+    }
+
     #[test]
     fn tap_buffer_keeps_bounded_tail() {
         let mut tap = TapBuffer::new(10);
@@ -3880,14 +4463,15 @@ mod tests {
             }),
         };
 
-        let command = build_pulse_command_response(&cfg, &envelope).expect("response expected");
+        let command =
+            build_pulse_command_response(&cfg, &envelope, None).expect("response expected");
         let WireMsg::CommandResult(payload) = command.response.msg else {
             panic!("expected command_result")
         };
         assert_eq!(payload.command, "stop_agent");
         assert_eq!(payload.status, "ok");
         assert!(command.interrupt);
-        assert!(command.pulse_update.is_none());
+        assert!(command.pulse_updates.is_empty());
     }
 
     #[test]
@@ -3906,7 +4490,8 @@ mod tests {
             }),
         };
 
-        let command = build_pulse_command_response(&cfg, &envelope).expect("response expected");
+        let command =
+            build_pulse_command_response(&cfg, &envelope, None).expect("response expected");
         let WireMsg::CommandResult(payload) = command.response.msg else {
             panic!("expected command_result")
         };
@@ -3916,7 +4501,7 @@ mod tests {
             Some("invalid_target")
         );
         assert!(!command.interrupt);
-        assert!(command.pulse_update.is_none());
+        assert!(command.pulse_updates.is_empty());
     }
 
     #[test]
@@ -3935,20 +4520,141 @@ mod tests {
             }),
         };
 
-        let command = build_pulse_command_response(&cfg, &envelope).expect("response expected");
+        let command =
+            build_pulse_command_response(&cfg, &envelope, None).expect("response expected");
         let WireMsg::CommandResult(payload) = command.response.msg else {
             panic!("expected command_result")
         };
         assert_eq!(payload.status, "ok");
         assert!(!command.interrupt);
-        match command.pulse_update {
-            Some(PulseUpdate::MindObserverEvent(event)) => {
+        assert_eq!(command.pulse_updates.len(), 1);
+        match &command.pulse_updates[0] {
+            PulseUpdate::MindObserverEvent(event) => {
                 assert_eq!(event.status, MindObserverFeedStatus::Queued);
                 assert_eq!(event.trigger, MindObserverFeedTriggerKind::ManualShortcut);
                 assert_eq!(event.reason.as_deref(), Some("pulse_user_request"));
             }
             _ => panic!("expected mind observer feed event"),
         }
+    }
+
+    #[test]
+    fn pulse_mind_ingest_event_updates_progress() {
+        let test_root = std::env::temp_dir().join(format!(
+            "aoc-mind-wrap-test-{}-{}",
+            std::process::id(),
+            Utc::now().timestamp_nanos_opt().unwrap_or_default()
+        ));
+        std::fs::create_dir_all(&test_root).expect("create test root");
+        let cfg = test_client_with_root(&test_root.to_string_lossy());
+        let mut runtime = MindRuntime::new(&cfg).expect("mind runtime");
+
+        let envelope = command_envelope_for_test(
+            &cfg,
+            "req-mind-ingest",
+            "mind_ingest_event",
+            serde_json::json!({
+                "conversation_id": "conv-1",
+                "event_id": "evt-1",
+                "timestamp_ms": 1700000000000i64,
+                "body": {
+                    "kind": "message",
+                    "role": "user",
+                    "text": "plan implementation details for t0 runtime"
+                }
+            }),
+        );
+
+        let command = build_pulse_command_response(&cfg, &envelope, Some(&mut runtime))
+            .expect("response expected");
+        let WireMsg::CommandResult(payload) = command.response.msg else {
+            panic!("expected command_result")
+        };
+        assert_eq!(payload.status, "ok");
+        assert!(!command.pulse_updates.is_empty());
+        let has_progress = command.pulse_updates.iter().any(|update| {
+            matches!(
+                update,
+                PulseUpdate::MindObserverEvent(event)
+                    if event.trigger == MindObserverFeedTriggerKind::TokenThreshold
+                        && event.progress.is_some()
+            )
+        });
+        assert!(has_progress, "expected token-threshold progress update");
+
+        let _ = std::fs::remove_dir_all(test_root);
+    }
+
+    #[test]
+    fn pulse_mind_handoff_runs_observer_flow() {
+        let test_root = std::env::temp_dir().join(format!(
+            "aoc-mind-wrap-test-{}-{}",
+            std::process::id(),
+            Utc::now().timestamp_nanos_opt().unwrap_or_default()
+        ));
+        std::fs::create_dir_all(&test_root).expect("create test root");
+        let cfg = test_client_with_root(&test_root.to_string_lossy());
+        let mut runtime = MindRuntime::new(&cfg).expect("mind runtime");
+
+        let ingest = command_envelope_for_test(
+            &cfg,
+            "req-mind-ingest-2",
+            "mind_ingest_event",
+            serde_json::json!({
+                "conversation_id": "conv-2",
+                "event_id": "evt-2",
+                "timestamp_ms": 1700000001000i64,
+                "body": {
+                    "kind": "message",
+                    "role": "user",
+                    "text": "handoff notes ready for implementation"
+                }
+            }),
+        );
+        let _ = build_pulse_command_response(&cfg, &ingest, Some(&mut runtime))
+            .expect("ingest response");
+
+        let handoff = command_envelope_for_test(
+            &cfg,
+            "req-mind-handoff",
+            "mind_handoff",
+            serde_json::json!({
+                "conversation_id": "conv-2",
+                "reason": "stm handoff"
+            }),
+        );
+
+        let command = build_pulse_command_response(&cfg, &handoff, Some(&mut runtime))
+            .expect("response expected");
+        let WireMsg::CommandResult(payload) = command.response.msg else {
+            panic!("expected command_result")
+        };
+        assert_eq!(payload.status, "ok");
+
+        let has_handoff_queue = command.pulse_updates.iter().any(|update| {
+            matches!(
+                update,
+                PulseUpdate::MindObserverEvent(event)
+                    if event.trigger == MindObserverFeedTriggerKind::Handoff
+                        && event.status == MindObserverFeedStatus::Queued
+            )
+        });
+        assert!(has_handoff_queue, "expected handoff queued event");
+
+        let has_terminal = command.pulse_updates.iter().any(|update| {
+            matches!(
+                update,
+                PulseUpdate::MindObserverEvent(event)
+                    if event.trigger == MindObserverFeedTriggerKind::Handoff
+                        && matches!(
+                            event.status,
+                            MindObserverFeedStatus::Success | MindObserverFeedStatus::Fallback
+                        )
+            )
+        });
+        assert!(has_terminal, "expected handoff terminal observer event");
+
+        let _ = std::fs::remove_dir_all(test_root);
     }
 
     #[cfg(unix)]
