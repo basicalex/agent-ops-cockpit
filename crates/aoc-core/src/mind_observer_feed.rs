@@ -28,6 +28,7 @@ pub enum MindObserverFeedTriggerKind {
     TokenThreshold,
     TaskCompleted,
     ManualShortcut,
+    Handoff,
 }
 
 impl MindObserverFeedTriggerKind {
@@ -36,6 +37,7 @@ impl MindObserverFeedTriggerKind {
             Self::TokenThreshold => "token_threshold",
             Self::TaskCompleted => "task_completed",
             Self::ManualShortcut => "manual_shortcut",
+            Self::Handoff => "handoff",
         }
     }
 }

@@ -800,6 +800,23 @@ if [[ -d "$ROOT_DIR/.aoc/prompts/pi" ]]; then
   done
 fi
 
+# AOC default PI extension templates
+if [[ -d "$ROOT_DIR/.pi/extensions" ]]; then
+  mkdir -p "${XDG_CONFIG_HOME:-$HOME/.config}/aoc/pi/extensions"
+  for f in "$ROOT_DIR/.pi/extensions"/*.ts; do
+    [[ -f "$f" ]] || continue
+    dest="${XDG_CONFIG_HOME:-$HOME/.config}/aoc/pi/extensions/$(basename "$f")"
+    if [[ ! -f "$dest" ]]; then
+      cp "$f" "$dest"
+      continue
+    fi
+
+    if ! cmp -s "$f" "$dest"; then
+      cp "$f" "$dest"
+    fi
+  done
+fi
+
 # Optional skills and PI prompts (MoreMotion)
 if [[ -d "$ROOT_DIR/.aoc/skills-optional" ]]; then
   for d in "$ROOT_DIR/.aoc/skills-optional"/*; do

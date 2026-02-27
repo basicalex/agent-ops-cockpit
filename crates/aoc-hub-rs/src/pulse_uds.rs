@@ -983,7 +983,7 @@ impl PulseUdsHub {
                 self.handle_focus_tab_command(source_conn_id, envelope.request_id, payload)
                     .await;
             }
-            "stop_agent" => {
+            "stop_agent" | "run_observer" | "mind_ingest_event" | "mind_handoff" => {
                 self.route_stop_agent_command(source_conn_id, envelope, payload)
                     .await;
             }

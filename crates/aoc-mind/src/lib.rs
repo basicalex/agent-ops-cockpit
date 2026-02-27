@@ -639,6 +639,7 @@ fn observer_feed_trigger(kind: ObserverTriggerKind) -> MindObserverFeedTriggerKi
         ObserverTriggerKind::TokenThreshold => MindObserverFeedTriggerKind::TokenThreshold,
         ObserverTriggerKind::TaskCompleted => MindObserverFeedTriggerKind::TaskCompleted,
         ObserverTriggerKind::ManualShortcut => MindObserverFeedTriggerKind::ManualShortcut,
+        ObserverTriggerKind::Handoff => MindObserverFeedTriggerKind::Handoff,
     }
 }
 
@@ -703,6 +704,20 @@ impl<A: ObserverAdapter> SessionObserverSidecar<A> {
             session_id,
             conversation_id,
             ObserverTrigger::manual_shortcut(),
+            now,
+        );
+    }
+
+    pub fn enqueue_handoff(
+        &mut self,
+        session_id: impl Into<String>,
+        conversation_id: impl Into<String>,
+        now: chrono::DateTime<chrono::Utc>,
+    ) {
+        self.queue.enqueue_with_trigger(
+            session_id,
+            conversation_id,
+            ObserverTrigger::handoff(),
             now,
         );
     }
