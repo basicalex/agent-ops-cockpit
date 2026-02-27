@@ -1,0 +1,15 @@
+insight-handoff:
+  description: "T1 observation pass followed by T2 reflection synthesis"
+  steps:
+    - agent: insight-t1-observer
+      prompt: "Run T1 observation on the current handoff context: $INPUT"
+    - agent: insight-t2-reflector
+      prompt: "Synthesize a T2 reflection from this T1 output and produce prioritized actions: $INPUT"
+
+insight-bootstrap-gap-analysis:
+  description: "Brown-field docs-vs-code gap scan then reflection-driven plan projection"
+  steps:
+    - agent: insight-t1-observer
+      prompt: "Compare docs and code for this scope, then produce T1 observations with evidence: $INPUT"
+    - agent: insight-t2-reflector
+      prompt: "Generate reflection, Taskmaster projection, and T2 seeds from this gap evidence: $INPUT"

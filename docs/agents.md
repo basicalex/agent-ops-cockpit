@@ -20,6 +20,8 @@ Expected project-local runtime paths:
 - `.pi/extensions/`
   - `minimal.ts`
   - `themeMap.ts`
+- Optional orchestration assets:
+  - `.pi/agents/` (specialists, teams, chain manifests)
 
 Control-plane state remains under `.aoc/**` (`context.md`, `memory.md`, `stm/`, `rtk.toml`).
 
@@ -59,7 +61,7 @@ Canonical ownership is `.pi/**`.
 - Non-PI wrappers/installers are removed from active AOC paths
 - Bring-your-own runtime remains possible via wrapper strategy in [Agent Extensibility](agent-extensibility.md)
 
-See also: [Deprecations and removals](deprecations.md).
+See also: [Deprecations and removals](deprecations.md), [Insight sub-agent orchestration](insight-subagent-orchestration.md).
 
 ## PI-first migration checklist
 
