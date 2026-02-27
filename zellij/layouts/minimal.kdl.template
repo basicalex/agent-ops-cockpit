@@ -10,7 +10,7 @@ layout {
     }
     pane size=2 borderless=true {
       plugin location="file:{{HOME}}/.config/zellij/plugins/zjstatus.wasm" {
-        format_left   "{mode} #[fg=__AOC_THEME_BLUE__,bold]{session}"
+        format_left   "{mode} #[fg=blue,bold]{session}"
         format_center "{tabs}"
         format_right  "{command_cwd}"
         format_space  ""
@@ -22,14 +22,14 @@ layout {
 
         hide_frame_for_single_pane "true"
 
-        mode_normal  "#[bg=__AOC_THEME_BLUE__] "
-        mode_tmux    "#[bg=__AOC_THEME_ORANGE__] "
+        mode_normal  "#[bg=blue] "
+        mode_tmux    "#[bg=orange] "
 
-        tab_normal   "#[fg=__AOC_THEME_BLACK__] {name} "
-        tab_active   "#[fg=__AOC_THEME_WHITE__,bold,italic] {name} "
+        tab_normal   "#[fg=black] {name} "
+        tab_active   "#[fg=white,bold,italic] {name} "
 
         command_cwd_command  "pwd | sed 's|.*/||'"
-        command_cwd_format   "#[fg=__AOC_THEME_BLACK__] {stdout} "
+        command_cwd_format   "#[fg=black] {stdout} "
         command_cwd_interval "2"
       }
     }

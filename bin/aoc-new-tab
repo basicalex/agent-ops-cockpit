@@ -150,6 +150,14 @@ load_aoc_theme_values() {
   AOC_THEME_BLACK="#6C7086"
   AOC_THEME_WHITE="#9399B2"
 
+  AOC_THEME_UI_PRIMARY="$AOC_THEME_WHITE"
+  AOC_THEME_UI_MUTED="$AOC_THEME_BLACK"
+  AOC_THEME_UI_ACCENT="$AOC_THEME_BLUE"
+  AOC_THEME_BG_BASE="#1E1E2E"
+  AOC_THEME_BG_ELEVATED="$AOC_THEME_BLACK"
+  AOC_THEME_BG_SUBTLE="$AOC_THEME_BLACK"
+  AOC_THEME_BG_ACCENT="$AOC_THEME_BLUE"
+
   local theme_env="${XDG_CONFIG_HOME:-$HOME/.config}/aoc/theme.env"
   if [[ -f "$theme_env" ]]; then
     # shellcheck disable=SC1090
@@ -258,7 +266,14 @@ if [[ -f "$layout_path" ]]; then
       -v theme_cyan="$AOC_THEME_CYAN" \
       -v theme_magenta="$AOC_THEME_MAGENTA" \
       -v theme_black="$AOC_THEME_BLACK" \
-      -v theme_white="$AOC_THEME_WHITE" '
+      -v theme_white="$AOC_THEME_WHITE" \
+      -v theme_ui_primary="$AOC_THEME_UI_PRIMARY" \
+      -v theme_ui_muted="$AOC_THEME_UI_MUTED" \
+      -v theme_ui_accent="$AOC_THEME_UI_ACCENT" \
+      -v theme_bg_base="$AOC_THEME_BG_BASE" \
+      -v theme_bg_elevated="$AOC_THEME_BG_ELEVATED" \
+      -v theme_bg_subtle="$AOC_THEME_BG_SUBTLE" \
+      -v theme_bg_accent="$AOC_THEME_BG_ACCENT" '
   {
     gsub(/__AOC_TAB_NAME__/, tab_name)
     gsub(/__AOC_AGENT_ID__/, agent_id)
@@ -275,17 +290,13 @@ if [[ -f "$layout_path" ]]; then
     gsub(/__AOC_THEME_MAGENTA__/, theme_magenta)
     gsub(/__AOC_THEME_BLACK__/, theme_black)
     gsub(/__AOC_THEME_WHITE__/, theme_white)
-    gsub(/#89B4FA/, theme_blue)
-    gsub(/#A6E3A1/, theme_green)
-    gsub(/#F38BA8/, theme_red)
-    gsub(/#FAB387/, theme_orange)
-    gsub(/#F9E2AF/, theme_yellow)
-    gsub(/#94E2D5/, theme_cyan)
-    gsub(/#CBA6F7/, theme_magenta)
-    gsub(/#6C7086/, theme_black)
-    gsub(/#9399B2/, theme_white)
-    gsub(/#ffc387/, theme_orange)
-    gsub(/\[bg=blue\]/, "[bg=" theme_blue "]")
+    gsub(/__AOC_THEME_UI_PRIMARY__/, theme_ui_primary)
+    gsub(/__AOC_THEME_UI_MUTED__/, theme_ui_muted)
+    gsub(/__AOC_THEME_UI_ACCENT__/, theme_ui_accent)
+    gsub(/__AOC_THEME_BG_BASE__/, theme_bg_base)
+    gsub(/__AOC_THEME_BG_ELEVATED__/, theme_bg_elevated)
+    gsub(/__AOC_THEME_BG_SUBTLE__/, theme_bg_subtle)
+    gsub(/__AOC_THEME_BG_ACCENT__/, theme_bg_accent)
     if (launch_agent != "") {
       gsub(/AOC_AGENT_RUN=1 exec /, "AOC_AGENT_ID=" launch_agent " AOC_AGENT_RUN=1 exec ")
     }
