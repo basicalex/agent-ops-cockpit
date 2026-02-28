@@ -15,6 +15,7 @@ description: Create and manage global Zellij themes for AOC.
 - `aoc-theme list`
 - `aoc-theme apply --name <theme>`
 - `aoc-theme set-default --name <theme>`
+- `aoc-theme activate --name <theme>`
 - `aoc-theme sync`
 
 ## Scope model
@@ -26,7 +27,8 @@ description: Create and manage global Zellij themes for AOC.
 - Zellij status surfaces (`zjstatus`) in shipped AOC layouts
 - AOC Pulse (`aoc-mission-control`) via `AOC_THEME_*` palette env
 - Yazi via generated `~/.config/yazi/theme.toml`
-- Pi via generated `~/.pi/agent/themes/aoc-live.json` (`theme: aoc-live`) for live palette sync during AOC theme apply/sync
+- Pi via generated `~/.pi/agent/themes/aoc-live.json` (`theme: aoc-live`) for live palette sync during AOC theme apply/sync/activate
+- Pi extension map respects AOC lock (`AOC_PI_THEME_LOCKED=1`) so extension defaults do not override active AOC theme
 
 ## Live preview behavior (AOC Control Theme Manager)
 - Open with `Alt+c` -> Theme manager.
@@ -39,8 +41,8 @@ description: Create and manage global Zellij themes for AOC.
 1. Run `aoc-theme list` to check existing names.
 2. Create the theme with `aoc-theme init`.
 3. Edit palette values in the generated file.
-4. If inside Zellij, apply live with `aoc-theme apply --name <theme>`.
-5. Persist for future launches with `aoc-theme set-default --name <theme>`.
+4. Prefer one-shot activation with `aoc-theme activate --name <theme>` (live apply + default + artifact sync).
+5. Use `aoc-theme apply --name <theme>` only for temporary live preview/apply.
 6. Run `aoc-theme sync` if configs were edited manually outside `aoc-theme`.
 
 ## Guardrails

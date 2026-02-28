@@ -82,12 +82,24 @@ export function applyExtensionTheme(fileUrl: string, ctx?: ExtensionContext): bo
 	const setTheme = (ctx as any).ui?.setTheme;
 	if (typeof setTheme !== "function") return false;
 
+	// AOC-driven live theming contract:
+	// - AOC_PI_THEME_NAME points at the generated Pi theme (usually "aoc-live")
+	// - AOC_PI_THEME_LOCKED=1 means extension defaults must not override it
 	const aocThemeName = (process.env.AOC_PI_THEME_NAME || "").trim();
+	const aocThemeLocked = /^(1|true|yes|on)$/i.test((process.env.AOC_PI_THEME_LOCKED || "").trim());
+
 	if (aocThemeName.length > 0) {
 		const aocResult = setTheme(aocThemeName);
 		if (aocResult?.success) {
 			return true;
 		}
+		if (aocThemeLocked) {
+			return false;
+		}
+	}
+
+	if (aocThemeLocked) {
+		return false;
 	}
 
 	const result = setTheme(themeName);
