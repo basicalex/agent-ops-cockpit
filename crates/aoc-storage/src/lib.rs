@@ -10,7 +10,7 @@ use std::collections::BTreeSet;
 use std::path::Path;
 use thiserror::Error;
 
-pub const MIND_SCHEMA_VERSION: i64 = 4;
+pub const MIND_SCHEMA_VERSION: i64 = 5;
 
 #[derive(Debug, Error)]
 pub enum StorageError {
@@ -109,6 +109,29 @@ pub struct ReflectorJob {
     pub updated_at: DateTime<Utc>,
 }
 
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
+pub struct LegacyImportReport {
+    pub tables_scanned: usize,
+    pub tables_imported: usize,
+    pub rows_imported: usize,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ProjectWatermark {
+    pub scope_key: String,
+    pub last_artifact_ts: Option<DateTime<Utc>>,
+    pub last_artifact_id: Option<String>,
+    pub updated_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum T3BacklogJobStatus {
+    Pending,
+    Claimed,
+    Completed,
+    Failed,
+}
+
 pub struct MindStore {
     conn: Connection,
 }
@@ -175,6 +198,15 @@ impl MindStore {
             self.conn.execute_batch(sql)?;
             self.conn
                 .execute("PRAGMA user_version = 4", [])
+                .map(|_| ())?;
+            current = 4;
+        }
+
+        if current < 5 {
+            let sql = include_str!("../migrations/0005_project_mind_v2.sql");
+            self.conn.execute_batch(sql)?;
+            self.conn
+                .execute("PRAGMA user_version = 5", [])
                 .map(|_| ())?;
         }
 
@@ -1238,6 +1270,61 @@ impl MindStore {
         Ok(job)
     }
 
+    pub fn import_legacy_store(
+        &self,
+        legacy_path: impl AsRef<Path>,
+    ) -> Result<LegacyImportReport, StorageError> {
+        let legacy_path = legacy_path.as_ref();
+        if !legacy_path.exists() {
+            return Ok(LegacyImportReport::default());
+        }
+
+        let legacy_path = legacy_path.to_string_lossy().to_string();
+        self.conn
+            .execute("ATTACH DATABASE ?1 AS legacy_mind", [legacy_path.as_str()])?;
+
+        let import_result = (|| {
+            let mut report = LegacyImportReport::default();
+            for spec in LEGACY_IMPORT_SPECS {
+                report.tables_scanned += 1;
+                if !self.attached_table_exists("legacy_mind", spec.table)? {
+                    continue;
+                }
+
+                let statement = format!(
+                    "INSERT OR IGNORE INTO {table} ({columns}) SELECT {columns} FROM legacy_mind.{table}",
+                    table = spec.table,
+                    columns = spec.columns,
+                );
+                let imported = self.conn.execute(&statement, [])?;
+                if imported > 0 {
+                    report.tables_imported += 1;
+                    report.rows_imported += imported;
+                }
+            }
+            Ok(report)
+        })();
+
+        let detach_result = self.conn.execute_batch("DETACH DATABASE legacy_mind");
+
+        match (import_result, detach_result) {
+            (Ok(report), Ok(())) => Ok(report),
+            (Err(err), _) => Err(err),
+            (Ok(_), Err(err)) => Err(StorageError::from(err)),
+        }
+    }
+
+    fn attached_table_exists(&self, schema: &str, table_name: &str) -> Result<bool, StorageError> {
+        let query = format!(
+            "SELECT EXISTS(SELECT 1 FROM {schema}.sqlite_master WHERE type = 'table' AND name = ?1)",
+            schema = schema,
+        );
+        let exists: i64 = self
+            .conn
+            .query_row(&query, [table_name], |row| row.get(0))?;
+        Ok(exists != 0)
+    }
+
     pub fn artifacts_for_conversation(
         &self,
         conversation_id: &str,
@@ -1790,6 +1877,67 @@ fn parse_semantic_failure_kind(value: &str) -> Option<SemanticFailureKind> {
     }
 }
 
+struct LegacyImportSpec {
+    table: &'static str,
+    columns: &'static str,
+}
+
+const LEGACY_IMPORT_SPECS: &[LegacyImportSpec] = &[
+    LegacyImportSpec {
+        table: "raw_events",
+        columns: "event_id, conversation_id, agent_id, ts, kind, payload_json, attrs_json",
+    },
+    LegacyImportSpec {
+        table: "compact_events_t0",
+        columns: "compact_id, compact_hash, schema_version, conversation_id, ts, role, text, snippet, source_event_ids_json, tool_meta_json, policy_version",
+    },
+    LegacyImportSpec {
+        table: "observations_t1",
+        columns: "artifact_id, conversation_id, ts, importance, text, trace_ids_json",
+    },
+    LegacyImportSpec {
+        table: "reflections_t2",
+        columns: "artifact_id, conversation_id, ts, text, trace_ids_json",
+    },
+    LegacyImportSpec {
+        table: "artifact_task_links",
+        columns: "artifact_id, task_id, relation, confidence_bps, source, evidence_event_ids_json, start_ts, end_ts",
+    },
+    LegacyImportSpec {
+        table: "conversation_context_state",
+        columns: "conversation_id, ts, active_tag, active_tasks_json, lifecycle, signal_task_ids_json, signal_source",
+    },
+    LegacyImportSpec {
+        table: "segment_routes",
+        columns: "artifact_id, segment_id, confidence_bps, routed_by, reason, overridden_by",
+    },
+    LegacyImportSpec {
+        table: "aoc_mem_decisions",
+        columns: "decision_id, ts, project_id, segment_id, text, supersedes_id",
+    },
+    LegacyImportSpec {
+        table: "ingestion_checkpoints",
+        columns: "conversation_id, raw_cursor, t0_cursor, policy_version, updated_at",
+    },
+    LegacyImportSpec {
+        table: "semantic_runtime_provenance",
+        columns: "artifact_id, stage, runtime, provider_name, model_id, prompt_version, input_hash, output_hash, latency_ms, attempt_count, fallback_used, fallback_reason, failure_kind, created_at",
+    },
+    LegacyImportSpec {
+        table: "reflector_runtime_leases",
+        columns: "scope_id, owner_id, owner_pid, acquired_at, heartbeat_at, expires_at, metadata_json",
+    },
+    LegacyImportSpec {
+        table: "reflector_jobs_t2",
+        columns: "job_id, active_tag, observation_ids_json, conversation_ids_json, estimated_tokens, status, claimed_by, claimed_at, attempts, last_error, created_at, updated_at",
+    },
+    LegacyImportSpec {
+        table: "conversation_lineage",
+        columns:
+            "conversation_id, session_id, parent_conversation_id, root_conversation_id, updated_at",
+    },
+];
+
 fn reflector_job_status_as_str(status: ReflectorJobStatus) -> &'static str {
     match status {
         ReflectorJobStatus::Pending => "pending",
@@ -1892,6 +2040,7 @@ mod tests {
         T0CompactionPolicy, ToolExecutionStatus, ToolResultEvent,
     };
     use chrono::TimeZone;
+    use rusqlite::{params, Connection};
     use tempfile::NamedTempFile;
 
     fn ts() -> DateTime<Utc> {
@@ -1950,6 +2099,11 @@ mod tests {
             "conversation_lineage",
             "aoc_mem_decisions",
             "ingestion_checkpoints",
+            "t3_backlog_jobs",
+            "t3_runtime_leases",
+            "project_canon_revisions",
+            "handshake_snapshots",
+            "project_watermarks",
         ] {
             assert!(db.table_exists(table).expect("table check"));
         }
@@ -2432,5 +2586,60 @@ mod tests {
             .expect("job exists");
         assert_eq!(completed.status, ReflectorJobStatus::Completed);
         assert_eq!(completed.attempts, 2);
+    }
+
+    #[test]
+    fn import_legacy_store_copies_v1_to_v4_tables_without_duplicates() {
+        let legacy_file = NamedTempFile::new().expect("legacy temp db");
+        let legacy_conn = Connection::open(legacy_file.path()).expect("open legacy db");
+        legacy_conn
+            .execute_batch(include_str!("../migrations/0001_mind_schema.sql"))
+            .expect("apply migration 1");
+        legacy_conn
+            .execute_batch(include_str!("../migrations/0002_semantic_runtime.sql"))
+            .expect("apply migration 2");
+        legacy_conn
+            .execute_batch(include_str!("../migrations/0003_reflector_runtime.sql"))
+            .expect("apply migration 3");
+        legacy_conn
+            .execute_batch(include_str!(
+                "../migrations/0004_session_conversation_tree.sql"
+            ))
+            .expect("apply migration 4");
+        legacy_conn
+            .execute("PRAGMA user_version = 4", [])
+            .expect("set legacy schema version");
+
+        legacy_conn
+            .execute(
+                "
+                INSERT INTO raw_events (event_id, conversation_id, agent_id, ts, kind, payload_json, attrs_json)
+                VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
+                ",
+                params![
+                    "evt-legacy-1",
+                    "conv-legacy",
+                    "session-legacy::12",
+                    ts().to_rfc3339(),
+                    "message",
+                    serde_json::json!({"kind":"message","role":"user","text":"hello"}).to_string(),
+                    "{}",
+                ],
+            )
+            .expect("seed legacy raw event");
+
+        let db = MindStore::open_in_memory().expect("open db");
+        let first = db
+            .import_legacy_store(legacy_file.path())
+            .expect("import legacy data");
+        assert!(first.tables_imported >= 1);
+        assert!(first.rows_imported >= 1);
+        assert_eq!(db.raw_event_count("conv-legacy").expect("count raw"), 1);
+
+        let second = db
+            .import_legacy_store(legacy_file.path())
+            .expect("re-import legacy data");
+        assert_eq!(second.rows_imported, 0);
+        assert_eq!(db.raw_event_count("conv-legacy").expect("count raw"), 1);
     }
 }
