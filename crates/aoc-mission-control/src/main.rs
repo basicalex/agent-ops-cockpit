@@ -216,6 +216,7 @@ struct HubCache {
     diffs: HashMap<String, DiffSummaryPayload>,
     health: HashMap<String, HealthSnapshot>,
     mind: HashMap<String, MindObserverFeedPayload>,
+    insight_runtime: HashMap<String, InsightRuntimeSnapshot>,
     layout: Option<HubLayout>,
     last_seq: u64,
 }
@@ -332,6 +333,30 @@ struct HealthRow {
     snapshot: HealthSnapshot,
 }
 
+#[derive(Deserialize, Serialize, Clone, Debug, Default)]
+struct InsightRuntimeSnapshot {
+    #[serde(default)]
+    reflector_enabled: bool,
+    #[serde(default)]
+    reflector_ticks: u64,
+    #[serde(default)]
+    reflector_lock_conflicts: u64,
+    #[serde(default)]
+    reflector_jobs_completed: u64,
+    #[serde(default)]
+    reflector_jobs_failed: u64,
+    #[serde(default)]
+    supervisor_runs: u64,
+    #[serde(default)]
+    supervisor_failures: u64,
+    #[serde(default)]
+    queue_depth: i64,
+    #[serde(default)]
+    last_tick_ms: Option<i64>,
+    #[serde(default)]
+    last_error: Option<String>,
+}
+
 #[derive(Clone, Debug)]
 struct MindObserverRow {
     agent_id: String,
@@ -379,6 +404,31 @@ impl Mode {
             Mode::Work => Mode::Diff,
             Mode::Diff => Mode::Health,
             Mode::Health => Mode::Overview,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum MindLaneFilter {
+    T1,
+    T2,
+    All,
+}
+
+impl MindLaneFilter {
+    fn next(self) -> Self {
+        match self {
+            Self::T1 => Self::T2,
+            Self::T2 => Self::All,
+            Self::All => Self::T1,
+        }
+    }
+
+    fn label(self) -> &'static str {
+        match self {
+            Self::T1 => "t1",
+            Self::T2 => "t2",
+            Self::All => "all",
         }
     }
 }
@@ -455,6 +505,8 @@ struct App {
     overview_sort_mode: OverviewSortMode,
     follow_viewer_tab: bool,
     last_viewer_tab_index: Option<usize>,
+    mind_lane: MindLaneFilter,
+    mind_show_all_tabs: bool,
     status_note: Option<String>,
     pending_commands: HashMap<String, PendingCommand>,
     next_request_id: u64,
@@ -533,6 +585,8 @@ impl App {
             overview_sort_mode: OverviewSortMode::Layout,
             follow_viewer_tab: true,
             last_viewer_tab_index,
+            mind_lane: MindLaneFilter::T1,
+            mind_show_all_tabs: false,
             status_note,
             pending_commands: HashMap::new(),
             next_request_id: 0,
@@ -566,6 +620,7 @@ impl App {
                 self.hub.diffs.clear();
                 self.hub.health.clear();
                 self.hub.mind.clear();
+                self.hub.insight_runtime.clear();
                 self.hub.last_seq = payload.seq;
                 for state in payload.states {
                     self.upsert_hub_state(state, event_at, "snapshot");
@@ -581,6 +636,7 @@ impl App {
                     self.hub.diffs.clear();
                     self.hub.health.clear();
                     self.hub.mind.clear();
+                    self.hub.insight_runtime.clear();
                     self.status_note = Some("hub delta gap detected; awaiting resync".to_string());
                 }
                 self.hub.last_seq = payload.seq;
@@ -596,6 +652,7 @@ impl App {
                             self.hub.diffs.remove(&change.agent_id);
                             self.hub.health.remove(&change.agent_id);
                             self.hub.mind.remove(&change.agent_id);
+                            self.hub.insight_runtime.remove(&change.agent_id);
                             self.hub.tasks.retain(|key, payload| {
                                 if payload.agent_id == change.agent_id {
                                     return false;
@@ -778,6 +835,30 @@ impl App {
             }
         } else {
             self.hub.mind.remove(&state.agent_id);
+        }
+
+        if let Some(source_value) = source_value_by_keys(&state.source, &["insight_runtime"]) {
+            match parse_insight_runtime_from_source(source_value) {
+                Ok(Some(snapshot)) => {
+                    self.hub
+                        .insight_runtime
+                        .insert(state.agent_id.clone(), snapshot);
+                }
+                Ok(None) => {
+                    self.hub.insight_runtime.remove(&state.agent_id);
+                }
+                Err(err) => {
+                    warn!(
+                        event = "pulse_source_parse_error",
+                        kind = "insight_runtime",
+                        channel,
+                        agent_id = %state.agent_id,
+                        error = %err
+                    );
+                }
+            }
+        } else {
+            self.hub.insight_runtime.remove(&state.agent_id);
         }
     }
 
@@ -1110,6 +1191,9 @@ impl App {
         self.hub
             .mind
             .retain(|agent_id, _| active_agents.contains(agent_id));
+        self.hub
+            .insight_runtime
+            .retain(|agent_id, _| active_agents.contains(agent_id));
         self.hub.tasks.retain(|key, payload| {
             if active_agents.contains(&payload.agent_id) {
                 return true;
@@ -1130,7 +1214,9 @@ impl App {
                 }
             }
             Mode::Mind => {
-                if self.prefer_hub_data(!self.hub.mind.is_empty()) {
+                if self.prefer_hub_data(
+                    !self.hub.mind.is_empty() || !self.hub.insight_runtime.is_empty(),
+                ) {
                     "hub"
                 } else {
                     "local"
@@ -1166,6 +1252,7 @@ impl App {
             || !self.hub.diffs.is_empty()
             || !self.hub.health.is_empty()
             || !self.hub.mind.is_empty()
+            || !self.hub.insight_runtime.is_empty()
             || self.hub.layout.is_some()
     }
 
@@ -1566,6 +1653,38 @@ impl App {
         }]
     }
 
+    fn insight_runtime_rollup(&self) -> Option<InsightRuntimeSnapshot> {
+        if !self.prefer_hub_data(!self.hub.insight_runtime.is_empty()) {
+            return None;
+        }
+        let mut agg = InsightRuntimeSnapshot::default();
+        for snapshot in self.hub.insight_runtime.values() {
+            agg.reflector_enabled = agg.reflector_enabled || snapshot.reflector_enabled;
+            agg.reflector_ticks = agg.reflector_ticks.saturating_add(snapshot.reflector_ticks);
+            agg.reflector_lock_conflicts = agg
+                .reflector_lock_conflicts
+                .saturating_add(snapshot.reflector_lock_conflicts);
+            agg.reflector_jobs_completed = agg
+                .reflector_jobs_completed
+                .saturating_add(snapshot.reflector_jobs_completed);
+            agg.reflector_jobs_failed = agg
+                .reflector_jobs_failed
+                .saturating_add(snapshot.reflector_jobs_failed);
+            agg.supervisor_runs = agg.supervisor_runs.saturating_add(snapshot.supervisor_runs);
+            agg.supervisor_failures = agg
+                .supervisor_failures
+                .saturating_add(snapshot.supervisor_failures);
+            agg.queue_depth = agg.queue_depth.saturating_add(snapshot.queue_depth.max(0));
+            if agg.last_tick_ms.is_none() || snapshot.last_tick_ms > agg.last_tick_ms {
+                agg.last_tick_ms = snapshot.last_tick_ms;
+            }
+            if agg.last_error.is_none() {
+                agg.last_error = snapshot.last_error.clone();
+            }
+        }
+        Some(agg)
+    }
+
     fn mind_rows(&self) -> Vec<MindObserverRow> {
         if !self.prefer_hub_data(!self.hub.mind.is_empty()) {
             return Vec::new();
@@ -1590,11 +1709,15 @@ impl App {
                 .unwrap_or_else(|| extract_pane_id(agent_id));
             let tab_scope = status.and_then(|value| value.tab_scope.clone());
             let tab_focused = tab_scope_matches(viewer_scope, tab_scope.as_deref());
-            if viewer_scope.is_some() && !tab_focused {
+            if !self.mind_show_all_tabs && viewer_scope.is_some() && !tab_focused {
                 continue;
             }
 
             for event in &feed.events {
+                let lane = mind_event_lane(event);
+                if !mind_lane_matches(self.mind_lane, lane) {
+                    continue;
+                }
                 rows.push(MindObserverRow {
                     agent_id: agent_id.clone(),
                     scope: scope.clone(),
@@ -1625,13 +1748,71 @@ impl App {
         rows
     }
 
-    fn request_manual_observer_run(&mut self) {
+    fn mind_target_agent(&self) -> Option<OverviewRow> {
         let rows = self.overview_rows();
-        let target = rows
-            .iter()
-            .find(|row| row.tab_focused)
-            .or_else(|| rows.first());
-        let Some(target) = target else {
+        rows.into_iter().find(|row| row.tab_focused).or_else(|| {
+            self.hub
+                .agents
+                .iter()
+                .find_map(|(agent_id, agent)| {
+                    let status = agent.status.as_ref()?;
+                    let tab_focused = tab_scope_matches(
+                        self.config.tab_scope.as_deref(),
+                        status.tab_scope.as_deref(),
+                    );
+                    if !tab_focused {
+                        return None;
+                    }
+                    Some(OverviewRow {
+                        identity_key: agent_id.clone(),
+                        label: status
+                            .agent_label
+                            .clone()
+                            .unwrap_or_else(|| extract_label(agent_id)),
+                        lifecycle: status.status.clone(),
+                        snippet: status.message.clone(),
+                        pane_id: status.pane_id.clone(),
+                        tab_index: None,
+                        tab_name: status.tab_scope.clone(),
+                        tab_focused,
+                        project_root: status.project_root.clone(),
+                        online: true,
+                        age_secs: None,
+                        source: "hub".to_string(),
+                    })
+                })
+                .or_else(|| {
+                    self.hub.agents.iter().next().map(|(agent_id, agent)| {
+                        let status = agent.status.as_ref();
+                        OverviewRow {
+                            identity_key: agent_id.clone(),
+                            label: status
+                                .and_then(|value| value.agent_label.clone())
+                                .unwrap_or_else(|| extract_label(agent_id)),
+                            lifecycle: status
+                                .map(|value| value.status.clone())
+                                .unwrap_or_else(|| "unknown".to_string()),
+                            snippet: status.and_then(|value| value.message.clone()),
+                            pane_id: status
+                                .map(|value| value.pane_id.clone())
+                                .unwrap_or_else(|| extract_pane_id(agent_id)),
+                            tab_index: None,
+                            tab_name: status.and_then(|value| value.tab_scope.clone()),
+                            tab_focused: false,
+                            project_root: status
+                                .map(|value| value.project_root.clone())
+                                .unwrap_or_else(|| "(unknown)".to_string()),
+                            online: true,
+                            age_secs: None,
+                            source: "hub".to_string(),
+                        }
+                    })
+                })
+        })
+    }
+
+    fn request_manual_observer_run(&mut self) {
+        let Some(target) = self.mind_target_agent() else {
             self.status_note = Some("no target pane for observer run".to_string());
             return;
         };
@@ -1641,6 +1822,56 @@ impl App {
             serde_json::json!({"trigger": "manual_shortcut", "reason": "pulse_user_request"}),
             format!("{}::{}", target.label, target.pane_id),
         );
+    }
+
+    fn request_insight_dispatch_chain(&mut self) {
+        let Some(target) = self.mind_target_agent() else {
+            self.status_note = Some("no target pane for insight dispatch".to_string());
+            return;
+        };
+        self.queue_hub_command(
+            "insight_dispatch",
+            Some(target.identity_key.clone()),
+            serde_json::json!({
+                "mode": "chain",
+                "chain": "insight-handoff",
+                "reason": "pulse_mind_action",
+                "input": "Mind panel dispatch (T1 -> T2)"
+            }),
+            format!("{}::{}", target.label, target.pane_id),
+        );
+    }
+
+    fn request_insight_bootstrap(&mut self, dry_run: bool) {
+        let Some(target) = self.mind_target_agent() else {
+            self.status_note = Some("no target pane for insight bootstrap".to_string());
+            return;
+        };
+        self.queue_hub_command(
+            "insight_bootstrap",
+            Some(target.identity_key.clone()),
+            serde_json::json!({
+                "dry_run": dry_run,
+                "max_gaps": 12
+            }),
+            format!("{}::{}", target.label, target.pane_id),
+        );
+    }
+
+    fn toggle_mind_lane(&mut self) {
+        self.mind_lane = self.mind_lane.next();
+        self.scroll = 0;
+        self.status_note = Some(format!("mind lane: {}", self.mind_lane.label()));
+    }
+
+    fn toggle_mind_scope(&mut self) {
+        self.mind_show_all_tabs = !self.mind_show_all_tabs;
+        self.scroll = 0;
+        self.status_note = Some(if self.mind_show_all_tabs {
+            "mind scope: all tabs".to_string()
+        } else {
+            "mind scope: active tab".to_string()
+        });
     }
 
     fn viewer_tab_overview_index(rows: &[OverviewRow], tab_index: Option<usize>) -> Option<usize> {
@@ -1979,7 +2210,7 @@ fn render_body(app: &App, theme: PulseTheme, width: u16) -> Paragraph<'static> {
         Mode::Health => render_health_lines(app, theme, compact),
     };
     let panel_title = if app.mode == Mode::Mind {
-        "✦ Mind".to_string()
+        "✦ Mind / Insight".to_string()
     } else {
         app.mode.title().to_string()
     };
@@ -2537,14 +2768,18 @@ fn mode_help_lines(app: &App, theme: PulseTheme) -> Vec<Line<'static>> {
         }
         Mode::Mind => vec![
             Line::from(Span::styled(
-                "✦ Mind Mode",
+                "✦ Mind/Insight Mode",
                 Style::default()
                     .fg(theme.accent)
                     .add_modifier(Modifier::BOLD),
             )),
             Line::from("  j/k      scroll observer timeline"),
             Line::from("  g        jump to top"),
-            Line::from("  o        request manual observer run"),
+            Line::from("  o        request manual observer run (T1)"),
+            Line::from("  O        run insight_dispatch chain (T1->T2)"),
+            Line::from("  b / B    bootstrap dry-run / seed enqueue"),
+            Line::from("  t        toggle lane (t1/t2/all)"),
+            Line::from("  v        toggle scope (active tab/all tabs)"),
         ],
         Mode::Work => vec![
             Line::from(Span::styled(
@@ -2600,14 +2835,59 @@ fn centered_rect(percent_x: u16, percent_y: u16, area: Rect) -> Rect {
 
 fn render_mind_lines(app: &App, theme: PulseTheme, compact: bool) -> Vec<Line<'static>> {
     let rows = app.mind_rows();
-    if rows.is_empty() {
-        return vec![Line::from(Span::styled(
-            "No observer activity yet.",
+    let mut lines = Vec::new();
+
+    let lane_label = app.mind_lane.label().to_ascii_uppercase();
+    let scope_label = if app.mind_show_all_tabs {
+        "all-tabs"
+    } else {
+        "active-tab"
+    };
+    let mut header = vec![
+        Span::styled("lane:", Style::default().fg(theme.muted)),
+        Span::styled(
+            lane_label,
+            Style::default().fg(theme.info).add_modifier(Modifier::BOLD),
+        ),
+        Span::raw("  "),
+        Span::styled("scope:", Style::default().fg(theme.muted)),
+        Span::styled(
+            scope_label,
+            Style::default()
+                .fg(theme.accent)
+                .add_modifier(Modifier::BOLD),
+        ),
+    ];
+
+    if let Some(runtime) = app.insight_runtime_rollup() {
+        header.push(Span::raw("  "));
+        header.push(Span::styled(
+            format!(
+                "q:{} done:{} fail:{} lock:{} sup:{}/{}",
+                runtime.queue_depth,
+                runtime.reflector_jobs_completed,
+                runtime.reflector_jobs_failed,
+                runtime.reflector_lock_conflicts,
+                runtime.supervisor_runs,
+                runtime.supervisor_failures
+            ),
             Style::default().fg(theme.muted),
-        ))];
+        ));
+    }
+    lines.push(Line::from(header));
+
+    if rows.is_empty() {
+        lines.push(Line::from(Span::styled(
+            "No observer activity yet for current lane/scope.",
+            Style::default().fg(theme.muted),
+        )));
+        lines.push(Line::from(Span::styled(
+            "Try: o (T1), O (T1->T2 chain), b (bootstrap dry-run), t/v (filters).",
+            Style::default().fg(theme.muted),
+        )));
+        return lines;
     }
 
-    let mut lines = Vec::new();
     for row in rows {
         let status_label = mind_status_label(row.event.status);
         let status_color = mind_status_color(row.event.status, theme);
@@ -3101,6 +3381,41 @@ fn check_status_color(status: &str, theme: PulseTheme) -> Color {
     }
 }
 
+fn mind_event_is_t2(event: &MindObserverFeedEvent) -> bool {
+    event
+        .runtime
+        .as_deref()
+        .map(|runtime| {
+            let runtime = runtime.to_ascii_lowercase();
+            runtime.contains("t2") || runtime.contains("reflector")
+        })
+        .unwrap_or(false)
+        || event
+            .reason
+            .as_deref()
+            .map(|reason| {
+                let reason = reason.to_ascii_lowercase();
+                reason.contains("t2") || reason.contains("reflector")
+            })
+            .unwrap_or(false)
+}
+
+fn mind_event_lane(event: &MindObserverFeedEvent) -> MindLaneFilter {
+    if mind_event_is_t2(event) {
+        MindLaneFilter::T2
+    } else {
+        MindLaneFilter::T1
+    }
+}
+
+fn mind_lane_matches(filter: MindLaneFilter, lane: MindLaneFilter) -> bool {
+    match filter {
+        MindLaneFilter::All => true,
+        MindLaneFilter::T1 => lane == MindLaneFilter::T1,
+        MindLaneFilter::T2 => lane == MindLaneFilter::T2,
+    }
+}
+
 fn mind_status_label(status: MindObserverFeedStatus) -> &'static str {
     match status {
         MindObserverFeedStatus::Queued => "queued",
@@ -3149,6 +3464,7 @@ fn mind_runtime_label(runtime: &str) -> String {
         "pi-semantic" => "runtime:pi".to_string(),
         "deterministic" => "runtime:det".to_string(),
         "external-semantic" => "runtime:ext".to_string(),
+        "t2_reflector" => "runtime:t2".to_string(),
         _ => format!("runtime:{}", ellipsize(&compact, 12)),
     }
 }
@@ -3506,6 +3822,25 @@ fn parse_mind_observer_from_source(
     Ok(Some(payload))
 }
 
+fn parse_insight_runtime_from_source(
+    value: &Value,
+) -> Result<Option<InsightRuntimeSnapshot>, String> {
+    if value.is_null() {
+        return Ok(None);
+    }
+    let mut snapshot: InsightRuntimeSnapshot =
+        serde_json::from_value(value.clone()).map_err(|err| err.to_string())?;
+    snapshot.last_error = snapshot
+        .last_error
+        .as_ref()
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty());
+    if snapshot.queue_depth < 0 {
+        snapshot.queue_depth = 0;
+    }
+    Ok(Some(snapshot))
+}
+
 fn source_confidence(source: &Option<Value>) -> Option<u8> {
     source
         .as_ref()
@@ -3651,6 +3986,30 @@ fn handle_key(key: KeyEvent, app: &mut App, refresh_requested: &mut bool) -> boo
         }
         KeyCode::Char('o') => {
             app.request_manual_observer_run();
+            false
+        }
+        KeyCode::Char('O') => {
+            app.request_insight_dispatch_chain();
+            false
+        }
+        KeyCode::Char('b') => {
+            app.request_insight_bootstrap(true);
+            false
+        }
+        KeyCode::Char('B') => {
+            app.request_insight_bootstrap(false);
+            false
+        }
+        KeyCode::Char('t') => {
+            if app.mode == Mode::Mind {
+                app.toggle_mind_lane();
+            }
+            false
+        }
+        KeyCode::Char('v') => {
+            if app.mode == Mode::Mind {
+                app.toggle_mind_scope();
+            }
             false
         }
         KeyCode::Char('a') => {
@@ -5454,6 +5813,15 @@ mod tests {
                             "completed_at": "2026-02-25T16:30:00Z"
                         }
                     ]
+                },
+                "insight_runtime": {
+                    "reflector_enabled": true,
+                    "reflector_jobs_completed": 2,
+                    "reflector_jobs_failed": 1,
+                    "reflector_lock_conflicts": 3,
+                    "supervisor_runs": 4,
+                    "supervisor_failures": 1,
+                    "queue_depth": 5
                 }
             })),
         };
@@ -5500,6 +5868,14 @@ mod tests {
             .expect("mind observer payload should exist");
         assert_eq!(mind.events.len(), 1);
         assert_eq!(mind.events[0].status, MindObserverFeedStatus::Fallback);
+
+        let insight = app
+            .hub
+            .insight_runtime
+            .get("session-test::12")
+            .expect("insight runtime payload should exist");
+        assert_eq!(insight.queue_depth, 5);
+        assert_eq!(insight.reflector_jobs_completed, 2);
 
         app.mode = Mode::Health;
         assert_eq!(app.mode_source(), "hub");
@@ -5646,6 +6022,109 @@ mod tests {
                 .unwrap_or_default(),
             "manual_shortcut"
         );
+    }
+
+    #[test]
+    fn mind_shortcuts_queue_insight_commands() {
+        let (tx, mut rx) = mpsc::channel(8);
+        let mut app = App::new(test_config(), tx, empty_local());
+        app.connected = true;
+        app.mode = Mode::Mind;
+        app.set_local(LocalSnapshot {
+            overview: vec![OverviewRow {
+                identity_key: "session-test::12".to_string(),
+                label: "OpenCode".to_string(),
+                lifecycle: "running".to_string(),
+                snippet: None,
+                pane_id: "12".to_string(),
+                tab_index: Some(1),
+                tab_name: Some("Agent".to_string()),
+                tab_focused: true,
+                project_root: "/repo".to_string(),
+                online: true,
+                age_secs: Some(1),
+                source: "runtime".to_string(),
+            }],
+            viewer_tab_index: Some(1),
+            work: Vec::new(),
+            diff: Vec::new(),
+            health: empty_local().health,
+        });
+
+        app.request_insight_dispatch_chain();
+        app.request_insight_bootstrap(true);
+
+        let first = rx.try_recv().expect("dispatch command");
+        assert_eq!(first.command, "insight_dispatch");
+        assert_eq!(first.target_agent_id.as_deref(), Some("session-test::12"));
+        assert_eq!(
+            first
+                .args
+                .get("mode")
+                .and_then(Value::as_str)
+                .unwrap_or_default(),
+            "chain"
+        );
+
+        let second = rx.try_recv().expect("bootstrap command");
+        assert_eq!(second.command, "insight_bootstrap");
+        assert_eq!(
+            second
+                .args
+                .get("dry_run")
+                .and_then(Value::as_bool)
+                .unwrap_or(false),
+            true
+        );
+    }
+
+    #[test]
+    fn mind_lane_toggle_filters_t1_and_t2_events() {
+        let (tx, _rx) = mpsc::channel(4);
+        let mut app = App::new(test_config(), tx, empty_local());
+        app.connected = true;
+        app.mode = Mode::Mind;
+
+        app.apply_hub_event(HubEvent::Snapshot {
+            payload: SnapshotPayload {
+                seq: 1,
+                states: vec![AgentState {
+                    agent_id: "session-test::12".to_string(),
+                    session_id: "session-test".to_string(),
+                    pane_id: "12".to_string(),
+                    lifecycle: "running".to_string(),
+                    snippet: None,
+                    last_heartbeat_ms: Some(1),
+                    last_activity_ms: Some(1),
+                    updated_at_ms: Some(1),
+                    source: Some(serde_json::json!({
+                        "agent_status": {
+                            "agent_label": "OpenCode",
+                            "project_root": "/repo",
+                            "tab_scope": "agent"
+                        },
+                        "mind_observer": {
+                            "events": [
+                                {"status":"success","trigger":"token_threshold","runtime":"pi-semantic"},
+                                {"status":"success","trigger":"task_completed","runtime":"t2_reflector","reason":"t2 reflector processed 1 job(s)"}
+                            ]
+                        }
+                    })),
+                }],
+            },
+            event_at: Utc::now(),
+        });
+
+        assert_eq!(app.mind_lane, MindLaneFilter::T1);
+        assert_eq!(app.mind_rows().len(), 1);
+
+        app.toggle_mind_lane();
+        assert_eq!(app.mind_lane, MindLaneFilter::T2);
+        assert_eq!(app.mind_rows().len(), 1);
+
+        app.toggle_mind_lane();
+        assert_eq!(app.mind_lane, MindLaneFilter::All);
+        assert_eq!(app.mind_rows().len(), 2);
     }
 
     #[test]
