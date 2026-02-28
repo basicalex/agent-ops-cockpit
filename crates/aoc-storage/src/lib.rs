@@ -2813,4 +2813,119 @@ mod tests {
         assert_eq!(second.rows_imported, 0);
         assert_eq!(db.raw_event_count("conv-legacy").expect("count raw"), 1);
     }
+
+    #[test]
+    fn conversation_ids_for_session_lists_known_conversations() {
+        let db = MindStore::open_in_memory().expect("open db");
+
+        let root = RawEvent {
+            event_id: "evt-root-session-list".to_string(),
+            conversation_id: "conv-root-session-list".to_string(),
+            agent_id: "session-list::12".to_string(),
+            ts: ts(),
+            body: RawEventBody::Message(MessageEvent {
+                role: ConversationRole::User,
+                text: "root".to_string(),
+            }),
+            attrs: Default::default(),
+        };
+        let mut branch_attrs = std::collections::BTreeMap::new();
+        branch_attrs.insert(
+            "session_id".to_string(),
+            serde_json::Value::String("session-list".to_string()),
+        );
+        branch_attrs.insert(
+            "parent_conversation_id".to_string(),
+            serde_json::Value::String("conv-root-session-list".to_string()),
+        );
+        branch_attrs.insert(
+            "root_conversation_id".to_string(),
+            serde_json::Value::String("conv-root-session-list".to_string()),
+        );
+        let branch = RawEvent {
+            event_id: "evt-branch-session-list".to_string(),
+            conversation_id: "conv-branch-session-list".to_string(),
+            agent_id: "session-list::12".to_string(),
+            ts: ts() + chrono::Duration::seconds(1),
+            body: RawEventBody::Message(MessageEvent {
+                role: ConversationRole::User,
+                text: "branch".to_string(),
+            }),
+            attrs: branch_attrs,
+        };
+
+        db.insert_raw_event(&root).expect("insert root");
+        db.insert_raw_event(&branch).expect("insert branch");
+
+        let conversations = db
+            .conversation_ids_for_session("session-list")
+            .expect("query session conversations");
+        assert_eq!(
+            conversations,
+            vec![
+                "conv-branch-session-list".to_string(),
+                "conv-root-session-list".to_string(),
+            ]
+        );
+    }
+
+    #[test]
+    fn t3_backlog_enqueue_and_watermark_roundtrip_are_idempotent() {
+        let db = MindStore::open_in_memory().expect("open db");
+        let now = ts();
+
+        let refs = vec!["obs:2".to_string(), "obs:1".to_string()];
+        let (job_id, inserted) = db
+            .enqueue_t3_backlog_job(
+                "/repo",
+                "session-a",
+                "12",
+                Some("mind"),
+                Some("obs:1"),
+                Some("ref:1"),
+                &refs,
+                now,
+            )
+            .expect("enqueue t3 job");
+        assert!(inserted);
+
+        let (_same_job_id, inserted_again) = db
+            .enqueue_t3_backlog_job(
+                "/repo",
+                "session-a",
+                "12",
+                Some("mind"),
+                Some("obs:1"),
+                Some("ref:1"),
+                &refs,
+                now,
+            )
+            .expect("enqueue t3 job second time");
+        assert!(!inserted_again);
+
+        let pending: i64 = db
+            .conn
+            .query_row(
+                "SELECT COUNT(*) FROM t3_backlog_jobs WHERE job_id = ?1",
+                [job_id],
+                |row| row.get(0),
+            )
+            .expect("pending count");
+        assert_eq!(pending, 1);
+
+        db.advance_project_watermark(
+            "session:session-a:pane:12",
+            Some(now),
+            Some("ref:1"),
+            now + chrono::Duration::seconds(1),
+        )
+        .expect("advance watermark");
+
+        let watermark = db
+            .project_watermark("session:session-a:pane:12")
+            .expect("read watermark")
+            .expect("watermark present");
+        assert_eq!(watermark.last_artifact_id.as_deref(), Some("ref:1"));
+        assert_eq!(watermark.last_artifact_ts, Some(now));
+    }
 }
