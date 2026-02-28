@@ -1,0 +1,1 @@
+- [2026-02-28 21:06] Completed task 135 (mind): added storage migration 0005_project_mind_v2.sql (T3/canon/handshake/watermark tables), moved default runtime mind DB to .aoc/mind/project.sqlite + shared locks/reflector.lock, added legacy pane-local import compatibility and tests; set task 136 in-progress.

@@ -1,0 +1,1 @@
+- [2026-02-27 10:10] Committed 474afbb: Insight orchestration PRD + docs + canonical T1/T2 sub-agent definitions (.pi/agents/insight-t1-observer.md, insight-t2-reflector.md, teams.yaml, agent-chain.yaml). Linked PRD to sub-agents tag. Next: implement runtime insight_dispatch/insight_bootstrap command path and wire supervisor execution into aoc-agent-wrap-rs.
