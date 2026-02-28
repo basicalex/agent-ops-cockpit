@@ -212,8 +212,8 @@ Keyboard-driven file management with rich previews:
 
 | Key | Action |
 |-----|--------|
-| `Enter` | Smart open (dir enter, text edit, media default app) |
-| `e` | Edit with `$EDITOR` (micro) |
+| `Enter` / `o` | Smart open (dir enter, text edit, media default app) |
+| `e` | Toggle Full Yazi mode (fullscreen + 3-column view) |
 | `g s` | Edit short-term memory |
 | `g S` | Jump to `.aoc/stm` |
 | `W` | Set widget media path |

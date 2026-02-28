@@ -31,5 +31,4 @@ function Entity:click(event, up)
 	end
 end
 
--- Initialize AOC title management by running the plugin
-ya.emit("plugin", { "aoc-title" })
+-- Pane rename/title automation deprecated (kept plugin in tree for compatibility).

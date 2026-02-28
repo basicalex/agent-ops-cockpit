@@ -19,7 +19,7 @@ function M:entry()
 	else
 		rt.mgr.ratio = compact
 	end
-	ya.emit("resize")
+	ya.emit("resize", {})
 end
 
 return M

@@ -1,23 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-TITLE="${1:-Explorer}"
-PANE_ID="${2:-${ZELLIJ_PANE_ID:-}}"
-SESSION_NAME="${ZELLIJ_SESSION_NAME:-}"
-
-if [[ -z "${ZELLIJ:-}" && -z "$SESSION_NAME" ]]; then
-    exit 0
-fi
-
-action_cmd=(zellij action rename-pane)
-if [[ -n "$SESSION_NAME" ]]; then
-    action_cmd=(zellij --session "$SESSION_NAME" action rename-pane)
-fi
-
-if [[ -n "$PANE_ID" ]]; then
-    if ! "${action_cmd[@]}" --pane-id "$PANE_ID" "$TITLE" >/dev/null 2>&1; then
-        "${action_cmd[@]}" "$TITLE" >/dev/null 2>&1 || true
-    fi
-else
-    "${action_cmd[@]}" "$TITLE" >/dev/null 2>&1 || true
-fi
+# Deprecated: pane title renaming was removed from AOC Yazi flows to reduce latency.
+# Kept as a no-op for compatibility with older configs/plugins.
+exit 0
