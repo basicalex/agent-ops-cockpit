@@ -33,8 +33,11 @@ jobs:
 
               export PATH=\"\$HOME/.local/bin:\$PATH\"
               command -v aoc
+              command -v aoc-cli
               command -v aoc-init
               command -v aoc-doctor
+              command -v pi
+              aoc task --help >/dev/null
               test -f ~/.config/zellij/layouts/aoc.kdl
               test -f ~/.config/yazi/yazi.toml
 
@@ -45,8 +48,9 @@ jobs:
               test -f .aoc/memory.md
               test -f .taskmaster/tasks/tasks.json
 
-              curl -fsSL https://raw.githubusercontent.com/${{ github.repository }}/${{ github.sha }}/install/bootstrap.sh \
-                | bash -s -- --repo ${{ github.repository }} --ref ${{ github.sha }} --yes --skip-doctor
+              AOC_DEFAULT_REPO=${{ github.repository }} \
+                curl -fsSL https://raw.githubusercontent.com/${{ github.repository }}/${{ github.sha }}/install/bootstrap.sh \
+                | bash -s -- --ref ${{ github.sha }} --yes --skip-doctor
             "
           '
 
@@ -75,8 +79,11 @@ jobs:
 
               export PATH=\"\$HOME/.local/bin:\$PATH\"
               command -v aoc
+              command -v aoc-cli
               command -v aoc-init
               command -v aoc-doctor
+              command -v pi
+              aoc task --help >/dev/null
               test -f ~/.config/zellij/layouts/aoc.kdl
               test -f ~/.config/yazi/yazi.toml
 
@@ -87,7 +94,8 @@ jobs:
               test -f .aoc/memory.md
               test -f .taskmaster/tasks/tasks.json
 
-              curl -fsSL https://raw.githubusercontent.com/${{ github.repository }}/${{ github.ref_name }}/install/bootstrap.sh \
-                | bash -s -- --repo ${{ github.repository }} --ref ${{ github.ref_name }} --yes --skip-doctor
+              AOC_DEFAULT_REPO=${{ github.repository }} \
+                curl -fsSL https://raw.githubusercontent.com/${{ github.repository }}/${{ github.ref_name }}/install/bootstrap.sh \
+                | bash -s -- --ref ${{ github.ref_name }} --yes --skip-doctor
             "
           '
