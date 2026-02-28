@@ -3667,16 +3667,16 @@ async fn build_health_snapshot(cfg: &ClientConfig) -> HealthSnapshotPayload {
         Err(TaskError::Io(_)) => "error",
     }
     .to_string();
-    let dependencies = [
-        "git",
-        "zellij",
-        "aoc-hub-rs",
-        "aoc-agent-wrap-rs",
-        "aoc-taskmaster",
-    ]
-    .iter()
-    .map(|name| dependency_status(name))
-    .collect();
+    let mut dependencies = vec![
+        dependency_status("git"),
+        dependency_status("zellij"),
+        dependency_status("aoc-hub-rs"),
+        dependency_status("aoc-agent-wrap-rs"),
+    ];
+    dependencies.push(dependency_status_any(
+        "task-control",
+        &["aoc-task", "tm", "aoc-taskmaster", "task-master"],
+    ));
     let checks = ["test", "lint", "build"]
         .iter()
         .map(|kind| load_check_outcome(Path::new(&cfg.project_root), kind))
@@ -3694,6 +3694,24 @@ fn dependency_status(name: &str) -> DependencyStatus {
         name: name.to_string(),
         available: path.is_some(),
         path,
+    }
+}
+
+fn dependency_status_any(name: &str, candidates: &[&str]) -> DependencyStatus {
+    for candidate in candidates {
+        if let Some(path) = resolve_binary_path(candidate) {
+            return DependencyStatus {
+                name: name.to_string(),
+                available: true,
+                path: Some(path),
+            };
+        }
+    }
+
+    DependencyStatus {
+        name: name.to_string(),
+        available: false,
+        path: None,
     }
 }
 
