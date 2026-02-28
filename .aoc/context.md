@@ -95,7 +95,9 @@
 │   ├── agents.md
 │   ├── assets
 │   ├── configuration.md
+│   ├── deprecations.md
 │   ├── feature-upgrade-collection-key.md
+│   ├── insight-subagent-orchestration.md
 │   ├── installation.md
 │   ├── layouts.md
 │   ├── mission-control.md
@@ -140,7 +142,7 @@
     ├── aoc.config.kdl.template
     └── layouts
 
-37 directories, 92 files
+37 directories, 94 files
 ```
 
 ## README Headings
@@ -194,7 +196,7 @@ aoc/pi_cleanup
 ```
 aoc/pi_cleanup (9)
 deprecation (10)
-master (44)
+master (45)
 mermaid (1)
 mind (13)
 mission-control (17)
