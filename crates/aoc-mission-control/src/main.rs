@@ -4895,7 +4895,10 @@ fn collect_health(config: &Config, taskmaster_status: &str) -> HealthSnapshot {
         dep_status("zellij"),
         dep_status("aoc-hub"),
         dep_status("aoc-agent-wrap-rs"),
-        dep_status("aoc-taskmaster"),
+        dep_status_any(
+            "task-control",
+            &["aoc-task", "tm", "aoc-taskmaster", "task-master"],
+        ),
     ];
     let checks = vec![
         load_check_outcome(&config.project_root, "test"),
@@ -4915,6 +4918,24 @@ fn dep_status(name: &str) -> DependencyStatus {
         name: name.to_string(),
         available: path.is_some(),
         path,
+    }
+}
+
+fn dep_status_any(name: &str, candidates: &[&str]) -> DependencyStatus {
+    for candidate in candidates {
+        if let Some(path) = which_cmd(candidate) {
+            return DependencyStatus {
+                name: name.to_string(),
+                available: true,
+                path: Some(path),
+            };
+        }
+    }
+
+    DependencyStatus {
+        name: name.to_string(),
+        available: false,
+        path: None,
     }
 }
 
