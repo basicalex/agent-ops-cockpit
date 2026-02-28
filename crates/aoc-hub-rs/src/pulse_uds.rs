@@ -983,7 +983,9 @@ impl PulseUdsHub {
                 self.handle_focus_tab_command(source_conn_id, envelope.request_id, payload)
                     .await;
             }
-            "stop_agent" | "run_observer" | "mind_ingest_event" | "mind_handoff" => {
+            "stop_agent" | "run_observer" | "mind_ingest_event" | "mind_handoff"
+            | "insight_ingest" | "insight_handoff" | "insight_status" | "insight_dispatch"
+            | "insight_bootstrap" => {
                 self.route_stop_agent_command(source_conn_id, envelope, payload)
                     .await;
             }
@@ -2186,6 +2188,54 @@ tab name="Review"
             panic!("expected command_result ack")
         };
         assert_eq!(payload.command, "stop_agent");
+        assert_eq!(payload.status, "accepted");
+
+        let _ = shutdown_tx.send(true);
+        let result = handle.await.expect("join hub");
+        assert!(result.is_ok(), "hub returned error: {result:?}");
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn insight_dispatch_command_routes_and_acks() {
+        let session = "pulse-insight-command-session";
+        let (path, shutdown_tx, handle) = launch_hub(
+            "insight-command-route",
+            session,
+            Some(Duration::from_secs(2)),
+        )
+        .await;
+        let agent = format!("{session}::12");
+
+        let (mut pub_reader, _pub_writer) = connect_client(
+            &path,
+            hello_envelope(session, "pub-1", "publisher", Some(&agent)),
+        )
+        .await;
+        let (mut sub_reader, mut sub_writer) =
+            connect_client(&path, hello_envelope(session, "sub-1", "subscriber", None)).await;
+        let _ = read_frame(&mut sub_reader).await;
+
+        let command = command_envelope(
+            session,
+            "sub-1",
+            "req-insight-dispatch",
+            "insight_dispatch",
+            Some(&agent),
+            serde_json::json!({"mode": "dispatch", "input": "status"}),
+        );
+        send_frame(&mut sub_writer, &command).await;
+
+        let routed = read_frame(&mut pub_reader).await;
+        let WireMsg::Command(payload) = routed.msg else {
+            panic!("expected command routed to publisher")
+        };
+        assert_eq!(payload.command, "insight_dispatch");
+
+        let ack = read_frame(&mut sub_reader).await;
+        let WireMsg::CommandResult(payload) = ack.msg else {
+            panic!("expected command_result ack")
+        };
+        assert_eq!(payload.command, "insight_dispatch");
         assert_eq!(payload.status, "accepted");
 
         let _ = shutdown_tx.send(true);

@@ -4,6 +4,7 @@ use std::collections::HashMap;
 use std::fmt;
 use std::str::FromStr;
 
+pub mod insight_contracts;
 pub mod mind_contracts;
 pub mod mind_observer_feed;
 pub mod pulse_ipc;
