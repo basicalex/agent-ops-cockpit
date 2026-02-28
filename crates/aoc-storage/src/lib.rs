@@ -336,6 +336,29 @@ impl MindStore {
         Ok(conversation_ids)
     }
 
+    pub fn conversation_ids_for_session(
+        &self,
+        session_id: &str,
+    ) -> Result<Vec<String>, StorageError> {
+        let mut statement = self.conn.prepare(
+            "
+            SELECT conversation_id
+            FROM conversation_lineage
+            WHERE session_id = ?1
+            ORDER BY conversation_id ASC
+            ",
+        )?;
+        let rows = statement.query_map([session_id], |row| row.get(0))?;
+
+        let mut conversation_ids = Vec::new();
+        for row in rows {
+            conversation_ids.push(row?);
+        }
+        conversation_ids.sort();
+        conversation_ids.dedup();
+        Ok(conversation_ids)
+    }
+
     pub fn conversation_needs_observer_run(
         &self,
         conversation_id: &str,
@@ -1099,6 +1122,145 @@ impl MindStore {
         )?;
 
         Ok(job_id)
+    }
+
+    pub fn enqueue_t3_backlog_job(
+        &self,
+        project_root: &str,
+        session_id: &str,
+        pane_id: &str,
+        active_tag: Option<&str>,
+        slice_start_id: Option<&str>,
+        slice_end_id: Option<&str>,
+        artifact_refs: &[String],
+        now: DateTime<Utc>,
+    ) -> Result<(String, bool), StorageError> {
+        let mut artifact_refs = artifact_refs.to_vec();
+        artifact_refs.sort();
+        artifact_refs.dedup();
+
+        let payload_hash = canonical_payload_hash(&(
+            project_root,
+            session_id,
+            pane_id,
+            active_tag,
+            slice_start_id,
+            slice_end_id,
+            &artifact_refs,
+        ))
+        .map_err(|err| StorageError::Serialization(err.to_string()))?;
+        let job_id = format!("t3j:{}", &payload_hash[..16]);
+
+        let changes = self.conn.execute(
+            "
+            INSERT OR IGNORE INTO t3_backlog_jobs (
+                job_id,
+                project_root,
+                session_id,
+                pane_id,
+                active_tag,
+                slice_start_id,
+                slice_end_id,
+                artifact_refs_json,
+                status,
+                attempts,
+                last_error,
+                claimed_by,
+                claimed_at,
+                created_at,
+                updated_at
+            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, 0, NULL, NULL, NULL, ?10, ?10)
+            ",
+            params![
+                job_id,
+                project_root,
+                session_id,
+                pane_id,
+                active_tag,
+                slice_start_id,
+                slice_end_id,
+                serde_json::to_string(&artifact_refs)
+                    .map_err(|err| StorageError::Serialization(err.to_string()))?,
+                t3_backlog_job_status_as_str(T3BacklogJobStatus::Pending),
+                now.to_rfc3339(),
+            ],
+        )?;
+
+        Ok((job_id, changes > 0))
+    }
+
+    pub fn project_watermark(
+        &self,
+        scope_key: &str,
+    ) -> Result<Option<ProjectWatermark>, StorageError> {
+        self.conn
+            .query_row(
+                "
+                SELECT scope_key, last_artifact_ts, last_artifact_id, updated_at
+                FROM project_watermarks
+                WHERE scope_key = ?1
+                ",
+                [scope_key],
+                |row| {
+                    let last_artifact_ts = row
+                        .get::<_, Option<String>>(1)?
+                        .map(parse_timestamp)
+                        .transpose()
+                        .map_err(|err| {
+                            rusqlite::Error::FromSqlConversionFailure(
+                                1,
+                                rusqlite::types::Type::Text,
+                                Box::new(err),
+                            )
+                        })?;
+                    let updated_at = parse_timestamp(row.get::<_, String>(3)?).map_err(|err| {
+                        rusqlite::Error::FromSqlConversionFailure(
+                            3,
+                            rusqlite::types::Type::Text,
+                            Box::new(err),
+                        )
+                    })?;
+                    Ok(ProjectWatermark {
+                        scope_key: row.get(0)?,
+                        last_artifact_ts,
+                        last_artifact_id: row.get(2)?,
+                        updated_at,
+                    })
+                },
+            )
+            .optional()
+            .map_err(StorageError::from)
+    }
+
+    pub fn advance_project_watermark(
+        &self,
+        scope_key: &str,
+        last_artifact_ts: Option<DateTime<Utc>>,
+        last_artifact_id: Option<&str>,
+        updated_at: DateTime<Utc>,
+    ) -> Result<(), StorageError> {
+        self.conn.execute(
+            "
+            INSERT INTO project_watermarks (
+                scope_key,
+                last_artifact_ts,
+                last_artifact_id,
+                updated_at
+            ) VALUES (?1, ?2, ?3, ?4)
+            ON CONFLICT(scope_key) DO UPDATE SET
+                last_artifact_ts = excluded.last_artifact_ts,
+                last_artifact_id = excluded.last_artifact_id,
+                updated_at = excluded.updated_at
+            ",
+            params![
+                scope_key,
+                last_artifact_ts.map(|value| value.to_rfc3339()),
+                last_artifact_id,
+                updated_at.to_rfc3339(),
+            ],
+        )?;
+
+        Ok(())
     }
 
     pub fn claim_next_reflector_job(
@@ -1944,6 +2106,15 @@ fn reflector_job_status_as_str(status: ReflectorJobStatus) -> &'static str {
         ReflectorJobStatus::Claimed => "claimed",
         ReflectorJobStatus::Completed => "completed",
         ReflectorJobStatus::Failed => "failed",
+    }
+}
+
+fn t3_backlog_job_status_as_str(status: T3BacklogJobStatus) -> &'static str {
+    match status {
+        T3BacklogJobStatus::Pending => "pending",
+        T3BacklogJobStatus::Claimed => "claimed",
+        T3BacklogJobStatus::Completed => "completed",
+        T3BacklogJobStatus::Failed => "failed",
     }
 }
 
