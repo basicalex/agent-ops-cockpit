@@ -4,6 +4,7 @@ set -euo pipefail
 direction="${1:-}"
 steps="${2:-1}"
 border="${3:-right}"
+delay="${AOC_ZELLIJ_RESIZE_DELAY_SECS:-0}"
 
 if [[ -z "$direction" ]]; then
 	exit 0
@@ -13,8 +14,18 @@ if ! [[ "$steps" =~ ^[0-9]+$ ]]; then
 	steps=1
 fi
 
+if ! [[ "$delay" =~ ^[0-9]*\.?[0-9]+$ ]]; then
+	delay=0
+fi
+
 socket="${ZELLIJ:-}"
 session="${ZELLIJ_SESSION_NAME:-}"
+
+# In some zellij versions ZELLIJ can be "0" (marker, not socket path).
+# Treat non-socket values as unset and resolve by session.
+if [[ -n "$socket" && ! -S "$socket" ]]; then
+	socket=""
+fi
 
 if [[ -z "$socket" && -n "$session" ]]; then
 	uid=$(id -u)
@@ -36,10 +47,19 @@ if [[ -z "$socket" && -n "$session" ]]; then
 	done
 fi
 
-if [[ -z "$socket" ]]; then
-	exit 0
-fi
+run_resize() {
+	if [[ -n "$socket" ]]; then
+		ZELLIJ="$socket" zellij action resize "$direction" "$border" >/dev/null 2>&1
+	else
+		zellij action resize "$direction" "$border" >/dev/null 2>&1
+	fi
+}
 
 for ((i = 0; i < steps; i++)); do
-	ZELLIJ="$socket" zellij action resize "$direction" "$border" >/dev/null 2>&1 || true
+	if ! run_resize; then
+		break
+	fi
+	if [[ "$delay" != "0" ]]; then
+		sleep "$delay"
+	fi
 done

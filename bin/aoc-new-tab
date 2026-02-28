@@ -128,14 +128,24 @@ resolve_layout_path() {
 }
 
 sync_aoc_theme_profile() {
-  local script_dir
+  local script_dir theme_env preferred_name=()
   script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+  theme_env="${XDG_CONFIG_HOME:-$HOME/.config}/aoc/theme.env"
+
+  if [[ -f "$theme_env" ]]; then
+    local from_profile
+    from_profile="$(awk -F '"' '/^[[:space:]]*export[[:space:]]+AOC_THEME_NAME=/{print $2; exit}' "$theme_env")"
+    if [[ -n "$from_profile" ]]; then
+      preferred_name=(--name "$from_profile")
+    fi
+  fi
+
   if [[ -x "$HOME/.local/bin/aoc-theme" ]]; then
-    "$HOME/.local/bin/aoc-theme" sync >/dev/null 2>&1 || true
+    "$HOME/.local/bin/aoc-theme" sync "${preferred_name[@]}" >/dev/null 2>&1 || true
   elif command -v aoc-theme >/dev/null 2>&1; then
-    aoc-theme sync >/dev/null 2>&1 || true
+    aoc-theme sync "${preferred_name[@]}" >/dev/null 2>&1 || true
   elif [[ -x "$script_dir/aoc-theme" ]]; then
-    "$script_dir/aoc-theme" sync >/dev/null 2>&1 || true
+    "$script_dir/aoc-theme" sync "${preferred_name[@]}" >/dev/null 2>&1 || true
   fi
 }
 
