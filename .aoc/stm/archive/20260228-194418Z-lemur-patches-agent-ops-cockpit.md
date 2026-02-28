@@ -1,0 +1,8 @@
+- [2026-02-28 20:44] Mind v2 PRD authored: .taskmaster/docs/prds/aoc-mind-v2_t3-project-canon_prd_rpg.md (RPG format with T0/T1/T2 live lane + T3 backlog/canon/handshake architecture).
+- [2026-02-28 20:44] Task 134 created as architecture umbrella and linked to PRD (depends on 108).
+- [2026-02-28 20:44] New implementation tasks added: 135 storage cutover, 136 session finalization+exports, 137 T3 backlog runtime, 138 canon compiler, 139 handshake+adaptive injection, 140 Mind/Insight observability UX, 141 retrieval core extension, 142 hardening+rollout gate.
+- [2026-02-28 20:44] Execution role classification applied in task details: critical path (135/136/137/138/139/109/141), rollup consumers/views (110/129/140/131/132), umbrella (134), release gate (142).
+- [2026-02-28 20:44] Legacy tasks realigned to Mind v2: 109 context-pack now T3 canon + session deltas; 110 aoc-insight UX over new retrieval; 129 specialist dispatch uses Mind v2 packs; 131 dev-tab feed aligned to T0/T1/T2 + T3 indicators; 132 graph expanded to cross-session + T3 + canon + handshake nodes.
+- [2026-02-28 20:44] Dependency chain normalized: 135<-134, 136<-135, 137<-135+136, 138<-137, 139<-138, 109<-139+136, 141<-136+138, 110<-109+141, 131<-140, 132<-137+138, 142<-109+110+131+132+139+140+141.
+- [2026-02-28 20:44] Subtasks expanded for 109/110/132 and updated for 129/131; 134-142 all have concrete subtask tracking for implementation and tests.
+- [2026-02-28 20:44] Memory recorded via aoc-mem: adopt project-scoped .aoc/mind + T3 consolidation + bounded adaptive handshake injection; and taskmaster realignment to Mind v2.
