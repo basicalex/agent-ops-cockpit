@@ -37,6 +37,92 @@ is_truthy() {
   esac
 }
 
+install_rust_toolchain_if_needed() {
+  if cargo_cmd >/dev/null 2>&1; then
+    return 0
+  fi
+
+  if ! is_truthy "${AOC_INSTALL_RUST:-1}"; then
+    warn "cargo missing and AOC_INSTALL_RUST=0; Rust components may be unavailable."
+    return 1
+  fi
+
+  log "cargo missing; installing Rust toolchain via rustup..."
+  if have curl; then
+    if ! curl -fsSL https://sh.rustup.rs | sh -s -- -y --profile minimal --default-toolchain stable; then
+      warn "rustup install failed via curl."
+      return 1
+    fi
+  elif have wget; then
+    if ! wget -qO- https://sh.rustup.rs | sh -s -- -y --profile minimal --default-toolchain stable; then
+      warn "rustup install failed via wget."
+      return 1
+    fi
+  else
+    warn "curl or wget required for rustup bootstrap."
+    return 1
+  fi
+
+  export PATH="$HOME/.cargo/bin:$PATH"
+  if cargo_cmd >/dev/null 2>&1; then
+    return 0
+  fi
+
+  warn "cargo still unavailable after rustup install."
+  return 1
+}
+
+install_pi_agent_if_enabled() {
+  if ! is_truthy "${AOC_INSTALL_PI_AGENT:-1}"; then
+    log "Skipping PI agent install (set AOC_INSTALL_PI_AGENT=1 to enable)."
+    return 0
+  fi
+
+  local pi_bin="${AOC_PI_BIN:-pi}"
+  if have "$pi_bin"; then
+    log "PI agent already installed ($pi_bin)."
+    return 0
+  fi
+
+  if ! have pnpm && ! have npm && ! have corepack; then
+    log "pnpm/npm missing; attempting Node.js install..."
+    install_tool npm || true
+  fi
+
+  if ! have pnpm && have corepack; then
+    corepack enable >/dev/null 2>&1 || true
+    corepack prepare pnpm@latest --activate >/dev/null 2>&1 || true
+  fi
+
+  local installer=""
+  if [[ -x "$BIN_DIR/aoc-agent-install" ]]; then
+    installer="$BIN_DIR/aoc-agent-install"
+  elif have aoc-agent-install; then
+    installer="$(command -v aoc-agent-install)"
+  elif [[ -x "$ROOT_DIR/bin/aoc-agent-install" ]]; then
+    installer="$ROOT_DIR/bin/aoc-agent-install"
+  fi
+
+  if [[ -z "$installer" ]]; then
+    warn "aoc-agent-install not found; cannot install PI agent automatically."
+    return 1
+  fi
+
+  log "Installing PI agent CLI..."
+  if ! "$installer" install pi; then
+    warn "PI agent install command failed."
+    return 1
+  fi
+
+  if have "$pi_bin"; then
+    log "PI agent installed ($pi_bin)."
+    return 0
+  fi
+
+  warn "PI agent install completed but '$pi_bin' is still missing from PATH."
+  return 1
+}
+
 install_omo_if_enabled() {
   if ! is_truthy "${AOC_INSTALL_OMO:-0}"; then
     log "Skipping OmO install (set AOC_INSTALL_OMO=1 to enable)."
@@ -430,6 +516,40 @@ install_tool() {
         fi
       fi
       ;;
+    npm|node|nodejs)
+      case "$pm" in
+        apt|dnf|apk|yum|zypper)
+          pm_install nodejs npm || warn "Failed to install nodejs/npm."
+          ;;
+        pacman)
+          pm_install nodejs npm || warn "Failed to install nodejs/npm."
+          ;;
+        brew)
+          pm_install node || warn "Failed to install node via Homebrew."
+          ;;
+        *)
+          warn "No package manager mapping for nodejs/npm."
+          ;;
+      esac
+      ;;
+    pnpm)
+      case "$pm" in
+        brew|pacman|dnf|apk)
+          pm_install pnpm || warn "Failed to install pnpm via package manager."
+          ;;
+        *)
+          ;;
+      esac
+
+      if ! have pnpm && have corepack; then
+        corepack enable >/dev/null 2>&1 || true
+        corepack prepare pnpm@latest --activate >/dev/null 2>&1 || true
+      fi
+
+      if ! have pnpm && have npm; then
+        npm install -g --prefix "${AOC_NPM_GLOBAL_PREFIX:-$HOME/.local}" pnpm || warn "Failed to install pnpm via npm."
+      fi
+      ;;
     fzf|tmux|chafa|ffmpeg)
       pm_install "$tool" || warn "Failed to install $tool."
       ;;
@@ -560,6 +680,9 @@ fi
 
 # 2. Rust Build & Install
 log "Building Rust components..."
+if ! cargo_cmd >/dev/null 2>&1; then
+  install_rust_toolchain_if_needed || warn "Continuing without cargo; Rust binaries may be unavailable."
+fi
 cargo_bin=""
 if cargo_bin="$(cargo_cmd)"; then
   if [[ "$cargo_bin" == "$HOME/.cargo/bin/cargo" ]]; then
@@ -872,6 +995,14 @@ fi
 # <<< AOC bash integration <<<
 EOF
   log "Enabled Bash layout shortcuts in $bashrc_file"
+fi
+
+if ! install_pi_agent_if_enabled; then
+  if is_truthy "${AOC_INSTALL_PI_REQUIRED:-1}"; then
+    warn "PI agent installation failed and is required (set AOC_INSTALL_PI_REQUIRED=0 to continue anyway)."
+    exit 1
+  fi
+  warn "PI agent installation failed; continuing because AOC_INSTALL_PI_REQUIRED=0."
 fi
 
 if is_truthy "${AOC_INSTALL_AUTO_INIT:-1}"; then

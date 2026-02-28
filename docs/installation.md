@@ -22,7 +22,7 @@ Detailed installation instructions for Agent Ops Cockpit (AOC) on various platfo
 Run the online bootstrap installer:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/basicalex/agent-ops-cockpit/main/install/bootstrap.sh | bash -s -- --repo basicalex/agent-ops-cockpit
+curl -fsSL https://raw.githubusercontent.com/basicalex/agent-ops-cockpit/main/install/bootstrap.sh | bash
 ```
 
 This entrypoint will:
@@ -31,18 +31,22 @@ This entrypoint will:
 2. Download the portable `aoc-installer` Rust binary when available
 3. Fall back to source archive install if no matching binary exists
 4. Install AOC to `~/.local/bin` and user config paths
+5. Auto-install the PI agent CLI (required by `aoc-doctor`) unless disabled
 
 ### Bootstrap Options
 
 ```bash
 # pin a specific release tag
-curl -fsSL https://raw.githubusercontent.com/basicalex/agent-ops-cockpit/main/install/bootstrap.sh | bash -s -- --repo basicalex/agent-ops-cockpit --ref v0.2.0
+curl -fsSL https://raw.githubusercontent.com/basicalex/agent-ops-cockpit/main/install/bootstrap.sh | bash -s -- --ref v0.2.0
 
 # non-interactive install for automation
-curl -fsSL https://raw.githubusercontent.com/basicalex/agent-ops-cockpit/main/install/bootstrap.sh | bash -s -- --repo basicalex/agent-ops-cockpit --yes
+curl -fsSL https://raw.githubusercontent.com/basicalex/agent-ops-cockpit/main/install/bootstrap.sh | bash -s -- --yes
 
 # skip the post-install doctor check
-curl -fsSL https://raw.githubusercontent.com/basicalex/agent-ops-cockpit/main/install/bootstrap.sh | bash -s -- --repo basicalex/agent-ops-cockpit --skip-doctor
+curl -fsSL https://raw.githubusercontent.com/basicalex/agent-ops-cockpit/main/install/bootstrap.sh | bash -s -- --skip-doctor
+
+# install from a fork or mirror
+curl -fsSL https://raw.githubusercontent.com/basicalex/agent-ops-cockpit/main/install/bootstrap.sh | bash -s -- --repo your-org/agent-ops-cockpit
 ```
 
 If you already cloned the repo, you can still run `./install.sh` directly.
@@ -59,6 +63,15 @@ AOC_INSTALL_AUTO_INIT=0 ./install.sh
 
 # Initialize a specific project path after install
 AOC_INIT_TARGET=~/dev/my-project ./install.sh
+
+# Skip automatic PI agent install (enabled by default)
+AOC_INSTALL_PI_AGENT=0 ./install.sh
+
+# Allow install to continue if PI install fails
+AOC_INSTALL_PI_REQUIRED=0 ./install.sh
+
+# Skip Rust toolchain bootstrap if cargo is missing
+AOC_INSTALL_RUST=0 ./install.sh
 ```
 
 ### Post-install setup contract (`aoc-init`)
