@@ -28,7 +28,7 @@ use aoc_mind::{
     observer_feed_event_from_outcome, DetachedReflectorWorker, DistillationConfig,
     PiObserverAdapter, ReflectorRuntimeConfig, SemanticObserverConfig, SessionObserverSidecar,
 };
-use aoc_storage::{MindStore, ReflectorJob};
+use aoc_storage::{MindStore, ProjectWatermark, ReflectorJob, StoredArtifact};
 use chrono::{TimeZone, Utc};
 use clap::Parser;
 use futures_util::{SinkExt, StreamExt};
@@ -82,6 +82,9 @@ const TASK_CONTEXT_HEARTBEAT_SECS: u64 = 20;
 const TASK_CONTEXT_COMMAND_DEBOUNCE_MS: u64 = 1500;
 const MAX_MIND_OBSERVER_EVENTS: usize = 40;
 const MIND_DEBOUNCE_RUN_MS: i64 = 300;
+const MIND_FINALIZE_DRAIN_TIMEOUT_MS: i64 = 5_000;
+const MIND_IDLE_FINALIZE_MS: i64 = 120_000;
+const MIND_IDLE_CHECK_INTERVAL_MS: i64 = 5_000;
 const REDACTED_SECRET: &str = "[REDACTED]";
 const TELEMETRY_SECRET_KEYS: [&str; 13] = [
     "access_token",
@@ -1379,12 +1382,55 @@ struct MindIngestEventPayload {
     root_conversation_id: Option<String>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum MindFinalizeTrigger {
+    Manual,
+    Shutdown,
+    Idle,
+}
+
+#[derive(Debug, Serialize)]
+struct SessionExportManifest {
+    schema_version: u32,
+    session_id: String,
+    pane_id: String,
+    project_root: String,
+    active_tag: Option<String>,
+    conversation_ids: Vec<String>,
+    export_dir: String,
+    t1_count: usize,
+    t2_count: usize,
+    t1_artifact_ids: Vec<String>,
+    t2_artifact_ids: Vec<String>,
+    slice_start_id: String,
+    slice_end_id: String,
+    slice_hash: String,
+    exported_at: String,
+    last_artifact_ts: String,
+    watermark_scope: String,
+    t3_job_id: String,
+    t3_job_inserted: bool,
+}
+
+#[derive(Debug, Clone)]
+struct SessionFinalizeOutcome {
+    status: &'static str,
+    reason: String,
+    updates: Vec<PulseUpdate>,
+    export_dir: Option<PathBuf>,
+}
+
 struct MindRuntime {
     store: MindStore,
     sidecar: SessionObserverSidecar<PiObserverAdapter>,
     policy: T0CompactionPolicy,
     distill: DistillationConfig,
+    session_id: String,
+    pane_id: String,
+    project_root: PathBuf,
     latest_conversation_id: Option<String>,
+    last_ingest_at: Option<chrono::DateTime<chrono::Utc>>,
+    last_idle_finalize_check: Option<chrono::DateTime<chrono::Utc>>,
     insight_supervisor: InsightSupervisor,
     reflector_worker: DetachedReflectorWorker,
     insight_health: InsightRuntimeHealthPayload,
