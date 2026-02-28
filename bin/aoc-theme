@@ -299,6 +299,16 @@ derive_muted_color() {
   fi
 }
 
+derive_dim_color() {
+  local fg="$1"
+  local bg="$2"
+  if [[ "$(is_dark_color "$bg")" == "1" ]]; then
+    adjust_hex_color "$fg" -96
+  else
+    adjust_hex_color "$fg" 96
+  fi
+}
+
 bg_profile_values() {
   local profile
   profile="$(normalize_bg_profile "$1")"
@@ -739,13 +749,14 @@ write_pi_theme_from_profile() {
   mkdir -p "$(dirname "$theme_path")"
 
   local bg_base bg_elevated bg_subtle
-  local ui_primary ui_accent pi_gray
+  local ui_primary ui_accent pi_gray pi_dim
   bg_base="${AOC_THEME_BG_BASE:-$AOC_THEME_BG}"
   bg_elevated="${AOC_THEME_BG_ELEVATED:-$AOC_THEME_BLACK}"
   bg_subtle="${AOC_THEME_BG_SUBTLE:-$AOC_THEME_BLACK}"
   ui_primary="${AOC_THEME_UI_PRIMARY:-$AOC_THEME_FG}"
   ui_accent="${AOC_THEME_UI_ACCENT:-$AOC_THEME_BLUE}"
   pi_gray="$(derive_muted_color "$ui_primary" "$bg_base")"
+  pi_dim="$(derive_dim_color "$ui_primary" "$bg_base")"
 
   cat <<EOF > "$theme_path"
 {
@@ -758,9 +769,10 @@ write_pi_theme_from_profile() {
     "red": "$AOC_THEME_RED",
     "yellow": "$AOC_THEME_YELLOW",
     "gray": "$pi_gray",
-    "dimGray": "$bg_elevated",
+    "dimGray": "$pi_dim",
     "darkGray": "$bg_subtle",
     "accent": "$ui_accent",
+    "textPrimary": "$ui_primary",
     "selectedBg": "$bg_subtle",
     "userMsgBg": "$bg_base",
     "toolPendingBg": "$bg_elevated",
@@ -778,19 +790,19 @@ write_pi_theme_from_profile() {
     "warning": "yellow",
     "muted": "gray",
     "dim": "dimGray",
-    "text": "",
+    "text": "textPrimary",
     "thinkingText": "gray",
 
     "selectedBg": "selectedBg",
     "userMessageBg": "userMsgBg",
-    "userMessageText": "",
+    "userMessageText": "textPrimary",
     "customMessageBg": "customMsgBg",
-    "customMessageText": "",
+    "customMessageText": "textPrimary",
     "customMessageLabel": "$AOC_THEME_MAGENTA",
     "toolPendingBg": "toolPendingBg",
     "toolSuccessBg": "toolSuccessBg",
     "toolErrorBg": "toolErrorBg",
-    "toolTitle": "",
+    "toolTitle": "textPrimary",
     "toolOutput": "gray",
 
     "mdHeading": "$AOC_THEME_YELLOW",
