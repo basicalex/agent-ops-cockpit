@@ -1,7 +1,13 @@
+mod insight_orchestrator;
+
 use aoc_core::{
+    insight_contracts::{
+        InsightBootstrapRequest, InsightCommand, InsightDispatchRequest, InsightStatusResult,
+    },
     mind_contracts::{
-        canonical_lineage_attrs, compact_raw_event_to_t0, ConversationLineageMetadata,
-        ConversationRole, MessageEvent, RawEvent, RawEventBody, T0CompactionPolicy,
+        canonical_lineage_attrs, canonical_payload_hash, compact_raw_event_to_t0,
+        ConversationLineageMetadata, ConversationRole, MessageEvent, RawEvent, RawEventBody,
+        SemanticProvenance, SemanticRuntime, SemanticStage, T0CompactionPolicy,
         ToolExecutionStatus, ToolResultEvent,
     },
     mind_observer_feed::{
@@ -19,13 +25,14 @@ use aoc_core::{
     ProjectData, Task, TaskStatus,
 };
 use aoc_mind::{
-    observer_feed_event_from_outcome, DistillationConfig, PiObserverAdapter,
-    SemanticObserverConfig, SessionObserverSidecar,
+    observer_feed_event_from_outcome, DetachedReflectorWorker, DistillationConfig,
+    PiObserverAdapter, ReflectorRuntimeConfig, SemanticObserverConfig, SessionObserverSidecar,
 };
-use aoc_storage::MindStore;
+use aoc_storage::{MindStore, ReflectorJob};
 use chrono::{TimeZone, Utc};
 use clap::Parser;
 use futures_util::{SinkExt, StreamExt};
+use insight_orchestrator::InsightSupervisor;
 use notify::{RecommendedWatcher, RecursiveMode, Watcher};
 use portable_pty::{native_pty_system, CommandBuilder, PtySize};
 use regex::Regex;
@@ -324,6 +331,30 @@ struct HealthSnapshotPayload {
     taskmaster_status: String,
 }
 
+#[derive(Serialize, Deserialize, Clone, Default)]
+struct InsightRuntimeHealthPayload {
+    #[serde(default)]
+    reflector_enabled: bool,
+    #[serde(default)]
+    reflector_ticks: u64,
+    #[serde(default)]
+    reflector_lock_conflicts: u64,
+    #[serde(default)]
+    reflector_jobs_completed: u64,
+    #[serde(default)]
+    reflector_jobs_failed: u64,
+    #[serde(default)]
+    supervisor_runs: u64,
+    #[serde(default)]
+    supervisor_failures: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    last_tick_ms: Option<i64>,
+    #[serde(default)]
+    queue_depth: i64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    last_error: Option<String>,
+}
+
 #[derive(Clone)]
 enum PulseUpdate {
     Status {
@@ -335,6 +366,7 @@ enum PulseUpdate {
     CurrentTag(CurrentTagPayload),
     DiffSummary(DiffSummaryPayload),
     Health(HealthSnapshotPayload),
+    InsightRuntime(InsightRuntimeHealthPayload),
     MindObserverEvent(MindObserverFeedEvent),
     Heartbeat {
         lifecycle: Option<String>,
@@ -351,6 +383,7 @@ struct PulseState {
     current_tag: Option<CurrentTagPayload>,
     diff_summary: Option<DiffSummaryPayload>,
     health: Option<HealthSnapshotPayload>,
+    insight_runtime: Option<InsightRuntimeHealthPayload>,
     mind_observer: MindObserverFeedPayload,
     last_heartbeat_ms: Option<i64>,
     last_activity_ms: Option<i64>,
@@ -367,6 +400,7 @@ impl PulseState {
             current_tag: None,
             diff_summary: None,
             health: None,
+            insight_runtime: None,
             mind_observer: MindObserverFeedPayload::default(),
             last_heartbeat_ms: None,
             last_activity_ms: None,
@@ -879,6 +913,7 @@ async fn pulse_loop(cfg: ClientConfig, socket_path: PathBuf, mut rx: mpsc::Recei
         }
 
         let mut reader = BufReader::new(reader_half);
+        let mut reflector_ticker = tokio::time::interval(Duration::from_secs(5));
         loop {
             tokio::select! {
                 update = rx.recv() => {
@@ -917,6 +952,20 @@ async fn pulse_loop(cfg: ClientConfig, socket_path: PathBuf, mut rx: mpsc::Recei
                         None => {
                             let _ = send_pulse_envelope(&mut writer_half, &build_pulse_remove(&cfg)).await;
                             return;
+                        }
+                    }
+                }
+                _ = reflector_ticker.tick() => {
+                    if let Some(runtime) = mind_runtime.as_mut() {
+                        let updates = runtime.tick_reflector_runtime();
+                        for update in updates {
+                            apply_pulse_update(&mut state, update);
+                        }
+                        if send_pulse_upsert(&cfg, &state, &mut writer_half, &mut last_state_hash)
+                            .await
+                            .is_err()
+                        {
+                            break;
                         }
                     }
                 }
@@ -989,6 +1038,10 @@ fn apply_pulse_update(state: &mut PulseState, update: PulseUpdate) {
         }
         PulseUpdate::Health(health) => {
             state.health = Some(health);
+            state.updated_at_ms = Some(now);
+        }
+        PulseUpdate::InsightRuntime(health) => {
+            state.insight_runtime = Some(health);
             state.updated_at_ms = Some(now);
         }
         PulseUpdate::MindObserverEvent(event) => {
@@ -1199,6 +1252,11 @@ fn build_pulse_source(cfg: &ClientConfig, state: &PulseState) -> serde_json::Val
             source.insert("health".to_string(), value);
         }
     }
+    if let Some(insight_runtime) = state.insight_runtime.as_ref() {
+        if let Ok(value) = serde_json::to_value(insight_runtime) {
+            source.insert("insight_runtime".to_string(), value);
+        }
+    }
     if !state.mind_observer.events.is_empty() {
         if let Ok(value) = serde_json::to_value(&state.mind_observer) {
             source.insert("mind_observer".to_string(), value);
@@ -1327,24 +1385,61 @@ struct MindRuntime {
     policy: T0CompactionPolicy,
     distill: DistillationConfig,
     latest_conversation_id: Option<String>,
+    insight_supervisor: InsightSupervisor,
+    reflector_worker: DetachedReflectorWorker,
+    insight_health: InsightRuntimeHealthPayload,
 }
 
 impl MindRuntime {
     fn new(cfg: &ClientConfig) -> Result<Self, String> {
-        let path = resolve_mind_store_path(cfg);
-        if let Some(parent) = path.parent() {
+        let canonical_path = resolve_mind_store_path(cfg);
+        if let Some(parent) = canonical_path.parent() {
             std::fs::create_dir_all(parent)
                 .map_err(|err| format!("failed to create mind store dir: {err}"))?;
         }
 
-        let store =
-            MindStore::open(path).map_err(|err| format!("mind store open failed: {err}"))?;
+        let store = MindStore::open(&canonical_path)
+            .map_err(|err| format!("mind store open failed: {err}"))?;
+
+        if mind_store_path_override().is_none() {
+            let legacy_path = resolve_legacy_mind_store_path(cfg);
+            if legacy_path != canonical_path && legacy_path.exists() {
+                match store.import_legacy_store(&legacy_path) {
+                    Ok(report) => {
+                        if report.rows_imported > 0 {
+                            info!(
+                                legacy = %legacy_path.display(),
+                                tables_imported = report.tables_imported,
+                                rows_imported = report.rows_imported,
+                                "mind_legacy_import_completed"
+                            );
+                        }
+                    }
+                    Err(err) => warn!(
+                        legacy = %legacy_path.display(),
+                        error = %err,
+                        "mind_legacy_import_failed"
+                    ),
+                }
+            }
+        }
+
         let distill = DistillationConfig::default();
         let sidecar = SessionObserverSidecar::new(
             distill.clone(),
             SemanticObserverConfig::default(),
             PiObserverAdapter::default(),
         );
+        let reflector_lock_path = resolve_reflector_lock_path(cfg);
+        let reflector_worker = DetachedReflectorWorker::new(ReflectorRuntimeConfig {
+            scope_id: cfg.session_id.clone(),
+            owner_id: cfg.agent_key.clone(),
+            owner_pid: Some(std::process::id() as i64),
+            lock_path: reflector_lock_path,
+            lease_ttl_ms: 30_000,
+            max_jobs_per_tick: 2,
+            requeue_on_error: true,
+        });
 
         Ok(Self {
             store,
@@ -1352,6 +1447,12 @@ impl MindRuntime {
             policy: T0CompactionPolicy::default(),
             distill,
             latest_conversation_id: None,
+            insight_supervisor: InsightSupervisor::new(&cfg.project_root),
+            reflector_worker,
+            insight_health: InsightRuntimeHealthPayload {
+                reflector_enabled: true,
+                ..InsightRuntimeHealthPayload::default()
+            },
         })
     }
 
@@ -1568,6 +1669,235 @@ impl MindRuntime {
             ))],
         }
     }
+
+    fn insight_dispatch(
+        &mut self,
+        request: InsightDispatchRequest,
+    ) -> aoc_core::insight_contracts::InsightDispatchResult {
+        self.insight_health.supervisor_runs = self.insight_health.supervisor_runs.saturating_add(1);
+        let result = self.insight_supervisor.dispatch(&request);
+        if result.fallback_used {
+            self.insight_health.supervisor_failures =
+                self.insight_health.supervisor_failures.saturating_add(1);
+            self.insight_health.last_error = result
+                .steps
+                .iter()
+                .find_map(|step| step.error.clone())
+                .or_else(|| Some("insight dispatch fallback".to_string()));
+        } else {
+            self.insight_health.last_error = None;
+        }
+        self.insight_health.last_tick_ms = Some(Utc::now().timestamp_millis());
+        result
+    }
+
+    fn insight_bootstrap(
+        &mut self,
+        request: InsightBootstrapRequest,
+    ) -> aoc_core::insight_contracts::InsightBootstrapResult {
+        let result = self.insight_supervisor.bootstrap(&request);
+
+        if !result.dry_run && !result.seeds.is_empty() {
+            let conversation_id = self
+                .latest_conversation_id
+                .clone()
+                .unwrap_or_else(|| "bootstrap".to_string());
+            let now = Utc::now();
+            for seed in &result.seeds {
+                let _ = self.store.enqueue_reflector_job(
+                    &seed.scope_tag,
+                    &seed.source_gap_ids,
+                    std::slice::from_ref(&conversation_id),
+                    120,
+                    now,
+                );
+            }
+        }
+
+        self.insight_health.queue_depth = self.store.pending_reflector_jobs().unwrap_or_default();
+        self.insight_health.last_tick_ms = Some(Utc::now().timestamp_millis());
+        result
+    }
+
+    fn insight_status(&mut self) -> InsightStatusResult {
+        self.insight_health.queue_depth = self.store.pending_reflector_jobs().unwrap_or_default();
+        InsightStatusResult {
+            queue_depth: self.insight_health.queue_depth,
+            reflector_enabled: self.insight_health.reflector_enabled,
+            last_tick_ms: self.insight_health.last_tick_ms,
+            lock_conflicts: self.insight_health.reflector_lock_conflicts,
+            jobs_completed: self.insight_health.reflector_jobs_completed,
+            jobs_failed: self.insight_health.reflector_jobs_failed,
+            supervisor_runs: self.insight_health.supervisor_runs,
+            last_error: self.insight_health.last_error.clone(),
+        }
+    }
+
+    fn tick_reflector_runtime(&mut self) -> Vec<PulseUpdate> {
+        let now = Utc::now();
+        self.insight_health.reflector_ticks = self.insight_health.reflector_ticks.saturating_add(1);
+        self.insight_health.last_tick_ms = Some(now.timestamp_millis());
+
+        let mut updates = Vec::new();
+        match self
+            .reflector_worker
+            .run_once(&self.store, now, |store, job| {
+                process_reflector_job(store, job, now)
+            }) {
+            Ok(report) => {
+                if report.lock_conflict {
+                    self.insight_health.reflector_lock_conflicts = self
+                        .insight_health
+                        .reflector_lock_conflicts
+                        .saturating_add(1);
+                }
+                self.insight_health.reflector_jobs_completed = self
+                    .insight_health
+                    .reflector_jobs_completed
+                    .saturating_add(report.jobs_completed as u64);
+                self.insight_health.reflector_jobs_failed = self
+                    .insight_health
+                    .reflector_jobs_failed
+                    .saturating_add(report.jobs_failed as u64);
+
+                if report.jobs_failed == 0 {
+                    self.insight_health.last_error = None;
+                }
+                if report.jobs_completed > 0 {
+                    updates.push(PulseUpdate::MindObserverEvent(MindObserverFeedEvent {
+                        status: MindObserverFeedStatus::Success,
+                        trigger: MindObserverFeedTriggerKind::TaskCompleted,
+                        conversation_id: self.latest_conversation_id.clone(),
+                        runtime: Some("t2_reflector".to_string()),
+                        attempt_count: Some(1),
+                        latency_ms: None,
+                        reason: Some(format!(
+                            "t2 reflector processed {} job(s)",
+                            report.jobs_completed
+                        )),
+                        failure_kind: None,
+                        enqueued_at: None,
+                        started_at: None,
+                        completed_at: Some(now.to_rfc3339()),
+                        progress: None,
+                    }));
+                }
+                if report.jobs_failed > 0 {
+                    updates.push(PulseUpdate::MindObserverEvent(MindObserverFeedEvent {
+                        status: MindObserverFeedStatus::Error,
+                        trigger: MindObserverFeedTriggerKind::TaskCompleted,
+                        conversation_id: self.latest_conversation_id.clone(),
+                        runtime: Some("t2_reflector".to_string()),
+                        attempt_count: Some(1),
+                        latency_ms: None,
+                        reason: Some(format!("t2 reflector failed {} job(s)", report.jobs_failed)),
+                        failure_kind: Some("runtime_error".to_string()),
+                        enqueued_at: None,
+                        started_at: None,
+                        completed_at: Some(now.to_rfc3339()),
+                        progress: None,
+                    }));
+                }
+            }
+            Err(err) => {
+                self.insight_health.last_error = Some(format!("reflector tick failed: {err}"));
+                updates.push(PulseUpdate::MindObserverEvent(MindObserverFeedEvent {
+                    status: MindObserverFeedStatus::Error,
+                    trigger: MindObserverFeedTriggerKind::TaskCompleted,
+                    conversation_id: self.latest_conversation_id.clone(),
+                    runtime: Some("t2_reflector".to_string()),
+                    attempt_count: Some(1),
+                    latency_ms: None,
+                    reason: Some("reflector tick failed".to_string()),
+                    failure_kind: Some("runtime_error".to_string()),
+                    enqueued_at: None,
+                    started_at: None,
+                    completed_at: Some(now.to_rfc3339()),
+                    progress: None,
+                }));
+            }
+        }
+
+        self.insight_health.queue_depth = self.store.pending_reflector_jobs().unwrap_or_default();
+        updates.push(PulseUpdate::InsightRuntime(self.insight_health.clone()));
+        updates
+    }
+}
+
+fn process_reflector_job(
+    store: &MindStore,
+    job: &ReflectorJob,
+    now: chrono::DateTime<chrono::Utc>,
+) -> Result<(), String> {
+    let mut observations = Vec::new();
+    for conversation_id in &job.conversation_ids {
+        let artifacts = store
+            .artifacts_for_conversation(conversation_id)
+            .map_err(|err| format!("load artifacts failed: {err}"))?;
+        for artifact in artifacts {
+            if artifact.kind == "t1" && job.observation_ids.contains(&artifact.artifact_id) {
+                observations.push(artifact);
+            }
+        }
+    }
+
+    if observations.is_empty() {
+        return Err("no matching observations found for reflector job".to_string());
+    }
+
+    observations.sort_by(|a, b| a.artifact_id.cmp(&b.artifact_id));
+    let mut lines = vec![format!(
+        "T2 runtime reflection for tag={} observations={}",
+        job.active_tag,
+        observations.len()
+    )];
+    for artifact in &observations {
+        let preview = truncate_chars(normalize_text(&artifact.text), 180);
+        lines.push(format!("{}: {}", artifact.artifact_id, preview));
+    }
+    let text = lines.join("\n");
+
+    let input_hash = canonical_payload_hash(&(
+        &job.active_tag,
+        &job.observation_ids,
+        &job.conversation_ids,
+        job.estimated_tokens,
+    ))
+    .map_err(|err| err.to_string())?;
+    let output_hash = canonical_payload_hash(&text).map_err(|err| err.to_string())?;
+    let artifact_id = format!("ref:auto:{}", &input_hash[..16]);
+    let conversation_id = observations
+        .first()
+        .map(|artifact| artifact.conversation_id.clone())
+        .unwrap_or_else(|| "unknown".to_string());
+    let trace_ids = observations
+        .iter()
+        .map(|artifact| artifact.artifact_id.clone())
+        .collect::<Vec<_>>();
+
+    store
+        .insert_reflection(&artifact_id, &conversation_id, now, &text, &trace_ids)
+        .map_err(|err| format!("insert reflection failed: {err}"))?;
+    store
+        .upsert_semantic_provenance(&SemanticProvenance {
+            artifact_id,
+            stage: SemanticStage::T2Reflector,
+            runtime: SemanticRuntime::Deterministic,
+            provider_name: None,
+            model_id: None,
+            prompt_version: "deterministic.reflector.runtime.v1".to_string(),
+            input_hash,
+            output_hash: Some(output_hash),
+            latency_ms: None,
+            attempt_count: 1,
+            fallback_used: false,
+            fallback_reason: None,
+            failure_kind: None,
+            created_at: now,
+        })
+        .map_err(|err| format!("insert provenance failed: {err}"))?;
+
+    Ok(())
 }
 
 fn map_observer_trigger(kind: aoc_mind::ObserverTriggerKind) -> MindObserverFeedTriggerKind {
@@ -1599,6 +1929,25 @@ fn estimate_compact_tokens(event: &aoc_storage::StoredCompactEvent) -> u32 {
 
 fn estimate_text_tokens(text: &str) -> u32 {
     (text.chars().count() as u32 / 4).max(1)
+}
+
+fn normalize_text(text: &str) -> String {
+    text.split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
+fn truncate_chars(text: String, max_chars: usize) -> String {
+    if max_chars == 0 {
+        return String::new();
+    }
+    if text.chars().count() <= max_chars {
+        return text;
+    }
+    let mut out = text
+        .chars()
+        .take(max_chars.saturating_sub(3))
+        .collect::<String>();
+    out.push_str("...");
+    out
 }
 
 fn command_result(
@@ -1736,7 +2085,7 @@ fn build_pulse_command_response(
                 updates,
             ))
         }
-        "mind_ingest_event" => {
+        "mind_ingest_event" | "insight_ingest" => {
             if let Err(error) = ensure_target_matches(cfg, payload.target_agent_id.as_deref()) {
                 return Some(command_result(
                     cfg,
@@ -1822,7 +2171,7 @@ fn build_pulse_command_response(
                 )),
             }
         }
-        "mind_handoff" => {
+        "mind_handoff" | "insight_handoff" => {
             if let Err(error) = ensure_target_matches(cfg, payload.target_agent_id.as_deref()) {
                 return Some(command_result(
                     cfg,
@@ -1895,6 +2244,89 @@ fn build_pulse_command_response(
                 false,
                 updates,
             ))
+        }
+        "insight_status" | "insight_dispatch" | "insight_bootstrap" => {
+            if let Err(error) = ensure_target_matches(cfg, payload.target_agent_id.as_deref()) {
+                return Some(command_result(
+                    cfg,
+                    envelope,
+                    &command,
+                    "error",
+                    Some("target mismatch".to_string()),
+                    Some(error),
+                    false,
+                    Vec::new(),
+                ));
+            }
+            let Some(runtime) = mind_runtime.as_deref_mut() else {
+                return Some(command_result(
+                    cfg,
+                    envelope,
+                    &command,
+                    "error",
+                    Some("mind runtime unavailable".to_string()),
+                    Some(PulseCommandError {
+                        code: "mind_unavailable".to_string(),
+                        message: "mind runtime unavailable".to_string(),
+                    }),
+                    false,
+                    Vec::new(),
+                ));
+            };
+
+            let parsed = InsightCommand::parse(&command, payload.args.clone());
+            let result_json = match parsed {
+                Ok(InsightCommand::InsightStatus) => {
+                    serde_json::to_string(&runtime.insight_status())
+                }
+                Ok(InsightCommand::InsightDispatch(args)) => {
+                    serde_json::to_string(&runtime.insight_dispatch(args))
+                }
+                Ok(InsightCommand::InsightBootstrap(args)) => {
+                    serde_json::to_string(&runtime.insight_bootstrap(args))
+                }
+                Err(err) => {
+                    return Some(command_result(
+                        cfg,
+                        envelope,
+                        &command,
+                        "error",
+                        Some("invalid insight command payload".to_string()),
+                        Some(PulseCommandError {
+                            code: "invalid_args".to_string(),
+                            message: err,
+                        }),
+                        false,
+                        Vec::new(),
+                    ))
+                }
+            };
+
+            match result_json {
+                Ok(json) => Some(command_result(
+                    cfg,
+                    envelope,
+                    &command,
+                    "ok",
+                    Some(json),
+                    None,
+                    false,
+                    vec![PulseUpdate::InsightRuntime(runtime.insight_health.clone())],
+                )),
+                Err(err) => Some(command_result(
+                    cfg,
+                    envelope,
+                    &command,
+                    "error",
+                    Some("failed to serialize insight command result".to_string()),
+                    Some(PulseCommandError {
+                        code: "serialization_failed".to_string(),
+                        message: err.to_string(),
+                    }),
+                    false,
+                    Vec::new(),
+                )),
+            }
         }
         _ => Some(command_result(
             cfg,
@@ -3976,17 +4408,63 @@ fn runtime_snapshot_path(session_id: &str, pane_id: &str) -> PathBuf {
         .join(format!("{}.json", sanitize_component(pane_id)))
 }
 
+fn mind_store_path_override() -> Option<String> {
+    env::var("AOC_MIND_STORE_PATH")
+        .ok()
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
+}
+
+fn reflector_lock_path_override() -> Option<String> {
+    env::var("AOC_REFLECTOR_LOCK_PATH")
+        .ok()
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
+}
+
 fn resolve_mind_store_path(cfg: &ClientConfig) -> PathBuf {
-    if let Ok(value) = env::var("AOC_MIND_STORE_PATH") {
-        if !value.trim().is_empty() {
-            return PathBuf::from(value);
-        }
+    resolve_mind_store_path_with_override(cfg, mind_store_path_override().as_deref())
+}
+
+fn resolve_mind_store_path_with_override(
+    cfg: &ClientConfig,
+    override_path: Option<&str>,
+) -> PathBuf {
+    if let Some(path) = override_path {
+        return PathBuf::from(path);
     }
+
+    PathBuf::from(&cfg.project_root)
+        .join(".aoc")
+        .join("mind")
+        .join("project.sqlite")
+}
+
+fn resolve_legacy_mind_store_path(cfg: &ClientConfig) -> PathBuf {
     PathBuf::from(&cfg.project_root)
         .join(".aoc")
         .join("mind")
         .join(sanitize_component(&cfg.session_id))
         .join(format!("{}.sqlite", sanitize_component(&cfg.pane_id)))
+}
+
+fn resolve_reflector_lock_path(cfg: &ClientConfig) -> PathBuf {
+    resolve_reflector_lock_path_with_override(cfg, reflector_lock_path_override().as_deref())
+}
+
+fn resolve_reflector_lock_path_with_override(
+    cfg: &ClientConfig,
+    override_path: Option<&str>,
+) -> PathBuf {
+    if let Some(path) = override_path {
+        return PathBuf::from(path);
+    }
+
+    PathBuf::from(&cfg.project_root)
+        .join(".aoc")
+        .join("mind")
+        .join("locks")
+        .join("reflector.lock")
 }
 
 async fn persist_runtime_snapshot(cfg: &ClientConfig, status: &str) -> io::Result<()> {
@@ -4248,6 +4726,7 @@ fn next_backoff(current: Duration) -> Duration {
 mod tests {
     use super::*;
     use serde_json::Value;
+    use std::path::{Path, PathBuf};
     use std::time::{Duration, Instant};
 
     fn test_client() -> ClientConfig {
@@ -4265,6 +4744,38 @@ mod tests {
         let mut cfg = test_client();
         cfg.project_root = project_root.to_string();
         cfg
+    }
+
+    #[test]
+    fn mind_paths_default_to_project_scoped_layout() {
+        let cfg = test_client_with_root("/repo");
+
+        assert_eq!(
+            resolve_mind_store_path_with_override(&cfg, None),
+            PathBuf::from("/repo/.aoc/mind/project.sqlite")
+        );
+        assert_eq!(
+            resolve_reflector_lock_path_with_override(&cfg, None),
+            PathBuf::from("/repo/.aoc/mind/locks/reflector.lock")
+        );
+        assert_eq!(
+            resolve_legacy_mind_store_path(&cfg),
+            PathBuf::from("/repo/.aoc/mind/session-test/12.sqlite")
+        );
+    }
+
+    #[test]
+    fn mind_paths_honor_explicit_overrides() {
+        let cfg = test_client_with_root("/repo");
+
+        assert_eq!(
+            resolve_mind_store_path_with_override(&cfg, Some("/tmp/custom-mind.sqlite")),
+            PathBuf::from("/tmp/custom-mind.sqlite")
+        );
+        assert_eq!(
+            resolve_reflector_lock_path_with_override(&cfg, Some("/tmp/custom-reflector.lock")),
+            PathBuf::from("/tmp/custom-reflector.lock")
+        );
     }
 
     fn command_envelope_for_test(
@@ -4285,6 +4796,41 @@ mod tests {
                 args,
             }),
         }
+    }
+
+    fn seed_insight_assets(root: &Path) {
+        std::fs::create_dir_all(root.join(".pi/agents")).expect("create agents dir");
+        std::fs::create_dir_all(root.join("docs")).expect("create docs dir");
+        std::fs::create_dir_all(root.join("crates/aoc-sample/src")).expect("create crates dir");
+
+        std::fs::write(
+            root.join(".pi/agents/insight-t1-observer.md"),
+            "---\nname: insight-t1-observer\n---\n",
+        )
+        .expect("write t1");
+        std::fs::write(
+            root.join(".pi/agents/insight-t2-reflector.md"),
+            "---\nname: insight-t2-reflector\n---\n",
+        )
+        .expect("write t2");
+        std::fs::write(
+            root.join(".pi/agents/teams.yaml"),
+            "insight-core:\n  - insight-t1-observer\n  - insight-t2-reflector\n",
+        )
+        .expect("write teams");
+        std::fs::write(
+            root.join(".pi/agents/agent-chain.yaml"),
+            "insight-handoff:\n  steps:\n    - agent: insight-t1-observer\n      prompt: \"$INPUT\"\n    - agent: insight-t2-reflector\n      prompt: \"$INPUT\"\n",
+        )
+        .expect("write chain");
+
+        std::fs::write(root.join("docs/runtime-contract.md"), "# Runtime contract")
+            .expect("write doc");
+        std::fs::write(
+            root.join("crates/aoc-sample/src/runtime.rs"),
+            "pub fn runtime() {}",
+        )
+        .expect("write code");
     }
 
     #[test]
@@ -4653,6 +5199,90 @@ mod tests {
             )
         });
         assert!(has_terminal, "expected handoff terminal observer event");
+
+        let _ = std::fs::remove_dir_all(test_root);
+    }
+
+    #[test]
+    fn pulse_insight_dispatch_returns_structured_result() {
+        let test_root = std::env::temp_dir().join(format!(
+            "aoc-insight-wrap-test-{}-{}",
+            std::process::id(),
+            Utc::now().timestamp_nanos_opt().unwrap_or_default()
+        ));
+        std::fs::create_dir_all(&test_root).expect("create test root");
+        seed_insight_assets(&test_root);
+
+        let cfg = test_client_with_root(&test_root.to_string_lossy());
+        let mut runtime = MindRuntime::new(&cfg).expect("mind runtime");
+
+        let envelope = command_envelope_for_test(
+            &cfg,
+            "req-insight-dispatch",
+            "insight_dispatch",
+            serde_json::json!({
+                "mode": "dispatch",
+                "agent": "insight-t1-observer",
+                "input": "summarize insight state"
+            }),
+        );
+
+        let command = build_pulse_command_response(&cfg, &envelope, Some(&mut runtime))
+            .expect("response expected");
+        let WireMsg::CommandResult(payload) = command.response.msg else {
+            panic!("expected command_result")
+        };
+        assert_eq!(payload.status, "ok");
+
+        let parsed: Value =
+            serde_json::from_str(payload.message.as_deref().unwrap_or("{}")).expect("json result");
+        assert_eq!(parsed.get("mode").and_then(Value::as_str), Some("dispatch"));
+        assert!(command
+            .pulse_updates
+            .iter()
+            .any(|update| matches!(update, PulseUpdate::InsightRuntime(_))));
+
+        let _ = std::fs::remove_dir_all(test_root);
+    }
+
+    #[test]
+    fn pulse_insight_bootstrap_returns_gap_report() {
+        let test_root = std::env::temp_dir().join(format!(
+            "aoc-insight-wrap-test-{}-{}",
+            std::process::id(),
+            Utc::now().timestamp_nanos_opt().unwrap_or_default()
+        ));
+        std::fs::create_dir_all(&test_root).expect("create test root");
+        seed_insight_assets(&test_root);
+
+        let cfg = test_client_with_root(&test_root.to_string_lossy());
+        let mut runtime = MindRuntime::new(&cfg).expect("mind runtime");
+
+        let envelope = command_envelope_for_test(
+            &cfg,
+            "req-insight-bootstrap",
+            "insight_bootstrap",
+            serde_json::json!({
+                "dry_run": true,
+                "max_gaps": 8
+            }),
+        );
+
+        let command = build_pulse_command_response(&cfg, &envelope, Some(&mut runtime))
+            .expect("response expected");
+        let WireMsg::CommandResult(payload) = command.response.msg else {
+            panic!("expected command_result")
+        };
+        assert_eq!(payload.status, "ok");
+
+        let parsed: Value =
+            serde_json::from_str(payload.message.as_deref().unwrap_or("{}")).expect("json result");
+        assert_eq!(parsed.get("dry_run").and_then(Value::as_bool), Some(true));
+        assert!(parsed
+            .get("gaps")
+            .and_then(Value::as_array)
+            .map(|items| !items.is_empty())
+            .unwrap_or(false));
 
         let _ = std::fs::remove_dir_all(test_root);
     }
