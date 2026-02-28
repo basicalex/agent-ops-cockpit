@@ -5,20 +5,21 @@ AOC_REPO="${AOC_REPO:-}"
 AOC_REF="${AOC_REF:-}"
 AOC_YES="${AOC_YES:-0}"
 AOC_SKIP_DOCTOR="${AOC_SKIP_DOCTOR:-0}"
+AOC_DEFAULT_REPO="${AOC_DEFAULT_REPO:-basicalex/agent-ops-cockpit}"
 
 usage() {
   cat <<'EOF'
 Usage: bootstrap.sh [options]
 
 Options:
-  --repo <owner/name>   GitHub repo (required unless auto-detected)
+  --repo <owner/name>   GitHub repo (optional; defaults to canonical AOC repo)
   --ref <tag-or-branch> Release tag or branch to install
   --yes                 Non-interactive install
   --skip-doctor         Skip post-install aoc-doctor check
   -h, --help            Show help
 
 Environment:
-  AOC_REPO, AOC_REF, AOC_YES, AOC_SKIP_DOCTOR
+  AOC_REPO, AOC_REF, AOC_YES, AOC_SKIP_DOCTOR, AOC_DEFAULT_REPO
 EOF
 }
 
@@ -74,8 +75,9 @@ resolve_repo() {
   fi
 
   warn "Could not determine GitHub repo automatically."
-  warn "Re-run with: --repo <owner/name>"
-  return 1
+  warn "Falling back to default repo: ${AOC_DEFAULT_REPO}"
+  printf '%s\n' "$AOC_DEFAULT_REPO"
+  return 0
 }
 
 fetch_stdout() {

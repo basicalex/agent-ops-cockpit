@@ -44,11 +44,11 @@ status_agent() {
 }
 
 default_install_cmd() {
-  printf '%s\n' "pnpm add -g @mariozechner/pi-coding-agent"
+  printf '%s\n' "if command -v pnpm >/dev/null 2>&1; then pnpm add -g @mariozechner/pi-coding-agent; elif command -v npm >/dev/null 2>&1; then npm install -g --prefix \"${AOC_NPM_GLOBAL_PREFIX:-$HOME/.local}\" @mariozechner/pi-coding-agent; elif command -v corepack >/dev/null 2>&1; then corepack enable && corepack prepare pnpm@latest --activate && pnpm add -g @mariozechner/pi-coding-agent; else echo 'pnpm/npm/corepack not found' >&2; exit 1; fi"
 }
 
 default_update_cmd() {
-  printf '%s\n' "pnpm add -g @mariozechner/pi-coding-agent@latest"
+  printf '%s\n' "if command -v pnpm >/dev/null 2>&1; then pnpm add -g @mariozechner/pi-coding-agent@latest; elif command -v npm >/dev/null 2>&1; then npm install -g --prefix \"${AOC_NPM_GLOBAL_PREFIX:-$HOME/.local}\" @mariozechner/pi-coding-agent@latest; elif command -v corepack >/dev/null 2>&1; then corepack enable && corepack prepare pnpm@latest --activate && pnpm add -g @mariozechner/pi-coding-agent@latest; else echo 'pnpm/npm/corepack not found' >&2; exit 1; fi"
 }
 
 action_var_hint() {

@@ -164,7 +164,9 @@ fn print_usage() {
     println!("Usage: aoc-installer [options]");
     println!();
     println!("Options:");
-    println!("  --repo <owner/name>   GitHub repository (required unless auto-detected)");
+    println!(
+        "  --repo <owner/name>   GitHub repository (optional; defaults to canonical AOC repo)"
+    );
     println!("  --ref <tag-or-branch> Release tag or branch to install");
     println!("  --yes                 Non-interactive install");
     println!("  --skip-doctor         Skip post-install aoc-doctor check");
@@ -213,6 +215,13 @@ fn resolve_repo(repo_arg: Option<String>) -> Result<String, String> {
                 return Ok(repo);
             }
         }
+    }
+
+    let fallback =
+        env::var("AOC_DEFAULT_REPO").unwrap_or_else(|_| "basicalex/agent-ops-cockpit".to_string());
+    if is_valid_repo_slug(&fallback) {
+        println!("- Repo not auto-detected; defaulting to {fallback}");
+        return Ok(fallback);
     }
 
     Err("could not determine GitHub repo; pass --repo <owner/name>".to_string())
