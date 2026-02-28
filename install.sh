@@ -631,9 +631,31 @@ for f in "$ROOT_DIR/bin/"*; do
   filename=$(basename "$f")
   # Skip micro if it's there (it shouldn't be, but just in case)
   [[ "$filename" == "micro" ]] && continue
-  
+
   install -m 0755 "$f" "$BIN_DIR/$filename"
 done
+
+required_bin_scripts=(
+  aoc
+  aoc-launch
+  aoc-new-tab
+  aoc-agent-wrap
+  aoc-utils.sh
+  aoc-init
+  aoc-doctor
+  tm
+)
+missing_installed_scripts=()
+for script_name in "${required_bin_scripts[@]}"; do
+  if [[ ! -f "$BIN_DIR/$script_name" ]]; then
+    missing_installed_scripts+=("$script_name")
+  fi
+done
+
+if ((${#missing_installed_scripts[@]} > 0)); then
+  warn "Script install incomplete; missing in $BIN_DIR: ${missing_installed_scripts[*]}"
+  exit 1
+fi
 
 # Remove retired non-PI wrappers from previous installs.
 retired_prefixed_wrappers=(
