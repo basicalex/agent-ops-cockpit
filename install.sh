@@ -475,6 +475,46 @@ pm_install() {
   esac
 }
 
+ensure_rust_build_prereqs() {
+  if have cc && have pkg-config; then
+    return 0
+  fi
+
+  case "$pm" in
+    apt)
+      pm_install build-essential pkg-config libssl-dev
+      ;;
+    dnf)
+      pm_install gcc gcc-c++ make pkgconf-pkg-config openssl-devel
+      ;;
+    pacman)
+      pm_install base-devel pkgconf openssl
+      ;;
+    apk)
+      pm_install build-base pkgconf openssl-dev
+      ;;
+    yum)
+      pm_install gcc gcc-c++ make pkgconfig openssl-devel
+      ;;
+    zypper)
+      pm_install gcc gcc-c++ make pkg-config libopenssl-devel
+      ;;
+    brew)
+      # Assume Command Line Tools are present if cc/pkg-config already exist.
+      ;;
+    *)
+      warn "Unknown package manager; cannot auto-install Rust build prerequisites."
+      ;;
+  esac
+
+  if have cc && have pkg-config; then
+    return 0
+  fi
+
+  warn "Rust build prerequisites missing (need cc and pkg-config)."
+  return 1
+}
+
 install_tool() {
   local tool="$1"
   local cargo_bin=""
@@ -701,10 +741,23 @@ if [[ -d "$HOME/bin" && -w "$HOME/bin" ]]; then
 fi
 
 # 2. Rust Build & Install
+pm="$(detect_pm)"
+if [[ "$pm" == "unknown" ]]; then
+  warn "No supported package manager found; dependency installs may be limited."
+fi
+
 log "Building Rust components..."
 if ! cargo_cmd >/dev/null 2>&1; then
   install_rust_toolchain_if_needed || warn "Continuing without cargo; Rust binaries may be unavailable."
 fi
+
+if cargo_cmd >/dev/null 2>&1; then
+  if ! ensure_rust_build_prereqs; then
+    warn "Cannot build Rust components without C toolchain prerequisites."
+    exit 1
+  fi
+fi
+
 cargo_bin=""
 if cargo_bin="$(cargo_cmd)"; then
   if [[ "$cargo_bin" == "$HOME/.cargo/bin/cargo" ]]; then
@@ -776,11 +829,6 @@ fi
 
 # 3. Dependencies
 log "Checking dependencies..."
-
-pm="$(detect_pm)"
-if [[ "$pm" == "unknown" ]]; then
-  warn "No supported package manager found; dependency installs may be limited."
-fi
 
 missing_required=()
 missing_optional=()
