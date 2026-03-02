@@ -29,7 +29,7 @@ layout {
       pane split_direction="vertical" {
         // LEFT: Yazi (tree + preview). Starts in project root.
         pane size="13%" name="Explorer" command="bash" {
-          args "-lc" "export PATH=\"$HOME/.cargo/bin:$PATH\"; theme_env=\"${XDG_CONFIG_HOME:-$HOME/.config}/aoc/theme.env\"; if [[ -f \"$theme_env\" ]]; then source \"$theme_env\"; fi; export EDITOR=micro; export VISUAL=$EDITOR; export AOC_SESSION_ID=\"__AOC_SESSION_ID__\"; export AOC_HUB_ADDR=\"__AOC_HUB_ADDR__\"; export AOC_HUB_URL=\"__AOC_HUB_URL__\"; export AOC_PROJECT_ROOT=\"__AOC_PROJECT_ROOT__\"; export AOC_TAB_SCOPE=\"__AOC_TAB_NAME__\"; cd \"__AOC_PROJECT_ROOT__\" && exec ${AOC_FILETREE_CMD:-yazi} ."
+          args "--noprofile" "--norc" "-c" "export PATH=\"$HOME/.cargo/bin:$PATH\"; theme_env=\"${XDG_CONFIG_HOME:-$HOME/.config}/aoc/theme.env\"; if [[ -f \"$theme_env\" ]]; then source \"$theme_env\"; fi; export EDITOR=micro; export VISUAL=$EDITOR; export AOC_SESSION_ID=\"__AOC_SESSION_ID__\"; export AOC_HUB_ADDR=\"__AOC_HUB_ADDR__\"; export AOC_HUB_URL=\"__AOC_HUB_URL__\"; export AOC_PROJECT_ROOT=\"__AOC_PROJECT_ROOT__\"; export AOC_TAB_SCOPE=\"__AOC_TAB_NAME__\"; cd \"__AOC_PROJECT_ROOT__\" && exec ${AOC_FILETREE_CMD:-yazi} ."
         }
 
         // CENTER + RIGHT COLUMN
@@ -99,7 +99,7 @@ swap_layouts {
       pane split_direction="vertical" {
         // LEFT: Yazi (tree + preview). Starts in project root.
         pane size="10%" name="Explorer" command="bash" {
-          args "-lc" "export PATH=\"$HOME/.cargo/bin:$PATH\"; theme_env=\"${XDG_CONFIG_HOME:-$HOME/.config}/aoc/theme.env\"; if [[ -f \"$theme_env\" ]]; then source \"$theme_env\"; fi; export EDITOR=micro; export VISUAL=$EDITOR; export AOC_SESSION_ID=\"__AOC_SESSION_ID__\"; export AOC_HUB_ADDR=\"__AOC_HUB_ADDR__\"; export AOC_HUB_URL=\"__AOC_HUB_URL__\"; export AOC_PROJECT_ROOT=\"__AOC_PROJECT_ROOT__\"; export AOC_TAB_SCOPE=\"__AOC_TAB_NAME__\"; cd \"__AOC_PROJECT_ROOT__\" && exec ${AOC_FILETREE_CMD:-yazi} ."
+          args "--noprofile" "--norc" "-c" "export PATH=\"$HOME/.cargo/bin:$PATH\"; theme_env=\"${XDG_CONFIG_HOME:-$HOME/.config}/aoc/theme.env\"; if [[ -f \"$theme_env\" ]]; then source \"$theme_env\"; fi; export EDITOR=micro; export VISUAL=$EDITOR; export AOC_SESSION_ID=\"__AOC_SESSION_ID__\"; export AOC_HUB_ADDR=\"__AOC_HUB_ADDR__\"; export AOC_HUB_URL=\"__AOC_HUB_URL__\"; export AOC_PROJECT_ROOT=\"__AOC_PROJECT_ROOT__\"; export AOC_TAB_SCOPE=\"__AOC_TAB_NAME__\"; cd \"__AOC_PROJECT_ROOT__\" && exec ${AOC_FILETREE_CMD:-yazi} ."
         }
 
         // CENTER + RIGHT COLUMN
