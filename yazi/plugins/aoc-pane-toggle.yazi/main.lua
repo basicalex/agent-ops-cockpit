@@ -13,7 +13,7 @@ local function ratio(parent, current, preview)
 end
 
 local compact_ratio = ratio(0, 1, 0)
-local full_ratio = ratio(1, 4, 3)
+local full_ratio = ratio(1, 3, 4)
 
 local function in_zellij()
 	return os.getenv("ZELLIJ") ~= nil or os.getenv("ZELLIJ_SESSION_NAME") ~= nil
