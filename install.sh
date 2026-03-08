@@ -1067,6 +1067,26 @@ EOF
   log "Enabled Bash layout shortcuts in $bashrc_file"
 fi
 
+# Tmux integration for modified/special key forwarding
+if is_truthy "${AOC_INSTALL_TMUX_EXTENDED_KEYS:-1}"; then
+  tmux_conf_file="$HOME/.tmux.conf"
+  tmux_block_start="# >>> AOC tmux integration >>>"
+
+  if [[ ! -f "$tmux_conf_file" ]]; then
+    : > "$tmux_conf_file"
+  fi
+
+  if ! grep -Fq "$tmux_block_start" "$tmux_conf_file"; then
+    cat <<'EOF' >> "$tmux_conf_file"
+
+# >>> AOC tmux integration >>>
+set -g extended-keys on
+# <<< AOC tmux integration <<<
+EOF
+    log "Enabled tmux extended-keys in $tmux_conf_file"
+  fi
+fi
+
 if ! install_pi_agent_if_enabled; then
   if is_truthy "${AOC_INSTALL_PI_REQUIRED:-1}"; then
     warn "PI agent installation failed and is required (set AOC_INSTALL_PI_REQUIRED=0 to continue anyway)."
