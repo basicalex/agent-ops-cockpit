@@ -59,6 +59,7 @@ enum SettingsSection {
     Layout,
     Tools,
     ToolsAgentBrowser,
+    ToolsVercel,
     ToolsMoremotion,
 }
 
@@ -206,6 +207,7 @@ struct App {
     settings_layout_state: ListState,
     settings_tools_state: ListState,
     settings_tools_agent_browser_state: ListState,
+    settings_tools_vercel_state: ListState,
     settings_tools_moremotion_state: ListState,
     projects_state: ListState,
     sessions_state: ListState,
@@ -245,6 +247,7 @@ struct App {
     zellij_config_dir: PathBuf,
     session_overrides: SessionOverrides,
     agent_browser_job: Option<AgentBrowserJob>,
+    agent_browser_runtime_checked: bool,
     agent_browser_runtime_ready: bool,
     agent_browser_log_tail: Vec<String>,
     agent_browser_log_scroll: usize,
@@ -281,6 +284,7 @@ impl App {
             settings_layout_state: ListState::default(),
             settings_tools_state: ListState::default(),
             settings_tools_agent_browser_state: ListState::default(),
+            settings_tools_vercel_state: ListState::default(),
             settings_tools_moremotion_state: ListState::default(),
             projects_state: ListState::default(),
             sessions_state: ListState::default(),
@@ -329,6 +333,7 @@ impl App {
             zellij_config_dir: resolve_zellij_config_dir(),
             session_overrides: SessionOverrides::default(),
             agent_browser_job: None,
+            agent_browser_runtime_checked: false,
             agent_browser_runtime_ready: false,
             agent_browser_log_tail: Vec::new(),
             agent_browser_log_scroll: 0,
@@ -342,7 +347,6 @@ impl App {
         app.apply_project_filter();
         app.refresh_rtk_status_quiet();
         app.refresh_agent_install_statuses_quiet();
-        app.refresh_agent_browser_runtime_quiet();
         app.refresh_theme_identity_quiet();
         app.ensure_selections();
         Ok(app)
@@ -365,6 +369,10 @@ impl App {
         ensure_selection(
             &mut self.settings_tools_agent_browser_state,
             settings_tools_agent_browser_options().len(),
+        );
+        ensure_selection(
+            &mut self.settings_tools_vercel_state,
+            settings_tools_vercel_options().len(),
         );
         ensure_selection(
             &mut self.settings_tools_moremotion_state,
@@ -443,6 +451,10 @@ impl App {
                 &mut self.settings_tools_agent_browser_state,
                 settings_tools_agent_browser_options().len(),
             ),
+            SettingsSection::ToolsVercel => ensure_selection(
+                &mut self.settings_tools_vercel_state,
+                settings_tools_vercel_options().len(),
+            ),
             SettingsSection::ToolsMoremotion => ensure_selection(
                 &mut self.settings_tools_moremotion_state,
                 settings_tools_moremotion_options().len(),
@@ -462,9 +474,9 @@ impl App {
                 SettingsSection::Root
             }
             SettingsSection::ThemeManager => SettingsSection::Theme,
-            SettingsSection::ToolsAgentBrowser | SettingsSection::ToolsMoremotion => {
-                SettingsSection::Tools
-            }
+            SettingsSection::ToolsAgentBrowser
+            | SettingsSection::ToolsVercel
+            | SettingsSection::ToolsMoremotion => SettingsSection::Tools,
         };
         self.set_settings_section(target);
     }
@@ -480,6 +492,9 @@ impl App {
                 .settings_tools_agent_browser_state
                 .selected()
                 .unwrap_or(0),
+            SettingsSection::ToolsVercel => {
+                self.settings_tools_vercel_state.selected().unwrap_or(0)
+            }
             SettingsSection::ToolsMoremotion => {
                 self.settings_tools_moremotion_state.selected().unwrap_or(0)
             }
@@ -986,6 +1001,7 @@ impl App {
 
     fn refresh_agent_browser_runtime_quiet(&mut self) {
         self.agent_browser_runtime_ready = probe_agent_browser_runtime_ready();
+        self.agent_browser_runtime_checked = true;
     }
 
     fn open_agent_install_actions(&mut self) {
@@ -1039,6 +1055,32 @@ impl App {
         match install_agent_browser_skill() {
             Ok(message) => self.set_status(message),
             Err(err) => self.set_status(format!("Agent Browser skill sync failed: {err}")),
+        }
+    }
+
+    fn run_vercel_tool_action(&mut self) {
+        let action = if vercel_installed() {
+            "update"
+        } else {
+            "install"
+        };
+        match run_vercel_tool_command(action) {
+            Ok(message) => self.set_status(message),
+            Err(err) => self.set_status(format!("Vercel CLI {action} failed: {err}")),
+        }
+    }
+
+    fn run_vercel_skill_action(&mut self) {
+        match install_vercel_skill() {
+            Ok(message) => self.set_status(message),
+            Err(err) => self.set_status(format!("Vercel skill sync failed: {err}")),
+        }
+    }
+
+    fn verify_vercel_tool_action(&mut self) {
+        match verify_vercel_cli() {
+            Ok(message) => self.set_status(message),
+            Err(err) => self.set_status(format!("Vercel CLI verify failed: {err}")),
         }
     }
 
@@ -1207,7 +1249,10 @@ impl App {
                 if self.agent_browser_runtime_ready {
                     self.set_status(format!(
                         "Agent Browser {action} completed and verified ({})",
-                        agent_browser_summary_with_runtime(self.agent_browser_runtime_ready)
+                        agent_browser_summary_with_runtime(
+                            self.agent_browser_runtime_checked,
+                            self.agent_browser_runtime_ready
+                        )
                     ));
                 } else {
                     self.set_status(format!(
@@ -1727,6 +1772,10 @@ fn list_next(app: &mut App) {
                 &mut app.settings_tools_agent_browser_state,
                 settings_tools_agent_browser_options().len(),
             ),
+            SettingsSection::ToolsVercel => list_next_state(
+                &mut app.settings_tools_vercel_state,
+                settings_tools_vercel_options().len(),
+            ),
             SettingsSection::ToolsMoremotion => list_next_state(
                 &mut app.settings_tools_moremotion_state,
                 settings_tools_moremotion_options().len(),
@@ -1762,6 +1811,10 @@ fn list_prev(app: &mut App) {
             SettingsSection::ToolsAgentBrowser => list_prev_state(
                 &mut app.settings_tools_agent_browser_state,
                 settings_tools_agent_browser_options().len(),
+            ),
+            SettingsSection::ToolsVercel => list_prev_state(
+                &mut app.settings_tools_vercel_state,
+                settings_tools_vercel_options().len(),
             ),
             SettingsSection::ToolsMoremotion => list_prev_state(
                 &mut app.settings_tools_moremotion_state,
@@ -1802,8 +1855,9 @@ fn activate_selection(app: &mut App) {
                 0 => app.open_rtk_actions(),
                 1 => app.open_agent_install_actions(),
                 2 => app.set_settings_section(SettingsSection::ToolsAgentBrowser),
-                3 => app.set_settings_section(SettingsSection::ToolsMoremotion),
-                4 => app.set_settings_section(SettingsSection::Root),
+                3 => app.set_settings_section(SettingsSection::ToolsVercel),
+                4 => app.set_settings_section(SettingsSection::ToolsMoremotion),
+                5 => app.set_settings_section(SettingsSection::Root),
                 _ => {}
             },
             SettingsSection::ToolsAgentBrowser => {
@@ -1815,6 +1869,15 @@ fn activate_selection(app: &mut App) {
                     0 => app.run_agent_browser_tool_action(),
                     1 => app.run_agent_browser_skill_action(),
                     2 => app.set_settings_section(SettingsSection::Tools),
+                    _ => {}
+                }
+            }
+            SettingsSection::ToolsVercel => {
+                match app.settings_tools_vercel_state.selected().unwrap_or(0) {
+                    0 => app.run_vercel_tool_action(),
+                    1 => app.run_vercel_skill_action(),
+                    2 => app.verify_vercel_tool_action(),
+                    3 => app.set_settings_section(SettingsSection::Tools),
                     _ => {}
                 }
             }
@@ -1986,8 +2049,12 @@ fn draw_defaults(frame: &mut ratatui::Frame, area: Rect, app: &mut App, focused:
                 )),
                 ListItem::new(format!(
                     "Agent Browser tool/skill · {}",
-                    agent_browser_summary_with_runtime(app.agent_browser_runtime_ready)
+                    agent_browser_summary_with_runtime(
+                        app.agent_browser_runtime_checked,
+                        app.agent_browser_runtime_ready
+                    )
                 )),
+                ListItem::new(format!("Vercel CLI + PI skill · {}", vercel_summary())),
                 ListItem::new(format!("MoreMotion + /momo · {}", moremotion_summary())),
                 ListItem::new("Back"),
             ];
@@ -2007,12 +2074,29 @@ fn draw_defaults(frame: &mut ratatui::Frame, area: Rect, app: &mut App, focused:
             let items = vec![
                 ListItem::new(format!(
                     "{action} · {}{running}",
-                    agent_browser_summary_with_runtime(app.agent_browser_runtime_ready)
+                    agent_browser_summary_with_runtime(
+                        app.agent_browser_runtime_checked,
+                        app.agent_browser_runtime_ready
+                    )
                 )),
                 ListItem::new("Install/update PI skill"),
                 ListItem::new("Back"),
             ];
             ("Settings · Tools · Agent Browser", items)
+        }
+        SettingsSection::ToolsVercel => {
+            let action = if vercel_installed() {
+                "Update tool"
+            } else {
+                "Install tool"
+            };
+            let items = vec![
+                ListItem::new(format!("{action} · {}", vercel_summary())),
+                ListItem::new("Install/update PI skill"),
+                ListItem::new("Verify CLI"),
+                ListItem::new("Back"),
+            ];
+            ("Settings · Tools · Vercel", items)
         }
         SettingsSection::ToolsMoremotion => {
             let source_path = preferred_moremotion_source_path();
@@ -2059,6 +2143,9 @@ fn draw_defaults(frame: &mut ratatui::Frame, area: Rect, app: &mut App, focused:
             columns[0],
             &mut app.settings_tools_agent_browser_state,
         ),
+        SettingsSection::ToolsVercel => {
+            frame.render_stateful_widget(list, columns[0], &mut app.settings_tools_vercel_state)
+        }
         SettingsSection::ToolsMoremotion => {
             frame.render_stateful_widget(list, columns[0], &mut app.settings_tools_moremotion_state)
         }
@@ -2350,7 +2437,7 @@ fn draw_help_modal(frame: &mut ratatui::Frame, area: Rect) {
         Line::from("  Enter  open section/action"),
         Line::from("  Esc    back one settings level"),
         Line::from("  t      jump to Theme section"),
-        Line::from("  Tools includes RTK, agent installers, Agent Browser, MoreMotion"),
+        Line::from("  Tools includes RTK, agent installers, Agent Browser, Vercel CLI, MoreMotion"),
         Line::from("  Right pane shows details for selected settings item"),
         Line::from("  Agent Browser install: PgUp/PgDn scroll, x cancel, Shift+O open log"),
         Line::from("  Theme manager: j/k preview, Enter activate+persist, n/i/r actions"),
@@ -2645,6 +2732,7 @@ fn settings_tools_options() -> Vec<String> {
         "RTK routing".to_string(),
         "PI agent installer".to_string(),
         "Agent Browser tool/skill".to_string(),
+        "Vercel CLI + PI skill".to_string(),
         "MoreMotion + /momo".to_string(),
         "Back".to_string(),
     ]
@@ -2654,6 +2742,15 @@ fn settings_tools_agent_browser_options() -> Vec<String> {
     vec![
         "Install/update tool".to_string(),
         "Install/update PI skill".to_string(),
+        "Back".to_string(),
+    ]
+}
+
+fn settings_tools_vercel_options() -> Vec<String> {
+    vec![
+        "Install/update tool".to_string(),
+        "Install/update PI skill".to_string(),
+        "Verify CLI".to_string(),
         "Back".to_string(),
     ]
 }
@@ -2696,7 +2793,7 @@ fn settings_detail_lines(app: &App) -> Vec<Line<'static>> {
                 lines.push(Line::from(""));
                 lines.push(Line::from("Manage optional tooling and installers."));
                 lines.push(Line::from(
-                    "Includes RTK, Agent Browser, and MoreMotion setup.",
+                    "Includes RTK, Agent Browser, Vercel CLI, and MoreMotion setup.",
                 ));
                 lines.push(Line::from("Enter to open Tools settings."));
             }
@@ -2787,7 +2884,10 @@ fn settings_detail_lines(app: &App) -> Vec<Line<'static>> {
                 lines.push(Line::from(""));
                 lines.push(Line::from(format!(
                     "Status: {}",
-                    agent_browser_summary_with_runtime(app.agent_browser_runtime_ready)
+                    agent_browser_summary_with_runtime(
+                        app.agent_browser_runtime_checked,
+                        app.agent_browser_runtime_ready
+                    )
                 )));
                 if app.agent_browser_job.is_some() {
                     lines.push(Line::from("Tool install/update currently running."));
@@ -2797,6 +2897,14 @@ fn settings_detail_lines(app: &App) -> Vec<Line<'static>> {
                 ));
             }
             3 => {
+                lines.push(Line::from("Vercel CLI + PI skill"));
+                lines.push(Line::from(""));
+                lines.push(Line::from(format!("Status: {}", vercel_summary())));
+                lines.push(Line::from(
+                    "Enter opens nested actions (tool install/update, skill sync, verify).",
+                ));
+            }
+            4 => {
                 lines.push(Line::from("MoreMotion + /momo"));
                 lines.push(Line::from(""));
                 lines.push(Line::from(format!("Status: {}", moremotion_summary())));
@@ -2821,8 +2929,16 @@ fn settings_detail_lines(app: &App) -> Vec<Line<'static>> {
                 lines.push(Line::from(""));
                 lines.push(Line::from(format!(
                     "Current status: {}",
-                    agent_browser_summary_with_runtime(app.agent_browser_runtime_ready)
+                    agent_browser_summary_with_runtime(
+                        app.agent_browser_runtime_checked,
+                        app.agent_browser_runtime_ready
+                    )
                 )));
+                if !app.agent_browser_runtime_checked {
+                    lines.push(Line::from(
+                        "Runtime probe is lazy: it runs when you enter this section or after install/update.",
+                    ));
+                }
                 lines.push(Line::from(format!(
                     "Enter starts background {action}; completion is verified against a real runtime probe.",
                 )));
@@ -2879,6 +2995,58 @@ fn settings_detail_lines(app: &App) -> Vec<Line<'static>> {
                 )));
                 lines.push(Line::from(
                     "Enter syncs .pi/skills/agent-browser/SKILL.md from upstream.",
+                ));
+            }
+            _ => {
+                lines.push(Line::from("Back"));
+                lines.push(Line::from(""));
+                lines.push(Line::from("Return to Tools menu."));
+            }
+        },
+        SettingsSection::ToolsVercel => match selected {
+            0 => {
+                let action = if vercel_installed() {
+                    "update"
+                } else {
+                    "install"
+                };
+                lines.push(Line::from("Install/update tool"));
+                lines.push(Line::from(""));
+                lines.push(Line::from(format!("Current status: {}", vercel_summary())));
+                lines.push(Line::from(format!(
+                    "Enter runs the {action} flow for the Vercel CLI.",
+                )));
+                lines.push(Line::from(
+                    "Overrides: AOC_VERCEL_BIN / AOC_VERCEL_INSTALL_CMD / AOC_VERCEL_UPDATE_CMD",
+                ));
+                lines.push(Line::from(
+                    "Login remains user-scoped via `vercel login` or VERCEL_TOKEN.",
+                ));
+            }
+            1 => {
+                lines.push(Line::from("Install/update PI skill"));
+                lines.push(Line::from(""));
+                lines.push(Line::from(format!(
+                    "Skill status: {}",
+                    if vercel_skill_installed() {
+                        "present"
+                    } else {
+                        "missing"
+                    }
+                )));
+                lines.push(Line::from(
+                    "Enter writes .pi/skills/vercel-cli/SKILL.md into the current repo.",
+                ));
+                lines.push(Line::from(
+                    "The skill documents deploy, env, domains, logs, projects, teams, and safety patterns.",
+                ));
+            }
+            2 => {
+                lines.push(Line::from("Verify CLI"));
+                lines.push(Line::from(""));
+                lines.push(Line::from(format!("Current status: {}", vercel_summary())));
+                lines.push(Line::from(
+                    "Enter runs a quick `vercel --version` probe and reports auth signal state.",
                 ));
             }
             _ => {
@@ -3890,13 +4058,15 @@ fn agent_browser_skill_installed() -> bool {
     project_relative_exists(".pi/skills/agent-browser/SKILL.md")
 }
 
-fn agent_browser_summary_with_runtime(runtime_ready: bool) -> String {
+fn agent_browser_summary_with_runtime(runtime_checked: bool, runtime_ready: bool) -> String {
     let tool = if agent_browser_installed() {
         "tool installed"
     } else {
         "tool missing"
     };
-    let runtime = if runtime_ready {
+    let runtime = if !runtime_checked {
+        "runtime unchecked"
+    } else if runtime_ready {
         "runtime ready"
     } else if agent_browser_installed() {
         "runtime missing"
@@ -3978,6 +4148,130 @@ fn install_agent_browser_skill() -> io::Result<String> {
         "Synced Agent Browser skill ({})",
         target_file.to_string_lossy()
     ))
+}
+
+fn vercel_bin_name() -> String {
+    env::var("AOC_VERCEL_BIN")
+        .ok()
+        .filter(|value| !value.trim().is_empty())
+        .unwrap_or_else(|| "vercel".to_string())
+}
+
+fn vercel_installed() -> bool {
+    binary_in_path(&vercel_bin_name())
+}
+
+fn vercel_skill_installed() -> bool {
+    project_relative_exists(".pi/skills/vercel-cli/SKILL.md")
+}
+
+fn vercel_auth_configured() -> bool {
+    env::var("VERCEL_TOKEN")
+        .ok()
+        .filter(|value| !value.trim().is_empty())
+        .is_some()
+        || home_dir().join(".vercel/auth.json").exists()
+}
+
+fn vercel_summary() -> String {
+    let tool = if vercel_installed() {
+        "tool installed"
+    } else {
+        "tool missing"
+    };
+    let auth = if vercel_auth_configured() {
+        "auth configured"
+    } else {
+        "auth not configured"
+    };
+    let skill = if vercel_skill_installed() {
+        "skill present"
+    } else {
+        "skill missing"
+    };
+    format!("{tool}, {auth}, {skill}")
+}
+
+fn install_vercel_skill() -> io::Result<String> {
+    let Some(project_root) = project_root_path() else {
+        return Err(io::Error::other("unable to resolve project root"));
+    };
+
+    let target_dir = project_root.join(".pi").join("skills").join("vercel-cli");
+    fs::create_dir_all(&target_dir)?;
+    let target_file = target_dir.join("SKILL.md");
+    fs::write(
+        &target_file,
+        include_str!("../../../.pi/skills/vercel-cli/SKILL.md"),
+    )?;
+
+    Ok(format!(
+        "Synced Vercel skill ({})",
+        target_file.to_string_lossy()
+    ))
+}
+
+fn default_vercel_install_cmd() -> String {
+    "if command -v pnpm >/dev/null 2>&1; then pnpm add -g vercel; elif command -v npm >/dev/null 2>&1; then npm install -g --prefix \"${AOC_NPM_GLOBAL_PREFIX:-$HOME/.local}\" vercel; elif command -v corepack >/dev/null 2>&1; then corepack enable && corepack prepare pnpm@latest --activate && pnpm add -g vercel; else echo 'pnpm/npm/corepack not found' >&2; exit 1; fi && vercel --version".to_string()
+}
+
+fn default_vercel_update_cmd() -> String {
+    "if command -v pnpm >/dev/null 2>&1; then pnpm add -g vercel@latest; elif command -v npm >/dev/null 2>&1; then npm install -g --prefix \"${AOC_NPM_GLOBAL_PREFIX:-$HOME/.local}\" vercel@latest; elif command -v corepack >/dev/null 2>&1; then corepack enable && corepack prepare pnpm@latest --activate && pnpm add -g vercel@latest; else echo 'pnpm/npm/corepack not found' >&2; exit 1; fi && vercel --version".to_string()
+}
+
+fn resolve_vercel_cmd(action: &str) -> String {
+    match action {
+        "install" => env::var("AOC_VERCEL_INSTALL_CMD")
+            .ok()
+            .filter(|value| !value.trim().is_empty())
+            .unwrap_or_else(default_vercel_install_cmd),
+        _ => env::var("AOC_VERCEL_UPDATE_CMD")
+            .ok()
+            .filter(|value| !value.trim().is_empty())
+            .or_else(|| {
+                env::var("AOC_VERCEL_INSTALL_CMD")
+                    .ok()
+                    .filter(|value| !value.trim().is_empty())
+            })
+            .unwrap_or_else(default_vercel_update_cmd),
+    }
+}
+
+fn run_vercel_tool_command(action: &str) -> io::Result<String> {
+    let cmd = resolve_vercel_cmd(action);
+    let output = Command::new("bash").args(["-lc", &cmd]).output()?;
+    if !output.status.success() {
+        return Err(command_failure(&format!("vercel {action}"), &output));
+    }
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    let first_line = stdout
+        .lines()
+        .find(|line| !line.trim().is_empty())
+        .or_else(|| stderr.lines().find(|line| !line.trim().is_empty()))
+        .unwrap_or("Vercel CLI updated")
+        .trim()
+        .to_string();
+
+    Ok(format!("{first_line} ({})", vercel_summary()))
+}
+
+fn verify_vercel_cli() -> io::Result<String> {
+    let bin = vercel_bin_name();
+    let output = Command::new(&bin).arg("--version").output()?;
+    if !output.status.success() {
+        return Err(command_failure(&format!("{bin} --version"), &output));
+    }
+
+    let version = String::from_utf8_lossy(&output.stdout)
+        .lines()
+        .find(|line| !line.trim().is_empty())
+        .unwrap_or("version reported")
+        .trim()
+        .to_string();
+
+    Ok(format!("Vercel CLI {version} ({})", vercel_summary()))
 }
 
 fn moremotion_summary() -> String {

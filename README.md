@@ -428,7 +428,7 @@ aoc-theme set-default --name review-mode
 aoc-theme sync
 ```
 
-From `Alt+C` (`aoc-control`), open **Settings -> Tools** for nested controls (RTK, PI installer, Agent Browser tool/skill sync, MoreMotion flows). The right-hand details pane explains each selected action.
+From `Alt+C` (`aoc-control`), open **Settings -> Tools** for nested controls (RTK, PI installer, Agent Browser tool/skill sync, Vercel CLI tool/skill sync, MoreMotion flows). The right-hand details pane explains each selected action.
 
 ### Environment Variables
 

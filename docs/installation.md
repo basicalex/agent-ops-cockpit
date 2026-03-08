@@ -105,7 +105,7 @@ AOC_INIT_SKIP_BUILD=1 aoc-init
 
 After install, open `Alt+C` -> **Settings -> Tools -> PI agent installer** to check runtime status and run install/update actions for `pi`.
 
-`Settings -> Tools` also includes nested actions for Agent Browser (tool + PI skill sync) and MoreMotion (`aoc-momo` host/local-source flows).
+`Settings -> Tools` also includes nested actions for Agent Browser (tool + PI skill sync), Vercel CLI (tool + PI skill sync + verify), and MoreMotion (`aoc-momo` host/local-source flows).
 
 Non-PI agent harnesses are removed from AOC (see [Deprecations and removals](deprecations.md)).
 
