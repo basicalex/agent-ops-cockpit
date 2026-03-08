@@ -265,11 +265,11 @@ AOC ships a custom Zellij keybind layer in `~/.config/zellij/aoc.config.kdl` (or
 | `Alt h/j/k/l` | Move focus |
 | `Alt =/-` | Resize |
 
-Theme management now lives inside `aoc-control` under Settings -> Theme manager.
+Theme management now lives inside `aoc-control` under Settings -> Theme -> Theme manager.
 
 ### Agent Installers (Alt+C)
 
-`aoc-control` includes **Settings -> Agent installers** for PI runtimes only. It shows install status (`installed` or `missing`) and runs:
+`aoc-control` includes **Settings -> Tools -> PI agent installer** for PI runtimes only. It shows install status (`installed` or `missing`) and runs:
 
 - `install` for missing runtimes
 - `update` for installed runtimes
@@ -286,6 +286,19 @@ PI installer behavior:
 
 - By default, `pi` installs from npm (`pnpm add -g @mariozechner/pi-coding-agent`).
 - AOC does not bundle PI artifacts; it only executes installer commands.
+
+### Tools Integrations (Alt+C -> Settings -> Tools)
+
+AOC control also exposes nested tools actions for Agent Browser and MoreMotion.
+
+| Variable | Description |
+|----------|-------------|
+| `AOC_AGENT_BROWSER_BIN` | Agent Browser binary name/path check (default `agent-browser`) |
+| `AOC_AGENT_BROWSER_INSTALL_CMD` / `AOC_AGENT_BROWSER_UPDATE_CMD` | Agent Browser install/update commands |
+| `AOC_AGENT_BROWSER_SKILL_URL` | Source URL for syncing `.pi/skills/agent-browser/SKILL.md` |
+| `AOC_DEV_ROOT` | Override inferred local dev root used for MoreMotion source lookup |
+| `AOC_MOREMOTION_REPO_URL` | Optional clone URL used when ensuring local MoreMotion source repo |
+| `AOC_MOMO_SOURCE` | Preferred local MoreMotion source path passed to `aoc-momo` |
 
 ### Agent Configuration
 

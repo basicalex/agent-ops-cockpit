@@ -103,7 +103,9 @@ AOC_INIT_SKIP_BUILD=1 aoc-init
 
 ### Agent CLI Installers from Alt+C
 
-After install, open `Alt+C` -> **Settings -> Agent installers** to check runtime status and run install/update actions for `pi`.
+After install, open `Alt+C` -> **Settings -> Tools -> PI agent installer** to check runtime status and run install/update actions for `pi`.
+
+`Settings -> Tools` also includes nested actions for Agent Browser (tool + PI skill sync) and MoreMotion (`aoc-momo` host/local-source flows).
 
 Non-PI agent harnesses are removed from AOC (see [Deprecations and removals](deprecations.md)).
 

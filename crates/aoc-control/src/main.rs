@@ -1,5 +1,8 @@
 use crossterm::{
-    event::{self, Event, KeyCode, KeyEvent},
+    event::{
+        self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode, KeyEvent, MouseEvent,
+        MouseEventKind,
+    },
     execute,
     terminal::{
         disable_raw_mode, enable_raw_mode, is_raw_mode_enabled, EnterAlternateScreen,
@@ -17,11 +20,11 @@ use ratatui::{
 use serde::{Deserialize, Serialize};
 use std::{
     env, fs,
-    io::{self, Write},
+    io::{self, Read, Seek, SeekFrom, Write},
     path::{Path, PathBuf},
-    process::{Command, ExitStatus, Stdio},
+    process::{Child, Command, ExitStatus, Stdio},
     thread,
-    time::{Duration, Instant},
+    time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
@@ -48,6 +51,17 @@ enum PickTarget {
     Override,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum SettingsSection {
+    Root,
+    Theme,
+    ThemeManager,
+    Layout,
+    Tools,
+    ToolsAgentBrowser,
+    ToolsMoremotion,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 enum Mode {
     Normal,
@@ -58,12 +72,9 @@ enum Mode {
     SearchProjects,
     NewProject,
     NewTheme,
-    ThemeSections,
-    ThemePresets,
-    ThemeCustoms,
-    ThemeActions,
     RtkActions,
     AgentInstallActions,
+    ConfirmMoremotionSourceClone,
     Help,
 }
 
@@ -85,6 +96,13 @@ struct PendingLaunch {
     env_overrides: Vec<(String, String)>,
 }
 
+#[derive(Debug)]
+struct AgentBrowserJob {
+    action: String,
+    log_path: PathBuf,
+    child: Child,
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum ThemeSource {
     Preset,
@@ -98,9 +116,43 @@ struct ThemePresetEntry {
 }
 
 #[derive(Clone, Debug)]
-struct ThemeSelection {
+struct ThemeListEntry {
     name: String,
     source: ThemeSource,
+    installed: bool,
+}
+
+#[derive(Clone, Copy, Debug)]
+struct ThemePalette {
+    fg: Color,
+    bg: Color,
+    black: Color,
+    red: Color,
+    green: Color,
+    yellow: Color,
+    blue: Color,
+    magenta: Color,
+    cyan: Color,
+    white: Color,
+    orange: Color,
+}
+
+impl Default for ThemePalette {
+    fn default() -> Self {
+        Self {
+            fg: Color::Rgb(205, 214, 244),
+            bg: Color::Rgb(30, 30, 46),
+            black: Color::Rgb(108, 112, 134),
+            red: Color::Rgb(243, 139, 168),
+            green: Color::Rgb(166, 227, 161),
+            yellow: Color::Rgb(249, 226, 175),
+            blue: Color::Rgb(137, 180, 250),
+            magenta: Color::Rgb(203, 166, 247),
+            cyan: Color::Rgb(148, 226, 213),
+            white: Color::Rgb(147, 153, 178),
+            orange: Color::Rgb(250, 179, 135),
+        }
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -140,7 +192,7 @@ impl Default for RtkStatus {
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 struct App {
     active_tab: Tab,
     focus: Focus,
@@ -148,16 +200,19 @@ struct App {
     status: String,
     should_exit: bool,
     pending_launch: Option<PendingLaunch>,
+    settings_section: SettingsSection,
     defaults_state: ListState,
+    settings_theme_state: ListState,
+    settings_layout_state: ListState,
+    settings_tools_state: ListState,
+    settings_tools_agent_browser_state: ListState,
+    settings_tools_moremotion_state: ListState,
     projects_state: ListState,
     sessions_state: ListState,
     layout_picker_state: ListState,
     agent_picker_state: ListState,
     background_picker_state: ListState,
-    theme_sections_state: ListState,
-    theme_presets_state: ListState,
-    theme_customs_state: ListState,
-    theme_actions_state: ListState,
+    theme_manager_state: ListState,
     rtk_actions_state: ListState,
     agent_install_actions_state: ListState,
     default_layout: String,
@@ -177,13 +232,24 @@ struct App {
     input_snapshot: String,
     theme_presets: Vec<ThemePresetEntry>,
     theme_customs: Vec<String>,
-    theme_actions: Vec<String>,
-    theme_selection: Option<ThemeSelection>,
+    theme_entries: Vec<ThemeListEntry>,
     theme_preview_base: Option<String>,
     theme_preview_selected: Option<String>,
     theme_preview_live: Option<String>,
     theme_preview_pending: Option<PendingThemePreview>,
+    theme_preview_scroll: u16,
+    theme_preview_area: Option<Rect>,
+    theme_preview_palette_for: Option<String>,
+    theme_preview_palette: ThemePalette,
+    theme_preview_palette_error: Option<String>,
+    zellij_config_dir: PathBuf,
     session_overrides: SessionOverrides,
+    agent_browser_job: Option<AgentBrowserJob>,
+    agent_browser_runtime_ready: bool,
+    agent_browser_log_tail: Vec<String>,
+    agent_browser_log_scroll: usize,
+    pending_moremotion_clone_source: Option<PathBuf>,
+    pending_moremotion_clone_url: Option<String>,
     in_zellij: bool,
     floating_active: bool,
     close_on_exit: bool,
@@ -209,16 +275,19 @@ impl App {
             status: String::new(),
             should_exit: false,
             pending_launch: None,
+            settings_section: SettingsSection::Root,
             defaults_state: ListState::default(),
+            settings_theme_state: ListState::default(),
+            settings_layout_state: ListState::default(),
+            settings_tools_state: ListState::default(),
+            settings_tools_agent_browser_state: ListState::default(),
+            settings_tools_moremotion_state: ListState::default(),
             projects_state: ListState::default(),
             sessions_state: ListState::default(),
             layout_picker_state: ListState::default(),
             agent_picker_state: ListState::default(),
             background_picker_state: ListState::default(),
-            theme_sections_state: ListState::default(),
-            theme_presets_state: ListState::default(),
-            theme_customs_state: ListState::default(),
-            theme_actions_state: ListState::default(),
+            theme_manager_state: ListState::default(),
             rtk_actions_state: ListState::default(),
             agent_install_actions_state: ListState::default(),
             default_layout: read_default(&layout_default_path())
@@ -247,13 +316,24 @@ impl App {
             input_snapshot: String::new(),
             theme_presets: Vec::new(),
             theme_customs: Vec::new(),
-            theme_actions: Vec::new(),
-            theme_selection: None,
+            theme_entries: Vec::new(),
             theme_preview_base: None,
             theme_preview_selected: None,
             theme_preview_live: None,
             theme_preview_pending: None,
+            theme_preview_scroll: 0,
+            theme_preview_area: None,
+            theme_preview_palette_for: None,
+            theme_preview_palette: ThemePalette::default(),
+            theme_preview_palette_error: None,
+            zellij_config_dir: resolve_zellij_config_dir(),
             session_overrides: SessionOverrides::default(),
+            agent_browser_job: None,
+            agent_browser_runtime_ready: false,
+            agent_browser_log_tail: Vec::new(),
+            agent_browser_log_scroll: 0,
+            pending_moremotion_clone_source: None,
+            pending_moremotion_clone_url: None,
             in_zellij: in_zellij(),
             floating_active: is_floating_active(),
             close_on_exit: false,
@@ -262,13 +342,34 @@ impl App {
         app.apply_project_filter();
         app.refresh_rtk_status_quiet();
         app.refresh_agent_install_statuses_quiet();
+        app.refresh_agent_browser_runtime_quiet();
         app.refresh_theme_identity_quiet();
         app.ensure_selections();
         Ok(app)
     }
 
     fn ensure_selections(&mut self) {
-        ensure_selection(&mut self.defaults_state, 7);
+        ensure_selection(&mut self.defaults_state, settings_root_options().len());
+        ensure_selection(
+            &mut self.settings_theme_state,
+            settings_theme_options().len(),
+        );
+        ensure_selection(
+            &mut self.settings_layout_state,
+            settings_layout_options().len(),
+        );
+        ensure_selection(
+            &mut self.settings_tools_state,
+            settings_tools_options().len(),
+        );
+        ensure_selection(
+            &mut self.settings_tools_agent_browser_state,
+            settings_tools_agent_browser_options().len(),
+        );
+        ensure_selection(
+            &mut self.settings_tools_moremotion_state,
+            settings_tools_moremotion_options().len(),
+        );
         ensure_selection(&mut self.projects_state, self.filtered_projects.len());
         ensure_selection(&mut self.sessions_state, 4);
         ensure_selection(&mut self.layout_picker_state, layout_options().len());
@@ -277,13 +378,7 @@ impl App {
             &mut self.background_picker_state,
             background_profile_options().len(),
         );
-        ensure_selection(
-            &mut self.theme_sections_state,
-            theme_section_options().len(),
-        );
-        ensure_selection(&mut self.theme_presets_state, self.theme_presets.len());
-        ensure_selection(&mut self.theme_customs_state, self.theme_customs.len());
-        ensure_selection(&mut self.theme_actions_state, self.theme_actions.len());
+        ensure_selection(&mut self.theme_manager_state, self.theme_entries.len());
         ensure_selection(&mut self.rtk_actions_state, rtk_action_options().len());
         ensure_selection(
             &mut self.agent_install_actions_state,
@@ -317,6 +412,77 @@ impl App {
                 "{} -> {}",
                 self.active_theme_name, self.effective_theme_name
             )
+        }
+    }
+
+    fn set_settings_section(&mut self, section: SettingsSection) {
+        self.settings_section = section;
+        if self.settings_section == SettingsSection::ToolsAgentBrowser {
+            self.refresh_agent_browser_runtime_quiet();
+        }
+        match self.settings_section {
+            SettingsSection::Root => {
+                ensure_selection(&mut self.defaults_state, settings_root_options().len())
+            }
+            SettingsSection::Theme => ensure_selection(
+                &mut self.settings_theme_state,
+                settings_theme_options().len(),
+            ),
+            SettingsSection::ThemeManager => {
+                ensure_selection(&mut self.theme_manager_state, self.theme_entries.len())
+            }
+            SettingsSection::Layout => ensure_selection(
+                &mut self.settings_layout_state,
+                settings_layout_options().len(),
+            ),
+            SettingsSection::Tools => ensure_selection(
+                &mut self.settings_tools_state,
+                settings_tools_options().len(),
+            ),
+            SettingsSection::ToolsAgentBrowser => ensure_selection(
+                &mut self.settings_tools_agent_browser_state,
+                settings_tools_agent_browser_options().len(),
+            ),
+            SettingsSection::ToolsMoremotion => ensure_selection(
+                &mut self.settings_tools_moremotion_state,
+                settings_tools_moremotion_options().len(),
+            ),
+        }
+    }
+
+    fn back_settings_section(&mut self) {
+        if self.settings_section == SettingsSection::ThemeManager {
+            self.end_theme_preview();
+            self.theme_preview_scroll = 0;
+        }
+
+        let target = match self.settings_section {
+            SettingsSection::Root => SettingsSection::Root,
+            SettingsSection::Theme | SettingsSection::Layout | SettingsSection::Tools => {
+                SettingsSection::Root
+            }
+            SettingsSection::ThemeManager => SettingsSection::Theme,
+            SettingsSection::ToolsAgentBrowser | SettingsSection::ToolsMoremotion => {
+                SettingsSection::Tools
+            }
+        };
+        self.set_settings_section(target);
+    }
+
+    fn selected_settings_index(&self) -> usize {
+        match self.settings_section {
+            SettingsSection::Root => self.defaults_state.selected().unwrap_or(0),
+            SettingsSection::Theme => self.settings_theme_state.selected().unwrap_or(0),
+            SettingsSection::ThemeManager => self.theme_manager_state.selected().unwrap_or(0),
+            SettingsSection::Layout => self.settings_layout_state.selected().unwrap_or(0),
+            SettingsSection::Tools => self.settings_tools_state.selected().unwrap_or(0),
+            SettingsSection::ToolsAgentBrowser => self
+                .settings_tools_agent_browser_state
+                .selected()
+                .unwrap_or(0),
+            SettingsSection::ToolsMoremotion => {
+                self.settings_tools_moremotion_state.selected().unwrap_or(0)
+            }
         }
     }
 
@@ -530,12 +696,22 @@ impl App {
             }
         }
 
-        ensure_selection(
-            &mut self.theme_sections_state,
-            theme_section_options().len(),
-        );
-        ensure_selection(&mut self.theme_presets_state, self.theme_presets.len());
-        ensure_selection(&mut self.theme_customs_state, self.theme_customs.len());
+        self.theme_entries = self
+            .theme_presets
+            .iter()
+            .map(|entry| ThemeListEntry {
+                name: entry.name.clone(),
+                source: ThemeSource::Preset,
+                installed: entry.installed,
+            })
+            .chain(self.theme_customs.iter().map(|name| ThemeListEntry {
+                name: name.clone(),
+                source: ThemeSource::Custom,
+                installed: true,
+            }))
+            .collect();
+
+        ensure_selection(&mut self.theme_manager_state, self.theme_entries.len());
     }
 
     fn open_theme_manager(&mut self) {
@@ -543,42 +719,52 @@ impl App {
         self.theme_preview_selected = None;
         self.theme_preview_live = None;
         self.theme_preview_pending = None;
+        self.theme_preview_scroll = 0;
         self.refresh_themes();
-        self.mode = Mode::ThemeSections;
+
+        if let Some(active) = load_active_theme_name().ok().flatten() {
+            if let Some(index) = self
+                .theme_entries
+                .iter()
+                .position(|entry| entry.name == active)
+            {
+                self.theme_manager_state.select(Some(index));
+            }
+        }
+
+        self.set_settings_section(SettingsSection::ThemeManager);
+        self.begin_theme_preview();
+        self.queue_preview_selected_theme();
     }
 
-    fn open_theme_presets(&mut self) {
-        self.refresh_themes();
-        if self.theme_presets.is_empty() {
-            self.set_status("No preset themes found");
+    fn selected_theme_entry(&self) -> Option<ThemeListEntry> {
+        let index = self.theme_manager_state.selected().unwrap_or(0);
+        self.theme_entries.get(index).cloned()
+    }
+
+    fn refresh_selected_theme_palette(&mut self) {
+        let Some(entry) = self.selected_theme_entry() else {
+            self.theme_preview_palette_for = None;
+            self.theme_preview_palette = ThemePalette::default();
+            self.theme_preview_palette_error = None;
+            return;
+        };
+
+        if self.theme_preview_palette_for.as_deref() == Some(entry.name.as_str()) {
             return;
         }
-        ensure_selection(&mut self.theme_presets_state, self.theme_presets.len());
-        self.begin_theme_preview();
-        self.mode = Mode::ThemePresets;
-        self.queue_preview_theme(ThemeSource::Preset);
-    }
 
-    fn open_theme_customs(&mut self) {
-        self.refresh_themes();
-        if self.theme_customs.is_empty() {
-            self.set_status("No custom themes found");
-            return;
+        self.theme_preview_palette_for = Some(entry.name.clone());
+        match load_theme_palette(&self.zellij_config_dir, &entry.name) {
+            Ok(palette) => {
+                self.theme_preview_palette = palette;
+                self.theme_preview_palette_error = None;
+            }
+            Err(err) => {
+                self.theme_preview_palette = ThemePalette::default();
+                self.theme_preview_palette_error = Some(err.to_string());
+            }
         }
-        ensure_selection(&mut self.theme_customs_state, self.theme_customs.len());
-        self.begin_theme_preview();
-        self.mode = Mode::ThemeCustoms;
-        self.queue_preview_theme(ThemeSource::Custom);
-    }
-
-    fn selected_preset_entry(&self) -> Option<ThemePresetEntry> {
-        let index = self.theme_presets_state.selected().unwrap_or(0);
-        self.theme_presets.get(index).cloned()
-    }
-
-    fn selected_custom_name(&self) -> Option<String> {
-        let index = self.theme_customs_state.selected().unwrap_or(0);
-        self.theme_customs.get(index).cloned()
     }
 
     fn begin_theme_preview(&mut self) {
@@ -629,6 +815,7 @@ impl App {
                 {
                     entry.installed = true;
                 }
+                self.refresh_themes();
             }
         }
 
@@ -641,23 +828,20 @@ impl App {
         Ok(())
     }
 
-    fn queue_preview_theme(&mut self, source: ThemeSource) {
-        let theme_name = match source {
-            ThemeSource::Preset => self.selected_preset_entry().map(|entry| entry.name),
-            ThemeSource::Custom => self.selected_custom_name(),
-        };
+    fn queue_preview_selected_theme(&mut self) {
+        self.refresh_selected_theme_palette();
 
-        let Some(theme_name) = theme_name else {
+        let Some(entry) = self.selected_theme_entry() else {
             return;
         };
 
-        if self.theme_preview_live.as_deref() == Some(theme_name.as_str()) {
+        if self.theme_preview_live.as_deref() == Some(entry.name.as_str()) {
             return;
         }
 
         self.theme_preview_pending = Some(PendingThemePreview {
-            source,
-            name: theme_name,
+            source: entry.source,
+            name: entry.name,
             due_at: Instant::now() + Duration::from_millis(90),
         });
     }
@@ -682,47 +866,42 @@ impl App {
         }
     }
 
-    fn select_preview_theme(&mut self, source: ThemeSource) {
-        let theme_name = match source {
-            ThemeSource::Preset => self.selected_preset_entry().map(|entry| entry.name),
-            ThemeSource::Custom => self.selected_custom_name(),
-        };
-
-        let Some(theme_name) = theme_name else {
+    fn activate_selected_theme(&mut self) {
+        let Some(entry) = self.selected_theme_entry() else {
+            self.set_status("No theme selected");
             return;
         };
 
+        if matches!(entry.source, ThemeSource::Preset) && !entry.installed {
+            if let Err(err) = run_theme_command(&["presets", "install", "--name", &entry.name]) {
+                self.set_status(format!("Preset install failed: {err}"));
+                return;
+            }
+        }
+
         self.theme_preview_pending = None;
-        match self.preview_theme_name(source, &theme_name) {
-            Ok(_) => {
-                self.theme_preview_selected = Some(theme_name.clone());
-                self.set_status(format!("Selected '{theme_name}' as preview fallback theme"));
+        match run_theme_command_interactive(&["activate", "--name", &entry.name]) {
+            Ok(()) => {
+                self.theme_preview_selected = Some(entry.name.clone());
+                self.theme_preview_live = Some(entry.name.clone());
+                self.refresh_theme_identity_quiet();
+                self.refresh_themes();
+                self.set_status(format!("Activated theme '{}'", entry.name));
             }
-            Err(err) => {
-                if err.kind() == io::ErrorKind::TimedOut {
-                    self.set_status("Theme select timed out; try Enter again");
-                } else {
-                    self.set_status(format!("Theme select failed: {err}"));
-                }
-            }
+            Err(err) => self.set_status(format!("Theme activate failed: {err}")),
         }
     }
 
-    fn open_theme_actions(&mut self, selection: ThemeSelection) {
-        self.theme_actions = theme_action_options(selection.source);
-        self.theme_selection = Some(selection);
-        ensure_selection(&mut self.theme_actions_state, self.theme_actions.len());
-        self.mode = Mode::ThemeActions;
-    }
-
-    fn back_from_theme_actions(&mut self) {
-        if let Some(selection) = &self.theme_selection {
-            self.mode = match selection.source {
-                ThemeSource::Preset => Mode::ThemePresets,
-                ThemeSource::Custom => Mode::ThemeCustoms,
-            };
+    fn scroll_theme_preview(&mut self, delta: i16) {
+        if delta < 0 {
+            self.theme_preview_scroll = self
+                .theme_preview_scroll
+                .saturating_sub(delta.unsigned_abs());
         } else {
-            self.mode = Mode::ThemeSections;
+            self.theme_preview_scroll = self
+                .theme_preview_scroll
+                .saturating_add(delta as u16)
+                .min(200);
         }
     }
 
@@ -743,7 +922,15 @@ impl App {
                 self.input_buffer.clear();
                 self.input_snapshot.clear();
                 self.refresh_themes();
-                self.mode = Mode::ThemeSections;
+                if let Some(idx) = self
+                    .theme_entries
+                    .iter()
+                    .position(|entry| entry.name == theme_name)
+                {
+                    self.theme_manager_state.select(Some(idx));
+                    self.queue_preview_selected_theme();
+                }
+                self.mode = Mode::Normal;
             }
             Err(err) => self.set_status(format!("Theme init failed: {err}")),
         }
@@ -760,54 +947,6 @@ impl App {
                 self.refresh_themes();
             }
             Err(err) => self.set_status(format!("Preset install failed: {err}")),
-        }
-    }
-
-    fn run_selected_theme_action(&mut self) {
-        let Some(selection) = self.theme_selection.clone() else {
-            self.mode = Mode::ThemeSections;
-            return;
-        };
-        let index = self.theme_actions_state.selected().unwrap_or(0);
-
-        let updates_preview_selection = matches!(
-            (selection.source, index),
-            (ThemeSource::Preset, 0)
-                | (ThemeSource::Preset, 2)
-                | (ThemeSource::Custom, 0)
-                | (ThemeSource::Custom, 2)
-        );
-
-        let result = match (selection.source, index) {
-            (ThemeSource::Preset, 0) => run_preset_apply(&selection.name),
-            (ThemeSource::Preset, 1) => run_preset_set_default(&selection.name),
-            (ThemeSource::Preset, 2) => run_preset_apply_and_set_default(&selection.name),
-            (ThemeSource::Preset, 3) => run_preset_install_only(&selection.name),
-            (ThemeSource::Preset, 4) => {
-                self.back_from_theme_actions();
-                return;
-            }
-            (ThemeSource::Custom, 0) => run_custom_apply(&selection.name),
-            (ThemeSource::Custom, 1) => run_custom_set_default(&selection.name),
-            (ThemeSource::Custom, 2) => run_custom_apply_and_set_default(&selection.name),
-            (ThemeSource::Custom, 3) => {
-                self.back_from_theme_actions();
-                return;
-            }
-            _ => return,
-        };
-
-        match result {
-            Ok(message) => {
-                self.set_status(message);
-                if updates_preview_selection {
-                    self.theme_preview_selected = Some(selection.name.clone());
-                    self.theme_preview_live = Some(selection.name.clone());
-                }
-                self.refresh_themes();
-                self.refresh_theme_identity_quiet();
-            }
-            Err(err) => self.set_status(format!("Theme action failed: {err}")),
         }
     }
 
@@ -845,6 +984,10 @@ impl App {
         ));
     }
 
+    fn refresh_agent_browser_runtime_quiet(&mut self) {
+        self.agent_browser_runtime_ready = probe_agent_browser_runtime_ready();
+    }
+
     fn open_agent_install_actions(&mut self) {
         self.refresh_agent_install_statuses_quiet();
         ensure_selection(
@@ -866,6 +1009,218 @@ impl App {
                 self.refresh_agent_install_statuses_quiet();
             }
             Err(err) => self.set_status(format!("{} {} failed: {err}", entry.label, action)),
+        }
+    }
+
+    fn run_agent_browser_tool_action(&mut self) {
+        if self.agent_browser_job.is_some() {
+            self.set_status("Agent Browser action already running");
+            return;
+        }
+
+        let action = if agent_browser_installed() {
+            "update"
+        } else {
+            "install"
+        };
+        match spawn_agent_browser_command(action) {
+            Ok(job) => {
+                let log_path = job.log_path.to_string_lossy().to_string();
+                self.agent_browser_log_tail.clear();
+                self.agent_browser_log_scroll = 0;
+                self.agent_browser_job = Some(job);
+                self.set_status(format!("Agent Browser {action} started (logs: {log_path})"));
+            }
+            Err(err) => self.set_status(format!("Agent Browser {action} failed: {err}")),
+        }
+    }
+
+    fn run_agent_browser_skill_action(&mut self) {
+        match install_agent_browser_skill() {
+            Ok(message) => self.set_status(message),
+            Err(err) => self.set_status(format!("Agent Browser skill sync failed: {err}")),
+        }
+    }
+
+    fn scroll_agent_browser_log(&mut self, delta: isize) {
+        if self.agent_browser_log_tail.is_empty() {
+            self.agent_browser_log_scroll = 0;
+            return;
+        }
+        let max_scroll = self.agent_browser_log_tail.len().saturating_sub(1);
+        let next = if delta.is_negative() {
+            self.agent_browser_log_scroll
+                .saturating_sub(delta.unsigned_abs())
+        } else {
+            self.agent_browser_log_scroll.saturating_add(delta as usize)
+        };
+        self.agent_browser_log_scroll = next.min(max_scroll);
+    }
+
+    fn cancel_agent_browser_job(&mut self) {
+        let Some(mut job) = self.agent_browser_job.take() else {
+            self.set_status("No Agent Browser action is running");
+            return;
+        };
+
+        let _ = job.child.kill();
+        let _ = job.child.wait();
+        if let Ok(lines) = tail_file_lines(&job.log_path, 200, 32 * 1024) {
+            self.agent_browser_log_tail = lines;
+        }
+        self.set_status(format!(
+            "Cancelled Agent Browser {} (log: {})",
+            job.action,
+            job.log_path.to_string_lossy()
+        ));
+    }
+
+    fn open_agent_browser_log(&mut self) {
+        let log_path = self
+            .agent_browser_job
+            .as_ref()
+            .map(|job| job.log_path.clone())
+            .or_else(|| latest_agent_browser_log_path());
+
+        let Some(log_path) = log_path else {
+            self.set_status("No Agent Browser log available yet");
+            return;
+        };
+
+        match open_log_in_pager(&log_path) {
+            Ok(()) => self.set_status(format!("Viewed log {}", log_path.to_string_lossy())),
+            Err(err) => self.set_status(format!("Open log failed: {err}")),
+        }
+    }
+
+    fn run_moremotion_init_action(&mut self) {
+        match run_moremotion_command(&["init"]) {
+            Ok(message) => self.set_status(message),
+            Err(err) => self.set_status(format!("aoc-momo init failed: {err}")),
+        }
+    }
+
+    fn run_moremotion_update_action(&mut self) {
+        match run_moremotion_command(&["init", "--update"]) {
+            Ok(message) => self.set_status(message),
+            Err(err) => self.set_status(format!("aoc-momo init --update failed: {err}")),
+        }
+    }
+
+    fn run_moremotion_init_from_local_source_action(&mut self) {
+        let source = preferred_moremotion_source_path();
+        if !source.exists() {
+            self.set_status(format!(
+                "Local MoreMotion source missing at {}. Run 'Ensure local source repo' first.",
+                source.to_string_lossy()
+            ));
+            return;
+        }
+
+        match run_moremotion_init_with_source(&source, false) {
+            Ok(message) => self.set_status(message),
+            Err(err) => self.set_status(format!("aoc-momo init --source failed: {err}")),
+        }
+    }
+
+    fn ensure_moremotion_source_action(&mut self) {
+        let source = preferred_moremotion_source_path();
+        if source.exists() {
+            match update_moremotion_source_repo(&source) {
+                Ok(message) => self.set_status(message),
+                Err(err) => self.set_status(format!("MoreMotion source ensure failed: {err}")),
+            }
+            return;
+        }
+
+        let Some(url) = moremotion_repo_url() else {
+            self.set_status(format!(
+                "Local source missing at {}. Set AOC_MOREMOTION_REPO_URL to enable clone.",
+                source.to_string_lossy()
+            ));
+            return;
+        };
+
+        self.pending_moremotion_clone_source = Some(source);
+        self.pending_moremotion_clone_url = Some(url);
+        self.mode = Mode::ConfirmMoremotionSourceClone;
+    }
+
+    fn cancel_moremotion_source_clone(&mut self) {
+        self.pending_moremotion_clone_source = None;
+        self.pending_moremotion_clone_url = None;
+        self.mode = Mode::Normal;
+        self.set_status("MoreMotion source clone cancelled");
+    }
+
+    fn confirm_moremotion_source_clone(&mut self) {
+        let source = self.pending_moremotion_clone_source.clone();
+        let url = self.pending_moremotion_clone_url.clone();
+        self.pending_moremotion_clone_source = None;
+        self.pending_moremotion_clone_url = None;
+        self.mode = Mode::Normal;
+
+        let (Some(source), Some(url)) = (source, url) else {
+            self.set_status("MoreMotion clone prompt expired; retry ensure action");
+            return;
+        };
+
+        match clone_moremotion_source_repo(&source, &url) {
+            Ok(message) => self.set_status(message),
+            Err(err) => self.set_status(format!("MoreMotion source clone failed: {err}")),
+        }
+    }
+
+    fn poll_agent_browser_job(&mut self) {
+        let mut completed: Option<(String, ExitStatus, PathBuf)> = None;
+
+        if let Some(job) = self.agent_browser_job.as_mut() {
+            if let Ok(lines) = tail_file_lines(&job.log_path, 200, 32 * 1024) {
+                self.agent_browser_log_tail = lines;
+                let max_scroll = self.agent_browser_log_tail.len().saturating_sub(1);
+                self.agent_browser_log_scroll = self.agent_browser_log_scroll.min(max_scroll);
+            }
+
+            match job.child.try_wait() {
+                Ok(Some(status)) => {
+                    completed = Some((job.action.clone(), status, job.log_path.clone()));
+                }
+                Ok(None) => {}
+                Err(err) => {
+                    self.agent_browser_job = None;
+                    self.set_status(format!("Agent Browser job poll failed: {err}"));
+                    return;
+                }
+            }
+        }
+
+        if let Some((action, status, log_path)) = completed {
+            self.agent_browser_job = None;
+            if let Ok(lines) = tail_file_lines(&log_path, 200, 32 * 1024) {
+                self.agent_browser_log_tail = lines;
+                let max_scroll = self.agent_browser_log_tail.len().saturating_sub(1);
+                self.agent_browser_log_scroll = self.agent_browser_log_scroll.min(max_scroll);
+            }
+
+            if status.success() {
+                self.refresh_agent_browser_runtime_quiet();
+                if self.agent_browser_runtime_ready {
+                    self.set_status(format!(
+                        "Agent Browser {action} completed and verified ({})",
+                        agent_browser_summary_with_runtime(self.agent_browser_runtime_ready)
+                    ));
+                } else {
+                    self.set_status(format!(
+                        "Agent Browser {action} finished, but runtime verification failed (log: {})",
+                        log_path.to_string_lossy()
+                    ));
+                }
+            } else {
+                self.set_status(format!(
+                    "Agent Browser {action} failed with status {status} (log: {})",
+                    log_path.to_string_lossy()
+                ));
+            }
         }
     }
 
@@ -907,6 +1262,7 @@ impl App {
 
     fn tick(&mut self) {
         self.flush_pending_theme_preview();
+        self.poll_agent_browser_job();
 
         if self.pane_rename_remaining == 0 {
             return;
@@ -919,7 +1275,7 @@ impl App {
 fn main() -> io::Result<()> {
     enable_raw_mode()?;
     let mut stdout = io::stdout();
-    execute!(stdout, EnterAlternateScreen)?;
+    execute!(stdout, EnterAlternateScreen, EnableMouseCapture)?;
     let backend = CrosstermBackend::new(stdout);
     let mut terminal = Terminal::new(backend)?;
 
@@ -930,15 +1286,21 @@ fn main() -> io::Result<()> {
     while !app.should_exit {
         terminal.draw(|frame| draw_ui(frame, &mut app))?;
         if event::poll(tick)? {
-            if let Event::Key(key) = event::read()? {
-                handle_key(&mut app, key);
+            match event::read()? {
+                Event::Key(key) => handle_key(&mut app, key),
+                Event::Mouse(mouse) => handle_mouse(&mut app, mouse),
+                _ => {}
             }
         }
         app.tick();
     }
 
     disable_raw_mode()?;
-    execute!(terminal.backend_mut(), LeaveAlternateScreen)?;
+    execute!(
+        terminal.backend_mut(),
+        LeaveAlternateScreen,
+        DisableMouseCapture
+    )?;
     terminal.show_cursor()?;
 
     if let Some(pending) = app.pending_launch.take() {
@@ -962,23 +1324,68 @@ fn handle_key(app: &mut App, key: KeyEvent) {
         Mode::SearchProjects => handle_key_input(app, key, InputMode::Search),
         Mode::NewProject => handle_key_input(app, key, InputMode::NewProject),
         Mode::NewTheme => handle_key_input(app, key, InputMode::NewTheme),
-        Mode::ThemeSections => handle_key_theme_sections(app, key),
-        Mode::ThemePresets => handle_key_theme_presets(app, key),
-        Mode::ThemeCustoms => handle_key_theme_customs(app, key),
-        Mode::ThemeActions => handle_key_theme_actions(app, key),
         Mode::RtkActions => handle_key_rtk_actions(app, key),
         Mode::AgentInstallActions => handle_key_agent_install_actions(app, key),
+        Mode::ConfirmMoremotionSourceClone => handle_key_moremotion_clone_confirm(app, key),
         Mode::Help => handle_key_help(app, key),
+    }
+}
+
+fn handle_mouse(app: &mut App, mouse: MouseEvent) {
+    if app.mode != Mode::Normal {
+        return;
+    }
+
+    if app.active_tab != Tab::Defaults || app.settings_section != SettingsSection::ThemeManager {
+        return;
+    }
+
+    let Some(area) = app.theme_preview_area else {
+        return;
+    };
+
+    let in_preview = mouse.column >= area.x
+        && mouse.column < area.x.saturating_add(area.width)
+        && mouse.row >= area.y
+        && mouse.row < area.y.saturating_add(area.height);
+
+    if !in_preview {
+        return;
+    }
+
+    match mouse.kind {
+        MouseEventKind::ScrollDown => app.scroll_theme_preview(3),
+        MouseEventKind::ScrollUp => app.scroll_theme_preview(-3),
+        _ => {}
     }
 }
 
 fn handle_key_normal(app: &mut App, key: KeyEvent) {
     match key.code {
-        KeyCode::Char('q') => app.should_exit = true,
+        KeyCode::Char('q') => {
+            if app.active_tab == Tab::Defaults
+                && app.settings_section == SettingsSection::ThemeManager
+            {
+                app.end_theme_preview();
+            }
+            app.should_exit = true;
+        }
         KeyCode::Esc => {
             if app.focus == Focus::Detail {
-                app.focus = Focus::Nav;
+                if app.active_tab == Tab::Defaults
+                    && app.mode == Mode::Normal
+                    && app.settings_section != SettingsSection::Root
+                {
+                    app.back_settings_section();
+                } else {
+                    app.focus = Focus::Nav;
+                }
             } else {
+                if app.active_tab == Tab::Defaults
+                    && app.settings_section == SettingsSection::ThemeManager
+                {
+                    app.end_theme_preview();
+                }
                 app.should_exit = true;
                 if app.floating_active {
                     app.close_on_exit = true;
@@ -1028,6 +1435,12 @@ fn handle_key_normal(app: &mut App, key: KeyEvent) {
         KeyCode::Char('n') if app.active_tab == Tab::Projects && app.focus == Focus::Detail => {
             app.start_input(Mode::NewProject, String::new());
         }
+        KeyCode::Char('b') if app.active_tab == Tab::Projects && app.focus == Focus::Detail => {
+            app.start_input(
+                Mode::EditProjectsBase,
+                app.projects_base.to_string_lossy().to_string(),
+            );
+        }
         KeyCode::Char('r') if app.active_tab == Tab::Projects && app.focus == Focus::Detail => {
             app.reload_projects()
         }
@@ -1040,7 +1453,81 @@ fn handle_key_normal(app: &mut App, key: KeyEvent) {
             app.clear_overrides()
         }
         KeyCode::Char('t') if app.active_tab == Tab::Defaults && app.focus == Focus::Detail => {
-            app.open_theme_manager()
+            if app.settings_section == SettingsSection::ThemeManager {
+                app.end_theme_preview();
+                app.theme_preview_scroll = 0;
+            }
+            app.set_settings_section(SettingsSection::Theme)
+        }
+        KeyCode::Char('n')
+            if app.active_tab == Tab::Defaults
+                && app.focus == Focus::Detail
+                && app.settings_section == SettingsSection::ThemeManager =>
+        {
+            app.start_input(Mode::NewTheme, String::new());
+        }
+        KeyCode::Char('i')
+            if app.active_tab == Tab::Defaults
+                && app.focus == Focus::Detail
+                && app.settings_section == SettingsSection::ThemeManager =>
+        {
+            app.install_all_presets();
+            app.queue_preview_selected_theme();
+        }
+        KeyCode::Char('r')
+            if app.active_tab == Tab::Defaults
+                && app.focus == Focus::Detail
+                && app.settings_section == SettingsSection::ThemeManager =>
+        {
+            app.refresh_themes();
+            app.queue_preview_selected_theme();
+            app.set_status("Refreshed theme list");
+        }
+        KeyCode::PageDown | KeyCode::Char('J')
+            if app.active_tab == Tab::Defaults
+                && app.focus == Focus::Detail
+                && app.settings_section == SettingsSection::ThemeManager =>
+        {
+            app.scroll_theme_preview(3);
+        }
+        KeyCode::PageUp | KeyCode::Char('K')
+            if app.active_tab == Tab::Defaults
+                && app.focus == Focus::Detail
+                && app.settings_section == SettingsSection::ThemeManager =>
+        {
+            app.scroll_theme_preview(-3);
+        }
+        KeyCode::PageDown
+            if app.active_tab == Tab::Defaults
+                && app.focus == Focus::Detail
+                && app.settings_section == SettingsSection::ToolsAgentBrowser
+                && app.selected_settings_index() == 0 =>
+        {
+            app.scroll_agent_browser_log(8);
+        }
+        KeyCode::PageUp
+            if app.active_tab == Tab::Defaults
+                && app.focus == Focus::Detail
+                && app.settings_section == SettingsSection::ToolsAgentBrowser
+                && app.selected_settings_index() == 0 =>
+        {
+            app.scroll_agent_browser_log(-8);
+        }
+        KeyCode::Char('x')
+            if app.active_tab == Tab::Defaults
+                && app.focus == Focus::Detail
+                && app.settings_section == SettingsSection::ToolsAgentBrowser
+                && app.selected_settings_index() == 0 =>
+        {
+            app.cancel_agent_browser_job();
+        }
+        KeyCode::Char('O')
+            if app.active_tab == Tab::Defaults
+                && app.focus == Focus::Detail
+                && app.settings_section == SettingsSection::ToolsAgentBrowser
+                && app.selected_settings_index() == 0 =>
+        {
+            app.open_agent_browser_log();
         }
         KeyCode::Char('?') => {
             app.mode = Mode::Help;
@@ -1125,7 +1612,7 @@ fn handle_key_input(app: &mut App, key: KeyEvent, mode: InputMode) {
             if matches!(mode, InputMode::NewTheme) {
                 app.input_buffer.clear();
                 app.input_snapshot.clear();
-                app.mode = Mode::ThemeSections;
+                app.mode = Mode::Normal;
             } else {
                 app.cancel_input();
             }
@@ -1142,95 +1629,6 @@ fn handle_key_input(app: &mut App, key: KeyEvent, mode: InputMode) {
         KeyCode::Char(ch) => {
             app.input_buffer.push(ch);
         }
-        _ => {}
-    }
-}
-
-fn handle_key_theme_sections(app: &mut App, key: KeyEvent) {
-    match key.code {
-        KeyCode::Esc => app.mode = Mode::Normal,
-        KeyCode::Char('j') | KeyCode::Down => {
-            list_next_state(&mut app.theme_sections_state, theme_section_options().len())
-        }
-        KeyCode::Char('k') | KeyCode::Up => {
-            list_prev_state(&mut app.theme_sections_state, theme_section_options().len())
-        }
-        KeyCode::Enter => match app.theme_sections_state.selected().unwrap_or(0) {
-            0 => app.open_theme_presets(),
-            1 => app.open_theme_customs(),
-            2 => app.start_input(Mode::NewTheme, String::new()),
-            3 => app.install_all_presets(),
-            4 => app.mode = Mode::Normal,
-            _ => {}
-        },
-        _ => {}
-    }
-}
-
-fn handle_key_theme_presets(app: &mut App, key: KeyEvent) {
-    match key.code {
-        KeyCode::Esc => {
-            app.end_theme_preview();
-            app.mode = Mode::ThemeSections;
-        }
-        KeyCode::Char('j') | KeyCode::Down => {
-            list_next_state(&mut app.theme_presets_state, app.theme_presets.len());
-            app.queue_preview_theme(ThemeSource::Preset);
-        }
-        KeyCode::Char('k') | KeyCode::Up => {
-            list_prev_state(&mut app.theme_presets_state, app.theme_presets.len());
-            app.queue_preview_theme(ThemeSource::Preset);
-        }
-        KeyCode::Enter => app.select_preview_theme(ThemeSource::Preset),
-        KeyCode::Char('a') => {
-            if let Some(entry) = app.selected_preset_entry() {
-                app.open_theme_actions(ThemeSelection {
-                    name: entry.name,
-                    source: ThemeSource::Preset,
-                });
-            }
-        }
-        _ => {}
-    }
-}
-
-fn handle_key_theme_customs(app: &mut App, key: KeyEvent) {
-    match key.code {
-        KeyCode::Esc => {
-            app.end_theme_preview();
-            app.mode = Mode::ThemeSections;
-        }
-        KeyCode::Char('j') | KeyCode::Down => {
-            list_next_state(&mut app.theme_customs_state, app.theme_customs.len());
-            app.queue_preview_theme(ThemeSource::Custom);
-        }
-        KeyCode::Char('k') | KeyCode::Up => {
-            list_prev_state(&mut app.theme_customs_state, app.theme_customs.len());
-            app.queue_preview_theme(ThemeSource::Custom);
-        }
-        KeyCode::Enter => app.select_preview_theme(ThemeSource::Custom),
-        KeyCode::Char('a') => {
-            if let Some(name) = app.selected_custom_name() {
-                app.open_theme_actions(ThemeSelection {
-                    name,
-                    source: ThemeSource::Custom,
-                });
-            }
-        }
-        _ => {}
-    }
-}
-
-fn handle_key_theme_actions(app: &mut App, key: KeyEvent) {
-    match key.code {
-        KeyCode::Esc => app.back_from_theme_actions(),
-        KeyCode::Char('j') | KeyCode::Down => {
-            list_next_state(&mut app.theme_actions_state, app.theme_actions.len())
-        }
-        KeyCode::Char('k') | KeyCode::Up => {
-            list_prev_state(&mut app.theme_actions_state, app.theme_actions.len())
-        }
-        KeyCode::Enter => app.run_selected_theme_action(),
         _ => {}
     }
 }
@@ -1266,6 +1664,14 @@ fn handle_key_agent_install_actions(app: &mut App, key: KeyEvent) {
     }
 }
 
+fn handle_key_moremotion_clone_confirm(app: &mut App, key: KeyEvent) {
+    match key.code {
+        KeyCode::Enter | KeyCode::Char('y') => app.confirm_moremotion_source_clone(),
+        KeyCode::Esc | KeyCode::Char('n') => app.cancel_moremotion_source_clone(),
+        _ => {}
+    }
+}
+
 fn handle_key_help(app: &mut App, key: KeyEvent) {
     match key.code {
         KeyCode::Esc | KeyCode::Char('?') => app.mode = Mode::Normal,
@@ -1274,6 +1680,9 @@ fn handle_key_help(app: &mut App, key: KeyEvent) {
 }
 
 fn cycle_tab(app: &mut App, forward: bool) {
+    let was_theme_manager =
+        app.active_tab == Tab::Defaults && app.settings_section == SettingsSection::ThemeManager;
+
     app.active_tab = match (app.active_tab, forward) {
         (Tab::Defaults, true) => Tab::Projects,
         (Tab::Projects, true) => Tab::Sessions,
@@ -1282,11 +1691,47 @@ fn cycle_tab(app: &mut App, forward: bool) {
         (Tab::Projects, false) => Tab::Defaults,
         (Tab::Sessions, false) => Tab::Projects,
     };
+
+    if app.active_tab != Tab::Defaults {
+        if was_theme_manager {
+            app.end_theme_preview();
+            app.theme_preview_scroll = 0;
+        }
+        app.settings_section = SettingsSection::Root;
+    }
 }
 
 fn list_next(app: &mut App) {
     match app.active_tab {
-        Tab::Defaults => list_next_state(&mut app.defaults_state, 7),
+        Tab::Defaults => match app.settings_section {
+            SettingsSection::Root => {
+                list_next_state(&mut app.defaults_state, settings_root_options().len())
+            }
+            SettingsSection::Theme => list_next_state(
+                &mut app.settings_theme_state,
+                settings_theme_options().len(),
+            ),
+            SettingsSection::ThemeManager => {
+                list_next_state(&mut app.theme_manager_state, app.theme_entries.len());
+                app.queue_preview_selected_theme();
+            }
+            SettingsSection::Layout => list_next_state(
+                &mut app.settings_layout_state,
+                settings_layout_options().len(),
+            ),
+            SettingsSection::Tools => list_next_state(
+                &mut app.settings_tools_state,
+                settings_tools_options().len(),
+            ),
+            SettingsSection::ToolsAgentBrowser => list_next_state(
+                &mut app.settings_tools_agent_browser_state,
+                settings_tools_agent_browser_options().len(),
+            ),
+            SettingsSection::ToolsMoremotion => list_next_state(
+                &mut app.settings_tools_moremotion_state,
+                settings_tools_moremotion_options().len(),
+            ),
+        },
         Tab::Projects => list_next_state(&mut app.projects_state, app.filtered_projects.len()),
         Tab::Sessions => list_next_state(&mut app.sessions_state, 4),
     }
@@ -1294,7 +1739,35 @@ fn list_next(app: &mut App) {
 
 fn list_prev(app: &mut App) {
     match app.active_tab {
-        Tab::Defaults => list_prev_state(&mut app.defaults_state, 7),
+        Tab::Defaults => match app.settings_section {
+            SettingsSection::Root => {
+                list_prev_state(&mut app.defaults_state, settings_root_options().len())
+            }
+            SettingsSection::Theme => list_prev_state(
+                &mut app.settings_theme_state,
+                settings_theme_options().len(),
+            ),
+            SettingsSection::ThemeManager => {
+                list_prev_state(&mut app.theme_manager_state, app.theme_entries.len());
+                app.queue_preview_selected_theme();
+            }
+            SettingsSection::Layout => list_prev_state(
+                &mut app.settings_layout_state,
+                settings_layout_options().len(),
+            ),
+            SettingsSection::Tools => list_prev_state(
+                &mut app.settings_tools_state,
+                settings_tools_options().len(),
+            ),
+            SettingsSection::ToolsAgentBrowser => list_prev_state(
+                &mut app.settings_tools_agent_browser_state,
+                settings_tools_agent_browser_options().len(),
+            ),
+            SettingsSection::ToolsMoremotion => list_prev_state(
+                &mut app.settings_tools_moremotion_state,
+                settings_tools_moremotion_options().len(),
+            ),
+        },
         Tab::Projects => list_prev_state(&mut app.projects_state, app.filtered_projects.len()),
         Tab::Sessions => list_prev_state(&mut app.sessions_state, 4),
     }
@@ -1302,26 +1775,59 @@ fn list_prev(app: &mut App) {
 
 fn activate_selection(app: &mut App) {
     match app.active_tab {
-        Tab::Defaults => match app.defaults_state.selected().unwrap_or(0) {
-            0 => app.open_theme_manager(),
-            1 => app.open_background_picker(),
-            2 => {
-                let current = app.default_layout.clone();
-                select_picker(&mut app.layout_picker_state, &layout_options(), &current);
-                app.mode = Mode::PickLayout(PickTarget::Defaults);
+        Tab::Defaults => match app.settings_section {
+            SettingsSection::Root => match app.defaults_state.selected().unwrap_or(0) {
+                0 => app.set_settings_section(SettingsSection::Theme),
+                1 => app.set_settings_section(SettingsSection::Layout),
+                2 => app.set_settings_section(SettingsSection::Tools),
+                _ => {}
+            },
+            SettingsSection::Theme => match app.settings_theme_state.selected().unwrap_or(0) {
+                0 => app.open_theme_manager(),
+                1 => app.open_background_picker(),
+                2 => app.set_settings_section(SettingsSection::Root),
+                _ => {}
+            },
+            SettingsSection::ThemeManager => app.activate_selected_theme(),
+            SettingsSection::Layout => match app.settings_layout_state.selected().unwrap_or(0) {
+                0 => {
+                    let current = app.default_layout.clone();
+                    select_picker(&mut app.layout_picker_state, &layout_options(), &current);
+                    app.mode = Mode::PickLayout(PickTarget::Defaults);
+                }
+                1 => app.set_settings_section(SettingsSection::Root),
+                _ => {}
+            },
+            SettingsSection::Tools => match app.settings_tools_state.selected().unwrap_or(0) {
+                0 => app.open_rtk_actions(),
+                1 => app.open_agent_install_actions(),
+                2 => app.set_settings_section(SettingsSection::ToolsAgentBrowser),
+                3 => app.set_settings_section(SettingsSection::ToolsMoremotion),
+                4 => app.set_settings_section(SettingsSection::Root),
+                _ => {}
+            },
+            SettingsSection::ToolsAgentBrowser => {
+                match app
+                    .settings_tools_agent_browser_state
+                    .selected()
+                    .unwrap_or(0)
+                {
+                    0 => app.run_agent_browser_tool_action(),
+                    1 => app.run_agent_browser_skill_action(),
+                    2 => app.set_settings_section(SettingsSection::Tools),
+                    _ => {}
+                }
             }
-            3 => {
-                let current = app.default_agent.clone();
-                select_picker(&mut app.agent_picker_state, &agent_options(), &current);
-                app.mode = Mode::PickAgent(PickTarget::Defaults);
+            SettingsSection::ToolsMoremotion => {
+                match app.settings_tools_moremotion_state.selected().unwrap_or(0) {
+                    0 => app.run_moremotion_init_action(),
+                    1 => app.run_moremotion_init_from_local_source_action(),
+                    2 => app.run_moremotion_update_action(),
+                    3 => app.ensure_moremotion_source_action(),
+                    4 => app.set_settings_section(SettingsSection::Tools),
+                    _ => {}
+                }
             }
-            4 => app.start_input(
-                Mode::EditProjectsBase,
-                app.projects_base.to_string_lossy().to_string(),
-            ),
-            5 => app.open_agent_install_actions(),
-            6 => app.open_rtk_actions(),
-            _ => {}
         },
         Tab::Projects => {
             if let Some(project) = app.selected_project() {
@@ -1355,6 +1861,8 @@ fn activate_selection(app: &mut App) {
 }
 
 fn draw_ui(frame: &mut ratatui::Frame, app: &mut App) {
+    app.theme_preview_area = None;
+
     let root = frame.size();
     let layout = Layout::default()
         .direction(Direction::Vertical)
@@ -1379,7 +1887,7 @@ fn draw_ui(frame: &mut ratatui::Frame, app: &mut App) {
 
 fn draw_nav(frame: &mut ratatui::Frame, area: Rect, app: &mut App, focused: bool) {
     let items = vec![
-        ListItem::new("Settings Hub"),
+        ListItem::new("Settings"),
         ListItem::new("Projects"),
         ListItem::new("Launch"),
     ];
@@ -1405,38 +1913,181 @@ fn draw_detail(frame: &mut ratatui::Frame, area: Rect, app: &mut App, focused: b
 }
 
 fn draw_defaults(frame: &mut ratatui::Frame, area: Rect, app: &mut App, focused: bool) {
-    let items = vec![
-        ListItem::new(format!(
-            "Appearance · Theme manager: {}",
-            app.theme_identity_label()
-        )),
-        ListItem::new(format!(
-            "Appearance · Background profile: {}",
-            app.background_profile
-        )),
-        ListItem::new(format!(
-            "Workspace · Default layout: {}",
-            app.default_layout
-        )),
-        ListItem::new(format!("Workspace · Default agent: {}", app.default_agent)),
-        ListItem::new(format!(
-            "Workspace · Projects base: {}",
-            app.projects_base.to_string_lossy()
-        )),
-        ListItem::new(format!(
-            "System · Agent installers: {}",
-            agent_install_summary(&app.agent_install_entries)
-        )),
-        ListItem::new(format!(
-            "System · RTK routing: {}",
-            rtk_summary(&app.rtk_status)
-        )),
-    ];
+    let columns = Layout::default()
+        .direction(Direction::Horizontal)
+        .constraints([Constraint::Percentage(46), Constraint::Percentage(54)])
+        .split(area);
+
+    let (title, items) = match app.settings_section {
+        SettingsSection::Root => {
+            let items = vec![
+                ListItem::new("Theme"),
+                ListItem::new(format!("Layout · {}", app.default_layout)),
+                ListItem::new("Tools"),
+            ];
+            ("Settings", items)
+        }
+        SettingsSection::Theme => {
+            let items = vec![
+                ListItem::new(format!("Theme manager · {}", app.theme_identity_label())),
+                ListItem::new(format!("Background profile · {}", app.background_profile)),
+                ListItem::new("Back"),
+            ];
+            ("Settings · Theme", items)
+        }
+        SettingsSection::ThemeManager => {
+            let items = if app.theme_entries.is_empty() {
+                vec![ListItem::new("(no themes found)")]
+            } else {
+                app.theme_entries
+                    .iter()
+                    .map(|entry| {
+                        let source = match entry.source {
+                            ThemeSource::Preset => "preset",
+                            ThemeSource::Custom => "custom",
+                        };
+                        let install = if matches!(entry.source, ThemeSource::Preset) {
+                            if entry.installed {
+                                "installed"
+                            } else {
+                                "available"
+                            }
+                        } else {
+                            "global"
+                        };
+                        let selected =
+                            if app.theme_preview_selected.as_deref() == Some(entry.name.as_str()) {
+                                " · selected"
+                            } else {
+                                ""
+                            };
+                        ListItem::new(format!(
+                            "{} · {} ({}){}",
+                            source, entry.name, install, selected
+                        ))
+                    })
+                    .collect()
+            };
+            ("Settings · Theme Manager", items)
+        }
+        SettingsSection::Layout => {
+            let items = vec![
+                ListItem::new(format!("Default layout · {}", app.default_layout)),
+                ListItem::new("Back"),
+            ];
+            ("Settings · Layout", items)
+        }
+        SettingsSection::Tools => {
+            let items = vec![
+                ListItem::new(format!("RTK routing · {}", rtk_summary(&app.rtk_status))),
+                ListItem::new(format!(
+                    "PI agent installer · {}",
+                    agent_install_summary(&app.agent_install_entries)
+                )),
+                ListItem::new(format!(
+                    "Agent Browser tool/skill · {}",
+                    agent_browser_summary_with_runtime(app.agent_browser_runtime_ready)
+                )),
+                ListItem::new(format!("MoreMotion + /momo · {}", moremotion_summary())),
+                ListItem::new("Back"),
+            ];
+            ("Settings · Tools", items)
+        }
+        SettingsSection::ToolsAgentBrowser => {
+            let action = if agent_browser_installed() {
+                "Update tool"
+            } else {
+                "Install tool"
+            };
+            let running = if app.agent_browser_job.is_some() {
+                " · running"
+            } else {
+                ""
+            };
+            let items = vec![
+                ListItem::new(format!(
+                    "{action} · {}{running}",
+                    agent_browser_summary_with_runtime(app.agent_browser_runtime_ready)
+                )),
+                ListItem::new("Install/update PI skill"),
+                ListItem::new("Back"),
+            ];
+            ("Settings · Tools · Agent Browser", items)
+        }
+        SettingsSection::ToolsMoremotion => {
+            let source_path = preferred_moremotion_source_path();
+            let items = vec![
+                ListItem::new("Init nested workspace in this repo"),
+                ListItem::new(format!(
+                    "Init from local source · {}",
+                    source_path.to_string_lossy()
+                )),
+                ListItem::new("Update nested workspace (--update)"),
+                ListItem::new(format!(
+                    "Ensure local source repo · {}",
+                    source_path.to_string_lossy()
+                )),
+                ListItem::new("Back"),
+            ];
+            ("Settings · Tools · MoreMotion", items)
+        }
+    };
+
     let list = List::new(items)
-        .block(titled_block("Settings Hub", focused))
+        .block(titled_block(title, focused))
         .highlight_style(detail_highlight_style(focused))
         .highlight_symbol("> ");
-    frame.render_stateful_widget(list, area, &mut app.defaults_state);
+
+    match app.settings_section {
+        SettingsSection::Root => {
+            frame.render_stateful_widget(list, columns[0], &mut app.defaults_state)
+        }
+        SettingsSection::Theme => {
+            frame.render_stateful_widget(list, columns[0], &mut app.settings_theme_state)
+        }
+        SettingsSection::ThemeManager => {
+            frame.render_stateful_widget(list, columns[0], &mut app.theme_manager_state)
+        }
+        SettingsSection::Layout => {
+            frame.render_stateful_widget(list, columns[0], &mut app.settings_layout_state)
+        }
+        SettingsSection::Tools => {
+            frame.render_stateful_widget(list, columns[0], &mut app.settings_tools_state)
+        }
+        SettingsSection::ToolsAgentBrowser => frame.render_stateful_widget(
+            list,
+            columns[0],
+            &mut app.settings_tools_agent_browser_state,
+        ),
+        SettingsSection::ToolsMoremotion => {
+            frame.render_stateful_widget(list, columns[0], &mut app.settings_tools_moremotion_state)
+        }
+    }
+
+    app.theme_preview_area = if app.settings_section == SettingsSection::ThemeManager {
+        Some(columns[1])
+    } else {
+        None
+    };
+
+    let detail_title = if app.settings_section == SettingsSection::ThemeManager {
+        "Theme Preview"
+    } else {
+        "Details"
+    };
+    let detail_lines = if app.settings_section == SettingsSection::ThemeManager {
+        theme_preview_lines(app)
+    } else {
+        settings_detail_lines(app)
+    };
+    let mut details = Paragraph::new(detail_lines)
+        .block(Block::default().borders(Borders::ALL).title(detail_title))
+        .alignment(Alignment::Left)
+        .wrap(Wrap { trim: false });
+    if app.settings_section == SettingsSection::ThemeManager {
+        details = details.scroll((app.theme_preview_scroll, 0));
+    }
+    frame.render_widget(details, columns[1]);
 }
 
 fn draw_projects(frame: &mut ratatui::Frame, area: Rect, app: &mut App, focused: bool) {
@@ -1594,110 +2245,6 @@ fn draw_modal(frame: &mut ratatui::Frame, app: &mut App) {
         Mode::NewTheme => {
             draw_input_modal(frame, area, "New theme (kebab-case)", &app.input_buffer)
         }
-        Mode::ThemeSections => {
-            let items: Vec<ListItem> = theme_section_options()
-                .into_iter()
-                .map(ListItem::new)
-                .collect();
-            let list = List::new(items)
-                .block(
-                    Block::default()
-                        .borders(Borders::ALL)
-                        .title("Theme Manager"),
-                )
-                .highlight_style(
-                    Style::default()
-                        .fg(Color::Cyan)
-                        .add_modifier(Modifier::BOLD),
-                )
-                .highlight_symbol("> ");
-            frame.render_stateful_widget(list, area, &mut app.theme_sections_state);
-        }
-        Mode::ThemePresets => {
-            let items: Vec<ListItem> = app
-                .theme_presets
-                .iter()
-                .map(|entry| {
-                    let status = if entry.installed {
-                        "installed"
-                    } else {
-                        "available"
-                    };
-                    let selected_tag =
-                        if app.theme_preview_selected.as_deref() == Some(entry.name.as_str()) {
-                            ", selected"
-                        } else {
-                            ""
-                        };
-                    ListItem::new(format!("{} ({status}{selected_tag})", entry.name))
-                })
-                .collect();
-            let list = List::new(items)
-                .block(
-                    Block::default()
-                        .borders(Borders::ALL)
-                        .title("Preset Themes (live preview)"),
-                )
-                .highlight_style(
-                    Style::default()
-                        .fg(Color::Cyan)
-                        .add_modifier(Modifier::BOLD),
-                )
-                .highlight_symbol("> ");
-            frame.render_stateful_widget(list, area, &mut app.theme_presets_state);
-        }
-        Mode::ThemeCustoms => {
-            let items: Vec<ListItem> = app
-                .theme_customs
-                .iter()
-                .map(|name| {
-                    let label = if app.theme_preview_selected.as_deref() == Some(name.as_str()) {
-                        format!("{name} (selected)")
-                    } else {
-                        name.clone()
-                    };
-                    ListItem::new(label)
-                })
-                .collect();
-            let list = List::new(items)
-                .block(
-                    Block::default()
-                        .borders(Borders::ALL)
-                        .title("Custom Themes (live preview)"),
-                )
-                .highlight_style(
-                    Style::default()
-                        .fg(Color::Cyan)
-                        .add_modifier(Modifier::BOLD),
-                )
-                .highlight_symbol("> ");
-            frame.render_stateful_widget(list, area, &mut app.theme_customs_state);
-        }
-        Mode::ThemeActions => {
-            let target = app
-                .theme_selection
-                .as_ref()
-                .map(|selection| selection.name.as_str())
-                .unwrap_or("Theme");
-            let items: Vec<ListItem> = app
-                .theme_actions
-                .iter()
-                .map(|action| ListItem::new(action.as_str()))
-                .collect();
-            let list = List::new(items)
-                .block(
-                    Block::default()
-                        .borders(Borders::ALL)
-                        .title(format!("Theme Actions: {target}")),
-                )
-                .highlight_style(
-                    Style::default()
-                        .fg(Color::Cyan)
-                        .add_modifier(Modifier::BOLD),
-                )
-                .highlight_symbol("> ");
-            frame.render_stateful_widget(list, area, &mut app.theme_actions_state);
-        }
         Mode::RtkActions => {
             let title = format!("RTK Controls ({})", rtk_summary(&app.rtk_status));
             let items: Vec<ListItem> = rtk_action_options()
@@ -1741,6 +2288,7 @@ fn draw_modal(frame: &mut ratatui::Frame, app: &mut App) {
                 .highlight_symbol("> ");
             frame.render_stateful_widget(list, area, &mut app.agent_install_actions_state);
         }
+        Mode::ConfirmMoremotionSourceClone => draw_confirm_moremotion_clone_modal(frame, area, app),
         Mode::Help => draw_help_modal(frame, area),
         Mode::Normal => {}
     }
@@ -1751,6 +2299,38 @@ fn draw_input_modal(frame: &mut ratatui::Frame, area: Rect, title: &str, input: 
     let paragraph = Paragraph::new(input)
         .block(block)
         .alignment(Alignment::Left);
+    frame.render_widget(paragraph, area);
+}
+
+fn draw_confirm_moremotion_clone_modal(frame: &mut ratatui::Frame, area: Rect, app: &App) {
+    let source = app
+        .pending_moremotion_clone_source
+        .as_ref()
+        .map(|path| path.to_string_lossy().to_string())
+        .unwrap_or_else(|| "(unknown)".to_string());
+    let url = app
+        .pending_moremotion_clone_url
+        .clone()
+        .unwrap_or_else(|| "(missing AOC_MOREMOTION_REPO_URL)".to_string());
+
+    let lines = vec![
+        Line::from("Clone local MoreMotion source repo?"),
+        Line::from(""),
+        Line::from(format!("Destination: {source}")),
+        Line::from(format!("Remote URL:  {url}")),
+        Line::from(""),
+        Line::from("Enter / y = clone now"),
+        Line::from("Esc / n   = cancel"),
+    ];
+
+    let paragraph = Paragraph::new(lines)
+        .block(
+            Block::default()
+                .borders(Borders::ALL)
+                .title("Confirm MoreMotion clone"),
+        )
+        .alignment(Alignment::Left)
+        .wrap(Wrap { trim: false });
     frame.render_widget(paragraph, area);
 }
 
@@ -1766,13 +2346,14 @@ fn draw_help_modal(frame: &mut ratatui::Frame, area: Rect) {
         Line::from("  Esc                back (quit from menu)"),
         Line::from("  q                  quit"),
         Line::from(""),
-        Line::from("Settings Hub:"),
-        Line::from("  Enter  run selected settings action"),
-        Line::from("  t      open theme manager"),
-        Line::from("  Background profile selector is under Appearance"),
-        Line::from("  Enter on Agent installers  open install/update actions"),
-        Line::from("  Enter on RTK routing  open RTK setup/actions"),
-        Line::from("  Theme lists: j/k live-preview, Enter select fallback, a actions"),
+        Line::from("Settings:"),
+        Line::from("  Enter  open section/action"),
+        Line::from("  Esc    back one settings level"),
+        Line::from("  t      jump to Theme section"),
+        Line::from("  Tools includes RTK, agent installers, Agent Browser, MoreMotion"),
+        Line::from("  Right pane shows details for selected settings item"),
+        Line::from("  Agent Browser install: PgUp/PgDn scroll, x cancel, Shift+O open log"),
+        Line::from("  Theme manager: j/k preview, Enter activate+persist, n/i/r actions"),
         Line::from(""),
         Line::from("Projects:"),
         Line::from("  Enter or o  open project"),
@@ -1861,28 +2442,6 @@ fn footer_lines(app: &App) -> Vec<Line<'_>> {
             Span::raw(" cancel"),
         ],
         Mode::Help => vec![keycap("Esc"), Span::raw(" close help")],
-        Mode::ThemeSections => vec![
-            keycap("Enter"),
-            Span::raw(" select  "),
-            keycap("Esc"),
-            Span::raw(" close"),
-        ],
-        Mode::ThemePresets | Mode::ThemeCustoms => vec![
-            keycap("j/k"),
-            Span::raw(" preview  "),
-            keycap("Enter"),
-            Span::raw(" select fallback  "),
-            keycap("a"),
-            Span::raw(" actions  "),
-            keycap("Esc"),
-            Span::raw(" restore + back"),
-        ],
-        Mode::ThemeActions => vec![
-            keycap("Enter"),
-            Span::raw(" run action  "),
-            keycap("Esc"),
-            Span::raw(" back"),
-        ],
         Mode::RtkActions => vec![
             keycap("Enter"),
             Span::raw(" run action  "),
@@ -1897,18 +2456,56 @@ fn footer_lines(app: &App) -> Vec<Line<'_>> {
             keycap("Esc"),
             Span::raw(" close"),
         ],
+        Mode::ConfirmMoremotionSourceClone => vec![
+            keycap("Enter"),
+            Span::raw(" clone  "),
+            keycap("Esc"),
+            Span::raw(" cancel"),
+        ],
         Mode::Normal => match app.active_tab {
-            Tab::Defaults => vec![
+            Tab::Defaults if app.settings_section == SettingsSection::ThemeManager => vec![
+                keycap("j/k"),
+                Span::raw(" preview  "),
                 keycap("Enter"),
-                Span::raw(" open settings action  "),
-                keycap("t"),
-                Span::raw(" theme manager"),
+                Span::raw(" activate+persist  "),
+                keycap("n/i/r"),
+                Span::raw(" new/install/refresh  "),
+                keycap("PgUp/PgDn"),
+                Span::raw(" scroll"),
             ],
+            Tab::Defaults => {
+                if app.settings_section == SettingsSection::ToolsAgentBrowser
+                    && app.selected_settings_index() == 0
+                    && app.focus == Focus::Detail
+                {
+                    vec![
+                        keycap("Enter"),
+                        Span::raw(" start  "),
+                        keycap("PgUp/PgDn"),
+                        Span::raw(" log  "),
+                        keycap("x"),
+                        Span::raw(" cancel  "),
+                        keycap("Shift+O"),
+                        Span::raw(" open log"),
+                    ]
+                } else {
+                    vec![
+                        keycap("Enter"),
+                        Span::raw(" open section/action  "),
+                        keycap("Esc"),
+                        Span::raw(" back section  "),
+                        keycap("t"),
+                        Span::raw(" theme section"),
+                    ]
+                }
+            }
             Tab::Projects => vec![
                 keycap("Enter"),
                 Span::raw(" open  "),
                 keycap("n"),
                 Span::raw(" new  "),
+                keycap("b"),
+                Span::raw(" base  "),
                 keycap("/"),
                 Span::raw(" search  "),
                 keycap("r"),
@@ -2023,32 +2620,498 @@ fn list_prev_state(state: &mut ListState, len: usize) {
     state.select(Some(next));
 }
 
-fn theme_section_options() -> Vec<String> {
+fn settings_root_options() -> Vec<String> {
     vec![
-        "Preset themes".to_string(),
-        "Custom global themes".to_string(),
-        "Create custom global theme".to_string(),
-        "Install all preset themes".to_string(),
+        "Theme".to_string(),
+        "Layout".to_string(),
+        "Tools".to_string(),
+    ]
+}
+
+fn settings_theme_options() -> Vec<String> {
+    vec![
+        "Theme manager".to_string(),
+        "Background profile".to_string(),
         "Back".to_string(),
     ]
 }
 
-fn theme_action_options(source: ThemeSource) -> Vec<String> {
-    match source {
-        ThemeSource::Preset => vec![
-            "Apply now (live)".to_string(),
-            "Set as default".to_string(),
-            "Apply now + set default".to_string(),
-            "Install preset only".to_string(),
-            "Back".to_string(),
-        ],
-        ThemeSource::Custom => vec![
-            "Apply now (live)".to_string(),
-            "Set as default".to_string(),
-            "Apply now + set default".to_string(),
-            "Back".to_string(),
-        ],
+fn settings_layout_options() -> Vec<String> {
+    vec!["Default layout".to_string(), "Back".to_string()]
+}
+
+fn settings_tools_options() -> Vec<String> {
+    vec![
+        "RTK routing".to_string(),
+        "PI agent installer".to_string(),
+        "Agent Browser tool/skill".to_string(),
+        "MoreMotion + /momo".to_string(),
+        "Back".to_string(),
+    ]
+}
+
+fn settings_tools_agent_browser_options() -> Vec<String> {
+    vec![
+        "Install/update tool".to_string(),
+        "Install/update PI skill".to_string(),
+        "Back".to_string(),
+    ]
+}
+
+fn settings_tools_moremotion_options() -> Vec<String> {
+    vec![
+        "Init nested workspace".to_string(),
+        "Init from local source".to_string(),
+        "Update nested workspace".to_string(),
+        "Ensure local source repo".to_string(),
+        "Back".to_string(),
+    ]
+}
+
+fn settings_detail_lines(app: &App) -> Vec<Line<'static>> {
+    let selected = app.selected_settings_index();
+    let mut lines: Vec<Line<'static>> = Vec::new();
+
+    match app.settings_section {
+        SettingsSection::Root => match selected {
+            0 => {
+                lines.push(Line::from("Theme"));
+                lines.push(Line::from(""));
+                lines.push(Line::from("Manage visual styling and backgrounds."));
+                lines.push(Line::from("Contains Theme manager and Background profile."));
+                lines.push(Line::from("Enter to open Theme settings."));
+            }
+            1 => {
+                lines.push(Line::from("Layout"));
+                lines.push(Line::from(""));
+                lines.push(Line::from(format!(
+                    "Current default layout: {}",
+                    app.default_layout
+                )));
+                lines.push(Line::from("Set how new AOC tabs are arranged by default."));
+                lines.push(Line::from("Enter to open Layout settings."));
+            }
+            _ => {
+                lines.push(Line::from("Tools"));
+                lines.push(Line::from(""));
+                lines.push(Line::from("Manage optional tooling and installers."));
+                lines.push(Line::from(
+                    "Includes RTK, Agent Browser, and MoreMotion setup.",
+                ));
+                lines.push(Line::from("Enter to open Tools settings."));
+            }
+        },
+        SettingsSection::Theme => match selected {
+            0 => {
+                lines.push(Line::from("Theme manager"));
+                lines.push(Line::from(""));
+                lines.push(Line::from(format!(
+                    "Active/effective: {}",
+                    app.theme_identity_label()
+                )));
+                lines.push(Line::from(
+                    "Open the integrated manager with live list + preview panel.",
+                ));
+                lines.push(Line::from("Enter opens Theme manager in-place."));
+            }
+            1 => {
+                lines.push(Line::from("Background profile"));
+                lines.push(Line::from(""));
+                lines.push(Line::from(format!(
+                    "Current profile: {}",
+                    app.background_profile
+                )));
+                lines.push(Line::from(
+                    "Switch background behavior used by AOC theme tooling.",
+                ));
+                lines.push(Line::from("Enter opens profile picker."));
+            }
+            _ => {
+                lines.push(Line::from("Back"));
+                lines.push(Line::from(""));
+                lines.push(Line::from("Return to top-level Settings menu."));
+            }
+        },
+        SettingsSection::ThemeManager => {
+            lines.push(Line::from("Theme manager"));
+            lines.push(Line::from(""));
+            lines.push(Line::from("Use the theme list on the left."));
+            lines.push(Line::from(
+                "j/k previews live · Enter activates + persists.",
+            ));
+            lines.push(Line::from("n new custom · i install presets · r refresh."));
+            lines.push(Line::from("PgUp/PgDn (or K/J) scrolls this preview pane."));
+        }
+        SettingsSection::Layout => match selected {
+            0 => {
+                lines.push(Line::from("Default layout"));
+                lines.push(Line::from(""));
+                lines.push(Line::from(format!(
+                    "Current layout: {}",
+                    app.default_layout
+                )));
+                lines.push(Line::from(
+                    "Used when launching new sessions without overrides.",
+                ));
+                lines.push(Line::from("Enter opens layout picker."));
+            }
+            _ => {
+                lines.push(Line::from("Back"));
+                lines.push(Line::from(""));
+                lines.push(Line::from("Return to top-level Settings menu."));
+            }
+        },
+        SettingsSection::Tools => match selected {
+            0 => {
+                lines.push(Line::from("RTK routing"));
+                lines.push(Line::from(""));
+                lines.push(Line::from(format!(
+                    "Status: {}",
+                    rtk_summary(&app.rtk_status)
+                )));
+                lines.push(Line::from(
+                    "Enter opens RTK controls (install/enable/disable/doctor).",
+                ));
+            }
+            1 => {
+                lines.push(Line::from("PI agent installer"));
+                lines.push(Line::from(""));
+                lines.push(Line::from(format!(
+                    "Status: {}",
+                    agent_install_summary(&app.agent_install_entries)
+                )));
+                lines.push(Line::from("Enter opens PI install/update actions."));
+            }
+            2 => {
+                lines.push(Line::from("Agent Browser tool/skill"));
+                lines.push(Line::from(""));
+                lines.push(Line::from(format!(
+                    "Status: {}",
+                    agent_browser_summary_with_runtime(app.agent_browser_runtime_ready)
+                )));
+                if app.agent_browser_job.is_some() {
+                    lines.push(Line::from("Tool install/update currently running."));
+                }
+                lines.push(Line::from(
+                    "Enter opens nested actions (tool + PI skill install/update).",
+                ));
+            }
+            3 => {
+                lines.push(Line::from("MoreMotion + /momo"));
+                lines.push(Line::from(""));
+                lines.push(Line::from(format!("Status: {}", moremotion_summary())));
+                lines.push(Line::from(
+                    "Enter opens nested actions (host init, local source, update).",
+                ));
+            }
+            _ => {
+                lines.push(Line::from("Back"));
+                lines.push(Line::from(""));
+                lines.push(Line::from("Return to top-level Settings menu."));
+            }
+        },
+        SettingsSection::ToolsAgentBrowser => match selected {
+            0 => {
+                let action = if agent_browser_installed() {
+                    "update"
+                } else {
+                    "install"
+                };
+                lines.push(Line::from("Install/update tool"));
+                lines.push(Line::from(""));
+                lines.push(Line::from(format!(
+                    "Current status: {}",
+                    agent_browser_summary_with_runtime(app.agent_browser_runtime_ready)
+                )));
+                lines.push(Line::from(format!(
+                    "Enter starts background {action}; completion is verified against a real runtime probe.",
+                )));
+                lines.push(Line::from(
+                    "Overrides: AOC_AGENT_BROWSER_INSTALL_CMD / AOC_AGENT_BROWSER_UPDATE_CMD",
+                ));
+
+                if let Some(job) = &app.agent_browser_job {
+                    lines.push(Line::from(""));
+                    lines.push(Line::from(format!("Running: {}", job.action)));
+                    lines.push(Line::from(format!(
+                        "Log: {}",
+                        job.log_path.to_string_lossy()
+                    )));
+                    lines.push(Line::from(
+                        "PgUp/PgDn scroll · x cancel · Shift+O open full log",
+                    ));
+                    if app.agent_browser_log_tail.is_empty() {
+                        lines.push(Line::from("(waiting for log output...)"));
+                    } else {
+                        let visible = 12usize;
+                        let max_start = app.agent_browser_log_tail.len().saturating_sub(visible);
+                        let start = app.agent_browser_log_scroll.min(max_start);
+                        let end = (start + visible).min(app.agent_browser_log_tail.len());
+                        lines.push(Line::from(format!(
+                            "Recent output: lines {}-{} of {}",
+                            start + 1,
+                            end,
+                            app.agent_browser_log_tail.len()
+                        )));
+                        for line in &app.agent_browser_log_tail[start..end] {
+                            lines.push(Line::from(format!("  {line}")));
+                        }
+                    }
+                } else if let Some(log_path) = latest_agent_browser_log_path() {
+                    lines.push(Line::from(""));
+                    lines.push(Line::from(format!(
+                        "Latest log: {}",
+                        log_path.to_string_lossy()
+                    )));
+                    lines.push(Line::from("Shift+O opens the full log in pager."));
+                }
+            }
+            1 => {
+                lines.push(Line::from("Install/update PI skill"));
+                lines.push(Line::from(""));
+                lines.push(Line::from(format!(
+                    "Skill status: {}",
+                    if agent_browser_skill_installed() {
+                        "present"
+                    } else {
+                        "missing"
+                    }
+                )));
+                lines.push(Line::from(
+                    "Enter syncs .pi/skills/agent-browser/SKILL.md from upstream.",
+                ));
+            }
+            _ => {
+                lines.push(Line::from("Back"));
+                lines.push(Line::from(""));
+                lines.push(Line::from("Return to Tools menu."));
+            }
+        },
+        SettingsSection::ToolsMoremotion => match selected {
+            0 => {
+                lines.push(Line::from("Init nested workspace in this repo"));
+                lines.push(Line::from(""));
+                lines.push(Line::from(format!(
+                    "Current status: {}",
+                    moremotion_summary()
+                )));
+                lines.push(Line::from(
+                    "Enter runs `aoc-momo init` (host repo workflow).",
+                ));
+            }
+            1 => {
+                let source_path = preferred_moremotion_source_path();
+                lines.push(Line::from("Init from local source"));
+                lines.push(Line::from(""));
+                lines.push(Line::from(format!(
+                    "Source path: {}",
+                    source_path.to_string_lossy()
+                )));
+                lines.push(Line::from("Enter runs `aoc-momo init --source <path>`."));
+            }
+            2 => {
+                lines.push(Line::from("Update nested workspace"));
+                lines.push(Line::from(""));
+                lines.push(Line::from(
+                    "Enter runs `aoc-momo init --update` for existing embed.",
+                ));
+            }
+            3 => {
+                let source_path = preferred_moremotion_source_path();
+                lines.push(Line::from("Ensure local source repo"));
+                lines.push(Line::from(""));
+                lines.push(Line::from(format!(
+                    "Target path: {}",
+                    source_path.to_string_lossy()
+                )));
+                lines.push(Line::from(
+                    "If repo exists: git pull --ff-only. If missing: prompts before clone (URL via AOC_MOREMOTION_REPO_URL).",
+                ));
+            }
+            _ => {
+                lines.push(Line::from("Back"));
+                lines.push(Line::from(""));
+                lines.push(Line::from("Return to Tools menu."));
+            }
+        },
     }
+
+    lines
+}
+
+fn theme_preview_lines(app: &App) -> Vec<Line<'static>> {
+    let mut lines = Vec::new();
+    let palette = app.theme_preview_palette;
+
+    let selected = app.selected_theme_entry();
+    if let Some(entry) = &selected {
+        let source = match entry.source {
+            ThemeSource::Preset => "preset",
+            ThemeSource::Custom => "custom",
+        };
+        let install = if matches!(entry.source, ThemeSource::Preset) {
+            if entry.installed {
+                "installed"
+            } else {
+                "available"
+            }
+        } else {
+            "global"
+        };
+
+        lines.push(Line::from(vec![
+            Span::styled("Selected: ", Style::default().fg(Color::DarkGray)),
+            Span::styled(entry.name.clone(), Style::default().fg(Color::Cyan)),
+            Span::raw(format!("  ({source}, {install})")),
+        ]));
+
+        if let Some(err) = &app.theme_preview_palette_error {
+            lines.push(Line::from(vec![
+                Span::styled("Palette: ", Style::default().fg(Color::DarkGray)),
+                Span::styled(
+                    format!("fallback ({err})"),
+                    Style::default().fg(Color::Yellow),
+                ),
+            ]));
+        }
+    } else {
+        lines.push(Line::from("No theme selected."));
+    }
+
+    lines.push(Line::from(vec![
+        Span::styled("Active/effective: ", Style::default().fg(Color::DarkGray)),
+        Span::raw(app.theme_identity_label()),
+    ]));
+    lines.push(Line::from(""));
+    lines.push(Line::from(vec![
+        Span::styled("Controls: ", Style::default().fg(Color::DarkGray)),
+        Span::raw("j/k preview  Enter activate+persist  Esc back"),
+    ]));
+    lines.push(Line::from(
+        "          n new custom  i install presets  r refresh",
+    ));
+    lines.push(Line::from(
+        "          PgUp/PgDn or K/J scroll preview examples",
+    ));
+    lines.push(Line::from(""));
+
+    lines.push(Line::from(Span::styled(
+        "Palette swatches",
+        Style::default()
+            .fg(palette.yellow)
+            .add_modifier(Modifier::BOLD),
+    )));
+    lines.push(Line::from(vec![
+        Span::styled(" fg ", Style::default().fg(palette.bg).bg(palette.fg)),
+        Span::raw(" "),
+        Span::styled(" bg ", Style::default().fg(palette.fg).bg(palette.bg)),
+        Span::raw(" "),
+        Span::styled(" blue ", Style::default().fg(palette.bg).bg(palette.blue)),
+        Span::raw(" "),
+        Span::styled(" green ", Style::default().fg(palette.bg).bg(palette.green)),
+        Span::raw(" "),
+        Span::styled(" red ", Style::default().fg(palette.bg).bg(palette.red)),
+    ]));
+    lines.push(Line::from(vec![
+        Span::styled(
+            " orange ",
+            Style::default().fg(palette.bg).bg(palette.orange),
+        ),
+        Span::raw(" "),
+        Span::styled(
+            " yellow ",
+            Style::default().fg(palette.bg).bg(palette.yellow),
+        ),
+        Span::raw(" "),
+        Span::styled(" cyan ", Style::default().fg(palette.bg).bg(palette.cyan)),
+        Span::raw(" "),
+        Span::styled(
+            " magenta ",
+            Style::default().fg(palette.bg).bg(palette.magenta),
+        ),
+        Span::raw(" "),
+        Span::styled(" white ", Style::default().fg(palette.bg).bg(palette.white)),
+    ]));
+    lines.push(Line::from(""));
+
+    lines.push(Line::from(Span::styled(
+        "Workspace UI preview",
+        Style::default()
+            .fg(palette.yellow)
+            .add_modifier(Modifier::BOLD),
+    )));
+    lines.push(Line::from(""));
+
+    lines.push(Line::from(vec![
+        Span::styled(
+            "Header",
+            Style::default()
+                .fg(palette.blue)
+                .add_modifier(Modifier::BOLD),
+        ),
+        Span::styled(
+            "  tabs · status · commands",
+            Style::default().fg(palette.fg),
+        ),
+    ]));
+    lines.push(Line::from(vec![
+        Span::styled("Status OK", Style::default().fg(palette.green)),
+        Span::raw("  |  "),
+        Span::styled("Warning", Style::default().fg(palette.yellow)),
+        Span::raw("  |  "),
+        Span::styled("Error", Style::default().fg(palette.red)),
+    ]));
+    lines.push(Line::from(vec![
+        Span::styled("Task #42", Style::default().fg(palette.cyan)),
+        Span::styled("  active  priority: ", Style::default().fg(palette.fg)),
+        Span::styled("high", Style::default().fg(palette.magenta)),
+    ]));
+    lines.push(Line::from(vec![
+        Span::styled("Diff", Style::default().fg(palette.white)),
+        Span::styled(" +12 ", Style::default().fg(palette.green)),
+        Span::styled("-3", Style::default().fg(palette.red)),
+        Span::styled("  ~2", Style::default().fg(palette.yellow)),
+    ]));
+    lines.push(Line::from(vec![
+        Span::styled("Prompt", Style::default().fg(palette.white)),
+        Span::raw(" "),
+        Span::styled("$", Style::default().fg(palette.green)),
+        Span::styled(
+            " aoc-theme activate --name ",
+            Style::default().fg(palette.fg),
+        ),
+        Span::styled("catppuccin", Style::default().fg(palette.cyan)),
+    ]));
+    lines.push(Line::from(""));
+
+    lines.push(Line::from(Span::styled(
+        "Panel samples",
+        Style::default()
+            .fg(palette.yellow)
+            .add_modifier(Modifier::BOLD),
+    )));
+    for idx in 1..=18 {
+        lines.push(Line::from(vec![
+            Span::styled(
+                format!("Panel {idx:02}"),
+                Style::default().fg(if idx % 2 == 0 {
+                    palette.cyan
+                } else {
+                    palette.blue
+                }),
+            ),
+            Span::styled(
+                " · list row · details text · highlights · borders",
+                Style::default().fg(if idx % 2 == 0 {
+                    palette.fg
+                } else {
+                    palette.white
+                }),
+            ),
+        ]));
+    }
+
+    lines
 }
 
 fn rtk_action_options() -> Vec<String> {
@@ -2158,6 +3221,353 @@ fn load_theme_customs() -> io::Result<Vec<String>> {
         themes.push(name.to_string());
     }
     Ok(themes)
+}
+
+fn resolve_zellij_config_dir() -> PathBuf {
+    if let Ok(explicit_config) = env::var("AOC_ZELLIJ_CONFIG") {
+        let path = PathBuf::from(explicit_config);
+        if let Some(parent) = path.parent() {
+            return parent.to_path_buf();
+        }
+    }
+
+    if let Ok(output) = Command::new("zellij").args(["setup", "--check"]).output() {
+        if output.status.success() {
+            let stdout = String::from_utf8_lossy(&output.stdout);
+            for line in stdout.lines() {
+                let trimmed = line.trim();
+                if !trimmed.starts_with("[CONFIG DIR]:") {
+                    continue;
+                }
+                let dir = trimmed
+                    .trim_start_matches("[CONFIG DIR]:")
+                    .trim()
+                    .trim_matches('"');
+                if !dir.is_empty() {
+                    return PathBuf::from(dir);
+                }
+            }
+        }
+    }
+
+    config_dir().join("zellij")
+}
+
+fn load_theme_palette(zellij_config_dir: &Path, theme_name: &str) -> io::Result<ThemePalette> {
+    let path = zellij_config_dir
+        .join("themes")
+        .join(format!("{theme_name}.kdl"));
+    if !path.exists() {
+        return Err(io::Error::new(
+            io::ErrorKind::NotFound,
+            format!("{} not found", path.to_string_lossy()),
+        ));
+    }
+
+    let contents = fs::read_to_string(&path)?;
+    parse_theme_palette_from_kdl(theme_name, &contents)
+        .or_else(|| parse_any_palette_from_kdl(&contents))
+        .ok_or_else(|| {
+            io::Error::new(
+                io::ErrorKind::InvalidData,
+                format!("unable to parse palette from {}", path.to_string_lossy()),
+            )
+        })
+}
+
+fn parse_theme_palette_from_kdl(theme_name: &str, contents: &str) -> Option<ThemePalette> {
+    let mut palette = ThemePalette::default();
+    let mut in_themes_block = false;
+    let mut themes_depth: i32 = 0;
+    let mut found_theme = false;
+    let mut target_depth: i32 = 0;
+
+    for raw_line in contents.lines() {
+        let line_no_comment = raw_line.split("//").next().unwrap_or("");
+        let trimmed = line_no_comment.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+
+        let opens = trimmed.chars().filter(|c| *c == '{').count() as i32;
+        let closes = trimmed.chars().filter(|c| *c == '}').count() as i32;
+
+        if !found_theme {
+            if !in_themes_block && line_starts_named_node(trimmed, "themes") {
+                in_themes_block = true;
+                themes_depth = opens - closes;
+                if themes_depth <= 0 {
+                    in_themes_block = false;
+                }
+                continue;
+            }
+
+            if line_has_theme_decl(trimmed, theme_name)
+                || line_starts_named_node(trimmed, theme_name)
+                || (in_themes_block && line_starts_named_node(trimmed, theme_name))
+            {
+                found_theme = true;
+                target_depth = opens - closes;
+                continue;
+            }
+
+            if in_themes_block {
+                themes_depth += opens - closes;
+                if themes_depth <= 0 {
+                    in_themes_block = false;
+                }
+            }
+            continue;
+        }
+
+        if target_depth <= 0 {
+            target_depth += opens - closes;
+            continue;
+        }
+
+        if let Some(color) = parse_theme_color_line(trimmed, "fg") {
+            palette.fg = color;
+        }
+        if let Some(color) = parse_theme_color_line(trimmed, "bg") {
+            palette.bg = color;
+        }
+        if let Some(color) = parse_theme_color_line(trimmed, "black") {
+            palette.black = color;
+        }
+        if let Some(color) = parse_theme_color_line(trimmed, "red") {
+            palette.red = color;
+        }
+        if let Some(color) = parse_theme_color_line(trimmed, "green") {
+            palette.green = color;
+        }
+        if let Some(color) = parse_theme_color_line(trimmed, "yellow") {
+            palette.yellow = color;
+        }
+        if let Some(color) = parse_theme_color_line(trimmed, "blue") {
+            palette.blue = color;
+        }
+        if let Some(color) = parse_theme_color_line(trimmed, "magenta") {
+            palette.magenta = color;
+        }
+        if let Some(color) = parse_theme_color_line(trimmed, "cyan") {
+            palette.cyan = color;
+        }
+        if let Some(color) = parse_theme_color_line(trimmed, "white") {
+            palette.white = color;
+        }
+        if let Some(color) = parse_theme_color_line(trimmed, "orange") {
+            palette.orange = color;
+        }
+
+        target_depth += opens - closes;
+        if target_depth <= 0 {
+            return Some(palette);
+        }
+    }
+
+    if found_theme {
+        Some(palette)
+    } else {
+        None
+    }
+}
+
+fn parse_any_palette_from_kdl(contents: &str) -> Option<ThemePalette> {
+    let mut palette = ThemePalette::default();
+    let mut hit_count = 0usize;
+
+    for raw_line in contents.lines() {
+        let line_no_comment = raw_line.split("//").next().unwrap_or("");
+        let trimmed = line_no_comment.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+
+        if let Some(color) = parse_theme_color_line(trimmed, "fg") {
+            palette.fg = color;
+            hit_count += 1;
+        }
+        if let Some(color) = parse_theme_color_line(trimmed, "bg") {
+            palette.bg = color;
+            hit_count += 1;
+        }
+        if let Some(color) = parse_theme_color_line(trimmed, "black") {
+            palette.black = color;
+            hit_count += 1;
+        }
+        if let Some(color) = parse_theme_color_line(trimmed, "red") {
+            palette.red = color;
+            hit_count += 1;
+        }
+        if let Some(color) = parse_theme_color_line(trimmed, "green") {
+            palette.green = color;
+            hit_count += 1;
+        }
+        if let Some(color) = parse_theme_color_line(trimmed, "yellow") {
+            palette.yellow = color;
+            hit_count += 1;
+        }
+        if let Some(color) = parse_theme_color_line(trimmed, "blue") {
+            palette.blue = color;
+            hit_count += 1;
+        }
+        if let Some(color) = parse_theme_color_line(trimmed, "magenta") {
+            palette.magenta = color;
+            hit_count += 1;
+        }
+        if let Some(color) = parse_theme_color_line(trimmed, "cyan") {
+            palette.cyan = color;
+            hit_count += 1;
+        }
+        if let Some(color) = parse_theme_color_line(trimmed, "white") {
+            palette.white = color;
+            hit_count += 1;
+        }
+        if let Some(color) = parse_theme_color_line(trimmed, "orange") {
+            palette.orange = color;
+            hit_count += 1;
+        }
+    }
+
+    if hit_count >= 3 {
+        Some(palette)
+    } else {
+        None
+    }
+}
+
+fn line_has_theme_decl(line: &str, name: &str) -> bool {
+    line.starts_with("theme ") && line.contains('"') && line.contains(&format!("\"{name}\""))
+}
+
+fn line_starts_named_node(line: &str, name: &str) -> bool {
+    let mut token = String::new();
+    for ch in line.chars() {
+        if ch.is_whitespace() || ch == '{' {
+            break;
+        }
+        token.push(ch);
+    }
+
+    if token.is_empty() {
+        return false;
+    }
+
+    token.trim_matches('"') == name
+}
+
+fn parse_theme_color_line(line: &str, key: &str) -> Option<Color> {
+    let rest = line.strip_prefix(key)?;
+    let first = rest.chars().next()?;
+    if !first.is_whitespace() {
+        return None;
+    }
+    let value = rest.trim_start();
+    if value.is_empty() {
+        return None;
+    }
+
+    if let Some(stripped) = value.strip_prefix('"') {
+        let end = stripped.find('"')?;
+        return parse_hex_color(&stripped[..end]);
+    }
+
+    if let Some(token) = value.split_whitespace().next() {
+        if token.starts_with('#') {
+            return parse_hex_color(token);
+        }
+    }
+
+    let mut parts = value.split_whitespace();
+    let r = parts.next()?.parse::<u8>().ok()?;
+    let g = parts.next()?.parse::<u8>().ok()?;
+    let b = parts.next()?.parse::<u8>().ok()?;
+    Some(Color::Rgb(r, g, b))
+}
+
+fn parse_hex_color(value: &str) -> Option<Color> {
+    let hex = value.trim().trim_end_matches(';').trim_start_matches('#');
+    if hex.len() != 6 {
+        return None;
+    }
+
+    let r = u8::from_str_radix(&hex[0..2], 16).ok()?;
+    let g = u8::from_str_radix(&hex[2..4], 16).ok()?;
+    let b = u8::from_str_radix(&hex[4..6], 16).ok()?;
+    Some(Color::Rgb(r, g, b))
+}
+
+#[cfg(test)]
+mod theme_parser_tests {
+    use super::*;
+
+    #[test]
+    fn parses_named_theme_in_themes_block_hex() {
+        let input = r##"
+themes {
+    gruvbox {
+        fg "#d5c4a1"
+        bg "#282828"
+        black "#3c3836"
+        red "#cc241d"
+        green "#98971a"
+        yellow "#d79921"
+        blue "#3c8588"
+        magenta "#b16286"
+        cyan "#689d6a"
+        white "#fbf1c7"
+        orange "#d65d0e"
+    }
+}
+"##;
+
+        let parsed = parse_theme_palette_from_kdl("gruvbox", input).expect("palette");
+        assert_eq!(parsed.bg, Color::Rgb(0x28, 0x28, 0x28));
+        assert_eq!(parsed.blue, Color::Rgb(0x3c, 0x85, 0x88));
+    }
+
+    #[test]
+    fn parses_named_theme_in_themes_block_rgb() {
+        let input = r#"
+themes {
+    catppuccin-mocha {
+        fg 205 214 244
+        bg 30 30 46
+        black 69 71 90
+        red 243 139 168
+        green 166 227 161
+        yellow 249 226 175
+        blue 137 180 250
+        magenta 245 194 231
+        cyan 148 226 213
+        white 186 194 222
+        orange 250 179 135
+    }
+}
+"#;
+
+        let parsed = parse_theme_palette_from_kdl("catppuccin-mocha", input).expect("palette");
+        assert_eq!(parsed.fg, Color::Rgb(205, 214, 244));
+        assert_eq!(parsed.red, Color::Rgb(243, 139, 168));
+    }
+
+    #[test]
+    fn parse_any_palette_fallback_extracts_colors() {
+        let input = r##"
+weird_wrapper {
+    strange_theme {
+        fg "#AABBCC"
+        bg "#112233"
+        blue "#445566"
+    }
+}
+"##;
+
+        let parsed = parse_any_palette_from_kdl(input).expect("fallback palette");
+        assert_eq!(parsed.fg, Color::Rgb(0xAA, 0xBB, 0xCC));
+        assert_eq!(parsed.bg, Color::Rgb(0x11, 0x22, 0x33));
+        assert_eq!(parsed.blue, Color::Rgb(0x44, 0x55, 0x66));
+    }
 }
 
 fn load_active_theme_name() -> io::Result<Option<String>> {
@@ -2285,6 +3695,535 @@ fn binary_in_path(name: &str) -> bool {
     })
 }
 
+fn project_root_path() -> Option<PathBuf> {
+    env::current_dir().ok()
+}
+
+fn project_relative_exists(relative: &str) -> bool {
+    project_root_path()
+        .map(|root| root.join(relative))
+        .map(|path| path.exists())
+        .unwrap_or(false)
+}
+
+fn project_relative_is_dir(relative: &str) -> bool {
+    project_root_path()
+        .map(|root| root.join(relative))
+        .map(|path| path.is_dir())
+        .unwrap_or(false)
+}
+
+fn resolve_dev_root_dir() -> PathBuf {
+    if let Ok(value) = env::var("AOC_DEV_ROOT") {
+        if !value.trim().is_empty() {
+            return PathBuf::from(value);
+        }
+    }
+
+    if let Ok(cwd) = env::current_dir() {
+        let mut cursor = Some(cwd.as_path());
+        while let Some(path) = cursor {
+            if path
+                .file_name()
+                .and_then(|name| name.to_str())
+                .map(|name| name.eq_ignore_ascii_case("dev"))
+                .unwrap_or(false)
+            {
+                return path.to_path_buf();
+            }
+            cursor = path.parent();
+        }
+
+        if let Some(parent) = cwd.parent() {
+            return parent.to_path_buf();
+        }
+    }
+
+    if let Ok(home) = env::var("HOME") {
+        return PathBuf::from(home).join("dev");
+    }
+
+    PathBuf::from(".")
+}
+
+fn preferred_moremotion_source_path() -> PathBuf {
+    if let Ok(value) = env::var("AOC_MOMO_SOURCE") {
+        if !value.trim().is_empty() {
+            return PathBuf::from(value);
+        }
+    }
+
+    let dev_root = resolve_dev_root_dir();
+    let upper = dev_root.join("MoreMotion");
+    if upper.exists() {
+        return upper;
+    }
+    let lower = dev_root.join("moremotion");
+    if lower.exists() {
+        return lower;
+    }
+    upper
+}
+
+fn moremotion_repo_url() -> Option<String> {
+    env::var("AOC_MOREMOTION_REPO_URL")
+        .ok()
+        .filter(|value| !value.trim().is_empty())
+}
+
+fn update_moremotion_source_repo(source: &Path) -> io::Result<String> {
+    if !source.join(".git").exists() {
+        return Err(io::Error::new(
+            io::ErrorKind::Other,
+            format!(
+                "source path exists but is not a git repo: {}",
+                source.to_string_lossy()
+            ),
+        ));
+    }
+
+    let output = Command::new("git")
+        .args(["-C", &source.to_string_lossy(), "pull", "--ff-only"])
+        .output()?;
+    if !output.status.success() {
+        return Err(command_failure(
+            &format!("git -C {} pull --ff-only", source.to_string_lossy()),
+            &output,
+        ));
+    }
+
+    Ok(format!(
+        "Updated local MoreMotion source ({})",
+        source.to_string_lossy()
+    ))
+}
+
+fn clone_moremotion_source_repo(source: &Path, url: &str) -> io::Result<String> {
+    if let Some(parent) = source.parent() {
+        fs::create_dir_all(parent)?;
+    }
+
+    let output = Command::new("git")
+        .args(["clone", url, &source.to_string_lossy()])
+        .output()?;
+    if !output.status.success() {
+        return Err(command_failure(
+            &format!("git clone {url} {}", source.to_string_lossy()),
+            &output,
+        ));
+    }
+
+    Ok(format!(
+        "Cloned local MoreMotion source to {}",
+        source.to_string_lossy()
+    ))
+}
+
+fn run_moremotion_init_with_source(source: &Path, update: bool) -> io::Result<String> {
+    let mut command = Command::new("aoc-momo");
+    command.arg("init").arg("--source").arg(source);
+    if update {
+        command.arg("--update");
+    }
+    let output = command.output()?;
+    if !output.status.success() {
+        let rendered = if update {
+            format!(
+                "aoc-momo init --source {} --update",
+                source.to_string_lossy()
+            )
+        } else {
+            format!("aoc-momo init --source {}", source.to_string_lossy())
+        };
+        return Err(command_failure(&rendered, &output));
+    }
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    let first_line = stdout
+        .lines()
+        .find(|line| !line.trim().is_empty())
+        .or_else(|| stderr.lines().find(|line| !line.trim().is_empty()))
+        .unwrap_or("MoreMotion integration updated")
+        .trim()
+        .to_string();
+
+    let status = moremotion_summary();
+    Ok(format!("{first_line} ({status})"))
+}
+
+fn agent_browser_bin_name() -> String {
+    env::var("AOC_AGENT_BROWSER_BIN")
+        .ok()
+        .filter(|value| !value.trim().is_empty())
+        .unwrap_or_else(|| "agent-browser".to_string())
+}
+
+fn agent_browser_installed() -> bool {
+    binary_in_path(&agent_browser_bin_name())
+}
+
+fn probe_agent_browser_runtime_ready() -> bool {
+    if !agent_browser_installed() {
+        return false;
+    }
+
+    let bin = agent_browser_bin_name();
+    let probe = format!("{bin} open about:blank >/dev/null 2>&1 && {bin} close >/dev/null 2>&1");
+
+    match Command::new("bash")
+        .args(["-lc", &probe])
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+    {
+        Ok(child) => match wait_with_timeout(child, Duration::from_secs(20)) {
+            Ok(status) => status.success(),
+            Err(_) => false,
+        },
+        Err(_) => false,
+    }
+}
+
+fn agent_browser_skill_installed() -> bool {
+    project_relative_exists(".pi/skills/agent-browser/SKILL.md")
+}
+
+fn agent_browser_summary_with_runtime(runtime_ready: bool) -> String {
+    let tool = if agent_browser_installed() {
+        "tool installed"
+    } else {
+        "tool missing"
+    };
+    let runtime = if runtime_ready {
+        "runtime ready"
+    } else if agent_browser_installed() {
+        "runtime missing"
+    } else {
+        "runtime unknown"
+    };
+    let skill = if agent_browser_skill_installed() {
+        "skill present"
+    } else {
+        "skill missing"
+    };
+    format!("{tool}, {runtime}, {skill}")
+}
+
+fn agent_browser_skill_url() -> String {
+    env::var("AOC_AGENT_BROWSER_SKILL_URL")
+        .ok()
+        .filter(|value| !value.trim().is_empty())
+        .unwrap_or_else(|| {
+            "https://raw.githubusercontent.com/vercel-labs/agent-browser/main/skills/agent-browser/SKILL.md"
+                .to_string()
+        })
+}
+
+fn install_agent_browser_skill() -> io::Result<String> {
+    let Some(project_root) = project_root_path() else {
+        return Err(io::Error::new(
+            io::ErrorKind::Other,
+            "unable to resolve project root",
+        ));
+    };
+
+    let target_dir = project_root
+        .join(".pi")
+        .join("skills")
+        .join("agent-browser");
+    fs::create_dir_all(&target_dir)?;
+    let target_file = target_dir.join("SKILL.md");
+    let url = agent_browser_skill_url();
+
+    let output = if binary_in_path("curl") {
+        Command::new("curl")
+            .args([
+                "-fsSL",
+                "--connect-timeout",
+                "10",
+                "--max-time",
+                "120",
+                &url,
+                "-o",
+                &target_file.to_string_lossy(),
+            ])
+            .output()?
+    } else if binary_in_path("wget") {
+        Command::new("wget")
+            .args([
+                "-q",
+                "--timeout=10",
+                "-O",
+                &target_file.to_string_lossy(),
+                &url,
+            ])
+            .output()?
+    } else {
+        return Err(io::Error::new(
+            io::ErrorKind::Other,
+            "curl or wget is required to install Agent Browser skill",
+        ));
+    };
+
+    if !output.status.success() {
+        return Err(command_failure(
+            &format!("download agent-browser skill from {url}"),
+            &output,
+        ));
+    }
+
+    Ok(format!(
+        "Synced Agent Browser skill ({})",
+        target_file.to_string_lossy()
+    ))
+}
+
+fn moremotion_summary() -> String {
+    let nested = if project_relative_is_dir("moremotion") {
+        "nested present"
+    } else {
+        "nested missing"
+    };
+    let prompt = if project_relative_exists(".pi/prompts/momo.md") {
+        "prompt present"
+    } else {
+        "prompt missing"
+    };
+    let source = if preferred_moremotion_source_path().exists() {
+        "source present"
+    } else {
+        "source missing"
+    };
+    format!("{nested}, {prompt}, {source}")
+}
+
+fn default_agent_browser_install_cmd() -> String {
+    r#"set -e
+if command -v pnpm >/dev/null 2>&1; then
+  pnpm add -g agent-browser
+elif command -v npm >/dev/null 2>&1; then
+  npm install -g --prefix "${AOC_NPM_GLOBAL_PREFIX:-$HOME/.local}" agent-browser
+elif command -v corepack >/dev/null 2>&1; then
+  corepack enable
+  corepack prepare pnpm@latest --activate
+  pnpm add -g agent-browser
+else
+  echo 'pnpm/npm/corepack not found' >&2
+  exit 1
+fi
+
+pw_version=$(python - <<'PY'
+import glob, json
+paths=sorted(glob.glob('/home/' + __import__('os').path.expanduser('~').split('/')[-1] + '/.local/share/pnpm/global/5/.pnpm/agent-browser@*/node_modules/agent-browser/package.json'))
+if not paths:
+    paths=sorted(glob.glob(__import__('os').path.expanduser('~/.local/share/pnpm/global/5/.pnpm/agent-browser@*/node_modules/agent-browser/package.json')))
+if not paths:
+    raise SystemExit(1)
+with open(paths[-1]) as f:
+    pkg=json.load(f)
+ver=pkg.get('dependencies',{}).get('playwright-core') or pkg.get('devDependencies',{}).get('playwright') or ''
+print(ver.lstrip('^~'))
+PY
+)
+
+if [ -z "$pw_version" ]; then
+  echo 'Could not resolve Agent Browser Playwright version' >&2
+  exit 1
+fi
+
+if command -v pnpm >/dev/null 2>&1; then
+  pnpm add -g "playwright@$pw_version"
+else
+  npm install -g --prefix "${AOC_NPM_GLOBAL_PREFIX:-$HOME/.local}" "playwright@$pw_version"
+fi
+
+playwright install chromium chromium-headless-shell
+agent-browser open about:blank >/dev/null 2>&1
+agent-browser close >/dev/null 2>&1 || true"#
+        .to_string()
+}
+
+fn default_agent_browser_update_cmd() -> String {
+    r#"set -e
+if command -v pnpm >/dev/null 2>&1; then
+  pnpm add -g agent-browser@latest
+elif command -v npm >/dev/null 2>&1; then
+  npm install -g --prefix "${AOC_NPM_GLOBAL_PREFIX:-$HOME/.local}" agent-browser@latest
+elif command -v corepack >/dev/null 2>&1; then
+  corepack enable
+  corepack prepare pnpm@latest --activate
+  pnpm add -g agent-browser@latest
+else
+  echo 'pnpm/npm/corepack not found' >&2
+  exit 1
+fi
+
+pw_version=$(python - <<'PY'
+import glob, json
+paths=sorted(glob.glob('/home/' + __import__('os').path.expanduser('~').split('/')[-1] + '/.local/share/pnpm/global/5/.pnpm/agent-browser@*/node_modules/agent-browser/package.json'))
+if not paths:
+    paths=sorted(glob.glob(__import__('os').path.expanduser('~/.local/share/pnpm/global/5/.pnpm/agent-browser@*/node_modules/agent-browser/package.json')))
+if not paths:
+    raise SystemExit(1)
+with open(paths[-1]) as f:
+    pkg=json.load(f)
+ver=pkg.get('dependencies',{}).get('playwright-core') or pkg.get('devDependencies',{}).get('playwright') or ''
+print(ver.lstrip('^~'))
+PY
+)
+
+if [ -z "$pw_version" ]; then
+  echo 'Could not resolve Agent Browser Playwright version' >&2
+  exit 1
+fi
+
+if command -v pnpm >/dev/null 2>&1; then
+  pnpm add -g "playwright@$pw_version"
+else
+  npm install -g --prefix "${AOC_NPM_GLOBAL_PREFIX:-$HOME/.local}" "playwright@$pw_version"
+fi
+
+playwright install chromium chromium-headless-shell
+agent-browser open about:blank >/dev/null 2>&1
+agent-browser close >/dev/null 2>&1 || true"#
+        .to_string()
+}
+
+fn resolve_agent_browser_cmd(action: &str) -> String {
+    match action {
+        "install" => env::var("AOC_AGENT_BROWSER_INSTALL_CMD")
+            .ok()
+            .filter(|value| !value.trim().is_empty())
+            .unwrap_or_else(default_agent_browser_install_cmd),
+        _ => env::var("AOC_AGENT_BROWSER_UPDATE_CMD")
+            .ok()
+            .filter(|value| !value.trim().is_empty())
+            .or_else(|| {
+                env::var("AOC_AGENT_BROWSER_INSTALL_CMD")
+                    .ok()
+                    .filter(|value| !value.trim().is_empty())
+            })
+            .unwrap_or_else(default_agent_browser_update_cmd),
+    }
+}
+
+fn agent_browser_log_path(action: &str) -> PathBuf {
+    let stamp = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_millis())
+        .unwrap_or(0);
+    env::temp_dir().join(format!(
+        "aoc-control-agent-browser-{action}-{}-{stamp}.log",
+        std::process::id()
+    ))
+}
+
+fn spawn_agent_browser_command(action: &str) -> io::Result<AgentBrowserJob> {
+    let cmd = resolve_agent_browser_cmd(action);
+    let log_path = agent_browser_log_path(action);
+    let log_file = fs::File::create(&log_path)?;
+    let log_file_err = log_file.try_clone()?;
+
+    let child = Command::new("bash")
+        .args(["-lc", &cmd])
+        .stdin(Stdio::null())
+        .stdout(Stdio::from(log_file))
+        .stderr(Stdio::from(log_file_err))
+        .spawn()?;
+
+    Ok(AgentBrowserJob {
+        action: action.to_string(),
+        log_path,
+        child,
+    })
+}
+
+fn tail_file_lines(path: &Path, max_lines: usize, max_bytes: usize) -> io::Result<Vec<String>> {
+    let mut file = fs::File::open(path)?;
+    let len = file.metadata()?.len();
+    let start = len.saturating_sub(max_bytes as u64);
+    if start > 0 {
+        file.seek(SeekFrom::Start(start))?;
+    }
+
+    let mut buf = Vec::new();
+    file.read_to_end(&mut buf)?;
+    let text = String::from_utf8_lossy(&buf);
+    let mut lines: Vec<String> = text.lines().map(|line| line.to_string()).collect();
+
+    if start > 0 && !text.starts_with('\n') && !lines.is_empty() {
+        lines.remove(0);
+    }
+
+    if lines.len() > max_lines {
+        lines = lines.split_off(lines.len() - max_lines);
+    }
+
+    Ok(lines)
+}
+
+fn latest_agent_browser_log_path() -> Option<PathBuf> {
+    let prefix = "aoc-control-agent-browser-";
+    let mut entries: Vec<(SystemTime, PathBuf)> = fs::read_dir(env::temp_dir())
+        .ok()?
+        .filter_map(|entry| {
+            let entry = entry.ok()?;
+            let path = entry.path();
+            let name = path.file_name()?.to_str()?;
+            if !name.starts_with(prefix) || !name.ends_with(".log") {
+                return None;
+            }
+            let modified = entry.metadata().ok()?.modified().ok()?;
+            Some((modified, path))
+        })
+        .collect();
+    entries.sort_by_key(|(modified, _)| *modified);
+    entries.pop().map(|(_, path)| path)
+}
+
+fn open_log_in_pager(path: &Path) -> io::Result<()> {
+    let pager = env::var("PAGER")
+        .ok()
+        .filter(|value| !value.trim().is_empty())
+        .unwrap_or_else(|| "less".to_string());
+    let status = with_cooked_mode(|| Command::new(&pager).arg(path).status())?;
+    if status.success() {
+        Ok(())
+    } else {
+        Err(io::Error::other(format!(
+            "{pager} {} exited with status {status}",
+            path.to_string_lossy()
+        )))
+    }
+}
+
+fn run_moremotion_command(args: &[&str]) -> io::Result<String> {
+    let output = Command::new("aoc-momo").args(args).output()?;
+    if !output.status.success() {
+        let rendered = if args.is_empty() {
+            "aoc-momo".to_string()
+        } else {
+            format!("aoc-momo {}", args.join(" "))
+        };
+        return Err(command_failure(&rendered, &output));
+    }
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    let first_line = stdout
+        .lines()
+        .find(|line| !line.trim().is_empty())
+        .or_else(|| stderr.lines().find(|line| !line.trim().is_empty()))
+        .unwrap_or("MoreMotion integration updated")
+        .trim()
+        .to_string();
+
+    let status = moremotion_summary();
+    Ok(format!("{first_line} ({status})"))
+}
+
 fn load_rtk_status() -> io::Result<RtkStatus> {
     let output = Command::new("aoc-rtk")
         .args(["status", "--shell"])
@@ -2403,6 +4342,9 @@ fn run_agent_install_command(action: &str, agent: &str) -> io::Result<String> {
 }
 
 fn with_cooked_mode<T>(f: impl FnOnce() -> io::Result<T>) -> io::Result<T> {
+    let mut stdout = io::stdout();
+    let _ = execute!(stdout, DisableMouseCapture);
+
     let was_raw = is_raw_mode_enabled().unwrap_or(false);
     if was_raw {
         disable_raw_mode()?;
@@ -2411,13 +4353,68 @@ fn with_cooked_mode<T>(f: impl FnOnce() -> io::Result<T>) -> io::Result<T> {
     let result = f();
 
     if was_raw {
-        enable_raw_mode()?;
+        let _ = enable_raw_mode();
     }
+    let mut stdout = io::stdout();
+    let _ = execute!(stdout, EnableMouseCapture);
 
     result
 }
 
-fn wait_with_timeout(mut child: std::process::Child, timeout: Duration) -> io::Result<ExitStatus> {
+fn run_theme_command_interactive(args: &[&str]) -> io::Result<()> {
+    let status = with_cooked_mode(|| {
+        Command::new("aoc-theme")
+            .env("AOC_THEME_QUIET", "1")
+            .args(args)
+            .status()
+    })?;
+    if status.success() {
+        Ok(())
+    } else {
+        let rendered = if args.is_empty() {
+            "aoc-theme".to_string()
+        } else {
+            format!("aoc-theme {}", args.join(" "))
+        };
+        Err(io::Error::new(
+            io::ErrorKind::Other,
+            format!("{rendered} exited with status {status}"),
+        ))
+    }
+}
+
+fn run_theme_apply_quiet(theme_name: &str) -> io::Result<()> {
+    with_cooked_mode(|| {
+        let mut child = Command::new("aoc-theme")
+            .env("AOC_THEME_QUIET", "1")
+            .env("AOC_THEME_SKIP_SYNC", "1")
+            .args(["apply", "--name", theme_name])
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()?;
+
+        thread::spawn(move || {
+            let _ = child.wait();
+        });
+
+        Ok(())
+    })
+}
+
+fn command_failure(command: &str, output: &std::process::Output) -> io::Error {
+    let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+    let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    let details = if !stderr.is_empty() {
+        stderr
+    } else if !stdout.is_empty() {
+        stdout
+    } else {
+        format!("{command} exited with status {}", output.status)
+    };
+    io::Error::new(io::ErrorKind::Other, details)
+}
+
+fn wait_with_timeout(mut child: Child, timeout: Duration) -> io::Result<ExitStatus> {
     let started = Instant::now();
     loop {
         if let Some(status) = child.try_wait()? {
@@ -2435,96 +4432,6 @@ fn wait_with_timeout(mut child: std::process::Child, timeout: Duration) -> io::R
 
         thread::sleep(Duration::from_millis(20));
     }
-}
-
-fn run_theme_command_interactive(args: &[&str]) -> io::Result<()> {
-    let status = with_cooked_mode(|| Command::new("aoc-theme").args(args).status())?;
-    if status.success() {
-        Ok(())
-    } else {
-        let rendered = if args.is_empty() {
-            "aoc-theme".to_string()
-        } else {
-            format!("aoc-theme {}", args.join(" "))
-        };
-        Err(io::Error::new(
-            io::ErrorKind::Other,
-            format!("{rendered} exited with status {status}"),
-        ))
-    }
-}
-
-fn run_theme_apply_quiet(theme_name: &str) -> io::Result<()> {
-    let status = with_cooked_mode(|| {
-        let child = Command::new("aoc-theme")
-            .env("AOC_THEME_QUIET", "1")
-            .env("AOC_THEME_SKIP_SYNC", "1")
-            .args(["apply", "--name", theme_name])
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .spawn()?;
-        wait_with_timeout(child, Duration::from_millis(900))
-    })?;
-
-    if status.success() {
-        Ok(())
-    } else {
-        Err(io::Error::new(
-            io::ErrorKind::Other,
-            format!("aoc-theme apply --name {theme_name} exited with status {status}"),
-        ))
-    }
-}
-
-fn run_preset_install_only(theme_name: &str) -> io::Result<String> {
-    let _ = run_theme_command(&["presets", "install", "--name", theme_name])?;
-    Ok(format!("Installed preset '{theme_name}'"))
-}
-
-fn run_preset_apply(theme_name: &str) -> io::Result<String> {
-    let _ = run_theme_command(&["presets", "install", "--name", theme_name])?;
-    run_theme_command_interactive(&["apply", "--name", theme_name])?;
-    Ok(format!("Applied preset '{theme_name}'"))
-}
-
-fn run_preset_set_default(theme_name: &str) -> io::Result<String> {
-    let _ = run_theme_command(&["presets", "install", "--name", theme_name])?;
-    let _ = run_theme_command(&["set-default", "--name", theme_name])?;
-    Ok(format!("Set default theme '{theme_name}'"))
-}
-
-fn run_preset_apply_and_set_default(theme_name: &str) -> io::Result<String> {
-    let _ = run_theme_command(&["presets", "install", "--name", theme_name])?;
-    run_theme_command_interactive(&["activate", "--name", theme_name])?;
-    Ok(format!("Activated preset theme '{theme_name}'"))
-}
-
-fn run_custom_apply(theme_name: &str) -> io::Result<String> {
-    run_theme_command_interactive(&["apply", "--name", theme_name])?;
-    Ok(format!("Applied custom theme '{theme_name}'"))
-}
-
-fn run_custom_set_default(theme_name: &str) -> io::Result<String> {
-    let _ = run_theme_command(&["set-default", "--name", theme_name])?;
-    Ok(format!("Set default theme '{theme_name}'"))
-}
-
-fn run_custom_apply_and_set_default(theme_name: &str) -> io::Result<String> {
-    run_theme_command_interactive(&["activate", "--name", theme_name])?;
-    Ok(format!("Activated theme '{theme_name}'"))
-}
-
-fn command_failure(command: &str, output: &std::process::Output) -> io::Error {
-    let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
-    let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
-    let details = if !stderr.is_empty() {
-        stderr
-    } else if !stdout.is_empty() {
-        stdout
-    } else {
-        format!("{command} exited with status {}", output.status)
-    };
-    io::Error::new(io::ErrorKind::Other, details)
 }
 
 fn load_config(path: &Path) -> io::Result<AocConfig> {

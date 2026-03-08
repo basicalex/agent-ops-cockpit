@@ -215,11 +215,15 @@ Keyboard-driven file management with rich previews:
 | Key | Action |
 |-----|--------|
 | `Enter` / `o` | Smart open (dir enter, text edit, media default app) |
-| `e` | Toggle Full Yazi mode (fullscreen + 3-column view) |
+| `e` | Toggle Full Yazi mode (expand pane + configurable 3-col/2-col view) |
 | `g s` | Edit short-term memory |
 | `g S` | Jump to `.aoc/stm` |
 | `W` | Set widget media path |
 | `p` | Send to floating preview |
+
+Optional tuning via env vars:
+- `AOC_YAZI_PANE_EXPANDED_VIEW=2col|3col` (default `2col`)
+- `AOC_YAZI_PANE_COLLAPSE_RIGHT_COLUMN=1|0` (default `1`) + `AOC_YAZI_RIGHT_COLUMN_COLLAPSE_STEPS=6` to temporarily shrink the right-side Pulse/Terminal column while Yazi is expanded
 
 **Preview support:** Images, PDFs, SVGs, LaTeX, code with syntax highlighting
 
@@ -424,7 +428,7 @@ aoc-theme set-default --name review-mode
 aoc-theme sync
 ```
 
-From `Alt+C` (`aoc-control`), open **Settings -> Agent installers** to view install status and run install/update actions for supported CLIs.
+From `Alt+C` (`aoc-control`), open **Settings -> Tools** for nested controls (RTK, PI installer, Agent Browser tool/skill sync, MoreMotion flows). The right-hand details pane explains each selected action.
 
 ### Environment Variables
 
