@@ -346,6 +346,22 @@ struct InsightRuntimeSnapshot {
     #[serde(default)]
     reflector_jobs_failed: u64,
     #[serde(default)]
+    t3_enabled: bool,
+    #[serde(default)]
+    t3_ticks: u64,
+    #[serde(default)]
+    t3_lock_conflicts: u64,
+    #[serde(default)]
+    t3_jobs_completed: u64,
+    #[serde(default)]
+    t3_jobs_failed: u64,
+    #[serde(default)]
+    t3_jobs_requeued: u64,
+    #[serde(default)]
+    t3_jobs_dead_lettered: u64,
+    #[serde(default)]
+    t3_queue_depth: i64,
+    #[serde(default)]
     supervisor_runs: u64,
     #[serde(default)]
     supervisor_failures: u64,
@@ -355,6 +371,49 @@ struct InsightRuntimeSnapshot {
     last_tick_ms: Option<i64>,
     #[serde(default)]
     last_error: Option<String>,
+}
+
+#[derive(Deserialize, Clone, Debug, Default)]
+struct MindSessionExportManifest {
+    #[serde(default)]
+    session_id: String,
+    #[serde(default)]
+    active_tag: Option<String>,
+    #[serde(default)]
+    export_dir: String,
+    #[serde(default)]
+    t1_count: usize,
+    #[serde(default)]
+    t2_count: usize,
+    #[serde(default)]
+    t3_job_id: String,
+    #[serde(default)]
+    exported_at: String,
+}
+
+#[derive(Clone, Debug, Default)]
+struct MindHandshakeEntry {
+    entry_id: String,
+    revision: u32,
+    topic: Option<String>,
+    summary: String,
+}
+
+#[derive(Clone, Debug, Default)]
+struct MindCanonEntry {
+    entry_id: String,
+    revision: u32,
+    topic: Option<String>,
+    evidence_refs: Vec<String>,
+    summary: String,
+}
+
+#[derive(Clone, Debug, Default)]
+struct MindArtifactDrilldown {
+    latest_export: Option<MindSessionExportManifest>,
+    handshake_entries: Vec<MindHandshakeEntry>,
+    active_canon_entries: Vec<MindCanonEntry>,
+    stale_canon_count: usize,
 }
 
 #[derive(Clone, Debug)]
@@ -410,24 +469,30 @@ impl Mode {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum MindLaneFilter {
+    T0,
     T1,
     T2,
+    T3,
     All,
 }
 
 impl MindLaneFilter {
     fn next(self) -> Self {
         match self {
+            Self::T0 => Self::T1,
             Self::T1 => Self::T2,
-            Self::T2 => Self::All,
-            Self::All => Self::T1,
+            Self::T2 => Self::T3,
+            Self::T3 => Self::All,
+            Self::All => Self::T0,
         }
     }
 
     fn label(self) -> &'static str {
         match self {
+            Self::T0 => "t0",
             Self::T1 => "t1",
             Self::T2 => "t2",
+            Self::T3 => "t3",
             Self::All => "all",
         }
     }
@@ -507,6 +572,7 @@ struct App {
     last_viewer_tab_index: Option<usize>,
     mind_lane: MindLaneFilter,
     mind_show_all_tabs: bool,
+    mind_show_provenance: bool,
     status_note: Option<String>,
     pending_commands: HashMap<String, PendingCommand>,
     next_request_id: u64,
@@ -587,6 +653,7 @@ impl App {
             last_viewer_tab_index,
             mind_lane: MindLaneFilter::T1,
             mind_show_all_tabs: false,
+            mind_show_provenance: false,
             status_note,
             pending_commands: HashMap::new(),
             next_request_id: 0,
@@ -1670,6 +1737,24 @@ impl App {
             agg.reflector_jobs_failed = agg
                 .reflector_jobs_failed
                 .saturating_add(snapshot.reflector_jobs_failed);
+            agg.t3_enabled = agg.t3_enabled || snapshot.t3_enabled;
+            agg.t3_ticks = agg.t3_ticks.saturating_add(snapshot.t3_ticks);
+            agg.t3_lock_conflicts = agg
+                .t3_lock_conflicts
+                .saturating_add(snapshot.t3_lock_conflicts);
+            agg.t3_jobs_completed = agg
+                .t3_jobs_completed
+                .saturating_add(snapshot.t3_jobs_completed);
+            agg.t3_jobs_failed = agg.t3_jobs_failed.saturating_add(snapshot.t3_jobs_failed);
+            agg.t3_jobs_requeued = agg
+                .t3_jobs_requeued
+                .saturating_add(snapshot.t3_jobs_requeued);
+            agg.t3_jobs_dead_lettered = agg
+                .t3_jobs_dead_lettered
+                .saturating_add(snapshot.t3_jobs_dead_lettered);
+            agg.t3_queue_depth = agg
+                .t3_queue_depth
+                .saturating_add(snapshot.t3_queue_depth.max(0));
             agg.supervisor_runs = agg.supervisor_runs.saturating_add(snapshot.supervisor_runs);
             agg.supervisor_failures = agg
                 .supervisor_failures
@@ -1685,7 +1770,7 @@ impl App {
         Some(agg)
     }
 
-    fn mind_rows(&self) -> Vec<MindObserverRow> {
+    fn mind_rows_for_lane(&self, lane_filter: MindLaneFilter) -> Vec<MindObserverRow> {
         if !self.prefer_hub_data(!self.hub.mind.is_empty()) {
             return Vec::new();
         }
@@ -1715,7 +1800,7 @@ impl App {
 
             for event in &feed.events {
                 let lane = mind_event_lane(event);
-                if !mind_lane_matches(self.mind_lane, lane) {
+                if !mind_lane_matches(lane_filter, lane) {
                     continue;
                 }
                 rows.push(MindObserverRow {
@@ -1746,6 +1831,10 @@ impl App {
                 .then_with(|| left.pane_id.cmp(&right.pane_id))
         });
         rows
+    }
+
+    fn mind_rows(&self) -> Vec<MindObserverRow> {
+        self.mind_rows_for_lane(self.mind_lane)
     }
 
     fn mind_target_agent(&self) -> Option<OverviewRow> {
@@ -1858,6 +1947,51 @@ impl App {
         );
     }
 
+    fn request_mind_force_finalize(&mut self) {
+        let Some(target) = self.mind_target_agent() else {
+            self.status_note = Some("no target pane for force finalize".to_string());
+            return;
+        };
+        self.queue_hub_command(
+            "mind_finalize_session",
+            Some(target.identity_key.clone()),
+            serde_json::json!({
+                "reason": "operator force finalize"
+            }),
+            format!("{}::{}", target.label, target.pane_id),
+        );
+    }
+
+    fn request_mind_t3_requeue(&mut self) {
+        let Some(target) = self.mind_target_agent() else {
+            self.status_note = Some("no target pane for t3 requeue".to_string());
+            return;
+        };
+        self.queue_hub_command(
+            "mind_t3_requeue",
+            Some(target.identity_key.clone()),
+            serde_json::json!({
+                "reason": "operator requeue"
+            }),
+            format!("{}::{}", target.label, target.pane_id),
+        );
+    }
+
+    fn request_mind_handshake_rebuild(&mut self) {
+        let Some(target) = self.mind_target_agent() else {
+            self.status_note = Some("no target pane for handshake rebuild".to_string());
+            return;
+        };
+        self.queue_hub_command(
+            "mind_handshake_rebuild",
+            Some(target.identity_key.clone()),
+            serde_json::json!({
+                "reason": "operator rebuild"}
+            ),
+            format!("{}::{}", target.label, target.pane_id),
+        );
+    }
+
     fn toggle_mind_lane(&mut self) {
         self.mind_lane = self.mind_lane.next();
         self.scroll = 0;
@@ -1871,6 +2005,16 @@ impl App {
             "mind scope: all tabs".to_string()
         } else {
             "mind scope: active tab".to_string()
+        });
+    }
+
+    fn toggle_mind_provenance(&mut self) {
+        self.mind_show_provenance = !self.mind_show_provenance;
+        self.scroll = 0;
+        self.status_note = Some(if self.mind_show_provenance {
+            "mind provenance: expanded".to_string()
+        } else {
+            "mind provenance: compact".to_string()
         });
     }
 
@@ -2167,7 +2311,8 @@ fn resolve_custom_pulse_theme() -> Option<PulseTheme> {
         |keys: &[&str]| -> Option<Color> { keys.iter().find_map(|key| env_color(key)) };
 
     Some(PulseTheme {
-        surface: env_color_any(&["AOC_THEME_BG_BASE", "AOC_THEME_BG"])?,
+        // Inherit the pane/terminal background so Pulse matches the rest of the AOC layout.
+        surface: Color::Reset,
         border: env_color_any(&["AOC_THEME_BG_ELEVATED", "AOC_THEME_BLACK"])?,
         title: env_color_any(&["AOC_THEME_UI_ACCENT", "AOC_THEME_BLUE"])?,
         text: env_color_any(&["AOC_THEME_UI_PRIMARY", "AOC_THEME_FG"])?,
@@ -2778,8 +2923,12 @@ fn mode_help_lines(app: &App, theme: PulseTheme) -> Vec<Line<'static>> {
             Line::from("  o        request manual observer run (T1)"),
             Line::from("  O        run insight_dispatch chain (T1->T2)"),
             Line::from("  b / B    bootstrap dry-run / seed enqueue"),
-            Line::from("  t        toggle lane (t1/t2/all)"),
+            Line::from("  F        force finalize session"),
+            Line::from("  R        requeue latest T3 export slice"),
+            Line::from("  H        rebuild handshake baseline"),
+            Line::from("  t        toggle lane (t0/t1/t2/t3/all)"),
             Line::from("  v        toggle scope (active tab/all tabs)"),
+            Line::from("  p        toggle provenance drilldown"),
         ],
         Mode::Work => vec![
             Line::from(Span::styled(
@@ -2835,6 +2984,7 @@ fn centered_rect(percent_x: u16, percent_y: u16, area: Rect) -> Rect {
 
 fn render_mind_lines(app: &App, theme: PulseTheme, compact: bool) -> Vec<Line<'static>> {
     let rows = app.mind_rows();
+    let all_rows = app.mind_rows_for_lane(MindLaneFilter::All);
     let mut lines = Vec::new();
 
     let lane_label = app.mind_lane.label().to_ascii_uppercase();
@@ -2843,6 +2993,7 @@ fn render_mind_lines(app: &App, theme: PulseTheme, compact: bool) -> Vec<Line<'s
     } else {
         "active-tab"
     };
+    let lane_rollup = mind_lane_rollup(&all_rows);
     let mut header = vec![
         Span::styled("lane:", Style::default().fg(theme.muted)),
         Span::styled(
@@ -2857,24 +3008,66 @@ fn render_mind_lines(app: &App, theme: PulseTheme, compact: bool) -> Vec<Line<'s
                 .fg(theme.accent)
                 .add_modifier(Modifier::BOLD),
         ),
+        Span::raw("  "),
+        Span::styled(
+            format!(
+                "t0:{} t1:{} t2:{} t3:{}",
+                lane_rollup[0], lane_rollup[1], lane_rollup[2], lane_rollup[3]
+            ),
+            Style::default().fg(theme.muted),
+        ),
     ];
 
     if let Some(runtime) = app.insight_runtime_rollup() {
         header.push(Span::raw("  "));
         header.push(Span::styled(
             format!(
-                "q:{} done:{} fail:{} lock:{} sup:{}/{}",
+                "t2q:{} done:{} fail:{} lock:{} | t3q:{} done:{} fail:{} rq:{} dlq:{} lock:{}",
                 runtime.queue_depth,
                 runtime.reflector_jobs_completed,
                 runtime.reflector_jobs_failed,
                 runtime.reflector_lock_conflicts,
-                runtime.supervisor_runs,
-                runtime.supervisor_failures
+                runtime.t3_queue_depth,
+                runtime.t3_jobs_completed,
+                runtime.t3_jobs_failed,
+                runtime.t3_jobs_requeued,
+                runtime.t3_jobs_dead_lettered,
+                runtime.t3_lock_conflicts
             ),
             Style::default().fg(theme.muted),
         ));
     }
     lines.push(Line::from(header));
+
+    let status_rollup = mind_status_rollup(&rows);
+    lines.push(Line::from(vec![
+        Span::styled("status:", Style::default().fg(theme.muted)),
+        Span::raw(" "),
+        Span::styled(
+            format!("q:{}", status_rollup.queued),
+            Style::default().fg(theme.warn),
+        ),
+        Span::raw(" "),
+        Span::styled(
+            format!("run:{}", status_rollup.running),
+            Style::default().fg(theme.info),
+        ),
+        Span::raw(" "),
+        Span::styled(
+            format!("ok:{}", status_rollup.success),
+            Style::default().fg(theme.ok),
+        ),
+        Span::raw(" "),
+        Span::styled(
+            format!("fb:{}", status_rollup.fallback),
+            Style::default().fg(theme.warn),
+        ),
+        Span::raw(" "),
+        Span::styled(
+            format!("err:{}", status_rollup.error),
+            Style::default().fg(theme.critical),
+        ),
+    ]));
 
     if rows.is_empty() {
         lines.push(Line::from(Span::styled(
@@ -2892,6 +3085,8 @@ fn render_mind_lines(app: &App, theme: PulseTheme, compact: bool) -> Vec<Line<'s
         let status_label = mind_status_label(row.event.status);
         let status_color = mind_status_color(row.event.status, theme);
         let trigger_label = mind_trigger_label(row.event.trigger);
+        let lane = mind_event_lane(&row.event);
+        let lane_label = mind_lane_label(lane);
         let runtime_label = row
             .event
             .runtime
@@ -2919,6 +3114,13 @@ fn render_mind_lines(app: &App, theme: PulseTheme, compact: bool) -> Vec<Line<'s
 
         let mut primary_spans = vec![
             Span::styled("✦", Style::default().fg(theme.muted)),
+            Span::raw(" "),
+            Span::styled(
+                format!("[{}]", lane_label),
+                Style::default()
+                    .fg(mind_lane_color(lane, theme))
+                    .add_modifier(Modifier::BOLD),
+            ),
             Span::raw(" "),
             Span::styled(
                 format!("[{}]", status_label),
@@ -2991,7 +3193,397 @@ fn render_mind_lines(app: &App, theme: PulseTheme, compact: bool) -> Vec<Line<'s
             Span::styled(context, Style::default().fg(theme.muted)),
         ]));
     }
+
+    let artifact_lines = render_mind_artifact_drilldown_lines(
+        &app.config.project_root,
+        theme,
+        compact,
+        app.mind_show_provenance,
+    );
+    if !artifact_lines.is_empty() {
+        lines.push(Line::from(""));
+        lines.extend(artifact_lines);
+    }
+
     lines
+}
+
+fn render_mind_artifact_drilldown_lines(
+    project_root: &Path,
+    theme: PulseTheme,
+    compact: bool,
+    show_provenance: bool,
+) -> Vec<Line<'static>> {
+    let snapshot = load_mind_artifact_drilldown(project_root);
+    if snapshot.latest_export.is_none()
+        && snapshot.handshake_entries.is_empty()
+        && snapshot.active_canon_entries.is_empty()
+        && snapshot.stale_canon_count == 0
+    {
+        return Vec::new();
+    }
+
+    let mut lines = vec![Line::from(vec![
+        Span::styled(
+            "Artifact drilldown",
+            Style::default()
+                .fg(theme.title)
+                .add_modifier(Modifier::BOLD),
+        ),
+        Span::raw(" "),
+        Span::styled(
+            if show_provenance {
+                "[provenance:on]"
+            } else {
+                "[provenance:off]"
+            },
+            Style::default().fg(theme.muted),
+        ),
+    ])];
+
+    if let Some(manifest) = snapshot.latest_export.as_ref() {
+        let export_leaf = Path::new(&manifest.export_dir)
+            .file_name()
+            .and_then(|value| value.to_str())
+            .unwrap_or("(unknown)");
+        let mut spans = vec![
+            Span::raw("  "),
+            Span::styled("latest:", Style::default().fg(theme.muted)),
+            Span::raw(" "),
+            Span::styled(
+                ellipsize(export_leaf, if compact { 30 } else { 48 }),
+                Style::default().fg(theme.accent),
+            ),
+            Span::raw(" "),
+            Span::styled(
+                format!("session:{}", ellipsize(&manifest.session_id, 18)),
+                Style::default().fg(theme.muted),
+            ),
+            Span::raw(" "),
+            Span::styled(
+                format!("t1:{} t2:{}", manifest.t1_count, manifest.t2_count),
+                Style::default().fg(theme.muted),
+            ),
+        ];
+        if let Some(active_tag) = manifest
+            .active_tag
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+        {
+            spans.push(Span::raw(" "));
+            spans.push(Span::styled(
+                format!("tag:{}", ellipsize(active_tag, 16)),
+                Style::default().fg(theme.info),
+            ));
+        }
+        if !manifest.exported_at.trim().is_empty() {
+            spans.push(Span::raw(" "));
+            spans.push(Span::styled(
+                format!("@{}", ellipsize(&manifest.exported_at, 20)),
+                Style::default().fg(theme.muted),
+            ));
+        }
+        if !manifest.t3_job_id.trim().is_empty() {
+            spans.push(Span::raw(" "));
+            spans.push(Span::styled(
+                format!("t3:{}", ellipsize(&manifest.t3_job_id, 20)),
+                Style::default().fg(theme.warn),
+            ));
+        }
+        lines.push(Line::from(spans));
+    }
+
+    lines.push(Line::from(vec![
+        Span::raw("  "),
+        Span::styled(
+            format!(
+                "handshake:{} active_canon:{} stale_canon:{}",
+                snapshot.handshake_entries.len(),
+                snapshot.active_canon_entries.len(),
+                snapshot.stale_canon_count
+            ),
+            Style::default().fg(theme.muted),
+        ),
+    ]));
+
+    if !show_provenance {
+        lines.push(Line::from(vec![
+            Span::raw("  -> "),
+            Span::styled(
+                "press 'p' to expand handshake → canon → evidence links",
+                Style::default().fg(theme.muted),
+            ),
+        ]));
+        return lines;
+    }
+
+    let mut canon_by_key = HashMap::new();
+    for entry in &snapshot.active_canon_entries {
+        canon_by_key.insert(canon_key(&entry.entry_id, entry.revision), entry);
+    }
+
+    let limit = if compact { 2 } else { 5 };
+    for handshake in snapshot.handshake_entries.iter().take(limit) {
+        lines.push(Line::from(vec![
+            Span::raw("  ↳ "),
+            Span::styled(
+                format!("[{} r{}]", handshake.entry_id, handshake.revision),
+                Style::default().fg(theme.info).add_modifier(Modifier::BOLD),
+            ),
+            Span::raw(" "),
+            Span::styled(
+                handshake
+                    .topic
+                    .as_deref()
+                    .map(|topic| format!("topic={topic}"))
+                    .unwrap_or_else(|| "topic=global".to_string()),
+                Style::default().fg(theme.muted),
+            ),
+        ]));
+
+        let summary = ellipsize(&handshake.summary, if compact { 44 } else { 80 });
+        lines.push(Line::from(vec![
+            Span::raw("     "),
+            Span::styled(summary, Style::default().fg(theme.muted)),
+        ]));
+
+        let key = canon_key(&handshake.entry_id, handshake.revision);
+        if let Some(canon) = canon_by_key.get(&key) {
+            let refs = if canon.evidence_refs.is_empty() {
+                "(none)".to_string()
+            } else {
+                canon
+                    .evidence_refs
+                    .iter()
+                    .take(if compact { 2 } else { 4 })
+                    .cloned()
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            };
+            let refs_count = canon.evidence_refs.len();
+            lines.push(Line::from(vec![
+                Span::raw("     trace: "),
+                Span::styled("handshake", Style::default().fg(theme.info)),
+                Span::raw(" -> "),
+                Span::styled("canon", Style::default().fg(theme.accent)),
+                Span::raw(" -> "),
+                Span::styled(
+                    format!("evidence[{refs_count}] {refs}"),
+                    Style::default().fg(theme.warn),
+                ),
+            ]));
+        } else {
+            lines.push(Line::from(vec![
+                Span::raw("     trace: "),
+                Span::styled(
+                    "handshake -> canon (missing active entry)",
+                    Style::default().fg(theme.critical),
+                ),
+            ]));
+        }
+    }
+
+    lines
+}
+
+fn canon_key(entry_id: &str, revision: u32) -> String {
+    format!("{}#{}", entry_id.trim(), revision)
+}
+
+fn load_mind_artifact_drilldown(project_root: &Path) -> MindArtifactDrilldown {
+    let mut snapshot = MindArtifactDrilldown::default();
+
+    let insight_dir = project_root.join(".aoc").join("mind").join("insight");
+    if let Some(manifest) = load_latest_session_export_manifest(&insight_dir) {
+        snapshot.latest_export = Some(manifest);
+    }
+
+    let t3_dir = project_root.join(".aoc").join("mind").join("t3");
+    let handshake_path = t3_dir.join("handshake.md");
+    if let Ok(payload) = fs::read_to_string(&handshake_path) {
+        snapshot.handshake_entries = parse_handshake_entries(&payload);
+    }
+
+    let canon_path = t3_dir.join("project_mind.md");
+    if let Ok(payload) = fs::read_to_string(&canon_path) {
+        let (active, stale_count) = parse_project_canon_entries(&payload);
+        snapshot.active_canon_entries = active;
+        snapshot.stale_canon_count = stale_count;
+    }
+
+    snapshot
+}
+
+fn load_latest_session_export_manifest(insight_dir: &Path) -> Option<MindSessionExportManifest> {
+    let entries = fs::read_dir(insight_dir).ok()?;
+    let mut dirs = Vec::new();
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.is_dir() {
+            dirs.push(path);
+        }
+    }
+    dirs.sort();
+    let latest = dirs.pop()?;
+    let payload = fs::read_to_string(latest.join("manifest.json")).ok()?;
+    serde_json::from_str::<MindSessionExportManifest>(&payload).ok()
+}
+
+fn parse_handshake_entries(payload: &str) -> Vec<MindHandshakeEntry> {
+    let mut entries = Vec::new();
+    for line in payload.lines() {
+        let line = line.trim();
+        let Some(rest) = line.strip_prefix("- [") else {
+            continue;
+        };
+        let Some(end_bracket) = rest.find(']') else {
+            continue;
+        };
+        let head = rest[..end_bracket].trim();
+        let Some((entry_id, revision_raw)) = head.rsplit_once(" r") else {
+            continue;
+        };
+        let Ok(revision) = revision_raw.trim().parse::<u32>() else {
+            continue;
+        };
+
+        let tail = rest[end_bracket + 1..].trim();
+        let topic = tail
+            .split_whitespace()
+            .find_map(|segment| segment.strip_prefix("topic="))
+            .map(|value| value.trim().to_string())
+            .filter(|value| !value.is_empty());
+        let summary = tail
+            .split_once("::")
+            .map(|(_, text)| text.trim().to_string())
+            .unwrap_or_default();
+
+        entries.push(MindHandshakeEntry {
+            entry_id: entry_id.trim().to_string(),
+            revision,
+            topic,
+            summary,
+        });
+    }
+    entries
+}
+
+fn parse_project_canon_entries(payload: &str) -> (Vec<MindCanonEntry>, usize) {
+    enum Section {
+        None,
+        Active,
+        Stale,
+    }
+
+    let mut section = Section::None;
+    let mut active_entries = Vec::new();
+    let mut stale_count = 0usize;
+    let mut current: Option<MindCanonEntry> = None;
+
+    let flush_current = |section: &Section,
+                         current: &mut Option<MindCanonEntry>,
+                         active_entries: &mut Vec<MindCanonEntry>,
+                         stale_count: &mut usize| {
+        let Some(entry) = current.take() else {
+            return;
+        };
+        match section {
+            Section::Active => active_entries.push(entry),
+            Section::Stale => *stale_count += 1,
+            Section::None => {}
+        }
+    };
+
+    for raw_line in payload.lines() {
+        let line = raw_line.trim();
+
+        if line == "## Active canon" {
+            flush_current(
+                &section,
+                &mut current,
+                &mut active_entries,
+                &mut stale_count,
+            );
+            section = Section::Active;
+            continue;
+        }
+        if line == "## Stale canon" {
+            flush_current(
+                &section,
+                &mut current,
+                &mut active_entries,
+                &mut stale_count,
+            );
+            section = Section::Stale;
+            continue;
+        }
+
+        if let Some(header) = line.strip_prefix("### ") {
+            flush_current(
+                &section,
+                &mut current,
+                &mut active_entries,
+                &mut stale_count,
+            );
+            let Some((entry_id, revision_raw)) = header.rsplit_once(" r") else {
+                current = None;
+                continue;
+            };
+            let Ok(revision) = revision_raw.trim().parse::<u32>() else {
+                current = None;
+                continue;
+            };
+            current = Some(MindCanonEntry {
+                entry_id: entry_id.trim().to_string(),
+                revision,
+                topic: None,
+                evidence_refs: Vec::new(),
+                summary: String::new(),
+            });
+            continue;
+        }
+
+        let Some(entry) = current.as_mut() else {
+            continue;
+        };
+
+        if let Some(topic) = line.strip_prefix("- topic:") {
+            let topic = topic.trim();
+            if !topic.is_empty() {
+                entry.topic = Some(topic.to_string());
+            }
+            continue;
+        }
+
+        if let Some(refs) = line.strip_prefix("- evidence_refs:") {
+            entry.evidence_refs = refs
+                .split(',')
+                .map(|value| value.trim().to_string())
+                .filter(|value| !value.is_empty())
+                .collect();
+            continue;
+        }
+
+        if !line.is_empty() && !line.starts_with('-') && entry.summary.is_empty() {
+            entry.summary = line.to_string();
+        }
+    }
+
+    flush_current(
+        &section,
+        &mut current,
+        &mut active_entries,
+        &mut stale_count,
+    );
+
+    active_entries.sort_by(|left, right| {
+        left.entry_id
+            .cmp(&right.entry_id)
+            .then_with(|| left.revision.cmp(&right.revision))
+    });
+
+    (active_entries, stale_count)
 }
 
 fn render_work_lines(app: &App, theme: PulseTheme, compact: bool) -> Vec<Line<'static>> {
@@ -3381,6 +3973,25 @@ fn check_status_color(status: &str, theme: PulseTheme) -> Color {
     }
 }
 
+fn mind_event_is_t3(event: &MindObserverFeedEvent) -> bool {
+    event
+        .runtime
+        .as_deref()
+        .map(|runtime| {
+            let runtime = runtime.to_ascii_lowercase();
+            runtime.contains("t3") || runtime.contains("backlog")
+        })
+        .unwrap_or(false)
+        || event
+            .reason
+            .as_deref()
+            .map(|reason| {
+                let reason = reason.to_ascii_lowercase();
+                reason.contains("t3") || reason.contains("backlog") || reason.contains("canon")
+            })
+            .unwrap_or(false)
+}
+
 fn mind_event_is_t2(event: &MindObserverFeedEvent) -> bool {
     event
         .runtime
@@ -3400,9 +4011,24 @@ fn mind_event_is_t2(event: &MindObserverFeedEvent) -> bool {
             .unwrap_or(false)
 }
 
+fn mind_event_is_t0(event: &MindObserverFeedEvent) -> bool {
+    if event.progress.is_some() && event.runtime.is_none() {
+        return true;
+    }
+    event
+        .reason
+        .as_deref()
+        .map(|reason| reason.to_ascii_lowercase().contains("t0"))
+        .unwrap_or(false)
+}
+
 fn mind_event_lane(event: &MindObserverFeedEvent) -> MindLaneFilter {
-    if mind_event_is_t2(event) {
+    if mind_event_is_t3(event) {
+        MindLaneFilter::T3
+    } else if mind_event_is_t2(event) {
         MindLaneFilter::T2
+    } else if mind_event_is_t0(event) {
+        MindLaneFilter::T0
     } else {
         MindLaneFilter::T1
     }
@@ -3411,9 +4037,68 @@ fn mind_event_lane(event: &MindObserverFeedEvent) -> MindLaneFilter {
 fn mind_lane_matches(filter: MindLaneFilter, lane: MindLaneFilter) -> bool {
     match filter {
         MindLaneFilter::All => true,
+        MindLaneFilter::T0 => lane == MindLaneFilter::T0,
         MindLaneFilter::T1 => lane == MindLaneFilter::T1,
         MindLaneFilter::T2 => lane == MindLaneFilter::T2,
+        MindLaneFilter::T3 => lane == MindLaneFilter::T3,
     }
+}
+
+fn mind_lane_label(lane: MindLaneFilter) -> &'static str {
+    match lane {
+        MindLaneFilter::T0 => "t0",
+        MindLaneFilter::T1 => "t1",
+        MindLaneFilter::T2 => "t2",
+        MindLaneFilter::T3 => "t3",
+        MindLaneFilter::All => "all",
+    }
+}
+
+fn mind_lane_color(lane: MindLaneFilter, theme: PulseTheme) -> Color {
+    match lane {
+        MindLaneFilter::T0 => theme.muted,
+        MindLaneFilter::T1 => theme.info,
+        MindLaneFilter::T2 => theme.accent,
+        MindLaneFilter::T3 => theme.warn,
+        MindLaneFilter::All => theme.text,
+    }
+}
+
+#[derive(Default)]
+struct MindStatusRollup {
+    queued: usize,
+    running: usize,
+    success: usize,
+    fallback: usize,
+    error: usize,
+}
+
+fn mind_status_rollup(rows: &[MindObserverRow]) -> MindStatusRollup {
+    let mut rollup = MindStatusRollup::default();
+    for row in rows {
+        match row.event.status {
+            MindObserverFeedStatus::Queued => rollup.queued += 1,
+            MindObserverFeedStatus::Running => rollup.running += 1,
+            MindObserverFeedStatus::Success => rollup.success += 1,
+            MindObserverFeedStatus::Fallback => rollup.fallback += 1,
+            MindObserverFeedStatus::Error => rollup.error += 1,
+        }
+    }
+    rollup
+}
+
+fn mind_lane_rollup(rows: &[MindObserverRow]) -> [usize; 4] {
+    let mut lanes = [0usize; 4];
+    for row in rows {
+        match mind_event_lane(&row.event) {
+            MindLaneFilter::T0 => lanes[0] += 1,
+            MindLaneFilter::T1 => lanes[1] += 1,
+            MindLaneFilter::T2 => lanes[2] += 1,
+            MindLaneFilter::T3 => lanes[3] += 1,
+            MindLaneFilter::All => {}
+        }
+    }
+    lanes
 }
 
 fn mind_status_label(status: MindObserverFeedStatus) -> &'static str {
@@ -3838,6 +4523,9 @@ fn parse_insight_runtime_from_source(
     if snapshot.queue_depth < 0 {
         snapshot.queue_depth = 0;
     }
+    if snapshot.t3_queue_depth < 0 {
+        snapshot.t3_queue_depth = 0;
+    }
     Ok(Some(snapshot))
 }
 
@@ -4000,6 +4688,18 @@ fn handle_key(key: KeyEvent, app: &mut App, refresh_requested: &mut bool) -> boo
             app.request_insight_bootstrap(false);
             false
         }
+        KeyCode::Char('F') => {
+            app.request_mind_force_finalize();
+            false
+        }
+        KeyCode::Char('R') => {
+            app.request_mind_t3_requeue();
+            false
+        }
+        KeyCode::Char('H') => {
+            app.request_mind_handshake_rebuild();
+            false
+        }
         KeyCode::Char('t') => {
             if app.mode == Mode::Mind {
                 app.toggle_mind_lane();
@@ -4009,6 +4709,12 @@ fn handle_key(key: KeyEvent, app: &mut App, refresh_requested: &mut bool) -> boo
         KeyCode::Char('v') => {
             if app.mode == Mode::Mind {
                 app.toggle_mind_scope();
+            }
+            false
+        }
+        KeyCode::Char('p') => {
+            if app.mode == Mode::Mind {
+                app.toggle_mind_provenance();
             }
             false
         }
@@ -5840,6 +6546,13 @@ mod tests {
                     "reflector_jobs_completed": 2,
                     "reflector_jobs_failed": 1,
                     "reflector_lock_conflicts": 3,
+                    "t3_enabled": true,
+                    "t3_jobs_completed": 4,
+                    "t3_jobs_failed": 1,
+                    "t3_jobs_requeued": 2,
+                    "t3_jobs_dead_lettered": 1,
+                    "t3_lock_conflicts": 2,
+                    "t3_queue_depth": 6,
                     "supervisor_runs": 4,
                     "supervisor_failures": 1,
                     "queue_depth": 5
@@ -5897,6 +6610,8 @@ mod tests {
             .expect("insight runtime payload should exist");
         assert_eq!(insight.queue_depth, 5);
         assert_eq!(insight.reflector_jobs_completed, 2);
+        assert_eq!(insight.t3_queue_depth, 6);
+        assert_eq!(insight.t3_jobs_completed, 4);
 
         app.mode = Mode::Health;
         assert_eq!(app.mode_source(), "hub");
@@ -5999,6 +6714,7 @@ mod tests {
             })
             .collect::<Vec<_>>()
             .join("\n");
+        assert!(rendered.contains("[t1]"));
         assert!(rendered.contains("[fallback]"));
         assert!(rendered.contains("[task]"));
         assert!(rendered.contains("runtime:det"));
@@ -6046,8 +6762,8 @@ mod tests {
     }
 
     #[test]
-    fn mind_shortcuts_queue_insight_commands() {
-        let (tx, mut rx) = mpsc::channel(8);
+    fn mind_shortcuts_queue_insight_and_operator_commands() {
+        let (tx, mut rx) = mpsc::channel(16);
         let mut app = App::new(test_config(), tx, empty_local());
         app.connected = true;
         app.mode = Mode::Mind;
@@ -6074,6 +6790,9 @@ mod tests {
 
         app.request_insight_dispatch_chain();
         app.request_insight_bootstrap(true);
+        app.request_mind_force_finalize();
+        app.request_mind_t3_requeue();
+        app.request_mind_handshake_rebuild();
 
         let first = rx.try_recv().expect("dispatch command");
         assert_eq!(first.command, "insight_dispatch");
@@ -6097,10 +6816,19 @@ mod tests {
                 .unwrap_or(false),
             true
         );
+
+        let third = rx.try_recv().expect("force finalize command");
+        assert_eq!(third.command, "mind_finalize_session");
+
+        let fourth = rx.try_recv().expect("t3 requeue command");
+        assert_eq!(fourth.command, "mind_t3_requeue");
+
+        let fifth = rx.try_recv().expect("handshake rebuild command");
+        assert_eq!(fifth.command, "mind_handshake_rebuild");
     }
 
     #[test]
-    fn mind_lane_toggle_filters_t1_and_t2_events() {
+    fn mind_lane_toggle_cycles_t0_t1_t2_t3_and_all() {
         let (tx, _rx) = mpsc::channel(4);
         let mut app = App::new(test_config(), tx, empty_local());
         app.connected = true;
@@ -6126,8 +6854,19 @@ mod tests {
                         },
                         "mind_observer": {
                             "events": [
+                                {
+                                    "status":"queued",
+                                    "trigger":"token_threshold",
+                                    "progress": {
+                                        "t0_estimated_tokens": 1200,
+                                        "t1_target_tokens": 28000,
+                                        "t1_hard_cap_tokens": 32000,
+                                        "tokens_until_next_run": 26800
+                                    }
+                                },
                                 {"status":"success","trigger":"token_threshold","runtime":"pi-semantic"},
-                                {"status":"success","trigger":"task_completed","runtime":"t2_reflector","reason":"t2 reflector processed 1 job(s)"}
+                                {"status":"success","trigger":"task_completed","runtime":"t2_reflector","reason":"t2 reflector processed 1 job(s)"},
+                                {"status":"success","trigger":"task_completed","runtime":"t3_backlog","reason":"t3 backlog processed 1 job(s)"}
                             ]
                         }
                     })),
@@ -6144,8 +6883,185 @@ mod tests {
         assert_eq!(app.mind_rows().len(), 1);
 
         app.toggle_mind_lane();
+        assert_eq!(app.mind_lane, MindLaneFilter::T3);
+        assert_eq!(app.mind_rows().len(), 1);
+
+        app.toggle_mind_lane();
         assert_eq!(app.mind_lane, MindLaneFilter::All);
-        assert_eq!(app.mind_rows().len(), 2);
+        assert_eq!(app.mind_rows().len(), 4);
+
+        app.toggle_mind_lane();
+        assert_eq!(app.mind_lane, MindLaneFilter::T0);
+        assert_eq!(app.mind_rows().len(), 1);
+    }
+
+    #[test]
+    fn render_mind_lines_shows_t3_runtime_rollup() {
+        let (tx, _rx) = mpsc::channel(4);
+        let mut app = App::new(test_config(), tx, empty_local());
+        app.connected = true;
+        app.mode = Mode::Mind;
+        app.mind_lane = MindLaneFilter::All;
+
+        app.apply_hub_event(HubEvent::Snapshot {
+            payload: SnapshotPayload {
+                seq: 1,
+                states: vec![AgentState {
+                    agent_id: "session-test::12".to_string(),
+                    session_id: "session-test".to_string(),
+                    pane_id: "12".to_string(),
+                    lifecycle: "running".to_string(),
+                    snippet: None,
+                    last_heartbeat_ms: Some(1),
+                    last_activity_ms: Some(1),
+                    updated_at_ms: Some(1),
+                    source: Some(serde_json::json!({
+                        "agent_status": {
+                            "agent_label": "OpenCode",
+                            "project_root": "/repo",
+                            "tab_scope": "agent"
+                        },
+                        "mind_observer": {
+                            "events": [
+                                {"status":"success","trigger":"task_completed","runtime":"t3_backlog","reason":"t3 backlog processed 1 job(s)"}
+                            ]
+                        },
+                        "insight_runtime": {
+                            "queue_depth": 2,
+                            "reflector_jobs_completed": 1,
+                            "reflector_jobs_failed": 0,
+                            "reflector_lock_conflicts": 0,
+                            "t3_queue_depth": 7,
+                            "t3_jobs_completed": 4,
+                            "t3_jobs_failed": 1,
+                            "t3_jobs_requeued": 2,
+                            "t3_jobs_dead_lettered": 1,
+                            "t3_lock_conflicts": 3
+                        }
+                    })),
+                }],
+            },
+            event_at: Utc::now(),
+        });
+
+        let lines = render_mind_lines(&app, pulse_theme(PulseThemeMode::Terminal), false);
+        let rendered = lines
+            .iter()
+            .map(|line| {
+                line.spans
+                    .iter()
+                    .map(|span| span.content.to_string())
+                    .collect::<String>()
+            })
+            .collect::<Vec<_>>()
+            .join("\n");
+
+        assert!(rendered.contains("t3q:7 done:4 fail:1 rq:2 dlq:1 lock:3"));
+        assert!(rendered.contains("[t3]"));
+    }
+
+    #[test]
+    fn render_mind_lines_includes_artifact_provenance_drilldown() {
+        let root = std::env::temp_dir().join(format!(
+            "aoc-mission-control-drilldown-{}-{}",
+            std::process::id(),
+            Utc::now().timestamp_nanos_opt().unwrap_or(0)
+        ));
+        let t3_dir = root.join(".aoc").join("mind").join("t3");
+        let insight_dir = root
+            .join(".aoc")
+            .join("mind")
+            .join("insight")
+            .join("session-test_20260301T120000Z_abc123def456");
+        std::fs::create_dir_all(&t3_dir).expect("create t3 dir");
+        std::fs::create_dir_all(&insight_dir).expect("create insight dir");
+
+        std::fs::write(
+            t3_dir.join("handshake.md"),
+            "# Mind Handshake Baseline\n\n## Priority canon\n\n- [canon:entry-a r3] topic=mind confidence=8800 freshness=95 :: Keep this in startup context\n",
+        )
+        .expect("write handshake");
+
+        std::fs::write(
+            t3_dir.join("project_mind.md"),
+            "# Project Mind Canon\n\n## Active canon\n\n### canon:entry-a r3\n- topic: mind\n- evidence_refs: obs:1, ref:2\n\nConsolidated summary\n\n## Stale canon\n\n### canon:entry-old r1\n- topic: mind\n\nOld summary\n",
+        )
+        .expect("write project mind");
+
+        std::fs::write(
+            insight_dir.join("manifest.json"),
+            r#"{
+  "session_id": "session-test",
+  "active_tag": "mind",
+  "export_dir": "/tmp/session-test_20260301T120000Z_abc123def456",
+  "t1_count": 2,
+  "t2_count": 1,
+  "t1_artifact_ids": ["obs:1", "obs:2"],
+  "t2_artifact_ids": ["ref:2"],
+  "slice_start_id": "obs:1",
+  "slice_end_id": "ref:2",
+  "t3_job_id": "t3:job:42",
+  "exported_at": "2026-03-01T12:00:00Z"
+}"#,
+        )
+        .expect("write manifest");
+
+        let (tx, _rx) = mpsc::channel(4);
+        let mut cfg = test_config();
+        cfg.project_root = root.clone();
+        let mut app = App::new(cfg, tx, empty_local());
+        app.mode = Mode::Mind;
+        app.connected = true;
+        app.mind_lane = MindLaneFilter::All;
+        app.mind_show_provenance = true;
+
+        app.apply_hub_event(HubEvent::Snapshot {
+            payload: SnapshotPayload {
+                seq: 1,
+                states: vec![AgentState {
+                    agent_id: "session-test::12".to_string(),
+                    session_id: "session-test".to_string(),
+                    pane_id: "12".to_string(),
+                    lifecycle: "running".to_string(),
+                    snippet: None,
+                    last_heartbeat_ms: Some(1),
+                    last_activity_ms: Some(1),
+                    updated_at_ms: Some(1),
+                    source: Some(serde_json::json!({
+                        "agent_status": {
+                            "agent_label": "OpenCode",
+                            "project_root": root.to_string_lossy().to_string(),
+                            "tab_scope": "agent"
+                        },
+                        "mind_observer": {
+                            "events": [
+                                {"status":"success","trigger":"task_completed","runtime":"t3_backlog","reason":"t3 backlog processed 1 job(s)"}
+                            ]
+                        }
+                    })),
+                }],
+            },
+            event_at: Utc::now(),
+        });
+
+        let lines = render_mind_lines(&app, pulse_theme(PulseThemeMode::Terminal), false);
+        let rendered = lines
+            .iter()
+            .map(|line| {
+                line.spans
+                    .iter()
+                    .map(|span| span.content.to_string())
+                    .collect::<String>()
+            })
+            .collect::<Vec<_>>()
+            .join("\n");
+
+        assert!(rendered.contains("Artifact drilldown"));
+        assert!(rendered.contains("[provenance:on]"));
+        assert!(rendered.contains("[canon:entry-a r3]"));
+        assert!(rendered.contains("trace: handshake -> canon -> evidence[2] obs:1, ref:2"));
+
+        let _ = std::fs::remove_dir_all(root);
     }
 
     #[test]
