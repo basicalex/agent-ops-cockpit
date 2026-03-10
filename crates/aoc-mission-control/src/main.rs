@@ -6,11 +6,17 @@ use aoc_core::{
     pulse_ipc::{
         encode_frame, AgentState, CommandPayload, CommandResultPayload, DeltaPayload,
         HeartbeatPayload as PulseHeartbeatPayload, HelloPayload as PulseHelloPayload,
-        LayoutStatePayload, NdjsonFrameDecoder, ProtocolVersion, SnapshotPayload, StateChangeOp,
-        SubscribePayload, WireEnvelope, WireMsg, CURRENT_PROTOCOL_VERSION, DEFAULT_MAX_FRAME_BYTES,
+        LayoutStatePayload, NdjsonFrameDecoder, ObserverTimelinePayload, ProtocolVersion,
+        SnapshotPayload, StateChangeOp, SubscribePayload, WireEnvelope, WireMsg,
+        CURRENT_PROTOCOL_VERSION, DEFAULT_MAX_FRAME_BYTES,
+    },
+    session_overseer::{
+        AttentionLevel, DriftRisk, ObserverSnapshot, ObserverTimelineEntry, PlanAlignment,
+        WorkerSnapshot, WorkerStatus,
     },
     ProjectData, TaskStatus,
 };
+use aoc_storage::CompactionCheckpoint;
 use chrono::{DateTime, TimeZone, Utc};
 use crossterm::{
     event::{Event, EventStream, KeyCode, KeyEvent, KeyEventKind},
@@ -30,6 +36,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::{
     collections::{BTreeMap, HashMap, HashSet},
+    env,
     error::Error,
     fs, io,
     path::{Path, PathBuf},
@@ -217,6 +224,8 @@ struct HubCache {
     health: HashMap<String, HealthSnapshot>,
     mind: HashMap<String, MindObserverFeedPayload>,
     insight_runtime: HashMap<String, InsightRuntimeSnapshot>,
+    observer_snapshot: Option<ObserverSnapshot>,
+    observer_timeline: Vec<ObserverTimelineEntry>,
     layout: Option<HubLayout>,
     last_seq: u64,
 }
@@ -411,6 +420,7 @@ struct MindCanonEntry {
 #[derive(Clone, Debug, Default)]
 struct MindArtifactDrilldown {
     latest_export: Option<MindSessionExportManifest>,
+    latest_compaction_checkpoint: Option<CompactionCheckpoint>,
     handshake_entries: Vec<MindHandshakeEntry>,
     active_canon_entries: Vec<MindCanonEntry>,
     stale_canon_count: usize,
@@ -439,6 +449,7 @@ struct LocalSnapshot {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Mode {
     Overview,
+    Overseer,
     Mind,
     Work,
     Diff,
@@ -449,6 +460,7 @@ impl Mode {
     fn title(self) -> &'static str {
         match self {
             Mode::Overview => "Overview",
+            Mode::Overseer => "Overseer",
             Mode::Mind => "Mind",
             Mode::Work => "Work",
             Mode::Diff => "Diff",
@@ -458,7 +470,8 @@ impl Mode {
 
     fn next(self) -> Self {
         match self {
-            Mode::Overview => Mode::Mind,
+            Mode::Overview => Mode::Overseer,
+            Mode::Overseer => Mode::Mind,
             Mode::Mind => Mode::Work,
             Mode::Work => Mode::Diff,
             Mode::Diff => Mode::Health,
@@ -531,6 +544,12 @@ enum HubEvent {
     Delta {
         payload: DeltaPayload,
         event_at: DateTime<Utc>,
+    },
+    ObserverSnapshot {
+        payload: ObserverSnapshot,
+    },
+    ObserverTimeline {
+        payload: ObserverTimelinePayload,
     },
     LayoutState {
         payload: LayoutStatePayload,
@@ -629,12 +648,12 @@ impl App {
         let mode = if config.overview_enabled {
             Mode::Overview
         } else {
-            Mode::Mind
+            Mode::Overseer
         };
         let status_note = if config.overview_enabled {
             None
         } else {
-            Some("overview disabled by config; using Mind/Work/Diff/Health".to_string())
+            Some("overview disabled by config; using Overseer/Mind/Work/Diff/Health".to_string())
         };
         Self {
             config,
@@ -688,6 +707,8 @@ impl App {
                 self.hub.health.clear();
                 self.hub.mind.clear();
                 self.hub.insight_runtime.clear();
+                self.hub.observer_snapshot = None;
+                self.hub.observer_timeline.clear();
                 self.hub.last_seq = payload.seq;
                 for state in payload.states {
                     self.upsert_hub_state(state, event_at, "snapshot");
@@ -704,6 +725,8 @@ impl App {
                     self.hub.health.clear();
                     self.hub.mind.clear();
                     self.hub.insight_runtime.clear();
+                    self.hub.observer_snapshot = None;
+                    self.hub.observer_timeline.clear();
                     self.status_note = Some("hub delta gap detected; awaiting resync".to_string());
                 }
                 self.hub.last_seq = payload.seq;
@@ -731,6 +754,18 @@ impl App {
                         }
                     }
                 }
+            }
+            HubEvent::ObserverSnapshot { payload } => {
+                if payload.session_id != self.config.session_id {
+                    return;
+                }
+                self.hub.observer_snapshot = Some(payload);
+            }
+            HubEvent::ObserverTimeline { payload } => {
+                if payload.session_id != self.config.session_id {
+                    return;
+                }
+                self.hub.observer_timeline = payload.entries;
             }
             HubEvent::LayoutState { payload } => {
                 if !self.config.overview_enabled {
@@ -1261,6 +1296,20 @@ impl App {
         self.hub
             .insight_runtime
             .retain(|agent_id, _| active_agents.contains(agent_id));
+        if let Some(snapshot) = self.hub.observer_snapshot.as_mut() {
+            snapshot
+                .workers
+                .retain(|worker| active_agents.contains(&worker.agent_id));
+            snapshot
+                .timeline
+                .retain(|entry| active_agents.contains(&entry.agent_id));
+            if snapshot.workers.is_empty() && snapshot.timeline.is_empty() {
+                self.hub.observer_snapshot = None;
+            }
+        }
+        self.hub
+            .observer_timeline
+            .retain(|entry| active_agents.contains(&entry.agent_id));
         self.hub.tasks.retain(|key, payload| {
             if active_agents.contains(&payload.agent_id) {
                 return true;
@@ -1275,6 +1324,22 @@ impl App {
         match self.mode {
             Mode::Overview => {
                 if self.prefer_hub_data(!self.hub.agents.is_empty()) {
+                    "hub"
+                } else {
+                    "local"
+                }
+            }
+            Mode::Overseer => {
+                if self.prefer_hub_data(
+                    self.hub
+                        .observer_snapshot
+                        .as_ref()
+                        .map(|snapshot| {
+                            !snapshot.workers.is_empty() || !snapshot.timeline.is_empty()
+                        })
+                        .unwrap_or(false)
+                        || !self.hub.observer_timeline.is_empty(),
+                ) {
                     "hub"
                 } else {
                     "local"
@@ -1320,6 +1385,8 @@ impl App {
             || !self.hub.health.is_empty()
             || !self.hub.mind.is_empty()
             || !self.hub.insight_runtime.is_empty()
+            || self.hub.observer_snapshot.is_some()
+            || !self.hub.observer_timeline.is_empty()
             || self.hub.layout.is_some()
     }
 
@@ -1499,11 +1566,12 @@ impl App {
             self.mode.next()
         } else {
             match self.mode {
-                Mode::Overview => Mode::Mind,
+                Mode::Overview => Mode::Overseer,
+                Mode::Overseer => Mode::Mind,
                 Mode::Mind => Mode::Work,
                 Mode::Work => Mode::Diff,
                 Mode::Diff => Mode::Health,
-                Mode::Health => Mode::Mind,
+                Mode::Health => Mode::Overseer,
             }
         };
     }
@@ -1718,6 +1786,59 @@ impl App {
             project_root: self.config.project_root.to_string_lossy().to_string(),
             snapshot: self.local.health.clone(),
         }]
+    }
+
+    fn overseer_snapshot(&self) -> Option<&ObserverSnapshot> {
+        self.hub.observer_snapshot.as_ref().filter(|snapshot| {
+            self.prefer_hub_data(!snapshot.workers.is_empty() || !snapshot.timeline.is_empty())
+        })
+    }
+
+    fn overseer_workers(&self) -> Vec<WorkerSnapshot> {
+        let Some(snapshot) = self.overseer_snapshot() else {
+            return Vec::new();
+        };
+        let mut workers = snapshot.workers.clone();
+        workers.sort_by(|left, right| {
+            overseer_attention_rank(&left.attention.level)
+                .cmp(&overseer_attention_rank(&right.attention.level))
+                .reverse()
+                .then_with(|| {
+                    overseer_drift_rank(&left.drift_risk)
+                        .cmp(&overseer_drift_rank(&right.drift_risk))
+                        .reverse()
+                })
+                .then_with(|| left.agent_id.cmp(&right.agent_id))
+        });
+        workers
+    }
+
+    fn overseer_timeline(&self) -> Vec<ObserverTimelineEntry> {
+        let mut entries = if !self.hub.observer_timeline.is_empty() {
+            self.hub.observer_timeline.clone()
+        } else {
+            self.overseer_snapshot()
+                .map(|snapshot| snapshot.timeline.clone())
+                .unwrap_or_default()
+        };
+        entries.sort_by(|left, right| {
+            right
+                .emitted_at_ms
+                .unwrap_or_default()
+                .cmp(&left.emitted_at_ms.unwrap_or_default())
+                .then_with(|| left.agent_id.cmp(&right.agent_id))
+        });
+        entries
+    }
+
+    fn overseer_mind_event(&self, agent_id: &str) -> Option<&MindObserverFeedEvent> {
+        let feed = self.hub.mind.get(agent_id)?;
+        feed.events.iter().max_by_key(|event| {
+            mind_event_sort_ms(event.completed_at.as_deref())
+                .or_else(|| mind_event_sort_ms(event.started_at.as_deref()))
+                .or_else(|| mind_event_sort_ms(event.enqueued_at.as_deref()))
+                .unwrap_or(0)
+        })
     }
 
     fn insight_runtime_rollup(&self) -> Option<InsightRuntimeSnapshot> {
@@ -2349,6 +2470,7 @@ fn render_body(app: &App, theme: PulseTheme, width: u16) -> Paragraph<'static> {
     let compact = is_compact(width);
     let lines = match app.mode {
         Mode::Overview => Vec::new(),
+        Mode::Overseer => render_overseer_lines(app, theme, compact),
         Mode::Mind => render_mind_lines(app, theme, compact),
         Mode::Work => render_work_lines(app, theme, compact),
         Mode::Diff => render_diff_lines(app, theme, compact, width),
@@ -2356,6 +2478,8 @@ fn render_body(app: &App, theme: PulseTheme, width: u16) -> Paragraph<'static> {
     };
     let panel_title = if app.mode == Mode::Mind {
         "✦ Mind / Insight".to_string()
+    } else if app.mode == Mode::Overseer {
+        "Session Overseer".to_string()
     } else {
         app.mode.title().to_string()
     };
@@ -2841,9 +2965,9 @@ fn render_help_overlay(frame: &mut ratatui::Frame, app: &App, theme: PulseTheme)
                 .add_modifier(Modifier::BOLD),
         )),
         Line::from(if app.config.overview_enabled {
-            "  1/2/3/4/5 switch mode (Overview/Mind/Work/Diff/Health)"
+            "  1/2/3/4/5/6 switch mode (Overview/Overseer/Mind/Work/Diff/Health)"
         } else {
-            "  2/3/4/5  switch mode (Mind/Work/Diff/Health)"
+            "  2/3/4/5/6 switch mode (Overseer/Mind/Work/Diff/Health)"
         }),
         Line::from("  Tab      cycle mode"),
         Line::from("  r        refresh local snapshot"),
@@ -2893,7 +3017,9 @@ fn mode_help_lines(app: &App, theme: PulseTheme) -> Vec<Line<'static>> {
                         Style::default().fg(theme.warn).add_modifier(Modifier::BOLD),
                     )),
                     Line::from("  Overview display and local polling are disabled."),
-                    Line::from("  Use Mind/Work/Diff/Health modes for current operations."),
+                    Line::from(
+                        "  Use Overseer/Mind/Work/Diff/Health modes for current operations.",
+                    ),
                 ];
             }
             vec![
@@ -2911,6 +3037,17 @@ fn mode_help_lines(app: &App, theme: PulseTheme) -> Vec<Line<'static>> {
                 Line::from("  o        request manual observer run"),
             ]
         }
+        Mode::Overseer => vec![
+            Line::from(Span::styled(
+                "Session Overseer Mode",
+                Style::default()
+                    .fg(theme.accent)
+                    .add_modifier(Modifier::BOLD),
+            )),
+            Line::from("  j/k      scroll overseer snapshot and timeline"),
+            Line::from("  g        jump to top"),
+            Line::from("  r        refresh local snapshot while hub catches up"),
+        ],
         Mode::Mind => vec![
             Line::from(Span::styled(
                 "✦ Mind/Insight Mode",
@@ -2980,6 +3117,420 @@ fn centered_rect(percent_x: u16, percent_y: u16, area: Rect) -> Rect {
             Constraint::Percentage((100u16.saturating_sub(percent_x)) / 2),
         ])
         .split(vertical[1])[1]
+}
+
+fn render_overseer_lines(app: &App, theme: PulseTheme, compact: bool) -> Vec<Line<'static>> {
+    let workers = app.overseer_workers();
+    let timeline = app.overseer_timeline();
+    let generated_at = app
+        .overseer_snapshot()
+        .and_then(|snapshot| snapshot.generated_at_ms)
+        .and_then(ms_to_datetime);
+
+    if workers.is_empty() && timeline.is_empty() {
+        return vec![
+            Line::from(Span::styled(
+                "No overseer snapshot received yet.",
+                Style::default().fg(theme.muted),
+            )),
+            Line::from(Span::styled(
+                "Waiting for hub observer_snapshot / observer_timeline topics.",
+                Style::default().fg(theme.muted),
+            )),
+        ];
+    }
+
+    let mut lines = vec![Line::from(vec![
+        Span::styled(
+            "Workers ",
+            Style::default()
+                .fg(theme.title)
+                .add_modifier(Modifier::BOLD),
+        ),
+        Span::styled(
+            format!("{}", workers.len()),
+            Style::default()
+                .fg(theme.accent)
+                .add_modifier(Modifier::BOLD),
+        ),
+        Span::raw(" · timeline "),
+        Span::styled(
+            format!("{}", timeline.len()),
+            Style::default().fg(theme.info).add_modifier(Modifier::BOLD),
+        ),
+        Span::raw(" · generated "),
+        Span::styled(
+            generated_at
+                .map(|value| value.format("%H:%M:%S").to_string())
+                .unwrap_or_else(|| "unknown".to_string()),
+            Style::default().fg(theme.muted),
+        ),
+    ])];
+
+    if let Some(snapshot) = app
+        .overseer_snapshot()
+        .and_then(|snapshot| snapshot.degraded_reason.as_ref())
+    {
+        lines.push(Line::from(Span::styled(
+            format!("degraded: {snapshot}"),
+            Style::default().fg(theme.warn).add_modifier(Modifier::BOLD),
+        )));
+    }
+    lines.push(Line::from(""));
+    lines.push(Line::from(Span::styled(
+        "Workers",
+        Style::default()
+            .fg(theme.accent)
+            .add_modifier(Modifier::BOLD),
+    )));
+
+    for worker in workers.iter().take(if compact { 8 } else { 12 }) {
+        let mind_event = app.overseer_mind_event(&worker.agent_id);
+        lines.push(Line::from(render_overseer_worker_line(
+            worker, mind_event, theme, compact,
+        )));
+        if let Some(summary) = worker
+            .summary
+            .as_ref()
+            .filter(|value| !value.trim().is_empty())
+        {
+            lines.push(Line::from(Span::styled(
+                format!(
+                    "    {}",
+                    truncate_text(summary, if compact { 72 } else { 110 })
+                ),
+                Style::default().fg(theme.muted),
+            )));
+        }
+        if let Some(reason) = worker
+            .attention
+            .reason
+            .as_ref()
+            .filter(|value| !value.trim().is_empty())
+        {
+            lines.push(Line::from(Span::styled(
+                format!(
+                    "    attention: {}",
+                    truncate_text(reason, if compact { 68 } else { 104 })
+                ),
+                Style::default().fg(theme.warn),
+            )));
+        }
+        if let Some(event) = mind_event {
+            if let Some(line) = render_overseer_mind_line(event, theme, compact) {
+                lines.push(line);
+            }
+        }
+    }
+
+    if !timeline.is_empty() {
+        lines.push(Line::from(""));
+        lines.push(Line::from(Span::styled(
+            "Recent timeline",
+            Style::default()
+                .fg(theme.accent)
+                .add_modifier(Modifier::BOLD),
+        )));
+        for entry in timeline.iter().take(if compact { 6 } else { 10 }) {
+            lines.push(Line::from(render_overseer_timeline_line(entry, theme)));
+        }
+    }
+
+    lines
+}
+
+fn render_overseer_worker_line(
+    worker: &WorkerSnapshot,
+    mind_event: Option<&MindObserverFeedEvent>,
+    theme: PulseTheme,
+    compact: bool,
+) -> Vec<Span<'static>> {
+    let scope = worker
+        .role
+        .clone()
+        .unwrap_or_else(|| extract_label(&worker.agent_id));
+    let task = worker
+        .assignment
+        .task_id
+        .clone()
+        .or_else(|| worker.assignment.tag.clone())
+        .unwrap_or_else(|| "unassigned".to_string());
+    let progress = worker
+        .progress
+        .percent
+        .map(|value| format!("{}%", value))
+        .unwrap_or_else(|| format!("{:?}", worker.progress.phase).to_ascii_lowercase());
+    let align = format!("{:?}", worker.plan_alignment).to_ascii_lowercase();
+    let drift = format!("{:?}", worker.drift_risk).to_ascii_lowercase();
+    let status = format!("{:?}", worker.status).to_ascii_lowercase();
+    let mut spans = vec![
+        Span::styled(
+            format!("[{}]", overseer_attention_label(worker.attention.level)),
+            Style::default()
+                .fg(overseer_attention_color(worker.attention.level, theme))
+                .add_modifier(Modifier::BOLD),
+        ),
+        Span::raw(" "),
+        Span::styled(
+            scope,
+            Style::default().fg(theme.text).add_modifier(Modifier::BOLD),
+        ),
+        Span::raw(format!(" ({}) ", worker.pane_id)),
+        Span::styled(
+            status,
+            Style::default().fg(lifecycle_color_for_worker(worker, theme)),
+        ),
+        Span::raw(" · "),
+        Span::styled(task, Style::default().fg(theme.info)),
+        Span::raw(" · "),
+        Span::styled(progress, Style::default().fg(theme.text)),
+        Span::raw(" · "),
+        Span::styled(
+            format!("align:{align}"),
+            Style::default().fg(overseer_plan_alignment_color(worker.plan_alignment, theme)),
+        ),
+        Span::raw(" "),
+        Span::styled(
+            format!("drift:{drift}"),
+            Style::default().fg(overseer_drift_color(worker.drift_risk, theme)),
+        ),
+    ];
+    if let Some(duplicate) = worker.duplicate_work.as_ref() {
+        let overlap_count =
+            duplicate.overlapping_task_ids.len() + duplicate.overlapping_files.len();
+        if overlap_count > 0 {
+            spans.push(Span::raw(" "));
+            spans.push(Span::styled(
+                format!("dup:{overlap_count}"),
+                Style::default().fg(theme.warn).add_modifier(Modifier::BOLD),
+            ));
+        }
+    }
+    spans.push(Span::raw(" "));
+    spans.push(Span::styled(
+        overseer_provenance_label(worker, mind_event),
+        Style::default().fg(overseer_provenance_color(mind_event, theme)),
+    ));
+    if !compact {
+        if let Some(branch) = worker
+            .branch
+            .as_ref()
+            .filter(|value| !value.trim().is_empty())
+        {
+            spans.push(Span::raw(" · "));
+            spans.push(Span::styled(
+                branch.clone(),
+                Style::default().fg(theme.muted),
+            ));
+        }
+    }
+    spans
+}
+
+fn render_overseer_mind_line(
+    event: &MindObserverFeedEvent,
+    theme: PulseTheme,
+    compact: bool,
+) -> Option<Line<'static>> {
+    let lane = mind_event_lane(event);
+    let mut detail = event
+        .reason
+        .as_ref()
+        .filter(|value| !value.trim().is_empty())
+        .cloned()
+        .or_else(|| {
+            event
+                .failure_kind
+                .as_ref()
+                .filter(|value| !value.trim().is_empty())
+                .map(|value| format!("failure:{value}"))
+        })
+        .or_else(|| {
+            event.progress.as_ref().map(|progress| {
+                format!(
+                    "tokens:{}→{} next:{}",
+                    progress.t0_estimated_tokens,
+                    progress.t1_target_tokens,
+                    progress.tokens_until_next_run
+                )
+            })
+        })?;
+    detail = truncate_text(&detail, if compact { 58 } else { 92 });
+    Some(Line::from(vec![
+        Span::styled("    semantic ", Style::default().fg(theme.muted)),
+        Span::styled(
+            format!(
+                "[{}:{}]",
+                mind_lane_label(lane),
+                mind_status_label(event.status)
+            ),
+            Style::default()
+                .fg(mind_status_color(event.status, theme))
+                .add_modifier(Modifier::BOLD),
+        ),
+        Span::raw(" "),
+        Span::styled(detail, Style::default().fg(theme.info)),
+    ]))
+}
+
+fn render_overseer_timeline_line(
+    entry: &ObserverTimelineEntry,
+    theme: PulseTheme,
+) -> Vec<Span<'static>> {
+    let when = entry
+        .emitted_at_ms
+        .and_then(ms_to_datetime)
+        .map(|value| value.format("%H:%M:%S").to_string())
+        .unwrap_or_else(|| "--:--:--".to_string());
+    let kind = format!("{:?}", entry.kind).to_ascii_lowercase();
+    let mut spans = vec![
+        Span::styled(when, Style::default().fg(theme.muted)),
+        Span::raw(" "),
+        Span::styled(entry.agent_id.clone(), Style::default().fg(theme.info)),
+        Span::raw(" "),
+        Span::styled(
+            kind,
+            Style::default()
+                .fg(theme.title)
+                .add_modifier(Modifier::BOLD),
+        ),
+    ];
+    if let Some(summary) = entry
+        .summary
+        .as_ref()
+        .filter(|value| !value.trim().is_empty())
+    {
+        spans.push(Span::raw(" · "));
+        spans.push(Span::styled(
+            summary.clone(),
+            Style::default().fg(theme.text),
+        ));
+    }
+    if let Some(reason) = entry
+        .reason
+        .as_ref()
+        .filter(|value| !value.trim().is_empty())
+    {
+        spans.push(Span::raw(" · "));
+        spans.push(Span::styled(
+            reason.clone(),
+            Style::default().fg(theme.muted),
+        ));
+    }
+    spans
+}
+
+fn truncate_text(value: &str, max_chars: usize) -> String {
+    let mut chars = value.chars();
+    let truncated = chars.by_ref().take(max_chars).collect::<String>();
+    if chars.next().is_some() {
+        format!("{truncated}…")
+    } else {
+        truncated
+    }
+}
+
+fn overseer_attention_rank(level: &AttentionLevel) -> usize {
+    match level {
+        AttentionLevel::Critical => 4,
+        AttentionLevel::Warn => 3,
+        AttentionLevel::Info => 2,
+        AttentionLevel::None => 1,
+    }
+}
+
+fn overseer_drift_rank(risk: &DriftRisk) -> usize {
+    match risk {
+        DriftRisk::High => 4,
+        DriftRisk::Medium => 3,
+        DriftRisk::Low => 2,
+        DriftRisk::Unknown => 1,
+    }
+}
+
+fn overseer_attention_label(level: AttentionLevel) -> &'static str {
+    match level {
+        AttentionLevel::Critical => "critical",
+        AttentionLevel::Warn => "warn",
+        AttentionLevel::Info => "info",
+        AttentionLevel::None => "ok",
+    }
+}
+
+fn overseer_provenance_label(
+    worker: &WorkerSnapshot,
+    mind_event: Option<&MindObserverFeedEvent>,
+) -> String {
+    let base = worker
+        .provenance
+        .as_deref()
+        .filter(|value| !value.trim().is_empty())
+        .unwrap_or(match worker.source {
+            aoc_core::session_overseer::OverseerSourceKind::Wrapper => "heuristic:wrapper",
+            aoc_core::session_overseer::OverseerSourceKind::Hub => "heuristic:hub",
+            aoc_core::session_overseer::OverseerSourceKind::Mind => "semantic:mind",
+            aoc_core::session_overseer::OverseerSourceKind::Manager => "heuristic:manager",
+            aoc_core::session_overseer::OverseerSourceKind::LocalFallback => "heuristic:local",
+        });
+    if let Some(event) = mind_event {
+        format!(
+            "[prov:{}+mind:{}:{}]",
+            base,
+            mind_lane_label(mind_event_lane(event)),
+            mind_status_label(event.status)
+        )
+    } else {
+        format!("[prov:{base}]")
+    }
+}
+
+fn overseer_provenance_color(
+    mind_event: Option<&MindObserverFeedEvent>,
+    theme: PulseTheme,
+) -> Color {
+    if let Some(event) = mind_event {
+        mind_status_color(event.status, theme)
+    } else {
+        theme.muted
+    }
+}
+
+fn overseer_attention_color(level: AttentionLevel, theme: PulseTheme) -> Color {
+    match level {
+        AttentionLevel::Critical => theme.critical,
+        AttentionLevel::Warn => theme.warn,
+        AttentionLevel::Info => theme.info,
+        AttentionLevel::None => theme.ok,
+    }
+}
+
+fn overseer_plan_alignment_color(level: PlanAlignment, theme: PulseTheme) -> Color {
+    match level {
+        PlanAlignment::High => theme.ok,
+        PlanAlignment::Medium => theme.info,
+        PlanAlignment::Low => theme.warn,
+        PlanAlignment::Unassigned => theme.warn,
+        PlanAlignment::Unknown => theme.muted,
+    }
+}
+
+fn overseer_drift_color(level: DriftRisk, theme: PulseTheme) -> Color {
+    match level {
+        DriftRisk::High => theme.critical,
+        DriftRisk::Medium => theme.warn,
+        DriftRisk::Low => theme.ok,
+        DriftRisk::Unknown => theme.muted,
+    }
+}
+
+fn lifecycle_color_for_worker(worker: &WorkerSnapshot, theme: PulseTheme) -> Color {
+    match worker.status {
+        WorkerStatus::Done => theme.ok,
+        WorkerStatus::Blocked | WorkerStatus::NeedsInput => theme.warn,
+        WorkerStatus::Offline => theme.muted,
+        WorkerStatus::Active => theme.info,
+        WorkerStatus::Paused | WorkerStatus::Idle => theme.muted,
+    }
 }
 
 fn render_mind_lines(app: &App, theme: PulseTheme, compact: bool) -> Vec<Line<'static>> {
@@ -3196,6 +3747,7 @@ fn render_mind_lines(app: &App, theme: PulseTheme, compact: bool) -> Vec<Line<'s
 
     let artifact_lines = render_mind_artifact_drilldown_lines(
         &app.config.project_root,
+        &app.config.session_id,
         theme,
         compact,
         app.mind_show_provenance,
@@ -3210,12 +3762,14 @@ fn render_mind_lines(app: &App, theme: PulseTheme, compact: bool) -> Vec<Line<'s
 
 fn render_mind_artifact_drilldown_lines(
     project_root: &Path,
+    session_id: &str,
     theme: PulseTheme,
     compact: bool,
     show_provenance: bool,
 ) -> Vec<Line<'static>> {
-    let snapshot = load_mind_artifact_drilldown(project_root);
+    let snapshot = load_mind_artifact_drilldown(project_root, session_id);
     if snapshot.latest_export.is_none()
+        && snapshot.latest_compaction_checkpoint.is_none()
         && snapshot.handshake_entries.is_empty()
         && snapshot.active_canon_entries.is_empty()
         && snapshot.stale_canon_count == 0
@@ -3240,6 +3794,58 @@ fn render_mind_artifact_drilldown_lines(
             Style::default().fg(theme.muted),
         ),
     ])];
+
+    if let Some(checkpoint) = snapshot.latest_compaction_checkpoint.as_ref() {
+        let mut spans = vec![
+            Span::raw("  "),
+            Span::styled("compact:", Style::default().fg(theme.muted)),
+            Span::raw(" "),
+            Span::styled(
+                ellipsize(
+                    checkpoint
+                        .compaction_entry_id
+                        .as_deref()
+                        .unwrap_or(&checkpoint.checkpoint_id),
+                    if compact { 24 } else { 40 },
+                ),
+                Style::default().fg(theme.info),
+            ),
+        ];
+        if let Some(tokens_before) = checkpoint.tokens_before {
+            spans.push(Span::raw(" "));
+            spans.push(Span::styled(
+                format!("tokens:{}", tokens_before),
+                Style::default().fg(theme.muted),
+            ));
+        }
+        if let Some(first_kept) = checkpoint.first_kept_entry_id.as_deref() {
+            spans.push(Span::raw(" "));
+            spans.push(Span::styled(
+                format!("keep:{}", ellipsize(first_kept, 14)),
+                Style::default().fg(theme.muted),
+            ));
+        }
+        spans.push(Span::raw(" "));
+        spans.push(Span::styled(
+            format!("@{}", ellipsize(&checkpoint.ts.to_rfc3339(), 20)),
+            Style::default().fg(theme.muted),
+        ));
+        lines.push(Line::from(spans));
+        if let Some(summary) = checkpoint
+            .summary
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+        {
+            lines.push(Line::from(vec![
+                Span::raw("  -> "),
+                Span::styled(
+                    ellipsize(summary, if compact { 52 } else { 88 }),
+                    Style::default().fg(theme.muted),
+                ),
+            ]));
+        }
+    }
 
     if let Some(manifest) = snapshot.latest_export.as_ref() {
         let export_leaf = Path::new(&manifest.export_dir)
@@ -3391,12 +3997,22 @@ fn canon_key(entry_id: &str, revision: u32) -> String {
     format!("{}#{}", entry_id.trim(), revision)
 }
 
-fn load_mind_artifact_drilldown(project_root: &Path) -> MindArtifactDrilldown {
+fn load_mind_artifact_drilldown(project_root: &Path, session_id: &str) -> MindArtifactDrilldown {
     let mut snapshot = MindArtifactDrilldown::default();
 
     let insight_dir = project_root.join(".aoc").join("mind").join("insight");
     if let Some(manifest) = load_latest_session_export_manifest(&insight_dir) {
         snapshot.latest_export = Some(manifest);
+    }
+
+    let store_path = mind_store_path(project_root);
+    if store_path.exists() {
+        if let Ok(store) = aoc_storage::MindStore::open(&store_path) {
+            snapshot.latest_compaction_checkpoint = store
+                .latest_compaction_checkpoint_for_session(session_id)
+                .ok()
+                .flatten();
+        }
     }
 
     let t3_dir = project_root.join(".aoc").join("mind").join("t3");
@@ -3413,6 +4029,20 @@ fn load_mind_artifact_drilldown(project_root: &Path) -> MindArtifactDrilldown {
     }
 
     snapshot
+}
+
+fn mind_store_path(project_root: &Path) -> PathBuf {
+    env::var("AOC_MIND_STORE_PATH")
+        .ok()
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
+        .map(PathBuf::from)
+        .unwrap_or_else(|| {
+            project_root
+                .join(".aoc")
+                .join("mind")
+                .join("project.sqlite")
+        })
 }
 
 fn load_latest_session_export_manifest(insight_dir: &Path) -> Option<MindSessionExportManifest> {
@@ -4127,6 +4757,7 @@ fn mind_trigger_label(trigger: MindObserverFeedTriggerKind) -> &'static str {
         MindObserverFeedTriggerKind::TaskCompleted => "task",
         MindObserverFeedTriggerKind::ManualShortcut => "manual",
         MindObserverFeedTriggerKind::Handoff => "handoff",
+        MindObserverFeedTriggerKind::Compaction => "compact",
     }
 }
 
@@ -4633,28 +5264,33 @@ fn handle_key(key: KeyEvent, app: &mut App, refresh_requested: &mut bool) -> boo
             if app.config.overview_enabled {
                 app.mode = Mode::Overview;
             } else {
-                app.mode = Mode::Mind;
-                app.status_note = Some("overview disabled; switched to Mind".to_string());
+                app.mode = Mode::Overseer;
+                app.status_note = Some("overview disabled; switched to Overseer".to_string());
             }
             app.scroll = 0;
             false
         }
-        KeyCode::Char('2') | KeyCode::Char('m') => {
+        KeyCode::Char('2') => {
+            app.mode = Mode::Overseer;
+            app.scroll = 0;
+            false
+        }
+        KeyCode::Char('3') | KeyCode::Char('m') => {
             app.mode = Mode::Mind;
             app.scroll = 0;
             false
         }
-        KeyCode::Char('3') => {
+        KeyCode::Char('4') => {
             app.mode = Mode::Work;
             app.scroll = 0;
             false
         }
-        KeyCode::Char('4') => {
+        KeyCode::Char('5') => {
             app.mode = Mode::Diff;
             app.scroll = 0;
             false
         }
-        KeyCode::Char('5') => {
+        KeyCode::Char('6') => {
             app.mode = Mode::Health;
             app.scroll = 0;
             false
@@ -4871,6 +5507,12 @@ async fn hub_loop(
                                 last_seq = payload.seq;
                                 let _ = tx.send(HubEvent::Delta { payload, event_at }).await;
                             }
+                            WireMsg::ObserverSnapshot(payload) => {
+                                let _ = tx.send(HubEvent::ObserverSnapshot { payload }).await;
+                            }
+                            WireMsg::ObserverTimeline(payload) => {
+                                let _ = tx.send(HubEvent::ObserverTimeline { payload }).await;
+                            }
                             WireMsg::LayoutState(payload) => {
                                 let _ = tx.send(HubEvent::LayoutState { payload }).await;
                             }
@@ -4957,7 +5599,12 @@ fn build_pulse_hello(config: &Config) -> WireEnvelope {
 }
 
 fn build_pulse_subscribe(config: &Config) -> WireEnvelope {
-    let topics = vec!["agent_state".to_string(), "command_result".to_string()];
+    let topics = vec![
+        "agent_state".to_string(),
+        "command_result".to_string(),
+        "observer_snapshot".to_string(),
+        "observer_timeline".to_string(),
+    ];
 
     WireEnvelope {
         version: ProtocolVersion(CURRENT_PROTOCOL_VERSION),
@@ -7454,5 +8101,169 @@ mod tests {
 
         app.toggle_overview_sort_mode();
         assert_eq!(app.overview_sort_mode, OverviewSortMode::Attention);
+    }
+
+    #[test]
+    fn pulse_subscribe_includes_overseer_topics() {
+        let subscribe = build_pulse_subscribe(&test_config());
+        let WireMsg::Subscribe(payload) = subscribe.msg else {
+            panic!("expected subscribe envelope")
+        };
+        assert!(payload
+            .topics
+            .iter()
+            .any(|topic| topic == "observer_snapshot"));
+        assert!(payload
+            .topics
+            .iter()
+            .any(|topic| topic == "observer_timeline"));
+    }
+
+    #[test]
+    fn overseer_mode_renders_worker_and_timeline_data() {
+        let (tx, _rx) = mpsc::channel(4);
+        let mut app = App::new(test_config(), tx, empty_local());
+        app.apply_hub_event(HubEvent::Connected);
+        app.mode = Mode::Overseer;
+
+        app.apply_hub_event(HubEvent::ObserverSnapshot {
+            payload: ObserverSnapshot {
+                schema_version: 1,
+                session_id: "session-test".to_string(),
+                generated_at_ms: Some(1_700_000_000_000),
+                workers: vec![WorkerSnapshot {
+                    session_id: "session-test".to_string(),
+                    agent_id: "session-test::12".to_string(),
+                    pane_id: "12".to_string(),
+                    role: Some("worker".to_string()),
+                    status: WorkerStatus::Blocked,
+                    assignment: aoc_core::session_overseer::WorkerAssignment {
+                        task_id: Some("149.5".to_string()),
+                        tag: Some("session-overseer".to_string()),
+                        epic_id: Some("149".to_string()),
+                    },
+                    summary: Some("waiting for Mission Control render wiring".to_string()),
+                    plan_alignment: PlanAlignment::Medium,
+                    drift_risk: DriftRisk::High,
+                    attention: aoc_core::session_overseer::AttentionSignal {
+                        level: AttentionLevel::Warn,
+                        kind: Some("blocked".to_string()),
+                        reason: Some("awaiting operator confirmation".to_string()),
+                    },
+                    ..Default::default()
+                }],
+                timeline: vec![],
+                degraded_reason: None,
+            },
+        });
+        app.apply_hub_event(HubEvent::ObserverTimeline {
+            payload: ObserverTimelinePayload {
+                session_id: "session-test".to_string(),
+                generated_at_ms: Some(1_700_000_000_123),
+                entries: vec![ObserverTimelineEntry {
+                    event_id: "evt-1".to_string(),
+                    session_id: "session-test".to_string(),
+                    agent_id: "session-test::12".to_string(),
+                    kind: aoc_core::session_overseer::ObserverEventKind::Blocked,
+                    summary: Some("worker reported blocker".to_string()),
+                    emitted_at_ms: Some(1_700_000_000_123),
+                    ..Default::default()
+                }],
+            },
+        });
+
+        assert_eq!(app.mode_source(), "hub");
+        let lines = render_overseer_lines(&app, pulse_theme(PulseThemeMode::Terminal), false);
+        let rendered = lines
+            .iter()
+            .map(|line| {
+                line.spans
+                    .iter()
+                    .map(|span| span.content.to_string())
+                    .collect::<String>()
+            })
+            .collect::<Vec<_>>()
+            .join("\n");
+        assert!(rendered.contains("149.5"));
+        assert!(rendered.contains("awaiting operator confirmation"));
+        assert!(rendered.contains("worker reported blocker"));
+    }
+
+    #[test]
+    fn overseer_mode_adds_optional_mind_enrichment_without_blocking_base_render() {
+        let (tx, _rx) = mpsc::channel(4);
+        let mut app = App::new(test_config(), tx, empty_local());
+        app.apply_hub_event(HubEvent::Connected);
+        app.mode = Mode::Overseer;
+
+        app.apply_hub_event(HubEvent::ObserverSnapshot {
+            payload: ObserverSnapshot {
+                schema_version: 1,
+                session_id: "session-test".to_string(),
+                generated_at_ms: Some(1_700_000_000_000),
+                workers: vec![WorkerSnapshot {
+                    session_id: "session-test".to_string(),
+                    agent_id: "session-test::12".to_string(),
+                    pane_id: "12".to_string(),
+                    role: Some("worker".to_string()),
+                    status: WorkerStatus::Active,
+                    summary: Some("shipping deterministic overseer baseline".to_string()),
+                    provenance: Some("heuristic:wrapper+taskmaster".to_string()),
+                    ..Default::default()
+                }],
+                timeline: vec![],
+                degraded_reason: None,
+            },
+        });
+
+        let baseline = render_overseer_lines(&app, pulse_theme(PulseThemeMode::Terminal), false)
+            .iter()
+            .map(|line| {
+                line.spans
+                    .iter()
+                    .map(|span| span.content.to_string())
+                    .collect::<String>()
+            })
+            .collect::<Vec<_>>()
+            .join("\n");
+        assert!(baseline.contains("shipping deterministic overseer baseline"));
+        assert!(baseline.contains("[prov:heuristic:wrapper+taskmaster]"));
+
+        app.hub.mind.insert(
+            "session-test::12".to_string(),
+            MindObserverFeedPayload {
+                updated_at_ms: Some(1_700_000_000_111),
+                events: vec![MindObserverFeedEvent {
+                    status: MindObserverFeedStatus::Fallback,
+                    trigger: MindObserverFeedTriggerKind::TaskCompleted,
+                    conversation_id: None,
+                    runtime: Some("pi-semantic".to_string()),
+                    attempt_count: Some(1),
+                    latency_ms: Some(96),
+                    reason: Some(
+                        "semantic observer timed out; using bounded heuristic summary".to_string(),
+                    ),
+                    failure_kind: Some("timeout".to_string()),
+                    enqueued_at: None,
+                    started_at: None,
+                    completed_at: Some("2026-03-09T10:45:00Z".to_string()),
+                    progress: None,
+                }],
+            },
+        );
+
+        let enriched = render_overseer_lines(&app, pulse_theme(PulseThemeMode::Terminal), false)
+            .iter()
+            .map(|line| {
+                line.spans
+                    .iter()
+                    .map(|span| span.content.to_string())
+                    .collect::<String>()
+            })
+            .collect::<Vec<_>>()
+            .join("\n");
+        assert!(enriched.contains("[prov:heuristic:wrapper+taskmaster+mind:t1:fallback]"));
+        assert!(enriched.contains("semantic [t1:fallback]"));
+        assert!(enriched.contains("semantic observer timed out"));
     }
 }

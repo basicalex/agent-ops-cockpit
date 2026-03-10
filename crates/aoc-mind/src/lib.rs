@@ -1,5 +1,6 @@
 mod observer_runtime;
 mod reflector_runtime;
+mod t3_runtime;
 
 pub use observer_runtime::{
     ClaimedObserverRun, ObserverQueueConfig, ObserverTrigger, ObserverTriggerKind,
@@ -8,6 +9,7 @@ pub use observer_runtime::{
 pub use reflector_runtime::{
     DetachedReflectorWorker, ReflectorRuntimeConfig, ReflectorRuntimeError, ReflectorTickReport,
 };
+pub use t3_runtime::{DetachedT3Worker, T3RuntimeConfig, T3RuntimeError, T3TickReport};
 
 use aoc_core::{
     mind_contracts::{
@@ -640,6 +642,7 @@ fn observer_feed_trigger(kind: ObserverTriggerKind) -> MindObserverFeedTriggerKi
         ObserverTriggerKind::TaskCompleted => MindObserverFeedTriggerKind::TaskCompleted,
         ObserverTriggerKind::ManualShortcut => MindObserverFeedTriggerKind::ManualShortcut,
         ObserverTriggerKind::Handoff => MindObserverFeedTriggerKind::Handoff,
+        ObserverTriggerKind::Compaction => MindObserverFeedTriggerKind::Compaction,
     }
 }
 
@@ -718,6 +721,20 @@ impl<A: ObserverAdapter> SessionObserverSidecar<A> {
             session_id,
             conversation_id,
             ObserverTrigger::handoff(),
+            now,
+        );
+    }
+
+    pub fn enqueue_compaction(
+        &mut self,
+        session_id: impl Into<String>,
+        conversation_id: impl Into<String>,
+        now: chrono::DateTime<chrono::Utc>,
+    ) {
+        self.queue.enqueue_with_trigger(
+            session_id,
+            conversation_id,
+            ObserverTrigger::compaction(),
             now,
         );
     }

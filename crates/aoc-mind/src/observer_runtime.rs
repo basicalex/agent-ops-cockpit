@@ -25,6 +25,7 @@ pub enum ObserverTriggerKind {
     TaskCompleted,
     ManualShortcut,
     Handoff,
+    Compaction,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -62,6 +63,14 @@ impl ObserverTrigger {
     pub fn handoff() -> Self {
         Self {
             kind: ObserverTriggerKind::Handoff,
+            priority: ObserverTriggerPriority::Urgent,
+            bypass_debounce: true,
+        }
+    }
+
+    pub fn compaction() -> Self {
+        Self {
+            kind: ObserverTriggerKind::Compaction,
             priority: ObserverTriggerPriority::Urgent,
             bypass_debounce: true,
         }

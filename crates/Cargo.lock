@@ -194,6 +194,7 @@ name = "aoc-mission-control"
 version = "0.1.0"
 dependencies = [
  "aoc-core",
+ "aoc-storage",
  "chrono",
  "crossterm",
  "futures-util",

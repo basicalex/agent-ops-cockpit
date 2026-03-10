@@ -10,7 +10,7 @@ use std::collections::BTreeSet;
 use std::path::Path;
 use thiserror::Error;
 
-pub const MIND_SCHEMA_VERSION: i64 = 5;
+pub const MIND_SCHEMA_VERSION: i64 = 6;
 
 #[derive(Debug, Error)]
 pub enum StorageError {
@@ -132,6 +132,86 @@ pub enum T3BacklogJobStatus {
     Failed,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct T3RuntimeLease {
+    pub scope_id: String,
+    pub owner_id: String,
+    pub owner_pid: Option<i64>,
+    pub acquired_at: DateTime<Utc>,
+    pub heartbeat_at: DateTime<Utc>,
+    pub expires_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct T3BacklogJob {
+    pub job_id: String,
+    pub project_root: String,
+    pub session_id: String,
+    pub pane_id: String,
+    pub active_tag: Option<String>,
+    pub slice_start_id: Option<String>,
+    pub slice_end_id: Option<String>,
+    pub artifact_refs: Vec<String>,
+    pub status: T3BacklogJobStatus,
+    pub attempts: u16,
+    pub last_error: Option<String>,
+    pub claimed_by: Option<String>,
+    pub claimed_at: Option<DateTime<Utc>>,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CanonRevisionState {
+    Active,
+    Superseded,
+    Stale,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CanonEntryRevision {
+    pub entry_id: String,
+    pub revision: i64,
+    pub state: CanonRevisionState,
+    pub topic: Option<String>,
+    pub summary: String,
+    pub confidence_bps: u16,
+    pub freshness_score: u16,
+    pub supersedes_entry_id: Option<String>,
+    pub evidence_refs: Vec<String>,
+    pub created_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct HandshakeSnapshot {
+    pub snapshot_id: String,
+    pub scope: String,
+    pub scope_key: String,
+    pub payload_text: String,
+    pub payload_hash: String,
+    pub token_estimate: u32,
+    pub created_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CompactionCheckpoint {
+    pub checkpoint_id: String,
+    pub conversation_id: String,
+    pub session_id: String,
+    pub ts: DateTime<Utc>,
+    pub trigger_source: String,
+    pub reason: Option<String>,
+    pub summary: Option<String>,
+    pub tokens_before: Option<u32>,
+    pub first_kept_entry_id: Option<String>,
+    pub compaction_entry_id: Option<String>,
+    pub from_extension: bool,
+    pub marker_event_id: Option<String>,
+    pub schema_version: u32,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+}
+
 pub struct MindStore {
     conn: Connection,
 }
@@ -207,6 +287,15 @@ impl MindStore {
             self.conn.execute_batch(sql)?;
             self.conn
                 .execute("PRAGMA user_version = 5", [])
+                .map(|_| ())?;
+            current = 5;
+        }
+
+        if current < 6 {
+            let sql = include_str!("../migrations/0006_compaction_checkpoints.sql");
+            self.conn.execute_batch(sql)?;
+            self.conn
+                .execute("PRAGMA user_version = 6", [])
                 .map(|_| ())?;
         }
 
@@ -546,6 +635,137 @@ impl MindStore {
             .optional()?;
 
         Ok(row)
+    }
+
+    pub fn upsert_compaction_checkpoint(
+        &self,
+        checkpoint: &CompactionCheckpoint,
+    ) -> Result<(), StorageError> {
+        self.conn.execute(
+            "
+            INSERT INTO compaction_checkpoints (
+                checkpoint_id,
+                conversation_id,
+                session_id,
+                ts,
+                trigger_source,
+                reason,
+                summary,
+                tokens_before,
+                first_kept_entry_id,
+                compaction_entry_id,
+                from_extension,
+                marker_event_id,
+                schema_version,
+                created_at,
+                updated_at
+            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)
+            ON CONFLICT(checkpoint_id) DO UPDATE SET
+                conversation_id=excluded.conversation_id,
+                session_id=excluded.session_id,
+                ts=excluded.ts,
+                trigger_source=excluded.trigger_source,
+                reason=excluded.reason,
+                summary=excluded.summary,
+                tokens_before=excluded.tokens_before,
+                first_kept_entry_id=excluded.first_kept_entry_id,
+                compaction_entry_id=excluded.compaction_entry_id,
+                from_extension=excluded.from_extension,
+                marker_event_id=excluded.marker_event_id,
+                schema_version=excluded.schema_version,
+                updated_at=excluded.updated_at
+            ",
+            params![
+                checkpoint.checkpoint_id,
+                checkpoint.conversation_id,
+                checkpoint.session_id,
+                checkpoint.ts.to_rfc3339(),
+                checkpoint.trigger_source,
+                checkpoint.reason,
+                checkpoint.summary,
+                checkpoint.tokens_before.map(i64::from),
+                checkpoint.first_kept_entry_id,
+                checkpoint.compaction_entry_id,
+                if checkpoint.from_extension {
+                    1_i64
+                } else {
+                    0_i64
+                },
+                checkpoint.marker_event_id,
+                i64::from(checkpoint.schema_version),
+                checkpoint.created_at.to_rfc3339(),
+                checkpoint.updated_at.to_rfc3339(),
+            ],
+        )?;
+
+        Ok(())
+    }
+
+    pub fn compaction_checkpoints_for_conversation(
+        &self,
+        conversation_id: &str,
+    ) -> Result<Vec<CompactionCheckpoint>, StorageError> {
+        let mut statement = self.conn.prepare(
+            "
+            SELECT checkpoint_id, conversation_id, session_id, ts, trigger_source,
+                   reason, summary, tokens_before, first_kept_entry_id, compaction_entry_id,
+                   from_extension, marker_event_id, schema_version, created_at, updated_at
+            FROM compaction_checkpoints
+            WHERE conversation_id = ?1
+            ORDER BY ts DESC, checkpoint_id DESC
+            ",
+        )?;
+
+        let rows = statement.query_map([conversation_id], parse_compaction_checkpoint_row)?;
+        let mut checkpoints = Vec::new();
+        for row in rows {
+            checkpoints.push(row?);
+        }
+        Ok(checkpoints)
+    }
+
+    pub fn latest_compaction_checkpoint_for_conversation(
+        &self,
+        conversation_id: &str,
+    ) -> Result<Option<CompactionCheckpoint>, StorageError> {
+        self.conn
+            .query_row(
+                "
+                SELECT checkpoint_id, conversation_id, session_id, ts, trigger_source,
+                       reason, summary, tokens_before, first_kept_entry_id, compaction_entry_id,
+                       from_extension, marker_event_id, schema_version, created_at, updated_at
+                FROM compaction_checkpoints
+                WHERE conversation_id = ?1
+                ORDER BY ts DESC, checkpoint_id DESC
+                LIMIT 1
+                ",
+                [conversation_id],
+                parse_compaction_checkpoint_row,
+            )
+            .optional()
+            .map_err(StorageError::from)
+    }
+
+    pub fn latest_compaction_checkpoint_for_session(
+        &self,
+        session_id: &str,
+    ) -> Result<Option<CompactionCheckpoint>, StorageError> {
+        self.conn
+            .query_row(
+                "
+                SELECT checkpoint_id, conversation_id, session_id, ts, trigger_source,
+                       reason, summary, tokens_before, first_kept_entry_id, compaction_entry_id,
+                       from_extension, marker_event_id, schema_version, created_at, updated_at
+                FROM compaction_checkpoints
+                WHERE session_id = ?1
+                ORDER BY ts DESC, checkpoint_id DESC
+                LIMIT 1
+                ",
+                [session_id],
+                parse_compaction_checkpoint_row,
+            )
+            .optional()
+            .map_err(StorageError::from)
     }
 
     pub fn append_context_state(
@@ -1189,6 +1409,313 @@ impl MindStore {
         Ok((job_id, changes > 0))
     }
 
+    pub fn try_acquire_t3_runtime_lease(
+        &self,
+        scope_id: &str,
+        owner_id: &str,
+        owner_pid: Option<i64>,
+        now: DateTime<Utc>,
+        ttl_ms: u64,
+    ) -> Result<bool, StorageError> {
+        let ttl_ms = ttl_ms.max(1).min(i64::MAX as u64) as i64;
+        let expires_at = now + chrono::Duration::milliseconds(ttl_ms);
+
+        let changes = self.conn.execute(
+            "
+            INSERT INTO t3_runtime_leases (
+                scope_id,
+                owner_id,
+                owner_pid,
+                acquired_at,
+                heartbeat_at,
+                expires_at
+            ) VALUES (?1, ?2, ?3, ?4, ?4, ?5)
+            ON CONFLICT(scope_id) DO UPDATE SET
+                owner_id = excluded.owner_id,
+                owner_pid = excluded.owner_pid,
+                acquired_at = CASE
+                    WHEN t3_runtime_leases.owner_id = excluded.owner_id
+                    THEN t3_runtime_leases.acquired_at
+                    ELSE excluded.acquired_at
+                END,
+                heartbeat_at = excluded.heartbeat_at,
+                expires_at = excluded.expires_at
+            WHERE t3_runtime_leases.owner_id = excluded.owner_id
+               OR t3_runtime_leases.expires_at <= excluded.acquired_at
+            ",
+            params![
+                scope_id,
+                owner_id,
+                owner_pid,
+                now.to_rfc3339(),
+                expires_at.to_rfc3339(),
+            ],
+        )?;
+
+        Ok(changes > 0)
+    }
+
+    pub fn heartbeat_t3_runtime_lease(
+        &self,
+        scope_id: &str,
+        owner_id: &str,
+        now: DateTime<Utc>,
+        ttl_ms: u64,
+    ) -> Result<bool, StorageError> {
+        let ttl_ms = ttl_ms.max(1).min(i64::MAX as u64) as i64;
+        let expires_at = now + chrono::Duration::milliseconds(ttl_ms);
+
+        let changes = self.conn.execute(
+            "
+            UPDATE t3_runtime_leases
+            SET heartbeat_at = ?3,
+                expires_at = ?4
+            WHERE scope_id = ?1
+              AND owner_id = ?2
+              AND expires_at >= ?3
+            ",
+            params![
+                scope_id,
+                owner_id,
+                now.to_rfc3339(),
+                expires_at.to_rfc3339(),
+            ],
+        )?;
+
+        Ok(changes > 0)
+    }
+
+    pub fn release_t3_runtime_lease(
+        &self,
+        scope_id: &str,
+        owner_id: &str,
+    ) -> Result<bool, StorageError> {
+        let changes = self.conn.execute(
+            "
+            DELETE FROM t3_runtime_leases
+            WHERE scope_id = ?1
+              AND owner_id = ?2
+            ",
+            params![scope_id, owner_id],
+        )?;
+        Ok(changes > 0)
+    }
+
+    pub fn t3_runtime_lease(&self, scope_id: &str) -> Result<Option<T3RuntimeLease>, StorageError> {
+        let lease = self
+            .conn
+            .query_row(
+                "
+                SELECT scope_id, owner_id, owner_pid, acquired_at, heartbeat_at, expires_at
+                FROM t3_runtime_leases
+                WHERE scope_id = ?1
+                ",
+                [scope_id],
+                |row| {
+                    Ok(T3RuntimeLease {
+                        scope_id: row.get(0)?,
+                        owner_id: row.get(1)?,
+                        owner_pid: row.get(2)?,
+                        acquired_at: parse_timestamp(row.get::<_, String>(3)?).map_err(|err| {
+                            rusqlite::Error::FromSqlConversionFailure(
+                                3,
+                                rusqlite::types::Type::Text,
+                                Box::new(err),
+                            )
+                        })?,
+                        heartbeat_at: parse_timestamp(row.get::<_, String>(4)?).map_err(|err| {
+                            rusqlite::Error::FromSqlConversionFailure(
+                                4,
+                                rusqlite::types::Type::Text,
+                                Box::new(err),
+                            )
+                        })?,
+                        expires_at: parse_timestamp(row.get::<_, String>(5)?).map_err(|err| {
+                            rusqlite::Error::FromSqlConversionFailure(
+                                5,
+                                rusqlite::types::Type::Text,
+                                Box::new(err),
+                            )
+                        })?,
+                    })
+                },
+            )
+            .optional()?;
+
+        Ok(lease)
+    }
+
+    pub fn claim_next_t3_backlog_job(
+        &self,
+        scope_id: &str,
+        owner_id: &str,
+        now: DateTime<Utc>,
+        stale_claim_after_ms: i64,
+    ) -> Result<Option<T3BacklogJob>, StorageError> {
+        let lease = self.t3_runtime_lease(scope_id)?;
+        let Some(lease) = lease else {
+            return Ok(None);
+        };
+        if lease.owner_id != owner_id || lease.expires_at < now {
+            return Ok(None);
+        }
+
+        let stale_cutoff = now - chrono::Duration::milliseconds(stale_claim_after_ms.max(0));
+
+        for _ in 0..4 {
+            let candidate: Option<String> = self
+                .conn
+                .query_row(
+                    "
+                    SELECT job_id
+                    FROM t3_backlog_jobs
+                    WHERE status = ?1
+                       OR (status = ?2 AND claimed_at IS NOT NULL AND claimed_at <= ?3)
+                    ORDER BY CASE status WHEN ?1 THEN 0 ELSE 1 END, created_at ASC, job_id ASC
+                    LIMIT 1
+                    ",
+                    params![
+                        t3_backlog_job_status_as_str(T3BacklogJobStatus::Pending),
+                        t3_backlog_job_status_as_str(T3BacklogJobStatus::Claimed),
+                        stale_cutoff.to_rfc3339(),
+                    ],
+                    |row| row.get(0),
+                )
+                .optional()?;
+
+            let Some(job_id) = candidate else {
+                return Ok(None);
+            };
+
+            let changes = self.conn.execute(
+                "
+                UPDATE t3_backlog_jobs
+                SET status = ?4,
+                    claimed_by = ?2,
+                    claimed_at = ?3,
+                    attempts = attempts + 1,
+                    updated_at = ?3
+                WHERE job_id = ?1
+                  AND (
+                    status = ?5
+                    OR (status = ?6 AND claimed_at IS NOT NULL AND claimed_at <= ?7)
+                  )
+                ",
+                params![
+                    job_id,
+                    owner_id,
+                    now.to_rfc3339(),
+                    t3_backlog_job_status_as_str(T3BacklogJobStatus::Claimed),
+                    t3_backlog_job_status_as_str(T3BacklogJobStatus::Pending),
+                    t3_backlog_job_status_as_str(T3BacklogJobStatus::Claimed),
+                    stale_cutoff.to_rfc3339(),
+                ],
+            )?;
+
+            if changes == 0 {
+                continue;
+            }
+
+            return self.t3_backlog_job_by_id(&job_id);
+        }
+
+        Ok(None)
+    }
+
+    pub fn complete_t3_backlog_job(
+        &self,
+        job_id: &str,
+        owner_id: &str,
+        now: DateTime<Utc>,
+    ) -> Result<bool, StorageError> {
+        let changes = self.conn.execute(
+            "
+            UPDATE t3_backlog_jobs
+            SET status = ?4,
+                updated_at = ?3
+            WHERE job_id = ?1
+              AND claimed_by = ?2
+              AND status = ?5
+            ",
+            params![
+                job_id,
+                owner_id,
+                now.to_rfc3339(),
+                t3_backlog_job_status_as_str(T3BacklogJobStatus::Completed),
+                t3_backlog_job_status_as_str(T3BacklogJobStatus::Claimed),
+            ],
+        )?;
+
+        Ok(changes > 0)
+    }
+
+    pub fn fail_t3_backlog_job(
+        &self,
+        job_id: &str,
+        owner_id: &str,
+        error: &str,
+        now: DateTime<Utc>,
+        requeue: bool,
+        max_attempts: u16,
+    ) -> Result<bool, StorageError> {
+        let changes = self.conn.execute(
+            "
+            UPDATE t3_backlog_jobs
+            SET status = CASE
+                    WHEN ?9 = 1 AND attempts < ?10 THEN ?4
+                    ELSE ?5
+                END,
+                claimed_by = CASE
+                    WHEN ?9 = 1 AND attempts < ?10 THEN NULL
+                    ELSE ?2
+                END,
+                claimed_at = CASE
+                    WHEN ?9 = 1 AND attempts < ?10 THEN NULL
+                    ELSE ?6
+                END,
+                last_error = ?3,
+                updated_at = ?6
+            WHERE job_id = ?1
+              AND status = ?7
+              AND claimed_by = ?8
+            ",
+            params![
+                job_id,
+                owner_id,
+                error,
+                t3_backlog_job_status_as_str(T3BacklogJobStatus::Pending),
+                t3_backlog_job_status_as_str(T3BacklogJobStatus::Failed),
+                now.to_rfc3339(),
+                t3_backlog_job_status_as_str(T3BacklogJobStatus::Claimed),
+                owner_id,
+                if requeue { 1_i64 } else { 0_i64 },
+                i64::from(max_attempts.max(1)),
+            ],
+        )?;
+
+        Ok(changes > 0)
+    }
+
+    pub fn t3_backlog_job_by_id(&self, job_id: &str) -> Result<Option<T3BacklogJob>, StorageError> {
+        let job = self
+            .conn
+            .query_row(
+                "
+                SELECT job_id, project_root, session_id, pane_id, active_tag,
+                       slice_start_id, slice_end_id, artifact_refs_json,
+                       status, attempts, last_error, claimed_by, claimed_at,
+                       created_at, updated_at
+                FROM t3_backlog_jobs
+                WHERE job_id = ?1
+                ",
+                [job_id],
+                parse_t3_backlog_job_row,
+            )
+            .optional()?;
+
+        Ok(job)
+    }
+
     pub fn project_watermark(
         &self,
         scope_key: &str,
@@ -1261,6 +1788,309 @@ impl MindStore {
         )?;
 
         Ok(())
+    }
+
+    pub fn latest_canon_revision(
+        &self,
+        entry_id: &str,
+    ) -> Result<Option<CanonEntryRevision>, StorageError> {
+        self.conn
+            .query_row(
+                "
+                SELECT entry_id, revision, state, topic, summary, confidence_bps, freshness_score,
+                       supersedes_entry_id, evidence_refs_json, created_at
+                FROM project_canon_revisions
+                WHERE entry_id = ?1
+                ORDER BY revision DESC
+                LIMIT 1
+                ",
+                [entry_id],
+                parse_canon_entry_revision_row,
+            )
+            .optional()
+            .map_err(StorageError::from)
+    }
+
+    pub fn upsert_canon_entry_revision(
+        &self,
+        entry_id: &str,
+        topic: Option<&str>,
+        summary: &str,
+        confidence_bps: u16,
+        freshness_score: u16,
+        supersedes_entry_id: Option<&str>,
+        evidence_refs: &[String],
+        created_at: DateTime<Utc>,
+    ) -> Result<CanonEntryRevision, StorageError> {
+        let mut evidence_refs = evidence_refs.to_vec();
+        evidence_refs.sort();
+        evidence_refs.dedup();
+
+        let latest = self.latest_canon_revision(entry_id)?;
+        if let Some(latest) = latest.as_ref() {
+            if latest.state == CanonRevisionState::Active
+                && latest.topic.as_deref() == topic
+                && latest.summary == summary
+                && latest.confidence_bps == confidence_bps
+                && latest.freshness_score == freshness_score
+                && latest.supersedes_entry_id.as_deref() == supersedes_entry_id
+                && latest.evidence_refs == evidence_refs
+            {
+                return Ok(latest.clone());
+            }
+        }
+
+        let revision = latest.as_ref().map(|row| row.revision + 1).unwrap_or(1);
+        let supersedes_entry_id = supersedes_entry_id
+            .map(|value| value.to_string())
+            .or_else(|| latest.as_ref().map(|_| entry_id.to_string()));
+
+        self.conn.execute(
+            "
+            INSERT INTO project_canon_revisions (
+                entry_id,
+                revision,
+                state,
+                topic,
+                summary,
+                confidence_bps,
+                freshness_score,
+                supersedes_entry_id,
+                evidence_refs_json,
+                created_at
+            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)
+            ",
+            params![
+                entry_id,
+                revision,
+                canon_revision_state_as_str(CanonRevisionState::Active),
+                topic,
+                summary,
+                i64::from(confidence_bps),
+                i64::from(freshness_score),
+                supersedes_entry_id,
+                serde_json::to_string(&evidence_refs)
+                    .map_err(|err| StorageError::Serialization(err.to_string()))?,
+                created_at.to_rfc3339(),
+            ],
+        )?;
+
+        if revision > 1 {
+            self.conn.execute(
+                "
+                UPDATE project_canon_revisions
+                SET state = ?4
+                WHERE entry_id = ?1
+                  AND revision < ?2
+                  AND state = ?3
+                ",
+                params![
+                    entry_id,
+                    revision,
+                    canon_revision_state_as_str(CanonRevisionState::Active),
+                    canon_revision_state_as_str(CanonRevisionState::Superseded),
+                ],
+            )?;
+        }
+
+        if let Some(superseded_entry) = supersedes_entry_id.as_deref() {
+            if superseded_entry != entry_id {
+                self.conn.execute(
+                    "
+                    UPDATE project_canon_revisions
+                    SET state = ?2
+                    WHERE entry_id = ?1
+                      AND state = ?3
+                    ",
+                    params![
+                        superseded_entry,
+                        canon_revision_state_as_str(CanonRevisionState::Superseded),
+                        canon_revision_state_as_str(CanonRevisionState::Active),
+                    ],
+                )?;
+            }
+        }
+
+        self.latest_canon_revision(entry_id)?.ok_or_else(|| {
+            StorageError::Serialization("canon revision insert did not produce a row".to_string())
+        })
+    }
+
+    pub fn canon_entries_by_state(
+        &self,
+        state: CanonRevisionState,
+        topic: Option<&str>,
+    ) -> Result<Vec<CanonEntryRevision>, StorageError> {
+        let mut statement = if topic.is_some() {
+            self.conn.prepare(
+                "
+                SELECT entry_id, revision, state, topic, summary, confidence_bps, freshness_score,
+                       supersedes_entry_id, evidence_refs_json, created_at
+                FROM project_canon_revisions
+                WHERE state = ?1 AND topic = ?2
+                ORDER BY topic ASC, confidence_bps DESC, freshness_score DESC, created_at DESC,
+                         entry_id ASC, revision DESC
+                ",
+            )?
+        } else {
+            self.conn.prepare(
+                "
+                SELECT entry_id, revision, state, topic, summary, confidence_bps, freshness_score,
+                       supersedes_entry_id, evidence_refs_json, created_at
+                FROM project_canon_revisions
+                WHERE state = ?1
+                ORDER BY topic ASC, confidence_bps DESC, freshness_score DESC, created_at DESC,
+                         entry_id ASC, revision DESC
+                ",
+            )?
+        };
+
+        let rows = if let Some(topic) = topic {
+            statement.query_map(
+                params![canon_revision_state_as_str(state), topic],
+                parse_canon_entry_revision_row,
+            )?
+        } else {
+            statement.query_map(
+                params![canon_revision_state_as_str(state)],
+                parse_canon_entry_revision_row,
+            )?
+        };
+
+        let mut entries = Vec::new();
+        for row in rows {
+            entries.push(row?);
+        }
+        Ok(entries)
+    }
+
+    pub fn active_canon_entries(
+        &self,
+        topic: Option<&str>,
+    ) -> Result<Vec<CanonEntryRevision>, StorageError> {
+        self.canon_entries_by_state(CanonRevisionState::Active, topic)
+    }
+
+    pub fn canon_entry_revisions(
+        &self,
+        entry_id: &str,
+    ) -> Result<Vec<CanonEntryRevision>, StorageError> {
+        let mut statement = self.conn.prepare(
+            "
+            SELECT entry_id, revision, state, topic, summary, confidence_bps, freshness_score,
+                   supersedes_entry_id, evidence_refs_json, created_at
+            FROM project_canon_revisions
+            WHERE entry_id = ?1
+            ORDER BY revision DESC
+            ",
+        )?;
+
+        let rows = statement.query_map([entry_id], parse_canon_entry_revision_row)?;
+        let mut revisions = Vec::new();
+        for row in rows {
+            revisions.push(row?);
+        }
+        Ok(revisions)
+    }
+
+    pub fn mark_active_canon_entries_stale(
+        &self,
+        topic: Option<&str>,
+        stale_before_or_equal: DateTime<Utc>,
+        keep_entry_ids: &[String],
+    ) -> Result<usize, StorageError> {
+        let keep = keep_entry_ids.iter().cloned().collect::<BTreeSet<_>>();
+        let active = self.active_canon_entries(topic)?;
+        let mut marked = 0usize;
+
+        for entry in active {
+            if keep.contains(&entry.entry_id) || entry.created_at > stale_before_or_equal {
+                continue;
+            }
+
+            let changes = self.conn.execute(
+                "
+                UPDATE project_canon_revisions
+                SET state = ?3
+                WHERE entry_id = ?1
+                  AND revision = ?2
+                  AND state = ?4
+                ",
+                params![
+                    entry.entry_id,
+                    entry.revision,
+                    canon_revision_state_as_str(CanonRevisionState::Stale),
+                    canon_revision_state_as_str(CanonRevisionState::Active),
+                ],
+            )?;
+            marked += changes;
+        }
+
+        Ok(marked)
+    }
+
+    pub fn upsert_handshake_snapshot(
+        &self,
+        scope: &str,
+        scope_key: &str,
+        payload_text: &str,
+        payload_hash: &str,
+        token_estimate: u32,
+        created_at: DateTime<Utc>,
+    ) -> Result<(String, bool), StorageError> {
+        let snapshot_id = format!(
+            "hs:{}",
+            &canonical_payload_hash(&(scope, scope_key, payload_hash))
+                .map_err(|err| StorageError::Serialization(err.to_string()))?[..16]
+        );
+
+        let changes = self.conn.execute(
+            "
+            INSERT OR IGNORE INTO handshake_snapshots (
+                snapshot_id,
+                scope,
+                scope_key,
+                payload_text,
+                payload_hash,
+                token_estimate,
+                created_at
+            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
+            ",
+            params![
+                snapshot_id,
+                scope,
+                scope_key,
+                payload_text,
+                payload_hash,
+                i64::from(token_estimate),
+                created_at.to_rfc3339(),
+            ],
+        )?;
+
+        Ok((snapshot_id, changes > 0))
+    }
+
+    pub fn latest_handshake_snapshot(
+        &self,
+        scope: &str,
+        scope_key: &str,
+    ) -> Result<Option<HandshakeSnapshot>, StorageError> {
+        self.conn
+            .query_row(
+                "
+                SELECT snapshot_id, scope, scope_key, payload_text, payload_hash,
+                       token_estimate, created_at
+                FROM handshake_snapshots
+                WHERE scope = ?1
+                  AND scope_key = ?2
+                ORDER BY created_at DESC, snapshot_id DESC
+                LIMIT 1
+                ",
+                params![scope, scope_key],
+                parse_handshake_snapshot_row,
+            )
+            .optional()
+            .map_err(StorageError::from)
     }
 
     pub fn claim_next_reflector_job(
@@ -1413,6 +2243,15 @@ impl MindStore {
         Ok(count)
     }
 
+    pub fn pending_t3_backlog_jobs(&self) -> Result<i64, StorageError> {
+        let count = self.conn.query_row(
+            "SELECT COUNT(*) FROM t3_backlog_jobs WHERE status = ?1",
+            [t3_backlog_job_status_as_str(T3BacklogJobStatus::Pending)],
+            |row| row.get(0),
+        )?;
+        Ok(count)
+    }
+
     pub fn reflector_job_by_id(&self, job_id: &str) -> Result<Option<ReflectorJob>, StorageError> {
         let job = self
             .conn
@@ -1539,6 +2378,58 @@ impl MindStore {
             artifacts.push(row?);
         }
         Ok(artifacts)
+    }
+
+    pub fn artifact_by_id(
+        &self,
+        artifact_id: &str,
+    ) -> Result<Option<StoredArtifact>, StorageError> {
+        self.conn
+            .query_row(
+                "
+                SELECT artifact_id, conversation_id, ts, text, trace_ids_json, 't1' AS kind
+                FROM observations_t1
+                WHERE artifact_id = ?1
+                UNION ALL
+                SELECT artifact_id, conversation_id, ts, text, trace_ids_json, 't2' AS kind
+                FROM reflections_t2
+                WHERE artifact_id = ?1
+                ORDER BY kind ASC
+                LIMIT 1
+                ",
+                [artifact_id],
+                |row| {
+                    let ts = parse_timestamp(row.get::<_, String>(2)?).map_err(|err| {
+                        rusqlite::Error::FromSqlConversionFailure(
+                            2,
+                            rusqlite::types::Type::Text,
+                            Box::new(err),
+                        )
+                    })?;
+                    let trace_ids_json: String = row.get(4)?;
+                    let mut trace_ids: Vec<String> = serde_json::from_str(&trace_ids_json)
+                        .map_err(|err| {
+                            rusqlite::Error::FromSqlConversionFailure(
+                                4,
+                                rusqlite::types::Type::Text,
+                                Box::new(err),
+                            )
+                        })?;
+                    trace_ids.sort();
+                    trace_ids.dedup();
+
+                    Ok(StoredArtifact {
+                        artifact_id: row.get(0)?,
+                        conversation_id: row.get(1)?,
+                        ts,
+                        text: row.get(3)?,
+                        trace_ids,
+                        kind: row.get(5)?,
+                    })
+                },
+            )
+            .optional()
+            .map_err(StorageError::from)
     }
 
     pub fn raw_event_count(&self, conversation_id: &str) -> Result<i64, StorageError> {
@@ -2086,6 +2977,10 @@ const LEGACY_IMPORT_SPECS: &[LegacyImportSpec] = &[
         columns: "artifact_id, stage, runtime, provider_name, model_id, prompt_version, input_hash, output_hash, latency_ms, attempt_count, fallback_used, fallback_reason, failure_kind, created_at",
     },
     LegacyImportSpec {
+        table: "compaction_checkpoints",
+        columns: "checkpoint_id, conversation_id, session_id, ts, trigger_source, reason, summary, tokens_before, first_kept_entry_id, compaction_entry_id, from_extension, marker_event_id, schema_version, created_at, updated_at",
+    },
+    LegacyImportSpec {
         table: "reflector_runtime_leases",
         columns: "scope_id, owner_id, owner_pid, acquired_at, heartbeat_at, expires_at, metadata_json",
     },
@@ -2126,6 +3021,179 @@ fn parse_reflector_job_status(value: &str) -> Option<ReflectorJobStatus> {
         "failed" => Some(ReflectorJobStatus::Failed),
         _ => None,
     }
+}
+
+fn parse_t3_backlog_job_status(value: &str) -> Option<T3BacklogJobStatus> {
+    match value {
+        "pending" => Some(T3BacklogJobStatus::Pending),
+        "claimed" => Some(T3BacklogJobStatus::Claimed),
+        "completed" => Some(T3BacklogJobStatus::Completed),
+        "failed" => Some(T3BacklogJobStatus::Failed),
+        _ => None,
+    }
+}
+
+fn canon_revision_state_as_str(state: CanonRevisionState) -> &'static str {
+    match state {
+        CanonRevisionState::Active => "active",
+        CanonRevisionState::Superseded => "superseded",
+        CanonRevisionState::Stale => "stale",
+    }
+}
+
+fn parse_canon_revision_state(value: &str) -> Option<CanonRevisionState> {
+    match value {
+        "active" => Some(CanonRevisionState::Active),
+        "superseded" => Some(CanonRevisionState::Superseded),
+        "stale" => Some(CanonRevisionState::Stale),
+        _ => None,
+    }
+}
+
+fn parse_canon_entry_revision_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<CanonEntryRevision> {
+    let state_raw: String = row.get(2)?;
+    let state = parse_canon_revision_state(&state_raw).ok_or_else(|| {
+        rusqlite::Error::FromSqlConversionFailure(
+            2,
+            rusqlite::types::Type::Text,
+            Box::new(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                format!("invalid canon state: {state_raw}"),
+            )),
+        )
+    })?;
+
+    let evidence_refs_json: String = row.get(8)?;
+    let mut evidence_refs: Vec<String> =
+        serde_json::from_str(&evidence_refs_json).map_err(|err| {
+            rusqlite::Error::FromSqlConversionFailure(8, rusqlite::types::Type::Text, Box::new(err))
+        })?;
+    evidence_refs.sort();
+    evidence_refs.dedup();
+
+    let created_at = parse_timestamp(row.get::<_, String>(9)?).map_err(|err| {
+        rusqlite::Error::FromSqlConversionFailure(9, rusqlite::types::Type::Text, Box::new(err))
+    })?;
+
+    Ok(CanonEntryRevision {
+        entry_id: row.get(0)?,
+        revision: row.get(1)?,
+        state,
+        topic: row.get(3)?,
+        summary: row.get(4)?,
+        confidence_bps: row.get::<_, i64>(5)? as u16,
+        freshness_score: row.get::<_, i64>(6)? as u16,
+        supersedes_entry_id: row.get(7)?,
+        evidence_refs,
+        created_at,
+    })
+}
+
+fn parse_handshake_snapshot_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<HandshakeSnapshot> {
+    let created_at = parse_timestamp(row.get::<_, String>(6)?).map_err(|err| {
+        rusqlite::Error::FromSqlConversionFailure(6, rusqlite::types::Type::Text, Box::new(err))
+    })?;
+
+    Ok(HandshakeSnapshot {
+        snapshot_id: row.get(0)?,
+        scope: row.get(1)?,
+        scope_key: row.get(2)?,
+        payload_text: row.get(3)?,
+        payload_hash: row.get(4)?,
+        token_estimate: row.get::<_, i64>(5)? as u32,
+        created_at,
+    })
+}
+
+fn parse_compaction_checkpoint_row(
+    row: &rusqlite::Row<'_>,
+) -> rusqlite::Result<CompactionCheckpoint> {
+    let ts = parse_timestamp(row.get::<_, String>(3)?).map_err(|err| {
+        rusqlite::Error::FromSqlConversionFailure(3, rusqlite::types::Type::Text, Box::new(err))
+    })?;
+    let created_at = parse_timestamp(row.get::<_, String>(13)?).map_err(|err| {
+        rusqlite::Error::FromSqlConversionFailure(13, rusqlite::types::Type::Text, Box::new(err))
+    })?;
+    let updated_at = parse_timestamp(row.get::<_, String>(14)?).map_err(|err| {
+        rusqlite::Error::FromSqlConversionFailure(14, rusqlite::types::Type::Text, Box::new(err))
+    })?;
+
+    Ok(CompactionCheckpoint {
+        checkpoint_id: row.get(0)?,
+        conversation_id: row.get(1)?,
+        session_id: row.get(2)?,
+        ts,
+        trigger_source: row.get(4)?,
+        reason: row.get(5)?,
+        summary: row.get(6)?,
+        tokens_before: row.get::<_, Option<i64>>(7)?.map(|value| value as u32),
+        first_kept_entry_id: row.get(8)?,
+        compaction_entry_id: row.get(9)?,
+        from_extension: row.get::<_, i64>(10)? != 0,
+        marker_event_id: row.get(11)?,
+        schema_version: row.get::<_, i64>(12)? as u32,
+        created_at,
+        updated_at,
+    })
+}
+
+fn parse_t3_backlog_job_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<T3BacklogJob> {
+    let artifact_refs_json: String = row.get(7)?;
+    let mut artifact_refs: Vec<String> =
+        serde_json::from_str(&artifact_refs_json).map_err(|err| {
+            rusqlite::Error::FromSqlConversionFailure(7, rusqlite::types::Type::Text, Box::new(err))
+        })?;
+    artifact_refs.sort();
+    artifact_refs.dedup();
+
+    let status_raw: String = row.get(8)?;
+    let status = parse_t3_backlog_job_status(&status_raw).ok_or_else(|| {
+        rusqlite::Error::FromSqlConversionFailure(
+            8,
+            rusqlite::types::Type::Text,
+            Box::new(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                format!("invalid t3 backlog status: {status_raw}"),
+            )),
+        )
+    })?;
+
+    let claimed_at = row
+        .get::<_, Option<String>>(12)?
+        .map(parse_timestamp)
+        .transpose()
+        .map_err(|err| {
+            rusqlite::Error::FromSqlConversionFailure(
+                12,
+                rusqlite::types::Type::Text,
+                Box::new(err),
+            )
+        })?;
+
+    let created_at = parse_timestamp(row.get::<_, String>(13)?).map_err(|err| {
+        rusqlite::Error::FromSqlConversionFailure(13, rusqlite::types::Type::Text, Box::new(err))
+    })?;
+    let updated_at = parse_timestamp(row.get::<_, String>(14)?).map_err(|err| {
+        rusqlite::Error::FromSqlConversionFailure(14, rusqlite::types::Type::Text, Box::new(err))
+    })?;
+
+    Ok(T3BacklogJob {
+        job_id: row.get(0)?,
+        project_root: row.get(1)?,
+        session_id: row.get(2)?,
+        pane_id: row.get(3)?,
+        active_tag: row.get(4)?,
+        slice_start_id: row.get(5)?,
+        slice_end_id: row.get(6)?,
+        artifact_refs,
+        status,
+        attempts: row.get::<_, i64>(9)? as u16,
+        last_error: row.get(10)?,
+        claimed_by: row.get(11)?,
+        claimed_at,
+        created_at,
+        updated_at,
+    })
 }
 
 fn parse_reflector_job_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<ReflectorJob> {
@@ -2760,6 +3828,166 @@ mod tests {
     }
 
     #[test]
+    fn t3_runtime_lease_allows_single_owner_and_stale_takeover() {
+        let db = MindStore::open_in_memory().expect("open db");
+        let now = ts();
+
+        assert!(db
+            .try_acquire_t3_runtime_lease("project:/repo", "owner-a", Some(111), now, 1_000)
+            .expect("acquire a"));
+
+        assert!(!db
+            .try_acquire_t3_runtime_lease(
+                "project:/repo",
+                "owner-b",
+                Some(222),
+                now + chrono::Duration::milliseconds(500),
+                1_000,
+            )
+            .expect("owner-b blocked"));
+
+        assert!(db
+            .try_acquire_t3_runtime_lease(
+                "project:/repo",
+                "owner-b",
+                Some(222),
+                now + chrono::Duration::milliseconds(1_500),
+                1_000,
+            )
+            .expect("owner-b takeover"));
+
+        let lease = db
+            .t3_runtime_lease("project:/repo")
+            .expect("lease query")
+            .expect("lease present");
+        assert_eq!(lease.owner_id, "owner-b");
+        assert_eq!(lease.owner_pid, Some(222));
+    }
+
+    #[test]
+    fn t3_backlog_job_claim_complete_and_failure_requeue_roundtrip() {
+        let db = MindStore::open_in_memory().expect("open db");
+        let now = ts();
+
+        db.try_acquire_t3_runtime_lease("project:/repo", "owner-a", Some(101), now, 5_000)
+            .expect("acquire lease");
+
+        let refs = vec!["obs:2".to_string(), "obs:1".to_string()];
+        let (job_id, inserted) = db
+            .enqueue_t3_backlog_job(
+                "/repo",
+                "session-a",
+                "12",
+                Some("mind"),
+                Some("obs:1"),
+                Some("ref:1"),
+                &refs,
+                now,
+            )
+            .expect("enqueue t3");
+        assert!(inserted);
+
+        let claimed = db
+            .claim_next_t3_backlog_job(
+                "project:/repo",
+                "owner-a",
+                now + chrono::Duration::milliseconds(1),
+                1_000,
+            )
+            .expect("claim")
+            .expect("job present");
+        assert_eq!(claimed.job_id, job_id);
+        assert_eq!(claimed.status, T3BacklogJobStatus::Claimed);
+        assert_eq!(claimed.attempts, 1);
+
+        assert!(db
+            .fail_t3_backlog_job(
+                &job_id,
+                "owner-a",
+                "temporary timeout",
+                now + chrono::Duration::milliseconds(2),
+                true,
+                3,
+            )
+            .expect("requeue"));
+        assert_eq!(db.pending_t3_backlog_jobs().expect("pending"), 1);
+
+        let claimed_again = db
+            .claim_next_t3_backlog_job(
+                "project:/repo",
+                "owner-a",
+                now + chrono::Duration::milliseconds(3),
+                1_000,
+            )
+            .expect("claim again")
+            .expect("job present");
+        assert_eq!(claimed_again.attempts, 2);
+
+        assert!(db
+            .complete_t3_backlog_job(&job_id, "owner-a", now + chrono::Duration::milliseconds(4),)
+            .expect("complete"));
+
+        let completed = db
+            .t3_backlog_job_by_id(&job_id)
+            .expect("load job")
+            .expect("job exists");
+        assert_eq!(completed.status, T3BacklogJobStatus::Completed);
+        assert_eq!(completed.attempts, 2);
+    }
+
+    #[test]
+    fn compaction_checkpoint_round_trip_and_latest_lookup() {
+        let db = MindStore::open_in_memory().expect("open db");
+        let now = ts();
+        let checkpoint = CompactionCheckpoint {
+            checkpoint_id: "cmpchk:conv-1:compact-1".to_string(),
+            conversation_id: "conv-1".to_string(),
+            session_id: "session-1".to_string(),
+            ts: now,
+            trigger_source: "pi_compact".to_string(),
+            reason: Some("pi compaction".to_string()),
+            summary: Some("Compacted setup and implementation notes.".to_string()),
+            tokens_before: Some(12_345),
+            first_kept_entry_id: Some("entry-42".to_string()),
+            compaction_entry_id: Some("compact-1".to_string()),
+            from_extension: true,
+            marker_event_id: Some("evt-compaction-conv-1-compact-1".to_string()),
+            schema_version: 1,
+            created_at: now,
+            updated_at: now,
+        };
+
+        db.upsert_compaction_checkpoint(&checkpoint)
+            .expect("insert compaction checkpoint");
+
+        let loaded = db
+            .latest_compaction_checkpoint_for_conversation("conv-1")
+            .expect("load latest checkpoint")
+            .expect("checkpoint exists");
+        assert_eq!(loaded, checkpoint);
+
+        let by_session = db
+            .latest_compaction_checkpoint_for_session("session-1")
+            .expect("load latest checkpoint for session")
+            .expect("session checkpoint exists");
+        assert_eq!(by_session.checkpoint_id, checkpoint.checkpoint_id);
+
+        let later = CompactionCheckpoint {
+            reason: Some("pi compaction retry".to_string()),
+            updated_at: now + chrono::Duration::seconds(5),
+            ..checkpoint.clone()
+        };
+        db.upsert_compaction_checkpoint(&later)
+            .expect("update compaction checkpoint");
+
+        let rows = db
+            .compaction_checkpoints_for_conversation("conv-1")
+            .expect("list checkpoints");
+        assert_eq!(rows.len(), 1, "checkpoint upsert should not duplicate rows");
+        assert_eq!(rows[0].reason.as_deref(), Some("pi compaction retry"));
+    }
+
+    #[test]
     fn import_legacy_store_copies_v1_to_v4_tables_without_duplicates() {
         let legacy_file = NamedTempFile::new().expect("legacy temp db");
         let legacy_conn = Connection::open(legacy_file.path()).expect("open legacy db");
@@ -2927,5 +4155,191 @@ mod tests {
             .expect("watermark present");
         assert_eq!(watermark.last_artifact_id.as_deref(), Some("ref:1"));
         assert_eq!(watermark.last_artifact_ts, Some(now));
+    }
+
+    #[test]
+    fn canon_revision_upsert_is_idempotent_and_supersedes_previous_active_revision() {
+        let db = MindStore::open_in_memory().expect("open db");
+        let now = ts();
+        let entry_id = "canon:abc123";
+
+        let first = db
+            .upsert_canon_entry_revision(
+                entry_id,
+                Some("mind"),
+                "Initial project canon summary",
+                7_200,
+                9_400,
+                None,
+                &["obs:2".to_string(), "obs:1".to_string()],
+                now,
+            )
+            .expect("insert rev1");
+        assert_eq!(first.revision, 1);
+        assert_eq!(first.state, CanonRevisionState::Active);
+        assert_eq!(
+            first.evidence_refs,
+            vec!["obs:1".to_string(), "obs:2".to_string()]
+        );
+
+        let same = db
+            .upsert_canon_entry_revision(
+                entry_id,
+                Some("mind"),
+                "Initial project canon summary",
+                7_200,
+                9_400,
+                None,
+                &["obs:1".to_string(), "obs:2".to_string()],
+                now,
+            )
+            .expect("idempotent upsert");
+        assert_eq!(same.revision, 1);
+
+        let second = db
+            .upsert_canon_entry_revision(
+                entry_id,
+                Some("mind"),
+                "Updated project canon summary",
+                7_900,
+                9_600,
+                None,
+                &["obs:3".to_string(), "obs:2".to_string()],
+                now + chrono::Duration::seconds(1),
+            )
+            .expect("insert rev2");
+        assert_eq!(second.revision, 2);
+        assert_eq!(second.state, CanonRevisionState::Active);
+
+        let history = db
+            .canon_entry_revisions(entry_id)
+            .expect("history query should succeed");
+        assert_eq!(history.len(), 2);
+        assert_eq!(history[0].revision, 2);
+        assert_eq!(history[0].state, CanonRevisionState::Active);
+        assert_eq!(history[1].revision, 1);
+        assert_eq!(history[1].state, CanonRevisionState::Superseded);
+
+        let active = db
+            .active_canon_entries(Some("mind"))
+            .expect("active query should succeed");
+        assert_eq!(active.len(), 1);
+        assert_eq!(active[0].entry_id, entry_id);
+        assert_eq!(active[0].revision, 2);
+    }
+
+    #[test]
+    fn mark_active_canon_entries_stale_marks_old_untouched_entries_only() {
+        let db = MindStore::open_in_memory().expect("open db");
+        let now = ts();
+
+        db.upsert_canon_entry_revision(
+            "canon:old-a",
+            Some("mind"),
+            "Older canon entry A",
+            7_000,
+            8_000,
+            None,
+            &["obs:1".to_string()],
+            now - chrono::Duration::days(30),
+        )
+        .expect("insert old a");
+        db.upsert_canon_entry_revision(
+            "canon:old-b",
+            Some("mind"),
+            "Older canon entry B",
+            7_100,
+            8_100,
+            None,
+            &["obs:2".to_string()],
+            now - chrono::Duration::days(30),
+        )
+        .expect("insert old b");
+        db.upsert_canon_entry_revision(
+            "canon:new-c",
+            Some("mind"),
+            "Recent canon entry C",
+            7_200,
+            8_800,
+            None,
+            &["obs:3".to_string()],
+            now - chrono::Duration::days(2),
+        )
+        .expect("insert new c");
+
+        let marked = db
+            .mark_active_canon_entries_stale(
+                Some("mind"),
+                now - chrono::Duration::days(14),
+                &["canon:old-b".to_string()],
+            )
+            .expect("stale update");
+        assert_eq!(marked, 1);
+
+        let stale = db
+            .canon_entries_by_state(CanonRevisionState::Stale, Some("mind"))
+            .expect("stale query");
+        assert_eq!(stale.len(), 1);
+        assert_eq!(stale[0].entry_id, "canon:old-a");
+
+        let active = db.active_canon_entries(Some("mind")).expect("active query");
+        assert_eq!(active.len(), 2);
+        assert!(active.iter().any(|entry| entry.entry_id == "canon:old-b"));
+        assert!(active.iter().any(|entry| entry.entry_id == "canon:new-c"));
+    }
+
+    #[test]
+    fn handshake_snapshot_upsert_is_idempotent_and_latest_lookup_returns_newest() {
+        let db = MindStore::open_in_memory().expect("open db");
+        let now = ts();
+
+        let (snapshot_id, inserted) = db
+            .upsert_handshake_snapshot(
+                "project",
+                "project:/repo",
+                "# Handshake\n\n- one\n",
+                "hash-one",
+                120,
+                now,
+            )
+            .expect("insert snapshot");
+        assert!(inserted);
+
+        let (_same_id, inserted_again) = db
+            .upsert_handshake_snapshot(
+                "project",
+                "project:/repo",
+                "# Handshake\n\n- one\n",
+                "hash-one",
+                120,
+                now,
+            )
+            .expect("idempotent snapshot");
+        assert!(!inserted_again);
+
+        let latest = db
+            .latest_handshake_snapshot("project", "project:/repo")
+            .expect("latest query")
+            .expect("latest exists");
+        assert_eq!(latest.snapshot_id, snapshot_id);
+        assert_eq!(latest.payload_hash, "hash-one");
+        assert_eq!(latest.token_estimate, 120);
+
+        db.upsert_handshake_snapshot(
+            "project",
+            "project:/repo",
+            "# Handshake\n\n- two\n",
+            "hash-two",
+            160,
+            now + chrono::Duration::seconds(1),
+        )
+        .expect("insert newer snapshot");
+
+        let latest = db
+            .latest_handshake_snapshot("project", "project:/repo")
+            .expect("latest query")
+            .expect("latest exists");
+        assert_eq!(latest.payload_hash, "hash-two");
+        assert_eq!(latest.token_estimate, 160);
     }
 }
