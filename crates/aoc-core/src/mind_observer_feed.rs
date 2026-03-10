@@ -29,6 +29,7 @@ pub enum MindObserverFeedTriggerKind {
     TaskCompleted,
     ManualShortcut,
     Handoff,
+    Compaction,
 }
 
 impl MindObserverFeedTriggerKind {
@@ -38,6 +39,7 @@ impl MindObserverFeedTriggerKind {
             Self::TaskCompleted => "task_completed",
             Self::ManualShortcut => "manual_shortcut",
             Self::Handoff => "handoff",
+            Self::Compaction => "compaction",
         }
     }
 }

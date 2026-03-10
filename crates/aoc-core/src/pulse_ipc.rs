@@ -1,3 +1,4 @@
+use crate::session_overseer::{ObserverSnapshot, ObserverTimelineEntry};
 use serde::de::{self, DeserializeOwned, Visitor};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use serde_json::Value;
@@ -109,6 +110,8 @@ pub enum WireMsg {
     Subscribe(SubscribePayload),
     Snapshot(SnapshotPayload),
     Delta(DeltaPayload),
+    ObserverSnapshot(ObserverSnapshot),
+    ObserverTimeline(ObserverTimelinePayload),
     LayoutState(LayoutStatePayload),
     Heartbeat(HeartbeatPayload),
     Command(CommandPayload),
@@ -160,6 +163,15 @@ pub struct LayoutStatePayload {
     pub tabs: Vec<LayoutTab>,
     #[serde(default)]
     pub panes: Vec<LayoutPane>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
+pub struct ObserverTimelinePayload {
+    pub session_id: String,
+    #[serde(default)]
+    pub generated_at_ms: Option<i64>,
+    #[serde(default)]
+    pub entries: Vec<ObserverTimelineEntry>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]

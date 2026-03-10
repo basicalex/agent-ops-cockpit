@@ -1,6 +1,7 @@
 use anyhow::Result;
 use clap::{Parser, Subcommand};
 
+mod overseer;
 mod rlm;
 mod task;
 
@@ -29,6 +30,11 @@ enum Commands {
         #[command(subcommand)]
         action: rlm::RlmCommand,
     },
+    /// Inspect and steer the session overseer control plane
+    Overseer {
+        #[command(subcommand)]
+        action: overseer::OverseerCommand,
+    },
 }
 
 #[derive(Subcommand)]
@@ -48,5 +54,6 @@ fn main() -> Result<()> {
             }
         },
         Commands::Rlm { action } => rlm::handle_rlm_command(action),
+        Commands::Overseer { action } => overseer::handle_overseer_command(action),
     }
 }

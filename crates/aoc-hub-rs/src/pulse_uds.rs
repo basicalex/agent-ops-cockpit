@@ -1,8 +1,16 @@
-use aoc_core::pulse_ipc::{
-    decode_frame, encode_frame, AgentState, CommandError, CommandPayload, CommandResultPayload,
-    DeltaPayload, HeartbeatPayload, HelloPayload, LayoutPane, LayoutStatePayload, LayoutTab,
-    ProtocolVersion, SnapshotPayload, StateChange, StateChangeOp, SubscribePayload, WireEnvelope,
-    WireMsg, CURRENT_PROTOCOL_VERSION, DEFAULT_MAX_FRAME_BYTES,
+use aoc_core::{
+    pulse_ipc::{
+        decode_frame, encode_frame, AgentState, CommandError, CommandPayload, CommandResultPayload,
+        DeltaPayload, HeartbeatPayload, HelloPayload, LayoutPane, LayoutStatePayload, LayoutTab,
+        ObserverTimelinePayload, ProtocolVersion, SnapshotPayload, StateChange, StateChangeOp,
+        SubscribePayload, WireEnvelope, WireMsg, CURRENT_PROTOCOL_VERSION, DEFAULT_MAX_FRAME_BYTES,
+    },
+    session_overseer::{
+        AttentionLevel, AttentionSignal, DriftRisk, DuplicateWorkSignal, ManagerCommand,
+        ManagerCommandError, ManagerCommandResult, ManagerCommandStatus, ObserverEvent,
+        ObserverEventKind, ObserverSnapshot, ObserverTimelineEntry, OverseerRetentionPolicy,
+        OverseerSourceKind, PlanAlignment, WorkerSnapshot, WorkerStatus,
+    },
 };
 use chrono::Utc;
 use std::{
@@ -143,6 +151,8 @@ struct ClientEntry {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum PulseTopic {
     AgentState,
+    ObserverSnapshot,
+    ObserverTimeline,
     CommandResult,
     LayoutState,
 }
@@ -151,6 +161,8 @@ enum PulseTopic {
 #[derive(Clone, Debug)]
 struct TopicFilter {
     agent_state: bool,
+    observer_snapshot: bool,
+    observer_timeline: bool,
     command_result: bool,
     layout_state: bool,
 }
@@ -160,6 +172,8 @@ impl TopicFilter {
     fn baseline() -> Self {
         Self {
             agent_state: true,
+            observer_snapshot: false,
+            observer_timeline: false,
             command_result: true,
             layout_state: false,
         }
@@ -172,12 +186,16 @@ impl TopicFilter {
 
         let mut filter = Self {
             agent_state: false,
+            observer_snapshot: false,
+            observer_timeline: false,
             command_result: false,
             layout_state: false,
         };
         for topic in &payload.topics {
             match topic.trim().to_ascii_lowercase().as_str() {
                 "agent_state" | "snapshot" | "delta" => filter.agent_state = true,
+                "observer_snapshot" => filter.observer_snapshot = true,
+                "observer_timeline" => filter.observer_timeline = true,
                 "command_result" => filter.command_result = true,
                 "layout_state" => filter.layout_state = true,
                 _ => {}
@@ -189,6 +207,8 @@ impl TopicFilter {
     fn allows(&self, topic: PulseTopic) -> bool {
         match topic {
             PulseTopic::AgentState => self.agent_state,
+            PulseTopic::ObserverSnapshot => self.observer_snapshot,
+            PulseTopic::ObserverTimeline => self.observer_timeline,
             PulseTopic::CommandResult => self.command_result,
             PulseTopic::LayoutState => self.layout_state,
         }
@@ -249,6 +269,8 @@ struct PulseUdsHub {
     layout_state: RwLock<Option<LayoutCacheEntry>>,
     command_cache: RwLock<HashMap<String, CommandCacheEntry>>,
     command_cache_order: RwLock<VecDeque<String>>,
+    overseer_retention: OverseerRetentionPolicy,
+    observer_timeline: RwLock<VecDeque<ObserverTimelineEntry>>,
 }
 
 #[cfg(unix)]
@@ -273,6 +295,8 @@ impl PulseUdsHub {
             layout_state: RwLock::new(None),
             command_cache: RwLock::new(HashMap::new()),
             command_cache_order: RwLock::new(VecDeque::new()),
+            overseer_retention: OverseerRetentionPolicy::default(),
+            observer_timeline: RwLock::new(VecDeque::new()),
         }
     }
 
@@ -403,6 +427,27 @@ impl PulseUdsHub {
         Some(self.make_envelope("aoc-hub", None, WireMsg::LayoutState(payload)))
     }
 
+    async fn build_observer_snapshot_envelope(&self) -> WireEnvelope {
+        let payload = self.build_observer_snapshot().await;
+        self.make_envelope("aoc-hub", None, WireMsg::ObserverSnapshot(payload))
+    }
+
+    async fn build_observer_timeline_envelope(&self) -> WireEnvelope {
+        let entries = {
+            let timeline = self.observer_timeline.read().await;
+            timeline.iter().cloned().collect::<Vec<_>>()
+        };
+        self.make_envelope(
+            "aoc-hub",
+            None,
+            WireMsg::ObserverTimeline(ObserverTimelinePayload {
+                session_id: self.config.session_id.clone(),
+                generated_at_ms: Some(now_ms()),
+                entries,
+            }),
+        )
+    }
+
     async fn set_subscriber_topics(&self, conn_id: &str, payload: SubscribePayload) {
         let filter = TopicFilter::from_subscribe(&payload);
         let updated = {
@@ -429,6 +474,16 @@ impl PulseUdsHub {
                 let _ = self.send_to_conn(conn_id, layout).await;
             }
         }
+
+        if filter.observer_snapshot {
+            let snapshot = self.build_observer_snapshot_envelope().await;
+            let _ = self.send_to_conn(conn_id, snapshot).await;
+        }
+
+        if filter.observer_timeline {
+            let timeline = self.build_observer_timeline_envelope().await;
+            let _ = self.send_to_conn(conn_id, timeline).await;
+        }
     }
 
     async fn send_subscriber_bootstrap(&self, conn_id: &str) {
@@ -449,6 +504,16 @@ impl PulseUdsHub {
             if let Some(layout) = self.build_layout_envelope().await {
                 let _ = self.send_to_conn(conn_id, layout).await;
             }
+        }
+
+        if filter.observer_snapshot {
+            let snapshot = self.build_observer_snapshot_envelope().await;
+            let _ = self.send_to_conn(conn_id, snapshot).await;
+        }
+
+        if filter.observer_timeline {
+            let timeline = self.build_observer_timeline_envelope().await;
+            let _ = self.send_to_conn(conn_id, timeline).await;
         }
     }
 
@@ -571,6 +636,104 @@ impl PulseUdsHub {
         }
     }
 
+    async fn build_observer_snapshot(&self) -> ObserverSnapshot {
+        let now = now_ms();
+        let mut workers = {
+            let state = self.state.read().await;
+            let mut workers = state
+                .values()
+                .filter_map(|record| {
+                    worker_snapshot_from_agent_state(&record.state)
+                        .map(|snapshot| enrich_worker_snapshot(snapshot, &record.state, now))
+                })
+                .collect::<Vec<_>>();
+            apply_duplicate_work_heuristics(&mut workers);
+            workers
+        };
+        workers.sort_by(|a, b| a.agent_id.cmp(&b.agent_id));
+        let timeline = {
+            let timeline = self.observer_timeline.read().await;
+            timeline.iter().cloned().collect::<Vec<_>>()
+        };
+
+        ObserverSnapshot {
+            schema_version: 1,
+            session_id: self.config.session_id.clone(),
+            generated_at_ms: Some(now),
+            workers,
+            timeline,
+            degraded_reason: None,
+        }
+    }
+
+    async fn emit_observer_updates(&self) {
+        let snapshot = self.build_observer_snapshot_envelope().await;
+        self.broadcast_to_subscribers(snapshot).await;
+        let timeline = self.build_observer_timeline_envelope().await;
+        self.broadcast_to_subscribers(timeline).await;
+    }
+
+    async fn append_observer_events(&self, events: &[ObserverEvent]) {
+        if events.is_empty() {
+            return;
+        }
+
+        let mut timeline = self.observer_timeline.write().await;
+        for (index, event) in events.iter().enumerate() {
+            timeline.push_front(observer_timeline_entry_from_event(event, index));
+        }
+        while timeline.len() > self.overseer_retention.max_timeline_entries {
+            timeline.pop_back();
+        }
+    }
+
+    async fn append_command_result_event(
+        &self,
+        target_agent_id: &str,
+        command: ManagerCommand,
+        payload: &CommandResultPayload,
+    ) {
+        let snapshot = {
+            let state = self.state.read().await;
+            state
+                .get(target_agent_id)
+                .and_then(|record| worker_snapshot_from_agent_state(&record.state))
+        };
+        let pane_id = snapshot
+            .as_ref()
+            .map(|value| value.pane_id.clone())
+            .unwrap_or_else(|| pane_from_agent_id(target_agent_id));
+        let status = match payload.status.trim().to_ascii_lowercase().as_str() {
+            "accepted" => ManagerCommandStatus::Accepted,
+            "ok" | "completed" => ManagerCommandStatus::Completed,
+            "rejected" => ManagerCommandStatus::Rejected,
+            _ => ManagerCommandStatus::Failed,
+        };
+        let error = payload.error.as_ref().map(|err| ManagerCommandError {
+            code: err.code.clone(),
+            message: err.message.clone(),
+        });
+        let event = ObserverEvent {
+            schema_version: 1,
+            kind: ObserverEventKind::CommandResult,
+            session_id: self.config.session_id.clone(),
+            agent_id: target_agent_id.to_string(),
+            pane_id,
+            source: OverseerSourceKind::Hub,
+            summary: payload.message.clone(),
+            reason: None,
+            snapshot,
+            command: Some(command),
+            command_result: Some(ManagerCommandResult {
+                status,
+                message: payload.message.clone(),
+                error,
+            }),
+            emitted_at_ms: Some(now_ms()),
+        };
+        self.append_observer_events(&[event]).await;
+    }
+
     async fn stale_reap_once(&self) {
         let Some(stale_after) = self.config.stale_after else {
             return;
@@ -602,6 +765,7 @@ impl PulseUdsHub {
 
         if !changes.is_empty() {
             self.broadcast_delta(changes).await;
+            self.emit_observer_updates().await;
         }
     }
 
@@ -853,7 +1017,10 @@ impl PulseUdsHub {
                 });
             }
         }
-        self.broadcast_delta(changes).await;
+        self.broadcast_delta(changes.clone()).await;
+        if !changes.is_empty() {
+            self.emit_observer_updates().await;
+        }
     }
 
     async fn apply_heartbeat(&self, publisher_agent: &str, payload: HeartbeatPayload) {
@@ -898,6 +1065,7 @@ impl PulseUdsHub {
 
     async fn apply_delta(&self, publisher_agent: &str, payload: DeltaPayload) {
         let mut outgoing = Vec::new();
+        let mut observer_events = Vec::new();
         {
             let mut state = self.state.write().await;
             for mut change in payload.changes {
@@ -926,6 +1094,7 @@ impl PulseUdsHub {
                                 .or(next_state.last_activity_ms)
                                 .or(next_state.last_heartbeat_ms),
                         );
+                        observer_events.extend(observer_events_from_agent_state(&next_state));
                         let record = AgentRecord {
                             state: next_state.clone(),
                             last_heartbeat: Instant::now(),
@@ -950,7 +1119,11 @@ impl PulseUdsHub {
                 }
             }
         }
-        self.broadcast_delta(outgoing).await;
+        self.broadcast_delta(outgoing.clone()).await;
+        if !outgoing.is_empty() {
+            self.append_observer_events(&observer_events).await;
+            self.emit_observer_updates().await;
+        }
     }
 
     async fn route_command(
@@ -983,9 +1156,28 @@ impl PulseUdsHub {
                 self.handle_focus_tab_command(source_conn_id, envelope.request_id, payload)
                     .await;
             }
-            "stop_agent" | "run_observer" | "mind_ingest_event" | "mind_handoff"
-            | "insight_ingest" | "insight_handoff" | "insight_status" | "insight_dispatch"
-            | "insight_bootstrap" => {
+            "stop_agent"
+            | "run_observer"
+            | "mind_ingest_event"
+            | "mind_compaction_checkpoint"
+            | "mind_handoff"
+            | "mind_resume"
+            | "mind_finalize"
+            | "mind_finalize_session"
+            | "mind_t3_requeue"
+            | "mind_handshake_rebuild"
+            | "insight_ingest"
+            | "insight_handoff"
+            | "insight_resume"
+            | "insight_status"
+            | "insight_dispatch"
+            | "insight_bootstrap"
+            | "request_status_update"
+            | "request_handoff"
+            | "pause_and_summarize"
+            | "run_validation"
+            | "switch_focus"
+            | "finalize_and_report" => {
                 self.route_stop_agent_command(source_conn_id, envelope, payload)
                     .await;
             }
@@ -1422,6 +1614,22 @@ impl PulseUdsHub {
                     }
                 }
                 (ClientRole::Publisher, WireMsg::CommandResult(payload)) => {
+                    if let Some(publisher_agent) = agent_id.as_deref() {
+                        let overseer_command = match payload.command.as_str() {
+                            "request_status_update" => Some(ManagerCommand::RequestStatusUpdate),
+                            "request_handoff" => Some(ManagerCommand::RequestHandoff),
+                            "pause_and_summarize" => Some(ManagerCommand::PauseAndSummarize),
+                            "run_validation" => Some(ManagerCommand::RunValidation),
+                            "switch_focus" => Some(ManagerCommand::SwitchFocus(Default::default())),
+                            "finalize_and_report" => Some(ManagerCommand::FinalizeAndReport),
+                            _ => None,
+                        };
+                        if let Some(command) = overseer_command {
+                            self.append_command_result_event(publisher_agent, command, &payload)
+                                .await;
+                            self.emit_observer_updates().await;
+                        }
+                    }
                     let forwarded = self.make_envelope(
                         &envelope.sender_id,
                         envelope.request_id,
@@ -1554,6 +1762,8 @@ async fn read_next_valid_frame(reader: &mut BufReader<OwnedReadHalf>) -> Option<
 fn wire_topic(msg: &WireMsg) -> Option<PulseTopic> {
     match msg {
         WireMsg::Snapshot(_) | WireMsg::Delta(_) => Some(PulseTopic::AgentState),
+        WireMsg::ObserverSnapshot(_) => Some(PulseTopic::ObserverSnapshot),
+        WireMsg::ObserverTimeline(_) => Some(PulseTopic::ObserverTimeline),
         WireMsg::CommandResult(_) => Some(PulseTopic::CommandResult),
         WireMsg::LayoutState(_) => Some(PulseTopic::LayoutState),
         _ => None,
@@ -1801,6 +2011,331 @@ fn pane_from_agent_id(agent_id: &str) -> String {
         .unwrap_or_default()
 }
 
+#[cfg(unix)]
+fn worker_snapshot_from_agent_state(state: &AgentState) -> Option<WorkerSnapshot> {
+    state
+        .source
+        .as_ref()
+        .and_then(|source| {
+            source
+                .get("worker_snapshot")
+                .or_else(|| source.get("session_overseer"))
+        })
+        .and_then(|value| serde_json::from_value::<WorkerSnapshot>(value.clone()).ok())
+}
+
+#[cfg(unix)]
+fn current_tag_from_agent_state(state: &AgentState) -> Option<String> {
+    state
+        .source
+        .as_ref()
+        .and_then(|source| source.get("current_tag"))
+        .and_then(|value| value.get("tag"))
+        .and_then(|value| value.as_str())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(|value| value.to_string())
+}
+
+#[cfg(unix)]
+fn active_task_ids_from_agent_state(state: &AgentState) -> Vec<String> {
+    let mut task_ids = Vec::new();
+    let Some(source) = state.source.as_ref() else {
+        return task_ids;
+    };
+    let Some(task_summaries) = source
+        .get("task_summaries")
+        .and_then(|value| value.as_object())
+    else {
+        return task_ids;
+    };
+    for payload in task_summaries.values() {
+        let active = payload
+            .get("active_tasks")
+            .and_then(|value| value.as_array())
+            .into_iter()
+            .flatten();
+        for task in active {
+            let is_active_agent = task
+                .get("active_agent")
+                .and_then(|value| value.as_bool())
+                .unwrap_or(false);
+            if !is_active_agent {
+                continue;
+            }
+            let Some(task_id) = task.get("id").and_then(|value| value.as_str()) else {
+                continue;
+            };
+            let task_id = task_id.trim();
+            if task_id.is_empty() || task_ids.iter().any(|existing| existing == task_id) {
+                continue;
+            }
+            task_ids.push(task_id.to_string());
+        }
+    }
+    task_ids
+}
+
+#[cfg(unix)]
+fn enrich_worker_snapshot(
+    mut snapshot: WorkerSnapshot,
+    state: &AgentState,
+    now_ms: i64,
+) -> WorkerSnapshot {
+    if snapshot.assignment.tag.is_none() {
+        snapshot.assignment.tag = current_tag_from_agent_state(state);
+    }
+    if snapshot.assignment.task_id.is_none() {
+        snapshot.assignment.task_id = active_task_ids_from_agent_state(state).into_iter().next();
+    }
+    if snapshot.last_update_at_ms.is_none() {
+        snapshot.last_update_at_ms = state
+            .updated_at_ms
+            .or(state.last_activity_ms)
+            .or(state.last_heartbeat_ms);
+    }
+    if snapshot.last_meaningful_progress_at_ms.is_none() {
+        snapshot.last_meaningful_progress_at_ms = state.last_activity_ms.or(state.updated_at_ms);
+    }
+
+    snapshot.plan_alignment = derive_plan_alignment(&snapshot, state);
+    snapshot.drift_risk = derive_drift_risk(&snapshot, now_ms);
+    snapshot.attention = derive_attention_signal(&snapshot, now_ms);
+    snapshot
+}
+
+#[cfg(unix)]
+fn derive_plan_alignment(snapshot: &WorkerSnapshot, state: &AgentState) -> PlanAlignment {
+    let current_tag = current_tag_from_agent_state(state);
+    let active_task_ids = active_task_ids_from_agent_state(state);
+    match (
+        snapshot.assignment.task_id.as_deref(),
+        snapshot.assignment.tag.as_deref(),
+    ) {
+        (Some(task_id), Some(tag))
+            if current_tag.as_deref() == Some(tag)
+                && active_task_ids.iter().any(|candidate| candidate == task_id) =>
+        {
+            PlanAlignment::High
+        }
+        (Some(_), Some(tag)) if current_tag.as_deref() == Some(tag) => PlanAlignment::Medium,
+        (Some(_), None) => PlanAlignment::Medium,
+        (None, Some(tag)) if current_tag.as_deref() == Some(tag) => PlanAlignment::Medium,
+        (Some(_), Some(_)) => PlanAlignment::Low,
+        (None, None) if snapshot.status == WorkerStatus::Offline => PlanAlignment::Unknown,
+        _ => PlanAlignment::Unassigned,
+    }
+}
+
+#[cfg(unix)]
+fn derive_drift_risk(snapshot: &WorkerSnapshot, now_ms: i64) -> DriftRisk {
+    if matches!(
+        snapshot.status,
+        WorkerStatus::Blocked | WorkerStatus::NeedsInput
+    ) {
+        return DriftRisk::High;
+    }
+    let stale_after = snapshot.stale_after_ms.unwrap_or(5 * 60 * 1000) as i64;
+    let last_progress = snapshot
+        .last_meaningful_progress_at_ms
+        .or(snapshot.last_update_at_ms)
+        .unwrap_or(now_ms);
+    let age = now_ms.saturating_sub(last_progress);
+    if age >= stale_after {
+        return DriftRisk::High;
+    }
+    if snapshot.assignment.task_id.is_none() && snapshot.assignment.tag.is_none() {
+        return DriftRisk::Medium;
+    }
+    if age >= stale_after / 2
+        || matches!(
+            snapshot.plan_alignment,
+            PlanAlignment::Low | PlanAlignment::Unassigned
+        )
+    {
+        return DriftRisk::Medium;
+    }
+    DriftRisk::Low
+}
+
+#[cfg(unix)]
+fn derive_attention_signal(snapshot: &WorkerSnapshot, now_ms: i64) -> AttentionSignal {
+    if matches!(
+        snapshot.status,
+        WorkerStatus::Blocked | WorkerStatus::NeedsInput
+    ) {
+        return AttentionSignal {
+            level: AttentionLevel::Warn,
+            kind: Some("blocked".to_string()),
+            reason: snapshot
+                .blocker
+                .clone()
+                .or_else(|| snapshot.summary.clone()),
+        };
+    }
+    let stale_after = snapshot.stale_after_ms.unwrap_or(5 * 60 * 1000) as i64;
+    let last_progress = snapshot
+        .last_meaningful_progress_at_ms
+        .or(snapshot.last_update_at_ms)
+        .unwrap_or(now_ms);
+    if now_ms.saturating_sub(last_progress) >= stale_after {
+        return AttentionSignal {
+            level: AttentionLevel::Warn,
+            kind: Some("stale".to_string()),
+            reason: Some(
+                "worker has not reported meaningful progress within stale window".to_string(),
+            ),
+        };
+    }
+    if matches!(
+        snapshot.plan_alignment,
+        PlanAlignment::Low | PlanAlignment::Unassigned
+    ) {
+        return AttentionSignal {
+            level: AttentionLevel::Info,
+            kind: Some("plan_alignment".to_string()),
+            reason: Some(
+                "worker progress is weakly correlated with active task/tag context".to_string(),
+            ),
+        };
+    }
+    AttentionSignal::default()
+}
+
+#[cfg(unix)]
+fn apply_duplicate_work_heuristics(workers: &mut [WorkerSnapshot]) {
+    let mut task_to_agents: HashMap<String, Vec<String>> = HashMap::new();
+    let mut file_to_agents: HashMap<String, Vec<String>> = HashMap::new();
+
+    for worker in workers.iter() {
+        if let Some(task_id) = worker.assignment.task_id.as_ref() {
+            task_to_agents
+                .entry(task_id.clone())
+                .or_default()
+                .push(worker.agent_id.clone());
+        }
+        for file in &worker.files_touched {
+            file_to_agents
+                .entry(file.clone())
+                .or_default()
+                .push(worker.agent_id.clone());
+        }
+    }
+
+    for worker in workers.iter_mut() {
+        let mut overlapping_files = worker
+            .files_touched
+            .iter()
+            .filter(|file| {
+                file_to_agents
+                    .get(*file)
+                    .map(|agents| agents.len() > 1)
+                    .unwrap_or(false)
+            })
+            .cloned()
+            .collect::<Vec<_>>();
+        overlapping_files.sort();
+        overlapping_files.dedup();
+
+        let mut overlapping_task_ids = Vec::new();
+        if let Some(task_id) = worker.assignment.task_id.as_ref() {
+            if task_to_agents
+                .get(task_id)
+                .map(|agents| agents.len() > 1)
+                .unwrap_or(false)
+            {
+                overlapping_task_ids.push(task_id.clone());
+            }
+        }
+
+        let mut other_agents = Vec::new();
+        if let Some(task_id) = worker.assignment.task_id.as_ref() {
+            if let Some(agents) = task_to_agents.get(task_id) {
+                other_agents.extend(
+                    agents
+                        .iter()
+                        .filter(|agent| *agent != &worker.agent_id)
+                        .cloned(),
+                );
+            }
+        }
+        for file in &overlapping_files {
+            if let Some(agents) = file_to_agents.get(file) {
+                other_agents.extend(
+                    agents
+                        .iter()
+                        .filter(|agent| *agent != &worker.agent_id)
+                        .cloned(),
+                );
+            }
+        }
+        other_agents.sort();
+        other_agents.dedup();
+
+        if !overlapping_files.is_empty() || !overlapping_task_ids.is_empty() {
+            worker.duplicate_work = Some(DuplicateWorkSignal {
+                overlapping_files,
+                overlapping_task_ids,
+                other_agents,
+            });
+            if worker.drift_risk == DriftRisk::Low {
+                worker.drift_risk = DriftRisk::Medium;
+            }
+            if worker.attention == AttentionSignal::default() {
+                worker.attention = AttentionSignal {
+                    level: AttentionLevel::Info,
+                    kind: Some("duplicate_work".to_string()),
+                    reason: Some("potential overlapping task/file ownership detected".to_string()),
+                };
+            }
+        }
+    }
+}
+
+#[cfg(unix)]
+fn observer_events_from_agent_state(state: &AgentState) -> Vec<ObserverEvent> {
+    state
+        .source
+        .as_ref()
+        .and_then(|source| source.get("observer_events"))
+        .and_then(|value| serde_json::from_value::<Vec<ObserverEvent>>(value.clone()).ok())
+        .unwrap_or_default()
+}
+
+#[cfg(unix)]
+fn observer_timeline_entry_from_event(
+    event: &ObserverEvent,
+    ordinal: usize,
+) -> ObserverTimelineEntry {
+    ObserverTimelineEntry {
+        event_id: format!(
+            "{}:{}:{}:{:?}",
+            event.agent_id,
+            event.emitted_at_ms.unwrap_or_default(),
+            ordinal,
+            event.kind
+        ),
+        session_id: event.session_id.clone(),
+        agent_id: event.agent_id.clone(),
+        kind: event.kind,
+        source: event.source,
+        summary: event.summary.clone(),
+        reason: event.reason.clone(),
+        attention: event
+            .snapshot
+            .as_ref()
+            .map(|snapshot| snapshot.attention.clone())
+            .and_then(|attention| {
+                if attention == AttentionSignal::default() {
+                    None
+                } else {
+                    Some(attention)
+                }
+            }),
+        emitted_at_ms: event.emitted_at_ms,
+    }
+}
+
 fn now_ms() -> i64 {
     Utc::now().timestamp_millis()
 }
@@ -2019,14 +2554,104 @@ tab name="Review"
         });
         assert!(baseline.allows(PulseTopic::AgentState));
         assert!(baseline.allows(PulseTopic::CommandResult));
+        assert!(!baseline.allows(PulseTopic::ObserverSnapshot));
+        assert!(!baseline.allows(PulseTopic::ObserverTimeline));
         assert!(!baseline.allows(PulseTopic::LayoutState));
 
         let selective = TopicFilter::from_subscribe(&SubscribePayload {
-            topics: vec!["layout_state".to_string()],
+            topics: vec!["layout_state".to_string(), "observer_snapshot".to_string()],
             since_seq: None,
         });
         assert!(!selective.allows(PulseTopic::AgentState));
+        assert!(selective.allows(PulseTopic::ObserverSnapshot));
+        assert!(!selective.allows(PulseTopic::ObserverTimeline));
         assert!(selective.allows(PulseTopic::LayoutState));
+    }
+
+    #[test]
+    fn enrich_worker_snapshot_correlates_plan_and_staleness() {
+        let now = now_ms();
+        let state = AgentState {
+            agent_id: "sess::12".to_string(),
+            session_id: "sess".to_string(),
+            pane_id: "12".to_string(),
+            lifecycle: "running".to_string(),
+            snippet: Some("working".to_string()),
+            last_heartbeat_ms: Some(now),
+            last_activity_ms: Some(now - 400_000),
+            updated_at_ms: Some(now - 400_000),
+            source: Some(serde_json::json!({
+                "current_tag": {"tag": "session-overseer"},
+                "task_summaries": {
+                    "session-overseer": {
+                        "active_tasks": [{"id": "149.4", "active_agent": true}]
+                    }
+                }
+            })),
+        };
+        let snapshot = enrich_worker_snapshot(
+            WorkerSnapshot {
+                session_id: "sess".to_string(),
+                agent_id: "sess::12".to_string(),
+                pane_id: "12".to_string(),
+                status: WorkerStatus::Active,
+                stale_after_ms: Some(300_000),
+                ..Default::default()
+            },
+            &state,
+            now,
+        );
+
+        assert_eq!(snapshot.assignment.task_id.as_deref(), Some("149.4"));
+        assert_eq!(snapshot.assignment.tag.as_deref(), Some("session-overseer"));
+        assert_eq!(snapshot.plan_alignment, PlanAlignment::High);
+        assert_eq!(snapshot.drift_risk, DriftRisk::High);
+        assert_eq!(snapshot.attention.kind.as_deref(), Some("stale"));
+    }
+
+    #[test]
+    fn duplicate_work_heuristics_flag_overlapping_tasks_and_files() {
+        let mut workers = vec![
+            WorkerSnapshot {
+                agent_id: "sess::12".to_string(),
+                pane_id: "12".to_string(),
+                session_id: "sess".to_string(),
+                assignment: aoc_core::session_overseer::WorkerAssignment {
+                    task_id: Some("149.4".to_string()),
+                    tag: Some("session-overseer".to_string()),
+                    epic_id: None,
+                },
+                files_touched: vec!["crates/aoc-hub-rs/src/pulse_uds.rs".to_string()],
+                drift_risk: DriftRisk::Low,
+                ..Default::default()
+            },
+            WorkerSnapshot {
+                agent_id: "sess::19".to_string(),
+                pane_id: "19".to_string(),
+                session_id: "sess".to_string(),
+                assignment: aoc_core::session_overseer::WorkerAssignment {
+                    task_id: Some("149.4".to_string()),
+                    tag: Some("session-overseer".to_string()),
+                    epic_id: None,
+                },
+                files_touched: vec!["crates/aoc-hub-rs/src/pulse_uds.rs".to_string()],
+                drift_risk: DriftRisk::Low,
+                ..Default::default()
+            },
+        ];
+
+        apply_duplicate_work_heuristics(&mut workers);
+
+        for worker in workers {
+            let duplicate = worker.duplicate_work.expect("duplicate work flagged");
+            assert_eq!(duplicate.overlapping_task_ids, vec!["149.4".to_string()]);
+            assert_eq!(
+                duplicate.overlapping_files,
+                vec!["crates/aoc-hub-rs/src/pulse_uds.rs".to_string()]
+            );
+            assert_eq!(worker.drift_risk, DriftRisk::Medium);
+            assert_eq!(worker.attention.kind.as_deref(), Some("duplicate_work"));
+        }
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -2151,6 +2776,144 @@ tab name="Review"
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn observer_snapshot_and_timeline_bootstrap_from_worker_source() {
+        let session = "pulse-overseer-session";
+        let (path, shutdown_tx, handle) =
+            launch_hub("observer-bootstrap", session, Some(Duration::from_secs(2))).await;
+        let agent = format!("{session}::12");
+
+        let (_pub_reader, mut pub_writer) = connect_client(
+            &path,
+            hello_envelope(session, "pub-1", "publisher", Some(&agent)),
+        )
+        .await;
+
+        let worker_snapshot = WorkerSnapshot {
+            session_id: session.to_string(),
+            agent_id: agent.clone(),
+            pane_id: "12".to_string(),
+            role: Some("worker".to_string()),
+            status: aoc_core::session_overseer::WorkerStatus::Active,
+            progress: Default::default(),
+            assignment: aoc_core::session_overseer::WorkerAssignment {
+                task_id: Some("149.3".to_string()),
+                tag: Some("session-overseer".to_string()),
+                epic_id: None,
+            },
+            summary: Some("aggregating overseer state".to_string()),
+            blocker: None,
+            files_touched: vec!["crates/aoc-hub-rs/src/pulse_uds.rs".to_string()],
+            plan_alignment: aoc_core::session_overseer::PlanAlignment::High,
+            drift_risk: Default::default(),
+            attention: Default::default(),
+            duplicate_work: None,
+            branch: None,
+            last_update_at_ms: Some(now_ms()),
+            last_meaningful_progress_at_ms: Some(now_ms()),
+            stale_after_ms: Some(300_000),
+            source: OverseerSourceKind::Wrapper,
+            provenance: Some("test".to_string()),
+        };
+        let observer_event = ObserverEvent {
+            schema_version: 1,
+            kind: ObserverEventKind::ProgressUpdate,
+            session_id: session.to_string(),
+            agent_id: agent.clone(),
+            pane_id: "12".to_string(),
+            source: OverseerSourceKind::Wrapper,
+            summary: Some("task context updated: 149.3".to_string()),
+            reason: None,
+            snapshot: Some(worker_snapshot.clone()),
+            command: None,
+            command_result: None,
+            emitted_at_ms: Some(now_ms()),
+        };
+        let delta = WireEnvelope {
+            version: ProtocolVersion::CURRENT,
+            session_id: session.to_string(),
+            sender_id: "pub-1".to_string(),
+            timestamp: Utc::now().to_rfc3339(),
+            request_id: None,
+            msg: WireMsg::Delta(DeltaPayload {
+                seq: 0,
+                changes: vec![StateChange {
+                    op: StateChangeOp::Upsert,
+                    agent_id: agent.clone(),
+                    state: Some(AgentState {
+                        agent_id: agent.clone(),
+                        session_id: session.to_string(),
+                        pane_id: "12".to_string(),
+                        lifecycle: "running".to_string(),
+                        snippet: Some("working".to_string()),
+                        last_heartbeat_ms: Some(now_ms()),
+                        last_activity_ms: Some(now_ms()),
+                        updated_at_ms: Some(now_ms()),
+                        source: Some(serde_json::json!({
+                            "worker_snapshot": worker_snapshot,
+                            "observer_events": [observer_event],
+                        })),
+                    }),
+                }],
+            }),
+        };
+        send_frame(&mut pub_writer, &delta).await;
+
+        let (mut sub_reader, mut sub_writer) =
+            connect_client(&path, hello_envelope(session, "sub-1", "subscriber", None)).await;
+        let _ = read_frame(&mut sub_reader).await;
+        send_frame(
+            &mut sub_writer,
+            &WireEnvelope {
+                version: ProtocolVersion::CURRENT,
+                session_id: session.to_string(),
+                sender_id: "sub-1".to_string(),
+                timestamp: Utc::now().to_rfc3339(),
+                request_id: None,
+                msg: WireMsg::Subscribe(SubscribePayload {
+                    topics: vec![
+                        "observer_snapshot".to_string(),
+                        "observer_timeline".to_string(),
+                    ],
+                    since_seq: None,
+                }),
+            },
+        )
+        .await;
+
+        let mut saw_snapshot = false;
+        let mut saw_timeline = false;
+        for _ in 0..4 {
+            let envelope = read_frame(&mut sub_reader).await;
+            match envelope.msg {
+                WireMsg::ObserverSnapshot(payload) => {
+                    saw_snapshot = true;
+                    assert_eq!(payload.workers.len(), 1);
+                    assert_eq!(
+                        payload.workers[0].assignment.task_id.as_deref(),
+                        Some("149.3")
+                    );
+                }
+                WireMsg::ObserverTimeline(payload) => {
+                    saw_timeline = true;
+                    assert_eq!(payload.entries.len(), 1);
+                    assert_eq!(payload.entries[0].kind, ObserverEventKind::ProgressUpdate);
+                }
+                WireMsg::Snapshot(_) | WireMsg::Delta(_) => {}
+                other => panic!("unexpected message after observer subscribe: {other:?}"),
+            }
+            if saw_snapshot && saw_timeline {
+                break;
+            }
+        }
+        assert!(saw_snapshot);
+        assert!(saw_timeline);
+
+        let _ = shutdown_tx.send(true);
+        let result = handle.await.expect("join hub");
+        assert!(result.is_ok(), "hub returned error: {result:?}");
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn stop_agent_command_routes_and_acks() {
         let session = "pulse-command-session";
         let (path, shutdown_tx, handle) =
@@ -2236,6 +2999,150 @@ tab name="Review"
             panic!("expected command_result ack")
         };
         assert_eq!(payload.command, "insight_dispatch");
+        assert_eq!(payload.status, "accepted");
+
+        let _ = shutdown_tx.send(true);
+        let result = handle.await.expect("join hub");
+        assert!(result.is_ok(), "hub returned error: {result:?}");
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn mind_resume_command_routes_and_acks() {
+        let session = "pulse-mind-resume-command-session";
+        let (path, shutdown_tx, handle) = launch_hub(
+            "mind-resume-command-route",
+            session,
+            Some(Duration::from_secs(2)),
+        )
+        .await;
+        let agent = format!("{session}::12");
+
+        let (mut pub_reader, _pub_writer) = connect_client(
+            &path,
+            hello_envelope(session, "pub-1", "publisher", Some(&agent)),
+        )
+        .await;
+        let (mut sub_reader, mut sub_writer) =
+            connect_client(&path, hello_envelope(session, "sub-1", "subscriber", None)).await;
+        let _ = read_frame(&mut sub_reader).await;
+
+        let command = command_envelope(
+            session,
+            "sub-1",
+            "req-mind-resume",
+            "mind_resume",
+            Some(&agent),
+            serde_json::json!({"reason": "aoc-stm resume"}),
+        );
+        send_frame(&mut sub_writer, &command).await;
+
+        let routed = read_frame(&mut pub_reader).await;
+        let WireMsg::Command(payload) = routed.msg else {
+            panic!("expected command routed to publisher")
+        };
+        assert_eq!(payload.command, "mind_resume");
+
+        let ack = read_frame(&mut sub_reader).await;
+        let WireMsg::CommandResult(payload) = ack.msg else {
+            panic!("expected command_result ack")
+        };
+        assert_eq!(payload.command, "mind_resume");
+        assert_eq!(payload.status, "accepted");
+
+        let _ = shutdown_tx.send(true);
+        let result = handle.await.expect("join hub");
+        assert!(result.is_ok(), "hub returned error: {result:?}");
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn mind_t3_requeue_command_routes_and_acks() {
+        let session = "pulse-mind-t3-requeue-command-session";
+        let (path, shutdown_tx, handle) = launch_hub(
+            "mind-t3-requeue-command-route",
+            session,
+            Some(Duration::from_secs(2)),
+        )
+        .await;
+        let agent = format!("{session}::12");
+
+        let (mut pub_reader, _pub_writer) = connect_client(
+            &path,
+            hello_envelope(session, "pub-1", "publisher", Some(&agent)),
+        )
+        .await;
+        let (mut sub_reader, mut sub_writer) =
+            connect_client(&path, hello_envelope(session, "sub-1", "subscriber", None)).await;
+        let _ = read_frame(&mut sub_reader).await;
+
+        let command = command_envelope(
+            session,
+            "sub-1",
+            "req-mind-t3-requeue",
+            "mind_t3_requeue",
+            Some(&agent),
+            serde_json::json!({"reason": "operator requeue"}),
+        );
+        send_frame(&mut sub_writer, &command).await;
+
+        let routed = read_frame(&mut pub_reader).await;
+        let WireMsg::Command(payload) = routed.msg else {
+            panic!("expected command routed to publisher")
+        };
+        assert_eq!(payload.command, "mind_t3_requeue");
+
+        let ack = read_frame(&mut sub_reader).await;
+        let WireMsg::CommandResult(payload) = ack.msg else {
+            panic!("expected command_result ack")
+        };
+        assert_eq!(payload.command, "mind_t3_requeue");
+        assert_eq!(payload.status, "accepted");
+
+        let _ = shutdown_tx.send(true);
+        let result = handle.await.expect("join hub");
+        assert!(result.is_ok(), "hub returned error: {result:?}");
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn mind_handshake_rebuild_command_routes_and_acks() {
+        let session = "pulse-mind-handshake-rebuild-command-session";
+        let (path, shutdown_tx, handle) = launch_hub(
+            "mind-handshake-rebuild-command-route",
+            session,
+            Some(Duration::from_secs(2)),
+        )
+        .await;
+        let agent = format!("{session}::12");
+
+        let (mut pub_reader, _pub_writer) = connect_client(
+            &path,
+            hello_envelope(session, "pub-1", "publisher", Some(&agent)),
+        )
+        .await;
+        let (mut sub_reader, mut sub_writer) =
+            connect_client(&path, hello_envelope(session, "sub-1", "subscriber", None)).await;
+        let _ = read_frame(&mut sub_reader).await;
+
+        let command = command_envelope(
+            session,
+            "sub-1",
+            "req-mind-handshake-rebuild",
+            "mind_handshake_rebuild",
+            Some(&agent),
+            serde_json::json!({"reason": "operator rebuild"}),
+        );
+        send_frame(&mut sub_writer, &command).await;
+
+        let routed = read_frame(&mut pub_reader).await;
+        let WireMsg::Command(payload) = routed.msg else {
+            panic!("expected command routed to publisher")
+        };
+        assert_eq!(payload.command, "mind_handshake_rebuild");
+
+        let ack = read_frame(&mut sub_reader).await;
+        let WireMsg::CommandResult(payload) = ack.msg else {
+            panic!("expected command_result ack")
+        };
+        assert_eq!(payload.command, "mind_handshake_rebuild");
         assert_eq!(payload.status, "accepted");
 
         let _ = shutdown_tx.send(true);

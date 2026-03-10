@@ -144,6 +144,11 @@ A reference scan of `/tmp/pi-vs-claude-code` validated practical orchestration p
 
 AOC adopts the useful orchestration primitives while adding stricter contract typing, provenance discipline, and fail-open controls.
 
+## Related docs
+
+- `docs/insight-t3-alignment.md` — planned T3 alignment layer and manual/on-demand trigger workflow
+- `docs/insight-compaction-ingest.md` — planned Pi compaction -> Mind checkpoint integration
+
 ## Related PRD
 
 Canonical RPG PRD for this architecture:
