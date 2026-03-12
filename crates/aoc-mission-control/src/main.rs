@@ -1,4 +1,9 @@
 use aoc_core::{
+    consultation_contracts::{
+        ConsultationCheckpointRef, ConsultationConfidence, ConsultationFreshness,
+        ConsultationHelpRequest, ConsultationIdentity, ConsultationPacket, ConsultationPacketKind,
+        ConsultationSourceStatus, ConsultationTaskContext,
+    },
     mind_observer_feed::{
         MindObserverFeedEvent, MindObserverFeedPayload, MindObserverFeedProgress,
         MindObserverFeedStatus, MindObserverFeedTriggerKind,
@@ -16,7 +21,7 @@ use aoc_core::{
     },
     ProjectData, TaskStatus,
 };
-use aoc_storage::CompactionCheckpoint;
+use aoc_storage::{CompactionCheckpoint, StoredCompactionT0Slice};
 use chrono::{DateTime, TimeZone, Utc};
 use crossterm::{
     event::{Event, EventStream, KeyCode, KeyEvent, KeyEventKind},
@@ -421,6 +426,9 @@ struct MindCanonEntry {
 struct MindArtifactDrilldown {
     latest_export: Option<MindSessionExportManifest>,
     latest_compaction_checkpoint: Option<CompactionCheckpoint>,
+    latest_compaction_slice: Option<StoredCompactionT0Slice>,
+    compaction_marker_event_available: bool,
+    compaction_rebuildable: bool,
     handshake_entries: Vec<MindHandshakeEntry>,
     active_canon_entries: Vec<MindCanonEntry>,
     stale_canon_count: usize,
@@ -2113,6 +2121,21 @@ impl App {
         );
     }
 
+    fn request_mind_compaction_rebuild(&mut self) {
+        let Some(target) = self.mind_target_agent() else {
+            self.status_note = Some("no target pane for compaction rebuild".to_string());
+            return;
+        };
+        self.queue_hub_command(
+            "mind_compaction_rebuild",
+            Some(target.identity_key.clone()),
+            serde_json::json!({
+                "reason": "operator compaction rebuild"
+            }),
+            format!("{}::{}", target.label, target.pane_id),
+        );
+    }
+
     fn toggle_mind_lane(&mut self) {
         self.mind_lane = self.mind_lane.next();
         self.scroll = 0;
@@ -3061,6 +3084,7 @@ fn mode_help_lines(app: &App, theme: PulseTheme) -> Vec<Line<'static>> {
             Line::from("  O        run insight_dispatch chain (T1->T2)"),
             Line::from("  b / B    bootstrap dry-run / seed enqueue"),
             Line::from("  F        force finalize session"),
+            Line::from("  C        rebuild/requeue latest compaction checkpoint"),
             Line::from("  R        requeue latest T3 export slice"),
             Line::from("  H        rebuild handshake baseline"),
             Line::from("  t        toggle lane (t0/t1/t2/t3/all)"),
@@ -3126,6 +3150,9 @@ fn render_overseer_lines(app: &App, theme: PulseTheme, compact: bool) -> Vec<Lin
         .overseer_snapshot()
         .and_then(|snapshot| snapshot.generated_at_ms)
         .and_then(ms_to_datetime);
+    let artifact_drilldown =
+        load_mind_artifact_drilldown(&app.config.project_root, &app.config.session_id);
+    let checkpoint = artifact_drilldown.latest_compaction_checkpoint.as_ref();
 
     if workers.is_empty() && timeline.is_empty() {
         return vec![
@@ -3186,6 +3213,8 @@ fn render_overseer_lines(app: &App, theme: PulseTheme, compact: bool) -> Vec<Lin
 
     for worker in workers.iter().take(if compact { 8 } else { 12 }) {
         let mind_event = app.overseer_mind_event(&worker.agent_id);
+        let consultation_packet =
+            derive_overseer_consultation_packet(worker, checkpoint, mind_event);
         lines.push(Line::from(render_overseer_worker_line(
             worker, mind_event, theme, compact,
         )));
@@ -3220,6 +3249,11 @@ fn render_overseer_lines(app: &App, theme: PulseTheme, compact: bool) -> Vec<Lin
             if let Some(line) = render_overseer_mind_line(event, theme, compact) {
                 lines.push(line);
             }
+        }
+        if let Some(line) =
+            render_overseer_consultation_line(&consultation_packet, worker, theme, compact)
+        {
+            lines.push(line);
         }
     }
 
@@ -3325,6 +3359,241 @@ fn render_overseer_worker_line(
         }
     }
     spans
+}
+
+fn derive_overseer_consultation_packet(
+    worker: &WorkerSnapshot,
+    checkpoint: Option<&CompactionCheckpoint>,
+    mind_event: Option<&MindObserverFeedEvent>,
+) -> ConsultationPacket {
+    let mut degraded_inputs = Vec::new();
+    if checkpoint.is_none() {
+        degraded_inputs.push("mind.compaction_checkpoint".to_string());
+    }
+    if mind_event.is_none() {
+        degraded_inputs.push("mind.t1".to_string());
+    }
+    if worker
+        .summary
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .is_none()
+    {
+        degraded_inputs.push("overseer.summary".to_string());
+    }
+
+    let source_status = if matches!(worker.status, WorkerStatus::Offline) {
+        ConsultationSourceStatus::Stale
+    } else if !degraded_inputs.is_empty() {
+        ConsultationSourceStatus::Partial
+    } else {
+        ConsultationSourceStatus::Complete
+    };
+
+    ConsultationPacket {
+        packet_id: format!("mc:{}:{}", worker.session_id, worker.agent_id),
+        kind: ConsultationPacketKind::Align,
+        identity: ConsultationIdentity {
+            session_id: worker.session_id.clone(),
+            agent_id: worker.agent_id.clone(),
+            pane_id: Some(worker.pane_id.clone()),
+            conversation_id: checkpoint.map(|value| value.conversation_id.clone()),
+            role: worker.role.clone(),
+        },
+        task_context: ConsultationTaskContext {
+            active_tag: worker.assignment.tag.clone(),
+            task_ids: worker.assignment.task_id.iter().cloned().collect(),
+            focus_summary: worker.summary.clone().or_else(|| worker.blocker.clone()),
+        },
+        summary: worker
+            .summary
+            .clone()
+            .or_else(|| worker.blocker.clone())
+            .or_else(|| {
+                Some(format!(
+                    "status={} phase={:?}",
+                    format!("{:?}", worker.status).to_ascii_lowercase(),
+                    worker.progress.phase
+                ))
+            }),
+        checkpoint: checkpoint.map(|value| ConsultationCheckpointRef {
+            checkpoint_id: value.checkpoint_id.clone(),
+            conversation_id: Some(value.conversation_id.clone()),
+            compaction_entry_id: value.compaction_entry_id.clone(),
+            ts: Some(value.ts.to_rfc3339()),
+        }),
+        freshness: ConsultationFreshness {
+            packet_generated_at: Some(Utc::now().to_rfc3339()),
+            source_updated_at: worker
+                .last_update_at_ms
+                .and_then(ms_to_datetime)
+                .map(|ts| ts.to_rfc3339()),
+            stale_after_ms: worker.stale_after_ms,
+            source_status,
+            degraded_inputs: degraded_inputs.clone(),
+        },
+        confidence: ConsultationConfidence {
+            overall_bps: Some(overseer_consultation_confidence_bps(
+                worker, checkpoint, mind_event,
+            )),
+            rationale: Some(overseer_consultation_rationale(
+                worker, checkpoint, mind_event,
+            )),
+        },
+        help_request: overseer_help_request(worker),
+        degraded_reason: (!degraded_inputs.is_empty()).then(|| {
+            format!(
+                "packet derived with partial inputs: {}",
+                degraded_inputs.join(", ")
+            )
+        }),
+        ..Default::default()
+    }
+    .normalize()
+}
+
+fn overseer_help_request(worker: &WorkerSnapshot) -> Option<ConsultationHelpRequest> {
+    if matches!(
+        worker.status,
+        WorkerStatus::Blocked | WorkerStatus::NeedsInput
+    ) {
+        return Some(ConsultationHelpRequest {
+            kind: if matches!(worker.status, WorkerStatus::Blocked) {
+                "blocker_escalation".to_string()
+            } else {
+                "alignment_request".to_string()
+            },
+            question: worker
+                .blocker
+                .clone()
+                .unwrap_or_else(|| "need bounded manager guidance".to_string()),
+            requested_from: Some("mission_control".to_string()),
+            urgency: Some(if matches!(worker.status, WorkerStatus::Blocked) {
+                "high".to_string()
+            } else {
+                "medium".to_string()
+            }),
+        });
+    }
+    None
+}
+
+fn overseer_consultation_confidence_bps(
+    worker: &WorkerSnapshot,
+    checkpoint: Option<&CompactionCheckpoint>,
+    mind_event: Option<&MindObserverFeedEvent>,
+) -> u16 {
+    let mut score = 600u16;
+    if checkpoint.is_some() {
+        score += 100;
+    }
+    if mind_event.is_some() {
+        score += 100;
+    }
+    if worker.assignment.task_id.is_some() || worker.assignment.tag.is_some() {
+        score += 100;
+    }
+    if matches!(worker.drift_risk, DriftRisk::High) {
+        score = score.saturating_sub(150);
+    }
+    if matches!(
+        worker.status,
+        WorkerStatus::Blocked | WorkerStatus::NeedsInput
+    ) {
+        score = score.saturating_sub(100);
+    }
+    score.min(1000)
+}
+
+fn overseer_consultation_rationale(
+    worker: &WorkerSnapshot,
+    checkpoint: Option<&CompactionCheckpoint>,
+    mind_event: Option<&MindObserverFeedEvent>,
+) -> String {
+    let mut parts = Vec::new();
+    parts.push(if checkpoint.is_some() {
+        "checkpoint linked"
+    } else {
+        "checkpoint missing"
+    });
+    parts.push(if mind_event.is_some() {
+        "mind signal present"
+    } else {
+        "mind signal missing"
+    });
+    parts.push(
+        if worker.assignment.task_id.is_some() || worker.assignment.tag.is_some() {
+            "task context present"
+        } else {
+            "task context missing"
+        },
+    );
+    if matches!(worker.drift_risk, DriftRisk::High) {
+        parts.push("high drift risk");
+    }
+    if matches!(
+        worker.status,
+        WorkerStatus::Blocked | WorkerStatus::NeedsInput
+    ) {
+        parts.push("operator input needed");
+    }
+    parts.join(", ")
+}
+
+fn render_overseer_consultation_line(
+    packet: &ConsultationPacket,
+    worker: &WorkerSnapshot,
+    theme: PulseTheme,
+    compact: bool,
+) -> Option<Line<'static>> {
+    let suggestion = if matches!(worker.status, WorkerStatus::Blocked) {
+        "ask for unblock plan + evidence-backed next step".to_string()
+    } else if matches!(worker.status, WorkerStatus::NeedsInput) {
+        "send alignment prompt with explicit decision request".to_string()
+    } else if matches!(worker.drift_risk, DriftRisk::High) {
+        "request concise alignment + validation plan".to_string()
+    } else if worker.assignment.task_id.is_none() && worker.assignment.tag.is_none() {
+        "assign task/tag before further implementation".to_string()
+    } else if packet.freshness.source_status == ConsultationSourceStatus::Stale {
+        "request fresh status update before steering".to_string()
+    } else {
+        "continue current lane; request validation if milestone reached".to_string()
+    };
+
+    let meta = format!(
+        "src:{} conf:{}",
+        format!("{:?}", packet.freshness.source_status).to_ascii_lowercase(),
+        packet.confidence.overall_bps.unwrap_or_default()
+    );
+    Some(Line::from(vec![
+        Span::styled("    mc ", Style::default().fg(theme.muted)),
+        Span::styled(
+            format!("[{}]", consultation_packet_kind_label(packet.kind)),
+            Style::default()
+                .fg(theme.accent)
+                .add_modifier(Modifier::BOLD),
+        ),
+        Span::raw(" "),
+        Span::styled(
+            truncate_text(&suggestion, if compact { 48 } else { 84 }),
+            Style::default().fg(theme.info),
+        ),
+        Span::raw(" "),
+        Span::styled(meta, Style::default().fg(theme.muted)),
+    ]))
+}
+
+fn consultation_packet_kind_label(kind: ConsultationPacketKind) -> &'static str {
+    match kind {
+        ConsultationPacketKind::Summary => "summary",
+        ConsultationPacketKind::Plan => "plan",
+        ConsultationPacketKind::Blockers => "blockers",
+        ConsultationPacketKind::Review => "review",
+        ConsultationPacketKind::Align => "align",
+        ConsultationPacketKind::CheckpointStatus => "checkpoint",
+        ConsultationPacketKind::HelpRequest => "help",
+    }
 }
 
 fn render_overseer_mind_line(
@@ -3751,6 +4020,8 @@ fn render_mind_lines(app: &App, theme: PulseTheme, compact: bool) -> Vec<Line<'s
         theme,
         compact,
         app.mind_show_provenance,
+        &all_rows,
+        app.insight_runtime_rollup(),
     );
     if !artifact_lines.is_empty() {
         lines.push(Line::from(""));
@@ -3766,10 +4037,13 @@ fn render_mind_artifact_drilldown_lines(
     theme: PulseTheme,
     compact: bool,
     show_provenance: bool,
+    observer_rows: &[MindObserverRow],
+    runtime: Option<InsightRuntimeSnapshot>,
 ) -> Vec<Line<'static>> {
     let snapshot = load_mind_artifact_drilldown(project_root, session_id);
     if snapshot.latest_export.is_none()
         && snapshot.latest_compaction_checkpoint.is_none()
+        && snapshot.latest_compaction_slice.is_none()
         && snapshot.handshake_entries.is_empty()
         && snapshot.active_canon_entries.is_empty()
         && snapshot.stale_canon_count == 0
@@ -3831,6 +4105,74 @@ fn render_mind_artifact_drilldown_lines(
             Style::default().fg(theme.muted),
         ));
         lines.push(Line::from(spans));
+
+        let t1_state = latest_compaction_t1_state(checkpoint, observer_rows);
+        let t0_label = if snapshot.latest_compaction_slice.is_some() {
+            "stored"
+        } else {
+            "missing"
+        };
+        let replay_label = if snapshot.compaction_rebuildable {
+            "ready"
+        } else if snapshot.compaction_marker_event_available {
+            "partial"
+        } else {
+            "missing"
+        };
+        let mut health_spans = vec![
+            Span::raw("  -> "),
+            Span::styled("health:", Style::default().fg(theme.muted)),
+            Span::raw(" "),
+            Span::styled(
+                format!("t0:{t0_label}"),
+                Style::default().fg(if snapshot.latest_compaction_slice.is_some() {
+                    theme.ok
+                } else {
+                    theme.critical
+                }),
+            ),
+            Span::raw(" "),
+            Span::styled(
+                format!("replay:{replay_label}"),
+                Style::default().fg(if snapshot.compaction_rebuildable {
+                    theme.ok
+                } else if snapshot.compaction_marker_event_available {
+                    theme.warn
+                } else {
+                    theme.critical
+                }),
+            ),
+            Span::raw(" "),
+            Span::styled(
+                format!("t1:{}", t1_state.label),
+                Style::default().fg(t1_state.color(theme)),
+            ),
+        ];
+        if let Some(runtime) = runtime.as_ref() {
+            health_spans.push(Span::raw(" "));
+            health_spans.push(Span::styled(
+                format!("t2q:{} t3q:{}", runtime.queue_depth, runtime.t3_queue_depth),
+                Style::default().fg(theme.muted),
+            ));
+        }
+        lines.push(Line::from(health_spans));
+
+        if let Some(slice) = snapshot.latest_compaction_slice.as_ref() {
+            lines.push(Line::from(vec![
+                Span::raw("  -> "),
+                Span::styled(
+                    format!(
+                        "evidence: src:{} read:{} modified:{} policy:{}",
+                        slice.source_event_ids.len(),
+                        slice.read_files.len(),
+                        slice.modified_files.len(),
+                        ellipsize(&slice.policy_version, 18)
+                    ),
+                    Style::default().fg(theme.muted),
+                ),
+            ]));
+        }
+
         if let Some(summary) = checkpoint
             .summary
             .as_deref()
@@ -3845,6 +4187,13 @@ fn render_mind_artifact_drilldown_lines(
                 ),
             ]));
         }
+        lines.push(Line::from(vec![
+            Span::raw("  -> "),
+            Span::styled(
+                "recovery: press 'C' to rebuild/requeue latest compaction checkpoint",
+                Style::default().fg(theme.warn),
+            ),
+        ]));
     }
 
     if let Some(manifest) = snapshot.latest_export.as_ref() {
@@ -3993,6 +4342,76 @@ fn render_mind_artifact_drilldown_lines(
     lines
 }
 
+#[derive(Clone, Copy, Debug)]
+struct CompactionT1State {
+    label: &'static str,
+}
+
+impl CompactionT1State {
+    fn color(self, theme: PulseTheme) -> Color {
+        match self.label {
+            "ok" => theme.ok,
+            "pending" => theme.warn,
+            "fallback" => theme.warn,
+            "error" => theme.critical,
+            _ => theme.muted,
+        }
+    }
+}
+
+fn latest_compaction_t1_state(
+    checkpoint: &CompactionCheckpoint,
+    observer_rows: &[MindObserverRow],
+) -> CompactionT1State {
+    let checkpoint_ms = checkpoint.ts.timestamp_millis();
+    observer_rows
+        .iter()
+        .filter(|row| {
+            mind_event_lane(&row.event) == MindLaneFilter::T1
+                && row.event.trigger == MindObserverFeedTriggerKind::Compaction
+                && row
+                    .event
+                    .conversation_id
+                    .as_deref()
+                    .map(|id| id == checkpoint.conversation_id)
+                    .unwrap_or(false)
+                && mind_event_sort_ms(
+                    row.event
+                        .completed_at
+                        .as_deref()
+                        .or(row.event.started_at.as_deref())
+                        .or(row.event.enqueued_at.as_deref()),
+                )
+                .map(|ts| ts >= checkpoint_ms.saturating_sub(1_000))
+                .unwrap_or(true)
+        })
+        .max_by_key(|row| {
+            mind_event_sort_ms(
+                row.event
+                    .completed_at
+                    .as_deref()
+                    .or(row.event.started_at.as_deref())
+                    .or(row.event.enqueued_at.as_deref()),
+            )
+            .unwrap_or(0)
+        })
+        .map(|row| match row.event.status {
+            MindObserverFeedStatus::Success => CompactionT1State { label: "ok" },
+            MindObserverFeedStatus::Fallback => CompactionT1State { label: "fallback" },
+            MindObserverFeedStatus::Running | MindObserverFeedStatus::Queued => {
+                CompactionT1State { label: "pending" }
+            }
+            MindObserverFeedStatus::Error => CompactionT1State { label: "error" },
+        })
+        .unwrap_or(CompactionT1State { label: "unknown" })
+}
+
+fn compaction_rebuildable_from_attrs(attrs: &BTreeMap<String, Value>) -> bool {
+    attrs.contains_key("mind_compaction_modified_files")
+        || attrs.contains_key("pi_detail_read_files")
+        || attrs.contains_key("pi_detail_modified_files")
+}
+
 fn canon_key(entry_id: &str, revision: u32) -> String {
     format!("{}#{}", entry_id.trim(), revision)
 }
@@ -4012,6 +4431,27 @@ fn load_mind_artifact_drilldown(project_root: &Path, session_id: &str) -> MindAr
                 .latest_compaction_checkpoint_for_session(session_id)
                 .ok()
                 .flatten();
+            snapshot.latest_compaction_slice = store
+                .latest_compaction_t0_slice_for_session(session_id)
+                .ok()
+                .flatten();
+            if let Some(checkpoint) = snapshot.latest_compaction_checkpoint.as_ref() {
+                if let Some(marker_event_id) = checkpoint.marker_event_id.as_deref() {
+                    if let Ok(marker_event) = store.raw_event_by_id(marker_event_id) {
+                        snapshot.compaction_marker_event_available = marker_event.is_some();
+                        snapshot.compaction_rebuildable = marker_event
+                            .as_ref()
+                            .map(|event| compaction_rebuildable_from_attrs(&event.attrs))
+                            .unwrap_or(false);
+                    }
+                }
+                if snapshot.latest_compaction_slice.is_none() {
+                    snapshot.latest_compaction_slice = store
+                        .compaction_t0_slice_for_checkpoint(&checkpoint.checkpoint_id)
+                        .ok()
+                        .flatten();
+                }
+            }
         }
     }
 
@@ -5326,6 +5766,10 @@ fn handle_key(key: KeyEvent, app: &mut App, refresh_requested: &mut bool) -> boo
         }
         KeyCode::Char('F') => {
             app.request_mind_force_finalize();
+            false
+        }
+        KeyCode::Char('C') => {
+            app.request_mind_compaction_rebuild();
             false
         }
         KeyCode::Char('R') => {
@@ -7438,6 +7882,7 @@ mod tests {
         app.request_insight_dispatch_chain();
         app.request_insight_bootstrap(true);
         app.request_mind_force_finalize();
+        app.request_mind_compaction_rebuild();
         app.request_mind_t3_requeue();
         app.request_mind_handshake_rebuild();
 
@@ -7467,11 +7912,14 @@ mod tests {
         let third = rx.try_recv().expect("force finalize command");
         assert_eq!(third.command, "mind_finalize_session");
 
-        let fourth = rx.try_recv().expect("t3 requeue command");
-        assert_eq!(fourth.command, "mind_t3_requeue");
+        let fourth = rx.try_recv().expect("compaction rebuild command");
+        assert_eq!(fourth.command, "mind_compaction_rebuild");
 
-        let fifth = rx.try_recv().expect("handshake rebuild command");
-        assert_eq!(fifth.command, "mind_handshake_rebuild");
+        let fifth = rx.try_recv().expect("t3 requeue command");
+        assert_eq!(fifth.command, "mind_t3_requeue");
+
+        let sixth = rx.try_recv().expect("handshake rebuild command");
+        assert_eq!(sixth.command, "mind_handshake_rebuild");
     }
 
     #[test]
@@ -7653,6 +8101,70 @@ mod tests {
         )
         .expect("write manifest");
 
+        let mind_dir = root.join(".aoc").join("mind");
+        std::fs::create_dir_all(&mind_dir).expect("create mind dir");
+        let store = aoc_storage::MindStore::open(mind_dir.join("project.sqlite")).expect("open store");
+        let marker_event = aoc_core::mind_contracts::RawEvent {
+            event_id: "evt-compaction-session-test-1".to_string(),
+            conversation_id: "conv-compact".to_string(),
+            agent_id: "agent-1".to_string(),
+            ts: Utc.with_ymd_and_hms(2026, 3, 1, 12, 0, 0).single().expect("ts"),
+            body: aoc_core::mind_contracts::RawEventBody::Other {
+                payload: serde_json::json!({"type": "compaction"}),
+            },
+            attrs: std::collections::BTreeMap::from([
+                (
+                    "mind_compaction_modified_files".to_string(),
+                    serde_json::json!(["src/main.rs", "README.md"]),
+                ),
+                (
+                    "pi_detail_read_files".to_string(),
+                    serde_json::json!(["src/lib.rs"]),
+                ),
+            ]),
+        };
+        store.insert_raw_event(&marker_event).expect("insert marker");
+        let checkpoint = aoc_storage::CompactionCheckpoint {
+            checkpoint_id: "cmpchk:conv-compact:compact-1".to_string(),
+            conversation_id: "conv-compact".to_string(),
+            session_id: "session-test".to_string(),
+            ts: marker_event.ts,
+            trigger_source: "pi_compaction_checkpoint".to_string(),
+            reason: Some("pi compaction".to_string()),
+            summary: Some("Compacted prior work into durable summary".to_string()),
+            tokens_before: Some(4096),
+            first_kept_entry_id: Some("entry-42".to_string()),
+            compaction_entry_id: Some("compact-1".to_string()),
+            from_extension: true,
+            marker_event_id: Some(marker_event.event_id.clone()),
+            schema_version: 1,
+            created_at: marker_event.ts,
+            updated_at: marker_event.ts,
+        };
+        store
+            .upsert_compaction_checkpoint(&checkpoint)
+            .expect("upsert checkpoint");
+        let slice = aoc_core::mind_contracts::build_compaction_t0_slice(
+            &checkpoint.conversation_id,
+            &checkpoint.session_id,
+            checkpoint.ts,
+            &checkpoint.trigger_source,
+            checkpoint.reason.as_deref(),
+            checkpoint.summary.as_deref(),
+            checkpoint.tokens_before,
+            checkpoint.first_kept_entry_id.as_deref(),
+            checkpoint.compaction_entry_id.as_deref(),
+            checkpoint.from_extension,
+            "pi_compaction_checkpoint",
+            &[marker_event.event_id.clone()],
+            &["src/lib.rs".to_string()],
+            &["src/main.rs".to_string(), "README.md".to_string()],
+            Some(&checkpoint.checkpoint_id),
+            "t0.compaction.v1",
+        )
+        .expect("build slice");
+        store.upsert_compaction_t0_slice(&slice).expect("upsert slice");
+
         let (tx, _rx) = mpsc::channel(4);
         let mut cfg = test_config();
         cfg.project_root = root.clone();
@@ -7682,8 +8194,13 @@ mod tests {
                         },
                         "mind_observer": {
                             "events": [
+                                {"status":"success","trigger":"compaction","runtime":"deterministic","conversation_id":"conv-compact","reason":"pi compaction checkpoint","completed_at":"2026-03-01T12:00:02Z"},
                                 {"status":"success","trigger":"task_completed","runtime":"t3_backlog","reason":"t3 backlog processed 1 job(s)"}
                             ]
+                        },
+                        "insight_runtime": {
+                            "queue_depth": 1,
+                            "t3_queue_depth": 0
                         }
                     })),
                 }],
@@ -7705,6 +8222,9 @@ mod tests {
 
         assert!(rendered.contains("Artifact drilldown"));
         assert!(rendered.contains("[provenance:on]"));
+        assert!(rendered.contains("health: t0:stored replay:ready t1:ok t2q:1 t3q:0"));
+        assert!(rendered.contains("evidence: src:1 read:1 modified:2 policy:t0.compaction.v1"));
+        assert!(rendered.contains("recovery: press 'C' to rebuild/requeue latest compaction checkpoint"));
         assert!(rendered.contains("[canon:entry-a r3]"));
         assert!(rendered.contains("trace: handshake -> canon -> evidence[2] obs:1, ref:2"));
 
@@ -8228,6 +8748,8 @@ mod tests {
             .join("\n");
         assert!(baseline.contains("shipping deterministic overseer baseline"));
         assert!(baseline.contains("[prov:heuristic:wrapper+taskmaster]"));
+        assert!(baseline.contains("mc "));
+        assert!(baseline.contains("assign task/tag before further implementation"));
 
         app.hub.mind.insert(
             "session-test::12".to_string(),
@@ -8265,5 +8787,48 @@ mod tests {
         assert!(enriched.contains("[prov:heuristic:wrapper+taskmaster+mind:t1:fallback]"));
         assert!(enriched.contains("semantic [t1:fallback]"));
         assert!(enriched.contains("semantic observer timed out"));
+    }
+
+    #[test]
+    fn overseer_mode_renders_mission_control_prompt_for_blocked_worker() {
+        let (tx, _rx) = mpsc::channel(4);
+        let mut app = App::new(test_config(), tx, empty_local());
+        app.apply_hub_event(HubEvent::Connected);
+        app.mode = Mode::Overseer;
+
+        app.apply_hub_event(HubEvent::ObserverSnapshot {
+            payload: ObserverSnapshot {
+                schema_version: 1,
+                session_id: "session-test".to_string(),
+                generated_at_ms: Some(1_700_000_000_000),
+                workers: vec![WorkerSnapshot {
+                    session_id: "session-test".to_string(),
+                    agent_id: "session-test::22".to_string(),
+                    pane_id: "22".to_string(),
+                    role: Some("reviewer".to_string()),
+                    status: WorkerStatus::Blocked,
+                    summary: Some("waiting on design clarification".to_string()),
+                    blocker: Some("need operator decision on packet shape".to_string()),
+                    ..Default::default()
+                }],
+                timeline: vec![],
+                degraded_reason: None,
+            },
+        });
+
+        let rendered = render_overseer_lines(&app, pulse_theme(PulseThemeMode::Terminal), false)
+            .iter()
+            .map(|line| {
+                line.spans
+                    .iter()
+                    .map(|span| span.content.to_string())
+                    .collect::<String>()
+            })
+            .collect::<Vec<_>>()
+            .join("\n");
+
+        assert!(rendered.contains("mc "));
+        assert!(rendered.contains("ask for unblock plan + evidence-backed next step"));
+        assert!(rendered.contains("src:partial"));
     }
 }
