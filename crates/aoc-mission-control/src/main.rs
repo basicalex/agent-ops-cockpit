@@ -9,7 +9,8 @@ use aoc_core::{
         MindObserverFeedStatus, MindObserverFeedTriggerKind,
     },
     pulse_ipc::{
-        encode_frame, AgentState, CommandPayload, CommandResultPayload, DeltaPayload,
+        encode_frame, AgentState, CommandPayload, CommandResultPayload, ConsultationRequestPayload,
+        ConsultationResponsePayload, ConsultationStatus, DeltaPayload,
         HeartbeatPayload as PulseHeartbeatPayload, HelloPayload as PulseHelloPayload,
         LayoutStatePayload, NdjsonFrameDecoder, ObserverTimelinePayload, ProtocolVersion,
         SnapshotPayload, StateChangeOp, SubscribePayload, WireEnvelope, WireMsg,
@@ -54,7 +55,7 @@ use tokio::{
     io::{AsyncReadExt, AsyncWriteExt, BufReader},
     sync::mpsc,
 };
-use tracing::{info, warn};
+use tracing::{debug, info, warn};
 use tracing_subscriber::EnvFilter;
 
 const LOCAL_LAYOUT_REFRESH_MS_DEFAULT: u64 = 3000;
@@ -249,11 +250,133 @@ struct PendingCommand {
 }
 
 #[derive(Clone, Debug)]
-struct HubCommand {
+struct PendingConsultation {
+    kind: ConsultationPacketKind,
+    requester: String,
+    responder: String,
+}
+
+fn is_terminal_command_status(status: &str) -> bool {
+    !status.eq_ignore_ascii_case("accepted")
+}
+
+fn is_terminal_consultation_status(status: ConsultationStatus) -> bool {
+    !matches!(status, ConsultationStatus::Accepted)
+}
+
+fn orchestrator_tool_id_slug(id: OrchestratorToolId) -> &'static str {
+    match id {
+        OrchestratorToolId::SessionSnapshot => "session-snapshot",
+        OrchestratorToolId::SessionTimeline => "session-timeline",
+        OrchestratorToolId::WorkerFocus => "worker-focus",
+        OrchestratorToolId::WorkerReview => "worker-review",
+        OrchestratorToolId::WorkerHelp => "worker-help",
+        OrchestratorToolId::WorkerObserve => "worker-observe",
+        OrchestratorToolId::WorkerStop => "worker-stop",
+        OrchestratorToolId::WorkerSpawn => "worker-spawn",
+        OrchestratorToolId::WorkerDelegate => "worker-delegate",
+    }
+}
+
+#[derive(Clone, Debug)]
+struct HubOutbound {
     request_id: String,
-    command: String,
-    target_agent_id: Option<String>,
-    args: Value,
+    msg: WireMsg,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+enum OrchestratorToolId {
+    SessionSnapshot,
+    SessionTimeline,
+    WorkerFocus,
+    WorkerReview,
+    WorkerHelp,
+    WorkerObserve,
+    WorkerStop,
+    WorkerSpawn,
+    WorkerDelegate,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+enum OrchestratorToolStatus {
+    Ready,
+    Unavailable,
+}
+
+#[derive(Clone, Debug, Serialize)]
+struct OrchestratorTool {
+    id: OrchestratorToolId,
+    label: &'static str,
+    scope: &'static str,
+    shortcut: Option<&'static str>,
+    status: OrchestratorToolStatus,
+    summary: String,
+    reason: Option<String>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+enum OrchestrationGraphNodeKind {
+    Session,
+    Worker,
+    Tool,
+    Artifact,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+enum OrchestrationGraphEdgeKind {
+    Enumerates,
+    Selects,
+    OperatesOn,
+    Launches,
+    Writes,
+    DelegatesFrom,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+struct OrchestrationGraphNode {
+    id: String,
+    kind: OrchestrationGraphNodeKind,
+    label: String,
+    status: String,
+    attrs: BTreeMap<String, String>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+struct OrchestrationGraphEdge {
+    from: String,
+    to: String,
+    kind: OrchestrationGraphEdgeKind,
+    summary: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+struct OrchestrationCompilePath {
+    entry_tool: OrchestratorToolId,
+    review_label: String,
+    status: OrchestratorToolStatus,
+    steps: Vec<String>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+struct OrchestrationGraphIr {
+    session_id: String,
+    selected_worker_id: Option<String>,
+    nodes: Vec<OrchestrationGraphNode>,
+    edges: Vec<OrchestrationGraphEdge>,
+    compile_paths: Vec<OrchestrationCompilePath>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct WorkerLaunchPlan {
+    program: String,
+    args: Vec<String>,
+    env: Vec<(String, String)>,
+    cwd: PathBuf,
+    tab_name: String,
 }
 
 #[derive(Clone, Debug)]
@@ -570,6 +693,10 @@ enum HubEvent {
         payload: CommandResultPayload,
         request_id: Option<String>,
     },
+    ConsultationResponse {
+        payload: ConsultationResponsePayload,
+        request_id: Option<String>,
+    },
 }
 
 #[derive(Clone, Debug)]
@@ -584,7 +711,7 @@ struct PendingRenderLatency {
 
 struct App {
     config: Config,
-    command_tx: mpsc::Sender<HubCommand>,
+    command_tx: mpsc::Sender<HubOutbound>,
     connected: bool,
     hub_disconnected_at: Option<DateTime<Utc>>,
     hub: HubCache,
@@ -602,6 +729,7 @@ struct App {
     mind_show_provenance: bool,
     status_note: Option<String>,
     pending_commands: HashMap<String, PendingCommand>,
+    pending_consultations: HashMap<String, PendingConsultation>,
     next_request_id: u64,
     pending_render_latency: Vec<PendingRenderLatency>,
     parser_confidence: HashMap<String, u8>,
@@ -650,7 +778,7 @@ fn apply_cached_tab_meta(row: &mut OverviewRow, cache: &HashMap<String, TabMeta>
 }
 
 impl App {
-    fn new(config: Config, command_tx: mpsc::Sender<HubCommand>, local: LocalSnapshot) -> Self {
+    fn new(config: Config, command_tx: mpsc::Sender<HubOutbound>, local: LocalSnapshot) -> Self {
         let tab_cache = seed_tab_cache(&local.overview);
         let last_viewer_tab_index = local.viewer_tab_index;
         let mode = if config.overview_enabled {
@@ -683,6 +811,7 @@ impl App {
             mind_show_provenance: false,
             status_note,
             pending_commands: HashMap::new(),
+            pending_consultations: HashMap::new(),
             next_request_id: 0,
             pending_render_latency: Vec::new(),
             parser_confidence: HashMap::new(),
@@ -701,6 +830,7 @@ impl App {
                 self.connected = false;
                 self.hub_disconnected_at = Some(Utc::now());
                 self.pending_commands.clear();
+                self.pending_consultations.clear();
                 self.pending_render_latency.clear();
                 self.status_note = Some(if self.has_any_hub_data() {
                     "hub reconnecting; holding last snapshot".to_string()
@@ -831,7 +961,21 @@ impl App {
             } => {
                 self.apply_command_result(payload, request_id);
             }
+            HubEvent::ConsultationResponse {
+                payload,
+                request_id,
+            } => {
+                self.apply_consultation_response(payload, request_id);
+            }
         }
+    }
+
+    fn latest_compaction_checkpoint(&self) -> Option<CompactionCheckpoint> {
+        load_mind_artifact_drilldown(
+            Path::new(&self.config.project_root),
+            &self.config.session_id,
+        )
+        .latest_compaction_checkpoint
     }
 
     fn upsert_hub_state(
@@ -1100,7 +1244,18 @@ impl App {
         let tracked = request_id
             .as_deref()
             .and_then(|id| self.pending_commands.get(id).cloned());
-        let done = !payload.status.eq_ignore_ascii_case("accepted");
+        if request_id.is_some() && tracked.is_none() {
+            debug!(
+                event = "pulse_command_result_ignored",
+                reason = "stale_request_id",
+                request_id = request_id.as_deref().unwrap_or_default(),
+                command = %payload.command,
+                status = %payload.status
+            );
+            return;
+        }
+
+        let done = is_terminal_command_status(&payload.status);
         if done {
             if let Some(id) = request_id.as_deref() {
                 self.pending_commands.remove(id);
@@ -1129,6 +1284,56 @@ impl App {
         ));
     }
 
+    fn apply_consultation_response(
+        &mut self,
+        payload: ConsultationResponsePayload,
+        request_id: Option<String>,
+    ) {
+        let tracked = request_id
+            .as_deref()
+            .and_then(|id| self.pending_consultations.get(id).cloned());
+        if request_id.is_some() && tracked.is_none() {
+            debug!(
+                event = "pulse_consultation_result_ignored",
+                reason = "stale_request_id",
+                request_id = request_id.as_deref().unwrap_or_default(),
+                consultation_id = %payload.consultation_id,
+                status = ?payload.status
+            );
+            return;
+        }
+
+        if is_terminal_consultation_status(payload.status) {
+            if let Some(id) = request_id.as_deref() {
+                self.pending_consultations.remove(id);
+            }
+        }
+
+        let (requester, responder, kind) = tracked
+            .map(|value| (value.requester, value.responder, value.kind))
+            .unwrap_or_else(|| {
+                (
+                    payload.requesting_agent_id.clone(),
+                    payload.responding_agent_id.clone(),
+                    ConsultationPacketKind::Summary,
+                )
+            });
+        let mut message = payload
+            .message
+            .clone()
+            .unwrap_or_else(|| format!("{:?}", payload.status).to_ascii_lowercase());
+        if let Some(error) = payload.error.as_ref() {
+            message = format!("{} ({})", error.message, error.code);
+        }
+        self.status_note = Some(format!(
+            "consult {:?} {} -> {} · {}",
+            kind,
+            requester,
+            responder,
+            ellipsize(&message, 72)
+        ));
+    }
+
     fn next_command_request_id(&mut self) -> String {
         self.next_request_id = self.next_request_id.saturating_add(1);
         format!("pulse-{}-{}", std::process::id(), self.next_request_id)
@@ -1146,11 +1351,13 @@ impl App {
             return;
         }
         let request_id = self.next_command_request_id();
-        let outbound = HubCommand {
+        let outbound = HubOutbound {
             request_id: request_id.clone(),
-            command: command.to_string(),
-            target_agent_id,
-            args,
+            msg: WireMsg::Command(CommandPayload {
+                command: command.to_string(),
+                target_agent_id,
+                args,
+            }),
         };
         match self.command_tx.try_send(outbound) {
             Ok(()) => {
@@ -2029,6 +2236,515 @@ impl App {
         })
     }
 
+    fn selected_overseer_worker(&mut self) -> Option<WorkerSnapshot> {
+        if self.mode != Mode::Overseer {
+            self.status_note = Some("switch to Overseer mode for worker consultation".to_string());
+            return None;
+        }
+        let workers = self.overseer_workers();
+        if workers.is_empty() {
+            self.status_note = Some("no workers available for consultation".to_string());
+            return None;
+        }
+        let selected = self.selected_overview.min(workers.len().saturating_sub(1));
+        self.selected_overview = selected;
+        workers.get(selected).cloned()
+    }
+
+    fn consultation_peer_for(&self, focal_agent_id: &str) -> Option<WorkerSnapshot> {
+        self.overseer_workers()
+            .into_iter()
+            .filter(|worker| worker.agent_id != focal_agent_id)
+            .max_by_key(|worker| {
+                let status_rank = match worker.status {
+                    WorkerStatus::Active => 4,
+                    WorkerStatus::Done => 3,
+                    WorkerStatus::Idle => 2,
+                    WorkerStatus::NeedsInput | WorkerStatus::Blocked => 1,
+                    WorkerStatus::Paused | WorkerStatus::Offline => 0,
+                };
+                let aligned = matches!(worker.plan_alignment, PlanAlignment::High) as u8;
+                (status_rank, aligned)
+            })
+    }
+
+    fn request_overseer_consultation(&mut self, kind: ConsultationPacketKind) {
+        let Some(requester) = self.selected_overseer_worker() else {
+            return;
+        };
+        let Some(responder) = self.consultation_peer_for(&requester.agent_id) else {
+            self.status_note = Some("need at least two workers for peer consultation".to_string());
+            return;
+        };
+        if !self.connected {
+            self.status_note = Some("hub offline; consultation unavailable".to_string());
+            return;
+        }
+
+        let checkpoint = self.latest_compaction_checkpoint();
+        let mind_event = self.overseer_mind_event(&requester.agent_id);
+        let packet =
+            derive_overseer_consultation_packet(&requester, checkpoint.as_ref(), mind_event)
+                .normalize();
+        let request_id = self.next_command_request_id();
+        let consultation_id = format!(
+            "{}:{}:{}",
+            requester.session_id, requester.agent_id, request_id
+        );
+        let outbound = HubOutbound {
+            request_id: request_id.clone(),
+            msg: WireMsg::ConsultationRequest(ConsultationRequestPayload {
+                consultation_id,
+                requesting_agent_id: requester.agent_id.clone(),
+                target_agent_id: responder.agent_id.clone(),
+                packet: ConsultationPacket { kind, ..packet },
+            }),
+        };
+        match self.command_tx.try_send(outbound) {
+            Ok(()) => {
+                self.pending_consultations.insert(
+                    request_id,
+                    PendingConsultation {
+                        kind,
+                        requester: requester.agent_id.clone(),
+                        responder: responder.agent_id.clone(),
+                    },
+                );
+                self.status_note = Some(format!(
+                    "consult {:?} queued {} -> {}",
+                    kind, requester.agent_id, responder.agent_id
+                ));
+            }
+            Err(mpsc::error::TrySendError::Full(_)) => {
+                self.status_note = Some("hub consultation queue full".to_string());
+            }
+            Err(mpsc::error::TrySendError::Closed(_)) => {
+                self.status_note = Some("hub consultation channel closed".to_string());
+            }
+        }
+    }
+
+    fn selected_overseer_worker_ref(&self) -> Option<WorkerSnapshot> {
+        let workers = self.overseer_workers();
+        workers
+            .get(self.selected_overview.min(workers.len().saturating_sub(1)))
+            .cloned()
+    }
+
+    fn orchestrator_tools(&self) -> Vec<OrchestratorTool> {
+        let selected = self.selected_overseer_worker_ref();
+        let has_peer = selected
+            .as_ref()
+            .map(|worker| self.consultation_peer_for(&worker.agent_id).is_some())
+            .unwrap_or(false);
+        let snapshot_ready = self.overseer_snapshot().is_some() || self.connected;
+        let timeline_ready = !self.overseer_timeline().is_empty() || self.connected;
+        let launch_ready = self.worker_launch_supported();
+
+        let mut tools = vec![
+            OrchestratorTool {
+                id: OrchestratorToolId::SessionSnapshot,
+                label: "session snapshot",
+                scope: "session",
+                shortcut: None,
+                status: if snapshot_ready {
+                    OrchestratorToolStatus::Ready
+                } else {
+                    OrchestratorToolStatus::Unavailable
+                },
+                summary: "inspect the current worker snapshot".to_string(),
+                reason: (!snapshot_ready).then(|| "waiting for hub snapshot".to_string()),
+            },
+            OrchestratorTool {
+                id: OrchestratorToolId::SessionTimeline,
+                label: "session timeline",
+                scope: "session",
+                shortcut: None,
+                status: if timeline_ready {
+                    OrchestratorToolStatus::Ready
+                } else {
+                    OrchestratorToolStatus::Unavailable
+                },
+                summary: "inspect recent overseer events".to_string(),
+                reason: (!timeline_ready).then(|| "waiting for hub timeline".to_string()),
+            },
+        ];
+
+        if let Some(worker) = selected {
+            let worker_target = worker.agent_id.clone();
+            tools.extend([
+                OrchestratorTool {
+                    id: OrchestratorToolId::WorkerFocus,
+                    label: "focus worker tab",
+                    scope: "worker",
+                    shortcut: Some("Enter"),
+                    status: OrchestratorToolStatus::Ready,
+                    summary: format!("focus {worker_target} in zellij"),
+                    reason: None,
+                },
+                OrchestratorTool {
+                    id: OrchestratorToolId::WorkerReview,
+                    label: "peer review",
+                    scope: "worker",
+                    shortcut: Some("c"),
+                    status: if self.connected && has_peer {
+                        OrchestratorToolStatus::Ready
+                    } else {
+                        OrchestratorToolStatus::Unavailable
+                    },
+                    summary: format!("request bounded peer review for {worker_target}"),
+                    reason: if !self.connected {
+                        Some("hub offline".to_string())
+                    } else if !has_peer {
+                        Some("need another in-session worker".to_string())
+                    } else {
+                        None
+                    },
+                },
+                OrchestratorTool {
+                    id: OrchestratorToolId::WorkerHelp,
+                    label: "peer unblock",
+                    scope: "worker",
+                    shortcut: Some("u"),
+                    status: if self.connected && has_peer {
+                        OrchestratorToolStatus::Ready
+                    } else {
+                        OrchestratorToolStatus::Unavailable
+                    },
+                    summary: format!("request unblock/help guidance for {worker_target}"),
+                    reason: if !self.connected {
+                        Some("hub offline".to_string())
+                    } else if !has_peer {
+                        Some("need another in-session worker".to_string())
+                    } else {
+                        None
+                    },
+                },
+                OrchestratorTool {
+                    id: OrchestratorToolId::WorkerObserve,
+                    label: "run observer",
+                    scope: "worker",
+                    shortcut: Some("o"),
+                    status: if self.connected {
+                        OrchestratorToolStatus::Ready
+                    } else {
+                        OrchestratorToolStatus::Unavailable
+                    },
+                    summary: format!("request fresh observer run for {worker_target}"),
+                    reason: (!self.connected).then(|| "hub offline".to_string()),
+                },
+                OrchestratorTool {
+                    id: OrchestratorToolId::WorkerStop,
+                    label: "stop worker",
+                    scope: "worker",
+                    shortcut: Some("x"),
+                    status: if self.connected {
+                        OrchestratorToolStatus::Ready
+                    } else {
+                        OrchestratorToolStatus::Unavailable
+                    },
+                    summary: format!("stop {worker_target} via hub command"),
+                    reason: (!self.connected).then(|| "hub offline".to_string()),
+                },
+                OrchestratorTool {
+                    id: OrchestratorToolId::WorkerSpawn,
+                    label: "spawn worker",
+                    scope: "session",
+                    shortcut: Some("s"),
+                    status: if launch_ready {
+                        OrchestratorToolStatus::Ready
+                    } else {
+                        OrchestratorToolStatus::Unavailable
+                    },
+                    summary: "launch a fresh worker tab from Mission Control".to_string(),
+                    reason: (!launch_ready)
+                        .then(|| "project root unavailable for launcher".to_string()),
+                },
+                OrchestratorTool {
+                    id: OrchestratorToolId::WorkerDelegate,
+                    label: "delegate task",
+                    scope: "worker",
+                    shortcut: Some("d"),
+                    status: if launch_ready {
+                        OrchestratorToolStatus::Ready
+                    } else {
+                        OrchestratorToolStatus::Unavailable
+                    },
+                    summary: format!(
+                        "spawn a delegated worker with bounded brief for {worker_target}"
+                    ),
+                    reason: (!launch_ready)
+                        .then(|| "project root unavailable for launcher".to_string()),
+                },
+            ]);
+        }
+
+        tools
+    }
+
+    fn orchestration_graph_ir(&self) -> OrchestrationGraphIr {
+        let workers = self.overseer_workers();
+        let selected = self.selected_overseer_worker_ref();
+        let tools = self.orchestrator_tools();
+        let mut nodes = Vec::new();
+        let mut edges = Vec::new();
+        let session_id = selected
+            .as_ref()
+            .map(|worker| worker.session_id.clone())
+            .or_else(|| {
+                self.overseer_snapshot()
+                    .map(|snapshot| snapshot.session_id.clone())
+            })
+            .unwrap_or_else(|| self.config.session_id.clone());
+        let session_node_id = format!("session:{session_id}");
+        let mut session_attrs = BTreeMap::new();
+        session_attrs.insert(
+            "hub".to_string(),
+            if self.connected { "online" } else { "offline" }.to_string(),
+        );
+        session_attrs.insert(
+            "mode".to_string(),
+            format!("{:?}", self.mode).to_ascii_lowercase(),
+        );
+        nodes.push(OrchestrationGraphNode {
+            id: session_node_id.clone(),
+            kind: OrchestrationGraphNodeKind::Session,
+            label: "Mission Control session".to_string(),
+            status: if self.connected { "online" } else { "offline" }.to_string(),
+            attrs: session_attrs,
+        });
+
+        for worker in workers {
+            let worker_id = format!("worker:{}", worker.agent_id);
+            let mut attrs = BTreeMap::new();
+            attrs.insert("pane_id".to_string(), worker.pane_id.clone());
+            if let Some(role) = worker.role.as_ref() {
+                attrs.insert("role".to_string(), role.clone());
+            }
+            if let Some(task_id) = worker.assignment.task_id.as_ref() {
+                attrs.insert("task_id".to_string(), task_id.clone());
+            }
+            if let Some(tag) = worker.assignment.tag.as_ref() {
+                attrs.insert("tag".to_string(), tag.clone());
+            }
+            if selected
+                .as_ref()
+                .map(|candidate| candidate.agent_id == worker.agent_id)
+                .unwrap_or(false)
+            {
+                attrs.insert("selected".to_string(), "true".to_string());
+            }
+            nodes.push(OrchestrationGraphNode {
+                id: worker_id.clone(),
+                kind: OrchestrationGraphNodeKind::Worker,
+                label: worker.agent_id.clone(),
+                status: format!("{:?}", worker.status).to_ascii_lowercase(),
+                attrs,
+            });
+            edges.push(OrchestrationGraphEdge {
+                from: session_node_id.clone(),
+                to: worker_id.clone(),
+                kind: if selected
+                    .as_ref()
+                    .map(|candidate| candidate.agent_id == worker.agent_id)
+                    .unwrap_or(false)
+                {
+                    OrchestrationGraphEdgeKind::Selects
+                } else {
+                    OrchestrationGraphEdgeKind::Enumerates
+                },
+                summary: if selected
+                    .as_ref()
+                    .map(|candidate| candidate.agent_id == worker.agent_id)
+                    .unwrap_or(false)
+                {
+                    "selected worker in current overseer view".to_string()
+                } else {
+                    "worker snapshot in current session".to_string()
+                },
+            });
+        }
+
+        for tool in &tools {
+            let tool_id = format!("tool:{}", orchestrator_tool_id_slug(tool.id));
+            let mut attrs = BTreeMap::new();
+            attrs.insert("scope".to_string(), tool.scope.to_string());
+            if let Some(shortcut) = tool.shortcut {
+                attrs.insert("shortcut".to_string(), shortcut.to_string());
+            }
+            nodes.push(OrchestrationGraphNode {
+                id: tool_id.clone(),
+                kind: OrchestrationGraphNodeKind::Tool,
+                label: tool.label.to_string(),
+                status: match tool.status {
+                    OrchestratorToolStatus::Ready => "ready",
+                    OrchestratorToolStatus::Unavailable => "blocked",
+                }
+                .to_string(),
+                attrs,
+            });
+            edges.push(OrchestrationGraphEdge {
+                from: session_node_id.clone(),
+                to: tool_id.clone(),
+                kind: OrchestrationGraphEdgeKind::Enumerates,
+                summary: "tool surfaced in Mission Control".to_string(),
+            });
+
+            if let Some(worker) = selected.as_ref() {
+                if tool.scope == "worker" {
+                    edges.push(OrchestrationGraphEdge {
+                        from: tool_id.clone(),
+                        to: format!("worker:{}", worker.agent_id),
+                        kind: OrchestrationGraphEdgeKind::OperatesOn,
+                        summary: tool.summary.clone(),
+                    });
+                }
+                if tool.id == OrchestratorToolId::WorkerDelegate {
+                    let artifact_id = format!(
+                        "artifact:delegation-brief:{}",
+                        sanitize_slug(&worker.agent_id)
+                    );
+                    let mut attrs = BTreeMap::new();
+                    attrs.insert(
+                        "path".to_string(),
+                        self.config
+                            .state_dir
+                            .join("mission-control")
+                            .join("delegations")
+                            .to_string_lossy()
+                            .to_string(),
+                    );
+                    nodes.push(OrchestrationGraphNode {
+                        id: artifact_id.clone(),
+                        kind: OrchestrationGraphNodeKind::Artifact,
+                        label: "delegation brief".to_string(),
+                        status: match tool.status {
+                            OrchestratorToolStatus::Ready => "ready",
+                            OrchestratorToolStatus::Unavailable => "blocked",
+                        }
+                        .to_string(),
+                        attrs,
+                    });
+                    edges.push(OrchestrationGraphEdge {
+                        from: tool_id.clone(),
+                        to: artifact_id.clone(),
+                        kind: OrchestrationGraphEdgeKind::Writes,
+                        summary: "write bounded delegation brief before launch".to_string(),
+                    });
+                    edges.push(OrchestrationGraphEdge {
+                        from: artifact_id,
+                        to: format!("worker:{}", worker.agent_id),
+                        kind: OrchestrationGraphEdgeKind::DelegatesFrom,
+                        summary: "delegated worker inherits bounded source context".to_string(),
+                    });
+                }
+                if matches!(
+                    tool.id,
+                    OrchestratorToolId::WorkerSpawn | OrchestratorToolId::WorkerDelegate
+                ) {
+                    edges.push(OrchestrationGraphEdge {
+                        from: tool_id,
+                        to: session_node_id.clone(),
+                        kind: OrchestrationGraphEdgeKind::Launches,
+                        summary: "compile path launches a fresh worker tab".to_string(),
+                    });
+                }
+            }
+        }
+
+        let compile_paths = tools
+            .iter()
+            .filter(|tool| {
+                matches!(
+                    tool.id,
+                    OrchestratorToolId::WorkerReview
+                        | OrchestratorToolId::WorkerHelp
+                        | OrchestratorToolId::WorkerObserve
+                        | OrchestratorToolId::WorkerStop
+                        | OrchestratorToolId::WorkerSpawn
+                        | OrchestratorToolId::WorkerDelegate
+                )
+            })
+            .map(|tool| self.compile_orchestration_path(tool, selected.as_ref()))
+            .collect();
+
+        OrchestrationGraphIr {
+            session_id,
+            selected_worker_id: selected.as_ref().map(|worker| worker.agent_id.clone()),
+            nodes,
+            edges,
+            compile_paths,
+        }
+    }
+
+    fn compile_orchestration_path(
+        &self,
+        tool: &OrchestratorTool,
+        selected: Option<&WorkerSnapshot>,
+    ) -> OrchestrationCompilePath {
+        let selected_label = selected
+            .map(|worker| worker.agent_id.clone())
+            .unwrap_or_else(|| "selected worker".to_string());
+        let steps = match tool.id {
+            OrchestratorToolId::SessionSnapshot => {
+                vec!["inspect current session snapshot".to_string()]
+            }
+            OrchestratorToolId::SessionTimeline => {
+                vec!["inspect recent overseer timeline".to_string()]
+            }
+            OrchestratorToolId::WorkerFocus => vec![
+                format!("resolve tab target for {selected_label}"),
+                "focus target tab in zellij when metadata is present".to_string(),
+            ],
+            OrchestratorToolId::WorkerReview => vec![
+                format!("select requester {selected_label}"),
+                "resolve a peer worker in the same session".to_string(),
+                "queue bounded peer review consultation through hub".to_string(),
+            ],
+            OrchestratorToolId::WorkerHelp => vec![
+                format!("select requester {selected_label}"),
+                "resolve a peer worker in the same session".to_string(),
+                "queue bounded unblock/help consultation through hub".to_string(),
+            ],
+            OrchestratorToolId::WorkerObserve => vec![
+                format!("select target {selected_label}"),
+                "queue run_observer command through hub".to_string(),
+            ],
+            OrchestratorToolId::WorkerStop => vec![
+                format!("select target {selected_label}"),
+                "queue stop_agent command through hub".to_string(),
+            ],
+            OrchestratorToolId::WorkerSpawn => vec![
+                format!(
+                    "resolve launch agent from env/current agent for {}",
+                    self.config.session_id
+                ),
+                format!("compile worker tab name {}", self.next_worker_tab_name()),
+                "launch fresh worker tab via aoc-new-tab or aoc-launch".to_string(),
+                "return focus to Mission Control tab when possible".to_string(),
+            ],
+            OrchestratorToolId::WorkerDelegate => vec![
+                format!("select source worker {selected_label}"),
+                "render bounded delegation brief from worker snapshot".to_string(),
+                "write delegation brief under state_dir/mission-control/delegations".to_string(),
+                format!(
+                    "compile delegated tab name {}",
+                    selected
+                        .map(App::delegation_tab_name)
+                        .unwrap_or_else(|| "delegated-worker".to_string())
+                ),
+                "launch delegated worker tab and export AOC_DELEGATION_BRIEF_PATH".to_string(),
+                "return focus to Mission Control tab when possible".to_string(),
+            ],
+        };
+        OrchestrationCompilePath {
+            entry_tool: tool.id,
+            review_label: tool.label.to_string(),
+            status: tool.status,
+            steps,
+        }
+    }
+
     fn request_manual_observer_run(&mut self) {
         let Some(target) = self.mind_target_agent() else {
             self.status_note = Some("no target pane for observer run".to_string());
@@ -2199,73 +2915,266 @@ impl App {
         self.selected_overview = next;
     }
 
-    fn focus_selected_overview_tab(&mut self) {
-        if self.mode != Mode::Overview {
-            return;
-        }
-        let rows = self.overview_rows();
-        if rows.is_empty() {
-            self.status_note = Some("no agents to focus".to_string());
-            return;
-        }
-        let selected = self.selected_overview_index_for_rows(&rows);
-        self.selected_overview = selected;
-        let row = &rows[selected];
+    fn focus_tab_target(
+        &mut self,
+        pane_id: &str,
+        tab_index: Option<usize>,
+        tab_name: Option<String>,
+    ) {
         if self.connected {
             let mut args = serde_json::Map::new();
-            if let Some(tab_index) = row.tab_index {
+            if let Some(tab_index) = tab_index {
                 args.insert("tab_index".to_string(), Value::from(tab_index as u64));
             }
-            if let Some(tab_name) = row.tab_name.as_ref() {
-                if !tab_name.trim().is_empty() {
-                    args.insert("tab_name".to_string(), Value::String(tab_name.clone()));
-                }
+            if let Some(tab_name) = tab_name.as_ref().filter(|value| !value.trim().is_empty()) {
+                args.insert("tab_name".to_string(), Value::String(tab_name.clone()));
             }
             if args.is_empty() {
-                self.status_note = Some(format!("no tab id/name for pane {}", row.pane_id));
+                self.status_note = Some(format!("no tab id/name for pane {pane_id}"));
                 return;
             }
             self.queue_hub_command(
                 "focus_tab",
                 None,
                 Value::Object(args),
-                format!("pane {}", row.pane_id),
+                format!("pane {pane_id}"),
             );
             return;
         }
 
-        let Some(tab_index) = row.tab_index else {
-            self.status_note = Some(format!("no tab id/name for pane {}", row.pane_id));
+        let Some(tab_index) = tab_index else {
+            self.status_note = Some(format!("no tab id/name for pane {pane_id}"));
             return;
         };
         if let Err(err) = go_to_tab(&self.config.session_id, tab_index) {
             self.status_note = Some(format!("focus failed: {err}"));
         } else {
-            self.status_note = Some(format!(
-                "focused tab {} for pane {}",
-                tab_index, row.pane_id
-            ));
+            self.status_note = Some(format!("focused tab {tab_index} for pane {pane_id}"));
+        }
+    }
+
+    fn current_tab_index(&self) -> Option<usize> {
+        self.active_hub_layout()
+            .and_then(|layout| {
+                layout
+                    .pane_tabs
+                    .get(&self.config.pane_id)
+                    .map(|meta| meta.index)
+                    .or(layout.focused_tab_index)
+            })
+            .or(self.local.viewer_tab_index)
+    }
+
+    fn worker_launch_supported(&self) -> bool {
+        self.config.project_root.exists()
+    }
+
+    fn next_worker_tab_name(&self) -> String {
+        format!("Worker {}", self.overseer_workers().len().saturating_add(1))
+    }
+
+    fn delegation_tab_name(worker: &WorkerSnapshot) -> String {
+        if let Some(task_id) = worker
+            .assignment
+            .task_id
+            .as_ref()
+            .filter(|value| !value.is_empty())
+        {
+            return format!("Delegate {task_id}");
+        }
+        if let Some(tag) = worker
+            .assignment
+            .tag
+            .as_ref()
+            .filter(|value| !value.is_empty())
+        {
+            return format!("Delegate {tag}");
+        }
+        if let Some(role) = worker
+            .role
+            .as_ref()
+            .filter(|value| !value.trim().is_empty())
+        {
+            return format!("Delegate {role}");
+        }
+        "Delegated Worker".to_string()
+    }
+
+    fn render_delegation_brief(&self, worker: &WorkerSnapshot) -> String {
+        let summary = worker
+            .summary
+            .as_deref()
+            .filter(|value| !value.trim().is_empty())
+            .unwrap_or("No bounded worker summary available.");
+        let task = worker.assignment.task_id.as_deref().unwrap_or("unassigned");
+        let tag = worker.assignment.tag.as_deref().unwrap_or("unscoped");
+        let role = worker.role.as_deref().unwrap_or("worker");
+        let blocker = worker.blocker.as_deref().unwrap_or("none reported");
+        format!(
+            "# Mission Control delegation brief\n\n- session: {}\n- source worker: {}\n- pane: {}\n- role: {}\n- task: {}\n- tag: {}\n- status: {:?}\n- plan alignment: {:?}\n- drift risk: {:?}\n- blocker: {}\n\n## Focus summary\n{}\n\n## Operator guidance\n- Use this as bounded context only; re-observe before making major plan changes.\n- Prefer explicit task/tag alignment and a narrow validation goal.\n- Request peer review or unblock consultation if uncertainty remains.\n",
+            worker.session_id,
+            worker.agent_id,
+            worker.pane_id,
+            role,
+            task,
+            tag,
+            worker.status,
+            worker.plan_alignment,
+            worker.drift_risk,
+            blocker,
+            summary,
+        )
+    }
+
+    fn write_delegation_brief(&self, worker: &WorkerSnapshot) -> Result<PathBuf, String> {
+        let dir = self
+            .config
+            .state_dir
+            .join("mission-control")
+            .join("delegations");
+        fs::create_dir_all(&dir).map_err(|err| format!("create delegation dir failed: {err}"))?;
+        let slug = sanitize_slug(&format!(
+            "{}-{}-{}",
+            worker.agent_id,
+            worker.assignment.task_id.as_deref().unwrap_or("worker"),
+            Utc::now().format("%Y%m%d%H%M%S")
+        ));
+        let path = dir.join(format!("{slug}.md"));
+        fs::write(&path, self.render_delegation_brief(worker))
+            .map_err(|err| format!("write delegation brief failed: {err}"))?;
+        Ok(path)
+    }
+
+    fn launch_worker_tab(
+        &mut self,
+        tab_name: &str,
+        brief_path: Option<&Path>,
+    ) -> Result<String, String> {
+        if !self.worker_launch_supported() {
+            return Err("project root unavailable for worker launch".to_string());
+        }
+        let in_zellij = in_zellij_session();
+        let return_tab = self.current_tab_index();
+        let agent_id = resolve_launch_agent_id();
+        let plan = build_worker_launch_plan(
+            &self.config.project_root,
+            &agent_id,
+            tab_name,
+            brief_path,
+            in_zellij,
+        );
+        execute_worker_launch_plan(&plan)?;
+        if in_zellij {
+            if let Some(tab_index) = return_tab {
+                let _ = go_to_tab(&self.config.session_id, tab_index);
+            }
+        }
+        Ok(agent_id)
+    }
+
+    fn request_spawn_worker(&mut self) {
+        if self.mode != Mode::Overseer {
+            self.status_note = Some("switch to Overseer mode to spawn workers".to_string());
+            return;
+        }
+        let tab_name = self.next_worker_tab_name();
+        match self.launch_worker_tab(&tab_name, None) {
+            Ok(agent_id) => {
+                self.status_note = Some(format!("spawned {tab_name} with agent {agent_id}"));
+            }
+            Err(err) => {
+                self.status_note = Some(format!("spawn failed: {err}"));
+            }
+        }
+    }
+
+    fn request_delegate_worker(&mut self) {
+        let Some(worker) = self.selected_overseer_worker() else {
+            return;
+        };
+        let tab_name = Self::delegation_tab_name(&worker);
+        match self.write_delegation_brief(&worker) {
+            Ok(brief_path) => match self.launch_worker_tab(&tab_name, Some(&brief_path)) {
+                Ok(agent_id) => {
+                    self.status_note = Some(format!(
+                        "delegated {} via {tab_name} ({agent_id}); brief: {}",
+                        worker.agent_id,
+                        brief_path.display()
+                    ));
+                }
+                Err(err) => {
+                    self.status_note = Some(format!("delegate failed: {err}"));
+                }
+            },
+            Err(err) => {
+                self.status_note = Some(format!("delegate failed: {err}"));
+            }
+        }
+    }
+
+    fn focus_selected_overview_tab(&mut self) {
+        match self.mode {
+            Mode::Overview => {
+                let rows = self.overview_rows();
+                if rows.is_empty() {
+                    self.status_note = Some("no agents to focus".to_string());
+                    return;
+                }
+                let selected = self.selected_overview_index_for_rows(&rows);
+                self.selected_overview = selected;
+                let row = &rows[selected];
+                self.focus_tab_target(&row.pane_id, row.tab_index, row.tab_name.clone());
+            }
+            Mode::Overseer => {
+                let Some(worker) = self.selected_overseer_worker() else {
+                    return;
+                };
+                let tab_meta = self
+                    .active_hub_layout()
+                    .and_then(|layout| layout.pane_tabs.get(&worker.pane_id))
+                    .cloned()
+                    .or_else(|| self.tab_cache.get(&worker.pane_id).cloned());
+                self.focus_tab_target(
+                    &worker.pane_id,
+                    tab_meta.as_ref().map(|meta| meta.index),
+                    tab_meta.map(|meta| meta.name),
+                );
+            }
+            _ => {}
         }
     }
 
     fn stop_selected_overview_agent(&mut self) {
-        if self.mode != Mode::Overview {
-            return;
+        match self.mode {
+            Mode::Overview => {
+                let rows = self.overview_rows();
+                if rows.is_empty() {
+                    self.status_note = Some("no agents to stop".to_string());
+                    return;
+                }
+                let selected = self.selected_overview_index_for_rows(&rows);
+                self.selected_overview = selected;
+                let row = &rows[selected];
+                self.queue_hub_command(
+                    "stop_agent",
+                    Some(row.identity_key.clone()),
+                    serde_json::json!({"reason": "pulse_user_request"}),
+                    format!("{}::{}", row.label, row.pane_id),
+                );
+            }
+            Mode::Overseer => {
+                let Some(worker) = self.selected_overseer_worker() else {
+                    return;
+                };
+                self.queue_hub_command(
+                    "stop_agent",
+                    Some(worker.agent_id.clone()),
+                    serde_json::json!({"reason": "pulse_user_request"}),
+                    format!("{}::{}", worker.agent_id, worker.pane_id),
+                );
+            }
+            _ => {}
         }
-        let rows = self.overview_rows();
-        if rows.is_empty() {
-            self.status_note = Some("no agents to stop".to_string());
-            return;
-        }
-        let selected = self.selected_overview_index_for_rows(&rows);
-        self.selected_overview = selected;
-        let row = &rows[selected];
-        self.queue_hub_command(
-            "stop_agent",
-            Some(row.identity_key.clone()),
-            serde_json::json!({"reason": "pulse_user_request"}),
-            format!("{}::{}", row.label, row.pane_id),
-        );
     }
 }
 
@@ -3069,6 +3978,13 @@ fn mode_help_lines(app: &App, theme: PulseTheme) -> Vec<Line<'static>> {
             )),
             Line::from("  j/k      scroll overseer snapshot and timeline"),
             Line::from("  g        jump to top"),
+            Line::from("  Enter    focus selected worker tab"),
+            Line::from("  x        stop selected worker"),
+            Line::from("  c        request peer review for selected worker"),
+            Line::from("  u        request peer unblock/help for selected worker"),
+            Line::from("  s        spawn a fresh worker tab"),
+            Line::from("  d        delegate selected worker into a new tab + brief"),
+            Line::from("  o        request fresh observer run for selected worker"),
             Line::from("  r        refresh local snapshot while hub catches up"),
         ],
         Mode::Mind => vec![
@@ -3254,6 +4170,34 @@ fn render_overseer_lines(app: &App, theme: PulseTheme, compact: bool) -> Vec<Lin
             render_overseer_consultation_line(&consultation_packet, worker, theme, compact)
         {
             lines.push(line);
+        }
+    }
+
+    let tools = app.orchestrator_tools();
+    if !tools.is_empty() {
+        lines.push(Line::from(""));
+        lines.push(Line::from(Span::styled(
+            "Mission Control tools",
+            Style::default()
+                .fg(theme.accent)
+                .add_modifier(Modifier::BOLD),
+        )));
+        for tool in tools.iter().take(if compact { 5 } else { 8 }) {
+            lines.push(render_orchestrator_tool_line(tool, theme, compact));
+        }
+
+        let graph = app.orchestration_graph_ir();
+        if !graph.compile_paths.is_empty() {
+            lines.push(render_orchestration_graph_summary_line(&graph, theme));
+            lines.push(Line::from(Span::styled(
+                "Reviewable compile",
+                Style::default()
+                    .fg(theme.accent)
+                    .add_modifier(Modifier::BOLD),
+            )));
+            for path in graph.compile_paths.iter().take(if compact { 2 } else { 6 }) {
+                lines.push(render_orchestration_compile_line(path, theme, compact));
+            }
         }
     }
 
@@ -3539,6 +4483,96 @@ fn overseer_consultation_rationale(
         parts.push("operator input needed");
     }
     parts.join(", ")
+}
+
+fn render_orchestrator_tool_line(
+    tool: &OrchestratorTool,
+    theme: PulseTheme,
+    compact: bool,
+) -> Line<'static> {
+    let status_style = match tool.status {
+        OrchestratorToolStatus::Ready => Style::default().fg(theme.ok),
+        OrchestratorToolStatus::Unavailable => Style::default().fg(theme.warn),
+    }
+    .add_modifier(Modifier::BOLD);
+    let status_label = match tool.status {
+        OrchestratorToolStatus::Ready => "ready",
+        OrchestratorToolStatus::Unavailable => "blocked",
+    };
+    let mut spans = vec![
+        Span::styled("    tool ", Style::default().fg(theme.muted)),
+        Span::styled(format!("[{status_label}]"), status_style),
+        Span::raw(" "),
+        Span::styled(tool.label.to_string(), Style::default().fg(theme.info)),
+    ];
+    if let Some(shortcut) = tool.shortcut {
+        spans.push(Span::raw(" "));
+        spans.push(Span::styled(
+            format!("key:{shortcut}"),
+            Style::default().fg(theme.accent),
+        ));
+    }
+    spans.push(Span::raw(" "));
+    spans.push(Span::styled(
+        truncate_text(&tool.summary, if compact { 36 } else { 72 }),
+        Style::default().fg(theme.text),
+    ));
+    if let Some(reason) = tool.reason.as_ref() {
+        spans.push(Span::raw(" "));
+        spans.push(Span::styled(
+            truncate_text(reason, if compact { 20 } else { 36 }),
+            Style::default().fg(theme.muted),
+        ));
+    }
+    Line::from(spans)
+}
+
+fn render_orchestration_graph_summary_line(
+    graph: &OrchestrationGraphIr,
+    theme: PulseTheme,
+) -> Line<'static> {
+    Line::from(vec![
+        Span::styled("    graph ", Style::default().fg(theme.muted)),
+        Span::styled(
+            format!("{} nodes", graph.nodes.len()),
+            Style::default().fg(theme.info).add_modifier(Modifier::BOLD),
+        ),
+        Span::raw(" · "),
+        Span::styled(
+            format!("{} edges", graph.edges.len()),
+            Style::default().fg(theme.info),
+        ),
+        Span::raw(" · "),
+        Span::styled(
+            format!("{} review paths", graph.compile_paths.len()),
+            Style::default().fg(theme.text),
+        ),
+    ])
+}
+
+fn render_orchestration_compile_line(
+    path: &OrchestrationCompilePath,
+    theme: PulseTheme,
+    compact: bool,
+) -> Line<'static> {
+    let status_style = match path.status {
+        OrchestratorToolStatus::Ready => Style::default().fg(theme.ok),
+        OrchestratorToolStatus::Unavailable => Style::default().fg(theme.warn),
+    }
+    .add_modifier(Modifier::BOLD);
+    let status_label = match path.status {
+        OrchestratorToolStatus::Ready => "ready",
+        OrchestratorToolStatus::Unavailable => "blocked",
+    };
+    let preview = truncate_text(&path.steps.join(" -> "), if compact { 52 } else { 96 });
+    Line::from(vec![
+        Span::styled("    plan ", Style::default().fg(theme.muted)),
+        Span::styled(format!("[{status_label}]"), status_style),
+        Span::raw(" "),
+        Span::styled(path.review_label.clone(), Style::default().fg(theme.accent)),
+        Span::raw(" "),
+        Span::styled(preview, Style::default().fg(theme.text)),
+    ])
 }
 
 fn render_overseer_consultation_line(
@@ -5752,6 +6786,30 @@ fn handle_key(key: KeyEvent, app: &mut App, refresh_requested: &mut bool) -> boo
             app.request_manual_observer_run();
             false
         }
+        KeyCode::Char('c') => {
+            if app.mode == Mode::Overseer {
+                app.request_overseer_consultation(ConsultationPacketKind::Review);
+            }
+            false
+        }
+        KeyCode::Char('u') => {
+            if app.mode == Mode::Overseer {
+                app.request_overseer_consultation(ConsultationPacketKind::HelpRequest);
+            }
+            false
+        }
+        KeyCode::Char('s') => {
+            if app.mode == Mode::Overseer {
+                app.request_spawn_worker();
+            }
+            false
+        }
+        KeyCode::Char('d') => {
+            if app.mode == Mode::Overseer {
+                app.request_delegate_worker();
+            }
+            false
+        }
         KeyCode::Char('O') => {
             app.request_insight_dispatch_chain();
             false
@@ -5835,6 +6893,105 @@ fn handle_key(key: KeyEvent, app: &mut App, refresh_requested: &mut bool) -> boo
     }
 }
 
+fn in_zellij_session() -> bool {
+    env::var("ZELLIJ").is_ok() || env::var("ZELLIJ_SESSION_NAME").is_ok()
+}
+
+fn resolve_launch_agent_id() -> String {
+    for key in ["AOC_LAUNCH_AGENT_ID", "AOC_AGENT_ID"] {
+        if let Ok(value) = env::var(key) {
+            let trimmed = value.trim();
+            if !trimmed.is_empty() {
+                return trimmed.to_string();
+            }
+        }
+    }
+
+    if let Ok(output) = Command::new("aoc-agent").arg("--current").output() {
+        if output.status.success() {
+            let value = String::from_utf8_lossy(&output.stdout).trim().to_string();
+            if !value.is_empty() {
+                return value;
+            }
+        }
+    }
+
+    "pi".to_string()
+}
+
+fn sanitize_slug(value: &str) -> String {
+    let mut slug = String::with_capacity(value.len());
+    let mut last_dash = false;
+    for ch in value.chars() {
+        let ch = ch.to_ascii_lowercase();
+        if ch.is_ascii_alphanumeric() {
+            slug.push(ch);
+            last_dash = false;
+        } else if !last_dash {
+            slug.push('-');
+            last_dash = true;
+        }
+    }
+    slug.trim_matches('-').to_string()
+}
+
+fn build_worker_launch_plan(
+    project_root: &Path,
+    agent_id: &str,
+    tab_name: &str,
+    brief_path: Option<&Path>,
+    in_zellij: bool,
+) -> WorkerLaunchPlan {
+    let mut env = vec![("AOC_LAUNCH_AGENT_ID".to_string(), agent_id.to_string())];
+    if let Some(path) = brief_path {
+        env.push((
+            "AOC_DELEGATION_BRIEF_PATH".to_string(),
+            path.display().to_string(),
+        ));
+    }
+
+    if in_zellij {
+        WorkerLaunchPlan {
+            program: "aoc-new-tab".to_string(),
+            args: vec![
+                "--aoc".to_string(),
+                "--name".to_string(),
+                tab_name.to_string(),
+                "--cwd".to_string(),
+                project_root.display().to_string(),
+            ],
+            env,
+            cwd: project_root.to_path_buf(),
+            tab_name: tab_name.to_string(),
+        }
+    } else {
+        WorkerLaunchPlan {
+            program: "aoc-launch".to_string(),
+            args: Vec::new(),
+            env,
+            cwd: project_root.to_path_buf(),
+            tab_name: tab_name.to_string(),
+        }
+    }
+}
+
+fn execute_worker_launch_plan(plan: &WorkerLaunchPlan) -> Result<(), String> {
+    let mut cmd = Command::new(&plan.program);
+    cmd.current_dir(&plan.cwd);
+    for (key, value) in &plan.env {
+        cmd.env(key, value);
+    }
+    cmd.args(&plan.args);
+    let status = cmd
+        .status()
+        .map_err(|err| format!("{} failed: {err}", plan.program))?;
+    if status.success() {
+        Ok(())
+    } else {
+        Err(format!("{} exited with {}", plan.program, status))
+    }
+}
+
 fn go_to_tab(session_id: &str, tab_index: usize) -> Result<(), String> {
     if tab_index == 0 {
         return Err("invalid tab index".to_string());
@@ -5858,7 +7015,7 @@ fn go_to_tab(session_id: &str, tab_index: usize) -> Result<(), String> {
 async fn hub_loop(
     _config: Config,
     tx: mpsc::Sender<HubEvent>,
-    mut command_rx: mpsc::Receiver<HubCommand>,
+    mut command_rx: mpsc::Receiver<HubOutbound>,
 ) {
     let _ = tx.send(HubEvent::Disconnected).await;
     while command_rx.recv().await.is_some() {}
@@ -5868,7 +7025,7 @@ async fn hub_loop(
 async fn hub_loop(
     config: Config,
     tx: mpsc::Sender<HubEvent>,
-    mut command_rx: mpsc::Receiver<HubCommand>,
+    mut command_rx: mpsc::Receiver<HubOutbound>,
 ) {
     let mut backoff = Duration::from_secs(1);
     let mut command_open = true;
@@ -5971,6 +7128,14 @@ async fn hub_loop(
                                     })
                                     .await;
                             }
+                            WireMsg::ConsultationResponse(payload) => {
+                                let _ = tx
+                                    .send(HubEvent::ConsultationResponse {
+                                        payload,
+                                        request_id: envelope.request_id,
+                                    })
+                                    .await;
+                            }
                             _ => {}
                         }
                     }
@@ -5978,7 +7143,7 @@ async fn hub_loop(
                 maybe_command = command_rx.recv(), if command_open => {
                     match maybe_command {
                         Some(command) => {
-                            let envelope = build_command_envelope(&config, command);
+                            let envelope = build_outbound_envelope(&config, command);
                             if send_wire_envelope(&mut writer_half, &envelope).await.is_err() {
                                 break;
                             }
@@ -6046,6 +7211,7 @@ fn build_pulse_subscribe(config: &Config) -> WireEnvelope {
     let topics = vec![
         "agent_state".to_string(),
         "command_result".to_string(),
+        "consultation_response".to_string(),
         "observer_snapshot".to_string(),
         "observer_timeline".to_string(),
     ];
@@ -6063,18 +7229,14 @@ fn build_pulse_subscribe(config: &Config) -> WireEnvelope {
     }
 }
 
-fn build_command_envelope(config: &Config, command: HubCommand) -> WireEnvelope {
+fn build_outbound_envelope(config: &Config, outbound: HubOutbound) -> WireEnvelope {
     WireEnvelope {
         version: ProtocolVersion(CURRENT_PROTOCOL_VERSION),
         session_id: config.session_id.clone(),
         sender_id: config.client_id.clone(),
         timestamp: Utc::now().to_rfc3339(),
-        request_id: Some(command.request_id),
-        msg: WireMsg::Command(CommandPayload {
-            command: command.command,
-            target_agent_id: command.target_agent_id,
-            args: command.args,
-        }),
+        request_id: Some(outbound.request_id),
+        msg: outbound.msg,
     }
 }
 
@@ -7384,6 +8546,418 @@ mod tests {
     }
 
     #[test]
+    fn command_result_keeps_pending_on_accepted_status() {
+        let (tx, _rx) = mpsc::channel(4);
+        let mut app = App::new(test_config(), tx, empty_local());
+        app.connected = true;
+        app.pending_commands.insert(
+            "req-2".to_string(),
+            PendingCommand {
+                command: "run_validation".to_string(),
+                target: "pane-7".to_string(),
+            },
+        );
+
+        app.apply_hub_event(HubEvent::CommandResult {
+            payload: CommandResultPayload {
+                command: "run_validation".to_string(),
+                status: "accepted".to_string(),
+                message: Some("queued".to_string()),
+                error: None,
+            },
+            request_id: Some("req-2".to_string()),
+        });
+
+        assert!(app.pending_commands.contains_key("req-2"));
+        assert!(app.status_note.unwrap_or_default().contains("queued"));
+    }
+
+    #[test]
+    fn command_result_ignores_stale_request_ids() {
+        let (tx, _rx) = mpsc::channel(4);
+        let mut app = App::new(test_config(), tx, empty_local());
+        app.status_note = Some("unchanged".to_string());
+
+        app.apply_hub_event(HubEvent::CommandResult {
+            payload: CommandResultPayload {
+                command: "pause_and_summarize".to_string(),
+                status: "ok".to_string(),
+                message: Some("late duplicate".to_string()),
+                error: None,
+            },
+            request_id: Some("req-stale".to_string()),
+        });
+
+        assert_eq!(app.status_note.as_deref(), Some("unchanged"));
+    }
+
+    #[test]
+    fn overseer_consultation_queues_review_request_for_peer_worker() {
+        let (tx, mut rx) = mpsc::channel(4);
+        let mut app = App::new(test_config(), tx, empty_local());
+        app.connected = true;
+        app.mode = Mode::Overseer;
+        app.apply_hub_event(HubEvent::ObserverSnapshot {
+            payload: ObserverSnapshot {
+                schema_version: 1,
+                session_id: "session-test".to_string(),
+                generated_at_ms: Some(1_700_000_000_000),
+                workers: vec![
+                    WorkerSnapshot {
+                        session_id: "session-test".to_string(),
+                        agent_id: "session-test::12".to_string(),
+                        pane_id: "12".to_string(),
+                        role: Some("builder".to_string()),
+                        status: WorkerStatus::Active,
+                        summary: Some("implementing transport".to_string()),
+                        assignment: aoc_core::session_overseer::WorkerAssignment {
+                            task_id: Some("160".to_string()),
+                            tag: Some("mind".to_string()),
+                            epic_id: None,
+                        },
+                        plan_alignment: PlanAlignment::Medium,
+                        ..Default::default()
+                    },
+                    WorkerSnapshot {
+                        session_id: "session-test".to_string(),
+                        agent_id: "session-test::24".to_string(),
+                        pane_id: "24".to_string(),
+                        role: Some("reviewer".to_string()),
+                        status: WorkerStatus::Active,
+                        summary: Some("available for review".to_string()),
+                        assignment: aoc_core::session_overseer::WorkerAssignment {
+                            task_id: Some("161".to_string()),
+                            tag: Some("mind".to_string()),
+                            epic_id: None,
+                        },
+                        plan_alignment: PlanAlignment::High,
+                        ..Default::default()
+                    },
+                ],
+                ..Default::default()
+            },
+        });
+
+        app.request_overseer_consultation(ConsultationPacketKind::Review);
+
+        let outbound = rx.try_recv().expect("consultation outbound queued");
+        let WireMsg::ConsultationRequest(payload) = outbound.msg else {
+            panic!("expected consultation request")
+        };
+        assert_eq!(payload.requesting_agent_id, "session-test::12");
+        assert_eq!(payload.target_agent_id, "session-test::24");
+        assert_eq!(payload.packet.kind, ConsultationPacketKind::Review);
+        assert_eq!(
+            app.pending_consultations
+                .get(&outbound.request_id)
+                .map(|value| value.responder.as_str()),
+            Some("session-test::24")
+        );
+    }
+
+    #[test]
+    fn consultation_response_clears_pending_on_terminal_status() {
+        let (tx, _rx) = mpsc::channel(4);
+        let mut app = App::new(test_config(), tx, empty_local());
+        app.pending_consultations.insert(
+            "req-consult".to_string(),
+            PendingConsultation {
+                kind: ConsultationPacketKind::Review,
+                requester: "session-test::12".to_string(),
+                responder: "session-test::24".to_string(),
+            },
+        );
+
+        app.apply_hub_event(HubEvent::ConsultationResponse {
+            payload: ConsultationResponsePayload {
+                consultation_id: "consult-1".to_string(),
+                requesting_agent_id: "session-test::12".to_string(),
+                responding_agent_id: "session-test::24".to_string(),
+                status: ConsultationStatus::Completed,
+                packet: None,
+                message: Some("review completed".to_string()),
+                error: None,
+            },
+            request_id: Some("req-consult".to_string()),
+        });
+
+        assert!(!app.pending_consultations.contains_key("req-consult"));
+        assert!(app
+            .status_note
+            .unwrap_or_default()
+            .contains("review completed"));
+    }
+
+    #[test]
+    fn orchestrator_tool_surface_marks_spawn_and_delegate_ready() {
+        let (tx, _rx) = mpsc::channel(4);
+        let mut app = App::new(test_config(), tx, empty_local());
+        app.connected = true;
+        app.mode = Mode::Overseer;
+        app.apply_hub_event(HubEvent::ObserverSnapshot {
+            payload: ObserverSnapshot {
+                schema_version: 1,
+                session_id: "session-test".to_string(),
+                generated_at_ms: Some(1_700_000_000_000),
+                workers: vec![
+                    WorkerSnapshot {
+                        session_id: "session-test".to_string(),
+                        agent_id: "session-test::12".to_string(),
+                        pane_id: "12".to_string(),
+                        status: WorkerStatus::Active,
+                        plan_alignment: PlanAlignment::Medium,
+                        ..Default::default()
+                    },
+                    WorkerSnapshot {
+                        session_id: "session-test".to_string(),
+                        agent_id: "session-test::24".to_string(),
+                        pane_id: "24".to_string(),
+                        status: WorkerStatus::Active,
+                        plan_alignment: PlanAlignment::High,
+                        ..Default::default()
+                    },
+                ],
+                ..Default::default()
+            },
+        });
+
+        let tools = app.orchestrator_tools();
+        assert!(tools
+            .iter()
+            .any(|tool| tool.id == OrchestratorToolId::WorkerReview
+                && tool.status == OrchestratorToolStatus::Ready));
+        assert!(tools
+            .iter()
+            .any(|tool| tool.id == OrchestratorToolId::WorkerSpawn
+                && tool.status == OrchestratorToolStatus::Ready
+                && tool.shortcut == Some("s")));
+        assert!(tools
+            .iter()
+            .any(|tool| tool.id == OrchestratorToolId::WorkerDelegate
+                && tool.status == OrchestratorToolStatus::Ready
+                && tool.shortcut == Some("d")));
+    }
+
+    #[test]
+    fn build_worker_launch_plan_uses_new_tab_in_zellij_and_launch_otherwise() {
+        let project_root = PathBuf::from("/tmp/project-root");
+        let brief_path = PathBuf::from("/tmp/delegation.md");
+
+        let zellij_plan =
+            build_worker_launch_plan(&project_root, "pi", "Worker 3", Some(&brief_path), true);
+        assert_eq!(zellij_plan.program, "aoc-new-tab");
+        assert_eq!(
+            zellij_plan.args,
+            vec![
+                "--aoc".to_string(),
+                "--name".to_string(),
+                "Worker 3".to_string(),
+                "--cwd".to_string(),
+                "/tmp/project-root".to_string(),
+            ]
+        );
+        assert!(zellij_plan
+            .env
+            .contains(&("AOC_LAUNCH_AGENT_ID".to_string(), "pi".to_string())));
+        assert!(zellij_plan.env.contains(&(
+            "AOC_DELEGATION_BRIEF_PATH".to_string(),
+            "/tmp/delegation.md".to_string()
+        )));
+
+        let standalone_plan =
+            build_worker_launch_plan(&project_root, "pi", "Worker 3", None, false);
+        assert_eq!(standalone_plan.program, "aoc-launch");
+        assert!(standalone_plan.args.is_empty());
+    }
+
+    #[test]
+    fn delegation_brief_captures_selected_worker_context() {
+        let (tx, _rx) = mpsc::channel(4);
+        let app = App::new(test_config(), tx, empty_local());
+        let worker = WorkerSnapshot {
+            session_id: "session-test".to_string(),
+            agent_id: "session-test::24".to_string(),
+            pane_id: "24".to_string(),
+            role: Some("reviewer".to_string()),
+            status: WorkerStatus::Blocked,
+            summary: Some("waiting on fixture regeneration".to_string()),
+            blocker: Some("need fresh snapshot".to_string()),
+            assignment: aoc_core::session_overseer::WorkerAssignment {
+                task_id: Some("164".to_string()),
+                tag: Some("mind".to_string()),
+                epic_id: None,
+            },
+            plan_alignment: PlanAlignment::Medium,
+            drift_risk: DriftRisk::Medium,
+            ..Default::default()
+        };
+
+        let brief = app.render_delegation_brief(&worker);
+        assert!(brief.contains("Mission Control delegation brief"));
+        assert!(brief.contains("source worker: session-test::24"));
+        assert!(brief.contains("task: 164"));
+        assert!(brief.contains("need fresh snapshot"));
+        assert!(brief.contains("waiting on fixture regeneration"));
+    }
+
+    #[test]
+    fn orchestration_graph_ir_compiles_reviewable_delegate_path() {
+        let (tx, _rx) = mpsc::channel(4);
+        let mut app = App::new(test_config(), tx, empty_local());
+        app.connected = true;
+        app.mode = Mode::Overseer;
+        app.apply_hub_event(HubEvent::ObserverSnapshot {
+            payload: ObserverSnapshot {
+                schema_version: 1,
+                session_id: "session-test".to_string(),
+                generated_at_ms: Some(1_700_000_000_000),
+                workers: vec![
+                    WorkerSnapshot {
+                        session_id: "session-test".to_string(),
+                        agent_id: "session-test::12".to_string(),
+                        pane_id: "12".to_string(),
+                        role: Some("implementer".to_string()),
+                        status: WorkerStatus::Active,
+                        assignment: aoc_core::session_overseer::WorkerAssignment {
+                            task_id: Some("166".to_string()),
+                            tag: Some("mind".to_string()),
+                            epic_id: None,
+                        },
+                        ..Default::default()
+                    },
+                    WorkerSnapshot {
+                        session_id: "session-test".to_string(),
+                        agent_id: "session-test::24".to_string(),
+                        pane_id: "24".to_string(),
+                        status: WorkerStatus::Active,
+                        ..Default::default()
+                    },
+                ],
+                ..Default::default()
+            },
+        });
+
+        let graph = app.orchestration_graph_ir();
+        assert_eq!(graph.session_id, "session-test");
+        assert!(graph
+            .nodes
+            .iter()
+            .any(|node| node.kind == OrchestrationGraphNodeKind::Session));
+        assert!(graph
+            .nodes
+            .iter()
+            .any(|node| node.kind == OrchestrationGraphNodeKind::Artifact
+                && node.label == "delegation brief"));
+        assert!(graph
+            .edges
+            .iter()
+            .any(|edge| edge.kind == OrchestrationGraphEdgeKind::Writes
+                && edge.summary.contains("delegation brief")));
+        assert!(graph.compile_paths.iter().any(|path| {
+            path.entry_tool == OrchestratorToolId::WorkerDelegate
+                && path
+                    .steps
+                    .iter()
+                    .any(|step| step.contains("write delegation brief"))
+                && path
+                    .steps
+                    .iter()
+                    .any(|step| step.contains("AOC_DELEGATION_BRIEF_PATH"))
+        }));
+    }
+
+    #[test]
+    fn overseer_render_includes_orchestrator_tool_surface() {
+        let (tx, _rx) = mpsc::channel(4);
+        let mut app = App::new(test_config(), tx, empty_local());
+        app.connected = true;
+        app.mode = Mode::Overseer;
+        app.apply_hub_event(HubEvent::ObserverSnapshot {
+            payload: ObserverSnapshot {
+                schema_version: 1,
+                session_id: "session-test".to_string(),
+                generated_at_ms: Some(1_700_000_000_000),
+                workers: vec![
+                    WorkerSnapshot {
+                        session_id: "session-test".to_string(),
+                        agent_id: "session-test::12".to_string(),
+                        pane_id: "12".to_string(),
+                        status: WorkerStatus::Active,
+                        plan_alignment: PlanAlignment::Medium,
+                        ..Default::default()
+                    },
+                    WorkerSnapshot {
+                        session_id: "session-test".to_string(),
+                        agent_id: "session-test::24".to_string(),
+                        pane_id: "24".to_string(),
+                        status: WorkerStatus::Active,
+                        plan_alignment: PlanAlignment::High,
+                        ..Default::default()
+                    },
+                ],
+                ..Default::default()
+            },
+        });
+
+        let rendered = render_overseer_lines(&app, pulse_theme(PulseThemeMode::Terminal), false)
+            .into_iter()
+            .map(|line| line.to_string())
+            .collect::<Vec<_>>()
+            .join("\n");
+        assert!(rendered.contains("Mission Control tools"));
+        assert!(rendered.contains("peer review"));
+        assert!(rendered.contains("spawn worker"));
+        assert!(rendered.contains("Reviewable compile"));
+        assert!(rendered.contains("graph "));
+        assert!(rendered.contains("plan [ready] delegate task"));
+    }
+
+    #[test]
+    fn overseer_snapshot_ignores_other_sessions() {
+        let (tx, _rx) = mpsc::channel(4);
+        let mut app = App::new(test_config(), tx, empty_local());
+
+        app.apply_hub_event(HubEvent::ObserverSnapshot {
+            payload: ObserverSnapshot {
+                schema_version: 1,
+                session_id: "other-session".to_string(),
+                generated_at_ms: Some(1_700_000_000_000),
+                workers: vec![WorkerSnapshot {
+                    session_id: "other-session".to_string(),
+                    agent_id: "other-session::1".to_string(),
+                    pane_id: "1".to_string(),
+                    ..Default::default()
+                }],
+                ..Default::default()
+            },
+        });
+
+        assert!(app.overseer_snapshot().is_none());
+        assert!(app.overseer_workers().is_empty());
+    }
+
+    #[test]
+    fn overseer_timeline_ignores_other_sessions() {
+        let (tx, _rx) = mpsc::channel(4);
+        let mut app = App::new(test_config(), tx, empty_local());
+
+        app.apply_hub_event(HubEvent::ObserverTimeline {
+            payload: ObserverTimelinePayload {
+                session_id: "other-session".to_string(),
+                generated_at_ms: Some(1_700_000_000_123),
+                entries: vec![ObserverTimelineEntry {
+                    event_id: "evt-9".to_string(),
+                    session_id: "other-session".to_string(),
+                    agent_id: "other-session::1".to_string(),
+                    ..Default::default()
+                }],
+            },
+        });
+
+        assert!(app.overseer_timeline().is_empty());
+    }
+
+    #[test]
     fn overview_sort_prioritizes_tab_position() {
         let rows = vec![
             OverviewRow {
@@ -7840,10 +9414,13 @@ mod tests {
 
         app.request_manual_observer_run();
         let command = rx.try_recv().expect("manual command should be queued");
-        assert_eq!(command.command, "run_observer");
-        assert_eq!(command.target_agent_id.as_deref(), Some("session-test::12"));
+        let WireMsg::Command(payload) = command.msg else {
+            panic!("expected command")
+        };
+        assert_eq!(payload.command, "run_observer");
+        assert_eq!(payload.target_agent_id.as_deref(), Some("session-test::12"));
         assert_eq!(
-            command
+            payload
                 .args
                 .get("trigger")
                 .and_then(Value::as_str)
@@ -7887,10 +9464,16 @@ mod tests {
         app.request_mind_handshake_rebuild();
 
         let first = rx.try_recv().expect("dispatch command");
-        assert_eq!(first.command, "insight_dispatch");
-        assert_eq!(first.target_agent_id.as_deref(), Some("session-test::12"));
+        let WireMsg::Command(first_payload) = first.msg else {
+            panic!("expected command")
+        };
+        assert_eq!(first_payload.command, "insight_dispatch");
         assert_eq!(
-            first
+            first_payload.target_agent_id.as_deref(),
+            Some("session-test::12")
+        );
+        assert_eq!(
+            first_payload
                 .args
                 .get("mode")
                 .and_then(Value::as_str)
@@ -7899,9 +9482,12 @@ mod tests {
         );
 
         let second = rx.try_recv().expect("bootstrap command");
-        assert_eq!(second.command, "insight_bootstrap");
+        let WireMsg::Command(second_payload) = second.msg else {
+            panic!("expected command")
+        };
+        assert_eq!(second_payload.command, "insight_bootstrap");
         assert_eq!(
-            second
+            second_payload
                 .args
                 .get("dry_run")
                 .and_then(Value::as_bool)
@@ -7910,16 +9496,28 @@ mod tests {
         );
 
         let third = rx.try_recv().expect("force finalize command");
-        assert_eq!(third.command, "mind_finalize_session");
+        let WireMsg::Command(third_payload) = third.msg else {
+            panic!("expected command")
+        };
+        assert_eq!(third_payload.command, "mind_finalize_session");
 
         let fourth = rx.try_recv().expect("compaction rebuild command");
-        assert_eq!(fourth.command, "mind_compaction_rebuild");
+        let WireMsg::Command(fourth_payload) = fourth.msg else {
+            panic!("expected command")
+        };
+        assert_eq!(fourth_payload.command, "mind_compaction_rebuild");
 
         let fifth = rx.try_recv().expect("t3 requeue command");
-        assert_eq!(fifth.command, "mind_t3_requeue");
+        let WireMsg::Command(fifth_payload) = fifth.msg else {
+            panic!("expected command")
+        };
+        assert_eq!(fifth_payload.command, "mind_t3_requeue");
 
         let sixth = rx.try_recv().expect("handshake rebuild command");
-        assert_eq!(sixth.command, "mind_handshake_rebuild");
+        let WireMsg::Command(sixth_payload) = sixth.msg else {
+            panic!("expected command")
+        };
+        assert_eq!(sixth_payload.command, "mind_handshake_rebuild");
     }
 
     #[test]
@@ -8103,12 +9701,16 @@ mod tests {
 
         let mind_dir = root.join(".aoc").join("mind");
         std::fs::create_dir_all(&mind_dir).expect("create mind dir");
-        let store = aoc_storage::MindStore::open(mind_dir.join("project.sqlite")).expect("open store");
+        let store =
+            aoc_storage::MindStore::open(mind_dir.join("project.sqlite")).expect("open store");
         let marker_event = aoc_core::mind_contracts::RawEvent {
             event_id: "evt-compaction-session-test-1".to_string(),
             conversation_id: "conv-compact".to_string(),
             agent_id: "agent-1".to_string(),
-            ts: Utc.with_ymd_and_hms(2026, 3, 1, 12, 0, 0).single().expect("ts"),
+            ts: Utc
+                .with_ymd_and_hms(2026, 3, 1, 12, 0, 0)
+                .single()
+                .expect("ts"),
             body: aoc_core::mind_contracts::RawEventBody::Other {
                 payload: serde_json::json!({"type": "compaction"}),
             },
@@ -8123,7 +9725,9 @@ mod tests {
                 ),
             ]),
         };
-        store.insert_raw_event(&marker_event).expect("insert marker");
+        store
+            .insert_raw_event(&marker_event)
+            .expect("insert marker");
         let checkpoint = aoc_storage::CompactionCheckpoint {
             checkpoint_id: "cmpchk:conv-compact:compact-1".to_string(),
             conversation_id: "conv-compact".to_string(),
@@ -8163,7 +9767,9 @@ mod tests {
             "t0.compaction.v1",
         )
         .expect("build slice");
-        store.upsert_compaction_t0_slice(&slice).expect("upsert slice");
+        store
+            .upsert_compaction_t0_slice(&slice)
+            .expect("upsert slice");
 
         let (tx, _rx) = mpsc::channel(4);
         let mut cfg = test_config();
@@ -8224,7 +9830,8 @@ mod tests {
         assert!(rendered.contains("[provenance:on]"));
         assert!(rendered.contains("health: t0:stored replay:ready t1:ok t2q:1 t3q:0"));
         assert!(rendered.contains("evidence: src:1 read:1 modified:2 policy:t0.compaction.v1"));
-        assert!(rendered.contains("recovery: press 'C' to rebuild/requeue latest compaction checkpoint"));
+        assert!(rendered
+            .contains("recovery: press 'C' to rebuild/requeue latest compaction checkpoint"));
         assert!(rendered.contains("[canon:entry-a r3]"));
         assert!(rendered.contains("trace: handshake -> canon -> evidence[2] obs:1, ref:2"));
 
@@ -8428,6 +10035,68 @@ mod tests {
         let rows = app.overview_rows();
         assert_eq!(rows.len(), 1);
         assert_eq!(rows[0].identity_key, "session-test::99");
+    }
+
+    #[test]
+    fn disconnect_clears_pending_commands_and_reconnect_restores_hub_mode() {
+        let (tx, _rx) = mpsc::channel(4);
+        let mut app = App::new(test_config(), tx, empty_local());
+        app.apply_hub_event(HubEvent::Connected);
+        app.apply_hub_event(HubEvent::Snapshot {
+            payload: SnapshotPayload {
+                seq: 1,
+                states: vec![hub_state("session-test::12", "12", "/repo")],
+            },
+            event_at: Utc::now(),
+        });
+        app.pending_commands.insert(
+            "req-reconnect".to_string(),
+            PendingCommand {
+                command: "run_validation".to_string(),
+                target: "pane-12".to_string(),
+            },
+        );
+
+        app.apply_hub_event(HubEvent::Disconnected);
+        assert!(app.pending_commands.is_empty());
+        assert_eq!(app.hub_status_label(), "reconnecting");
+        assert_eq!(app.mode_source(), "hub");
+
+        app.apply_hub_event(HubEvent::Connected);
+        assert_eq!(app.hub_status_label(), "online");
+        assert_eq!(app.mode_source(), "hub");
+        assert_eq!(app.status_note.as_deref(), Some("hub connected"));
+    }
+
+    #[test]
+    fn reconnect_followed_by_snapshot_replaces_cached_hub_rows() {
+        let (tx, _rx) = mpsc::channel(4);
+        let mut app = App::new(test_config(), tx, empty_local());
+        app.apply_hub_event(HubEvent::Connected);
+        app.apply_hub_event(HubEvent::Snapshot {
+            payload: SnapshotPayload {
+                seq: 1,
+                states: vec![hub_state("session-test::12", "12", "/repo")],
+            },
+            event_at: Utc::now(),
+        });
+        app.apply_hub_event(HubEvent::Disconnected);
+        app.apply_hub_event(HubEvent::Connected);
+        app.apply_hub_event(HubEvent::Snapshot {
+            payload: SnapshotPayload {
+                seq: 2,
+                states: vec![hub_state("session-test::21", "21", "/repo")],
+            },
+            event_at: Utc::now(),
+        });
+
+        let rows = app.overview_rows();
+        assert!(rows
+            .iter()
+            .any(|row| row.identity_key == "session-test::21"));
+        assert!(!rows
+            .iter()
+            .any(|row| row.identity_key == "session-test::12"));
     }
 
     #[test]
@@ -8637,6 +10306,10 @@ mod tests {
             .topics
             .iter()
             .any(|topic| topic == "observer_timeline"));
+        assert!(payload
+            .topics
+            .iter()
+            .any(|topic| topic == "consultation_response"));
     }
 
     #[test]
@@ -8707,6 +10380,113 @@ mod tests {
         assert!(rendered.contains("149.5"));
         assert!(rendered.contains("awaiting operator confirmation"));
         assert!(rendered.contains("worker reported blocker"));
+    }
+
+    #[test]
+    fn render_mind_lines_shows_partial_compaction_health_when_recovery_is_degraded() {
+        let root = std::env::temp_dir().join(format!(
+            "aoc-mission-control-compaction-degraded-{}-{}",
+            std::process::id(),
+            Utc::now().timestamp_nanos_opt().unwrap_or(0)
+        ));
+        let mind_dir = root.join(".aoc").join("mind");
+        std::fs::create_dir_all(&mind_dir).expect("create mind dir");
+        let store =
+            aoc_storage::MindStore::open(mind_dir.join("project.sqlite")).expect("open store");
+        let marker_event = aoc_core::mind_contracts::RawEvent {
+            event_id: "evt-compaction-degraded-1".to_string(),
+            conversation_id: "conv-degraded".to_string(),
+            agent_id: "agent-1".to_string(),
+            ts: Utc
+                .with_ymd_and_hms(2026, 3, 1, 12, 0, 0)
+                .single()
+                .expect("ts"),
+            body: aoc_core::mind_contracts::RawEventBody::Other {
+                payload: serde_json::json!({"type": "compaction"}),
+            },
+            attrs: std::collections::BTreeMap::new(),
+        };
+        store
+            .insert_raw_event(&marker_event)
+            .expect("insert marker");
+        store
+            .upsert_compaction_checkpoint(&aoc_storage::CompactionCheckpoint {
+                checkpoint_id: "cmpchk:conv-degraded:compact-1".to_string(),
+                conversation_id: "conv-degraded".to_string(),
+                session_id: "session-test".to_string(),
+                ts: marker_event.ts,
+                trigger_source: "pi_compaction_checkpoint".to_string(),
+                reason: Some("pi compaction".to_string()),
+                summary: Some("checkpoint exists but replay provenance is degraded".to_string()),
+                tokens_before: Some(1024),
+                first_kept_entry_id: Some("entry-7".to_string()),
+                compaction_entry_id: Some("compact-1".to_string()),
+                from_extension: true,
+                marker_event_id: Some(marker_event.event_id.clone()),
+                schema_version: 1,
+                created_at: marker_event.ts,
+                updated_at: marker_event.ts,
+            })
+            .expect("upsert checkpoint");
+
+        let (tx, _rx) = mpsc::channel(4);
+        let mut cfg = test_config();
+        cfg.project_root = root.clone();
+        let mut app = App::new(cfg, tx, empty_local());
+        app.mode = Mode::Mind;
+        app.connected = true;
+        app.mind_lane = MindLaneFilter::All;
+
+        app.apply_hub_event(HubEvent::Snapshot {
+            payload: SnapshotPayload {
+                seq: 1,
+                states: vec![AgentState {
+                    agent_id: "session-test::12".to_string(),
+                    session_id: "session-test".to_string(),
+                    pane_id: "12".to_string(),
+                    lifecycle: "running".to_string(),
+                    snippet: None,
+                    last_heartbeat_ms: Some(1),
+                    last_activity_ms: Some(1),
+                    updated_at_ms: Some(1),
+                    source: Some(serde_json::json!({
+                        "agent_status": {
+                            "agent_label": "OpenCode",
+                            "project_root": root.to_string_lossy().to_string(),
+                            "tab_scope": "agent"
+                        },
+                        "mind_observer": {
+                            "events": [
+                                {"status":"error","trigger":"compaction","runtime":"deterministic","conversation_id":"conv-degraded","reason":"semantic stage failed","completed_at":"2026-03-01T12:00:02Z"}
+                            ]
+                        },
+                        "insight_runtime": {
+                            "queue_depth": 2,
+                            "t3_queue_depth": 1
+                        }
+                    })),
+                }],
+            },
+            event_at: Utc::now(),
+        });
+
+        let rendered = render_mind_lines(&app, pulse_theme(PulseThemeMode::Terminal), false)
+            .iter()
+            .map(|line| {
+                line.spans
+                    .iter()
+                    .map(|span| span.content.to_string())
+                    .collect::<String>()
+            })
+            .collect::<Vec<_>>()
+            .join("\n");
+
+        assert!(rendered.contains("health: t0:missing replay:partial t1:error t2q:2 t3q:1"));
+        assert!(rendered
+            .contains("recovery: press 'C' to rebuild/requeue latest compaction checkpoint"));
+
+        drop(store);
+        let _ = std::fs::remove_dir_all(root);
     }
 
     #[test]

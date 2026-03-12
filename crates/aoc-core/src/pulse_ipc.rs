@@ -1,4 +1,7 @@
-use crate::session_overseer::{ObserverSnapshot, ObserverTimelineEntry};
+use crate::{
+    consultation_contracts::ConsultationPacket,
+    session_overseer::{ObserverSnapshot, ObserverTimelineEntry},
+};
 use serde::de::{self, DeserializeOwned, Visitor};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use serde_json::Value;
@@ -116,6 +119,8 @@ pub enum WireMsg {
     Heartbeat(HeartbeatPayload),
     Command(CommandPayload),
     CommandResult(CommandResultPayload),
+    ConsultationRequest(ConsultationRequestPayload),
+    ConsultationResponse(ConsultationResponsePayload),
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -246,6 +251,39 @@ pub struct CommandResultPayload {
     #[serde(default)]
     pub message: Option<String>,
     #[serde(default)]
+    pub error: Option<CommandError>,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum ConsultationStatus {
+    #[default]
+    Accepted,
+    Completed,
+    Rejected,
+    Failed,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ConsultationRequestPayload {
+    pub consultation_id: String,
+    pub requesting_agent_id: String,
+    pub target_agent_id: String,
+    pub packet: ConsultationPacket,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ConsultationResponsePayload {
+    pub consultation_id: String,
+    pub requesting_agent_id: String,
+    pub responding_agent_id: String,
+    #[serde(default)]
+    pub status: ConsultationStatus,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub packet: Option<ConsultationPacket>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub message: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub error: Option<CommandError>,
 }
 
@@ -543,6 +581,53 @@ mod tests {
             }),
             ..hello_envelope()
         };
+        let consultation_request = WireEnvelope {
+            sender_id: "mission-control".to_string(),
+            request_id: Some("consult-1".to_string()),
+            msg: WireMsg::ConsultationRequest(ConsultationRequestPayload {
+                consultation_id: "consult-1".to_string(),
+                requesting_agent_id: "session-alpha::12".to_string(),
+                target_agent_id: "session-alpha::24".to_string(),
+                packet: ConsultationPacket {
+                    packet_id: "packet-1".to_string(),
+                    identity: crate::consultation_contracts::ConsultationIdentity {
+                        session_id: "session-alpha".to_string(),
+                        agent_id: "session-alpha::12".to_string(),
+                        pane_id: Some("12".to_string()),
+                        conversation_id: None,
+                        role: Some("builder".to_string()),
+                    },
+                    summary: Some("Need review on migration sequencing".to_string()),
+                    ..Default::default()
+                },
+            }),
+            ..hello_envelope()
+        };
+        let consultation_response = WireEnvelope {
+            sender_id: "wrapper-24".to_string(),
+            request_id: Some("consult-1".to_string()),
+            msg: WireMsg::ConsultationResponse(ConsultationResponsePayload {
+                consultation_id: "consult-1".to_string(),
+                requesting_agent_id: "session-alpha::12".to_string(),
+                responding_agent_id: "session-alpha::24".to_string(),
+                status: ConsultationStatus::Completed,
+                packet: Some(ConsultationPacket {
+                    packet_id: "packet-2".to_string(),
+                    identity: crate::consultation_contracts::ConsultationIdentity {
+                        session_id: "session-alpha".to_string(),
+                        agent_id: "session-alpha::24".to_string(),
+                        pane_id: Some("24".to_string()),
+                        conversation_id: None,
+                        role: Some("reviewer".to_string()),
+                    },
+                    summary: Some("Migrations look safe; validate rollback path".to_string()),
+                    ..Default::default()
+                }),
+                message: Some("review completed".to_string()),
+                error: None,
+            }),
+            ..hello_envelope()
+        };
 
         for message in [
             hello_envelope(),
@@ -553,6 +638,8 @@ mod tests {
             layout_state,
             command,
             command_result,
+            consultation_request,
+            consultation_response,
         ] {
             let frame = encode_frame(&message, DEFAULT_MAX_FRAME_BYTES).expect("encode");
             let decoded: WireEnvelope =

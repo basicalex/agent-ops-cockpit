@@ -44,6 +44,8 @@ The shared enum (`WireMsg`) currently supports:
 - `heartbeat`
 - `command`
 - `command_result`
+- `consultation_request`
+- `consultation_response`
 
 ### hello
 
@@ -188,3 +190,71 @@ The shared enum (`WireMsg`) currently supports:
   }
 }
 ```
+
+### consultation_request
+
+```json
+{
+  "version": "1",
+  "type": "consultation_request",
+  "session_id": "aoc-session",
+  "sender_id": "mission-control",
+  "timestamp": "2026-02-07T21:00:07Z",
+  "request_id": "consult-19",
+  "payload": {
+    "consultation_id": "consult-19",
+    "requesting_agent_id": "aoc-session::12",
+    "target_agent_id": "aoc-session::24",
+    "packet": {
+      "schema_version": 1,
+      "packet_id": "packet-19",
+      "kind": "review",
+      "identity": {
+        "session_id": "aoc-session",
+        "agent_id": "aoc-session::12",
+        "pane_id": "12",
+        "role": "builder"
+      },
+      "summary": "Need review on migration sequencing"
+    }
+  }
+}
+```
+
+### consultation_response
+
+```json
+{
+  "version": "1",
+  "type": "consultation_response",
+  "session_id": "aoc-session",
+  "sender_id": "wrapper-24",
+  "timestamp": "2026-02-07T21:00:08Z",
+  "request_id": "consult-19",
+  "payload": {
+    "consultation_id": "consult-19",
+    "requesting_agent_id": "aoc-session::12",
+    "responding_agent_id": "aoc-session::24",
+    "status": "completed",
+    "message": "review completed",
+    "packet": {
+      "schema_version": 1,
+      "packet_id": "packet-20",
+      "kind": "review",
+      "identity": {
+        "session_id": "aoc-session",
+        "agent_id": "aoc-session::24",
+        "pane_id": "24",
+        "role": "reviewer"
+      },
+      "summary": "Rollback path still needs validation"
+    }
+  }
+}
+```
+
+Notes:
+- `consultation_request` is session-scoped and must target a worker in the same session.
+- `payload.packet.identity.session_id` and `payload.requesting_agent_id` must agree.
+- `consultation_response.status` is one of `accepted`, `completed`, `rejected`, or `failed`.
+- subscribers must opt into `consultation_request` and/or `consultation_response` topics explicitly.

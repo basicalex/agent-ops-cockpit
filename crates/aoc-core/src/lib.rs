@@ -4,9 +4,11 @@ use std::collections::HashMap;
 use std::fmt;
 use std::str::FromStr;
 
+pub mod consultation_contracts;
 pub mod insight_contracts;
 pub mod mind_contracts;
 pub mod mind_observer_feed;
+pub mod provenance_contracts;
 pub mod pulse_ipc;
 pub mod session_overseer;
 
