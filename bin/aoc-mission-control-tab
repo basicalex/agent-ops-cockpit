@@ -1,0 +1,20 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+source "$(dirname "$0")/aoc-utils.sh"
+
+if [[ "${AOC_SMOKE_TEST:-0}" == "1" ]]; then
+  exit 0
+fi
+
+project_root="${AOC_PROJECT_ROOT:-$PWD}"
+layout_name="${AOC_MISSION_CONTROL_LAYOUT:-mission-control}"
+tab_name="${AOC_MISSION_CONTROL_TAB_NAME:-Mission Control}"
+
+if [[ -n "${ZELLIJ:-}" || -n "${ZELLIJ_SESSION_NAME:-}" ]]; then
+  exec AOC_PROJECT_ROOT="$project_root" aoc-new-tab --layout "$layout_name" --name "$tab_name" --cwd "$project_root"
+fi
+
+export AOC_LAYOUT="$layout_name"
+export AOC_PROJECT_ROOT="$project_root"
+exec aoc-launch

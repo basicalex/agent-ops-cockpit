@@ -28,6 +28,51 @@ We need a session-scoped overseer control plane that lets AOC publish structured
 
 ---
 
+## Architectural Alignment Addendum
+
+### Product Principles
+- Optimize for fresh-agent effectiveness through dense derived project memory, provenance, and recovery, not through giant long-lived transcript continuity.
+- Treat Pi session history, JSONL, and compaction outputs as the replayable source substrate; treat AOC Mind SQLite as the canonical derived semantic/project memory system.
+- Build cross-agent coordination on top of checkpoint-aware, evidence-backed packetization rather than raw transcript exchange.
+- Apply MASFactory-style inspiration to orchestration semantics, reusable coordination patterns, and Mission Control UX — not to replace AOC’s storage model with a graph-native core.
+
+### Memory and Runtime Layer Model
+- **T0**: preserved/replayable source-derived substrate, including imported Pi history, compaction checkpoints, source references, and later compaction-derived slices.
+- **T1**: bounded semantic observations and concise evidence-backed summaries.
+- **T2**: reflection, synthesis, reconciliation, and patterning across observations.
+- **T3**: longer-horizon project intelligence, canon, and backlog-shaping memory.
+- Keep the following conceptually separate, even when they are joined in a single UI or packet:
+  1. memory/provenance model,
+  2. runtime/orchestration model,
+  3. operational health/recovery model.
+
+### Cross-Agent Consultation Guardrails
+- Cross-agent communication must use bounded, typed consultation packets derived from T0/T1/T2/T3, compaction checkpoints, task state, runtime state, and structured evidence references.
+- Default consultation must not require reading another agent’s raw transcript or copying large histories between agents.
+- Consultation packets must carry provenance and drilldown references such as session/conversation identity, checkpoint ids, artifact ids, evidence refs, freshness, and uncertainty metadata.
+- Rich file/diff/task detail should live in structured evidence/provenance tables and linked refs, not be stuffed into freeform T1 prose.
+- The system must remain fail-open when Mind, Pulse, or importer/replay data is partial; packets should degrade with explicit freshness/provenance rather than failing hard.
+
+### Mission Control Role Clarification
+- Mission Control is the operator-facing control surface and orchestration-aware manager interface.
+- Mission Control should primarily consume bounded consultation packets, Mind-derived summaries, checkpoint state, evidence references, task state, and runtime health.
+- Mission Control may synthesize next prompts, audits, recovery suggestions, and delegation recommendations, but it is not a transcript-consuming super-agent or a general-purpose implementation worker.
+- Mission Control is one intelligence layer among several: worker agents execute, Mind runtimes derive memory/synthesis, and Mission Control orchestrates and surfaces decisions for the developer.
+
+### Continuity and Handoff Positioning
+- Handoff remains a supported operator artifact, fallback mechanism, and recovery/debug signal.
+- Handoff is no longer the sole continuity mechanism; durable continuity increasingly comes from Pi source replay, compaction checkpoints, importer/reconciler flows, evidence tables, and Mind-derived memory layers.
+- New cross-agent coordination features must reduce dependence on bulky handoff prose without removing handoff as a legitimate tool.
+
+### Non-Goals / Anti-Drift Constraints
+- Do not introduce a graph-DB-centric storage core for Mind.
+- Do not unify memory graph, orchestration graph, runtime graph, and task graph into one opaque schema.
+- Do not make cross-agent communication depend on raw transcript exchange as the default path.
+- Do not remove handoff support as part of overseer or Mission Control evolution.
+- Do not push rich operational/file evidence into unstructured prose when structured evidence links are available.
+
+---
+
 ## Capability Tree
 
 ### Capability: Worker Progress Publishing
@@ -74,6 +119,18 @@ Aggregate raw worker signals into a manager-usable session model.
 
 ### Capability: Manager Visibility and Planning Surfaces
 Expose session state to humans and manager agents.
+
+#### Feature: Consultation packet derivation
+- **Description**: Produce bounded cross-agent consultation packets from derived AOC memory/runtime state rather than raw transcript exchange.
+- **Inputs**: Current session context, latest checkpoint, latest observer artifacts, T1/T2 summaries, task/tag state, runtime freshness/health, evidence refs.
+- **Outputs**: Typed consultation/context packets suitable for prompt injection, Mission Control consumption, and peer/manager consultation.
+- **Behavior**: Keep payloads compact, provenance-rich, replay-aware, and degrade gracefully when some sources are stale or unavailable.
+
+#### Feature: Typed consultation API
+- **Description**: Expose structured queries for manager and peer-agent consultation.
+- **Inputs**: Session/agent identity, requested packet type, optional scope filters.
+- **Outputs**: Bounded responses such as summary packets, blocker packets, plan packets, review packets, and alignment packets.
+- **Behavior**: Enforce session scoping, return freshness/provenance metadata, and avoid transcript copying as the default path.
 
 #### Feature: Mission Control overseer view
 - **Description**: Add a manager-focused Mission Control mode for all workers in the current session.
@@ -189,27 +246,30 @@ project-root/
   - session-safe command validation
 
 ### Module: `crates/aoc-mission-control/src/*`
-- **Maps to capability**: Mission Control overseer view; plan alignment view
-- **Responsibility**: Render manager-facing worker status, attention ordering, timeline, and steering affordances.
+- **Maps to capability**: Mission Control overseer view; plan alignment view; typed consultation consumption
+- **Responsibility**: Render manager-facing worker status, attention ordering, timeline, packet freshness, and steering/orchestration affordances.
 - **Exports/behaviors**:
   - overseer pane/view mode
   - row presenter with badges/chips
+  - consultation packet consumer / prompt synthesizer
   - optional command dispatch actions
 
 ### Module: `crates/aoc-cli/src/*` and `bin/aoc-session-overseer`
-- **Maps to capability**: Machine-readable session snapshot command
+- **Maps to capability**: Machine-readable session snapshot command; typed consultation API
 - **Responsibility**: Provide CLI access for manager agents, scripts, and debugging.
 - **Exports/commands**:
   - `aoc-session-overseer snapshot --json`
   - `aoc-session-overseer timeline`
+  - consultation-oriented subcommands such as `summary`, `plan`, `blockers`, `review`, or `align`
   - optional `aoc-session-overseer command <verb> --target <agent>`
 
 ### Module: `crates/aoc-mind/src/*`
-- **Maps to capability**: Observer enrichment adapter; drift/anomaly explanation hints
-- **Responsibility**: Optionally enrich overseer rows with semantic confidence and evidence-backed explanation strings.
+- **Maps to capability**: Observer enrichment adapter; drift/anomaly explanation hints; consultation packet derivation inputs
+- **Responsibility**: Optionally enrich overseer rows with semantic confidence and evidence-backed explanation strings, while exposing bounded derived memory inputs for consultation packet generation.
 - **Exports/behaviors**:
   - enrichment adapter from Mind observer outputs
   - provenance-aware merge helpers
+  - bounded summary/reflection inputs derived from T0/T1/T2/T3 and checkpoint state
 
 ### Module: `docs/session-overseer.md` and existing docs
 - **Maps to capability**: Developer-in-the-loop policy; operator visibility
@@ -238,17 +298,20 @@ No dependencies - these contracts must exist first.
 - **attention-heuristics**: Depends on [hub-observer-cache, timeline-retention, policy-rules]
 - **plan-alignment-adapter**: Depends on [hub-observer-cache, attention-heuristics]
 - **mind-enrichment-adapter**: Depends on [hub-observer-cache, attention-heuristics]
+- **consultation-packet-derivation**: Depends on [hub-observer-cache, attention-heuristics, plan-alignment-adapter, mind-enrichment-adapter]
 
 ### Presentation Layer (Phase 4)
 - **mission-control-overseer-view**: Depends on [hub-observer-cache, attention-heuristics, plan-alignment-adapter]
 - **snapshot-cli**: Depends on [hub-observer-cache, attention-heuristics]
+- **typed-consultation-api**: Depends on [consultation-packet-derivation, snapshot-cli]
 
 ### Control Layer (Phase 5)
 - **manager-command-ui**: Depends on [mission-control-overseer-view, hub-command-routing, policy-rules]
-- **manager-agent-consumption**: Depends on [snapshot-cli, plan-alignment-adapter, hub-command-routing]
+- **manager-agent-consumption**: Depends on [typed-consultation-api, plan-alignment-adapter, hub-command-routing]
+- **mission-control-packet-consumer**: Depends on [mission-control-overseer-view, typed-consultation-api, consultation-packet-derivation]
 
 ### Hardening + Rollout Layer (Phase 6)
-- **integration-tests-and-smokes**: Depends on [mission-control-overseer-view, snapshot-cli, manager-command-ui, mind-enrichment-adapter]
+- **integration-tests-and-smokes**: Depends on [mission-control-overseer-view, snapshot-cli, manager-command-ui, mind-enrichment-adapter, typed-consultation-api, mission-control-packet-consumer]
 - **docs-and-rollout**: Depends on [integration-tests-and-smokes]
 
 ---

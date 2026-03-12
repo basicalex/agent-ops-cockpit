@@ -17,6 +17,122 @@
   - Reads/writes Taskmaster JSON; optionally publishes task_update events.
 - aoc-mission-control (Rust Ratatui TUI)
   - Subscribes to hub state, shows per-agent diffs, requests patches on demand.
+  - In Overseer mode, derives bounded consultation packets and renders Mission Control prompt guidance per worker.
+
+## Overseer Consultation Flow
+Mission Control and the CLI consume the same bounded consultation contract.
+The default path is not transcript sharing; it is a compact typed packet derived
+from live overseer state plus optional local Mind enrichment.
+
+### Inputs
+- `observer_snapshot`: required base worker/task/progress state.
+- `observer_timeline`: optional recent event context.
+- latest compaction checkpoint: optional local Mind checkpoint.
+- Mind observer event: optional semantic/fallback signal.
+
+### Outputs
+- `aoc overseer consult` prints a normalized `ConsultationPacket`.
+- Mission Control Overseer mode synthesizes operator guidance from the same packet shape.
+- Missing Mind/checkpoint inputs degrade metadata and confidence, but do not block rendering or CLI output.
+
+### Degradation semantics
+- `source_status=complete`: worker state and enrichment inputs were available.
+- `source_status=partial`: worker state was available, but one or more enrichment inputs were missing.
+- `source_status=stale`: worker state is too old for confident steering.
+- `degraded_inputs`: machine-readable list of missing/stale inputs.
+
+## Command reliability semantics
+Manager commands are correlated by `request_id`.
+
+- `accepted` is non-terminal and means the worker/hub queued the request.
+- terminal statuses such as `ok` or `error` complete the request.
+- Mission Control keeps a command pending after `accepted` and clears it only on a terminal result.
+- stale or unknown `request_id` results are ignored by Mission Control.
+- the CLI waits for a terminal `command_result` and ignores unrelated session/request traffic.
+- session isolation remains strict: mismatched `session_id` envelopes must not affect the active session view.
+
+## CLI examples
+```bash
+# Read the current overseer snapshot for the active session
+aoc overseer snapshot
+
+# Read recent timeline entries
+aoc overseer timeline --limit 8
+
+# Derive a bounded consultation packet for the only worker in-session
+aoc overseer consult summary
+
+# In multi-worker sessions, target a specific worker explicitly
+aoc overseer consult align --target-agent-id session-name::12
+
+# Request validation from a specific worker and wait for terminal result
+aoc overseer command run-validation --target-agent-id session-name::12
+```
+
+## Mission Control dedicated tab bootstrap
+Mission Control can now run as a dedicated tab, not only as a floating pane.
+This is the preferred path for longer-lived orchestration sessions.
+
+Entry points:
+- `aoc-mission-control-tab` — open the dedicated Mission Control tab in the current Zellij session
+- `aoc-new-tab --mission-control` — explicit tab creation shortcut
+- `AOC_LAYOUT=mission-control aoc-launch` — bootstrap a new session directly into the Mission Control layout
+
+Current dedicated layout includes:
+- a large Mission Control pane
+- a Taskmaster companion pane
+- a shell pane for operator follow-up work
+
+The layout is project-local at `.aoc/layouts/mission-control.kdl`, so it can evolve with the AOC orchestration surface.
+
+## Mission Control orchestrator tool surface
+Mission Control now derives a typed orchestrator tool surface from current
+session state. The surface is intentionally bounded and orchestration-focused,
+so future Mission Control agent flows can consume the same capabilities without
+becoming a transcript-driven implementation worker.
+
+Current surfaced tools include:
+- session inspection: snapshot, timeline
+- worker actions: focus tab, run observer, stop worker, spawn worker
+- peer consultation: review, unblock/help
+- delegation bootstrap: delegate task into a fresh worker tab with a bounded brief file
+
+Tool availability is stateful:
+- `ready` when the current session/worker state supports the action
+- `blocked` when prerequisites are missing (for example, no peer worker, hub offline, or no project root for launcher flow)
+
+Current spawn/delegate behavior is intentionally bounded:
+- `s` spawns a fresh worker tab using the standard AOC launcher flow
+- `d` writes a bounded delegation brief under the AOC state directory and launches a fresh delegated worker tab
+- Mission Control then returns focus to its own tab when possible
+- the delegation brief path is exported as `AOC_DELEGATION_BRIEF_PATH` for future worker/bootstrap integrations, while current operator flows remain fail-open if no consumer uses it yet
+
+Mission Control also compiles a small, reviewable orchestration graph IR from current Overseer state:
+- session, worker, tool, and delegation-brief artifact nodes
+- typed edges such as `selects`, `operates_on`, `writes`, and `launches`
+- reviewable compile paths for side-effectful actions before later automation consumes them
+
+This IR is intentionally local and bounded. It does **not** replace Mind/runtime/task graphs or unify them into one opaque schema.
+
+## Mission Control peer consultation shortcuts
+In Overseer mode, Mission Control can initiate bounded peer consultation flows:
+
+- `c` — request peer review for the selected worker
+- `u` — request peer unblock/help for the selected worker
+- `s` — spawn a fresh worker tab
+- `d` — delegate the selected worker into a fresh worker tab with a bounded brief
+
+Current behavior:
+- Mission Control treats the selected worker as the requester.
+- It auto-selects another in-session worker as the responder, preferring active/high-alignment peers.
+- The consultation request uses the same bounded `ConsultationPacket` model consumed by the CLI and Overseer rendering.
+
+Notes:
+- `consult` auto-selects a worker only when exactly one worker exists.
+- consultation remains fail-open when Mind enrichment is unavailable.
+- `command` may observe an intermediate `accepted` status before the terminal response.
+- if the terminal result never arrives before `--timeout-ms`, the CLI exits with a timeout error rather than guessing success.
+- Mission Control clears in-flight pending commands on disconnect and resumes from fresh hub snapshots after reconnect.
 
 ## Session Scoping and Environment
 Each Zellij session is an isolation boundary. Every message must include

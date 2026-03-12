@@ -17,6 +17,7 @@ files=(
   "$HOME/.local/bin/aoc-mission-control"
   "$HOME/.local/bin/aoc-mission-control-native"
   "$HOME/.local/bin/aoc-mission-control-toggle"
+  "$HOME/.local/bin/aoc-mission-control-tab"
   "$HOME/.local/bin/aoc-test"
   "$HOME/.local/bin/aoc-widget"
   "$HOME/.local/bin/aoc-widget-set"

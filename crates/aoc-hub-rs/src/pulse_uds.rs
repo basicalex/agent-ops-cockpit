@@ -1,7 +1,8 @@
 use aoc_core::{
     pulse_ipc::{
         decode_frame, encode_frame, AgentState, CommandError, CommandPayload, CommandResultPayload,
-        DeltaPayload, HeartbeatPayload, HelloPayload, LayoutPane, LayoutStatePayload, LayoutTab,
+        ConsultationRequestPayload, ConsultationResponsePayload, ConsultationStatus, DeltaPayload,
+        HeartbeatPayload, HelloPayload, LayoutPane, LayoutStatePayload, LayoutTab,
         ObserverTimelinePayload, ProtocolVersion, SnapshotPayload, StateChange, StateChangeOp,
         SubscribePayload, WireEnvelope, WireMsg, CURRENT_PROTOCOL_VERSION, DEFAULT_MAX_FRAME_BYTES,
     },
@@ -154,6 +155,8 @@ enum PulseTopic {
     ObserverSnapshot,
     ObserverTimeline,
     CommandResult,
+    ConsultationRequest,
+    ConsultationResponse,
     LayoutState,
 }
 
@@ -164,6 +167,8 @@ struct TopicFilter {
     observer_snapshot: bool,
     observer_timeline: bool,
     command_result: bool,
+    consultation_request: bool,
+    consultation_response: bool,
     layout_state: bool,
 }
 
@@ -175,6 +180,8 @@ impl TopicFilter {
             observer_snapshot: false,
             observer_timeline: false,
             command_result: true,
+            consultation_request: false,
+            consultation_response: false,
             layout_state: false,
         }
     }
@@ -189,6 +196,8 @@ impl TopicFilter {
             observer_snapshot: false,
             observer_timeline: false,
             command_result: false,
+            consultation_request: false,
+            consultation_response: false,
             layout_state: false,
         };
         for topic in &payload.topics {
@@ -197,6 +206,8 @@ impl TopicFilter {
                 "observer_snapshot" => filter.observer_snapshot = true,
                 "observer_timeline" => filter.observer_timeline = true,
                 "command_result" => filter.command_result = true,
+                "consultation_request" => filter.consultation_request = true,
+                "consultation_response" => filter.consultation_response = true,
                 "layout_state" => filter.layout_state = true,
                 _ => {}
             }
@@ -210,6 +221,8 @@ impl TopicFilter {
             PulseTopic::ObserverSnapshot => self.observer_snapshot,
             PulseTopic::ObserverTimeline => self.observer_timeline,
             PulseTopic::CommandResult => self.command_result,
+            PulseTopic::ConsultationRequest => self.consultation_request,
+            PulseTopic::ConsultationResponse => self.consultation_response,
             PulseTopic::LayoutState => self.layout_state,
         }
     }
@@ -1194,6 +1207,190 @@ impl PulseUdsHub {
         }
     }
 
+    async fn route_consultation_request(
+        &self,
+        source_conn_id: &str,
+        envelope: WireEnvelope,
+        payload: ConsultationRequestPayload,
+    ) {
+        if payload.consultation_id.trim().is_empty() {
+            self.send_consultation_response(
+                source_conn_id,
+                envelope.request_id,
+                ConsultationResponsePayload {
+                    consultation_id: String::new(),
+                    requesting_agent_id: payload.requesting_agent_id,
+                    responding_agent_id: payload.target_agent_id,
+                    status: ConsultationStatus::Failed,
+                    packet: None,
+                    message: Some("consultation_id is required".to_string()),
+                    error: Some(CommandError {
+                        code: "invalid_consultation_id".to_string(),
+                        message: "consultation_id is required".to_string(),
+                    }),
+                },
+            )
+            .await;
+            return;
+        }
+
+        if payload.target_agent_id.trim().is_empty()
+            || !agent_in_session(&self.config.session_id, &payload.target_agent_id)
+        {
+            self.send_consultation_response(
+                source_conn_id,
+                envelope.request_id,
+                ConsultationResponsePayload {
+                    consultation_id: payload.consultation_id,
+                    requesting_agent_id: payload.requesting_agent_id,
+                    responding_agent_id: payload.target_agent_id,
+                    status: ConsultationStatus::Failed,
+                    packet: None,
+                    message: Some("target_agent_id is required and must match session".to_string()),
+                    error: Some(CommandError {
+                        code: "invalid_target".to_string(),
+                        message: "target_agent_id is required and must match session".to_string(),
+                    }),
+                },
+            )
+            .await;
+            return;
+        }
+
+        if payload.requesting_agent_id.trim().is_empty()
+            || !agent_in_session(&self.config.session_id, &payload.requesting_agent_id)
+        {
+            self.send_consultation_response(
+                source_conn_id,
+                envelope.request_id,
+                ConsultationResponsePayload {
+                    consultation_id: payload.consultation_id,
+                    requesting_agent_id: payload.requesting_agent_id,
+                    responding_agent_id: payload.target_agent_id,
+                    status: ConsultationStatus::Failed,
+                    packet: None,
+                    message: Some(
+                        "requesting_agent_id is required and must match session".to_string(),
+                    ),
+                    error: Some(CommandError {
+                        code: "invalid_requester".to_string(),
+                        message: "requesting_agent_id is required and must match session"
+                            .to_string(),
+                    }),
+                },
+            )
+            .await;
+            return;
+        }
+
+        if payload.packet.identity.session_id != self.config.session_id
+            || payload.packet.identity.agent_id != payload.requesting_agent_id
+        {
+            self.send_consultation_response(
+                source_conn_id,
+                envelope.request_id,
+                ConsultationResponsePayload {
+                    consultation_id: payload.consultation_id,
+                    requesting_agent_id: payload.requesting_agent_id,
+                    responding_agent_id: payload.target_agent_id,
+                    status: ConsultationStatus::Failed,
+                    packet: None,
+                    message: Some(
+                        "consultation packet identity must match session and requesting agent"
+                            .to_string(),
+                    ),
+                    error: Some(CommandError {
+                        code: "invalid_packet_identity".to_string(),
+                        message:
+                            "consultation packet identity must match session and requesting agent"
+                                .to_string(),
+                    }),
+                },
+            )
+            .await;
+            return;
+        }
+
+        let targets = {
+            let publishers = self.publishers.read().await;
+            publishers
+                .get(&payload.target_agent_id)
+                .cloned()
+                .unwrap_or_default()
+                .into_iter()
+                .collect::<Vec<_>>()
+        };
+        if targets.is_empty() {
+            self.send_consultation_response(
+                source_conn_id,
+                envelope.request_id,
+                ConsultationResponsePayload {
+                    consultation_id: payload.consultation_id,
+                    requesting_agent_id: payload.requesting_agent_id,
+                    responding_agent_id: payload.target_agent_id,
+                    status: ConsultationStatus::Failed,
+                    packet: None,
+                    message: Some("target publisher is not connected".to_string()),
+                    error: Some(CommandError {
+                        code: "publisher_missing".to_string(),
+                        message: "target publisher is not connected".to_string(),
+                    }),
+                },
+            )
+            .await;
+            return;
+        }
+
+        let mut delivered = false;
+        for conn_id in targets {
+            delivered |= self
+                .send_to_conn(
+                    &conn_id,
+                    self.make_envelope(
+                        &envelope.sender_id,
+                        envelope.request_id.clone(),
+                        WireMsg::ConsultationRequest(payload.clone()),
+                    ),
+                )
+                .await;
+        }
+        if !delivered {
+            self.send_consultation_response(
+                source_conn_id,
+                envelope.request_id,
+                ConsultationResponsePayload {
+                    consultation_id: payload.consultation_id,
+                    requesting_agent_id: payload.requesting_agent_id,
+                    responding_agent_id: payload.target_agent_id,
+                    status: ConsultationStatus::Failed,
+                    packet: None,
+                    message: Some("failed to deliver consultation request".to_string()),
+                    error: Some(CommandError {
+                        code: "publisher_unavailable".to_string(),
+                        message: "failed to deliver consultation request".to_string(),
+                    }),
+                },
+            )
+            .await;
+            return;
+        }
+
+        self.send_consultation_response(
+            source_conn_id,
+            envelope.request_id,
+            ConsultationResponsePayload {
+                consultation_id: payload.consultation_id,
+                requesting_agent_id: payload.requesting_agent_id,
+                responding_agent_id: payload.target_agent_id,
+                status: ConsultationStatus::Accepted,
+                packet: None,
+                message: Some("consultation request forwarded".to_string()),
+                error: None,
+            },
+        )
+        .await;
+    }
+
     async fn route_stop_agent_command(
         &self,
         source_conn_id: &str,
@@ -1382,6 +1579,20 @@ impl PulseUdsHub {
             }),
         )
         .await;
+    }
+
+    async fn send_consultation_response(
+        &self,
+        conn_id: &str,
+        request_id: Option<String>,
+        payload: ConsultationResponsePayload,
+    ) {
+        let envelope = self.make_envelope(
+            "aoc-hub",
+            request_id,
+            WireMsg::ConsultationResponse(payload),
+        );
+        let _ = self.send_to_conn(conn_id, envelope).await;
     }
 
     async fn send_command_result(
@@ -1637,8 +1848,20 @@ impl PulseUdsHub {
                     );
                     self.broadcast_to_subscribers(forwarded).await;
                 }
+                (ClientRole::Publisher, WireMsg::ConsultationResponse(payload)) => {
+                    let forwarded = self.make_envelope(
+                        &envelope.sender_id,
+                        envelope.request_id,
+                        WireMsg::ConsultationResponse(payload),
+                    );
+                    self.broadcast_to_subscribers(forwarded).await;
+                }
                 (ClientRole::Subscriber, WireMsg::Command(payload)) => {
                     self.route_command(&conn_id, envelope, payload).await;
+                }
+                (ClientRole::Subscriber, WireMsg::ConsultationRequest(payload)) => {
+                    self.route_consultation_request(&conn_id, envelope, payload)
+                        .await;
                 }
                 (ClientRole::Subscriber, WireMsg::Subscribe(payload)) => {
                     self.set_subscriber_topics(&conn_id, payload).await;
@@ -1765,6 +1988,8 @@ fn wire_topic(msg: &WireMsg) -> Option<PulseTopic> {
         WireMsg::ObserverSnapshot(_) => Some(PulseTopic::ObserverSnapshot),
         WireMsg::ObserverTimeline(_) => Some(PulseTopic::ObserverTimeline),
         WireMsg::CommandResult(_) => Some(PulseTopic::CommandResult),
+        WireMsg::ConsultationRequest(_) => Some(PulseTopic::ConsultationRequest),
+        WireMsg::ConsultationResponse(_) => Some(PulseTopic::ConsultationResponse),
         WireMsg::LayoutState(_) => Some(PulseTopic::LayoutState),
         _ => None,
     }
@@ -2445,6 +2670,79 @@ mod tests {
         }
     }
 
+    fn consultation_request_envelope(
+        session: &str,
+        sender: &str,
+        request_id: &str,
+        consultation_id: &str,
+        requesting_agent_id: &str,
+        target_agent_id: &str,
+    ) -> WireEnvelope {
+        WireEnvelope {
+            version: ProtocolVersion::CURRENT,
+            session_id: session.to_string(),
+            sender_id: sender.to_string(),
+            timestamp: Utc::now().to_rfc3339(),
+            request_id: Some(request_id.to_string()),
+            msg: WireMsg::ConsultationRequest(ConsultationRequestPayload {
+                consultation_id: consultation_id.to_string(),
+                requesting_agent_id: requesting_agent_id.to_string(),
+                target_agent_id: target_agent_id.to_string(),
+                packet: aoc_core::consultation_contracts::ConsultationPacket {
+                    packet_id: format!("packet-{consultation_id}"),
+                    identity: aoc_core::consultation_contracts::ConsultationIdentity {
+                        session_id: session.to_string(),
+                        agent_id: requesting_agent_id.to_string(),
+                        pane_id: Some(pane_from_agent_id(requesting_agent_id)),
+                        conversation_id: None,
+                        role: Some("builder".to_string()),
+                    },
+                    summary: Some("Need peer review on bounded consultation transport".to_string()),
+                    ..Default::default()
+                },
+            }),
+        }
+    }
+
+    fn consultation_response_envelope(
+        session: &str,
+        sender: &str,
+        request_id: &str,
+        consultation_id: &str,
+        requesting_agent_id: &str,
+        responding_agent_id: &str,
+    ) -> WireEnvelope {
+        WireEnvelope {
+            version: ProtocolVersion::CURRENT,
+            session_id: session.to_string(),
+            sender_id: sender.to_string(),
+            timestamp: Utc::now().to_rfc3339(),
+            request_id: Some(request_id.to_string()),
+            msg: WireMsg::ConsultationResponse(ConsultationResponsePayload {
+                consultation_id: consultation_id.to_string(),
+                requesting_agent_id: requesting_agent_id.to_string(),
+                responding_agent_id: responding_agent_id.to_string(),
+                status: ConsultationStatus::Completed,
+                packet: Some(aoc_core::consultation_contracts::ConsultationPacket {
+                    packet_id: format!("response-{consultation_id}"),
+                    identity: aoc_core::consultation_contracts::ConsultationIdentity {
+                        session_id: session.to_string(),
+                        agent_id: responding_agent_id.to_string(),
+                        pane_id: Some(pane_from_agent_id(responding_agent_id)),
+                        conversation_id: None,
+                        role: Some("reviewer".to_string()),
+                    },
+                    summary: Some(
+                        "Use request/response topics with strict session scoping".to_string(),
+                    ),
+                    ..Default::default()
+                }),
+                message: Some("peer consultation complete".to_string()),
+                error: None,
+            }),
+        }
+    }
+
     async fn connect_client(
         path: &Path,
         hello: WireEnvelope,
@@ -2556,15 +2854,23 @@ tab name="Review"
         assert!(baseline.allows(PulseTopic::CommandResult));
         assert!(!baseline.allows(PulseTopic::ObserverSnapshot));
         assert!(!baseline.allows(PulseTopic::ObserverTimeline));
+        assert!(!baseline.allows(PulseTopic::ConsultationRequest));
+        assert!(!baseline.allows(PulseTopic::ConsultationResponse));
         assert!(!baseline.allows(PulseTopic::LayoutState));
 
         let selective = TopicFilter::from_subscribe(&SubscribePayload {
-            topics: vec!["layout_state".to_string(), "observer_snapshot".to_string()],
+            topics: vec![
+                "layout_state".to_string(),
+                "observer_snapshot".to_string(),
+                "consultation_response".to_string(),
+            ],
             since_seq: None,
         });
         assert!(!selective.allows(PulseTopic::AgentState));
         assert!(selective.allows(PulseTopic::ObserverSnapshot));
         assert!(!selective.allows(PulseTopic::ObserverTimeline));
+        assert!(!selective.allows(PulseTopic::ConsultationRequest));
+        assert!(selective.allows(PulseTopic::ConsultationResponse));
         assert!(selective.allows(PulseTopic::LayoutState));
     }
 
@@ -3144,6 +3450,137 @@ tab name="Review"
         };
         assert_eq!(payload.command, "mind_handshake_rebuild");
         assert_eq!(payload.status, "accepted");
+
+        let _ = shutdown_tx.send(true);
+        let result = handle.await.expect("join hub");
+        assert!(result.is_ok(), "hub returned error: {result:?}");
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn consultation_request_routes_and_acknowledges() {
+        let session = "pulse-consultation-session";
+        let (path, shutdown_tx, handle) =
+            launch_hub("consultation-route", session, Some(Duration::from_secs(2))).await;
+        let requester = format!("{session}::12");
+        let responder = format!("{session}::24");
+
+        let (mut responder_reader, _responder_writer) = connect_client(
+            &path,
+            hello_envelope(session, "pub-24", "publisher", Some(&responder)),
+        )
+        .await;
+        let (mut sub_reader, mut sub_writer) =
+            connect_client(&path, hello_envelope(session, "sub-1", "subscriber", None)).await;
+        let _ = read_frame(&mut sub_reader).await;
+        send_frame(
+            &mut sub_writer,
+            &WireEnvelope {
+                version: ProtocolVersion::CURRENT,
+                session_id: session.to_string(),
+                sender_id: "sub-1".to_string(),
+                timestamp: Utc::now().to_rfc3339(),
+                request_id: None,
+                msg: WireMsg::Subscribe(SubscribePayload {
+                    topics: vec!["consultation_response".to_string()],
+                    since_seq: None,
+                }),
+            },
+        )
+        .await;
+
+        let request = consultation_request_envelope(
+            session,
+            "sub-1",
+            "req-consult-1",
+            "consult-1",
+            &requester,
+            &responder,
+        );
+        send_frame(&mut sub_writer, &request).await;
+
+        let routed = read_frame(&mut responder_reader).await;
+        let WireMsg::ConsultationRequest(payload) = routed.msg else {
+            panic!("expected consultation request routed to publisher")
+        };
+        assert_eq!(payload.consultation_id, "consult-1");
+        assert_eq!(payload.requesting_agent_id, requester);
+        assert_eq!(payload.target_agent_id, responder);
+
+        let ack = read_frame(&mut sub_reader).await;
+        let WireMsg::ConsultationResponse(payload) = ack.msg else {
+            panic!("expected consultation_response ack")
+        };
+        assert_eq!(payload.consultation_id, "consult-1");
+        assert_eq!(payload.status, ConsultationStatus::Accepted);
+        assert_eq!(payload.responding_agent_id, responder);
+        assert!(payload.packet.is_none());
+
+        let _ = shutdown_tx.send(true);
+        let result = handle.await.expect("join hub");
+        assert!(result.is_ok(), "hub returned error: {result:?}");
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn consultation_response_broadcasts_to_subscribers() {
+        let session = "pulse-consultation-response-session";
+        let (path, shutdown_tx, handle) = launch_hub(
+            "consultation-response-route",
+            session,
+            Some(Duration::from_secs(2)),
+        )
+        .await;
+        let requester = format!("{session}::12");
+        let responder = format!("{session}::24");
+
+        let (_responder_reader, mut responder_writer) = connect_client(
+            &path,
+            hello_envelope(session, "pub-24", "publisher", Some(&responder)),
+        )
+        .await;
+        let (mut sub_reader, mut sub_writer) =
+            connect_client(&path, hello_envelope(session, "sub-1", "subscriber", None)).await;
+        let _ = read_frame(&mut sub_reader).await;
+        send_frame(
+            &mut sub_writer,
+            &WireEnvelope {
+                version: ProtocolVersion::CURRENT,
+                session_id: session.to_string(),
+                sender_id: "sub-1".to_string(),
+                timestamp: Utc::now().to_rfc3339(),
+                request_id: None,
+                msg: WireMsg::Subscribe(SubscribePayload {
+                    topics: vec!["consultation_response".to_string()],
+                    since_seq: None,
+                }),
+            },
+        )
+        .await;
+        tokio::time::sleep(Duration::from_millis(25)).await;
+
+        let response = consultation_response_envelope(
+            session,
+            "pub-24",
+            "req-consult-2",
+            "consult-2",
+            &requester,
+            &responder,
+        );
+        send_frame(&mut responder_writer, &response).await;
+
+        let forwarded = read_frame(&mut sub_reader).await;
+        let WireMsg::ConsultationResponse(payload) = forwarded.msg else {
+            panic!("expected consultation response broadcast")
+        };
+        assert_eq!(payload.consultation_id, "consult-2");
+        assert_eq!(payload.status, ConsultationStatus::Completed);
+        assert_eq!(payload.responding_agent_id, responder);
+        assert_eq!(
+            payload
+                .packet
+                .as_ref()
+                .and_then(|packet| packet.summary.as_deref()),
+            Some("Use request/response topics with strict session scoping")
+        );
 
         let _ = shutdown_tx.send(true);
         let result = handle.await.expect("join hub");

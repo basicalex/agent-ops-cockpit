@@ -146,22 +146,31 @@ Layout:
 - Right-bottom: patch view
 
 Keybindings:
-- `Tab`: switch focus (Agents/Files)
-- `j/k` or `Up/Down`: move selection
-- `/`: search files
-- `Enter`: request patch for selected file
-- `r`: refresh patch
-- `PageUp/PageDown`: scroll patch
+- `Tab`: switch modes/views
+- `j/k` or `Up/Down`: move selection / scroll
+- `Enter`: focus the selected worker tab from Overseer mode
+- `x`: stop the selected worker
+- `c`: request peer review
+- `u`: request peer unblock/help
+- `s`: spawn a fresh worker tab
+- `d`: delegate the selected worker into a fresh worker tab and write a bounded brief
+- `r`: refresh local snapshot
 - `Esc`: hides floating pane (runs `zellij action toggle-floating-panes`)
 - `q`: quits Mission Control
+
+Overseer mode also renders a reviewable orchestration compile section:
+- graph summary counts (nodes / edges / review paths)
+- bounded compile previews for side-effectful actions such as review/help/observe/stop/spawn/delegate
+- this is a dry review surface only; it does not auto-execute actions without the matching keybinding
 
 Agent message display:
 - Wrapper updates `agent_status.message` based on the latest non-empty line
   from stdout/stderr (rate-limited).
 - UI shows `Message:` inside the agent details pane.
 
-## 8) Mission Control Toggle Behavior
+## 8) Mission Control Launch Modes
 
+### Floating toggle
 Shortcut (Zellij): `Alt+a`
 
 `Alt+a` runs `aoc-mission-control-toggle`, which:
@@ -172,6 +181,28 @@ Shortcut (Zellij): `Alt+a`
 - Closes the temporary split pane created by `Run` after launching MC.
 
 Floating panes are tab-scoped in Zellij. You get one MC per tab.
+
+### Dedicated Mission Control tab
+For longer orchestration sessions, use the dedicated Mission Control tab flow:
+
+```bash
+aoc-mission-control-tab
+# or
+
+aoc-new-tab --mission-control
+```
+
+Outside Zellij, bootstrap directly into the dedicated layout with:
+
+```bash
+AOC_LAYOUT=mission-control aoc-launch
+```
+
+The dedicated layout lives at `.aoc/layouts/mission-control.kdl` and currently
+starts:
+- Mission Control
+- Taskmaster
+- an operator shell
 
 ## 9) Logs
 

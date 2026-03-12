@@ -1,11 +1,20 @@
 mod insight_orchestrator;
 
 use aoc_core::{
+    consultation_contracts::{
+        ConsultationBlocker, ConsultationConfidence, ConsultationEvidenceRef,
+        ConsultationFreshness, ConsultationIdentity, ConsultationPacket, ConsultationPacketKind,
+        ConsultationSourceStatus, ConsultationTaskContext,
+    },
     insight_contracts::{
-        InsightBootstrapRequest, InsightCommand, InsightDispatchRequest, InsightStatusResult,
+        InsightBootstrapRequest, InsightCommand, InsightDispatchRequest, InsightRetrievalCitation,
+        InsightRetrievalDrilldownRef, InsightRetrievalHit, InsightRetrievalMode,
+        InsightRetrievalRequest, InsightRetrievalResult, InsightRetrievalScope,
+        InsightStatusResult,
     },
     mind_contracts::{
-        canonical_lineage_attrs, canonical_payload_hash, compact_raw_event_to_t0,
+        build_compaction_t0_slice, canonical_lineage_attrs, canonical_payload_hash,
+        compact_raw_event_to_t0, compose_context_pack, ContextLayer, ContextPackInput,
         ConversationLineageMetadata, ConversationRole, MessageEvent, RawEvent, RawEventBody,
         SemanticProvenance, SemanticRuntime, SemanticStage, T0CompactionPolicy,
         ToolExecutionStatus, ToolResultEvent,
@@ -14,12 +23,20 @@ use aoc_core::{
         MindObserverFeedEvent, MindObserverFeedPayload, MindObserverFeedProgress,
         MindObserverFeedStatus, MindObserverFeedTriggerKind,
     },
+    provenance_contracts::{
+        MindProvenanceCommand, MindProvenanceEdge, MindProvenanceEdgeKind, MindProvenanceExport,
+        MindProvenanceNode, MindProvenanceNodeKind, MindProvenanceQueryRequest,
+        MindProvenanceQueryResult,
+    },
     pulse_ipc::{
         decode_frame, encode_frame, AgentState as PulseAgentState,
         CommandError as PulseCommandError, CommandResultPayload as PulseCommandResultPayload,
-        DeltaPayload as PulseDeltaPayload, HeartbeatPayload as PulseHeartbeatPayload,
-        HelloPayload as PulseHelloPayload, ProtocolVersion, StateChange as PulseStateChange,
-        StateChangeOp, WireEnvelope as PulseWireEnvelope, WireMsg, CURRENT_PROTOCOL_VERSION,
+        ConsultationRequestPayload as PulseConsultationRequestPayload,
+        ConsultationResponsePayload as PulseConsultationResponsePayload,
+        ConsultationStatus as PulseConsultationStatus, DeltaPayload as PulseDeltaPayload,
+        HeartbeatPayload as PulseHeartbeatPayload, HelloPayload as PulseHelloPayload,
+        ProtocolVersion, StateChange as PulseStateChange, StateChangeOp,
+        WireEnvelope as PulseWireEnvelope, WireMsg, CURRENT_PROTOCOL_VERSION,
         DEFAULT_MAX_FRAME_BYTES,
     },
     session_overseer::{
@@ -35,8 +52,8 @@ use aoc_mind::{
     SessionObserverSidecar, T3RuntimeConfig,
 };
 use aoc_storage::{
-    CanonRevisionState, CompactionCheckpoint, MindStore, ProjectWatermark, ReflectorJob,
-    StoredArtifact, T3BacklogJob,
+    ArtifactFileLink, CanonRevisionState, CompactionCheckpoint, MindStore, ProjectWatermark,
+    ReflectorJob, StoredArtifact, T3BacklogJob,
 };
 use chrono::{TimeZone, Utc};
 use clap::Parser;
@@ -48,7 +65,7 @@ use regex::Regex;
 use serde::{Deserialize, Serialize};
 use std::{
     collections::hash_map::DefaultHasher,
-    collections::HashMap,
+    collections::{HashMap, HashSet},
     env,
     fs::OpenOptions,
     hash::{Hash, Hasher},
@@ -91,6 +108,7 @@ const TASK_CONTEXT_HEARTBEAT_SECS: u64 = 20;
 const TASK_CONTEXT_COMMAND_DEBOUNCE_MS: u64 = 1500;
 const MAX_MIND_OBSERVER_EVENTS: usize = 40;
 const MAX_OVERSEER_EVENTS: usize = 24;
+const MAX_CONSULTATION_EVENTS: usize = 12;
 const MIND_DEBOUNCE_RUN_MS: i64 = 300;
 const MIND_FINALIZE_DRAIN_TIMEOUT_MS: i64 = 5_000;
 const MIND_IDLE_FINALIZE_MS: i64 = 120_000;
@@ -103,6 +121,11 @@ const MIND_T3_HANDSHAKE_TOKEN_BUDGET: u32 = 500;
 const MIND_T3_HANDSHAKE_MAX_ITEMS: usize = 12;
 const MIND_INJECTION_COOLDOWN_MS: i64 = 20_000;
 const MIND_INJECTION_PRESSURE_SUPPRESS_PCT: u8 = 70;
+const MIND_CONTEXT_PACK_SCHEMA_VERSION: u16 = 1;
+const MIND_CONTEXT_PACK_COMPACT_MAX_LINES: usize = 24;
+const MIND_CONTEXT_PACK_EXPANDED_MAX_LINES: usize = 48;
+const MIND_CONTEXT_PACK_COMPACT_SOURCE_MAX_LINES: usize = 5;
+const MIND_CONTEXT_PACK_EXPANDED_SOURCE_MAX_LINES: usize = 10;
 const REDACTED_SECRET: &str = "[REDACTED]";
 const TELEMETRY_SECRET_KEYS: [&str; 13] = [
     "access_token",
@@ -392,7 +415,7 @@ struct InsightRuntimeHealthPayload {
     last_error: Option<String>,
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 enum MindInjectionTriggerKind {
     Startup,
@@ -417,7 +440,28 @@ struct MindInjectionPayload {
     payload_hash: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     token_estimate: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    context_pack: Option<MindContextPack>,
     queued_at: String,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+struct ConsultationInboxEntry {
+    consultation_id: String,
+    requesting_agent_id: String,
+    summary: Option<String>,
+    kind: ConsultationPacketKind,
+    received_at: String,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+struct ConsultationOutboxEntry {
+    consultation_id: String,
+    requesting_agent_id: String,
+    responding_agent_id: String,
+    status: PulseConsultationStatus,
+    summary: Option<String>,
+    responded_at: String,
 }
 
 #[derive(Clone)]
@@ -434,6 +478,8 @@ enum PulseUpdate {
     InsightRuntime(InsightRuntimeHealthPayload),
     MindObserverEvent(MindObserverFeedEvent),
     MindInjection(MindInjectionPayload),
+    ConsultationInbox(ConsultationInboxEntry),
+    ConsultationOutbox(ConsultationOutboxEntry),
     Heartbeat {
         lifecycle: Option<String>,
     },
@@ -452,6 +498,8 @@ struct PulseState {
     insight_runtime: Option<InsightRuntimeHealthPayload>,
     mind_observer: MindObserverFeedPayload,
     mind_injection: Option<MindInjectionPayload>,
+    consultation_inbox: Vec<ConsultationInboxEntry>,
+    consultation_outbox: Vec<ConsultationOutboxEntry>,
     observer_events: Vec<ObserverEvent>,
     last_heartbeat_ms: Option<i64>,
     last_activity_ms: Option<i64>,
@@ -471,6 +519,8 @@ impl PulseState {
             insight_runtime: None,
             mind_observer: MindObserverFeedPayload::default(),
             mind_injection: None,
+            consultation_inbox: Vec::new(),
+            consultation_outbox: Vec::new(),
             observer_events: Vec::new(),
             last_heartbeat_ms: None,
             last_activity_ms: None,
@@ -1125,6 +1175,26 @@ async fn pulse_loop(cfg: ClientConfig, socket_path: PathBuf, mut rx: mpsc::Recei
                                 warn!("pulse_stop_signal_error: {err}");
                             }
                         }
+                    } else if let Some(consultation) = build_pulse_consultation_response(&cfg, &state, &envelope) {
+                        if send_pulse_envelope(&mut writer_half, &consultation.response).await.is_err() {
+                            break;
+                        }
+                        if !consultation.pulse_updates.is_empty() {
+                            for update in consultation.pulse_updates {
+                                apply_pulse_update_with_injection_adapters(
+                                    &cfg,
+                                    &mut state,
+                                    mind_runtime.as_ref(),
+                                    update,
+                                );
+                            }
+                            if send_pulse_upsert(&cfg, &state, &mut writer_half, &mut last_state_hash)
+                                .await
+                                .is_err()
+                            {
+                                break;
+                            }
+                        }
                     }
                 }
             }
@@ -1186,6 +1256,22 @@ fn apply_pulse_update(state: &mut PulseState, update: PulseUpdate) {
         }
         PulseUpdate::MindInjection(payload) => {
             apply_mind_injection_with_gates(state, payload, now);
+            state.updated_at_ms = Some(now);
+        }
+        PulseUpdate::ConsultationInbox(entry) => {
+            state.consultation_inbox.insert(0, entry);
+            if state.consultation_inbox.len() > MAX_CONSULTATION_EVENTS {
+                state.consultation_inbox.truncate(MAX_CONSULTATION_EVENTS);
+            }
+            state.last_activity_ms = Some(now);
+            state.updated_at_ms = Some(now);
+        }
+        PulseUpdate::ConsultationOutbox(entry) => {
+            state.consultation_outbox.insert(0, entry);
+            if state.consultation_outbox.len() > MAX_CONSULTATION_EVENTS {
+                state.consultation_outbox.truncate(MAX_CONSULTATION_EVENTS);
+            }
+            state.last_activity_ms = Some(now);
             state.updated_at_ms = Some(now);
         }
         PulseUpdate::Heartbeat { lifecycle } => {
@@ -1341,6 +1427,1751 @@ fn apply_pulse_update_with_injection_adapters(
     }
 }
 
+fn mind_context_pack_mode_for_trigger(trigger: MindInjectionTriggerKind) -> MindContextPackMode {
+    match trigger {
+        MindInjectionTriggerKind::Startup => MindContextPackMode::Startup,
+        MindInjectionTriggerKind::TagSwitch => MindContextPackMode::TagSwitch,
+        MindInjectionTriggerKind::Resume => MindContextPackMode::Resume,
+        MindInjectionTriggerKind::Handoff => MindContextPackMode::Handoff,
+    }
+}
+
+fn compile_mind_context_pack(
+    cfg: &ClientConfig,
+    runtime: Option<&MindRuntime>,
+    request: MindContextPackRequest,
+    overrides: Option<&MindContextPackSourceOverrides>,
+) -> Result<MindContextPack, String> {
+    let active_tag = request
+        .active_tag
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(|value| value.to_string());
+    let role = request
+        .role
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(|value| value.to_string());
+    let reason = request
+        .reason
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(|value| value.to_string());
+
+    let profile = request.profile;
+    let line_budget = match profile {
+        MindContextPackProfile::Compact => MIND_CONTEXT_PACK_COMPACT_MAX_LINES,
+        MindContextPackProfile::Expanded => MIND_CONTEXT_PACK_EXPANDED_MAX_LINES,
+    };
+    let source_line_limit = match profile {
+        MindContextPackProfile::Compact => MIND_CONTEXT_PACK_COMPACT_SOURCE_MAX_LINES,
+        MindContextPackProfile::Expanded => MIND_CONTEXT_PACK_EXPANDED_SOURCE_MAX_LINES,
+    };
+
+    let mut sections = Vec::new();
+    let mut citations = Vec::new();
+
+    if let Some(text) = overrides
+        .and_then(|value| value.aoc_mem.clone())
+        .or_else(|| load_context_cli_output(&cfg.project_root, "aoc-mem", &["read"]))
+    {
+        push_context_pack_section(
+            &mut sections,
+            &mut citations,
+            ContextLayer::AocMem,
+            "aoc_mem",
+            "AOC memory",
+            "cmd:aoc-mem read",
+            extract_nonempty_lines(&text, source_line_limit),
+        );
+    }
+
+    let stm_source = match request.mode {
+        MindContextPackMode::Resume => overrides
+            .and_then(|value| value.aoc_stm_resume.clone())
+            .or_else(|| load_context_cli_output(&cfg.project_root, "aoc-stm", &["resume"]))
+            .or_else(|| overrides.and_then(|value| value.aoc_stm_current.clone()))
+            .or_else(|| load_context_cli_output(&cfg.project_root, "aoc-stm", &[])),
+        _ => overrides
+            .and_then(|value| value.aoc_stm_current.clone())
+            .or_else(|| load_context_cli_output(&cfg.project_root, "aoc-stm", &[])),
+    };
+    if let Some(text) = stm_source {
+        let label = match request.mode {
+            MindContextPackMode::Resume => "cmd:aoc-stm resume",
+            _ => "cmd:aoc-stm",
+        };
+        push_context_pack_section(
+            &mut sections,
+            &mut citations,
+            ContextLayer::AocStm,
+            "aoc_stm",
+            "AOC short-term memory",
+            label,
+            extract_nonempty_lines(&text, source_line_limit),
+        );
+    }
+
+    let handshake_text = overrides
+        .and_then(|value| value.handshake_markdown.clone())
+        .or_else(|| {
+            runtime.and_then(|runtime| {
+                runtime
+                    .store
+                    .latest_handshake_snapshot(
+                        "project",
+                        &t3_scope_id_for_project_root(&cfg.project_root),
+                    )
+                    .ok()
+                    .flatten()
+                    .map(|snapshot| snapshot.payload_text)
+            })
+        })
+        .or_else(|| {
+            read_optional_text(
+                &PathBuf::from(&cfg.project_root)
+                    .join(".aoc")
+                    .join("mind")
+                    .join("t3")
+                    .join("handshake.md"),
+            )
+        });
+    if let Some(text) = handshake_text {
+        push_context_pack_section(
+            &mut sections,
+            &mut citations,
+            ContextLayer::AocMind,
+            "t3_handshake",
+            "Mind handshake canon",
+            ".aoc/mind/t3/handshake.md",
+            extract_nonempty_lines(&text, source_line_limit),
+        );
+    }
+
+    if matches!(profile, MindContextPackProfile::Expanded) {
+        if let Some(text) = overrides
+            .and_then(|value| value.project_mind_markdown.clone())
+            .or_else(|| {
+                read_optional_text(
+                    &PathBuf::from(&cfg.project_root)
+                        .join(".aoc")
+                        .join("mind")
+                        .join("t3")
+                        .join("project_mind.md"),
+                )
+            })
+        {
+            let canon_lines =
+                extract_project_mind_lines(&text, active_tag.as_deref(), source_line_limit);
+            push_context_pack_section(
+                &mut sections,
+                &mut citations,
+                ContextLayer::AocMind,
+                "t3_canon",
+                "Project mind canon",
+                ".aoc/mind/t3/project_mind.md",
+                canon_lines,
+            );
+        }
+    }
+
+    let export_manifest = overrides
+        .and_then(|value| value.latest_export_manifest.clone())
+        .or_else(|| load_latest_session_export_manifest(&cfg.project_root).ok());
+    if let Some(manifest) = export_manifest.filter(|manifest| {
+        export_matches_active_tag(manifest.active_tag.as_deref(), active_tag.as_deref())
+    }) {
+        let export_dir = PathBuf::from(&manifest.export_dir);
+        let t2_text = overrides
+            .and_then(|value| value.latest_t2_markdown.clone())
+            .or_else(|| read_optional_text(&export_dir.join("t2.md")));
+        if let Some(text) = t2_text {
+            push_context_pack_section(
+                &mut sections,
+                &mut citations,
+                ContextLayer::AocMind,
+                "session_t2",
+                "Session reflections",
+                &format!("{}/t2.md", manifest.export_dir),
+                extract_nonempty_lines(&text, source_line_limit),
+            );
+        }
+
+        let t1_text = overrides
+            .and_then(|value| value.latest_t1_markdown.clone())
+            .or_else(|| read_optional_text(&export_dir.join("t1.md")));
+        if let Some(text) = t1_text {
+            push_context_pack_section(
+                &mut sections,
+                &mut citations,
+                ContextLayer::AocMind,
+                "session_t1",
+                "Session observations",
+                &format!("{}/t1.md", manifest.export_dir),
+                extract_nonempty_lines(&text, source_line_limit),
+            );
+        }
+    }
+
+    if sections.is_empty() {
+        return Err("no context-pack sources available".to_string());
+    }
+
+    let inputs = sections
+        .iter()
+        .map(|section| ContextPackInput {
+            layer: section.layer,
+            lines: render_context_pack_section(section),
+        })
+        .collect::<Vec<_>>();
+    let composed = compose_context_pack(&inputs, line_budget)
+        .map_err(|err| format!("compose context pack failed: {err}"))?;
+    let section_truncated = sections.iter().any(|section| section.truncated);
+
+    Ok(MindContextPack {
+        schema_version: MIND_CONTEXT_PACK_SCHEMA_VERSION,
+        mode: request.mode,
+        profile,
+        role,
+        active_tag,
+        reason,
+        line_budget,
+        truncated: composed.truncated || section_truncated,
+        rendered_lines: composed.lines,
+        sections,
+        citations,
+        generated_at: Utc::now().to_rfc3339(),
+    })
+}
+
+fn push_context_pack_section(
+    sections: &mut Vec<MindContextPackSection>,
+    citations: &mut Vec<MindContextPackCitation>,
+    layer: ContextLayer,
+    source_id: &str,
+    title: &str,
+    reference: &str,
+    extracted: (Vec<String>, bool),
+) {
+    let (lines, truncated) = extracted;
+    if lines.is_empty() {
+        return;
+    }
+
+    let citation = format!("[{source_id}]");
+    sections.push(MindContextPackSection {
+        source_id: source_id.to_string(),
+        layer,
+        title: title.to_string(),
+        citation: citation.clone(),
+        lines,
+        truncated,
+    });
+    citations.push(MindContextPackCitation {
+        source_id: source_id.to_string(),
+        label: title.to_string(),
+        reference: reference.to_string(),
+    });
+}
+
+fn render_context_pack_section(section: &MindContextPackSection) -> Vec<String> {
+    let mut lines = vec![format!("{} {}", section.citation, section.title)];
+    lines.extend(section.lines.iter().cloned());
+    lines
+}
+
+fn extract_nonempty_lines(text: &str, max_lines: usize) -> (Vec<String>, bool) {
+    let cleaned = text
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+        .filter(|line| *line != "(none)" && *line != "(empty)")
+        .filter(|line| !line.starts_with("generated_at:") && !line.starts_with("_generated_at:"))
+        .map(|line| line.to_string())
+        .collect::<Vec<_>>();
+    let truncated = cleaned.len() > max_lines;
+    (cleaned.into_iter().take(max_lines).collect(), truncated)
+}
+
+fn extract_project_mind_lines(
+    text: &str,
+    active_tag: Option<&str>,
+    max_lines: usize,
+) -> (Vec<String>, bool) {
+    let requested = active_tag
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(|value| value.to_ascii_lowercase());
+    let mut selected = Vec::new();
+    let mut block = Vec::new();
+    let mut include_block = requested.is_none();
+
+    let flush_block = |selected: &mut Vec<String>, block: &mut Vec<String>, include_block: bool| {
+        if include_block {
+            selected.extend(block.iter().cloned());
+        }
+        block.clear();
+    };
+
+    for raw in text.lines() {
+        let line = raw.trim();
+        if line.starts_with("## ") {
+            flush_block(&mut selected, &mut block, include_block);
+            include_block = false;
+            continue;
+        }
+        if line.starts_with("### ") {
+            flush_block(&mut selected, &mut block, include_block);
+            include_block = requested.is_none();
+            block.push(line.to_string());
+            continue;
+        }
+        if line.is_empty() || line == "(none)" {
+            continue;
+        }
+        if let Some(requested) = requested.as_ref() {
+            if let Some(topic) = line.strip_prefix("- topic:") {
+                let topic = topic.trim().to_ascii_lowercase();
+                include_block = topic == *requested || topic == "global";
+            }
+        }
+        block.push(line.to_string());
+    }
+    flush_block(&mut selected, &mut block, include_block);
+
+    let truncated = selected.len() > max_lines;
+    (selected.into_iter().take(max_lines).collect(), truncated)
+}
+
+fn export_matches_active_tag(export_tag: Option<&str>, requested_tag: Option<&str>) -> bool {
+    match (
+        export_tag.map(str::trim).filter(|value| !value.is_empty()),
+        requested_tag
+            .map(str::trim)
+            .filter(|value| !value.is_empty()),
+    ) {
+        (_, None) => true,
+        (Some(export_tag), Some(requested_tag)) => export_tag == requested_tag,
+        (None, Some(_)) => false,
+    }
+}
+
+fn compile_insight_retrieval(
+    project_root: &str,
+    request: InsightRetrievalRequest,
+) -> InsightRetrievalResult {
+    let active_tag = request
+        .active_tag
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(|value| value.to_string());
+    let resolved_scope = match request.scope {
+        InsightRetrievalScope::Session => InsightRetrievalScope::Session,
+        InsightRetrievalScope::Project => InsightRetrievalScope::Project,
+        InsightRetrievalScope::Auto => {
+            if load_latest_session_export_manifest(project_root)
+                .ok()
+                .filter(|manifest| {
+                    export_matches_active_tag(manifest.active_tag.as_deref(), active_tag.as_deref())
+                })
+                .is_some()
+            {
+                InsightRetrievalScope::Auto
+            } else {
+                InsightRetrievalScope::Project
+            }
+        }
+    };
+
+    let max_results = request
+        .max_results
+        .unwrap_or(INSIGHT_RETRIEVAL_MAX_RESULTS_DEFAULT)
+        .clamp(1, INSIGHT_RETRIEVAL_MAX_RESULTS_CAP);
+    let sources =
+        collect_insight_retrieval_sources(project_root, resolved_scope, active_tag.as_deref());
+    let mut hits = sources
+        .into_iter()
+        .filter_map(|source| {
+            rank_insight_retrieval_source(&request.query, &request.mode, max_results, source)
+        })
+        .collect::<Vec<_>>();
+    hits.sort_by(|a, b| b.score.cmp(&a.score).then_with(|| a.label.cmp(&b.label)));
+    if hits.len() > max_results {
+        hits.truncate(max_results);
+    }
+
+    let citations = hits
+        .iter()
+        .flat_map(|hit| hit.citations.iter().cloned())
+        .collect::<Vec<_>>();
+
+    let fallback_used = hits.is_empty();
+    let status = if fallback_used { "fallback" } else { "ok" }.to_string();
+    let summary_lines = if fallback_used {
+        vec![format!(
+            "no retrieval hits for query '{}' in {:?} scope",
+            request.query, resolved_scope
+        )]
+    } else {
+        match request.mode {
+            InsightRetrievalMode::Brief => hits
+                .iter()
+                .map(|hit| format!("{} [{}]", hit.label, hit.reference))
+                .collect(),
+            InsightRetrievalMode::Refs => hits
+                .iter()
+                .map(|hit| {
+                    let drilldown = hit
+                        .drilldown_refs
+                        .iter()
+                        .map(|item| format!("{}:{}", item.kind, item.reference))
+                        .collect::<Vec<_>>()
+                        .join(", ");
+                    if drilldown.is_empty() {
+                        format!("{} -> {}", hit.label, hit.reference)
+                    } else {
+                        format!("{} -> {} ({})", hit.label, hit.reference, drilldown)
+                    }
+                })
+                .collect(),
+            InsightRetrievalMode::Snips => hits
+                .iter()
+                .map(|hit| {
+                    let preview = hit.lines.first().cloned().unwrap_or_default();
+                    format!("{} -> {}", hit.label, preview)
+                })
+                .collect(),
+        }
+    };
+    let line_budget_per_hit = insight_retrieval_line_budget(&request.mode, max_results);
+
+    InsightRetrievalResult {
+        query: request.query,
+        scope: request.scope,
+        resolved_scope,
+        mode: request.mode,
+        status,
+        summary_lines,
+        hits,
+        citations,
+        fallback_used,
+        hit_budget: max_results,
+        line_budget_per_hit,
+    }
+}
+
+fn collect_insight_retrieval_sources(
+    project_root: &str,
+    scope: InsightRetrievalScope,
+    active_tag: Option<&str>,
+) -> Vec<InsightRetrievalSource> {
+    let mut sources = Vec::new();
+
+    if matches!(
+        scope,
+        InsightRetrievalScope::Project | InsightRetrievalScope::Auto
+    ) {
+        if let Some(text) = read_optional_text(
+            &PathBuf::from(project_root)
+                .join(".aoc")
+                .join("mind")
+                .join("t3")
+                .join("project_mind.md"),
+        ) {
+            sources.extend(parse_project_mind_retrieval_sources(&text, active_tag));
+        }
+    }
+
+    if matches!(
+        scope,
+        InsightRetrievalScope::Session | InsightRetrievalScope::Auto
+    ) {
+        if let Ok(manifest) = load_latest_session_export_manifest(project_root) {
+            if export_matches_active_tag(manifest.active_tag.as_deref(), active_tag) {
+                let export_dir = PathBuf::from(&manifest.export_dir);
+                if let Some(text) = read_optional_text(&export_dir.join("t2.md")) {
+                    sources.extend(parse_session_export_retrieval_sources(
+                        &text,
+                        "t2",
+                        &manifest,
+                        &format!("{}/t2.md", manifest.export_dir),
+                    ));
+                }
+                if let Some(text) = read_optional_text(&export_dir.join("t1.md")) {
+                    sources.extend(parse_session_export_retrieval_sources(
+                        &text,
+                        "t1",
+                        &manifest,
+                        &format!("{}/t1.md", manifest.export_dir),
+                    ));
+                }
+            }
+        }
+    }
+
+    sources
+}
+
+fn parse_project_mind_retrieval_sources(
+    text: &str,
+    active_tag: Option<&str>,
+) -> Vec<InsightRetrievalSource> {
+    let requested = active_tag
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(|value| value.to_ascii_lowercase());
+    let mut sources = Vec::new();
+    let mut state = "active";
+    let mut heading: Option<String> = None;
+    let mut topic: Option<String> = None;
+    let mut evidence_refs: Vec<String> = Vec::new();
+    let mut body_lines: Vec<String> = Vec::new();
+
+    let flush =
+        |sources: &mut Vec<InsightRetrievalSource>,
+         heading: &mut Option<String>,
+         topic: &mut Option<String>,
+         evidence_refs: &mut Vec<String>,
+         body_lines: &mut Vec<String>,
+         state: &str,
+         requested: Option<&String>| {
+            let Some(entry_heading) = heading.take() else {
+                topic.take();
+                evidence_refs.clear();
+                body_lines.clear();
+                return;
+            };
+            let topic_value = topic.take();
+            let include = match (requested, topic_value.as_deref()) {
+                (None, _) => true,
+                (Some(requested), Some(topic)) => {
+                    let topic = topic.trim().to_ascii_lowercase();
+                    topic == *requested || topic == "global"
+                }
+                (Some(_), None) => false,
+            };
+            if !include {
+                evidence_refs.clear();
+                body_lines.clear();
+                return;
+            }
+
+            let mut lines = vec![entry_heading.clone()];
+            if let Some(topic) = topic_value.as_deref() {
+                lines.push(format!("- topic: {topic}"));
+            }
+            lines.extend(body_lines.iter().cloned());
+            let lines = lines
+                .into_iter()
+                .map(|line| line.trim().to_string())
+                .filter(|line| !line.is_empty())
+                .collect::<Vec<_>>();
+            if lines.is_empty() {
+                evidence_refs.clear();
+                body_lines.clear();
+                return;
+            }
+
+            let entry_id = entry_heading
+                .trim_start_matches("### ")
+                .split_whitespace()
+                .next()
+                .unwrap_or("canon-entry")
+                .to_string();
+            let reference = format!(".aoc/mind/t3/project_mind.md#{entry_id}");
+            let mut citations = vec![InsightRetrievalCitation {
+                source_id: format!("t3_canon:{entry_id}"),
+                label: format!("Canon entry {entry_id}"),
+                reference: reference.clone(),
+                score: 0,
+            }];
+            citations.extend(
+                evidence_refs
+                    .iter()
+                    .map(|evidence| InsightRetrievalCitation {
+                        source_id: evidence.clone(),
+                        label: format!("Evidence {evidence}"),
+                        reference: evidence.clone(),
+                        score: 0,
+                    }),
+            );
+
+            let mut drilldown_refs = vec![InsightRetrievalDrilldownRef {
+                kind: "canon_entry".to_string(),
+                label: format!("Canon entry {entry_id}"),
+                reference: reference.clone(),
+            }];
+            drilldown_refs.extend(evidence_refs.iter().map(|evidence| {
+                InsightRetrievalDrilldownRef {
+                    kind: "evidence_ref".to_string(),
+                    label: format!("Evidence {evidence}"),
+                    reference: evidence.clone(),
+                }
+            }));
+
+            sources.push(InsightRetrievalSource {
+                source_id: format!("t3_canon:{entry_id}"),
+                scope: InsightRetrievalScope::Project,
+                label: format!("Project canon {entry_id} ({state})"),
+                reference,
+                lines,
+                citations,
+                drilldown_refs,
+                score_bias: if state == "active" { 20 } else { -10 },
+            });
+            evidence_refs.clear();
+            body_lines.clear();
+        };
+
+    for raw in text.lines() {
+        let line = raw.trim();
+        if line.starts_with("## Active canon") {
+            flush(
+                &mut sources,
+                &mut heading,
+                &mut topic,
+                &mut evidence_refs,
+                &mut body_lines,
+                state,
+                requested.as_ref(),
+            );
+            state = "active";
+            continue;
+        }
+        if line.starts_with("## Stale canon") {
+            flush(
+                &mut sources,
+                &mut heading,
+                &mut topic,
+                &mut evidence_refs,
+                &mut body_lines,
+                state,
+                requested.as_ref(),
+            );
+            state = "stale";
+            continue;
+        }
+        if line.starts_with("### ") {
+            flush(
+                &mut sources,
+                &mut heading,
+                &mut topic,
+                &mut evidence_refs,
+                &mut body_lines,
+                state,
+                requested.as_ref(),
+            );
+            heading = Some(line.to_string());
+            continue;
+        }
+        if heading.is_none() || line.is_empty() || line == "(none)" {
+            continue;
+        }
+        if let Some(value) = line.strip_prefix("- topic:") {
+            topic = Some(value.trim().to_string());
+            continue;
+        }
+        if let Some(value) = line.strip_prefix("- evidence_refs:") {
+            evidence_refs = value
+                .split(',')
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .map(|value| value.to_string())
+                .collect();
+            continue;
+        }
+        if line.starts_with("-") {
+            body_lines.push(line.to_string());
+            continue;
+        }
+        body_lines.push(line.to_string());
+    }
+
+    flush(
+        &mut sources,
+        &mut heading,
+        &mut topic,
+        &mut evidence_refs,
+        &mut body_lines,
+        state,
+        requested.as_ref(),
+    );
+    sources
+}
+
+fn parse_session_export_retrieval_sources(
+    text: &str,
+    kind: &str,
+    manifest: &SessionExportManifest,
+    reference: &str,
+) -> Vec<InsightRetrievalSource> {
+    let mut sources = Vec::new();
+    let mut heading: Option<String> = None;
+    let mut body_lines = Vec::new();
+
+    let flush = |sources: &mut Vec<InsightRetrievalSource>,
+                 heading: &mut Option<String>,
+                 body_lines: &mut Vec<String>| {
+        let title = heading.take();
+        let lines = body_lines
+            .iter()
+            .map(|line| line.trim().to_string())
+            .filter(|line| !line.is_empty() && line != "(empty)")
+            .collect::<Vec<_>>();
+        body_lines.clear();
+        if lines.is_empty() {
+            return;
+        }
+
+        let label = match title.as_deref() {
+            Some(value) => format!(
+                "Session {} {}",
+                kind.to_uppercase(),
+                value.trim_start_matches("## ")
+            ),
+            None => format!("Session {} export", kind.to_uppercase()),
+        };
+        let source_id = match title.as_deref() {
+            Some(value) => {
+                let artifact_id = value
+                    .trim_start_matches("## ")
+                    .split_whitespace()
+                    .next()
+                    .unwrap_or(kind);
+                format!("session_{}:{}", kind, artifact_id)
+            }
+            None => format!("session_{}:{}", kind, manifest.session_id),
+        };
+        let mut citations = vec![InsightRetrievalCitation {
+            source_id: source_id.clone(),
+            label: label.clone(),
+            reference: reference.to_string(),
+            score: 0,
+        }];
+        citations.push(InsightRetrievalCitation {
+            source_id: format!("session:{}", manifest.session_id),
+            label: format!("Session {}", manifest.session_id),
+            reference: manifest.export_dir.clone(),
+            score: 0,
+        });
+        let drilldown_refs = vec![
+            InsightRetrievalDrilldownRef {
+                kind: "export_file".to_string(),
+                label: format!("{} export file", kind.to_uppercase()),
+                reference: reference.to_string(),
+            },
+            InsightRetrievalDrilldownRef {
+                kind: "session_export".to_string(),
+                label: format!("Session {} export dir", manifest.session_id),
+                reference: manifest.export_dir.clone(),
+            },
+        ];
+        sources.push(InsightRetrievalSource {
+            source_id,
+            scope: InsightRetrievalScope::Session,
+            label,
+            reference: reference.to_string(),
+            lines,
+            citations,
+            drilldown_refs,
+            score_bias: if kind == "t2" { 8 } else { 4 },
+        });
+    };
+
+    for raw in text.lines() {
+        let line = raw.trim();
+        if line.starts_with("# ") {
+            continue;
+        }
+        if line.starts_with("## ") {
+            flush(&mut sources, &mut heading, &mut body_lines);
+            heading = Some(line.to_string());
+            continue;
+        }
+        if line.is_empty() {
+            flush(&mut sources, &mut heading, &mut body_lines);
+            continue;
+        }
+        body_lines.push(line.to_string());
+    }
+    flush(&mut sources, &mut heading, &mut body_lines);
+
+    if sources.is_empty() {
+        let (lines, _) = extract_nonempty_lines(text, 48);
+        if !lines.is_empty() {
+            sources.push(InsightRetrievalSource {
+                source_id: format!("session_{}:{}", kind, manifest.session_id),
+                scope: InsightRetrievalScope::Session,
+                label: format!("Session {} export", kind.to_uppercase()),
+                reference: reference.to_string(),
+                lines,
+                citations: vec![InsightRetrievalCitation {
+                    source_id: format!("session:{}", manifest.session_id),
+                    label: format!("Session {}", manifest.session_id),
+                    reference: manifest.export_dir.clone(),
+                    score: 0,
+                }],
+                drilldown_refs: vec![
+                    InsightRetrievalDrilldownRef {
+                        kind: "export_file".to_string(),
+                        label: format!("{} export file", kind.to_uppercase()),
+                        reference: reference.to_string(),
+                    },
+                    InsightRetrievalDrilldownRef {
+                        kind: "session_export".to_string(),
+                        label: format!("Session {} export dir", manifest.session_id),
+                        reference: manifest.export_dir.clone(),
+                    },
+                ],
+                score_bias: if kind == "t2" { 8 } else { 4 },
+            });
+        }
+    }
+
+    sources
+}
+
+fn insight_retrieval_line_budget(mode: &InsightRetrievalMode, max_results: usize) -> usize {
+    match mode {
+        InsightRetrievalMode::Brief => INSIGHT_RETRIEVAL_BRIEF_LINE_BUDGET,
+        InsightRetrievalMode::Refs => INSIGHT_RETRIEVAL_REFS_LINE_BUDGET,
+        InsightRetrievalMode::Snips => INSIGHT_RETRIEVAL_SNIPS_LINE_BUDGET,
+    }
+    .min(
+        max_results
+            .saturating_mul(INSIGHT_RETRIEVAL_SNIPS_LINE_BUDGET)
+            .max(1),
+    )
+}
+
+fn rank_insight_retrieval_source(
+    query: &str,
+    mode: &InsightRetrievalMode,
+    max_results: usize,
+    source: InsightRetrievalSource,
+) -> Option<InsightRetrievalHit> {
+    let terms = query
+        .split_whitespace()
+        .map(|term| term.trim().to_ascii_lowercase())
+        .filter(|term| !term.is_empty())
+        .collect::<Vec<_>>();
+    let score_line = |line: &str| {
+        let normalized = line.to_ascii_lowercase();
+        let term_hits = terms
+            .iter()
+            .map(|term| {
+                if normalized.contains(term) {
+                    10 + term.len() as i64
+                } else {
+                    0
+                }
+            })
+            .sum::<i64>();
+        let heading_bonus = if normalized.starts_with("### ") || normalized.starts_with("## ") {
+            6
+        } else {
+            0
+        };
+        term_hits + heading_bonus
+    };
+
+    let mut matched = source
+        .lines
+        .iter()
+        .filter_map(|line| {
+            let score = if terms.is_empty() {
+                1
+            } else {
+                score_line(line)
+            };
+            if score > 0 {
+                Some((line.clone(), score))
+            } else {
+                None
+            }
+        })
+        .collect::<Vec<_>>();
+    if matched.is_empty() {
+        return None;
+    }
+    matched.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
+
+    let line_budget = insight_retrieval_line_budget(mode, max_results);
+
+    let lines = match mode {
+        InsightRetrievalMode::Refs => Vec::new(),
+        _ => matched
+            .iter()
+            .take(line_budget)
+            .map(|(line, _)| line.clone())
+            .collect(),
+    };
+    let lines_truncated =
+        matched.len() > line_budget && !matches!(mode, InsightRetrievalMode::Refs);
+    let score = source.score_bias
+        + matched
+            .iter()
+            .take(line_budget.max(1))
+            .map(|(_, score)| *score)
+            .sum::<i64>();
+    let citations = source
+        .citations
+        .into_iter()
+        .map(|citation| InsightRetrievalCitation { score, ..citation })
+        .collect();
+
+    Some(InsightRetrievalHit {
+        source_id: source.source_id,
+        scope: source.scope,
+        label: source.label,
+        reference: source.reference,
+        score,
+        lines,
+        citations,
+        drilldown_refs: source.drilldown_refs,
+        line_budget,
+        lines_truncated,
+    })
+}
+
+fn edge_kind_key(kind: MindProvenanceEdgeKind) -> &'static str {
+    match kind {
+        MindProvenanceEdgeKind::ScopeSession => "scope_session",
+        MindProvenanceEdgeKind::ScopeHandshake => "scope_handshake",
+        MindProvenanceEdgeKind::ScopeBacklogJob => "scope_backlog_job",
+        MindProvenanceEdgeKind::SessionConversation => "session_conversation",
+        MindProvenanceEdgeKind::ConversationParent => "conversation_parent",
+        MindProvenanceEdgeKind::ConversationRoot => "conversation_root",
+        MindProvenanceEdgeKind::ConversationArtifact => "conversation_artifact",
+        MindProvenanceEdgeKind::ConversationCheckpoint => "conversation_checkpoint",
+        MindProvenanceEdgeKind::ArtifactTrace => "artifact_trace",
+        MindProvenanceEdgeKind::ArtifactSemanticProvenance => "artifact_semantic_provenance",
+        MindProvenanceEdgeKind::ArtifactFileLink => "artifact_file_link",
+        MindProvenanceEdgeKind::ArtifactTaskLink => "artifact_task_link",
+        MindProvenanceEdgeKind::CheckpointSlice => "checkpoint_slice",
+        MindProvenanceEdgeKind::SliceFileRead => "slice_file_read",
+        MindProvenanceEdgeKind::SliceFileModified => "slice_file_modified",
+        MindProvenanceEdgeKind::CanonSupersedes => "canon_supersedes",
+        MindProvenanceEdgeKind::CanonEvidence => "canon_evidence",
+        MindProvenanceEdgeKind::HandshakeCanon => "handshake_canon",
+        MindProvenanceEdgeKind::BacklogJobArtifact => "backlog_job_artifact",
+        MindProvenanceEdgeKind::BacklogJobCanon => "backlog_job_canon",
+    }
+}
+
+struct MindProvenanceGraphBuilder {
+    max_nodes: usize,
+    max_edges: usize,
+    nodes: Vec<MindProvenanceNode>,
+    edges: Vec<MindProvenanceEdge>,
+    node_ids: HashSet<String>,
+    edge_ids: HashSet<String>,
+    truncated: bool,
+}
+
+impl MindProvenanceGraphBuilder {
+    fn new(max_nodes: usize, max_edges: usize) -> Self {
+        Self {
+            max_nodes: max_nodes.max(1),
+            max_edges: max_edges.max(1),
+            nodes: Vec::new(),
+            edges: Vec::new(),
+            node_ids: HashSet::new(),
+            edge_ids: HashSet::new(),
+            truncated: false,
+        }
+    }
+
+    fn add_node(&mut self, node: MindProvenanceNode) {
+        if self.node_ids.contains(&node.node_id) {
+            return;
+        }
+        if self.nodes.len() >= self.max_nodes {
+            self.truncated = true;
+            return;
+        }
+        self.node_ids.insert(node.node_id.clone());
+        self.nodes.push(node);
+    }
+
+    fn add_edge(
+        &mut self,
+        kind: MindProvenanceEdgeKind,
+        from: impl Into<String>,
+        to: impl Into<String>,
+        label: Option<String>,
+        attrs: std::collections::BTreeMap<String, serde_json::Value>,
+    ) {
+        let from = from.into();
+        let to = to.into();
+        if !self.node_ids.contains(&from) || !self.node_ids.contains(&to) {
+            return;
+        }
+        let edge_id = format!(
+            "{}:{}:{}:{}",
+            edge_kind_key(kind),
+            from,
+            to,
+            label.as_deref().unwrap_or_default()
+        );
+        if self.edge_ids.contains(&edge_id) {
+            return;
+        }
+        if self.edges.len() >= self.max_edges {
+            self.truncated = true;
+            return;
+        }
+        self.edge_ids.insert(edge_id.clone());
+        self.edges.push(MindProvenanceEdge {
+            edge_id,
+            kind,
+            from,
+            to,
+            label,
+            attrs,
+        });
+    }
+
+    fn finish(
+        mut self,
+        status: &str,
+        summary: String,
+        seed_refs: Vec<String>,
+    ) -> MindProvenanceQueryResult {
+        self.nodes.sort_by(|a, b| a.node_id.cmp(&b.node_id));
+        self.edges.sort_by(|a, b| a.edge_id.cmp(&b.edge_id));
+        MindProvenanceQueryResult {
+            status: status.to_string(),
+            summary,
+            seed_refs,
+            nodes: self.nodes,
+            edges: self.edges,
+            truncated: self.truncated,
+        }
+    }
+}
+
+fn json_string_attr(
+    attrs: &mut std::collections::BTreeMap<String, serde_json::Value>,
+    key: &str,
+    value: impl Into<String>,
+) {
+    attrs.insert(key.to_string(), serde_json::Value::String(value.into()));
+}
+
+fn json_bool_attr(
+    attrs: &mut std::collections::BTreeMap<String, serde_json::Value>,
+    key: &str,
+    value: bool,
+) {
+    attrs.insert(key.to_string(), serde_json::Value::Bool(value));
+}
+
+fn json_u64_attr(
+    attrs: &mut std::collections::BTreeMap<String, serde_json::Value>,
+    key: &str,
+    value: u64,
+) {
+    attrs.insert(
+        key.to_string(),
+        serde_json::Value::Number(serde_json::Number::from(value)),
+    );
+}
+
+#[allow(dead_code)]
+fn compile_mind_provenance_graph(
+    store: &MindStore,
+    request: &MindProvenanceQueryRequest,
+) -> Result<MindProvenanceQueryResult, String> {
+    let mut seed_refs = Vec::new();
+    if let Some(project_root) = request.project_root.as_ref() {
+        seed_refs.push(format!("project:{}", project_root));
+    }
+    if let Some(session_id) = request.session_id.as_ref() {
+        seed_refs.push(format!("session:{}", session_id));
+    }
+    if let Some(conversation_id) = request.conversation_id.as_ref() {
+        seed_refs.push(format!("conversation:{}", conversation_id));
+    }
+    if let Some(artifact_id) = request.artifact_id.as_ref() {
+        seed_refs.push(format!("artifact:{}", artifact_id));
+    }
+    if let Some(checkpoint_id) = request.checkpoint_id.as_ref() {
+        seed_refs.push(format!("checkpoint:{}", checkpoint_id));
+    }
+    if let Some(canon_entry_id) = request.canon_entry_id.as_ref() {
+        seed_refs.push(format!("canon:{}", canon_entry_id));
+    }
+
+    let mut graph = MindProvenanceGraphBuilder::new(request.max_nodes, request.max_edges);
+    let mut conversation_ids = HashSet::<String>::new();
+    let mut artifact_ids = HashSet::<String>::new();
+    let mut canon_entry_ids = HashSet::<String>::new();
+
+    let project_scope_id = if let Some(project_root) = request.project_root.as_ref() {
+        let scope_key = t3_scope_id_for_project_root(project_root);
+        let mut attrs = std::collections::BTreeMap::new();
+        json_string_attr(&mut attrs, "project_root", project_root.clone());
+        json_string_attr(&mut attrs, "scope_key", scope_key.clone());
+        if let Some(watermark) = store
+            .project_watermark(&scope_key)
+            .map_err(|err| format!("load project watermark failed: {err}"))?
+        {
+            if let Some(last_artifact_id) = watermark.last_artifact_id.as_ref() {
+                json_string_attr(
+                    &mut attrs,
+                    "watermark_last_artifact_id",
+                    last_artifact_id.clone(),
+                );
+            }
+            if let Some(last_artifact_ts) = watermark.last_artifact_ts.as_ref() {
+                json_string_attr(
+                    &mut attrs,
+                    "watermark_last_artifact_ts",
+                    last_artifact_ts.to_rfc3339(),
+                );
+            }
+        }
+        graph.add_node(MindProvenanceNode {
+            node_id: format!("scope:{}", scope_key),
+            kind: MindProvenanceNodeKind::ProjectScope,
+            label: project_root.clone(),
+            reference: Some(scope_key.clone()),
+            attrs,
+        });
+        Some(scope_key)
+    } else {
+        None
+    };
+
+    if let Some(session_id) = request.session_id.as_ref() {
+        graph.add_node(MindProvenanceNode {
+            node_id: format!("session:{}", session_id),
+            kind: MindProvenanceNodeKind::Session,
+            label: format!("Session {session_id}"),
+            reference: Some(session_id.clone()),
+            attrs: std::collections::BTreeMap::new(),
+        });
+        if let Some(scope_key) = project_scope_id.as_ref() {
+            graph.add_edge(
+                MindProvenanceEdgeKind::ScopeSession,
+                format!("scope:{}", scope_key),
+                format!("session:{}", session_id),
+                Some("contains".to_string()),
+                std::collections::BTreeMap::new(),
+            );
+        }
+        for conversation_id in store
+            .conversation_ids_for_session(session_id)
+            .map_err(|err| format!("list conversation lineage failed: {err}"))?
+        {
+            conversation_ids.insert(conversation_id);
+        }
+    }
+
+    if let Some(conversation_id) = request.conversation_id.as_ref() {
+        conversation_ids.insert(conversation_id.clone());
+    }
+
+    if let Some(artifact_id) = request.artifact_id.as_ref() {
+        artifact_ids.insert(artifact_id.clone());
+        if let Some(artifact) = store
+            .artifact_by_id(artifact_id)
+            .map_err(|err| format!("load artifact failed: {err}"))?
+        {
+            conversation_ids.insert(artifact.conversation_id);
+        }
+    }
+
+    if let Some(checkpoint_id) = request.checkpoint_id.as_ref() {
+        if let Some(checkpoint) = store
+            .compaction_checkpoint_by_id(checkpoint_id)
+            .map_err(|err| format!("load checkpoint failed: {err}"))?
+        {
+            conversation_ids.insert(checkpoint.conversation_id.clone());
+            add_provenance_checkpoint_branch(store, &mut graph, &checkpoint)?;
+        }
+    }
+
+    for conversation_id in conversation_ids.iter() {
+        let lineage = store
+            .conversation_lineage(conversation_id)
+            .map_err(|err| format!("load conversation lineage failed: {err}"))?;
+        let mut attrs = std::collections::BTreeMap::new();
+        if let Some(lineage) = lineage.as_ref() {
+            json_string_attr(&mut attrs, "session_id", lineage.session_id.clone());
+            json_string_attr(
+                &mut attrs,
+                "root_conversation_id",
+                lineage.root_conversation_id.clone(),
+            );
+            if let Some(parent) = lineage.parent_conversation_id.as_ref() {
+                json_string_attr(&mut attrs, "parent_conversation_id", parent.clone());
+            }
+        }
+        graph.add_node(MindProvenanceNode {
+            node_id: format!("conversation:{}", conversation_id),
+            kind: MindProvenanceNodeKind::Conversation,
+            label: format!("Conversation {conversation_id}"),
+            reference: Some(conversation_id.clone()),
+            attrs,
+        });
+
+        if let Some(lineage) = lineage.as_ref() {
+            graph.add_node(MindProvenanceNode {
+                node_id: format!("session:{}", lineage.session_id),
+                kind: MindProvenanceNodeKind::Session,
+                label: format!("Session {}", lineage.session_id),
+                reference: Some(lineage.session_id.clone()),
+                attrs: std::collections::BTreeMap::new(),
+            });
+            if let Some(scope_key) = project_scope_id.as_ref() {
+                graph.add_edge(
+                    MindProvenanceEdgeKind::ScopeSession,
+                    format!("scope:{}", scope_key),
+                    format!("session:{}", lineage.session_id),
+                    Some("contains".to_string()),
+                    std::collections::BTreeMap::new(),
+                );
+            }
+            graph.add_edge(
+                MindProvenanceEdgeKind::SessionConversation,
+                format!("session:{}", lineage.session_id),
+                format!("conversation:{}", conversation_id),
+                Some("contains".to_string()),
+                std::collections::BTreeMap::new(),
+            );
+            if let Some(parent) = lineage.parent_conversation_id.as_ref() {
+                graph.add_node(MindProvenanceNode {
+                    node_id: format!("conversation:{}", parent),
+                    kind: MindProvenanceNodeKind::Conversation,
+                    label: format!("Conversation {parent}"),
+                    reference: Some(parent.clone()),
+                    attrs: std::collections::BTreeMap::new(),
+                });
+                graph.add_edge(
+                    MindProvenanceEdgeKind::ConversationParent,
+                    format!("conversation:{}", conversation_id),
+                    format!("conversation:{}", parent),
+                    Some("parent".to_string()),
+                    std::collections::BTreeMap::new(),
+                );
+            }
+            if lineage.root_conversation_id != *conversation_id {
+                graph.add_node(MindProvenanceNode {
+                    node_id: format!("conversation:{}", lineage.root_conversation_id),
+                    kind: MindProvenanceNodeKind::Conversation,
+                    label: format!("Conversation {}", lineage.root_conversation_id),
+                    reference: Some(lineage.root_conversation_id.clone()),
+                    attrs: std::collections::BTreeMap::new(),
+                });
+                graph.add_edge(
+                    MindProvenanceEdgeKind::ConversationRoot,
+                    format!("conversation:{}", conversation_id),
+                    format!("conversation:{}", lineage.root_conversation_id),
+                    Some("root".to_string()),
+                    std::collections::BTreeMap::new(),
+                );
+            }
+        }
+
+        for artifact in store
+            .artifacts_for_conversation(conversation_id)
+            .map_err(|err| format!("list conversation artifacts failed: {err}"))?
+        {
+            artifact_ids.insert(artifact.artifact_id.clone());
+            add_provenance_artifact_node(&mut graph, &artifact);
+            graph.add_edge(
+                MindProvenanceEdgeKind::ConversationArtifact,
+                format!("conversation:{}", conversation_id),
+                format!("artifact:{}", artifact.artifact_id),
+                Some(artifact.kind.clone()),
+                std::collections::BTreeMap::new(),
+            );
+        }
+
+        for checkpoint in store
+            .compaction_checkpoints_for_conversation(conversation_id)
+            .map_err(|err| format!("list conversation checkpoints failed: {err}"))?
+        {
+            add_provenance_checkpoint_branch(store, &mut graph, &checkpoint)?;
+        }
+    }
+
+    let mut artifact_queue = artifact_ids.iter().cloned().collect::<Vec<_>>();
+    artifact_queue.sort();
+    for artifact_id in artifact_queue {
+        let Some(artifact) = store
+            .artifact_by_id(&artifact_id)
+            .map_err(|err| format!("load artifact by id failed: {err}"))?
+        else {
+            continue;
+        };
+        add_provenance_artifact_node(&mut graph, &artifact);
+        for trace_id in &artifact.trace_ids {
+            if let Some(traced) = store
+                .artifact_by_id(trace_id)
+                .map_err(|err| format!("load traced artifact failed: {err}"))?
+            {
+                add_provenance_artifact_node(&mut graph, &traced);
+                graph.add_edge(
+                    MindProvenanceEdgeKind::ArtifactTrace,
+                    format!("artifact:{}", artifact.artifact_id),
+                    format!("artifact:{}", traced.artifact_id),
+                    Some("trace".to_string()),
+                    std::collections::BTreeMap::new(),
+                );
+            }
+        }
+        for entry in store
+            .semantic_provenance_for_artifact(&artifact.artifact_id)
+            .map_err(|err| format!("load semantic provenance failed: {err}"))?
+        {
+            let node_id = format!(
+                "semantic:{}:{}:{}",
+                artifact.artifact_id, entry.prompt_version, entry.attempt_count
+            );
+            let mut attrs = std::collections::BTreeMap::new();
+            json_string_attr(
+                &mut attrs,
+                "stage",
+                format!("{:?}", entry.stage).to_lowercase(),
+            );
+            json_string_attr(
+                &mut attrs,
+                "runtime",
+                format!("{:?}", entry.runtime).to_lowercase(),
+            );
+            json_string_attr(&mut attrs, "prompt_version", entry.prompt_version.clone());
+            json_bool_attr(&mut attrs, "fallback_used", entry.fallback_used);
+            json_u64_attr(&mut attrs, "attempt_count", entry.attempt_count as u64);
+            graph.add_node(MindProvenanceNode {
+                node_id: node_id.clone(),
+                kind: MindProvenanceNodeKind::SemanticProvenance,
+                label: format!("{} attempt {}", artifact.artifact_id, entry.attempt_count),
+                reference: Some(artifact.artifact_id.clone()),
+                attrs,
+            });
+            graph.add_edge(
+                MindProvenanceEdgeKind::ArtifactSemanticProvenance,
+                format!("artifact:{}", artifact.artifact_id),
+                node_id,
+                Some("semantic_provenance".to_string()),
+                std::collections::BTreeMap::new(),
+            );
+        }
+        for file_link in store
+            .artifact_file_links(&artifact.artifact_id)
+            .map_err(|err| format!("load artifact file links failed: {err}"))?
+        {
+            add_provenance_file_node(&mut graph, &file_link.path, Some(&file_link.relation));
+            let mut attrs = std::collections::BTreeMap::new();
+            json_string_attr(&mut attrs, "relation", file_link.relation.clone());
+            json_string_attr(&mut attrs, "source", file_link.source.clone());
+            graph.add_edge(
+                MindProvenanceEdgeKind::ArtifactFileLink,
+                format!("artifact:{}", artifact.artifact_id),
+                format!("file:{}", file_link.path),
+                Some(file_link.relation.clone()),
+                attrs,
+            );
+        }
+        for task_link in store
+            .artifact_task_links_for_artifact(&artifact.artifact_id)
+            .map_err(|err| format!("load artifact task links failed: {err}"))?
+        {
+            let task_id = format!("task:{}", task_link.task_id);
+            let mut task_attrs = std::collections::BTreeMap::new();
+            json_u64_attr(
+                &mut task_attrs,
+                "confidence_bps",
+                task_link.confidence_bps as u64,
+            );
+            graph.add_node(MindProvenanceNode {
+                node_id: task_id.clone(),
+                kind: MindProvenanceNodeKind::Task,
+                label: task_link.task_id.clone(),
+                reference: Some(task_link.task_id.clone()),
+                attrs: task_attrs,
+            });
+            let mut edge_attrs = std::collections::BTreeMap::new();
+            json_string_attr(
+                &mut edge_attrs,
+                "relation",
+                format!("{:?}", task_link.relation).to_lowercase(),
+            );
+            json_string_attr(&mut edge_attrs, "source", task_link.source.clone());
+            graph.add_edge(
+                MindProvenanceEdgeKind::ArtifactTaskLink,
+                format!("artifact:{}", artifact.artifact_id),
+                task_id,
+                Some(format!("{:?}", task_link.relation).to_lowercase()),
+                edge_attrs,
+            );
+        }
+    }
+
+    let canon_topic = request.active_tag.as_deref();
+    let mut canon_revisions = if let Some(seed_entry) = request.canon_entry_id.as_ref() {
+        store
+            .canon_entry_revisions(seed_entry)
+            .map_err(|err| format!("load canon revisions failed: {err}"))?
+    } else {
+        let mut revisions = store
+            .active_canon_entries(canon_topic)
+            .map_err(|err| format!("load active canon failed: {err}"))?;
+        if request.include_stale_canon {
+            revisions.extend(
+                store
+                    .canon_entries_by_state(CanonRevisionState::Stale, canon_topic)
+                    .map_err(|err| format!("load stale canon failed: {err}"))?,
+            );
+        }
+        revisions
+    };
+    if !request.include_stale_canon {
+        canon_revisions.retain(|revision| revision.state != CanonRevisionState::Stale);
+    }
+    canon_revisions.sort_by(|a, b| {
+        a.entry_id
+            .cmp(&b.entry_id)
+            .then_with(|| b.revision.cmp(&a.revision))
+    });
+    for revision in canon_revisions {
+        let node_id = format!("canon:{}#r{}", revision.entry_id, revision.revision);
+        canon_entry_ids.insert(node_id.clone());
+        let mut attrs = std::collections::BTreeMap::new();
+        json_u64_attr(&mut attrs, "revision", revision.revision as u64);
+        json_u64_attr(&mut attrs, "confidence_bps", revision.confidence_bps as u64);
+        json_u64_attr(
+            &mut attrs,
+            "freshness_score",
+            revision.freshness_score as u64,
+        );
+        if let Some(topic) = revision.topic.as_ref() {
+            json_string_attr(&mut attrs, "topic", topic.clone());
+        }
+        json_string_attr(
+            &mut attrs,
+            "state",
+            format!("{:?}", revision.state).to_lowercase(),
+        );
+        graph.add_node(MindProvenanceNode {
+            node_id: node_id.clone(),
+            kind: MindProvenanceNodeKind::CanonEntryRevision,
+            label: revision.summary.clone(),
+            reference: Some(format!("{}.r{}", revision.entry_id, revision.revision)),
+            attrs,
+        });
+        if let Some(previous) = revision.supersedes_entry_id.as_ref() {
+            for prior in store
+                .canon_entry_revisions(previous)
+                .map_err(|err| format!("load superseded canon failed: {err}"))?
+                .into_iter()
+                .take(1)
+            {
+                let prior_id = format!("canon:{}#r{}", prior.entry_id, prior.revision);
+                graph.add_node(MindProvenanceNode {
+                    node_id: prior_id.clone(),
+                    kind: MindProvenanceNodeKind::CanonEntryRevision,
+                    label: prior.summary.clone(),
+                    reference: Some(format!("{}.r{}", prior.entry_id, prior.revision)),
+                    attrs: std::collections::BTreeMap::new(),
+                });
+                graph.add_edge(
+                    MindProvenanceEdgeKind::CanonSupersedes,
+                    node_id.clone(),
+                    prior_id,
+                    Some("supersedes".to_string()),
+                    std::collections::BTreeMap::new(),
+                );
+            }
+        }
+        for evidence_ref in &revision.evidence_refs {
+            if let Some(artifact) = store
+                .artifact_by_id(evidence_ref)
+                .map_err(|err| format!("load canon evidence artifact failed: {err}"))?
+            {
+                add_provenance_artifact_node(&mut graph, &artifact);
+                graph.add_edge(
+                    MindProvenanceEdgeKind::CanonEvidence,
+                    node_id.clone(),
+                    format!("artifact:{}", artifact.artifact_id),
+                    Some("evidence".to_string()),
+                    std::collections::BTreeMap::new(),
+                );
+            }
+        }
+    }
+
+    if let (Some(project_root), Some(scope_key)) =
+        (request.project_root.as_ref(), project_scope_id.as_ref())
+    {
+        for job in store
+            .t3_backlog_jobs_for_project_root(project_root)
+            .map_err(|err| format!("load t3 backlog jobs failed: {err}"))?
+        {
+            let mut attrs = std::collections::BTreeMap::new();
+            json_string_attr(&mut attrs, "session_id", job.session_id.clone());
+            json_string_attr(&mut attrs, "pane_id", job.pane_id.clone());
+            json_string_attr(
+                &mut attrs,
+                "status",
+                format!("{:?}", job.status).to_lowercase(),
+            );
+            json_u64_attr(&mut attrs, "attempts", job.attempts as u64);
+            if let Some(active_tag) = job.active_tag.as_ref() {
+                json_string_attr(&mut attrs, "active_tag", active_tag.clone());
+            }
+            if let Some(slice_start_id) = job.slice_start_id.as_ref() {
+                json_string_attr(&mut attrs, "slice_start_id", slice_start_id.clone());
+            }
+            if let Some(slice_end_id) = job.slice_end_id.as_ref() {
+                json_string_attr(&mut attrs, "slice_end_id", slice_end_id.clone());
+            }
+            graph.add_node(MindProvenanceNode {
+                node_id: format!("backlog:{}", job.job_id),
+                kind: MindProvenanceNodeKind::T3BacklogJob,
+                label: job.job_id.clone(),
+                reference: Some(job.job_id.clone()),
+                attrs,
+            });
+            graph.add_edge(
+                MindProvenanceEdgeKind::ScopeBacklogJob,
+                format!("scope:{}", scope_key),
+                format!("backlog:{}", job.job_id),
+                Some("queued".to_string()),
+                std::collections::BTreeMap::new(),
+            );
+            for artifact_id in &job.artifact_refs {
+                if let Some(artifact) = store
+                    .artifact_by_id(artifact_id)
+                    .map_err(|err| format!("load backlog artifact failed: {err}"))?
+                {
+                    add_provenance_artifact_node(&mut graph, &artifact);
+                    graph.add_edge(
+                        MindProvenanceEdgeKind::BacklogJobArtifact,
+                        format!("backlog:{}", job.job_id),
+                        format!("artifact:{}", artifact.artifact_id),
+                        Some("input".to_string()),
+                        std::collections::BTreeMap::new(),
+                    );
+                }
+            }
+            for canon_id in canon_entry_ids.iter().cloned().collect::<Vec<_>>() {
+                graph.add_edge(
+                    MindProvenanceEdgeKind::BacklogJobCanon,
+                    format!("backlog:{}", job.job_id),
+                    canon_id,
+                    Some("targets".to_string()),
+                    std::collections::BTreeMap::new(),
+                );
+            }
+        }
+
+        if let Some(snapshot) = store
+            .latest_handshake_snapshot("project", scope_key)
+            .map_err(|err| format!("load handshake snapshot failed: {err}"))?
+        {
+            let mut attrs = std::collections::BTreeMap::new();
+            json_u64_attr(&mut attrs, "token_estimate", snapshot.token_estimate as u64);
+            json_string_attr(&mut attrs, "scope", snapshot.scope.clone());
+            graph.add_node(MindProvenanceNode {
+                node_id: format!("handshake:{}", snapshot.snapshot_id),
+                kind: MindProvenanceNodeKind::HandshakeSnapshot,
+                label: format!("Handshake {}", project_root),
+                reference: Some(".aoc/mind/t3/handshake.md".to_string()),
+                attrs,
+            });
+            graph.add_edge(
+                MindProvenanceEdgeKind::ScopeHandshake,
+                format!("scope:{}", scope_key),
+                format!("handshake:{}", snapshot.snapshot_id),
+                Some("latest".to_string()),
+                std::collections::BTreeMap::new(),
+            );
+            for canon_id in canon_entry_ids.iter().cloned().collect::<Vec<_>>() {
+                graph.add_edge(
+                    MindProvenanceEdgeKind::HandshakeCanon,
+                    format!("handshake:{}", snapshot.snapshot_id),
+                    canon_id,
+                    Some("renders".to_string()),
+                    std::collections::BTreeMap::new(),
+                );
+            }
+        }
+    }
+
+    let node_count = graph.nodes.len();
+    let edge_count = graph.edges.len();
+    Ok(graph.finish(
+        "ok",
+        format!(
+            "{} nodes, {} edges across lineage, artifacts, checkpoints, canon, and handshake",
+            node_count, edge_count
+        ),
+        seed_refs,
+    ))
+}
+
+fn add_provenance_artifact_node(graph: &mut MindProvenanceGraphBuilder, artifact: &StoredArtifact) {
+    let mut attrs = std::collections::BTreeMap::new();
+    json_string_attr(
+        &mut attrs,
+        "conversation_id",
+        artifact.conversation_id.clone(),
+    );
+    json_string_attr(&mut attrs, "kind", artifact.kind.clone());
+    json_u64_attr(&mut attrs, "trace_count", artifact.trace_ids.len() as u64);
+    graph.add_node(MindProvenanceNode {
+        node_id: format!("artifact:{}", artifact.artifact_id),
+        kind: MindProvenanceNodeKind::Artifact,
+        label: artifact.artifact_id.clone(),
+        reference: Some(artifact.artifact_id.clone()),
+        attrs,
+    });
+}
+
+fn add_provenance_file_node(
+    graph: &mut MindProvenanceGraphBuilder,
+    path: &str,
+    relation: Option<&str>,
+) {
+    let mut attrs = std::collections::BTreeMap::new();
+    if let Some(relation) = relation {
+        json_string_attr(&mut attrs, "relation", relation.to_string());
+    }
+    graph.add_node(MindProvenanceNode {
+        node_id: format!("file:{path}"),
+        kind: MindProvenanceNodeKind::File,
+        label: path.to_string(),
+        reference: Some(path.to_string()),
+        attrs,
+    });
+}
+
+fn compile_mind_provenance_export(
+    store: &MindStore,
+    request: MindProvenanceQueryRequest,
+) -> Result<MindProvenanceExport, String> {
+    let graph = compile_mind_provenance_graph(store, &request)?;
+    Ok(MindProvenanceExport::new(request, graph))
+}
+
+fn add_provenance_checkpoint_branch(
+    store: &MindStore,
+    graph: &mut MindProvenanceGraphBuilder,
+    checkpoint: &CompactionCheckpoint,
+) -> Result<(), String> {
+    let mut attrs = std::collections::BTreeMap::new();
+    json_string_attr(&mut attrs, "session_id", checkpoint.session_id.clone());
+    json_string_attr(
+        &mut attrs,
+        "trigger_source",
+        checkpoint.trigger_source.clone(),
+    );
+    if let Some(reason) = checkpoint.reason.as_ref() {
+        json_string_attr(&mut attrs, "reason", reason.clone());
+    }
+    graph.add_node(MindProvenanceNode {
+        node_id: format!("checkpoint:{}", checkpoint.checkpoint_id),
+        kind: MindProvenanceNodeKind::CompactionCheckpoint,
+        label: checkpoint.checkpoint_id.clone(),
+        reference: Some(checkpoint.checkpoint_id.clone()),
+        attrs,
+    });
+    graph.add_node(MindProvenanceNode {
+        node_id: format!("conversation:{}", checkpoint.conversation_id),
+        kind: MindProvenanceNodeKind::Conversation,
+        label: format!("Conversation {}", checkpoint.conversation_id),
+        reference: Some(checkpoint.conversation_id.clone()),
+        attrs: std::collections::BTreeMap::new(),
+    });
+    graph.add_edge(
+        MindProvenanceEdgeKind::ConversationCheckpoint,
+        format!("conversation:{}", checkpoint.conversation_id),
+        format!("checkpoint:{}", checkpoint.checkpoint_id),
+        Some("checkpoint".to_string()),
+        std::collections::BTreeMap::new(),
+    );
+
+    if let Some(slice) = store
+        .compaction_t0_slice_for_checkpoint(&checkpoint.checkpoint_id)
+        .map_err(|err| format!("load compaction t0 slice failed: {err}"))?
+    {
+        let mut slice_attrs = std::collections::BTreeMap::new();
+        json_string_attr(&mut slice_attrs, "source_kind", slice.source_kind.clone());
+        json_u64_attr(
+            &mut slice_attrs,
+            "schema_version",
+            slice.schema_version as u64,
+        );
+        graph.add_node(MindProvenanceNode {
+            node_id: format!("slice:{}", slice.slice_id),
+            kind: MindProvenanceNodeKind::CompactionT0Slice,
+            label: slice.slice_id.clone(),
+            reference: Some(slice.slice_id.clone()),
+            attrs: slice_attrs,
+        });
+        graph.add_edge(
+            MindProvenanceEdgeKind::CheckpointSlice,
+            format!("checkpoint:{}", checkpoint.checkpoint_id),
+            format!("slice:{}", slice.slice_id),
+            Some("materializes".to_string()),
+            std::collections::BTreeMap::new(),
+        );
+        for path in &slice.read_files {
+            add_provenance_file_node(graph, path, Some("read"));
+            graph.add_edge(
+                MindProvenanceEdgeKind::SliceFileRead,
+                format!("slice:{}", slice.slice_id),
+                format!("file:{path}"),
+                Some("read".to_string()),
+                std::collections::BTreeMap::new(),
+            );
+        }
+        for path in &slice.modified_files {
+            add_provenance_file_node(graph, path, Some("modified"));
+            graph.add_edge(
+                MindProvenanceEdgeKind::SliceFileModified,
+                format!("slice:{}", slice.slice_id),
+                format!("file:{path}"),
+                Some("modified".to_string()),
+                std::collections::BTreeMap::new(),
+            );
+        }
+    }
+    Ok(())
+}
+
+fn load_context_cli_output(project_root: &str, program: &str, args: &[&str]) -> Option<String> {
+    let output = std::process::Command::new(program)
+        .args(args)
+        .current_dir(project_root)
+        .output()
+        .ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    if stdout.is_empty() {
+        None
+    } else {
+        Some(stdout)
+    }
+}
+
+fn read_optional_text(path: &Path) -> Option<String> {
+    std::fs::read_to_string(path)
+        .ok()
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
+}
+
 fn build_mind_injection_payload(
     cfg: &ClientConfig,
     runtime: Option<&MindRuntime>,
@@ -1358,19 +3189,35 @@ fn build_mind_injection_payload(
             .flatten()
     });
 
+    let active_tag = active_tag
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(|value| value.to_string());
+    let context_pack = compile_mind_context_pack(
+        cfg,
+        runtime,
+        MindContextPackRequest {
+            mode: mind_context_pack_mode_for_trigger(trigger),
+            profile: MindContextPackProfile::Compact,
+            active_tag: active_tag.clone(),
+            reason: reason.clone(),
+            role: None,
+        },
+        None,
+    )
+    .ok();
+
     MindInjectionPayload {
         status: "pending".to_string(),
         trigger,
         scope,
         scope_key,
-        active_tag: active_tag
-            .map(str::trim)
-            .filter(|value| !value.is_empty())
-            .map(|value| value.to_string()),
+        active_tag,
         reason,
         snapshot_id: snapshot.as_ref().map(|value| value.snapshot_id.clone()),
         payload_hash: snapshot.as_ref().map(|value| value.payload_hash.clone()),
         token_estimate: snapshot.as_ref().map(|value| value.token_estimate),
+        context_pack,
         queued_at: Utc::now().to_rfc3339(),
     }
 }
@@ -1575,6 +3422,16 @@ fn build_pulse_source(cfg: &ClientConfig, state: &PulseState) -> serde_json::Val
     if let Some(mind_injection) = state.mind_injection.as_ref() {
         if let Ok(value) = serde_json::to_value(mind_injection) {
             source.insert("mind_injection".to_string(), value);
+        }
+    }
+    if !state.consultation_inbox.is_empty() {
+        if let Ok(value) = serde_json::to_value(&state.consultation_inbox) {
+            source.insert("consultation_inbox".to_string(), value);
+        }
+    }
+    if !state.consultation_outbox.is_empty() {
+        if let Ok(value) = serde_json::to_value(&state.consultation_outbox) {
+            source.insert("consultation_outbox".to_string(), value);
         }
     }
     let overseer_snapshot = build_overseer_worker_snapshot(cfg, state);
@@ -1871,6 +3728,11 @@ struct PulseCommandHandling {
     pulse_updates: Vec<PulseUpdate>,
 }
 
+struct PulseConsultationHandling {
+    response: PulseWireEnvelope,
+    pulse_updates: Vec<PulseUpdate>,
+}
+
 #[derive(Debug, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 enum MindIngestBody {
@@ -1913,7 +3775,7 @@ enum MindFinalizeTrigger {
     Idle,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 struct SessionExportManifest {
     schema_version: u32,
     session_id: String,
@@ -1941,6 +3803,107 @@ struct SessionFinalizeOutcome {
     status: &'static str,
     reason: String,
     updates: Vec<PulseUpdate>,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+enum MindContextPackMode {
+    Startup,
+    TagSwitch,
+    Resume,
+    Handoff,
+    Dispatch,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+enum MindContextPackProfile {
+    Compact,
+    Expanded,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+struct MindContextPackCitation {
+    source_id: String,
+    label: String,
+    reference: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+struct MindContextPackSection {
+    source_id: String,
+    layer: ContextLayer,
+    title: String,
+    citation: String,
+    lines: Vec<String>,
+    truncated: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+struct MindContextPack {
+    schema_version: u16,
+    mode: MindContextPackMode,
+    profile: MindContextPackProfile,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    role: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    active_tag: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    reason: Option<String>,
+    line_budget: usize,
+    truncated: bool,
+    rendered_lines: Vec<String>,
+    sections: Vec<MindContextPackSection>,
+    citations: Vec<MindContextPackCitation>,
+    generated_at: String,
+}
+
+#[derive(Debug, Clone)]
+struct MindContextPackRequest {
+    mode: MindContextPackMode,
+    profile: MindContextPackProfile,
+    active_tag: Option<String>,
+    reason: Option<String>,
+    role: Option<String>,
+}
+
+#[derive(Debug, Clone, Default)]
+struct MindContextPackSourceOverrides {
+    aoc_mem: Option<String>,
+    aoc_stm_current: Option<String>,
+    aoc_stm_resume: Option<String>,
+    handshake_markdown: Option<String>,
+    project_mind_markdown: Option<String>,
+    latest_export_manifest: Option<SessionExportManifest>,
+    latest_t1_markdown: Option<String>,
+    latest_t2_markdown: Option<String>,
+}
+
+#[derive(Debug, Clone)]
+struct InsightRetrievalSource {
+    source_id: String,
+    scope: InsightRetrievalScope,
+    label: String,
+    reference: String,
+    lines: Vec<String>,
+    citations: Vec<InsightRetrievalCitation>,
+    drilldown_refs: Vec<InsightRetrievalDrilldownRef>,
+    score_bias: i64,
+}
+
+const INSIGHT_RETRIEVAL_MAX_RESULTS_DEFAULT: usize = 4;
+const INSIGHT_RETRIEVAL_MAX_RESULTS_CAP: usize = 8;
+const INSIGHT_RETRIEVAL_BRIEF_LINE_BUDGET: usize = 2;
+const INSIGHT_RETRIEVAL_REFS_LINE_BUDGET: usize = 0;
+const INSIGHT_RETRIEVAL_SNIPS_LINE_BUDGET: usize = 5;
+
+#[derive(Debug, Clone, Default)]
+struct CompactionTrailFile {
+    path: String,
+    additions: Option<u32>,
+    deletions: Option<u32>,
+    staged: bool,
+    untracked: bool,
 }
 
 struct MindRuntime {
@@ -2246,6 +4209,18 @@ impl MindRuntime {
             );
         }
 
+        let trail_files = snapshot_compaction_trail_files(&self.project_root);
+        let modified_files = trail_files
+            .iter()
+            .map(|file| file.path.clone())
+            .collect::<Vec<_>>();
+        if !modified_files.is_empty() {
+            attrs.insert(
+                "mind_compaction_modified_files".to_string(),
+                serde_json::json!(modified_files),
+            );
+        }
+
         let marker_event_id = payload
             .compaction_entry_id
             .as_deref()
@@ -2317,6 +4292,29 @@ impl MindRuntime {
             .upsert_compaction_checkpoint(&checkpoint)
             .map_err(|err| format!("mind compaction checkpoint persist failed: {err}"))?;
 
+        let slice = build_compaction_t0_slice(
+            conversation_id,
+            &cfg.session_id,
+            ts,
+            "pi_compact",
+            payload.reason.as_deref(),
+            payload.summary.as_deref(),
+            payload.tokens_before,
+            payload.first_kept_entry_id.as_deref(),
+            payload.compaction_entry_id.as_deref(),
+            payload.from_extension.unwrap_or(false),
+            "pi_compaction_checkpoint",
+            &[marker_event.event_id.clone()],
+            &[],
+            &modified_files,
+            Some(&checkpoint.checkpoint_id),
+            "t0.compaction.v1",
+        )
+        .map_err(|err| format!("mind compaction slice build failed: {err}"))?;
+        self.store
+            .upsert_compaction_t0_slice(&slice)
+            .map_err(|err| format!("mind compaction slice persist failed: {err}"))?;
+
         self.latest_conversation_id = Some(conversation_id.to_string());
         self.last_ingest_at = Some(ts);
 
@@ -2333,12 +4331,39 @@ impl MindRuntime {
             .map(|s| s.to_string())
             .unwrap_or_else(|| default_reason.to_string());
 
-        Ok(self.enqueue_and_run(
+        let before_artifact_ids: HashSet<String> = self
+            .store
+            .artifacts_for_conversation(conversation_id)
+            .unwrap_or_default()
+            .into_iter()
+            .map(|artifact| artifact.artifact_id)
+            .collect();
+
+        let updates = self.enqueue_and_run(
             cfg,
             conversation_id,
             MindObserverFeedTriggerKind::Compaction,
             Some(reason),
-        ))
+        );
+
+        let _ = link_new_artifacts_to_compaction_slice(
+            &self.store,
+            conversation_id,
+            &before_artifact_ids,
+            &slice.slice_id,
+        );
+
+        if !trail_files.is_empty() {
+            let _ = link_new_t1_artifacts_to_trail(
+                &self.store,
+                conversation_id,
+                &before_artifact_ids,
+                &trail_files,
+                ts,
+            );
+        }
+
+        Ok(updates)
     }
 
     fn enqueue_and_run(
@@ -2972,6 +4997,17 @@ impl MindRuntime {
         }
     }
 
+    fn insight_retrieve(&mut self, request: InsightRetrievalRequest) -> InsightRetrievalResult {
+        let result = compile_insight_retrieval(&self.project_root.to_string_lossy(), request);
+        self.insight_health.last_tick_ms = Some(Utc::now().timestamp_millis());
+        if result.fallback_used {
+            self.insight_health.last_error = Some("insight retrieval fallback".to_string());
+        } else {
+            self.insight_health.last_error = None;
+        }
+        result
+    }
+
     fn tick_reflector_runtime(&mut self) -> Vec<PulseUpdate> {
         let now = Utc::now();
         self.insight_health.reflector_ticks = self.insight_health.reflector_ticks.saturating_add(1);
@@ -3367,6 +5403,202 @@ fn project_canon_entry_id_for_artifact(
     ))
     .map_err(|err| format!("canon entry hash failed: {err}"))?;
     Ok(format!("canon:{}", &digest[..16]))
+}
+
+fn parse_git_numstat_into(
+    files: &mut HashMap<String, CompactionTrailFile>,
+    raw: &str,
+    staged: bool,
+) {
+    for line in raw.lines() {
+        let mut parts = line.splitn(3, '\t');
+        let additions = parts.next().unwrap_or("").trim();
+        let deletions = parts.next().unwrap_or("").trim();
+        let path = parts.next().unwrap_or("").trim();
+        if path.is_empty() {
+            continue;
+        }
+
+        let entry = files
+            .entry(path.to_string())
+            .or_insert_with(|| CompactionTrailFile {
+                path: path.to_string(),
+                ..CompactionTrailFile::default()
+            });
+        entry.staged |= staged;
+
+        if let Ok(value) = additions.parse::<u32>() {
+            entry.additions = Some(entry.additions.unwrap_or(0).saturating_add(value));
+        }
+        if let Ok(value) = deletions.parse::<u32>() {
+            entry.deletions = Some(entry.deletions.unwrap_or(0).saturating_add(value));
+        }
+    }
+}
+
+fn snapshot_compaction_trail_files(project_root: &Path) -> Vec<CompactionTrailFile> {
+    let git_dir = project_root.join(".git");
+    if !git_dir.exists() {
+        return Vec::new();
+    }
+
+    let run = |args: &[&str]| -> Option<String> {
+        let output = std::process::Command::new("git")
+            .arg("-C")
+            .arg(project_root)
+            .args(args)
+            .output()
+            .ok()?;
+        if !output.status.success() {
+            return None;
+        }
+        Some(String::from_utf8_lossy(&output.stdout).to_string())
+    };
+
+    let mut files = HashMap::<String, CompactionTrailFile>::new();
+    if let Some(raw) = run(&["diff", "--numstat", "--cached"]) {
+        parse_git_numstat_into(&mut files, &raw, true);
+    }
+    if let Some(raw) = run(&["diff", "--numstat"]) {
+        parse_git_numstat_into(&mut files, &raw, false);
+    }
+    if let Some(raw) = run(&["ls-files", "--others", "--exclude-standard"]) {
+        for line in raw.lines() {
+            let path = line.trim();
+            if path.is_empty() {
+                continue;
+            }
+            let entry = files
+                .entry(path.to_string())
+                .or_insert_with(|| CompactionTrailFile {
+                    path: path.to_string(),
+                    ..CompactionTrailFile::default()
+                });
+            entry.untracked = true;
+        }
+    }
+
+    let mut values = files.into_values().collect::<Vec<_>>();
+    values.sort_by(|a, b| a.path.cmp(&b.path));
+    values
+}
+
+fn string_list_attr(
+    attrs: &std::collections::BTreeMap<String, serde_json::Value>,
+    key: &str,
+) -> Vec<String> {
+    attrs
+        .get(key)
+        .and_then(serde_json::Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(|value: &serde_json::Value| value.as_str().map(|s| s.trim().to_string()))
+        .filter(|value: &String| !value.is_empty())
+        .collect()
+}
+
+fn rebuild_compaction_t0_slice_from_checkpoint(
+    store: &MindStore,
+    checkpoint: &CompactionCheckpoint,
+) -> Result<Option<aoc_core::mind_contracts::CompactionT0Slice>, String> {
+    let Some(marker_event_id) = checkpoint.marker_event_id.as_deref() else {
+        return Ok(None);
+    };
+    let Some(marker_event) = store
+        .raw_event_by_id(marker_event_id)
+        .map_err(|err| format!("load compaction marker failed: {err}"))?
+    else {
+        return Ok(None);
+    };
+
+    let read_files = string_list_attr(&marker_event.attrs, "pi_detail_read_files");
+    let modified_files = {
+        let live = string_list_attr(&marker_event.attrs, "mind_compaction_modified_files");
+        if live.is_empty() {
+            string_list_attr(&marker_event.attrs, "pi_detail_modified_files")
+        } else {
+            live
+        }
+    };
+    let slice = build_compaction_t0_slice(
+        &checkpoint.conversation_id,
+        &checkpoint.session_id,
+        checkpoint.ts,
+        &checkpoint.trigger_source,
+        checkpoint.reason.as_deref(),
+        checkpoint.summary.as_deref(),
+        checkpoint.tokens_before,
+        checkpoint.first_kept_entry_id.as_deref(),
+        checkpoint.compaction_entry_id.as_deref(),
+        checkpoint.from_extension,
+        "pi_compaction_checkpoint",
+        &[marker_event.event_id],
+        &read_files,
+        &modified_files,
+        Some(&checkpoint.checkpoint_id),
+        "t0.compaction.v1",
+    )
+    .map_err(|err| format!("rebuild compaction slice failed: {err}"))?;
+
+    Ok(Some(slice))
+}
+
+fn link_new_artifacts_to_compaction_slice(
+    store: &MindStore,
+    conversation_id: &str,
+    before_artifact_ids: &HashSet<String>,
+    slice_id: &str,
+) -> Result<(), String> {
+    let artifacts = store
+        .artifacts_for_conversation(conversation_id)
+        .map_err(|err| format!("list artifacts failed: {err}"))?;
+    let extra_trace_ids = vec![slice_id.to_string()];
+
+    for artifact in artifacts
+        .into_iter()
+        .filter(|artifact| !before_artifact_ids.contains(&artifact.artifact_id))
+    {
+        store
+            .append_trace_ids_to_artifact(&artifact.artifact_id, &extra_trace_ids)
+            .map_err(|err| format!("append compaction slice trace failed: {err}"))?;
+    }
+
+    Ok(())
+}
+
+fn link_new_t1_artifacts_to_trail(
+    store: &MindStore,
+    conversation_id: &str,
+    before_artifact_ids: &HashSet<String>,
+    trail_files: &[CompactionTrailFile],
+    ts: chrono::DateTime<chrono::Utc>,
+) -> Result<(), String> {
+    let artifacts = store
+        .artifacts_for_conversation(conversation_id)
+        .map_err(|err| format!("list artifacts failed: {err}"))?;
+
+    for artifact in artifacts.into_iter().filter(|artifact| {
+        artifact.kind == "t1" && !before_artifact_ids.contains(&artifact.artifact_id)
+    }) {
+        for trail in trail_files {
+            store
+                .upsert_artifact_file_link(&ArtifactFileLink {
+                    artifact_id: artifact.artifact_id.clone(),
+                    path: trail.path.clone(),
+                    relation: "modified".to_string(),
+                    source: "pi_compaction_git_diff".to_string(),
+                    additions: trail.additions,
+                    deletions: trail.deletions,
+                    staged: trail.staged,
+                    untracked: trail.untracked,
+                    created_at: ts,
+                    updated_at: ts,
+                })
+                .map_err(|err| format!("artifact file link upsert failed: {err}"))?;
+        }
+    }
+
+    Ok(())
 }
 
 fn project_canon_summary(artifact: &StoredArtifact) -> String {
@@ -3892,6 +6124,25 @@ fn command_result(
     }
 }
 
+fn consultation_response(
+    cfg: &ClientConfig,
+    envelope: &PulseWireEnvelope,
+    payload: PulseConsultationResponsePayload,
+    pulse_updates: Vec<PulseUpdate>,
+) -> PulseConsultationHandling {
+    PulseConsultationHandling {
+        response: PulseWireEnvelope {
+            version: ProtocolVersion(CURRENT_PROTOCOL_VERSION),
+            session_id: cfg.session_id.clone(),
+            sender_id: cfg.agent_key.clone(),
+            timestamp: Utc::now().to_rfc3339(),
+            request_id: envelope.request_id.clone(),
+            msg: WireMsg::ConsultationResponse(payload),
+        },
+        pulse_updates,
+    }
+}
+
 fn ensure_target_matches(
     cfg: &ClientConfig,
     target: Option<&str>,
@@ -3903,6 +6154,224 @@ fn ensure_target_matches(
         });
     }
     Ok(())
+}
+
+fn build_pulse_consultation_response(
+    cfg: &ClientConfig,
+    state: &PulseState,
+    envelope: &PulseWireEnvelope,
+) -> Option<PulseConsultationHandling> {
+    let WireMsg::ConsultationRequest(payload) = envelope.msg.clone() else {
+        return None;
+    };
+
+    if payload.target_agent_id != cfg.agent_key {
+        return Some(consultation_response(
+            cfg,
+            envelope,
+            PulseConsultationResponsePayload {
+                consultation_id: payload.consultation_id,
+                requesting_agent_id: payload.requesting_agent_id,
+                responding_agent_id: cfg.agent_key.clone(),
+                status: PulseConsultationStatus::Failed,
+                packet: None,
+                message: Some("target_agent_id does not match publisher".to_string()),
+                error: Some(PulseCommandError {
+                    code: "invalid_target".to_string(),
+                    message: "target_agent_id does not match publisher".to_string(),
+                }),
+            },
+            Vec::new(),
+        ));
+    }
+
+    let received_at = Utc::now().to_rfc3339();
+    let request_summary = payload.packet.summary.clone().or_else(|| {
+        payload
+            .packet
+            .help_request
+            .as_ref()
+            .map(|request| request.question.clone())
+    });
+    let response_packet = synthesize_consultation_response_packet(cfg, state, &payload);
+    let response_summary = response_packet.summary.clone();
+    Some(consultation_response(
+        cfg,
+        envelope,
+        PulseConsultationResponsePayload {
+            consultation_id: payload.consultation_id.clone(),
+            requesting_agent_id: payload.requesting_agent_id.clone(),
+            responding_agent_id: cfg.agent_key.clone(),
+            status: PulseConsultationStatus::Completed,
+            packet: Some(response_packet),
+            message: Some("consultation response ready".to_string()),
+            error: None,
+        },
+        vec![
+            PulseUpdate::ConsultationInbox(ConsultationInboxEntry {
+                consultation_id: payload.consultation_id.clone(),
+                requesting_agent_id: payload.requesting_agent_id.clone(),
+                summary: request_summary,
+                kind: payload.packet.kind,
+                received_at: received_at.clone(),
+            }),
+            PulseUpdate::ConsultationOutbox(ConsultationOutboxEntry {
+                consultation_id: payload.consultation_id,
+                requesting_agent_id: payload.requesting_agent_id,
+                responding_agent_id: cfg.agent_key.clone(),
+                status: PulseConsultationStatus::Completed,
+                summary: response_summary,
+                responded_at: received_at,
+            }),
+            PulseUpdate::MindObserverEvent(mind_observer_event(
+                MindObserverFeedStatus::Queued,
+                MindObserverFeedTriggerKind::ManualShortcut,
+                Some("consultation request handled".to_string()),
+            )),
+        ],
+    ))
+}
+
+fn synthesize_consultation_response_packet(
+    cfg: &ClientConfig,
+    state: &PulseState,
+    payload: &PulseConsultationRequestPayload,
+) -> ConsultationPacket {
+    let assignment = derive_worker_assignment(state);
+    let worker_snapshot = build_overseer_worker_snapshot(cfg, state);
+    let worker_status = map_lifecycle_to_worker_status(&state.lifecycle);
+    let active_summary = state
+        .snippet
+        .clone()
+        .or_else(|| payload.packet.task_context.focus_summary.clone())
+        .or_else(|| {
+            assignment
+                .task_id
+                .clone()
+                .map(|task_id| format!("active task {task_id}"))
+        })
+        .unwrap_or_else(|| "current worker context available".to_string());
+
+    ConsultationPacket {
+        schema_version: 1,
+        packet_id: format!(
+            "consult-response:{}:{}",
+            payload.consultation_id, cfg.agent_key
+        ),
+        kind: payload.packet.kind,
+        identity: ConsultationIdentity {
+            session_id: cfg.session_id.clone(),
+            agent_id: cfg.agent_key.clone(),
+            pane_id: Some(cfg.pane_id.clone()),
+            conversation_id: None,
+            role: Some("peer_worker".to_string()),
+        },
+        task_context: ConsultationTaskContext {
+            active_tag: assignment.tag,
+            task_ids: assignment.task_id.into_iter().collect(),
+            focus_summary: Some(active_summary.clone()),
+        },
+        current_plan: payload
+            .packet
+            .current_plan
+            .iter()
+            .take(3)
+            .cloned()
+            .collect(),
+        summary: Some(format!(
+            "{} responding to {:?} consult: {}",
+            cfg.agent_label, payload.packet.kind, active_summary
+        )),
+        blockers: if matches!(
+            worker_status,
+            WorkerStatus::Blocked | WorkerStatus::NeedsInput
+        ) {
+            vec![ConsultationBlocker {
+                summary: worker_snapshot
+                    .blocker
+                    .or_else(|| state.snippet.clone())
+                    .unwrap_or_else(|| "worker is blocked pending input".to_string()),
+                severity: Some("warn".to_string()),
+                kind: Some("worker_status".to_string()),
+                evidence_refs: vec!["worker_snapshot.blocker".to_string()],
+            }]
+        } else {
+            Vec::new()
+        },
+        checkpoint: None,
+        artifact_refs: Vec::new(),
+        evidence_refs: consultation_response_evidence_refs(cfg, state, payload),
+        freshness: ConsultationFreshness {
+            packet_generated_at: Some(Utc::now().to_rfc3339()),
+            source_updated_at: state
+                .updated_at_ms
+                .map(|ms| {
+                    Utc.timestamp_millis_opt(ms)
+                        .single()
+                        .map(|dt| dt.to_rfc3339())
+                })
+                .flatten(),
+            stale_after_ms: worker_snapshot.stale_after_ms,
+            source_status: ConsultationSourceStatus::Complete,
+            degraded_inputs: Vec::new(),
+        },
+        confidence: ConsultationConfidence {
+            overall_bps: Some(
+                if matches!(
+                    worker_status,
+                    WorkerStatus::Blocked | WorkerStatus::NeedsInput
+                ) {
+                    550
+                } else {
+                    720
+                },
+            ),
+            rationale: Some(
+                "response synthesized from local worker state and bounded consultation packet"
+                    .to_string(),
+            ),
+        },
+        help_request: None,
+        degraded_reason: None,
+    }
+    .normalize()
+}
+
+fn consultation_response_evidence_refs(
+    cfg: &ClientConfig,
+    state: &PulseState,
+    payload: &PulseConsultationRequestPayload,
+) -> Vec<ConsultationEvidenceRef> {
+    let mut refs = Vec::new();
+    refs.push(ConsultationEvidenceRef {
+        reference: format!("agent:{}", cfg.agent_key),
+        label: Some("responding worker".to_string()),
+        path: None,
+        relation: Some("responding_agent".to_string()),
+    });
+    if let Some(tag) = state
+        .current_tag
+        .as_ref()
+        .map(|value| value.tag.trim())
+        .filter(|v| !v.is_empty())
+    {
+        refs.push(ConsultationEvidenceRef {
+            reference: format!("tag:{tag}"),
+            label: Some("active tag".to_string()),
+            path: None,
+            relation: Some("active_tag".to_string()),
+        });
+    }
+    if let Some(task_id) = derive_worker_assignment(state).task_id {
+        refs.push(ConsultationEvidenceRef {
+            reference: format!("task:{task_id}"),
+            label: Some("active task".to_string()),
+            path: None,
+            relation: Some("active_task".to_string()),
+        });
+    }
+    refs.extend(payload.packet.evidence_refs.iter().take(4).cloned());
+    refs
 }
 
 fn build_pulse_command_response(
@@ -4331,6 +6800,185 @@ fn build_pulse_command_response(
                 finalize.updates,
             ))
         }
+        "mind_compaction_rebuild" => {
+            if let Err(error) = ensure_target_matches(cfg, payload.target_agent_id.as_deref()) {
+                return Some(command_result(
+                    cfg,
+                    envelope,
+                    &command,
+                    "error",
+                    Some("target mismatch".to_string()),
+                    Some(error),
+                    false,
+                    Vec::new(),
+                ));
+            }
+            let Some(runtime) = mind_runtime.as_deref_mut() else {
+                return Some(command_result(
+                    cfg,
+                    envelope,
+                    &command,
+                    "error",
+                    Some("mind runtime unavailable".to_string()),
+                    Some(PulseCommandError {
+                        code: "mind_unavailable".to_string(),
+                        message: "mind runtime unavailable".to_string(),
+                    }),
+                    false,
+                    Vec::new(),
+                ));
+            };
+
+            let reason = payload
+                .args
+                .as_object()
+                .and_then(|args| args.get("reason"))
+                .and_then(serde_json::Value::as_str)
+                .map(str::trim)
+                .filter(|reason| !reason.is_empty())
+                .unwrap_or("operator compaction rebuild request");
+
+            let checkpoint = match runtime
+                .store
+                .latest_compaction_checkpoint_for_session(&cfg.session_id)
+            {
+                Ok(Some(checkpoint)) => checkpoint,
+                Ok(None) => {
+                    return Some(command_result(
+                        cfg,
+                        envelope,
+                        &command,
+                        "error",
+                        Some("no compaction checkpoint found".to_string()),
+                        Some(PulseCommandError {
+                            code: "mind_compaction_checkpoint_missing".to_string(),
+                            message: "no compaction checkpoint found for session".to_string(),
+                        }),
+                        false,
+                        vec![PulseUpdate::MindObserverEvent(mind_observer_event(
+                            MindObserverFeedStatus::Error,
+                            MindObserverFeedTriggerKind::ManualShortcut,
+                            Some(
+                                "compaction rebuild failed: no compaction checkpoint found"
+                                    .to_string(),
+                            ),
+                        ))],
+                    ));
+                }
+                Err(err) => {
+                    return Some(command_result(
+                        cfg,
+                        envelope,
+                        &command,
+                        "error",
+                        Some("compaction checkpoint lookup failed".to_string()),
+                        Some(PulseCommandError {
+                            code: "mind_compaction_checkpoint_lookup_failed".to_string(),
+                            message: err.to_string(),
+                        }),
+                        false,
+                        vec![PulseUpdate::MindObserverEvent(mind_observer_event(
+                            MindObserverFeedStatus::Error,
+                            MindObserverFeedTriggerKind::ManualShortcut,
+                            Some(format!("compaction rebuild failed: {err}")),
+                        ))],
+                    ));
+                }
+            };
+
+            match rebuild_compaction_t0_slice_from_checkpoint(&runtime.store, &checkpoint) {
+                Ok(Some(slice)) => {
+                    if let Err(err) = runtime.store.upsert_compaction_t0_slice(&slice) {
+                        return Some(command_result(
+                            cfg,
+                            envelope,
+                            &command,
+                            "error",
+                            Some("compaction rebuild failed".to_string()),
+                            Some(PulseCommandError {
+                                code: "mind_compaction_rebuild_failed".to_string(),
+                                message: err.to_string(),
+                            }),
+                            false,
+                            vec![PulseUpdate::MindObserverEvent(mind_observer_event(
+                                MindObserverFeedStatus::Error,
+                                MindObserverFeedTriggerKind::ManualShortcut,
+                                Some(format!("compaction rebuild failed: {err}")),
+                            ))],
+                        ));
+                    }
+                    let mut updates = runtime.enqueue_and_run(
+                        cfg,
+                        &checkpoint.conversation_id,
+                        MindObserverFeedTriggerKind::Compaction,
+                        Some(format!(
+                            "compaction rebuild requested ({reason}): {}",
+                            checkpoint.checkpoint_id
+                        )),
+                    );
+                    updates.insert(
+                        0,
+                        PulseUpdate::MindObserverEvent(mind_observer_event(
+                            MindObserverFeedStatus::Success,
+                            MindObserverFeedTriggerKind::ManualShortcut,
+                            Some(format!(
+                                "compaction slice rebuilt: {}",
+                                checkpoint.checkpoint_id
+                            )),
+                        )),
+                    );
+                    Some(command_result(
+                        cfg,
+                        envelope,
+                        &command,
+                        "ok",
+                        Some(format!(
+                            "compaction rebuilt and requeued: {}",
+                            checkpoint.checkpoint_id
+                        )),
+                        None,
+                        false,
+                        updates,
+                    ))
+                }
+                Ok(None) => Some(command_result(
+                    cfg,
+                    envelope,
+                    &command,
+                    "error",
+                    Some("compaction rebuild unavailable".to_string()),
+                    Some(PulseCommandError {
+                        code: "mind_compaction_rebuild_unavailable".to_string(),
+                        message: "checkpoint marker provenance unavailable for rebuild".to_string(),
+                    }),
+                    false,
+                    vec![PulseUpdate::MindObserverEvent(mind_observer_event(
+                        MindObserverFeedStatus::Error,
+                        MindObserverFeedTriggerKind::ManualShortcut,
+                        Some(
+                            "compaction rebuild unavailable: marker provenance missing".to_string(),
+                        ),
+                    ))],
+                )),
+                Err(err) => Some(command_result(
+                    cfg,
+                    envelope,
+                    &command,
+                    "error",
+                    Some("compaction rebuild failed".to_string()),
+                    Some(PulseCommandError {
+                        code: "mind_compaction_rebuild_failed".to_string(),
+                        message: err.clone(),
+                    }),
+                    false,
+                    vec![PulseUpdate::MindObserverEvent(mind_observer_event(
+                        MindObserverFeedStatus::Error,
+                        MindObserverFeedTriggerKind::ManualShortcut,
+                        Some(format!("compaction rebuild failed: {err}")),
+                    ))],
+                )),
+            }
+        }
         "mind_t3_requeue" => {
             if let Err(error) = ensure_target_matches(cfg, payload.target_agent_id.as_deref()) {
                 return Some(command_result(
@@ -4504,7 +7152,202 @@ fn build_pulse_command_response(
                 )),
             }
         }
-        "insight_status" | "insight_dispatch" | "insight_bootstrap" => {
+        "mind_context_pack" => {
+            if let Err(error) = ensure_target_matches(cfg, payload.target_agent_id.as_deref()) {
+                return Some(command_result(
+                    cfg,
+                    envelope,
+                    &command,
+                    "error",
+                    Some("target mismatch".to_string()),
+                    Some(error),
+                    false,
+                    Vec::new(),
+                ));
+            }
+
+            let mode = payload
+                .args
+                .as_object()
+                .and_then(|args| args.get("mode"))
+                .and_then(serde_json::Value::as_str)
+                .map(|value| match value.trim().to_ascii_lowercase().as_str() {
+                    "startup" => MindContextPackMode::Startup,
+                    "tag_switch" | "tag-switch" => MindContextPackMode::TagSwitch,
+                    "resume" => MindContextPackMode::Resume,
+                    "handoff" => MindContextPackMode::Handoff,
+                    "dispatch" => MindContextPackMode::Dispatch,
+                    _ => MindContextPackMode::Handoff,
+                })
+                .unwrap_or(MindContextPackMode::Handoff);
+            let profile = if payload
+                .args
+                .as_object()
+                .and_then(|args| args.get("detail"))
+                .and_then(serde_json::Value::as_bool)
+                .unwrap_or(false)
+            {
+                MindContextPackProfile::Expanded
+            } else {
+                MindContextPackProfile::Compact
+            };
+            let active_tag = payload
+                .args
+                .as_object()
+                .and_then(|args| args.get("active_tag"))
+                .and_then(serde_json::Value::as_str)
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .map(|value| value.to_string());
+            let role = payload
+                .args
+                .as_object()
+                .and_then(|args| args.get("role"))
+                .and_then(serde_json::Value::as_str)
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .map(|value| value.to_string());
+            let reason = payload
+                .args
+                .as_object()
+                .and_then(|args| args.get("reason"))
+                .and_then(serde_json::Value::as_str)
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .map(|value| value.to_string());
+
+            match compile_mind_context_pack(
+                cfg,
+                mind_runtime.as_deref(),
+                MindContextPackRequest {
+                    mode,
+                    profile,
+                    active_tag,
+                    reason,
+                    role,
+                },
+                None,
+            ) {
+                Ok(pack) => Some(command_result(
+                    cfg,
+                    envelope,
+                    &command,
+                    "ok",
+                    serde_json::to_string(&pack).ok(),
+                    None,
+                    false,
+                    Vec::new(),
+                )),
+                Err(err) => Some(command_result(
+                    cfg,
+                    envelope,
+                    &command,
+                    "error",
+                    Some("mind context-pack unavailable".to_string()),
+                    Some(PulseCommandError {
+                        code: "mind_context_pack_unavailable".to_string(),
+                        message: err,
+                    }),
+                    false,
+                    Vec::new(),
+                )),
+            }
+        }
+        "mind_provenance_query" => {
+            if let Err(error) = ensure_target_matches(cfg, payload.target_agent_id.as_deref()) {
+                return Some(command_result(
+                    cfg,
+                    envelope,
+                    &command,
+                    "error",
+                    Some("target mismatch".to_string()),
+                    Some(error),
+                    false,
+                    Vec::new(),
+                ));
+            }
+            let Some(runtime) = mind_runtime.as_deref_mut() else {
+                return Some(command_result(
+                    cfg,
+                    envelope,
+                    &command,
+                    "error",
+                    Some("mind runtime unavailable".to_string()),
+                    Some(PulseCommandError {
+                        code: "mind_unavailable".to_string(),
+                        message: "mind runtime unavailable".to_string(),
+                    }),
+                    false,
+                    Vec::new(),
+                ));
+            };
+
+            let parsed = MindProvenanceCommand::parse(&command, payload.args.clone());
+            let export = match parsed {
+                Ok(MindProvenanceCommand::Query(args)) => {
+                    match compile_mind_provenance_export(&runtime.store, args) {
+                        Ok(export) => export,
+                        Err(err) => {
+                            return Some(command_result(
+                                cfg,
+                                envelope,
+                                &command,
+                                "error",
+                                Some("mind provenance unavailable".to_string()),
+                                Some(PulseCommandError {
+                                    code: "mind_provenance_unavailable".to_string(),
+                                    message: err,
+                                }),
+                                false,
+                                Vec::new(),
+                            ))
+                        }
+                    }
+                }
+                Err(err) => {
+                    return Some(command_result(
+                        cfg,
+                        envelope,
+                        &command,
+                        "error",
+                        Some("invalid provenance command payload".to_string()),
+                        Some(PulseCommandError {
+                            code: "invalid_args".to_string(),
+                            message: err,
+                        }),
+                        false,
+                        Vec::new(),
+                    ))
+                }
+            };
+
+            match serde_json::to_string(&export) {
+                Ok(json) => Some(command_result(
+                    cfg,
+                    envelope,
+                    &command,
+                    "ok",
+                    Some(json),
+                    None,
+                    false,
+                    Vec::new(),
+                )),
+                Err(err) => Some(command_result(
+                    cfg,
+                    envelope,
+                    &command,
+                    "error",
+                    Some("failed to serialize provenance command result".to_string()),
+                    Some(PulseCommandError {
+                        code: "serialization_failed".to_string(),
+                        message: err.to_string(),
+                    }),
+                    false,
+                    Vec::new(),
+                )),
+            }
+        }
+        "insight_status" | "insight_dispatch" | "insight_bootstrap" | "insight_retrieve" => {
             if let Err(error) = ensure_target_matches(cfg, payload.target_agent_id.as_deref()) {
                 return Some(command_result(
                     cfg,
@@ -4543,6 +7386,9 @@ fn build_pulse_command_response(
                 }
                 Ok(InsightCommand::InsightBootstrap(args)) => {
                     serde_json::to_string(&runtime.insight_bootstrap(args))
+                }
+                Ok(InsightCommand::InsightRetrieve(args)) => {
+                    serde_json::to_string(&runtime.insight_retrieve(args))
                 }
                 Err(err) => {
                     return Some(command_result(
@@ -7106,6 +9952,44 @@ mod tests {
         }
     }
 
+    fn consultation_envelope_for_test(
+        cfg: &ClientConfig,
+        request_id: &str,
+        requester: &str,
+    ) -> PulseWireEnvelope {
+        PulseWireEnvelope {
+            version: ProtocolVersion(CURRENT_PROTOCOL_VERSION),
+            session_id: cfg.session_id.clone(),
+            sender_id: "aoc-mission-control".to_string(),
+            timestamp: Utc::now().to_rfc3339(),
+            request_id: Some(request_id.to_string()),
+            msg: WireMsg::ConsultationRequest(PulseConsultationRequestPayload {
+                consultation_id: request_id.to_string(),
+                requesting_agent_id: requester.to_string(),
+                target_agent_id: cfg.agent_key.clone(),
+                packet: ConsultationPacket {
+                    packet_id: format!("packet-{request_id}"),
+                    kind: ConsultationPacketKind::Review,
+                    identity: ConsultationIdentity {
+                        session_id: cfg.session_id.clone(),
+                        agent_id: requester.to_string(),
+                        pane_id: Some("24".to_string()),
+                        conversation_id: None,
+                        role: Some("builder".to_string()),
+                    },
+                    summary: Some("Review the migration ordering".to_string()),
+                    evidence_refs: vec![ConsultationEvidenceRef {
+                        reference: "task:160".to_string(),
+                        label: Some("worker task".to_string()),
+                        path: None,
+                        relation: Some("request_context".to_string()),
+                    }],
+                    ..Default::default()
+                },
+            }),
+        }
+    }
+
     fn seed_insight_assets(root: &Path) {
         std::fs::create_dir_all(root.join(".pi/agents")).expect("create agents dir");
         std::fs::create_dir_all(root.join("docs")).expect("create docs dir");
@@ -7139,6 +10023,223 @@ mod tests {
             "pub fn runtime() {}",
         )
         .expect("write code");
+    }
+
+    fn test_context_pack_manifest(active_tag: Option<&str>) -> SessionExportManifest {
+        SessionExportManifest {
+            schema_version: 1,
+            session_id: "session-test".to_string(),
+            pane_id: "1".to_string(),
+            project_root: "/repo".to_string(),
+            active_tag: active_tag.map(|value| value.to_string()),
+            conversation_ids: vec!["conv-1".to_string()],
+            export_dir: "/tmp/context-pack-export".to_string(),
+            t1_count: 1,
+            t2_count: 1,
+            t1_artifact_ids: vec!["t1-art-1".to_string()],
+            t2_artifact_ids: vec!["t2-art-1".to_string()],
+            slice_start_id: "slice-start".to_string(),
+            slice_end_id: "slice-end".to_string(),
+            slice_hash: "slice-hash".to_string(),
+            exported_at: "2026-03-08T18:00:00Z".to_string(),
+            last_artifact_ts: "2026-03-08T18:00:00Z".to_string(),
+            watermark_scope: "project:/repo".to_string(),
+            t3_job_id: "t3-job-1".to_string(),
+            t3_job_inserted: true,
+        }
+    }
+
+    #[test]
+    fn mind_context_pack_compose_is_stable_and_respects_precedence() {
+        let cfg = test_client_with_root("/repo");
+        let overrides = MindContextPackSourceOverrides {
+            aoc_mem: Some("mem-1\nmem-2".to_string()),
+            aoc_stm_current: Some("stm-1".to_string()),
+            handshake_markdown: Some("canon-1".to_string()),
+            latest_export_manifest: Some(test_context_pack_manifest(None)),
+            latest_t2_markdown: Some("t2-1".to_string()),
+            latest_t1_markdown: Some("t1-1".to_string()),
+            ..MindContextPackSourceOverrides::default()
+        };
+
+        let first = compile_mind_context_pack(
+            &cfg,
+            None,
+            MindContextPackRequest {
+                mode: MindContextPackMode::Startup,
+                profile: MindContextPackProfile::Compact,
+                active_tag: None,
+                reason: Some("startup".to_string()),
+                role: None,
+            },
+            Some(&overrides),
+        )
+        .expect("first pack");
+        let second = compile_mind_context_pack(
+            &cfg,
+            None,
+            MindContextPackRequest {
+                mode: MindContextPackMode::Startup,
+                profile: MindContextPackProfile::Compact,
+                active_tag: None,
+                reason: Some("startup".to_string()),
+                role: None,
+            },
+            Some(&overrides),
+        )
+        .expect("second pack");
+
+        assert_eq!(first.mode, MindContextPackMode::Startup);
+        assert_eq!(first.rendered_lines, second.rendered_lines);
+        assert_eq!(
+            first.rendered_lines,
+            vec![
+                "[aoc_mem] AOC memory".to_string(),
+                "mem-1".to_string(),
+                "mem-2".to_string(),
+                "[aoc_stm] AOC short-term memory".to_string(),
+                "stm-1".to_string(),
+                "[t3_handshake] Mind handshake canon".to_string(),
+                "canon-1".to_string(),
+                "[session_t2] Session reflections".to_string(),
+                "t2-1".to_string(),
+                "[session_t1] Session observations".to_string(),
+                "t1-1".to_string(),
+            ]
+        );
+        assert_eq!(first.citations.len(), 5);
+    }
+
+    #[test]
+    fn mind_context_pack_applies_tag_filter_and_expansion() {
+        let cfg = test_client_with_root("/repo");
+        let overrides = MindContextPackSourceOverrides {
+            aoc_mem: Some("mem-1".to_string()),
+            aoc_stm_current: Some("stm-1".to_string()),
+            handshake_markdown: Some("canon-1".to_string()),
+            project_mind_markdown: Some(
+                "## Active canon\n\n### entry-global r1\n- topic: global\nglobal summary\n\n### entry-mind r1\n- topic: mind\nmind summary\n\n### entry-ops r1\n- topic: ops\nops summary\n".to_string(),
+            ),
+            latest_export_manifest: Some(test_context_pack_manifest(Some("mind"))),
+            latest_t2_markdown: Some("t2-mind".to_string()),
+            latest_t1_markdown: Some("t1-mind".to_string()),
+            ..MindContextPackSourceOverrides::default()
+        };
+
+        let pack = compile_mind_context_pack(
+            &cfg,
+            None,
+            MindContextPackRequest {
+                mode: MindContextPackMode::Handoff,
+                profile: MindContextPackProfile::Expanded,
+                active_tag: Some("mind".to_string()),
+                reason: Some("handoff".to_string()),
+                role: None,
+            },
+            Some(&overrides),
+        )
+        .expect("pack");
+
+        let canon_section = pack
+            .sections
+            .iter()
+            .find(|section| section.source_id == "t3_canon")
+            .expect("canon section");
+        assert!(canon_section
+            .lines
+            .iter()
+            .any(|line| line.contains("entry-global")));
+        assert!(canon_section
+            .lines
+            .iter()
+            .any(|line| line.contains("entry-mind")));
+        assert!(!canon_section
+            .lines
+            .iter()
+            .any(|line| line.contains("entry-ops")));
+        assert!(pack
+            .sections
+            .iter()
+            .any(|section| section.source_id == "session_t2"));
+
+        let filtered = compile_mind_context_pack(
+            &cfg,
+            None,
+            MindContextPackRequest {
+                mode: MindContextPackMode::Handoff,
+                profile: MindContextPackProfile::Expanded,
+                active_tag: Some("ops".to_string()),
+                reason: Some("handoff".to_string()),
+                role: None,
+            },
+            Some(&overrides),
+        )
+        .expect("filtered pack");
+        assert!(!filtered
+            .sections
+            .iter()
+            .any(|section| section.source_id == "session_t2" || section.source_id == "session_t1"));
+    }
+
+    #[test]
+    fn pulse_mind_context_pack_command_supports_dispatch_role_slice() {
+        let test_root = std::env::temp_dir().join(format!(
+            "aoc-mind-context-pack-test-{}-{}",
+            std::process::id(),
+            Utc::now().timestamp_nanos_opt().unwrap_or_default()
+        ));
+        std::fs::create_dir_all(&test_root).expect("create test root");
+        let cfg = test_client_with_root(&test_root.to_string_lossy());
+        let export_root = test_root.join(".aoc/mind/insight/export-a");
+        std::fs::create_dir_all(&export_root).expect("create export root");
+        std::fs::write(export_root.join("t1.md"), "t1-dispatch").expect("write t1 dispatch");
+        std::fs::write(export_root.join("t2.md"), "t2-dispatch").expect("write t2 dispatch");
+        std::fs::create_dir_all(test_root.join(".aoc/mind/t3")).expect("create t3 dir");
+        std::fs::write(
+            test_root.join(".aoc/mind/t3/handshake.md"),
+            "dispatch canon",
+        )
+        .expect("write handshake");
+        let mut manifest = test_context_pack_manifest(Some("mind"));
+        manifest.project_root = test_root.to_string_lossy().to_string();
+        manifest.export_dir = export_root.to_string_lossy().to_string();
+        std::fs::write(
+            export_root.join("manifest.json"),
+            serde_json::to_string(&manifest).expect("manifest json"),
+        )
+        .expect("write manifest");
+
+        let envelope = command_envelope_for_test(
+            &cfg,
+            "req-mind-context-pack",
+            "mind_context_pack",
+            serde_json::json!({
+                "mode": "dispatch",
+                "role": "insight-t1-observer",
+                "active_tag": "mind",
+                "reason": "specialist dispatch",
+                "detail": true
+            }),
+        );
+        let response = build_pulse_command_response(&cfg, &envelope, None).expect("response");
+        let WireMsg::CommandResult(payload) = response.response.msg else {
+            panic!("expected command_result")
+        };
+        assert_eq!(payload.status, "ok");
+        let pack: MindContextPack =
+            serde_json::from_str(payload.message.as_deref().unwrap_or("{}")).expect("pack json");
+        assert_eq!(pack.mode, MindContextPackMode::Dispatch);
+        assert_eq!(pack.role.as_deref(), Some("insight-t1-observer"));
+        assert!(pack
+            .rendered_lines
+            .iter()
+            .any(|line| line.contains("dispatch canon")));
+        assert!(pack
+            .sections
+            .iter()
+            .any(|section| section.source_id == "session_t2"));
+
+        let _ = std::fs::remove_dir_all(&test_root);
     }
 
     #[test]
@@ -7288,6 +10389,7 @@ mod tests {
             snapshot_id: Some("hs:test".to_string()),
             payload_hash: Some("hash:test".to_string()),
             token_estimate: Some(210),
+            context_pack: None,
             queued_at: Utc::now().to_rfc3339(),
         });
 
@@ -7314,6 +10416,76 @@ mod tests {
                 .unwrap_or_default(),
             3
         );
+    }
+
+    #[test]
+    fn pulse_source_includes_consultation_inbox_and_outbox_sections() {
+        let cfg = test_client();
+        let mut state = PulseState::new();
+        state.consultation_inbox.push(ConsultationInboxEntry {
+            consultation_id: "consult-1".to_string(),
+            requesting_agent_id: "session-test::24".to_string(),
+            summary: Some("Review the migration ordering".to_string()),
+            kind: ConsultationPacketKind::Review,
+            received_at: Utc::now().to_rfc3339(),
+        });
+        state.consultation_outbox.push(ConsultationOutboxEntry {
+            consultation_id: "consult-1".to_string(),
+            requesting_agent_id: "session-test::24".to_string(),
+            responding_agent_id: cfg.agent_key.clone(),
+            status: PulseConsultationStatus::Completed,
+            summary: Some("Current worker context available".to_string()),
+            responded_at: Utc::now().to_rfc3339(),
+        });
+
+        let source = build_pulse_source(&cfg, &state);
+        let root = source.as_object().expect("source should be object");
+        assert!(root.contains_key("consultation_inbox"));
+        assert!(root.contains_key("consultation_outbox"));
+    }
+
+    #[test]
+    fn build_pulse_consultation_response_records_inbox_and_outbox() {
+        let cfg = test_client();
+        let mut state = PulseState::new();
+        state.lifecycle = "busy".to_string();
+        state.snippet = Some("validating migration order".to_string());
+        state.current_tag = Some(CurrentTagPayload {
+            tag: "mind".to_string(),
+            task_count: 2,
+            prd_path: None,
+        });
+        let envelope = consultation_envelope_for_test(&cfg, "consult-2", "session-test::24");
+
+        let response =
+            build_pulse_consultation_response(&cfg, &state, &envelope).expect("response expected");
+        let WireMsg::ConsultationResponse(payload) = response.response.msg else {
+            panic!("expected consultation response")
+        };
+        assert_eq!(payload.status, PulseConsultationStatus::Completed);
+        assert_eq!(payload.requesting_agent_id, "session-test::24");
+        assert_eq!(payload.responding_agent_id, cfg.agent_key);
+        assert_eq!(
+            payload
+                .packet
+                .as_ref()
+                .and_then(|packet| packet.identity.role.as_deref()),
+            Some("peer_worker")
+        );
+        assert!(payload
+            .packet
+            .as_ref()
+            .and_then(|packet| packet.summary.as_deref())
+            .unwrap_or_default()
+            .contains("responding to"));
+        assert!(response
+            .pulse_updates
+            .iter()
+            .any(|update| matches!(update, PulseUpdate::ConsultationInbox(_))));
+        assert!(response
+            .pulse_updates
+            .iter()
+            .any(|update| matches!(update, PulseUpdate::ConsultationOutbox(_))));
     }
 
     #[test]
@@ -7414,6 +10586,7 @@ mod tests {
             snapshot_id: Some("hs:1".to_string()),
             payload_hash: Some("hash:abc".to_string()),
             token_estimate: Some(210),
+            context_pack: None,
             queued_at: now.to_rfc3339(),
         };
         let next = MindInjectionPayload {
@@ -7426,6 +10599,7 @@ mod tests {
             snapshot_id: Some("hs:2".to_string()),
             payload_hash: Some("hash:abc".to_string()),
             token_estimate: Some(215),
+            context_pack: None,
             queued_at: now.to_rfc3339(),
         };
 
@@ -7451,6 +10625,7 @@ mod tests {
             snapshot_id: Some("hs:1".to_string()),
             payload_hash: Some("hash:one".to_string()),
             token_estimate: Some(200),
+            context_pack: None,
             queued_at: (now - chrono::Duration::milliseconds(200)).to_rfc3339(),
         };
         let next = MindInjectionPayload {
@@ -7463,6 +10638,7 @@ mod tests {
             snapshot_id: Some("hs:2".to_string()),
             payload_hash: Some("hash:two".to_string()),
             token_estimate: Some(220),
+            context_pack: None,
             queued_at: now.to_rfc3339(),
         };
 
@@ -7483,6 +10659,7 @@ mod tests {
             snapshot_id: Some("hs:2".to_string()),
             payload_hash: Some("hash:two".to_string()),
             token_estimate: Some(220),
+            context_pack: None,
             queued_at: now.to_rfc3339(),
         };
 
@@ -7594,6 +10771,15 @@ mod tests {
             Utc::now().timestamp_nanos_opt().unwrap_or_default()
         ));
         std::fs::create_dir_all(&test_root).expect("create test root");
+        let git_init = std::process::Command::new("git")
+            .arg("init")
+            .arg(&test_root)
+            .status()
+            .expect("git init");
+        assert!(git_init.success(), "git init should succeed");
+        std::fs::write(test_root.join("trail.txt"), "new compaction trail\n")
+            .expect("write untracked trail file");
+
         let cfg = test_client_with_root(&test_root.to_string_lossy());
         let mut runtime = MindRuntime::new(&cfg).expect("mind runtime");
 
@@ -7657,6 +10843,55 @@ mod tests {
         assert_eq!(checkpoint.first_kept_entry_id.as_deref(), Some("entry-42"));
         assert_eq!(checkpoint.tokens_before, Some(12345));
         assert_eq!(checkpoint.trigger_source, "pi_compact");
+
+        let slice = runtime
+            .store
+            .latest_compaction_t0_slice_for_conversation("conv-compact")
+            .expect("load compaction slice")
+            .expect("compaction slice exists");
+        assert_eq!(slice.compaction_entry_id.as_deref(), Some("compact-1"));
+        assert_eq!(
+            slice.checkpoint_id.as_deref(),
+            Some(checkpoint.checkpoint_id.as_str())
+        );
+        assert!(slice.read_files.is_empty());
+        assert!(slice.modified_files.iter().any(|path| path == "trail.txt"));
+
+        let t1_artifacts = runtime
+            .store
+            .artifacts_for_conversation("conv-compact")
+            .expect("load artifacts")
+            .into_iter()
+            .filter(|artifact| artifact.kind == "t1")
+            .collect::<Vec<_>>();
+        assert!(
+            !t1_artifacts.is_empty(),
+            "expected a t1 artifact after compaction"
+        );
+        assert!(t1_artifacts[0]
+            .trace_ids
+            .iter()
+            .any(|trace_id| trace_id == &slice.slice_id));
+        let linked_artifacts = runtime
+            .store
+            .artifacts_with_trace_id("conv-compact", &slice.slice_id)
+            .expect("lookup artifacts by slice trace");
+        assert!(linked_artifacts
+            .iter()
+            .any(|artifact| artifact.artifact_id == t1_artifacts[0].artifact_id));
+        let links = runtime
+            .store
+            .artifact_file_links(&t1_artifacts[0].artifact_id)
+            .expect("load artifact file links");
+        assert!(
+            links.iter().any(|link| {
+                link.path == "trail.txt"
+                    && link.relation == "modified"
+                    && link.source == "pi_compaction_git_diff"
+                    && link.untracked
+            }),
+            "expected compaction trail file link on t1 artifact"
+        );
 
         let has_compaction_queue = command.pulse_updates.iter().any(|update| {
             matches!(
@@ -7767,6 +11002,89 @@ mod tests {
             duplicate_reason_seen,
             "expected observer updates for duplicate checkpoint command"
         );
+
+        let _ = std::fs::remove_dir_all(test_root);
+    }
+
+    #[test]
+    fn pulse_mind_compaction_checkpoint_slice_rebuild_is_deterministic_from_checkpoint_marker() {
+        let test_root = std::env::temp_dir().join(format!(
+            "aoc-mind-compact-rebuild-test-{}-{}",
+            std::process::id(),
+            Utc::now().timestamp_nanos_opt().unwrap_or_default()
+        ));
+        std::fs::create_dir_all(&test_root).expect("create test root");
+        let cfg = test_client_with_root(&test_root.to_string_lossy());
+        let mut runtime = MindRuntime::new(&cfg).expect("mind runtime");
+
+        std::process::Command::new("git")
+            .arg("init")
+            .current_dir(&test_root)
+            .output()
+            .expect("git init");
+        std::fs::write(test_root.join("trail.txt"), "changed\n").expect("write trail file");
+
+        let checkpoint = command_envelope_for_test(
+            &cfg,
+            "req-mind-compact-rebuild",
+            "mind_compaction_checkpoint",
+            serde_json::json!({
+                "conversation_id": "conv-compact-rebuild",
+                "reason": "pi compaction",
+                "summary": "Compacted earlier work into a durable summary.",
+                "tokens_before": 555,
+                "first_kept_entry_id": "entry-99",
+                "compaction_entry_id": "compact-rebuild",
+                "from_extension": true
+            }),
+        );
+
+        build_pulse_command_response(&cfg, &checkpoint, Some(&mut runtime))
+            .expect("checkpoint response");
+
+        let stored_checkpoint = runtime
+            .store
+            .latest_compaction_checkpoint_for_conversation("conv-compact-rebuild")
+            .expect("load checkpoint")
+            .expect("checkpoint exists");
+        let stored_slice = runtime
+            .store
+            .compaction_t0_slice_for_checkpoint(&stored_checkpoint.checkpoint_id)
+            .expect("slice by checkpoint")
+            .expect("stored slice exists");
+        let rebuilt =
+            rebuild_compaction_t0_slice_from_checkpoint(&runtime.store, &stored_checkpoint)
+                .expect("rebuild call")
+                .expect("rebuilt slice exists");
+
+        assert_eq!(rebuilt.slice_id, stored_slice.slice_id);
+        assert_eq!(rebuilt.slice_hash, stored_slice.slice_hash);
+        assert_eq!(rebuilt.checkpoint_id, stored_slice.checkpoint_id);
+        assert_eq!(rebuilt.modified_files, stored_slice.modified_files);
+        assert!(rebuilt
+            .modified_files
+            .iter()
+            .any(|path| path == "trail.txt"));
+
+        let marker_event = runtime
+            .store
+            .raw_event_by_id(
+                stored_checkpoint
+                    .marker_event_id
+                    .as_deref()
+                    .expect("marker event id"),
+            )
+            .expect("marker lookup")
+            .expect("marker exists");
+        let marker_modified_files = marker_event
+            .attrs
+            .get("mind_compaction_modified_files")
+            .and_then(serde_json::Value::as_array)
+            .cloned()
+            .unwrap_or_default();
+        assert!(marker_modified_files
+            .iter()
+            .any(|value| value.as_str() == Some("trail.txt")));
 
         let _ = std::fs::remove_dir_all(test_root);
     }
@@ -8052,6 +11370,106 @@ mod tests {
     }
 
     #[test]
+    fn pulse_mind_compaction_rebuild_replays_latest_checkpoint_and_requeues_observer() {
+        let test_root = std::env::temp_dir().join(format!(
+            "aoc-mind-compact-requeue-test-{}-{}",
+            std::process::id(),
+            Utc::now().timestamp_nanos_opt().unwrap_or_default()
+        ));
+        std::fs::create_dir_all(&test_root).expect("create test root");
+        let cfg = test_client_with_root(&test_root.to_string_lossy());
+        let mut runtime = MindRuntime::new(&cfg).expect("mind runtime");
+
+        std::process::Command::new("git")
+            .arg("init")
+            .current_dir(&test_root)
+            .output()
+            .expect("git init");
+        std::fs::write(test_root.join("trail.txt"), "changed\n").expect("write trail file");
+
+        let checkpoint = command_envelope_for_test(
+            &cfg,
+            "req-mind-compact-requeue-seed",
+            "mind_compaction_checkpoint",
+            serde_json::json!({
+                "conversation_id": "conv-compact-requeue",
+                "reason": "pi compaction",
+                "summary": "Compacted earlier work into a durable summary.",
+                "tokens_before": 777,
+                "first_kept_entry_id": "entry-101",
+                "compaction_entry_id": "compact-requeue",
+                "from_extension": true
+            }),
+        );
+        build_pulse_command_response(&cfg, &checkpoint, Some(&mut runtime))
+            .expect("seed checkpoint response");
+
+        let rebuild = command_envelope_for_test(
+            &cfg,
+            "req-mind-compact-requeue",
+            "mind_compaction_rebuild",
+            serde_json::json!({"reason": "operator compaction rebuild"}),
+        );
+        let command = build_pulse_command_response(&cfg, &rebuild, Some(&mut runtime))
+            .expect("rebuild response");
+
+        let WireMsg::CommandResult(payload) = &command.response.msg else {
+            panic!("expected command result");
+        };
+        assert_eq!(payload.status, "ok");
+        assert!(payload
+            .message
+            .as_deref()
+            .unwrap_or_default()
+            .contains("compaction rebuilt and requeued"));
+
+        let checkpoint = runtime
+            .store
+            .latest_compaction_checkpoint_for_conversation("conv-compact-requeue")
+            .expect("load checkpoint")
+            .expect("checkpoint exists");
+        let rebuilt_slice = runtime
+            .store
+            .compaction_t0_slice_for_checkpoint(&checkpoint.checkpoint_id)
+            .expect("slice by checkpoint")
+            .expect("slice exists after rebuild");
+        assert_eq!(
+            rebuilt_slice.checkpoint_id.as_deref(),
+            Some(checkpoint.checkpoint_id.as_str())
+        );
+        assert!(rebuilt_slice
+            .modified_files
+            .iter()
+            .any(|path| path == "trail.txt"));
+
+        let has_manual_success = command.pulse_updates.iter().any(|update| {
+            matches!(
+                update,
+                PulseUpdate::MindObserverEvent(event)
+                    if event.trigger == MindObserverFeedTriggerKind::ManualShortcut
+                        && event.status == MindObserverFeedStatus::Success
+                        && event.reason.as_deref().unwrap_or_default().contains("compaction slice rebuilt")
+            )
+        });
+        assert!(
+            has_manual_success,
+            "expected manual compaction rebuild success event"
+        );
+
+        let has_compaction_queue = command.pulse_updates.iter().any(|update| {
+            matches!(
+                update,
+                PulseUpdate::MindObserverEvent(event)
+                    if event.trigger == MindObserverFeedTriggerKind::Compaction
+                        && event.status == MindObserverFeedStatus::Queued
+            )
+        });
+        assert!(has_compaction_queue, "expected compaction requeue event");
+
+        let _ = std::fs::remove_dir_all(test_root);
+    }
+
+    #[test]
     fn pulse_mind_t3_requeue_reuses_latest_export_manifest() {
         let test_root = std::env::temp_dir().join(format!(
             "aoc-mind-requeue-test-{}-{}",
@@ -8130,6 +11548,98 @@ mod tests {
                 .expect("pending t3 jobs")
                 >= 1
         );
+
+        let _ = std::fs::remove_dir_all(test_root);
+    }
+
+    #[test]
+    fn pulse_mind_compaction_rebuild_reports_unavailable_without_marker_provenance() {
+        let test_root = std::env::temp_dir().join(format!(
+            "aoc-mind-compact-rebuild-missing-provenance-test-{}-{}",
+            std::process::id(),
+            Utc::now().timestamp_nanos_opt().unwrap_or_default()
+        ));
+        std::fs::create_dir_all(&test_root).expect("create test root");
+        let cfg = test_client_with_root(&test_root.to_string_lossy());
+        let mut runtime = MindRuntime::new(&cfg).expect("mind runtime");
+
+        let checkpoint = CompactionCheckpoint {
+            checkpoint_id: "cmpchk:conv-missing:compact-1".to_string(),
+            conversation_id: "conv-missing".to_string(),
+            session_id: cfg.session_id.clone(),
+            ts: Utc
+                .with_ymd_and_hms(2026, 3, 1, 12, 0, 0)
+                .single()
+                .expect("ts"),
+            trigger_source: "pi_compact".to_string(),
+            reason: Some("pi compaction".to_string()),
+            summary: Some("checkpoint persisted without marker provenance".to_string()),
+            tokens_before: Some(222),
+            first_kept_entry_id: Some("entry-1".to_string()),
+            compaction_entry_id: Some("compact-1".to_string()),
+            from_extension: true,
+            marker_event_id: None,
+            schema_version: 1,
+            created_at: Utc
+                .with_ymd_and_hms(2026, 3, 1, 12, 0, 0)
+                .single()
+                .expect("ts"),
+            updated_at: Utc
+                .with_ymd_and_hms(2026, 3, 1, 12, 0, 0)
+                .single()
+                .expect("ts"),
+        };
+        runtime
+            .store
+            .upsert_compaction_checkpoint(&checkpoint)
+            .expect("upsert checkpoint");
+
+        let rebuild = command_envelope_for_test(
+            &cfg,
+            "req-mind-compact-rebuild-missing-provenance",
+            "mind_compaction_rebuild",
+            serde_json::json!({"reason": "operator compaction rebuild"}),
+        );
+        let command = build_pulse_command_response(&cfg, &rebuild, Some(&mut runtime))
+            .expect("rebuild response");
+
+        let WireMsg::CommandResult(payload) = command.response.msg else {
+            panic!("expected command result")
+        };
+        assert_eq!(payload.status, "error");
+        assert_eq!(
+            payload.message.as_deref(),
+            Some("compaction rebuild unavailable")
+        );
+        assert_eq!(
+            payload.error.as_ref().map(|error| error.code.as_str()),
+            Some("mind_compaction_rebuild_unavailable")
+        );
+
+        assert!(command.pulse_updates.iter().any(|update| {
+            matches!(
+                update,
+                PulseUpdate::MindObserverEvent(event)
+                    if event.trigger == MindObserverFeedTriggerKind::ManualShortcut
+                        && event.status == MindObserverFeedStatus::Error
+                        && event
+                            .reason
+                            .as_deref()
+                            .unwrap_or_default()
+                            .contains("marker provenance missing")
+            )
+        }));
+
+        assert!(runtime
+            .store
+            .latest_compaction_checkpoint_for_conversation("conv-missing")
+            .expect("lookup checkpoint")
+            .is_some());
+        assert!(runtime
+            .store
+            .compaction_t0_slice_for_checkpoint("cmpchk:conv-missing:compact-1")
+            .expect("lookup slice")
+            .is_none());
 
         let _ = std::fs::remove_dir_all(test_root);
     }
@@ -8313,6 +11823,1112 @@ mod tests {
         assert_eq!(handshake_snapshot.payload_text, handshake);
 
         let _ = std::fs::remove_dir_all(test_root);
+    }
+
+    #[test]
+    fn mind_provenance_graph_projects_lineage_checkpoint_canon_and_handshake() {
+        let store = MindStore::open_in_memory().expect("store");
+        let now = Utc
+            .with_ymd_and_hms(2026, 3, 2, 9, 0, 0)
+            .single()
+            .expect("ts");
+
+        store
+            .insert_raw_event(&RawEvent {
+                event_id: "evt-root".to_string(),
+                conversation_id: "conv-root".to_string(),
+                agent_id: "session-test::24".to_string(),
+                ts: now,
+                body: RawEventBody::Message(MessageEvent {
+                    role: ConversationRole::User,
+                    text: "root conversation".to_string(),
+                }),
+                attrs: canonical_lineage_attrs(&ConversationLineageMetadata {
+                    session_id: "session-a".to_string(),
+                    parent_conversation_id: None,
+                    root_conversation_id: "conv-root".to_string(),
+                }),
+            })
+            .expect("insert root raw event");
+        store
+            .insert_raw_event(&RawEvent {
+                event_id: "evt-child".to_string(),
+                conversation_id: "conv-child".to_string(),
+                agent_id: "session-test::24".to_string(),
+                ts: now + chrono::Duration::seconds(1),
+                body: RawEventBody::Message(MessageEvent {
+                    role: ConversationRole::Assistant,
+                    text: "child conversation".to_string(),
+                }),
+                attrs: canonical_lineage_attrs(&ConversationLineageMetadata {
+                    session_id: "session-a".to_string(),
+                    parent_conversation_id: Some("conv-root".to_string()),
+                    root_conversation_id: "conv-root".to_string(),
+                }),
+            })
+            .expect("insert child raw event");
+
+        store
+            .insert_observation(
+                "obs:1",
+                "conv-child",
+                now + chrono::Duration::seconds(2),
+                "observed planner edits",
+                &["ref:1".to_string()],
+            )
+            .expect("insert observation");
+        store
+            .insert_reflection(
+                "ref:1",
+                "conv-child",
+                now + chrono::Duration::seconds(3),
+                "reflection on planner drift",
+                &[],
+            )
+            .expect("insert reflection");
+        store
+            .upsert_semantic_provenance(&SemanticProvenance {
+                artifact_id: "ref:1".to_string(),
+                stage: SemanticStage::T2Reflector,
+                runtime: SemanticRuntime::Deterministic,
+                provider_name: Some("openai".to_string()),
+                model_id: Some("gpt-5".to_string()),
+                prompt_version: "mind-v2".to_string(),
+                input_hash: "in:1".to_string(),
+                output_hash: Some("out:1".to_string()),
+                latency_ms: Some(240),
+                attempt_count: 1,
+                fallback_used: false,
+                fallback_reason: None,
+                failure_kind: None,
+                created_at: now + chrono::Duration::seconds(4),
+            })
+            .expect("upsert provenance");
+        store
+            .upsert_artifact_file_link(&ArtifactFileLink {
+                artifact_id: "obs:1".to_string(),
+                path: "crates/aoc-agent-wrap-rs/src/main.rs".to_string(),
+                relation: "modified".to_string(),
+                source: "test".to_string(),
+                additions: Some(10),
+                deletions: Some(2),
+                staged: false,
+                untracked: false,
+                created_at: now + chrono::Duration::seconds(5),
+                updated_at: now + chrono::Duration::seconds(5),
+            })
+            .expect("upsert file link");
+        store
+            .upsert_artifact_task_link(
+                &aoc_core::mind_contracts::ArtifactTaskLink::new(
+                    "obs:1".to_string(),
+                    "132.1".to_string(),
+                    aoc_core::mind_contracts::ArtifactTaskRelation::WorkedOn,
+                    9200,
+                    vec!["evt-child".to_string()],
+                    "test".to_string(),
+                    now + chrono::Duration::seconds(5),
+                    None,
+                )
+                .expect("task link"),
+            )
+            .expect("upsert task link");
+
+        let checkpoint = CompactionCheckpoint {
+            checkpoint_id: "cmpchk:conv-child:compact-1".to_string(),
+            conversation_id: "conv-child".to_string(),
+            session_id: "session-a".to_string(),
+            ts: now + chrono::Duration::seconds(6),
+            trigger_source: "pi_compact".to_string(),
+            reason: Some("checkpoint".to_string()),
+            summary: Some("compaction checkpoint".to_string()),
+            tokens_before: Some(1234),
+            first_kept_entry_id: Some("entry-42".to_string()),
+            compaction_entry_id: Some("compact-1".to_string()),
+            from_extension: true,
+            marker_event_id: Some("evt-child".to_string()),
+            schema_version: 1,
+            created_at: now + chrono::Duration::seconds(6),
+            updated_at: now + chrono::Duration::seconds(6),
+        };
+        store
+            .upsert_compaction_checkpoint(&checkpoint)
+            .expect("upsert checkpoint");
+        let slice = build_compaction_t0_slice(
+            &checkpoint.conversation_id,
+            &checkpoint.session_id,
+            checkpoint.ts,
+            &checkpoint.trigger_source,
+            checkpoint.reason.as_deref(),
+            checkpoint.summary.as_deref(),
+            checkpoint.tokens_before,
+            checkpoint.first_kept_entry_id.as_deref(),
+            checkpoint.compaction_entry_id.as_deref(),
+            checkpoint.from_extension,
+            "pi_compaction_checkpoint",
+            &["evt-child".to_string()],
+            &["README.md".to_string()],
+            &["crates/aoc-agent-wrap-rs/src/main.rs".to_string()],
+            Some(&checkpoint.checkpoint_id),
+            "mind-v2",
+        )
+        .expect("build slice");
+        store
+            .upsert_compaction_t0_slice(&slice)
+            .expect("upsert slice");
+
+        store
+            .upsert_canon_entry_revision(
+                "canon:planner",
+                Some("mind"),
+                "Planner guidance",
+                9100,
+                8800,
+                None,
+                &["obs:1".to_string(), "ref:1".to_string()],
+                now + chrono::Duration::seconds(7),
+            )
+            .expect("upsert canon");
+        let scope_key = t3_scope_id_for_project_root("/repo");
+        store
+            .enqueue_t3_backlog_job(
+                "/repo",
+                "session-a",
+                "12",
+                Some("mind"),
+                Some("evt-root"),
+                Some("evt-child"),
+                &["obs:1".to_string(), "ref:1".to_string()],
+                now + chrono::Duration::seconds(8),
+            )
+            .expect("enqueue backlog job");
+        store
+            .advance_project_watermark(
+                &scope_key,
+                Some(now + chrono::Duration::seconds(3)),
+                Some("ref:1"),
+                now + chrono::Duration::seconds(8),
+            )
+            .expect("advance watermark");
+        store
+            .upsert_handshake_snapshot(
+                "project",
+                &scope_key,
+                "# Mind Handshake Baseline\n\nPlanner guidance",
+                "hash:handshake",
+                180,
+                now + chrono::Duration::seconds(9),
+            )
+            .expect("upsert handshake");
+
+        let result = compile_mind_provenance_graph(
+            &store,
+            &MindProvenanceQueryRequest {
+                project_root: Some("/repo".to_string()),
+                conversation_id: Some("conv-child".to_string()),
+                active_tag: Some("mind".to_string()),
+                max_nodes: 64,
+                max_edges: 128,
+                ..Default::default()
+            },
+        )
+        .expect("compile provenance graph");
+
+        assert_eq!(result.status, "ok");
+        assert_provenance_graph_integrity(&result);
+        assert!(result
+            .nodes
+            .iter()
+            .any(|node| node.node_id == "conversation:conv-child"));
+        assert!(result
+            .nodes
+            .iter()
+            .any(|node| node.node_id == "artifact:obs:1"));
+        assert!(result
+            .nodes
+            .iter()
+            .any(|node| node.node_id == "checkpoint:cmpchk:conv-child:compact-1"));
+        assert!(result
+            .nodes
+            .iter()
+            .any(|node| node.node_id.starts_with("canon:canon:planner#r1")));
+        assert!(result
+            .nodes
+            .iter()
+            .any(|node| node.node_id.starts_with("handshake:hs:")));
+        assert!(result
+            .nodes
+            .iter()
+            .any(|node| node.node_id.starts_with("backlog:t3j:")));
+        assert!(result.edges.iter().any(|edge| {
+            edge.kind == MindProvenanceEdgeKind::ConversationArtifact
+                && edge.from == "conversation:conv-child"
+                && edge.to == "artifact:obs:1"
+        }));
+        assert!(result.edges.iter().any(|edge| {
+            edge.kind == MindProvenanceEdgeKind::CheckpointSlice
+                && edge.from == "checkpoint:cmpchk:conv-child:compact-1"
+                && edge.to.starts_with("slice:")
+        }));
+        assert!(result.edges.iter().any(|edge| {
+            edge.kind == MindProvenanceEdgeKind::CanonEvidence
+                && edge.from == "canon:canon:planner#r1"
+                && edge.to == "artifact:obs:1"
+        }));
+        assert!(result.edges.iter().any(|edge| {
+            edge.kind == MindProvenanceEdgeKind::ScopeBacklogJob
+                && edge.from == format!("scope:{}", scope_key)
+                && edge.to.starts_with("backlog:t3j:")
+        }));
+        assert!(result.edges.iter().any(|edge| {
+            edge.kind == MindProvenanceEdgeKind::BacklogJobArtifact && edge.to == "artifact:obs:1"
+        }));
+        assert!(result.edges.iter().any(|edge| {
+            edge.kind == MindProvenanceEdgeKind::BacklogJobCanon
+                && edge.from.starts_with("backlog:t3j:")
+                && edge.to == "canon:canon:planner#r1"
+        }));
+    }
+
+    #[test]
+    fn mind_provenance_graph_supports_checkpoint_and_canon_seed_queries() {
+        let store = MindStore::open_in_memory().expect("store");
+        let now = Utc
+            .with_ymd_and_hms(2026, 3, 2, 11, 0, 0)
+            .single()
+            .expect("ts");
+
+        store
+            .insert_raw_event(&RawEvent {
+                event_id: "evt-1".to_string(),
+                conversation_id: "conv-1".to_string(),
+                agent_id: "session-y::1".to_string(),
+                ts: now,
+                body: RawEventBody::Message(MessageEvent {
+                    role: ConversationRole::User,
+                    text: "hello".to_string(),
+                }),
+                attrs: canonical_lineage_attrs(&ConversationLineageMetadata {
+                    session_id: "session-y".to_string(),
+                    parent_conversation_id: None,
+                    root_conversation_id: "conv-1".to_string(),
+                }),
+            })
+            .expect("insert raw event");
+        store
+            .insert_observation("obs:seed", "conv-1", now, "note", &[])
+            .expect("insert observation");
+        let checkpoint = CompactionCheckpoint {
+            checkpoint_id: "cmpchk:conv-1:compact-1".to_string(),
+            conversation_id: "conv-1".to_string(),
+            session_id: "session-y".to_string(),
+            ts: now + chrono::Duration::seconds(1),
+            trigger_source: "pi_compact".to_string(),
+            reason: Some("seed checkpoint".to_string()),
+            summary: None,
+            tokens_before: None,
+            first_kept_entry_id: None,
+            compaction_entry_id: Some("compact-1".to_string()),
+            from_extension: true,
+            marker_event_id: Some("evt-1".to_string()),
+            schema_version: 1,
+            created_at: now + chrono::Duration::seconds(1),
+            updated_at: now + chrono::Duration::seconds(1),
+        };
+        store
+            .upsert_compaction_checkpoint(&checkpoint)
+            .expect("upsert checkpoint");
+        store
+            .upsert_canon_entry_revision(
+                "canon:seed",
+                Some("mind"),
+                "Seed canon",
+                9000,
+                9000,
+                None,
+                &["obs:seed".to_string()],
+                now + chrono::Duration::seconds(2),
+            )
+            .expect("upsert canon");
+        store
+            .mark_active_canon_entries_stale(Some("mind"), now + chrono::Duration::seconds(3), &[])
+            .expect("mark stale canon");
+
+        let checkpoint_seed = compile_mind_provenance_graph(
+            &store,
+            &MindProvenanceQueryRequest {
+                checkpoint_id: Some("cmpchk:conv-1:compact-1".to_string()),
+                max_nodes: 16,
+                max_edges: 16,
+                ..Default::default()
+            },
+        )
+        .expect("checkpoint seed compile");
+        assert_provenance_graph_integrity(&checkpoint_seed);
+        assert!(checkpoint_seed
+            .nodes
+            .iter()
+            .any(|node| node.node_id == "checkpoint:cmpchk:conv-1:compact-1"));
+        assert!(checkpoint_seed
+            .nodes
+            .iter()
+            .any(|node| node.node_id == "conversation:conv-1"));
+
+        let canon_seed = compile_mind_provenance_graph(
+            &store,
+            &MindProvenanceQueryRequest {
+                canon_entry_id: Some("canon:seed".to_string()),
+                include_stale_canon: true,
+                max_nodes: 16,
+                max_edges: 16,
+                ..Default::default()
+            },
+        )
+        .expect("canon seed compile");
+        assert_provenance_graph_integrity(&canon_seed);
+        assert!(canon_seed
+            .nodes
+            .iter()
+            .any(|node| node.node_id == "canon:canon:seed#r1"));
+    }
+
+    fn assert_provenance_graph_integrity(result: &MindProvenanceQueryResult) {
+        let node_ids = result
+            .nodes
+            .iter()
+            .map(|node| node.node_id.clone())
+            .collect::<Vec<_>>();
+        let unique_node_ids = node_ids.iter().cloned().collect::<HashSet<_>>();
+        assert_eq!(
+            unique_node_ids.len(),
+            node_ids.len(),
+            "node ids must be unique"
+        );
+
+        let edge_ids = result
+            .edges
+            .iter()
+            .map(|edge| edge.edge_id.clone())
+            .collect::<Vec<_>>();
+        let unique_edge_ids = edge_ids.iter().cloned().collect::<HashSet<_>>();
+        assert_eq!(
+            unique_edge_ids.len(),
+            edge_ids.len(),
+            "edge ids must be unique"
+        );
+
+        let sorted_node_ids = {
+            let mut ids = node_ids.clone();
+            ids.sort();
+            ids
+        };
+        assert_eq!(
+            node_ids, sorted_node_ids,
+            "nodes must be deterministically sorted"
+        );
+
+        let sorted_edge_ids = {
+            let mut ids = edge_ids.clone();
+            ids.sort();
+            ids
+        };
+        assert_eq!(
+            edge_ids, sorted_edge_ids,
+            "edges must be deterministically sorted"
+        );
+
+        for edge in &result.edges {
+            assert!(
+                unique_node_ids.contains(&edge.from),
+                "edge from endpoint missing: {}",
+                edge.from
+            );
+            assert!(
+                unique_node_ids.contains(&edge.to),
+                "edge to endpoint missing: {}",
+                edge.to
+            );
+        }
+    }
+
+    #[test]
+    fn mind_provenance_graph_is_deterministic_under_same_seed() {
+        let store = MindStore::open_in_memory().expect("store");
+        let now = Utc
+            .with_ymd_and_hms(2026, 3, 2, 10, 0, 0)
+            .single()
+            .expect("ts");
+
+        store
+            .insert_raw_event(&RawEvent {
+                event_id: "evt-1".to_string(),
+                conversation_id: "conv-1".to_string(),
+                agent_id: "session-z::1".to_string(),
+                ts: now,
+                body: RawEventBody::Message(MessageEvent {
+                    role: ConversationRole::User,
+                    text: "hello".to_string(),
+                }),
+                attrs: canonical_lineage_attrs(&ConversationLineageMetadata {
+                    session_id: "session-z".to_string(),
+                    parent_conversation_id: None,
+                    root_conversation_id: "conv-1".to_string(),
+                }),
+            })
+            .expect("insert raw event");
+        store
+            .insert_observation("obs:1", "conv-1", now, "note", &[])
+            .expect("insert observation");
+
+        let request = MindProvenanceQueryRequest {
+            session_id: Some("session-z".to_string()),
+            max_nodes: 16,
+            max_edges: 16,
+            ..Default::default()
+        };
+        let first = compile_mind_provenance_graph(&store, &request).expect("first compile");
+        let second = compile_mind_provenance_graph(&store, &request).expect("second compile");
+        assert_provenance_graph_integrity(&first);
+        assert_eq!(first, second);
+    }
+
+    #[test]
+    fn mind_provenance_graph_marks_truncation_and_preserves_valid_edges() {
+        let store = MindStore::open_in_memory().expect("store");
+        let now = Utc
+            .with_ymd_and_hms(2026, 3, 2, 13, 0, 0)
+            .single()
+            .expect("ts");
+
+        store
+            .insert_raw_event(&RawEvent {
+                event_id: "evt-many".to_string(),
+                conversation_id: "conv-many".to_string(),
+                agent_id: "session-many::1".to_string(),
+                ts: now,
+                body: RawEventBody::Message(MessageEvent {
+                    role: ConversationRole::User,
+                    text: "hello".to_string(),
+                }),
+                attrs: canonical_lineage_attrs(&ConversationLineageMetadata {
+                    session_id: "session-many".to_string(),
+                    parent_conversation_id: None,
+                    root_conversation_id: "conv-many".to_string(),
+                }),
+            })
+            .expect("insert raw event");
+
+        for idx in 0..8 {
+            store
+                .insert_observation(
+                    &format!("obs:{idx}"),
+                    "conv-many",
+                    now + chrono::Duration::seconds(idx + 1),
+                    &format!("note {idx}"),
+                    &[],
+                )
+                .expect("insert observation");
+        }
+
+        let result = compile_mind_provenance_graph(
+            &store,
+            &MindProvenanceQueryRequest {
+                session_id: Some("session-many".to_string()),
+                max_nodes: 3,
+                max_edges: 2,
+                ..Default::default()
+            },
+        )
+        .expect("compile truncated graph");
+
+        assert!(result.truncated);
+        assert!(result.nodes.len() <= 3);
+        assert!(result.edges.len() <= 2);
+        assert_provenance_graph_integrity(&result);
+    }
+
+    #[test]
+    fn mind_provenance_export_is_deterministic_and_focuses_seed_nodes() {
+        let store = MindStore::open_in_memory().expect("store");
+        let now = Utc
+            .with_ymd_and_hms(2026, 3, 2, 14, 0, 0)
+            .single()
+            .expect("ts");
+
+        store
+            .insert_raw_event(&RawEvent {
+                event_id: "evt-export".to_string(),
+                conversation_id: "conv-export".to_string(),
+                agent_id: "session-export::1".to_string(),
+                ts: now,
+                body: RawEventBody::Message(MessageEvent {
+                    role: ConversationRole::User,
+                    text: "hello export".to_string(),
+                }),
+                attrs: canonical_lineage_attrs(&ConversationLineageMetadata {
+                    session_id: "session-export".to_string(),
+                    parent_conversation_id: None,
+                    root_conversation_id: "conv-export".to_string(),
+                }),
+            })
+            .expect("insert raw event");
+        store
+            .insert_observation("obs:export", "conv-export", now, "note", &[])
+            .expect("insert observation");
+
+        let request = MindProvenanceQueryRequest {
+            conversation_id: Some("conv-export".to_string()),
+            max_nodes: 16,
+            max_edges: 16,
+            ..Default::default()
+        };
+        let first = compile_mind_provenance_export(&store, request.clone()).expect("first export");
+        let second = compile_mind_provenance_export(&store, request).expect("second export");
+
+        assert_eq!(first, second);
+        assert_eq!(first.graph.status, "ok");
+        assert!(first
+            .mission_control
+            .focus_node_ids
+            .contains(&"conversation:conv-export".to_string()));
+    }
+
+    #[test]
+    fn insight_retrieve_ranks_session_and_project_sources() {
+        let test_root = std::env::temp_dir().join(format!(
+            "aoc-insight-retrieve-test-{}-{}",
+            std::process::id(),
+            Utc::now().timestamp_nanos_opt().unwrap_or_default()
+        ));
+        std::fs::create_dir_all(test_root.join(".aoc/mind/t3")).expect("create t3 dir");
+        let export_root = test_root.join(".aoc/mind/insight/export-a");
+        std::fs::create_dir_all(&export_root).expect("create export dir");
+        std::fs::write(
+            test_root.join(".aoc/mind/t3/project_mind.md"),
+            "# Project Mind Canon\n\n## Active canon\n\n### canon:entry-alpha r1\n- topic: mind\n- evidence_refs: ref:1, ref:2\n\nCanonical planner guidance and canon drift notes\n\n### canon:entry-beta r1\n- topic: mind\n\nUnrelated deployment checklist\n",
+        )
+        .expect("write canon");
+        std::fs::write(
+            export_root.join("t2.md"),
+            "# T2 export\n## art:t2 [conv] (2026-03-01T12:00:00Z)\nSession reflection about planner drift\n",
+        )
+        .expect("write t2");
+        std::fs::write(
+            export_root.join("t1.md"),
+            "# T1 export\n## art:t1 [conv] (2026-03-01T12:00:00Z)\nObserved planner file edits\n",
+        )
+        .expect("write t1");
+        let mut manifest = test_context_pack_manifest(Some("mind"));
+        manifest.project_root = test_root.to_string_lossy().to_string();
+        manifest.export_dir = export_root.to_string_lossy().to_string();
+        std::fs::write(
+            export_root.join("manifest.json"),
+            serde_json::to_string(&manifest).expect("manifest json"),
+        )
+        .expect("write manifest");
+
+        let result = compile_insight_retrieval(
+            &test_root.to_string_lossy(),
+            InsightRetrievalRequest {
+                query: "planner drift".to_string(),
+                scope: InsightRetrievalScope::Auto,
+                mode: InsightRetrievalMode::Brief,
+                active_tag: Some("mind".to_string()),
+                max_results: Some(4),
+            },
+        );
+        assert_eq!(result.status, "ok");
+        assert!(result
+            .hits
+            .iter()
+            .any(|hit| hit.source_id == "session_t2:art:t2"));
+        let canon_hit = result
+            .hits
+            .iter()
+            .find(|hit| hit.source_id == "t3_canon:canon:entry-alpha")
+            .expect("canon alpha hit");
+        assert!(canon_hit
+            .citations
+            .iter()
+            .any(|citation| citation.reference == "ref:1"));
+        assert!(!result.citations.is_empty());
+
+        let _ = std::fs::remove_dir_all(&test_root);
+    }
+
+    #[test]
+    fn insight_retrieve_prefers_matching_canon_entry_over_unrelated_entry() {
+        let test_root = std::env::temp_dir().join(format!(
+            "aoc-insight-retrieve-rank-test-{}-{}",
+            std::process::id(),
+            Utc::now().timestamp_nanos_opt().unwrap_or_default()
+        ));
+        std::fs::create_dir_all(test_root.join(".aoc/mind/t3")).expect("create t3 dir");
+        std::fs::write(
+            test_root.join(".aoc/mind/t3/project_mind.md"),
+            "# Project Mind Canon\n\n## Active canon\n\n### canon:planner r1\n- topic: mind\n- evidence_refs: ref:planner\n\nPlanner drift and retrieval ranking guidance\n\n### canon:deploy r1\n- topic: mind\n- evidence_refs: ref:deploy\n\nDeployment window and release checklist\n\n## Stale canon\n\n### canon:old r1\n- topic: mind\n- evidence_refs: ref:old\n\nOld planner wording\n",
+        )
+        .expect("write canon");
+
+        let result = compile_insight_retrieval(
+            &test_root.to_string_lossy(),
+            InsightRetrievalRequest {
+                query: "planner ranking".to_string(),
+                scope: InsightRetrievalScope::Project,
+                mode: InsightRetrievalMode::Brief,
+                active_tag: Some("mind".to_string()),
+                max_results: Some(2),
+            },
+        );
+        assert_eq!(result.status, "ok");
+        assert_eq!(
+            result.hits.first().map(|hit| hit.source_id.as_str()),
+            Some("t3_canon:canon:planner")
+        );
+        assert!(result
+            .hits
+            .iter()
+            .all(|hit| !hit.source_id.ends_with("canon:old") || hit.score <= result.hits[0].score));
+
+        let _ = std::fs::remove_dir_all(&test_root);
+    }
+
+    #[test]
+    fn insight_retrieve_mode_budgets_and_drilldown_refs_are_explicit() {
+        let test_root = std::env::temp_dir().join(format!(
+            "aoc-insight-retrieve-mode-test-{}-{}",
+            std::process::id(),
+            Utc::now().timestamp_nanos_opt().unwrap_or_default()
+        ));
+        std::fs::create_dir_all(test_root.join(".aoc/mind/t3")).expect("create t3 dir");
+        std::fs::write(
+            test_root.join(".aoc/mind/t3/project_mind.md"),
+            "# Project Mind Canon\n\n## Active canon\n\n### canon:planner r1\n- topic: mind\n- evidence_refs: ref:planner, ref:session:t2\n\nPlanner drift guidance\nExtra supporting planner note\n",
+        )
+        .expect("write canon");
+
+        let refs_result = compile_insight_retrieval(
+            &test_root.to_string_lossy(),
+            InsightRetrievalRequest {
+                query: "planner".to_string(),
+                scope: InsightRetrievalScope::Project,
+                mode: InsightRetrievalMode::Refs,
+                active_tag: Some("mind".to_string()),
+                max_results: Some(2),
+            },
+        );
+        assert_eq!(refs_result.status, "ok");
+        assert_eq!(refs_result.line_budget_per_hit, 0);
+        assert!(refs_result.hits.iter().all(|hit| hit.lines.is_empty()));
+        assert!(refs_result.hits[0]
+            .drilldown_refs
+            .iter()
+            .any(|item| item.kind == "canon_entry"));
+        assert!(refs_result.hits[0]
+            .drilldown_refs
+            .iter()
+            .any(|item| item.kind == "evidence_ref"));
+
+        let brief_result = compile_insight_retrieval(
+            &test_root.to_string_lossy(),
+            InsightRetrievalRequest {
+                query: "planner".to_string(),
+                scope: InsightRetrievalScope::Project,
+                mode: InsightRetrievalMode::Brief,
+                active_tag: Some("mind".to_string()),
+                max_results: Some(2),
+            },
+        );
+        assert_eq!(brief_result.line_budget_per_hit, 2);
+        assert!(brief_result.hits[0].lines.len() <= 2);
+
+        let _ = std::fs::remove_dir_all(&test_root);
+    }
+
+    #[test]
+    fn insight_retrieve_refs_mode_is_bounded_and_falls_back_cleanly() {
+        let test_root = std::env::temp_dir().join(format!(
+            "aoc-insight-retrieve-empty-test-{}-{}",
+            std::process::id(),
+            Utc::now().timestamp_nanos_opt().unwrap_or_default()
+        ));
+        std::fs::create_dir_all(&test_root).expect("create root");
+
+        let result = compile_insight_retrieval(
+            &test_root.to_string_lossy(),
+            InsightRetrievalRequest {
+                query: "missing".to_string(),
+                scope: InsightRetrievalScope::Project,
+                mode: InsightRetrievalMode::Refs,
+                active_tag: None,
+                max_results: Some(2),
+            },
+        );
+        assert_eq!(result.status, "fallback");
+        assert!(result.fallback_used);
+        assert!(result.hits.is_empty());
+
+        let _ = std::fs::remove_dir_all(&test_root);
+    }
+
+    #[test]
+    fn insight_retrieve_auto_scope_falls_back_to_project_when_session_tag_mismatches() {
+        let test_root = std::env::temp_dir().join(format!(
+            "aoc-insight-auto-fallback-test-{}-{}",
+            std::process::id(),
+            Utc::now().timestamp_nanos_opt().unwrap_or_default()
+        ));
+        std::fs::create_dir_all(test_root.join(".aoc/mind/t3")).expect("create t3 dir");
+        let export_root = test_root.join(".aoc/mind/insight/export-a");
+        std::fs::create_dir_all(&export_root).expect("create export dir");
+        std::fs::write(
+            test_root.join(".aoc/mind/t3/project_mind.md"),
+            "# Project Mind Canon\n\n## Active canon\n\n### canon:planner r1\n- topic: mind\n\nProject planner canon\n",
+        )
+        .expect("write canon");
+        std::fs::write(
+            export_root.join("t2.md"),
+            "# T2 export\n## art:t2 [conv] (2026-03-01T12:00:00Z)\nOps-only session reflection\n",
+        )
+        .expect("write t2");
+        let mut manifest = test_context_pack_manifest(Some("ops"));
+        manifest.project_root = test_root.to_string_lossy().to_string();
+        manifest.export_dir = export_root.to_string_lossy().to_string();
+        std::fs::write(
+            export_root.join("manifest.json"),
+            serde_json::to_string(&manifest).expect("manifest json"),
+        )
+        .expect("write manifest");
+
+        let result = compile_insight_retrieval(
+            &test_root.to_string_lossy(),
+            InsightRetrievalRequest {
+                query: "planner".to_string(),
+                scope: InsightRetrievalScope::Auto,
+                mode: InsightRetrievalMode::Brief,
+                active_tag: Some("mind".to_string()),
+                max_results: Some(3),
+            },
+        );
+        assert_eq!(result.status, "ok");
+        assert_eq!(result.resolved_scope, InsightRetrievalScope::Project);
+        assert!(result
+            .hits
+            .iter()
+            .all(|hit| hit.scope == InsightRetrievalScope::Project));
+
+        let _ = std::fs::remove_dir_all(&test_root);
+    }
+
+    #[test]
+    fn insight_retrieve_session_scope_returns_fallback_on_tag_mismatch() {
+        let test_root = std::env::temp_dir().join(format!(
+            "aoc-insight-session-tag-mismatch-test-{}-{}",
+            std::process::id(),
+            Utc::now().timestamp_nanos_opt().unwrap_or_default()
+        ));
+        let export_root = test_root.join(".aoc/mind/insight/export-a");
+        std::fs::create_dir_all(&export_root).expect("create export dir");
+        std::fs::write(export_root.join("t2.md"), "Session planner reflection").expect("write t2");
+        let mut manifest = test_context_pack_manifest(Some("ops"));
+        manifest.project_root = test_root.to_string_lossy().to_string();
+        manifest.export_dir = export_root.to_string_lossy().to_string();
+        std::fs::write(
+            export_root.join("manifest.json"),
+            serde_json::to_string(&manifest).expect("manifest json"),
+        )
+        .expect("write manifest");
+
+        let result = compile_insight_retrieval(
+            &test_root.to_string_lossy(),
+            InsightRetrievalRequest {
+                query: "planner".to_string(),
+                scope: InsightRetrievalScope::Session,
+                mode: InsightRetrievalMode::Brief,
+                active_tag: Some("mind".to_string()),
+                max_results: Some(2),
+            },
+        );
+        assert_eq!(result.status, "fallback");
+        assert!(result.fallback_used);
+        assert!(result.hits.is_empty());
+
+        let _ = std::fs::remove_dir_all(&test_root);
+    }
+
+    #[test]
+    fn insight_retrieve_snips_mode_marks_truncation_when_lines_exceed_budget() {
+        let test_root = std::env::temp_dir().join(format!(
+            "aoc-insight-snips-budget-test-{}-{}",
+            std::process::id(),
+            Utc::now().timestamp_nanos_opt().unwrap_or_default()
+        ));
+        std::fs::create_dir_all(test_root.join(".aoc/mind/t3")).expect("create t3 dir");
+        std::fs::write(
+            test_root.join(".aoc/mind/t3/project_mind.md"),
+            "# Project Mind Canon\n\n## Active canon\n\n### canon:planner r1\n- topic: mind\n\nPlanner note one\nPlanner note two\nPlanner note three\nPlanner note four\nPlanner note five\nPlanner note six\n",
+        )
+        .expect("write canon");
+
+        let result = compile_insight_retrieval(
+            &test_root.to_string_lossy(),
+            InsightRetrievalRequest {
+                query: "planner".to_string(),
+                scope: InsightRetrievalScope::Project,
+                mode: InsightRetrievalMode::Snips,
+                active_tag: Some("mind".to_string()),
+                max_results: Some(1),
+            },
+        );
+        assert_eq!(result.status, "ok");
+        assert_eq!(result.line_budget_per_hit, 5);
+        assert_eq!(result.hits[0].line_budget, 5);
+        assert!(result.hits[0].lines_truncated);
+        assert!(result.hits[0].lines.len() <= 5);
+
+        let _ = std::fs::remove_dir_all(&test_root);
+    }
+
+    #[test]
+    fn insight_retrieve_whole_file_session_export_fallback_still_cites_session() {
+        let test_root = std::env::temp_dir().join(format!(
+            "aoc-insight-whole-file-test-{}-{}",
+            std::process::id(),
+            Utc::now().timestamp_nanos_opt().unwrap_or_default()
+        ));
+        let export_root = test_root.join(".aoc/mind/insight/export-a");
+        std::fs::create_dir_all(&export_root).expect("create export dir");
+        std::fs::write(
+            export_root.join("t2.md"),
+            "Loose planner drift note without section headings\nsecond planner line",
+        )
+        .expect("write t2");
+        let mut manifest = test_context_pack_manifest(Some("mind"));
+        manifest.project_root = test_root.to_string_lossy().to_string();
+        manifest.export_dir = export_root.to_string_lossy().to_string();
+        std::fs::write(
+            export_root.join("manifest.json"),
+            serde_json::to_string(&manifest).expect("manifest json"),
+        )
+        .expect("write manifest");
+
+        let result = compile_insight_retrieval(
+            &test_root.to_string_lossy(),
+            InsightRetrievalRequest {
+                query: "planner drift".to_string(),
+                scope: InsightRetrievalScope::Session,
+                mode: InsightRetrievalMode::Brief,
+                active_tag: Some("mind".to_string()),
+                max_results: Some(2),
+            },
+        );
+        assert_eq!(result.status, "ok");
+        assert_eq!(
+            result.hits.first().map(|hit| hit.source_id.as_str()),
+            Some("session_t2:session-test")
+        );
+        assert!(result.hits[0]
+            .citations
+            .iter()
+            .any(|citation| citation.source_id == "session:session-test"));
+        assert!(result.hits[0]
+            .drilldown_refs
+            .iter()
+            .any(|item| item.kind == "session_export"));
+
+        let _ = std::fs::remove_dir_all(&test_root);
+    }
+
+    #[test]
+    fn pulse_mind_provenance_query_returns_structured_export() {
+        let test_root = std::env::temp_dir().join(format!(
+            "aoc-mind-provenance-wrap-test-{}-{}",
+            std::process::id(),
+            Utc::now().timestamp_nanos_opt().unwrap_or_default()
+        ));
+        std::fs::create_dir_all(&test_root).expect("create test root");
+
+        let cfg = test_client_with_root(&test_root.to_string_lossy());
+        let mut runtime = MindRuntime::new(&cfg).expect("mind runtime");
+        let now = Utc
+            .with_ymd_and_hms(2026, 3, 2, 12, 0, 0)
+            .single()
+            .expect("ts");
+
+        runtime
+            .store
+            .insert_raw_event(&RawEvent {
+                event_id: "evt-1".to_string(),
+                conversation_id: "conv-1".to_string(),
+                agent_id: format!("{}::{}", cfg.session_id, cfg.pane_id),
+                ts: now,
+                body: RawEventBody::Message(MessageEvent {
+                    role: ConversationRole::User,
+                    text: "hello provenance".to_string(),
+                }),
+                attrs: canonical_lineage_attrs(&ConversationLineageMetadata {
+                    session_id: cfg.session_id.clone(),
+                    parent_conversation_id: None,
+                    root_conversation_id: "conv-1".to_string(),
+                }),
+            })
+            .expect("insert raw event");
+        runtime
+            .store
+            .insert_observation("obs:1", "conv-1", now, "note", &[])
+            .expect("insert observation");
+
+        let envelope = command_envelope_for_test(
+            &cfg,
+            "req-mind-provenance-query",
+            "mind_provenance_query",
+            serde_json::json!({
+                "project_root": test_root.to_string_lossy(),
+                "conversation_id": "conv-1",
+                "max_nodes": 16,
+                "max_edges": 16
+            }),
+        );
+
+        let command = build_pulse_command_response(&cfg, &envelope, Some(&mut runtime))
+            .expect("response expected");
+        let WireMsg::CommandResult(payload) = command.response.msg else {
+            panic!("expected command_result")
+        };
+        assert_eq!(payload.status, "ok");
+
+        let parsed: Value =
+            serde_json::from_str(payload.message.as_deref().unwrap_or("{}")).expect("json result");
+        assert_eq!(
+            parsed.get("schema_version").and_then(Value::as_u64),
+            Some(1)
+        );
+        assert_eq!(
+            parsed
+                .get("request")
+                .and_then(|request| request.get("conversation_id"))
+                .and_then(Value::as_str),
+            Some("conv-1")
+        );
+        assert_eq!(
+            parsed
+                .get("graph")
+                .and_then(|graph| graph.get("status"))
+                .and_then(Value::as_str),
+            Some("ok")
+        );
+        assert!(parsed
+            .get("mission_control")
+            .and_then(|mc| mc.get("focus_node_ids"))
+            .and_then(Value::as_array)
+            .map(|items| !items.is_empty())
+            .unwrap_or(false));
+
+        let _ = std::fs::remove_dir_all(&test_root);
+    }
+
+    #[test]
+    fn pulse_mind_provenance_query_rejects_invalid_args() {
+        let test_root = std::env::temp_dir().join(format!(
+            "aoc-mind-provenance-wrap-test-{}-{}",
+            std::process::id(),
+            Utc::now().timestamp_nanos_opt().unwrap_or_default()
+        ));
+        std::fs::create_dir_all(&test_root).expect("create test root");
+
+        let cfg = test_client_with_root(&test_root.to_string_lossy());
+        let mut runtime = MindRuntime::new(&cfg).expect("mind runtime");
+        let envelope = command_envelope_for_test(
+            &cfg,
+            "req-mind-provenance-query-invalid",
+            "mind_provenance_query",
+            serde_json::json!({
+                "max_nodes": "oops"
+            }),
+        );
+
+        let command = build_pulse_command_response(&cfg, &envelope, Some(&mut runtime))
+            .expect("response expected");
+        let WireMsg::CommandResult(payload) = command.response.msg else {
+            panic!("expected command_result")
+        };
+        assert_eq!(payload.status, "error");
+        assert_eq!(
+            payload.error.as_ref().map(|error| error.code.as_str()),
+            Some("invalid_args")
+        );
+
+        let _ = std::fs::remove_dir_all(&test_root);
+    }
+
+    #[test]
+    fn pulse_insight_retrieve_returns_structured_result() {
+        let test_root = std::env::temp_dir().join(format!(
+            "aoc-insight-wrap-test-{}-{}",
+            std::process::id(),
+            Utc::now().timestamp_nanos_opt().unwrap_or_default()
+        ));
+        std::fs::create_dir_all(test_root.join(".aoc/mind/t3")).expect("create t3 dir");
+        let export_root = test_root.join(".aoc/mind/insight/export-a");
+        std::fs::create_dir_all(&export_root).expect("create export dir");
+        std::fs::write(
+            test_root.join(".aoc/mind/t3/project_mind.md"),
+            "# Project Mind Canon\n\n## Active canon\n\n### canon:entry r1\n- topic: mind\n\nCanonical planner guidance\n",
+        )
+        .expect("write canon");
+        std::fs::write(export_root.join("t2.md"), "Session planner guidance").expect("write t2");
+        let mut manifest = test_context_pack_manifest(Some("mind"));
+        manifest.project_root = test_root.to_string_lossy().to_string();
+        manifest.export_dir = export_root.to_string_lossy().to_string();
+        std::fs::write(
+            export_root.join("manifest.json"),
+            serde_json::to_string(&manifest).expect("manifest json"),
+        )
+        .expect("write manifest");
+
+        let cfg = test_client_with_root(&test_root.to_string_lossy());
+        let mut runtime = MindRuntime::new(&cfg).expect("mind runtime");
+        let envelope = command_envelope_for_test(
+            &cfg,
+            "req-insight-retrieve",
+            "insight_retrieve",
+            serde_json::json!({
+                "query": "planner",
+                "scope": "auto",
+                "mode": "snips",
+                "active_tag": "mind",
+                "max_results": 3
+            }),
+        );
+
+        let command = build_pulse_command_response(&cfg, &envelope, Some(&mut runtime))
+            .expect("response expected");
+        let WireMsg::CommandResult(payload) = command.response.msg else {
+            panic!("expected command_result")
+        };
+        assert_eq!(payload.status, "ok");
+        let parsed: Value =
+            serde_json::from_str(payload.message.as_deref().unwrap_or("{}")).expect("json result");
+        assert_eq!(parsed.get("status").and_then(Value::as_str), Some("ok"));
+        assert_eq!(
+            parsed.get("line_budget_per_hit").and_then(Value::as_u64),
+            Some(5)
+        );
+        assert!(parsed
+            .get("citations")
+            .and_then(Value::as_array)
+            .map(|items| !items.is_empty())
+            .unwrap_or(false));
+        assert!(parsed
+            .get("hits")
+            .and_then(Value::as_array)
+            .and_then(|hits| hits.first())
+            .and_then(|hit| hit.get("drilldown_refs"))
+            .and_then(Value::as_array)
+            .map(|items| !items.is_empty())
+            .unwrap_or(false));
+
+        let _ = std::fs::remove_dir_all(&test_root);
     }
 
     #[test]
