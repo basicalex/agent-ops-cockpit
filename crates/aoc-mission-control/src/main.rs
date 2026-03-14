@@ -4,6 +4,10 @@ use aoc_core::{
         ConsultationHelpRequest, ConsultationIdentity, ConsultationPacket, ConsultationPacketKind,
         ConsultationSourceStatus, ConsultationTaskContext,
     },
+    mind_contracts::{
+        canonical_payload_hash, ArtifactTaskLink, ArtifactTaskRelation, SemanticProvenance,
+        SemanticRuntime, SemanticStage,
+    },
     mind_observer_feed::{
         MindObserverFeedEvent, MindObserverFeedPayload, MindObserverFeedProgress,
         MindObserverFeedStatus, MindObserverFeedTriggerKind,
@@ -254,6 +258,7 @@ struct PendingConsultation {
     kind: ConsultationPacketKind,
     requester: String,
     responder: String,
+    request_packet: ConsultationPacket,
 }
 
 fn is_terminal_command_status(status: &str) -> bool {
@@ -1309,15 +1314,37 @@ impl App {
             }
         }
 
-        let (requester, responder, kind) = tracked
-            .map(|value| (value.requester, value.responder, value.kind))
+        let (requester, responder, kind, request_packet) = tracked
+            .map(|value| {
+                (
+                    value.requester,
+                    value.responder,
+                    value.kind,
+                    Some(value.request_packet),
+                )
+            })
             .unwrap_or_else(|| {
                 (
                     payload.requesting_agent_id.clone(),
                     payload.responding_agent_id.clone(),
                     ConsultationPacketKind::Summary,
+                    None,
                 )
             });
+        if let Some(request_packet) = request_packet.as_ref() {
+            if let Err(err) = persist_consultation_outcome(
+                &self.config.project_root,
+                request_packet,
+                &payload,
+                kind,
+            ) {
+                warn!(
+                    event = "consultation_outcome_persist_failed",
+                    consultation_id = %payload.consultation_id,
+                    error = %err
+                );
+            }
+        }
         let mut message = payload
             .message
             .clone()
@@ -2286,6 +2313,7 @@ impl App {
         let packet =
             derive_overseer_consultation_packet(&requester, checkpoint.as_ref(), mind_event)
                 .normalize();
+        let request_packet = ConsultationPacket { kind, ..packet };
         let request_id = self.next_command_request_id();
         let consultation_id = format!(
             "{}:{}:{}",
@@ -2297,7 +2325,7 @@ impl App {
                 consultation_id,
                 requesting_agent_id: requester.agent_id.clone(),
                 target_agent_id: responder.agent_id.clone(),
-                packet: ConsultationPacket { kind, ..packet },
+                packet: request_packet.clone(),
             }),
         };
         match self.command_tx.try_send(outbound) {
@@ -2308,6 +2336,7 @@ impl App {
                         kind,
                         requester: requester.agent_id.clone(),
                         responder: responder.agent_id.clone(),
+                        request_packet,
                     },
                 );
                 self.status_note = Some(format!(
@@ -5519,6 +5548,294 @@ fn mind_store_path(project_root: &Path) -> PathBuf {
         })
 }
 
+fn consultation_kind_slug(kind: ConsultationPacketKind) -> &'static str {
+    match kind {
+        ConsultationPacketKind::Summary => "summary",
+        ConsultationPacketKind::Plan => "plan",
+        ConsultationPacketKind::Blockers => "blockers",
+        ConsultationPacketKind::Review => "review",
+        ConsultationPacketKind::Align => "align",
+        ConsultationPacketKind::CheckpointStatus => "checkpoint_status",
+        ConsultationPacketKind::HelpRequest => "help_request",
+    }
+}
+
+fn persist_consultation_outcome(
+    project_root: &Path,
+    request_packet: &ConsultationPacket,
+    payload: &ConsultationResponsePayload,
+    kind: ConsultationPacketKind,
+) -> Result<String, String> {
+    let store_path = mind_store_path(project_root);
+    if let Some(parent) = store_path.parent() {
+        fs::create_dir_all(parent)
+            .map_err(|err| format!("create mind store directory failed: {err}"))?;
+    }
+    let store = aoc_storage::MindStore::open(&store_path)
+        .map_err(|err| format!("open mind store failed: {err}"))?;
+    let ts = payload
+        .packet
+        .as_ref()
+        .and_then(|packet| packet.freshness.packet_generated_at.as_deref())
+        .and_then(parse_rfc3339_utc)
+        .unwrap_or_else(Utc::now);
+    let artifact_id = format!("consult:{}", payload.consultation_id);
+    let conversation_id = consultation_memory_conversation_id(request_packet, payload);
+    let trace_ids = consultation_memory_trace_ids(request_packet, payload, kind);
+    let text = render_consultation_outcome_markdown(request_packet, payload, kind, ts);
+    let input_hash =
+        canonical_payload_hash(&(request_packet, payload, consultation_kind_slug(kind)))
+            .map_err(|err| format!("hash consultation outcome failed: {err}"))?;
+
+    store
+        .insert_reflection(&artifact_id, &conversation_id, ts, &text, &trace_ids)
+        .map_err(|err| format!("persist consultation reflection failed: {err}"))?;
+    store
+        .upsert_semantic_provenance(&SemanticProvenance {
+            artifact_id: artifact_id.clone(),
+            stage: SemanticStage::T2Reflector,
+            runtime: SemanticRuntime::Deterministic,
+            provider_name: None,
+            model_id: None,
+            prompt_version: "mission-control.consultation-memory.v1".to_string(),
+            input_hash,
+            output_hash: None,
+            latency_ms: None,
+            attempt_count: 1,
+            fallback_used: false,
+            fallback_reason: None,
+            failure_kind: None,
+            created_at: ts,
+        })
+        .map_err(|err| format!("persist consultation provenance failed: {err}"))?;
+
+    let task_ids = consultation_memory_task_ids(request_packet, payload);
+    for task_id in task_ids {
+        let link = ArtifactTaskLink::new(
+            artifact_id.clone(),
+            task_id,
+            ArtifactTaskRelation::Mentioned,
+            800,
+            Vec::new(),
+            "mission-control.consultation-memory".to_string(),
+            ts,
+            None,
+        )
+        .map_err(|err| format!("build consultation task link failed: {err}"))?;
+        store
+            .upsert_artifact_task_link(&link)
+            .map_err(|err| format!("persist consultation task link failed: {err}"))?;
+    }
+
+    for evidence in consultation_memory_evidence_refs(request_packet, payload) {
+        if let Some(path) = evidence
+            .path
+            .as_ref()
+            .filter(|value| !value.trim().is_empty())
+        {
+            store
+                .upsert_artifact_file_link(&aoc_storage::ArtifactFileLink {
+                    artifact_id: artifact_id.clone(),
+                    path: path.clone(),
+                    relation: evidence
+                        .relation
+                        .clone()
+                        .unwrap_or_else(|| "consultation_evidence".to_string()),
+                    source: "mission-control.consultation-memory".to_string(),
+                    additions: None,
+                    deletions: None,
+                    staged: false,
+                    untracked: false,
+                    created_at: ts,
+                    updated_at: ts,
+                })
+                .map_err(|err| format!("persist consultation file link failed: {err}"))?;
+        }
+    }
+
+    Ok(artifact_id)
+}
+
+fn consultation_memory_conversation_id(
+    request_packet: &ConsultationPacket,
+    payload: &ConsultationResponsePayload,
+) -> String {
+    request_packet
+        .identity
+        .conversation_id
+        .clone()
+        .or_else(|| {
+            payload
+                .packet
+                .as_ref()
+                .and_then(|packet| packet.identity.conversation_id.clone())
+        })
+        .unwrap_or_else(|| format!("consultation:{}", request_packet.identity.session_id))
+}
+
+fn consultation_memory_trace_ids(
+    request_packet: &ConsultationPacket,
+    payload: &ConsultationResponsePayload,
+    kind: ConsultationPacketKind,
+) -> Vec<String> {
+    let mut trace_ids = vec![
+        format!("consultation:{}", payload.consultation_id),
+        format!("consultation_kind:{}", consultation_kind_slug(kind)),
+        format!("consultation_status:{:?}", payload.status).to_ascii_lowercase(),
+        format!("requester:{}", payload.requesting_agent_id),
+        format!("responder:{}", payload.responding_agent_id),
+    ];
+    if !request_packet.packet_id.trim().is_empty() {
+        trace_ids.push(format!("request_packet:{}", request_packet.packet_id));
+    }
+    if let Some(packet) = payload.packet.as_ref() {
+        if !packet.packet_id.trim().is_empty() {
+            trace_ids.push(format!("response_packet:{}", packet.packet_id));
+        }
+    }
+    trace_ids.sort();
+    trace_ids.dedup();
+    trace_ids
+}
+
+fn consultation_memory_task_ids(
+    request_packet: &ConsultationPacket,
+    payload: &ConsultationResponsePayload,
+) -> Vec<String> {
+    let mut task_ids = request_packet.task_context.task_ids.clone();
+    if let Some(packet) = payload.packet.as_ref() {
+        task_ids.extend(packet.task_context.task_ids.iter().cloned());
+    }
+    task_ids.sort();
+    task_ids.dedup();
+    task_ids.retain(|value| !value.trim().is_empty());
+    task_ids
+}
+
+fn consultation_memory_evidence_refs(
+    request_packet: &ConsultationPacket,
+    payload: &ConsultationResponsePayload,
+) -> Vec<aoc_core::consultation_contracts::ConsultationEvidenceRef> {
+    let mut refs = request_packet.evidence_refs.clone();
+    if let Some(packet) = payload.packet.as_ref() {
+        refs.extend(packet.evidence_refs.iter().cloned());
+    }
+    refs.sort_by(|left, right| {
+        left.reference
+            .cmp(&right.reference)
+            .then_with(|| left.path.cmp(&right.path))
+            .then_with(|| left.relation.cmp(&right.relation))
+    });
+    refs.dedup_by(|left, right| {
+        left.reference == right.reference
+            && left.path == right.path
+            && left.relation == right.relation
+    });
+    refs
+}
+
+fn render_consultation_outcome_markdown(
+    request_packet: &ConsultationPacket,
+    payload: &ConsultationResponsePayload,
+    kind: ConsultationPacketKind,
+    ts: DateTime<Utc>,
+) -> String {
+    let mut lines = vec![
+        "# Consultation outcome".to_string(),
+        String::new(),
+        format!("- consultation_id: {}", payload.consultation_id),
+        format!("- kind: {}", consultation_kind_slug(kind)),
+        format!(
+            "- status: {}",
+            format!("{:?}", payload.status).to_ascii_lowercase()
+        ),
+        format!("- requester: {}", payload.requesting_agent_id),
+        format!("- responder: {}", payload.responding_agent_id),
+        format!("- recorded_at: {}", ts.to_rfc3339()),
+    ];
+    if let Some(tag) = request_packet.task_context.active_tag.as_ref() {
+        lines.push(format!("- active_tag: {tag}"));
+    }
+    if !request_packet.task_context.task_ids.is_empty() {
+        lines.push(format!(
+            "- tasks: {}",
+            request_packet.task_context.task_ids.join(", ")
+        ));
+    }
+    lines.push(String::new());
+    lines.push("## Request".to_string());
+    if let Some(summary) = request_packet.summary.as_ref() {
+        lines.push(summary.clone());
+    }
+    if let Some(help) = request_packet.help_request.as_ref() {
+        lines.push(format!("- help_request [{}]: {}", help.kind, help.question));
+    }
+    if !request_packet.blockers.is_empty() {
+        lines.push("- blockers:".to_string());
+        for blocker in &request_packet.blockers {
+            lines.push(format!("  - {}", blocker.summary));
+        }
+    }
+    if !request_packet.current_plan.is_empty() {
+        lines.push("- request_plan:".to_string());
+        for item in &request_packet.current_plan {
+            lines.push(format!("  - {}", item.title));
+        }
+    }
+
+    lines.push(String::new());
+    lines.push("## Response".to_string());
+    if let Some(packet) = payload.packet.as_ref() {
+        if let Some(summary) = packet.summary.as_ref() {
+            lines.push(summary.clone());
+        }
+        if !packet.current_plan.is_empty() {
+            lines.push("- response_plan:".to_string());
+            for item in &packet.current_plan {
+                lines.push(format!("  - {}", item.title));
+            }
+        }
+        if !packet.blockers.is_empty() {
+            lines.push("- response_blockers:".to_string());
+            for blocker in &packet.blockers {
+                lines.push(format!("  - {}", blocker.summary));
+            }
+        }
+        if let Some(rationale) = packet.confidence.rationale.as_ref() {
+            lines.push(format!("- rationale: {rationale}"));
+        }
+    } else if let Some(message) = payload.message.as_ref() {
+        lines.push(message.clone());
+    }
+    if let Some(error) = payload.error.as_ref() {
+        lines.push(format!("- error [{}]: {}", error.code, error.message));
+    }
+
+    let evidence_refs = consultation_memory_evidence_refs(request_packet, payload);
+    if !evidence_refs.is_empty() {
+        lines.push(String::new());
+        lines.push("## Evidence refs".to_string());
+        for evidence in evidence_refs {
+            let mut line = format!("- {}", evidence.reference);
+            if let Some(label) = evidence.label.as_ref() {
+                line.push_str(&format!(" — {label}"));
+            }
+            if let Some(path) = evidence.path.as_ref() {
+                line.push_str(&format!(" ({path})"));
+            }
+            lines.push(line);
+        }
+    }
+
+    lines.join("\n")
+}
+
+fn parse_rfc3339_utc(value: &str) -> Option<DateTime<Utc>> {
+    chrono::DateTime::parse_from_rfc3339(value)
+        .ok()
+        .map(|ts| ts.with_timezone(&Utc))
+}
+
 fn load_latest_session_export_manifest(insight_dir: &Path) -> Option<MindSessionExportManifest> {
     let entries = fs::read_dir(insight_dir).ok()?;
     let mut dirs = Vec::new();
@@ -8665,6 +8982,23 @@ mod tests {
                 kind: ConsultationPacketKind::Review,
                 requester: "session-test::12".to_string(),
                 responder: "session-test::24".to_string(),
+                request_packet: ConsultationPacket {
+                    packet_id: "packet-request".to_string(),
+                    kind: ConsultationPacketKind::Review,
+                    identity: ConsultationIdentity {
+                        session_id: "session-test".to_string(),
+                        agent_id: "session-test::12".to_string(),
+                        conversation_id: Some("conv-req".to_string()),
+                        ..Default::default()
+                    },
+                    task_context: ConsultationTaskContext {
+                        active_tag: Some("mind".to_string()),
+                        task_ids: vec!["165".to_string()],
+                        focus_summary: Some("persist consultation outcomes".to_string()),
+                    },
+                    summary: Some("request review".to_string()),
+                    ..Default::default()
+                },
             },
         );
 
@@ -8686,6 +9020,135 @@ mod tests {
             .status_note
             .unwrap_or_default()
             .contains("review completed"));
+    }
+
+    #[test]
+    fn consultation_response_persists_outcome_into_mind_store() {
+        let test_root = std::env::temp_dir().join(format!(
+            "aoc-mc-consult-{}-{}",
+            std::process::id(),
+            Utc::now().timestamp_nanos_opt().unwrap_or_default()
+        ));
+        fs::create_dir_all(&test_root).expect("create test root");
+
+        let mut config = test_config();
+        config.project_root = test_root.clone();
+        let (tx, _rx) = mpsc::channel(4);
+        let mut app = App::new(config, tx, empty_local());
+        app.pending_consultations.insert(
+            "req-consult".to_string(),
+            PendingConsultation {
+                kind: ConsultationPacketKind::Review,
+                requester: "session-test::12".to_string(),
+                responder: "session-test::24".to_string(),
+                request_packet: ConsultationPacket {
+                    packet_id: "packet-request".to_string(),
+                    kind: ConsultationPacketKind::Review,
+                    identity: ConsultationIdentity {
+                        session_id: "session-test".to_string(),
+                        agent_id: "session-test::12".to_string(),
+                        conversation_id: Some("conv-req".to_string()),
+                        ..Default::default()
+                    },
+                    task_context: ConsultationTaskContext {
+                        active_tag: Some("mind".to_string()),
+                        task_ids: vec!["165".to_string()],
+                        focus_summary: Some("persist consultation outcomes".to_string()),
+                    },
+                    summary: Some("request peer review".to_string()),
+                    evidence_refs: vec![
+                        aoc_core::consultation_contracts::ConsultationEvidenceRef {
+                            reference: "file:docs/mission-control.md".to_string(),
+                            label: Some("mission control docs".to_string()),
+                            path: Some("docs/mission-control.md".to_string()),
+                            relation: Some("reads".to_string()),
+                        },
+                    ],
+                    ..Default::default()
+                },
+            },
+        );
+
+        app.apply_hub_event(HubEvent::ConsultationResponse {
+            payload: ConsultationResponsePayload {
+                consultation_id: "consult-1".to_string(),
+                requesting_agent_id: "session-test::12".to_string(),
+                responding_agent_id: "session-test::24".to_string(),
+                status: ConsultationStatus::Completed,
+                packet: Some(ConsultationPacket {
+                    packet_id: "packet-response".to_string(),
+                    kind: ConsultationPacketKind::Review,
+                    identity: ConsultationIdentity {
+                        session_id: "session-test".to_string(),
+                        agent_id: "session-test::24".to_string(),
+                        conversation_id: Some("conv-resp".to_string()),
+                        ..Default::default()
+                    },
+                    summary: Some("peer review found one follow-up".to_string()),
+                    current_plan: vec![aoc_core::consultation_contracts::ConsultationPlanItem {
+                        title: "tighten persistence coverage".to_string(),
+                        ..Default::default()
+                    }],
+                    confidence: ConsultationConfidence {
+                        overall_bps: Some(8700),
+                        rationale: Some("bounded evidence refs and live worker state".to_string()),
+                    },
+                    freshness: ConsultationFreshness {
+                        packet_generated_at: Some("2026-03-12T18:00:00Z".to_string()),
+                        ..Default::default()
+                    },
+                    evidence_refs: vec![
+                        aoc_core::consultation_contracts::ConsultationEvidenceRef {
+                            reference: "file:crates/aoc-mission-control/src/main.rs".to_string(),
+                            label: Some("mission control source".to_string()),
+                            path: Some("crates/aoc-mission-control/src/main.rs".to_string()),
+                            relation: Some("modified".to_string()),
+                        },
+                    ],
+                    ..Default::default()
+                }),
+                message: Some("review completed".to_string()),
+                error: None,
+            },
+            request_id: Some("req-consult".to_string()),
+        });
+
+        let store = aoc_storage::MindStore::open(mind_store_path(&test_root)).expect("open store");
+        let artifact = store
+            .artifact_by_id("consult:consult-1")
+            .expect("artifact lookup")
+            .expect("consultation artifact persisted");
+        assert_eq!(artifact.kind, "t2");
+        assert_eq!(artifact.conversation_id, "conv-req");
+        assert!(artifact.text.contains("# Consultation outcome"));
+        assert!(artifact.text.contains("peer review found one follow-up"));
+        assert!(artifact
+            .trace_ids
+            .iter()
+            .any(|value| value == "consultation:consult-1"));
+        assert_eq!(
+            store
+                .artifact_task_links_for_artifact("consult:consult-1")
+                .expect("task links")
+                .len(),
+            1
+        );
+        assert_eq!(
+            store
+                .artifact_file_links("consult:consult-1")
+                .expect("file links")
+                .len(),
+            2
+        );
+        assert_eq!(
+            store
+                .semantic_provenance_for_artifact("consult:consult-1")
+                .expect("semantic provenance")
+                .len(),
+            1
+        );
+
+        let _ = fs::remove_dir_all(&test_root);
     }
 
     #[test]
