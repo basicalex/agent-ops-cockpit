@@ -123,6 +123,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "aoc-core",
+ "aoc-storage",
  "chrono",
  "clap",
  "dirs",
@@ -213,6 +214,20 @@ dependencies = [
  "aoc-core",
  "aoc-storage",
  "chrono",
+ "serde_json",
+ "sha2",
+ "tempfile",
+ "thiserror",
+]
+
+[[package]]
+name = "aoc-pi-adapter"
+version = "0.1.0"
+dependencies = [
+ "aoc-core",
+ "aoc-storage",
+ "chrono",
+ "rusqlite",
  "serde_json",
  "sha2",
  "tempfile",

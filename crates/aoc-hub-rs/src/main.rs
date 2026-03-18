@@ -82,6 +82,7 @@ struct Envelope {
     request_id: Option<String>,
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Deserialize)]
 struct HelloPayload {
     client_id: String,
@@ -95,6 +96,7 @@ struct HelloPayload {
     project_root: Option<String>,
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Deserialize)]
 struct AgentStatusPayload {
     agent_id: String,
@@ -118,6 +120,7 @@ struct DiffSummaryPayload {
     reason: Option<String>,
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Deserialize)]
 struct DiffPatchRequestPayload {
     agent_id: String,
@@ -130,12 +133,14 @@ struct DiffPatchRequestPayload {
     request_id: Option<String>,
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Deserialize)]
 struct PayloadError {
     code: String,
     message: String,
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Deserialize)]
 struct DiffPatchResponsePayload {
     agent_id: String,
@@ -148,6 +153,7 @@ struct DiffPatchResponsePayload {
     error: Option<PayloadError>,
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Deserialize)]
 struct TaskSummaryPayload {
     agent_id: String,
@@ -181,6 +187,7 @@ struct ErrorPayload {
     message: String,
 }
 
+#[allow(dead_code)]
 #[derive(Clone)]
 struct Client {
     conn_id: String,

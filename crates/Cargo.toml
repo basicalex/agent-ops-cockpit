@@ -5,6 +5,7 @@ members = [
     "aoc-core",
     "aoc-storage",
     "aoc-opencode-adapter",
+    "aoc-pi-adapter",
     "aoc-task-attribution",
     "aoc-segment-routing",
     "aoc-mind",

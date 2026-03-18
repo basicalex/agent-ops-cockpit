@@ -8,7 +8,7 @@
  * - session context usage bar
  *
  * Shortcut:
- * - Ctrl+Shift+O: request manual observer run (Pulse command: run_observer)
+ * - Alt+M: request manual observer run (Pulse command: run_observer)
  */
 
 import type { ExtensionAPI, ExtensionContext } from "@mariozechner/pi-coding-agent";
@@ -26,6 +26,12 @@ type MindFeedProgress = {
 	t1_target_tokens: number;
 	t1_hard_cap_tokens: number;
 	tokens_until_next_run: number;
+};
+
+type PendingCompactionPreparation = {
+	capturedAtMs: number;
+	firstKeptEntryId?: string;
+	tokensBefore?: number;
 };
 
 type ExtensionState = {
@@ -46,6 +52,7 @@ type ExtensionState = {
 	reconnectTimer?: NodeJS.Timeout;
 	refreshTimer?: NodeJS.Timeout;
 	lastPulseRequestId?: string;
+	pendingCompactionPreparation?: PendingCompactionPreparation;
 };
 
 const T1_TARGET_TOKENS = 28_000;
@@ -64,6 +71,7 @@ const state: ExtensionState = {
 	mindStatus: "idle",
 	pulseConnected: false,
 	pulseBuffer: "",
+	pendingCompactionPreparation: undefined,
 };
 
 function stableHashHex(input: string): string {
@@ -632,12 +640,48 @@ export default function (pi: ExtensionAPI) {
 		applyFooter(ctx);
 	});
 
+	pi.on("session_before_compact", async (event, _ctx) => {
+		const preparation = (event as any)?.preparation;
+		state.pendingCompactionPreparation = {
+			capturedAtMs: Date.now(),
+			firstKeptEntryId: typeof preparation?.firstKeptEntryId === "string"
+				? preparation.firstKeptEntryId
+				: undefined,
+			tokensBefore: typeof preparation?.tokensBefore === "number"
+				? preparation.tokensBefore
+				: undefined,
+		};
+	});
+
+	pi.on("session_compact", async (event, ctx) => {
+		const entry = (event as any)?.compactionEntry;
+		const preparation = state.pendingCompactionPreparation;
+		const ok = sendPulseCommand(ctx, "mind_compaction_checkpoint", {
+			schema_version: 1,
+			conversation_id: ctx.sessionManager.getSessionId?.(),
+			reason: "pi compaction",
+			summary: typeof entry?.summary === "string" ? entry.summary : undefined,
+			tokens_before: typeof entry?.tokensBefore === "number"
+				? entry.tokensBefore
+				: preparation?.tokensBefore,
+			first_kept_entry_id: typeof entry?.firstKeptEntryId === "string"
+				? entry.firstKeptEntryId
+				: preparation?.firstKeptEntryId,
+			compaction_entry_id: typeof entry?.id === "string" ? entry.id : undefined,
+			from_extension: Boolean((entry as any)?.fromHook ?? (event as any)?.fromExtension),
+		});
+		state.pendingCompactionPreparation = undefined;
+		if (!ok) {
+			ctx.ui.setStatus("mind", "compact checkpoint pending (pulse offline)");
+		}
+	});
+
 	pi.on("turn_end", async (_event, ctx) => {
 		recomputeFilteredTokens(ctx);
 		applyFooter(ctx);
 	});
 
-	pi.registerShortcut("ctrl+shift+o", {
+	pi.registerShortcut("alt+m", {
 		description: "Trigger AOC Mind observer run",
 		handler: async (ctx) => {
 			const ok = requestManualObserverRun(ctx);
