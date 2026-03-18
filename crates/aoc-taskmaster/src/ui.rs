@@ -1,4 +1,4 @@
-use crate::state::{App, FocusMode, ALL_TAG_VIEW};
+use crate::state::{App, FocusMode, InputMode, ALL_TAG_VIEW};
 use crate::theme::{self, icons};
 use ratatui::{
     layout::{Constraint, Direction, Layout, Rect},
@@ -81,6 +81,22 @@ fn render_help(f: &mut Frame, area: Rect) {
             Span::raw("          Refresh"),
         ]),
         Line::from(vec![
+            Span::styled("/", Color::Cyan),
+            Span::raw("          Enter search mode"),
+        ]),
+        Line::from(vec![
+            Span::styled("Enter", Color::Cyan),
+            Span::raw("      Keep query, exit search mode"),
+        ]),
+        Line::from(vec![
+            Span::styled("Esc", Color::Cyan),
+            Span::raw("        Clear search / close pane"),
+        ]),
+        Line::from(vec![
+            Span::styled("Backspace", Color::Cyan),
+            Span::raw("  Delete search chars"),
+        ]),
+        Line::from(vec![
             Span::styled("f", Color::Cyan),
             Span::raw("          Cycle filter"),
         ]),
@@ -102,7 +118,7 @@ fn render_help(f: &mut Frame, area: Rect) {
         ]),
         Line::from(vec![
             Span::styled("q", Color::Cyan),
-            Span::raw("          Quit"),
+            Span::raw("          Disabled (Taskmaster stays open)"),
         ]),
     ];
 
@@ -120,6 +136,8 @@ fn render_main(f: &mut Frame, app: &mut App, area: Rect) {
 
         let message = if let Some(error) = &app.last_error {
             error.clone()
+        } else if !app.search_query.trim().is_empty() {
+            format!("No tasks found for search: {}", app.search_query)
         } else {
             "No tasks found".to_string()
         };
@@ -137,7 +155,7 @@ fn render_main(f: &mut Frame, app: &mut App, area: Rect) {
             Line::from(format!("root: {}", app.root.display())),
             Line::from(format!("tasks_path: {}", app.tasks_path.display())),
             Line::from(""),
-            Line::from("Press r to retry, q to quit."),
+            Line::from("Press Esc to clear search/close panes, r to refresh."),
         ];
         let p = Paragraph::new(text).wrap(Wrap { trim: true });
         f.render_widget(p, inner);
@@ -278,12 +296,20 @@ fn render_main(f: &mut Frame, app: &mut App, area: Rect) {
         Style::default()
     };
 
+    let mut title = "Tasks".to_string();
+    if !app.search_query.trim().is_empty() {
+        title.push_str(&format!(" / {}", app.search_query));
+    }
+    if app.input_mode == InputMode::Search {
+        title.push_str(" [search]");
+    }
+
     let table = Table::new(rows, widths)
         .header(Row::new(vec!["ID", "Tag", "S", "P", "Title"]).style(theme::HEADER_STYLE))
         .block(
             Block::default()
                 .borders(Borders::ALL)
-                .title("Tasks")
+                .title(title)
                 .border_style(border_style),
         )
         .highlight_style(theme::SELECTED_STYLE);
