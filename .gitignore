@@ -58,6 +58,8 @@ __pycache__/
 /.aoc/**/*.log
 /.aoc/*.lock
 /.aoc/**/*.lock
+/.aoc/mind/
+/.aoc/mind/**
 /.taskmaster/logs/
 /.taskmaster/**/*.log
 /.taskmaster/**/*.lock
