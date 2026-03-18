@@ -66,7 +66,9 @@ use tracing_subscriber::EnvFilter;
 const LOCAL_LAYOUT_REFRESH_MS_DEFAULT: u64 = 3000;
 const LOCAL_LAYOUT_REFRESH_MS_MIN: u64 = 500;
 const LOCAL_LAYOUT_REFRESH_MS_MAX: u64 = 15000;
-const LOCAL_SNAPSHOT_REFRESH_SECS: u64 = 2;
+const LOCAL_SNAPSHOT_REFRESH_SECS_DEFAULT: u64 = 2;
+const LOCAL_SNAPSHOT_REFRESH_SECS_MIN: u64 = 1;
+const LOCAL_SNAPSHOT_REFRESH_SECS_MAX: u64 = 30;
 const HUB_STALE_SECS: i64 = 45;
 const HUB_PRUNE_SECS: i64 = 90;
 const HUB_OFFLINE_GRACE_SECS: i64 = 12;
@@ -89,6 +91,7 @@ struct Config {
     pulse_custom_theme: Option<PulseTheme>,
     pulse_vnext_enabled: bool,
     overview_enabled: bool,
+    light_pane: bool,
     layout_source: LayoutSource,
     client_id: String,
     project_root: PathBuf,
@@ -3427,7 +3430,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     );
     let mut snapshot_ticker = tokio::time::interval_at(
         tokio::time::Instant::now() + Duration::from_millis(jitter_seed * 240),
-        Duration::from_secs(LOCAL_SNAPSHOT_REFRESH_SECS),
+        Duration::from_secs(resolve_local_snapshot_refresh_secs()),
     );
     let mut layout_refresh_requested = false;
     let mut snapshot_refresh_requested = false;
@@ -4335,29 +4338,33 @@ fn render_overseer_lines(app: &App, theme: PulseTheme, compact: bool) -> Vec<Lin
                 Style::default().fg(theme.muted),
             )));
         }
-        if let Some(reason) = worker
-            .attention
-            .reason
-            .as_ref()
-            .filter(|value| !value.trim().is_empty())
-        {
-            lines.push(Line::from(Span::styled(
-                format!(
-                    "    attention: {}",
-                    truncate_text(reason, if compact { 68 } else { 104 })
-                ),
-                Style::default().fg(theme.warn),
-            )));
+        if should_render_overseer_attention_reason(worker) {
+            if let Some(reason) = worker
+                .attention
+                .reason
+                .as_ref()
+                .filter(|value| !value.trim().is_empty())
+            {
+                lines.push(Line::from(Span::styled(
+                    format!(
+                        "    attention: {}",
+                        truncate_text(reason, if compact { 68 } else { 104 })
+                    ),
+                    Style::default().fg(theme.warn),
+                )));
+            }
         }
         if let Some(event) = mind_event {
             if let Some(line) = render_overseer_mind_line(event, theme, compact) {
                 lines.push(line);
             }
         }
-        if let Some(line) =
-            render_overseer_consultation_line(&consultation_packet, worker, theme, compact)
-        {
-            lines.push(line);
+        if should_render_overseer_consultation_line(&consultation_packet, worker) {
+            if let Some(line) =
+                render_overseer_consultation_line(&consultation_packet, worker, theme, compact)
+            {
+                lines.push(line);
+            }
         }
     }
 
@@ -4609,6 +4616,38 @@ fn overseer_help_request(worker: &WorkerSnapshot) -> Option<ConsultationHelpRequ
         });
     }
     None
+}
+
+fn should_render_overseer_attention_reason(worker: &WorkerSnapshot) -> bool {
+    if worker
+        .attention
+        .reason
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .is_none()
+    {
+        return false;
+    }
+
+    if worker.attention.kind.as_deref() == Some("duplicate_work") {
+        return false;
+    }
+
+    !matches!(worker.attention.level, AttentionLevel::None)
+}
+
+fn should_render_overseer_consultation_line(
+    packet: &ConsultationPacket,
+    worker: &WorkerSnapshot,
+) -> bool {
+    matches!(
+        worker.status,
+        WorkerStatus::Blocked | WorkerStatus::NeedsInput
+    ) || matches!(worker.drift_risk, DriftRisk::High)
+        || matches!(packet.freshness.source_status, ConsultationSourceStatus::Partial | ConsultationSourceStatus::Stale)
+        || worker.assignment.task_id.is_none() && worker.assignment.tag.is_none()
+        || packet.help_request.is_some()
 }
 
 fn overseer_consultation_confidence_bps(
@@ -7989,13 +8028,15 @@ fn build_pulse_hello(config: &Config) -> WireEnvelope {
 }
 
 fn build_pulse_subscribe(config: &Config) -> WireEnvelope {
-    let topics = vec![
+    let mut topics = vec![
         "agent_state".to_string(),
         "command_result".to_string(),
         "consultation_response".to_string(),
-        "observer_snapshot".to_string(),
-        "observer_timeline".to_string(),
     ];
+    if !config.light_pane {
+        topics.push("observer_snapshot".to_string());
+        topics.push("observer_timeline".to_string());
+    }
 
     WireEnvelope {
         version: ProtocolVersion(CURRENT_PROTOCOL_VERSION),
@@ -8981,6 +9022,7 @@ fn load_config() -> Config {
     let pulse_custom_theme = resolve_custom_pulse_theme();
     let pulse_vnext_enabled = resolve_pulse_vnext_enabled();
     let overview_enabled = resolve_overview_enabled();
+    let light_pane = resolve_light_pane();
     let layout_source = resolve_layout_source();
     let client_id = format!("aoc-pulse-{}", std::process::id());
     let project_root = resolve_project_root();
@@ -8994,6 +9036,7 @@ fn load_config() -> Config {
         pulse_custom_theme,
         pulse_vnext_enabled,
         overview_enabled,
+        light_pane,
         layout_source,
         client_id,
         project_root,
@@ -9029,6 +9072,24 @@ fn resolve_overview_enabled() -> bool {
         .ok()
         .and_then(|value| parse_bool_flag(&value))
         .unwrap_or(true)
+}
+
+fn resolve_light_pane() -> bool {
+    std::env::var("AOC_PULSE_LIGHT_PANE")
+        .ok()
+        .and_then(|value| parse_bool_flag(&value))
+        .unwrap_or(false)
+}
+
+fn resolve_local_snapshot_refresh_secs() -> u64 {
+    std::env::var("AOC_MISSION_CONTROL_SNAPSHOT_REFRESH_SECS")
+        .ok()
+        .and_then(|raw| raw.trim().parse::<u64>().ok())
+        .map(|value| value.clamp(
+            LOCAL_SNAPSHOT_REFRESH_SECS_MIN,
+            LOCAL_SNAPSHOT_REFRESH_SECS_MAX,
+        ))
+        .unwrap_or(LOCAL_SNAPSHOT_REFRESH_SECS_DEFAULT)
 }
 
 fn resolve_layout_source() -> LayoutSource {
@@ -9234,6 +9295,7 @@ mod tests {
             pulse_custom_theme: None,
             pulse_vnext_enabled: true,
             overview_enabled: true,
+            light_pane: false,
             layout_source: LayoutSource::Hub,
             client_id: "pulse-test".to_string(),
             project_root: PathBuf::from("/tmp"),
@@ -11443,6 +11505,28 @@ mod tests {
             .iter()
             .any(|topic| topic == "observer_snapshot"));
         assert!(payload
+            .topics
+            .iter()
+            .any(|topic| topic == "observer_timeline"));
+        assert!(payload
+            .topics
+            .iter()
+            .any(|topic| topic == "consultation_response"));
+    }
+
+    #[test]
+    fn pulse_subscribe_omits_overseer_topics_for_light_pane() {
+        let mut cfg = test_config();
+        cfg.light_pane = true;
+        let subscribe = build_pulse_subscribe(&cfg);
+        let WireMsg::Subscribe(payload) = subscribe.msg else {
+            panic!("expected subscribe envelope")
+        };
+        assert!(!payload
+            .topics
+            .iter()
+            .any(|topic| topic == "observer_snapshot"));
+        assert!(!payload
             .topics
             .iter()
             .any(|topic| topic == "observer_timeline"));

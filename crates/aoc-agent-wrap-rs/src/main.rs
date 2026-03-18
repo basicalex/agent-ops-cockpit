@@ -74,7 +74,7 @@ use std::{
     path::{Path, PathBuf},
     process::Stdio,
     sync::{Arc, Mutex as StdMutex, OnceLock},
-    time::Duration,
+    time::{Duration, SystemTime, UNIX_EPOCH},
 };
 use tokio::{
     fs,
@@ -98,6 +98,7 @@ const MAX_PATCH_BYTES: usize = 1024 * 1024;
 const MAX_FILES_LIST: usize = 500;
 const TASK_DEBOUNCE_MS: u64 = 500;
 const DIFF_INTERVAL_SECS: u64 = 2;
+const DIFF_SHARED_CACHE_TTL_MS: u64 = 1500;
 const STATUS_MESSAGE_MAX_CHARS: usize = 140;
 const TAP_RING_MAX_BYTES: usize = 64 * 1024;
 const TAP_REPORT_INTERVAL_MS: u64 = 250;
@@ -307,6 +308,12 @@ struct DiffSummaryPayload {
     files: Vec<DiffFile>,
     #[serde(skip_serializing_if = "Option::is_none")]
     reason: Option<String>,
+}
+
+#[derive(Serialize, Deserialize)]
+struct SharedDiffSummaryCacheEntry {
+    saved_at_ms: u64,
+    payload: DiffSummaryPayload,
 }
 
 #[derive(Serialize, Deserialize, Clone, Default)]
@@ -8755,24 +8762,34 @@ async fn send_diff_summary(
 async fn build_diff_summary_payload(cfg: &ClientConfig) -> DiffSummaryPayload {
     let project_root = PathBuf::from(&cfg.project_root);
     match git_repo_root(&project_root).await {
-        Ok(repo_root) => match collect_git_summary(&repo_root).await {
-            Ok((summary, files)) => DiffSummaryPayload {
-                agent_id: cfg.agent_key.clone(),
-                repo_root: repo_root.to_string_lossy().to_string(),
-                git_available: true,
-                summary,
-                files,
-                reason: None,
-            },
-            Err(_err) => DiffSummaryPayload {
-                agent_id: cfg.agent_key.clone(),
-                repo_root: repo_root.to_string_lossy().to_string(),
-                git_available: false,
-                summary: DiffSummaryCounts::default(),
-                files: Vec::new(),
-                reason: Some("error".to_string()),
-            },
-        },
+        Ok(repo_root) => {
+            if let Some(mut cached) = load_shared_diff_summary_payload(&repo_root) {
+                cached.agent_id = cfg.agent_key.clone();
+                cached.repo_root = repo_root.to_string_lossy().to_string();
+                return cached;
+            }
+
+            let payload = match collect_git_summary(&repo_root).await {
+                Ok((summary, files)) => DiffSummaryPayload {
+                    agent_id: cfg.agent_key.clone(),
+                    repo_root: repo_root.to_string_lossy().to_string(),
+                    git_available: true,
+                    summary,
+                    files,
+                    reason: None,
+                },
+                Err(_err) => DiffSummaryPayload {
+                    agent_id: cfg.agent_key.clone(),
+                    repo_root: repo_root.to_string_lossy().to_string(),
+                    git_available: false,
+                    summary: DiffSummaryCounts::default(),
+                    files: Vec::new(),
+                    reason: Some("error".to_string()),
+                },
+            };
+            store_shared_diff_summary_payload(&repo_root, &payload);
+            payload
+        }
         Err(err) => {
             let reason = match err {
                 GitError::Missing => "git_missing",
@@ -8935,6 +8952,45 @@ fn load_check_outcome(project_root: &Path, kind: &str) -> CheckOutcome {
         status: "unknown".to_string(),
         timestamp: None,
         details: None,
+    }
+}
+
+fn shared_diff_cache_path(repo_root: &Path) -> PathBuf {
+    let mut hasher = DefaultHasher::new();
+    repo_root.hash(&mut hasher);
+    std::env::temp_dir().join(format!("aoc-diff-summary-{:016x}.json", hasher.finish()))
+}
+
+fn current_time_ms() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis() as u64
+}
+
+fn load_shared_diff_summary_payload(repo_root: &Path) -> Option<DiffSummaryPayload> {
+    let cache_path = shared_diff_cache_path(repo_root);
+    let raw = std::fs::read_to_string(cache_path).ok()?;
+    let entry = serde_json::from_str::<SharedDiffSummaryCacheEntry>(&raw).ok()?;
+    let age_ms = current_time_ms().saturating_sub(entry.saved_at_ms);
+    if age_ms > DIFF_SHARED_CACHE_TTL_MS {
+        return None;
+    }
+    Some(entry.payload)
+}
+
+fn store_shared_diff_summary_payload(repo_root: &Path, payload: &DiffSummaryPayload) {
+    let cache_path = shared_diff_cache_path(repo_root);
+    let temp_path = cache_path.with_extension("json.tmp");
+    let entry = SharedDiffSummaryCacheEntry {
+        saved_at_ms: current_time_ms(),
+        payload: payload.clone(),
+    };
+    let Ok(raw) = serde_json::to_vec(&entry) else {
+        return;
+    };
+    if std::fs::write(&temp_path, raw).is_ok() {
+        let _ = std::fs::rename(temp_path, cache_path);
     }
 }
 
