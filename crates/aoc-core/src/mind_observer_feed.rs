@@ -85,3 +85,44 @@ pub struct MindObserverFeedPayload {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub updated_at_ms: Option<i64>,
 }
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum MindInjectionTriggerKind {
+    Startup,
+    TagSwitch,
+    Resume,
+    Handoff,
+}
+
+impl MindInjectionTriggerKind {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Startup => "startup",
+            Self::TagSwitch => "tag_switch",
+            Self::Resume => "resume",
+            Self::Handoff => "handoff",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct MindInjectionPayload {
+    pub status: String,
+    pub trigger: MindInjectionTriggerKind,
+    pub scope: String,
+    pub scope_key: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub active_tag: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reason: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub snapshot_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub payload_hash: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub token_estimate: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub context_pack: Option<serde_json::Value>,
+    pub queued_at: String,
+}

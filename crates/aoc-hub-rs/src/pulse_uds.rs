@@ -1185,6 +1185,9 @@ impl PulseUdsHub {
             | "insight_status"
             | "insight_dispatch"
             | "insight_bootstrap"
+            | "insight_detached_dispatch"
+            | "insight_detached_status"
+            | "insight_detached_cancel"
             | "request_status_update"
             | "request_handoff"
             | "pause_and_summarize"
@@ -2081,11 +2084,6 @@ fn parse_layout_snapshot(layout: &str) -> LayoutSnapshot {
         tabs,
         panes: pane_entries,
     }
-}
-
-#[cfg(unix)]
-fn parse_layout_pane_ids(layout: &str) -> HashSet<String> {
-    parse_layout_snapshot(layout).pane_ids
 }
 
 #[cfg(unix)]

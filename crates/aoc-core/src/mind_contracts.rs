@@ -331,6 +331,29 @@ pub struct T0CompactEvent {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct CompactionT0Slice {
+    pub schema_version: u32,
+    pub slice_id: String,
+    pub slice_hash: String,
+    pub conversation_id: String,
+    pub session_id: String,
+    pub ts: DateTime<Utc>,
+    pub trigger_source: String,
+    pub reason: Option<String>,
+    pub summary: Option<String>,
+    pub tokens_before: Option<u32>,
+    pub first_kept_entry_id: Option<String>,
+    pub compaction_entry_id: Option<String>,
+    pub from_extension: bool,
+    pub source_kind: String,
+    pub source_event_ids: Vec<String>,
+    pub read_files: Vec<String>,
+    pub modified_files: Vec<String>,
+    pub checkpoint_id: Option<String>,
+    pub policy_version: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 struct T0CompactEventCore {
     pub conversation_id: String,
     pub ts: DateTime<Utc>,
@@ -411,6 +434,116 @@ pub fn compact_raw_event_to_t0(
         source_event_ids: core.source_event_ids,
         policy_version: core.policy_version,
     }))
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+struct CompactionT0SliceCore {
+    pub conversation_id: String,
+    pub session_id: String,
+    pub ts: DateTime<Utc>,
+    pub trigger_source: String,
+    pub reason: Option<String>,
+    pub summary: Option<String>,
+    pub tokens_before: Option<u32>,
+    pub first_kept_entry_id: Option<String>,
+    pub compaction_entry_id: Option<String>,
+    pub from_extension: bool,
+    pub source_kind: String,
+    pub source_event_ids: Vec<String>,
+    pub read_files: Vec<String>,
+    pub modified_files: Vec<String>,
+    pub checkpoint_id: Option<String>,
+    pub policy_version: String,
+}
+
+#[allow(clippy::too_many_arguments)]
+pub fn build_compaction_t0_slice(
+    conversation_id: &str,
+    session_id: &str,
+    ts: DateTime<Utc>,
+    trigger_source: &str,
+    reason: Option<&str>,
+    summary: Option<&str>,
+    tokens_before: Option<u32>,
+    first_kept_entry_id: Option<&str>,
+    compaction_entry_id: Option<&str>,
+    from_extension: bool,
+    source_kind: &str,
+    source_event_ids: &[String],
+    read_files: &[String],
+    modified_files: &[String],
+    checkpoint_id: Option<&str>,
+    policy_version: &str,
+) -> Result<CompactionT0Slice, MindContractError> {
+    let source_event_ids = normalize_string_list(source_event_ids);
+    let read_files = normalize_string_list(read_files);
+    let modified_files = normalize_string_list(modified_files);
+
+    let core = CompactionT0SliceCore {
+        conversation_id: conversation_id.trim().to_string(),
+        session_id: session_id.trim().to_string(),
+        ts,
+        trigger_source: trigger_source.trim().to_string(),
+        reason: normalize_optional_string(reason),
+        summary: normalize_optional_string(summary),
+        tokens_before,
+        first_kept_entry_id: normalize_optional_string(first_kept_entry_id),
+        compaction_entry_id: normalize_optional_string(compaction_entry_id),
+        from_extension,
+        source_kind: source_kind.trim().to_string(),
+        source_event_ids,
+        read_files,
+        modified_files,
+        checkpoint_id: normalize_optional_string(checkpoint_id),
+        policy_version: policy_version.trim().to_string(),
+    };
+
+    let slice_hash = canonical_payload_hash(&core)?;
+    let slice_id = core
+        .compaction_entry_id
+        .as_deref()
+        .map(|entry_id| format!("t0slice:{}:{entry_id}", core.conversation_id))
+        .unwrap_or_else(|| format!("t0slice:{}", &slice_hash[..16]));
+
+    Ok(CompactionT0Slice {
+        schema_version: MIND_SCHEMA_VERSION,
+        slice_id,
+        slice_hash,
+        conversation_id: core.conversation_id,
+        session_id: core.session_id,
+        ts: core.ts,
+        trigger_source: core.trigger_source,
+        reason: core.reason,
+        summary: core.summary,
+        tokens_before: core.tokens_before,
+        first_kept_entry_id: core.first_kept_entry_id,
+        compaction_entry_id: core.compaction_entry_id,
+        from_extension: core.from_extension,
+        source_kind: core.source_kind,
+        source_event_ids: core.source_event_ids,
+        read_files: core.read_files,
+        modified_files: core.modified_files,
+        checkpoint_id: core.checkpoint_id,
+        policy_version: core.policy_version,
+    })
+}
+
+fn normalize_optional_string(value: Option<&str>) -> Option<String> {
+    value
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(ToString::to_string)
+}
+
+fn normalize_string_list(values: &[String]) -> Vec<String> {
+    values
+        .iter()
+        .map(|value| value.trim())
+        .filter(|value| !value.is_empty())
+        .map(ToString::to_string)
+        .collect::<BTreeSet<_>>()
+        .into_iter()
+        .collect()
 }
 
 fn attr_string(
@@ -1528,5 +1661,63 @@ mod tests {
         let hash = canonical_payload_hash(&payload).expect("hash");
 
         assert_eq!(hash, sha256_hex(rendered.as_bytes()));
+    }
+
+    #[test]
+    fn compaction_t0_slice_is_deterministic_and_dedupes_lists() {
+        let a = build_compaction_t0_slice(
+            "conv-1",
+            "sess-1",
+            ts(),
+            "pi_compact_import",
+            Some(" pi_session_import "),
+            Some("checkpoint summary"),
+            Some(1200),
+            Some("entry-7"),
+            Some("cmp-1"),
+            true,
+            "pi_compaction_checkpoint",
+            &[
+                "evt-b".to_string(),
+                "evt-a".to_string(),
+                "evt-a".to_string(),
+            ],
+            &["src/lib.rs".to_string(), "src/lib.rs".to_string()],
+            &["README.md".to_string(), "src/main.rs".to_string()],
+            Some("cmpchk:conv-1:cmp-1"),
+            "t0.compaction.v1",
+        )
+        .expect("slice a");
+        let b = build_compaction_t0_slice(
+            "conv-1",
+            "sess-1",
+            ts(),
+            "pi_compact_import",
+            Some("pi_session_import"),
+            Some("checkpoint summary"),
+            Some(1200),
+            Some("entry-7"),
+            Some("cmp-1"),
+            true,
+            "pi_compaction_checkpoint",
+            &["evt-a".to_string(), "evt-b".to_string()],
+            &["src/lib.rs".to_string()],
+            &["src/main.rs".to_string(), "README.md".to_string()],
+            Some("cmpchk:conv-1:cmp-1"),
+            "t0.compaction.v1",
+        )
+        .expect("slice b");
+
+        assert_eq!(a.slice_id, "t0slice:conv-1:cmp-1");
+        assert_eq!(a.slice_hash, b.slice_hash);
+        assert_eq!(
+            a.source_event_ids,
+            vec!["evt-a".to_string(), "evt-b".to_string()]
+        );
+        assert_eq!(a.read_files, vec!["src/lib.rs".to_string()]);
+        assert_eq!(
+            a.modified_files,
+            vec!["README.md".to_string(), "src/main.rs".to_string()]
+        );
     }
 }

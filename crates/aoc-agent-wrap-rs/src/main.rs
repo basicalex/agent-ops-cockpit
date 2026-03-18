@@ -7,21 +7,22 @@ use aoc_core::{
         ConsultationSourceStatus, ConsultationTaskContext,
     },
     insight_contracts::{
-        InsightBootstrapRequest, InsightCommand, InsightDispatchRequest, InsightRetrievalCitation,
-        InsightRetrievalDrilldownRef, InsightRetrievalHit, InsightRetrievalMode,
-        InsightRetrievalRequest, InsightRetrievalResult, InsightRetrievalScope,
-        InsightStatusResult,
+        InsightBootstrapRequest, InsightCommand, InsightDetachedStatusResult,
+        InsightDispatchRequest, InsightRetrievalCitation, InsightRetrievalDrilldownRef,
+        InsightRetrievalHit, InsightRetrievalMode, InsightRetrievalRequest,
+        InsightRetrievalResult, InsightRetrievalScope, InsightStatusResult,
     },
     mind_contracts::{
         build_compaction_t0_slice, canonical_lineage_attrs, canonical_payload_hash,
         compact_raw_event_to_t0, compose_context_pack, ContextLayer, ContextPackInput,
         ConversationLineageMetadata, ConversationRole, MessageEvent, RawEvent, RawEventBody,
-        SemanticProvenance, SemanticRuntime, SemanticStage, T0CompactionPolicy,
-        ToolExecutionStatus, ToolResultEvent,
+        SemanticProvenance, SemanticRuntime, SemanticRuntimeMode, SemanticStage,
+        T0CompactionPolicy, ToolExecutionStatus, ToolResultEvent,
     },
     mind_observer_feed::{
-        MindObserverFeedEvent, MindObserverFeedPayload, MindObserverFeedProgress,
-        MindObserverFeedStatus, MindObserverFeedTriggerKind,
+        MindInjectionPayload, MindInjectionTriggerKind, MindObserverFeedEvent,
+        MindObserverFeedPayload, MindObserverFeedProgress, MindObserverFeedStatus,
+        MindObserverFeedTriggerKind,
     },
     provenance_contracts::{
         MindProvenanceCommand, MindProvenanceEdge, MindProvenanceEdgeKind, MindProvenanceExport,
@@ -58,7 +59,7 @@ use aoc_storage::{
 use chrono::{TimeZone, Utc};
 use clap::Parser;
 use futures_util::{SinkExt, StreamExt};
-use insight_orchestrator::InsightSupervisor;
+use insight_orchestrator::{DetachedInsightRuntime, InsightSupervisor};
 use notify::{RecommendedWatcher, RecursiveMode, Watcher};
 use portable_pty::{native_pty_system, CommandBuilder, PtySize};
 use regex::Regex;
@@ -415,36 +416,6 @@ struct InsightRuntimeHealthPayload {
     last_error: Option<String>,
 }
 
-#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
-#[serde(rename_all = "snake_case")]
-enum MindInjectionTriggerKind {
-    Startup,
-    TagSwitch,
-    Resume,
-    Handoff,
-}
-
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
-struct MindInjectionPayload {
-    status: String,
-    trigger: MindInjectionTriggerKind,
-    scope: String,
-    scope_key: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    active_tag: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    reason: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    snapshot_id: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    payload_hash: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    token_estimate: Option<u32>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    context_pack: Option<MindContextPack>,
-    queued_at: String,
-}
-
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 struct ConsultationInboxEntry {
     consultation_id: String,
@@ -476,6 +447,7 @@ enum PulseUpdate {
     DiffSummary(DiffSummaryPayload),
     Health(HealthSnapshotPayload),
     InsightRuntime(InsightRuntimeHealthPayload),
+    InsightDetached(InsightDetachedStatusResult),
     MindObserverEvent(MindObserverFeedEvent),
     MindInjection(MindInjectionPayload),
     ConsultationInbox(ConsultationInboxEntry),
@@ -496,6 +468,7 @@ struct PulseState {
     diff_summary: Option<DiffSummaryPayload>,
     health: Option<HealthSnapshotPayload>,
     insight_runtime: Option<InsightRuntimeHealthPayload>,
+    insight_detached: Option<InsightDetachedStatusResult>,
     mind_observer: MindObserverFeedPayload,
     mind_injection: Option<MindInjectionPayload>,
     consultation_inbox: Vec<ConsultationInboxEntry>,
@@ -517,6 +490,7 @@ impl PulseState {
             diff_summary: None,
             health: None,
             insight_runtime: None,
+            insight_detached: None,
             mind_observer: MindObserverFeedPayload::default(),
             mind_injection: None,
             consultation_inbox: Vec::new(),
@@ -562,7 +536,7 @@ struct MultiWriter {
 enum GitError {
     Missing,
     NotRepo,
-    Error(String),
+    Error(()),
 }
 
 enum TaskError {
@@ -971,7 +945,6 @@ async fn pulse_loop(
 #[cfg(unix)]
 async fn pulse_loop(cfg: ClientConfig, socket_path: PathBuf, mut rx: mpsc::Receiver<PulseUpdate>) {
     let mut state = PulseState::new();
-    let mut last_state_hash: Option<u64> = None;
     let mut backoff = Duration::from_secs(1);
     let mut mind_runtime = match MindRuntime::new(&cfg) {
         Ok(runtime) => Some(runtime),
@@ -989,6 +962,7 @@ async fn pulse_loop(cfg: ClientConfig, socket_path: PathBuf, mut rx: mpsc::Recei
             Some("session startup baseline handshake".to_string()),
         );
         apply_pulse_update(&mut state, PulseUpdate::MindInjection(startup_injection));
+        apply_pulse_update(&mut state, runtime.detached_status_update());
     }
 
     loop {
@@ -996,7 +970,7 @@ async fn pulse_loop(cfg: ClientConfig, socket_path: PathBuf, mut rx: mpsc::Recei
             Ok(stream) => stream,
             Err(err) => {
                 warn!("pulse_connect_error: {err}");
-                let mut sleep = tokio::time::sleep(backoff);
+                let sleep = tokio::time::sleep(backoff);
                 tokio::pin!(sleep);
                 loop {
                     tokio::select! {
@@ -1004,9 +978,7 @@ async fn pulse_loop(cfg: ClientConfig, socket_path: PathBuf, mut rx: mpsc::Recei
                         update = rx.recv() => {
                             match update {
                                 Some(PulseUpdate::Shutdown) | None => return,
-                                Some(PulseUpdate::Remove) => {
-                                    last_state_hash = None;
-                                }
+                                Some(PulseUpdate::Remove) => {}
                                 Some(PulseUpdate::Heartbeat { lifecycle }) => {
                                     state.last_heartbeat_ms = Some(Utc::now().timestamp_millis());
                                     if let Some(lifecycle) = lifecycle {
@@ -1039,7 +1011,7 @@ async fn pulse_loop(cfg: ClientConfig, socket_path: PathBuf, mut rx: mpsc::Recei
             continue;
         }
 
-        last_state_hash = None;
+        let mut last_state_hash: Option<u64> = None;
         if send_pulse_upsert(&cfg, &state, &mut writer_half, &mut last_state_hash)
             .await
             .is_err()
@@ -1127,6 +1099,7 @@ async fn pulse_loop(cfg: ClientConfig, socket_path: PathBuf, mut rx: mpsc::Recei
                             updates.extend(finalize.updates);
                         }
                         updates.extend(runtime.tick_t3_runtime());
+                        updates.push(runtime.detached_status_update());
                         for update in updates {
                             apply_pulse_update_with_injection_adapters(
                                 &cfg,
@@ -1241,6 +1214,10 @@ fn apply_pulse_update(state: &mut PulseState, update: PulseUpdate) {
         }
         PulseUpdate::InsightRuntime(health) => {
             state.insight_runtime = Some(health);
+            state.updated_at_ms = Some(now);
+        }
+        PulseUpdate::InsightDetached(detached) => {
+            state.insight_detached = Some(detached);
             state.updated_at_ms = Some(now);
         }
         PulseUpdate::MindObserverEvent(event) => {
@@ -3205,7 +3182,8 @@ fn build_mind_injection_payload(
         },
         None,
     )
-    .ok();
+    .ok()
+    .and_then(|value| serde_json::to_value(value).ok());
 
     MindInjectionPayload {
         status: "pending".to_string(),
@@ -3412,6 +3390,11 @@ fn build_pulse_source(cfg: &ClientConfig, state: &PulseState) -> serde_json::Val
     if let Some(insight_runtime) = state.insight_runtime.as_ref() {
         if let Ok(value) = serde_json::to_value(insight_runtime) {
             source.insert("insight_runtime".to_string(), value);
+        }
+    }
+    if let Some(insight_detached) = state.insight_detached.as_ref() {
+        if let Ok(value) = serde_json::to_value(insight_detached) {
+            source.insert("insight_detached".to_string(), value);
         }
     }
     if !state.mind_observer.events.is_empty() {
@@ -3625,11 +3608,7 @@ fn synthesize_overseer_event(
             Some(format!("active tag: {}", current_tag.tag)),
             None,
         ),
-        PulseUpdate::DiffSummary(payload) => (
-            ObserverEventKind::Milestone,
-            Some(format!("diff updated ({} files)", payload.files.len())),
-            None,
-        ),
+        PulseUpdate::DiffSummary(_) => return None,
         _ => return None,
     };
 
@@ -3918,6 +3897,7 @@ struct MindRuntime {
     last_ingest_at: Option<chrono::DateTime<chrono::Utc>>,
     last_idle_finalize_check: Option<chrono::DateTime<chrono::Utc>>,
     insight_supervisor: InsightSupervisor,
+    insight_detached: DetachedInsightRuntime,
     reflector_worker: DetachedReflectorWorker,
     t3_worker: DetachedT3Worker,
     insight_health: InsightRuntimeHealthPayload,
@@ -3976,10 +3956,15 @@ impl MindRuntime {
             }
         }
 
-        let distill = DistillationConfig::default();
+        let mut distill = DistillationConfig::default();
+        let mut semantic = SemanticObserverConfig::default();
+        semantic.mode = SemanticRuntimeMode::DeterministicOnly;
+        let semantic_input_limit = semantic.profile.max_input_tokens.max(1);
+        distill.t1_target_tokens = distill.t1_target_tokens.min(semantic_input_limit);
+        distill.t1_hard_cap_tokens = distill.t1_hard_cap_tokens.min(semantic_input_limit);
         let sidecar = SessionObserverSidecar::new(
             distill.clone(),
-            SemanticObserverConfig::default(),
+            semantic,
             PiObserverAdapter::default(),
         );
         let reflector_lock_path = resolve_reflector_lock_path(cfg);
@@ -4019,6 +4004,7 @@ impl MindRuntime {
             last_ingest_at: None,
             last_idle_finalize_check: None,
             insight_supervisor: InsightSupervisor::new(&cfg.project_root),
+            insight_detached: DetachedInsightRuntime::new(&cfg.project_root, canonical_path.clone()),
             reflector_worker,
             t3_worker,
             insight_health: InsightRuntimeHealthPayload {
@@ -5006,6 +4992,53 @@ impl MindRuntime {
             self.insight_health.last_error = None;
         }
         result
+    }
+
+    fn insight_detached_dispatch(
+        &mut self,
+        request: aoc_core::insight_contracts::InsightDetachedDispatchRequest,
+    ) -> aoc_core::insight_contracts::InsightDetachedDispatchResult {
+        self.insight_health.supervisor_runs = self.insight_health.supervisor_runs.saturating_add(1);
+        self.insight_health.last_tick_ms = Some(Utc::now().timestamp_millis());
+        let result = self.insight_detached.dispatch(&request);
+        if result.fallback_used {
+            self.insight_health.supervisor_failures =
+                self.insight_health.supervisor_failures.saturating_add(1);
+            self.insight_health.last_error = Some(result.summary.clone());
+        }
+        result
+    }
+
+    fn insight_detached_status(
+        &mut self,
+        request: aoc_core::insight_contracts::InsightDetachedStatusRequest,
+    ) -> aoc_core::insight_contracts::InsightDetachedStatusResult {
+        self.insight_health.last_tick_ms = Some(Utc::now().timestamp_millis());
+        self.insight_detached.status(&request)
+    }
+
+    fn insight_detached_cancel(
+        &mut self,
+        request: aoc_core::insight_contracts::InsightDetachedCancelRequest,
+    ) -> aoc_core::insight_contracts::InsightDetachedCancelResult {
+        self.insight_health.last_tick_ms = Some(Utc::now().timestamp_millis());
+        let result = self.insight_detached.cancel(&request);
+        if result.fallback_used {
+            self.insight_health.supervisor_failures =
+                self.insight_health.supervisor_failures.saturating_add(1);
+            self.insight_health.last_error = Some(result.summary.clone());
+        }
+        result
+    }
+
+    fn detached_status_update(&self) -> PulseUpdate {
+        PulseUpdate::InsightDetached(
+            self.insight_detached
+                .status(&aoc_core::insight_contracts::InsightDetachedStatusRequest {
+                    job_id: None,
+                    limit: Some(24),
+                }),
+        )
     }
 
     fn tick_reflector_runtime(&mut self) -> Vec<PulseUpdate> {
@@ -7347,7 +7380,13 @@ fn build_pulse_command_response(
                 )),
             }
         }
-        "insight_status" | "insight_dispatch" | "insight_bootstrap" | "insight_retrieve" => {
+        "insight_status"
+        | "insight_dispatch"
+        | "insight_bootstrap"
+        | "insight_retrieve"
+        | "insight_detached_dispatch"
+        | "insight_detached_status"
+        | "insight_detached_cancel" => {
             if let Err(error) = ensure_target_matches(cfg, payload.target_agent_id.as_deref()) {
                 return Some(command_result(
                     cfg,
@@ -7378,9 +7417,7 @@ fn build_pulse_command_response(
 
             let parsed = InsightCommand::parse(&command, payload.args.clone());
             let result_json = match parsed {
-                Ok(InsightCommand::InsightStatus) => {
-                    serde_json::to_string(&runtime.insight_status())
-                }
+                Ok(InsightCommand::InsightStatus) => serde_json::to_string(&runtime.insight_status()),
                 Ok(InsightCommand::InsightDispatch(args)) => {
                     serde_json::to_string(&runtime.insight_dispatch(args))
                 }
@@ -7389,6 +7426,15 @@ fn build_pulse_command_response(
                 }
                 Ok(InsightCommand::InsightRetrieve(args)) => {
                     serde_json::to_string(&runtime.insight_retrieve(args))
+                }
+                Ok(InsightCommand::InsightDetachedDispatch(args)) => {
+                    serde_json::to_string(&runtime.insight_detached_dispatch(args))
+                }
+                Ok(InsightCommand::InsightDetachedStatus(args)) => {
+                    serde_json::to_string(&runtime.insight_detached_status(args))
+                }
+                Ok(InsightCommand::InsightDetachedCancel(args)) => {
+                    serde_json::to_string(&runtime.insight_detached_cancel(args))
                 }
                 Err(err) => {
                     return Some(command_result(
@@ -7416,7 +7462,10 @@ fn build_pulse_command_response(
                     Some(json),
                     None,
                     false,
-                    vec![PulseUpdate::InsightRuntime(runtime.insight_health.clone())],
+                    vec![
+                        PulseUpdate::InsightRuntime(runtime.insight_health.clone()),
+                        runtime.detached_status_update(),
+                    ],
                 )),
                 Err(err) => Some(command_result(
                     cfg,
@@ -7691,7 +7740,6 @@ fn filter_mouse_output(input: &[u8], carry: &mut Vec<u8>) -> (Vec<u8>, bool) {
             let mut current: u32 = 0;
             let mut has_digit = false;
             let mut found = false;
-            let mut terminator = 0u8;
             while j < data.len() {
                 let byte = data[j];
                 if byte.is_ascii_digit() {
@@ -7715,7 +7763,6 @@ fn filter_mouse_output(input: &[u8], carry: &mut Vec<u8>) -> (Vec<u8>, bool) {
                     if has_digit {
                         numbers.push(current);
                     }
-                    terminator = byte;
                     found = true;
                     j += 1;
                     break;
@@ -8244,14 +8291,12 @@ async fn run_child_pty(
                 Ok(count) => count,
                 Err(_) => break,
             };
-            let mut dropped_mouse = false;
-            let (filtered, dropped) = if filter_mouse {
+            let (filtered, dropped_mouse) = if filter_mouse {
                 let (filtered, dropped) = filter_mouse_output(&buffer[..read], &mut mouse_carry);
                 (filtered, dropped)
             } else {
                 (buffer[..read].to_vec(), false)
             };
-            dropped_mouse = dropped;
             if dropped_mouse {
                 disable_mouse_reporting_stdout();
             }
@@ -9223,7 +9268,7 @@ async fn git_repo_root(project_root: &Path) -> Result<PathBuf, GitError> {
             if err.kind() == io::ErrorKind::NotFound {
                 return Err(GitError::Missing);
             }
-            return Err(GitError::Error(err.to_string()));
+            return Err(GitError::Error(()));
         }
     };
     if !output.status.success() {
@@ -9231,11 +9276,11 @@ async fn git_repo_root(project_root: &Path) -> Result<PathBuf, GitError> {
         if stderr.contains("not a git repository") {
             return Err(GitError::NotRepo);
         }
-        return Err(GitError::Error(stderr));
+        return Err(GitError::Error(()));
     }
     let root = String::from_utf8_lossy(&output.stdout).trim().to_string();
     if root.is_empty() {
-        return Err(GitError::Error("empty git root".to_string()));
+        return Err(GitError::Error(()));
     }
     Ok(PathBuf::from(root))
 }
@@ -9340,13 +9385,11 @@ async fn git_status_entry(
             if err.kind() == io::ErrorKind::NotFound {
                 return Err(GitError::Missing);
             }
-            return Err(GitError::Error(err.to_string()));
+            return Err(GitError::Error(()));
         }
     };
     if !output.status.success() {
-        return Err(GitError::Error(
-            String::from_utf8_lossy(&output.stderr).to_string(),
-        ));
+        return Err(GitError::Error(()));
     }
     let raw = String::from_utf8_lossy(&output.stdout).to_string();
     Ok(raw.lines().next().and_then(parse_status_line))
@@ -9871,6 +9914,7 @@ fn next_backoff(current: Duration) -> Duration {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use aoc_storage::T3BacklogJobStatus;
     use serde_json::Value;
     use std::path::{Path, PathBuf};
     use std::time::{Duration, Instant};
@@ -10374,6 +10418,31 @@ mod tests {
             }],
             taskmaster_status: "available".to_string(),
         });
+        state.insight_detached = Some(InsightDetachedStatusResult {
+            status: "ok".to_string(),
+            jobs: vec![aoc_core::insight_contracts::InsightDetachedJob {
+                job_id: "detached-1".to_string(),
+                parent_job_id: None,
+                mode: aoc_core::insight_contracts::InsightDetachedMode::Dispatch,
+                status: aoc_core::insight_contracts::InsightDetachedJobStatus::Running,
+                agent: Some("insight-t1-observer".to_string()),
+                team: None,
+                chain: None,
+                created_at_ms: 1,
+                started_at_ms: Some(2),
+                finished_at_ms: None,
+                current_step_index: Some(1),
+                step_count: Some(1),
+                output_excerpt: Some("working detached".to_string()),
+                stdout_excerpt: Some("working detached".to_string()),
+                stderr_excerpt: None,
+                error: None,
+                fallback_used: false,
+                step_results: vec![],
+            }],
+            active_jobs: 1,
+            fallback_used: false,
+        });
         state.mind_observer.events.push(mind_observer_event(
             MindObserverFeedStatus::Fallback,
             MindObserverFeedTriggerKind::TaskCompleted,
@@ -10400,6 +10469,7 @@ mod tests {
         assert!(root.contains_key("current_tag"));
         assert!(root.contains_key("diff_summary"));
         assert!(root.contains_key("health"));
+        assert!(root.contains_key("insight_detached"));
         assert!(root.contains_key("mind_observer"));
         assert!(root.contains_key("mind_injection"));
         assert!(root.contains_key("worker_snapshot"));
@@ -11826,6 +11896,150 @@ mod tests {
     }
 
     #[test]
+    fn multi_session_finalize_stress_drains_t3_backlog_without_duplicates() {
+        let test_root = std::env::temp_dir().join(format!(
+            "aoc-mind-t3-stress-test-{}-{}",
+            std::process::id(),
+            Utc::now().timestamp_nanos_opt().unwrap_or_default()
+        ));
+        std::fs::create_dir_all(&test_root).expect("create test root");
+
+        let session_count = 6usize;
+        let mut runtimes = Vec::new();
+        for idx in 0..session_count {
+            let mut cfg = test_client_with_root(&test_root.to_string_lossy());
+            cfg.session_id = format!("session-stress-{idx}");
+            cfg.pane_id = format!("{}", 20 + idx);
+            cfg.agent_key = format!("{}::{}", cfg.session_id, cfg.pane_id);
+            cfg.agent_label = format!("OpenCode-{idx}");
+            let runtime = MindRuntime::new(&cfg).expect("mind runtime");
+            runtimes.push((cfg, runtime));
+        }
+
+        for (idx, (cfg, runtime)) in runtimes.iter_mut().enumerate() {
+            let conversation_id = format!("conv-stress-{idx}");
+            let ingest = command_envelope_for_test(
+                cfg,
+                &format!("req-mind-ingest-stress-{idx}"),
+                "mind_ingest_event",
+                serde_json::json!({
+                    "conversation_id": conversation_id,
+                    "event_id": format!("evt-stress-{idx}-1"),
+                    "timestamp_ms": 1700000003000i64 + (idx as i64 * 100),
+                    "body": {
+                        "kind": "message",
+                        "role": "user",
+                        "text": format!("stress finalize payload {idx}")
+                    }
+                }),
+            );
+            let _ =
+                build_pulse_command_response(cfg, &ingest, Some(runtime)).expect("ingest response");
+
+            let handoff = command_envelope_for_test(
+                cfg,
+                &format!("req-mind-handoff-stress-{idx}"),
+                "mind_handoff",
+                serde_json::json!({
+                    "conversation_id": conversation_id,
+                    "reason": format!("prepare stress export {idx}")
+                }),
+            );
+            let _ = build_pulse_command_response(cfg, &handoff, Some(runtime))
+                .expect("handoff response");
+
+            let finalize = command_envelope_for_test(
+                cfg,
+                &format!("req-mind-finalize-stress-{idx}"),
+                "mind_finalize_session",
+                serde_json::json!({"reason": format!("stress finalize {idx}")}),
+            );
+            let finalize_result = build_pulse_command_response(cfg, &finalize, Some(runtime))
+                .expect("finalize response");
+            let WireMsg::CommandResult(finalize_payload) = finalize_result.response.msg else {
+                panic!("expected command_result")
+            };
+            assert_eq!(finalize_payload.status, "ok");
+        }
+
+        let store_path = PathBuf::from(&runtimes[0].0.project_root)
+            .join(".aoc")
+            .join("mind")
+            .join("project.sqlite");
+        let pending_jobs = || {
+            MindStore::open(&store_path)
+                .expect("open shared store")
+                .pending_t3_backlog_jobs()
+                .expect("pending t3 jobs")
+        };
+        assert_eq!(pending_jobs(), session_count as i64);
+
+        for (idx, (cfg, runtime)) in runtimes.iter_mut().enumerate() {
+            let finalize = command_envelope_for_test(
+                cfg,
+                &format!("req-mind-finalize-stress-repeat-{idx}"),
+                "mind_finalize_session",
+                serde_json::json!({"reason": "repeat finalize should dedupe"}),
+            );
+            let finalize_result = build_pulse_command_response(cfg, &finalize, Some(runtime))
+                .expect("repeat finalize response");
+            let WireMsg::CommandResult(finalize_payload) = finalize_result.response.msg else {
+                panic!("expected command_result")
+            };
+            assert_eq!(finalize_payload.status, "ok");
+        }
+
+        assert_eq!(pending_jobs(), session_count as i64);
+
+        for _round in 0..(session_count * 3) {
+            if pending_jobs() == 0 {
+                break;
+            }
+            for (_cfg, runtime) in runtimes.iter_mut() {
+                runtime.tick_t3_runtime();
+            }
+        }
+
+        assert_eq!(pending_jobs(), 0);
+
+        let store = MindStore::open(&store_path).expect("open shared store");
+        let jobs = store
+            .t3_backlog_jobs_for_project_root(&runtimes[0].0.project_root)
+            .expect("t3 jobs query");
+        assert_eq!(jobs.len(), session_count);
+        assert!(jobs
+            .iter()
+            .all(|job| job.status == T3BacklogJobStatus::Completed));
+        let unique_job_ids = jobs
+            .iter()
+            .map(|job| job.job_id.as_str())
+            .collect::<std::collections::BTreeSet<_>>();
+        assert_eq!(unique_job_ids.len(), session_count);
+
+        let active_entries = store
+            .active_canon_entries(None)
+            .expect("active canon query");
+        assert!(active_entries.len() >= session_count);
+
+        let watermark = store
+            .project_watermark(&t3_scope_id_for_project_root(&runtimes[0].0.project_root))
+            .expect("watermark query")
+            .expect("watermark exists");
+        assert!(watermark.last_artifact_id.is_some());
+
+        let handshake_snapshot = store
+            .latest_handshake_snapshot(
+                "project",
+                &t3_scope_id_for_project_root(&runtimes[0].0.project_root),
+            )
+            .expect("handshake query")
+            .expect("handshake snapshot exists");
+        assert!(handshake_snapshot.token_estimate <= MIND_T3_HANDSHAKE_TOKEN_BUDGET);
+
+        let _ = std::fs::remove_dir_all(test_root);
+    }
+
+    #[test]
     fn mind_provenance_graph_projects_lineage_checkpoint_canon_and_handshake() {
         let store = MindStore::open_in_memory().expect("store");
         let now = Utc
@@ -12969,6 +13183,79 @@ mod tests {
             .pulse_updates
             .iter()
             .any(|update| matches!(update, PulseUpdate::InsightRuntime(_))));
+
+        let _ = std::fs::remove_dir_all(test_root);
+    }
+
+    #[test]
+    fn pulse_insight_detached_dispatch_and_status_return_structured_results() {
+        let test_root = std::env::temp_dir().join(format!(
+            "aoc-insight-wrap-test-{}-{}",
+            std::process::id(),
+            Utc::now().timestamp_nanos_opt().unwrap_or_default()
+        ));
+        std::fs::create_dir_all(&test_root).expect("create test root");
+        seed_insight_assets(&test_root);
+
+        let cfg = test_client_with_root(&test_root.to_string_lossy());
+        let mut runtime = MindRuntime::new(&cfg).expect("mind runtime");
+
+        let dispatch_envelope = command_envelope_for_test(
+            &cfg,
+            "req-insight-detached-dispatch",
+            "insight_detached_dispatch",
+            serde_json::json!({
+                "mode": "dispatch",
+                "agent": "insight-t1-observer",
+                "input": "summarize insight state"
+            }),
+        );
+
+        let dispatch = build_pulse_command_response(&cfg, &dispatch_envelope, Some(&mut runtime))
+            .expect("response expected");
+        let WireMsg::CommandResult(payload) = dispatch.response.msg else {
+            panic!("expected command_result")
+        };
+        assert_eq!(payload.status, "ok");
+        let parsed: Value =
+            serde_json::from_str(payload.message.as_deref().unwrap_or("{}")).expect("json result");
+        let job_id = parsed
+            .get("job")
+            .and_then(|job| job.get("job_id"))
+            .and_then(Value::as_str)
+            .expect("job id")
+            .to_string();
+        assert!(dispatch
+            .pulse_updates
+            .iter()
+            .any(|update| matches!(update, PulseUpdate::InsightDetached(_))));
+
+        let status_envelope = command_envelope_for_test(
+            &cfg,
+            "req-insight-detached-status",
+            "insight_detached_status",
+            serde_json::json!({
+                "job_id": job_id
+            }),
+        );
+        let status = build_pulse_command_response(&cfg, &status_envelope, Some(&mut runtime))
+            .expect("response expected");
+        let WireMsg::CommandResult(status_payload) = status.response.msg else {
+            panic!("expected command_result")
+        };
+        assert_eq!(status_payload.status, "ok");
+        let parsed_status: Value = serde_json::from_str(
+            status_payload.message.as_deref().unwrap_or("{}"),
+        )
+        .expect("json result");
+        assert_eq!(
+            parsed_status
+                .get("jobs")
+                .and_then(Value::as_array)
+                .map(|jobs| jobs.len())
+                .unwrap_or_default(),
+            1
+        );
 
         let _ = std::fs::remove_dir_all(test_root);
     }
