@@ -1,8 +1,14 @@
-use aoc_core::mind_contracts::{
-    canonical_payload_hash, parse_conversation_lineage_metadata, ArtifactTaskLink,
-    ArtifactTaskRelation, ConversationRole, RawEvent, RawEventBody, RouteOrigin, SegmentCandidate,
-    SegmentRoute, SemanticFailureKind, SemanticProvenance, SemanticRuntime, SemanticStage,
-    T0CompactEvent, ToolMetadataLine,
+use aoc_core::{
+    insight_contracts::{
+        InsightDetachedJob, InsightDetachedJobStatus, InsightDetachedMode,
+        InsightDispatchStepResult,
+    },
+    mind_contracts::{
+        canonical_payload_hash, parse_conversation_lineage_metadata, ArtifactTaskLink,
+        ArtifactTaskRelation, CompactionT0Slice, ConversationRole, RawEvent, RawEventBody,
+        RouteOrigin, SegmentCandidate, SegmentRoute, SemanticFailureKind, SemanticProvenance,
+        SemanticRuntime, SemanticStage, T0CompactEvent, ToolMetadataLine,
+    },
 };
 use chrono::{DateTime, Utc};
 use rusqlite::{params, Connection, OptionalExtension};
@@ -10,7 +16,7 @@ use std::collections::BTreeSet;
 use std::path::Path;
 use thiserror::Error;
 
-pub const MIND_SCHEMA_VERSION: i64 = 6;
+pub const MIND_SCHEMA_VERSION: i64 = 11;
 
 #[derive(Debug, Error)]
 pub enum StorageError {
@@ -61,6 +67,20 @@ pub struct StoredArtifact {
     pub text: String,
     pub kind: String,
     pub trace_ids: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ArtifactFileLink {
+    pub artifact_id: String,
+    pub path: String,
+    pub relation: String,
+    pub source: String,
+    pub additions: Option<u32>,
+    pub deletions: Option<u32>,
+    pub staged: bool,
+    pub untracked: bool,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -212,6 +232,29 @@ pub struct CompactionCheckpoint {
     pub updated_at: DateTime<Utc>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct StoredCompactionT0Slice {
+    pub slice_id: String,
+    pub slice_hash: String,
+    pub schema_version: u32,
+    pub conversation_id: String,
+    pub session_id: String,
+    pub ts: DateTime<Utc>,
+    pub trigger_source: String,
+    pub reason: Option<String>,
+    pub summary: Option<String>,
+    pub tokens_before: Option<u32>,
+    pub first_kept_entry_id: Option<String>,
+    pub compaction_entry_id: Option<String>,
+    pub from_extension: bool,
+    pub source_kind: String,
+    pub source_event_ids: Vec<String>,
+    pub read_files: Vec<String>,
+    pub modified_files: Vec<String>,
+    pub checkpoint_id: Option<String>,
+    pub policy_version: String,
+}
+
 pub struct MindStore {
     conn: Connection,
 }
@@ -296,6 +339,51 @@ impl MindStore {
             self.conn.execute_batch(sql)?;
             self.conn
                 .execute("PRAGMA user_version = 6", [])
+                .map(|_| ())?;
+            current = 6;
+        }
+
+        if current < 7 {
+            let sql = include_str!("../migrations/0007_artifact_file_links.sql");
+            self.conn.execute_batch(sql)?;
+            self.conn
+                .execute("PRAGMA user_version = 7", [])
+                .map(|_| ())?;
+            current = 7;
+        }
+
+        if current < 8 {
+            let sql = include_str!("../migrations/0008_compaction_slices_t0.sql");
+            self.conn.execute_batch(sql)?;
+            self.conn
+                .execute("PRAGMA user_version = 8", [])
+                .map(|_| ())?;
+            current = 8;
+        }
+
+        if current < 9 {
+            let sql = include_str!("../migrations/0009_detached_insight_jobs.sql");
+            self.conn.execute_batch(sql)?;
+            self.conn
+                .execute("PRAGMA user_version = 9", [])
+                .map(|_| ())?;
+            current = 9;
+        }
+
+        if current < 10 {
+            let sql = include_str!("../migrations/0010_detached_insight_job_hierarchy.sql");
+            self.conn.execute_batch(sql)?;
+            self.conn
+                .execute("PRAGMA user_version = 10", [])
+                .map(|_| ())?;
+            current = 10;
+        }
+
+        if current < 11 {
+            let sql = include_str!("../migrations/0011_detached_insight_job_results.sql");
+            self.conn.execute_batch(sql)?;
+            self.conn
+                .execute("PRAGMA user_version = 11", [])
                 .map(|_| ())?;
         }
 
@@ -746,6 +834,27 @@ impl MindStore {
             .map_err(StorageError::from)
     }
 
+    pub fn compaction_checkpoint_by_id(
+        &self,
+        checkpoint_id: &str,
+    ) -> Result<Option<CompactionCheckpoint>, StorageError> {
+        self.conn
+            .query_row(
+                "
+                SELECT checkpoint_id, conversation_id, session_id, ts, trigger_source,
+                       reason, summary, tokens_before, first_kept_entry_id, compaction_entry_id,
+                       from_extension, marker_event_id, schema_version, created_at, updated_at
+                FROM compaction_checkpoints
+                WHERE checkpoint_id = ?1
+                LIMIT 1
+                ",
+                [checkpoint_id],
+                parse_compaction_checkpoint_row,
+            )
+            .optional()
+            .map_err(StorageError::from)
+    }
+
     pub fn latest_compaction_checkpoint_for_session(
         &self,
         session_id: &str,
@@ -763,6 +872,178 @@ impl MindStore {
                 ",
                 [session_id],
                 parse_compaction_checkpoint_row,
+            )
+            .optional()
+            .map_err(StorageError::from)
+    }
+
+    pub fn upsert_compaction_t0_slice(
+        &self,
+        slice: &CompactionT0Slice,
+    ) -> Result<(), StorageError> {
+        let source_event_ids_json = serde_json::to_string(&slice.source_event_ids)
+            .map_err(|err| StorageError::Serialization(err.to_string()))?;
+        let read_files_json = serde_json::to_string(&slice.read_files)
+            .map_err(|err| StorageError::Serialization(err.to_string()))?;
+        let modified_files_json = serde_json::to_string(&slice.modified_files)
+            .map_err(|err| StorageError::Serialization(err.to_string()))?;
+
+        self.conn.execute(
+            "
+            INSERT INTO compaction_slices_t0 (
+                slice_id,
+                slice_hash,
+                schema_version,
+                conversation_id,
+                session_id,
+                ts,
+                trigger_source,
+                reason,
+                summary,
+                tokens_before,
+                first_kept_entry_id,
+                compaction_entry_id,
+                from_extension,
+                source_kind,
+                source_event_ids_json,
+                read_files_json,
+                modified_files_json,
+                checkpoint_id,
+                policy_version
+            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19)
+            ON CONFLICT(slice_id) DO UPDATE SET
+                slice_hash=excluded.slice_hash,
+                schema_version=excluded.schema_version,
+                conversation_id=excluded.conversation_id,
+                session_id=excluded.session_id,
+                ts=excluded.ts,
+                trigger_source=excluded.trigger_source,
+                reason=excluded.reason,
+                summary=excluded.summary,
+                tokens_before=excluded.tokens_before,
+                first_kept_entry_id=excluded.first_kept_entry_id,
+                compaction_entry_id=excluded.compaction_entry_id,
+                from_extension=excluded.from_extension,
+                source_kind=excluded.source_kind,
+                source_event_ids_json=excluded.source_event_ids_json,
+                read_files_json=excluded.read_files_json,
+                modified_files_json=excluded.modified_files_json,
+                checkpoint_id=excluded.checkpoint_id,
+                policy_version=excluded.policy_version
+            ",
+            params![
+                slice.slice_id,
+                slice.slice_hash,
+                i64::from(slice.schema_version),
+                slice.conversation_id,
+                slice.session_id,
+                slice.ts.to_rfc3339(),
+                slice.trigger_source,
+                slice.reason,
+                slice.summary,
+                slice.tokens_before.map(i64::from),
+                slice.first_kept_entry_id,
+                slice.compaction_entry_id,
+                if slice.from_extension { 1_i64 } else { 0_i64 },
+                slice.source_kind,
+                source_event_ids_json,
+                read_files_json,
+                modified_files_json,
+                slice.checkpoint_id,
+                slice.policy_version,
+            ],
+        )?;
+
+        Ok(())
+    }
+
+    pub fn compaction_t0_slices_for_conversation(
+        &self,
+        conversation_id: &str,
+    ) -> Result<Vec<StoredCompactionT0Slice>, StorageError> {
+        let mut statement = self.conn.prepare(
+            "
+            SELECT slice_id, slice_hash, schema_version, conversation_id, session_id, ts,
+                   trigger_source, reason, summary, tokens_before, first_kept_entry_id,
+                   compaction_entry_id, from_extension, source_kind, source_event_ids_json,
+                   read_files_json, modified_files_json, checkpoint_id, policy_version
+            FROM compaction_slices_t0
+            WHERE conversation_id = ?1
+            ORDER BY ts DESC, slice_id DESC
+            ",
+        )?;
+
+        let rows = statement.query_map([conversation_id], parse_compaction_t0_slice_row)?;
+        let mut slices = Vec::new();
+        for row in rows {
+            slices.push(row?);
+        }
+        Ok(slices)
+    }
+
+    pub fn latest_compaction_t0_slice_for_conversation(
+        &self,
+        conversation_id: &str,
+    ) -> Result<Option<StoredCompactionT0Slice>, StorageError> {
+        self.conn
+            .query_row(
+                "
+                SELECT slice_id, slice_hash, schema_version, conversation_id, session_id, ts,
+                       trigger_source, reason, summary, tokens_before, first_kept_entry_id,
+                       compaction_entry_id, from_extension, source_kind, source_event_ids_json,
+                       read_files_json, modified_files_json, checkpoint_id, policy_version
+                FROM compaction_slices_t0
+                WHERE conversation_id = ?1
+                ORDER BY ts DESC, slice_id DESC
+                LIMIT 1
+                ",
+                [conversation_id],
+                parse_compaction_t0_slice_row,
+            )
+            .optional()
+            .map_err(StorageError::from)
+    }
+
+    pub fn latest_compaction_t0_slice_for_session(
+        &self,
+        session_id: &str,
+    ) -> Result<Option<StoredCompactionT0Slice>, StorageError> {
+        self.conn
+            .query_row(
+                "
+                SELECT slice_id, slice_hash, schema_version, conversation_id, session_id, ts,
+                       trigger_source, reason, summary, tokens_before, first_kept_entry_id,
+                       compaction_entry_id, from_extension, source_kind, source_event_ids_json,
+                       read_files_json, modified_files_json, checkpoint_id, policy_version
+                FROM compaction_slices_t0
+                WHERE session_id = ?1
+                ORDER BY ts DESC, slice_id DESC
+                LIMIT 1
+                ",
+                [session_id],
+                parse_compaction_t0_slice_row,
+            )
+            .optional()
+            .map_err(StorageError::from)
+    }
+
+    pub fn compaction_t0_slice_for_checkpoint(
+        &self,
+        checkpoint_id: &str,
+    ) -> Result<Option<StoredCompactionT0Slice>, StorageError> {
+        self.conn
+            .query_row(
+                "
+                SELECT slice_id, slice_hash, schema_version, conversation_id, session_id, ts,
+                       trigger_source, reason, summary, tokens_before, first_kept_entry_id,
+                       compaction_entry_id, from_extension, source_kind, source_event_ids_json,
+                       read_files_json, modified_files_json, checkpoint_id, policy_version
+                FROM compaction_slices_t0
+                WHERE checkpoint_id = ?1
+                LIMIT 1
+                ",
+                [checkpoint_id],
+                parse_compaction_t0_slice_row,
             )
             .optional()
             .map_err(StorageError::from)
@@ -987,6 +1268,66 @@ impl MindStore {
         Ok(())
     }
 
+    pub fn upsert_artifact_file_link(&self, link: &ArtifactFileLink) -> Result<(), StorageError> {
+        self.conn.execute(
+            "
+            INSERT INTO artifact_file_links (
+                artifact_id,
+                path,
+                relation,
+                source,
+                additions,
+                deletions,
+                staged,
+                untracked,
+                created_at,
+                updated_at
+            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)
+            ON CONFLICT(artifact_id, path, relation) DO UPDATE SET
+                source = excluded.source,
+                additions = excluded.additions,
+                deletions = excluded.deletions,
+                staged = excluded.staged,
+                untracked = excluded.untracked,
+                updated_at = excluded.updated_at
+            ",
+            params![
+                link.artifact_id,
+                link.path,
+                link.relation,
+                link.source,
+                link.additions.map(i64::from),
+                link.deletions.map(i64::from),
+                if link.staged { 1_i64 } else { 0_i64 },
+                if link.untracked { 1_i64 } else { 0_i64 },
+                link.created_at.to_rfc3339(),
+                link.updated_at.to_rfc3339(),
+            ],
+        )?;
+        Ok(())
+    }
+
+    pub fn artifact_file_links(
+        &self,
+        artifact_id: &str,
+    ) -> Result<Vec<ArtifactFileLink>, StorageError> {
+        let mut statement = self.conn.prepare(
+            "
+            SELECT artifact_id, path, relation, source, additions, deletions, staged, untracked,
+                   created_at, updated_at
+            FROM artifact_file_links
+            WHERE artifact_id = ?1
+            ORDER BY relation ASC, path ASC
+            ",
+        )?;
+        let rows = statement.query_map([artifact_id], parse_artifact_file_link_row)?;
+        let mut links = Vec::new();
+        for row in rows {
+            links.push(row?);
+        }
+        Ok(links)
+    }
+
     pub fn insert_reflection(
         &self,
         artifact_id: &str,
@@ -1016,6 +1357,49 @@ impl MindStore {
             ],
         )?;
         Ok(())
+    }
+
+    pub fn append_trace_ids_to_artifact(
+        &self,
+        artifact_id: &str,
+        extra_trace_ids: &[String],
+    ) -> Result<bool, StorageError> {
+        let Some(artifact) = self.artifact_by_id(artifact_id)? else {
+            return Ok(false);
+        };
+
+        let mut merged = artifact.trace_ids;
+        merged.extend(extra_trace_ids.iter().cloned());
+        merged.sort();
+        merged.dedup();
+        let trace_ids_json = serde_json::to_string(&merged)
+            .map_err(|err| StorageError::Serialization(err.to_string()))?;
+
+        let changed = match artifact.kind.as_str() {
+            "t1" => self.conn.execute(
+                "UPDATE observations_t1 SET trace_ids_json = ?2 WHERE artifact_id = ?1",
+                params![artifact_id, trace_ids_json],
+            )?,
+            "t2" => self.conn.execute(
+                "UPDATE reflections_t2 SET trace_ids_json = ?2 WHERE artifact_id = ?1",
+                params![artifact_id, trace_ids_json],
+            )?,
+            _ => 0,
+        };
+
+        Ok(changed > 0)
+    }
+
+    pub fn artifacts_with_trace_id(
+        &self,
+        conversation_id: &str,
+        trace_id: &str,
+    ) -> Result<Vec<StoredArtifact>, StorageError> {
+        let artifacts = self.artifacts_for_conversation(conversation_id)?;
+        Ok(artifacts
+            .into_iter()
+            .filter(|artifact| artifact.trace_ids.iter().any(|id| id == trace_id))
+            .collect())
     }
 
     pub fn upsert_semantic_provenance(
@@ -1716,6 +2100,30 @@ impl MindStore {
         Ok(job)
     }
 
+    pub fn t3_backlog_jobs_for_project_root(
+        &self,
+        project_root: &str,
+    ) -> Result<Vec<T3BacklogJob>, StorageError> {
+        let mut statement = self.conn.prepare(
+            "
+            SELECT job_id, project_root, session_id, pane_id, active_tag,
+                   slice_start_id, slice_end_id, artifact_refs_json,
+                   status, attempts, last_error, claimed_by, claimed_at,
+                   created_at, updated_at
+            FROM t3_backlog_jobs
+            WHERE project_root = ?1
+            ORDER BY created_at DESC, job_id DESC
+            ",
+        )?;
+
+        let rows = statement.query_map([project_root], parse_t3_backlog_job_row)?;
+        let mut jobs = Vec::new();
+        for row in rows {
+            jobs.push(row?);
+        }
+        Ok(jobs)
+    }
+
     pub fn project_watermark(
         &self,
         scope_key: &str,
@@ -2250,6 +2658,131 @@ impl MindStore {
             |row| row.get(0),
         )?;
         Ok(count)
+    }
+
+    pub fn upsert_detached_insight_job(
+        &self,
+        owner_plane: &str,
+        worker_kind: Option<&str>,
+        job: &InsightDetachedJob,
+    ) -> Result<(), StorageError> {
+        self.conn.execute(
+            "
+            INSERT INTO detached_insight_jobs (
+                job_id, parent_job_id, owner_plane, worker_kind, mode, status, agent, team, chain_name,
+                created_at_ms, started_at_ms, finished_at_ms, current_step_index, step_count,
+                output_excerpt, stdout_excerpt, stderr_excerpt, error_text, fallback_used, step_results_json, updated_at
+            ) VALUES (
+                ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9,
+                ?10, ?11, ?12, ?13, ?14,
+                ?15, ?16, ?17, ?18, ?19, ?20, ?21
+            )
+            ON CONFLICT(job_id) DO UPDATE SET
+                parent_job_id = excluded.parent_job_id,
+                owner_plane = excluded.owner_plane,
+                worker_kind = excluded.worker_kind,
+                mode = excluded.mode,
+                status = excluded.status,
+                agent = excluded.agent,
+                team = excluded.team,
+                chain_name = excluded.chain_name,
+                created_at_ms = excluded.created_at_ms,
+                started_at_ms = excluded.started_at_ms,
+                finished_at_ms = excluded.finished_at_ms,
+                current_step_index = excluded.current_step_index,
+                step_count = excluded.step_count,
+                output_excerpt = excluded.output_excerpt,
+                stdout_excerpt = excluded.stdout_excerpt,
+                stderr_excerpt = excluded.stderr_excerpt,
+                error_text = excluded.error_text,
+                fallback_used = excluded.fallback_used,
+                step_results_json = excluded.step_results_json,
+                updated_at = excluded.updated_at
+            ",
+            params![
+                job.job_id,
+                job.parent_job_id,
+                owner_plane.trim(),
+                worker_kind.map(str::trim).filter(|value| !value.is_empty()),
+                detached_mode_as_str(job.mode),
+                detached_job_status_as_str(job.status),
+                job.agent,
+                job.team,
+                job.chain,
+                job.created_at_ms,
+                job.started_at_ms,
+                job.finished_at_ms,
+                job.current_step_index.map(|value| value as i64),
+                job.step_count.map(|value| value as i64),
+                job.output_excerpt,
+                job.stdout_excerpt,
+                job.stderr_excerpt,
+                job.error,
+                if job.fallback_used { 1 } else { 0 },
+                serde_json::to_string(&job.step_results)
+                    .map_err(|err| StorageError::Serialization(err.to_string()))?,
+                Utc::now().to_rfc3339(),
+            ],
+        )?;
+        Ok(())
+    }
+
+    pub fn detached_insight_jobs(
+        &self,
+        owner_plane: Option<&str>,
+        limit: Option<usize>,
+    ) -> Result<Vec<InsightDetachedJob>, StorageError> {
+        let mut sql = String::from(
+            "SELECT job_id, parent_job_id, mode, status, agent, team, chain_name, created_at_ms, started_at_ms, finished_at_ms, current_step_index, step_count, output_excerpt, stdout_excerpt, stderr_excerpt, error_text, fallback_used, step_results_json FROM detached_insight_jobs",
+        );
+        let mut args = Vec::<String>::new();
+        if let Some(owner_plane) = owner_plane.map(str::trim).filter(|value| !value.is_empty()) {
+            sql.push_str(" WHERE owner_plane = ?1");
+            args.push(owner_plane.to_string());
+        }
+        sql.push_str(" ORDER BY created_at_ms DESC, job_id DESC");
+        if let Some(limit) = limit.filter(|limit| *limit > 0) {
+            sql.push_str(&format!(" LIMIT {limit}"));
+        }
+        let mut statement = self.conn.prepare(&sql)?;
+        let rows = statement.query_map(rusqlite::params_from_iter(args.iter()), |row| {
+            parse_detached_insight_job_row(row)
+        })?;
+        let mut jobs = Vec::new();
+        for row in rows {
+            jobs.push(row?);
+        }
+        Ok(jobs)
+    }
+
+    pub fn mark_detached_insight_jobs_stale(
+        &self,
+        owner_plane: &str,
+        reason: &str,
+    ) -> Result<usize, StorageError> {
+        let changed = self.conn.execute(
+            "
+            UPDATE detached_insight_jobs
+            SET status = ?1,
+                error_text = CASE
+                    WHEN error_text IS NULL OR error_text = '' THEN ?2
+                    ELSE error_text
+                END,
+                finished_at_ms = COALESCE(finished_at_ms, created_at_ms),
+                updated_at = ?3
+            WHERE owner_plane = ?4
+              AND status IN (?5, ?6)
+            ",
+            params![
+                detached_job_status_as_str(InsightDetachedJobStatus::Stale),
+                reason,
+                Utc::now().to_rfc3339(),
+                owner_plane.trim(),
+                detached_job_status_as_str(InsightDetachedJobStatus::Queued),
+                detached_job_status_as_str(InsightDetachedJobStatus::Running),
+            ],
+        )?;
+        Ok(changed)
     }
 
     pub fn reflector_job_by_id(&self, job_id: &str) -> Result<Option<ReflectorJob>, StorageError> {
@@ -2796,6 +3329,57 @@ impl MindStore {
         Ok(found.is_some())
     }
 
+    pub fn raw_event_by_id(&self, event_id: &str) -> Result<Option<RawEvent>, StorageError> {
+        self.conn
+            .query_row(
+                "
+                SELECT event_id, conversation_id, agent_id, ts, payload_json, attrs_json
+                FROM raw_events
+                WHERE event_id = ?1
+                LIMIT 1
+                ",
+                [event_id],
+                |row| {
+                    let ts = parse_timestamp(row.get::<_, String>(3)?).map_err(|err| {
+                        rusqlite::Error::FromSqlConversionFailure(
+                            3,
+                            rusqlite::types::Type::Text,
+                            Box::new(err),
+                        )
+                    })?;
+                    let body: RawEventBody = serde_json::from_str(&row.get::<_, String>(4)?)
+                        .map_err(|err| {
+                            rusqlite::Error::FromSqlConversionFailure(
+                                4,
+                                rusqlite::types::Type::Text,
+                                Box::new(err),
+                            )
+                        })?;
+                    let attrs = serde_json::from_str::<
+                        std::collections::BTreeMap<String, serde_json::Value>,
+                    >(&row.get::<_, String>(5)?)
+                    .map_err(|err| {
+                        rusqlite::Error::FromSqlConversionFailure(
+                            5,
+                            rusqlite::types::Type::Text,
+                            Box::new(err),
+                        )
+                    })?;
+
+                    Ok(RawEvent {
+                        event_id: row.get(0)?,
+                        conversation_id: row.get(1)?,
+                        agent_id: row.get(2)?,
+                        ts,
+                        body,
+                        attrs,
+                    })
+                },
+            )
+            .optional()
+            .map_err(StorageError::from)
+    }
+
     pub fn compact_source_event_ids(&self, compact_id: &str) -> Result<Vec<String>, StorageError> {
         let source_json: Option<String> = self
             .conn
@@ -2981,6 +3565,10 @@ const LEGACY_IMPORT_SPECS: &[LegacyImportSpec] = &[
         columns: "checkpoint_id, conversation_id, session_id, ts, trigger_source, reason, summary, tokens_before, first_kept_entry_id, compaction_entry_id, from_extension, marker_event_id, schema_version, created_at, updated_at",
     },
     LegacyImportSpec {
+        table: "compaction_slices_t0",
+        columns: "slice_id, slice_hash, schema_version, conversation_id, session_id, ts, trigger_source, reason, summary, tokens_before, first_kept_entry_id, compaction_entry_id, from_extension, source_kind, source_event_ids_json, read_files_json, modified_files_json, checkpoint_id, policy_version",
+    },
+    LegacyImportSpec {
         table: "reflector_runtime_leases",
         columns: "scope_id, owner_id, owner_pid, acquired_at, heartbeat_at, expires_at, metadata_json",
     },
@@ -3033,12 +3621,110 @@ fn parse_t3_backlog_job_status(value: &str) -> Option<T3BacklogJobStatus> {
     }
 }
 
+fn detached_mode_as_str(mode: InsightDetachedMode) -> &'static str {
+    match mode {
+        InsightDetachedMode::Dispatch => "dispatch",
+        InsightDetachedMode::Chain => "chain",
+        InsightDetachedMode::Parallel => "parallel",
+    }
+}
+
+fn parse_detached_mode(value: &str) -> Option<InsightDetachedMode> {
+    match value.trim() {
+        "dispatch" => Some(InsightDetachedMode::Dispatch),
+        "chain" => Some(InsightDetachedMode::Chain),
+        "parallel" => Some(InsightDetachedMode::Parallel),
+        _ => None,
+    }
+}
+
+fn detached_job_status_as_str(status: InsightDetachedJobStatus) -> &'static str {
+    match status {
+        InsightDetachedJobStatus::Queued => "queued",
+        InsightDetachedJobStatus::Running => "running",
+        InsightDetachedJobStatus::Success => "success",
+        InsightDetachedJobStatus::Fallback => "fallback",
+        InsightDetachedJobStatus::Error => "error",
+        InsightDetachedJobStatus::Cancelled => "cancelled",
+        InsightDetachedJobStatus::Stale => "stale",
+    }
+}
+
+fn parse_detached_job_status(value: &str) -> Option<InsightDetachedJobStatus> {
+    match value.trim() {
+        "queued" => Some(InsightDetachedJobStatus::Queued),
+        "running" => Some(InsightDetachedJobStatus::Running),
+        "success" => Some(InsightDetachedJobStatus::Success),
+        "fallback" => Some(InsightDetachedJobStatus::Fallback),
+        "error" => Some(InsightDetachedJobStatus::Error),
+        "cancelled" => Some(InsightDetachedJobStatus::Cancelled),
+        "stale" => Some(InsightDetachedJobStatus::Stale),
+        _ => None,
+    }
+}
+
 fn canon_revision_state_as_str(state: CanonRevisionState) -> &'static str {
     match state {
         CanonRevisionState::Active => "active",
         CanonRevisionState::Superseded => "superseded",
         CanonRevisionState::Stale => "stale",
     }
+}
+
+fn parse_detached_insight_job_row(
+    row: &rusqlite::Row<'_>,
+) -> rusqlite::Result<InsightDetachedJob> {
+    let mode_raw: String = row.get(2)?;
+    let mode = parse_detached_mode(&mode_raw).ok_or_else(|| {
+        rusqlite::Error::FromSqlConversionFailure(
+            2,
+            rusqlite::types::Type::Text,
+            Box::new(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                format!("invalid detached insight mode: {mode_raw}"),
+            )),
+        )
+    })?;
+    let status_raw: String = row.get(3)?;
+    let status = parse_detached_job_status(&status_raw).ok_or_else(|| {
+        rusqlite::Error::FromSqlConversionFailure(
+            3,
+            rusqlite::types::Type::Text,
+            Box::new(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                format!("invalid detached insight status: {status_raw}"),
+            )),
+        )
+    })?;
+    let step_results_json = row.get::<_, Option<String>>(17)?;
+    let step_results = step_results_json
+        .as_deref()
+        .map(|json| serde_json::from_str::<Vec<InsightDispatchStepResult>>(json))
+        .transpose()
+        .map_err(|err| {
+            rusqlite::Error::FromSqlConversionFailure(17, rusqlite::types::Type::Text, Box::new(err))
+        })?
+        .unwrap_or_default();
+    Ok(InsightDetachedJob {
+        job_id: row.get(0)?,
+        parent_job_id: row.get(1)?,
+        mode,
+        status,
+        agent: row.get(4)?,
+        team: row.get(5)?,
+        chain: row.get(6)?,
+        created_at_ms: row.get(7)?,
+        started_at_ms: row.get(8)?,
+        finished_at_ms: row.get(9)?,
+        current_step_index: row.get::<_, Option<i64>>(10)?.map(|value| value as usize),
+        step_count: row.get::<_, Option<i64>>(11)?.map(|value| value as usize),
+        output_excerpt: row.get(12)?,
+        stdout_excerpt: row.get(13)?,
+        stderr_excerpt: row.get(14)?,
+        error: row.get(15)?,
+        fallback_used: row.get::<_, i64>(16)? != 0,
+        step_results,
+    })
 }
 
 fn parse_canon_revision_state(value: &str) -> Option<CanonRevisionState> {
@@ -3102,6 +3788,94 @@ fn parse_handshake_snapshot_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<Han
         payload_hash: row.get(4)?,
         token_estimate: row.get::<_, i64>(5)? as u32,
         created_at,
+    })
+}
+
+fn parse_artifact_file_link_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<ArtifactFileLink> {
+    let created_at = parse_timestamp(row.get::<_, String>(8)?).map_err(|err| {
+        rusqlite::Error::FromSqlConversionFailure(8, rusqlite::types::Type::Text, Box::new(err))
+    })?;
+    let updated_at = parse_timestamp(row.get::<_, String>(9)?).map_err(|err| {
+        rusqlite::Error::FromSqlConversionFailure(9, rusqlite::types::Type::Text, Box::new(err))
+    })?;
+
+    Ok(ArtifactFileLink {
+        artifact_id: row.get(0)?,
+        path: row.get(1)?,
+        relation: row.get(2)?,
+        source: row.get(3)?,
+        additions: row
+            .get::<_, Option<i64>>(4)?
+            .map(|value| value.max(0) as u32),
+        deletions: row
+            .get::<_, Option<i64>>(5)?
+            .map(|value| value.max(0) as u32),
+        staged: row.get::<_, i64>(6)? != 0,
+        untracked: row.get::<_, i64>(7)? != 0,
+        created_at,
+        updated_at,
+    })
+}
+
+fn parse_compaction_t0_slice_row(
+    row: &rusqlite::Row<'_>,
+) -> rusqlite::Result<StoredCompactionT0Slice> {
+    let ts = parse_timestamp(row.get::<_, String>(5)?).map_err(|err| {
+        rusqlite::Error::FromSqlConversionFailure(5, rusqlite::types::Type::Text, Box::new(err))
+    })?;
+    let source_event_ids_json: String = row.get(14)?;
+    let mut source_event_ids: Vec<String> =
+        serde_json::from_str(&source_event_ids_json).map_err(|err| {
+            rusqlite::Error::FromSqlConversionFailure(
+                14,
+                rusqlite::types::Type::Text,
+                Box::new(err),
+            )
+        })?;
+    source_event_ids.sort();
+    source_event_ids.dedup();
+
+    let read_files_json: String = row.get(15)?;
+    let mut read_files: Vec<String> = serde_json::from_str(&read_files_json).map_err(|err| {
+        rusqlite::Error::FromSqlConversionFailure(15, rusqlite::types::Type::Text, Box::new(err))
+    })?;
+    read_files.sort();
+    read_files.dedup();
+
+    let modified_files_json: String = row.get(16)?;
+    let mut modified_files: Vec<String> =
+        serde_json::from_str(&modified_files_json).map_err(|err| {
+            rusqlite::Error::FromSqlConversionFailure(
+                16,
+                rusqlite::types::Type::Text,
+                Box::new(err),
+            )
+        })?;
+    modified_files.sort();
+    modified_files.dedup();
+
+    Ok(StoredCompactionT0Slice {
+        slice_id: row.get(0)?,
+        slice_hash: row.get(1)?,
+        schema_version: row.get::<_, i64>(2)?.max(0) as u32,
+        conversation_id: row.get(3)?,
+        session_id: row.get(4)?,
+        ts,
+        trigger_source: row.get(6)?,
+        reason: row.get(7)?,
+        summary: row.get(8)?,
+        tokens_before: row
+            .get::<_, Option<i64>>(9)?
+            .map(|value| value.max(0) as u32),
+        first_kept_entry_id: row.get(10)?,
+        compaction_entry_id: row.get(11)?,
+        from_extension: row.get::<_, i64>(12)? != 0,
+        source_kind: row.get(13)?,
+        source_event_ids,
+        read_files,
+        modified_files,
+        checkpoint_id: row.get(17)?,
+        policy_version: row.get(18)?,
     })
 }
 
@@ -3275,8 +4049,8 @@ fn parse_timestamp(value: String) -> Result<DateTime<Utc>, StorageError> {
 mod tests {
     use super::*;
     use aoc_core::mind_contracts::{
-        compact_raw_event_to_t0, ConversationRole, MessageEvent, RawEvent, RawEventBody,
-        T0CompactionPolicy, ToolExecutionStatus, ToolResultEvent,
+        build_compaction_t0_slice, compact_raw_event_to_t0, ConversationRole, MessageEvent,
+        RawEvent, RawEventBody, T0CompactionPolicy, ToolExecutionStatus, ToolResultEvent,
     };
     use chrono::TimeZone;
     use rusqlite::{params, Connection};
@@ -3343,6 +4117,8 @@ mod tests {
             "project_canon_revisions",
             "handshake_snapshots",
             "project_watermarks",
+            "compaction_slices_t0",
+            "detached_insight_jobs",
         ] {
             assert!(db.table_exists(table).expect("table check"));
         }
@@ -3985,6 +4761,276 @@ mod tests {
             .expect("list checkpoints");
         assert_eq!(rows.len(), 1, "checkpoint upsert should not duplicate rows");
         assert_eq!(rows[0].reason.as_deref(), Some("pi compaction retry"));
+    }
+
+    #[test]
+    fn compaction_t0_slice_round_trip_and_latest_lookup() {
+        let db = MindStore::open_in_memory().expect("open db");
+        let now = ts();
+
+        let slice = build_compaction_t0_slice(
+            "conv-1",
+            "session-1",
+            now,
+            "pi_compact_import",
+            Some("pi_session_import"),
+            Some("checkpoint summary"),
+            Some(123),
+            Some("entry-9"),
+            Some("compact-1"),
+            true,
+            "pi_compaction_checkpoint",
+            &["pi:c1".to_string()],
+            &["src/lib.rs".to_string()],
+            &["README.md".to_string(), "src/main.rs".to_string()],
+            Some("cmpchk:conv-1:compact-1"),
+            "t0.compaction.v1",
+        )
+        .expect("build slice");
+        db.upsert_compaction_t0_slice(&slice)
+            .expect("insert compaction slice");
+
+        let loaded = db
+            .latest_compaction_t0_slice_for_conversation("conv-1")
+            .expect("latest by conversation")
+            .expect("slice exists");
+        assert_eq!(loaded.slice_id, slice.slice_id);
+        assert_eq!(loaded.compaction_entry_id.as_deref(), Some("compact-1"));
+        assert_eq!(loaded.read_files, vec!["src/lib.rs".to_string()]);
+
+        let by_session = db
+            .latest_compaction_t0_slice_for_session("session-1")
+            .expect("latest by session")
+            .expect("session slice exists");
+        assert_eq!(by_session.slice_id, slice.slice_id);
+
+        let by_checkpoint = db
+            .compaction_t0_slice_for_checkpoint("cmpchk:conv-1:compact-1")
+            .expect("slice by checkpoint")
+            .expect("checkpoint slice exists");
+        assert_eq!(by_checkpoint.slice_hash, slice.slice_hash);
+
+        let updated = build_compaction_t0_slice(
+            "conv-1",
+            "session-1",
+            now,
+            "pi_compact_import",
+            Some("pi_session_import"),
+            Some("checkpoint summary updated"),
+            Some(456),
+            Some("entry-10"),
+            Some("compact-1"),
+            true,
+            "pi_compaction_checkpoint",
+            &["pi:c1".to_string(), "pi:c1".to_string()],
+            &["src/lib.rs".to_string(), "src/lib.rs".to_string()],
+            &["src/main.rs".to_string()],
+            Some("cmpchk:conv-1:compact-1"),
+            "t0.compaction.v1",
+        )
+        .expect("build updated slice");
+        db.upsert_compaction_t0_slice(&updated)
+            .expect("update compaction slice");
+
+        let rows = db
+            .compaction_t0_slices_for_conversation("conv-1")
+            .expect("list slices");
+        assert_eq!(rows.len(), 1, "slice upsert should not duplicate rows");
+        assert_eq!(
+            rows[0].summary.as_deref(),
+            Some("checkpoint summary updated")
+        );
+        assert_eq!(rows[0].tokens_before, Some(456));
+    }
+
+    #[test]
+    fn append_trace_ids_to_artifact_updates_t1_and_t2_and_supports_lookup() {
+        let db = MindStore::open_in_memory().expect("open db");
+        let now = ts();
+
+        db.insert_observation("obs:1", "conv-trace", now, "t1", &["t0:1".to_string()])
+            .expect("insert obs");
+        db.insert_reflection("ref:1", "conv-trace", now, "t2", &["obs:1".to_string()])
+            .expect("insert ref");
+
+        assert!(db
+            .append_trace_ids_to_artifact(
+                "obs:1",
+                &[
+                    "t0slice:conv-trace:c1".to_string(),
+                    "t0slice:conv-trace:c1".to_string()
+                ],
+            )
+            .expect("append obs traces"));
+        assert!(db
+            .append_trace_ids_to_artifact(
+                "ref:1",
+                &["t0slice:conv-trace:c1".to_string(), "obs:1".to_string()],
+            )
+            .expect("append ref traces"));
+
+        let obs = db
+            .artifact_by_id("obs:1")
+            .expect("load obs")
+            .expect("obs exists");
+        assert!(obs
+            .trace_ids
+            .iter()
+            .any(|trace_id| trace_id == "t0slice:conv-trace:c1"));
+
+        let ref_artifact = db
+            .artifact_by_id("ref:1")
+            .expect("load ref")
+            .expect("ref exists");
+        assert!(ref_artifact
+            .trace_ids
+            .iter()
+            .any(|trace_id| trace_id == "t0slice:conv-trace:c1"));
+
+        let linked = db
+            .artifacts_with_trace_id("conv-trace", "t0slice:conv-trace:c1")
+            .expect("lookup trace-linked artifacts");
+        assert_eq!(linked.len(), 2);
+    }
+
+    #[test]
+    fn artifact_file_links_round_trip() {
+        let db = MindStore::open_in_memory().expect("open db");
+        let now = ts();
+
+        let link = ArtifactFileLink {
+            artifact_id: "obs:1".to_string(),
+            path: "src/lib.rs".to_string(),
+            relation: "modified".to_string(),
+            source: "pi_compaction_git_diff".to_string(),
+            additions: Some(12),
+            deletions: Some(3),
+            staged: true,
+            untracked: false,
+            created_at: now,
+            updated_at: now,
+        };
+
+        db.upsert_artifact_file_link(&link)
+            .expect("insert artifact file link");
+
+        let loaded = db
+            .artifact_file_links("obs:1")
+            .expect("load artifact file links");
+        assert_eq!(loaded, vec![link.clone()]);
+
+        db.upsert_artifact_file_link(&ArtifactFileLink {
+            staged: false,
+            untracked: true,
+            updated_at: now + chrono::Duration::seconds(2),
+            ..link.clone()
+        })
+        .expect("update artifact file link");
+
+        let updated = db
+            .artifact_file_links("obs:1")
+            .expect("load updated artifact file links");
+        assert_eq!(updated.len(), 1);
+        assert!(!updated[0].staged);
+        assert!(updated[0].untracked);
+    }
+
+    #[test]
+    fn detached_insight_jobs_round_trip_and_stale_active_rows() {
+        let db = MindStore::open_in_memory().expect("open db");
+
+        db.upsert_detached_insight_job(
+            "delegated",
+            Some("specialist"),
+            &InsightDetachedJob {
+                job_id: "detached-1".to_string(),
+                parent_job_id: None,
+                mode: InsightDetachedMode::Dispatch,
+                status: InsightDetachedJobStatus::Queued,
+                agent: Some("insight-t1-observer".to_string()),
+                team: None,
+                chain: None,
+                created_at_ms: 10,
+                started_at_ms: None,
+                finished_at_ms: None,
+                current_step_index: None,
+                step_count: Some(1),
+                output_excerpt: Some("queued".to_string()),
+                stdout_excerpt: Some("queued stdout".to_string()),
+                stderr_excerpt: None,
+                error: None,
+                fallback_used: false,
+                step_results: vec![InsightDispatchStepResult {
+                    agent: "insight-t1-observer".to_string(),
+                    status: "queued".to_string(),
+                    output_excerpt: Some("queued".to_string()),
+                    stdout_excerpt: Some("queued stdout".to_string()),
+                    stderr_excerpt: None,
+                    error: None,
+                }],
+            },
+        )
+        .expect("insert detached job");
+
+        db.upsert_detached_insight_job(
+            "delegated",
+            Some("chain_step"),
+            &InsightDetachedJob {
+                job_id: "detached-2".to_string(),
+                parent_job_id: Some("detached-parent".to_string()),
+                mode: InsightDetachedMode::Chain,
+                status: InsightDetachedJobStatus::Running,
+                agent: None,
+                team: None,
+                chain: Some("insight-handoff".to_string()),
+                created_at_ms: 20,
+                started_at_ms: Some(25),
+                finished_at_ms: None,
+                current_step_index: Some(1),
+                step_count: Some(2),
+                output_excerpt: Some("running".to_string()),
+                stdout_excerpt: Some("running stdout".to_string()),
+                stderr_excerpt: Some("running stderr".to_string()),
+                error: None,
+                fallback_used: false,
+                step_results: vec![InsightDispatchStepResult {
+                    agent: "insight-t2-reflector".to_string(),
+                    status: "running".to_string(),
+                    output_excerpt: Some("running".to_string()),
+                    stdout_excerpt: Some("running stdout".to_string()),
+                    stderr_excerpt: Some("running stderr".to_string()),
+                    error: None,
+                }],
+            },
+        )
+        .expect("insert running detached job");
+
+        let jobs = db
+            .detached_insight_jobs(Some("delegated"), Some(10))
+            .expect("load jobs");
+        assert_eq!(jobs.len(), 2);
+        assert_eq!(jobs[0].job_id, "detached-2");
+        assert_eq!(jobs[0].parent_job_id.as_deref(), Some("detached-parent"));
+        assert_eq!(jobs[0].stdout_excerpt.as_deref(), Some("running stdout"));
+        assert_eq!(jobs[0].stderr_excerpt.as_deref(), Some("running stderr"));
+        assert_eq!(jobs[0].step_results.len(), 1);
+        assert_eq!(jobs[0].step_results[0].agent, "insight-t2-reflector");
+        assert_eq!(jobs[1].job_id, "detached-1");
+        assert!(jobs[1].parent_job_id.is_none());
+        assert_eq!(jobs[1].stdout_excerpt.as_deref(), Some("queued stdout"));
+        assert_eq!(jobs[1].step_results.len(), 1);
+
+        let changed = db
+            .mark_detached_insight_jobs_stale("delegated", "restart observed")
+            .expect("mark stale");
+        assert_eq!(changed, 2);
+        let jobs = db
+            .detached_insight_jobs(Some("delegated"), Some(10))
+            .expect("load stale jobs");
+        assert!(jobs
+            .iter()
+            .all(|job| job.status == InsightDetachedJobStatus::Stale));
+        assert!(jobs.iter().all(|job| job.error.as_deref().is_some()));
     }
 
     #[test]

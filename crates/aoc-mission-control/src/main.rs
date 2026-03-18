@@ -4,13 +4,14 @@ use aoc_core::{
         ConsultationHelpRequest, ConsultationIdentity, ConsultationPacket, ConsultationPacketKind,
         ConsultationSourceStatus, ConsultationTaskContext,
     },
+    insight_contracts::{InsightDetachedJob, InsightDetachedJobStatus, InsightDetachedStatusResult},
     mind_contracts::{
         canonical_payload_hash, ArtifactTaskLink, ArtifactTaskRelation, SemanticProvenance,
         SemanticRuntime, SemanticStage,
     },
     mind_observer_feed::{
-        MindObserverFeedEvent, MindObserverFeedPayload, MindObserverFeedProgress,
-        MindObserverFeedStatus, MindObserverFeedTriggerKind,
+        MindInjectionPayload, MindObserverFeedEvent, MindObserverFeedPayload,
+        MindObserverFeedProgress, MindObserverFeedStatus, MindObserverFeedTriggerKind,
     },
     pulse_ipc::{
         encode_frame, AgentState, CommandPayload, CommandResultPayload, ConsultationRequestPayload,
@@ -26,7 +27,7 @@ use aoc_core::{
     },
     ProjectData, TaskStatus,
 };
-use aoc_storage::{CompactionCheckpoint, StoredCompactionT0Slice};
+use aoc_storage::{CanonRevisionState, CompactionCheckpoint, StoredCompactionT0Slice};
 use chrono::{DateTime, TimeZone, Utc};
 use crossterm::{
     event::{Event, EventStream, KeyCode, KeyEvent, KeyEventKind},
@@ -233,7 +234,9 @@ struct HubCache {
     diffs: HashMap<String, DiffSummaryPayload>,
     health: HashMap<String, HealthSnapshot>,
     mind: HashMap<String, MindObserverFeedPayload>,
+    mind_injection: HashMap<String, MindInjectionPayload>,
     insight_runtime: HashMap<String, InsightRuntimeSnapshot>,
+    insight_detached: HashMap<String, InsightDetachedStatusResult>,
     observer_snapshot: Option<ObserverSnapshot>,
     observer_timeline: Vec<ObserverTimelineEntry>,
     layout: Option<HubLayout>,
@@ -574,6 +577,14 @@ struct MindObserverRow {
 }
 
 #[derive(Clone, Debug)]
+struct MindInjectionRow {
+    scope: String,
+    pane_id: String,
+    tab_focused: bool,
+    payload: MindInjectionPayload,
+}
+
+#[derive(Clone, Debug)]
 struct LocalSnapshot {
     overview: Vec<OverviewRow>,
     viewer_tab_index: Option<usize>,
@@ -849,7 +860,9 @@ impl App {
                 self.hub.diffs.clear();
                 self.hub.health.clear();
                 self.hub.mind.clear();
+                self.hub.mind_injection.clear();
                 self.hub.insight_runtime.clear();
+                self.hub.insight_detached.clear();
                 self.hub.observer_snapshot = None;
                 self.hub.observer_timeline.clear();
                 self.hub.last_seq = payload.seq;
@@ -867,7 +880,9 @@ impl App {
                     self.hub.diffs.clear();
                     self.hub.health.clear();
                     self.hub.mind.clear();
+                    self.hub.mind_injection.clear();
                     self.hub.insight_runtime.clear();
+                    self.hub.insight_detached.clear();
                     self.hub.observer_snapshot = None;
                     self.hub.observer_timeline.clear();
                     self.status_note = Some("hub delta gap detected; awaiting resync".to_string());
@@ -885,7 +900,9 @@ impl App {
                             self.hub.diffs.remove(&change.agent_id);
                             self.hub.health.remove(&change.agent_id);
                             self.hub.mind.remove(&change.agent_id);
+                            self.hub.mind_injection.remove(&change.agent_id);
                             self.hub.insight_runtime.remove(&change.agent_id);
+                            self.hub.insight_detached.remove(&change.agent_id);
                             self.hub.tasks.retain(|key, payload| {
                                 if payload.agent_id == change.agent_id {
                                     return false;
@@ -1096,6 +1113,30 @@ impl App {
             self.hub.mind.remove(&state.agent_id);
         }
 
+        if let Some(source_value) = source_value_by_keys(&state.source, &["mind_injection"]) {
+            match parse_mind_injection_from_source(source_value) {
+                Ok(Some(payload)) => {
+                    self.hub
+                        .mind_injection
+                        .insert(state.agent_id.clone(), payload);
+                }
+                Ok(None) => {
+                    self.hub.mind_injection.remove(&state.agent_id);
+                }
+                Err(err) => {
+                    warn!(
+                        event = "pulse_source_parse_error",
+                        kind = "mind_injection",
+                        channel,
+                        agent_id = %state.agent_id,
+                        error = %err
+                    );
+                }
+            }
+        } else {
+            self.hub.mind_injection.remove(&state.agent_id);
+        }
+
         if let Some(source_value) = source_value_by_keys(&state.source, &["insight_runtime"]) {
             match parse_insight_runtime_from_source(source_value) {
                 Ok(Some(snapshot)) => {
@@ -1118,6 +1159,30 @@ impl App {
             }
         } else {
             self.hub.insight_runtime.remove(&state.agent_id);
+        }
+
+        if let Some(source_value) = source_value_by_keys(&state.source, &["insight_detached"]) {
+            match parse_insight_detached_from_source(source_value) {
+                Ok(Some(snapshot)) => {
+                    self.hub
+                        .insight_detached
+                        .insert(state.agent_id.clone(), snapshot);
+                }
+                Ok(None) => {
+                    self.hub.insight_detached.remove(&state.agent_id);
+                }
+                Err(err) => {
+                    warn!(
+                        event = "pulse_source_parse_error",
+                        kind = "insight_detached",
+                        channel,
+                        agent_id = %state.agent_id,
+                        error = %err
+                    );
+                }
+            }
+        } else {
+            self.hub.insight_detached.remove(&state.agent_id);
         }
     }
 
@@ -1487,6 +1552,16 @@ impl App {
         self.set_local_overview(overview, viewer_tab_index);
     }
 
+    fn collect_local_snapshot(&self) -> LocalSnapshot {
+        collect_local_with_options(
+            &self.config,
+            !self.prefer_hub_data(!self.hub.tasks.is_empty()),
+            !self.prefer_hub_data(!self.hub.diffs.is_empty()),
+            !self.prefer_hub_data(!self.hub.health.is_empty()),
+            Some(&self.local),
+        )
+    }
+
     fn prune_hub_cache(&mut self) {
         let now = Utc::now();
         let local_online: HashSet<String> = self
@@ -1536,7 +1611,13 @@ impl App {
             .mind
             .retain(|agent_id, _| active_agents.contains(agent_id));
         self.hub
+            .mind_injection
+            .retain(|agent_id, _| active_agents.contains(agent_id));
+        self.hub
             .insight_runtime
+            .retain(|agent_id, _| active_agents.contains(agent_id));
+        self.hub
+            .insight_detached
             .retain(|agent_id, _| active_agents.contains(agent_id));
         if let Some(snapshot) = self.hub.observer_snapshot.as_mut() {
             snapshot
@@ -1589,7 +1670,9 @@ impl App {
             }
             Mode::Mind => {
                 if self.prefer_hub_data(
-                    !self.hub.mind.is_empty() || !self.hub.insight_runtime.is_empty(),
+                    !self.hub.mind.is_empty()
+                        || !self.hub.insight_runtime.is_empty()
+                        || !self.hub.insight_detached.is_empty(),
                 ) {
                     "hub"
                 } else {
@@ -1627,6 +1710,7 @@ impl App {
             || !self.hub.health.is_empty()
             || !self.hub.mind.is_empty()
             || !self.hub.insight_runtime.is_empty()
+            || !self.hub.insight_detached.is_empty()
             || self.hub.observer_snapshot.is_some()
             || !self.hub.observer_timeline.is_empty()
             || self.hub.layout.is_some()
@@ -1735,6 +1819,17 @@ impl App {
                     }
                     if local.tab_focused {
                         existing.tab_focused = true;
+                    }
+                    if local.online {
+                        existing.online = true;
+                        existing.age_secs = match (existing.age_secs, local.age_secs) {
+                            (Some(left), Some(right)) => Some(left.min(right)),
+                            (None, Some(right)) => Some(right),
+                            (left, None) => left,
+                        };
+                        if existing.lifecycle == "offline" {
+                            existing.lifecycle = local.lifecycle.clone();
+                        }
                     }
                 } else {
                     let mut local_row = local.clone();
@@ -2133,6 +2228,25 @@ impl App {
         Some(agg)
     }
 
+    fn insight_detached_jobs(&self) -> Vec<InsightDetachedJob> {
+        if !self.prefer_hub_data(!self.hub.insight_detached.is_empty()) {
+            return Vec::new();
+        }
+        let mut jobs = self
+            .hub
+            .insight_detached
+            .values()
+            .flat_map(|snapshot| snapshot.jobs.clone())
+            .collect::<Vec<_>>();
+        jobs.sort_by(|left, right| {
+            right
+                .created_at_ms
+                .cmp(&left.created_at_ms)
+                .then_with(|| left.job_id.cmp(&right.job_id))
+        });
+        jobs
+    }
+
     fn mind_rows_for_lane(&self, lane_filter: MindLaneFilter) -> Vec<MindObserverRow> {
         if !self.prefer_hub_data(!self.hub.mind.is_empty()) {
             return Vec::new();
@@ -2198,6 +2312,50 @@ impl App {
 
     fn mind_rows(&self) -> Vec<MindObserverRow> {
         self.mind_rows_for_lane(self.mind_lane)
+    }
+
+    fn mind_injection_rows(&self) -> Vec<MindInjectionRow> {
+        if !self.prefer_hub_data(!self.hub.mind_injection.is_empty()) {
+            return Vec::new();
+        }
+
+        let viewer_scope = self.config.tab_scope.as_deref();
+        let mut rows = Vec::new();
+        for (agent_id, payload) in &self.hub.mind_injection {
+            let status = self
+                .hub
+                .agents
+                .get(agent_id)
+                .and_then(|agent| agent.status.as_ref());
+            let scope = status
+                .and_then(|value| value.agent_label.clone())
+                .unwrap_or_else(|| extract_label(agent_id));
+            let pane_id = status
+                .map(|value| value.pane_id.clone())
+                .unwrap_or_else(|| extract_pane_id(agent_id));
+            let tab_scope = status.and_then(|value| value.tab_scope.clone());
+            let tab_focused = tab_scope_matches(viewer_scope, tab_scope.as_deref());
+            if !self.mind_show_all_tabs && viewer_scope.is_some() && !tab_focused {
+                continue;
+            }
+            rows.push(MindInjectionRow {
+                scope,
+                pane_id,
+                tab_focused,
+                payload: payload.clone(),
+            });
+        }
+
+        rows.sort_by(|left, right| {
+            let left_ts = mind_event_sort_ms(Some(&left.payload.queued_at)).unwrap_or(0);
+            let right_ts = mind_event_sort_ms(Some(&right.payload.queued_at)).unwrap_or(0);
+            right_ts
+                .cmp(&left_ts)
+                .then_with(|| right.tab_focused.cmp(&left.tab_focused))
+                .then_with(|| left.scope.cmp(&right.scope))
+                .then_with(|| left.pane_id.cmp(&right.pane_id))
+        });
+        rows
     }
 
     fn mind_target_agent(&self) -> Option<OverviewRow> {
@@ -3276,7 +3434,8 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
     loop {
         if snapshot_refresh_requested {
-            app.set_local(collect_local(&app.config));
+            let local_snapshot = app.collect_local_snapshot();
+            app.set_local(local_snapshot);
             snapshot_refresh_requested = false;
             layout_refresh_requested = false;
         } else if layout_refresh_requested {
@@ -4952,6 +5111,16 @@ fn render_mind_lines(app: &App, theme: PulseTheme, compact: bool) -> Vec<Line<'s
         ),
     ]));
 
+    let injection_rows = app.mind_injection_rows();
+    if let Some(line) = render_mind_injection_rollup_line(&injection_rows, theme, compact) {
+        lines.push(line);
+    }
+
+    let detached_jobs = app.insight_detached_jobs();
+    if let Some(line) = render_insight_detached_rollup_line(&detached_jobs, theme, compact) {
+        lines.push(line);
+    }
+
     if rows.is_empty() {
         lines.push(Line::from(Span::styled(
             "No observer activity yet for current lane/scope.",
@@ -5487,8 +5656,9 @@ fn load_mind_artifact_drilldown(project_root: &Path, session_id: &str) -> MindAr
         snapshot.latest_export = Some(manifest);
     }
 
+    let compatibility = mind_feed_compatibility_mode();
     let store_path = mind_store_path(project_root);
-    if store_path.exists() {
+    if compatibility != MindFeedCompatibilityMode::Legacy && store_path.exists() {
         if let Ok(store) = aoc_storage::MindStore::open(&store_path) {
             snapshot.latest_compaction_checkpoint = store
                 .latest_compaction_checkpoint_for_session(session_id)
@@ -5515,23 +5685,79 @@ fn load_mind_artifact_drilldown(project_root: &Path, session_id: &str) -> MindAr
                         .flatten();
                 }
             }
+
+            let scope_key = project_scope_key(project_root);
+            if let Ok(Some(handshake)) = store.latest_handshake_snapshot("project", &scope_key) {
+                snapshot.handshake_entries = parse_handshake_entries(&handshake.payload_text);
+            }
+            if let Ok(active) = store.active_canon_entries(None) {
+                snapshot.active_canon_entries = active
+                    .into_iter()
+                    .map(|entry| MindCanonEntry {
+                        entry_id: entry.entry_id,
+                        revision: entry.revision.max(0) as u32,
+                        topic: entry.topic,
+                        evidence_refs: entry.evidence_refs,
+                        summary: entry.summary,
+                    })
+                    .collect();
+            }
+            if let Ok(stale) = store.canon_entries_by_state(CanonRevisionState::Stale, None) {
+                snapshot.stale_canon_count = stale.len();
+            }
         }
     }
 
-    let t3_dir = project_root.join(".aoc").join("mind").join("t3");
-    let handshake_path = t3_dir.join("handshake.md");
-    if let Ok(payload) = fs::read_to_string(&handshake_path) {
-        snapshot.handshake_entries = parse_handshake_entries(&payload);
-    }
-
-    let canon_path = t3_dir.join("project_mind.md");
-    if let Ok(payload) = fs::read_to_string(&canon_path) {
-        let (active, stale_count) = parse_project_canon_entries(&payload);
-        snapshot.active_canon_entries = active;
-        snapshot.stale_canon_count = stale_count;
+    let should_fallback_legacy = compatibility != MindFeedCompatibilityMode::Canonical
+        && (snapshot.handshake_entries.is_empty()
+            || snapshot.active_canon_entries.is_empty() && snapshot.stale_canon_count == 0);
+    if should_fallback_legacy {
+        load_legacy_mind_artifact_drilldown(project_root, &mut snapshot);
     }
 
     snapshot
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum MindFeedCompatibilityMode {
+    Canonical,
+    Hybrid,
+    Legacy,
+}
+
+fn mind_feed_compatibility_mode() -> MindFeedCompatibilityMode {
+    match env::var("AOC_MIND_FEED_COMPAT")
+        .ok()
+        .map(|value| value.trim().to_ascii_lowercase())
+        .as_deref()
+    {
+        Some("canonical") | Some("v2") | Some("store") => MindFeedCompatibilityMode::Canonical,
+        Some("legacy") | Some("v1") | Some("files") => MindFeedCompatibilityMode::Legacy,
+        _ => MindFeedCompatibilityMode::Hybrid,
+    }
+}
+
+fn project_scope_key(project_root: &Path) -> String {
+    format!("project:{}", project_root.to_string_lossy())
+}
+
+fn load_legacy_mind_artifact_drilldown(project_root: &Path, snapshot: &mut MindArtifactDrilldown) {
+    let t3_dir = project_root.join(".aoc").join("mind").join("t3");
+    if snapshot.handshake_entries.is_empty() {
+        let handshake_path = t3_dir.join("handshake.md");
+        if let Ok(payload) = fs::read_to_string(&handshake_path) {
+            snapshot.handshake_entries = parse_handshake_entries(&payload);
+        }
+    }
+
+    if snapshot.active_canon_entries.is_empty() && snapshot.stale_canon_count == 0 {
+        let canon_path = t3_dir.join("project_mind.md");
+        if let Ok(payload) = fs::read_to_string(&canon_path) {
+            let (active, stale_count) = parse_project_canon_entries(&payload);
+            snapshot.active_canon_entries = active;
+            snapshot.stale_canon_count = stale_count;
+        }
+    }
 }
 
 fn mind_store_path(project_root: &Path) -> PathBuf {
@@ -6562,6 +6788,175 @@ fn mind_progress_label(progress: &MindObserverFeedProgress) -> String {
     )
 }
 
+fn render_mind_injection_rollup_line(
+    rows: &[MindInjectionRow],
+    theme: PulseTheme,
+    compact: bool,
+) -> Option<Line<'static>> {
+    let latest = rows.first()?;
+    let trigger = latest.payload.trigger.as_str();
+    let status = latest.payload.status.trim();
+    let when =
+        mind_timestamp_label(&latest.payload.queued_at).unwrap_or_else(|| "--:--:--".to_string());
+    let mut detail_fields = Vec::new();
+    if let Some(tag) = latest.payload.active_tag.as_deref() {
+        detail_fields.push(format!("tag:{tag}"));
+    }
+    if let Some(tokens) = latest.payload.token_estimate {
+        detail_fields.push(format!("tokens:{tokens}"));
+    }
+    if let Some(snapshot_id) = latest.payload.snapshot_id.as_deref() {
+        detail_fields.push(format!("hs:{}", ellipsize(snapshot_id, 18)));
+    }
+    detail_fields.push(format!("scope:{}", latest.payload.scope));
+    detail_fields.push(format!("pane:{}", latest.pane_id));
+    if rows.len() > 1 {
+        detail_fields.push(format!("agents:{}", rows.len()));
+    }
+    let detail = fit_fields(&detail_fields, if compact { 44 } else { 84 });
+    let reason = latest
+        .payload
+        .reason
+        .as_deref()
+        .map(|value| ellipsize(value, if compact { 42 } else { 76 }))
+        .unwrap_or_else(|| "awaiting bounded context injection".to_string());
+    Some(Line::from(vec![
+        Span::styled("inject:", Style::default().fg(theme.muted)),
+        Span::raw(" "),
+        Span::styled(
+            format!("[{}]", trigger),
+            Style::default().fg(theme.info).add_modifier(Modifier::BOLD),
+        ),
+        Span::raw(" "),
+        Span::styled(
+            format!("[{}]", status),
+            Style::default()
+                .fg(mind_injection_status_color(status, theme))
+                .add_modifier(Modifier::BOLD),
+        ),
+        Span::raw(" "),
+        Span::styled(detail, Style::default().fg(theme.accent)),
+        Span::raw(" "),
+        Span::styled(format!("@{when}"), Style::default().fg(theme.muted)),
+        Span::raw(" "),
+        Span::styled(reason, Style::default().fg(theme.muted)),
+    ]))
+}
+
+fn mind_injection_status_color(status: &str, theme: PulseTheme) -> Color {
+    match status.trim() {
+        "pending" => theme.info,
+        "skipped-cooldown" | "skipped-duplicate" => theme.warn,
+        "suppressed-pressure" => theme.critical,
+        _ => theme.muted,
+    }
+}
+
+fn render_insight_detached_rollup_line(
+    jobs: &[InsightDetachedJob],
+    theme: PulseTheme,
+    compact: bool,
+) -> Option<Line<'static>> {
+    let latest = jobs.first()?;
+    let mut queued = 0usize;
+    let mut running = 0usize;
+    let mut success = 0usize;
+    let mut fallback = 0usize;
+    let mut error = 0usize;
+    let mut cancelled = 0usize;
+    let mut stale = 0usize;
+    for job in jobs {
+        match job.status {
+            InsightDetachedJobStatus::Queued => queued += 1,
+            InsightDetachedJobStatus::Running => running += 1,
+            InsightDetachedJobStatus::Success => success += 1,
+            InsightDetachedJobStatus::Fallback => fallback += 1,
+            InsightDetachedJobStatus::Error => error += 1,
+            InsightDetachedJobStatus::Cancelled => cancelled += 1,
+            InsightDetachedJobStatus::Stale => stale += 1,
+        }
+    }
+    let label = latest
+        .agent
+        .as_deref()
+        .or(latest.chain.as_deref())
+        .or(latest.team.as_deref())
+        .unwrap_or("detached-job");
+    let when = latest
+        .finished_at_ms
+        .or(latest.started_at_ms)
+        .unwrap_or(latest.created_at_ms);
+    let when = Utc
+        .timestamp_millis_opt(when)
+        .single()
+        .map(|dt| dt.format("%H:%M:%S").to_string())
+        .unwrap_or_else(|| "--:--:--".to_string());
+    let mut detail_fields = vec![
+        format!("q:{queued}"),
+        format!("run:{running}"),
+        format!("ok:{success}"),
+        format!("fb:{fallback}"),
+        format!("err:{error}"),
+    ];
+    if cancelled > 0 {
+        detail_fields.push(format!("cx:{cancelled}"));
+    }
+    if stale > 0 {
+        detail_fields.push(format!("stale:{stale}"));
+    }
+    if let Some(step_count) = latest.step_count {
+        detail_fields.push(format!("steps:{step_count}"));
+    }
+    let detail = fit_fields(&detail_fields, if compact { 42 } else { 76 });
+    let summary = latest
+        .output_excerpt
+        .as_deref()
+        .or(latest.error.as_deref())
+        .map(|value| ellipsize(value, if compact { 38 } else { 72 }))
+        .unwrap_or_else(|| "detached runtime idle".to_string());
+    Some(Line::from(vec![
+        Span::styled("subagents:", Style::default().fg(theme.muted)),
+        Span::raw(" "),
+        Span::styled(
+            format!("[{}]", detached_job_status_label(latest.status)),
+            Style::default()
+                .fg(detached_job_status_color(latest.status, theme))
+                .add_modifier(Modifier::BOLD),
+        ),
+        Span::raw(" "),
+        Span::styled(ellipsize(label, if compact { 18 } else { 28 }), Style::default().fg(theme.info)),
+        Span::raw(" "),
+        Span::styled(detail, Style::default().fg(theme.accent)),
+        Span::raw(" "),
+        Span::styled(format!("@{when}"), Style::default().fg(theme.muted)),
+        Span::raw(" "),
+        Span::styled(summary, Style::default().fg(theme.muted)),
+    ]))
+}
+
+fn detached_job_status_label(status: InsightDetachedJobStatus) -> &'static str {
+    match status {
+        InsightDetachedJobStatus::Queued => "queued",
+        InsightDetachedJobStatus::Running => "running",
+        InsightDetachedJobStatus::Success => "success",
+        InsightDetachedJobStatus::Fallback => "fallback",
+        InsightDetachedJobStatus::Error => "error",
+        InsightDetachedJobStatus::Cancelled => "cancelled",
+        InsightDetachedJobStatus::Stale => "stale",
+    }
+}
+
+fn detached_job_status_color(status: InsightDetachedJobStatus, theme: PulseTheme) -> Color {
+    match status {
+        InsightDetachedJobStatus::Queued => theme.warn,
+        InsightDetachedJobStatus::Running => theme.info,
+        InsightDetachedJobStatus::Success => theme.ok,
+        InsightDetachedJobStatus::Fallback => theme.warn,
+        InsightDetachedJobStatus::Error => theme.critical,
+        InsightDetachedJobStatus::Cancelled | InsightDetachedJobStatus::Stale => theme.muted,
+    }
+}
+
 fn mind_runtime_label(runtime: &str) -> String {
     if runtime.trim().is_empty() {
         return "runtime:n/a".to_string();
@@ -6929,6 +7324,41 @@ fn parse_mind_observer_from_source(
     Ok(Some(payload))
 }
 
+fn parse_mind_injection_from_source(value: &Value) -> Result<Option<MindInjectionPayload>, String> {
+    if value.is_null() {
+        return Ok(None);
+    }
+    let mut payload: MindInjectionPayload =
+        serde_json::from_value(value.clone()).map_err(|err| err.to_string())?;
+    payload.status = payload.status.trim().to_ascii_lowercase().replace('_', "-");
+    payload.scope = payload.scope.trim().to_string();
+    payload.scope_key = payload.scope_key.trim().to_string();
+    payload.active_tag = payload
+        .active_tag
+        .as_ref()
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty());
+    payload.reason = payload
+        .reason
+        .as_ref()
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty());
+    payload.snapshot_id = payload
+        .snapshot_id
+        .as_ref()
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty());
+    payload.payload_hash = payload
+        .payload_hash
+        .as_ref()
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty());
+    if payload.status.is_empty() || payload.scope.is_empty() || payload.scope_key.is_empty() {
+        return Ok(None);
+    }
+    Ok(Some(payload))
+}
+
 fn parse_insight_runtime_from_source(
     value: &Value,
 ) -> Result<Option<InsightRuntimeSnapshot>, String> {
@@ -6947,6 +7377,40 @@ fn parse_insight_runtime_from_source(
     }
     if snapshot.t3_queue_depth < 0 {
         snapshot.t3_queue_depth = 0;
+    }
+    Ok(Some(snapshot))
+}
+
+fn parse_insight_detached_from_source(
+    value: &Value,
+) -> Result<Option<InsightDetachedStatusResult>, String> {
+    if value.is_null() {
+        return Ok(None);
+    }
+    let mut snapshot: InsightDetachedStatusResult =
+        serde_json::from_value(value.clone()).map_err(|err| err.to_string())?;
+    snapshot.jobs.retain(|job| !job.job_id.trim().is_empty());
+    snapshot.jobs.sort_by(|a, b| {
+        b.created_at_ms
+            .cmp(&a.created_at_ms)
+            .then_with(|| a.job_id.cmp(&b.job_id))
+    });
+    snapshot.active_jobs = snapshot
+        .jobs
+        .iter()
+        .filter(|job| {
+            matches!(
+                job.status,
+                InsightDetachedJobStatus::Queued | InsightDetachedJobStatus::Running
+            )
+        })
+        .count();
+    if snapshot.status.trim().is_empty() {
+        snapshot.status = if snapshot.jobs.is_empty() {
+            "idle".to_string()
+        } else {
+            "ok".to_string()
+        };
     }
     Ok(Some(snapshot))
 }
@@ -7565,15 +8029,48 @@ fn parse_event_at(timestamp: &str) -> DateTime<Utc> {
 }
 
 fn collect_local(config: &Config) -> LocalSnapshot {
+    collect_local_with_options(config, true, true, true, None)
+}
+
+fn collect_local_with_options(
+    config: &Config,
+    include_work: bool,
+    include_diff: bool,
+    include_health: bool,
+    previous: Option<&LocalSnapshot>,
+) -> LocalSnapshot {
     let viewer_tab_index = None;
     let mut overview = collect_runtime_overview(config, None);
     if overview.is_empty() {
         overview = collect_proc_overview(config, None);
     }
     let project_roots = collect_project_roots(&overview, &config.project_root);
-    let (work, taskmaster_status) = collect_local_work(&project_roots);
-    let diff = collect_local_diff(&project_roots);
-    let health = collect_health(config, &taskmaster_status);
+    let (work, taskmaster_status) = if include_work || include_health {
+        collect_local_work(&project_roots)
+    } else {
+        (
+            previous.map(|snapshot| snapshot.work.clone()).unwrap_or_default(),
+            previous
+                .map(|snapshot| snapshot.health.taskmaster_status.clone())
+                .unwrap_or_else(|| "unknown".to_string()),
+        )
+    };
+    let diff = if include_diff {
+        collect_local_diff(&project_roots)
+    } else {
+        previous.map(|snapshot| snapshot.diff.clone()).unwrap_or_default()
+    };
+    let health = if include_health {
+        collect_health(config, &taskmaster_status)
+    } else {
+        previous
+            .map(|snapshot| snapshot.health.clone())
+            .unwrap_or(HealthSnapshot {
+                dependencies: Vec::new(),
+                checks: Vec::new(),
+                taskmaster_status,
+            })
+    };
     LocalSnapshot {
         overview,
         viewer_tab_index,
@@ -10114,6 +10611,186 @@ mod tests {
 
         assert!(rendered.contains("t3q:7 done:4 fail:1 rq:2 dlq:1 lock:3"));
         assert!(rendered.contains("[t3]"));
+    }
+
+    #[test]
+    fn render_mind_lines_shows_detached_subagent_rollup() {
+        let (tx, _rx) = mpsc::channel(4);
+        let mut app = App::new(test_config(), tx, empty_local());
+        app.connected = true;
+        app.mode = Mode::Mind;
+        app.mind_lane = MindLaneFilter::All;
+
+        app.apply_hub_event(HubEvent::Snapshot {
+            payload: SnapshotPayload {
+                seq: 1,
+                states: vec![AgentState {
+                    agent_id: "session-test::12".to_string(),
+                    session_id: "session-test".to_string(),
+                    pane_id: "12".to_string(),
+                    lifecycle: "running".to_string(),
+                    snippet: None,
+                    last_heartbeat_ms: Some(1),
+                    last_activity_ms: Some(1),
+                    updated_at_ms: Some(1),
+                    source: Some(serde_json::json!({
+                        "agent_status": {
+                            "agent_label": "OpenCode",
+                            "project_root": "/repo",
+                            "tab_scope": "agent"
+                        },
+                        "mind_observer": {
+                            "events": [
+                                {"status":"success","trigger":"task_completed","runtime":"t3_backlog","reason":"t3 backlog processed 1 job(s)"}
+                            ]
+                        },
+                        "insight_detached": {
+                            "status": "ok",
+                            "active_jobs": 1,
+                            "fallback_used": false,
+                            "jobs": [
+                                {
+                                    "job_id": "detached-123",
+                                    "mode": "dispatch",
+                                    "status": "running",
+                                    "agent": "reviewer-contracts",
+                                    "created_at_ms": 1000,
+                                    "started_at_ms": 1500,
+                                    "step_count": 1,
+                                    "output_excerpt": "reviewing canonical store-first cutover"
+                                }
+                            ]
+                        }
+                    })),
+                }],
+            },
+            event_at: Utc::now(),
+        });
+
+        let lines = render_mind_lines(&app, pulse_theme(PulseThemeMode::Terminal), false);
+        let rendered = lines
+            .iter()
+            .map(|line| {
+                line.spans
+                    .iter()
+                    .map(|span| span.content.to_string())
+                    .collect::<String>()
+            })
+            .collect::<Vec<_>>()
+            .join("\n");
+
+        assert!(rendered.contains("subagents:"));
+        assert!(rendered.contains("reviewer-contracts"));
+        assert!(rendered.contains("run:1"));
+    }
+
+    #[test]
+    fn render_mind_lines_shows_injection_rollup_and_store_backed_drilldown() {
+        let root = std::env::temp_dir().join(format!(
+            "aoc-mission-control-mind-v2-{}-{}",
+            std::process::id(),
+            Utc::now().timestamp_nanos_opt().unwrap_or(0)
+        ));
+        let mind_dir = root.join(".aoc").join("mind");
+        std::fs::create_dir_all(&mind_dir).expect("create mind dir");
+        let store =
+            aoc_storage::MindStore::open(mind_dir.join("project.sqlite")).expect("open store");
+        let now = Utc::now();
+        store
+            .upsert_handshake_snapshot(
+                "project",
+                &project_scope_key(&root),
+                "# Mind Handshake Baseline\n\n## Priority canon\n\n- [canon:entry-a r1] topic=mind confidence=8800 freshness=95 :: Keep this in startup context\n",
+                "hash:handshake",
+                128,
+                now,
+            )
+            .expect("upsert handshake");
+        store
+            .upsert_canon_entry_revision(
+                "canon:entry-a",
+                Some("mind"),
+                "Consolidated summary",
+                8800,
+                95,
+                None,
+                &["obs:1".to_string(), "ref:2".to_string()],
+                now,
+            )
+            .expect("upsert canon");
+
+        let (tx, _rx) = mpsc::channel(4);
+        let mut config = test_config();
+        config.project_root = root.clone();
+        let mut app = App::new(config, tx, empty_local());
+        app.connected = true;
+        app.mode = Mode::Mind;
+        app.mind_lane = MindLaneFilter::All;
+        app.mind_show_provenance = true;
+
+        app.apply_hub_event(HubEvent::Snapshot {
+            payload: SnapshotPayload {
+                seq: 1,
+                states: vec![AgentState {
+                    agent_id: "session-test::12".to_string(),
+                    session_id: "session-test".to_string(),
+                    pane_id: "12".to_string(),
+                    lifecycle: "running".to_string(),
+                    snippet: None,
+                    last_heartbeat_ms: Some(1),
+                    last_activity_ms: Some(1),
+                    updated_at_ms: Some(1),
+                    source: Some(serde_json::json!({
+                        "agent_status": {
+                            "agent_label": "OpenCode",
+                            "project_root": root.to_string_lossy(),
+                            "tab_scope": "agent"
+                        },
+                        "mind_observer": {
+                            "events": [
+                                {"status":"success","trigger":"task_completed","runtime":"t3_backlog","reason":"t3 backlog processed 1 job(s)"}
+                            ]
+                        },
+                        "mind_injection": {
+                            "status": "pending",
+                            "trigger": "resume",
+                            "scope": "project",
+                            "scope_key": project_scope_key(&root),
+                            "active_tag": "mind",
+                            "reason": "resume handshake refresh",
+                            "snapshot_id": "hs:abc123",
+                            "payload_hash": "hash:abc123",
+                            "token_estimate": 128,
+                            "queued_at": "2026-03-01T12:10:00Z"
+                        },
+                        "insight_runtime": {
+                            "queue_depth": 1,
+                            "t3_queue_depth": 0
+                        }
+                    })),
+                }],
+            },
+            event_at: Utc::now(),
+        });
+
+        let lines = render_mind_lines(&app, pulse_theme(PulseThemeMode::Terminal), false);
+        let rendered = lines
+            .iter()
+            .map(|line| {
+                line.spans
+                    .iter()
+                    .map(|span| span.content.to_string())
+                    .collect::<String>()
+            })
+            .collect::<Vec<_>>()
+            .join("\n");
+
+        assert!(rendered.contains("inject: [resume] [pending]"));
+        assert!(rendered.contains("resume handshake refresh"));
+        assert!(rendered.contains("handshake:1 active_canon:1 stale_canon:0"));
+        assert!(rendered.contains("trace: handshake -> canon -> evidence[2] obs:1, ref:2"));
+
+        let _ = std::fs::remove_dir_all(&root);
     }
 
     #[test]
