@@ -7,6 +7,8 @@
 
 ## Key Files
 - README.md
+- package.json
+- pnpm-lock.yaml
 
 ## Project Structure (tree -L 2)
 ```
@@ -32,6 +34,7 @@
 │   ├── aoc-layout
 │   ├── aoc-mem
 │   ├── aoc-mission-control
+│   ├── aoc-mission-control-tab
 │   ├── aoc-mission-control-toggle
 │   ├── aoc-momo
 │   ├── aoc-new-tab
@@ -84,6 +87,7 @@
 │   ├── aoc-mind
 │   ├── aoc-mission-control
 │   ├── aoc-opencode-adapter
+│   ├── aoc-pi-adapter
 │   ├── aoc-segment-routing
 │   ├── aoc-storage
 │   ├── aoc-task-attribution
@@ -97,9 +101,12 @@
 │   ├── configuration.md
 │   ├── deprecations.md
 │   ├── feature-upgrade-collection-key.md
+│   ├── insight-compaction-ingest.md
 │   ├── insight-subagent-orchestration.md
+│   ├── insight-t3-alignment.md
 │   ├── installation.md
 │   ├── layouts.md
+│   ├── mind-v2-architecture-cutover-checklist.md
 │   ├── mission-control.md
 │   ├── mission-control-ops.md
 │   ├── moremotion.md
@@ -107,6 +114,7 @@
 │   ├── pi-only-rollout-checklist.md
 │   ├── pulse-ipc-protocol.md
 │   ├── pulse-vnext-rollout.md
+│   ├── research
 │   └── skills.md
 ├── install
 │   └── bootstrap.sh
@@ -116,7 +124,9 @@
 ├── LICENSE
 ├── micro
 │   └── bindings.json
+├── package.json
 ├── plugins
+├── pnpm-lock.yaml
 ├── README.md
 ├── ROADMAP.md
 ├── scripts
@@ -142,7 +152,7 @@
     ├── aoc.config.kdl.template
     └── layouts
 
-37 directories, 94 files
+39 directories, 100 files
 ```
 
 ## README Headings
@@ -189,7 +199,7 @@
 
 ## Current Task Tag
 ```
-aoc/pi_cleanup
+mind
 ```
 
 ## Active Workstreams (Tags)
@@ -198,13 +208,14 @@ aoc/pi_cleanup (9)
 deprecation (10)
 master (45)
 mermaid (1)
-mind (13)
+mind (41)
 mission-control (17)
 omo (10)
 pulse-hub-spoke (8)
 rtk (5)
 safety (9)
-sub-agents (6)
+session-overseer (1)
+sub-agents (13)
 ```
 
 ## Task PRD Location
