@@ -14,7 +14,10 @@ use std::{
     hash::{Hash, Hasher},
     path::{Path, PathBuf},
     process::Command,
-    sync::{atomic::{AtomicU64, Ordering}, Arc, Mutex},
+    sync::{
+        atomic::{AtomicU64, Ordering},
+        Arc, Mutex,
+    },
     time::{Duration, Instant},
 };
 
@@ -328,16 +331,21 @@ impl InsightSupervisor {
         };
 
         let mut command = Command::new("bash");
+        super::configure_mind_child_std_command_env(
+            &mut command,
+            vec![
+                ("AOC_INSIGHT_AGENT".to_string(), agent.to_string()),
+                ("AOC_INSIGHT_INPUT".to_string(), input.to_string()),
+                (
+                    "AOC_INSIGHT_AGENT_FILE".to_string(),
+                    relativize(&self.project_root, &agent_file),
+                ),
+            ],
+        );
         command
             .arg("-lc")
             .arg(cmdline)
-            .current_dir(&self.project_root)
-            .env("AOC_INSIGHT_AGENT", agent)
-            .env("AOC_INSIGHT_INPUT", input)
-            .env(
-                "AOC_INSIGHT_AGENT_FILE",
-                relativize(&self.project_root, &agent_file),
-            );
+            .current_dir(&self.project_root);
 
         match command.output() {
             Ok(output) => {
@@ -358,7 +366,8 @@ impl InsightSupervisor {
                         status: "fallback".to_string(),
                         output_excerpt: Some(truncate_chars(stdout.clone(), 280)),
                         stdout_excerpt: Some(truncate_chars(stdout, 280)).filter(|v| !v.is_empty()),
-                        stderr_excerpt: Some(truncate_chars(stderr.clone(), 240)).filter(|v| !v.is_empty()),
+                        stderr_excerpt: Some(truncate_chars(stderr.clone(), 240))
+                            .filter(|v| !v.is_empty()),
                         error: Some(truncate_chars(
                             if stderr.is_empty() {
                                 format!("agent exited with status {}", output.status)
@@ -482,7 +491,11 @@ impl DetachedInsightRuntime {
         let recovered_jobs = recover_persisted_jobs(&store_path);
         let next_job_id = recovered_jobs
             .iter()
-            .filter_map(|job| job.job_id.rsplit_once('-').and_then(|(_, suffix)| suffix.parse::<u64>().ok()))
+            .filter_map(|job| {
+                job.job_id
+                    .rsplit_once('-')
+                    .and_then(|(_, suffix)| suffix.parse::<u64>().ok())
+            })
             .max()
             .unwrap_or(0)
             .saturating_add(1);
@@ -501,7 +514,10 @@ impl DetachedInsightRuntime {
         }
     }
 
-    pub fn dispatch(&self, request: &InsightDetachedDispatchRequest) -> InsightDetachedDispatchResult {
+    pub fn dispatch(
+        &self,
+        request: &InsightDetachedDispatchRequest,
+    ) -> InsightDetachedDispatchResult {
         let created_at_ms = chrono::Utc::now().timestamp_millis();
         let sequence = self.next_job_id.fetch_add(1, Ordering::Relaxed);
         let job_id = format!("detached-{}-{sequence:04}", created_at_ms.max(0));
@@ -527,7 +543,10 @@ impl DetachedInsightRuntime {
         };
 
         {
-            let mut jobs = self.jobs.lock().expect("detached insight jobs lock poisoned");
+            let mut jobs = self
+                .jobs
+                .lock()
+                .expect("detached insight jobs lock poisoned");
             jobs.insert(job_id.clone(), job.clone());
         }
         persist_job(&self.store_path, &job);
@@ -592,7 +611,10 @@ impl DetachedInsightRuntime {
                 .iter()
                 .filter(|step| step.status.eq_ignore_ascii_case("cancelled"))
                 .count();
-            let fallback_count = result.steps.len().saturating_sub(success_count + cancelled_count);
+            let fallback_count = result
+                .steps
+                .len()
+                .saturating_sub(success_count + cancelled_count);
             let output_excerpt = Some(truncate_chars(
                 format!(
                     "{} | success={} fallback={} cancelled={}",
@@ -600,13 +622,26 @@ impl DetachedInsightRuntime {
                 ),
                 320,
             ))
-            .or_else(|| result.steps.iter().find_map(|step| step.output_excerpt.clone()));
+            .or_else(|| {
+                result
+                    .steps
+                    .iter()
+                    .find_map(|step| step.output_excerpt.clone())
+            });
             let stdout_excerpt = result
                 .steps
                 .iter()
                 .find_map(|step| step.stdout_excerpt.clone())
-                .or_else(|| result.steps.iter().find_map(|step| step.output_excerpt.clone()));
-            let stderr_excerpt = result.steps.iter().find_map(|step| step.stderr_excerpt.clone());
+                .or_else(|| {
+                    result
+                        .steps
+                        .iter()
+                        .find_map(|step| step.output_excerpt.clone())
+                });
+            let stderr_excerpt = result
+                .steps
+                .iter()
+                .find_map(|step| step.stderr_excerpt.clone());
             let error = result.steps.iter().find_map(|step| step.error.clone());
 
             let mut jobs = jobs.lock().expect("detached insight jobs lock poisoned");
@@ -632,7 +667,8 @@ impl DetachedInsightRuntime {
                     entry.status = terminal_status;
                     entry.finished_at_ms = Some(finished_at_ms);
                     entry.current_step_index = Some(result.steps.len());
-                    entry.step_count = Some(result.steps.len().max(entry.step_count.unwrap_or_default()));
+                    entry.step_count =
+                        Some(result.steps.len().max(entry.step_count.unwrap_or_default()));
                     entry.output_excerpt = output_excerpt;
                     entry.stdout_excerpt = stdout_excerpt;
                     entry.stderr_excerpt = stderr_excerpt;
@@ -661,7 +697,10 @@ impl DetachedInsightRuntime {
     pub fn status(&self, request: &InsightDetachedStatusRequest) -> InsightDetachedStatusResult {
         let mut jobs = list_persisted_jobs(&self.store_path);
         if jobs.is_empty() {
-            let memory_jobs = self.jobs.lock().expect("detached insight jobs lock poisoned");
+            let memory_jobs = self
+                .jobs
+                .lock()
+                .expect("detached insight jobs lock poisoned");
             jobs = memory_jobs.values().cloned().collect::<Vec<_>>();
         }
         jobs.sort_by(|a, b| {
@@ -693,7 +732,10 @@ impl DetachedInsightRuntime {
     }
 
     pub fn cancel(&self, request: &InsightDetachedCancelRequest) -> InsightDetachedCancelResult {
-        let mut jobs = self.jobs.lock().expect("detached insight jobs lock poisoned");
+        let mut jobs = self
+            .jobs
+            .lock()
+            .expect("detached insight jobs lock poisoned");
         let Some(existing) = jobs.get(&request.job_id).cloned() else {
             return InsightDetachedCancelResult {
                 job_id: request.job_id.clone(),
@@ -737,9 +779,15 @@ impl DetachedInsightRuntime {
                 persist_job(&self.store_path, job);
                 let response_job_id = job.job_id.clone();
                 let response_status = job.status;
-                let response_summary = format!("detached job {} cancelled before start", job.job_id);
+                let response_summary =
+                    format!("detached job {} cancelled before start", job.job_id);
                 let _ = job;
-                cancel_child_jobs(&mut jobs, &self.store_path, &child_ids, request.reason.as_deref());
+                cancel_child_jobs(
+                    &mut jobs,
+                    &self.store_path,
+                    &child_ids,
+                    request.reason.as_deref(),
+                );
                 InsightDetachedCancelResult {
                     job_id: response_job_id,
                     status: response_status,
@@ -770,10 +818,18 @@ impl DetachedInsightRuntime {
                 let response_summary = if cancelled {
                     format!("detached job {} terminated", job.job_id)
                 } else {
-                    format!("detached job {} marked cancelled; no live subprocesses were found", job.job_id)
+                    format!(
+                        "detached job {} marked cancelled; no live subprocesses were found",
+                        job.job_id
+                    )
                 };
                 let _ = job;
-                cancel_child_jobs(&mut jobs, &self.store_path, &child_ids, request.reason.as_deref());
+                cancel_child_jobs(
+                    &mut jobs,
+                    &self.store_path,
+                    &child_ids,
+                    request.reason.as_deref(),
+                );
                 InsightDetachedCancelResult {
                     job_id: response_job_id,
                     status: response_status,
@@ -785,7 +841,11 @@ impl DetachedInsightRuntime {
             status => InsightDetachedCancelResult {
                 job_id: job.job_id.clone(),
                 status,
-                summary: format!("detached job {} already terminal ({})", job.job_id, detached_status_label(status)),
+                summary: format!(
+                    "detached job {} already terminal ({})",
+                    job.job_id,
+                    detached_status_label(status)
+                ),
                 cancelled: false,
                 fallback_used: false,
             },
@@ -804,7 +864,12 @@ fn estimated_step_count(
             .as_deref()
             .map(str::trim)
             .filter(|value| !value.is_empty())
-            .and_then(|chain_name| supervisor.load_chain_manifest().get(chain_name).map(|chain| chain.steps.len())),
+            .and_then(|chain_name| {
+                supervisor
+                    .load_chain_manifest()
+                    .get(chain_name)
+                    .map(|chain| chain.steps.len())
+            }),
         InsightDetachedMode::Parallel => request
             .team
             .as_deref()
@@ -1008,7 +1073,10 @@ fn run_chain_cancellable(
             job_id,
             completed,
             Some(total_steps),
-            Some(format!("chain step {completed}/{total_steps}: {}", step.agent)),
+            Some(format!(
+                "chain step {completed}/{total_steps}: {}",
+                step.agent
+            )),
             result.error.clone(),
         );
         results.push(result);
@@ -1096,7 +1164,11 @@ fn run_parallel_cancellable(
             job_id,
             completed,
             Some(agents.len()),
-            Some(format!("parallel child {completed}/{}: {}", agents.len(), result.agent)),
+            Some(format!(
+                "parallel child {completed}/{}: {}",
+                agents.len(),
+                result.agent
+            )),
             result.error.clone(),
         );
         results[index] = Some(result);
@@ -1105,10 +1177,7 @@ fn run_parallel_cancellable(
         }
     }
 
-    results
-        .into_iter()
-        .flatten()
-        .collect::<Vec<_>>()
+    results.into_iter().flatten().collect::<Vec<_>>()
 }
 
 fn run_agent_cancellable(
@@ -1154,16 +1223,21 @@ fn run_agent_cancellable(
     };
 
     let mut command = Command::new("bash");
+    super::configure_mind_child_std_command_env(
+        &mut command,
+        vec![
+            ("AOC_INSIGHT_AGENT".to_string(), agent.to_string()),
+            ("AOC_INSIGHT_INPUT".to_string(), input.to_string()),
+            (
+                "AOC_INSIGHT_AGENT_FILE".to_string(),
+                relativize(&supervisor.project_root, &agent_file),
+            ),
+        ],
+    );
     command
         .arg("-lc")
         .arg(cmdline)
         .current_dir(&supervisor.project_root)
-        .env("AOC_INSIGHT_AGENT", agent)
-        .env("AOC_INSIGHT_INPUT", input)
-        .env(
-            "AOC_INSIGHT_AGENT_FILE",
-            relativize(&supervisor.project_root, &agent_file),
-        )
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped());
 
@@ -1177,13 +1251,17 @@ fn run_agent_cancellable(
                 Ok(output) => {
                     let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
                     let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
-                    if job_cancelled(job_id, cancelled_jobs) || terminated_by_signal(&output.status) {
+                    if job_cancelled(job_id, cancelled_jobs) || terminated_by_signal(&output.status)
+                    {
                         InsightDispatchStepResult {
                             agent: agent.to_string(),
                             status: "cancelled".to_string(),
-                            output_excerpt: Some(truncate_chars(stdout.clone(), 280)).filter(|v| !v.is_empty()),
-                            stdout_excerpt: Some(truncate_chars(stdout, 280)).filter(|v| !v.is_empty()),
-                            stderr_excerpt: Some(truncate_chars(stderr.clone(), 240)).filter(|v| !v.is_empty()),
+                            output_excerpt: Some(truncate_chars(stdout.clone(), 280))
+                                .filter(|v| !v.is_empty()),
+                            stdout_excerpt: Some(truncate_chars(stdout, 280))
+                                .filter(|v| !v.is_empty()),
+                            stderr_excerpt: Some(truncate_chars(stderr.clone(), 240))
+                                .filter(|v| !v.is_empty()),
                             error: Some(truncate_chars(
                                 if stderr.is_empty() {
                                     "detached job cancelled while running".to_string()
@@ -1198,8 +1276,10 @@ fn run_agent_cancellable(
                             agent: agent.to_string(),
                             status: "success".to_string(),
                             output_excerpt: Some(truncate_chars(stdout.clone(), 400)),
-                            stdout_excerpt: Some(truncate_chars(stdout, 400)).filter(|v| !v.is_empty()),
-                            stderr_excerpt: Some(truncate_chars(stderr, 240)).filter(|v| !v.is_empty()),
+                            stdout_excerpt: Some(truncate_chars(stdout, 400))
+                                .filter(|v| !v.is_empty()),
+                            stderr_excerpt: Some(truncate_chars(stderr, 240))
+                                .filter(|v| !v.is_empty()),
                             error: None,
                         }
                     } else {
@@ -1207,8 +1287,10 @@ fn run_agent_cancellable(
                             agent: agent.to_string(),
                             status: "fallback".to_string(),
                             output_excerpt: Some(truncate_chars(stdout.clone(), 280)),
-                            stdout_excerpt: Some(truncate_chars(stdout, 280)).filter(|v| !v.is_empty()),
-                            stderr_excerpt: Some(truncate_chars(stderr.clone(), 240)).filter(|v| !v.is_empty()),
+                            stdout_excerpt: Some(truncate_chars(stdout, 280))
+                                .filter(|v| !v.is_empty()),
+                            stderr_excerpt: Some(truncate_chars(stderr.clone(), 240))
+                                .filter(|v| !v.is_empty()),
                             error: Some(truncate_chars(
                                 if stderr.is_empty() {
                                     format!("agent exited with status {}", output.status)
@@ -1362,7 +1444,11 @@ fn create_parallel_child_job(
         finished_at_ms: None,
         current_step_index: Some(0),
         step_count: Some(1),
-        output_excerpt: Some(format!("parallel child {}/{} queued: {agent}", index + 1, total)),
+        output_excerpt: Some(format!(
+            "parallel child {}/{} queued: {agent}",
+            index + 1,
+            total
+        )),
         stdout_excerpt: None,
         stderr_excerpt: None,
         error: None,
@@ -1425,11 +1511,16 @@ fn cancel_child_jobs(
             child.stdout_excerpt = None;
             child.stderr_excerpt = None;
             child.error = Some(match reason {
-                Some(reason) if !reason.trim().is_empty() => format!("cancelled by parent: {reason}"),
+                Some(reason) if !reason.trim().is_empty() => {
+                    format!("cancelled by parent: {reason}")
+                }
                 _ => "cancelled by parent".to_string(),
             });
             child.step_results = vec![InsightDispatchStepResult {
-                agent: child.agent.clone().unwrap_or_else(|| "insight-supervisor".to_string()),
+                agent: child
+                    .agent
+                    .clone()
+                    .unwrap_or_else(|| "insight-supervisor".to_string()),
                 status: "cancelled".to_string(),
                 output_excerpt: child.output_excerpt.clone(),
                 stdout_excerpt: None,
@@ -1758,10 +1849,7 @@ mod tests {
         let store_path = root.join("mind.sqlite");
         let old = std::env::var("AOC_INSIGHT_AGENT_CMD").ok();
         let old_parallel_limit = std::env::var("AOC_INSIGHT_DETACHED_PARALLEL_LIMIT").ok();
-        std::env::set_var(
-            "AOC_INSIGHT_AGENT_CMD",
-            "trap 'exit 143' TERM; sleep 10",
-        );
+        std::env::set_var("AOC_INSIGHT_AGENT_CMD", "trap 'exit 143' TERM; sleep 10");
 
         let runtime = DetachedInsightRuntime::new(&root, &store_path);
         let dispatch = runtime.dispatch(&InsightDetachedDispatchRequest {
@@ -1886,7 +1974,15 @@ mod tests {
             parent = status.jobs.into_iter().find(|job| job.job_id == job_id);
             if parent
                 .as_ref()
-                .map(|job| matches!(job.status, InsightDetachedJobStatus::Success | InsightDetachedJobStatus::Fallback | InsightDetachedJobStatus::Cancelled | InsightDetachedJobStatus::Error))
+                .map(|job| {
+                    matches!(
+                        job.status,
+                        InsightDetachedJobStatus::Success
+                            | InsightDetachedJobStatus::Fallback
+                            | InsightDetachedJobStatus::Cancelled
+                            | InsightDetachedJobStatus::Error
+                    )
+                })
                 .unwrap_or(false)
             {
                 break;
@@ -1903,7 +1999,14 @@ mod tests {
             limit: Some(10),
         });
         assert_eq!(status.jobs.len(), 3);
-        assert_eq!(status.jobs.iter().filter(|job| job.parent_job_id.as_deref() == Some(job_id.as_str())).count(), 2);
+        assert_eq!(
+            status
+                .jobs
+                .iter()
+                .filter(|job| job.parent_job_id.as_deref() == Some(job_id.as_str()))
+                .count(),
+            2
+        );
         assert_eq!(parent.step_results.len(), 2);
         assert!(parent.stdout_excerpt.as_deref().is_some());
         assert!(status
@@ -1915,7 +2018,10 @@ mod tests {
         assert!(seen.contains("insight-t1-observer"));
         assert!(seen.contains("insight-t2-reflector"));
         let overlap = fs::read_to_string(&overlap_file).unwrap_or_default();
-        assert!(overlap.trim().is_empty(), "parallel overlap detected: {overlap}");
+        assert!(
+            overlap.trim().is_empty(),
+            "parallel overlap detected: {overlap}"
+        );
 
         if let Some(previous) = old {
             std::env::set_var("AOC_INSIGHT_AGENT_CMD", previous);

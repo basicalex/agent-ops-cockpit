@@ -1,8 +1,10 @@
 use chrono::{DateTime, Utc};
+use regex::Regex;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, BTreeSet};
+use std::sync::OnceLock;
 use thiserror::Error;
 
 pub const MIND_SCHEMA_VERSION: u32 = 1;
@@ -363,6 +365,273 @@ struct T0CompactEventCore {
     pub snippet: Option<String>,
     pub source_event_ids: Vec<String>,
     pub policy_version: String,
+}
+
+const MIND_REDACTED_SECRET: &str = "[redacted]";
+const MIND_SANITIZED_ATTR_KEY: &str = "mind_sanitized";
+const MIND_SANITIZED_REASONS_ATTR_KEY: &str = "mind_sanitized_reasons";
+
+pub fn sanitize_raw_event_for_storage(raw: &RawEvent) -> RawEvent {
+    let mut sanitized = raw.clone();
+    let mut reasons = BTreeSet::new();
+
+    sanitized.body = sanitize_raw_event_body(&sanitized.body, &mut reasons);
+    sanitized.attrs = sanitize_attrs_map(&sanitized.attrs, &mut reasons);
+
+    if !reasons.is_empty() {
+        sanitized
+            .attrs
+            .insert(MIND_SANITIZED_ATTR_KEY.to_string(), Value::Bool(true));
+        sanitized.attrs.insert(
+            MIND_SANITIZED_REASONS_ATTR_KEY.to_string(),
+            Value::Array(reasons.into_iter().map(Value::String).collect()),
+        );
+    }
+
+    sanitized
+}
+
+pub fn raw_event_contains_unredacted_secret(raw: &RawEvent) -> bool {
+    raw_event_body_contains_unredacted_secret(&raw.body)
+        || attrs_map_contains_unredacted_secret(&raw.attrs)
+}
+
+pub fn sanitize_text_secrets(input: &str) -> String {
+    if input.is_empty() {
+        return String::new();
+    }
+
+    let mut redacted = authorization_scheme_regex()
+        .replace_all(input, |caps: &regex::Captures| {
+            let prefix = caps
+                .name("scheme")
+                .map(|scheme| format!("{} ", scheme.as_str()))
+                .unwrap_or_default();
+            format!(
+                "{}{}{}{MIND_REDACTED_SECRET}",
+                &caps["key"], &caps["sep"], prefix
+            )
+        })
+        .into_owned();
+
+    redacted = secret_kv_regex()
+        .replace_all(&redacted, |caps: &regex::Captures| {
+            let value = caps
+                .name("value")
+                .map(|value| value.as_str())
+                .unwrap_or_default();
+            if value.contains(MIND_REDACTED_SECRET) {
+                caps[0].to_string()
+            } else {
+                format!("{}{}{}", &caps["key"], &caps["sep"], MIND_REDACTED_SECRET)
+            }
+        })
+        .into_owned();
+
+    redacted = bearer_token_regex()
+        .replace_all(&redacted, |caps: &regex::Captures| {
+            format!("{} {MIND_REDACTED_SECRET}", &caps["scheme"])
+        })
+        .into_owned();
+
+    redacted = pem_block_regex()
+        .replace_all(&redacted, MIND_REDACTED_SECRET)
+        .into_owned();
+
+    for pattern in inline_secret_regexes() {
+        redacted = pattern
+            .replace_all(&redacted, MIND_REDACTED_SECRET)
+            .into_owned();
+    }
+
+    redacted
+}
+
+pub fn text_contains_unredacted_secret(input: &str) -> bool {
+    if input.is_empty() {
+        return false;
+    }
+
+    if authorization_scheme_regex()
+        .captures_iter(input)
+        .any(|caps| {
+            !caps
+                .name("value")
+                .map(|value| value.as_str().contains(MIND_REDACTED_SECRET))
+                .unwrap_or(false)
+        })
+    {
+        return true;
+    }
+
+    if secret_kv_regex().captures_iter(input).any(|caps| {
+        !caps
+            .name("value")
+            .map(|value| value.as_str().contains(MIND_REDACTED_SECRET))
+            .unwrap_or(false)
+    }) {
+        return true;
+    }
+
+    bearer_token_regex().is_match(input)
+        || pem_block_regex().is_match(input)
+        || inline_secret_regexes()
+            .iter()
+            .any(|pattern| pattern.is_match(input))
+}
+
+fn sanitize_raw_event_body(body: &RawEventBody, reasons: &mut BTreeSet<String>) -> RawEventBody {
+    match body {
+        RawEventBody::Message(message) => {
+            let text = sanitize_string_value(&message.text, reasons, "message_text");
+            RawEventBody::Message(MessageEvent {
+                role: message.role,
+                text,
+            })
+        }
+        RawEventBody::ToolResult(tool) => {
+            let mut sanitized = tool.clone();
+            if sanitized.output.is_some() {
+                reasons.insert("tool_output_dropped".to_string());
+                sanitized.output = None;
+                sanitized.redacted = true;
+            }
+            RawEventBody::ToolResult(sanitized)
+        }
+        RawEventBody::TaskSignal(signal) => RawEventBody::TaskSignal(signal.clone()),
+        RawEventBody::Other { payload } => RawEventBody::Other {
+            payload: sanitize_json_value(payload, reasons, "other_payload"),
+        },
+    }
+}
+
+fn sanitize_attrs_map(
+    attrs: &BTreeMap<String, Value>,
+    reasons: &mut BTreeSet<String>,
+) -> BTreeMap<String, Value> {
+    attrs
+        .iter()
+        .map(|(key, value)| {
+            (
+                key.clone(),
+                sanitize_json_value(value, reasons, &format!("attr:{key}")),
+            )
+        })
+        .collect()
+}
+
+fn sanitize_json_value(value: &Value, reasons: &mut BTreeSet<String>, context: &str) -> Value {
+    match value {
+        Value::String(text) => Value::String(sanitize_string_value(text, reasons, context)),
+        Value::Array(items) => Value::Array(
+            items
+                .iter()
+                .map(|item| sanitize_json_value(item, reasons, context))
+                .collect(),
+        ),
+        Value::Object(map) => Value::Object(
+            map.iter()
+                .map(|(key, value)| {
+                    (
+                        key.clone(),
+                        sanitize_json_value(value, reasons, &format!("{context}.{key}")),
+                    )
+                })
+                .collect(),
+        ),
+        _ => value.clone(),
+    }
+}
+
+fn sanitize_string_value(input: &str, reasons: &mut BTreeSet<String>, context: &str) -> String {
+    let sanitized = sanitize_text_secrets(input);
+    if sanitized != input {
+        reasons.insert(context.to_string());
+    }
+    sanitized
+}
+
+fn raw_event_body_contains_unredacted_secret(body: &RawEventBody) -> bool {
+    match body {
+        RawEventBody::Message(message) => text_contains_unredacted_secret(&message.text),
+        RawEventBody::ToolResult(tool) => tool
+            .output
+            .as_deref()
+            .is_some_and(text_contains_unredacted_secret),
+        RawEventBody::TaskSignal(_) => false,
+        RawEventBody::Other { payload } => json_value_contains_unredacted_secret(payload),
+    }
+}
+
+fn attrs_map_contains_unredacted_secret(attrs: &BTreeMap<String, Value>) -> bool {
+    attrs.values().any(json_value_contains_unredacted_secret)
+}
+
+fn json_value_contains_unredacted_secret(value: &Value) -> bool {
+    match value {
+        Value::String(text) => text_contains_unredacted_secret(text),
+        Value::Array(items) => items.iter().any(json_value_contains_unredacted_secret),
+        Value::Object(map) => map.values().any(json_value_contains_unredacted_secret),
+        _ => false,
+    }
+}
+
+fn secret_kv_regex() -> &'static Regex {
+    static REGEX: OnceLock<Regex> = OnceLock::new();
+    REGEX.get_or_init(|| {
+        Regex::new(&format!(
+            r#"(?i)\b(?P<key>{})\b(?P<sep>\s*[:=]\s*)(?P<value>"[^"]*"|'[^']*'|[^\s,;]+)"#,
+            secret_key_pattern()
+        ))
+        .expect("valid mind secret key regex")
+    })
+}
+
+fn authorization_scheme_regex() -> &'static Regex {
+    static REGEX: OnceLock<Regex> = OnceLock::new();
+    REGEX.get_or_init(|| {
+        Regex::new(
+            r"(?i)\b(?P<key>authorization)\b(?P<sep>\s*:\s*)(?:(?P<scheme>bearer|token|basic)\s+)?(?P<value>[^\s,;]+)",
+        )
+        .expect("valid mind authorization regex")
+    })
+}
+
+fn bearer_token_regex() -> &'static Regex {
+    static REGEX: OnceLock<Regex> = OnceLock::new();
+    REGEX.get_or_init(|| {
+        Regex::new(r"(?i)\b(?P<scheme>bearer|token)\s+[A-Za-z0-9\-\._~\+/=]{12,}")
+            .expect("valid mind bearer regex")
+    })
+}
+
+fn pem_block_regex() -> &'static Regex {
+    static REGEX: OnceLock<Regex> = OnceLock::new();
+    REGEX.get_or_init(|| {
+        Regex::new(r"-----BEGIN [A-Z0-9 ]+-----[\s\S]+?-----END [A-Z0-9 ]+-----")
+            .expect("valid pem regex")
+    })
+}
+
+fn inline_secret_regexes() -> &'static [Regex] {
+    static REGEXES: OnceLock<Vec<Regex>> = OnceLock::new();
+    REGEXES
+        .get_or_init(|| {
+            vec![
+                Regex::new(r"\bgh[pousr]_[A-Za-z0-9]{8,}\b").expect("valid github token regex"),
+                Regex::new(r"\bsk-[A-Za-z0-9]{12,}\b").expect("valid openai token regex"),
+                Regex::new(r"\bsk-or-v1-[A-Za-z0-9\-_]{12,}\b")
+                    .expect("valid openrouter token regex"),
+                Regex::new(r"\bAKIA[0-9A-Z]{16}\b").expect("valid aws access key regex"),
+                Regex::new(r"\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\b")
+                    .expect("valid jwt regex"),
+            ]
+        })
+        .as_slice()
+}
+
+fn secret_key_pattern() -> &'static str {
+    r"(?:[A-Z0-9_]*?(?:api[_-]?key|auth[_-]?token|access[_-]?token|refresh[_-]?token|token|secret|password|passwd|private[_-]?key|client[_-]?secret|session[_-]?token|cookie))"
 }
 
 pub fn compact_raw_event_to_t0(
@@ -1347,6 +1616,59 @@ mod tests {
             }),
             attrs: BTreeMap::new(),
         }
+    }
+
+    #[test]
+    fn sanitizer_redacts_message_and_nested_payload_secrets() {
+        let mut attrs = BTreeMap::new();
+        attrs.insert(
+            "note".to_string(),
+            Value::String("Authorization: Bearer sk-or-v1-abcdefghijklmnop".to_string()),
+        );
+        let raw = RawEvent {
+            event_id: "evt-secret".to_string(),
+            conversation_id: "conv-1".to_string(),
+            agent_id: "agent-1".to_string(),
+            ts: ts(),
+            body: RawEventBody::Other {
+                payload: serde_json::json!({
+                    "message": "ANTHROPIC_API_KEY=sk-test-secret-value",
+                    "nested": ["cookie=session-token-123456789012"]
+                }),
+            },
+            attrs,
+        };
+
+        let sanitized = sanitize_raw_event_for_storage(&raw);
+        assert!(!raw_event_contains_unredacted_secret(&sanitized));
+        assert_eq!(
+            sanitized.attrs.get(MIND_SANITIZED_ATTR_KEY),
+            Some(&Value::Bool(true))
+        );
+
+        let RawEventBody::Other { payload } = &sanitized.body else {
+            panic!("expected other payload");
+        };
+        let rendered = canonical_json(payload).expect("canonical");
+        assert!(!rendered.contains("sk-test-secret-value"));
+        assert!(rendered.contains(MIND_REDACTED_SECRET));
+    }
+
+    #[test]
+    fn sanitizer_drops_tool_output_and_marks_redacted() {
+        let sanitized = sanitize_raw_event_for_storage(&raw_tool(
+            "evt-tool",
+            "conv-1",
+            "bash",
+            "ANTHROPIC_AUTH_TOKEN=secret-value",
+        ));
+
+        let RawEventBody::ToolResult(ref tool) = sanitized.body else {
+            panic!("expected tool result");
+        };
+        assert_eq!(tool.output, None);
+        assert!(tool.redacted);
+        assert!(!raw_event_contains_unredacted_secret(&sanitized));
     }
 
     #[test]

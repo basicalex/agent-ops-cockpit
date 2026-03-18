@@ -1,7 +1,7 @@
 use aoc_core::mind_contracts::{
-    build_compaction_t0_slice, canonical_json, compact_raw_event_to_t0, sha256_hex,
-    ConversationRole, MessageEvent, RawEvent, RawEventBody, T0CompactionPolicy,
-    ToolExecutionStatus, ToolResultEvent, LINEAGE_ATTRS_KEY,
+    build_compaction_t0_slice, canonical_json, compact_raw_event_to_t0,
+    sanitize_raw_event_for_storage, sha256_hex, ConversationRole, MessageEvent, RawEvent,
+    RawEventBody, T0CompactionPolicy, ToolExecutionStatus, ToolResultEvent, LINEAGE_ATTRS_KEY,
 };
 use aoc_storage::{CompactionCheckpoint, IngestionCheckpoint, MindStore, StorageError};
 use chrono::{DateTime, TimeZone, Utc};
@@ -133,6 +133,7 @@ impl PiSessionIngestor {
 
             let event = normalize_entry(parsed, &source, agent_id, line_offset)
                 .map_err(|err| PiAdapterError::Serialization(err.to_string()))?;
+            let event = sanitize_raw_event_for_storage(&event);
 
             let inserted = store.insert_raw_event(&event)?;
             if inserted {
@@ -912,6 +913,30 @@ mod tests {
         assert_eq!(second.produced_t0_events, 0);
         assert_eq!(second.persisted_compaction_checkpoints, 0);
         assert_eq!(store.raw_event_count("pi:sess-2").expect("raw count"), 3);
+    }
+
+    #[test]
+    fn tool_output_is_dropped_before_raw_storage() {
+        let session = write_session(
+            r#"{"type":"session","version":3,"id":"sess-secret","timestamp":"2024-12-03T14:00:00.000Z","cwd":"/tmp/proj"}
+{"type":"message","id":"tool-1","parentId":null,"timestamp":"2024-12-03T14:00:01.000Z","message":{"role":"toolResult","toolName":"bash","content":"ANTHROPIC_AUTH_TOKEN=super-secret-value"}}
+"#,
+        );
+        let store = MindStore::open_in_memory().expect("open store");
+        let ingestor = PiSessionIngestor::new(IngestionOptions::default());
+        ingestor
+            .ingest_session_file(&store, "agent-1", session.path())
+            .expect("ingest");
+
+        let raw = store
+            .raw_event_by_id("pi:tool-1")
+            .expect("query")
+            .expect("event exists");
+        let RawEventBody::ToolResult(tool) = raw.body else {
+            panic!("expected tool result");
+        };
+        assert_eq!(tool.output, None);
+        assert!(tool.redacted);
     }
 
     #[test]
