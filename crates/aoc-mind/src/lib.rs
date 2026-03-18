@@ -320,11 +320,10 @@ impl<A: ObserverAdapter> SemanticObserverDistiller<A> {
         }
         let context_states = store.context_states(conversation_id)?;
 
-        let batches = plan_t1_batches(
-            &t0_events,
-            self.config.t1_target_tokens,
-            self.config.t1_hard_cap_tokens,
-        )?;
+        let semantic_input_limit = self.semantic.profile.max_input_tokens.max(1);
+        let t1_target_tokens = self.config.t1_target_tokens.min(semantic_input_limit);
+        let t1_hard_cap_tokens = self.config.t1_hard_cap_tokens.min(semantic_input_limit);
+        let batches = plan_t1_batches(&t0_events, t1_target_tokens, t1_hard_cap_tokens)?;
         let event_lookup = t0_events
             .iter()
             .map(|event| (event.compact_id.clone(), event))

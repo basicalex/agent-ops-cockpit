@@ -3,6 +3,32 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 BIN_DIR="$HOME/.local/bin"
+INSTALL_MIND_EXPLICIT=0
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --mind)
+      INSTALL_MIND_EXPLICIT=1
+      shift
+      ;;
+    -h|--help)
+      cat <<'EOF'
+Usage: ./install.sh [--mind]
+
+Options:
+  --mind   Explicitly refresh Mind runtime dependencies and binaries
+           (PI agent, aoc-hub-rs, aoc-agent-wrap-rs).
+  -h, --help
+EOF
+      exit 0
+      ;;
+    *)
+      echo "Unknown argument: $1" >&2
+      echo "Run ./install.sh --help for usage." >&2
+      exit 1
+      ;;
+  esac
+done
 
 # Ensure user-local bin is discoverable during install checks
 export PATH="$BIN_DIR:$PATH"
@@ -79,7 +105,8 @@ install_pi_agent_if_enabled() {
   fi
 
   local pi_bin="${AOC_PI_BIN:-pi}"
-  if have "$pi_bin"; then
+  local refresh_pi="${AOC_INSTALL_PI_REFRESH:-0}"
+  if have "$pi_bin" && ! is_truthy "$refresh_pi"; then
     log "PI agent already installed ($pi_bin)."
     return 0
   fi
@@ -108,10 +135,18 @@ install_pi_agent_if_enabled() {
     return 1
   fi
 
-  log "Installing PI agent CLI..."
-  if ! "$installer" install pi; then
-    warn "PI agent install command failed."
-    return 1
+  if have "$pi_bin" && is_truthy "$refresh_pi"; then
+    log "Updating PI agent CLI..."
+    if ! "$installer" update pi; then
+      warn "PI agent update command failed."
+      return 1
+    fi
+  else
+    log "Installing PI agent CLI..."
+    if ! "$installer" install pi; then
+      warn "PI agent install command failed."
+      return 1
+    fi
   fi
 
   if have "$pi_bin"; then
@@ -395,6 +430,19 @@ cargo_with_retry() {
     sleep "$delay_secs"
     attempt=$((attempt + 1))
   done
+}
+
+install_rust_binary() {
+  local cargo_bin="$1"
+  local package="$2"
+  local dest_name="${3:-$2}"
+
+  log "Building $package..."
+  cargo_with_retry "$cargo_bin" install --path "$ROOT_DIR/crates/$package" --root "$HOME/.local" --force || {
+    log "Cargo install failed for $package, trying build --release..."
+    (cd "$ROOT_DIR/crates" && "$cargo_bin" build --release -p "$package")
+    install -m 0755 "$ROOT_DIR/crates/target/release/$package" "$BIN_DIR/$dest_name"
+  }
 }
 
 detect_pm() {
@@ -785,14 +833,13 @@ if cargo_bin="$(cargo_cmd)"; then
   fi
 
   # Build aoc-cli
-  log "Building aoc-cli..."
-  cargo_with_retry "$cargo_bin" install --path "$ROOT_DIR/crates/aoc-cli" --root "$HOME/.local" --force || {
-    # Fallback for older cargos that don't support --root in the same way or if it fails
-    # Try direct build
-    log "Cargo install failed, trying build --release..."
-    (cd "$ROOT_DIR/crates" && "$cargo_bin" build --release -p aoc-cli)
-    cp "$ROOT_DIR/crates/target/release/aoc-cli" "$BIN_DIR/aoc-cli"
-  }
+  install_rust_binary "$cargo_bin" aoc-cli
+
+  if (( INSTALL_MIND_EXPLICIT == 1 )); then
+    log "Refreshing Mind runtime binaries explicitly (--mind)..."
+    install_rust_binary "$cargo_bin" aoc-hub-rs
+    install_rust_binary "$cargo_bin" aoc-agent-wrap-rs
+  fi
 
   # Build aoc-taskmaster (native TUI)
   log "Building aoc-taskmaster..."
@@ -1087,6 +1134,11 @@ EOF
   fi
 fi
 
+if (( INSTALL_MIND_EXPLICIT == 1 )); then
+  log "Mind explicit mode enabled: refreshing PI agent and Mind runtime components."
+  export AOC_INSTALL_PI_REFRESH=1
+fi
+
 if ! install_pi_agent_if_enabled; then
   if is_truthy "${AOC_INSTALL_PI_REQUIRED:-1}"; then
     warn "PI agent installation failed and is required (set AOC_INSTALL_PI_REQUIRED=0 to continue anyway)."
@@ -1127,4 +1179,8 @@ fi
 install_omo_if_enabled
 
 log "AOC Installed Successfully!"
+if (( INSTALL_MIND_EXPLICIT == 1 )); then
+  log "Mind runtime refreshed: PI agent, aoc-hub-rs, and aoc-agent-wrap-rs should now be current in $BIN_DIR."
+  log "Start a fresh AOC/Zellij session to pick up the refreshed Mind runtime binaries."
+fi
 log "Run 'aoc' to start."

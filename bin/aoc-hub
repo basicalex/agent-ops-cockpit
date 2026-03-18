@@ -56,6 +56,10 @@ if [[ -x "$local_debug" ]]; then
   exec "$local_debug" --session "$session_id" --addr "$hub_addr" "$@"
 fi
 
+if command -v cargo >/dev/null 2>&1 && [[ -n "$manifest_path" ]]; then
+  exec cargo run --manifest-path "$manifest_path" -p aoc-hub-rs -- --session "$session_id" --addr "$hub_addr" "$@"
+fi
+
 if command -v aoc-hub-rs >/dev/null 2>&1; then
   exec aoc-hub-rs --session "$session_id" --addr "$hub_addr" "$@"
 fi
@@ -66,10 +70,6 @@ fi
 
 if [[ -x "$cargo_bin/aoc-hub-rs" ]]; then
   exec "$cargo_bin/aoc-hub-rs" --session "$session_id" --addr "$hub_addr" "$@"
-fi
-
-if command -v cargo >/dev/null 2>&1 && [[ -n "$manifest_path" ]]; then
-  exec cargo run --manifest-path "$manifest_path" -p aoc-hub-rs -- --session "$session_id" --addr "$hub_addr" "$@"
 fi
 
 echo "aoc-hub: aoc-hub-rs not found (build crates/aoc-hub-rs)." >&2
