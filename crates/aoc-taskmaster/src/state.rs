@@ -40,6 +40,13 @@ pub enum FocusMode {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum InputMode {
+    #[default]
+    Normal,
+    Search,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum FilterMode {
     #[default]
     All,
@@ -78,6 +85,8 @@ pub struct App {
     pub filter: FilterMode,
     pub sort_mode: SortMode,
     pub current_tag: String,
+    pub search_query: String,
+    pub input_mode: InputMode,
     pub show_detail: bool,
     pub show_help: bool,
     pub show_tag_selector: bool,
@@ -246,6 +255,8 @@ impl App {
             filter: FilterMode::All,
             sort_mode: SortMode::TaskNumber,
             current_tag: String::new(),
+            search_query: String::new(),
+            input_mode: InputMode::Normal,
             show_detail: false,
             show_help: false,
             show_tag_selector: false,
@@ -616,6 +627,9 @@ impl App {
 
     pub fn recalc_display_rows(&mut self) {
         let mut rows = Vec::new();
+        let query = self.search_query.trim().to_lowercase();
+        let query = if query.is_empty() { None } else { Some(query) };
+
         for (idx, task) in self.tasks.iter().enumerate() {
             let match_filter = match self.filter {
                 FilterMode::All => true,
@@ -625,6 +639,12 @@ impl App {
 
             if !match_filter {
                 continue;
+            }
+
+            if let Some(query) = &query {
+                if !task_matches(task, query) {
+                    continue;
+                }
             }
 
             rows.push(DisplayRow {
@@ -672,9 +692,17 @@ impl App {
             self.maybe_update_pane_title();
             return;
         }
+        if self.input_mode == InputMode::Search {
+            self.handle_search_key(key);
+            self.maybe_update_pane_title();
+            return;
+        }
         match key.code {
             KeyCode::Char('q') => {
-                self.should_quit = true;
+                self.last_error = Some(
+                    "Quit is disabled in Taskmaster; use panes/session controls instead."
+                        .to_string(),
+                );
             }
             KeyCode::Esc => {
                 if self.show_help {
@@ -689,6 +717,9 @@ impl App {
                     self.details_scroll = 0;
                     self.details_max_scroll = 0;
                     self.focus = FocusMode::List;
+                } else if !self.search_query.is_empty() {
+                    self.search_query.clear();
+                    self.recalc_display_rows();
                 }
             }
             KeyCode::Down | KeyCode::Char('j') => {
@@ -751,6 +782,9 @@ impl App {
             KeyCode::Char('a') => {
                 self.toggle_active_agent();
             }
+            KeyCode::Char('/') => {
+                self.input_mode = InputMode::Search;
+            }
             KeyCode::Char('f') => {
                 self.filter = self.filter.next();
                 self.recalc_display_rows();
@@ -768,6 +802,28 @@ impl App {
         }
 
         self.maybe_update_pane_title();
+    }
+
+    fn handle_search_key(&mut self, key: KeyEvent) {
+        match key.code {
+            KeyCode::Enter => {
+                self.input_mode = InputMode::Normal;
+            }
+            KeyCode::Esc => {
+                self.search_query.clear();
+                self.input_mode = InputMode::Normal;
+                self.recalc_display_rows();
+            }
+            KeyCode::Backspace | KeyCode::Delete => {
+                self.search_query.pop();
+                self.recalc_display_rows();
+            }
+            KeyCode::Char(ch) => {
+                self.search_query.push(ch);
+                self.recalc_display_rows();
+            }
+            _ => {}
+        }
     }
 
     pub fn handle_mouse(&mut self, event: MouseEvent) {
@@ -1261,7 +1317,7 @@ impl App {
         let filled = (percent / 100.0 * bar_width as f64) as usize;
         let bar = format!("[{}{}]", "=".repeat(filled), " ".repeat(bar_width - filled));
 
-        let title = format!(
+        let mut title = format!(
             "[{}] {} {}/{} | Filter: {} | Sort: {}",
             tag,
             bar,
@@ -1270,6 +1326,13 @@ impl App {
             self.filter.label(),
             self.sort_mode.label()
         );
+
+        if !self.search_query.trim().is_empty() {
+            title.push_str(&format!(" | Search: {}", self.search_query));
+        }
+        if self.input_mode == InputMode::Search {
+            title.push_str(" [search]");
+        }
 
         title
     }
@@ -1288,6 +1351,44 @@ impl App {
             self.last_title = Some(title);
         }
     }
+}
+
+fn task_matches(task: &Task, query: &str) -> bool {
+    let query = query.trim().to_lowercase();
+    if query.is_empty() {
+        return true;
+    }
+
+    if task.id.to_lowercase().contains(&query)
+        || task.title.to_lowercase().contains(&query)
+        || task.description.to_lowercase().contains(&query)
+        || task.details.to_lowercase().contains(&query)
+        || task.test_strategy.to_lowercase().contains(&query)
+        || task.status.as_str().contains(&query)
+        || task.priority.as_str().contains(&query)
+        || task
+            .dependencies
+            .iter()
+            .any(|dep| dep.to_lowercase().contains(&query))
+        || task
+            .aoc_prd
+            .as_ref()
+            .map(|prd| prd.path.to_lowercase().contains(&query))
+            .unwrap_or(false)
+    {
+        return true;
+    }
+
+    task.subtasks.iter().any(|sub| {
+        sub.id.to_string().contains(&query)
+            || sub.title.to_lowercase().contains(&query)
+            || sub.description.to_lowercase().contains(&query)
+            || sub.status.as_str().contains(&query)
+            || sub
+                .dependencies
+                .iter()
+                .any(|dep| dep.to_lowercase().contains(&query))
+    })
 }
 
 fn task_sort_key(id: &str) -> (u64, String) {
