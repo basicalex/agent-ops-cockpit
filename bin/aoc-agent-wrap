@@ -85,6 +85,22 @@ resolve_wrap_rs_cmd() {
     wrap_rs_cmd=("$AOC_AGENT_WRAP_RS_BIN")
     return
   fi
+
+  local project_release=""
+  local project_debug=""
+  if [[ -n "${AOC_PROJECT_ROOT:-}" ]]; then
+    project_release="${AOC_PROJECT_ROOT}/crates/target/release/aoc-agent-wrap-rs"
+    project_debug="${AOC_PROJECT_ROOT}/crates/target/debug/aoc-agent-wrap-rs"
+    if [[ -x "$project_release" ]]; then
+      wrap_rs_cmd=("$project_release")
+      return
+    fi
+    if [[ -x "$project_debug" ]]; then
+      wrap_rs_cmd=("$project_debug")
+      return
+    fi
+  fi
+
   local local_release="$script_dir/../crates/target/release/aoc-agent-wrap-rs"
   local local_debug="$script_dir/../crates/target/debug/aoc-agent-wrap-rs"
   if [[ -x "$local_release" ]]; then
@@ -107,6 +123,7 @@ resolve_wrap_rs_cmd() {
     wrap_rs_cmd=("$cargo_bin/aoc-agent-wrap-rs")
     return
   fi
+
   local manifest_path=""
   if [[ -n "${AOC_PROJECT_ROOT:-}" && -f "${AOC_PROJECT_ROOT}/crates/Cargo.toml" ]]; then
     manifest_path="${AOC_PROJECT_ROOT}/crates/Cargo.toml"
@@ -115,6 +132,7 @@ resolve_wrap_rs_cmd() {
   fi
   if command -v cargo >/dev/null 2>&1 && [[ -n "$manifest_path" ]]; then
     wrap_rs_cmd=(cargo run --manifest-path "$manifest_path" -p aoc-agent-wrap-rs --)
+    return
   fi
 }
 
