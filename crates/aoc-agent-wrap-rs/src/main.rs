@@ -9,12 +9,13 @@ use aoc_core::{
     insight_contracts::{
         InsightBootstrapRequest, InsightCommand, InsightDetachedStatusResult,
         InsightDispatchRequest, InsightRetrievalCitation, InsightRetrievalDrilldownRef,
-        InsightRetrievalHit, InsightRetrievalMode, InsightRetrievalRequest,
-        InsightRetrievalResult, InsightRetrievalScope, InsightStatusResult,
+        InsightRetrievalHit, InsightRetrievalMode, InsightRetrievalRequest, InsightRetrievalResult,
+        InsightRetrievalScope, InsightStatusResult,
     },
     mind_contracts::{
         build_compaction_t0_slice, canonical_lineage_attrs, canonical_payload_hash,
-        compact_raw_event_to_t0, compose_context_pack, ContextLayer, ContextPackInput,
+        compact_raw_event_to_t0, compose_context_pack, sanitize_raw_event_for_storage,
+        text_contains_unredacted_secret, ContextLayer, ContextPackInput,
         ConversationLineageMetadata, ConversationRole, MessageEvent, RawEvent, RawEventBody,
         SemanticProvenance, SemanticRuntime, SemanticRuntimeMode, SemanticStage,
         T0CompactionPolicy, ToolExecutionStatus, ToolResultEvent,
@@ -128,7 +129,81 @@ const MIND_CONTEXT_PACK_COMPACT_MAX_LINES: usize = 24;
 const MIND_CONTEXT_PACK_EXPANDED_MAX_LINES: usize = 48;
 const MIND_CONTEXT_PACK_COMPACT_SOURCE_MAX_LINES: usize = 5;
 const MIND_CONTEXT_PACK_EXPANDED_SOURCE_MAX_LINES: usize = 10;
+const MIND_CHILD_ENV_ALLOWLIST: &[&str] = &[
+    "PATH",
+    "HOME",
+    "USER",
+    "LOGNAME",
+    "SHELL",
+    "TERM",
+    "LANG",
+    "LC_ALL",
+    "LC_CTYPE",
+    "COLORTERM",
+    "TMPDIR",
+    "TMP",
+    "TEMP",
+    "NO_COLOR",
+    "CI",
+    "RUST_LOG",
+    "RUST_BACKTRACE",
+    "RUST_LIB_BACKTRACE",
+];
 const REDACTED_SECRET: &str = "[REDACTED]";
+
+fn mind_child_env<I, K, V>(extra_env: I) -> Vec<(String, String)>
+where
+    I: IntoIterator<Item = (K, V)>,
+    K: AsRef<str>,
+    V: AsRef<str>,
+{
+    let mut pairs = Vec::new();
+    for key in MIND_CHILD_ENV_ALLOWLIST {
+        if let Ok(value) = env::var(key) {
+            pairs.push(((*key).to_string(), value));
+        }
+    }
+    for (key, value) in extra_env {
+        pairs.push((key.as_ref().to_string(), value.as_ref().to_string()));
+    }
+    pairs
+}
+
+fn configure_mind_child_command_env<I, K, V>(command: &mut Command, extra_env: I)
+where
+    I: IntoIterator<Item = (K, V)>,
+    K: AsRef<str>,
+    V: AsRef<str>,
+{
+    command.env_clear();
+    for (key, value) in mind_child_env(extra_env) {
+        command.env(key, value);
+    }
+}
+
+fn configure_mind_child_std_command_env<I, K, V>(command: &mut std::process::Command, extra_env: I)
+where
+    I: IntoIterator<Item = (K, V)>,
+    K: AsRef<str>,
+    V: AsRef<str>,
+{
+    command.env_clear();
+    for (key, value) in mind_child_env(extra_env) {
+        command.env(key, value);
+    }
+}
+
+fn configure_mind_child_pty_env<I, K, V>(builder: &mut CommandBuilder, extra_env: I)
+where
+    I: IntoIterator<Item = (K, V)>,
+    K: AsRef<str>,
+    V: AsRef<str>,
+{
+    builder.env_clear();
+    for (key, value) in mind_child_env(extra_env) {
+        builder.env(key, value);
+    }
+}
 const TELEMETRY_SECRET_KEYS: [&str; 13] = [
     "access_token",
     "api_key",
@@ -3969,11 +4044,8 @@ impl MindRuntime {
         let semantic_input_limit = semantic.profile.max_input_tokens.max(1);
         distill.t1_target_tokens = distill.t1_target_tokens.min(semantic_input_limit);
         distill.t1_hard_cap_tokens = distill.t1_hard_cap_tokens.min(semantic_input_limit);
-        let sidecar = SessionObserverSidecar::new(
-            distill.clone(),
-            semantic,
-            PiObserverAdapter::default(),
-        );
+        let sidecar =
+            SessionObserverSidecar::new(distill.clone(), semantic, PiObserverAdapter::default());
         let reflector_lock_path = resolve_reflector_lock_path(cfg);
         let reflector_worker = DetachedReflectorWorker::new(ReflectorRuntimeConfig {
             scope_id: cfg.session_id.clone(),
@@ -4011,7 +4083,10 @@ impl MindRuntime {
             last_ingest_at: None,
             last_idle_finalize_check: None,
             insight_supervisor: InsightSupervisor::new(&cfg.project_root),
-            insight_detached: DetachedInsightRuntime::new(&cfg.project_root, canonical_path.clone()),
+            insight_detached: DetachedInsightRuntime::new(
+                &cfg.project_root,
+                canonical_path.clone(),
+            ),
             reflector_worker,
             t3_worker,
             insight_health: InsightRuntimeHealthPayload {
@@ -4087,6 +4162,7 @@ impl MindRuntime {
             body,
             attrs,
         };
+        let raw = sanitize_raw_event_for_storage(&raw);
 
         let _ = self
             .store
@@ -4648,6 +4724,32 @@ impl MindRuntime {
         let t1_markdown = render_artifact_markdown("t1", &t1_artifacts);
         let t2_markdown = render_artifact_markdown("t2", &t2_artifacts);
 
+        if let Err(err) = ensure_safe_export_text(&t1_markdown, "t1 export") {
+            updates.push(PulseUpdate::MindObserverEvent(mind_observer_event(
+                MindObserverFeedStatus::Error,
+                finalize_trigger,
+                Some(err.clone()),
+            )));
+            return SessionFinalizeOutcome {
+                status: "error",
+                reason: format!("finalize failed: {err}"),
+                updates,
+            };
+        }
+
+        if let Err(err) = ensure_safe_export_text(&t2_markdown, "t2 export") {
+            updates.push(PulseUpdate::MindObserverEvent(mind_observer_event(
+                MindObserverFeedStatus::Error,
+                finalize_trigger,
+                Some(err.clone()),
+            )));
+            return SessionFinalizeOutcome {
+                status: "error",
+                reason: format!("finalize failed: {err}"),
+                updates,
+            };
+        }
+
         if let Err(err) = std::fs::write(export_dir.join("t1.md"), t1_markdown) {
             updates.push(PulseUpdate::MindObserverEvent(mind_observer_event(
                 MindObserverFeedStatus::Error,
@@ -5039,13 +5141,12 @@ impl MindRuntime {
     }
 
     fn detached_status_update(&self) -> PulseUpdate {
-        PulseUpdate::InsightDetached(
-            self.insight_detached
-                .status(&aoc_core::insight_contracts::InsightDetachedStatusRequest {
-                    job_id: None,
-                    limit: Some(24),
-                }),
-        )
+        PulseUpdate::InsightDetached(self.insight_detached.status(
+            &aoc_core::insight_contracts::InsightDetachedStatusRequest {
+                job_id: None,
+                limit: Some(24),
+            },
+        ))
     }
 
     fn tick_reflector_runtime(&mut self) -> Vec<PulseUpdate> {
@@ -5724,6 +5825,15 @@ fn project_canon_evidence_refs(
     Ok(evidence_refs)
 }
 
+fn ensure_safe_export_text(payload: &str, label: &str) -> Result<(), String> {
+    if text_contains_unredacted_secret(payload) {
+        return Err(format!(
+            "{label} contains unredacted secret-bearing content"
+        ));
+    }
+    Ok(())
+}
+
 fn write_project_mind_export(
     store: &MindStore,
     project_root: &str,
@@ -5737,6 +5847,7 @@ fn write_project_mind_export(
         .map_err(|err| format!("load stale canon entries failed: {err}"))?;
 
     let payload = render_project_mind_markdown(&active_entries, &stale_entries, now);
+    ensure_safe_export_text(&payload, "project_mind export")?;
     let export_path = PathBuf::from(project_root)
         .join(".aoc")
         .join("mind")
@@ -5875,6 +5986,8 @@ fn write_handshake_export(
             break;
         }
     }
+
+    ensure_safe_export_text(&payload, "handshake export")?;
 
     let payload_hash = canonical_payload_hash(&payload)
         .map_err(|err| format!("handshake payload hash failed: {err}"))?;
@@ -7424,7 +7537,9 @@ fn build_pulse_command_response(
 
             let parsed = InsightCommand::parse(&command, payload.args.clone());
             let result_json = match parsed {
-                Ok(InsightCommand::InsightStatus) => serde_json::to_string(&runtime.insight_status()),
+                Ok(InsightCommand::InsightStatus) => {
+                    serde_json::to_string(&runtime.insight_status())
+                }
                 Ok(InsightCommand::InsightDispatch(args)) => {
                     serde_json::to_string(&runtime.insight_dispatch(args))
                 }
@@ -8190,6 +8305,7 @@ fn strip_ansi(input: &str) -> String {
 
 async fn run_child_piped(cmd: &[String]) -> i32 {
     let mut child = Command::new(&cmd[0]);
+    configure_mind_child_command_env(&mut child, std::iter::empty::<(&str, &str)>());
     child
         .args(&cmd[1..])
         .stdin(Stdio::inherit())
@@ -8230,6 +8346,7 @@ async fn run_child_pty(
 
     let mut builder = CommandBuilder::new(&cmd[0]);
     builder.args(&cmd[1..]);
+    configure_mind_child_pty_env(&mut builder, std::iter::empty::<(&str, &str)>());
     if env::var("TERM").is_err() {
         builder.env("TERM", "xterm-256color");
     }
@@ -9613,17 +9730,46 @@ fn sanitize_component(input: &str) -> String {
         .collect()
 }
 
-fn runtime_snapshot_path(session_id: &str, pane_id: &str) -> PathBuf {
-    let state_home = if let Ok(value) = env::var("XDG_STATE_HOME") {
-        if !value.trim().is_empty() {
-            PathBuf::from(value)
-        } else {
-            PathBuf::from(env::var("HOME").unwrap_or_else(|_| ".".to_string())).join(".local/state")
-        }
+fn resolve_aoc_state_home_with_env(xdg_state_home: Option<&str>, home: Option<&str>) -> PathBuf {
+    if let Some(value) = xdg_state_home
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        PathBuf::from(value)
     } else {
-        PathBuf::from(env::var("HOME").unwrap_or_else(|_| ".".to_string())).join(".local/state")
-    };
-    state_home
+        PathBuf::from(home.unwrap_or(".")).join(".local/state")
+    }
+}
+
+fn resolve_aoc_state_home() -> PathBuf {
+    resolve_aoc_state_home_with_env(
+        env::var("XDG_STATE_HOME").ok().as_deref(),
+        env::var("HOME").ok().as_deref(),
+    )
+}
+
+fn resolve_mind_runtime_root_with_env(
+    project_root: &str,
+    xdg_state_home: Option<&str>,
+    home: Option<&str>,
+) -> PathBuf {
+    resolve_aoc_state_home_with_env(xdg_state_home, home)
+        .join("aoc")
+        .join("mind")
+        .join("projects")
+        .join(sanitize_component(project_root))
+}
+
+fn resolve_mind_runtime_root(project_root: &str) -> PathBuf {
+    resolve_mind_runtime_root_with_env(
+        project_root,
+        env::var("XDG_STATE_HOME").ok().as_deref(),
+        env::var("HOME").ok().as_deref(),
+    )
+}
+
+fn runtime_snapshot_path(session_id: &str, pane_id: &str) -> PathBuf {
+    resolve_aoc_state_home()
         .join("aoc")
         .join("telemetry")
         .join(sanitize_component(session_id))
@@ -9663,16 +9809,12 @@ fn resolve_mind_store_path_with_override(
         return PathBuf::from(path);
     }
 
-    PathBuf::from(&cfg.project_root)
-        .join(".aoc")
-        .join("mind")
-        .join("project.sqlite")
+    resolve_mind_runtime_root(&cfg.project_root).join("project.sqlite")
 }
 
 fn resolve_legacy_mind_store_path(cfg: &ClientConfig) -> PathBuf {
-    PathBuf::from(&cfg.project_root)
-        .join(".aoc")
-        .join("mind")
+    resolve_mind_runtime_root(&cfg.project_root)
+        .join("legacy")
         .join(sanitize_component(&cfg.session_id))
         .join(format!("{}.sqlite", sanitize_component(&cfg.pane_id)))
 }
@@ -9689,9 +9831,7 @@ fn resolve_reflector_lock_path_with_override(
         return PathBuf::from(path);
     }
 
-    PathBuf::from(&cfg.project_root)
-        .join(".aoc")
-        .join("mind")
+    resolve_mind_runtime_root(&cfg.project_root)
         .join("locks")
         .join("reflector.lock")
 }
@@ -9705,9 +9845,7 @@ fn resolve_t3_lock_path_with_override(cfg: &ClientConfig, override_path: Option<
         return PathBuf::from(path);
     }
 
-    PathBuf::from(&cfg.project_root)
-        .join(".aoc")
-        .join("mind")
+    resolve_mind_runtime_root(&cfg.project_root)
         .join("locks")
         .join("t3.lock")
 }
@@ -9975,6 +10113,15 @@ mod tests {
     use std::path::{Path, PathBuf};
     use std::time::{Duration, Instant};
 
+    fn repo_root() -> PathBuf {
+        PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .expect("crates dir")
+            .parent()
+            .expect("repo root")
+            .to_path_buf()
+    }
+
     fn test_client() -> ClientConfig {
         ClientConfig {
             session_id: "session-test".to_string(),
@@ -9993,25 +10140,47 @@ mod tests {
     }
 
     #[test]
-    fn mind_paths_default_to_project_scoped_layout() {
+    fn mind_paths_default_to_state_home_layout() {
         let cfg = test_client_with_root("/repo");
+        let runtime_root = resolve_mind_runtime_root_with_env(
+            &cfg.project_root,
+            Some("/state-home"),
+            Some("/home/test"),
+        );
 
         assert_eq!(
+            runtime_root,
+            PathBuf::from("/state-home/aoc/mind/projects/_repo")
+        );
+        assert_eq!(
+            resolve_aoc_state_home_with_env(Some("/state-home"), Some("/home/test")),
+            PathBuf::from("/state-home")
+        );
+        assert_eq!(
             resolve_mind_store_path_with_override(&cfg, None),
-            PathBuf::from("/repo/.aoc/mind/project.sqlite")
+            resolve_mind_runtime_root(&cfg.project_root).join("project.sqlite")
         );
         assert_eq!(
             resolve_reflector_lock_path_with_override(&cfg, None),
-            PathBuf::from("/repo/.aoc/mind/locks/reflector.lock")
+            resolve_mind_runtime_root(&cfg.project_root)
+                .join("locks")
+                .join("reflector.lock")
         );
         assert_eq!(
             resolve_legacy_mind_store_path(&cfg),
-            PathBuf::from("/repo/.aoc/mind/session-test/12.sqlite")
+            resolve_mind_runtime_root(&cfg.project_root)
+                .join("legacy")
+                .join("session-test")
+                .join("12.sqlite")
         );
         assert_eq!(
             resolve_t3_lock_path_with_override(&cfg, None),
-            PathBuf::from("/repo/.aoc/mind/locks/t3.lock")
+            resolve_mind_runtime_root(&cfg.project_root)
+                .join("locks")
+                .join("t3.lock")
         );
+        assert!(!resolve_mind_store_path_with_override(&cfg, None)
+            .starts_with(PathBuf::from(&cfg.project_root).join(".aoc").join("mind")));
     }
 
     #[test]
@@ -12018,10 +12187,7 @@ mod tests {
             assert_eq!(finalize_payload.status, "ok");
         }
 
-        let store_path = PathBuf::from(&runtimes[0].0.project_root)
-            .join(".aoc")
-            .join("mind")
-            .join("project.sqlite");
+        let store_path = resolve_mind_store_path(&runtimes[0].0);
         let pending_jobs = || {
             MindStore::open(&store_path)
                 .expect("open shared store")
@@ -13300,10 +13466,9 @@ mod tests {
             panic!("expected command_result")
         };
         assert_eq!(status_payload.status, "ok");
-        let parsed_status: Value = serde_json::from_str(
-            status_payload.message.as_deref().unwrap_or("{}"),
-        )
-        .expect("json result");
+        let parsed_status: Value =
+            serde_json::from_str(status_payload.message.as_deref().unwrap_or("{}"))
+                .expect("json result");
         assert_eq!(
             parsed_status
                 .get("jobs")
@@ -13356,6 +13521,64 @@ mod tests {
             .unwrap_or(false));
 
         let _ = std::fs::remove_dir_all(test_root);
+    }
+
+    #[test]
+    fn repo_policy_keeps_mind_runtime_artifacts_ignored_and_playbook_present() {
+        let root = repo_root();
+        let gitignore = std::fs::read_to_string(root.join(".gitignore")).expect("read .gitignore");
+        assert!(gitignore.contains("/.aoc/mind/"));
+        assert!(gitignore.contains("/.aoc/mind/**"));
+        assert!(root.join("scripts/verify-mind-runtime-safety.sh").exists());
+        assert!(root
+            .join("docs/security/mind-secret-incident-response.md")
+            .exists());
+    }
+
+    #[test]
+    fn ensure_safe_export_text_rejects_secret_payloads() {
+        let err = ensure_safe_export_text(
+            "# Mind Handshake Baseline\n\nAuthorization: Bearer sk-or-v1-abcdefghijklmnop",
+            "handshake export",
+        )
+        .expect_err("unsafe export should fail");
+        assert!(err.contains("handshake export contains unredacted secret-bearing content"));
+    }
+
+    #[test]
+    fn mind_child_env_excludes_ambient_secrets_and_keeps_allowlisted_vars() {
+        static ENV_LOCK: OnceLock<std::sync::Mutex<()>> = OnceLock::new();
+        let _guard = ENV_LOCK
+            .get_or_init(|| std::sync::Mutex::new(()))
+            .lock()
+            .expect("env lock");
+
+        let old_path = std::env::var("PATH").ok();
+        let old_secret = std::env::var("ANTHROPIC_API_KEY").ok();
+        std::env::set_var("PATH", "/usr/bin:/bin");
+        std::env::set_var("ANTHROPIC_API_KEY", "super-secret-value");
+
+        let env_pairs = mind_child_env(vec![(
+            "AOC_INSIGHT_AGENT".to_string(),
+            "observer".to_string(),
+        )]);
+        let env_map: std::collections::BTreeMap<_, _> = env_pairs.into_iter().collect();
+
+        assert_eq!(
+            env_map.get("AOC_INSIGHT_AGENT"),
+            Some(&"observer".to_string())
+        );
+        assert_eq!(env_map.get("PATH"), Some(&"/usr/bin:/bin".to_string()));
+        assert!(!env_map.contains_key("ANTHROPIC_API_KEY"));
+
+        if let Some(previous) = old_path {
+            std::env::set_var("PATH", previous);
+        }
+        if let Some(previous) = old_secret {
+            std::env::set_var("ANTHROPIC_API_KEY", previous);
+        } else {
+            std::env::remove_var("ANTHROPIC_API_KEY");
+        }
     }
 
     #[cfg(unix)]

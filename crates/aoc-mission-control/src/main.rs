@@ -4,7 +4,9 @@ use aoc_core::{
         ConsultationHelpRequest, ConsultationIdentity, ConsultationPacket, ConsultationPacketKind,
         ConsultationSourceStatus, ConsultationTaskContext,
     },
-    insight_contracts::{InsightDetachedJob, InsightDetachedJobStatus, InsightDetachedStatusResult},
+    insight_contracts::{
+        InsightDetachedJob, InsightDetachedJobStatus, InsightDetachedStatusResult,
+    },
     mind_contracts::{
         canonical_payload_hash, ArtifactTaskLink, ArtifactTaskRelation, SemanticProvenance,
         SemanticRuntime, SemanticStage,
@@ -4645,7 +4647,10 @@ fn should_render_overseer_consultation_line(
         worker.status,
         WorkerStatus::Blocked | WorkerStatus::NeedsInput
     ) || matches!(worker.drift_risk, DriftRisk::High)
-        || matches!(packet.freshness.source_status, ConsultationSourceStatus::Partial | ConsultationSourceStatus::Stale)
+        || matches!(
+            packet.freshness.source_status,
+            ConsultationSourceStatus::Partial | ConsultationSourceStatus::Stale
+        )
         || worker.assignment.task_id.is_none() && worker.assignment.tag.is_none()
         || packet.help_request.is_some()
 }
@@ -5799,6 +5804,29 @@ fn load_legacy_mind_artifact_drilldown(project_root: &Path, snapshot: &mut MindA
     }
 }
 
+fn resolve_aoc_state_home() -> PathBuf {
+    if let Ok(value) = env::var("XDG_STATE_HOME") {
+        let trimmed = value.trim();
+        if !trimmed.is_empty() {
+            return PathBuf::from(trimmed);
+        }
+    }
+    PathBuf::from(env::var("HOME").unwrap_or_else(|_| ".".to_string())).join(".local/state")
+}
+
+fn sanitize_runtime_component(input: &str) -> String {
+    input
+        .chars()
+        .map(|ch| {
+            if ch.is_ascii_alphanumeric() || ch == '-' || ch == '_' {
+                ch
+            } else {
+                '_'
+            }
+        })
+        .collect()
+}
+
 fn mind_store_path(project_root: &Path) -> PathBuf {
     env::var("AOC_MIND_STORE_PATH")
         .ok()
@@ -5806,9 +5834,11 @@ fn mind_store_path(project_root: &Path) -> PathBuf {
         .filter(|value| !value.is_empty())
         .map(PathBuf::from)
         .unwrap_or_else(|| {
-            project_root
-                .join(".aoc")
+            resolve_aoc_state_home()
+                .join("aoc")
                 .join("mind")
+                .join("projects")
+                .join(sanitize_runtime_component(&project_root.to_string_lossy()))
                 .join("project.sqlite")
         })
 }
@@ -6963,7 +6993,10 @@ fn render_insight_detached_rollup_line(
                 .add_modifier(Modifier::BOLD),
         ),
         Span::raw(" "),
-        Span::styled(ellipsize(label, if compact { 18 } else { 28 }), Style::default().fg(theme.info)),
+        Span::styled(
+            ellipsize(label, if compact { 18 } else { 28 }),
+            Style::default().fg(theme.info),
+        ),
         Span::raw(" "),
         Span::styled(detail, Style::default().fg(theme.accent)),
         Span::raw(" "),
@@ -8090,7 +8123,9 @@ fn collect_local_with_options(
         collect_local_work(&project_roots)
     } else {
         (
-            previous.map(|snapshot| snapshot.work.clone()).unwrap_or_default(),
+            previous
+                .map(|snapshot| snapshot.work.clone())
+                .unwrap_or_default(),
             previous
                 .map(|snapshot| snapshot.health.taskmaster_status.clone())
                 .unwrap_or_else(|| "unknown".to_string()),
@@ -8099,7 +8134,9 @@ fn collect_local_with_options(
     let diff = if include_diff {
         collect_local_diff(&project_roots)
     } else {
-        previous.map(|snapshot| snapshot.diff.clone()).unwrap_or_default()
+        previous
+            .map(|snapshot| snapshot.diff.clone())
+            .unwrap_or_default()
     };
     let health = if include_health {
         collect_health(config, &taskmaster_status)
@@ -9085,10 +9122,12 @@ fn resolve_local_snapshot_refresh_secs() -> u64 {
     std::env::var("AOC_MISSION_CONTROL_SNAPSHOT_REFRESH_SECS")
         .ok()
         .and_then(|raw| raw.trim().parse::<u64>().ok())
-        .map(|value| value.clamp(
-            LOCAL_SNAPSHOT_REFRESH_SECS_MIN,
-            LOCAL_SNAPSHOT_REFRESH_SECS_MAX,
-        ))
+        .map(|value| {
+            value.clamp(
+                LOCAL_SNAPSHOT_REFRESH_SECS_MIN,
+                LOCAL_SNAPSHOT_REFRESH_SECS_MAX,
+            )
+        })
         .unwrap_or(LOCAL_SNAPSHOT_REFRESH_SECS_DEFAULT)
 }
 
@@ -10753,10 +10792,10 @@ mod tests {
             std::process::id(),
             Utc::now().timestamp_nanos_opt().unwrap_or(0)
         ));
-        let mind_dir = root.join(".aoc").join("mind");
-        std::fs::create_dir_all(&mind_dir).expect("create mind dir");
-        let store =
-            aoc_storage::MindStore::open(mind_dir.join("project.sqlite")).expect("open store");
+        let store_path = mind_store_path(&root);
+        std::fs::create_dir_all(store_path.parent().expect("store parent"))
+            .expect("create mind dir");
+        let store = aoc_storage::MindStore::open(&store_path).expect("open store");
         let now = Utc::now();
         store
             .upsert_handshake_snapshot(
@@ -10901,10 +10940,10 @@ mod tests {
         )
         .expect("write manifest");
 
-        let mind_dir = root.join(".aoc").join("mind");
-        std::fs::create_dir_all(&mind_dir).expect("create mind dir");
-        let store =
-            aoc_storage::MindStore::open(mind_dir.join("project.sqlite")).expect("open store");
+        let store_path = mind_store_path(&root);
+        std::fs::create_dir_all(store_path.parent().expect("store parent"))
+            .expect("create mind dir");
+        let store = aoc_storage::MindStore::open(&store_path).expect("open store");
         let marker_event = aoc_core::mind_contracts::RawEvent {
             event_id: "evt-compaction-session-test-1".to_string(),
             conversation_id: "conv-compact".to_string(),
@@ -11613,10 +11652,10 @@ mod tests {
             std::process::id(),
             Utc::now().timestamp_nanos_opt().unwrap_or(0)
         ));
-        let mind_dir = root.join(".aoc").join("mind");
-        std::fs::create_dir_all(&mind_dir).expect("create mind dir");
-        let store =
-            aoc_storage::MindStore::open(mind_dir.join("project.sqlite")).expect("open store");
+        let store_path = mind_store_path(&root);
+        std::fs::create_dir_all(store_path.parent().expect("store parent"))
+            .expect("create mind dir");
+        let store = aoc_storage::MindStore::open(&store_path).expect("open store");
         let marker_event = aoc_core::mind_contracts::RawEvent {
             event_id: "evt-compaction-degraded-1".to_string(),
             conversation_id: "conv-degraded".to_string(),

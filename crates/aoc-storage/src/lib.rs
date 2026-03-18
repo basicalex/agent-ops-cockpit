@@ -4,7 +4,8 @@ use aoc_core::{
         InsightDispatchStepResult,
     },
     mind_contracts::{
-        canonical_payload_hash, parse_conversation_lineage_metadata, ArtifactTaskLink,
+        canonical_payload_hash, parse_conversation_lineage_metadata,
+        raw_event_contains_unredacted_secret, text_contains_unredacted_secret, ArtifactTaskLink,
         ArtifactTaskRelation, CompactionT0Slice, ConversationRole, RawEvent, RawEventBody,
         RouteOrigin, SegmentCandidate, SegmentRoute, SemanticFailureKind, SemanticProvenance,
         SemanticRuntime, SemanticStage, T0CompactEvent, ToolMetadataLine,
@@ -18,6 +19,25 @@ use thiserror::Error;
 
 pub const MIND_SCHEMA_VERSION: i64 = 11;
 
+fn ensure_no_secrets_in_text(value: &str, field: &str) -> Result<(), StorageError> {
+    if text_contains_unredacted_secret(value) {
+        return Err(StorageError::SecurityViolation(format!(
+            "{field} contains unredacted secret-bearing content"
+        )));
+    }
+    Ok(())
+}
+
+fn ensure_no_secrets_in_optional_text(
+    value: Option<&str>,
+    field: &str,
+) -> Result<(), StorageError> {
+    if let Some(value) = value {
+        ensure_no_secrets_in_text(value, field)?;
+    }
+    Ok(())
+}
+
 #[derive(Debug, Error)]
 pub enum StorageError {
     #[error("sqlite error: {0}")]
@@ -26,6 +46,8 @@ pub enum StorageError {
     Serialization(String),
     #[error("timestamp parse error: {0}")]
     Timestamp(String),
+    #[error("security violation: {0}")]
+    SecurityViolation(String),
     #[error("unsupported schema version {found}, max supported {supported}")]
     UnsupportedSchemaVersion { found: i64, supported: i64 },
 }
@@ -391,6 +413,12 @@ impl MindStore {
     }
 
     pub fn insert_raw_event(&self, event: &RawEvent) -> Result<bool, StorageError> {
+        if raw_event_contains_unredacted_secret(event) {
+            return Err(StorageError::SecurityViolation(
+                "raw event contains unredacted secret-bearing content".to_string(),
+            ));
+        }
+
         let payload_json = serde_json::to_string(&event.body)
             .map_err(|err| StorageError::Serialization(err.to_string()))?;
         let attrs_json = serde_json::to_string(&event.attrs)
@@ -601,6 +629,9 @@ impl MindStore {
     }
 
     pub fn upsert_t0_compact_event(&self, event: &T0CompactEvent) -> Result<(), StorageError> {
+        ensure_no_secrets_in_optional_text(event.text.as_deref(), "compact_events_t0.text")?;
+        ensure_no_secrets_in_optional_text(event.snippet.as_deref(), "compact_events_t0.snippet")?;
+
         let source_event_ids_json = serde_json::to_string(&event.source_event_ids)
             .map_err(|err| StorageError::Serialization(err.to_string()))?;
         let tool_meta_json = event
@@ -1243,6 +1274,7 @@ impl MindStore {
         text: &str,
         trace_ids: &[String],
     ) -> Result<(), StorageError> {
+        ensure_no_secrets_in_text(text, "observations_t1.text")?;
         let trace_ids_json = serde_json::to_string(trace_ids)
             .map_err(|err| StorageError::Serialization(err.to_string()))?;
         self.conn.execute(
@@ -1336,6 +1368,7 @@ impl MindStore {
         text: &str,
         trace_ids: &[String],
     ) -> Result<(), StorageError> {
+        ensure_no_secrets_in_text(text, "reflections_t2.text")?;
         let trace_ids_json = serde_json::to_string(trace_ids)
             .map_err(|err| StorageError::Serialization(err.to_string()))?;
         self.conn.execute(
@@ -2230,6 +2263,9 @@ impl MindStore {
         evidence_refs: &[String],
         created_at: DateTime<Utc>,
     ) -> Result<CanonEntryRevision, StorageError> {
+        ensure_no_secrets_in_optional_text(topic, "project_canon_revisions.topic")?;
+        ensure_no_secrets_in_text(summary, "project_canon_revisions.summary")?;
+
         let mut evidence_refs = evidence_refs.to_vec();
         evidence_refs.sort();
         evidence_refs.dedup();
@@ -2446,6 +2482,8 @@ impl MindStore {
         token_estimate: u32,
         created_at: DateTime<Utc>,
     ) -> Result<(String, bool), StorageError> {
+        ensure_no_secrets_in_text(payload_text, "handshake_snapshots.payload_text")?;
+
         let snapshot_id = format!(
             "hs:{}",
             &canonical_payload_hash(&(scope, scope_key, payload_hash))
@@ -3671,9 +3709,7 @@ fn canon_revision_state_as_str(state: CanonRevisionState) -> &'static str {
     }
 }
 
-fn parse_detached_insight_job_row(
-    row: &rusqlite::Row<'_>,
-) -> rusqlite::Result<InsightDetachedJob> {
+fn parse_detached_insight_job_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<InsightDetachedJob> {
     let mode_raw: String = row.get(2)?;
     let mode = parse_detached_mode(&mode_raw).ok_or_else(|| {
         rusqlite::Error::FromSqlConversionFailure(
@@ -3702,7 +3738,11 @@ fn parse_detached_insight_job_row(
         .map(|json| serde_json::from_str::<Vec<InsightDispatchStepResult>>(json))
         .transpose()
         .map_err(|err| {
-            rusqlite::Error::FromSqlConversionFailure(17, rusqlite::types::Type::Text, Box::new(err))
+            rusqlite::Error::FromSqlConversionFailure(
+                17,
+                rusqlite::types::Type::Text,
+                Box::new(err),
+            )
         })?
         .unwrap_or_default();
     Ok(InsightDetachedJob {
@@ -4338,6 +4378,129 @@ mod tests {
 
         let err = db.insert_raw_event(&event).expect_err("insert must fail");
         assert!(matches!(err, StorageError::Serialization(_)));
+    }
+
+    #[test]
+    fn raw_event_insert_rejects_unredacted_secrets() {
+        let db = MindStore::open_in_memory().expect("open db");
+        let event = RawEvent {
+            event_id: "evt-secret".to_string(),
+            conversation_id: "conv-1".to_string(),
+            agent_id: "agent-1".to_string(),
+            ts: ts(),
+            body: RawEventBody::Message(MessageEvent {
+                role: ConversationRole::User,
+                text: "Authorization: Bearer sk-or-v1-abcdefghijklmnop".to_string(),
+            }),
+            attrs: std::collections::BTreeMap::new(),
+        };
+
+        let err = db
+            .insert_raw_event(&event)
+            .expect_err("secret insert must fail");
+        assert!(matches!(err, StorageError::SecurityViolation(_)));
+    }
+
+    #[test]
+    fn derived_text_surfaces_reject_unredacted_secrets() {
+        let db = MindStore::open_in_memory().expect("open db");
+        let now = ts();
+
+        let obs_err = db
+            .insert_observation(
+                "obs:secret",
+                "conv-1",
+                now,
+                "Authorization: Bearer sk-or-v1-abcdefghijklmnop",
+                &[],
+            )
+            .expect_err("observation insert must fail");
+        assert!(matches!(obs_err, StorageError::SecurityViolation(_)));
+
+        let ref_err = db
+            .insert_reflection(
+                "ref:secret",
+                "conv-1",
+                now,
+                "ANTHROPIC_API_KEY=super-secret-value",
+                &[],
+            )
+            .expect_err("reflection insert must fail");
+        assert!(matches!(ref_err, StorageError::SecurityViolation(_)));
+
+        let hs_err = db
+            .upsert_handshake_snapshot(
+                "project",
+                "project:/repo",
+                "cookie=session-token-123456789012",
+                "hash:bad",
+                10,
+                now,
+            )
+            .expect_err("handshake insert must fail");
+        assert!(matches!(hs_err, StorageError::SecurityViolation(_)));
+
+        let canon_err = db
+            .upsert_canon_entry_revision(
+                "canon:secret",
+                Some("mind"),
+                "Authorization: Bearer sk-or-v1-abcdefghijklmnop",
+                9000,
+                8000,
+                None,
+                &[],
+                now,
+            )
+            .expect_err("canon insert must fail");
+        assert!(matches!(canon_err, StorageError::SecurityViolation(_)));
+    }
+
+    #[test]
+    fn durable_tables_remain_clear_of_known_secret_markers() {
+        let db = MindStore::open_in_memory().expect("open db");
+        let raw = aoc_core::mind_contracts::sanitize_raw_event_for_storage(&sample_tool_event(
+            "evt-safe",
+            "conv-safe",
+        ));
+        assert!(db.insert_raw_event(&raw).expect("insert raw"));
+
+        let compact = compact_raw_event_to_t0(&raw, &T0CompactionPolicy::default())
+            .expect("compact")
+            .expect("kept");
+        db.upsert_t0_compact_event(&compact).expect("insert t0");
+        db.insert_observation("obs:safe", "conv-safe", ts(), "observer summary", &[])
+            .expect("insert t1");
+        db.insert_reflection("ref:safe", "conv-safe", ts(), "reflection summary", &[])
+            .expect("insert t2");
+        db.upsert_handshake_snapshot(
+            "project",
+            "project:/repo",
+            "# Mind Handshake Baseline\n\nSafe guidance",
+            "hash:safe",
+            12,
+            ts(),
+        )
+        .expect("insert handshake");
+
+        for (table, column) in [
+            ("raw_events", "payload_json"),
+            (
+                "compact_events_t0",
+                "COALESCE(text, '') || ' ' || COALESCE(snippet, '')",
+            ),
+            ("observations_t1", "text"),
+            ("reflections_t2", "text"),
+            ("handshake_snapshots", "payload_text"),
+        ] {
+            let query = format!(
+                "SELECT COUNT(*) FROM {table} WHERE {column} LIKE '%sk-or-v1-%' OR {column} LIKE '%ANTHROPIC_API_KEY=%' OR {column} LIKE '%Authorization: Bearer %'"
+            );
+            let count: i64 = db
+                .conn
+                .query_row(&query, [], |row| row.get(0))
+                .expect("scan query");
+            assert_eq!(count, 0, "secret marker found in {table}");
+        }
     }
 
     #[test]

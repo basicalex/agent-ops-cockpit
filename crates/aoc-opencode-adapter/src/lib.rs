@@ -1,7 +1,8 @@
 use aoc_core::mind_contracts::{
-    canonical_json, canonical_lineage_attrs, compact_raw_event_to_t0, ConversationLineageMetadata,
-    ConversationRole, MessageEvent, RawEvent, RawEventBody, T0CompactionPolicy, TaskSignalEvent,
-    ToolExecutionStatus, ToolResultEvent, LINEAGE_ATTRS_KEY, LINEAGE_PARENT_CONVERSATION_ID_KEY,
+    canonical_json, canonical_lineage_attrs, compact_raw_event_to_t0,
+    sanitize_raw_event_for_storage, ConversationLineageMetadata, ConversationRole, MessageEvent,
+    RawEvent, RawEventBody, T0CompactionPolicy, TaskSignalEvent, ToolExecutionStatus,
+    ToolResultEvent, LINEAGE_ATTRS_KEY, LINEAGE_PARENT_CONVERSATION_ID_KEY,
     LINEAGE_ROOT_CONVERSATION_ID_KEY, LINEAGE_SESSION_ID_KEY,
 };
 use aoc_storage::{ConversationContextState, IngestionCheckpoint, MindStore, StorageError};
@@ -189,6 +190,7 @@ impl OpenCodeIngestor {
 
             let event = normalize_raw_event(parsed, conversation_id, agent_id, line_offset)
                 .map_err(|err| AdapterError::Serialization(err.to_string()))?;
+            let event = sanitize_raw_event_for_storage(&event);
 
             if store.insert_raw_event(&event)? {
                 report.processed_raw_events += 1;
@@ -896,6 +898,35 @@ mod tests {
             .expect("ingest third");
         assert_eq!(third.processed_raw_events, 0);
         assert_eq!(third.produced_t0_events, 0);
+    }
+
+    #[test]
+    fn ingestion_drops_tool_output_before_persistence() {
+        let db_file = NamedTempFile::new().expect("temp db");
+        let store = MindStore::open(db_file.path()).expect("open store");
+
+        let mut log = NamedTempFile::new().expect("temp log");
+        writeln!(
+            log,
+            "{{\"event_id\":\"t-secret\",\"timestamp\":\"2026-02-23T12:00:00Z\",\"tool_name\":\"bash\",\"success\":true,\"output\":\"ANTHROPIC_API_KEY=secret-value\"}}"
+        )
+        .expect("write");
+        log.flush().expect("flush");
+
+        let ingestor = OpenCodeIngestor::new(IngestionOptions::default());
+        ingestor
+            .ingest_conversation_file(&store, "conv-secret", "agent-1", log.path())
+            .expect("ingest");
+
+        let raw = store
+            .raw_event_by_id("t-secret")
+            .expect("query")
+            .expect("event exists");
+        let RawEventBody::ToolResult(tool) = raw.body else {
+            panic!("expected tool result");
+        };
+        assert_eq!(tool.output, None);
+        assert!(tool.redacted);
     }
 
     #[test]

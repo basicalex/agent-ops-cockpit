@@ -336,6 +336,16 @@ fn load_latest_compaction_checkpoint(session_id: &str) -> Option<CompactionCheck
         .flatten()
 }
 
+fn resolve_aoc_state_home() -> PathBuf {
+    if let Ok(value) = env::var("XDG_STATE_HOME") {
+        let trimmed = value.trim();
+        if !trimmed.is_empty() {
+            return PathBuf::from(trimmed);
+        }
+    }
+    PathBuf::from(env::var("HOME").unwrap_or_else(|_| ".".to_string())).join(".local/state")
+}
+
 fn mind_store_path() -> Option<PathBuf> {
     env::var("AOC_MIND_STORE_PATH")
         .ok()
@@ -344,7 +354,17 @@ fn mind_store_path() -> Option<PathBuf> {
         .map(PathBuf::from)
         .or_else(|| {
             let root = project_root()?;
-            Some(root.join(".aoc").join("mind").join("project.sqlite"))
+            Some(
+                resolve_aoc_state_home()
+                    .join("aoc")
+                    .join("mind")
+                    .join("projects")
+                    .join(root.to_string_lossy().replace(
+                        |ch: char| !(ch.is_ascii_alphanumeric() || ch == '-' || ch == '_'),
+                        "_",
+                    ))
+                    .join("project.sqlite"),
+            )
         })
 }
 
