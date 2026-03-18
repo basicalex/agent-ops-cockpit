@@ -320,9 +320,19 @@ fi
 
 realign_current_pane "$current_root"
 
+pulse_cmd="${AOC_PULSE_CMD:-}"
+if [[ -z "$pulse_cmd" ]]; then
+  if [[ "$layout_choice" == "mission-control" ]]; then
+    pulse_cmd="aoc-mission-control"
+  else
+    pulse_cmd="aoc-pulse-pane"
+  fi
+fi
+
 AOC_PROJECT_ROOT="$project_root" \
   AOC_SESSION_ID="$session_id" \
   AOC_HUB_ADDR="$hub_addr" \
   AOC_HUB_URL="$hub_url" \
+  AOC_PULSE_CMD="$pulse_cmd" \
   ZELLIJ_PROJECT_ROOT="$project_root" \
   zellij action new-tab --layout "$layout_arg" "${args[@]}"

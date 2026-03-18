@@ -253,12 +253,22 @@ fi
 # Project identification exported for layout template substitution
 export AOC_ROOT_TAG="$agent_id"
 
+pulse_cmd="${AOC_PULSE_CMD:-}"
+if [[ -z "$pulse_cmd" ]]; then
+  if [[ "$layout" == "mission-control" ]]; then
+    pulse_cmd="aoc-mission-control"
+  else
+    pulse_cmd="aoc-pulse-pane"
+  fi
+fi
+
 # If running inside Zellij, launch a new tab in the current session
 if [[ -n "${ZELLIJ:-}" ]]; then
   AOC_SESSION_ID="$session_id" \
     AOC_HUB_ADDR="$hub_addr" \
     AOC_HUB_URL="$hub_url" \
     AOC_PROJECT_ROOT="$project_root" \
+    AOC_PULSE_CMD="$pulse_cmd" \
     zellij action new-tab --layout "$layout_arg"
   exit 0
 fi
@@ -271,4 +281,5 @@ ZELLIJ_PROJECT_ROOT="$project_root" \
   AOC_HUB_ADDR="$hub_addr" \
   AOC_HUB_URL="$hub_url" \
   AOC_ROOT_TAG="$agent_id" \
+  AOC_PULSE_CMD="$pulse_cmd" \
   zellij "${config_arg[@]}" "${session_arg[@]}" --new-session-with-layout "$layout_arg"
