@@ -18,6 +18,7 @@ use ratatui::{
     Terminal,
 };
 use serde::{Deserialize, Serialize};
+use serde_json::{Map as JsonMap, Value as JsonValue};
 use std::{
     env, fs,
     io::{self, Read, Seek, SeekFrom, Write},
@@ -30,6 +31,7 @@ use std::{
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
 struct AocConfig {
     projects_base: Option<String>,
+    pi_compaction_context_window: Option<u64>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -58,6 +60,7 @@ enum SettingsSection {
     ThemeManager,
     Layout,
     Tools,
+    ToolsPiCompaction,
     ToolsAgentBrowser,
     ToolsVercel,
     ToolsMoremotion,
@@ -75,6 +78,7 @@ enum Mode {
     NewTheme,
     RtkActions,
     AgentInstallActions,
+    PiCompactionActions,
     ConfirmMoremotionSourceClone,
     Help,
 }
@@ -180,6 +184,34 @@ struct AgentInstallEntry {
     installed: bool,
 }
 
+#[derive(Clone, Debug)]
+struct PiCompactionStatus {
+    enabled: bool,
+    reserve_tokens: u64,
+    keep_recent_tokens: u64,
+    project_override: bool,
+}
+
+impl Default for PiCompactionStatus {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            reserve_tokens: 16_384,
+            keep_recent_tokens: 20_000,
+            project_override: false,
+        }
+    }
+}
+
+#[derive(Clone, Debug)]
+struct PiCompactionPreset {
+    label: String,
+    enabled: bool,
+    reserve_tokens: u64,
+    keep_recent_tokens: u64,
+    description: String,
+}
+
 impl Default for RtkStatus {
     fn default() -> Self {
         Self {
@@ -191,6 +223,43 @@ impl Default for RtkStatus {
             allow_count: 0,
         }
     }
+}
+
+#[allow(dead_code)]
+#[derive(Clone, Debug)]
+struct SearchStatusSummary {
+    configured: bool,
+    enabled: bool,
+    managed: bool,
+    runtime_status: String,
+    healthy: bool,
+    message: String,
+}
+
+impl Default for SearchStatusSummary {
+    fn default() -> Self {
+        Self {
+            configured: false,
+            enabled: true,
+            managed: false,
+            runtime_status: "unconfigured".to_string(),
+            healthy: false,
+            message: "Search is not configured".to_string(),
+        }
+    }
+}
+
+#[allow(dead_code)]
+#[derive(Clone, Debug)]
+struct SearchConfig {
+    enabled: bool,
+    provider: String,
+    managed: bool,
+    auto_start: bool,
+    base_url: String,
+    healthcheck_url: String,
+    compose_file: String,
+    service_name: String,
 }
 
 #[derive(Debug)]
@@ -206,6 +275,7 @@ struct App {
     settings_theme_state: ListState,
     settings_layout_state: ListState,
     settings_tools_state: ListState,
+    settings_tools_pi_compaction_state: ListState,
     settings_tools_agent_browser_state: ListState,
     settings_tools_vercel_state: ListState,
     settings_tools_moremotion_state: ListState,
@@ -217,6 +287,7 @@ struct App {
     theme_manager_state: ListState,
     rtk_actions_state: ListState,
     agent_install_actions_state: ListState,
+    pi_compaction_actions_state: ListState,
     default_layout: String,
     default_agent: String,
     active_theme_name: String,
@@ -224,6 +295,8 @@ struct App {
     background_profile: String,
     rtk_status: RtkStatus,
     agent_install_entries: Vec<AgentInstallEntry>,
+    pi_compaction_status: PiCompactionStatus,
+    pi_compaction_context_window: u64,
     config: AocConfig,
     config_path: PathBuf,
     projects_base: PathBuf,
@@ -251,6 +324,8 @@ struct App {
     agent_browser_runtime_ready: bool,
     agent_browser_log_tail: Vec<String>,
     agent_browser_log_scroll: usize,
+    search_status_checked: bool,
+    search_status: SearchStatusSummary,
     pending_moremotion_clone_source: Option<PathBuf>,
     pending_moremotion_clone_url: Option<String>,
     in_zellij: bool,
@@ -283,6 +358,7 @@ impl App {
             settings_theme_state: ListState::default(),
             settings_layout_state: ListState::default(),
             settings_tools_state: ListState::default(),
+            settings_tools_pi_compaction_state: ListState::default(),
             settings_tools_agent_browser_state: ListState::default(),
             settings_tools_vercel_state: ListState::default(),
             settings_tools_moremotion_state: ListState::default(),
@@ -294,6 +370,7 @@ impl App {
             theme_manager_state: ListState::default(),
             rtk_actions_state: ListState::default(),
             agent_install_actions_state: ListState::default(),
+            pi_compaction_actions_state: ListState::default(),
             default_layout: read_default(&layout_default_path())
                 .unwrap_or_else(|| "aoc".to_string()),
             default_agent,
@@ -310,6 +387,8 @@ impl App {
                 .unwrap_or_else(|_| "follow-theme".to_string()),
             rtk_status: RtkStatus::default(),
             agent_install_entries: Vec::new(),
+            pi_compaction_status: PiCompactionStatus::default(),
+            pi_compaction_context_window: resolve_pi_compaction_context_window(&config),
             config,
             config_path,
             projects_base,
@@ -337,6 +416,8 @@ impl App {
             agent_browser_runtime_ready: false,
             agent_browser_log_tail: Vec::new(),
             agent_browser_log_scroll: 0,
+            search_status_checked: false,
+            search_status: SearchStatusSummary::default(),
             pending_moremotion_clone_source: None,
             pending_moremotion_clone_url: None,
             in_zellij: in_zellij(),
@@ -347,6 +428,7 @@ impl App {
         app.apply_project_filter();
         app.refresh_rtk_status_quiet();
         app.refresh_agent_install_statuses_quiet();
+        app.refresh_pi_compaction_status_quiet();
         app.refresh_theme_identity_quiet();
         app.ensure_selections();
         Ok(app)
@@ -365,6 +447,10 @@ impl App {
         ensure_selection(
             &mut self.settings_tools_state,
             settings_tools_options().len(),
+        );
+        ensure_selection(
+            &mut self.settings_tools_pi_compaction_state,
+            settings_tools_pi_compaction_options().len(),
         );
         ensure_selection(
             &mut self.settings_tools_agent_browser_state,
@@ -391,6 +477,10 @@ impl App {
         ensure_selection(
             &mut self.agent_install_actions_state,
             self.agent_install_entries.len(),
+        );
+        ensure_selection(
+            &mut self.pi_compaction_actions_state,
+            pi_compaction_presets(self.pi_compaction_context_window).len(),
         );
     }
 
@@ -425,8 +515,12 @@ impl App {
 
     fn set_settings_section(&mut self, section: SettingsSection) {
         self.settings_section = section;
+        if self.settings_section == SettingsSection::ToolsPiCompaction {
+            self.refresh_pi_compaction_status_quiet();
+        }
         if self.settings_section == SettingsSection::ToolsAgentBrowser {
             self.refresh_agent_browser_runtime_quiet();
+            self.refresh_search_status_quiet();
         }
         match self.settings_section {
             SettingsSection::Root => {
@@ -446,6 +540,10 @@ impl App {
             SettingsSection::Tools => ensure_selection(
                 &mut self.settings_tools_state,
                 settings_tools_options().len(),
+            ),
+            SettingsSection::ToolsPiCompaction => ensure_selection(
+                &mut self.settings_tools_pi_compaction_state,
+                settings_tools_pi_compaction_options().len(),
             ),
             SettingsSection::ToolsAgentBrowser => ensure_selection(
                 &mut self.settings_tools_agent_browser_state,
@@ -474,7 +572,8 @@ impl App {
                 SettingsSection::Root
             }
             SettingsSection::ThemeManager => SettingsSection::Theme,
-            SettingsSection::ToolsAgentBrowser
+            SettingsSection::ToolsPiCompaction
+            | SettingsSection::ToolsAgentBrowser
             | SettingsSection::ToolsVercel
             | SettingsSection::ToolsMoremotion => SettingsSection::Tools,
         };
@@ -488,6 +587,10 @@ impl App {
             SettingsSection::ThemeManager => self.theme_manager_state.selected().unwrap_or(0),
             SettingsSection::Layout => self.settings_layout_state.selected().unwrap_or(0),
             SettingsSection::Tools => self.settings_tools_state.selected().unwrap_or(0),
+            SettingsSection::ToolsPiCompaction => self
+                .settings_tools_pi_compaction_state
+                .selected()
+                .unwrap_or(0),
             SettingsSection::ToolsAgentBrowser => self
                 .settings_tools_agent_browser_state
                 .selected()
@@ -999,9 +1102,114 @@ impl App {
         ));
     }
 
+    fn refresh_pi_compaction_status_quiet(&mut self) {
+        if let Ok(status) = load_pi_compaction_status() {
+            self.pi_compaction_status = status;
+        }
+    }
+
+    fn refresh_pi_compaction_status(&mut self) {
+        match load_pi_compaction_status() {
+            Ok(status) => {
+                self.pi_compaction_status = status;
+                self.set_status(format!(
+                    "PI compaction: {}",
+                    pi_compaction_summary(&self.pi_compaction_status)
+                ));
+            }
+            Err(err) => self.set_status(format!("PI compaction status failed: {err}")),
+        }
+    }
+
+    fn open_pi_compaction_actions(&mut self) {
+        self.refresh_pi_compaction_status_quiet();
+        ensure_selection(
+            &mut self.pi_compaction_actions_state,
+            pi_compaction_presets(self.pi_compaction_context_window).len(),
+        );
+        self.mode = Mode::PiCompactionActions;
+    }
+
+    fn apply_selected_pi_compaction_preset(&mut self) {
+        let index = self.pi_compaction_actions_state.selected().unwrap_or(0);
+        let presets = pi_compaction_presets(self.pi_compaction_context_window);
+        let Some(preset) = presets.get(index) else {
+            return;
+        };
+
+        match save_pi_compaction_status(&PiCompactionStatus {
+            enabled: preset.enabled,
+            reserve_tokens: preset.reserve_tokens,
+            keep_recent_tokens: preset.keep_recent_tokens,
+            project_override: self.pi_compaction_status.project_override,
+        }) {
+            Ok(()) => {
+                self.refresh_pi_compaction_status_quiet();
+                self.set_status(format!("PI compaction preset applied: {}", preset.label));
+            }
+            Err(err) => self.set_status(format!("PI compaction preset failed: {err}")),
+        }
+    }
+
+    fn shift_pi_compaction_context_window(&mut self, delta: isize) {
+        let options = pi_compaction_context_window_options();
+        let current = self.pi_compaction_context_window;
+        let index = options
+            .iter()
+            .position(|value| *value == current)
+            .unwrap_or(0) as isize;
+        let next_index =
+            (index + delta).clamp(0, options.len().saturating_sub(1) as isize) as usize;
+        let next = options[next_index];
+        if next == current {
+            return;
+        }
+        self.pi_compaction_context_window = next;
+        self.config.pi_compaction_context_window = Some(next);
+        match save_config(&self.config_path, &self.config) {
+            Ok(()) => self.set_status(format!(
+                "PI compaction context window set to {}",
+                format_token_count(next)
+            )),
+            Err(err) => self.set_status(format!("PI compaction context window save failed: {err}")),
+        }
+        ensure_selection(
+            &mut self.pi_compaction_actions_state,
+            pi_compaction_presets(self.pi_compaction_context_window).len(),
+        );
+    }
+
     fn refresh_agent_browser_runtime_quiet(&mut self) {
         self.agent_browser_runtime_ready = probe_agent_browser_runtime_ready();
         self.agent_browser_runtime_checked = true;
+    }
+
+    fn refresh_search_status_quiet(&mut self) {
+        self.search_status = load_search_status_via_cli().unwrap_or_else(|_| load_search_status());
+        self.search_status_checked = true;
+    }
+
+    fn run_search_enable_action(&mut self) {
+        match enable_managed_search() {
+            Ok(message) => {
+                self.refresh_search_status_quiet();
+                self.set_status(message);
+            }
+            Err(err) => self.set_status(format!("Managed search enable failed: {err}")),
+        }
+    }
+
+    fn run_search_start_or_verify_action(&mut self) {
+        match start_or_verify_managed_search_via_cli() {
+            Ok(message) => {
+                self.refresh_search_status_quiet();
+                self.set_status(message);
+            }
+            Err(err) => {
+                self.refresh_search_status_quiet();
+                self.set_status(format!("Managed search start/verify failed: {err}"));
+            }
+        }
     }
 
     fn open_agent_install_actions(&mut self) {
@@ -1055,6 +1263,13 @@ impl App {
         match install_agent_browser_skill() {
             Ok(message) => self.set_status(message),
             Err(err) => self.set_status(format!("Agent Browser skill sync failed: {err}")),
+        }
+    }
+
+    fn run_web_research_skill_action(&mut self) {
+        match install_web_research_skill() {
+            Ok(message) => self.set_status(message),
+            Err(err) => self.set_status(format!("Web research skill sync failed: {err}")),
         }
     }
 
@@ -1371,6 +1586,7 @@ fn handle_key(app: &mut App, key: KeyEvent) {
         Mode::NewTheme => handle_key_input(app, key, InputMode::NewTheme),
         Mode::RtkActions => handle_key_rtk_actions(app, key),
         Mode::AgentInstallActions => handle_key_agent_install_actions(app, key),
+        Mode::PiCompactionActions => handle_key_pi_compaction_actions(app, key),
         Mode::ConfirmMoremotionSourceClone => handle_key_moremotion_clone_confirm(app, key),
         Mode::Help => handle_key_help(app, key),
     }
@@ -1439,6 +1655,22 @@ fn handle_key_normal(app: &mut App, key: KeyEvent) {
         }
         KeyCode::Tab => cycle_tab(app, true),
         KeyCode::BackTab => cycle_tab(app, false),
+        KeyCode::Char('h') | KeyCode::Left
+            if app.active_tab == Tab::Defaults
+                && app.focus == Focus::Detail
+                && app.settings_section == SettingsSection::ToolsPiCompaction
+                && app.selected_settings_index() == 0 =>
+        {
+            app.shift_pi_compaction_context_window(-1);
+        }
+        KeyCode::Char('l') | KeyCode::Right
+            if app.active_tab == Tab::Defaults
+                && app.focus == Focus::Detail
+                && app.settings_section == SettingsSection::ToolsPiCompaction
+                && app.selected_settings_index() == 0 =>
+        {
+            app.shift_pi_compaction_context_window(1);
+        }
         KeyCode::Char('h') | KeyCode::Left => {
             if app.focus == Focus::Detail {
                 app.focus = Focus::Nav;
@@ -1709,6 +1941,23 @@ fn handle_key_agent_install_actions(app: &mut App, key: KeyEvent) {
     }
 }
 
+fn handle_key_pi_compaction_actions(app: &mut App, key: KeyEvent) {
+    match key.code {
+        KeyCode::Esc => app.mode = Mode::Normal,
+        KeyCode::Char('j') | KeyCode::Down => list_next_state(
+            &mut app.pi_compaction_actions_state,
+            pi_compaction_presets(app.pi_compaction_context_window).len(),
+        ),
+        KeyCode::Char('k') | KeyCode::Up => list_prev_state(
+            &mut app.pi_compaction_actions_state,
+            pi_compaction_presets(app.pi_compaction_context_window).len(),
+        ),
+        KeyCode::Char('r') => app.refresh_pi_compaction_status(),
+        KeyCode::Enter => app.apply_selected_pi_compaction_preset(),
+        _ => {}
+    }
+}
+
 fn handle_key_moremotion_clone_confirm(app: &mut App, key: KeyEvent) {
     match key.code {
         KeyCode::Enter | KeyCode::Char('y') => app.confirm_moremotion_source_clone(),
@@ -1768,6 +2017,10 @@ fn list_next(app: &mut App) {
                 &mut app.settings_tools_state,
                 settings_tools_options().len(),
             ),
+            SettingsSection::ToolsPiCompaction => list_next_state(
+                &mut app.settings_tools_pi_compaction_state,
+                settings_tools_pi_compaction_options().len(),
+            ),
             SettingsSection::ToolsAgentBrowser => list_next_state(
                 &mut app.settings_tools_agent_browser_state,
                 settings_tools_agent_browser_options().len(),
@@ -1807,6 +2060,10 @@ fn list_prev(app: &mut App) {
             SettingsSection::Tools => list_prev_state(
                 &mut app.settings_tools_state,
                 settings_tools_options().len(),
+            ),
+            SettingsSection::ToolsPiCompaction => list_prev_state(
+                &mut app.settings_tools_pi_compaction_state,
+                settings_tools_pi_compaction_options().len(),
             ),
             SettingsSection::ToolsAgentBrowser => list_prev_state(
                 &mut app.settings_tools_agent_browser_state,
@@ -1854,12 +2111,26 @@ fn activate_selection(app: &mut App) {
             SettingsSection::Tools => match app.settings_tools_state.selected().unwrap_or(0) {
                 0 => app.open_rtk_actions(),
                 1 => app.open_agent_install_actions(),
-                2 => app.set_settings_section(SettingsSection::ToolsAgentBrowser),
-                3 => app.set_settings_section(SettingsSection::ToolsVercel),
-                4 => app.set_settings_section(SettingsSection::ToolsMoremotion),
-                5 => app.set_settings_section(SettingsSection::Root),
+                2 => app.set_settings_section(SettingsSection::ToolsPiCompaction),
+                3 => app.set_settings_section(SettingsSection::ToolsAgentBrowser),
+                4 => app.set_settings_section(SettingsSection::ToolsVercel),
+                5 => app.set_settings_section(SettingsSection::ToolsMoremotion),
+                6 => app.set_settings_section(SettingsSection::Root),
                 _ => {}
             },
+            SettingsSection::ToolsPiCompaction => {
+                match app
+                    .settings_tools_pi_compaction_state
+                    .selected()
+                    .unwrap_or(0)
+                {
+                    0 => {}
+                    1 => app.open_pi_compaction_actions(),
+                    2 => app.refresh_pi_compaction_status(),
+                    3 => app.set_settings_section(SettingsSection::Tools),
+                    _ => {}
+                }
+            }
             SettingsSection::ToolsAgentBrowser => {
                 match app
                     .settings_tools_agent_browser_state
@@ -1868,7 +2139,10 @@ fn activate_selection(app: &mut App) {
                 {
                     0 => app.run_agent_browser_tool_action(),
                     1 => app.run_agent_browser_skill_action(),
-                    2 => app.set_settings_section(SettingsSection::Tools),
+                    2 => app.run_web_research_skill_action(),
+                    3 => app.run_search_enable_action(),
+                    4 => app.run_search_start_or_verify_action(),
+                    5 => app.set_settings_section(SettingsSection::Tools),
                     _ => {}
                 }
             }
@@ -2048,10 +2322,15 @@ fn draw_defaults(frame: &mut ratatui::Frame, area: Rect, app: &mut App, focused:
                     agent_install_summary(&app.agent_install_entries)
                 )),
                 ListItem::new(format!(
-                    "Agent Browser tool/skill · {}",
-                    agent_browser_summary_with_runtime(
+                    "PI compaction · {}",
+                    pi_compaction_summary(&app.pi_compaction_status)
+                )),
+                ListItem::new(format!(
+                    "Agent Browser + Search · {}",
+                    agent_browser_search_summary(
                         app.agent_browser_runtime_checked,
-                        app.agent_browser_runtime_ready
+                        app.agent_browser_runtime_ready,
+                        &app.search_status,
                     )
                 )),
                 ListItem::new(format!("Vercel CLI + PI skill · {}", vercel_summary())),
@@ -2059,6 +2338,21 @@ fn draw_defaults(frame: &mut ratatui::Frame, area: Rect, app: &mut App, focused:
                 ListItem::new("Back"),
             ];
             ("Settings · Tools", items)
+        }
+        SettingsSection::ToolsPiCompaction => {
+            let items = vec![
+                ListItem::new(format!(
+                    "Context window · {}",
+                    format_token_count(app.pi_compaction_context_window)
+                )),
+                ListItem::new(format!(
+                    "Apply preset · {}",
+                    pi_compaction_summary(&app.pi_compaction_status)
+                )),
+                ListItem::new("Refresh status"),
+                ListItem::new("Back"),
+            ];
+            ("Settings · Tools · PI Compaction", items)
         }
         SettingsSection::ToolsAgentBrowser => {
             let action = if agent_browser_installed() {
@@ -2080,9 +2374,25 @@ fn draw_defaults(frame: &mut ratatui::Frame, area: Rect, app: &mut App, focused:
                     )
                 )),
                 ListItem::new("Install/update PI skill"),
+                ListItem::new(format!(
+                    "Install/update PI web research skill · {}",
+                    if web_research_skill_installed() {
+                        "skill present"
+                    } else {
+                        "skill missing"
+                    }
+                )),
+                ListItem::new(format!(
+                    "Enable managed local search (SearXNG) · {}",
+                    search_summary(&app.search_status)
+                )),
+                ListItem::new(format!(
+                    "Start/verify local search · {}",
+                    search_summary(&app.search_status)
+                )),
                 ListItem::new("Back"),
             ];
-            ("Settings · Tools · Agent Browser", items)
+            ("Settings · Tools · Agent Browser + Search", items)
         }
         SettingsSection::ToolsVercel => {
             let action = if vercel_installed() {
@@ -2138,6 +2448,11 @@ fn draw_defaults(frame: &mut ratatui::Frame, area: Rect, app: &mut App, focused:
         SettingsSection::Tools => {
             frame.render_stateful_widget(list, columns[0], &mut app.settings_tools_state)
         }
+        SettingsSection::ToolsPiCompaction => frame.render_stateful_widget(
+            list,
+            columns[0],
+            &mut app.settings_tools_pi_compaction_state,
+        ),
         SettingsSection::ToolsAgentBrowser => frame.render_stateful_widget(
             list,
             columns[0],
@@ -2375,6 +2690,24 @@ fn draw_modal(frame: &mut ratatui::Frame, app: &mut App) {
                 .highlight_symbol("> ");
             frame.render_stateful_widget(list, area, &mut app.agent_install_actions_state);
         }
+        Mode::PiCompactionActions => {
+            let items: Vec<ListItem> = pi_compaction_presets(app.pi_compaction_context_window)
+                .into_iter()
+                .map(|preset| ListItem::new(format!("{} · {}", preset.label, preset.description)))
+                .collect();
+            let list = List::new(items)
+                .block(Block::default().borders(Borders::ALL).title(format!(
+                    "PI Compaction Presets ({})",
+                    pi_compaction_summary(&app.pi_compaction_status)
+                )))
+                .highlight_style(
+                    Style::default()
+                        .fg(Color::Cyan)
+                        .add_modifier(Modifier::BOLD),
+                )
+                .highlight_symbol("> ");
+            frame.render_stateful_widget(list, area, &mut app.pi_compaction_actions_state);
+        }
         Mode::ConfirmMoremotionSourceClone => draw_confirm_moremotion_clone_modal(frame, area, app),
         Mode::Help => draw_help_modal(frame, area),
         Mode::Normal => {}
@@ -2437,7 +2770,7 @@ fn draw_help_modal(frame: &mut ratatui::Frame, area: Rect) {
         Line::from("  Enter  open section/action"),
         Line::from("  Esc    back one settings level"),
         Line::from("  t      jump to Theme section"),
-        Line::from("  Tools includes RTK, agent installers, Agent Browser, Vercel CLI, MoreMotion"),
+        Line::from("  Tools includes RTK, agent installers, PI compaction, Agent Browser, Vercel CLI, MoreMotion"),
         Line::from("  Right pane shows details for selected settings item"),
         Line::from("  Agent Browser install: PgUp/PgDn scroll, x cancel, Shift+O open log"),
         Line::from("  Theme manager: j/k preview, Enter activate+persist, n/i/r actions"),
@@ -2543,6 +2876,14 @@ fn footer_lines(app: &App) -> Vec<Line<'_>> {
             keycap("Esc"),
             Span::raw(" close"),
         ],
+        Mode::PiCompactionActions => vec![
+            keycap("Enter"),
+            Span::raw(" apply preset  "),
+            keycap("r"),
+            Span::raw(" refresh  "),
+            keycap("Esc"),
+            Span::raw(" close"),
+        ],
         Mode::ConfirmMoremotionSourceClone => vec![
             keycap("Enter"),
             Span::raw(" clone  "),
@@ -2574,6 +2915,18 @@ fn footer_lines(app: &App) -> Vec<Line<'_>> {
                         Span::raw(" cancel  "),
                         keycap("Shift+O"),
                         Span::raw(" open log"),
+                    ]
+                } else if app.settings_section == SettingsSection::ToolsPiCompaction
+                    && app.selected_settings_index() == 0
+                    && app.focus == Focus::Detail
+                {
+                    vec![
+                        keycap("h/l"),
+                        Span::raw(" change window  "),
+                        keycap("Enter"),
+                        Span::raw(" keep focus  "),
+                        keycap("Esc"),
+                        Span::raw(" back section"),
                     ]
                 } else {
                     vec![
@@ -2731,17 +3084,30 @@ fn settings_tools_options() -> Vec<String> {
     vec![
         "RTK routing".to_string(),
         "PI agent installer".to_string(),
-        "Agent Browser tool/skill".to_string(),
+        "PI compaction".to_string(),
+        "Agent Browser + Search".to_string(),
         "Vercel CLI + PI skill".to_string(),
         "MoreMotion + /momo".to_string(),
         "Back".to_string(),
     ]
 }
 
+fn settings_tools_pi_compaction_options() -> Vec<String> {
+    vec![
+        "Context window".to_string(),
+        "Apply preset".to_string(),
+        "Refresh status".to_string(),
+        "Back".to_string(),
+    ]
+}
+
 fn settings_tools_agent_browser_options() -> Vec<String> {
     vec![
-        "Install/update tool".to_string(),
-        "Install/update PI skill".to_string(),
+        "Install/update Agent Browser tool".to_string(),
+        "Install/update PI browser skill".to_string(),
+        "Install/update PI web research skill".to_string(),
+        "Enable managed local search (SearXNG)".to_string(),
+        "Start/verify local search".to_string(),
         "Back".to_string(),
     ]
 }
@@ -2763,6 +3129,110 @@ fn settings_tools_moremotion_options() -> Vec<String> {
         "Ensure local source repo".to_string(),
         "Back".to_string(),
     ]
+}
+
+fn pi_compaction_context_window_options() -> Vec<u64> {
+    vec![75_000, 125_000, 250_000, 1_000_000]
+}
+
+fn resolve_pi_compaction_context_window(config: &AocConfig) -> u64 {
+    let options = pi_compaction_context_window_options();
+    let configured = config.pi_compaction_context_window.unwrap_or(200_000);
+    options
+        .into_iter()
+        .min_by_key(|value| value.abs_diff(configured))
+        .unwrap_or(250_000)
+}
+
+fn compaction_trigger_percent(context_window: u64, reserve_tokens: u64) -> u64 {
+    if context_window == 0 || reserve_tokens >= context_window {
+        return 0;
+    }
+    (((context_window - reserve_tokens) as f64 / context_window as f64) * 100.0).round() as u64
+}
+
+fn reserve_for_trigger_percent(context_window: u64, trigger_percent: u64) -> u64 {
+    context_window.saturating_sub((context_window * trigger_percent) / 100)
+}
+
+fn pi_compaction_presets(context_window: u64) -> Vec<PiCompactionPreset> {
+    let default_trigger = compaction_trigger_percent(context_window, 16_384);
+    vec![
+        PiCompactionPreset {
+            label: format!("PI default (~{}%)", default_trigger),
+            enabled: true,
+            reserve_tokens: 16_384,
+            keep_recent_tokens: 20_000,
+            description: format!(
+                "Default pi behavior for a {} window; compact late with max raw history.",
+                format_token_count(context_window)
+            ),
+        },
+        PiCompactionPreset {
+            label: "Parallel balanced (~60%)".to_string(),
+            enabled: true,
+            reserve_tokens: reserve_for_trigger_percent(context_window, 60),
+            keep_recent_tokens: 20_000,
+            description: "Earlier compaction for multi-session work without going too aggressive."
+                .to_string(),
+        },
+        PiCompactionPreset {
+            label: "Parallel aggressive (~45%)".to_string(),
+            enabled: true,
+            reserve_tokens: reserve_for_trigger_percent(context_window, 45),
+            keep_recent_tokens: 20_000,
+            description: "Recommended for local CPU pressure and parallel PI sessions.".to_string(),
+        },
+        PiCompactionPreset {
+            label: "Max throughput (~40%)".to_string(),
+            enabled: true,
+            reserve_tokens: reserve_for_trigger_percent(context_window, 40),
+            keep_recent_tokens: 20_000,
+            description:
+                "Compacts very early to keep sessions light at the cost of more summary churn."
+                    .to_string(),
+        },
+        PiCompactionPreset {
+            label: "Disable auto-compaction".to_string(),
+            enabled: false,
+            reserve_tokens: 16_384,
+            keep_recent_tokens: 20_000,
+            description: "Turn off automatic compaction; manual /compact still works.".to_string(),
+        },
+    ]
+}
+
+fn format_token_count(value: u64) -> String {
+    if value >= 1_000 {
+        let scaled = value as f64 / 1_000.0;
+        if (scaled - scaled.floor()).abs() < f64::EPSILON {
+            format!("{scaled:.0}k")
+        } else {
+            format!("{scaled:.1}k")
+        }
+    } else {
+        value.to_string()
+    }
+}
+
+fn pi_compaction_summary(status: &PiCompactionStatus) -> String {
+    if status.enabled {
+        let mut summary = format!(
+            "on · reserve {} · keep {}",
+            format_token_count(status.reserve_tokens),
+            format_token_count(status.keep_recent_tokens)
+        );
+        if status.project_override {
+            summary.push_str(" · project override");
+        }
+        summary
+    } else {
+        let mut summary = "off".to_string();
+        if status.project_override {
+            summary.push_str(" · project override");
+        }
+        summary
+    }
 }
 
 fn settings_detail_lines(app: &App) -> Vec<Line<'static>> {
@@ -2793,7 +3263,7 @@ fn settings_detail_lines(app: &App) -> Vec<Line<'static>> {
                 lines.push(Line::from(""));
                 lines.push(Line::from("Manage optional tooling and installers."));
                 lines.push(Line::from(
-                    "Includes RTK, Agent Browser, Vercel CLI, and MoreMotion setup.",
+                    "Includes RTK, PI compaction, Agent Browser, Vercel CLI, and MoreMotion setup.",
                 ));
                 lines.push(Line::from("Enter to open Tools settings."));
             }
@@ -2880,23 +3350,41 @@ fn settings_detail_lines(app: &App) -> Vec<Line<'static>> {
                 lines.push(Line::from("Enter opens PI install/update actions."));
             }
             2 => {
-                lines.push(Line::from("Agent Browser tool/skill"));
+                lines.push(Line::from("PI compaction"));
                 lines.push(Line::from(""));
                 lines.push(Line::from(format!(
                     "Status: {}",
-                    agent_browser_summary_with_runtime(
+                    pi_compaction_summary(&app.pi_compaction_status)
+                )));
+                lines.push(Line::from(
+                    "Manage global auto-compaction presets written to ~/.pi/agent/settings.json.",
+                ));
+                if app.pi_compaction_status.project_override {
+                    lines.push(Line::from(
+                        "Project override detected in .pi/settings.json for this repo.",
+                    ));
+                }
+                lines.push(Line::from("Enter opens preset + refresh actions."));
+            }
+            3 => {
+                lines.push(Line::from("Agent Browser + Search"));
+                lines.push(Line::from(""));
+                lines.push(Line::from(format!(
+                    "Status: {}",
+                    agent_browser_search_summary(
                         app.agent_browser_runtime_checked,
-                        app.agent_browser_runtime_ready
+                        app.agent_browser_runtime_ready,
+                        &app.search_status,
                     )
                 )));
                 if app.agent_browser_job.is_some() {
                     lines.push(Line::from("Tool install/update currently running."));
                 }
                 lines.push(Line::from(
-                    "Enter opens nested actions (tool + PI skill install/update).",
+                    "Enter opens nested actions for browser install/sync plus managed local search enable/start.",
                 ));
             }
-            3 => {
+            4 => {
                 lines.push(Line::from("Vercel CLI + PI skill"));
                 lines.push(Line::from(""));
                 lines.push(Line::from(format!("Status: {}", vercel_summary())));
@@ -2904,7 +3392,7 @@ fn settings_detail_lines(app: &App) -> Vec<Line<'static>> {
                     "Enter opens nested actions (tool install/update, skill sync, verify).",
                 ));
             }
-            4 => {
+            5 => {
                 lines.push(Line::from("MoreMotion + /momo"));
                 lines.push(Line::from(""));
                 lines.push(Line::from(format!("Status: {}", moremotion_summary())));
@@ -2918,6 +3406,53 @@ fn settings_detail_lines(app: &App) -> Vec<Line<'static>> {
                 lines.push(Line::from("Return to top-level Settings menu."));
             }
         },
+        SettingsSection::ToolsPiCompaction => match selected {
+            0 => {
+                lines.push(Line::from("Context window"));
+                lines.push(Line::from(""));
+                lines.push(Line::from(format!(
+                    "Preset math target: {}",
+                    format_token_count(app.pi_compaction_context_window)
+                )));
+                lines.push(Line::from(
+                    "Use h/l to decrease/increase the model context window used for preset calculations.",
+                ));
+                lines.push(Line::from(
+                    "Options: 75k, 125k, 250k, 1m. This does not change the provider model itself.",
+                ));
+            }
+            1 => {
+                lines.push(Line::from("Apply preset"));
+                lines.push(Line::from(""));
+                lines.push(Line::from(format!(
+                    "Current global policy: {}",
+                    pi_compaction_summary(&app.pi_compaction_status)
+                )));
+                lines.push(Line::from(
+                    "Enter opens preset choices for global ~/.pi/agent/settings.json.",
+                ));
+                lines.push(Line::from(
+                    "Preset labels and reserve-token values are computed from the selected context window.",
+                ));
+            }
+            2 => {
+                lines.push(Line::from("Refresh status"));
+                lines.push(Line::from(""));
+                lines.push(Line::from(
+                    "Reload the current global compaction settings from disk.",
+                ));
+                if app.pi_compaction_status.project_override {
+                    lines.push(Line::from(
+                        "This repo has a .pi/settings.json compaction override.",
+                    ));
+                }
+            }
+            _ => {
+                lines.push(Line::from("Back"));
+                lines.push(Line::from(""));
+                lines.push(Line::from("Return to Tools menu."));
+            }
+        },
         SettingsSection::ToolsAgentBrowser => match selected {
             0 => {
                 let action = if agent_browser_installed() {
@@ -2925,7 +3460,7 @@ fn settings_detail_lines(app: &App) -> Vec<Line<'static>> {
                 } else {
                     "install"
                 };
-                lines.push(Line::from("Install/update tool"));
+                lines.push(Line::from("Install/update Agent Browser tool"));
                 lines.push(Line::from(""));
                 lines.push(Line::from(format!(
                     "Current status: {}",
@@ -2983,7 +3518,7 @@ fn settings_detail_lines(app: &App) -> Vec<Line<'static>> {
                 }
             }
             1 => {
-                lines.push(Line::from("Install/update PI skill"));
+                lines.push(Line::from("Install/update PI browser skill"));
                 lines.push(Line::from(""));
                 lines.push(Line::from(format!(
                     "Skill status: {}",
@@ -2995,6 +3530,60 @@ fn settings_detail_lines(app: &App) -> Vec<Line<'static>> {
                 )));
                 lines.push(Line::from(
                     "Enter syncs .pi/skills/agent-browser/SKILL.md from upstream.",
+                ));
+            }
+            2 => {
+                lines.push(Line::from("Install/update PI web research skill"));
+                lines.push(Line::from(""));
+                lines.push(Line::from(format!(
+                    "Skill status: {}",
+                    if web_research_skill_installed() {
+                        "present"
+                    } else {
+                        "missing"
+                    }
+                )));
+                lines.push(Line::from(
+                    "Enter writes .pi/skills/web-research/SKILL.md into the current repo.",
+                ));
+                lines.push(Line::from(
+                    "Use this alongside managed local search so agents can follow a search-first, browse-second workflow.",
+                ));
+            }
+            3 => {
+                lines.push(Line::from("Enable managed local search (SearXNG)"));
+                lines.push(Line::from(""));
+                lines.push(Line::from(format!(
+                    "Current search status: {}",
+                    search_summary(&app.search_status)
+                )));
+                lines.push(Line::from(format!(
+                    "Current note: {}",
+                    app.search_status.message
+                )));
+                lines.push(Line::from(
+                    "Enter writes .aoc/search.toml and .aoc/services/searxng/* using AOC-managed defaults.",
+                ));
+                lines.push(Line::from(
+                    "Requires Docker Compose to be available. This step configures search but does not require browser changes.",
+                ));
+            }
+            4 => {
+                lines.push(Line::from("Start/verify local search"));
+                lines.push(Line::from(""));
+                lines.push(Line::from(format!(
+                    "Current search status: {}",
+                    search_summary(&app.search_status)
+                )));
+                lines.push(Line::from(format!(
+                    "Current note: {}",
+                    app.search_status.message
+                )));
+                lines.push(Line::from(
+                    "Enter starts managed SearXNG if needed and verifies the configured health endpoint.",
+                ));
+                lines.push(Line::from(
+                    "Use this after enabling search or to re-check a running local instance.",
                 ));
             }
             _ => {
@@ -4081,6 +4670,527 @@ fn agent_browser_summary_with_runtime(runtime_checked: bool, runtime_ready: bool
     format!("{tool}, {runtime}, {skill}")
 }
 
+fn search_config_path() -> Option<PathBuf> {
+    project_root_path().map(|root| root.join(".aoc/search.toml"))
+}
+
+fn managed_search_dir() -> Option<PathBuf> {
+    project_root_path().map(|root| root.join(".aoc/services/searxng"))
+}
+
+fn managed_search_compose_path() -> Option<PathBuf> {
+    managed_search_dir().map(|dir| dir.join("docker-compose.yml"))
+}
+
+fn managed_search_settings_path() -> Option<PathBuf> {
+    managed_search_dir().map(|dir| dir.join("settings.yml"))
+}
+
+fn search_config_exists() -> bool {
+    search_config_path().map(|path| path.exists()).unwrap_or(false)
+}
+
+fn docker_installed() -> bool {
+    binary_in_path("docker")
+}
+
+fn docker_compose_available() -> bool {
+    if !docker_installed() {
+        return false;
+    }
+
+    let docker_compose = Command::new("docker")
+        .args(["compose", "version"])
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status()
+        .map(|status| status.success())
+        .unwrap_or(false);
+    docker_compose || binary_in_path("docker-compose")
+}
+
+fn run_docker_compose(args: &[&str]) -> io::Result<std::process::Output> {
+    if docker_installed() {
+        let output = Command::new("docker").args(["compose"]).args(args).output()?;
+        if output.status.success() {
+            return Ok(output);
+        }
+        if !binary_in_path("docker-compose") {
+            return Err(command_failure(
+                &format!("docker compose {}", args.join(" ")),
+                &output,
+            ));
+        }
+    }
+
+    if binary_in_path("docker-compose") {
+        let output = Command::new("docker-compose").args(args).output()?;
+        if output.status.success() {
+            return Ok(output);
+        }
+        return Err(command_failure(
+            &format!("docker-compose {}", args.join(" ")),
+            &output,
+        ));
+    }
+
+    Err(io::Error::other("Docker Compose not available"))
+}
+
+fn parse_toml_string_literal(value: &str) -> String {
+    let trimmed = value.trim();
+    if trimmed.starts_with('"') && trimmed.ends_with('"') && trimmed.len() >= 2 {
+        trimmed[1..trimmed.len() - 1].to_string()
+    } else {
+        trimmed.to_string()
+    }
+}
+
+fn parse_toml_bool(value: &str) -> bool {
+    matches!(value.trim(), "true" | "1")
+}
+
+fn load_search_config() -> io::Result<SearchConfig> {
+    let path = search_config_path().ok_or_else(|| io::Error::other("unable to resolve project root"))?;
+    let content = fs::read_to_string(&path)?;
+    let mut section = String::new();
+    let mut enabled = None;
+    let mut provider = None;
+    let mut managed = None;
+    let mut auto_start = None;
+    let mut base_url = None;
+    let mut healthcheck_url = None;
+    let mut compose_file = None;
+    let mut service_name = None;
+
+    for raw_line in content.lines() {
+        let line = raw_line.trim();
+        if line.is_empty() || line.starts_with('#') {
+            continue;
+        }
+        if line.starts_with('[') && line.ends_with(']') {
+            section = line.trim_matches(&['[', ']'][..]).to_string();
+            continue;
+        }
+        let Some((key, value)) = line.split_once('=') else {
+            continue;
+        };
+        let key = key.trim();
+        let value = value.trim();
+        match (section.as_str(), key) {
+            ("search", "enabled") => enabled = Some(parse_toml_bool(value)),
+            ("search", "provider") => provider = Some(parse_toml_string_literal(value)),
+            ("search", "managed") => managed = Some(parse_toml_bool(value)),
+            ("search", "auto_start") => auto_start = Some(parse_toml_bool(value)),
+            ("search.runtime", "base_url") => base_url = Some(parse_toml_string_literal(value)),
+            ("search.runtime", "healthcheck_url") => {
+                healthcheck_url = Some(parse_toml_string_literal(value))
+            }
+            ("search.runtime", "compose_file") => {
+                compose_file = Some(parse_toml_string_literal(value))
+            }
+            ("search.runtime", "service_name") => {
+                service_name = Some(parse_toml_string_literal(value))
+            }
+            _ => {}
+        }
+    }
+
+    Ok(SearchConfig {
+        enabled: enabled.ok_or_else(|| io::Error::other("missing search.enabled"))?,
+        provider: provider.ok_or_else(|| io::Error::other("missing search.provider"))?,
+        managed: managed.ok_or_else(|| io::Error::other("missing search.managed"))?,
+        auto_start: auto_start.ok_or_else(|| io::Error::other("missing search.auto_start"))?,
+        base_url: base_url.ok_or_else(|| io::Error::other("missing search.runtime.base_url"))?,
+        healthcheck_url: healthcheck_url
+            .ok_or_else(|| io::Error::other("missing search.runtime.healthcheck_url"))?,
+        compose_file: compose_file
+            .ok_or_else(|| io::Error::other("missing search.runtime.compose_file"))?,
+        service_name: service_name
+            .ok_or_else(|| io::Error::other("missing search.runtime.service_name"))?,
+    })
+}
+
+fn search_compose_file_path(config: &SearchConfig) -> Option<PathBuf> {
+    project_root_path().map(|root| root.join(&config.compose_file))
+}
+
+fn probe_search_health(config: &SearchConfig) -> io::Result<bool> {
+    if binary_in_path("curl") {
+        let output = Command::new("curl")
+            .args([
+                "-fsSL",
+                "--connect-timeout",
+                "3",
+                "--max-time",
+                "10",
+                &config.healthcheck_url,
+            ])
+            .output()?;
+        if !output.status.success() {
+            return Ok(false);
+        }
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        return Ok(!stdout.trim().is_empty());
+    }
+
+    if binary_in_path("wget") {
+        let output = Command::new("wget")
+            .args(["-q", "-T", "10", "-O", "-", &config.healthcheck_url])
+            .output()?;
+        if !output.status.success() {
+            return Ok(false);
+        }
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        return Ok(!stdout.trim().is_empty());
+    }
+
+    Err(io::Error::other("curl or wget is required to verify managed search health"))
+}
+
+fn load_search_status() -> SearchStatusSummary {
+    if !search_config_exists() {
+        return SearchStatusSummary::default();
+    }
+
+    let config = match load_search_config() {
+        Ok(config) => config,
+        Err(err) => {
+            return SearchStatusSummary {
+                configured: true,
+                enabled: true,
+                managed: false,
+                runtime_status: "error".to_string(),
+                healthy: false,
+                message: format!("Search config invalid: {err}"),
+            }
+        }
+    };
+
+    if !config.enabled {
+        return SearchStatusSummary {
+            configured: true,
+            enabled: false,
+            managed: config.managed,
+            runtime_status: "disabled".to_string(),
+            healthy: false,
+            message: "Search is disabled in .aoc/search.toml".to_string(),
+        };
+    }
+
+    if config.managed && !docker_compose_available() {
+        return SearchStatusSummary {
+            configured: true,
+            enabled: true,
+            managed: true,
+            runtime_status: "error".to_string(),
+            healthy: false,
+            message: "Docker Compose not available".to_string(),
+        };
+    }
+
+    let Some(compose_file) = search_compose_file_path(&config) else {
+        return SearchStatusSummary {
+            configured: true,
+            enabled: true,
+            managed: config.managed,
+            runtime_status: "error".to_string(),
+            healthy: false,
+            message: "Unable to resolve compose file path".to_string(),
+        };
+    };
+
+    if config.managed && !compose_file.exists() {
+        return SearchStatusSummary {
+            configured: true,
+            enabled: true,
+            managed: true,
+            runtime_status: "error".to_string(),
+            healthy: false,
+            message: "Managed search compose file missing".to_string(),
+        };
+    }
+
+    if config.managed {
+        let compose_arg = compose_file.to_string_lossy().to_string();
+        let service_arg = config.service_name.clone();
+        match run_docker_compose(&["-f", &compose_arg, "ps", "-q", &service_arg]) {
+            Ok(output) => {
+                let stdout = String::from_utf8_lossy(&output.stdout);
+                if stdout.trim().is_empty() {
+                    return SearchStatusSummary {
+                        configured: true,
+                        enabled: true,
+                        managed: true,
+                        runtime_status: "stopped".to_string(),
+                        healthy: false,
+                        message: "Managed search is configured but stopped".to_string(),
+                    };
+                }
+            }
+            Err(err) => {
+                return SearchStatusSummary {
+                    configured: true,
+                    enabled: true,
+                    managed: true,
+                    runtime_status: "error".to_string(),
+                    healthy: false,
+                    message: format!("Managed search status failed: {err}"),
+                }
+            }
+        }
+    }
+
+    match probe_search_health(&config) {
+        Ok(true) => SearchStatusSummary {
+            configured: true,
+            enabled: true,
+            managed: config.managed,
+            runtime_status: "healthy".to_string(),
+            healthy: true,
+            message: format!("Managed SearXNG is running and healthy at {}", config.base_url),
+        },
+        Ok(false) => SearchStatusSummary {
+            configured: true,
+            enabled: true,
+            managed: config.managed,
+            runtime_status: "unhealthy".to_string(),
+            healthy: false,
+            message: "Managed search is running but health check failed".to_string(),
+        },
+        Err(err) => SearchStatusSummary {
+            configured: true,
+            enabled: true,
+            managed: config.managed,
+            runtime_status: "error".to_string(),
+            healthy: false,
+            message: format!("Managed search health check failed: {err}"),
+        },
+    }
+}
+
+fn project_bin_path(name: &str) -> Option<PathBuf> {
+    project_root_path().map(|root| root.join("bin").join(name))
+}
+
+fn run_project_bin_capture(name: &str, args: &[&str]) -> io::Result<std::process::Output> {
+    let path = project_bin_path(name).ok_or_else(|| io::Error::other("unable to resolve project root"))?;
+    Command::new(path).args(args).output()
+}
+
+fn parse_search_status_json(value: &JsonValue) -> SearchStatusSummary {
+    let object = value.as_object();
+    let configured = object
+        .and_then(|obj| obj.get("configured"))
+        .and_then(JsonValue::as_bool)
+        .unwrap_or(false);
+    let enabled = object
+        .and_then(|obj| obj.get("enabled"))
+        .and_then(JsonValue::as_bool)
+        .unwrap_or(false);
+    let managed = object
+        .and_then(|obj| obj.get("managed"))
+        .and_then(JsonValue::as_bool)
+        .unwrap_or(false);
+    let runtime_status = object
+        .and_then(|obj| obj.get("runtimeStatus"))
+        .and_then(JsonValue::as_str)
+        .unwrap_or("error")
+        .to_string();
+    let healthy = object
+        .and_then(|obj| obj.get("healthy"))
+        .and_then(JsonValue::as_bool)
+        .unwrap_or(false);
+    let message = object
+        .and_then(|obj| obj.get("message"))
+        .and_then(JsonValue::as_str)
+        .unwrap_or("Search status unavailable")
+        .to_string();
+
+    SearchStatusSummary {
+        configured,
+        enabled,
+        managed,
+        runtime_status,
+        healthy,
+        message,
+    }
+}
+
+fn load_search_status_via_cli() -> io::Result<SearchStatusSummary> {
+    let output = run_project_bin_capture("aoc-search", &["status", "--json"])?;
+    if !output.status.success() {
+        return Err(command_failure("bin/aoc-search status --json", &output));
+    }
+    let value: JsonValue = serde_json::from_slice(&output.stdout)
+        .map_err(|err| io::Error::other(format!("invalid aoc-search status json: {err}")))?;
+    Ok(parse_search_status_json(&value))
+}
+
+fn start_or_verify_managed_search_via_cli() -> io::Result<String> {
+    let output = run_project_bin_capture("aoc-search", &["start", "--wait"])?;
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+        let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
+        let message = if !stderr.is_empty() {
+            stderr
+        } else if !stdout.is_empty() {
+            stdout
+        } else {
+            format!("bin/aoc-search start --wait exited with {}", output.status)
+        };
+        return Err(io::Error::other(message));
+    }
+    let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    if stdout.is_empty() {
+        Ok("Managed search start/verify complete".to_string())
+    } else {
+        Ok(stdout)
+    }
+}
+
+fn search_summary(status: &SearchStatusSummary) -> String {
+    status.runtime_status.clone()
+}
+
+fn agent_browser_search_summary(
+    runtime_checked: bool,
+    runtime_ready: bool,
+    search_status: &SearchStatusSummary,
+) -> String {
+    let browser = if agent_browser_installed() {
+        "browser installed"
+    } else {
+        "browser missing"
+    };
+    let browser_runtime = if !runtime_checked {
+        "runtime unchecked"
+    } else if runtime_ready {
+        "runtime ready"
+    } else if agent_browser_installed() {
+        "runtime missing"
+    } else {
+        "runtime unknown"
+    };
+    let search = format!("search {}", search_summary(search_status));
+    let browser_skill = if agent_browser_skill_installed() {
+        "browser skill present"
+    } else {
+        "browser skill missing"
+    };
+    let research_skill = if web_research_skill_installed() {
+        "research skill present"
+    } else {
+        "research skill missing"
+    };
+    format!("{browser}, {browser_runtime}, {search}, {browser_skill}, {research_skill}")
+}
+
+fn managed_search_config_contents() -> String {
+    r#"version = 1
+
+[search]
+enabled = true
+provider = "searxng"
+managed = true
+auto_start = true
+
+[search.runtime]
+base_url = "http://127.0.0.1:8888"
+healthcheck_url = "http://127.0.0.1:8888/search?q=aoc+health&format=json"
+compose_file = ".aoc/services/searxng/docker-compose.yml"
+service_name = "searxng"
+
+[search.query_defaults]
+format = "json"
+language = "en"
+categories = "general"
+safe_search = 0
+
+[search.agent_policy]
+allow_auto_start = true
+prompt_when_missing = true
+prompt_when_unhealthy = true
+"#
+    .to_string()
+}
+
+fn managed_search_compose_contents() -> String {
+    r#"services:
+  searxng:
+    image: docker.io/searxng/searxng:latest
+    container_name: aoc-searxng
+    ports:
+      - "127.0.0.1:8888:8080"
+    volumes:
+      - ./settings.yml:/etc/searxng/settings.yml:ro
+    restart: unless-stopped
+"#
+    .to_string()
+}
+
+fn managed_search_settings_contents() -> String {
+    r#"use_default_settings: true
+server:
+  secret_key: "aoc-searxng-local-dev-key"
+  bind_address: "0.0.0.0"
+  port: 8080
+search:
+  safe_search: 0
+  autocomplete: ""
+  formats:
+    - html
+    - json
+    - csv
+    - rss
+"#
+    .to_string()
+}
+
+fn enable_managed_search() -> io::Result<String> {
+    if !docker_compose_available() {
+        return Err(io::Error::other(
+            "Docker Compose not found; install Docker/Compose before enabling search",
+        ));
+    }
+
+    let config_path = search_config_path().ok_or_else(|| io::Error::other("unable to resolve project root"))?;
+    let service_dir = managed_search_dir().ok_or_else(|| io::Error::other("unable to resolve project root"))?;
+    let compose_path = managed_search_compose_path().ok_or_else(|| io::Error::other("unable to resolve project root"))?;
+    let settings_path = managed_search_settings_path().ok_or_else(|| io::Error::other("unable to resolve project root"))?;
+
+    fs::create_dir_all(config_path.parent().unwrap_or(Path::new(".")))?;
+    fs::create_dir_all(&service_dir)?;
+    fs::write(&config_path, managed_search_config_contents())?;
+    fs::write(&compose_path, managed_search_compose_contents())?;
+    fs::write(&settings_path, managed_search_settings_contents())?;
+
+    Ok("Managed search enabled (.aoc/search.toml + .aoc/services/searxng/* written)".to_string())
+}
+
+fn web_research_skill_installed() -> bool {
+    project_relative_exists(".pi/skills/web-research/SKILL.md")
+}
+
+fn install_web_research_skill() -> io::Result<String> {
+    let Some(project_root) = project_root_path() else {
+        return Err(io::Error::other("unable to resolve project root"));
+    };
+
+    let target_dir = project_root.join(".pi").join("skills").join("web-research");
+    fs::create_dir_all(&target_dir)?;
+    let target_file = target_dir.join("SKILL.md");
+    fs::write(
+        &target_file,
+        include_str!("../../../.pi/skills/web-research/SKILL.md"),
+    )?;
+
+    Ok(format!(
+        "Synced web research skill ({})",
+        target_file.to_string_lossy()
+    ))
+}
+
 fn agent_browser_skill_url() -> String {
     env::var("AOC_AGENT_BROWSER_SKILL_URL")
         .ok()
@@ -4725,6 +5835,124 @@ fn wait_with_timeout(mut child: Child, timeout: Duration) -> io::Result<ExitStat
         }
 
         thread::sleep(Duration::from_millis(20));
+    }
+}
+
+fn load_pi_compaction_status() -> io::Result<PiCompactionStatus> {
+    let path = pi_global_settings_path();
+    let mut status = PiCompactionStatus::default();
+
+    if path.exists() {
+        let contents = fs::read_to_string(&path)?;
+        if !contents.trim().is_empty() {
+            let json: JsonValue = serde_json::from_str(&contents).map_err(|err| {
+                io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    format!("{}: {err}", path.display()),
+                )
+            })?;
+            if let Some(compaction) = json.get("compaction") {
+                if let Some(enabled) = compaction.get("enabled").and_then(JsonValue::as_bool) {
+                    status.enabled = enabled;
+                }
+                if let Some(reserve_tokens) =
+                    compaction.get("reserveTokens").and_then(JsonValue::as_u64)
+                {
+                    status.reserve_tokens = reserve_tokens;
+                }
+                if let Some(keep_recent_tokens) = compaction
+                    .get("keepRecentTokens")
+                    .and_then(JsonValue::as_u64)
+                {
+                    status.keep_recent_tokens = keep_recent_tokens;
+                }
+            }
+        }
+    }
+
+    status.project_override = project_pi_compaction_override_exists();
+    Ok(status)
+}
+
+fn save_pi_compaction_status(status: &PiCompactionStatus) -> io::Result<()> {
+    let path = pi_global_settings_path();
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent)?;
+    }
+
+    let mut root = if path.exists() {
+        let contents = fs::read_to_string(&path)?;
+        if contents.trim().is_empty() {
+            JsonValue::Object(JsonMap::new())
+        } else {
+            serde_json::from_str::<JsonValue>(&contents).map_err(|err| {
+                io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    format!("{}: {err}", path.display()),
+                )
+            })?
+        }
+    } else {
+        JsonValue::Object(JsonMap::new())
+    };
+
+    let root_object = match &mut root {
+        JsonValue::Object(object) => object,
+        _ => {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                format!("{} must contain a JSON object", path.display()),
+            ));
+        }
+    };
+
+    let compaction = root_object
+        .entry("compaction".to_string())
+        .or_insert_with(|| JsonValue::Object(JsonMap::new()));
+    let compaction_object = match compaction {
+        JsonValue::Object(object) => object,
+        _ => {
+            *compaction = JsonValue::Object(JsonMap::new());
+            match compaction {
+                JsonValue::Object(object) => object,
+                _ => unreachable!(),
+            }
+        }
+    };
+
+    compaction_object.insert("enabled".to_string(), JsonValue::Bool(status.enabled));
+    compaction_object.insert(
+        "reserveTokens".to_string(),
+        JsonValue::Number(status.reserve_tokens.into()),
+    );
+    compaction_object.insert(
+        "keepRecentTokens".to_string(),
+        JsonValue::Number(status.keep_recent_tokens.into()),
+    );
+
+    let contents = serde_json::to_string_pretty(&root)
+        .map_err(|err| io::Error::other(format!("serialize pi settings failed: {err}")))?;
+    fs::write(path, format!("{contents}\n"))
+}
+
+fn pi_global_settings_path() -> PathBuf {
+    home_dir().join(".pi/agent/settings.json")
+}
+
+fn project_pi_compaction_override_exists() -> bool {
+    let Some(project_root) = find_project_root() else {
+        return false;
+    };
+    let path = project_root.join(".pi/settings.json");
+    let Ok(contents) = fs::read_to_string(path) else {
+        return false;
+    };
+    if contents.trim().is_empty() {
+        return false;
+    }
+    match serde_json::from_str::<JsonValue>(&contents) {
+        Ok(value) => value.get("compaction").is_some(),
+        Err(_) => false,
     }
 }
 

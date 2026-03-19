@@ -105,7 +105,7 @@ AOC_INIT_SKIP_BUILD=1 aoc-init
 
 After install, open `Alt+C` -> **Settings -> Tools -> PI agent installer** to check runtime status and run install/update actions for `pi`.
 
-`Settings -> Tools` also includes nested actions for Agent Browser (tool + PI skill sync), Vercel CLI (tool + PI skill sync + verify), and MoreMotion (`aoc-momo` host/local-source flows).
+`Settings -> Tools` also includes nested actions for Agent Browser + Search (browser tool sync, web-research skill seeding, managed SearXNG enable/start), Vercel CLI (tool + PI skill sync + verify), and MoreMotion (`aoc-momo` host/local-source flows).
 
 Non-PI agent harnesses are removed from AOC (see [Deprecations and removals](deprecations.md)).
 
@@ -171,6 +171,36 @@ brew install zellij yazi fzf ffmpeg chafa poppler librsvg ripgrep bat
 
 ## Optional Dependencies
 
+### Managed Local Search (optional)
+
+Managed local search is opt-in and currently uses Docker + Docker Compose to run a local SearXNG instance bound to `127.0.0.1:8888`.
+
+Requirements:
+
+- `docker`
+- `docker compose` (or legacy `docker-compose`)
+
+Enable it from:
+
+- `Alt+C -> Settings -> Tools -> Agent Browser + Search`
+
+This flow can:
+
+- generate `.aoc/search.toml`
+- generate `.aoc/services/searxng/docker-compose.yml`
+- generate `.aoc/services/searxng/settings.yml`
+- start/verify the local search service
+- seed `.pi/skills/web-research/SKILL.md`
+
+CLI verification after enabling:
+
+```bash
+aoc-search status
+aoc-search start --wait
+aoc-search health
+aoc-search query --limit 3 "rust clap subcommands"
+```
+
 ### TeX Preview Support
 
 For previewing `.tex` files, install Tectonic:
@@ -224,6 +254,33 @@ This will check for:
 - [ ] `aoc-doctor` reports all green
 
 ## Troubleshooting
+
+### Managed Local Search Not Starting
+
+Check runtime status first:
+
+```bash
+aoc-search status
+aoc-search start --wait
+aoc-search health
+```
+
+Common fixes:
+
+- confirm `docker` and `docker compose` are installed
+- confirm `.aoc/search.toml` exists
+- confirm `.aoc/services/searxng/docker-compose.yml` exists
+- confirm `.aoc/services/searxng/settings.yml` includes JSON output formats
+- inspect container logs:
+
+```bash
+docker compose -f .aoc/services/searxng/docker-compose.yml ps
+docker compose -f .aoc/services/searxng/docker-compose.yml logs --tail=200 searxng
+```
+
+If search is not configured yet, enable it from:
+
+- `Alt+C -> Settings -> Tools -> Agent Browser + Search`
 
 ### Missing Previews
 

@@ -6,6 +6,15 @@ allowed-tools: Bash(npx agent-browser:*), Bash(agent-browser:*)
 
 # Browser Automation with agent-browser
 
+## Complementary Search Workflow
+
+When the task is research-oriented, prefer:
+
+1. `aoc-search query ...` to find candidate sources
+2. `agent-browser open <url>` only after you know which page to inspect
+
+Use `agent-browser` directly when the task is primarily interaction-driven (forms, clicks, auth flows, screenshots, DOM inspection).
+
 ## Core Workflow
 
 Every browser automation follows this pattern:
