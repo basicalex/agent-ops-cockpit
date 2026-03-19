@@ -1,0 +1,567 @@
+#!/usr/bin/env python3
+import argparse
+import json
+import os
+import subprocess
+import sys
+import time
+import urllib.parse
+import urllib.request
+from pathlib import Path
+
+try:
+    import tomllib  # type: ignore[attr-defined]
+except Exception:  # pragma: no cover
+    tomllib = None
+
+EXIT_GENERIC = 1
+EXIT_USAGE = 2
+EXIT_RUNTIME = 3
+EXIT_PROVIDER = 4
+
+UNCONFIGURED_MESSAGE = "search is not configured for this repo; enable it via Alt+C"
+DISABLED_MESSAGE = "search is disabled in .aoc/search.toml"
+STOPPED_AUTOSTART_DISABLED_MESSAGE = "managed search is stopped and auto-start is disabled"
+INVALID_JSON_MESSAGE = "search backend returned invalid JSON"
+
+
+def eprint(*args, **kwargs):
+    print(*args, file=sys.stderr, **kwargs)
+
+
+def locate_project_root() -> Path:
+    cursor = Path.cwd().resolve()
+    for candidate in [cursor, *cursor.parents]:
+        if (candidate / ".aoc").exists() or (candidate / ".git").exists():
+            return candidate
+    return cursor
+
+
+def search_config_path(root: Path) -> Path:
+    return root / ".aoc" / "search.toml"
+
+
+def load_search_config(root: Path) -> dict | None:
+    path = search_config_path(root)
+    if not path.exists():
+        return None
+    if tomllib is None:
+        raise RuntimeError("python tomllib support is required")
+    with path.open("rb") as fh:
+        return tomllib.load(fh)
+
+
+def bool_at(data: dict, path: tuple[str, ...], default=False):
+    cur = data
+    for key in path:
+        if not isinstance(cur, dict) or key not in cur:
+            return default
+        cur = cur[key]
+    return bool(cur)
+
+
+def str_at(data: dict, path: tuple[str, ...], default=""):
+    cur = data
+    for key in path:
+        if not isinstance(cur, dict) or key not in cur:
+            return default
+        cur = cur[key]
+    return str(cur)
+
+
+def int_at(data: dict, path: tuple[str, ...], default=0):
+    cur = data
+    for key in path:
+        if not isinstance(cur, dict) or key not in cur:
+            return default
+        cur = cur[key]
+    try:
+        return int(cur)
+    except Exception:
+        return default
+
+
+def compose_command() -> list[str] | None:
+    if shutil_which("docker"):
+        result = subprocess.run(
+            ["docker", "compose", "version"],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            check=False,
+        )
+        if result.returncode == 0:
+            return ["docker", "compose"]
+    if shutil_which("docker-compose"):
+        return ["docker-compose"]
+    return None
+
+
+def shutil_which(name: str) -> str | None:
+    for directory in os.environ.get("PATH", "").split(os.pathsep):
+        if not directory:
+            continue
+        candidate = Path(directory) / name
+        if candidate.exists() and os.access(candidate, os.X_OK):
+            return str(candidate)
+    return None
+
+
+def run_compose(args: list[str]) -> subprocess.CompletedProcess:
+    command = compose_command()
+    if not command:
+        raise RuntimeError("Docker Compose not available")
+    return subprocess.run(command + args, capture_output=True, text=True, check=False)
+
+
+def normalized_config(raw: dict | None, root: Path) -> dict:
+    if raw is None:
+        return {
+            "configured": False,
+            "enabled": False,
+            "managed": False,
+            "provider": "",
+            "autoStart": False,
+            "allowAutoStart": False,
+            "baseUrl": "http://127.0.0.1:8888",
+            "healthcheckUrl": "http://127.0.0.1:8888/search?q=aoc+health&format=json",
+            "composeFile": str(root / ".aoc/services/searxng/docker-compose.yml"),
+            "serviceName": "searxng",
+            "defaults": {"format": "json", "language": "en", "categories": "general", "safe_search": 0},
+        }
+    compose_file = str_at(raw, ("search", "runtime", "compose_file"), ".aoc/services/searxng/docker-compose.yml")
+    compose_path = Path(compose_file)
+    if not compose_path.is_absolute():
+        compose_path = root / compose_path
+    return {
+        "configured": True,
+        "enabled": bool_at(raw, ("search", "enabled"), True),
+        "managed": bool_at(raw, ("search", "managed"), True),
+        "provider": str_at(raw, ("search", "provider"), "searxng"),
+        "autoStart": bool_at(raw, ("search", "auto_start"), True),
+        "allowAutoStart": bool_at(raw, ("search", "agent_policy", "allow_auto_start"), True),
+        "baseUrl": str_at(raw, ("search", "runtime", "base_url"), "http://127.0.0.1:8888"),
+        "healthcheckUrl": str_at(
+            raw,
+            ("search", "runtime", "healthcheck_url"),
+            "http://127.0.0.1:8888/search?q=aoc+health&format=json",
+        ),
+        "composeFile": str(compose_path),
+        "serviceName": str_at(raw, ("search", "runtime", "service_name"), "searxng"),
+        "defaults": {
+            "format": str_at(raw, ("search", "query_defaults", "format"), "json"),
+            "language": str_at(raw, ("search", "query_defaults", "language"), "en"),
+            "categories": str_at(raw, ("search", "query_defaults", "categories"), "general"),
+            "safe_search": int_at(raw, ("search", "query_defaults", "safe_search"), 0),
+        },
+    }
+
+
+def request_json(url: str, timeout: int = 10):
+    req = urllib.request.Request(url, headers={"User-Agent": "aoc-search/0.1"})
+    with urllib.request.urlopen(req, timeout=timeout) as response:
+        body = response.read().decode("utf-8", errors="replace")
+    try:
+        return json.loads(body)
+    except json.JSONDecodeError as exc:
+        raise ValueError(INVALID_JSON_MESSAGE) from exc
+
+
+def health_ok(cfg: dict) -> bool:
+    try:
+        payload = request_json(cfg["healthcheckUrl"], timeout=8)
+    except Exception:
+        return False
+    return isinstance(payload, dict)
+
+
+def container_running(cfg: dict) -> bool:
+    if not cfg["managed"]:
+        return False
+    result = run_compose(["-f", cfg["composeFile"], "ps", "-q", cfg["serviceName"]])
+    if result.returncode != 0:
+        return False
+    return bool(result.stdout.strip())
+
+
+def status_envelope(root: Path) -> dict:
+    raw = load_search_config(root)
+    cfg = normalized_config(raw, root)
+    if not cfg["configured"]:
+        return {
+            "configured": False,
+            "enabled": False,
+            "managed": False,
+            "provider": None,
+            "runtimeStatus": "unconfigured",
+            "healthy": False,
+            "autoStart": False,
+            "baseUrl": None,
+            "message": UNCONFIGURED_MESSAGE,
+        }
+    if not cfg["enabled"]:
+        return {
+            "configured": True,
+            "enabled": False,
+            "managed": cfg["managed"],
+            "provider": cfg["provider"],
+            "runtimeStatus": "disabled",
+            "healthy": False,
+            "autoStart": cfg["autoStart"],
+            "baseUrl": cfg["baseUrl"],
+            "message": DISABLED_MESSAGE,
+        }
+    if cfg["managed"]:
+        if not compose_command():
+            return {
+                "configured": True,
+                "enabled": True,
+                "managed": True,
+                "provider": cfg["provider"],
+                "runtimeStatus": "error",
+                "healthy": False,
+                "autoStart": cfg["autoStart"],
+                "baseUrl": cfg["baseUrl"],
+                "message": "Docker Compose not found; install Docker/Compose before using search",
+            }
+        compose_path = Path(cfg["composeFile"])
+        if not compose_path.exists():
+            return {
+                "configured": True,
+                "enabled": True,
+                "managed": True,
+                "provider": cfg["provider"],
+                "runtimeStatus": "error",
+                "healthy": False,
+                "autoStart": cfg["autoStart"],
+                "baseUrl": cfg["baseUrl"],
+                "message": f"managed compose file missing: {compose_path}",
+            }
+        running = container_running(cfg)
+        healthy = health_ok(cfg)
+        runtime_status = "healthy" if healthy else ("unhealthy" if running else "stopped")
+        message = (
+            f"Managed SearXNG is running and healthy at {cfg['baseUrl']}"
+            if healthy
+            else (
+                "Managed search health check failed; inspect .aoc/services/searxng and Docker logs"
+                if running
+                else "Managed search is configured but stopped"
+            )
+        )
+        return {
+            "configured": True,
+            "enabled": True,
+            "managed": True,
+            "provider": cfg["provider"],
+            "runtimeStatus": runtime_status,
+            "healthy": healthy,
+            "autoStart": cfg["autoStart"],
+            "baseUrl": cfg["baseUrl"],
+            "message": message,
+        }
+    healthy = health_ok(cfg)
+    return {
+        "configured": True,
+        "enabled": True,
+        "managed": False,
+        "provider": cfg["provider"],
+        "runtimeStatus": "healthy" if healthy else "unhealthy",
+        "healthy": healthy,
+        "autoStart": cfg["autoStart"],
+        "baseUrl": cfg["baseUrl"],
+        "message": (
+            f"Search endpoint reachable at {cfg['baseUrl']}" if healthy else "Search endpoint health check failed"
+        ),
+    }
+
+
+def print_status(env: dict, as_json: bool):
+    if as_json:
+        print(json.dumps(env, indent=2))
+        return
+    provider = env.get("provider") or "search"
+    if not env["configured"]:
+        print(UNCONFIGURED_MESSAGE)
+    elif env["runtimeStatus"] == "healthy":
+        scope = "managed " if env.get("managed") else ""
+        print(f"{scope}{provider}: healthy ({env.get('baseUrl')})")
+    else:
+        print(env["message"])
+
+
+def start_managed_search(cfg: dict, wait: bool) -> dict:
+    result = run_compose(["-f", cfg["composeFile"], "up", "-d", cfg["serviceName"]])
+    if result.returncode != 0:
+        stderr = result.stderr.strip() or result.stdout.strip() or "managed search could not be started"
+        raise RuntimeError(stderr)
+    if wait:
+        deadline = time.time() + 30
+        while time.time() < deadline:
+            if health_ok(cfg):
+                return {
+                    "status": "ok",
+                    "runtimeStatus": "healthy",
+                    "healthy": True,
+                    "message": f"Managed search started and healthy at {cfg['baseUrl']}",
+                }
+            time.sleep(1)
+        raise RuntimeError("Managed search health check failed; inspect .aoc/services/searxng and Docker logs")
+    return {
+        "status": "ok",
+        "runtimeStatus": "starting",
+        "healthy": False,
+        "message": f"Managed search start requested for {cfg['baseUrl']}",
+    }
+
+
+def stop_managed_search(cfg: dict) -> dict:
+    result = run_compose(["-f", cfg["composeFile"], "stop", cfg["serviceName"]])
+    if result.returncode != 0:
+        stderr = result.stderr.strip() or result.stdout.strip() or "managed search could not be stopped"
+        raise RuntimeError(stderr)
+    return {
+        "status": "ok",
+        "runtimeStatus": "stopped",
+        "healthy": False,
+        "message": "Managed search stopped",
+    }
+
+
+def query_url(cfg: dict, query: str, mode: str, limit: int) -> str:
+    params = {
+        "q": query,
+        "format": "json",
+        "language": cfg["defaults"].get("language", "en"),
+        "categories": cfg["defaults"].get("categories", "general"),
+        "safesearch": str(cfg["defaults"].get("safe_search", 0)),
+    }
+    if limit > 0:
+        params["count"] = str(limit)
+    if mode == "docs":
+        params["q"] = query
+    elif mode == "error":
+        params["q"] = query
+    elif mode == "package":
+        params["q"] = query
+    base = cfg["baseUrl"].rstrip("/") + "/search"
+    return base + "?" + urllib.parse.urlencode(params)
+
+
+def normalize_results(payload: dict, limit: int) -> list[dict]:
+    rows = payload.get("results")
+    if not isinstance(rows, list):
+        raise ValueError(INVALID_JSON_MESSAGE)
+    results = []
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        url = row.get("url")
+        if not url:
+            continue
+        title = str(row.get("title") or url)
+        snippet = str(row.get("content") or row.get("snippet") or "")
+        source = str(row.get("engine") or row.get("source") or "unknown")
+        results.append(
+            {
+                "title": title,
+                "url": str(url),
+                "snippet": snippet,
+                "source": source,
+                "rank": len(results) + 1,
+            }
+        )
+        if limit > 0 and len(results) >= limit:
+            break
+    return results
+
+
+def ensure_queryable(root: Path, no_auto_start: bool) -> tuple[dict, dict]:
+    raw = load_search_config(root)
+    cfg = normalized_config(raw, root)
+    status = status_envelope(root)
+    if not status["configured"]:
+        raise CliError(UNCONFIGURED_MESSAGE, EXIT_USAGE)
+    if not status["enabled"]:
+        raise CliError(DISABLED_MESSAGE, EXIT_USAGE)
+    if status["healthy"]:
+        return cfg, status
+    if not cfg["managed"]:
+        raise CliError(status["message"], EXIT_RUNTIME)
+    auto_start_allowed = cfg["autoStart"] and cfg["allowAutoStart"] and not no_auto_start
+    if status["runtimeStatus"] == "stopped" and not auto_start_allowed:
+        raise CliError(STOPPED_AUTOSTART_DISABLED_MESSAGE, EXIT_RUNTIME)
+    if not auto_start_allowed:
+        raise CliError(status["message"], EXIT_RUNTIME)
+    start_managed_search(cfg, wait=True)
+    status = status_envelope(root)
+    if not status["healthy"]:
+        raise CliError(status["message"], EXIT_RUNTIME)
+    return cfg, status
+
+
+class CliError(Exception):
+    def __init__(self, message: str, code: int = EXIT_GENERIC):
+        super().__init__(message)
+        self.message = message
+        self.code = code
+
+
+def cmd_status(args):
+    env = status_envelope(locate_project_root())
+    print_status(env, args.json)
+    return 0
+
+
+def cmd_start(args):
+    root = locate_project_root()
+    status = status_envelope(root)
+    if not status["configured"]:
+        raise CliError(UNCONFIGURED_MESSAGE, EXIT_USAGE)
+    if not status["enabled"]:
+        raise CliError(DISABLED_MESSAGE, EXIT_USAGE)
+    raw = load_search_config(root)
+    cfg = normalized_config(raw, root)
+    if not cfg["managed"]:
+        raise CliError("only managed search is supported in phase 1", EXIT_USAGE)
+    if status["healthy"]:
+        payload = {
+            "status": "ok",
+            "runtimeStatus": "healthy",
+            "healthy": True,
+            "message": f"Managed search healthy at {cfg['baseUrl']}",
+        }
+    else:
+        payload = start_managed_search(cfg, wait=args.wait)
+    if args.json:
+        print(json.dumps(payload, indent=2))
+    else:
+        print(payload["message"])
+    return 0
+
+
+def cmd_stop(args):
+    root = locate_project_root()
+    status = status_envelope(root)
+    if not status["configured"]:
+        raise CliError(UNCONFIGURED_MESSAGE, EXIT_USAGE)
+    raw = load_search_config(root)
+    cfg = normalized_config(raw, root)
+    if not cfg["managed"]:
+        raise CliError("only managed search is supported in phase 1", EXIT_USAGE)
+    payload = stop_managed_search(cfg)
+    if args.json:
+        print(json.dumps(payload, indent=2))
+    else:
+        print(payload["message"])
+    return 0
+
+
+def cmd_health(args):
+    root = locate_project_root()
+    status = status_envelope(root)
+    if not status["configured"]:
+        raise CliError(UNCONFIGURED_MESSAGE, EXIT_USAGE)
+    if not status["enabled"]:
+        raise CliError(DISABLED_MESSAGE, EXIT_USAGE)
+    payload = {
+        "status": "ok" if status["healthy"] else "error",
+        "runtimeStatus": status["runtimeStatus"],
+        "healthy": status["healthy"],
+        "baseUrl": status["baseUrl"],
+        "message": (
+            f"healthy: query endpoint reachable at {status['baseUrl']}"
+            if status["healthy"]
+            else status["message"]
+        ),
+    }
+    if args.json:
+        print(json.dumps(payload, indent=2))
+    else:
+        print(payload["message"])
+    return 0 if status["healthy"] else EXIT_RUNTIME
+
+
+def cmd_query(args):
+    root = locate_project_root()
+    cfg, _ = ensure_queryable(root, args.no_auto_start)
+    url = query_url(cfg, args.query, args.mode, args.limit)
+    try:
+        payload = request_json(url, timeout=15)
+    except ValueError as exc:
+        raise CliError(str(exc), EXIT_PROVIDER)
+    except Exception as exc:
+        raise CliError(str(exc), EXIT_PROVIDER)
+    results = normalize_results(payload, args.limit)
+    response = {
+        "query": args.query,
+        "provider": cfg["provider"],
+        "status": "ok",
+        "mode": args.mode,
+        "results": results,
+        "warnings": [],
+    }
+    if args.json:
+        print(json.dumps(response, indent=2))
+    else:
+        for item in results:
+            print(f"{item['rank']}. {item['title']}")
+            print(f"   {item['url']}")
+            if item["snippet"]:
+                print(f"   {item['snippet']}")
+            print()
+    return 0
+
+
+def build_parser():
+    parser = argparse.ArgumentParser(prog="aoc-search")
+    sub = parser.add_subparsers(dest="command", required=True)
+
+    p = sub.add_parser("status")
+    p.add_argument("--json", action="store_true")
+    p.set_defaults(func=cmd_status)
+
+    p = sub.add_parser("start")
+    p.add_argument("--wait", action="store_true")
+    p.add_argument("--json", action="store_true")
+    p.set_defaults(func=cmd_start)
+
+    p = sub.add_parser("stop")
+    p.add_argument("--json", action="store_true")
+    p.set_defaults(func=cmd_stop)
+
+    p = sub.add_parser("health")
+    p.add_argument("--json", action="store_true")
+    p.set_defaults(func=cmd_health)
+
+    p = sub.add_parser("query")
+    p.add_argument("--json", action="store_true")
+    p.add_argument("--mode", choices=["general", "docs", "error", "package"], default="general")
+    p.add_argument("--limit", type=int, default=5)
+    p.add_argument("--no-auto-start", action="store_true")
+    p.add_argument("query")
+    p.set_defaults(func=cmd_query)
+
+    return parser
+
+
+def main() -> int:
+    parser = build_parser()
+    args = parser.parse_args()
+    try:
+        return args.func(args)
+    except CliError as exc:
+        eprint(exc.message)
+        return exc.code
+    except RuntimeError as exc:
+        eprint(str(exc))
+        return EXIT_RUNTIME
+    except ValueError as exc:
+        eprint(str(exc))
+        return EXIT_PROVIDER
+    except KeyboardInterrupt:
+        eprint("cancelled")
+        return 130
+
+
+if __name__ == "__main__":
+    sys.exit(main())

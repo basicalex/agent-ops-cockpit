@@ -289,7 +289,23 @@ PI installer behavior:
 
 ### Tools Integrations (Alt+C -> Settings -> Tools)
 
-AOC control also exposes nested tools actions for Agent Browser, Vercel CLI, and MoreMotion.
+AOC control also exposes nested tools actions for PI compaction, Agent Browser + Search, Vercel CLI, and MoreMotion.
+
+### PI Compaction Presets (Alt+C -> Settings -> Tools -> PI compaction)
+
+`aoc-control` can write global PI auto-compaction settings to `~/.pi/agent/settings.json` using preset profiles. This updates PI's `compaction.enabled`, `compaction.reserveTokens`, and `compaction.keepRecentTokens` values without manual JSON edits.
+
+Current built-in presets:
+
+- `PI default (~window-dependent)`
+- `Parallel balanced (~60%)`
+- `Parallel aggressive (~45%)`
+- `Max throughput (~40%)`
+- `Disable auto-compaction`
+
+The PI compaction section also includes a context-window selector used for preset math. Use `h/l` on the `Context window` row to cycle between `75k`, `125k`, `250k`, and `1m` so the reserve-token values match the model/window you intend to use.
+
+The control pane also warns when the current repo has a `.pi/settings.json` compaction override, since project settings take precedence over the global preset.
 
 | Variable | Description |
 |----------|-------------|
@@ -301,6 +317,37 @@ AOC control also exposes nested tools actions for Agent Browser, Vercel CLI, and
 | `AOC_DEV_ROOT` | Override inferred local dev root used for MoreMotion source lookup |
 | `AOC_MOREMOTION_REPO_URL` | Optional clone URL used when ensuring local MoreMotion source repo |
 | `AOC_MOMO_SOURCE` | Preferred local MoreMotion source path passed to `aoc-momo` |
+
+### Managed Local Search (Alt+C -> Settings -> Tools -> Agent Browser + Search)
+
+Phase 1 search is project-local and opt-in.
+
+Alt+C can:
+
+- write `.aoc/search.toml`
+- write `.aoc/services/searxng/docker-compose.yml`
+- write `.aoc/services/searxng/settings.yml`
+- start/verify the managed SearXNG container
+- seed `.pi/skills/web-research/SKILL.md`
+
+Canonical phase-1 paths:
+
+- `.aoc/search.toml`
+- `.aoc/services/searxng/docker-compose.yml`
+- `.aoc/services/searxng/settings.yml`
+- `bin/aoc-search`
+- `.pi/skills/web-research/SKILL.md`
+
+Use `aoc-search` as the stable interface for agents and operators:
+
+```bash
+aoc-search status
+aoc-search start --wait
+aoc-search health
+aoc-search query --limit 5 "rust clap subcommands"
+```
+
+`aoc-search query` is intended to be search-first. Use `agent-browser` after you have candidate URLs or need rendered-page interaction.
 
 ### Agent Configuration
 
@@ -427,6 +474,12 @@ AOC uses a **Distributed Cognitive Architecture** with four layers:
 
 - **Purpose:** Project-local routing mode, allowlist/denylist, and pinned install contract
 - **Management:** `aoc-rtk status|enable|disable|doctor|install --auto`
+
+### 5. Search Configuration (`.aoc/search.toml`)
+
+- **Purpose:** Project-local opt-in managed search contract
+- **Management:** `Alt+C -> Settings -> Tools -> Agent Browser + Search` or `bin/aoc-search`
+- **Related paths:** `.aoc/services/searxng/**`, `.pi/skills/web-research/SKILL.md`
 
 ### Global Configuration
 
