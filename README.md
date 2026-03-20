@@ -337,6 +337,15 @@ If `aoc-search` is healthy but `bin/aoc-web-smoke` fails, search is up but brows
 
 ### Optional Integrations and Advanced Workflows
 
+| Integration | What it does | Where to enable/manage it | Requirements |
+|-------------|--------------|----------------------------|--------------|
+| Agent Browser | Opens and automates real web pages | `Alt+C -> Settings -> Tools -> Agent Browser + Search` | `agent-browser` install flow |
+| Managed Local Search | Local SearXNG for search-first web research | `Alt+C -> Settings -> Tools -> Agent Browser + Search` | Docker + Docker Compose |
+| Vercel CLI | Deploy/inspect Vercel projects from AOC workflows | `Alt+C -> Settings -> Tools -> Vercel CLI` | `vercel` CLI |
+| MoreMotion | Optional Remotion workflow helpers for React/video projects | `Alt+C -> Settings -> Tools -> MoreMotion` | local repo or supported source flow |
+
+See also: [Installation Guide](./docs/installation.md), [Configuration Guide](./docs/configuration.md), and [Control Pane Guide](./docs/control-pane.md).
+
 ### 6. Custom Layouts ("AOC Modes")
 
 Create specialized layouts for different workflows:
@@ -603,6 +612,7 @@ cargo build --workspace
 | Document | Description |
 |----------|-------------|
 | [Installation Guide](./docs/installation.md) | Platform-specific setup instructions + post-install contract |
+| [Control Pane Guide](./docs/control-pane.md) | Alt+C operator flows, background jobs, logs, and tool setup |
 | [Agents](./docs/agents.md) | PI-first runtime contract (`.pi/**`), prompts, extensions, migration checks |
 | [Configuration Guide](./docs/configuration.md) | Environment variables and customization |
 | [Deprecations and removals](./docs/deprecations.md) | PI-only transition summary and legacy-path behavior |

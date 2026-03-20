@@ -131,6 +131,8 @@ Common actions:
 - **Vercel CLI** — tool + PI skill sync + verify
 - **MoreMotion** — `aoc-momo` host/local-source flows
 
+See also: [Control Pane Guide](control-pane.md).
+
 Non-PI agent harnesses are removed from AOC (see [Deprecations and removals](deprecations.md)).
 
 - AOC only runs installer commands (no third-party binaries are bundled).
@@ -309,6 +311,60 @@ docker compose -f .aoc/services/searxng/docker-compose.yml logs --tail=200 searx
 If search is not configured yet, enable it from:
 
 - `Alt+C -> Settings -> Tools -> Agent Browser + Search`
+
+### Web Research Troubleshooting
+
+#### `aoc-search` is healthy but `bin/aoc-web-smoke` fails
+
+That usually means:
+- managed search is working
+- `agent-browser` setup or browser-side runtime is still failing
+
+Check:
+
+```bash
+agent-browser --version
+bin/aoc-web-smoke
+```
+
+Then retry from:
+- `Alt+C -> Settings -> Tools -> Agent Browser + Search`
+- `Install/update Agent Browser tool`
+- `Verify web research stack`
+
+#### SearXNG logs show errors but search still works
+
+This can happen when some upstream public engines reject or rate-limit requests.
+What matters most for AOC is:
+- `aoc-search health` passes
+- `aoc-search query ...` returns results
+- `bin/aoc-web-smoke` passes
+
+The local search service can be healthy even if some upstream engines are noisy.
+
+#### Search returns empty or weak results
+
+Check:
+
+```bash
+aoc-search query --limit 5 "your query"
+docker compose -f .aoc/services/searxng/docker-compose.yml logs --tail=200 searxng
+```
+
+If needed:
+- restart managed search
+- try a more concrete query
+- inspect `.aoc/services/searxng/settings.yml`
+
+#### Generated search files have odd ownership/permissions
+
+If a mounted settings file becomes hard to edit after container activity, reset it locally and restart search:
+
+```bash
+chmod 644 .aoc/services/searxng/settings.yml
+bin/aoc-search stop
+bin/aoc-search start --wait
+```
 
 ### Missing Previews
 
