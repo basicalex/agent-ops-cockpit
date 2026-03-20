@@ -1650,7 +1650,10 @@ impl App {
 
             if status.success() {
                 self.set_search_action_last_status(&action, "passed".to_string());
-                self.set_status(format!("{success_message} (log: {})", log_path.to_string_lossy()));
+                self.set_status(format!(
+                    "{success_message} (log: {})",
+                    log_path.to_string_lossy()
+                ));
             } else {
                 self.set_search_action_last_status(&action, format!("failed ({status})"));
                 self.set_status(format!(
@@ -3800,8 +3803,9 @@ fn settings_detail_lines(app: &App) -> Vec<Line<'static>> {
                     "Enter writes .aoc/search.toml and .aoc/services/searxng/* using AOC-managed defaults.",
                 ));
                 lines.push(Line::from(
-                    "Requires Docker Compose to be available. This step configures search but does not require browser changes.",
+                    "It also syncs the PI browser skill and PI web research skill so agents get search-first, browse-second guidance immediately.",
                 ));
+                lines.push(Line::from("Requires Docker Compose to be available."));
             }
             4 => {
                 lines.push(Line::from("Start/verify local search"));
@@ -4946,7 +4950,9 @@ fn managed_search_settings_path() -> Option<PathBuf> {
 }
 
 fn search_config_exists() -> bool {
-    search_config_path().map(|path| path.exists()).unwrap_or(false)
+    search_config_path()
+        .map(|path| path.exists())
+        .unwrap_or(false)
 }
 
 fn docker_installed() -> bool {
@@ -4970,7 +4976,10 @@ fn docker_compose_available() -> bool {
 
 fn run_docker_compose(args: &[&str]) -> io::Result<std::process::Output> {
     if docker_installed() {
-        let output = Command::new("docker").args(["compose"]).args(args).output()?;
+        let output = Command::new("docker")
+            .args(["compose"])
+            .args(args)
+            .output()?;
         if output.status.success() {
             return Ok(output);
         }
@@ -5010,7 +5019,8 @@ fn parse_toml_bool(value: &str) -> bool {
 }
 
 fn load_search_config() -> io::Result<SearchConfig> {
-    let path = search_config_path().ok_or_else(|| io::Error::other("unable to resolve project root"))?;
+    let path =
+        search_config_path().ok_or_else(|| io::Error::other("unable to resolve project root"))?;
     let content = fs::read_to_string(&path)?;
     let mut section = String::new();
     let mut enabled = None;
@@ -5104,7 +5114,9 @@ fn probe_search_health(config: &SearchConfig) -> io::Result<bool> {
         return Ok(!stdout.trim().is_empty());
     }
 
-    Err(io::Error::other("curl or wget is required to verify managed search health"))
+    Err(io::Error::other(
+        "curl or wget is required to verify managed search health",
+    ))
 }
 
 fn load_search_status() -> SearchStatusSummary {
@@ -5207,7 +5219,10 @@ fn load_search_status() -> SearchStatusSummary {
             managed: config.managed,
             runtime_status: "healthy".to_string(),
             healthy: true,
-            message: format!("Managed SearXNG is running and healthy at {}", config.base_url),
+            message: format!(
+                "Managed SearXNG is running and healthy at {}",
+                config.base_url
+            ),
         },
         Ok(false) => SearchStatusSummary {
             configured: true,
@@ -5233,7 +5248,8 @@ fn project_bin_path(name: &str) -> Option<PathBuf> {
 }
 
 fn run_project_bin_capture(name: &str, args: &[&str]) -> io::Result<std::process::Output> {
-    let path = project_bin_path(name).ok_or_else(|| io::Error::other("unable to resolve project root"))?;
+    let path =
+        project_bin_path(name).ok_or_else(|| io::Error::other("unable to resolve project root"))?;
     Command::new(path).args(args).output()
 }
 
@@ -5294,7 +5310,10 @@ fn push_search_job_detail(lines: &mut Vec<Line<'static>>, app: &App, action: &st
     if let Some(job) = app.search_job.as_ref().filter(|job| job.action == action) {
         lines.push(Line::from(""));
         lines.push(Line::from(format!("Running: {}", job.action)));
-        lines.push(Line::from(format!("Log: {}", job.log_path.to_string_lossy())));
+        lines.push(Line::from(format!(
+            "Log: {}",
+            job.log_path.to_string_lossy()
+        )));
         lines.push(Line::from(
             "PgUp/PgDn scroll · x cancel · Shift+O open full log",
         ));
@@ -5317,7 +5336,10 @@ fn push_search_job_detail(lines: &mut Vec<Line<'static>>, app: &App, action: &st
         }
     } else if let Some(log_path) = latest_search_log_path() {
         lines.push(Line::from(""));
-        lines.push(Line::from(format!("Latest log: {}", log_path.to_string_lossy())));
+        lines.push(Line::from(format!(
+            "Latest log: {}",
+            log_path.to_string_lossy()
+        )));
         lines.push(Line::from("Shift+O opens the full log in pager."));
     }
 }
@@ -5435,10 +5457,14 @@ fn enable_managed_search() -> io::Result<String> {
         ));
     }
 
-    let config_path = search_config_path().ok_or_else(|| io::Error::other("unable to resolve project root"))?;
-    let service_dir = managed_search_dir().ok_or_else(|| io::Error::other("unable to resolve project root"))?;
-    let compose_path = managed_search_compose_path().ok_or_else(|| io::Error::other("unable to resolve project root"))?;
-    let settings_path = managed_search_settings_path().ok_or_else(|| io::Error::other("unable to resolve project root"))?;
+    let config_path =
+        search_config_path().ok_or_else(|| io::Error::other("unable to resolve project root"))?;
+    let service_dir =
+        managed_search_dir().ok_or_else(|| io::Error::other("unable to resolve project root"))?;
+    let compose_path = managed_search_compose_path()
+        .ok_or_else(|| io::Error::other("unable to resolve project root"))?;
+    let settings_path = managed_search_settings_path()
+        .ok_or_else(|| io::Error::other("unable to resolve project root"))?;
 
     fs::create_dir_all(config_path.parent().unwrap_or(Path::new(".")))?;
     fs::create_dir_all(&service_dir)?;
@@ -5446,7 +5472,12 @@ fn enable_managed_search() -> io::Result<String> {
     fs::write(&compose_path, managed_search_compose_contents())?;
     fs::write(&settings_path, managed_search_settings_contents())?;
 
-    Ok("Managed search enabled (.aoc/search.toml + .aoc/services/searxng/* written)".to_string())
+    let browser_skill_message = install_agent_browser_skill()?;
+    let research_skill_message = install_web_research_skill()?;
+
+    Ok(format!(
+        "Managed search enabled (.aoc/search.toml + .aoc/services/searxng/* written); {browser_skill_message}; {research_skill_message}"
+    ))
 }
 
 fn web_research_skill_installed() -> bool {

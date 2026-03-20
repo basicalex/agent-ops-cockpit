@@ -716,6 +716,7 @@ apt_updated=0
 # 1. Install Scripts
 log "Installing scripts..."
 for f in "$ROOT_DIR/bin/"*; do
+  [[ -f "$f" ]] || continue
   filename=$(basename "$f")
   # Skip micro if it's there (it shouldn't be, but just in case)
   [[ "$filename" == "micro" ]] && continue

@@ -343,7 +343,10 @@ Alt+C can:
 - write `.aoc/services/searxng/docker-compose.yml`
 - write `.aoc/services/searxng/settings.yml`
 - start/verify the managed SearXNG container
+- sync `.pi/skills/agent-browser/SKILL.md`
 - seed `.pi/skills/web-research/SKILL.md`
+
+When you enable managed local search from Alt+C, AOC now also ensures both PI skills are seeded so the repo gets the full browser + search workflow guidance.
 
 Canonical phase-1 paths:
 

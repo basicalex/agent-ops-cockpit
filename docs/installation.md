@@ -216,7 +216,10 @@ This flow can:
 - generate `.aoc/services/searxng/docker-compose.yml`
 - generate `.aoc/services/searxng/settings.yml`
 - start/verify the local search service
+- sync `.pi/skills/agent-browser/SKILL.md`
 - seed `.pi/skills/web-research/SKILL.md`
+
+Enabling managed local search also ensures both PI skills are present so agents can use the intended search-first, browse-second workflow right away.
 
 CLI verification after enabling:
 
