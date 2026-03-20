@@ -1,0 +1,25 @@
+use_default_settings: true
+server:
+  secret_key: "aoc-searxng-local-dev-key"
+  bind_address: "0.0.0.0"
+  port: 8080
+  limiter: false
+search:
+  safe_search: 0
+  autocomplete: ""
+  formats:
+    - html
+    - json
+    - csv
+    - rss
+engines:
+  - name: google
+    disabled: true
+  - name: duckduckgo
+    disabled: true
+  - name: brave
+    disabled: true
+  - name: ahmia
+    disabled: true
+  - name: torch
+    disabled: true

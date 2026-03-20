@@ -108,6 +108,14 @@ struct AgentBrowserJob {
     child: Child,
 }
 
+#[derive(Debug)]
+struct SearchJob {
+    action: String,
+    success_message: String,
+    log_path: PathBuf,
+    child: Child,
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum ThemeSource {
     Preset,
@@ -324,6 +332,11 @@ struct App {
     agent_browser_runtime_ready: bool,
     agent_browser_log_tail: Vec<String>,
     agent_browser_log_scroll: usize,
+    search_job: Option<SearchJob>,
+    search_log_tail: Vec<String>,
+    search_log_scroll: usize,
+    search_start_last_status: String,
+    search_verify_last_status: String,
     search_status_checked: bool,
     search_status: SearchStatusSummary,
     pending_moremotion_clone_source: Option<PathBuf>,
@@ -416,6 +429,11 @@ impl App {
             agent_browser_runtime_ready: false,
             agent_browser_log_tail: Vec::new(),
             agent_browser_log_scroll: 0,
+            search_job: None,
+            search_log_tail: Vec::new(),
+            search_log_scroll: 0,
+            search_start_last_status: "idle".to_string(),
+            search_verify_last_status: "idle".to_string(),
             search_status_checked: false,
             search_status: SearchStatusSummary::default(),
             pending_moremotion_clone_source: None,
@@ -1200,14 +1218,59 @@ impl App {
     }
 
     fn run_search_start_or_verify_action(&mut self) {
-        match start_or_verify_managed_search_via_cli() {
-            Ok(message) => {
-                self.refresh_search_status_quiet();
-                self.set_status(message);
+        if self.search_job.is_some() {
+            self.set_status("Search action already running");
+            return;
+        }
+
+        self.search_start_last_status = "running".to_string();
+        match spawn_search_command(
+            "start-verify",
+            "Managed search start/verify completed",
+            "aoc-search",
+            &["start", "--wait"],
+        ) {
+            Ok(job) => {
+                let log_path = job.log_path.to_string_lossy().to_string();
+                self.search_log_tail.clear();
+                self.search_log_scroll = 0;
+                self.search_job = Some(job);
+                self.set_status(format!(
+                    "Managed search start/verify started (logs: {log_path})"
+                ));
             }
             Err(err) => {
-                self.refresh_search_status_quiet();
+                self.search_start_last_status = format!("failed to start: {err}");
                 self.set_status(format!("Managed search start/verify failed: {err}"));
+            }
+        }
+    }
+
+    fn run_web_research_verify_action(&mut self) {
+        if self.search_job.is_some() {
+            self.set_status("Search action already running");
+            return;
+        }
+
+        self.search_verify_last_status = "running".to_string();
+        match spawn_search_command(
+            "web-smoke",
+            "Web research stack verification passed",
+            "aoc-web-smoke",
+            &[],
+        ) {
+            Ok(job) => {
+                let log_path = job.log_path.to_string_lossy().to_string();
+                self.search_log_tail.clear();
+                self.search_log_scroll = 0;
+                self.search_job = Some(job);
+                self.set_status(format!(
+                    "Web research stack verification started (logs: {log_path})"
+                ));
+            }
+            Err(err) => {
+                self.search_verify_last_status = format!("failed to start: {err}");
+                self.set_status(format!("Web research verification failed: {err}"));
             }
         }
     }
@@ -1314,6 +1377,20 @@ impl App {
         self.agent_browser_log_scroll = next.min(max_scroll);
     }
 
+    fn scroll_search_log(&mut self, delta: isize) {
+        if self.search_log_tail.is_empty() {
+            self.search_log_scroll = 0;
+            return;
+        }
+        let max_scroll = self.search_log_tail.len().saturating_sub(1);
+        let next = if delta.is_negative() {
+            self.search_log_scroll.saturating_sub(delta.unsigned_abs())
+        } else {
+            self.search_log_scroll.saturating_add(delta as usize)
+        };
+        self.search_log_scroll = next.min(max_scroll);
+    }
+
     fn cancel_agent_browser_job(&mut self) {
         let Some(mut job) = self.agent_browser_job.take() else {
             self.set_status("No Agent Browser action is running");
@@ -1341,6 +1418,45 @@ impl App {
 
         let Some(log_path) = log_path else {
             self.set_status("No Agent Browser log available yet");
+            return;
+        };
+
+        match open_log_in_pager(&log_path) {
+            Ok(()) => self.set_status(format!("Viewed log {}", log_path.to_string_lossy())),
+            Err(err) => self.set_status(format!("Open log failed: {err}")),
+        }
+    }
+
+    fn cancel_search_job(&mut self) {
+        let Some(mut job) = self.search_job.take() else {
+            self.set_status("No search action is running");
+            return;
+        };
+
+        let action = job.action.clone();
+        let _ = job.child.kill();
+        let _ = job.child.wait();
+        if let Ok(lines) = tail_file_lines(&job.log_path, 200, 32 * 1024) {
+            self.search_log_tail = lines;
+        }
+        self.refresh_search_status_quiet();
+        self.set_search_action_last_status(&action, "cancelled".to_string());
+        self.set_status(format!(
+            "Cancelled search action {} (log: {})",
+            job.action,
+            job.log_path.to_string_lossy()
+        ));
+    }
+
+    fn open_search_log(&mut self) {
+        let log_path = self
+            .search_job
+            .as_ref()
+            .map(|job| job.log_path.clone())
+            .or_else(|| latest_search_log_path());
+
+        let Some(log_path) = log_path else {
+            self.set_status("No search log available yet");
             return;
         };
 
@@ -1484,6 +1600,67 @@ impl App {
         }
     }
 
+    fn set_search_action_last_status(&mut self, action: &str, status: String) {
+        match action {
+            "start-verify" => self.search_start_last_status = status,
+            "web-smoke" => self.search_verify_last_status = status,
+            _ => {}
+        }
+    }
+
+    fn poll_search_job(&mut self) {
+        let mut completed: Option<(String, String, ExitStatus, PathBuf)> = None;
+
+        if let Some(job) = self.search_job.as_mut() {
+            if let Ok(lines) = tail_file_lines(&job.log_path, 200, 32 * 1024) {
+                self.search_log_tail = lines;
+                let max_scroll = self.search_log_tail.len().saturating_sub(1);
+                self.search_log_scroll = self.search_log_scroll.min(max_scroll);
+            }
+
+            match job.child.try_wait() {
+                Ok(Some(status)) => {
+                    completed = Some((
+                        job.action.clone(),
+                        job.success_message.clone(),
+                        status,
+                        job.log_path.clone(),
+                    ));
+                }
+                Ok(None) => {}
+                Err(err) => {
+                    let action = job.action.clone();
+                    self.search_job = None;
+                    self.refresh_search_status_quiet();
+                    self.set_search_action_last_status(&action, format!("poll error: {err}"));
+                    self.set_status(format!("Search job poll failed: {err}"));
+                    return;
+                }
+            }
+        }
+
+        if let Some((action, success_message, status, log_path)) = completed {
+            self.search_job = None;
+            if let Ok(lines) = tail_file_lines(&log_path, 200, 32 * 1024) {
+                self.search_log_tail = lines;
+                let max_scroll = self.search_log_tail.len().saturating_sub(1);
+                self.search_log_scroll = self.search_log_scroll.min(max_scroll);
+            }
+            self.refresh_search_status_quiet();
+
+            if status.success() {
+                self.set_search_action_last_status(&action, "passed".to_string());
+                self.set_status(format!("{success_message} (log: {})", log_path.to_string_lossy()));
+            } else {
+                self.set_search_action_last_status(&action, format!("failed ({status})"));
+                self.set_status(format!(
+                    "Search action {action} failed with status {status} (log: {})",
+                    log_path.to_string_lossy()
+                ));
+            }
+        }
+    }
+
     fn run_selected_rtk_action(&mut self) {
         match self.rtk_actions_state.selected().unwrap_or(0) {
             0 => self.refresh_rtk_status(),
@@ -1523,6 +1700,7 @@ impl App {
     fn tick(&mut self) {
         self.flush_pending_theme_preview();
         self.poll_agent_browser_job();
+        self.poll_search_job();
 
         if self.pane_rename_remaining == 0 {
             return;
@@ -1782,6 +1960,14 @@ fn handle_key_normal(app: &mut App, key: KeyEvent) {
         {
             app.scroll_agent_browser_log(8);
         }
+        KeyCode::PageDown
+            if app.active_tab == Tab::Defaults
+                && app.focus == Focus::Detail
+                && app.settings_section == SettingsSection::ToolsAgentBrowser
+                && matches!(app.selected_settings_index(), 4 | 5) =>
+        {
+            app.scroll_search_log(8);
+        }
         KeyCode::PageUp
             if app.active_tab == Tab::Defaults
                 && app.focus == Focus::Detail
@@ -1789,6 +1975,14 @@ fn handle_key_normal(app: &mut App, key: KeyEvent) {
                 && app.selected_settings_index() == 0 =>
         {
             app.scroll_agent_browser_log(-8);
+        }
+        KeyCode::PageUp
+            if app.active_tab == Tab::Defaults
+                && app.focus == Focus::Detail
+                && app.settings_section == SettingsSection::ToolsAgentBrowser
+                && matches!(app.selected_settings_index(), 4 | 5) =>
+        {
+            app.scroll_search_log(-8);
         }
         KeyCode::Char('x')
             if app.active_tab == Tab::Defaults
@@ -1798,6 +1992,14 @@ fn handle_key_normal(app: &mut App, key: KeyEvent) {
         {
             app.cancel_agent_browser_job();
         }
+        KeyCode::Char('x')
+            if app.active_tab == Tab::Defaults
+                && app.focus == Focus::Detail
+                && app.settings_section == SettingsSection::ToolsAgentBrowser
+                && matches!(app.selected_settings_index(), 4 | 5) =>
+        {
+            app.cancel_search_job();
+        }
         KeyCode::Char('O')
             if app.active_tab == Tab::Defaults
                 && app.focus == Focus::Detail
@@ -1805,6 +2007,14 @@ fn handle_key_normal(app: &mut App, key: KeyEvent) {
                 && app.selected_settings_index() == 0 =>
         {
             app.open_agent_browser_log();
+        }
+        KeyCode::Char('O')
+            if app.active_tab == Tab::Defaults
+                && app.focus == Focus::Detail
+                && app.settings_section == SettingsSection::ToolsAgentBrowser
+                && matches!(app.selected_settings_index(), 4 | 5) =>
+        {
+            app.open_search_log();
         }
         KeyCode::Char('?') => {
             app.mode = Mode::Help;
@@ -2142,7 +2352,8 @@ fn activate_selection(app: &mut App) {
                     2 => app.run_web_research_skill_action(),
                     3 => app.run_search_enable_action(),
                     4 => app.run_search_start_or_verify_action(),
-                    5 => app.set_settings_section(SettingsSection::Tools),
+                    5 => app.run_web_research_verify_action(),
+                    6 => app.set_settings_section(SettingsSection::Tools),
                     _ => {}
                 }
             }
@@ -2387,8 +2598,31 @@ fn draw_defaults(frame: &mut ratatui::Frame, area: Rect, app: &mut App, focused:
                     search_summary(&app.search_status)
                 )),
                 ListItem::new(format!(
-                    "Start/verify local search · {}",
-                    search_summary(&app.search_status)
+                    "Start/verify local search · {}{}",
+                    search_summary(&app.search_status),
+                    if app
+                        .search_job
+                        .as_ref()
+                        .map(|job| job.action == "start-verify")
+                        .unwrap_or(false)
+                    {
+                        " · running"
+                    } else {
+                        ""
+                    }
+                )),
+                ListItem::new(format!(
+                    "Verify web research stack{}",
+                    if app
+                        .search_job
+                        .as_ref()
+                        .map(|job| job.action == "web-smoke")
+                        .unwrap_or(false)
+                    {
+                        " · running"
+                    } else {
+                        ""
+                    }
                 )),
                 ListItem::new("Back"),
             ];
@@ -2772,7 +3006,7 @@ fn draw_help_modal(frame: &mut ratatui::Frame, area: Rect) {
         Line::from("  t      jump to Theme section"),
         Line::from("  Tools includes RTK, agent installers, PI compaction, Agent Browser, Vercel CLI, MoreMotion"),
         Line::from("  Right pane shows details for selected settings item"),
-        Line::from("  Agent Browser install: PgUp/PgDn scroll, x cancel, Shift+O open log"),
+        Line::from("  Agent Browser/search jobs: PgUp/PgDn scroll, x cancel, Shift+O open log"),
         Line::from("  Theme manager: j/k preview, Enter activate+persist, n/i/r actions"),
         Line::from(""),
         Line::from("Projects:"),
@@ -3108,6 +3342,7 @@ fn settings_tools_agent_browser_options() -> Vec<String> {
         "Install/update PI web research skill".to_string(),
         "Enable managed local search (SearXNG)".to_string(),
         "Start/verify local search".to_string(),
+        "Verify web research stack".to_string(),
         "Back".to_string(),
     ]
 }
@@ -3579,12 +3814,36 @@ fn settings_detail_lines(app: &App) -> Vec<Line<'static>> {
                     "Current note: {}",
                     app.search_status.message
                 )));
+                lines.push(Line::from(format!(
+                    "Job state: {}",
+                    app.search_start_last_status
+                )));
                 lines.push(Line::from(
-                    "Enter starts managed SearXNG if needed and verifies the configured health endpoint.",
+                    "Enter starts managed SearXNG in the background and verifies the configured health endpoint.",
                 ));
                 lines.push(Line::from(
                     "Use this after enabling search or to re-check a running local instance.",
                 ));
+                push_search_job_detail(&mut lines, app, "start-verify");
+            }
+            5 => {
+                lines.push(Line::from("Verify web research stack"));
+                lines.push(Line::from(""));
+                lines.push(Line::from(format!(
+                    "Current search status: {}",
+                    search_summary(&app.search_status)
+                )));
+                lines.push(Line::from(format!(
+                    "Job state: {}",
+                    app.search_verify_last_status
+                )));
+                lines.push(Line::from(
+                    "Enter runs bin/aoc-web-smoke in the background to verify search + browser integration.",
+                ));
+                lines.push(Line::from(
+                    "This confirms aoc-search can return results and agent-browser can open and inspect the top hit.",
+                ));
+                push_search_job_detail(&mut lines, app, "web-smoke");
             }
             _ => {
                 lines.push(Line::from("Back"));
@@ -5027,30 +5286,40 @@ fn load_search_status_via_cli() -> io::Result<SearchStatusSummary> {
     Ok(parse_search_status_json(&value))
 }
 
-fn start_or_verify_managed_search_via_cli() -> io::Result<String> {
-    let output = run_project_bin_capture("aoc-search", &["start", "--wait"])?;
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
-        let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
-        let message = if !stderr.is_empty() {
-            stderr
-        } else if !stdout.is_empty() {
-            stdout
-        } else {
-            format!("bin/aoc-search start --wait exited with {}", output.status)
-        };
-        return Err(io::Error::other(message));
-    }
-    let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
-    if stdout.is_empty() {
-        Ok("Managed search start/verify complete".to_string())
-    } else {
-        Ok(stdout)
-    }
-}
-
 fn search_summary(status: &SearchStatusSummary) -> String {
     status.runtime_status.clone()
+}
+
+fn push_search_job_detail(lines: &mut Vec<Line<'static>>, app: &App, action: &str) {
+    if let Some(job) = app.search_job.as_ref().filter(|job| job.action == action) {
+        lines.push(Line::from(""));
+        lines.push(Line::from(format!("Running: {}", job.action)));
+        lines.push(Line::from(format!("Log: {}", job.log_path.to_string_lossy())));
+        lines.push(Line::from(
+            "PgUp/PgDn scroll · x cancel · Shift+O open full log",
+        ));
+        if app.search_log_tail.is_empty() {
+            lines.push(Line::from("(waiting for log output...)"));
+        } else {
+            let visible = 12usize;
+            let max_start = app.search_log_tail.len().saturating_sub(visible);
+            let start = app.search_log_scroll.min(max_start);
+            let end = (start + visible).min(app.search_log_tail.len());
+            lines.push(Line::from(format!(
+                "Recent output: lines {}-{} of {}",
+                start + 1,
+                end,
+                app.search_log_tail.len()
+            )));
+            for line in &app.search_log_tail[start..end] {
+                lines.push(Line::from(format!("  {line}")));
+            }
+        }
+    } else if let Some(log_path) = latest_search_log_path() {
+        lines.push(Line::from(""));
+        lines.push(Line::from(format!("Latest log: {}", log_path.to_string_lossy())));
+        lines.push(Line::from("Shift+O opens the full log in pager."));
+    }
 }
 
 fn agent_browser_search_summary(
@@ -5123,7 +5392,7 @@ fn managed_search_compose_contents() -> String {
     ports:
       - "127.0.0.1:8888:8080"
     volumes:
-      - ./settings.yml:/etc/searxng/settings.yml:ro
+      - ./settings.yml:/etc/searxng/settings.yml
     restart: unless-stopped
 "#
     .to_string()
@@ -5135,6 +5404,7 @@ server:
   secret_key: "aoc-searxng-local-dev-key"
   bind_address: "0.0.0.0"
   port: 8080
+  limiter: false
 search:
   safe_search: 0
   autocomplete: ""
@@ -5143,6 +5413,17 @@ search:
     - json
     - csv
     - rss
+engines:
+  - name: google
+    disabled: true
+  - name: duckduckgo
+    disabled: true
+  - name: brave
+    disabled: true
+  - name: ahmia
+    disabled: true
+  - name: torch
+    disabled: true
 "#
     .to_string()
 }
@@ -5524,6 +5805,17 @@ fn agent_browser_log_path(action: &str) -> PathBuf {
     ))
 }
 
+fn search_log_path(action: &str) -> PathBuf {
+    let stamp = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_millis())
+        .unwrap_or(0);
+    env::temp_dir().join(format!(
+        "aoc-control-search-{action}-{}-{stamp}.log",
+        std::process::id()
+    ))
+}
+
 fn spawn_agent_browser_command(action: &str) -> io::Result<AgentBrowserJob> {
     let cmd = resolve_agent_browser_cmd(action);
     let log_path = agent_browser_log_path(action);
@@ -5539,6 +5831,33 @@ fn spawn_agent_browser_command(action: &str) -> io::Result<AgentBrowserJob> {
 
     Ok(AgentBrowserJob {
         action: action.to_string(),
+        log_path,
+        child,
+    })
+}
+
+fn spawn_search_command(
+    action: &str,
+    success_message: &str,
+    bin_name: &str,
+    args: &[&str],
+) -> io::Result<SearchJob> {
+    let path = project_bin_path(bin_name)
+        .ok_or_else(|| io::Error::other("unable to resolve project root"))?;
+    let log_path = search_log_path(action);
+    let log_file = fs::File::create(&log_path)?;
+    let log_file_err = log_file.try_clone()?;
+
+    let child = Command::new(path)
+        .args(args)
+        .stdin(Stdio::null())
+        .stdout(Stdio::from(log_file))
+        .stderr(Stdio::from(log_file_err))
+        .spawn()?;
+
+    Ok(SearchJob {
+        action: action.to_string(),
+        success_message: success_message.to_string(),
         log_path,
         child,
     })
@@ -5569,7 +5888,14 @@ fn tail_file_lines(path: &Path, max_lines: usize, max_bytes: usize) -> io::Resul
 }
 
 fn latest_agent_browser_log_path() -> Option<PathBuf> {
-    let prefix = "aoc-control-agent-browser-";
+    latest_log_path_with_prefix("aoc-control-agent-browser-")
+}
+
+fn latest_search_log_path() -> Option<PathBuf> {
+    latest_log_path_with_prefix("aoc-control-search-")
+}
+
+fn latest_log_path_with_prefix(prefix: &str) -> Option<PathBuf> {
     let mut entries: Vec<(SystemTime, PathBuf)> = fs::read_dir(env::temp_dir())
         .ok()?
         .filter_map(|entry| {

@@ -1,0 +1,65 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+QUERY="${1:-rust clap subcommands}"
+TMP_JSON="$(mktemp)"
+cleanup() {
+  rm -f "$TMP_JSON"
+}
+trap cleanup EXIT
+
+ok() { printf '[ok] %s\n' "$1"; }
+fail() { printf '[fail] %s\n' "$1" >&2; exit 1; }
+need() { command -v "$1" >/dev/null 2>&1 || fail "missing required command: $1"; }
+
+need python3
+need agent-browser
+
+if [[ -x "bin/aoc-search" ]]; then
+  SEARCH_CMD=("bin/aoc-search")
+elif command -v aoc-search >/dev/null 2>&1; then
+  SEARCH_CMD=("aoc-search")
+else
+  fail "missing aoc-search (expected ./bin/aoc-search or aoc-search in PATH)"
+fi
+
+status_out="$(${SEARCH_CMD[@]} status 2>&1)" || fail "aoc-search status failed: $status_out"
+ok "aoc-search status: $(printf '%s' "$status_out" | head -n 1)"
+
+agent_browser_version="$(agent-browser --version 2>&1 | head -n 1)" || fail "agent-browser --version failed"
+ok "agent-browser available: $agent_browser_version"
+
+query_out="$(${SEARCH_CMD[@]} query --json --limit 3 "$QUERY" >"$TMP_JSON" 2>&1)" || {
+  cat "$TMP_JSON" >&2 || true
+  fail "aoc-search query failed: $query_out"
+}
+
+url="$(python3 - "$TMP_JSON" <<'PY'
+import json, sys
+with open(sys.argv[1], 'r', encoding='utf-8') as f:
+    data = json.load(f)
+results = data.get('results') or []
+if not results:
+    raise SystemExit(1)
+print(results[0].get('url', '').strip())
+PY
+)" || fail "aoc-search returned no results for query: $QUERY"
+
+[[ -n "$url" ]] || fail "top search result URL was empty"
+ok "search returned a top result: $url"
+
+open_out="$(agent-browser open "$url" 2>&1)" || fail "agent-browser open failed: $open_out"
+ok "opened top result in agent-browser"
+
+wait_out="$(agent-browser wait --load networkidle 2>&1)" || fail "agent-browser wait failed: $wait_out"
+ok "page reached networkidle"
+
+title="$(agent-browser get title 2>&1 | tail -n 1)" || fail "agent-browser get title failed"
+[[ -n "$title" ]] || fail "page title was empty"
+ok "captured title: $title"
+
+snapshot_head="$(agent-browser snapshot -i 2>&1 | head -n 5)" || fail "agent-browser snapshot failed"
+[[ -n "$snapshot_head" ]] || fail "snapshot output was empty"
+ok "captured DOM snapshot refs"
+
+printf 'PASS: query="%s"\n' "$QUERY"

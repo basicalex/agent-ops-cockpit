@@ -199,6 +199,7 @@ aoc-search status
 aoc-search start --wait
 aoc-search health
 aoc-search query --limit 3 "rust clap subcommands"
+bin/aoc-web-smoke
 ```
 
 ### TeX Preview Support
@@ -263,7 +264,10 @@ Check runtime status first:
 aoc-search status
 aoc-search start --wait
 aoc-search health
+bin/aoc-web-smoke
 ```
+
+If `aoc-search` is healthy but `bin/aoc-web-smoke` fails, the likely issue is browser integration rather than search itself.
 
 Common fixes:
 

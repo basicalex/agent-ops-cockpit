@@ -345,6 +345,7 @@ aoc-search status
 aoc-search start --wait
 aoc-search health
 aoc-search query --limit 5 "rust clap subcommands"
+bin/aoc-web-smoke
 ```
 
 `aoc-search query` is intended to be search-first. Use `agent-browser` after you have candidate URLs or need rendered-page interaction.
