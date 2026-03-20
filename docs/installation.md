@@ -2,6 +2,25 @@
 
 Detailed installation instructions for Agent Ops Cockpit (AOC) on various platforms.
 
+## Recommended user path
+
+For most users:
+
+1. run the bootstrap installer
+2. run `aoc-doctor`
+3. run `aoc` inside a project
+4. press `Alt+C`
+5. use **Settings -> Tools** for PI runtime setup and optional integrations
+
+If you want web research, the short path is:
+
+- `Alt+C -> Settings -> Tools -> Agent Browser + Search`
+- install Agent Browser
+- seed PI browser + web research skills
+- enable managed local search
+- start/verify search
+- run `Verify web research stack`
+
 ## Table of Contents
 
 - [Quick Install](#quick-install)
@@ -101,11 +120,16 @@ If anything is missing, run:
 AOC_INIT_SKIP_BUILD=1 aoc-init
 ```
 
-### Agent CLI Installers from Alt+C
+### Agent CLI Installers and Tool Setup from Alt+C
 
-After install, open `Alt+C` -> **Settings -> Tools -> PI agent installer** to check runtime status and run install/update actions for `pi`.
+After install, open `Alt+C` -> **Settings -> Tools**.
 
-`Settings -> Tools` also includes nested actions for Agent Browser + Search (browser tool sync, web-research skill seeding, managed SearXNG enable/start), Vercel CLI (tool + PI skill sync + verify), and MoreMotion (`aoc-momo` host/local-source flows).
+Common actions:
+
+- **PI agent installer** — check runtime status and run install/update actions for `pi`
+- **Agent Browser + Search** — browser tool sync, web-research skill seeding, managed SearXNG enable/start, end-to-end verification
+- **Vercel CLI** — tool + PI skill sync + verify
+- **MoreMotion** — `aoc-momo` host/local-source flows
 
 Non-PI agent harnesses are removed from AOC (see [Deprecations and removals](deprecations.md)).
 
