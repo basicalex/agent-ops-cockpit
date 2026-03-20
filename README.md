@@ -7,9 +7,15 @@
 
 > **The Distributed Cognitive Architecture for AI-Assisted Development**
 
-AOC (Agent Ops Cockpit) is a terminal-native workspace that brings **context-aware AI agents**, **integrated task management**, and **project memory** together in a unified Zellij layout.
+AOC (Agent Ops Cockpit) is a terminal-first AI workspace built around **Zellij**, a persistent **PI coding agent**, **project memory**, **Taskmaster**, and an **Alt+C control pane** for installing and operating optional integrations.
 
-[📸 Screenshot](./docs/assets/aoc1.png) | [📖 Quick Start](#quick-start) | [🔧 Installation](#installation) | [📚 Documentation](#documentation)
+Use it to:
+- run a persistent coding agent inside a project-aware terminal workspace
+- keep project context and architectural memory in-repo
+- manage work through Taskmaster without leaving the terminal
+- enable optional web research with **Agent Browser + managed local search**
+
+[📸 Screenshot](./docs/assets/aoc1.png) | [📖 Quick Start](#quick-start) | [🕹️ Alt+C Control](#-altc-control-pane) | [🔧 Installation](#installation) | [📚 Documentation](#documentation)
 
 ---
 
@@ -64,6 +70,29 @@ AOC implements a **Distributed Cognitive Architecture** that separates concerns 
 
 ---
 
+## 🚦 Start Here
+
+Most users only need this flow:
+
+1. Install AOC
+2. Run `aoc` inside a project
+3. Press `Alt+C` to open the control pane
+4. Use **Settings -> Tools** to install/configure optional integrations
+5. Run `aoc-doctor` if something looks off
+
+If you want optional web research, go to:
+
+- `Alt+C -> Settings -> Tools -> Agent Browser + Search`
+
+and run:
+
+1. `Install/update Agent Browser tool`
+2. `Install/update PI skill`
+3. `Install/update PI web research skill`
+4. `Enable managed local search (SearXNG)`
+5. `Start/verify local search`
+6. `Verify web research stack`
+
 ## 🚀 Quick Start
 
 ### One-Line Install
@@ -93,6 +122,22 @@ That's it. AOC will:
 aoc-doctor
 ```
 
+### After Install
+
+Do this first:
+
+```bash
+aoc-doctor
+cd ~/your-project
+aoc
+```
+
+Then inside AOC:
+- use Yazi to move around the repo
+- use the PI pane for coding work
+- use Taskmaster for active tasks
+- press `Alt+C` for operator/configuration actions
+
 ### Next Steps
 
 Choose your path:
@@ -105,7 +150,20 @@ Choose your path:
 
 ---
 
+## 🎯 Core Workflow
+
+AOC is easiest to understand as four core pieces:
+
+1. **PI runtime** for coding and terminal collaboration
+2. **Taskmaster** for active work tracking
+3. **AOC memory/context** for project continuity
+4. **Alt+C** for operator controls and integrations
+
+Optional integrations like web research, Vercel, and MoreMotion layer on top of that core.
+
 ## 🎯 Key Features
+
+### Core Features
 
 ### 1. PI-Only Agent Runtime
 
@@ -226,6 +284,58 @@ Optional tuning via env vars:
 - `AOC_YAZI_PANE_COLLAPSE_RIGHT_COLUMN=1|0` (default `1`) + `AOC_YAZI_RIGHT_COLUMN_COLLAPSE_STEPS=6` to temporarily shrink the right-side Pulse/Terminal column while Yazi is expanded
 
 **Preview support:** Images, PDFs, SVGs, LaTeX, code with syntax highlighting
+
+## 🕹️ Alt+C Control Pane
+
+`Alt+C` opens `aoc-control`, the operator surface for AOC.
+
+Use it for:
+- checking runtime/tool status
+- PI installer actions
+- RTK routing controls
+- PI compaction presets
+- Agent Browser + Search setup
+- Vercel CLI setup
+- MoreMotion setup flows
+
+The right-hand detail pane explains the currently selected action, and long-running setup flows now run asynchronously where appropriate.
+
+### Agent Browser + Search
+
+AOC supports a **search-first, browse-second** web research workflow:
+
+- `aoc-search` queries managed local SearXNG
+- `agent-browser` opens and inspects real web pages
+- PI skills teach agents to search first, browse second
+
+This stack is:
+- **opt-in**
+- **per-repo**
+- backed by **Docker + Docker Compose** for managed search
+
+Recommended setup flow:
+
+1. `Alt+C -> Settings -> Tools -> Agent Browser + Search`
+2. Install/update Agent Browser
+3. Install/update PI browser skill
+4. Install/update PI web research skill
+5. Enable managed local search
+6. Start/verify local search
+7. Verify web research stack
+
+CLI equivalents:
+
+```bash
+aoc-search status
+aoc-search start --wait
+aoc-search health
+aoc-search query --limit 5 "rust clap subcommands"
+bin/aoc-web-smoke
+```
+
+If `aoc-search` is healthy but `bin/aoc-web-smoke` fails, search is up but browser integration still needs attention.
+
+### Optional Integrations and Advanced Workflows
 
 ### 6. Custom Layouts ("AOC Modes")
 
@@ -428,7 +538,7 @@ aoc-theme set-default --name review-mode
 aoc-theme sync
 ```
 
-From `Alt+C` (`aoc-control`), open **Settings -> Tools** for nested controls (RTK, PI installer, Agent Browser tool/skill sync, Vercel CLI tool/skill sync, MoreMotion flows). The right-hand details pane explains each selected action.
+From `Alt+C` (`aoc-control`), open **Settings -> Tools** for nested controls (RTK, PI installer, PI compaction presets with selectable context-window math, Agent Browser + Search, Vercel CLI tool/skill sync, MoreMotion flows). See [Installation Guide](./docs/installation.md) for setup steps and [Configuration Guide](./docs/configuration.md) for path/env details.
 
 ### Environment Variables
 
@@ -484,10 +594,10 @@ cargo build --workspace
 
 ## 📚 Documentation
 
-**PI-first docs map (recommended reading order):**
-1. [Installation Guide](./docs/installation.md) — install + post-install setup contract
-2. [Agents](./docs/agents.md) — canonical `.pi/**` runtime contract and migration checklist
-3. [Configuration Guide](./docs/configuration.md) — env vars, RTK, and PI-first init guarantees
+**Recommended reading order:**
+1. [Installation Guide](./docs/installation.md) — install, Alt+C setup, optional web research
+2. [Configuration Guide](./docs/configuration.md) — env vars, paths, Alt+C-managed config surfaces
+3. [Agents](./docs/agents.md) — canonical `.pi/**` runtime contract and migration checklist
 4. [Deprecations and removals](./docs/deprecations.md) — what was removed/simplified and current support boundary
 
 | Document | Description |

@@ -2,6 +2,14 @@
 
 Advanced configuration options for Agent Ops Cockpit (AOC).
 
+## Most users only need
+
+- `aoc-doctor` to verify install health
+- `Alt+C` for interactive runtime/tool setup
+- `Settings -> Tools -> PI agent installer` for PI runtime actions
+- `Settings -> Tools -> Agent Browser + Search` for optional web research
+- this document mainly as a reference for paths, env vars, and advanced tuning
+
 ## Table of Contents
 
 - [Environment Variables](#environment-variables)
@@ -289,7 +297,14 @@ PI installer behavior:
 
 ### Tools Integrations (Alt+C -> Settings -> Tools)
 
-AOC control also exposes nested tools actions for PI compaction, Agent Browser + Search, Vercel CLI, and MoreMotion.
+AOC control exposes nested tools actions for:
+
+- PI compaction
+- Agent Browser + Search
+- Vercel CLI
+- MoreMotion
+
+For most users, Alt+C is the preferred control plane over manual configuration edits.
 
 ### PI Compaction Presets (Alt+C -> Settings -> Tools -> PI compaction)
 
