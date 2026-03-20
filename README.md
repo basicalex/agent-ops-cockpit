@@ -277,13 +277,12 @@ Keyboard-driven file management with rich previews:
 | `g s` | Edit short-term memory |
 | `g S` | Jump to `.aoc/stm` |
 | `W` | Set widget media path |
-| `p` | Send to floating preview |
 
 Optional tuning via env vars:
 - `AOC_YAZI_PANE_EXPANDED_VIEW=2col|3col` (default `2col`)
 - `AOC_YAZI_PANE_COLLAPSE_RIGHT_COLUMN=1|0` (default `1`) + `AOC_YAZI_RIGHT_COLUMN_COLLAPSE_STEPS=6` to temporarily shrink the right-side Pulse/Terminal column while Yazi is expanded
 
-**Preview support:** Images, PDFs, SVGs, LaTeX, code with syntax highlighting
+**Preview support:** Native Yazi previews for files and images (including SVGs when native Yazi dependencies/backend are available)
 
 ## 🕹️ Alt+C Control Pane
 
@@ -645,9 +644,9 @@ aoc-rtk git status  # Manual RTK routing smoke check
 
 | Issue | Solution |
 |-------|----------|
-| Missing previews | Install `chafa`, `poppler-utils`, `librsvg2-bin` |
+| Missing previews | Run `aoc-doctor`; install `resvg`, `file`, and a supported Yazi image backend (`ueberzugpp` on Linux, or Kitty/kitten where applicable) |
 | Blank task list | Run `aoc-task init` then `tm list` |
-| Widget not rendering | Run `aoc-doctor`, check `ffmpeg` and `chafa` |
+| Widget not rendering | Run `aoc-doctor`; check `ffmpeg` and `chafa` for video/image widgets, and `resvg` for SVG widgets |
 | RLM not working | Build with `cargo build --release -p aoc-cli` |
 | TeX preview errors | Install `tectonic` via Cargo |
 

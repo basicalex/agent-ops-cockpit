@@ -457,11 +457,14 @@ PY
       fi
       ;;
     *.svg)
-      tmp="/tmp/aoc_widget.png"
-      if ! have rsvg-convert || ! have chafa; then
-        echo "Missing rsvg-convert or chafa for SVG rendering."
+      if ! have resvg || ! have chafa; then
+        echo "Missing resvg or chafa for SVG rendering."
       else
-        rsvg-convert "$path" -o "$tmp" >/dev/null 2>&1 || true
+        local tmpdir tmp
+        tmpdir="$(mktemp -d 2>/dev/null || mktemp -d -t 'aoc_widget_svg')"
+        tmp="$tmpdir/out.png"
+        trap 'rm -rf "$tmpdir"' RETURN
+        resvg "$path" "$tmp" >/dev/null 2>&1 || true
         if [[ -f "$tmp" ]]; then
           if (( offset_x > 0 || offset_y > 0 )); then
             chafa "${chafa_args[@]}" "$tmp" | render_pad "$offset_x" "$offset_y"

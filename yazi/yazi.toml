@@ -9,6 +9,5 @@ linemode = "none"
 mouse_events = ["click", "scroll"]
 
 [preview]
-script = "~/.config/yazi/preview.sh"
 max_width = 120
 max_height = 40

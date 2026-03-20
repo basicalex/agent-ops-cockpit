@@ -145,7 +145,7 @@ Non-PI agent harnesses are removed from AOC (see [Deprecations and removals](dep
 
 ```bash
 sudo apt-get update
-sudo apt-get install -y zellij fzf ffmpeg chafa poppler-utils librsvg2-bin ripgrep bat
+sudo apt-get install -y zellij fzf ffmpeg chafa poppler-utils ripgrep bat file resvg ueberzugpp
 
 # Optional: for .tex file previews
 sudo apt-get install -y tectonic
@@ -162,19 +162,19 @@ cargo install --locked --force yazi-build
 ### Fedora
 
 ```bash
-sudo dnf install -y zellij fzf ffmpeg chafa poppler-utils librsvg2-tools ripgrep bat
+sudo dnf install -y zellij fzf ffmpeg chafa poppler-utils ripgrep bat file resvg
 ```
 
 ### Arch Linux
 
 ```bash
-sudo pacman -S zellij fzf ffmpeg chafa poppler ripgrep bat
+sudo pacman -S zellij fzf ffmpeg chafa poppler ripgrep bat file resvg ueberzugpp
 ```
 
 ### Alpine
 
 ```bash
-sudo apk add zellij fzf ffmpeg chafa poppler-utils librsvg
+sudo apk add zellij fzf ffmpeg chafa poppler-utils ripgrep bat file resvg ueberzugpp
 ```
 
 ## WSL (Windows)
@@ -192,7 +192,7 @@ sudo apk add zellij fzf ffmpeg chafa poppler-utils librsvg
 macOS is fully supported. Install dependencies via Homebrew:
 
 ```bash
-brew install zellij yazi fzf ffmpeg chafa poppler librsvg ripgrep bat
+brew install zellij yazi fzf ffmpeg chafa poppler ripgrep bat file-formula resvg
 ```
 
 ## Optional Dependencies
@@ -280,7 +280,7 @@ This will check for:
 
 - [ ] `zellij --version` is >= 0.43.1
 - [ ] `yazi` opens and previews images
-- [ ] Widget pane renders an image after setting a media path
+- [ ] Widget pane renders an image after setting a media path (`resvg` also needed for SVG widget assets)
 - [ ] `aoc-doctor` reports all green
 
 ## Troubleshooting
@@ -371,15 +371,17 @@ bin/aoc-search start --wait
 
 ### Missing Previews
 
-Install required media tools:
+Install native Yazi preview dependencies:
 
 ```bash
 # Ubuntu/Debian
-sudo apt-get install chafa poppler-utils librsvg2-bin
+sudo apt-get install file resvg ueberzugpp
 
 # Verify
 aoc-doctor
 ```
+
+On Linux, `ueberzugpp` is the recommended native image backend. In Kitty, a Kitty/kitten backend may also work.
 
 ### Blank Task List
 
@@ -393,6 +395,10 @@ aoc-task list
 Or install `task-master` npm package if you prefer the CLI version.
 
 ### Widget Media Not Rendering
+
+For image/video widgets, confirm `chafa` (and `ffmpeg` for video) is installed.
+For SVG widget assets, also confirm `resvg` is installed.
+
 
 Run diagnostics:
 
