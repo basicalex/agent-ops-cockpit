@@ -304,7 +304,7 @@ AOC control exposes nested tools actions for:
 - Vercel CLI
 - MoreMotion
 
-For most users, Alt+C is the preferred control plane over manual configuration edits.
+For most users, Alt+C is the preferred control plane over manual configuration edits. See [Control Pane Guide](control-pane.md).
 
 ### PI Compaction Presets (Alt+C -> Settings -> Tools -> PI compaction)
 
