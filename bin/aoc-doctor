@@ -126,14 +126,33 @@ hint_for() {
         *) echo "Install ffmpeg via your package manager." ;;
       esac
       ;;
-    rsvg-convert)
+    resvg)
       case "$pm" in
-        apt) echo "sudo apt-get install -y librsvg2-bin" ;;
-        dnf) echo "sudo dnf install -y librsvg2-tools" ;;
-        pacman) echo "sudo pacman -S librsvg" ;;
-        brew) echo "brew install librsvg" ;;
-        apk) echo "sudo apk add librsvg" ;;
-        *) echo "Install librsvg (rsvg-convert) via your package manager." ;;
+        apt) echo "sudo apt-get install -y resvg" ;;
+        dnf) echo "sudo dnf install -y resvg" ;;
+        pacman) echo "sudo pacman -S resvg" ;;
+        brew) echo "brew install resvg" ;;
+        apk) echo "sudo apk add resvg" ;;
+        *) echo "Install resvg via your package manager." ;;
+      esac
+      ;;
+    file)
+      case "$pm" in
+        apt) echo "sudo apt-get install -y file" ;;
+        dnf) echo "sudo dnf install -y file" ;;
+        pacman) echo "sudo pacman -S file" ;;
+        brew) echo "brew install file-formula" ;;
+        apk) echo "sudo apk add file" ;;
+        *) echo "Install file(1) via your package manager." ;;
+      esac
+      ;;
+    ueberzugpp)
+      case "$pm" in
+        apt) echo "sudo apt-get install -y ueberzugpp" ;;
+        pacman) echo "sudo pacman -S ueberzugpp" ;;
+        brew) echo "brew install ueberzugpp" ;;
+        apk) echo "sudo apk add ueberzugpp" ;;
+        *) echo "Install ueberzugpp (recommended Linux backend for native Yazi image previews) or use a terminal with Kitty/Sixel support." ;;
       esac
       ;;
     pdftoppm)
@@ -206,7 +225,10 @@ hint_for() {
 }
 
 required=(zellij yazi fzf pi)
-optional=(tmux chafa ffmpeg rsvg-convert pdftoppm rg bat tectonic task-master python3 git)
+optional=(tmux chafa ffmpeg resvg file pdftoppm rg bat tectonic task-master python3 git)
+if [[ "$(uname -s)" == "Linux" ]]; then
+  optional+=(ueberzugpp)
+fi
 
 missing_required=()
 missing_optional=()
@@ -224,6 +246,10 @@ for tool in "${optional[@]}"; do
     fi
   elif [[ "$tool" == "task-master" ]]; then
     if [[ -z "$task_control_backend" ]]; then
+      missing_optional+=("$tool")
+    fi
+  elif [[ "$tool" == "ueberzugpp" ]]; then
+    if ! have ueberzugpp && ! have kitten && ! have kitty; then
       missing_optional+=("$tool")
     fi
   elif ! have "$tool"; then
@@ -281,6 +307,17 @@ if [[ "$quiet" -eq 0 ]]; then
         echo "  [ok] task control (via $task_control_backend)"
       else
         echo "  [missing] task control"
+        echo "    -> $(hint_for "$tool")"
+      fi
+    elif [[ "$tool" == "ueberzugpp" ]]; then
+      if have ueberzugpp; then
+        echo "  [ok] ueberzugpp"
+      elif have kitten; then
+        echo "  [ok] native Yazi image backend (via kitten)"
+      elif have kitty; then
+        echo "  [ok] native Yazi image backend (via kitty)"
+      else
+        echo "  [missing] native Yazi image backend"
         echo "    -> $(hint_for "$tool")"
       fi
     elif have "$tool"; then

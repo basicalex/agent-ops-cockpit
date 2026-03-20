@@ -657,19 +657,26 @@ install_tool() {
           ;;
       esac
       ;;
-    rsvg-convert)
+    resvg)
       case "$pm" in
-        apt)
-          pm_install librsvg2-bin || warn "Failed to install librsvg2-bin."
-          ;;
-        dnf)
-          pm_install librsvg2-tools || warn "Failed to install librsvg2-tools."
-          ;;
-        pacman|brew|apk|yum|zypper)
-          pm_install librsvg || warn "Failed to install librsvg."
+        apt|dnf|pacman|brew|apk|yum|zypper)
+          pm_install resvg || warn "Failed to install resvg."
           ;;
         *)
-          warn "No package manager mapping for librsvg."
+          warn "No package manager mapping for resvg."
+          ;;
+      esac
+      ;;
+    file)
+      pm_install file || warn "Failed to install file."
+      ;;
+    ueberzugpp)
+      case "$pm" in
+        apt|pacman|brew|apk)
+          pm_install ueberzugpp || warn "Failed to install ueberzugpp."
+          ;;
+        *)
+          warn "No package manager mapping for ueberzugpp."
           ;;
       esac
       ;;
@@ -911,14 +918,27 @@ fi
 if ! ensure_tool pdftoppm "poppler-utils (pdftoppm)"; then
   missing_optional+=("poppler-utils")
 fi
-if ! ensure_tool rsvg-convert "librsvg (rsvg-convert)"; then
-  missing_optional+=("librsvg")
+if ! ensure_tool resvg "resvg"; then
+  missing_optional+=("resvg")
+fi
+if ! ensure_tool file "file"; then
+  missing_optional+=("file")
 fi
 if ! ensure_tool rg "ripgrep (rg)"; then
   missing_optional+=("ripgrep")
 fi
 if ! ensure_bat; then
   missing_optional+=("bat")
+fi
+if [[ "$(uname -s)" == "Linux" ]]; then
+  if ! have ueberzugpp; then
+    log "No native Yazi image-preview backend detected; attempting ueberzugpp install..."
+    install_tool ueberzugpp
+  fi
+  if ! have ueberzugpp; then
+    missing_optional+=("ueberzugpp")
+    warn "Native Yazi image previews may be unavailable until a supported backend is installed (recommended: ueberzugpp; alternatives depend on your terminal, e.g. Kitty/Sixel)."
+  fi
 fi
 
 if ((${#missing_required[@]} > 0)); then
@@ -995,7 +1015,7 @@ sed \
 
 # Copy other configs
 install -m 0644 "$ROOT_DIR/yazi/yazi.toml" "$HOME/.config/yazi/yazi.toml"
-install -m 0755 "$ROOT_DIR/yazi/preview.sh" "$HOME/.config/yazi/preview.sh"
+rm -f "$HOME/.config/yazi/preview.sh"
 install -m 0644 "$ROOT_DIR/yazi/keymap.toml" "$HOME/.config/yazi/keymap.toml"
 install -m 0644 "$ROOT_DIR/yazi/theme.toml" "$HOME/.config/yazi/theme.toml"
 install -m 0644 "$ROOT_DIR/yazi/init.lua" "$HOME/.config/yazi/init.lua"

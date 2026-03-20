@@ -11,7 +11,6 @@ files=(
   install.sh
   install/bootstrap.sh
   scripts/opencode/*.sh
-  yazi/preview.sh
 )
 
 # Filter out non-files or directories just in case
