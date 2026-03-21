@@ -41,9 +41,9 @@ AOC implements a **Distributed Cognitive Architecture** that separates concerns 
 ┌─────────────────────────────────────────────────────────────────┐
 │                    AOC Workspace Layout                         │
 ├──────────────────┬──────────────────┬───────────────────────────┤
-│   📁 Yazi        │   🤖 Agent       │   📅 Widget               │
-│   File Manager   │   (pi)           │   Calendar/Media          │
-│                  │   PI-only mode   │   Clock                  │
+│   📁 Yazi        │   🤖 Agent       │   📡 Pulse                │
+│   File Manager   │   (pi)           │   Session telemetry       │
+│                  │   PI-only mode   │   + runtime status        │
 ├──────────────────┼──────────────────┴───────────────────────────┤
 │   Project Files  │   📋 Taskmaster TUI                          │
 │                  │   Interactive task & subtask management      │
@@ -452,7 +452,6 @@ When you start working in AOC:
 
 **Optional but Recommended:**
 - `tmux` (for agent scrollback)
-- `chafa` + `ffmpeg` (for media widgets)
 - `git` (for RLM and git integration)
 
 **Platform Support:**
@@ -461,36 +460,6 @@ When you start working in AOC:
 - ✅ WSL2 (Windows)
 
 **See [Installation Guide](./docs/installation.md) for distro-specific commands.**
-
----
-
-## 🎮 Widget Controls
-
-The top-right widget pane supports media, calendar, and clock:
-
-**Media & Gallery:**
-- `m` - Media mode
-- `g` - Gallery mode (from `~/Pictures/Zellij`)
-- `p` - Set media path
-- `Enter` - Toggle clean view (media/gallery)
-- `h/j/k/l` or arrows - Offset in clean view (`0` reset)
-- `G` - Save current settings as global defaults
-- `R` - Reset settings (media -> clear project asset + global defaults, gallery -> built-in defaults)
-
-Media path + media render settings are stored per project. Gallery settings are global and used when no project media is set.
-
-**Rendering Controls:**
-- `s` - Cycle ASCII styles
-- `C` - Cycle color depth
-- `D` - Cycle dither mode
-- `w` - Cycle detail
-- `r` - Edit font ratio
-- `+/-` - Adjust render size
-
-**Configure defaults via environment variables:**
-`AOC_WIDGET_SYMBOLS`, `AOC_WIDGET_COLORS`, `AOC_WIDGET_DITHER`, `AOC_WIDGET_SCALE`
-
-**See [Configuration Guide](./docs/configuration.md) for all options.**
 
 ---
 
@@ -560,8 +529,6 @@ RTK keeps agent context healthier by condensing noisy command output while prese
 **Agent Installer Overrides:** `AOC_PI_INSTALL_CMD`, `AOC_PI_UPDATE_CMD`
 
 **PI Runtime Tuning:** `AOC_PI_BIN`, `AOC_PI_LOW_TOKEN_MODE`, `AOC_PI_LOW_TOKEN_PROMPT`, `AOC_PI_APPEND_SYSTEM_PROMPT`, `AOC_PI_HANDSHAKE_MODE`
-
-**Widget:** `AOC_WIDGET_SYMBOLS`, `AOC_WIDGET_COLORS`, `AOC_WIDGET_DITHER`, `AOC_WIDGET_SCALE`
 
 **Clock:** `AOC_CLOCK_INTERVAL`, `AOC_CLOCK_TIME_FORMAT`, `AOC_CLOCK_BACKEND`, `AOC_CLOCK_FONT`
 
@@ -645,7 +612,6 @@ aoc-rtk git status  # Manual RTK routing smoke check
 |-------|----------|
 | Missing previews | Run `aoc-doctor`; install `file`, `resvg` (use Cargo on Ubuntu/Debian), and a supported Yazi image backend (`ueberzugpp` when available, or Kitty/kitten) |
 | Blank task list | Run `aoc-task init` then `tm list` |
-| Widget not rendering | Run `aoc-doctor`; check `ffmpeg` and `chafa` for video/image widgets, and `resvg` for SVG widgets |
 | RLM not working | Build with `cargo build --release -p aoc-cli` |
 | TeX preview errors | Install `tectonic` via Cargo |
 

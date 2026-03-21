@@ -70,7 +70,7 @@ Layout (default `~/.config/zellij/layouts/aoc.kdl`):
 - Agent pane launches with:
   `AOC_AGENT_RUN=1 exec ${AOC_AGENT_CMD:-aoc-agent-run}`
 - Taskmaster pane runs `aoc-taskmaster`.
-- Other panes (yazi, widget, clock, terminal) get `AOC_SESSION_ID` and
+- Other panes (yazi, pulse, terminal) get `AOC_SESSION_ID` and
   `AOC_HUB_ADDR` exported.
 
 ## 4) Startup Flow (New Tab)
