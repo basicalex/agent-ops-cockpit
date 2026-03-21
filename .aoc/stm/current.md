@@ -1,1 +1,2 @@
 - [2026-03-21 11:46] Validated that the live ~/.config/yazi/yazi.toml still had max_width=120 and max_height=40; removing those caps and clearing Yazi cache restored full inline Kitty preview width. Added high-quality native preview tuning (image_filter=lanczos3, image_quality=90) and removed the rejected popup preview POC binding/files.
+- [2026-03-21 11:50] Removed deprecated aoc-widget-set remnants: deleted the old helper script, removed the stale Yazi W binding, and scrubbed the README/uninstall references so current AOC no longer advertises removed widget-set behavior.
