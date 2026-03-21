@@ -14,6 +14,8 @@
 import type { ExtensionAPI, ExtensionContext } from "@mariozechner/pi-coding-agent";
 import { applyExtensionDefaults } from "./themeMap.ts";
 import { truncateToWidth, visibleWidth } from "@mariozechner/pi-tui";
+import * as fs from "node:fs";
+import { spawnSync } from "node:child_process";
 import { createConnection, type Socket } from "node:net";
 import { join } from "node:path";
 
@@ -32,6 +34,26 @@ type PendingCompactionPreparation = {
 	capturedAtMs: number;
 	firstKeptEntryId?: string;
 	tokensBefore?: number;
+};
+
+type SubagentStatus = "idle" | "running" | "success" | "warn" | "error";
+
+type SubagentIndicator = {
+	key: string;
+	label: string;
+	agent: string;
+	available: boolean;
+	status: SubagentStatus;
+};
+
+type PersistedSubagentJobRecord = {
+	jobId: string;
+	agent: string;
+	status: string;
+	createdAt?: number;
+	finishedAt?: number;
+	fallbackUsed?: boolean;
+	error?: string;
 };
 
 type ExtensionState = {
@@ -53,6 +75,8 @@ type ExtensionState = {
 	refreshTimer?: NodeJS.Timeout;
 	lastPulseRequestId?: string;
 	pendingCompactionPreparation?: PendingCompactionPreparation;
+	subagentIndicators: SubagentIndicator[];
+	lastSubagentRefreshAtMs?: number;
 };
 
 const T1_TARGET_TOKENS = 28_000;
@@ -63,6 +87,16 @@ const RUNNING_ANIMATION_STEP_MS = 117;
 const MIND_BAR_WIDTH = 10;
 const SESSION_START_ANIMATION_STEPS = Math.max(1, (MIND_BAR_WIDTH - 1) * 2);
 const SESSION_START_ANIMATION_MS = (SESSION_START_ANIMATION_STEPS + 1) * RUNNING_ANIMATION_STEP_MS;
+const SUBAGENT_ENTRY_TYPE = "aoc-subagent-job-v1";
+const SUBAGENT_REFRESH_INTERVAL_MS = 30_000;
+const SUBAGENT_RECENT_WINDOW_MS = 5 * 60 * 1000;
+const SUBAGENT_SPECS = [
+	{ key: "sc", label: "sc", agent: "scout-web-agent" },
+	{ key: "tst", label: "tst", agent: "testing-agent" },
+	{ key: "rvu", label: "rvu", agent: "code-review-agent" },
+	{ key: "ex", label: "ex", agent: "explorer-agent" },
+] as const;
+const SUBAGENT_SPINNER = ["—", "\\", "|", "/"] as const;
 
 const state: ExtensionState = {
 	initialized: false,
@@ -72,6 +106,7 @@ const state: ExtensionState = {
 	pulseConnected: false,
 	pulseBuffer: "",
 	pendingCompactionPreparation: undefined,
+	subagentIndicators: [],
 };
 
 function stableHashHex(input: string): string {
@@ -260,6 +295,102 @@ function parseMindProgress(input: any): MindFeedProgress | undefined {
 	};
 }
 
+function commandAvailable(command: string, args: string[]): boolean {
+	try {
+		const result = spawnSync(command, args, {
+			stdio: "ignore",
+			shell: false,
+			timeout: 4000,
+			env: process.env,
+		});
+		return !result.error && result.status === 0;
+	} catch {
+		return false;
+	}
+}
+
+function resolveSearchCommand(root: string): string {
+	const local = join(root, "bin", "aoc-search");
+	return fs.existsSync(local) ? local : "aoc-search";
+}
+
+function scoutAvailable(root: string): boolean {
+	const browserBin = process.env.AOC_AGENT_BROWSER_BIN?.trim() || "agent-browser";
+	return fs.existsSync(join(root, ".pi", "skills", "agent-browser", "SKILL.md"))
+		&& fs.existsSync(join(root, ".aoc", "search.toml"))
+		&& fs.existsSync(join(root, ".aoc", "services", "searxng", "docker-compose.yml"))
+		&& fs.existsSync(join(root, ".aoc", "services", "searxng", "settings.yml"))
+		&& commandAvailable(browserBin, ["--version"])
+		&& commandAvailable(resolveSearchCommand(root), ["health"]);
+}
+
+function subagentAvailable(root: string, agent: string): boolean {
+	if (agent === "scout-web-agent") return scoutAvailable(root);
+	return fs.existsSync(join(root, ".pi", "agents", `${agent}.md`));
+}
+
+function spinnerFrame(): string {
+	return SUBAGENT_SPINNER[Math.floor(Date.now() / RUNNING_ANIMATION_STEP_MS) % SUBAGENT_SPINNER.length];
+}
+
+function subagentGlyph(status: SubagentStatus): string {
+	switch (status) {
+		case "running":
+			return spinnerFrame();
+		case "success":
+			return "✓";
+		case "warn":
+			return "!";
+		case "error":
+			return "✗";
+		case "idle":
+		default:
+			return "·";
+	}
+}
+
+function refreshSubagentIndicators(ctx: ExtensionContext, force = false): void {
+	const now = Date.now();
+	if (!force && state.lastSubagentRefreshAtMs && now - state.lastSubagentRefreshAtMs < SUBAGENT_REFRESH_INTERVAL_MS) return;
+	const root = ctx.cwd ?? process.cwd();
+	const entries = ctx.sessionManager.getEntries?.() ?? [];
+	const latestByJob = new Map<string, PersistedSubagentJobRecord>();
+	for (const entry of entries) {
+		const rec = entry as any;
+		if (rec?.type !== "custom" || rec?.customType !== SUBAGENT_ENTRY_TYPE || !rec?.data) continue;
+		const data = rec.data as PersistedSubagentJobRecord;
+		if (!data?.jobId || !data?.agent) continue;
+		const prior = latestByJob.get(data.jobId);
+		if (!prior || (data.createdAt ?? 0) >= (prior.createdAt ?? 0) || (data.finishedAt ?? 0) >= (prior.finishedAt ?? 0)) {
+			latestByJob.set(data.jobId, data);
+		}
+	}
+	state.subagentIndicators = SUBAGENT_SPECS
+		.filter((spec) => subagentAvailable(root, spec.agent))
+		.map((spec) => {
+			const jobs = Array.from(latestByJob.values()).filter((job) => job.agent === spec.agent);
+			let status: SubagentStatus = "idle";
+			if (jobs.some((job) => job.status === "queued" || job.status === "running")) {
+				status = "running";
+			} else {
+				const recent = jobs
+					.filter((job) => typeof job.finishedAt === "number" && now - (job.finishedAt as number) <= SUBAGENT_RECENT_WINDOW_MS)
+					.sort((a, b) => (b.finishedAt ?? 0) - (a.finishedAt ?? 0))[0];
+				if (recent) {
+					if (recent.status === "success") status = "success";
+					else if (recent.status === "fallback" || recent.status === "stale" || recent.status === "cancelled" || recent.fallbackUsed) status = "warn";
+					else if (recent.status === "error") status = "error";
+				}
+			}
+			return { ...spec, available: true, status };
+		});
+	state.lastSubagentRefreshAtMs = now;
+}
+
+function renderSubagentTokens(): string[] {
+	return state.subagentIndicators.map((indicator) => `${indicator.label}${subagentGlyph(indicator.status)}`);
+}
+
 function composeCenteredFooterLine(left: string, center: string, right: string, width: number): string {
 	const leftWidth = visibleWidth(left);
 	const centerWidth = visibleWidth(center);
@@ -283,6 +414,55 @@ function composeCenteredFooterLine(left: string, center: string, right: string, 
 	return truncateToWidth(`${left}${gapLeft}${center}${gapRight}${right}`, width);
 }
 
+function composeFooterWithBridges(
+	left: string,
+	bridgeLeft: string,
+	center: string,
+	bridgeRight: string,
+	right: string,
+	width: number,
+): string {
+	const leftWidth = visibleWidth(left);
+	const bridgeLeftWidth = visibleWidth(bridgeLeft);
+	const centerWidth = visibleWidth(center);
+	const bridgeRightWidth = visibleWidth(bridgeRight);
+	const rightWidth = visibleWidth(right);
+	const minimum = leftWidth + centerWidth + rightWidth + 4;
+	if (minimum > width) {
+		return truncateToWidth(`${left} ${bridgeLeft} ${center} ${bridgeRight} ${right}`, width);
+	}
+
+	const rightStart = Math.max(0, width - rightWidth);
+	let centerStart = Math.floor((width - centerWidth) / 2);
+	centerStart = Math.max(centerStart, leftWidth + 2);
+	centerStart = Math.min(centerStart, rightStart - centerWidth - 2);
+	if (centerStart < leftWidth + 2 || centerStart + centerWidth >= rightStart - 1) {
+		return truncateToWidth(`${left} ${bridgeLeft} ${center} ${bridgeRight} ${right}`, width);
+	}
+
+	const leftGapStart = leftWidth;
+	const leftGapEnd = centerStart;
+	const leftGapWidth = leftGapEnd - leftGapStart;
+	const rightGapStart = centerStart + centerWidth;
+	const rightGapEnd = rightStart;
+	const rightGapWidth = rightGapEnd - rightGapStart;
+	if (leftGapWidth < bridgeLeftWidth + 2 || rightGapWidth < bridgeRightWidth + 2) {
+		return truncateToWidth(`${left} ${bridgeLeft} ${center} ${bridgeRight} ${right}`, width);
+	}
+
+	const leftBridgeStart = leftGapStart + Math.floor((leftGapWidth - bridgeLeftWidth) / 2);
+	const rightBridgeStart = rightGapStart + Math.floor((rightGapWidth - bridgeRightWidth) / 2);
+	const leftPad = " ".repeat(Math.max(0, leftBridgeStart - leftWidth));
+	const betweenLeftAndCenter = " ".repeat(Math.max(1, centerStart - (leftBridgeStart + bridgeLeftWidth)));
+	const betweenCenterAndRightBridge = " ".repeat(Math.max(1, rightBridgeStart - (rightGapStart)));
+	const tailPad = " ".repeat(Math.max(1, rightStart - (rightBridgeStart + bridgeRightWidth)));
+
+	return truncateToWidth(
+		`${left}${leftPad}${bridgeLeft}${betweenLeftAndCenter}${center}${betweenCenterAndRightBridge}${bridgeRight}${tailPad}${right}`,
+		width,
+	);
+}
+
 function renderFooter(width: number, _theme: any): string {
 	const ctx = state.ctx as any;
 	const model = ctx?.model?.id || "no-model";
@@ -292,14 +472,19 @@ function renderFooter(width: number, _theme: any): string {
 	const t0Tokens = state.mindProgress?.t0_estimated_tokens ?? state.filteredTokens;
 	const t1Target = state.mindProgress?.t1_target_tokens ?? T1_TARGET_TOKENS;
 	const mindLoadPct = Math.min(1, t0Tokens / Math.max(1, t1Target));
+	const tokens = renderSubagentTokens();
+	const leftBridge = [tokens[0], tokens[1]].filter(Boolean).join(" ");
+	const rightBridge = [tokens[2], tokens[3]].filter(Boolean).join(" ");
 	const mindPart = `✦ [${mindBar(mindLoadPct, state.mindStatus, MIND_BAR_WIDTH)}]✦`;
-	const ctxPart = `[${bar(ctxPct)}] ${Math.round(ctxPct * 100)}%`;
+	const leftPart = ` ${model}`;
+	const ctxPart = `[${bar(ctxPct)}] ${Math.round(ctxPct * 100)}% `;
 
-	return composeCenteredFooterLine(` ${model}`, mindPart, `${ctxPart} `, width);
+	return composeFooterWithBridges(leftPart, leftBridge, mindPart, rightBridge, ctxPart, width);
 }
 
 function applyFooter(ctx: ExtensionContext): void {
 	state.ctx = ctx;
+	refreshSubagentIndicators(ctx);
 	ctx.ui.setFooter((_tui: unknown, theme: any, _footerData: unknown) => ({
 		dispose: () => {},
 		invalidate() {},
@@ -617,6 +802,7 @@ function bootstrap(ctx: ExtensionContext, options?: { animateOnStart?: boolean }
 	}
 	applyExtensionDefaults(import.meta.url, ctx);
 	recomputeFilteredTokens(ctx);
+	refreshSubagentIndicators(ctx, true);
 	applyFooter(ctx);
 	startRefreshLoop(ctx);
 	startPulse(ctx);
@@ -637,6 +823,7 @@ export default function (pi: ExtensionAPI) {
 	pi.on("message_end", async (event, ctx) => {
 		maybeIngestMindEvent((event as any)?.message, ctx);
 		recomputeFilteredTokens(ctx);
+		refreshSubagentIndicators(ctx, true);
 		applyFooter(ctx);
 	});
 
@@ -678,6 +865,7 @@ export default function (pi: ExtensionAPI) {
 
 	pi.on("turn_end", async (_event, ctx) => {
 		recomputeFilteredTokens(ctx);
+		refreshSubagentIndicators(ctx, true);
 		applyFooter(ctx);
 	});
 

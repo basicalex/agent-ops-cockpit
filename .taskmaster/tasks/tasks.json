@@ -1,142 +1,4 @@
 {
-  "session-overseer": {
-    "tasks": [],
-    "aocPrd": {
-      "path": ".taskmaster/docs/prds/aoc-session-overseer_prd_rpg.md",
-      "updatedAt": "2026-03-09T10:16:58.342Z",
-      "version": 1
-    }
-  },
-  "safety": {
-    "tasks": [
-      {
-        "id": "77",
-        "title": "Add CI safety gates for Rust and shell",
-        "description": "Gate regressions in PRs by enforcing tests and lint checks.",
-        "details": "Update CI to run cargo test --workspace, cargo clippy --workspace --all-targets -- -D warnings, and rustfmt checks in addition to existing build and shell lint steps.",
-        "testStrategy": "Open a PR with an intentional warning/lint failure and verify CI blocks merge; verify clean branch passes all gates.",
-        "status": "done",
-        "dependencies": [],
-        "priority": "high",
-        "subtasks": [],
-        "aocPrd": null,
-        "updatedAt": "2026-02-20T08:27:34.225Z",
-        "activeAgent": false
-      },
-      {
-        "id": "78",
-        "title": "Fix installer smoke tests to validate PR code",
-        "description": "Ensure installer workflows test the code under review, not hardcoded main.",
-        "details": "Update installer smoke workflow to fetch bootstrap/install assets from the PR SHA or ref in pull_request context; keep main/tag behavior for push and release contexts.",
-        "testStrategy": "Run workflow on a PR that changes install/bootstrap.sh and confirm the smoke job executes updated PR logic.",
-        "status": "done",
-        "dependencies": [],
-        "priority": "high",
-        "subtasks": [],
-        "aocPrd": null,
-        "updatedAt": "2026-02-20T08:34:03.258Z",
-        "activeAgent": false
-      },
-      {
-        "id": "79",
-        "title": "Expand shellcheck coverage to all shipped scripts",
-        "description": "Increase shell lint coverage for operational scripts.",
-        "details": "Replace static file list in scripts/lint.sh with discovery of executable shell scripts in bin/ and install/, including aoc-agent-wrap, aoc-cleanup, aoc-theme, and aoc-utils.sh; keep any needed excludes explicit and documented.",
-        "testStrategy": "Run lint locally and in CI; verify newly included scripts are checked and failures are reported.",
-        "status": "done",
-        "dependencies": [],
-        "priority": "high",
-        "subtasks": [],
-        "aocPrd": null,
-        "updatedAt": "2026-02-20T08:27:34.232Z",
-        "activeAgent": false
-      },
-      {
-        "id": "80",
-        "title": "Add shell integration smoke tests for critical entrypoints",
-        "description": "Create executable safety net for core shell flows.",
-        "details": "Add non-interactive smoke tests for aoc-launch, aoc-new-tab, aoc-hub, aoc-mission-control-toggle, and aoc-agent-wrap in a controlled test harness with mocked dependencies where needed.",
-        "testStrategy": "Run test suite in CI and verify basic command behavior, exit codes, and no unbound variable regressions.",
-        "status": "done",
-        "dependencies": [],
-        "priority": "high",
-        "subtasks": [],
-        "aocPrd": null,
-        "updatedAt": "2026-02-20T08:27:34.255Z",
-        "activeAgent": false
-      },
-      {
-        "id": "81",
-        "title": "Add cross-process locking for task state writes",
-        "description": "Prevent lost updates in concurrent task operations.",
-        "details": "Implement file locking around read-modify-write paths for .taskmaster/tasks/tasks.json and .taskmaster/state.json in both aoc-cli and aoc-taskmaster, while preserving atomic temp-file rename semantics.",
-        "testStrategy": "Concurrent writer test: run two task mutations in parallel and verify both updates persist without JSON corruption.",
-        "status": "done",
-        "dependencies": [],
-        "priority": "high",
-        "subtasks": [],
-        "aocPrd": null,
-        "updatedAt": "2026-02-20T16:33:33.181Z",
-        "activeAgent": false
-      },
-      {
-        "id": "82",
-        "title": "Add file locking to aoc-mem append operations",
-        "description": "Make memory append operations safe under concurrency.",
-        "details": "Wrap aoc-mem add writes with flock (or robust fallback) and preserve append-only behavior for .aoc/memory.md across simultaneous agent writes.",
-        "testStrategy": "Execute concurrent aoc-mem add calls and verify all entries appear intact and ordered by timestamp.",
-        "status": "done",
-        "dependencies": [],
-        "priority": "high",
-        "subtasks": [],
-        "aocPrd": null,
-        "updatedAt": "2026-02-20T16:33:33.190Z",
-        "activeAgent": false
-      },
-      {
-        "id": "83",
-        "title": "Refactor aoc-agent-wrap cleanup to process-group lifecycle control",
-        "description": "Reduce orphaned process risk and simplify cleanup behavior.",
-        "details": "Move from broad /proc scanning kill logic to process-group-based child lifecycle management with deterministic signal escalation and clear ownership boundaries per pane instance.",
-        "testStrategy": "Spawn nested child processes from wrapped agent, terminate pane/session, and verify full process tree exits with no long-lived leftovers.",
-        "status": "done",
-        "dependencies": [],
-        "priority": "high",
-        "subtasks": [],
-        "aocPrd": null,
-        "updatedAt": "2026-02-20T17:22:35.982Z",
-        "activeAgent": false
-      },
-      {
-        "id": "84",
-        "title": "Extract aoc-cleanup Python heredoc into standalone module",
-        "description": "Improve maintainability and testability of cleanup logic.",
-        "details": "Move embedded Python from bin/aoc-cleanup into a dedicated script/module file, add unit-style tests for core selection logic, and keep CLI behavior backward compatible.",
-        "testStrategy": "Run cleanup in dry-run and execute modes before/after refactor and diff the resulting target selection output.",
-        "status": "done",
-        "dependencies": [],
-        "priority": "medium",
-        "subtasks": [],
-        "aocPrd": null,
-        "updatedAt": "2026-02-20T17:22:35.989Z",
-        "activeAgent": false
-      },
-      {
-        "id": "85",
-        "title": "Add telemetry secret redaction before broadcast",
-        "description": "Prevent accidental sensitive data leakage through telemetry channels.",
-        "details": "Add redaction filters in aoc-agent-wrap-rs output/tap pipeline before publishing to Pulse/WebSocket, covering common credential patterns and allowing safe extension.",
-        "testStrategy": "Feed known secret-like strings through telemetry path and verify published payloads contain redacted tokens only.",
-        "status": "done",
-        "dependencies": [],
-        "priority": "high",
-        "subtasks": [],
-        "aocPrd": null,
-        "updatedAt": "2026-02-20T07:41:24.309Z",
-        "activeAgent": false
-      }
-    ]
-  },
   "deprecation": {
     "tasks": [
       {
@@ -280,516 +142,6 @@
         "activeAgent": false
       }
     ]
-  },
-  "pi-terminal-ops": {
-    "tasks": [
-      {
-        "id": "176",
-        "title": "Implement AOC mux panes with PI-controlled tmux-backed runtime workflows",
-        "description": "Build an explicit AOC mux pane model where selected Zellij terminal panes can be promoted via aoc-mux into tmux-backed agent-controllable domains, with PI tools scoped to those mux panes and managed runtimes.",
-        "details": "Scope follows .taskmaster/docs/prds/pi_terminal_ops_prd_rpg.md. Keep Zellij as the outer workspace shell. Add aoc-mux activation for selected terminal panes, project-local mux/runtime registry state under .aoc/runtime, aoc-runtime for managed process lifecycle inside mux panes, tmux helpers for capture/send/split, and PI tools for mux list/status/capture/logs/run/send/split/stop. V1 mutating actions must target mux panes and managed runtimes only; do not grant arbitrary control over non-mux panes.",
-        "testStrategy": "Validate aoc-mux activation/registry behavior, runtime lifecycle (run/status/stop), tmux capture/send/split smoke flow inside mux panes, PI tool registration/output truncation/target scoping, and an operator acceptance flow that promotes the default terminal pane to a mux pane and runs a managed dev server without mutating non-mux panes.",
-        "status": "pending",
-        "dependencies": [],
-        "priority": "high",
-        "subtasks": [
-          {
-            "id": 1,
-            "title": "Define AOC mux identity, scope boundaries, and runtime registry schema",
-            "description": "Lock the mux pane concept, target identity model, mux-only mutation boundary, runtime metadata fields, and file layout under .aoc/runtime before implementation.",
-            "status": "pending",
-            "dependencies": []
-          },
-          {
-            "id": 2,
-            "title": "Implement aoc-mux activation and aoc-runtime lifecycle foundations",
-            "description": "Create aoc-mux to promote the current terminal pane into a tmux-backed AOC mux pane, persist mux registry state, and implement aoc-runtime run/status/stop for managed processes inside mux panes.",
-            "status": "pending",
-            "dependencies": []
-          },
-          {
-            "id": 3,
-            "title": "Build PI mux tools for discovery, capture, and managed control",
-            "description": "Register PI tools for mux_list, mux_status, mux_capture, mux_logs, mux_run_managed, mux_send, mux_split, and mux_stop_runtime, wired to the mux/runtime layers with read-first rollout and mux-only target scoping.",
-            "status": "pending",
-            "dependencies": []
-          },
-          {
-            "id": 4,
-            "title": "Add safety policy, docs, and mux-pane acceptance coverage",
-            "description": "Gate disruptive actions with confirm/deny policy, document mux pane workflows and layout guidance, and add end-to-end smoke coverage proving PI only mutates registered mux panes.",
-            "status": "pending",
-            "dependencies": []
-          },
-          {
-            "id": 5,
-            "title": "Add tmux helper layer for mux capture, send, and split",
-            "description": "Implement safe wrappers around tmux attach/list/capture-pane/send-keys/split-window so mux panes have a reliable inner control substrate without requiring broad Zellij automation.",
-            "status": "pending",
-            "dependencies": []
-          }
-        ],
-        "aocPrd": null,
-        "updatedAt": "2026-03-19T19:27:57.999Z",
-        "activeAgent": false
-      }
-    ],
-    "aocPrd": {
-      "path": ".taskmaster/docs/prds/pi_terminal_ops_prd_rpg.md",
-      "updatedAt": "2026-03-19T11:26:51.162Z",
-      "version": 1
-    }
-  },
-  "mission-control": {
-    "tasks": [
-      {
-        "id": "43",
-        "title": "Define Mission Control architecture and event schema (Rust)",
-        "description": "Document the Rust-native Mission Control ecosystem, session scoping, and data flows.",
-        "details": "Deliverables: update docs/mission-control.md for Rust components (aoc-hub-rs, aoc-agent-wrap-rs, aoc-taskmaster Ratatui TUI, aoc-mission-control Ratatui TUI); keep envelope fields, message types, env vars, limits; add Rust runtime/logging notes and concurrency/backpressure guidance; note existing Go docs/impl as reference for the port.\n\nProgress: Updated docs/mission-control.md for Rust-only stack; removed Go references and added Rust implementation/backpressure notes.",
-        "testStrategy": "Review doc for Rust component naming and schema completeness; validate JSON examples; confirm session_id derivation and local-only socket guidance.",
-        "status": "done",
-        "dependencies": [],
-        "priority": "high",
-        "subtasks": [],
-        "aocPrd": null,
-        "updatedAt": "2026-01-28T20:13:44.839Z",
-        "activeAgent": false
-      },
-      {
-        "id": "44",
-        "title": "Implement session-scoped status hub (Rust)",
-        "description": "Build a Rust WebSocket hub that aggregates agent updates and serves Mission Control and Taskmaster clients within a session.",
-        "details": "Deliverables: Rust aoc-hub-rs using tokio plus axum or warp and tungstenite; listen on AOC_HUB_ADDR default 127.0.0.1:PORT_FROM_SESSION_ID; hello handshake and session_id validation; per-agent state cache and snapshot; ping/heartbeat with stale reaper; strict envelope/payload validation and size limits; structured tracing logs; reuse Go hub behavior as reference while porting.\n\nProgress: Created crates/aoc-hub-rs with axum WebSocket server, hello handshake, envelope validation, state cache + snapshot broadcast, ping + stale reaper, and tracing logs. Builds with cargo check.",
-        "testStrategy": "Start hub, connect publisher/subscriber, verify broadcast and snapshot; reject wrong session_id; restart hub and confirm reconnect plus state replay.",
-        "status": "done",
-        "dependencies": [],
-        "priority": "high",
-        "subtasks": [],
-        "aocPrd": null,
-        "updatedAt": "2026-01-29T15:11:21+00:00",
-        "activeAgent": false
-      },
-      {
-        "id": "45",
-        "title": "Implement agent-agnostic Rust wrapper for status streaming",
-        "description": "Create a Rust wrapper that launches any agent process and streams status, diff, and tasks to the hub.",
-        "details": "Deliverables: Rust aoc-agent-wrap-rs using tokio; spawn child command with stdio attached; resolve session_id/pane_id/agent_id/project_root; connect to hub with backoff; fs notify tasks/state with debounce; compute diff_summary via git commands; handle non-git or missing git; serve diff_patch responses; emit heartbeat and offline on exit; structured tracing logs; parity with existing Go wrapper as reference.\n\nProgress: Created crates/aoc-agent-wrap-rs baseline to spawn child, send hello/agent_status/heartbeat, reconnect to hub, and return diff_patch_request as not_implemented. Compiles with cargo check.",
-        "testStrategy": "Wrap dummy command; verify hub sees status and heartbeats; edit file to trigger diff update; stop hub to verify reconnect and state resend.",
-        "status": "done",
-        "dependencies": [],
-        "priority": "high",
-        "subtasks": [],
-        "aocPrd": null,
-        "updatedAt": "2026-01-29T15:11:21+00:00",
-        "activeAgent": false
-      },
-      {
-        "id": "46",
-        "title": "Port Taskmaster to native Rust Ratatui app",
-        "description": "Replace the Zellij Taskmaster plugin with a Rust Ratatui TUI that edits Taskmaster JSON directly.",
-        "details": "Deliverables: Rust aoc-taskmaster using ratatui and crossterm; resolve project_root from cwd or AOC_PROJECT_ROOT; parse .taskmaster tasks/state JSON with numeric or string IDs; list and details panes with subtasks, active-agent marker, help view; keybindings j/k, Up/Down, Enter, Space, Tab, x, f, t, r, ?; filter and tag cycling; atomic writes with temp file rename and update state.json; clear error view with retry; optional task_summary publish to hub.",
-        "testStrategy": "Toggle task status and active_agent and verify tasks.json updates; cycle tags and filters and confirm list updates; corrupt tasks.json and verify error view instead of crash.",
-        "status": "done",
-        "dependencies": [],
-        "priority": "high",
-        "subtasks": [],
-        "aocPrd": null,
-        "updatedAt": "2026-01-28T20:33:48.762Z",
-        "activeAgent": false
-      },
-      {
-        "id": "47",
-        "title": "Build Mission Control Ratatui UI (agent list + diff views)",
-        "description": "Implement Mission Control in Rust with agent list, diff list, and patch view.",
-        "details": "Deliverables: Rust aoc-mission-control using ratatui and crossterm; websocket subscriber to hub; maintain per-agent state; left column agent list and status summary, right column diff file list and patch view; request diff_patch on demand; cache patches and invalidate when diff_summary changes; keybindings for navigation, focus switching, search, refresh; empty/error states.\n\nProgress: Created crates/aoc-mission-control skeleton with Ratatui TUI, websocket subscriber + hello, agent list, and details panel showing status/diff summary basics. Compiles with cargo check.",
-        "testStrategy": "Feed mock hub events for multiple agents and verify UI updates; select file and confirm patch view loads and scrolls; verify empty and error states render without panic.",
-        "status": "done",
-        "dependencies": [],
-        "priority": "high",
-        "subtasks": [],
-        "aocPrd": null,
-        "updatedAt": "2026-01-29T16:04:05+00:00",
-        "activeAgent": false
-      },
-      {
-        "id": "48",
-        "title": "Integrate editor workflow inside Mission Control (Rust)",
-        "description": "Allow editing selected diff files from Mission Control using the default editor.",
-        "details": "Deliverables: add editor action that exits raw mode and alternate screen, runs editor subprocess, then restores TUI; choose editor from AOC_EDITOR or EDITOR with fallback to micro; optional line jump when hunk info exists; refresh diff_summary on return; handle missing file paths with visible error message.",
-        "testStrategy": "Open file, edit, exit, confirm diff list updates; unset EDITOR and confirm fallback editor used; attempt to open missing file and verify graceful error.",
-        "status": "done",
-        "dependencies": [],
-        "priority": "medium",
-        "subtasks": [],
-        "aocPrd": null,
-        "updatedAt": "2026-01-28T18:45:27.895Z",
-        "activeAgent": false
-      },
-      {
-        "id": "49",
-        "title": "Wire Zellij layout and keybinding for Mission Control and Rust Taskmaster",
-        "description": "Update Zellij layouts and launch scripts to start the Rust hub, Rust Taskmaster, and Mission Control.",
-        "details": "Implementation status (2026-02-06):\n- Replaced default layout right-top panes with single AOC Pulse pane in both base and swap layouts; kept bottom-right terminal pane.\n- Added deterministic hub env injection and startup checks in aoc-launch/aoc-new-tab.\n- Updated aoc-agent-wrap to export required env (AOC_SESSION_ID, AOC_PANE_ID, AOC_PROJECT_ROOT, AOC_HUB_ADDR, AOC_HUB_URL) and route through aoc-agent-wrap-rs by default.\n- Implemented AOC Pulse runtime in crates/aoc-mission-control with 4 modes (Overview/Work/Diff/Health), hub-preferred v2, and local fallback v1 without hub or agent-thought parsing.\n- Normalized telemetry identity to session_id::pane_id in aoc-agent-wrap-rs; labels are metadata.\n- Updated hub state cache to retain task_summary snapshots per tag per agent identity key.\n\nValidation evidence:\n- cargo check --manifest-path crates/Cargo.toml (pass)\n- cargo check --manifest-path crates/Cargo.toml -p aoc-mission-control -p aoc-agent-wrap-rs -p aoc-hub-rs (pass)\n- bash -n bin/aoc-launch bin/aoc-new-tab bin/aoc-agent-wrap (pass)\n- Layout verification: zellij/layouts/aoc.kdl.template no longer references Clock/Widget/ClockTemp and now launches AOC Pulse.\n- Hub mode smoke: launched aoc-hub-rs + two aoc-agent-wrap-rs publishers with same label and pane_ids 101/102; hub log shows distinct identities smoke-hub-...::101 and ::102.\n- Fallback smoke: launched aoc-agent-wrap-rs with unreachable hub; runtime snapshot written under ~/.local/state/aoc/telemetry/<session>/<pane>.json with agent_id=<session>::<pane>.\n- Pulse run smoke: aoc-mission-control started under pseudo-tty with no hub (connect warnings + continued run) and with hub available (continued run without connect warnings).\n\nRemaining manual UX confirmation:\n- Visual confirmation in a real interactive Zellij desktop session that top-right default pane renders AOC Pulse and updates live while hub is up/down.",
-        "testStrategy": "Validation matrix:\n1) Single session, multiple tabs/panes with mixed agents: Pulse Overview must list unique pane identities with no overwrites.\n2) Two concurrent Zellij sessions: no cross-session leakage (different derived hub addr and isolated state).\n3) Hub present: Pulse consumes hub snapshots/events and updates heartbeat, task, and diff summaries live.\n4) Hub absent: Pulse falls back to v1 introspection with useful Overview/Work/Diff/Health data.\n5) Layout migration: right-column top area shows only AOC Pulse (Widget+Clock removed) and bottom terminal remains usable.",
-        "status": "done",
-        "dependencies": [],
-        "priority": "high",
-        "subtasks": [
-          {
-            "id": 1,
-            "title": "Replace Widget+Clock with AOC Pulse pane",
-            "description": "Update zellij/layouts/aoc.kdl.template (and swap layout) to use one top-right AOC Pulse pane and retain bottom-right terminal pane.",
-            "status": "done",
-            "dependencies": []
-          },
-          {
-            "id": 2,
-            "title": "Implement Pulse v1 introspection data source",
-            "description": "Build headless-safe Overview/Work/Diff/Health from zellij metadata + git + Taskmaster files, without parsing agent internals.",
-            "status": "done",
-            "dependencies": []
-          },
-          {
-            "id": 3,
-            "title": "Wire hub and wrapper telemetry as default runtime path",
-            "description": "Start one hub per session and ensure wrapped agents publish agent_status/heartbeat/diff_summary/task_summary via aoc-agent-wrap-rs or equivalent.",
-            "status": "done",
-            "dependencies": []
-          },
-          {
-            "id": 4,
-            "title": "Normalize identity to session+pane and add fallback logic",
-            "description": "Use unique per-pane identity to avoid cross-tab collisions; prefer hub data and degrade to v1 introspection when unavailable.",
-            "status": "done",
-            "dependencies": []
-          }
-        ],
-        "aocPrd": null,
-        "updatedAt": "2026-02-06T10:28:20.668Z",
-        "activeAgent": false
-      },
-      {
-        "id": "50",
-        "title": "Deprecate Zellij Taskmaster plugin and update docs/install for Rust CLI",
-        "description": "Remove the Zellij plugin from default flows and document the Rust-native Taskmaster CLI.",
-        "details": "Deliverables: mark plugin as legacy in README/docs; update install.sh to build and install Rust binaries (hub, wrapper, taskmaster, mission-control); keep optional plugin build flag; update scripts/build-taskmaster-plugin.sh and add migration notes.",
-        "testStrategy": "Run clean install and confirm aoc-taskmaster launches; enable legacy flag and verify plugin can still be built.",
-        "status": "done",
-        "dependencies": [],
-        "priority": "medium",
-        "subtasks": [],
-        "aocPrd": null,
-        "updatedAt": "2026-01-28T18:45:50.911Z",
-        "activeAgent": false
-      },
-      {
-        "id": "51",
-        "title": "Add observability and multi-session isolation test plan (Rust)",
-        "description": "Add logs, reconnection, and isolation checks for Rust hub, wrapper, Mission Control, and Taskmaster.",
-        "details": "Deliverables: standardize logs under .aoc/logs with session_id prefixes; use tracing and tracing-subscriber; honor AOC_LOG_LEVEL and AOC_LOG_DIR and map to RUST_LOG; log connect and reconnect events, schema errors, backpressure drops; add manual isolation checklist and reconnection test docs.",
-        "testStrategy": "Start two sessions and confirm no cross-session messages; kill hub and verify clients reconnect with logs showing state transitions.",
-        "status": "done",
-        "dependencies": [],
-        "priority": "medium",
-        "subtasks": [],
-        "aocPrd": null,
-        "updatedAt": "2026-01-28T18:45:50.919Z",
-        "activeAgent": false
-      },
-      {
-        "id": "52",
-        "title": "Add Session Manager to Mission Control (projects + defaults)",
-        "description": "Extend the Rust Mission Control UI with a Session Manager that can switch projects, create new projects, and set defaults.",
-        "details": "Deliverables: Ratatui Session Manager view with Projects, New Project, and Defaults sections; list directories from AOC_PROJECTS_BASE (default ~/dev), provide search and open a new AOC tab via zellij action new-tab --layout <layout> --cwd <path>; New Project prompts for name, creates directory, runs aoc-init, then opens new tab; Defaults set layout, agent, editor and persist to config (for example ~/.config/aoc/config.toml) used by aoc-launch and aoc-new-tab; keybindings Tab, Enter, n, /, Esc; support AOC_CONFIG_PATH and AOC_PROJECTS_BASE overrides; display errors when mkdir or aoc-init fails.",
-        "testStrategy": "Open Mission Control and verify Projects list from ~/dev; search and open project to create new tab; create new project and confirm aoc-init runs; change defaults and confirm persisted config is applied to new tabs; verify error handling when projects base is missing or aoc-init fails.",
-        "status": "done",
-        "dependencies": [
-          "47",
-          "49"
-        ],
-        "priority": "high",
-        "subtasks": [],
-        "aocPrd": null,
-        "updatedAt": "2026-01-30T16:55:48.425Z",
-        "activeAgent": false
-      },
-      {
-        "id": "53",
-        "title": "Plan active tag selector UI for Rust Taskmaster",
-        "description": "",
-        "details": "",
-        "testStrategy": "",
-        "status": "done",
-        "dependencies": [],
-        "priority": "medium",
-        "subtasks": [],
-        "aocPrd": null,
-        "updatedAt": "2026-01-30T08:50:34.724Z",
-        "activeAgent": false
-      },
-      {
-        "id": "55",
-        "title": "Revise aoc-control TUI to yazi-style hjkl navigation and clearer menu UX",
-        "description": "",
-        "details": "",
-        "testStrategy": "",
-        "status": "done",
-        "dependencies": [],
-        "priority": "medium",
-        "subtasks": [],
-        "aocPrd": null,
-        "updatedAt": "2026-02-01T16:59:30.404Z",
-        "activeAgent": true
-      },
-      {
-        "id": "70",
-        "title": "Overview: attention chip and compact actionable context",
-        "description": "Make overview rows operator-first by replacing source-first emphasis with attention status and always showing compact context.",
-        "details": "Introduce deterministic attention chip (ERR/NEEDS/BLOCK/STALE/OK), keep lifecycle+tab, and ensure compact mode reserves space for M: context instead of dropping it.",
-        "testStrategy": "Unit tests for attention precedence and row text under narrow widths.",
-        "status": "done",
-        "dependencies": [],
-        "priority": "high",
-        "subtasks": [],
-        "aocPrd": null,
-        "updatedAt": "2026-02-08T21:55:50.464Z",
-        "activeAgent": false
-      },
-      {
-        "id": "71",
-        "title": "Overview: task/git mini-signals in row presenter",
-        "description": "Surface lightweight work pressure signals without extra polling.",
-        "details": "Derive W:x/y from hub task summaries and G:+/-/? from diff summaries; show only when available and width allows.",
-        "testStrategy": "Presenter tests for signal visibility and fallback behavior.",
-        "status": "done",
-        "dependencies": [],
-        "priority": "medium",
-        "subtasks": [],
-        "aocPrd": null,
-        "updatedAt": "2026-02-08T21:55:50.475Z",
-        "activeAgent": false
-      },
-      {
-        "id": "72",
-        "title": "Overview: attention-priority sort mode with toggle",
-        "description": "Support urgency-first triage while preserving tab-order mode.",
-        "details": "Add App sort mode enum, key toggle, and severity-first sorting path with stable tie-breakers for layout order.",
-        "testStrategy": "Unit tests verifying severity sort and layout sort invariants.",
-        "status": "done",
-        "dependencies": [],
-        "priority": "high",
-        "subtasks": [],
-        "aocPrd": null,
-        "updatedAt": "2026-02-08T21:55:50.497Z",
-        "activeAgent": false
-      },
-      {
-        "id": "73",
-        "title": "Overview: debug source toggle and keybind help updates",
-        "description": "Keep HUB/LOC/MIX provenance available without cluttering default operator view.",
-        "details": "Add toggle to swap attention chip with source chip plus footer/help text updates for new overview controls.",
-        "testStrategy": "Widget rendering tests and key handling tests for toggle behavior.",
-        "status": "done",
-        "dependencies": [],
-        "priority": "medium",
-        "subtasks": [],
-        "aocPrd": null,
-        "updatedAt": "2026-02-08T21:55:50.512Z",
-        "activeAgent": false
-      },
-      {
-        "id": "74",
-        "title": "Phase 2: re-enable Pulse Overview after value criteria",
-        "description": "Revisit overview mode only after realtime fidelity and operator-value criteria are met.",
-        "details": "Use AOC_PULSE_OVERVIEW_ENABLED as rollout gate. Re-enable by default only when status transitions are realtime, rows provide actionable context, and triage speed improves in practice.",
-        "testStrategy": "Run a bake with overview enabled, compare latency/noise and operator triage outcomes against Work/Diff/Health baseline.",
-        "status": "done",
-        "dependencies": [],
-        "priority": "medium",
-        "subtasks": [],
-        "aocPrd": null,
-        "updatedAt": "2026-02-09T07:28:50.304Z",
-        "activeAgent": false
-      }
-    ]
-  },
-  "sub-agents": {
-    "tasks": [
-      {
-        "id": "56",
-        "title": "Define sub-agent catalog and prompt templates",
-        "description": "Confirm names, intents, and template format for the planned sub-agents.",
-        "details": "Define the canonical sub-agent list and default rotation order.\n- Confirm names and intents for: architect, task-breaker, implementer, test-planner, code-reviewer, docs-maintainer, security-reviewer, perf-analyzer, release-notes, incident-debugger, rlm-curator.\n- Specify template fields (goal, scope, constraints, inputs, output format).\n- Define naming rules and file locations: .opencode/agents/<name>.md.\n- Decide opt-in or opt-out flags and a default rotation order.",
-        "testStrategy": "Review the catalog and template spec in docs/agents.md.\nCreate a sample agent file and confirm OpenCode can invoke it with @name.",
-        "status": "done",
-        "dependencies": [],
-        "priority": "high",
-        "subtasks": [],
-        "aocPrd": null,
-        "updatedAt": "2026-02-04T11:18:59.149Z",
-        "activeAgent": false
-      },
-      {
-        "id": "57",
-        "title": "Seed sub-agents via aoc-init",
-        "description": "Ensure aoc-init seeds the sub-agent templates safely.",
-        "details": "Update aoc-init to seed sub-agent templates if missing.\n- Create .opencode/agents if needed.\n- Write templates for each sub-agent from the approved catalog.\n- Do not overwrite existing user edits.\n- Add a config file for ordering if required (for example .opencode/sub-agents.json).\n- Keep behavior idempotent across multiple runs.",
-        "testStrategy": "Run aoc-init in a clean repo and confirm all templates and config files are created.\nRe-run aoc-init and confirm existing files are not overwritten.",
-        "status": "done",
-        "dependencies": [],
-        "priority": "high",
-        "subtasks": [],
-        "aocPrd": null,
-        "updatedAt": "2026-02-04T11:18:59.157Z",
-        "activeAgent": false
-      },
-      {
-        "id": "58",
-        "title": "Define sub-agent rotation config and state",
-        "description": "Specify how rotation order and active agent state are stored.",
-        "details": "Design the configuration and state model for sub-agent rotation.\n- Define config schema (order, enabled list, default agent).\n- Decide where per-tab or per-session selection is stored.\n- Define environment variables or commands the OpenCode plugin will use to set active sub-agent.\n- Document fallback behavior when config is missing or invalid.",
-        "testStrategy": "Document the schema with a sample config and confirm it covers ordering and enablement.\nValidate the fallback rules against an empty or invalid config.",
-        "status": "done",
-        "dependencies": [],
-        "priority": "medium",
-        "subtasks": [],
-        "aocPrd": null,
-        "updatedAt": "2026-02-04T11:18:59.164Z",
-        "activeAgent": false
-      },
-      {
-        "id": "59",
-        "title": "Implement OpenCode Shift+Tab sub-agent rotation",
-        "description": "Add the OpenCode CLI plugin that rotates sub-agents.",
-        "details": "Implement the OpenCode CLI plugin to rotate sub-agents on Shift+Tab.\n- Preserve Tab for plan/build switching.\n- Shift+Tab cycles through configured sub-agents in order.\n- Update the active sub-agent selection and expose it to the UI.\n- Provide a safe fallback when config or agent files are missing.",
-        "testStrategy": "Manual: open OpenCode in AOC, press Shift+Tab, and verify the active sub-agent cycles.\nManual: Tab continues to toggle plan/build with no conflicts.",
-        "status": "done",
-        "dependencies": [],
-        "priority": "high",
-        "subtasks": [],
-        "aocPrd": null,
-        "updatedAt": "2026-02-04T11:18:59.170Z",
-        "activeAgent": true
-      },
-      {
-        "id": "60",
-        "title": "Surface active sub-agent in AOC wrappers",
-        "description": "Expose the active sub-agent through AOC wrapper scripts.",
-        "details": "Update AOC wrappers to surface the active sub-agent.\n- Update aoc-agent-wrap header to show the active sub-agent name.\n- Pass the active sub-agent value to OpenCode via env or args.\n- Keep backward compatibility when the plugin is not installed.",
-        "testStrategy": "Start AOC without the plugin and verify no errors occur.\nStart AOC with the plugin and confirm the header updates when the active sub-agent changes.",
-        "status": "done",
-        "dependencies": [],
-        "priority": "medium",
-        "subtasks": [],
-        "aocPrd": null,
-        "updatedAt": "2026-02-04T11:18:59.178Z",
-        "activeAgent": false
-      },
-      {
-        "id": "61",
-        "title": "Document sub-agent rotation UX",
-        "description": "Document the catalog, rotation keybind, and setup.",
-        "details": "Update documentation for sub-agent rotation.\n- Expand docs/agents.md with the final catalog and usage.\n- Add README or docs/configuration notes for Shift+Tab rotation and config file location.\n- Provide a minimal example that shows how to invoke @agent and how rotation order is defined.",
-        "testStrategy": "Doc review for consistency across agents docs, README, and configuration references.",
-        "status": "done",
-        "dependencies": [],
-        "priority": "medium",
-        "subtasks": [],
-        "aocPrd": null,
-        "updatedAt": "2026-02-04T11:18:59.185Z",
-        "activeAgent": false
-      },
-      {
-        "id": "143",
-        "title": "Define T3 alignment contract and report schema",
-        "description": "Specify T3 as the project-level alignment layer above T1/T2, including inputs, guardrails, output sections, provenance requirements, and no-write default behavior.",
-        "details": "Use docs/insight-t3-alignment.md as the canonical working spec. Ensure the contract covers T2, .aoc/memory, STM/handoff, Taskmaster, and optional PRD evidence. Clarify artifact locations and trigger semantics.",
-        "testStrategy": "Docs review plus runtime contract review confirms a stable T3 input/output schema and explicit non-destructive defaults.",
-        "status": "pending",
-        "dependencies": [],
-        "priority": "high",
-        "subtasks": [],
-        "aocPrd": null,
-        "updatedAt": "2026-03-09T10:09:37.241Z",
-        "activeAgent": false
-      },
-      {
-        "id": "144",
-        "title": "Implement manual T3 trigger flow for operators",
-        "description": "Allow developers/operators to trigger an immediate T3 alignment run and inspect the resulting report.",
-        "details": "Add an explicit operator-facing trigger path, likely via Mission Control and/or wrapper command surfaces, using existing T3 backlog/runtime scaffolding. Preserve queued/running/completed visibility and report artifact access.",
-        "testStrategy": "Manual trigger produces a T3 run with observable lifecycle state and a persisted alignment report without mutating tasks or memory by default.",
-        "status": "pending",
-        "dependencies": [],
-        "priority": "high",
-        "subtasks": [],
-        "aocPrd": null,
-        "updatedAt": "2026-03-09T10:09:37.265Z",
-        "activeAgent": false
-      },
-      {
-        "id": "145",
-        "title": "Expose on-demand T3 pull path to the main Pi agent",
-        "description": "Let the main agent invoke T3 strategically during development when alignment help is needed.",
-        "details": "Define a typed or explicit invocation surface the main agent can call without hidden side effects. Ensure results are returned as report artifacts with provenance and can be consumed in normal agent workflows.",
-        "testStrategy": "Main-agent initiated T3 request completes successfully and returns a readable report with no hidden mutation path.",
-        "status": "pending",
-        "dependencies": [],
-        "priority": "high",
-        "subtasks": [],
-        "aocPrd": null,
-        "updatedAt": "2026-03-09T10:09:37.288Z",
-        "activeAgent": false
-      },
-      {
-        "id": "146",
-        "title": "Integrate T3 evidence gathering across memory, Taskmaster, and PRD context",
-        "description": "Deepen T3 source aggregation so alignment reports reconcile memory, plan, and work state.",
-        "details": "Wire T3 input collection to .aoc/memory, current handoff/STM context, Taskmaster state, tag/task PRD linkage, and latest T2 outputs. Explicitly preserve provenance and confidence boundaries for each evidence source.",
-        "testStrategy": "T3 reports cite inputs from memory, task state, PRD context, and T2 artifacts with traceable provenance.",
-        "status": "pending",
-        "dependencies": [],
-        "priority": "high",
-        "subtasks": [],
-        "aocPrd": null,
-        "updatedAt": "2026-03-09T10:09:37.315Z",
-        "activeAgent": false
-      },
-      {
-        "id": "147",
-        "title": "Surface T3 status and reports in Mission Control and Pi UI",
-        "description": "Make T3 visible, inspectable, and user-friendly in AOC interfaces.",
-        "details": "Expose queue depth, last run, lifecycle state, and latest report access in Mission Control; add a Pi UI/read path so operators and the main agent can review recent T3 output easily.",
-        "testStrategy": "UI smoke tests confirm operators can see T3 runtime state and open the latest alignment report from supported surfaces.",
-        "status": "pending",
-        "dependencies": [],
-        "priority": "medium",
-        "subtasks": [],
-        "aocPrd": null,
-        "updatedAt": "2026-03-09T10:09:37.339Z",
-        "activeAgent": false
-      },
-      {
-        "id": "148",
-        "title": "Add T3 safety and regression coverage",
-        "description": "Harden T3 with tests for runtime behavior, observability, and non-destructive defaults.",
-        "details": "Cover queue/lease behavior, manual trigger behavior, report generation, provenance capture, requeue/dead-letter semantics, and explicit confirmation requirements for any future write actions.",
-        "testStrategy": "Automated tests cover success/failure/requeue paths plus non-destructive default behavior and report artifact generation.",
-        "status": "pending",
-        "dependencies": [],
-        "priority": "medium",
-        "subtasks": [],
-        "aocPrd": null,
-        "updatedAt": "2026-03-09T10:09:37.365Z",
-        "activeAgent": false
-      }
-    ],
-    "aocPrd": {
-      "path": ".taskmaster/docs/prds/insight-subagent-orchestration_prd_rpg.md",
-      "updatedAt": "2026-02-27T08:28:35.444Z",
-      "version": 1
-    }
   },
   "aoc/pi_cleanup": {
     "tasks": [
@@ -1024,755 +376,157 @@
       "version": 1
     }
   },
-  "detached-orchestration": {
+  "session-overseer": {
+    "tasks": [],
+    "aocPrd": {
+      "path": ".taskmaster/docs/prds/aoc-session-overseer_prd_rpg.md",
+      "updatedAt": "2026-03-09T10:16:58.342Z",
+      "version": 1
+    }
+  },
+  "pi-terminal-ops": {
     "tasks": [
       {
-        "id": "169",
-        "title": "Implement AOC-native detached Pi subagent runtime",
-        "description": "Build a project-local Pi extension and supporting AOC runtime hooks for detached/background delegated subagents, while establishing reusable detached lifecycle/telemetry primitives that other worker planes such as Mind can consume without inheriting delegated-subagent UX semantics.",
-        "details": "Deliver the detached-orchestration umbrella architecture for the delegated ownership plane: a repo-controlled .pi/extensions/subagent.ts runtime that loads canonical .pi/agents/*.md plus teams.yaml and agent-chain.yaml, spawns isolated pi subprocess workers, supports single/chain/parallel detached execution, and persists lifecycle/provenance/cancellation into the shared durable detached registry. This task now also owns making delegated specialists feel native inside Pi sessions: inline/background handoff modes, compact status by default instead of persistent multiline widget clutter, focused drilldown/inspector UX for active jobs, and stable report artifacts so completed research can flow back into the parent session without manual poll-only pickup. The same contracts must remain reusable by other ownership planes such as Mind via owner_plane/worker_kind metadata without collapsing Mind into delegated-subagent UX semantics.",
-        "testStrategy": "Extension and runtime tests cover agent discovery, manifest validation, session-native delegated job UX, detached lifecycle, cancellation, malformed-manifest/spawn-failure fallback paths, durable-registry-backed recovery, and Mission Control/Pulse visibility with canonical .pi/agents assets. Add focused coverage for inline handoff injection into the parent Pi session, compact-status default behavior, on-demand drilldown/inspector UX, report artifact persistence, and regression checks preventing persistent low-value widget clutter from returning. Shared contract/storage tests also verify detached ownership metadata, durable result capture, and restart-safe status queries so the substrate remains reusable by non-delegated worker planes.",
-        "status": "in-progress",
-        "dependencies": [
-          "56",
-          "57",
-          "60",
-          "61"
-        ],
-        "priority": "high",
-        "subtasks": [
-          {
-            "id": 1,
-            "title": "Define detached subagent manifest and lifecycle contract",
-            "description": "Stabilize canonical agent/team/chain validation rules plus detached job state/result/cancellation schema shared across the extension and AOC runtime surfaces.",
-            "status": "done",
-            "dependencies": []
-          },
-          {
-            "id": 2,
-            "title": "Build project-local .pi/extensions/subagent.ts baseline",
-            "description": "Implement canonical manifest loading, policy validation, and single-agent detached subprocess launch with immediate job acknowledgement and local status lookup.",
-            "status": "done",
-            "dependencies": []
-          },
-          {
-            "id": 3,
-            "title": "Add chain and parallel detached orchestration modes",
-            "description": "Support sequential chain execution with placeholder forwarding and bounded parallel fanout with all-settled aggregation under the same detached runtime.",
-            "status": "in-progress",
-            "dependencies": []
-          },
-          {
-            "id": 4,
-            "title": "Implement detached job registry, stream capture, and cancellation",
-            "description": "Track active/recent jobs, capture partial and terminal output, support timeouts and explicit cancellation, and avoid orphaned subprocesses.",
-            "status": "in-progress",
-            "dependencies": []
-          },
-          {
-            "id": 5,
-            "title": "Integrate detached subagent telemetry with Pulse, Mission Control, and wrapper dispatch",
-            "description": "Expose lifecycle state and drilldown refs through AOC surfaces and bridge wrapper insight_dispatch flows to the canonical detached runtime contract.",
-            "status": "done",
-            "dependencies": []
-          },
-          {
-            "id": 6,
-            "title": "Publish detached subagent operator/runtime docs",
-            "description": "Document runtime semantics, trust model, lifecycle states, troubleshooting, and rollout guidance for the AOC-native detached subagent path.",
-            "status": "pending",
-            "dependencies": []
-          },
-          {
-            "id": 7,
-            "title": "Add regression coverage for detached lifecycle, fallback, and restart behavior",
-            "description": "Cover manifest validation, detached execution, cancellation, restart/stale-job handling, partial failure, and fail-open telemetry across extension and runtime surfaces.",
-            "status": "in-progress",
-            "dependencies": []
-          },
-          {
-            "id": 8,
-            "title": "Add Pi session-native inline handoff, focused drilldown UX, and recovery flows",
-            "description": "Turn detached specialists into a useful Pi-session experience: support inline/background handoff modes, reinject compact completed-result summaries into the parent session when requested, expose stale/interrupted recovery affordances, and make detailed job inspection an explicit focused workflow instead of relying on manual poll commands plus a noisy always-on widget.",
-            "status": "pending",
-            "dependencies": []
-          },
-          {
-            "id": 9,
-            "title": "Shift subagent lifecycle truth to the durable registry and keep session UX low-noise",
-            "description": "Reduce extension-local shadow state by re-querying the Rust detached registry for status/recovery, keeping the Pi extension focused on launch ergonomics, inline handoff, and compact session UX. Ensure the default session presentation is minimal status only, with active/recent detail available through explicit drilldown surfaces rather than persistent multiline clutter.",
-            "status": "pending",
-            "dependencies": []
-          },
-          {
-            "id": 10,
-            "title": "Persist full subagent reports and handoff artifacts",
-            "description": "Store stable per-job report artifacts (for example under .pi/tmp/subagents/) containing the full final output, structured handoff metadata, and drilldown references so inline summaries stay compact while operators and the parent agent can open the complete report when needed.",
-            "status": "pending",
-            "dependencies": []
-          },
-          {
-            "id": 11,
-            "title": "Replace persistent subagent widget clutter with compact status and toggleable inspector UI",
-            "description": "Remove the default always-on multiline below-editor widget. Show only compact running/recent state in the normal Pi session, and add a command/shortcut-driven focused inspector surface (panel/sidebar/modal depending Pi custom UI constraints) where users can watch live progress, inspect finished jobs, cancel work, and close the view when done.",
-            "status": "pending",
-            "dependencies": []
-          }
-        ],
-        "aocPrd": {
-          "path": ".taskmaster/docs/prds/task-169_aoc_detached_pi_subagent_runtime_prd_rpg.md",
-          "updatedAt": "2026-03-21T09:05:33.858Z",
-          "version": 1
-        },
-        "updatedAt": "2026-03-21T09:05:33.858Z",
-        "activeAgent": false
-      },
-      {
-        "id": "149",
-        "title": "Build session overseer control plane for manager-agent supervision",
-        "description": "Establish session-scoped multi-agent observability and steering so a manager agent and developer can oversee worker tabs in real time.",
-        "details": "Implement the detached-orchestration umbrella architecture for the global operator surface: preserve Session Overseer observation + plan alignment + safe control semantics, but make Mission Control the only global fleet/orchestration surface while normal work panes use a local-only pulse-pane mode. This task now explicitly owns the Mission Control versus pulse-pane boundary, including keeping overseer roster/consultation/timeline/global detached fleet views out of per-pane pulse, and adding a dedicated Mission Control fleet view grouped by project/repo and ownership plane so delegated specialist jobs and Mind-owned detached workers remain visible without conflating their UX models.",
-        "testStrategy": "Contract tests cover observer schemas and pulse-pane mode gating; hub integration tests cover snapshot/delta/command routing; Mission Control presenter tests cover blocked/stale/drift ordering plus ownership-aware detached fleet grouping by project and plane; CLI contract tests cover snapshot JSON; regressions cover fail-open behavior, cross-session isolation, and prevention of global fleet/orchestration surfaces leaking back into normal per-pane pulse mode.",
+        "id": "176",
+        "title": "Implement AOC mux panes with PI-controlled tmux-backed runtime workflows",
+        "description": "Build an explicit AOC mux pane model where selected Zellij terminal panes can be promoted via aoc-mux into tmux-backed agent-controllable domains, with PI tools scoped to those mux panes and managed runtimes.",
+        "details": "Scope follows .taskmaster/docs/prds/pi_terminal_ops_prd_rpg.md. Keep Zellij as the outer workspace shell. Add aoc-mux activation for selected terminal panes, project-local mux/runtime registry state under .aoc/runtime, aoc-runtime for managed process lifecycle inside mux panes, tmux helpers for capture/send/split, and PI tools for mux list/status/capture/logs/run/send/split/stop. V1 mutating actions must target mux panes and managed runtimes only; do not grant arbitrary control over non-mux panes.",
+        "testStrategy": "Validate aoc-mux activation/registry behavior, runtime lifecycle (run/status/stop), tmux capture/send/split smoke flow inside mux panes, PI tool registration/output truncation/target scoping, and an operator acceptance flow that promotes the default terminal pane to a mux pane and runs a managed dev server without mutating non-mux panes.",
         "status": "pending",
         "dependencies": [],
         "priority": "high",
         "subtasks": [
           {
             "id": 1,
-            "title": "Define overseer shared schema and safety policy",
-            "description": "Create shared ObserverEvent/WorkerSnapshot/ObserverSnapshot/ManagerCommand contracts, topic naming, retention defaults, and allow/confirm/deny command policy in aoc-core.",
-            "status": "done",
-            "dependencies": []
-          },
-          {
-            "id": 2,
-            "title": "Implement worker progress emission in aoc-agent-wrap-rs",
-            "description": "Publish structured worker lifecycle/progress/blocker/milestone events and lightweight refresh updates from the wrapper/runtime path using session::pane identity.",
-            "status": "done",
-            "dependencies": [
-              "149.1"
-            ]
-          },
-          {
-            "id": 3,
-            "title": "Extend Pulse hub with overseer snapshot, timeline, and command routing",
-            "description": "Aggregate worker observer events into reconnect-safe session snapshots, retain bounded timelines, and route session-safe manager commands/results through the hub.",
-            "status": "done",
-            "dependencies": [
-              "149.1",
-              "149.2"
-            ]
-          },
-          {
-            "id": 4,
-            "title": "Add deterministic attention heuristics and plan-correlation layer",
-            "description": "Compute stale/drift/duplicate-work signals and correlate workers with Taskmaster task/tag intent, keeping heuristics deterministic and fail-open.",
-            "status": "done",
-            "dependencies": [
-              "149.3"
-            ]
-          },
-          {
-            "id": 5,
-            "title": "Build Mission Control overseer dashboard view",
-            "description": "Render manager-facing worker rows with task, summary, age, blocker/drift/overlap chips, timeline drill-in, and compact-width ordering by attention.",
-            "status": "done",
-            "dependencies": [
-              "149.3",
-              "149.4"
-            ]
-          },
-          {
-            "id": 6,
-            "title": "Implement manager-facing snapshot and command CLI",
-            "description": "Expose aoc-session-overseer snapshot/timeline/command flows for manager agents and scripts with stable JSON output and explicit command results.",
-            "status": "done",
-            "dependencies": [
-              "149.3",
-              "149.4"
-            ]
-          },
-          {
-            "id": 7,
-            "title": "Integrate optional Mind enrichment for overseer rows",
-            "description": "Merge T1/T2 observer-derived confidence and explanation hints into overseer snapshots without blocking core functionality when Mind data is unavailable.",
-            "status": "done",
-            "dependencies": [
-              "149.4"
-            ]
-          },
-          {
-            "id": 8,
-            "title": "Harden, document, and validate pilot rollout",
-            "description": "Add multi-worker churn/reconnect/isolation tests, fail-open scenarios, rollout docs, and pilot checklist for enabling the overseer tag in live sessions.",
-            "status": "pending",
-            "dependencies": [
-              "149.5",
-              "149.6",
-              "149.7"
-            ]
-          },
-          {
-            "id": 9,
-            "title": "Split per-tab pulse pane from Mission Control and scope normal-tab pulse to local Mind/status only",
-            "description": "Refactor the normal AOC tab pulse into a dedicated local/tab-scoped mode that only renders tab-local Mind, task/work, and health signals. Reserve overseer roster, duplicate-work heuristics, consultation stream, and global timeline/state views for the dedicated Mission Control tab. Update layouts/launch defaults so normal tabs always use pulse-pane mode and Mission Control tab uses the full orchestration view.",
-            "status": "pending",
-            "dependencies": []
-          },
-          {
-            "id": 10,
-            "title": "Add dedicated Mission Control fleet view grouped by project and ownership plane",
-            "description": "Render detached worker activity only in the dedicated Mission Control surface, grouped by project/repo and ownership plane, with distinct summaries for delegated specialist jobs versus Mind-owned workers while keeping per-pane pulse minimal and local.",
-            "status": "pending",
-            "dependencies": []
-          }
-        ],
-        "aocPrd": {
-          "path": ".taskmaster/docs/prds/aoc-session-overseer_prd_rpg.md",
-          "updatedAt": "2026-03-09T10:16:58.352Z",
-          "version": 1
-        },
-        "updatedAt": "2026-03-20T10:54:15.547Z",
-        "activeAgent": false
-      },
-      {
-        "id": "178",
-        "title": "Implement project-scoped Mind detached dispatcher and bounded worker orchestration",
-        "description": "Replace pane-coupled Mind worker activation with a project-scoped detached dispatcher model that reuses the shared detached registry and metadata without adopting delegated-subagent UX semantics.",
-        "details": "Implement the detached-orchestration umbrella architecture for the Mind ownership plane: replace pane-coupled wrapper tick activation with a project-scoped detached dispatcher/coordinator that watches canonical Mind queues, stamps detached jobs with owner_plane=mind and worker_kind=t1|t2|t3, and launches bounded workers only when backlog and lease state warrant it. This task must reuse the shared durable detached registry and lifecycle/cancel/result contracts from the common substrate while keeping Mind queue/lease/recovery semantics and operator surfaces distinct from delegated specialist session UX.",
-        "testStrategy": "Regression coverage must verify idle=no worker, light backlog=single worker, burst backlog=bounded concurrency, restart reconciliation, stale-lease takeover, durable detached status visibility, and no duplicate worker multiplication from multiple open panes/sessions against the same project store. Contract/storage tests should verify owner_plane=mind and worker_kind metadata, and Mission Control integration tests should verify Mind-owned detached workers appear in global fleet summaries without leaking into local-only pulse panes.",
-        "status": "pending",
-        "dependencies": [
-          "137",
-          "169"
-        ],
-        "priority": "high",
-        "subtasks": [
-          {
-            "id": 1,
-            "title": "Define dispatcher ownership, queue watch policy, and worker admission model",
-            "description": "Specify one project-scoped coordinator per repo, idle behavior, backlog thresholds, admission caps, and the rule that Mind workers scale by project queue pressure rather than open panes.",
+            "title": "Define AOC mux identity, scope boundaries, and runtime registry schema",
+            "description": "Lock the mux pane concept, target identity model, mux-only mutation boundary, runtime metadata fields, and file layout under .aoc/runtime before implementation.",
             "status": "pending",
             "dependencies": []
           },
           {
             "id": 2,
-            "title": "Stamp Mind detached jobs with owner_plane and worker_kind metadata",
-            "description": "Thread owner_plane=mind and worker_kind=t1|t2|t3 through dispatcher dispatch, storage, status filtering, and Mission Control summaries so Mind jobs are first-class detached jobs without being mistaken for delegated specialists.",
+            "title": "Implement aoc-mux activation and aoc-runtime lifecycle foundations",
+            "description": "Create aoc-mux to promote the current terminal pane into a tmux-backed AOC mux pane, persist mux registry state, and implement aoc-runtime run/status/stop for managed processes inside mux panes.",
             "status": "pending",
             "dependencies": []
           },
           {
             "id": 3,
-            "title": "Bridge reflector and T3 runtime launches through the detached dispatcher",
-            "description": "Move wrapper-owned Mind worker activation toward dispatcher-owned detached jobs while preserving queue/lease correctness, fail-open behavior, and project-store scoping.",
+            "title": "Build PI mux tools for discovery, capture, and managed control",
+            "description": "Register PI tools for mux_list, mux_status, mux_capture, mux_logs, mux_run_managed, mux_send, mux_split, and mux_stop_runtime, wired to the mux/runtime layers with read-first rollout and mux-only target scoping.",
             "status": "pending",
             "dependencies": []
           },
           {
             "id": 4,
-            "title": "Add Mission Control fleet summaries for project-scoped Mind worker activity",
-            "description": "Show project queue depth, active Mind worker counts, stale/error state, and worker-kind breakdowns in the dedicated Mission Control surface without expanding normal pulse panes into global fleet dashboards.",
+            "title": "Add safety policy, docs, and mux-pane acceptance coverage",
+            "description": "Gate disruptive actions with confirm/deny policy, document mux pane workflows and layout guidance, and add end-to-end smoke coverage proving PI only mutates registered mux panes.",
             "status": "pending",
             "dependencies": []
           },
           {
             "id": 5,
-            "title": "Add restart, stale-recovery, and multi-pane dedup regression coverage",
-            "description": "Verify restart reconciliation, stale detached-job cleanup, lease takeover, bounded concurrency, and the absence of duplicate worker multiplication when multiple panes or sessions target the same project.",
+            "title": "Add tmux helper layer for mux capture, send, and split",
+            "description": "Implement safe wrappers around tmux attach/list/capture-pane/send-keys/split-window so mux panes have a reliable inner control substrate without requiring broad Zellij automation.",
             "status": "pending",
             "dependencies": []
           }
         ],
         "aocPrd": null,
-        "updatedAt": "2026-03-20T10:58:21.173Z",
+        "updatedAt": "2026-03-19T19:27:57.999Z",
         "activeAgent": false
       }
     ],
     "aocPrd": {
-      "path": ".taskmaster/docs/prds/aoc_detached_orchestration_prd_rpg.md",
-      "updatedAt": "2026-03-20T10:44:59.070Z",
+      "path": ".taskmaster/docs/prds/pi_terminal_ops_prd_rpg.md",
+      "updatedAt": "2026-03-19T11:26:51.162Z",
       "version": 1
     }
   },
-  "mermaid": {
+  "rtk": {
     "tasks": [
       {
-        "id": "76",
-        "title": "Integrate Mermaid renderer with phased rollout",
-        "description": "Plan and implement Mermaid renderer integration across Phase 1 optional binary support and Phase 2 embedded Rust path.",
-        "details": "Create integration that starts with optional external mmdr binary, configurable output directory precedence, doctor/install checks, and graceful fallback; then add optional embedded renderer behind feature flags after Phase 1 validation.",
-        "testStrategy": "Validate output-dir precedence, missing-binary fallback UX, install/doctor checks, feature-flag gating, rendering correctness, and regression smoke tests across session modes.",
+        "id": "86",
+        "title": "Implement AOC RTK adapter contract and policy baseline",
+        "description": "Create an AOC-owned RTK integration contract with status/install/doctor/enable/disable semantics and config defaults.",
+        "details": "",
+        "testStrategy": "Unit tests for adapter command resolution and config parsing; smoke-test status/install flows with RTK present and absent.",
         "status": "done",
         "dependencies": [],
         "priority": "high",
         "subtasks": [],
         "aocPrd": {
-          "path": ".taskmaster/docs/prds/76-integrate-mermaid-renderer-with-phased-rollout.md",
-          "updatedAt": "2026-02-17T14:00:09.361Z",
+          "path": ".taskmaster/docs/prds/aoc-rtk_prd_rpg.md",
+          "updatedAt": "2026-02-21T07:57:19.346Z",
           "version": 1
         },
-        "updatedAt": "2026-02-17T14:00:09.361Z",
-        "activeAgent": false
-      }
-    ]
-  },
-  "omo": {
-    "tasks": [
-      {
-        "id": "91",
-        "title": "Establish sandbox OpenCode profile manager for OmO integration",
-        "description": "Create deterministic sandbox profile conventions using OPENCODE_CONFIG_DIR to keep OmO setup isolated from primary user profile.",
-        "details": "Implement profile path resolution, safe initialization, and explicit promotion/rollback primitives so OmO can be trialed without mutating the main OpenCode profile.",
-        "testStrategy": "Add shell tests for idempotent profile initialization, profile resolution, and non-destructive behavior when profile directories already exist.",
-        "status": "done",
-        "dependencies": [],
-        "priority": "high",
-        "subtasks": [
-          {
-            "id": 1,
-            "title": "Define sandbox profile directory contract",
-            "description": "Specify profile roots, naming, and environment variables (including OPENCODE_CONFIG_DIR) for stable sandbox selection.",
-            "status": "pending",
-            "dependencies": []
-          },
-          {
-            "id": 2,
-            "title": "Implement profile init and resolve helpers",
-            "description": "Create helper commands/scripts to initialize profile directories idempotently and resolve active profile path.",
-            "status": "pending",
-            "dependencies": []
-          },
-          {
-            "id": 3,
-            "title": "Implement promotion and rollback safeguards",
-            "description": "Add explicit promote/rollback flow with backup snapshots to prevent accidental primary profile corruption.",
-            "status": "pending",
-            "dependencies": []
-          },
-          {
-            "id": 4,
-            "title": "Add profile isolation test fixtures",
-            "description": "Create shell fixtures that verify re-runs are non-destructive and isolated from default profile.",
-            "status": "pending",
-            "dependencies": []
-          }
-        ],
-        "aocPrd": {
-          "path": ".taskmaster/docs/prds/omo-integration_prd_rpg.md",
-          "updatedAt": "2026-02-22T15:30:18.275Z",
-          "version": 1
-        },
-        "updatedAt": "2026-02-23T08:09:30.233Z",
+        "updatedAt": "2026-02-21T12:02:35.503Z",
         "activeAgent": false
       },
       {
-        "id": "92",
-        "title": "Install Oh-My-OpenCode in sandbox profile with provider-safe merge",
-        "description": "Add OmO installation orchestration that targets sandbox profile and preserves existing provider/plugin entries like antigravity auth.",
-        "details": "Implement install wrapper logic for non-interactive setup, plugin registration checks, and profile-local validation that OmO is present without clobbering current auth/providers.",
-        "testStrategy": "Use fixture profiles to verify plugin array merge behavior and ensure existing provider blocks remain unchanged after install.",
+        "id": "87",
+        "title": "Build agent-agnostic runtime routing in aoc-agent-wrap",
+        "description": "Integrate RTK routing at shell/session layer so all AOC agents benefit without model-specific hooks.",
+        "details": "",
+        "testStrategy": "Integration tests for routed commands, fail-open fallback, and bypass mode in managed AOC sessions.",
         "status": "done",
         "dependencies": [
-          "91"
+          "86"
         ],
-        "priority": "high",
-        "subtasks": [
-          {
-            "id": 1,
-            "title": "Create sandbox-targeted OmO installer wrapper",
-            "description": "Add install script that runs OmO installer against sandbox profile without mutating primary profile.",
-            "status": "pending",
-            "dependencies": []
-          },
-          {
-            "id": 2,
-            "title": "Implement plugin/provider merge-safe updates",
-            "description": "Ensure existing plugins/providers (including antigravity auth) are preserved when registering OmO.",
-            "status": "pending",
-            "dependencies": []
-          },
-          {
-            "id": 3,
-            "title": "Support non-interactive provider flag flow",
-            "description": "Map install-time provider/subscription flags into deterministic script options for repeatable setup.",
-            "status": "pending",
-            "dependencies": []
-          },
-          {
-            "id": 4,
-            "title": "Add post-install sandbox health check",
-            "description": "Verify OmO plugin registration and expected config files in sandbox profile after install.",
-            "status": "pending",
-            "dependencies": []
-          }
-        ],
-        "aocPrd": {
-          "path": ".taskmaster/docs/prds/omo-integration_prd_rpg.md",
-          "updatedAt": "2026-02-22T15:30:24.245Z",
-          "version": 1
-        },
-        "updatedAt": "2026-02-23T08:09:30.263Z",
-        "activeAgent": false
-      },
-      {
-        "id": "93",
-        "title": "Define project-local OmO control policy configuration",
-        "description": "Create .opencode/oh-my-opencode.jsonc policy defaults that keep OmO additive, deterministic, and engineer-controlled.",
-        "details": "Disable autonomous loop/continuation-heavy features by default, keep high-value additive capabilities enabled, and set conservative concurrency/fallback limits.",
-        "testStrategy": "Add config fixture assertions for required disabled/enabled keys and verify generated policy remains schema-compatible with current OmO versions.",
-        "status": "done",
-        "dependencies": [
-          "92"
-        ],
-        "priority": "high",
-        "subtasks": [
-          {
-            "id": 1,
-            "title": "Create project-local OmO policy template",
-            "description": "Add .opencode/oh-my-opencode.jsonc baseline template aligned to AOC governance expectations.",
-            "status": "pending",
-            "dependencies": []
-          },
-          {
-            "id": 2,
-            "title": "Disable loop-heavy and low-control defaults",
-            "description": "Turn off continuation/loop features and keyword auto-escalation paths that reduce engineer control.",
-            "status": "pending",
-            "dependencies": []
-          },
-          {
-            "id": 3,
-            "title": "Set additive agent and concurrency defaults",
-            "description": "Keep valuable capabilities enabled while enforcing conservative background concurrency and fallback bounds.",
-            "status": "pending",
-            "dependencies": []
-          },
-          {
-            "id": 4,
-            "title": "Add config compatibility checks",
-            "description": "Validate policy template against OmO schema and verify compatibility with current OpenCode profile format.",
-            "status": "pending",
-            "dependencies": []
-          }
-        ],
-        "aocPrd": {
-          "path": ".taskmaster/docs/prds/omo-integration_prd_rpg.md",
-          "updatedAt": "2026-02-22T15:30:24.258Z",
-          "version": 1
-        },
-        "updatedAt": "2026-02-23T08:09:30.305Z",
-        "activeAgent": false
-      },
-      {
-        "id": "94",
-        "title": "Enforce Taskmaster as sole task authority for OmO workflows",
-        "description": "Ensure OmO runtime and prompts use tm/aoc-task only and do not activate parallel task systems.",
-        "details": "Keep experimental task system disabled, inject policy guidance for delegated agents, and add conflict detection for accidental writes to .sisyphus/tasks.",
-        "testStrategy": "Run smoke checks that execute representative workflows and assert no task artifacts are created outside Taskmaster state.",
-        "status": "done",
-        "dependencies": [
-          "93"
-        ],
-        "priority": "high",
-        "subtasks": [
-          {
-            "id": 1,
-            "title": "Disable OmO task system by policy",
-            "description": "Set and enforce experimental.task_system=false in effective OmO configuration.",
-            "status": "pending",
-            "dependencies": []
-          },
-          {
-            "id": 2,
-            "title": "Inject Taskmaster-only task guidance",
-            "description": "Add policy text to agent prompts/contracts requiring tm or aoc-task for all task lifecycle operations.",
-            "status": "pending",
-            "dependencies": []
-          },
-          {
-            "id": 3,
-            "title": "Add conflict detection for non-Taskmaster task writes",
-            "description": "Implement checks that fail fast when .sisyphus/tasks artifacts are created during workflows.",
-            "status": "pending",
-            "dependencies": []
-          },
-          {
-            "id": 4,
-            "title": "Validate delegated-agent task compliance",
-            "description": "Confirm subagent/delegated paths preserve Taskmaster-only behavior.",
-            "status": "pending",
-            "dependencies": []
-          }
-        ],
-        "aocPrd": {
-          "path": ".taskmaster/docs/prds/omo-integration_prd_rpg.md",
-          "updatedAt": "2026-02-22T15:30:24.269Z",
-          "version": 1
-        },
-        "updatedAt": "2026-02-23T08:09:30.370Z",
-        "activeAgent": false
-      },
-      {
-        "id": "95",
-        "title": "Implement AOC context-pack bridge for OmO sessions",
-        "description": "Compose bounded OmO context payloads from aoc-mem, aoc-stm, and aoc-mind with strict precedence and size limits.",
-        "details": "Add scripts/helpers that build deterministic context packs and keep AGENTS.md procedural while durable knowledge remains in .aoc artifacts.",
-        "testStrategy": "Use fixture outputs to verify precedence order (mem -> stm -> mind), bounded length, and stable formatting for repeated inputs.",
-        "status": "done",
-        "dependencies": [
-          "93"
-        ],
-        "priority": "high",
-        "subtasks": [
-          {
-            "id": 1,
-            "title": "Define context-pack contract and budgets",
-            "description": "Specify context precedence, section layout, and max-size limits for mem/stm/mind payload composition.",
-            "status": "pending",
-            "dependencies": []
-          },
-          {
-            "id": 2,
-            "title": "Implement context pack composer utility",
-            "description": "Build script/helper that reads AOC memory sources and emits bounded deterministic context text.",
-            "status": "pending",
-            "dependencies": []
-          },
-          {
-            "id": 3,
-            "title": "Integrate context pack into OmO startup workflow",
-            "description": "Wire generated context pack into project-local agent flows without duplicating AGENTS/README injection.",
-            "status": "pending",
-            "dependencies": []
-          },
-          {
-            "id": 4,
-            "title": "Add fixture tests for ordering and bounds",
-            "description": "Test deterministic output ordering (mem -> stm -> mind) and strict line/size limits.",
-            "status": "pending",
-            "dependencies": []
-          }
-        ],
-        "aocPrd": {
-          "path": ".taskmaster/docs/prds/omo-integration_prd_rpg.md",
-          "updatedAt": "2026-02-22T15:30:24.292Z",
-          "version": 1
-        },
-        "updatedAt": "2026-02-23T08:09:30.436Z",
-        "activeAgent": false
-      },
-      {
-        "id": "96",
-        "title": "Integrate OmO provisioning into install.sh and aoc-init",
-        "description": "Wire sandbox-first OmO setup into standard install and project initialization flows with idempotent behavior.",
-        "details": "Extend installer/init scripts to seed profile/project policy files safely, preserve existing user customizations, and expose clear logs for profile mode and governance state.",
-        "testStrategy": "Run repeated install/init executions in temp HOME/project fixtures and assert outputs are stable with no destructive drift.",
-        "status": "done",
-        "dependencies": [
-          "92",
-          "94",
-          "95"
-        ],
-        "priority": "high",
-        "subtasks": [
-          {
-            "id": 1,
-            "title": "Add OmO sandbox options to install.sh",
-            "description": "Introduce installer controls for OmO enablement mode, profile target, and non-interactive install flags.",
-            "status": "pending",
-            "dependencies": []
-          },
-          {
-            "id": 2,
-            "title": "Seed OmO config artifacts during install",
-            "description": "Install template/policy files and profile metadata safely during bootstrap without clobbering user data.",
-            "status": "pending",
-            "dependencies": []
-          },
-          {
-            "id": 3,
-            "title": "Extend aoc-init to seed project OmO policy",
-            "description": "Ensure aoc-init creates or repairs project-local OmO policy files and governance guidance idempotently.",
-            "status": "pending",
-            "dependencies": []
-          },
-          {
-            "id": 4,
-            "title": "Add install/init idempotency regressions",
-            "description": "Verify repeated install/init runs remain stable and non-destructive across profile states.",
-            "status": "pending",
-            "dependencies": []
-          }
-        ],
-        "aocPrd": {
-          "path": ".taskmaster/docs/prds/omo-integration_prd_rpg.md",
-          "updatedAt": "2026-02-22T15:30:24.305Z",
-          "version": 1
-        },
-        "updatedAt": "2026-02-23T08:09:30.472Z",
-        "activeAgent": false
-      },
-      {
-        "id": "97",
-        "title": "Expand smoke and regression validation for OmO+AOC policy invariants",
-        "description": "Add automated checks for profile isolation, disabled loop-heavy defaults, Taskmaster authority, and context-pack bounds.",
-        "details": "Extend scripts/smoke.sh and add focused verify scripts to catch policy regressions before release.",
-        "testStrategy": "Require AOC_SMOKE_TEST=1 bash scripts/smoke.sh plus targeted OmO verify scripts in CI/local acceptance.",
-        "status": "done",
-        "dependencies": [
-          "96"
-        ],
-        "priority": "medium",
-        "subtasks": [
-          {
-            "id": 1,
-            "title": "Extend smoke.sh with OmO policy assertions",
-            "description": "Add checks for profile isolation, disabled loop-heavy defaults, and Taskmaster-only task authority.",
-            "status": "pending",
-            "dependencies": []
-          },
-          {
-            "id": 2,
-            "title": "Add targeted OmO verification script",
-            "description": "Implement scripts/opencode/verify-omo.sh for focused config/state checks usable locally and in CI.",
-            "status": "pending",
-            "dependencies": []
-          },
-          {
-            "id": 3,
-            "title": "Wire relevant crate/shell checks by touched scope",
-            "description": "Ensure validation commands include bash syntax checks and relevant cargo check/test where integration touches Rust crates.",
-            "status": "pending",
-            "dependencies": []
-          },
-          {
-            "id": 4,
-            "title": "Document manual acceptance regression steps",
-            "description": "Capture final operator verification checklist including rollback rehearsal and profile switch validation.",
-            "status": "pending",
-            "dependencies": []
-          }
-        ],
-        "aocPrd": {
-          "path": ".taskmaster/docs/prds/omo-integration_prd_rpg.md",
-          "updatedAt": "2026-02-22T15:30:24.315Z",
-          "version": 1
-        },
-        "updatedAt": "2026-02-23T08:09:30.523Z",
-        "activeAgent": false
-      },
-      {
-        "id": "98",
-        "title": "Publish OmO integration runbook and operator docs",
-        "description": "Document sandbox usage, profile promotion/rollback, task governance, and one-command setup expectations.",
-        "details": "Update installation/agents docs and add dedicated OmO integration guide with troubleshooting and recovery steps.",
-        "testStrategy": "Perform a doc-driven dry run on clean profile/project and confirm every documented step reproduces expected behavior.",
-        "status": "done",
-        "dependencies": [
-          "96"
-        ],
-        "priority": "medium",
-        "subtasks": [
-          {
-            "id": 1,
-            "title": "Update installation docs for sandbox-first OmO",
-            "description": "Document end-to-end install flow including profile isolation defaults and one-command setup expectations.",
-            "status": "pending",
-            "dependencies": []
-          },
-          {
-            "id": 2,
-            "title": "Update governance docs for Taskmaster and context authority",
-            "description": "Clarify that OmO is additive while Taskmaster and .aoc memory remain canonical sources of truth.",
-            "status": "pending",
-            "dependencies": []
-          },
-          {
-            "id": 3,
-            "title": "Add dedicated OmO integration runbook",
-            "description": "Create scenario-based guide for sandbox usage, promotion, rollback, and troubleshooting.",
-            "status": "pending",
-            "dependencies": []
-          },
-          {
-            "id": 4,
-            "title": "Add migration and rollback quick reference",
-            "description": "Provide concise command snippets for switching profiles, recovering configs, and disabling OmO safely.",
-            "status": "pending",
-            "dependencies": []
-          }
-        ],
-        "aocPrd": {
-          "path": ".taskmaster/docs/prds/omo-integration_prd_rpg.md",
-          "updatedAt": "2026-02-22T15:30:24.342Z",
-          "version": 1
-        },
-        "updatedAt": "2026-02-22T15:30:24.342Z",
-        "activeAgent": false
-      },
-      {
-        "id": "99",
-        "title": "Validate production-ready one-command OmO setup",
-        "description": "Prove that ./install.sh plus aoc-init consistently yields optimized OmO-enabled AOC behavior from clean environments.",
-        "details": "Execute final acceptance checklist, capture evidence, and record durable architecture decisions in aoc-mem before declaring rollout complete.",
-        "testStrategy": "Run full clean-environment rehearsal, verify policy invariants and manual workflows, and archive final acceptance notes.",
-        "status": "done",
-        "dependencies": [
-          "97",
-          "98"
-        ],
-        "priority": "medium",
-        "subtasks": [
-          {
-            "id": 1,
-            "title": "Run clean-environment install/init rehearsal",
-            "description": "Validate from fresh profile that ./install.sh and aoc-init produce expected OmO-enabled AOC state.",
-            "status": "pending",
-            "dependencies": []
-          },
-          {
-            "id": 2,
-            "title": "Run governance acceptance workflow",
-            "description": "Execute sample tasks to confirm Taskmaster authority, context-pack behavior, and absence of forbidden loop defaults.",
-            "status": "pending",
-            "dependencies": []
-          },
-          {
-            "id": 3,
-            "title": "Capture performance and control metrics",
-            "description": "Record token/control observations against baseline to confirm integration remains engineer-controlled.",
-            "status": "pending",
-            "dependencies": []
-          },
-          {
-            "id": 4,
-            "title": "Publish final sign-off and durable decisions",
-            "description": "Record rollout decision in aoc-mem and finalize implementation handoff notes.",
-            "status": "pending",
-            "dependencies": []
-          }
-        ],
-        "aocPrd": {
-          "path": ".taskmaster/docs/prds/omo-integration_prd_rpg.md",
-          "updatedAt": "2026-02-22T15:30:24.355Z",
-          "version": 1
-        },
-        "updatedAt": "2026-02-22T15:30:24.355Z",
-        "activeAgent": false
-      },
-      {
-        "id": "100",
-        "title": "Add selectable OmO agent mode in control panel",
-        "description": "Expose OmO as a first-class selectable agent while preserving standalone OpenCode behavior.",
-        "details": "Add a new 'omo' agent path in aoc-agent/aoc-agent-run/aoc-control, introduce aoc-omo launcher that resolves sandbox profile via aoc-opencode-profile and sets OPENCODE_CONFIG_DIR process-locally, and keep existing 'oc' path unchanged for native OpenCode usage.",
-        "testStrategy": "Verify selecting default agent=omo launches with sandbox OPENCODE_CONFIG_DIR, selecting default agent=oc launches without forced profile override, and smoke/regression tests assert no cross-profile conflict.",
-        "status": "done",
-        "dependencies": [],
         "priority": "high",
         "subtasks": [],
         "aocPrd": null,
-        "updatedAt": "2026-02-23T08:38:14.335Z",
+        "updatedAt": "2026-02-21T12:02:35.527Z",
+        "activeAgent": false
+      },
+      {
+        "id": "88",
+        "title": "Add RTK setup and diagnostics flow to Alt+C aoc-control",
+        "description": "Expose RTK status/install/enable/disable actions in the floating control pane for guided setup.",
+        "details": "",
+        "testStrategy": "UI action-path tests and command invocation checks for status/install toggles.",
+        "status": "done",
+        "dependencies": [
+          "86"
+        ],
+        "priority": "medium",
+        "subtasks": [],
+        "aocPrd": null,
+        "updatedAt": "2026-02-21T12:02:35.539Z",
+        "activeAgent": false
+      },
+      {
+        "id": "89",
+        "title": "Extend aoc-init to seed and migrate RTK integration defaults",
+        "description": "Ensure next aoc-init upgrades legacy repositories to RTK-capable AOC setup without destructive overwrites.",
+        "details": "",
+        "testStrategy": "Migration smoke tests on legacy AOC repos plus idempotency checks across repeated runs.",
+        "status": "done",
+        "dependencies": [
+          "86"
+        ],
+        "priority": "high",
+        "subtasks": [],
+        "aocPrd": null,
+        "updatedAt": "2026-02-21T12:02:35.553Z",
+        "activeAgent": false
+      },
+      {
+        "id": "90",
+        "title": "Document RTK operating modes, safety model, and rollout guidance",
+        "description": "Publish operator docs for allowlist policy, fail-open behavior, bypass controls, and troubleshooting.",
+        "details": "",
+        "testStrategy": "Doc accuracy pass against shipped commands/config and quickstart validation in a clean environment.",
+        "status": "done",
+        "dependencies": [
+          "87",
+          "88",
+          "89"
+        ],
+        "priority": "medium",
+        "subtasks": [],
+        "aocPrd": null,
+        "updatedAt": "2026-02-21T12:02:35.570Z",
         "activeAgent": false
       }
     ]
@@ -3277,6 +2031,205 @@
       "version": 1
     }
   },
+  "mermaid": {
+    "tasks": [
+      {
+        "id": "76",
+        "title": "Integrate Mermaid renderer with phased rollout",
+        "description": "Plan and implement Mermaid renderer integration across Phase 1 optional binary support and Phase 2 embedded Rust path.",
+        "details": "Create integration that starts with optional external mmdr binary, configurable output directory precedence, doctor/install checks, and graceful fallback; then add optional embedded renderer behind feature flags after Phase 1 validation.",
+        "testStrategy": "Validate output-dir precedence, missing-binary fallback UX, install/doctor checks, feature-flag gating, rendering correctness, and regression smoke tests across session modes.",
+        "status": "done",
+        "dependencies": [],
+        "priority": "high",
+        "subtasks": [],
+        "aocPrd": {
+          "path": ".taskmaster/docs/prds/76-integrate-mermaid-renderer-with-phased-rollout.md",
+          "updatedAt": "2026-02-17T14:00:09.361Z",
+          "version": 1
+        },
+        "updatedAt": "2026-02-17T14:00:09.361Z",
+        "activeAgent": false
+      }
+    ]
+  },
+  "sub-agents": {
+    "tasks": [
+      {
+        "id": "56",
+        "title": "Define sub-agent catalog and prompt templates",
+        "description": "Confirm names, intents, and template format for the planned sub-agents.",
+        "details": "Define the canonical sub-agent list and default rotation order.\n- Confirm names and intents for: architect, task-breaker, implementer, test-planner, code-reviewer, docs-maintainer, security-reviewer, perf-analyzer, release-notes, incident-debugger, rlm-curator.\n- Specify template fields (goal, scope, constraints, inputs, output format).\n- Define naming rules and file locations: .opencode/agents/<name>.md.\n- Decide opt-in or opt-out flags and a default rotation order.",
+        "testStrategy": "Review the catalog and template spec in docs/agents.md.\nCreate a sample agent file and confirm OpenCode can invoke it with @name.",
+        "status": "done",
+        "dependencies": [],
+        "priority": "high",
+        "subtasks": [],
+        "aocPrd": null,
+        "updatedAt": "2026-02-04T11:18:59.149Z",
+        "activeAgent": false
+      },
+      {
+        "id": "57",
+        "title": "Seed sub-agents via aoc-init",
+        "description": "Ensure aoc-init seeds the sub-agent templates safely.",
+        "details": "Update aoc-init to seed sub-agent templates if missing.\n- Create .opencode/agents if needed.\n- Write templates for each sub-agent from the approved catalog.\n- Do not overwrite existing user edits.\n- Add a config file for ordering if required (for example .opencode/sub-agents.json).\n- Keep behavior idempotent across multiple runs.",
+        "testStrategy": "Run aoc-init in a clean repo and confirm all templates and config files are created.\nRe-run aoc-init and confirm existing files are not overwritten.",
+        "status": "done",
+        "dependencies": [],
+        "priority": "high",
+        "subtasks": [],
+        "aocPrd": null,
+        "updatedAt": "2026-02-04T11:18:59.157Z",
+        "activeAgent": false
+      },
+      {
+        "id": "58",
+        "title": "Define sub-agent rotation config and state",
+        "description": "Specify how rotation order and active agent state are stored.",
+        "details": "Design the configuration and state model for sub-agent rotation.\n- Define config schema (order, enabled list, default agent).\n- Decide where per-tab or per-session selection is stored.\n- Define environment variables or commands the OpenCode plugin will use to set active sub-agent.\n- Document fallback behavior when config is missing or invalid.",
+        "testStrategy": "Document the schema with a sample config and confirm it covers ordering and enablement.\nValidate the fallback rules against an empty or invalid config.",
+        "status": "done",
+        "dependencies": [],
+        "priority": "medium",
+        "subtasks": [],
+        "aocPrd": null,
+        "updatedAt": "2026-02-04T11:18:59.164Z",
+        "activeAgent": false
+      },
+      {
+        "id": "59",
+        "title": "Implement OpenCode Shift+Tab sub-agent rotation",
+        "description": "Add the OpenCode CLI plugin that rotates sub-agents.",
+        "details": "Implement the OpenCode CLI plugin to rotate sub-agents on Shift+Tab.\n- Preserve Tab for plan/build switching.\n- Shift+Tab cycles through configured sub-agents in order.\n- Update the active sub-agent selection and expose it to the UI.\n- Provide a safe fallback when config or agent files are missing.",
+        "testStrategy": "Manual: open OpenCode in AOC, press Shift+Tab, and verify the active sub-agent cycles.\nManual: Tab continues to toggle plan/build with no conflicts.",
+        "status": "done",
+        "dependencies": [],
+        "priority": "high",
+        "subtasks": [],
+        "aocPrd": null,
+        "updatedAt": "2026-02-04T11:18:59.170Z",
+        "activeAgent": true
+      },
+      {
+        "id": "60",
+        "title": "Surface active sub-agent in AOC wrappers",
+        "description": "Expose the active sub-agent through AOC wrapper scripts.",
+        "details": "Update AOC wrappers to surface the active sub-agent.\n- Update aoc-agent-wrap header to show the active sub-agent name.\n- Pass the active sub-agent value to OpenCode via env or args.\n- Keep backward compatibility when the plugin is not installed.",
+        "testStrategy": "Start AOC without the plugin and verify no errors occur.\nStart AOC with the plugin and confirm the header updates when the active sub-agent changes.",
+        "status": "done",
+        "dependencies": [],
+        "priority": "medium",
+        "subtasks": [],
+        "aocPrd": null,
+        "updatedAt": "2026-02-04T11:18:59.178Z",
+        "activeAgent": false
+      },
+      {
+        "id": "61",
+        "title": "Document sub-agent rotation UX",
+        "description": "Document the catalog, rotation keybind, and setup.",
+        "details": "Update documentation for sub-agent rotation.\n- Expand docs/agents.md with the final catalog and usage.\n- Add README or docs/configuration notes for Shift+Tab rotation and config file location.\n- Provide a minimal example that shows how to invoke @agent and how rotation order is defined.",
+        "testStrategy": "Doc review for consistency across agents docs, README, and configuration references.",
+        "status": "done",
+        "dependencies": [],
+        "priority": "medium",
+        "subtasks": [],
+        "aocPrd": null,
+        "updatedAt": "2026-02-04T11:18:59.185Z",
+        "activeAgent": false
+      },
+      {
+        "id": "143",
+        "title": "Define T3 alignment contract and report schema",
+        "description": "Specify T3 as the project-level alignment layer above T1/T2, including inputs, guardrails, output sections, provenance requirements, and no-write default behavior.",
+        "details": "Use docs/insight-t3-alignment.md as the canonical working spec. Ensure the contract covers T2, .aoc/memory, STM/handoff, Taskmaster, and optional PRD evidence. Clarify artifact locations and trigger semantics.",
+        "testStrategy": "Docs review plus runtime contract review confirms a stable T3 input/output schema and explicit non-destructive defaults.",
+        "status": "pending",
+        "dependencies": [],
+        "priority": "high",
+        "subtasks": [],
+        "aocPrd": null,
+        "updatedAt": "2026-03-09T10:09:37.241Z",
+        "activeAgent": false
+      },
+      {
+        "id": "144",
+        "title": "Implement manual T3 trigger flow for operators",
+        "description": "Allow developers/operators to trigger an immediate T3 alignment run and inspect the resulting report.",
+        "details": "Add an explicit operator-facing trigger path, likely via Mission Control and/or wrapper command surfaces, using existing T3 backlog/runtime scaffolding. Preserve queued/running/completed visibility and report artifact access.",
+        "testStrategy": "Manual trigger produces a T3 run with observable lifecycle state and a persisted alignment report without mutating tasks or memory by default.",
+        "status": "pending",
+        "dependencies": [],
+        "priority": "high",
+        "subtasks": [],
+        "aocPrd": null,
+        "updatedAt": "2026-03-09T10:09:37.265Z",
+        "activeAgent": false
+      },
+      {
+        "id": "145",
+        "title": "Expose on-demand T3 pull path to the main Pi agent",
+        "description": "Let the main agent invoke T3 strategically during development when alignment help is needed.",
+        "details": "Define a typed or explicit invocation surface the main agent can call without hidden side effects. Ensure results are returned as report artifacts with provenance and can be consumed in normal agent workflows.",
+        "testStrategy": "Main-agent initiated T3 request completes successfully and returns a readable report with no hidden mutation path.",
+        "status": "pending",
+        "dependencies": [],
+        "priority": "high",
+        "subtasks": [],
+        "aocPrd": null,
+        "updatedAt": "2026-03-09T10:09:37.288Z",
+        "activeAgent": false
+      },
+      {
+        "id": "146",
+        "title": "Integrate T3 evidence gathering across memory, Taskmaster, and PRD context",
+        "description": "Deepen T3 source aggregation so alignment reports reconcile memory, plan, and work state.",
+        "details": "Wire T3 input collection to .aoc/memory, current handoff/STM context, Taskmaster state, tag/task PRD linkage, and latest T2 outputs. Explicitly preserve provenance and confidence boundaries for each evidence source.",
+        "testStrategy": "T3 reports cite inputs from memory, task state, PRD context, and T2 artifacts with traceable provenance.",
+        "status": "pending",
+        "dependencies": [],
+        "priority": "high",
+        "subtasks": [],
+        "aocPrd": null,
+        "updatedAt": "2026-03-09T10:09:37.315Z",
+        "activeAgent": false
+      },
+      {
+        "id": "147",
+        "title": "Surface T3 status and reports in Mission Control and Pi UI",
+        "description": "Make T3 visible, inspectable, and user-friendly in AOC interfaces.",
+        "details": "Expose queue depth, last run, lifecycle state, and latest report access in Mission Control; add a Pi UI/read path so operators and the main agent can review recent T3 output easily.",
+        "testStrategy": "UI smoke tests confirm operators can see T3 runtime state and open the latest alignment report from supported surfaces.",
+        "status": "pending",
+        "dependencies": [],
+        "priority": "medium",
+        "subtasks": [],
+        "aocPrd": null,
+        "updatedAt": "2026-03-09T10:09:37.339Z",
+        "activeAgent": false
+      },
+      {
+        "id": "148",
+        "title": "Add T3 safety and regression coverage",
+        "description": "Harden T3 with tests for runtime behavior, observability, and non-destructive defaults.",
+        "details": "Cover queue/lease behavior, manual trigger behavior, report generation, provenance capture, requeue/dead-letter semantics, and explicit confirmation requirements for any future write actions.",
+        "testStrategy": "Automated tests cover success/failure/requeue paths plus non-destructive default behavior and report artifact generation.",
+        "status": "pending",
+        "dependencies": [],
+        "priority": "medium",
+        "subtasks": [],
+        "aocPrd": null,
+        "updatedAt": "2026-03-09T10:09:37.365Z",
+        "activeAgent": false
+      }
+    ],
+    "aocPrd": {
+      "path": ".taskmaster/docs/prds/insight-subagent-orchestration_prd_rpg.md",
+      "updatedAt": "2026-02-27T08:28:35.444Z",
+      "version": 1
+    }
+  },
   "master": {
     "tasks": [
       {
@@ -3295,11 +2248,11 @@
             "description": "Classify required vs optional tools and map each to distro-specific install hints for README and aoc-doctor output.",
             "status": "pending",
             "dependencies": [],
+            "priority": "",
+            "subtasks": null,
             "testStrategy": "",
             "activeAgent": false,
-            "details": "",
-            "priority": "",
-            "subtasks": null
+            "details": ""
           },
           {
             "id": 2,
@@ -3309,9 +2262,9 @@
             "dependencies": [],
             "activeAgent": false,
             "testStrategy": "",
+            "details": "",
             "priority": "",
-            "subtasks": null,
-            "details": ""
+            "subtasks": null
           },
           {
             "id": 3,
@@ -3319,11 +2272,11 @@
             "description": "Add README section with example output and suggested install fixes.",
             "status": "pending",
             "dependencies": [],
-            "details": "",
-            "testStrategy": "",
+            "subtasks": null,
             "priority": "",
             "activeAgent": false,
-            "subtasks": null
+            "details": "",
+            "testStrategy": ""
           }
         ],
         "aocPrd": null,
@@ -3346,11 +2299,11 @@
             "description": "Add graceful fallback when TM binary is missing (message + exit or read-only mode).",
             "status": "pending",
             "dependencies": [],
-            "subtasks": null,
-            "priority": "",
             "details": "",
+            "activeAgent": false,
+            "subtasks": null,
             "testStrategy": "",
-            "activeAgent": false
+            "priority": ""
           },
           {
             "id": 2,
@@ -3358,10 +2311,10 @@
             "description": "Implement keybinds to mark done/reopen, open task details, and refresh without restarting.",
             "status": "pending",
             "dependencies": [],
-            "testStrategy": "",
-            "activeAgent": false,
             "subtasks": null,
+            "testStrategy": "",
             "priority": "",
+            "activeAgent": false,
             "details": ""
           },
           {
@@ -3370,11 +2323,11 @@
             "description": "Keep the on-screen hints aligned with the new actions and modes.",
             "status": "pending",
             "dependencies": [],
-            "details": "",
             "subtasks": null,
-            "activeAgent": false,
             "priority": "",
-            "testStrategy": ""
+            "activeAgent": false,
+            "testStrategy": "",
+            "details": ""
           }
         ],
         "aocPrd": null,
@@ -3397,11 +2350,11 @@
             "description": "Store last mode (cal/media) in state file and restore on start.",
             "status": "pending",
             "dependencies": [],
+            "testStrategy": "",
+            "activeAgent": false,
             "details": "",
             "subtasks": null,
-            "activeAgent": false,
-            "priority": "",
-            "testStrategy": ""
+            "priority": ""
           },
           {
             "id": 2,
@@ -3409,10 +2362,10 @@
             "description": "Detect chafa/ffmpeg/rsvg-convert and show clear fallback instructions.",
             "status": "pending",
             "dependencies": [],
-            "testStrategy": "",
             "subtasks": null,
-            "details": "",
             "priority": "",
+            "testStrategy": "",
+            "details": "",
             "activeAgent": false
           },
           {
@@ -3421,11 +2374,11 @@
             "description": "Add validation and non-blocking prompt when media path is missing or unsupported.",
             "status": "pending",
             "dependencies": [],
-            "details": "",
             "activeAgent": false,
-            "subtasks": null,
+            "testStrategy": "",
+            "details": "",
             "priority": "",
-            "testStrategy": ""
+            "subtasks": null
           }
         ],
         "aocPrd": null,
@@ -3448,11 +2401,11 @@
             "description": "Implement AOC_SYS_INTERVAL and section toggles (CPU/Mem/Disk) with defaults.",
             "status": "pending",
             "dependencies": [],
-            "activeAgent": false,
-            "details": "",
             "subtasks": null,
-            "priority": "",
-            "testStrategy": ""
+            "details": "",
+            "activeAgent": false,
+            "testStrategy": "",
+            "priority": ""
           },
           {
             "id": 2,
@@ -3460,11 +2413,11 @@
             "description": "Keep output stable for small panes; handle missing /proc gracefully.",
             "status": "pending",
             "dependencies": [],
-            "testStrategy": "",
-            "subtasks": null,
-            "priority": "",
             "activeAgent": false,
-            "details": ""
+            "subtasks": null,
+            "details": "",
+            "priority": "",
+            "testStrategy": ""
           },
           {
             "id": 3,
@@ -3472,11 +2425,11 @@
             "description": "Add README section with env vars and examples.",
             "status": "pending",
             "dependencies": [],
-            "testStrategy": "",
             "priority": "",
-            "details": "",
+            "subtasks": null,
             "activeAgent": false,
-            "subtasks": null
+            "testStrategy": "",
+            "details": ""
           }
         ],
         "aocPrd": null,
@@ -3499,11 +2452,11 @@
             "description": "Decide between env var overrides or templated layout copy on install.",
             "status": "done",
             "dependencies": [],
-            "testStrategy": "",
-            "subtasks": null,
-            "details": "",
             "activeAgent": false,
-            "priority": ""
+            "testStrategy": "",
+            "details": "",
+            "priority": "",
+            "subtasks": null
           },
           {
             "id": 2,
@@ -3512,10 +2465,10 @@
             "status": "done",
             "dependencies": [],
             "subtasks": null,
-            "details": "",
             "activeAgent": false,
+            "priority": "",
             "testStrategy": "",
-            "priority": ""
+            "details": ""
           },
           {
             "id": 3,
@@ -3524,10 +2477,10 @@
             "status": "done",
             "dependencies": [],
             "testStrategy": "",
-            "activeAgent": false,
+            "subtasks": null,
             "details": "",
-            "priority": "",
-            "subtasks": null
+            "activeAgent": false,
+            "priority": ""
           }
         ],
         "aocPrd": null,
@@ -3550,10 +2503,10 @@
             "description": "Create aoc-uninstall or scripts/uninstall.sh to remove installed files only.",
             "status": "pending",
             "dependencies": [],
-            "priority": "",
             "subtasks": null,
-            "testStrategy": "",
             "details": "",
+            "testStrategy": "",
+            "priority": "",
             "activeAgent": false
           },
           {
@@ -3562,11 +2515,11 @@
             "description": "Ensure install.sh overwrites safely, prints what changed, and exits cleanly on re-run.",
             "status": "pending",
             "dependencies": [],
-            "details": "",
             "activeAgent": false,
+            "subtasks": null,
             "testStrategy": "",
-            "priority": "",
-            "subtasks": null
+            "details": "",
+            "priority": ""
           },
           {
             "id": 3,
@@ -3574,10 +2527,10 @@
             "description": "Add README usage examples and expected file paths.",
             "status": "pending",
             "dependencies": [],
+            "testStrategy": "",
+            "activeAgent": false,
             "priority": "",
             "subtasks": null,
-            "activeAgent": false,
-            "testStrategy": "",
             "details": ""
           }
         ],
@@ -3602,9 +2555,9 @@
             "status": "pending",
             "dependencies": [],
             "priority": "",
-            "subtasks": null,
-            "activeAgent": false,
             "details": "",
+            "activeAgent": false,
+            "subtasks": null,
             "testStrategy": ""
           },
           {
@@ -3613,11 +2566,11 @@
             "description": "Cover common errors (missing tools, blank preview, taskmaster missing) with fixes.",
             "status": "pending",
             "dependencies": [],
-            "activeAgent": false,
-            "testStrategy": "",
             "subtasks": null,
-            "priority": "",
-            "details": ""
+            "testStrategy": "",
+            "details": "",
+            "activeAgent": false,
+            "priority": ""
           },
           {
             "id": 3,
@@ -3625,11 +2578,11 @@
             "description": "Include placeholder path and note for updating the screenshot in README.",
             "status": "pending",
             "dependencies": [],
-            "subtasks": null,
             "testStrategy": "",
-            "priority": "",
+            "details": "",
             "activeAgent": false,
-            "details": ""
+            "subtasks": null,
+            "priority": ""
           }
         ],
         "aocPrd": null,
@@ -3652,18 +2605,6 @@
             "description": "Add shellcheck invocation over bin/ and yazi/preview.sh with sensible flags.",
             "status": "pending",
             "dependencies": [],
-            "activeAgent": false,
-            "priority": "",
-            "details": "",
-            "testStrategy": "",
-            "subtasks": null
-          },
-          {
-            "id": 2,
-            "title": "Add GitHub Actions lint workflow",
-            "description": "Optional CI workflow that runs shellcheck on pushes/PRs.",
-            "status": "pending",
-            "dependencies": [],
             "priority": "",
             "subtasks": null,
             "testStrategy": "",
@@ -3671,16 +2612,28 @@
             "details": ""
           },
           {
+            "id": 2,
+            "title": "Add GitHub Actions lint workflow",
+            "description": "Optional CI workflow that runs shellcheck on pushes/PRs.",
+            "status": "pending",
+            "dependencies": [],
+            "testStrategy": "",
+            "details": "",
+            "activeAgent": false,
+            "subtasks": null,
+            "priority": ""
+          },
+          {
             "id": 3,
             "title": "Document lint usage",
             "description": "Add README instructions for running lint locally and in CI.",
             "status": "pending",
             "dependencies": [],
-            "details": "",
+            "subtasks": null,
             "testStrategy": "",
             "activeAgent": false,
             "priority": "",
-            "subtasks": null
+            "details": ""
           }
         ],
         "aocPrd": null,
@@ -3703,11 +2656,11 @@
             "description": "Add initial release section describing current features.",
             "status": "pending",
             "dependencies": [],
-            "priority": "",
-            "testStrategy": "",
+            "activeAgent": false,
             "subtasks": null,
             "details": "",
-            "activeAgent": false
+            "priority": "",
+            "testStrategy": ""
           },
           {
             "id": 2,
@@ -3716,10 +2669,10 @@
             "status": "pending",
             "dependencies": [],
             "activeAgent": false,
-            "testStrategy": "",
-            "details": "",
+            "subtasks": null,
             "priority": "",
-            "subtasks": null
+            "details": "",
+            "testStrategy": ""
           },
           {
             "id": 3,
@@ -3727,10 +2680,10 @@
             "description": "Add a small checklist for cutting releases and tagging.",
             "status": "pending",
             "dependencies": [],
-            "testStrategy": "",
-            "details": "",
             "priority": "",
+            "testStrategy": "",
             "subtasks": null,
+            "details": "",
             "activeAgent": false
           }
         ],
@@ -3755,10 +2708,10 @@
             "status": "done",
             "dependencies": [],
             "subtasks": null,
-            "testStrategy": "",
-            "activeAgent": false,
+            "details": "",
             "priority": "",
-            "details": ""
+            "activeAgent": false,
+            "testStrategy": ""
           },
           {
             "id": 2,
@@ -3766,11 +2719,11 @@
             "description": "Confirm zellij-tile capabilities (events, workers, filesystem access) and how to ship/load plugin in this repo.",
             "status": "done",
             "dependencies": [],
+            "subtasks": null,
+            "details": "",
             "activeAgent": false,
             "testStrategy": "",
-            "priority": "",
-            "details": "",
-            "subtasks": null
+            "priority": ""
           },
           {
             "id": 3,
@@ -3778,11 +2731,11 @@
             "description": "Define list/detail views, filters, keybindings, realtime refresh strategy, and error states (missing tasks.json, parse errors).",
             "status": "done",
             "dependencies": [],
-            "priority": "",
             "testStrategy": "",
-            "activeAgent": false,
+            "priority": "",
             "details": "",
-            "subtasks": null
+            "subtasks": null,
+            "activeAgent": false
           },
           {
             "id": 4,
@@ -3790,9 +2743,9 @@
             "description": "Add plugin source (Rust/WASM), build scripts, and install integration for zellij config/layout.",
             "status": "done",
             "dependencies": [],
-            "details": "",
             "activeAgent": false,
             "subtasks": null,
+            "details": "",
             "priority": "",
             "testStrategy": ""
           },
@@ -3802,11 +2755,11 @@
             "description": "Load tasks.json, parse tasks/subtasks, render list/detail, and refresh on interval or file mtime change.",
             "status": "done",
             "dependencies": [],
-            "subtasks": null,
-            "activeAgent": false,
             "priority": "",
+            "details": "",
+            "activeAgent": false,
             "testStrategy": "",
-            "details": ""
+            "subtasks": null
           },
           {
             "id": 6,
@@ -3814,11 +2767,11 @@
             "description": "Integrate task-master CLI commands for status changes and task updates; handle errors gracefully.",
             "status": "done",
             "dependencies": [],
-            "testStrategy": "",
-            "activeAgent": false,
             "priority": "",
             "subtasks": null,
-            "details": ""
+            "details": "",
+            "activeAgent": false,
+            "testStrategy": ""
           },
           {
             "id": 7,
@@ -4254,11 +3207,11 @@
             "description": "Refactor the Header:children method in yazi/init.lua to correctly display 'Help', 'Open', 'Select', and 'Exit' labels with proper alignment and color transitions.",
             "status": "pending",
             "dependencies": [],
-            "details": "",
             "priority": "",
+            "details": "",
             "testStrategy": "",
-            "subtasks": null,
-            "activeAgent": false
+            "activeAgent": false,
+            "subtasks": null
           },
           {
             "id": 2,
@@ -4269,9 +3222,9 @@
               "1"
             ],
             "subtasks": null,
-            "details": "",
             "testStrategy": "",
             "priority": "",
+            "details": "",
             "activeAgent": false
           },
           {
@@ -4280,11 +3233,11 @@
             "description": "Optimize the resize behavior in plugins/aoc-open.yazi to handle Zellij interactions smoothly and restore layout on exit.",
             "status": "pending",
             "dependencies": [],
-            "testStrategy": "",
-            "priority": "",
-            "activeAgent": false,
             "details": "",
-            "subtasks": null
+            "subtasks": null,
+            "activeAgent": false,
+            "testStrategy": "",
+            "priority": ""
           },
           {
             "id": 4,
@@ -4292,11 +3245,11 @@
             "description": "Configure yazi/keymap.toml for 'g a', 'g l', 'g c' and Ctrl+t, and sync colors in yazi/theme.toml.",
             "status": "pending",
             "dependencies": [],
-            "testStrategy": "",
             "activeAgent": false,
             "details": "",
             "subtasks": null,
-            "priority": ""
+            "priority": "",
+            "testStrategy": ""
           }
         ],
         "aocPrd": null,
@@ -4400,40 +3353,16 @@
             "description": "Replace bash -lc cd pattern with native cwd directive and direct shell invocation for terminal panes",
             "status": "pending",
             "dependencies": [],
-            "activeAgent": false,
-            "priority": "",
-            "testStrategy": "",
             "details": "",
-            "subtasks": null
+            "subtasks": null,
+            "activeAgent": false,
+            "testStrategy": "",
+            "priority": ""
           },
           {
             "id": 2,
             "title": "Create bin/aoc-shell-detect utility",
             "description": "Shell detection module that identifies user shell type and returns appropriate init flags for bash, zsh, fish, powershell, nushell",
-            "status": "pending",
-            "dependencies": [],
-            "testStrategy": "",
-            "priority": "",
-            "details": "",
-            "subtasks": null,
-            "activeAgent": false
-          },
-          {
-            "id": 3,
-            "title": "Update aoc-new-tab for shell-agnostic layout generation",
-            "description": "Ensure dynamically generated tab layouts respect user shell preference via AOC_SHELL or SHELL",
-            "status": "pending",
-            "dependencies": [],
-            "details": "",
-            "priority": "",
-            "testStrategy": "",
-            "activeAgent": false,
-            "subtasks": null
-          },
-          {
-            "id": 4,
-            "title": "Add AOC_SHELL environment variable support",
-            "description": "Document and implement AOC_SHELL override for explicit shell selection with fallback to SHELL",
             "status": "pending",
             "dependencies": [],
             "details": "",
@@ -4443,15 +3372,39 @@
             "testStrategy": ""
           },
           {
+            "id": 3,
+            "title": "Update aoc-new-tab for shell-agnostic layout generation",
+            "description": "Ensure dynamically generated tab layouts respect user shell preference via AOC_SHELL or SHELL",
+            "status": "pending",
+            "dependencies": [],
+            "activeAgent": false,
+            "details": "",
+            "subtasks": null,
+            "testStrategy": "",
+            "priority": ""
+          },
+          {
+            "id": 4,
+            "title": "Add AOC_SHELL environment variable support",
+            "description": "Document and implement AOC_SHELL override for explicit shell selection with fallback to SHELL",
+            "status": "pending",
+            "dependencies": [],
+            "testStrategy": "",
+            "activeAgent": false,
+            "details": "",
+            "subtasks": null,
+            "priority": ""
+          },
+          {
             "id": 5,
             "title": "Test with fish, zsh, powershell, and nushell",
             "description": "Validate terminal pane behavior with each shell type, ensure rc files are sourced and interactive mode works",
             "status": "pending",
             "dependencies": [],
-            "details": "",
-            "activeAgent": false,
             "priority": "",
             "testStrategy": "",
+            "details": "",
+            "activeAgent": false,
             "subtasks": null
           },
           {
@@ -4462,9 +3415,9 @@
             "dependencies": [],
             "details": "",
             "subtasks": null,
+            "activeAgent": false,
             "priority": "",
-            "testStrategy": "",
-            "activeAgent": false
+            "testStrategy": ""
           }
         ],
         "aocPrd": null,
@@ -4487,11 +3440,11 @@
             "description": "List, select, and persist layout choice.",
             "status": "pending",
             "dependencies": [],
-            "subtasks": null,
             "testStrategy": "",
+            "activeAgent": false,
+            "subtasks": null,
             "priority": "",
-            "details": "",
-            "activeAgent": false
+            "details": ""
           },
           {
             "id": 2,
@@ -4499,10 +3452,10 @@
             "description": "Support --layout flag and generic variable substitution.",
             "status": "pending",
             "dependencies": [],
-            "activeAgent": false,
-            "details": "",
             "priority": "",
             "testStrategy": "",
+            "details": "",
+            "activeAgent": false,
             "subtasks": null
           },
           {
@@ -4511,11 +3464,11 @@
             "description": "Read layout_default on startup.",
             "status": "pending",
             "dependencies": [],
-            "priority": "",
-            "testStrategy": "",
             "subtasks": null,
+            "testStrategy": "",
+            "activeAgent": false,
             "details": "",
-            "activeAgent": false
+            "priority": ""
           },
           {
             "id": 4,
@@ -4523,11 +3476,11 @@
             "description": "Add guide for creating compatible KDL layouts.",
             "status": "pending",
             "dependencies": [],
-            "activeAgent": false,
-            "priority": "",
             "subtasks": null,
+            "activeAgent": false,
+            "testStrategy": "",
             "details": "",
-            "testStrategy": ""
+            "priority": ""
           }
         ],
         "aocPrd": null,
@@ -4646,6 +3599,136 @@
           "version": 1
         },
         "updatedAt": "2026-03-19T11:03:47.222Z",
+        "activeAgent": false
+      }
+    ]
+  },
+  "safety": {
+    "tasks": [
+      {
+        "id": "77",
+        "title": "Add CI safety gates for Rust and shell",
+        "description": "Gate regressions in PRs by enforcing tests and lint checks.",
+        "details": "Update CI to run cargo test --workspace, cargo clippy --workspace --all-targets -- -D warnings, and rustfmt checks in addition to existing build and shell lint steps.",
+        "testStrategy": "Open a PR with an intentional warning/lint failure and verify CI blocks merge; verify clean branch passes all gates.",
+        "status": "done",
+        "dependencies": [],
+        "priority": "high",
+        "subtasks": [],
+        "aocPrd": null,
+        "updatedAt": "2026-02-20T08:27:34.225Z",
+        "activeAgent": false
+      },
+      {
+        "id": "78",
+        "title": "Fix installer smoke tests to validate PR code",
+        "description": "Ensure installer workflows test the code under review, not hardcoded main.",
+        "details": "Update installer smoke workflow to fetch bootstrap/install assets from the PR SHA or ref in pull_request context; keep main/tag behavior for push and release contexts.",
+        "testStrategy": "Run workflow on a PR that changes install/bootstrap.sh and confirm the smoke job executes updated PR logic.",
+        "status": "done",
+        "dependencies": [],
+        "priority": "high",
+        "subtasks": [],
+        "aocPrd": null,
+        "updatedAt": "2026-02-20T08:34:03.258Z",
+        "activeAgent": false
+      },
+      {
+        "id": "79",
+        "title": "Expand shellcheck coverage to all shipped scripts",
+        "description": "Increase shell lint coverage for operational scripts.",
+        "details": "Replace static file list in scripts/lint.sh with discovery of executable shell scripts in bin/ and install/, including aoc-agent-wrap, aoc-cleanup, aoc-theme, and aoc-utils.sh; keep any needed excludes explicit and documented.",
+        "testStrategy": "Run lint locally and in CI; verify newly included scripts are checked and failures are reported.",
+        "status": "done",
+        "dependencies": [],
+        "priority": "high",
+        "subtasks": [],
+        "aocPrd": null,
+        "updatedAt": "2026-02-20T08:27:34.232Z",
+        "activeAgent": false
+      },
+      {
+        "id": "80",
+        "title": "Add shell integration smoke tests for critical entrypoints",
+        "description": "Create executable safety net for core shell flows.",
+        "details": "Add non-interactive smoke tests for aoc-launch, aoc-new-tab, aoc-hub, aoc-mission-control-toggle, and aoc-agent-wrap in a controlled test harness with mocked dependencies where needed.",
+        "testStrategy": "Run test suite in CI and verify basic command behavior, exit codes, and no unbound variable regressions.",
+        "status": "done",
+        "dependencies": [],
+        "priority": "high",
+        "subtasks": [],
+        "aocPrd": null,
+        "updatedAt": "2026-02-20T08:27:34.255Z",
+        "activeAgent": false
+      },
+      {
+        "id": "81",
+        "title": "Add cross-process locking for task state writes",
+        "description": "Prevent lost updates in concurrent task operations.",
+        "details": "Implement file locking around read-modify-write paths for .taskmaster/tasks/tasks.json and .taskmaster/state.json in both aoc-cli and aoc-taskmaster, while preserving atomic temp-file rename semantics.",
+        "testStrategy": "Concurrent writer test: run two task mutations in parallel and verify both updates persist without JSON corruption.",
+        "status": "done",
+        "dependencies": [],
+        "priority": "high",
+        "subtasks": [],
+        "aocPrd": null,
+        "updatedAt": "2026-02-20T16:33:33.181Z",
+        "activeAgent": false
+      },
+      {
+        "id": "82",
+        "title": "Add file locking to aoc-mem append operations",
+        "description": "Make memory append operations safe under concurrency.",
+        "details": "Wrap aoc-mem add writes with flock (or robust fallback) and preserve append-only behavior for .aoc/memory.md across simultaneous agent writes.",
+        "testStrategy": "Execute concurrent aoc-mem add calls and verify all entries appear intact and ordered by timestamp.",
+        "status": "done",
+        "dependencies": [],
+        "priority": "high",
+        "subtasks": [],
+        "aocPrd": null,
+        "updatedAt": "2026-02-20T16:33:33.190Z",
+        "activeAgent": false
+      },
+      {
+        "id": "83",
+        "title": "Refactor aoc-agent-wrap cleanup to process-group lifecycle control",
+        "description": "Reduce orphaned process risk and simplify cleanup behavior.",
+        "details": "Move from broad /proc scanning kill logic to process-group-based child lifecycle management with deterministic signal escalation and clear ownership boundaries per pane instance.",
+        "testStrategy": "Spawn nested child processes from wrapped agent, terminate pane/session, and verify full process tree exits with no long-lived leftovers.",
+        "status": "done",
+        "dependencies": [],
+        "priority": "high",
+        "subtasks": [],
+        "aocPrd": null,
+        "updatedAt": "2026-02-20T17:22:35.982Z",
+        "activeAgent": false
+      },
+      {
+        "id": "84",
+        "title": "Extract aoc-cleanup Python heredoc into standalone module",
+        "description": "Improve maintainability and testability of cleanup logic.",
+        "details": "Move embedded Python from bin/aoc-cleanup into a dedicated script/module file, add unit-style tests for core selection logic, and keep CLI behavior backward compatible.",
+        "testStrategy": "Run cleanup in dry-run and execute modes before/after refactor and diff the resulting target selection output.",
+        "status": "done",
+        "dependencies": [],
+        "priority": "medium",
+        "subtasks": [],
+        "aocPrd": null,
+        "updatedAt": "2026-02-20T17:22:35.989Z",
+        "activeAgent": false
+      },
+      {
+        "id": "85",
+        "title": "Add telemetry secret redaction before broadcast",
+        "description": "Prevent accidental sensitive data leakage through telemetry channels.",
+        "details": "Add redaction filters in aoc-agent-wrap-rs output/tap pipeline before publishing to Pulse/WebSocket, covering common credential patterns and allowing safe extension.",
+        "testStrategy": "Feed known secret-like strings through telemetry path and verify published payloads contain redacted tokens only.",
+        "status": "done",
+        "dependencies": [],
+        "priority": "high",
+        "subtasks": [],
+        "aocPrd": null,
+        "updatedAt": "2026-02-20T07:41:24.309Z",
         "activeAgent": false
       }
     ]
@@ -4814,7 +3897,7 @@
       },
       {
         "id": "179",
-        "title": "Design and implement terminal-agnostic Yazi preview rendering for AOC",
+        "title": "Kitty-first Yazi preview quality and runtime for AOC",
         "description": "",
         "details": "",
         "testStrategy": "",
@@ -4824,15 +3907,15 @@
         "subtasks": [
           {
             "id": 1,
-            "title": "Define preview capability model, mode policy, and quality acceptance criteria",
-            "description": "Establish the canonical preview modes (native, custom-overlay, fallback), blocker vocabulary, user override/config contract, and explicit quality bar for the expanded 3-column Yazi pane.",
+            "title": "Define Kitty-first preview capability model, mode policy, and quality acceptance criteria",
+            "description": "Establish the canonical preview modes with Kitty-native first, fallback/custom-inline escalation rules, blocker vocabulary, config contract, and explicit quality bar for the expanded 3-column Yazi pane.",
             "status": "in-progress",
             "dependencies": []
           },
           {
             "id": 2,
-            "title": "Implement environment probing and doctor reporting for preview capabilities",
-            "description": "Detect terminal/backend/tool viability across Ubuntu, Alacritty, Kitty, tmux, and Zellij; update diagnostics to report expected preview experience and blockers rather than only missing binaries.",
+            "title": "Implement Kitty-first probing and doctor reporting for preview capabilities",
+            "description": "Detect Kitty native-preview readiness, tmux/Zellij context, and whether native preview is acceptable versus merely available; update diagnostics to report expected preview quality and blockers.",
             "status": "in-progress",
             "dependencies": [
               "179.1"
@@ -4840,8 +3923,8 @@
           },
           {
             "id": 3,
-            "title": "Build AOC custom high-quality preview runtime with rasterization pipeline",
-            "description": "Implement a new AOC-owned preview runtime for Linux using real image rendering, including SVG/PDF/media rasterization, geometry handling, lifecycle cleanup, and graceful fallback behavior.",
+            "title": "Build custom Kitty-first inline preview runtime with rasterization pipeline",
+            "description": "If native Kitty preview fails the quality bar, implement an AOC-owned inline preview runtime for the Yazi third column with SVG/PDF/media rasterization, geometry handling, lifecycle cleanup, and graceful fallback behavior.",
             "status": "in-progress",
             "dependencies": [
               "179.1",
@@ -4874,95 +3957,7 @@
           "updatedAt": "2026-03-21T08:58:55.775Z",
           "version": 1
         },
-        "updatedAt": "2026-03-21T09:19:07.615Z",
-        "activeAgent": false
-      }
-    ]
-  },
-  "rtk": {
-    "tasks": [
-      {
-        "id": "86",
-        "title": "Implement AOC RTK adapter contract and policy baseline",
-        "description": "Create an AOC-owned RTK integration contract with status/install/doctor/enable/disable semantics and config defaults.",
-        "details": "",
-        "testStrategy": "Unit tests for adapter command resolution and config parsing; smoke-test status/install flows with RTK present and absent.",
-        "status": "done",
-        "dependencies": [],
-        "priority": "high",
-        "subtasks": [],
-        "aocPrd": {
-          "path": ".taskmaster/docs/prds/aoc-rtk_prd_rpg.md",
-          "updatedAt": "2026-02-21T07:57:19.346Z",
-          "version": 1
-        },
-        "updatedAt": "2026-02-21T12:02:35.503Z",
-        "activeAgent": false
-      },
-      {
-        "id": "87",
-        "title": "Build agent-agnostic runtime routing in aoc-agent-wrap",
-        "description": "Integrate RTK routing at shell/session layer so all AOC agents benefit without model-specific hooks.",
-        "details": "",
-        "testStrategy": "Integration tests for routed commands, fail-open fallback, and bypass mode in managed AOC sessions.",
-        "status": "done",
-        "dependencies": [
-          "86"
-        ],
-        "priority": "high",
-        "subtasks": [],
-        "aocPrd": null,
-        "updatedAt": "2026-02-21T12:02:35.527Z",
-        "activeAgent": false
-      },
-      {
-        "id": "88",
-        "title": "Add RTK setup and diagnostics flow to Alt+C aoc-control",
-        "description": "Expose RTK status/install/enable/disable actions in the floating control pane for guided setup.",
-        "details": "",
-        "testStrategy": "UI action-path tests and command invocation checks for status/install toggles.",
-        "status": "done",
-        "dependencies": [
-          "86"
-        ],
-        "priority": "medium",
-        "subtasks": [],
-        "aocPrd": null,
-        "updatedAt": "2026-02-21T12:02:35.539Z",
-        "activeAgent": false
-      },
-      {
-        "id": "89",
-        "title": "Extend aoc-init to seed and migrate RTK integration defaults",
-        "description": "Ensure next aoc-init upgrades legacy repositories to RTK-capable AOC setup without destructive overwrites.",
-        "details": "",
-        "testStrategy": "Migration smoke tests on legacy AOC repos plus idempotency checks across repeated runs.",
-        "status": "done",
-        "dependencies": [
-          "86"
-        ],
-        "priority": "high",
-        "subtasks": [],
-        "aocPrd": null,
-        "updatedAt": "2026-02-21T12:02:35.553Z",
-        "activeAgent": false
-      },
-      {
-        "id": "90",
-        "title": "Document RTK operating modes, safety model, and rollout guidance",
-        "description": "Publish operator docs for allowlist policy, fail-open behavior, bypass controls, and troubleshooting.",
-        "details": "",
-        "testStrategy": "Doc accuracy pass against shipped commands/config and quickstart validation in a clean environment.",
-        "status": "done",
-        "dependencies": [
-          "87",
-          "88",
-          "89"
-        ],
-        "priority": "medium",
-        "subtasks": [],
-        "aocPrd": null,
-        "updatedAt": "2026-02-21T12:02:35.570Z",
+        "updatedAt": "2026-03-21T10:15:57.345Z",
         "activeAgent": false
       }
     ]
@@ -5131,5 +4126,1010 @@
       "updatedAt": "2026-03-18T18:37:35.411Z",
       "version": 1
     }
+  },
+  "omo": {
+    "tasks": [
+      {
+        "id": "91",
+        "title": "Establish sandbox OpenCode profile manager for OmO integration",
+        "description": "Create deterministic sandbox profile conventions using OPENCODE_CONFIG_DIR to keep OmO setup isolated from primary user profile.",
+        "details": "Implement profile path resolution, safe initialization, and explicit promotion/rollback primitives so OmO can be trialed without mutating the main OpenCode profile.",
+        "testStrategy": "Add shell tests for idempotent profile initialization, profile resolution, and non-destructive behavior when profile directories already exist.",
+        "status": "done",
+        "dependencies": [],
+        "priority": "high",
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "Define sandbox profile directory contract",
+            "description": "Specify profile roots, naming, and environment variables (including OPENCODE_CONFIG_DIR) for stable sandbox selection.",
+            "status": "pending",
+            "dependencies": []
+          },
+          {
+            "id": 2,
+            "title": "Implement profile init and resolve helpers",
+            "description": "Create helper commands/scripts to initialize profile directories idempotently and resolve active profile path.",
+            "status": "pending",
+            "dependencies": []
+          },
+          {
+            "id": 3,
+            "title": "Implement promotion and rollback safeguards",
+            "description": "Add explicit promote/rollback flow with backup snapshots to prevent accidental primary profile corruption.",
+            "status": "pending",
+            "dependencies": []
+          },
+          {
+            "id": 4,
+            "title": "Add profile isolation test fixtures",
+            "description": "Create shell fixtures that verify re-runs are non-destructive and isolated from default profile.",
+            "status": "pending",
+            "dependencies": []
+          }
+        ],
+        "aocPrd": {
+          "path": ".taskmaster/docs/prds/omo-integration_prd_rpg.md",
+          "updatedAt": "2026-02-22T15:30:18.275Z",
+          "version": 1
+        },
+        "updatedAt": "2026-02-23T08:09:30.233Z",
+        "activeAgent": false
+      },
+      {
+        "id": "92",
+        "title": "Install Oh-My-OpenCode in sandbox profile with provider-safe merge",
+        "description": "Add OmO installation orchestration that targets sandbox profile and preserves existing provider/plugin entries like antigravity auth.",
+        "details": "Implement install wrapper logic for non-interactive setup, plugin registration checks, and profile-local validation that OmO is present without clobbering current auth/providers.",
+        "testStrategy": "Use fixture profiles to verify plugin array merge behavior and ensure existing provider blocks remain unchanged after install.",
+        "status": "done",
+        "dependencies": [
+          "91"
+        ],
+        "priority": "high",
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "Create sandbox-targeted OmO installer wrapper",
+            "description": "Add install script that runs OmO installer against sandbox profile without mutating primary profile.",
+            "status": "pending",
+            "dependencies": []
+          },
+          {
+            "id": 2,
+            "title": "Implement plugin/provider merge-safe updates",
+            "description": "Ensure existing plugins/providers (including antigravity auth) are preserved when registering OmO.",
+            "status": "pending",
+            "dependencies": []
+          },
+          {
+            "id": 3,
+            "title": "Support non-interactive provider flag flow",
+            "description": "Map install-time provider/subscription flags into deterministic script options for repeatable setup.",
+            "status": "pending",
+            "dependencies": []
+          },
+          {
+            "id": 4,
+            "title": "Add post-install sandbox health check",
+            "description": "Verify OmO plugin registration and expected config files in sandbox profile after install.",
+            "status": "pending",
+            "dependencies": []
+          }
+        ],
+        "aocPrd": {
+          "path": ".taskmaster/docs/prds/omo-integration_prd_rpg.md",
+          "updatedAt": "2026-02-22T15:30:24.245Z",
+          "version": 1
+        },
+        "updatedAt": "2026-02-23T08:09:30.263Z",
+        "activeAgent": false
+      },
+      {
+        "id": "93",
+        "title": "Define project-local OmO control policy configuration",
+        "description": "Create .opencode/oh-my-opencode.jsonc policy defaults that keep OmO additive, deterministic, and engineer-controlled.",
+        "details": "Disable autonomous loop/continuation-heavy features by default, keep high-value additive capabilities enabled, and set conservative concurrency/fallback limits.",
+        "testStrategy": "Add config fixture assertions for required disabled/enabled keys and verify generated policy remains schema-compatible with current OmO versions.",
+        "status": "done",
+        "dependencies": [
+          "92"
+        ],
+        "priority": "high",
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "Create project-local OmO policy template",
+            "description": "Add .opencode/oh-my-opencode.jsonc baseline template aligned to AOC governance expectations.",
+            "status": "pending",
+            "dependencies": []
+          },
+          {
+            "id": 2,
+            "title": "Disable loop-heavy and low-control defaults",
+            "description": "Turn off continuation/loop features and keyword auto-escalation paths that reduce engineer control.",
+            "status": "pending",
+            "dependencies": []
+          },
+          {
+            "id": 3,
+            "title": "Set additive agent and concurrency defaults",
+            "description": "Keep valuable capabilities enabled while enforcing conservative background concurrency and fallback bounds.",
+            "status": "pending",
+            "dependencies": []
+          },
+          {
+            "id": 4,
+            "title": "Add config compatibility checks",
+            "description": "Validate policy template against OmO schema and verify compatibility with current OpenCode profile format.",
+            "status": "pending",
+            "dependencies": []
+          }
+        ],
+        "aocPrd": {
+          "path": ".taskmaster/docs/prds/omo-integration_prd_rpg.md",
+          "updatedAt": "2026-02-22T15:30:24.258Z",
+          "version": 1
+        },
+        "updatedAt": "2026-02-23T08:09:30.305Z",
+        "activeAgent": false
+      },
+      {
+        "id": "94",
+        "title": "Enforce Taskmaster as sole task authority for OmO workflows",
+        "description": "Ensure OmO runtime and prompts use tm/aoc-task only and do not activate parallel task systems.",
+        "details": "Keep experimental task system disabled, inject policy guidance for delegated agents, and add conflict detection for accidental writes to .sisyphus/tasks.",
+        "testStrategy": "Run smoke checks that execute representative workflows and assert no task artifacts are created outside Taskmaster state.",
+        "status": "done",
+        "dependencies": [
+          "93"
+        ],
+        "priority": "high",
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "Disable OmO task system by policy",
+            "description": "Set and enforce experimental.task_system=false in effective OmO configuration.",
+            "status": "pending",
+            "dependencies": []
+          },
+          {
+            "id": 2,
+            "title": "Inject Taskmaster-only task guidance",
+            "description": "Add policy text to agent prompts/contracts requiring tm or aoc-task for all task lifecycle operations.",
+            "status": "pending",
+            "dependencies": []
+          },
+          {
+            "id": 3,
+            "title": "Add conflict detection for non-Taskmaster task writes",
+            "description": "Implement checks that fail fast when .sisyphus/tasks artifacts are created during workflows.",
+            "status": "pending",
+            "dependencies": []
+          },
+          {
+            "id": 4,
+            "title": "Validate delegated-agent task compliance",
+            "description": "Confirm subagent/delegated paths preserve Taskmaster-only behavior.",
+            "status": "pending",
+            "dependencies": []
+          }
+        ],
+        "aocPrd": {
+          "path": ".taskmaster/docs/prds/omo-integration_prd_rpg.md",
+          "updatedAt": "2026-02-22T15:30:24.269Z",
+          "version": 1
+        },
+        "updatedAt": "2026-02-23T08:09:30.370Z",
+        "activeAgent": false
+      },
+      {
+        "id": "95",
+        "title": "Implement AOC context-pack bridge for OmO sessions",
+        "description": "Compose bounded OmO context payloads from aoc-mem, aoc-stm, and aoc-mind with strict precedence and size limits.",
+        "details": "Add scripts/helpers that build deterministic context packs and keep AGENTS.md procedural while durable knowledge remains in .aoc artifacts.",
+        "testStrategy": "Use fixture outputs to verify precedence order (mem -> stm -> mind), bounded length, and stable formatting for repeated inputs.",
+        "status": "done",
+        "dependencies": [
+          "93"
+        ],
+        "priority": "high",
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "Define context-pack contract and budgets",
+            "description": "Specify context precedence, section layout, and max-size limits for mem/stm/mind payload composition.",
+            "status": "pending",
+            "dependencies": []
+          },
+          {
+            "id": 2,
+            "title": "Implement context pack composer utility",
+            "description": "Build script/helper that reads AOC memory sources and emits bounded deterministic context text.",
+            "status": "pending",
+            "dependencies": []
+          },
+          {
+            "id": 3,
+            "title": "Integrate context pack into OmO startup workflow",
+            "description": "Wire generated context pack into project-local agent flows without duplicating AGENTS/README injection.",
+            "status": "pending",
+            "dependencies": []
+          },
+          {
+            "id": 4,
+            "title": "Add fixture tests for ordering and bounds",
+            "description": "Test deterministic output ordering (mem -> stm -> mind) and strict line/size limits.",
+            "status": "pending",
+            "dependencies": []
+          }
+        ],
+        "aocPrd": {
+          "path": ".taskmaster/docs/prds/omo-integration_prd_rpg.md",
+          "updatedAt": "2026-02-22T15:30:24.292Z",
+          "version": 1
+        },
+        "updatedAt": "2026-02-23T08:09:30.436Z",
+        "activeAgent": false
+      },
+      {
+        "id": "96",
+        "title": "Integrate OmO provisioning into install.sh and aoc-init",
+        "description": "Wire sandbox-first OmO setup into standard install and project initialization flows with idempotent behavior.",
+        "details": "Extend installer/init scripts to seed profile/project policy files safely, preserve existing user customizations, and expose clear logs for profile mode and governance state.",
+        "testStrategy": "Run repeated install/init executions in temp HOME/project fixtures and assert outputs are stable with no destructive drift.",
+        "status": "done",
+        "dependencies": [
+          "92",
+          "94",
+          "95"
+        ],
+        "priority": "high",
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "Add OmO sandbox options to install.sh",
+            "description": "Introduce installer controls for OmO enablement mode, profile target, and non-interactive install flags.",
+            "status": "pending",
+            "dependencies": []
+          },
+          {
+            "id": 2,
+            "title": "Seed OmO config artifacts during install",
+            "description": "Install template/policy files and profile metadata safely during bootstrap without clobbering user data.",
+            "status": "pending",
+            "dependencies": []
+          },
+          {
+            "id": 3,
+            "title": "Extend aoc-init to seed project OmO policy",
+            "description": "Ensure aoc-init creates or repairs project-local OmO policy files and governance guidance idempotently.",
+            "status": "pending",
+            "dependencies": []
+          },
+          {
+            "id": 4,
+            "title": "Add install/init idempotency regressions",
+            "description": "Verify repeated install/init runs remain stable and non-destructive across profile states.",
+            "status": "pending",
+            "dependencies": []
+          }
+        ],
+        "aocPrd": {
+          "path": ".taskmaster/docs/prds/omo-integration_prd_rpg.md",
+          "updatedAt": "2026-02-22T15:30:24.305Z",
+          "version": 1
+        },
+        "updatedAt": "2026-02-23T08:09:30.472Z",
+        "activeAgent": false
+      },
+      {
+        "id": "97",
+        "title": "Expand smoke and regression validation for OmO+AOC policy invariants",
+        "description": "Add automated checks for profile isolation, disabled loop-heavy defaults, Taskmaster authority, and context-pack bounds.",
+        "details": "Extend scripts/smoke.sh and add focused verify scripts to catch policy regressions before release.",
+        "testStrategy": "Require AOC_SMOKE_TEST=1 bash scripts/smoke.sh plus targeted OmO verify scripts in CI/local acceptance.",
+        "status": "done",
+        "dependencies": [
+          "96"
+        ],
+        "priority": "medium",
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "Extend smoke.sh with OmO policy assertions",
+            "description": "Add checks for profile isolation, disabled loop-heavy defaults, and Taskmaster-only task authority.",
+            "status": "pending",
+            "dependencies": []
+          },
+          {
+            "id": 2,
+            "title": "Add targeted OmO verification script",
+            "description": "Implement scripts/opencode/verify-omo.sh for focused config/state checks usable locally and in CI.",
+            "status": "pending",
+            "dependencies": []
+          },
+          {
+            "id": 3,
+            "title": "Wire relevant crate/shell checks by touched scope",
+            "description": "Ensure validation commands include bash syntax checks and relevant cargo check/test where integration touches Rust crates.",
+            "status": "pending",
+            "dependencies": []
+          },
+          {
+            "id": 4,
+            "title": "Document manual acceptance regression steps",
+            "description": "Capture final operator verification checklist including rollback rehearsal and profile switch validation.",
+            "status": "pending",
+            "dependencies": []
+          }
+        ],
+        "aocPrd": {
+          "path": ".taskmaster/docs/prds/omo-integration_prd_rpg.md",
+          "updatedAt": "2026-02-22T15:30:24.315Z",
+          "version": 1
+        },
+        "updatedAt": "2026-02-23T08:09:30.523Z",
+        "activeAgent": false
+      },
+      {
+        "id": "98",
+        "title": "Publish OmO integration runbook and operator docs",
+        "description": "Document sandbox usage, profile promotion/rollback, task governance, and one-command setup expectations.",
+        "details": "Update installation/agents docs and add dedicated OmO integration guide with troubleshooting and recovery steps.",
+        "testStrategy": "Perform a doc-driven dry run on clean profile/project and confirm every documented step reproduces expected behavior.",
+        "status": "done",
+        "dependencies": [
+          "96"
+        ],
+        "priority": "medium",
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "Update installation docs for sandbox-first OmO",
+            "description": "Document end-to-end install flow including profile isolation defaults and one-command setup expectations.",
+            "status": "pending",
+            "dependencies": []
+          },
+          {
+            "id": 2,
+            "title": "Update governance docs for Taskmaster and context authority",
+            "description": "Clarify that OmO is additive while Taskmaster and .aoc memory remain canonical sources of truth.",
+            "status": "pending",
+            "dependencies": []
+          },
+          {
+            "id": 3,
+            "title": "Add dedicated OmO integration runbook",
+            "description": "Create scenario-based guide for sandbox usage, promotion, rollback, and troubleshooting.",
+            "status": "pending",
+            "dependencies": []
+          },
+          {
+            "id": 4,
+            "title": "Add migration and rollback quick reference",
+            "description": "Provide concise command snippets for switching profiles, recovering configs, and disabling OmO safely.",
+            "status": "pending",
+            "dependencies": []
+          }
+        ],
+        "aocPrd": {
+          "path": ".taskmaster/docs/prds/omo-integration_prd_rpg.md",
+          "updatedAt": "2026-02-22T15:30:24.342Z",
+          "version": 1
+        },
+        "updatedAt": "2026-02-22T15:30:24.342Z",
+        "activeAgent": false
+      },
+      {
+        "id": "99",
+        "title": "Validate production-ready one-command OmO setup",
+        "description": "Prove that ./install.sh plus aoc-init consistently yields optimized OmO-enabled AOC behavior from clean environments.",
+        "details": "Execute final acceptance checklist, capture evidence, and record durable architecture decisions in aoc-mem before declaring rollout complete.",
+        "testStrategy": "Run full clean-environment rehearsal, verify policy invariants and manual workflows, and archive final acceptance notes.",
+        "status": "done",
+        "dependencies": [
+          "97",
+          "98"
+        ],
+        "priority": "medium",
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "Run clean-environment install/init rehearsal",
+            "description": "Validate from fresh profile that ./install.sh and aoc-init produce expected OmO-enabled AOC state.",
+            "status": "pending",
+            "dependencies": []
+          },
+          {
+            "id": 2,
+            "title": "Run governance acceptance workflow",
+            "description": "Execute sample tasks to confirm Taskmaster authority, context-pack behavior, and absence of forbidden loop defaults.",
+            "status": "pending",
+            "dependencies": []
+          },
+          {
+            "id": 3,
+            "title": "Capture performance and control metrics",
+            "description": "Record token/control observations against baseline to confirm integration remains engineer-controlled.",
+            "status": "pending",
+            "dependencies": []
+          },
+          {
+            "id": 4,
+            "title": "Publish final sign-off and durable decisions",
+            "description": "Record rollout decision in aoc-mem and finalize implementation handoff notes.",
+            "status": "pending",
+            "dependencies": []
+          }
+        ],
+        "aocPrd": {
+          "path": ".taskmaster/docs/prds/omo-integration_prd_rpg.md",
+          "updatedAt": "2026-02-22T15:30:24.355Z",
+          "version": 1
+        },
+        "updatedAt": "2026-02-22T15:30:24.355Z",
+        "activeAgent": false
+      },
+      {
+        "id": "100",
+        "title": "Add selectable OmO agent mode in control panel",
+        "description": "Expose OmO as a first-class selectable agent while preserving standalone OpenCode behavior.",
+        "details": "Add a new 'omo' agent path in aoc-agent/aoc-agent-run/aoc-control, introduce aoc-omo launcher that resolves sandbox profile via aoc-opencode-profile and sets OPENCODE_CONFIG_DIR process-locally, and keep existing 'oc' path unchanged for native OpenCode usage.",
+        "testStrategy": "Verify selecting default agent=omo launches with sandbox OPENCODE_CONFIG_DIR, selecting default agent=oc launches without forced profile override, and smoke/regression tests assert no cross-profile conflict.",
+        "status": "done",
+        "dependencies": [],
+        "priority": "high",
+        "subtasks": [],
+        "aocPrd": null,
+        "updatedAt": "2026-02-23T08:38:14.335Z",
+        "activeAgent": false
+      }
+    ]
+  },
+  "detached-orchestration": {
+    "tasks": [
+      {
+        "id": "169",
+        "title": "Implement AOC-native detached Pi subagent runtime",
+        "description": "Build a project-local Pi extension and supporting AOC runtime hooks for detached/background delegated subagents, while establishing reusable detached lifecycle/telemetry primitives that other worker planes such as Mind can consume without inheriting delegated-subagent UX semantics.",
+        "details": "Deliver the detached-orchestration umbrella architecture for the delegated ownership plane: a repo-controlled .pi/extensions/subagent.ts runtime that loads canonical .pi/agents/*.md plus teams.yaml and agent-chain.yaml, spawns isolated pi subprocess workers, supports single/chain/parallel detached execution, and persists lifecycle/provenance/cancellation into the shared durable detached registry. This task now also owns making delegated specialists feel native inside Pi sessions: inline/background handoff modes, compact status by default instead of persistent multiline widget clutter, focused drilldown/inspector UX for active jobs, and stable report artifacts so completed research can flow back into the parent session without manual poll-only pickup. The same contracts must remain reusable by other ownership planes such as Mind via owner_plane/worker_kind metadata without collapsing Mind into delegated-subagent UX semantics.",
+        "testStrategy": "Extension and runtime tests cover agent discovery, manifest validation, session-native delegated job UX, detached lifecycle, cancellation, malformed-manifest/spawn-failure fallback paths, durable-registry-backed recovery, and Mission Control/Pulse visibility with canonical .pi/agents assets. Add focused coverage for inline handoff injection into the parent Pi session, compact-status default behavior, on-demand drilldown/inspector UX, report artifact persistence, and regression checks preventing persistent low-value widget clutter from returning. Shared contract/storage tests also verify detached ownership metadata, durable result capture, and restart-safe status queries so the substrate remains reusable by non-delegated worker planes.",
+        "status": "in-progress",
+        "dependencies": [
+          "56",
+          "57",
+          "60",
+          "61"
+        ],
+        "priority": "high",
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "Define detached subagent manifest and lifecycle contract",
+            "description": "Stabilize canonical agent/team/chain validation rules plus detached job state/result/cancellation schema shared across the extension and AOC runtime surfaces.",
+            "status": "done",
+            "dependencies": []
+          },
+          {
+            "id": 2,
+            "title": "Build project-local .pi/extensions/subagent.ts baseline",
+            "description": "Implement canonical manifest loading, policy validation, and single-agent detached subprocess launch with immediate job acknowledgement and local status lookup.",
+            "status": "done",
+            "dependencies": []
+          },
+          {
+            "id": 3,
+            "title": "Add chain and parallel detached orchestration modes",
+            "description": "Support sequential chain execution with placeholder forwarding and bounded parallel fanout with all-settled aggregation under the same detached runtime.",
+            "status": "in-progress",
+            "dependencies": []
+          },
+          {
+            "id": 4,
+            "title": "Implement detached job registry, stream capture, and cancellation",
+            "description": "Track active/recent jobs, capture partial and terminal output, support timeouts and explicit cancellation, and avoid orphaned subprocesses.",
+            "status": "in-progress",
+            "dependencies": []
+          },
+          {
+            "id": 5,
+            "title": "Integrate detached subagent telemetry with Pulse, Mission Control, and wrapper dispatch",
+            "description": "Expose lifecycle state and drilldown refs through AOC surfaces and bridge wrapper insight_dispatch flows to the canonical detached runtime contract.",
+            "status": "done",
+            "dependencies": []
+          },
+          {
+            "id": 6,
+            "title": "Publish detached subagent operator/runtime docs",
+            "description": "Document runtime semantics, trust model, lifecycle states, troubleshooting, and rollout guidance for the AOC-native detached subagent path.",
+            "status": "pending",
+            "dependencies": []
+          },
+          {
+            "id": 7,
+            "title": "Add regression coverage for detached lifecycle, fallback, and restart behavior",
+            "description": "Cover manifest validation, detached execution, cancellation, restart/stale-job handling, partial failure, and fail-open telemetry across extension and runtime surfaces.",
+            "status": "in-progress",
+            "dependencies": []
+          },
+          {
+            "id": 8,
+            "title": "Add Pi session-native inline handoff, focused drilldown UX, and recovery flows",
+            "description": "Turn detached specialists into a useful Pi-session experience: support inline/background handoff modes, reinject compact completed-result summaries into the parent session when requested, expose stale/interrupted recovery affordances, and make detailed job inspection an explicit focused workflow instead of relying on manual poll commands plus a noisy always-on widget.",
+            "status": "pending",
+            "dependencies": []
+          },
+          {
+            "id": 9,
+            "title": "Shift subagent lifecycle truth to the durable registry and keep session UX low-noise",
+            "description": "Reduce extension-local shadow state by re-querying the Rust detached registry for status/recovery, keeping the Pi extension focused on launch ergonomics, inline handoff, and compact session UX. Ensure the default session presentation is minimal status only, with active/recent detail available through explicit drilldown surfaces rather than persistent multiline clutter.",
+            "status": "pending",
+            "dependencies": []
+          },
+          {
+            "id": 10,
+            "title": "Persist full subagent reports and handoff artifacts",
+            "description": "Store stable per-job report artifacts (for example under .pi/tmp/subagents/) containing the full final output, structured handoff metadata, and drilldown references so inline summaries stay compact while operators and the parent agent can open the complete report when needed.",
+            "status": "pending",
+            "dependencies": []
+          },
+          {
+            "id": 11,
+            "title": "Replace persistent subagent widget clutter with compact status and toggleable inspector UI",
+            "description": "Remove the default always-on multiline below-editor widget. Show only compact running/recent state in the normal Pi session, and add a command/shortcut-driven focused inspector surface (panel/sidebar/modal depending Pi custom UI constraints) where users can watch live progress, inspect finished jobs, cancel work, and close the view when done.",
+            "status": "pending",
+            "dependencies": []
+          }
+        ],
+        "aocPrd": {
+          "path": ".taskmaster/docs/prds/task-169_aoc_detached_pi_subagent_runtime_prd_rpg.md",
+          "updatedAt": "2026-03-21T09:05:33.858Z",
+          "version": 1
+        },
+        "updatedAt": "2026-03-21T09:05:33.858Z",
+        "activeAgent": false
+      },
+      {
+        "id": "149",
+        "title": "Build session overseer control plane for manager-agent supervision",
+        "description": "Establish session-scoped multi-agent observability and steering so a manager agent and developer can oversee worker tabs in real time.",
+        "details": "Implement the detached-orchestration umbrella architecture for the global operator surface: preserve Session Overseer observation + plan alignment + safe control semantics, but make Mission Control the only global fleet/orchestration surface while normal work panes use a local-only pulse-pane mode. This task now explicitly owns the Mission Control versus pulse-pane boundary, including keeping overseer roster/consultation/timeline/global detached fleet views out of per-pane pulse, and adding a dedicated Mission Control fleet view grouped by project/repo and ownership plane so delegated specialist jobs and Mind-owned detached workers remain visible without conflating their UX models.",
+        "testStrategy": "Contract tests cover observer schemas and pulse-pane mode gating; hub integration tests cover snapshot/delta/command routing; Mission Control presenter tests cover blocked/stale/drift ordering plus ownership-aware detached fleet grouping by project and plane; CLI contract tests cover snapshot JSON; regressions cover fail-open behavior, cross-session isolation, and prevention of global fleet/orchestration surfaces leaking back into normal per-pane pulse mode.",
+        "status": "pending",
+        "dependencies": [],
+        "priority": "high",
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "Define overseer shared schema and safety policy",
+            "description": "Create shared ObserverEvent/WorkerSnapshot/ObserverSnapshot/ManagerCommand contracts, topic naming, retention defaults, and allow/confirm/deny command policy in aoc-core.",
+            "status": "done",
+            "dependencies": []
+          },
+          {
+            "id": 2,
+            "title": "Implement worker progress emission in aoc-agent-wrap-rs",
+            "description": "Publish structured worker lifecycle/progress/blocker/milestone events and lightweight refresh updates from the wrapper/runtime path using session::pane identity.",
+            "status": "done",
+            "dependencies": [
+              "149.1"
+            ]
+          },
+          {
+            "id": 3,
+            "title": "Extend Pulse hub with overseer snapshot, timeline, and command routing",
+            "description": "Aggregate worker observer events into reconnect-safe session snapshots, retain bounded timelines, and route session-safe manager commands/results through the hub.",
+            "status": "done",
+            "dependencies": [
+              "149.1",
+              "149.2"
+            ]
+          },
+          {
+            "id": 4,
+            "title": "Add deterministic attention heuristics and plan-correlation layer",
+            "description": "Compute stale/drift/duplicate-work signals and correlate workers with Taskmaster task/tag intent, keeping heuristics deterministic and fail-open.",
+            "status": "done",
+            "dependencies": [
+              "149.3"
+            ]
+          },
+          {
+            "id": 5,
+            "title": "Build Mission Control overseer dashboard view",
+            "description": "Render manager-facing worker rows with task, summary, age, blocker/drift/overlap chips, timeline drill-in, and compact-width ordering by attention.",
+            "status": "done",
+            "dependencies": [
+              "149.3",
+              "149.4"
+            ]
+          },
+          {
+            "id": 6,
+            "title": "Implement manager-facing snapshot and command CLI",
+            "description": "Expose aoc-session-overseer snapshot/timeline/command flows for manager agents and scripts with stable JSON output and explicit command results.",
+            "status": "done",
+            "dependencies": [
+              "149.3",
+              "149.4"
+            ]
+          },
+          {
+            "id": 7,
+            "title": "Integrate optional Mind enrichment for overseer rows",
+            "description": "Merge T1/T2 observer-derived confidence and explanation hints into overseer snapshots without blocking core functionality when Mind data is unavailable.",
+            "status": "done",
+            "dependencies": [
+              "149.4"
+            ]
+          },
+          {
+            "id": 8,
+            "title": "Harden, document, and validate pilot rollout",
+            "description": "Add multi-worker churn/reconnect/isolation tests, fail-open scenarios, rollout docs, and pilot checklist for enabling the overseer tag in live sessions.",
+            "status": "pending",
+            "dependencies": [
+              "149.5",
+              "149.6",
+              "149.7"
+            ]
+          },
+          {
+            "id": 9,
+            "title": "Split per-tab pulse pane from Mission Control and scope normal-tab pulse to local Mind/status only",
+            "description": "Refactor the normal AOC tab pulse into a dedicated local/tab-scoped mode that only renders tab-local Mind, task/work, and health signals. Reserve overseer roster, duplicate-work heuristics, consultation stream, and global timeline/state views for the dedicated Mission Control tab. Update layouts/launch defaults so normal tabs always use pulse-pane mode and Mission Control tab uses the full orchestration view.",
+            "status": "pending",
+            "dependencies": []
+          },
+          {
+            "id": 10,
+            "title": "Add dedicated Mission Control fleet view grouped by project and ownership plane",
+            "description": "Render detached worker activity only in the dedicated Mission Control surface, grouped by project/repo and ownership plane, with distinct summaries for delegated specialist jobs versus Mind-owned workers while keeping per-pane pulse minimal and local.",
+            "status": "pending",
+            "dependencies": []
+          }
+        ],
+        "aocPrd": {
+          "path": ".taskmaster/docs/prds/aoc-session-overseer_prd_rpg.md",
+          "updatedAt": "2026-03-09T10:16:58.352Z",
+          "version": 1
+        },
+        "updatedAt": "2026-03-20T10:54:15.547Z",
+        "activeAgent": false
+      },
+      {
+        "id": "178",
+        "title": "Implement project-scoped Mind detached dispatcher and bounded worker orchestration",
+        "description": "Replace pane-coupled Mind worker activation with a project-scoped detached dispatcher model that reuses the shared detached registry and metadata without adopting delegated-subagent UX semantics.",
+        "details": "Implement the detached-orchestration umbrella architecture for the Mind ownership plane: replace pane-coupled wrapper tick activation with a project-scoped detached dispatcher/coordinator that watches canonical Mind queues, stamps detached jobs with owner_plane=mind and worker_kind=t1|t2|t3, and launches bounded workers only when backlog and lease state warrant it. This task must reuse the shared durable detached registry and lifecycle/cancel/result contracts from the common substrate while keeping Mind queue/lease/recovery semantics and operator surfaces distinct from delegated specialist session UX.\n\nProgress note (2026-03-21): shared detached registry, lifecycle/result plumbing, delegated subagent handoff durability, and Mission Control Fleet grouping by ownership plane/project root are already in place from adjacent work (notably task 169 and Fleet follow-up work). Remaining 178 scope is to wire true Mind-owned detached dispatcher/runtime behavior on top of that substrate, stamp Mind worker metadata, and add dispatcher/recovery/dedup regression coverage. Fleet UI groundwork exists, but Mind worker orchestration itself is still pending.",
+        "testStrategy": "Regression coverage must verify idle=no worker, light backlog=single worker, burst backlog=bounded concurrency, restart reconciliation, stale-lease takeover, durable detached status visibility, and no duplicate worker multiplication from multiple open panes/sessions against the same project store. Contract/storage tests should verify owner_plane=mind and worker_kind metadata, and Mission Control integration tests should verify Mind-owned detached workers appear in global fleet summaries without leaking into local-only pulse panes.",
+        "status": "in-progress",
+        "dependencies": [
+          "137",
+          "169"
+        ],
+        "priority": "high",
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "Define dispatcher ownership, queue watch policy, and worker admission model",
+            "description": "Specify one project-scoped coordinator per repo, idle behavior, backlog thresholds, admission caps, and the rule that Mind workers scale by project queue pressure rather than open panes.",
+            "status": "pending",
+            "dependencies": []
+          },
+          {
+            "id": 2,
+            "title": "Stamp Mind detached jobs with owner_plane and worker_kind metadata",
+            "description": "Thread owner_plane=mind and worker_kind=t1|t2|t3 through dispatcher dispatch, storage, status filtering, and Mission Control summaries so Mind jobs are first-class detached jobs without being mistaken for delegated specialists.",
+            "status": "pending",
+            "dependencies": []
+          },
+          {
+            "id": 3,
+            "title": "Bridge reflector and T3 runtime launches through the detached dispatcher",
+            "description": "Move wrapper-owned Mind worker activation toward dispatcher-owned detached jobs while preserving queue/lease correctness, fail-open behavior, and project-store scoping.",
+            "status": "pending",
+            "dependencies": []
+          },
+          {
+            "id": 4,
+            "title": "Add Mission Control fleet summaries for project-scoped Mind worker activity",
+            "description": "Show project queue depth, active Mind worker counts, stale/error state, and worker-kind breakdowns in the dedicated Mission Control surface without expanding normal pulse panes into global fleet dashboards.",
+            "status": "in-progress",
+            "dependencies": []
+          },
+          {
+            "id": 5,
+            "title": "Add restart, stale-recovery, and multi-pane dedup regression coverage",
+            "description": "Verify restart reconciliation, stale detached-job cleanup, lease takeover, bounded concurrency, and the absence of duplicate worker multiplication when multiple panes or sessions target the same project.",
+            "status": "pending",
+            "dependencies": []
+          }
+        ],
+        "aocPrd": null,
+        "updatedAt": "2026-03-21T10:17:15.545Z",
+        "activeAgent": false
+      }
+    ],
+    "aocPrd": {
+      "path": ".taskmaster/docs/prds/aoc_detached_orchestration_prd_rpg.md",
+      "updatedAt": "2026-03-20T10:44:59.070Z",
+      "version": 1
+    }
+  },
+  "mission-control": {
+    "tasks": [
+      {
+        "id": "43",
+        "title": "Define Mission Control architecture and event schema (Rust)",
+        "description": "Document the Rust-native Mission Control ecosystem, session scoping, and data flows.",
+        "details": "Deliverables: update docs/mission-control.md for Rust components (aoc-hub-rs, aoc-agent-wrap-rs, aoc-taskmaster Ratatui TUI, aoc-mission-control Ratatui TUI); keep envelope fields, message types, env vars, limits; add Rust runtime/logging notes and concurrency/backpressure guidance; note existing Go docs/impl as reference for the port.\n\nProgress: Updated docs/mission-control.md for Rust-only stack; removed Go references and added Rust implementation/backpressure notes.",
+        "testStrategy": "Review doc for Rust component naming and schema completeness; validate JSON examples; confirm session_id derivation and local-only socket guidance.",
+        "status": "done",
+        "dependencies": [],
+        "priority": "high",
+        "subtasks": [],
+        "aocPrd": null,
+        "updatedAt": "2026-01-28T20:13:44.839Z",
+        "activeAgent": false
+      },
+      {
+        "id": "44",
+        "title": "Implement session-scoped status hub (Rust)",
+        "description": "Build a Rust WebSocket hub that aggregates agent updates and serves Mission Control and Taskmaster clients within a session.",
+        "details": "Deliverables: Rust aoc-hub-rs using tokio plus axum or warp and tungstenite; listen on AOC_HUB_ADDR default 127.0.0.1:PORT_FROM_SESSION_ID; hello handshake and session_id validation; per-agent state cache and snapshot; ping/heartbeat with stale reaper; strict envelope/payload validation and size limits; structured tracing logs; reuse Go hub behavior as reference while porting.\n\nProgress: Created crates/aoc-hub-rs with axum WebSocket server, hello handshake, envelope validation, state cache + snapshot broadcast, ping + stale reaper, and tracing logs. Builds with cargo check.",
+        "testStrategy": "Start hub, connect publisher/subscriber, verify broadcast and snapshot; reject wrong session_id; restart hub and confirm reconnect plus state replay.",
+        "status": "done",
+        "dependencies": [],
+        "priority": "high",
+        "subtasks": [],
+        "aocPrd": null,
+        "updatedAt": "2026-01-29T15:11:21+00:00",
+        "activeAgent": false
+      },
+      {
+        "id": "45",
+        "title": "Implement agent-agnostic Rust wrapper for status streaming",
+        "description": "Create a Rust wrapper that launches any agent process and streams status, diff, and tasks to the hub.",
+        "details": "Deliverables: Rust aoc-agent-wrap-rs using tokio; spawn child command with stdio attached; resolve session_id/pane_id/agent_id/project_root; connect to hub with backoff; fs notify tasks/state with debounce; compute diff_summary via git commands; handle non-git or missing git; serve diff_patch responses; emit heartbeat and offline on exit; structured tracing logs; parity with existing Go wrapper as reference.\n\nProgress: Created crates/aoc-agent-wrap-rs baseline to spawn child, send hello/agent_status/heartbeat, reconnect to hub, and return diff_patch_request as not_implemented. Compiles with cargo check.",
+        "testStrategy": "Wrap dummy command; verify hub sees status and heartbeats; edit file to trigger diff update; stop hub to verify reconnect and state resend.",
+        "status": "done",
+        "dependencies": [],
+        "priority": "high",
+        "subtasks": [],
+        "aocPrd": null,
+        "updatedAt": "2026-01-29T15:11:21+00:00",
+        "activeAgent": false
+      },
+      {
+        "id": "46",
+        "title": "Port Taskmaster to native Rust Ratatui app",
+        "description": "Replace the Zellij Taskmaster plugin with a Rust Ratatui TUI that edits Taskmaster JSON directly.",
+        "details": "Deliverables: Rust aoc-taskmaster using ratatui and crossterm; resolve project_root from cwd or AOC_PROJECT_ROOT; parse .taskmaster tasks/state JSON with numeric or string IDs; list and details panes with subtasks, active-agent marker, help view; keybindings j/k, Up/Down, Enter, Space, Tab, x, f, t, r, ?; filter and tag cycling; atomic writes with temp file rename and update state.json; clear error view with retry; optional task_summary publish to hub.",
+        "testStrategy": "Toggle task status and active_agent and verify tasks.json updates; cycle tags and filters and confirm list updates; corrupt tasks.json and verify error view instead of crash.",
+        "status": "done",
+        "dependencies": [],
+        "priority": "high",
+        "subtasks": [],
+        "aocPrd": null,
+        "updatedAt": "2026-01-28T20:33:48.762Z",
+        "activeAgent": false
+      },
+      {
+        "id": "47",
+        "title": "Build Mission Control Ratatui UI (agent list + diff views)",
+        "description": "Implement Mission Control in Rust with agent list, diff list, and patch view.",
+        "details": "Deliverables: Rust aoc-mission-control using ratatui and crossterm; websocket subscriber to hub; maintain per-agent state; left column agent list and status summary, right column diff file list and patch view; request diff_patch on demand; cache patches and invalidate when diff_summary changes; keybindings for navigation, focus switching, search, refresh; empty/error states.\n\nProgress: Created crates/aoc-mission-control skeleton with Ratatui TUI, websocket subscriber + hello, agent list, and details panel showing status/diff summary basics. Compiles with cargo check.",
+        "testStrategy": "Feed mock hub events for multiple agents and verify UI updates; select file and confirm patch view loads and scrolls; verify empty and error states render without panic.",
+        "status": "done",
+        "dependencies": [],
+        "priority": "high",
+        "subtasks": [],
+        "aocPrd": null,
+        "updatedAt": "2026-01-29T16:04:05+00:00",
+        "activeAgent": false
+      },
+      {
+        "id": "48",
+        "title": "Integrate editor workflow inside Mission Control (Rust)",
+        "description": "Allow editing selected diff files from Mission Control using the default editor.",
+        "details": "Deliverables: add editor action that exits raw mode and alternate screen, runs editor subprocess, then restores TUI; choose editor from AOC_EDITOR or EDITOR with fallback to micro; optional line jump when hunk info exists; refresh diff_summary on return; handle missing file paths with visible error message.",
+        "testStrategy": "Open file, edit, exit, confirm diff list updates; unset EDITOR and confirm fallback editor used; attempt to open missing file and verify graceful error.",
+        "status": "done",
+        "dependencies": [],
+        "priority": "medium",
+        "subtasks": [],
+        "aocPrd": null,
+        "updatedAt": "2026-01-28T18:45:27.895Z",
+        "activeAgent": false
+      },
+      {
+        "id": "49",
+        "title": "Wire Zellij layout and keybinding for Mission Control and Rust Taskmaster",
+        "description": "Update Zellij layouts and launch scripts to start the Rust hub, Rust Taskmaster, and Mission Control.",
+        "details": "Implementation status (2026-02-06):\n- Replaced default layout right-top panes with single AOC Pulse pane in both base and swap layouts; kept bottom-right terminal pane.\n- Added deterministic hub env injection and startup checks in aoc-launch/aoc-new-tab.\n- Updated aoc-agent-wrap to export required env (AOC_SESSION_ID, AOC_PANE_ID, AOC_PROJECT_ROOT, AOC_HUB_ADDR, AOC_HUB_URL) and route through aoc-agent-wrap-rs by default.\n- Implemented AOC Pulse runtime in crates/aoc-mission-control with 4 modes (Overview/Work/Diff/Health), hub-preferred v2, and local fallback v1 without hub or agent-thought parsing.\n- Normalized telemetry identity to session_id::pane_id in aoc-agent-wrap-rs; labels are metadata.\n- Updated hub state cache to retain task_summary snapshots per tag per agent identity key.\n\nValidation evidence:\n- cargo check --manifest-path crates/Cargo.toml (pass)\n- cargo check --manifest-path crates/Cargo.toml -p aoc-mission-control -p aoc-agent-wrap-rs -p aoc-hub-rs (pass)\n- bash -n bin/aoc-launch bin/aoc-new-tab bin/aoc-agent-wrap (pass)\n- Layout verification: zellij/layouts/aoc.kdl.template no longer references Clock/Widget/ClockTemp and now launches AOC Pulse.\n- Hub mode smoke: launched aoc-hub-rs + two aoc-agent-wrap-rs publishers with same label and pane_ids 101/102; hub log shows distinct identities smoke-hub-...::101 and ::102.\n- Fallback smoke: launched aoc-agent-wrap-rs with unreachable hub; runtime snapshot written under ~/.local/state/aoc/telemetry/<session>/<pane>.json with agent_id=<session>::<pane>.\n- Pulse run smoke: aoc-mission-control started under pseudo-tty with no hub (connect warnings + continued run) and with hub available (continued run without connect warnings).\n\nRemaining manual UX confirmation:\n- Visual confirmation in a real interactive Zellij desktop session that top-right default pane renders AOC Pulse and updates live while hub is up/down.",
+        "testStrategy": "Validation matrix:\n1) Single session, multiple tabs/panes with mixed agents: Pulse Overview must list unique pane identities with no overwrites.\n2) Two concurrent Zellij sessions: no cross-session leakage (different derived hub addr and isolated state).\n3) Hub present: Pulse consumes hub snapshots/events and updates heartbeat, task, and diff summaries live.\n4) Hub absent: Pulse falls back to v1 introspection with useful Overview/Work/Diff/Health data.\n5) Layout migration: right-column top area shows only AOC Pulse (Widget+Clock removed) and bottom terminal remains usable.",
+        "status": "done",
+        "dependencies": [],
+        "priority": "high",
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "Replace Widget+Clock with AOC Pulse pane",
+            "description": "Update zellij/layouts/aoc.kdl.template (and swap layout) to use one top-right AOC Pulse pane and retain bottom-right terminal pane.",
+            "status": "done",
+            "dependencies": []
+          },
+          {
+            "id": 2,
+            "title": "Implement Pulse v1 introspection data source",
+            "description": "Build headless-safe Overview/Work/Diff/Health from zellij metadata + git + Taskmaster files, without parsing agent internals.",
+            "status": "done",
+            "dependencies": []
+          },
+          {
+            "id": 3,
+            "title": "Wire hub and wrapper telemetry as default runtime path",
+            "description": "Start one hub per session and ensure wrapped agents publish agent_status/heartbeat/diff_summary/task_summary via aoc-agent-wrap-rs or equivalent.",
+            "status": "done",
+            "dependencies": []
+          },
+          {
+            "id": 4,
+            "title": "Normalize identity to session+pane and add fallback logic",
+            "description": "Use unique per-pane identity to avoid cross-tab collisions; prefer hub data and degrade to v1 introspection when unavailable.",
+            "status": "done",
+            "dependencies": []
+          }
+        ],
+        "aocPrd": null,
+        "updatedAt": "2026-02-06T10:28:20.668Z",
+        "activeAgent": false
+      },
+      {
+        "id": "50",
+        "title": "Deprecate Zellij Taskmaster plugin and update docs/install for Rust CLI",
+        "description": "Remove the Zellij plugin from default flows and document the Rust-native Taskmaster CLI.",
+        "details": "Deliverables: mark plugin as legacy in README/docs; update install.sh to build and install Rust binaries (hub, wrapper, taskmaster, mission-control); keep optional plugin build flag; update scripts/build-taskmaster-plugin.sh and add migration notes.",
+        "testStrategy": "Run clean install and confirm aoc-taskmaster launches; enable legacy flag and verify plugin can still be built.",
+        "status": "done",
+        "dependencies": [],
+        "priority": "medium",
+        "subtasks": [],
+        "aocPrd": null,
+        "updatedAt": "2026-01-28T18:45:50.911Z",
+        "activeAgent": false
+      },
+      {
+        "id": "51",
+        "title": "Add observability and multi-session isolation test plan (Rust)",
+        "description": "Add logs, reconnection, and isolation checks for Rust hub, wrapper, Mission Control, and Taskmaster.",
+        "details": "Deliverables: standardize logs under .aoc/logs with session_id prefixes; use tracing and tracing-subscriber; honor AOC_LOG_LEVEL and AOC_LOG_DIR and map to RUST_LOG; log connect and reconnect events, schema errors, backpressure drops; add manual isolation checklist and reconnection test docs.",
+        "testStrategy": "Start two sessions and confirm no cross-session messages; kill hub and verify clients reconnect with logs showing state transitions.",
+        "status": "done",
+        "dependencies": [],
+        "priority": "medium",
+        "subtasks": [],
+        "aocPrd": null,
+        "updatedAt": "2026-01-28T18:45:50.919Z",
+        "activeAgent": false
+      },
+      {
+        "id": "52",
+        "title": "Add Session Manager to Mission Control (projects + defaults)",
+        "description": "Extend the Rust Mission Control UI with a Session Manager that can switch projects, create new projects, and set defaults.",
+        "details": "Deliverables: Ratatui Session Manager view with Projects, New Project, and Defaults sections; list directories from AOC_PROJECTS_BASE (default ~/dev), provide search and open a new AOC tab via zellij action new-tab --layout <layout> --cwd <path>; New Project prompts for name, creates directory, runs aoc-init, then opens new tab; Defaults set layout, agent, editor and persist to config (for example ~/.config/aoc/config.toml) used by aoc-launch and aoc-new-tab; keybindings Tab, Enter, n, /, Esc; support AOC_CONFIG_PATH and AOC_PROJECTS_BASE overrides; display errors when mkdir or aoc-init fails.",
+        "testStrategy": "Open Mission Control and verify Projects list from ~/dev; search and open project to create new tab; create new project and confirm aoc-init runs; change defaults and confirm persisted config is applied to new tabs; verify error handling when projects base is missing or aoc-init fails.",
+        "status": "done",
+        "dependencies": [
+          "47",
+          "49"
+        ],
+        "priority": "high",
+        "subtasks": [],
+        "aocPrd": null,
+        "updatedAt": "2026-01-30T16:55:48.425Z",
+        "activeAgent": false
+      },
+      {
+        "id": "53",
+        "title": "Plan active tag selector UI for Rust Taskmaster",
+        "description": "",
+        "details": "",
+        "testStrategy": "",
+        "status": "done",
+        "dependencies": [],
+        "priority": "medium",
+        "subtasks": [],
+        "aocPrd": null,
+        "updatedAt": "2026-01-30T08:50:34.724Z",
+        "activeAgent": false
+      },
+      {
+        "id": "55",
+        "title": "Revise aoc-control TUI to yazi-style hjkl navigation and clearer menu UX",
+        "description": "",
+        "details": "",
+        "testStrategy": "",
+        "status": "done",
+        "dependencies": [],
+        "priority": "medium",
+        "subtasks": [],
+        "aocPrd": null,
+        "updatedAt": "2026-02-01T16:59:30.404Z",
+        "activeAgent": true
+      },
+      {
+        "id": "70",
+        "title": "Overview: attention chip and compact actionable context",
+        "description": "Make overview rows operator-first by replacing source-first emphasis with attention status and always showing compact context.",
+        "details": "Introduce deterministic attention chip (ERR/NEEDS/BLOCK/STALE/OK), keep lifecycle+tab, and ensure compact mode reserves space for M: context instead of dropping it.",
+        "testStrategy": "Unit tests for attention precedence and row text under narrow widths.",
+        "status": "done",
+        "dependencies": [],
+        "priority": "high",
+        "subtasks": [],
+        "aocPrd": null,
+        "updatedAt": "2026-02-08T21:55:50.464Z",
+        "activeAgent": false
+      },
+      {
+        "id": "71",
+        "title": "Overview: task/git mini-signals in row presenter",
+        "description": "Surface lightweight work pressure signals without extra polling.",
+        "details": "Derive W:x/y from hub task summaries and G:+/-/? from diff summaries; show only when available and width allows.",
+        "testStrategy": "Presenter tests for signal visibility and fallback behavior.",
+        "status": "done",
+        "dependencies": [],
+        "priority": "medium",
+        "subtasks": [],
+        "aocPrd": null,
+        "updatedAt": "2026-02-08T21:55:50.475Z",
+        "activeAgent": false
+      },
+      {
+        "id": "72",
+        "title": "Overview: attention-priority sort mode with toggle",
+        "description": "Support urgency-first triage while preserving tab-order mode.",
+        "details": "Add App sort mode enum, key toggle, and severity-first sorting path with stable tie-breakers for layout order.",
+        "testStrategy": "Unit tests verifying severity sort and layout sort invariants.",
+        "status": "done",
+        "dependencies": [],
+        "priority": "high",
+        "subtasks": [],
+        "aocPrd": null,
+        "updatedAt": "2026-02-08T21:55:50.497Z",
+        "activeAgent": false
+      },
+      {
+        "id": "73",
+        "title": "Overview: debug source toggle and keybind help updates",
+        "description": "Keep HUB/LOC/MIX provenance available without cluttering default operator view.",
+        "details": "Add toggle to swap attention chip with source chip plus footer/help text updates for new overview controls.",
+        "testStrategy": "Widget rendering tests and key handling tests for toggle behavior.",
+        "status": "done",
+        "dependencies": [],
+        "priority": "medium",
+        "subtasks": [],
+        "aocPrd": null,
+        "updatedAt": "2026-02-08T21:55:50.512Z",
+        "activeAgent": false
+      },
+      {
+        "id": "74",
+        "title": "Phase 2: re-enable Pulse Overview after value criteria",
+        "description": "Revisit overview mode only after realtime fidelity and operator-value criteria are met.",
+        "details": "Use AOC_PULSE_OVERVIEW_ENABLED as rollout gate. Re-enable by default only when status transitions are realtime, rows provide actionable context, and triage speed improves in practice.",
+        "testStrategy": "Run a bake with overview enabled, compare latency/noise and operator triage outcomes against Work/Diff/Health baseline.",
+        "status": "done",
+        "dependencies": [],
+        "priority": "medium",
+        "subtasks": [],
+        "aocPrd": null,
+        "updatedAt": "2026-02-09T07:28:50.304Z",
+        "activeAgent": false
+      }
+    ]
   }
 }

@@ -3,8 +3,9 @@ import * as fs from "node:fs";
 import * as net from "node:net";
 import * as os from "node:os";
 import * as path from "node:path";
-import type { ExtensionAPI, ExtensionContext } from "@mariozechner/pi-coding-agent";
+import type { ExtensionAPI, ExtensionContext, Theme } from "@mariozechner/pi-coding-agent";
 import { StringEnum } from "@mariozechner/pi-ai";
+import { matchesKey, truncateToWidth, visibleWidth } from "@mariozechner/pi-tui";
 import { Type } from "@sinclair/typebox";
 
 type AgentConfig = {
@@ -37,6 +38,11 @@ type ManifestBundle = {
 type AgentAvailability = {
 	available: boolean;
 	reason?: string;
+};
+
+type InspectorAgentEntry = {
+	agent: string;
+	jobs: JobRecord[];
 };
 
 type JobStatus = "queued" | "running" | "success" | "fallback" | "error" | "cancelled" | "stale";
@@ -91,6 +97,8 @@ type RuntimeState = {
 	registryJobs: Map<string, JobRecord>;
 	children: Map<string, ChildProcessWithoutNullStreams>;
 	handoffNotified: Set<string>;
+	inspectorOpen: boolean;
+	inspectorClose?: () => void;
 };
 
 const ENTRY_TYPE = "aoc-subagent-job-v1";
@@ -109,6 +117,7 @@ const state: RuntimeState = {
 	registryJobs: new Map(),
 	children: new Map(),
 	handoffNotified: new Set(),
+	inspectorOpen: false,
 };
 
 const ActionSchema = StringEnum(["dispatch", "dispatch_chain", "status", "cancel", "list_agents"] as const, {
@@ -1003,6 +1012,148 @@ function formatAgentCatalog(bundle: ManifestBundle, root: string): string {
 	return lines.join("\n");
 }
 
+function inspectorEntries(): InspectorAgentEntry[] {
+	const grouped = new Map<string, JobRecord[]>();
+	for (const job of combinedJobs()) {
+		const list = grouped.get(job.agent) ?? [];
+		list.push(job);
+		grouped.set(job.agent, list);
+	}
+	return Array.from(grouped.entries())
+		.map(([agent, jobs]) => ({ agent, jobs: sortJobs(jobs) }))
+		.sort((left, right) => {
+			const leftAt = left.jobs[0]?.finishedAt ?? left.jobs[0]?.startedAt ?? left.jobs[0]?.createdAt ?? 0;
+			const rightAt = right.jobs[0]?.finishedAt ?? right.jobs[0]?.startedAt ?? right.jobs[0]?.createdAt ?? 0;
+			return rightAt - leftAt;
+		});
+}
+
+function inspectorSummary(job: JobRecord): string {
+	return truncate(job.outputExcerpt || job.error || job.stderrExcerpt || job.task || "no summary", 240) || "no summary";
+}
+
+function inspectorTime(job: JobRecord): string {
+	const at = job.finishedAt ?? job.startedAt ?? job.createdAt;
+	return new Date(at).toISOString().replace("T", " ").slice(0, 19);
+}
+
+function showSubagentInspector(ctx: ExtensionContext): Promise<void> {
+	if (state.inspectorOpen) {
+		state.inspectorClose?.();
+		return Promise.resolve();
+	}
+	return ctx.ui.custom<void>(
+		(_tui, theme, _keybindings, done) => {
+			const close = () => done();
+			state.inspectorOpen = true;
+			state.inspectorClose = close;
+			return new SubagentInspector(theme, close);
+		},
+		{
+			overlay: true,
+			overlayOptions: {
+				anchor: "right-center",
+				width: "42%",
+				minWidth: 44,
+				maxHeight: "86%",
+				margin: { right: 1, top: 1, bottom: 1 },
+				visible: (termWidth) => termWidth >= 90,
+			},
+		},
+	).finally(() => {
+		state.inspectorOpen = false;
+		state.inspectorClose = undefined;
+	});
+}
+
+class SubagentInspector {
+	private selected = 0;
+
+	constructor(
+		private theme: Theme,
+		private done: () => void,
+	) {}
+
+	handleInput(data: string): void {
+		const entries = inspectorEntries();
+		if (matchesKey(data, "escape") || matchesKey(data, "ctrl+c") || matchesKey(data, "alt+a")) {
+			this.done();
+			return;
+		}
+		if (entries.length === 0) {
+			if (matchesKey(data, "return") || matchesKey(data, "space")) this.done();
+			return;
+		}
+		if (matchesKey(data, "tab") || matchesKey(data, "right") || matchesKey(data, "down")) {
+			this.selected = (this.selected + 1) % entries.length;
+			return;
+		}
+		if (matchesKey(data, "shift+tab") || matchesKey(data, "left") || matchesKey(data, "up")) {
+			this.selected = (this.selected - 1 + entries.length) % entries.length;
+		}
+	}
+
+	render(width: number): string[] {
+		const th = this.theme;
+		const innerW = Math.max(1, width - 2);
+		const pad = (s: string) => {
+			const clipped = truncateToWidth(s, innerW, "…", true);
+			return clipped + " ".repeat(Math.max(0, innerW - visibleWidth(clipped)));
+		};
+		const row = (content = "") => th.fg("border", "│") + pad(content) + th.fg("border", "│");
+		const lines: string[] = [];
+		const entries = inspectorEntries();
+		const selected = entries.length > 0 ? entries[((this.selected % entries.length) + entries.length) % entries.length] : undefined;
+		const job = selected?.jobs[0];
+
+		lines.push(th.fg("border", `╭${"─".repeat(innerW)}╮`));
+		lines.push(row(` ${th.fg("accent", "Subagent Inspector")} ${th.fg("dim", "(Tab cycle • Alt+A/Esc close)")}`));
+		lines.push(row());
+		if (!selected || !job) {
+			lines.push(row(` ${th.fg("dim", "No detached subagent jobs recorded yet.")}`));
+			lines.push(row());
+			lines.push(row(` ${th.fg("dim", "Run /subagent-explore, /subagent-review, /subagent-test, or /subagent-scout.")}`));
+			lines.push(th.fg("border", `╰${"─".repeat(innerW)}╯`));
+			return lines;
+		}
+
+		const tabs = entries.map((entry, index) => {
+			const label = `${index === this.selected ? "[" : " "}${entry.agent}${index === this.selected ? "]" : " "}`;
+			return index === this.selected ? th.fg("accent", label) : th.fg("dim", label);
+		}).join(" ");
+		lines.push(row(` ${truncateToWidth(tabs, innerW - 1, "…", true)}`));
+		lines.push(row());
+		lines.push(row(` ${th.fg("accent", selected.agent)}`));
+		lines.push(row(` status: ${statusIcon(job.status)} ${job.status}   jobs: ${selected.jobs.length}   latest: ${job.jobId}`));
+		lines.push(row(` when: ${inspectorTime(job)}`));
+		lines.push(row(` cwd: ${truncateToWidth(relative(state.ctx?.cwd ?? process.cwd(), job.cwd), Math.max(8, innerW - 7), "…", true)}`));
+		if (job.model) lines.push(row(` model: ${job.model}`));
+		if (job.chainName) lines.push(row(` chain: ${job.chainName}`));
+		lines.push(row());
+		lines.push(row(` ${th.fg("title", "Task")}`));
+		for (const line of String(job.task || "(none)").split("\n").slice(0, 4)) {
+			lines.push(row(` ${line}`));
+		}
+		lines.push(row());
+		lines.push(row(` ${th.fg("title", "Result / Handoff")}`));
+		for (const line of inspectorSummary(job).split("\n").slice(0, 5)) {
+			lines.push(row(` ${line}`));
+		}
+		lines.push(row());
+		lines.push(row(` ${th.fg("title", "Recent jobs")}`));
+		for (const recent of selected.jobs.slice(0, 5)) {
+			lines.push(row(` ${statusIcon(recent.status)} ${recent.jobId} ${recent.status} ${truncate(inspectorSummary(recent), Math.max(12, innerW - 26)) || ""}`));
+		}
+		lines.push(row());
+		lines.push(row(` ${th.fg("dim", "Phase 1: inspect + cycle only. Steering/messages reserved for later runtime work.")}`));
+		lines.push(th.fg("border", `╰${"─".repeat(innerW)}╯`));
+		return lines;
+	}
+
+	invalidate(): void {}
+	dispose(): void {}
+}
+
 function finalizeJob(pi: ExtensionAPI, ctx: ExtensionContext | undefined, jobId: string, patch: Partial<JobRecord>): void {
 	const current = state.jobs.get(jobId);
 	if (!current) return;
@@ -1454,6 +1605,24 @@ export default function aocSubagentExtension(pi: ExtensionAPI): void {
 					return { content: [{ type: "text", text: lines.join("\n") }], details: { action: params.action, job } };
 				}
 			}
+		},
+	});
+
+	pi.registerCommand("subagent-inspector", {
+		description: "Open the detached subagent inspector overlay",
+		handler: async (_args, ctx) => {
+			await ensureInitialized(pi, ctx);
+			await refreshRegistryJobs(ctx, undefined, pi);
+			await showSubagentInspector(ctx);
+		},
+	});
+
+	pi.registerShortcut("alt+a", {
+		description: "Open detached subagent inspector",
+		handler: async (ctx) => {
+			await ensureInitialized(pi, ctx);
+			await refreshRegistryJobs(ctx, undefined, pi);
+			await showSubagentInspector(ctx);
 		},
 	});
 

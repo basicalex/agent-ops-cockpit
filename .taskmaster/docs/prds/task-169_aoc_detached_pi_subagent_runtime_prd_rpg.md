@@ -133,6 +133,7 @@ Make detached delegated sub-agents visible and controllable from canonical AOC s
 - **Inputs**: active/recent job state, stream excerpts, selected-job focus, inline-handoff policy, report artifact refs.
 - **Outputs**: compact running-state indicator, optional drilldown panel/sidebar/modal, structured handoff messages, and stable report files for deep inspection.
 - **Behavior**: default to minimal status chrome, allow operators to open a focused inspector for live/finished jobs, and route useful completed results back into the main session context automatically when inline mode is requested.
+- **Forward path**: Phase 1 inspector supports inspection/cycling only; later work may add true live steering/message injection for running detached jobs once a dedicated control channel exists.
 
 #### Feature: Mission Control and Pulse status surfacing
 - **Description**: Publish detached job lifecycle into Pulse and Mission Control.
