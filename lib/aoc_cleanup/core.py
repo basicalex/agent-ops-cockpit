@@ -29,7 +29,6 @@ PROTECTED_COMMANDS = [
     "aoc-doctor",
     "aoc-mem",
     "aoc-tasks",
-    "aoc-widget",
     "aoc-clock",
     "aoc-sys",
 ]

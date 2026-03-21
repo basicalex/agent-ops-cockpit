@@ -145,8 +145,7 @@ project-root/
 ├── bin/
 │   ├── aoc-doctor                               # capability detection and diagnostics
 │   ├── aoc-yazi-preview                         # new AOC preview runtime entrypoint (proposed)
-│   ├── aoc-yazi-preview-clear                   # optional cleanup helper (proposed)
-│   └── aoc-widget                               # keep media rendering conventions aligned where sensible
+│   └── aoc-yazi-preview-clear                   # optional cleanup helper (proposed)
 ├── lib/
 │   └── [preview runtime support]                # optional shared shell/python helpers for probing/rendering
 ├── docs/

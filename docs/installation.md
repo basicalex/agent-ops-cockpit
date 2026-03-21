@@ -283,14 +283,12 @@ aoc-doctor
 This will check for:
 - Zellij version (>= 0.43.1)
 - Yazi functionality
-- Widget rendering capabilities
 - All optional components
 
 ## Setup Checklist
 
 - [ ] `zellij --version` is >= 0.43.1
 - [ ] `yazi` opens and previews images
-- [ ] Widget pane renders an image after setting a media path (`resvg` also needed for SVG widget assets)
 - [ ] `aoc-doctor` reports all green
 
 ## Troubleshooting
@@ -406,20 +404,6 @@ aoc-task list
 ```
 
 Or install `task-master` npm package if you prefer the CLI version.
-
-### Widget Media Not Rendering
-
-For image/video widgets, confirm `chafa` (and `ffmpeg` for video) is installed.
-For SVG widget assets, also confirm `resvg` is installed.
-
-
-Run diagnostics:
-
-```bash
-aoc-doctor
-```
-
-Confirm `ffmpeg` and `chafa` are installed.
 
 ### TeX Preview Build Errors
 

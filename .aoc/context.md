@@ -42,12 +42,11 @@
 │   ├── aoc-open-file
 │   ├── aoc-pane-rename
 │   ├── aoc-pi
-│   ├── aoc-preview
-│   ├── aoc-preview-set
-│   ├── aoc-preview-toggle
+│   ├── aoc-pulse-pane
 │   ├── aoc-rlm
 │   ├── aoc-rtk
 │   ├── aoc-rtk-proxy
+│   ├── aoc-search
 │   ├── aoc-skill
 │   ├── aoc-stm
 │   ├── aoc-stm-read
@@ -59,18 +58,14 @@
 │   ├── aoc-tm
 │   ├── aoc-uninstall
 │   ├── aoc-utils.sh
-│   ├── aoc-widget
-│   ├── aoc-widget-set
+│   ├── aoc-web-smoke
 │   ├── aoc-yazi
+│   ├── aoc-yazi-preview
 │   ├── aoc-zellij-resize
 │   ├── rlm
 │   ├── tm
 │   └── tm-editor
 ├── CHANGELOG.md
-├── cmd
-│   ├── aoc-agent-wrap-go
-│   ├── aoc-hub
-│   └── aoc-taskmaster
 ├── CODE_OF_CONDUCT.md
 ├── config
 │   ├── btop.conf
@@ -99,6 +94,7 @@
 │   ├── agents.md
 │   ├── assets
 │   ├── configuration.md
+│   ├── control-pane.md
 │   ├── deprecations.md
 │   ├── feature-upgrade-collection-key.md
 │   ├── insight-compaction-ingest.md
@@ -115,6 +111,7 @@
 │   ├── pulse-ipc-protocol.md
 │   ├── pulse-vnext-rollout.md
 │   ├── research
+│   ├── security
 │   └── skills.md
 ├── install
 │   └── bootstrap.sh
@@ -125,7 +122,6 @@
 ├── micro
 │   └── bindings.json
 ├── package.json
-├── plugins
 ├── pnpm-lock.yaml
 ├── README.md
 ├── ROADMAP.md
@@ -133,7 +129,8 @@
 │   ├── lint.sh
 │   ├── opencode
 │   ├── pi
-│   └── smoke.sh
+│   ├── smoke.sh
+│   └── verify-mind-runtime-safety.sh
 ├── SECURITY.md
 ├── shellcheck-v0.10.0
 │   ├── LICENSE.txt
@@ -145,14 +142,13 @@
 │   ├── init.lua
 │   ├── keymap.toml
 │   ├── plugins
-│   ├── preview.sh
 │   ├── theme.toml
 │   └── yazi.toml
 └── zellij
     ├── aoc.config.kdl.template
     └── layouts
 
-39 directories, 100 files
+35 directories, 100 files
 ```
 
 ## README Headings
@@ -160,11 +156,15 @@
 ## ✨ Why AOC?
 ### The Problem with AI Development Today
 ### The AOC Solution
+## 🚦 Start Here
 ## 🚀 Quick Start
 ### One-Line Install
 ### Verify Installation
+### After Install
 ### Next Steps
+## 🎯 Core Workflow
 ## 🎯 Key Features
+### Core Features
 ### 1. PI-Only Agent Runtime
 # Set/select runtime
 # Or launch directly
@@ -176,6 +176,9 @@
 ### 4. Agent Skills
 # Sync PI skills
 ### 5. Yazi File Manager Integration
+## 🕹️ Alt+C Control Pane
+### Agent Browser + Search
+### Optional Integrations and Advanced Workflows
 ### 6. Custom Layouts ("AOC Modes")
 # Try the minimal layout
 # See available layout shortcuts in this project
@@ -189,33 +192,30 @@
 #### 4. Task PRDs (`.taskmaster/docs/prds/`) - The "Spec Layer"
 #### 5. Short-Term Memory (`.aoc/stm/`) - The "Handoff Buffer"
 ### Per-Tab Isolation
-### Standard Agent Workflow
-## 📋 Requirements
-## 🎮 Widget Controls
-## 📊 Comparison with Alternatives
-## 🛠️ Configuration
-### Quick Overrides
-# Use a different layout
 
 ## Current Task Tag
 ```
-mind
+env-protec
 ```
 
 ## Active Workstreams (Tags)
 ```
 aoc/pi_cleanup (9)
 deprecation (10)
-master (45)
+detached-orchestration (3)
+env-protec (5)
+master (46)
 mermaid (1)
-mind (41)
+mind (42)
 mission-control (17)
 omo (10)
+pi-compaction-ui (1)
+pi-terminal-ops (1)
 pulse-hub-spoke (8)
 rtk (5)
 safety (9)
-session-overseer (1)
-sub-agents (13)
+session-overseer (0)
+sub-agents (12)
 ```
 
 ## Task PRD Location

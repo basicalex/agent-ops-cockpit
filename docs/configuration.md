@@ -14,7 +14,6 @@ Advanced configuration options for Agent Ops Cockpit (AOC).
 
 - [Environment Variables](#environment-variables)
   - [Command Overrides](#command-overrides)
-  - [Widget Configuration](#widget-configuration)
   - [Clock Configuration](#clock-configuration)
   - [Layout and Display](#layout-and-display)
   - [RTK Routing](#rtk-routing)
@@ -36,7 +35,6 @@ Override default commands used in AOC layouts:
 | `AOC_TASKMASTER_CMD` | Taskmaster TUI command | `aoc-taskmaster` |
 | `AOC_TASKMASTER_ROOT` | Override Taskmaster project root for `tm`/`aoc-task`/`aoc-taskmaster` | Current working directory |
 | `AOC_FILETREE_CMD` | File manager command | `yazi` |
-| `AOC_WIDGET_CMD` | Widget pane command | `aoc-widget` |
 | `AOC_CLOCK_CMD` | Clock command | Auto-detected |
 | `AOC_SYS_CMD` | System stats command | `aoc-sys` |
 | `AOC_TERMINAL_CMD` | Terminal shell | `$SHELL` |
@@ -48,32 +46,6 @@ AOC_AGENT_CMD=~/.local/bin/aoc-agent-acme aoc
 ```
 
 Use `aoc-agent-wrap` inside that script to keep hub/session wiring intact. See [Agent Extensibility](agent-extensibility.md).
-
-### Widget Configuration
-
-Control the media/calendar widget rendering:
-
-| Variable | Description | Default |
-|----------|-------------|---------|
-| `AOC_WIDGET_SYMBOLS` | ASCII style preset | Auto |
-| `AOC_WIDGET_COLORS` | Color depth (1/8/16/256/truecolor) | Auto |
-| `AOC_WIDGET_DITHER` | Dithering mode | Auto |
-| `AOC_WIDGET_SCALE` | Render size | Auto |
-| `AOC_WIDGET_WORK` | Detail level | Auto |
-| `AOC_WIDGET_FONT_RATIO` | Aspect ratio for rendering | Auto |
-
-**Widget Controls (when widget is focused):**
-
-- `m` - Switch to media mode
-- `g` - Switch to gallery mode (renders from `~/Pictures/Zellij`)
-- `p` - Set media path (mp4/webm/gif/png/jpg/webp/svg)
-- `Enter` (in gallery) - Toggle clean view
-- `s` - Cycle ASCII styles
-- `C` - Cycle color depth
-- `D` - Cycle dither mode
-- `w` - Cycle detail level
-- `r` - Edit font ratio with h/j/k/l
-- `+/-` - Adjust render size
 
 ### Clock Configuration
 
