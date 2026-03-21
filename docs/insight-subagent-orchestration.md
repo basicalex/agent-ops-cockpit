@@ -72,8 +72,20 @@ Each worker gets:
 Current agent templates:
 - `.pi/agents/insight-t1-observer.md`
 - `.pi/agents/insight-t2-reflector.md`
+- `.pi/agents/explorer-agent.md`
+- `.pi/agents/code-review-agent.md`
+- `.pi/agents/testing-agent.md`
+- `.pi/agents/scout-web-agent.md`
 - `.pi/agents/teams.yaml`
 - `.pi/agents/agent-chain.yaml`
+
+Operator-facing specialist roles are the first detached-subagent UX product:
+- `explorer-agent` — repo reconnaissance / architecture mapping
+- `code-review-agent` — bounded implementation and regression review
+- `testing-agent` — targeted verification and repro execution
+- `scout-web-agent` — browser/site investigation in a detached context
+
+These specialist agents share the same detached runtime substrate as the Insight/Mind workers, but remain a separate UX plane from the T1/T2/T3 memory pipeline workers.
 
 ## 2) Insight tool contract (explicit API)
 
@@ -125,6 +137,24 @@ Pi hook events / task signals / manual command
 - T2 worker must respect file-lock + lease semantics.
 - Brown-field task projection must be confirm-before-write.
 - Sub-agent tool scopes are allowlisted per role.
+- Detached delegated jobs must survive wrapper/session interruption by being recoverable from the durable detached registry.
+- Active detached jobs discovered after wrapper restart are marked `stale` with explicit operator-visible recovery context instead of being silently dropped.
+- Malformed `.pi/agents/*.md` manifests and detached `pi` spawn failures must surface structured fallback errors for operator review.
+
+## Operator workflow and recovery
+
+Current Pi session UX for detached specialists includes:
+- `/subagent-status [job-id]`
+- `/subagent-recent [count]`
+- `/subagent-inspect <job-id>`
+- `/subagent-handoff <job-id>`
+- `/subagent-cancel <job-id>`
+
+Expected operator behavior:
+- launch detached specialists/chains from the main Pi session,
+- let the durable registry remain the source of truth for status/cancel/recovery when Pulse is available,
+- inspect completed jobs from the main session using the handoff/inspect commands,
+- treat `stale` as an interrupted execution requiring review or rerun rather than as a silent success.
 
 ## Technology choices
 

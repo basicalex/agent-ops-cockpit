@@ -5,3 +5,17 @@ insight-core:
 insight-bootstrap:
   - insight-t1-observer
   - insight-t2-reflector
+
+specialist-core:
+  - explorer-agent
+  - code-review-agent
+  - testing-agent
+
+specialist-web:
+  - scout-web-agent
+
+specialist-all:
+  - explorer-agent
+  - code-review-agent
+  - testing-agent
+  - scout-web-agent

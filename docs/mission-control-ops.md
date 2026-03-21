@@ -147,6 +147,7 @@ Layout:
 
 Keybindings:
 - `Tab`: switch modes/views
+- `1..7`: jump directly to Overview / Overseer / Mind / Fleet / Work / Diff / Health
 - `j/k` or `Up/Down`: move selection / scroll
 - `Enter`: focus the selected worker tab from Overseer mode
 - `x`: stop the selected worker
@@ -157,6 +158,22 @@ Keybindings:
 - `r`: refresh local snapshot
 - `Esc`: hides floating pane (runs `zellij action toggle-floating-panes`)
 - `q`: quits Mission Control
+
+Fleet mode is intended for detached specialist supervision. It groups detached jobs by project root and ownership plane so operators can distinguish:
+- delegated/operator-launched detached specialists
+- Mind-owned detached work (for example T1/T2/T3 runtime activity)
+
+Fleet mode controls:
+- `j/k` select a fleet group
+- `Left/Right` or `[/]` select a specific job within the selected group
+- `Enter` focus a live tab for the selected project's session when available
+- `i` launch an inspect follow-up tab with a bounded brief for the selected detached job
+- `h` launch a handoff follow-up tab with a bounded brief for the selected detached job
+- `x` cancel the selected active detached job
+- `f` cycle plane filter: all → delegated → mind
+- `S` cycle sort mode: project → newest → active-first → error-first
+- `A` toggle active-only groups
+- lower drilldown panel shows the selected group's selected job, recovery guidance, and recent jobs
 
 Overseer mode also renders a reviewable orchestration compile section:
 - graph summary counts (nodes / edges / review paths)
@@ -183,6 +200,10 @@ Shortcut (Zellij): `Alt+a`
 Floating panes are tab-scoped in Zellij. You get one MC per tab.
 
 ### Dedicated Mission Control tab
+For longer orchestration sessions, use the dedicated Mission Control tab flow.
+This runs `aoc-mission-control` in `mission-control` mode, while normal AOC tab
+right panes should run `aoc-pulse-pane` / `AOC_MISSION_CONTROL_MODE=pulse-pane`.
+
 For longer orchestration sessions, use the dedicated Mission Control tab flow:
 
 ```bash

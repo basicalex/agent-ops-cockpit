@@ -5,7 +5,8 @@ use aoc_core::{
         ConsultationSourceStatus, ConsultationTaskContext,
     },
     insight_contracts::{
-        InsightDetachedJob, InsightDetachedJobStatus, InsightDetachedStatusResult,
+        InsightDetachedJob, InsightDetachedJobStatus, InsightDetachedOwnerPlane,
+        InsightDetachedStatusResult, InsightDetachedWorkerKind,
     },
     mind_contracts::{
         canonical_payload_hash, ArtifactTaskLink, ArtifactTaskRelation, SemanticProvenance,
@@ -93,11 +94,17 @@ struct Config {
     pulse_custom_theme: Option<PulseTheme>,
     pulse_vnext_enabled: bool,
     overview_enabled: bool,
-    light_pane: bool,
+    runtime_mode: RuntimeMode,
     layout_source: LayoutSource,
     client_id: String,
     project_root: PathBuf,
     state_dir: PathBuf,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum RuntimeMode {
+    MissionControl,
+    PulsePane,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -590,6 +597,46 @@ struct MindInjectionRow {
 }
 
 #[derive(Clone, Debug)]
+struct DetachedFleetRow {
+    project_root: String,
+    owner_plane: InsightDetachedOwnerPlane,
+    jobs: Vec<InsightDetachedJob>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum FleetPlaneFilter {
+    All,
+    Delegated,
+    Mind,
+}
+
+impl FleetPlaneFilter {
+    fn next(self) -> Self {
+        match self {
+            Self::All => Self::Delegated,
+            Self::Delegated => Self::Mind,
+            Self::Mind => Self::All,
+        }
+    }
+
+    fn label(self) -> &'static str {
+        match self {
+            Self::All => "all",
+            Self::Delegated => "delegated",
+            Self::Mind => "mind",
+        }
+    }
+
+    fn matches(self, plane: InsightDetachedOwnerPlane) -> bool {
+        match self {
+            Self::All => true,
+            Self::Delegated => matches!(plane, InsightDetachedOwnerPlane::Delegated),
+            Self::Mind => matches!(plane, InsightDetachedOwnerPlane::Mind),
+        }
+    }
+}
+
+#[derive(Clone, Debug)]
 struct LocalSnapshot {
     overview: Vec<OverviewRow>,
     viewer_tab_index: Option<usize>,
@@ -600,20 +647,30 @@ struct LocalSnapshot {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Mode {
+    PulsePane,
     Overview,
     Overseer,
     Mind,
+    Fleet,
     Work,
     Diff,
     Health,
 }
 
+impl RuntimeMode {
+    fn is_pulse_pane(self) -> bool {
+        matches!(self, RuntimeMode::PulsePane)
+    }
+}
+
 impl Mode {
     fn title(self) -> &'static str {
         match self {
+            Mode::PulsePane => "AOC Pulse",
             Mode::Overview => "Overview",
             Mode::Overseer => "Overseer",
             Mode::Mind => "Mind",
+            Mode::Fleet => "Fleet",
             Mode::Work => "Work",
             Mode::Diff => "Diff",
             Mode::Health => "Health",
@@ -622,9 +679,11 @@ impl Mode {
 
     fn next(self) -> Self {
         match self {
+            Mode::PulsePane => Mode::PulsePane,
             Mode::Overview => Mode::Overseer,
             Mode::Overseer => Mode::Mind,
-            Mode::Mind => Mode::Work,
+            Mode::Mind => Mode::Fleet,
+            Mode::Fleet => Mode::Work,
             Mode::Work => Mode::Diff,
             Mode::Diff => Mode::Health,
             Mode::Health => Mode::Overview,
@@ -681,6 +740,34 @@ impl OverviewSortMode {
         match self {
             Self::Layout => "layout",
             Self::Attention => "attention",
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum FleetSortMode {
+    Project,
+    Newest,
+    ActiveFirst,
+    ErrorFirst,
+}
+
+impl FleetSortMode {
+    fn next(self) -> Self {
+        match self {
+            Self::Project => Self::Newest,
+            Self::Newest => Self::ActiveFirst,
+            Self::ActiveFirst => Self::ErrorFirst,
+            Self::ErrorFirst => Self::Project,
+        }
+    }
+
+    fn label(self) -> &'static str {
+        match self {
+            Self::Project => "project",
+            Self::Newest => "newest",
+            Self::ActiveFirst => "active-first",
+            Self::ErrorFirst => "error-first",
         }
     }
 }
@@ -742,7 +829,12 @@ struct App {
     scroll: u16,
     help_open: bool,
     selected_overview: usize,
+    selected_fleet: usize,
+    selected_fleet_job: usize,
     overview_sort_mode: OverviewSortMode,
+    fleet_sort_mode: FleetSortMode,
+    fleet_plane_filter: FleetPlaneFilter,
+    fleet_active_only: bool,
     follow_viewer_tab: bool,
     last_viewer_tab_index: Option<usize>,
     mind_lane: MindLaneFilter,
@@ -802,15 +894,19 @@ impl App {
     fn new(config: Config, command_tx: mpsc::Sender<HubOutbound>, local: LocalSnapshot) -> Self {
         let tab_cache = seed_tab_cache(&local.overview);
         let last_viewer_tab_index = local.viewer_tab_index;
-        let mode = if config.overview_enabled {
+        let mode = if config.runtime_mode.is_pulse_pane() {
+            Mode::PulsePane
+        } else if config.overview_enabled {
             Mode::Overview
         } else {
             Mode::Overseer
         };
-        let status_note = if config.overview_enabled {
+        let status_note = if config.runtime_mode.is_pulse_pane() {
+            Some("pulse pane mode: local tab Mind/status only".to_string())
+        } else if config.overview_enabled {
             None
         } else {
-            Some("overview disabled by config; using Overseer/Mind/Work/Diff/Health".to_string())
+            Some("overview disabled; using Overseer/Mind/Work/Diff/Health".to_string())
         };
         Self {
             config,
@@ -824,7 +920,12 @@ impl App {
             scroll: 0,
             help_open: false,
             selected_overview: 0,
+            selected_fleet: 0,
+            selected_fleet_job: 0,
             overview_sort_mode: OverviewSortMode::Layout,
+            fleet_sort_mode: FleetSortMode::Project,
+            fleet_plane_filter: FleetPlaneFilter::All,
+            fleet_active_only: false,
             follow_viewer_tab: true,
             last_viewer_tab_index,
             mind_lane: MindLaneFilter::T1,
@@ -921,13 +1022,17 @@ impl App {
                 }
             }
             HubEvent::ObserverSnapshot { payload } => {
-                if payload.session_id != self.config.session_id {
+                if self.config.runtime_mode.is_pulse_pane()
+                    || payload.session_id != self.config.session_id
+                {
                     return;
                 }
                 self.hub.observer_snapshot = Some(payload);
             }
             HubEvent::ObserverTimeline { payload } => {
-                if payload.session_id != self.config.session_id {
+                if self.config.runtime_mode.is_pulse_pane()
+                    || payload.session_id != self.config.session_id
+                {
                     return;
                 }
                 self.hub.observer_timeline = payload.entries;
@@ -992,6 +1097,9 @@ impl App {
                 payload,
                 request_id,
             } => {
+                if self.config.runtime_mode.is_pulse_pane() {
+                    return;
+                }
                 self.apply_consultation_response(payload, request_id);
             }
         }
@@ -1650,6 +1758,19 @@ impl App {
 
     fn mode_source(&self) -> &'static str {
         match self.mode {
+            Mode::PulsePane => {
+                if self.prefer_hub_data(
+                    !self.hub.agents.is_empty()
+                        || !self.hub.tasks.is_empty()
+                        || !self.hub.diffs.is_empty()
+                        || !self.hub.health.is_empty()
+                        || !self.hub.mind.is_empty(),
+                ) {
+                    "hub"
+                } else {
+                    "local"
+                }
+            }
             Mode::Overview => {
                 if self.prefer_hub_data(!self.hub.agents.is_empty()) {
                     "hub"
@@ -1679,6 +1800,13 @@ impl App {
                         || !self.hub.insight_runtime.is_empty()
                         || !self.hub.insight_detached.is_empty(),
                 ) {
+                    "hub"
+                } else {
+                    "local"
+                }
+            }
+            Mode::Fleet => {
+                if self.prefer_hub_data(!self.hub.insight_detached.is_empty()) {
                     "hub"
                 } else {
                     "local"
@@ -1904,13 +2032,18 @@ impl App {
     }
 
     fn cycle_mode(&mut self) {
+        if self.config.runtime_mode.is_pulse_pane() {
+            self.mode = Mode::PulsePane;
+            return;
+        }
         self.mode = if self.config.overview_enabled {
             self.mode.next()
         } else {
             match self.mode {
-                Mode::Overview => Mode::Overseer,
+                Mode::PulsePane | Mode::Overview => Mode::Overseer,
                 Mode::Overseer => Mode::Mind,
-                Mode::Mind => Mode::Work,
+                Mode::Mind => Mode::Fleet,
+                Mode::Fleet => Mode::Work,
                 Mode::Work => Mode::Diff,
                 Mode::Diff => Mode::Health,
                 Mode::Health => Mode::Overseer,
@@ -2250,6 +2383,386 @@ impl App {
                 .then_with(|| left.job_id.cmp(&right.job_id))
         });
         jobs
+    }
+
+    fn detached_fleet_rows(&self) -> Vec<DetachedFleetRow> {
+        if !self.prefer_hub_data(!self.hub.insight_detached.is_empty()) {
+            return Vec::new();
+        }
+        let mut grouped: BTreeMap<(String, u8), Vec<InsightDetachedJob>> = BTreeMap::new();
+        for (agent_id, snapshot) in &self.hub.insight_detached {
+            let project_root = self
+                .hub
+                .agents
+                .get(agent_id)
+                .and_then(|agent| {
+                    agent
+                        .status
+                        .as_ref()
+                        .map(|status| status.project_root.clone())
+                })
+                .filter(|value| !value.trim().is_empty())
+                .unwrap_or_else(|| "(unknown project)".to_string());
+            for job in &snapshot.jobs {
+                let plane_rank = match job.owner_plane {
+                    InsightDetachedOwnerPlane::Delegated => 0,
+                    InsightDetachedOwnerPlane::Mind => 1,
+                };
+                grouped
+                    .entry((project_root.clone(), plane_rank))
+                    .or_default()
+                    .push(job.clone());
+            }
+        }
+
+        let mut rows = grouped
+            .into_iter()
+            .map(|((project_root, _), mut jobs)| {
+                jobs.sort_by(|left, right| {
+                    right
+                        .created_at_ms
+                        .cmp(&left.created_at_ms)
+                        .then_with(|| left.job_id.cmp(&right.job_id))
+                });
+                DetachedFleetRow {
+                    project_root,
+                    owner_plane: jobs
+                        .first()
+                        .map(|job| job.owner_plane)
+                        .unwrap_or(InsightDetachedOwnerPlane::Delegated),
+                    jobs,
+                }
+            })
+            .filter(|row| self.fleet_plane_filter.matches(row.owner_plane))
+            .filter(|row| {
+                !self.fleet_active_only
+                    || row.jobs.iter().any(|job| {
+                        matches!(
+                            job.status,
+                            InsightDetachedJobStatus::Queued | InsightDetachedJobStatus::Running
+                        )
+                    })
+            })
+            .collect::<Vec<_>>();
+
+        let row_rank = |row: &DetachedFleetRow| -> (usize, usize, usize) {
+            let mut active = 0usize;
+            let mut errorish = 0usize;
+            let mut latest_created = 0i64;
+            for job in &row.jobs {
+                latest_created = latest_created.max(job.created_at_ms);
+                match job.status {
+                    InsightDetachedJobStatus::Queued | InsightDetachedJobStatus::Running => {
+                        active += 1
+                    }
+                    InsightDetachedJobStatus::Error
+                    | InsightDetachedJobStatus::Fallback
+                    | InsightDetachedJobStatus::Stale => errorish += 1,
+                    InsightDetachedJobStatus::Success | InsightDetachedJobStatus::Cancelled => {}
+                }
+            }
+            (active, errorish, latest_created as usize)
+        };
+
+        rows.sort_by(|left, right| {
+            let left_rank = row_rank(left);
+            let right_rank = row_rank(right);
+            match self.fleet_sort_mode {
+                FleetSortMode::Project => {
+                    left.project_root.cmp(&right.project_root).then_with(|| {
+                        detached_owner_plane_label(left.owner_plane)
+                            .cmp(detached_owner_plane_label(right.owner_plane))
+                    })
+                }
+                FleetSortMode::Newest => right_rank
+                    .2
+                    .cmp(&left_rank.2)
+                    .then_with(|| left.project_root.cmp(&right.project_root))
+                    .then_with(|| {
+                        detached_owner_plane_label(left.owner_plane)
+                            .cmp(detached_owner_plane_label(right.owner_plane))
+                    }),
+                FleetSortMode::ActiveFirst => right_rank
+                    .0
+                    .cmp(&left_rank.0)
+                    .then_with(|| right_rank.2.cmp(&left_rank.2))
+                    .then_with(|| left.project_root.cmp(&right.project_root))
+                    .then_with(|| {
+                        detached_owner_plane_label(left.owner_plane)
+                            .cmp(detached_owner_plane_label(right.owner_plane))
+                    }),
+                FleetSortMode::ErrorFirst => right_rank
+                    .1
+                    .cmp(&left_rank.1)
+                    .then_with(|| right_rank.0.cmp(&left_rank.0))
+                    .then_with(|| right_rank.2.cmp(&left_rank.2))
+                    .then_with(|| left.project_root.cmp(&right.project_root))
+                    .then_with(|| {
+                        detached_owner_plane_label(left.owner_plane)
+                            .cmp(detached_owner_plane_label(right.owner_plane))
+                    }),
+            }
+        });
+        rows
+    }
+
+    fn selected_fleet_index_for_rows(&self, rows: &[DetachedFleetRow]) -> usize {
+        self.selected_fleet.min(rows.len().saturating_sub(1))
+    }
+
+    fn move_fleet_selection(&mut self, step: i32) {
+        let rows = self.detached_fleet_rows();
+        if rows.is_empty() {
+            self.selected_fleet = 0;
+            self.selected_fleet_job = 0;
+            return;
+        }
+        let current = self.selected_fleet_index_for_rows(&rows) as i32;
+        let max = rows.len().saturating_sub(1) as i32;
+        let next = (current + step).clamp(0, max) as usize;
+        self.selected_fleet = next;
+        self.selected_fleet_job = 0;
+    }
+
+    fn selected_fleet_job_index_for_row(&self, row: &DetachedFleetRow) -> usize {
+        self.selected_fleet_job
+            .min(row.jobs.len().saturating_sub(1))
+    }
+
+    fn move_fleet_job_selection(&mut self, step: i32) {
+        let Some(row) = self.selected_fleet_row() else {
+            return;
+        };
+        if row.jobs.is_empty() {
+            self.selected_fleet_job = 0;
+            return;
+        }
+        let current = self.selected_fleet_job_index_for_row(&row) as i32;
+        let max = row.jobs.len().saturating_sub(1) as i32;
+        let next = (current + step).clamp(0, max) as usize;
+        self.selected_fleet_job = next;
+    }
+
+    fn toggle_fleet_plane_filter(&mut self) {
+        self.fleet_plane_filter = self.fleet_plane_filter.next();
+        self.selected_fleet = 0;
+        self.selected_fleet_job = 0;
+        self.scroll = 0;
+        self.status_note = Some(format!("fleet plane: {}", self.fleet_plane_filter.label()));
+    }
+
+    fn toggle_fleet_active_only(&mut self) {
+        self.fleet_active_only = !self.fleet_active_only;
+        self.selected_fleet = 0;
+        self.selected_fleet_job = 0;
+        self.scroll = 0;
+        self.status_note = Some(if self.fleet_active_only {
+            "fleet scope: active-only".to_string()
+        } else {
+            "fleet scope: all jobs".to_string()
+        });
+    }
+
+    fn toggle_fleet_sort_mode(&mut self) {
+        self.fleet_sort_mode = self.fleet_sort_mode.next();
+        self.selected_fleet = 0;
+        self.selected_fleet_job = 0;
+        self.scroll = 0;
+        self.status_note = Some(format!("fleet sort: {}", self.fleet_sort_mode.label()));
+    }
+
+    fn selected_fleet_row(&mut self) -> Option<DetachedFleetRow> {
+        if self.mode != Mode::Fleet {
+            self.status_note = Some("switch to Fleet mode for detached job actions".to_string());
+            return None;
+        }
+        let rows = self.detached_fleet_rows();
+        if rows.is_empty() {
+            self.status_note = Some("no detached fleet groups available".to_string());
+            return None;
+        }
+        let selected = self.selected_fleet_index_for_rows(&rows);
+        self.selected_fleet = selected;
+        let row = rows.get(selected).cloned();
+        if let Some(row) = row.as_ref() {
+            self.selected_fleet_job = self.selected_fleet_job_index_for_row(row);
+        }
+        row
+    }
+
+    fn selected_fleet_job(&mut self) -> Option<(DetachedFleetRow, InsightDetachedJob)> {
+        let row = self.selected_fleet_row()?;
+        let Some(job) = row
+            .jobs
+            .get(self.selected_fleet_job_index_for_row(&row))
+            .cloned()
+        else {
+            self.status_note = Some("selected fleet group has no jobs".to_string());
+            return None;
+        };
+        Some((row, job))
+    }
+
+    fn render_fleet_brief(
+        &self,
+        row: &DetachedFleetRow,
+        job: &InsightDetachedJob,
+        handoff_only: bool,
+    ) -> String {
+        let target = job
+            .agent
+            .as_deref()
+            .or(job.chain.as_deref())
+            .or(job.team.as_deref())
+            .unwrap_or("detached-job");
+        let summary = job
+            .output_excerpt
+            .as_deref()
+            .or(job.error.as_deref())
+            .unwrap_or("No detached job summary available.");
+        let action = if handoff_only {
+            "/subagent-handoff"
+        } else {
+            "/subagent-inspect"
+        };
+        let recovery = detached_job_recovery_guidance(job)
+            .into_iter()
+            .map(|line| format!("- {line}"))
+            .collect::<Vec<_>>()
+            .join("\n");
+        format!(
+            "# Mission Control fleet brief\n\n- project: {}\n- job_id: {}\n- target: {}\n- owner_plane: {}\n- worker_kind: {}\n- status: {}\n- fallback_used: {}\n\n## Detached summary\n{}\n\n## Recovery guidance\n{}\n\n## Main session follow-up\n- In the owning Pi session, run: `{action} {}`\n- If the job is still active, optionally cancel from Mission Control Fleet with `x`.\n- If more context is needed, compare against recent jobs in the same project/plane group.\n",
+            row.project_root,
+            job.job_id,
+            target,
+            detached_owner_plane_label(job.owner_plane),
+            detached_worker_kind_label(job.worker_kind),
+            detached_job_status_label(job.status),
+            if job.fallback_used { "yes" } else { "no" },
+            summary,
+            recovery,
+            job.job_id,
+        )
+    }
+
+    fn write_fleet_brief(
+        &self,
+        row: &DetachedFleetRow,
+        job: &InsightDetachedJob,
+        handoff_only: bool,
+    ) -> Result<PathBuf, String> {
+        let dir = self.config.state_dir.join("mission-control").join("fleet");
+        fs::create_dir_all(&dir).map_err(|err| format!("create fleet brief dir failed: {err}"))?;
+        let slug = sanitize_slug(&format!(
+            "{}-{}-{}",
+            if handoff_only { "handoff" } else { "inspect" },
+            job.job_id,
+            Utc::now().format("%Y%m%d%H%M%S")
+        ));
+        let path = dir.join(format!("{slug}.md"));
+        fs::write(&path, self.render_fleet_brief(row, job, handoff_only))
+            .map_err(|err| format!("write fleet brief failed: {err}"))?;
+        Ok(path)
+    }
+
+    fn launch_fleet_followup(&mut self, handoff_only: bool) {
+        let Some((row, job)) = self.selected_fleet_job() else {
+            return;
+        };
+        let brief_path = match self.write_fleet_brief(&row, &job, handoff_only) {
+            Ok(path) => path,
+            Err(err) => {
+                self.status_note = Some(err);
+                return;
+            }
+        };
+        let project_root = PathBuf::from(&row.project_root);
+        let launch_root = if project_root.exists() {
+            project_root
+        } else {
+            self.config.project_root.clone()
+        };
+        let tab_name = if handoff_only {
+            format!("Handoff {}", ellipsize(&job.job_id, 18))
+        } else {
+            format!("Inspect {}", ellipsize(&job.job_id, 18))
+        };
+        let agent_id = resolve_launch_agent_id();
+        let plan = build_worker_launch_plan(
+            &launch_root,
+            &agent_id,
+            &tab_name,
+            Some(&brief_path),
+            in_zellij_session(),
+        );
+        match execute_worker_launch_plan(&plan) {
+            Ok(()) => {
+                self.status_note = Some(format!(
+                    "launched {} follow-up for {}; brief: {}",
+                    if handoff_only { "handoff" } else { "inspect" },
+                    job.job_id,
+                    brief_path.display()
+                ));
+            }
+            Err(err) => {
+                self.status_note = Some(format!("fleet launch failed: {err}"));
+            }
+        }
+    }
+
+    fn cancel_selected_fleet_job(&mut self) {
+        let Some((_row, job)) = self.selected_fleet_job() else {
+            return;
+        };
+        if !matches!(
+            job.status,
+            InsightDetachedJobStatus::Queued | InsightDetachedJobStatus::Running
+        ) {
+            self.status_note = Some(format!("selected job {} is not active", job.job_id));
+            return;
+        }
+        self.queue_hub_command(
+            "insight_detached_cancel",
+            None,
+            serde_json::json!({"job_id": job.job_id, "reason": "mission_control_fleet"}),
+            format!("detached job {}", job.job_id),
+        );
+    }
+
+    fn focus_selected_fleet_project(&mut self) {
+        let Some(row) = self.selected_fleet_row() else {
+            return;
+        };
+        let candidate = self
+            .hub
+            .agents
+            .iter()
+            .filter_map(|(agent_id, agent)| {
+                let status = agent.status.as_ref()?;
+                if status.project_root != row.project_root {
+                    return None;
+                }
+                let tab_meta = self
+                    .active_hub_layout()
+                    .and_then(|layout| layout.pane_tabs.get(&status.pane_id))
+                    .cloned()
+                    .or_else(|| self.tab_cache.get(&status.pane_id).cloned());
+                Some((agent_id.clone(), status.pane_id.clone(), tab_meta))
+            })
+            .next();
+        let Some((agent_id, pane_id, tab_meta)) = candidate else {
+            self.status_note = Some(format!(
+                "no live tab found for project {}",
+                row.project_root
+            ));
+            return;
+        };
+        self.focus_tab_target(
+            &pane_id,
+            tab_meta.as_ref().map(|meta| meta.index),
+            tab_meta.map(|meta| meta.name),
+        );
+        self.status_note = Some(format!("focused project tab via {}", agent_id));
     }
 
     fn mind_rows_for_lane(&self, lane_filter: MindLaneFilter) -> Vec<MindObserverRow> {
@@ -3581,7 +4094,10 @@ fn render_ui(frame: &mut ratatui::Frame, app: &App) {
         .direction(Direction::Vertical)
         .constraints([Constraint::Min(0)])
         .split(size);
-    if app.mode == Mode::Overview && app.config.overview_enabled {
+    if !app.config.runtime_mode.is_pulse_pane()
+        && app.mode == Mode::Overview
+        && app.config.overview_enabled
+    {
         render_overview_panel(frame, app, theme, layout[0]);
     } else {
         frame.render_widget(render_body(app, theme, size.width), layout[0]);
@@ -3594,15 +4110,21 @@ fn render_ui(frame: &mut ratatui::Frame, app: &App) {
 fn render_body(app: &App, theme: PulseTheme, width: u16) -> Paragraph<'static> {
     let compact = is_compact(width);
     let lines = match app.mode {
+        Mode::PulsePane => render_pulse_pane_lines(app, theme, compact, width),
         Mode::Overview => Vec::new(),
         Mode::Overseer => render_overseer_lines(app, theme, compact),
         Mode::Mind => render_mind_lines(app, theme, compact),
+        Mode::Fleet => render_fleet_lines(app, theme, compact),
         Mode::Work => render_work_lines(app, theme, compact),
         Mode::Diff => render_diff_lines(app, theme, compact, width),
         Mode::Health => render_health_lines(app, theme, compact),
     };
-    let panel_title = if app.mode == Mode::Mind {
+    let panel_title = if app.mode == Mode::PulsePane {
+        "AOC Pulse".to_string()
+    } else if app.mode == Mode::Mind {
         "✦ Mind / Insight".to_string()
+    } else if app.mode == Mode::Fleet {
+        "Detached Fleet".to_string()
     } else if app.mode == Mode::Overseer {
         "Session Overseer".to_string()
     } else {
@@ -4090,9 +4612,9 @@ fn render_help_overlay(frame: &mut ratatui::Frame, app: &App, theme: PulseTheme)
                 .add_modifier(Modifier::BOLD),
         )),
         Line::from(if app.config.overview_enabled {
-            "  1/2/3/4/5/6 switch mode (Overview/Overseer/Mind/Work/Diff/Health)"
+            "  1/2/3/4/5/6/7 switch mode (Overview/Overseer/Mind/Fleet/Work/Diff/Health)"
         } else {
-            "  2/3/4/5/6 switch mode (Overseer/Mind/Work/Diff/Health)"
+            "  2/3/4/5/6/7 switch mode (Overseer/Mind/Fleet/Work/Diff/Health)"
         }),
         Line::from("  Tab      cycle mode"),
         Line::from("  r        refresh local snapshot"),
@@ -4134,6 +4656,19 @@ fn render_help_overlay(frame: &mut ratatui::Frame, app: &App, theme: PulseTheme)
 
 fn mode_help_lines(app: &App, theme: PulseTheme) -> Vec<Line<'static>> {
     match app.mode {
+        Mode::PulsePane => vec![
+            Line::from(Span::styled(
+                "AOC Pulse Pane",
+                Style::default()
+                    .fg(theme.accent)
+                    .add_modifier(Modifier::BOLD),
+            )),
+            Line::from("  j/k      scroll local pulse summary"),
+            Line::from("  g        jump to top"),
+            Line::from("  r        refresh local snapshot while hub catches up"),
+            Line::from("  ?        show help"),
+            Line::from("  q        quit pane"),
+        ],
         Mode::Overview => {
             if !app.config.overview_enabled {
                 return vec![
@@ -4199,6 +4734,26 @@ fn mode_help_lines(app: &App, theme: PulseTheme) -> Vec<Line<'static>> {
             Line::from("  t        toggle lane (t0/t1/t2/t3/all)"),
             Line::from("  v        toggle scope (active tab/all tabs)"),
             Line::from("  p        toggle provenance drilldown"),
+        ],
+        Mode::Fleet => vec![
+            Line::from(Span::styled(
+                "Detached Fleet Mode",
+                Style::default()
+                    .fg(theme.accent)
+                    .add_modifier(Modifier::BOLD),
+            )),
+            Line::from("  j/k      select fleet group"),
+            Line::from("  Left/Right or [/]  select job within the group"),
+            Line::from("  g        jump to top of groups + jobs"),
+            Line::from("  Enter    focus a live tab for the selected project"),
+            Line::from("  i        launch inspect follow-up tab + brief"),
+            Line::from("  h        launch handoff follow-up tab + brief"),
+            Line::from("  x        cancel selected active detached job"),
+            Line::from("  f        toggle plane filter (all/delegated/mind)"),
+            Line::from("  S        toggle sort (project/newest/active-first/error-first)"),
+            Line::from("  A        toggle active-only groups"),
+            Line::from("  grouped  by project root and ownership plane"),
+            Line::from("  lower    drilldown shows selected group details + recent jobs"),
         ],
         Mode::Work => vec![
             Line::from(Span::styled(
@@ -5066,6 +5621,659 @@ fn lifecycle_color_for_worker(worker: &WorkerSnapshot, theme: PulseTheme) -> Col
         WorkerStatus::Active => theme.info,
         WorkerStatus::Paused | WorkerStatus::Idle => theme.muted,
     }
+}
+
+fn render_pulse_pane_lines(
+    app: &App,
+    theme: PulseTheme,
+    compact: bool,
+    width: u16,
+) -> Vec<Line<'static>> {
+    let mut lines = Vec::new();
+    let project_root = app.config.project_root.to_string_lossy().to_string();
+    let viewer_scope = app.config.tab_scope.as_deref();
+
+    let focus_row = app
+        .overview_rows()
+        .into_iter()
+        .find(|row| row.tab_focused)
+        .or_else(|| {
+            app.overview_rows()
+                .into_iter()
+                .find(|row| row.project_root == project_root)
+        });
+
+    let status_label = if app.connected {
+        "connected"
+    } else if app.has_any_hub_data() {
+        "reconnecting"
+    } else {
+        "offline"
+    };
+    let status_color = if app.connected {
+        theme.ok
+    } else if app.has_any_hub_data() {
+        theme.warn
+    } else {
+        theme.critical
+    };
+    let scope_label = viewer_scope.unwrap_or("current-tab");
+    lines.push(Line::from(vec![
+        Span::styled("scope:", Style::default().fg(theme.muted)),
+        Span::raw(" "),
+        Span::styled(
+            scope_label.to_string(),
+            Style::default()
+                .fg(theme.accent)
+                .add_modifier(Modifier::BOLD),
+        ),
+        Span::raw("  "),
+        Span::styled("hub:", Style::default().fg(theme.muted)),
+        Span::raw(" "),
+        Span::styled(
+            status_label,
+            Style::default()
+                .fg(status_color)
+                .add_modifier(Modifier::BOLD),
+        ),
+        Span::raw("  "),
+        Span::styled("mode:", Style::default().fg(theme.muted)),
+        Span::raw(" "),
+        Span::styled("pulse-pane", Style::default().fg(theme.info)),
+    ]));
+
+    if let Some(row) = focus_row.as_ref() {
+        let lifecycle_color = lifecycle_color(&row.lifecycle, row.online, theme);
+        let age_label = row
+            .age_secs
+            .map(|secs| format!("age:{}s", secs.max(0)))
+            .unwrap_or_else(|| "age:n/a".to_string());
+        lines.push(Line::from(vec![
+            Span::styled(
+                row.label.clone(),
+                Style::default()
+                    .fg(theme.title)
+                    .add_modifier(Modifier::BOLD),
+            ),
+            Span::raw(" "),
+            Span::styled(
+                format!("[{}]", normalize_lifecycle(&row.lifecycle)),
+                Style::default().fg(lifecycle_color),
+            ),
+            Span::raw(" "),
+            Span::styled(age_label, Style::default().fg(theme.muted)),
+        ]));
+        if let Some(snippet) = row
+            .snippet
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+        {
+            lines.push(Line::from(vec![
+                Span::raw("  -> "),
+                Span::styled(
+                    ellipsize(snippet, if compact { 50 } else { 88 }),
+                    Style::default().fg(theme.muted),
+                ),
+            ]));
+        }
+    }
+
+    let mut work_projects = app
+        .work_rows()
+        .into_iter()
+        .filter(|project| project.project_root == project_root)
+        .collect::<Vec<_>>();
+    if let Some(project) = work_projects.pop() {
+        lines.push(Line::from(""));
+        lines.push(Line::from(Span::styled(
+            "Local work",
+            Style::default()
+                .fg(theme.title)
+                .add_modifier(Modifier::BOLD),
+        )));
+        for tag in project.tags.into_iter().take(if compact { 2 } else { 3 }) {
+            let mut spans = vec![
+                Span::raw("  "),
+                Span::styled(
+                    ellipsize(&tag.tag, 18),
+                    Style::default().fg(theme.info).add_modifier(Modifier::BOLD),
+                ),
+                Span::raw(" "),
+            ];
+            spans.extend(task_bar_spans(
+                &tag.counts,
+                if compact { 10 } else { 14 },
+                theme,
+            ));
+            spans.push(Span::raw(" "));
+            spans.push(Span::styled(
+                format!("ip:{}", tag.counts.in_progress),
+                Style::default().fg(if tag.counts.in_progress > 0 {
+                    theme.info
+                } else {
+                    theme.muted
+                }),
+            ));
+            spans.push(Span::raw(" "));
+            spans.push(Span::styled(
+                format!("blk:{}", tag.counts.blocked),
+                Style::default().fg(if tag.counts.blocked > 0 {
+                    theme.critical
+                } else {
+                    theme.muted
+                }),
+            ));
+            lines.push(Line::from(spans));
+            if let Some(title) = tag.in_progress_titles.first() {
+                lines.push(Line::from(vec![
+                    Span::raw("    -> "),
+                    Span::styled(
+                        ellipsize(title, if compact { 46 } else { 76 }),
+                        Style::default().fg(theme.muted),
+                    ),
+                ]));
+            }
+        }
+    }
+
+    let mind_rows = app.mind_rows();
+    let injection_rows = app.mind_injection_rows();
+    lines.push(Line::from(""));
+    lines.push(Line::from(Span::styled(
+        "Mind",
+        Style::default()
+            .fg(theme.title)
+            .add_modifier(Modifier::BOLD),
+    )));
+    let status_rollup = mind_status_rollup(&mind_rows);
+    lines.push(Line::from(vec![
+        Span::raw("  "),
+        Span::styled(
+            format!("q:{}", status_rollup.queued),
+            Style::default().fg(theme.warn),
+        ),
+        Span::raw(" "),
+        Span::styled(
+            format!("run:{}", status_rollup.running),
+            Style::default().fg(theme.info),
+        ),
+        Span::raw(" "),
+        Span::styled(
+            format!("ok:{}", status_rollup.success),
+            Style::default().fg(theme.ok),
+        ),
+        Span::raw(" "),
+        Span::styled(
+            format!("fb:{}", status_rollup.fallback),
+            Style::default().fg(theme.warn),
+        ),
+        Span::raw(" "),
+        Span::styled(
+            format!("err:{}", status_rollup.error),
+            Style::default().fg(theme.critical),
+        ),
+    ]));
+    if let Some(line) = render_mind_injection_rollup_line(&injection_rows, theme, compact) {
+        lines.push(Line::from(vec![Span::raw("  ")]));
+        lines.push(line);
+    }
+    if let Some(row) = mind_rows.first() {
+        let status_label = mind_status_label(row.event.status);
+        let trigger_label = mind_trigger_label(row.event.trigger);
+        let lane = mind_event_lane(&row.event);
+        let lane_label = mind_lane_label(lane);
+        let when = row
+            .event
+            .completed_at
+            .as_deref()
+            .or(row.event.started_at.as_deref())
+            .or(row.event.enqueued_at.as_deref())
+            .and_then(mind_timestamp_label)
+            .unwrap_or_else(|| "--:--:--".to_string());
+        lines.push(Line::from(vec![
+            Span::raw("  latest: "),
+            Span::styled(
+                format!("[{}]", lane_label),
+                Style::default()
+                    .fg(mind_lane_color(lane, theme))
+                    .add_modifier(Modifier::BOLD),
+            ),
+            Span::raw(" "),
+            Span::styled(
+                format!("[{}]", status_label),
+                Style::default()
+                    .fg(mind_status_color(row.event.status, theme))
+                    .add_modifier(Modifier::BOLD),
+            ),
+            Span::raw(" "),
+            Span::styled(
+                format!("[{}]", trigger_label),
+                Style::default().fg(theme.info),
+            ),
+            Span::raw(" "),
+            Span::styled(format!("@{}", when), Style::default().fg(theme.muted)),
+        ]));
+        let context = row
+            .event
+            .reason
+            .clone()
+            .or_else(|| row.event.failure_kind.clone())
+            .or_else(|| row.event.conversation_id.clone())
+            .unwrap_or_else(|| format!("source:{} agent:{}", row.source, row.agent_id));
+        lines.push(Line::from(vec![
+            Span::raw("    -> "),
+            Span::styled(
+                ellipsize(&context, if compact { 48 } else { 84 }),
+                Style::default().fg(theme.muted),
+            ),
+        ]));
+    } else {
+        lines.push(Line::from(vec![
+            Span::raw("  "),
+            Span::styled(
+                "No local Mind activity yet.",
+                Style::default().fg(theme.muted),
+            ),
+        ]));
+    }
+
+    let mut diff_projects = app
+        .diff_rows()
+        .into_iter()
+        .filter(|project| project.project_root == project_root)
+        .collect::<Vec<_>>();
+    if let Some(project) = diff_projects.pop() {
+        let churn = project.summary.staged.additions
+            + project.summary.staged.deletions
+            + project.summary.unstaged.additions
+            + project.summary.unstaged.deletions;
+        lines.push(Line::from(""));
+        lines.push(Line::from(Span::styled(
+            "Repo",
+            Style::default()
+                .fg(theme.title)
+                .add_modifier(Modifier::BOLD),
+        )));
+        lines.push(Line::from(vec![
+            Span::raw("  "),
+            Span::styled(
+                fit_fields(
+                    &[
+                        format!("stg:{}", project.summary.staged.files),
+                        format!("uns:{}", project.summary.unstaged.files),
+                        format!("new:{}", project.summary.untracked.files),
+                        format!("churn:{}", churn),
+                    ],
+                    width.saturating_sub(6) as usize,
+                ),
+                Style::default().fg(theme.muted),
+            ),
+        ]));
+    }
+
+    let health = app
+        .health_rows()
+        .into_iter()
+        .find(|row| row.project_root == project_root)
+        .map(|row| row.snapshot)
+        .unwrap_or_else(|| app.local.health.clone());
+    lines.push(Line::from(""));
+    lines.push(Line::from(vec![
+        Span::styled(
+            "Health",
+            Style::default()
+                .fg(theme.title)
+                .add_modifier(Modifier::BOLD),
+        ),
+        Span::raw(" "),
+        Span::styled(
+            ellipsize(&health.taskmaster_status, if compact { 42 } else { 72 }),
+            Style::default().fg(if health.taskmaster_status.contains("available") {
+                theme.ok
+            } else {
+                theme.warn
+            }),
+        ),
+    ]));
+
+    lines
+}
+
+fn render_fleet_lines(app: &App, theme: PulseTheme, compact: bool) -> Vec<Line<'static>> {
+    let rows = app.detached_fleet_rows();
+    let mut lines = Vec::new();
+
+    if rows.is_empty() {
+        lines.push(Line::from(vec![
+            Span::styled(
+                "Detached fleet",
+                Style::default()
+                    .fg(theme.title)
+                    .add_modifier(Modifier::BOLD),
+            ),
+            Span::raw(" "),
+            Span::styled("hub data unavailable", Style::default().fg(theme.muted)),
+        ]));
+        lines.push(Line::from(Span::styled(
+            "No detached job snapshots published yet. Launch detached specialists or reconnect Mission Control to the session hub.",
+            Style::default().fg(theme.muted),
+        )));
+        return lines;
+    }
+
+    let total_jobs: usize = rows.iter().map(|row| row.jobs.len()).sum();
+    let delegated_jobs: usize = rows
+        .iter()
+        .filter(|row| matches!(row.owner_plane, InsightDetachedOwnerPlane::Delegated))
+        .map(|row| row.jobs.len())
+        .sum();
+    let mind_jobs = total_jobs.saturating_sub(delegated_jobs);
+    let selected = app.selected_fleet_index_for_rows(&rows);
+    lines.push(Line::from(vec![
+        Span::styled("groups:", Style::default().fg(theme.muted)),
+        Span::raw(" "),
+        Span::styled(
+            format!("{}", rows.len()),
+            Style::default().fg(theme.info).add_modifier(Modifier::BOLD),
+        ),
+        Span::raw("  "),
+        Span::styled("jobs:", Style::default().fg(theme.muted)),
+        Span::raw(" "),
+        Span::styled(
+            format!("{}", total_jobs),
+            Style::default().fg(theme.info).add_modifier(Modifier::BOLD),
+        ),
+        Span::raw("  "),
+        Span::styled(
+            format!("plane:{}", app.fleet_plane_filter.label()),
+            Style::default().fg(theme.accent),
+        ),
+        Span::raw("  "),
+        Span::styled(
+            if app.fleet_active_only {
+                "scope:active"
+            } else {
+                "scope:all"
+            },
+            Style::default().fg(theme.accent),
+        ),
+        Span::raw("  "),
+        Span::styled(
+            format!("sort:{}", app.fleet_sort_mode.label()),
+            Style::default().fg(theme.accent),
+        ),
+        Span::raw("  "),
+        Span::styled(
+            format!("delegated:{}", delegated_jobs),
+            Style::default().fg(theme.accent),
+        ),
+        Span::raw(" "),
+        Span::styled(
+            format!("mind:{}", mind_jobs),
+            Style::default().fg(theme.accent),
+        ),
+    ]));
+
+    for (index, row) in rows.iter().enumerate() {
+        let latest = match row.jobs.first() {
+            Some(job) => job,
+            None => continue,
+        };
+        let is_selected = index == selected;
+        let mut queued = 0usize;
+        let mut running = 0usize;
+        let mut success = 0usize;
+        let mut fallback = 0usize;
+        let mut error = 0usize;
+        let mut cancelled = 0usize;
+        let mut stale = 0usize;
+        for job in &row.jobs {
+            match job.status {
+                InsightDetachedJobStatus::Queued => queued += 1,
+                InsightDetachedJobStatus::Running => running += 1,
+                InsightDetachedJobStatus::Success => success += 1,
+                InsightDetachedJobStatus::Fallback => fallback += 1,
+                InsightDetachedJobStatus::Error => error += 1,
+                InsightDetachedJobStatus::Cancelled => cancelled += 1,
+                InsightDetachedJobStatus::Stale => stale += 1,
+            }
+        }
+        let when = latest
+            .finished_at_ms
+            .or(latest.started_at_ms)
+            .unwrap_or(latest.created_at_ms);
+        let when = Utc
+            .timestamp_millis_opt(when)
+            .single()
+            .map(|dt| dt.format("%H:%M:%S").to_string())
+            .unwrap_or_else(|| "--:--:--".to_string());
+        let mut summary_fields = vec![
+            format!("jobs:{}", row.jobs.len()),
+            format!("q:{queued}"),
+            format!("run:{running}"),
+            format!("ok:{success}"),
+            format!("fb:{fallback}"),
+            format!("err:{error}"),
+        ];
+        if cancelled > 0 {
+            summary_fields.push(format!("cx:{cancelled}"));
+        }
+        if stale > 0 {
+            summary_fields.push(format!("stale:{stale}"));
+        }
+        let summary = fit_fields(&summary_fields, if compact { 42 } else { 76 });
+        let latest_label = latest
+            .agent
+            .as_deref()
+            .or(latest.chain.as_deref())
+            .or(latest.team.as_deref())
+            .unwrap_or("detached-job");
+        lines.push(Line::from(vec![
+            Span::styled(
+                if is_selected { ">>" } else { "  " },
+                Style::default().fg(if is_selected {
+                    theme.accent
+                } else {
+                    theme.muted
+                }),
+            ),
+            Span::raw(" "),
+            Span::styled(
+                detached_owner_plane_label(row.owner_plane),
+                Style::default()
+                    .fg(if is_selected {
+                        theme.accent
+                    } else {
+                        theme.info
+                    })
+                    .add_modifier(Modifier::BOLD),
+            ),
+            Span::raw(" "),
+            Span::styled(
+                ellipsize(&row.project_root, if compact { 28 } else { 52 }),
+                Style::default().fg(theme.text).add_modifier(Modifier::BOLD),
+            ),
+            Span::raw(" "),
+            Span::styled(summary, Style::default().fg(theme.accent)),
+            Span::raw(" "),
+            Span::styled(format!("@{when}"), Style::default().fg(theme.muted)),
+        ]));
+        lines.push(Line::from(vec![
+            Span::raw("   latest: "),
+            Span::styled(
+                format!("[{}]", detached_job_status_label(latest.status)),
+                Style::default()
+                    .fg(detached_job_status_color(latest.status, theme))
+                    .add_modifier(Modifier::BOLD),
+            ),
+            Span::raw(" "),
+            Span::styled(
+                ellipsize(latest_label, if compact { 18 } else { 28 }),
+                Style::default().fg(theme.info),
+            ),
+            Span::raw(" "),
+            Span::styled(
+                format!("{}", detached_worker_kind_label(latest.worker_kind)),
+                Style::default().fg(theme.muted),
+            ),
+        ]));
+    }
+
+    if let Some(row) = rows.get(selected) {
+        let selected_job_index = app.selected_fleet_job_index_for_row(row);
+        let selected_job = row.jobs.get(selected_job_index);
+        lines.push(Line::from(""));
+        lines.push(Line::from(vec![
+            Span::styled(
+                "Drilldown",
+                Style::default()
+                    .fg(theme.title)
+                    .add_modifier(Modifier::BOLD),
+            ),
+            Span::raw(" "),
+            Span::styled(
+                format!("{} · {} jobs", row.project_root, row.jobs.len()),
+                Style::default().fg(theme.info),
+            ),
+            Span::raw("  "),
+            Span::styled(
+                format!(
+                    "job:{}/{}",
+                    selected_job_index.saturating_add(1),
+                    row.jobs.len()
+                ),
+                Style::default().fg(theme.accent),
+            ),
+        ]));
+        if let Some(job) = selected_job {
+            let target = job
+                .agent
+                .as_deref()
+                .or(job.chain.as_deref())
+                .or(job.team.as_deref())
+                .unwrap_or("detached-job");
+            lines.push(Line::from(vec![
+                Span::raw("  selected: "),
+                Span::styled(job.job_id.clone(), Style::default().fg(theme.accent)),
+                Span::raw(" "),
+                Span::styled(
+                    format!("[{}]", detached_job_status_label(job.status)),
+                    Style::default()
+                        .fg(detached_job_status_color(job.status, theme))
+                        .add_modifier(Modifier::BOLD),
+                ),
+                Span::raw(" "),
+                Span::styled(target.to_string(), Style::default().fg(theme.text)),
+            ]));
+            lines.push(Line::from(vec![
+                Span::raw("  plane/kind: "),
+                Span::styled(
+                    format!(
+                        "{} / {}",
+                        detached_owner_plane_label(job.owner_plane),
+                        detached_worker_kind_label(job.worker_kind)
+                    ),
+                    Style::default().fg(theme.muted),
+                ),
+                Span::raw("  "),
+                Span::raw("steps: "),
+                Span::styled(
+                    match (job.current_step_index, job.step_count) {
+                        (Some(current), Some(total)) => format!("{current}/{total}"),
+                        (_, Some(total)) => format!("?/{total}"),
+                        _ => "n/a".to_string(),
+                    },
+                    Style::default().fg(theme.muted),
+                ),
+                Span::raw("  "),
+                Span::raw("fallback: "),
+                Span::styled(
+                    if job.fallback_used { "yes" } else { "no" },
+                    Style::default().fg(if job.fallback_used {
+                        theme.warn
+                    } else {
+                        theme.ok
+                    }),
+                ),
+            ]));
+            if let Some(detail) = job
+                .output_excerpt
+                .as_deref()
+                .or(job.error.as_deref())
+                .map(|value| ellipsize(value, if compact { 56 } else { 104 }))
+            {
+                lines.push(Line::from(vec![
+                    Span::raw("  summary: "),
+                    Span::styled(detail, Style::default().fg(theme.muted)),
+                ]));
+            }
+            lines.push(Line::from(Span::styled(
+                "  recovery:",
+                Style::default().fg(theme.title),
+            )));
+            for guidance in detached_job_recovery_guidance(job)
+                .into_iter()
+                .take(if compact { 2 } else { 3 })
+            {
+                lines.push(Line::from(vec![
+                    Span::raw("    - "),
+                    Span::styled(
+                        ellipsize(&guidance, if compact { 64 } else { 116 }),
+                        Style::default().fg(theme.muted),
+                    ),
+                ]));
+            }
+            lines.push(Line::from(Span::styled(
+                "  recent jobs:",
+                Style::default().fg(theme.title),
+            )));
+            for (index, job) in row
+                .jobs
+                .iter()
+                .take(if compact { 3 } else { 5 })
+                .enumerate()
+            {
+                let label = job
+                    .agent
+                    .as_deref()
+                    .or(job.chain.as_deref())
+                    .or(job.team.as_deref())
+                    .unwrap_or("detached-job");
+                let is_selected_job = index == selected_job_index;
+                lines.push(Line::from(vec![
+                    Span::styled(
+                        if is_selected_job { "    > " } else { "    - " },
+                        Style::default().fg(if is_selected_job {
+                            theme.accent
+                        } else {
+                            theme.muted
+                        }),
+                    ),
+                    Span::styled(
+                        job.job_id.clone(),
+                        Style::default().fg(if is_selected_job {
+                            theme.accent
+                        } else {
+                            theme.info
+                        }),
+                    ),
+                    Span::raw(" "),
+                    Span::styled(
+                        format!("[{}]", detached_job_status_label(job.status)),
+                        Style::default().fg(detached_job_status_color(job.status, theme)),
+                    ),
+                    Span::raw(" "),
+                    Span::styled(
+                        ellipsize(label, if compact { 16 } else { 28 }),
+                        Style::default().fg(theme.text),
+                    ),
+                ]));
+            }
+        }
+    }
+
+    lines
 }
 
 fn render_mind_lines(app: &App, theme: PulseTheme, compact: bool) -> Vec<Line<'static>> {
@@ -6945,6 +8153,11 @@ fn render_insight_detached_rollup_line(
             InsightDetachedJobStatus::Stale => stale += 1,
         }
     }
+    let delegated = jobs
+        .iter()
+        .filter(|job| matches!(job.owner_plane, InsightDetachedOwnerPlane::Delegated))
+        .count();
+    let mind = jobs.len().saturating_sub(delegated);
     let label = latest
         .agent
         .as_deref()
@@ -6973,6 +8186,11 @@ fn render_insight_detached_rollup_line(
     if stale > 0 {
         detail_fields.push(format!("stale:{stale}"));
     }
+    detail_fields.push(format!("pl:d{}|m{}", delegated, mind));
+    detail_fields.push(format!(
+        "kind:{}",
+        detached_worker_kind_label(latest.worker_kind)
+    ));
     if let Some(step_count) = latest.step_count {
         detail_fields.push(format!("steps:{step_count}"));
     }
@@ -6994,7 +8212,11 @@ fn render_insight_detached_rollup_line(
         ),
         Span::raw(" "),
         Span::styled(
-            ellipsize(label, if compact { 18 } else { 28 }),
+            format!(
+                "{}:{}",
+                detached_owner_plane_label(latest.owner_plane),
+                ellipsize(label, if compact { 16 } else { 24 })
+            ),
             Style::default().fg(theme.info),
         ),
         Span::raw(" "),
@@ -7004,6 +8226,25 @@ fn render_insight_detached_rollup_line(
         Span::raw(" "),
         Span::styled(summary, Style::default().fg(theme.muted)),
     ]))
+}
+
+fn detached_owner_plane_label(owner_plane: InsightDetachedOwnerPlane) -> &'static str {
+    match owner_plane {
+        InsightDetachedOwnerPlane::Delegated => "delegated",
+        InsightDetachedOwnerPlane::Mind => "mind",
+    }
+}
+
+fn detached_worker_kind_label(worker_kind: Option<InsightDetachedWorkerKind>) -> &'static str {
+    match worker_kind {
+        Some(InsightDetachedWorkerKind::Specialist) => "specialist",
+        Some(InsightDetachedWorkerKind::ChainStep) => "chain",
+        Some(InsightDetachedWorkerKind::TeamFanout) => "fanout",
+        Some(InsightDetachedWorkerKind::T1) => "t1",
+        Some(InsightDetachedWorkerKind::T2) => "t2",
+        Some(InsightDetachedWorkerKind::T3) => "t3",
+        None => "unknown",
+    }
 }
 
 fn detached_job_status_label(status: InsightDetachedJobStatus) -> &'static str {
@@ -7027,6 +8268,45 @@ fn detached_job_status_color(status: InsightDetachedJobStatus, theme: PulseTheme
         InsightDetachedJobStatus::Error => theme.critical,
         InsightDetachedJobStatus::Cancelled | InsightDetachedJobStatus::Stale => theme.muted,
     }
+}
+
+fn detached_job_recovery_guidance(job: &InsightDetachedJob) -> Vec<String> {
+    let mut steps = Vec::new();
+    match job.status {
+        InsightDetachedJobStatus::Queued | InsightDetachedJobStatus::Running => {
+            steps.push(
+                "job is active; wait, inspect, or cancel with x if it is no longer useful"
+                    .to_string(),
+            );
+        }
+        InsightDetachedJobStatus::Success => {
+            steps.push("inspect or handoff the selected result into a follow-up tab if operator review is needed".to_string());
+        }
+        InsightDetachedJobStatus::Fallback => {
+            steps.push("job completed with degraded execution; inspect the brief/error before trusting the result".to_string());
+            steps.push("if the result is insufficient, rerun the specialist from the owning Pi session with a narrower prompt".to_string());
+        }
+        InsightDetachedJobStatus::Error => {
+            steps.push("job failed; inspect stderr/error context and rerun from the owning Pi session after correcting scope or environment".to_string());
+            steps.push("compare against other recent jobs in this group to see whether the failure is isolated or systemic".to_string());
+        }
+        InsightDetachedJobStatus::Cancelled => {
+            steps.push("job was cancelled; relaunch only if the work is still needed".to_string());
+        }
+        InsightDetachedJobStatus::Stale => {
+            steps.push("job lost live ownership or wrapper continuity; treat it as interrupted, not successful".to_string());
+            steps.push("inspect any partial output, then rerun from the owning session if you still need a complete result".to_string());
+        }
+    }
+    if job.fallback_used
+        && !matches!(
+            job.status,
+            InsightDetachedJobStatus::Fallback | InsightDetachedJobStatus::Stale
+        )
+    {
+        steps.push("fallback behavior was recorded; verify the result before using it as authoritative evidence".to_string());
+    }
+    steps
 }
 
 fn mind_runtime_label(runtime: &str) -> String {
@@ -7585,6 +8865,26 @@ fn handle_key(key: KeyEvent, app: &mut App, refresh_requested: &mut bool) -> boo
         return false;
     }
 
+    if app.config.runtime_mode.is_pulse_pane() {
+        match key.code {
+            KeyCode::Char('q') => return true,
+            KeyCode::Tab
+            | KeyCode::Char('1')
+            | KeyCode::Char('2')
+            | KeyCode::Char('3')
+            | KeyCode::Char('4')
+            | KeyCode::Char('5')
+            | KeyCode::Char('6')
+            | KeyCode::Char('m') => {
+                app.mode = Mode::PulsePane;
+                app.scroll = 0;
+                app.status_note = Some("pulse pane is fixed to local Mind/status".to_string());
+                return false;
+            }
+            _ => {}
+        }
+    }
+
     match key.code {
         KeyCode::Char('q') => true,
         KeyCode::Char('1') => {
@@ -7608,16 +8908,21 @@ fn handle_key(key: KeyEvent, app: &mut App, refresh_requested: &mut bool) -> boo
             false
         }
         KeyCode::Char('4') => {
-            app.mode = Mode::Work;
+            app.mode = Mode::Fleet;
             app.scroll = 0;
             false
         }
         KeyCode::Char('5') => {
-            app.mode = Mode::Diff;
+            app.mode = Mode::Work;
             app.scroll = 0;
             false
         }
         KeyCode::Char('6') => {
+            app.mode = Mode::Diff;
+            app.scroll = 0;
+            false
+        }
+        KeyCode::Char('7') => {
             app.mode = Mode::Health;
             app.scroll = 0;
             false
@@ -7628,15 +8933,35 @@ fn handle_key(key: KeyEvent, app: &mut App, refresh_requested: &mut bool) -> boo
             false
         }
         KeyCode::Enter => {
-            app.focus_selected_overview_tab();
+            if app.mode == Mode::Fleet {
+                app.focus_selected_fleet_project();
+            } else {
+                app.focus_selected_overview_tab();
+            }
             false
         }
         KeyCode::Char('x') => {
-            app.stop_selected_overview_agent();
+            if app.mode == Mode::Fleet {
+                app.cancel_selected_fleet_job();
+            } else {
+                app.stop_selected_overview_agent();
+            }
             false
         }
         KeyCode::Char('o') => {
             app.request_manual_observer_run();
+            false
+        }
+        KeyCode::Char('i') => {
+            if app.mode == Mode::Fleet {
+                app.launch_fleet_followup(false);
+            }
+            false
+        }
+        KeyCode::Char('h') => {
+            if app.mode == Mode::Fleet {
+                app.launch_fleet_followup(true);
+            }
             false
         }
         KeyCode::Char('c') => {
@@ -7709,6 +9034,36 @@ fn handle_key(key: KeyEvent, app: &mut App, refresh_requested: &mut bool) -> boo
             }
             false
         }
+        KeyCode::Char('f') => {
+            if app.mode == Mode::Fleet {
+                app.toggle_fleet_plane_filter();
+            }
+            false
+        }
+        KeyCode::Char('A') => {
+            if app.mode == Mode::Fleet {
+                app.toggle_fleet_active_only();
+            }
+            false
+        }
+        KeyCode::Char('S') => {
+            if app.mode == Mode::Fleet {
+                app.toggle_fleet_sort_mode();
+            }
+            false
+        }
+        KeyCode::Left | KeyCode::Char('[') => {
+            if app.mode == Mode::Fleet {
+                app.move_fleet_job_selection(-1);
+            }
+            false
+        }
+        KeyCode::Right | KeyCode::Char(']') => {
+            if app.mode == Mode::Fleet {
+                app.move_fleet_job_selection(1);
+            }
+            false
+        }
         KeyCode::Char('a') => {
             if app.mode == Mode::Overview {
                 app.toggle_overview_sort_mode();
@@ -7718,6 +9073,8 @@ fn handle_key(key: KeyEvent, app: &mut App, refresh_requested: &mut bool) -> boo
         KeyCode::Down | KeyCode::Char('j') => {
             if app.mode == Mode::Overview {
                 app.move_overview_selection(1);
+            } else if app.mode == Mode::Fleet {
+                app.move_fleet_selection(1);
             } else {
                 app.scroll = app.scroll.saturating_add(1);
             }
@@ -7726,6 +9083,8 @@ fn handle_key(key: KeyEvent, app: &mut App, refresh_requested: &mut bool) -> boo
         KeyCode::Up | KeyCode::Char('k') => {
             if app.mode == Mode::Overview {
                 app.move_overview_selection(-1);
+            } else if app.mode == Mode::Fleet {
+                app.move_fleet_selection(-1);
             } else {
                 app.scroll = app.scroll.saturating_sub(1);
             }
@@ -7734,6 +9093,10 @@ fn handle_key(key: KeyEvent, app: &mut App, refresh_requested: &mut bool) -> boo
         KeyCode::Char('g') => {
             if app.mode == Mode::Overview {
                 app.selected_overview = 0;
+            }
+            if app.mode == Mode::Fleet {
+                app.selected_fleet = 0;
+                app.selected_fleet_job = 0;
             }
             app.scroll = 0;
             false
@@ -8061,12 +9424,9 @@ fn build_pulse_hello(config: &Config) -> WireEnvelope {
 }
 
 fn build_pulse_subscribe(config: &Config) -> WireEnvelope {
-    let mut topics = vec![
-        "agent_state".to_string(),
-        "command_result".to_string(),
-        "consultation_response".to_string(),
-    ];
-    if !config.light_pane {
+    let mut topics = vec!["agent_state".to_string(), "command_result".to_string()];
+    if !config.runtime_mode.is_pulse_pane() {
+        topics.push("consultation_response".to_string());
         topics.push("observer_snapshot".to_string());
         topics.push("observer_timeline".to_string());
     }
@@ -9059,7 +10419,7 @@ fn load_config() -> Config {
     let pulse_custom_theme = resolve_custom_pulse_theme();
     let pulse_vnext_enabled = resolve_pulse_vnext_enabled();
     let overview_enabled = resolve_overview_enabled();
-    let light_pane = resolve_light_pane();
+    let runtime_mode = resolve_runtime_mode();
     let layout_source = resolve_layout_source();
     let client_id = format!("aoc-pulse-{}", std::process::id());
     let project_root = resolve_project_root();
@@ -9073,7 +10433,7 @@ fn load_config() -> Config {
         pulse_custom_theme,
         pulse_vnext_enabled,
         overview_enabled,
-        light_pane,
+        runtime_mode,
         layout_source,
         client_id,
         project_root,
@@ -9111,11 +10471,50 @@ fn resolve_overview_enabled() -> bool {
         .unwrap_or(true)
 }
 
-fn resolve_light_pane() -> bool {
-    std::env::var("AOC_PULSE_LIGHT_PANE")
+fn parse_runtime_mode(value: &str) -> Option<RuntimeMode> {
+    match value.trim().to_ascii_lowercase().as_str() {
+        "pulse-pane" | "pulse_pane" | "pulse" => Some(RuntimeMode::PulsePane),
+        "mission-control" | "mission_control" | "mission" | "mc" => {
+            Some(RuntimeMode::MissionControl)
+        }
+        _ => None,
+    }
+}
+
+fn resolve_runtime_mode() -> RuntimeMode {
+    let mut args = std::env::args().skip(1);
+    while let Some(arg) = args.next() {
+        if let Some(value) = arg.strip_prefix("--mode=") {
+            if let Some(mode) = parse_runtime_mode(value) {
+                return mode;
+            }
+        }
+        if arg == "--mode" {
+            if let Some(value) = args.next() {
+                if let Some(mode) = parse_runtime_mode(&value) {
+                    return mode;
+                }
+            }
+        }
+    }
+
+    if let Some(mode) = std::env::var("AOC_MISSION_CONTROL_MODE")
+        .ok()
+        .as_deref()
+        .and_then(parse_runtime_mode)
+    {
+        return mode;
+    }
+
+    if std::env::var("AOC_PULSE_LIGHT_PANE")
         .ok()
         .and_then(|value| parse_bool_flag(&value))
         .unwrap_or(false)
+    {
+        return RuntimeMode::PulsePane;
+    }
+
+    RuntimeMode::MissionControl
 }
 
 fn resolve_local_snapshot_refresh_secs() -> u64 {
@@ -9334,7 +10733,7 @@ mod tests {
             pulse_custom_theme: None,
             pulse_vnext_enabled: true,
             overview_enabled: true,
-            light_pane: false,
+            runtime_mode: RuntimeMode::MissionControl,
             layout_source: LayoutSource::Hub,
             client_id: "pulse-test".to_string(),
             project_root: PathBuf::from("/tmp"),
@@ -9375,6 +10774,64 @@ mod tests {
                 }
             })),
         }
+    }
+
+    #[test]
+    fn light_pane_defaults_to_pulse_mode_and_renders_local_sections() {
+        let mut cfg = test_config();
+        cfg.runtime_mode = RuntimeMode::PulsePane;
+        let (tx, _rx) = mpsc::channel(4);
+        let local = LocalSnapshot {
+            overview: vec![OverviewRow {
+                identity_key: "session-test::12".to_string(),
+                label: "OpenCode".to_string(),
+                lifecycle: "running".to_string(),
+                snippet: Some("synthesizing local mind state".to_string()),
+                pane_id: "12".to_string(),
+                tab_index: Some(1),
+                tab_name: Some("Agent".to_string()),
+                tab_focused: true,
+                project_root: "/tmp".to_string(),
+                online: true,
+                age_secs: Some(2),
+                source: "runtime".to_string(),
+            }],
+            viewer_tab_index: Some(1),
+            work: vec![WorkProject {
+                project_root: "/tmp".to_string(),
+                scope: "Agent".to_string(),
+                tags: vec![WorkTagRow {
+                    tag: "session-overseer".to_string(),
+                    counts: TaskCounts {
+                        total: 3,
+                        pending: 1,
+                        in_progress: 1,
+                        done: 1,
+                        blocked: 0,
+                    },
+                    in_progress_titles: vec!["#149 split pulse pane".to_string()],
+                }],
+            }],
+            diff: Vec::new(),
+            health: HealthSnapshot {
+                dependencies: Vec::new(),
+                checks: Vec::new(),
+                taskmaster_status: "available".to_string(),
+            },
+        };
+        let app = App::new(cfg, tx, local);
+        assert_eq!(app.mode, Mode::PulsePane);
+        let rendered =
+            render_pulse_pane_lines(&app, pulse_theme(PulseThemeMode::Terminal), false, 120)
+                .into_iter()
+                .map(|line| line.to_string())
+                .collect::<Vec<_>>()
+                .join("\n");
+        assert!(rendered.contains("pulse-pane"));
+        assert!(rendered.contains("Local work"));
+        assert!(rendered.contains("Mind"));
+        assert!(rendered.contains("Health"));
+        assert!(!rendered.contains("Session Overseer"));
     }
 
     #[test]
@@ -11534,6 +12991,20 @@ mod tests {
     }
 
     #[test]
+    fn parse_runtime_mode_accepts_primary_labels() {
+        assert_eq!(
+            parse_runtime_mode("pulse-pane"),
+            Some(RuntimeMode::PulsePane)
+        );
+        assert_eq!(
+            parse_runtime_mode("mission-control"),
+            Some(RuntimeMode::MissionControl)
+        );
+        assert_eq!(parse_runtime_mode("mc"), Some(RuntimeMode::MissionControl));
+        assert_eq!(parse_runtime_mode("unknown"), None);
+    }
+
+    #[test]
     fn pulse_subscribe_includes_overseer_topics() {
         let subscribe = build_pulse_subscribe(&test_config());
         let WireMsg::Subscribe(payload) = subscribe.msg else {
@@ -11556,7 +13027,7 @@ mod tests {
     #[test]
     fn pulse_subscribe_omits_overseer_topics_for_light_pane() {
         let mut cfg = test_config();
-        cfg.light_pane = true;
+        cfg.runtime_mode = RuntimeMode::PulsePane;
         let subscribe = build_pulse_subscribe(&cfg);
         let WireMsg::Subscribe(payload) = subscribe.msg else {
             panic!("expected subscribe envelope")
@@ -11569,10 +13040,12 @@ mod tests {
             .topics
             .iter()
             .any(|topic| topic == "observer_timeline"));
-        assert!(payload
+        assert!(!payload
             .topics
             .iter()
             .any(|topic| topic == "consultation_response"));
+        assert!(payload.topics.iter().any(|topic| topic == "agent_state"));
+        assert!(payload.topics.iter().any(|topic| topic == "command_result"));
     }
 
     #[test]
