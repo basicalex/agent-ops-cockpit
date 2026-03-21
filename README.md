@@ -276,7 +276,6 @@ Keyboard-driven file management with rich previews:
 | `e` | Toggle Full Yazi mode (expand pane + configurable 3-col/2-col view) |
 | `g s` | Edit short-term memory |
 | `g S` | Jump to `.aoc/stm` |
-| `W` | Set widget media path |
 
 Optional tuning via env vars:
 - `AOC_YAZI_PANE_EXPANDED_VIEW=2col|3col` (default `2col`)

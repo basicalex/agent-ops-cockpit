@@ -1,8 +1,5 @@
 [mgr]
 prepend_keymap = [
-  # AOC integrations
-  { on = ["W"], run = "shell --block 'aoc-widget-set \"$@\"'", desc = "Set widget media path" },
-
   # Navigation
   { on = ["g", "c"], run = "cd .aoc", desc = "Go to Context" },
   { on = ["g", "m"], run = "shell --block 'zellij action resize increase right && zellij action resize increase right && zellij action resize increase right && zellij action resize increase right && zellij action resize increase right && zellij action resize increase right && zellij action resize increase right && zellij action resize increase right && zellij action resize increase right && zellij action resize increase right && zellij action resize increase right && zellij action resize increase right && ${EDITOR:-micro} .aoc/memory.md; zellij action resize decrease right && zellij action resize decrease right && zellij action resize decrease right && zellij action resize decrease right && zellij action resize decrease right && zellij action resize decrease right && zellij action resize decrease right && zellij action resize decrease right && zellij action resize decrease right && zellij action resize decrease right && zellij action resize decrease right'", desc = "Edit Memory" },
