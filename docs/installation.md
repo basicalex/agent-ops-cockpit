@@ -145,7 +145,7 @@ Non-PI agent harnesses are removed from AOC (see [Deprecations and removals](dep
 
 ```bash
 sudo apt-get update
-sudo apt-get install -y zellij fzf ffmpeg chafa poppler-utils ripgrep bat file resvg ueberzugpp
+sudo apt-get install -y zellij fzf ffmpeg chafa poppler-utils ripgrep bat file
 
 # Optional: for .tex file previews
 sudo apt-get install -y tectonic
@@ -156,6 +156,16 @@ sudo apt-get install -y tectonic
 ```bash
 cargo install --locked --force yazi-build
 ```
+
+**Install `resvg` on Ubuntu/Debian:**
+
+```bash
+cargo install --locked resvg
+```
+
+**Yazi image backend on Ubuntu/Debian:**
+- `ueberzugpp` is often not available in default apt repos
+- install `ueberzugpp` from upstream, or use Kitty/kitten as the image backend
 
 **Note:** On Ubuntu, the `bat` binary is named `batcat`. AOC accepts either.
 
@@ -375,13 +385,16 @@ Install native Yazi preview dependencies:
 
 ```bash
 # Ubuntu/Debian
-sudo apt-get install file resvg ueberzugpp
+sudo apt-get install file
+cargo install --locked resvg
 
 # Verify
 aoc-doctor
 ```
 
-On Linux, `ueberzugpp` is the recommended native image backend. In Kitty, a Kitty/kitten backend may also work.
+On Ubuntu/Debian, `ueberzugpp` is often not available in the default apt repos.
+Install it from upstream, or use Kitty/kitten as the native Yazi image backend.
+On Linux generally, `ueberzugpp` is the recommended backend when available.
 
 ### Blank Task List
 

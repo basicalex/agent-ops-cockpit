@@ -1,0 +1,185 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+usage() {
+  cat <<'EOF'
+Usage: aoc-yazi-preview <command>
+
+Commands:
+  detect    Print preview capability details for the current environment
+  mode      Print the effective preview mode
+  help      Show this help
+
+Environment / config:
+  AOC_YAZI_PREVIEW_MODE=auto|native|custom-overlay|fallback
+  ~/.config/aoc/preview.env (or $XDG_CONFIG_HOME/aoc/preview.env)
+    AOC_YAZI_PREVIEW_MODE=...
+EOF
+}
+
+have() { command -v "$1" >/dev/null 2>&1; }
+
+config_home="${XDG_CONFIG_HOME:-$HOME/.config}"
+preview_env="$config_home/aoc/preview.env"
+if [[ -f "$preview_env" ]]; then
+  # shellcheck disable=SC1090
+  source "$preview_env"
+fi
+
+preview_mode_override="${AOC_YAZI_PREVIEW_MODE:-auto}"
+
+bool() {
+  if [[ "$1" == "1" ]]; then
+    printf 'yes\n'
+  else
+    printf 'no\n'
+  fi
+}
+
+is_linux=0
+[[ "$(uname -s)" == "Linux" ]] && is_linux=1
+
+has_resvg=0
+have resvg && has_resvg=1
+has_file=0
+have file && has_file=1
+has_ueberzugpp=0
+have ueberzugpp && has_ueberzugpp=1
+has_kitty=0
+have kitty && has_kitty=1
+has_kitten=0
+have kitten && has_kitten=1
+has_chafa=0
+have chafa && has_chafa=1
+has_pdftoppm=0
+have pdftoppm && has_pdftoppm=1
+has_ffmpeg=0
+have ffmpeg && has_ffmpeg=1
+
+in_tmux=0
+[[ -n "${TMUX:-}" || "${TERM:-}" == tmux* || "${TERM_PROGRAM:-}" == "tmux" ]] && in_tmux=1
+in_zellij=0
+[[ -n "${ZELLIJ:-}" || -n "${ZELLIJ_SESSION_NAME:-}" ]] && in_zellij=1
+
+terminal_family="unknown"
+if [[ -n "${KITTY_PID:-}" || "${TERM:-}" == xterm-kitty || "${TERM_PROGRAM:-}" == kitty ]]; then
+  terminal_family="kitty"
+elif [[ "${TERM_PROGRAM:-}" == Alacritty || -n "${ALACRITTY_SOCKET:-}" ]]; then
+  terminal_family="alacritty"
+fi
+
+native_backend="none"
+if (( has_kitten )); then
+  native_backend="kitten"
+elif (( has_kitty )); then
+  native_backend="kitty"
+elif (( has_ueberzugpp )); then
+  native_backend="ueberzugpp"
+fi
+
+native_ready=0
+if (( has_resvg )) && [[ "$native_backend" != "none" ]]; then
+  native_ready=1
+fi
+
+custom_overlay_ready=0
+if (( is_linux && has_ueberzugpp && has_resvg )); then
+  custom_overlay_ready=1
+fi
+
+fallback_ready=1
+
+quality_note="fallback only"
+if (( custom_overlay_ready )); then
+  quality_note="custom-overlay candidate available (recommended for Linux/Alacritty when implemented)"
+elif (( native_ready )); then
+  if [[ "$terminal_family" == "kitty" ]]; then
+    quality_note="native preview candidate available via Kitty backend; verify actual pane quality"
+  else
+    quality_note="native preview candidate available, but terminal/multiplexer quality may vary"
+  fi
+fi
+
+blockers=()
+if (( ! has_resvg )); then
+  blockers+=("missing-resvg")
+fi
+if [[ "$native_backend" == "none" ]]; then
+  blockers+=("missing-image-backend")
+fi
+if [[ "$terminal_family" == "alacritty" ]] && (( ! has_ueberzugpp )); then
+  blockers+=("alacritty-needs-custom-backend")
+fi
+
+select_mode() {
+  case "$preview_mode_override" in
+    native)
+      if (( native_ready )); then
+        printf 'native\n'
+      else
+        printf 'fallback\n'
+      fi
+      ;;
+    custom-overlay)
+      if (( custom_overlay_ready )); then
+        printf 'custom-overlay\n'
+      else
+        printf 'fallback\n'
+      fi
+      ;;
+    fallback)
+      printf 'fallback\n'
+      ;;
+    auto|"")
+      if (( custom_overlay_ready )); then
+        printf 'custom-overlay\n'
+      elif (( native_ready )); then
+        printf 'native\n'
+      else
+        printf 'fallback\n'
+      fi
+      ;;
+    *)
+      printf 'fallback\n'
+      ;;
+  esac
+}
+
+effective_mode="$(select_mode)"
+
+case "${1:-help}" in
+  detect)
+    cat <<EOF
+preview_mode_override=$preview_mode_override
+effective_mode=$effective_mode
+terminal_family=$terminal_family
+in_tmux=$(bool "$in_tmux")
+in_zellij=$(bool "$in_zellij")
+resvg=$(bool "$has_resvg")
+file=$(bool "$has_file")
+ueberzugpp=$(bool "$has_ueberzugpp")
+kitty=$(bool "$has_kitty")
+kitten=$(bool "$has_kitten")
+chafa=$(bool "$has_chafa")
+pdftoppm=$(bool "$has_pdftoppm")
+ffmpeg=$(bool "$has_ffmpeg")
+native_backend=$native_backend
+native_ready=$(bool "$native_ready")
+custom_overlay_ready=$(bool "$custom_overlay_ready")
+fallback_ready=$(bool "$fallback_ready")
+quality_note=$quality_note
+blockers=${blockers[*]:-none}
+EOF
+    ;;
+  mode)
+    printf '%s\n' "$effective_mode"
+    ;;
+  help|-h|--help|"")
+    usage
+    ;;
+  *)
+    echo "Unknown command: $1" >&2
+    usage >&2
+    exit 1
+    ;;
+esac

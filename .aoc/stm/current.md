@@ -1,0 +1,1 @@
+- [2026-03-21 11:46] Validated that the live ~/.config/yazi/yazi.toml still had max_width=120 and max_height=40; removing those caps and clearing Yazi cache restored full inline Kitty preview width. Added high-quality native preview tuning (image_filter=lanczos3, image_quality=90) and removed the rejected popup preview POC binding/files.

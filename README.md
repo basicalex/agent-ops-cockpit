@@ -644,7 +644,7 @@ aoc-rtk git status  # Manual RTK routing smoke check
 
 | Issue | Solution |
 |-------|----------|
-| Missing previews | Run `aoc-doctor`; install `resvg`, `file`, and a supported Yazi image backend (`ueberzugpp` on Linux, or Kitty/kitten where applicable) |
+| Missing previews | Run `aoc-doctor`; install `file`, `resvg` (use Cargo on Ubuntu/Debian), and a supported Yazi image backend (`ueberzugpp` when available, or Kitty/kitten) |
 | Blank task list | Run `aoc-task init` then `tm list` |
 | Widget not rendering | Run `aoc-doctor`; check `ffmpeg` and `chafa` for video/image widgets, and `resvg` for SVG widgets |
 | RLM not working | Build with `cargo build --release -p aoc-cli` |
