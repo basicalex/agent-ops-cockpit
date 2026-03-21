@@ -5144,6 +5144,8 @@ impl MindRuntime {
         PulseUpdate::InsightDetached(self.insight_detached.status(
             &aoc_core::insight_contracts::InsightDetachedStatusRequest {
                 job_id: None,
+                owner_plane: None,
+                worker_kind: None,
                 limit: Some(24),
             },
         ))
@@ -10648,6 +10650,10 @@ mod tests {
             jobs: vec![aoc_core::insight_contracts::InsightDetachedJob {
                 job_id: "detached-1".to_string(),
                 parent_job_id: None,
+                owner_plane: aoc_core::insight_contracts::InsightDetachedOwnerPlane::Delegated,
+                worker_kind: Some(
+                    aoc_core::insight_contracts::InsightDetachedWorkerKind::Specialist,
+                ),
                 mode: aoc_core::insight_contracts::InsightDetachedMode::Dispatch,
                 status: aoc_core::insight_contracts::InsightDetachedJobStatus::Running,
                 agent: Some("insight-t1-observer".to_string()),

@@ -2,9 +2,10 @@ use aoc_core::insight_contracts::{
     InsightBootstrapGap, InsightBootstrapGapKind, InsightBootstrapRequest, InsightBootstrapResult,
     InsightDetachedCancelRequest, InsightDetachedCancelResult, InsightDetachedDispatchRequest,
     InsightDetachedDispatchResult, InsightDetachedJob, InsightDetachedJobStatus,
-    InsightDetachedMode, InsightDetachedStatusRequest, InsightDetachedStatusResult,
-    InsightDispatchMode, InsightDispatchRequest, InsightDispatchResult, InsightDispatchStepResult,
-    InsightSeedJob, InsightTaskProposal,
+    InsightDetachedMode, InsightDetachedOwnerPlane, InsightDetachedStatusRequest,
+    InsightDetachedStatusResult, InsightDetachedWorkerKind, InsightDispatchMode,
+    InsightDispatchRequest, InsightDispatchResult, InsightDispatchStepResult, InsightSeedJob,
+    InsightTaskProposal,
 };
 use aoc_storage::MindStore;
 use serde::Deserialize;
@@ -12,6 +13,7 @@ use std::{
     collections::{BTreeMap, BTreeSet},
     fs,
     hash::{Hash, Hasher},
+    io::Write,
     path::{Path, PathBuf},
     process::Command,
     sync::{
@@ -47,6 +49,15 @@ struct ChainDefinition {
     description: Option<String>,
     #[serde(default)]
     steps: Vec<ChainStep>,
+}
+
+#[derive(Debug, Clone)]
+struct AgentRuntimeDefinition {
+    name: String,
+    tools: Vec<String>,
+    model: Option<String>,
+    system_prompt: String,
+    source_path: PathBuf,
 }
 
 impl InsightSupervisor {
@@ -524,6 +535,10 @@ impl DetachedInsightRuntime {
         let job = InsightDetachedJob {
             job_id: job_id.clone(),
             parent_job_id: None,
+            owner_plane: request.owner_plane,
+            worker_kind: request
+                .worker_kind
+                .or_else(|| Some(default_worker_kind_for_request(request))),
             mode: request.mode,
             status: InsightDetachedJobStatus::Queued,
             agent: request.agent.clone(),
@@ -710,6 +725,12 @@ impl DetachedInsightRuntime {
         });
         if let Some(job_id) = request.job_id.as_deref() {
             jobs.retain(|job| job.job_id == job_id || job.parent_job_id.as_deref() == Some(job_id));
+        }
+        if let Some(owner_plane) = request.owner_plane {
+            jobs.retain(|job| job.owner_plane == owner_plane);
+        }
+        if let Some(worker_kind) = request.worker_kind {
+            jobs.retain(|job| job.worker_kind == Some(worker_kind));
         }
         if let Some(limit) = request.limit {
             jobs.truncate(limit);
@@ -909,6 +930,7 @@ fn execute_detached_request(
     store_path: &Path,
 ) -> InsightDispatchResult {
     let started = Instant::now();
+    let dispatch_cwd = resolve_detached_cwd(supervisor, request.cwd.as_deref());
     let (mode, mut steps) = match request.mode {
         InsightDetachedMode::Dispatch => {
             let agent = request
@@ -920,6 +942,8 @@ fn execute_detached_request(
                 .to_string();
             let step = run_agent_cancellable(
                 supervisor,
+                &dispatch_cwd,
+                request.owner_plane,
                 job_id,
                 &agent,
                 &request.input,
@@ -948,6 +972,8 @@ fn execute_detached_request(
                 InsightDispatchMode::Chain,
                 run_chain_cancellable(
                     supervisor,
+                    &dispatch_cwd,
+                    request.owner_plane,
                     job_id,
                     chain_name,
                     &request.input,
@@ -969,6 +995,8 @@ fn execute_detached_request(
                 InsightDispatchMode::Parallel,
                 run_parallel_cancellable(
                     supervisor,
+                    &dispatch_cwd,
+                    request.owner_plane,
                     job_id,
                     team_name,
                     &request.input,
@@ -1013,6 +1041,8 @@ fn execute_detached_request(
 
 fn run_chain_cancellable(
     supervisor: &InsightSupervisor,
+    cwd: &Path,
+    owner_plane: InsightDetachedOwnerPlane,
     job_id: &str,
     chain_name: &str,
     original_input: &str,
@@ -1056,6 +1086,8 @@ fn run_chain_cancellable(
             .replace("$INPUT", &prior_output);
         let result = run_agent_cancellable(
             supervisor,
+            cwd,
+            owner_plane,
             job_id,
             &step.agent,
             &prompt,
@@ -1090,6 +1122,8 @@ fn run_chain_cancellable(
 
 fn run_parallel_cancellable(
     supervisor: &InsightSupervisor,
+    cwd: &Path,
+    owner_plane: InsightDetachedOwnerPlane,
     job_id: &str,
     team_name: &str,
     input: &str,
@@ -1120,6 +1154,7 @@ fn run_parallel_cancellable(
     while next_index < agents.len() || in_flight > 0 {
         while in_flight < limit && next_index < agents.len() {
             let supervisor = supervisor.clone();
+            let worker_cwd = cwd.to_path_buf();
             let agent_name = agents[next_index].clone();
             let input_text = input.to_string();
             let parent_job_id = job_id.to_string();
@@ -1140,6 +1175,8 @@ fn run_parallel_cancellable(
             std::thread::spawn(move || {
                 let result = run_agent_cancellable(
                     &supervisor,
+                    &worker_cwd,
+                    owner_plane,
                     &child_job_id,
                     &agent_name,
                     &input_text,
@@ -1182,6 +1219,8 @@ fn run_parallel_cancellable(
 
 fn run_agent_cancellable(
     supervisor: &InsightSupervisor,
+    cwd: &Path,
+    owner_plane: InsightDetachedOwnerPlane,
     job_id: &str,
     agent: &str,
     input: &str,
@@ -1206,7 +1245,27 @@ fn run_agent_cancellable(
         };
     }
 
-    let Some(cmdline) = resolve_agent_command() else {
+    let configured_cmd = resolve_agent_command();
+    let mut native_error = None;
+    if owner_plane == InsightDetachedOwnerPlane::Delegated && configured_cmd.is_none() {
+        match run_native_pi_agent_cancellable(
+            supervisor,
+            cwd,
+            job_id,
+            agent,
+            input,
+            &agent_file,
+            running_pids,
+            cancelled_jobs,
+        ) {
+            Ok(result) => return result,
+            Err(err) => native_error = Some(err),
+        }
+    }
+
+    let Some(cmdline) = configured_cmd else {
+        let error =
+            native_error.unwrap_or_else(|| "insight subprocess command not configured".to_string());
         return InsightDispatchStepResult {
             agent: agent.to_string(),
             status: "fallback".to_string(),
@@ -1218,7 +1277,7 @@ fn run_agent_cancellable(
             )),
             stdout_excerpt: None,
             stderr_excerpt: None,
-            error: Some("insight subprocess command not configured".to_string()),
+            error: Some(truncate_chars(error, 320)),
         };
     };
 
@@ -1237,7 +1296,7 @@ fn run_agent_cancellable(
     command
         .arg("-lc")
         .arg(cmdline)
-        .current_dir(&supervisor.project_root)
+        .current_dir(cwd)
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped());
 
@@ -1324,6 +1383,269 @@ fn run_agent_cancellable(
             stderr_excerpt: None,
             error: Some(format!("failed to spawn agent subprocess: {err}")),
         },
+    }
+}
+
+fn resolve_detached_cwd(supervisor: &InsightSupervisor, requested: Option<&str>) -> PathBuf {
+    let Some(requested) = requested.map(str::trim).filter(|value| !value.is_empty()) else {
+        return supervisor.project_root.clone();
+    };
+    let normalized = requested.strip_prefix('@').unwrap_or(requested);
+    let candidate = supervisor.project_root.join(normalized);
+    match candidate.canonicalize() {
+        Ok(resolved) if resolved.starts_with(&supervisor.project_root) => resolved,
+        _ => supervisor.project_root.clone(),
+    }
+}
+
+fn parse_agent_runtime_definition(agent_file: &Path) -> Result<AgentRuntimeDefinition, String> {
+    let contents = fs::read_to_string(agent_file).map_err(|err| {
+        format!(
+            "failed to read agent definition {}: {err}",
+            agent_file.display()
+        )
+    })?;
+    let Some(rest) = contents.strip_prefix("---\n") else {
+        return Err(format!(
+            "agent frontmatter missing in {}",
+            agent_file.display()
+        ));
+    };
+    let Some((frontmatter, body)) = rest.split_once("\n---\n") else {
+        return Err(format!(
+            "agent frontmatter missing terminator in {}",
+            agent_file.display()
+        ));
+    };
+    let mut name = None;
+    let mut model = None;
+    let mut tools = Vec::new();
+    for raw_line in frontmatter.lines() {
+        let line = raw_line.trim();
+        if line.is_empty() || line.starts_with('#') {
+            continue;
+        }
+        let Some((key, value)) = line.split_once(':') else {
+            continue;
+        };
+        let key = key.trim();
+        let value = value.trim();
+        match key {
+            "name" => name = Some(value.to_string()),
+            "model" if !value.is_empty() => model = Some(value.to_string()),
+            "tools" => {
+                tools = value
+                    .split(',')
+                    .map(str::trim)
+                    .filter(|value| !value.is_empty())
+                    .map(ToString::to_string)
+                    .collect();
+            }
+            _ => {}
+        }
+    }
+    Ok(AgentRuntimeDefinition {
+        name: name.unwrap_or_else(|| {
+            agent_file
+                .file_stem()
+                .and_then(|value| value.to_str())
+                .unwrap_or("agent")
+                .to_string()
+        }),
+        tools,
+        model,
+        system_prompt: body.trim().to_string(),
+        source_path: agent_file.to_path_buf(),
+    })
+}
+
+fn sanitize_filename_component(input: &str) -> String {
+    let sanitized = input
+        .chars()
+        .map(|ch| {
+            if ch.is_ascii_alphanumeric() || ch == '-' || ch == '_' || ch == '.' {
+                ch
+            } else {
+                '-'
+            }
+        })
+        .collect::<String>();
+    sanitized.trim_matches('-').to_string()
+}
+
+fn write_prompt_file(agent: &str, prompt: &str) -> Result<PathBuf, String> {
+    let mut path = std::env::temp_dir();
+    path.push(format!(
+        "aoc-detached-agent-{}-{}.md",
+        sanitize_filename_component(agent),
+        std::process::id()
+    ));
+    let mut file = fs::File::create(&path).map_err(|err| {
+        format!(
+            "failed to create temp prompt file {}: {err}",
+            path.display()
+        )
+    })?;
+    file.write_all(prompt.as_bytes())
+        .map_err(|err| format!("failed to write temp prompt file {}: {err}", path.display()))?;
+    Ok(path)
+}
+
+fn extract_assistant_output(stdout: &str) -> Option<String> {
+    fn message_text(message: &serde_json::Value) -> Option<String> {
+        let content = message.get("content")?.as_array()?;
+        let mut parts = Vec::new();
+        for part in content {
+            if part.get("type").and_then(|value| value.as_str()) == Some("text") {
+                if let Some(text) = part.get("text").and_then(|value| value.as_str()) {
+                    let trimmed = text.trim();
+                    if !trimmed.is_empty() {
+                        parts.push(trimmed.to_string());
+                    }
+                }
+            }
+        }
+        if parts.is_empty() {
+            None
+        } else {
+            Some(parts.join("\n"))
+        }
+    }
+
+    let mut latest = None;
+    for line in stdout.lines() {
+        let Ok(value) = serde_json::from_str::<serde_json::Value>(line) else {
+            continue;
+        };
+        if value.get("type").and_then(|v| v.as_str()) == Some("message_end")
+            && value
+                .get("message")
+                .and_then(|message| message.get("role"))
+                .and_then(|role| role.as_str())
+                == Some("assistant")
+        {
+            latest = value.get("message").and_then(message_text);
+        }
+    }
+    latest
+}
+
+fn run_native_pi_agent_cancellable(
+    supervisor: &InsightSupervisor,
+    cwd: &Path,
+    job_id: &str,
+    agent: &str,
+    input: &str,
+    agent_file: &Path,
+    running_pids: &Arc<Mutex<BTreeMap<String, BTreeSet<u32>>>>,
+    cancelled_jobs: &Arc<Mutex<BTreeSet<String>>>,
+) -> Result<InsightDispatchStepResult, String> {
+    let definition = parse_agent_runtime_definition(agent_file)?;
+    let prompt_file = write_prompt_file(agent, &definition.system_prompt)?;
+
+    let mut command = Command::new("pi");
+    super::configure_mind_child_std_command_env(
+        &mut command,
+        vec![
+            ("AOC_INSIGHT_AGENT".to_string(), definition.name.clone()),
+            ("AOC_INSIGHT_INPUT".to_string(), input.to_string()),
+            (
+                "AOC_INSIGHT_AGENT_FILE".to_string(),
+                relativize(&supervisor.project_root, &definition.source_path),
+            ),
+        ],
+    );
+    command
+        .arg("--mode")
+        .arg("json")
+        .arg("-p")
+        .arg("--no-session");
+    if let Some(model) = definition
+        .model
+        .as_deref()
+        .filter(|value| !value.is_empty())
+    {
+        command.arg("--model").arg(model);
+    }
+    if !definition.tools.is_empty() {
+        command.arg("--tools").arg(definition.tools.join(","));
+    }
+    command
+        .arg("--append-system-prompt")
+        .arg(&prompt_file)
+        .arg(format!("Task: {input}"))
+        .current_dir(cwd)
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped());
+
+    let outcome = match command.spawn() {
+        Ok(child) => {
+            let pid = child.id();
+            register_running_pid(running_pids, job_id, pid);
+            let output = child.wait_with_output();
+            unregister_running_pid(running_pids, job_id, pid);
+            output
+        }
+        Err(err) => {
+            let _ = fs::remove_file(&prompt_file);
+            return Err(format!("failed to spawn detached pi subprocess: {err}"));
+        }
+    };
+    let _ = fs::remove_file(&prompt_file);
+
+    match outcome {
+        Ok(output) => {
+            let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
+            let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+            let assistant = extract_assistant_output(&stdout).unwrap_or_else(|| stdout.clone());
+            if job_cancelled(job_id, cancelled_jobs) || terminated_by_signal(&output.status) {
+                Ok(InsightDispatchStepResult {
+                    agent: agent.to_string(),
+                    status: "cancelled".to_string(),
+                    output_excerpt: Some(truncate_chars(assistant, 280)).filter(|v| !v.is_empty()),
+                    stdout_excerpt: Some(truncate_chars(stdout, 400)).filter(|v| !v.is_empty()),
+                    stderr_excerpt: Some(truncate_chars(stderr.clone(), 240))
+                        .filter(|v| !v.is_empty()),
+                    error: Some(truncate_chars(
+                        if stderr.is_empty() {
+                            "detached job cancelled while running".to_string()
+                        } else {
+                            stderr
+                        },
+                        320,
+                    )),
+                })
+            } else if output.status.success() {
+                Ok(InsightDispatchStepResult {
+                    agent: agent.to_string(),
+                    status: "success".to_string(),
+                    output_excerpt: Some(truncate_chars(assistant, 400)).filter(|v| !v.is_empty()),
+                    stdout_excerpt: Some(truncate_chars(stdout, 400)).filter(|v| !v.is_empty()),
+                    stderr_excerpt: Some(truncate_chars(stderr, 240)).filter(|v| !v.is_empty()),
+                    error: None,
+                })
+            } else {
+                Ok(InsightDispatchStepResult {
+                    agent: agent.to_string(),
+                    status: "fallback".to_string(),
+                    output_excerpt: Some(truncate_chars(assistant, 280)).filter(|v| !v.is_empty()),
+                    stdout_excerpt: Some(truncate_chars(stdout, 280)).filter(|v| !v.is_empty()),
+                    stderr_excerpt: Some(truncate_chars(stderr.clone(), 240))
+                        .filter(|v| !v.is_empty()),
+                    error: Some(truncate_chars(
+                        if stderr.is_empty() {
+                            format!("agent exited with status {}", output.status)
+                        } else {
+                            stderr
+                        },
+                        320,
+                    )),
+                })
+            }
+        }
+        Err(err) => Err(format!(
+            "failed while waiting for detached pi subprocess: {err}"
+        )),
     }
 }
 
@@ -1434,6 +1756,8 @@ fn create_parallel_child_job(
     let child = InsightDetachedJob {
         job_id: child_job_id.to_string(),
         parent_job_id: Some(parent_job_id.to_string()),
+        owner_plane: InsightDetachedOwnerPlane::Delegated,
+        worker_kind: Some(InsightDetachedWorkerKind::Specialist),
         mode: InsightDetachedMode::Dispatch,
         status: InsightDetachedJobStatus::Queued,
         agent: Some(agent.to_string()),
@@ -1566,14 +1890,41 @@ fn resolve_parallel_limit() -> usize {
         .unwrap_or(DEFAULT_PARALLEL_CONCURRENCY)
 }
 
+fn owner_plane_label(owner_plane: InsightDetachedOwnerPlane) -> &'static str {
+    match owner_plane {
+        InsightDetachedOwnerPlane::Delegated => "delegated",
+        InsightDetachedOwnerPlane::Mind => "mind",
+    }
+}
+
+fn worker_kind_label(worker_kind: InsightDetachedWorkerKind) -> &'static str {
+    match worker_kind {
+        InsightDetachedWorkerKind::Specialist => "specialist",
+        InsightDetachedWorkerKind::ChainStep => "chain_step",
+        InsightDetachedWorkerKind::TeamFanout => "team_fanout",
+        InsightDetachedWorkerKind::T1 => "t1",
+        InsightDetachedWorkerKind::T2 => "t2",
+        InsightDetachedWorkerKind::T3 => "t3",
+    }
+}
+
+fn default_worker_kind_for_request(
+    request: &InsightDetachedDispatchRequest,
+) -> InsightDetachedWorkerKind {
+    match request.mode {
+        InsightDetachedMode::Dispatch => InsightDetachedWorkerKind::Specialist,
+        InsightDetachedMode::Chain => InsightDetachedWorkerKind::ChainStep,
+        InsightDetachedMode::Parallel => InsightDetachedWorkerKind::TeamFanout,
+    }
+}
+
 fn persist_job(store_path: &Path, job: &InsightDetachedJob) {
     if let Ok(store) = MindStore::open(store_path) {
-        let worker_kind = match job.mode {
-            InsightDetachedMode::Dispatch => Some("specialist"),
-            InsightDetachedMode::Chain => Some("chain_step"),
-            InsightDetachedMode::Parallel => Some("team_fanout"),
-        };
-        let _ = store.upsert_detached_insight_job("delegated", worker_kind, job);
+        let _ = store.upsert_detached_insight_job(
+            owner_plane_label(job.owner_plane),
+            job.worker_kind.map(worker_kind_label),
+            job,
+        );
     }
 }
 
@@ -1586,7 +1937,7 @@ fn recover_persisted_jobs(store_path: &Path) -> Vec<InsightDetachedJob> {
         "wrapper restarted before detached result was observed",
     );
     store
-        .detached_insight_jobs(Some("delegated"), Some(64))
+        .detached_insight_jobs(None, Some(64))
         .unwrap_or_default()
 }
 
@@ -1595,7 +1946,7 @@ fn list_persisted_jobs(store_path: &Path) -> Vec<InsightDetachedJob> {
         return Vec::new();
     };
     store
-        .detached_insight_jobs(Some("delegated"), Some(64))
+        .detached_insight_jobs(None, Some(64))
         .unwrap_or_default()
 }
 
@@ -1864,6 +2215,8 @@ mod tests {
         for _ in 0..40 {
             let status = runtime.status(&InsightDetachedStatusRequest {
                 job_id: Some(job_id.clone()),
+                owner_plane: None,
+                worker_kind: None,
                 limit: Some(1),
             });
             if status
@@ -1889,6 +2242,8 @@ mod tests {
         for _ in 0..40 {
             let status = runtime.status(&InsightDetachedStatusRequest {
                 job_id: Some(job_id.clone()),
+                owner_plane: None,
+                worker_kind: None,
                 limit: Some(1),
             });
             terminal = status.jobs.into_iter().next();
@@ -1915,6 +2270,182 @@ mod tests {
             std::env::set_var("AOC_INSIGHT_DETACHED_PARALLEL_LIMIT", previous);
         } else {
             std::env::remove_var("AOC_INSIGHT_DETACHED_PARALLEL_LIMIT");
+        }
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn detached_runtime_marks_recovered_running_job_stale() {
+        let root = fixture_root();
+        let store_path = root.join("mind.sqlite");
+        let stale_job = InsightDetachedJob {
+            job_id: "detached-123-0001".to_string(),
+            parent_job_id: None,
+            owner_plane: InsightDetachedOwnerPlane::Delegated,
+            worker_kind: Some(InsightDetachedWorkerKind::Specialist),
+            mode: InsightDetachedMode::Dispatch,
+            status: InsightDetachedJobStatus::Running,
+            agent: Some("insight-t1-observer".to_string()),
+            team: None,
+            chain: None,
+            created_at_ms: chrono::Utc::now().timestamp_millis(),
+            started_at_ms: Some(chrono::Utc::now().timestamp_millis()),
+            finished_at_ms: None,
+            current_step_index: Some(0),
+            step_count: Some(1),
+            output_excerpt: Some("running before restart".to_string()),
+            stdout_excerpt: None,
+            stderr_excerpt: None,
+            error: None,
+            fallback_used: false,
+            step_results: Vec::new(),
+        };
+        persist_job(&store_path, &stale_job);
+
+        let runtime = DetachedInsightRuntime::new(&root, &store_path);
+        let status = runtime.status(&InsightDetachedStatusRequest {
+            job_id: Some(stale_job.job_id.clone()),
+            owner_plane: None,
+            worker_kind: None,
+            limit: Some(1),
+        });
+        let recovered = status.jobs.into_iter().next().expect("recovered job");
+        assert_eq!(recovered.status, InsightDetachedJobStatus::Stale);
+        assert!(recovered
+            .error
+            .as_deref()
+            .unwrap_or_default()
+            .contains("wrapper restarted before detached result was observed"));
+
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn detached_runtime_reports_native_spawn_failure_when_pi_unavailable() {
+        let _guard = env_lock().lock().expect("env lock");
+        let root = fixture_root();
+        let store_path = root.join("mind.sqlite");
+        let old_cmd = std::env::var("AOC_INSIGHT_AGENT_CMD").ok();
+        let old_path = std::env::var("PATH").ok();
+        std::env::remove_var("AOC_INSIGHT_AGENT_CMD");
+        std::env::set_var("PATH", "/definitely-not-a-real-bin-dir");
+
+        let runtime = DetachedInsightRuntime::new(&root, &store_path);
+        let dispatch = runtime.dispatch(&InsightDetachedDispatchRequest {
+            mode: InsightDetachedMode::Dispatch,
+            owner_plane: InsightDetachedOwnerPlane::Delegated,
+            worker_kind: Some(InsightDetachedWorkerKind::Specialist),
+            agent: Some("insight-t1-observer".to_string()),
+            input: "hello".to_string(),
+            ..InsightDetachedDispatchRequest::default()
+        });
+        let job_id = dispatch.job.job_id.clone();
+
+        let mut terminal = None;
+        for _ in 0..40 {
+            let status = runtime.status(&InsightDetachedStatusRequest {
+                job_id: Some(job_id.clone()),
+                owner_plane: None,
+                worker_kind: None,
+                limit: Some(1),
+            });
+            terminal = status.jobs.into_iter().next();
+            if terminal
+                .as_ref()
+                .map(|job| {
+                    matches!(
+                        job.status,
+                        InsightDetachedJobStatus::Fallback | InsightDetachedJobStatus::Error
+                    )
+                })
+                .unwrap_or(false)
+            {
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(50));
+        }
+
+        let terminal = terminal.expect("terminal job");
+        assert_eq!(terminal.status, InsightDetachedJobStatus::Fallback);
+        assert!(terminal
+            .error
+            .as_deref()
+            .unwrap_or_default()
+            .contains("failed to spawn detached pi subprocess"));
+
+        if let Some(previous) = old_cmd {
+            std::env::set_var("AOC_INSIGHT_AGENT_CMD", previous);
+        } else {
+            std::env::remove_var("AOC_INSIGHT_AGENT_CMD");
+        }
+        if let Some(previous) = old_path {
+            std::env::set_var("PATH", previous);
+        } else {
+            std::env::remove_var("PATH");
+        }
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn detached_runtime_reports_malformed_agent_manifest() {
+        let _guard = env_lock().lock().expect("env lock");
+        let root = fixture_root();
+        let store_path = root.join("mind.sqlite");
+        let old_cmd = std::env::var("AOC_INSIGHT_AGENT_CMD").ok();
+        std::env::remove_var("AOC_INSIGHT_AGENT_CMD");
+        fs::write(
+            root.join(".pi/agents/insight-t1-observer.md"),
+            "name: insight-t1-observer\nthis is not valid frontmatter\n",
+        )
+        .expect("rewrite malformed agent");
+
+        let runtime = DetachedInsightRuntime::new(&root, &store_path);
+        let dispatch = runtime.dispatch(&InsightDetachedDispatchRequest {
+            mode: InsightDetachedMode::Dispatch,
+            owner_plane: InsightDetachedOwnerPlane::Delegated,
+            worker_kind: Some(InsightDetachedWorkerKind::Specialist),
+            agent: Some("insight-t1-observer".to_string()),
+            input: "hello".to_string(),
+            ..InsightDetachedDispatchRequest::default()
+        });
+        let job_id = dispatch.job.job_id.clone();
+
+        let mut terminal = None;
+        for _ in 0..40 {
+            let status = runtime.status(&InsightDetachedStatusRequest {
+                job_id: Some(job_id.clone()),
+                owner_plane: None,
+                worker_kind: None,
+                limit: Some(1),
+            });
+            terminal = status.jobs.into_iter().next();
+            if terminal
+                .as_ref()
+                .map(|job| {
+                    matches!(
+                        job.status,
+                        InsightDetachedJobStatus::Fallback | InsightDetachedJobStatus::Error
+                    )
+                })
+                .unwrap_or(false)
+            {
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(50));
+        }
+
+        let terminal = terminal.expect("terminal job");
+        assert_eq!(terminal.status, InsightDetachedJobStatus::Fallback);
+        assert!(terminal
+            .error
+            .as_deref()
+            .unwrap_or_default()
+            .contains("frontmatter"));
+
+        if let Some(previous) = old_cmd {
+            std::env::set_var("AOC_INSIGHT_AGENT_CMD", previous);
+        } else {
+            std::env::remove_var("AOC_INSIGHT_AGENT_CMD");
         }
         let _ = fs::remove_dir_all(root);
     }
@@ -1969,6 +2500,8 @@ mod tests {
         for _ in 0..200 {
             let status = runtime.status(&InsightDetachedStatusRequest {
                 job_id: Some(job_id.clone()),
+                owner_plane: None,
+                worker_kind: None,
                 limit: Some(10),
             });
             parent = status.jobs.into_iter().find(|job| job.job_id == job_id);
@@ -1996,6 +2529,8 @@ mod tests {
         assert_eq!(parent.current_step_index, Some(2));
         let status = runtime.status(&InsightDetachedStatusRequest {
             job_id: Some(job_id.clone()),
+            owner_plane: None,
+            worker_kind: None,
             limit: Some(10),
         });
         assert_eq!(status.jobs.len(), 3);

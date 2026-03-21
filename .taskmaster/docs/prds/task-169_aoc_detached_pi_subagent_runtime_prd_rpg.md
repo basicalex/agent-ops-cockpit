@@ -1,5 +1,7 @@
 # AOC Detached Pi Subagent Runtime PRD (RPG)
 
+> Umbrella alignment note: this PRD defines the delegated specialist/runtime slice of the broader detached system. For cross-plane ownership, Mission Control fleet boundaries, project-scoped Mind dispatcher policy, and shared detached control-plane rules spanning tasks 169, 149, and 178, see `.taskmaster/docs/prds/aoc_detached_orchestration_prd_rpg.md`.
+
 ## Problem Statement
 AOC already has seeded specialist definitions under `.pi/agents/*`, team/chain manifests, Mission Control orchestration entry points, and wrapper-side `insight_dispatch` scaffolding. But detached agent execution is not yet a first-class, repo-controlled runtime substrate.
 
@@ -8,6 +10,8 @@ Current gaps:
 - Current wrapper orchestration is gated behind `AOC_INSIGHT_AGENT_CMD`, so real subprocess execution is configuration-dependent rather than part of the AOC runtime contract.
 - There is no durable detached job lifecycle model for queued/running/completed/failed/cancelled sub-agents with AOC-native telemetry.
 - Mission Control and Pulse expose some orchestration entry points, but there is no canonical detached sub-agent status surface, cancellation flow, or result pickup contract.
+- The current Pi-session specialist UX is too poll-driven: detached jobs can finish successfully without the parent agent automatically incorporating the result, forcing manual status checks and adding extra user turns.
+- The current Pi-session surface is too widget-heavy for the value delivered: persistent below-editor summaries create clutter while still failing to provide a focused drilldown workspace for active subagent work.
 - Third-party subagent packages may offer similar UX, but they do not guarantee alignment with AOC scope boundaries, provenance requirements, fail-open behavior, or canonical `.pi/agents/*` semantics.
 
 We need an AOC-native detached Pi subagent runtime substrate that keeps `.pi/agents/*` as the source of truth for delegated specialist agents, preserves full control over lifecycle and telemetry, and makes detached execution reliable and observable. This runtime should be treated as the shared control-plane foundation for detached agent lifecycles, while delegated specialist subagents remain the first product target and Mind/T1/T2/T3 workers may later reuse selected lifecycle, telemetry, and provenance contracts without collapsing the two operating modes into one UX model.
@@ -22,7 +26,9 @@ We need an AOC-native detached Pi subagent runtime substrate that keeps `.pi/age
 - 100% of delegated detached sub-agent runs resolve from canonical `.pi/agents/*.md`, `teams.yaml`, and `agent-chain.yaml`.
 - Detached jobs expose explicit lifecycle states: `queued`, `running`, `success`, `fallback`, `error`, `cancelled`.
 - Operators can launch, inspect, and cancel detached delegated jobs from at least one canonical surface with no hidden mutation path.
-- Sub-agent outputs preserve provenance and agent identity for all completed/fallback runs.
+- Pi-session delegated subagent UX defaults to a low-clutter status presentation rather than a persistent multiline widget wall.
+- Inline/foreground delegation can hand completed subagent results back into the parent Pi session without requiring a separate user turn to poll status.
+- Sub-agent outputs preserve provenance, agent identity, and stable report references for all completed/fallback runs.
 - The detached runtime contract is reusable by non-delegated worker planes for lifecycle/telemetry purposes without forcing those planes into delegated-subagent promotion/report UX.
 - Core orchestration continues to fail open deterministically when subprocess spawning, manifests, or provider execution fail.
 
@@ -117,10 +123,16 @@ Persist and expose detached job lifecycle and output metadata.
 Make detached delegated sub-agents visible and controllable from canonical AOC surfaces, while keeping the underlying lifecycle contract reusable by other detached worker planes.
 
 #### Feature: Pi extension tool and commands
-- **Description**: Provide project-local Pi extension entry points for dispatch, status, and cancellation.
-- **Inputs**: user or model calls, detached orchestration args.
-- **Outputs**: immediate job ack plus readable status/result views.
-- **Behavior**: integrate with Pi extension APIs rather than requiring external packages.
+- **Description**: Provide project-local Pi extension entry points for dispatch, status, cancellation, and inline result handoff policy.
+- **Inputs**: user or model calls, detached orchestration args, handoff mode (`background`, `inline_summary`, `inline_wait`, or equivalent), drilldown preferences.
+- **Outputs**: immediate job ack plus readable status/result views and, when requested, automatic reinjection into the active Pi session.
+- **Behavior**: integrate with Pi extension APIs rather than requiring external packages; distinguish low-overhead direct-tool work from true specialist delegation; support detached background mode and parent-integrated inline mode without conflating them.
+
+#### Feature: Pi session-native focused UX and handoff
+- **Description**: Keep delegated subagent activity visible without cluttering the main editor/session view.
+- **Inputs**: active/recent job state, stream excerpts, selected-job focus, inline-handoff policy, report artifact refs.
+- **Outputs**: compact running-state indicator, optional drilldown panel/sidebar/modal, structured handoff messages, and stable report files for deep inspection.
+- **Behavior**: default to minimal status chrome, allow operators to open a focused inspector for live/finished jobs, and route useful completed results back into the main session context automatically when inline mode is requested.
 
 #### Feature: Mission Control and Pulse status surfacing
 - **Description**: Publish detached job lifecycle into Pulse and Mission Control.
@@ -190,11 +202,13 @@ project-root/
 
 ### Module: `.pi/extensions/subagent.ts`
 - **Maps to capability**: Detached Subagent Execution + Pi extension integration
-- **Responsibility**: canonical detached Pi subprocess orchestration, agent manifest loading, lifecycle updates, and user/model-facing commands/tools.
+- **Responsibility**: canonical detached Pi subprocess orchestration, agent manifest loading, lifecycle updates, inline/background handoff policy, and user/model-facing commands/tools.
 - **Exports**:
   - detached dispatch/status/cancel tools or commands
+  - inline handoff and report-artifact helpers
   - runtime state restoration helpers
   - stream/result rendering helpers
+  - compact status + focused drilldown UI helpers
 
 ### Module: `.pi/agents/*.md` + `teams.yaml` + `agent-chain.yaml`
 - **Maps to capability**: Canonical Agent Resolution
@@ -321,7 +335,7 @@ No dependencies.
 ---
 
 ### Phase 3: Telemetry and AOC Integration
-**Goal**: expose detached sub-agent state and results across AOC surfaces.
+**Goal**: expose detached sub-agent state and results across AOC surfaces while making Pi-session handoff feel native instead of poll-driven.
 
 **Entry Criteria**: Phase 2 complete.
 
@@ -329,26 +343,28 @@ No dependencies.
 - [ ] Add job registry and result capture.
 - [ ] Publish lifecycle updates to Pulse and Mission Control.
 - [ ] Bridge wrapper `insight_dispatch` usage to the detached runtime contract.
+- [ ] Add inline handoff modes that can reinject completed delegated results into the parent Pi session with compact summaries and stable report refs.
 
-**Exit Criteria**: operators can inspect detached job state/results from canonical AOC surfaces.
+**Exit Criteria**: operators can inspect detached job state/results from canonical AOC surfaces, and inline delegation no longer requires a manual extra turn just to pick up finished work.
 
-**Delivers**: observable detached sub-agent system.
+**Delivers**: observable detached sub-agent system with parent-session result pickup.
 
 ---
 
 ### Phase 4: Hardening and Rollout
-**Goal**: make detached sub-agents safe, restart-tolerant, and documented.
+**Goal**: make detached sub-agents safe, restart-tolerant, documented, and pleasant to use in Pi sessions.
 
 **Entry Criteria**: Phase 3 complete.
 
 **Tasks**:
 - [ ] Add fallback and restart recovery behavior.
 - [ ] Publish runtime/operator docs and rollout guidance.
-- [ ] Add regression coverage for lifecycle, cancellation, and fallback paths.
+- [ ] Add regression coverage for lifecycle, cancellation, fallback, inline handoff, and focused-drilldown UX paths.
+- [ ] Replace the always-on multiline session widget with compact status plus on-demand drilldown/inspector UX.
 
-**Exit Criteria**: detached sub-agent runtime is safe to ship as the canonical AOC path.
+**Exit Criteria**: detached sub-agent runtime is safe to ship as the canonical AOC path and no longer degrades the default Pi session layout with low-value status clutter.
 
-**Delivers**: production-ready detached sub-agent runtime.
+**Delivers**: production-ready detached sub-agent runtime with low-noise session UX.
 
 ---
 
@@ -414,6 +430,10 @@ No dependencies.
 **Happy path**:
 - Mission Control and/or wrapper status views show active/recent detached jobs.
 - Expected: queue depth, latest state, and drilldown refs are visible.
+- Pi session shows compact running state by default and opens focused drilldown/inspector UI only on demand.
+- Expected: the main editor/workflow remains uncluttered while active jobs are still discoverable and controllable.
+- inline delegated runs complete and hand summaries/report refs back into the parent session automatically.
+- Expected: the main agent can continue without waiting for a user-issued status poll.
 
 **Integration points**:
 - wrapper `insight_dispatch` can consume the same detached job contract.

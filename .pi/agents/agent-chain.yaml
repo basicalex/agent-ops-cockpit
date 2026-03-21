@@ -13,3 +13,19 @@ insight-bootstrap-gap-analysis:
       prompt: "Compare docs and code for this scope, then produce T1 observations with evidence: $INPUT"
     - agent: insight-t2-reflector
       prompt: "Generate reflection, Taskmaster projection, and T2 seeds from this gap evidence: $INPUT"
+
+specialist-recon-review:
+  description: "Explore the relevant code surface first, then perform a bounded code review on the discovered hotspots"
+  steps:
+    - agent: explorer-agent
+      prompt: "Map the relevant code/docs/test surface for this task and identify likely hotspots: $INPUT"
+    - agent: code-review-agent
+      prompt: "Review the implementation using this reconnaissance output and report correctness/regression risks: $INPUT"
+
+specialist-web-repro:
+  description: "Scout the web/app flow first, then run bounded verification based on the discovered repro path"
+  steps:
+    - agent: scout-web-agent
+      prompt: "Investigate this web/app flow and produce concrete reproduction evidence: $INPUT"
+    - agent: testing-agent
+      prompt: "Use this scout output to run targeted verification or repro checks and summarize results: $INPUT"

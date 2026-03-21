@@ -280,10 +280,38 @@ pub enum InsightDetachedJobStatus {
     Stale,
 }
 
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum InsightDetachedOwnerPlane {
+    Delegated,
+    Mind,
+}
+
+impl Default for InsightDetachedOwnerPlane {
+    fn default() -> Self {
+        Self::Delegated
+    }
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum InsightDetachedWorkerKind {
+    Specialist,
+    ChainStep,
+    TeamFanout,
+    T1,
+    T2,
+    T3,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
 pub struct InsightDetachedDispatchRequest {
     #[serde(default)]
     pub mode: InsightDetachedMode,
+    #[serde(default)]
+    pub owner_plane: InsightDetachedOwnerPlane,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub worker_kind: Option<InsightDetachedWorkerKind>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub agent: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -305,6 +333,10 @@ pub struct InsightDetachedJob {
     pub job_id: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub parent_job_id: Option<String>,
+    #[serde(default)]
+    pub owner_plane: InsightDetachedOwnerPlane,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub worker_kind: Option<InsightDetachedWorkerKind>,
     pub mode: InsightDetachedMode,
     pub status: InsightDetachedJobStatus,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -352,6 +384,10 @@ pub struct InsightDetachedDispatchResult {
 pub struct InsightDetachedStatusRequest {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub job_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub owner_plane: Option<InsightDetachedOwnerPlane>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub worker_kind: Option<InsightDetachedWorkerKind>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub limit: Option<usize>,
 }
@@ -483,6 +519,8 @@ mod tests {
             panic!("expected detached dispatch")
         };
         assert_eq!(request.mode, InsightDetachedMode::Dispatch);
+        assert_eq!(request.owner_plane, InsightDetachedOwnerPlane::Delegated);
+        assert_eq!(request.worker_kind, None);
         assert_eq!(request.input, "run detached observer");
         assert_eq!(request.cwd, None);
     }
@@ -496,6 +534,8 @@ mod tests {
             panic!("expected detached status")
         };
         assert_eq!(request.job_id, None);
+        assert_eq!(request.owner_plane, None);
+        assert_eq!(request.worker_kind, None);
         assert_eq!(request.limit, None);
     }
 

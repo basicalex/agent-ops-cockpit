@@ -69,6 +69,37 @@ aoc overseer consult align --target-agent-id session-name::12
 aoc overseer command run-validation --target-agent-id session-name::12
 ```
 
+## Runtime modes
+`aoc-mission-control` now has two intended runtime modes:
+
+- `mission-control` — the dedicated session-global orchestration surface
+- `pulse-pane` — the tiny per-tab local pulse surface used in normal AOC work tabs
+
+`pulse-pane` should stay local/tab-scoped and intentionally avoids Overseer-only
+topics such as `observer_snapshot`, `observer_timeline`, and consultation
+responses.
+
+Within `mission-control` mode, the TUI now includes a dedicated detached-job
+fleet surface that groups registry-backed detached jobs by:
+- project root
+- ownership plane (`delegated` vs `mind`)
+
+Fleet mode also supports bounded operator actions on the selected detached group/job:
+- focus a live project tab when one is present
+- select a specific recent job within the chosen project/plane group
+- sort fleet groups by project, newest activity, active-first, or error-first
+- show recovery guidance for stale/fallback/error outcomes in drilldown and follow-up briefs
+- cancel the selected active detached job
+- launch an inspect/handoff follow-up tab with a bounded brief file
+
+This makes cross-project detached specialist activity reviewable without mixing
+operator-launched delegated specialists into Mind/T1/T2/T3 worker summaries.
+
+Mode selection:
+- `AOC_MISSION_CONTROL_MODE=mission-control|pulse-pane`
+- `aoc-mission-control --mode mission-control|pulse-pane`
+- legacy compatibility: `AOC_PULSE_LIGHT_PANE=1` still maps to `pulse-pane`
+
 ## Mission Control dedicated tab bootstrap
 Mission Control can now run as a dedicated tab, not only as a floating pane.
 This is the preferred path for longer-lived orchestration sessions.

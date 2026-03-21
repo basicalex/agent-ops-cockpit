@@ -23,7 +23,7 @@ layout {
 
       pane split_direction="horizontal" {
         pane size="72%" name="Mission Control" focus=true command="bash" {
-          args "-lc" "export PATH=\"$HOME/.cargo/bin:$PATH\"; theme_env=\"${XDG_CONFIG_HOME:-$HOME/.config}/aoc/theme.env\"; if [[ -f \"$theme_env\" ]]; then source \"$theme_env\"; fi; export AOC_SESSION_ID=\"__AOC_SESSION_ID__\"; export AOC_HUB_ADDR=\"__AOC_HUB_ADDR__\"; export AOC_HUB_URL=\"__AOC_HUB_URL__\"; export AOC_PROJECT_ROOT=\"__AOC_PROJECT_ROOT__\"; export AOC_TAB_SCOPE=\"Mission Control\"; export AOC_PANE_ID=\"${ZELLIJ_PANE_ID:-}\"; cd \"__AOC_PROJECT_ROOT__\" && exec ${AOC_PULSE_CMD:-aoc-mission-control}"
+          args "-lc" "export PATH=\"$HOME/.cargo/bin:$PATH\"; theme_env=\"${XDG_CONFIG_HOME:-$HOME/.config}/aoc/theme.env\"; if [[ -f \"$theme_env\" ]]; then source \"$theme_env\"; fi; export AOC_SESSION_ID=\"__AOC_SESSION_ID__\"; export AOC_HUB_ADDR=\"__AOC_HUB_ADDR__\"; export AOC_HUB_URL=\"__AOC_HUB_URL__\"; export AOC_PROJECT_ROOT=\"__AOC_PROJECT_ROOT__\"; export AOC_TAB_SCOPE=\"Mission Control\"; export AOC_PANE_ID=\"${ZELLIJ_PANE_ID:-}\"; export AOC_MISSION_CONTROL_MODE=\"mission-control\"; cd \"__AOC_PROJECT_ROOT__\" && exec ${AOC_MISSION_CONTROL_CMD:-aoc-mission-control}"
         }
         pane split_direction="vertical" {
           pane size="45%" name="Taskmaster" command="bash" {
