@@ -148,7 +148,7 @@ hint_for() {
       ;;
     ueberzugpp)
       case "$pm" in
-        apt) echo "sudo apt-get install -y ueberzugpp" ;;
+        apt) echo "Install ueberzugpp from an upstream release/build (not usually in default Ubuntu repos), or use Kitty/kitten as the Yazi image backend." ;;
         pacman) echo "sudo pacman -S ueberzugpp" ;;
         brew) echo "brew install ueberzugpp" ;;
         apk) echo "sudo apk add ueberzugpp" ;;
@@ -327,6 +327,28 @@ if [[ "$quiet" -eq 0 ]]; then
       echo "    -> $(hint_for "$tool")"
     fi
   done
+
+  if have aoc-yazi-preview; then
+    echo
+    echo "Preview Runtime:"
+    preview_report="$(aoc-yazi-preview detect 2>/dev/null || true)"
+    preview_get() {
+      local key="$1"
+      printf '%s\n' "$preview_report" | awk -F= -v k="$key" '$1==k { sub($1 "=", ""); print; exit }'
+    }
+    echo "  Mode override: $(preview_get preview_mode_override)"
+    echo "  Effective mode: $(preview_get effective_mode)"
+    echo "  Terminal family: $(preview_get terminal_family)"
+    echo "  Multiplexer: tmux=$(preview_get in_tmux), zellij=$(preview_get in_zellij)"
+    echo "  Native backend: $(preview_get native_backend)"
+    echo "  Native ready: $(preview_get native_ready)"
+    echo "  Custom overlay ready: $(preview_get custom_overlay_ready)"
+    echo "  Quality note: $(preview_get quality_note)"
+    blockers="$(preview_get blockers)"
+    if [[ -n "$blockers" && "$blockers" != "none" ]]; then
+      echo "  Blockers: $blockers"
+    fi
+  fi
 fi
 
 if [[ "${#missing_required[@]}" -gt 0 ]]; then

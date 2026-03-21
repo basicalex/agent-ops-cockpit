@@ -9,5 +9,5 @@ linemode = "none"
 mouse_events = ["click", "scroll"]
 
 [preview]
-max_width = 120
-max_height = 40
+image_filter = "lanczos3"
+image_quality = 90

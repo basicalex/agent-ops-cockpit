@@ -1,46 +1,46 @@
-# Yazi Preview Runtime for Alacritty/Kitty and Terminal-Agnostic Fallbacks PRD (RPG)
+# Kitty-First Yazi Preview Quality and Runtime PRD (RPG)
 
 ## Problem Statement
-AOC recently restored native Yazi preview behavior, but the real user workflow still has a major gap: SVG and image previews are unreliable or low-quality across the actual terminal stacks developers use.
+AOC recently restored native Yazi preview behavior, and the team has now chosen Kitty as the primary terminal direction. However, the actual in-pane Yazi preview experience still fails the UX bar in the expanded 3-column layout.
 
 Current pain points:
-- Native Yazi preview depends on renderer/backend combinations (`resvg`, `ueberzugpp`, Kitty/kitten) that are inconsistent across Ubuntu, Alacritty, tmux, and Zellij.
-- Ubuntu setup is especially fragile because `ueberzugpp` is often unavailable in default apt repos and the correct install path is non-obvious.
-- Native previews in Kitty can appear too small or pixelated in the AOC 3-column Yazi layout, making the “supported backend” path technically functional but not ergonomically acceptable.
-- Alacritty remains a preferred terminal for the AOC workflow, but it does not offer a straightforward native Yazi image protocol path, so “just use native Yazi” does not fully solve the user problem.
-- AOC currently lacks a deliberate preview runtime strategy that chooses among native Yazi preview, a high-quality custom Linux renderer, and graceful text fallbacks based on environment capability and user preference.
+- Native Yazi preview in Kitty is functionally rendering, but the preview image is still too small and visibly pixelated inside the third column.
+- The preview column itself is large enough; the remaining issue is image placement/scaling quality within that column.
+- SVG/image/PDF preview quality is not yet tuned for the actual AOC pane geometry and needs explicit validation criteria.
+- The current task framing still overemphasizes terminal-agnostic breadth before proving that Kitty-first inline preview can meet the quality bar.
+- AOC still needs a deliberate fallback/runtime strategy if native Kitty preview cannot be tuned to fill the third column with acceptable quality.
 
-We need a single AOC-owned preview architecture that preserves good default behavior, works well in the real AOC pane layout, supports SVG/image/PDF/media preview quality targets, and gives users a predictable experience across Kitty, Alacritty, tmux, and future Linux terminal setups.
+We need a Kitty-first preview strategy that prioritizes high-quality, inline, full-usable-width Yazi previews in the expanded third column, while preserving a clear path to custom runtime fallback only if native Kitty behavior cannot be made acceptable.
 
 ## Target Users
-- AOC users who browse files in the left Yazi pane and expect large, legible previews in the expanded 3-column layout.
-- Ubuntu/Linux developers using Alacritty, Kitty, tmux, or Zellij who need a stable preview experience without manually understanding every terminal image protocol.
+- AOC users running Kitty who browse files in the left Yazi pane and expect large, legible previews in the expanded 3-column layout.
+- Ubuntu/Linux developers using Kitty with tmux/Zellij who need predictable inline preview quality without protocol guesswork.
 - Maintainers responsible for AOC installer, doctor, Yazi config, and operator docs.
-- Future contributors who need a clear policy for when AOC should rely on native Yazi preview versus a custom preview runtime.
+- Future contributors who need a clear policy for when AOC should stay on native Kitty preview versus escalate to a custom preview runtime.
 
 ## Success Metrics
-- AOC can detect whether high-quality native Yazi preview is viable in the current environment and explain why when it is not.
-- AOC provides at least one high-quality preview path that works well in the expanded Yazi pane on Ubuntu/Linux even when native Yazi preview in Alacritty is not viable.
-- SVG previews render reliably and legibly in the supported AOC path, without requiring users to debug `resvg`/backend combinations manually.
+- AOC can detect and report whether native Kitty preview is available and whether it meets the quality bar for the expanded Yazi pane.
+- Native Yazi preview in Kitty is either tuned to render at acceptable size/clarity in the third column, or explicitly rejected in favor of a Kitty-first custom inline runtime.
+- SVG previews render reliably and legibly in the supported Kitty-first path, without requiring users to debug `resvg`/backend combinations manually.
 - Preview quality in the AOC-expanded Yazi pane is explicitly tuned and validated for images, SVGs, PDFs, and representative media assets.
-- `aoc-doctor`, installer/docs, and runtime config all describe the same preview capability model.
-- Users can choose or accept an automatically selected preview mode such as `native`, `custom-overlay`, or `text-fallback`, with clear degradation behavior.
+- `aoc-doctor`, installer/docs, and runtime config all describe the same Kitty-first capability model.
+- Fallback/custom runtime work is clearly sequenced after native Kitty validation rather than treated as phase 1 by default.
 
 ---
 
 ## Architectural Framing
-This PRD treats previewing as an AOC runtime capability rather than a single hardcoded Yazi implementation detail.
+This PRD now treats previewing as a **Kitty-first inline Yazi quality problem first**, and only secondarily as a broader runtime abstraction problem.
 
-Three preview modes must be considered explicitly:
-- **Native Yazi mode**: Use Yazi’s built-in preview behavior when the terminal/backend stack is truly compatible and quality is acceptable.
-- **AOC custom high-quality mode**: Use an AOC-owned preview runtime for Linux terminals where native Yazi is unavailable or visually poor, ideally based on real image rendering rather than ANSI approximation.
-- **Fallback text mode**: Use metadata/text previews when neither high-quality image path is available.
+Three preview modes still matter, but their sequencing changes:
+- **Native Kitty/Yazi mode**: First choice. Use Yazi’s built-in preview behavior when Kitty-native rendering is available and can be tuned to meet the quality bar.
+- **AOC custom Kitty-first inline mode**: Second choice. If native Kitty preview remains too small or pixelated, use an AOC-owned inline preview runtime that still renders directly in Yazi’s third column.
+- **Fallback text mode**: Last resort. Use metadata/text previews when high-quality inline image rendering is unavailable.
 
-The core product decision is not merely “native vs custom,” but rather:
-- how AOC detects capability,
-- how it selects a preview mode,
-- how it preserves quality in the actual AOC pane geometry,
-- and how it documents/installs the required pieces.
+The immediate product decision is therefore:
+- whether native Kitty preview can be tuned to meet acceptance criteria,
+- how AOC detects and reports that quality outcome,
+- how AOC escalates to a Kitty-first custom inline runtime if native quality fails,
+- and only after that, how broader fallback/portability concerns are documented.
 
 ## Capability Tree
 
@@ -75,7 +75,7 @@ Choose and persist which preview strategy AOC should use.
 - **Behavior**: respect explicit overrides while still surfacing warnings when the selected mode is unavailable.
 
 ### Capability: High-Quality Custom Preview Runtime
-Provide an AOC-owned rendering path for Linux terminals where native Yazi preview is unavailable or poor.
+Provide an AOC-owned Kitty-first inline rendering path when native Kitty/Yazi preview is unavailable or fails the quality bar.
 
 #### Feature: Bitmap/image overlay rendering
 - **Description**: Render images, SVGs, and rasterized documents through a Linux-capable overlay/backend path instead of ANSI-only output.
@@ -244,19 +244,20 @@ No dependencies - these are built first.
 - Maintainers can answer “what preview mode should run here and why?” from one documented contract.
 - There is no ambiguity about whether AOC is allowed to prefer custom preview over native Yazi on Linux.
 
-### Phase 1 — Detect and explain environment capability correctly
-**Goal**: Make runtime diagnostics trustworthy.
+### Phase 1 — Validate and diagnose native Kitty preview quality
+**Goal**: Make runtime diagnostics trustworthy and explicitly measure whether native Kitty/Yazi preview meets the UX bar.
 
 **Deliverables**:
-- Capability probe covering Ubuntu/Linux terminals, tmux/Zellij, Kitty, `ueberzugpp`, and fallback-only states.
-- `aoc-doctor` output that reports expected preview experience, not just missing binaries.
+- Capability probe covering Kitty, tmux/Zellij context, and current native-preview readiness.
+- `aoc-doctor` output that reports expected native Kitty preview quality and blockers, not just missing binaries.
+- Native Yazi tuning experiments documented against the expanded 3-column pane.
 
 **Exit Criteria**:
-- Doctor distinguishes “native available but poor candidate”, “custom overlay available”, and “fallback only”.
-- Ubuntu guidance no longer requires users to reverse-engineer backend feasibility.
+- Doctor distinguishes “native Kitty available and acceptable”, “native Kitty available but fails quality bar”, and “fallback/custom runtime required”.
+- Maintainers can clearly explain why the current native preview is or is not acceptable.
 
-### Phase 2 — Build the custom high-quality preview runtime
-**Goal**: Provide a deliberate Linux preview path that is not constrained by native Yazi limitations in Alacritty.
+### Phase 2 — Build the custom high-quality Kitty-first inline preview runtime
+**Goal**: Provide a deliberate inline preview path when native Kitty preview remains too small or pixelated.
 
 **Deliverables**:
 - AOC preview runtime entrypoint.
@@ -267,8 +268,8 @@ No dependencies - these are built first.
 - SVG/image/PDF previews render legibly in the expanded Yazi pane through the supported custom path.
 - Cursor movement updates previews cleanly without stale artifacts.
 
-### Phase 3 — Integrate mode selection with Yazi
-**Goal**: Make Yazi use the right preview strategy automatically or by explicit user choice.
+### Phase 3 — Integrate Kitty-first mode selection with Yazi
+**Goal**: Make Yazi use the right Kitty-first preview strategy automatically or by explicit user choice.
 
 **Deliverables**:
 - Mode selector with deterministic priority rules.
@@ -297,10 +298,10 @@ No dependencies - these are built first.
 
 ### Environment Matrix
 Validate at minimum:
-- Ubuntu + Alacritty + Zellij
 - Ubuntu + Kitty + Zellij
 - Ubuntu + Kitty + tmux/Zellij combinations where supported
-- Ubuntu fallback-only environment with no viable image backend
+- Ubuntu + Kitty native-preview quality-fail case versus tuned/fixed case
+- Ubuntu fallback-only environment with no viable high-quality inline image path
 
 ### Asset Matrix
 Validate previews for:

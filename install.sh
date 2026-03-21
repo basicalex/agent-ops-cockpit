@@ -672,8 +672,11 @@ install_tool() {
       ;;
     ueberzugpp)
       case "$pm" in
-        apt|pacman|brew|apk)
+        pacman|brew|apk)
           pm_install ueberzugpp || warn "Failed to install ueberzugpp."
+          ;;
+        apt)
+          warn "ueberzugpp is typically unavailable in default Ubuntu/Debian repos; install it from upstream or use Kitty as the Yazi image backend."
           ;;
         *)
           warn "No package manager mapping for ueberzugpp."
