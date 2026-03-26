@@ -53,29 +53,24 @@ elif [[ -f "$default_layout_file" ]]; then
 elif [[ -f "$local_layout" ]]; then
   layout="aoc.local"
 else
-  layout="aoc"
+  layout="unstat"
 fi
 
 resolve_session_id() {
+  local project_root="${1:-$PWD}"
   if [[ -n "${ZELLIJ_SESSION_NAME:-}" ]]; then
     printf '%s' "$ZELLIJ_SESSION_NAME"
     return
   fi
-  if [[ -n "${AOC_SESSION_ID:-}" ]]; then
+  if [[ -n "${ZELLIJ:-}" && -n "${AOC_SESSION_ID:-}" ]]; then
     printf '%s' "$AOC_SESSION_ID"
     return
   fi
-  local candidate=""
-  local attempt
-  for attempt in 1 2 3 4 5 6 7 8 9 10 11 12; do
-    candidate="$(generate_whimsical_session_id)"
-    if session_name_exists "$candidate"; then
-      continue
-    fi
-    printf '%s' "$candidate"
+  if [[ -n "${AOC_FORCE_SESSION_ID:-}" ]]; then
+    printf '%s' "$AOC_FORCE_SESSION_ID"
     return
-  done
-  printf 'pid-%s' "$$"
+  fi
+  generate_unique_session_id "$project_root"
 }
 
 cleanup_state() {
@@ -172,7 +167,7 @@ cleanup_state "$state_dir"
 sync_aoc_theme_profile
 load_aoc_theme_values
 
-session_id="$(resolve_session_id)"
+session_id="$(resolve_session_id "$project_root")"
 hub_addr="$(resolve_hub_addr "$session_id")"
 hub_url="$(resolve_hub_url "$hub_addr")"
 ensure_hub_running "$session_id" "$hub_addr" "$state_dir"
@@ -216,8 +211,10 @@ if [[ -f "$layout_path" ]]; then
       -v theme_bg_base="$AOC_THEME_BG_BASE" \
       -v theme_bg_elevated="$AOC_THEME_BG_ELEVATED" \
       -v theme_bg_subtle="$AOC_THEME_BG_SUBTLE" \
-      -v theme_bg_accent="$AOC_THEME_BG_ACCENT" '
+      -v theme_bg_accent="$AOC_THEME_BG_ACCENT" \
+      -v home_dir="$HOME" '
   {
+    gsub(/\{\{HOME\}\}/, home_dir)
     gsub(/__AOC_TAB_NAME__/, tab_name)
     gsub(/__AOC_AGENT_ID__/, agent_id)
     gsub(/__AOC_PROJECT_ROOT__/, proj_root)
@@ -270,16 +267,28 @@ if [[ -n "${ZELLIJ:-}" ]]; then
     AOC_PROJECT_ROOT="$project_root" \
     AOC_PULSE_CMD="$pulse_cmd" \
     zellij action new-tab --layout "$layout_arg"
+  aoc_focus_agent_after_new_tab "$layout"
   exit 0
 fi
 
-# Otherwise, launch a new session
+# Otherwise, attach to a stable project session when possible.
+# - active session: attach
+# - serialized/dead session: resurrect via attach
+# - missing session: create with the configured layout
+attach_env=(
+  ZELLIJ_PROJECT_ROOT="$project_root"
+  AOC_PROJECT_ROOT="$project_root"
+  AOC_SESSION_ID="$session_id"
+  AOC_HUB_ADDR="$hub_addr"
+  AOC_HUB_URL="$hub_url"
+  AOC_ROOT_TAG="$agent_id"
+  AOC_PULSE_CMD="$pulse_cmd"
+)
+
+if session_name_exists "$session_id"; then
+  env "${attach_env[@]}" zellij "${config_arg[@]}" attach "$session_id"
+  exit 0
+fi
+
 session_arg=(--session "$session_id")
-ZELLIJ_PROJECT_ROOT="$project_root" \
-  AOC_PROJECT_ROOT="$project_root" \
-  AOC_SESSION_ID="$session_id" \
-  AOC_HUB_ADDR="$hub_addr" \
-  AOC_HUB_URL="$hub_url" \
-  AOC_ROOT_TAG="$agent_id" \
-  AOC_PULSE_CMD="$pulse_cmd" \
-  zellij "${config_arg[@]}" "${session_arg[@]}" --new-session-with-layout "$layout_arg"
+env "${attach_env[@]}" zellij "${config_arg[@]}" "${session_arg[@]}" --new-session-with-layout "$layout_arg"

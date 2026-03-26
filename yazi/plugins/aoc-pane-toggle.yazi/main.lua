@@ -93,7 +93,7 @@ end
 function M:entry()
 	local state_path = state_file_path()
 	local expand_steps = parse_steps("AOC_YAZI_PANE_EXPAND_STEPS", 12)
-	local shrink_steps = parse_steps("AOC_YAZI_PANE_SHRINK_STEPS", 11)
+	local shrink_steps = parse_steps("AOC_YAZI_PANE_SHRINK_STEPS", expand_steps)
 
 	local expanded = is_expanded(state_path)
 	local current_ratio = rt and rt.mgr and rt.mgr.ratio or nil

@@ -16,6 +16,33 @@ generate_whimsical_session_id() {
   printf '%s-%s' "$noun" "$verb"
 }
 
+generate_unique_session_id() {
+  local project_root="${1:-$PWD}"
+  local raw_name=""
+  local suffix=""
+  local candidate=""
+  local attempt=0
+
+  raw_name="$(basename "$project_root")"
+  raw_name="$(sanitize_name "$raw_name")"
+
+  while (( attempt < 32 )); do
+    suffix="$(generate_whimsical_session_id)"
+    if [[ -n "$raw_name" && "$raw_name" != "tab" ]]; then
+      candidate="aoc-${raw_name}-${suffix}"
+    else
+      candidate="aoc-${suffix}"
+    fi
+    if ! session_name_exists "$candidate"; then
+      printf '%s' "$candidate"
+      return
+    fi
+    attempt=$((attempt + 1))
+  done
+
+  printf 'aoc-%s-%s' "${raw_name:-workspace}" "$(date +%s)"
+}
+
 session_name_exists() {
   local candidate="$1"
   if ! command -v zellij >/dev/null 2>&1; then
@@ -168,4 +195,219 @@ ensure_hub_running() {
   fi
 
   _aoc_start_hub_unlocked
+}
+
+aoc_zellij_current_focused_pane_name() {
+  command -v zellij >/dev/null 2>&1 || return 1
+  command -v python3 >/dev/null 2>&1 || return 1
+
+  local panes_json current_tab_json
+  panes_json="$(zellij action list-panes --json 2>/dev/null || true)"
+  current_tab_json="$(zellij action current-tab-info --json 2>/dev/null || true)"
+  [[ -n "$panes_json" && -n "$current_tab_json" ]] || return 1
+
+  python3 - <<'PY' <<<"$panes_json
+__AOC_SPLIT__
+$current_tab_json"
+import json, sys
+
+raw = sys.stdin.read()
+parts = raw.split("\n__AOC_SPLIT__\n")
+if len(parts) != 2:
+    raise SystemExit(1)
+panes_raw, current_raw = parts
+
+
+def load_items(raw):
+    val = json.loads(raw)
+    if isinstance(val, list):
+        return val
+    if isinstance(val, dict):
+        for key in ("panes", "data", "items"):
+            child = val.get(key)
+            if isinstance(child, list):
+                return child
+    return []
+
+
+def load_obj(raw):
+    val = json.loads(raw)
+    if isinstance(val, dict):
+        for key in ("tab", "data", "current_tab"):
+            child = val.get(key)
+            if isinstance(child, dict):
+                return child
+        return val
+    return {}
+
+
+def first(obj, *keys):
+    for key in keys:
+        value = obj.get(key)
+        if value not in (None, ""):
+            return value
+    return None
+
+
+def as_bool(value):
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)):
+        return bool(value)
+    if isinstance(value, str):
+        lowered = value.strip().lower()
+        if lowered in {"1", "true", "yes", "on"}:
+            return True
+        if lowered in {"0", "false", "no", "off"}:
+            return False
+    return None
+
+current = load_obj(current_raw)
+current_tab_id = first(current, "tab_id", "id", "tabId")
+current_tab_index = first(current, "position", "index", "tab_index", "tabPosition")
+
+for pane in load_items(panes_raw):
+    if not isinstance(pane, dict):
+        continue
+    pane_tab_id = first(pane, "tab_id", "tabId")
+    pane_tab_index = first(pane, "tab_position", "tab_index", "position")
+    if current_tab_id not in (None, "") and pane_tab_id not in (None, "") and str(pane_tab_id) != str(current_tab_id):
+        continue
+    if current_tab_id in (None, "") and current_tab_index not in (None, "") and pane_tab_index not in (None, "") and str(pane_tab_index) != str(current_tab_index):
+        continue
+    focused = first(pane, "focused", "is_focused", "active", "is_active")
+    if as_bool(focused) is not True:
+        continue
+    name = first(pane, "name", "pane_name", "title", "pane_title")
+    if name is None:
+        name = ""
+    print(str(name))
+    raise SystemExit(0)
+
+raise SystemExit(1)
+PY
+}
+
+aoc_zellij_direction_to_agent_in_current_tab() {
+  command -v zellij >/dev/null 2>&1 || return 1
+  command -v python3 >/dev/null 2>&1 || return 1
+
+  local panes_json
+  panes_json="$(zellij action list-panes --json 2>/dev/null || true)"
+  [[ -n "$panes_json" ]] || return 1
+
+  python3 - <<'PY' <<<"$panes_json"
+import json, sys
+
+items = json.loads(sys.stdin.read())
+if not isinstance(items, list):
+    raise SystemExit(1)
+
+HELPER_TITLES = {"aoc-focus-agent-pane", "aoc-refresh-layout-state"}
+
+def pane_tab_key(pane):
+    for k in ("tab_id", "tab_position", "tab_name"):
+        v = pane.get(k)
+        if v is not None:
+            return v
+    return None
+
+def pane_title(pane):
+    return str(pane.get("title") or pane.get("name") or "")
+
+def pane_area(pane):
+    return int(pane.get("pane_columns") or 0) * int(pane.get("pane_rows") or 0)
+
+focused = [p for p in items if isinstance(p, dict) and p.get("is_focused")]
+if not focused:
+    raise SystemExit(1)
+
+current = None
+for pane in focused:
+    if pane_title(pane) not in HELPER_TITLES and pane_area(pane) > 10:
+        current = pane
+        break
+if current is None:
+    current = max(focused, key=pane_area)
+
+current_tab = pane_tab_key(current)
+if current_tab is None:
+    raise SystemExit(1)
+
+agent = None
+for pane in items:
+    if not isinstance(pane, dict):
+        continue
+    if pane_tab_key(pane) != current_tab:
+        continue
+    if pane_title(pane).startswith("Agent ["):
+        agent = pane
+        break
+if agent is None:
+    raise SystemExit(1)
+
+if pane_title(current).startswith("Agent ["):
+    print("done")
+    raise SystemExit(0)
+
+cx = int(current.get("pane_x") or 0)
+cy = int(current.get("pane_y") or 0)
+cw = int(current.get("pane_columns") or 0)
+ch = int(current.get("pane_rows") or 0)
+ax = int(agent.get("pane_x") or 0)
+ay = int(agent.get("pane_y") or 0)
+aw = int(agent.get("pane_columns") or 0)
+ah = int(agent.get("pane_rows") or 0)
+
+ccx = cx + (cw // 2)
+ccy = cy + (ch // 2)
+acx = ax + (aw // 2)
+acy = ay + (ah // 2)
+
+dx = acx - ccx
+dy = acy - ccy
+
+if abs(dx) >= abs(dy) and dx > 0:
+    print("right")
+elif abs(dx) >= abs(dy) and dx < 0:
+    print("left")
+elif dy > 0:
+    print("down")
+elif dy < 0:
+    print("up")
+else:
+    print("done")
+PY
+}
+
+aoc_focus_agent_in_current_tab() {
+  command -v zellij >/dev/null 2>&1 || return 0
+
+  local step
+  local i
+  for i in 1 2 3 4 5; do
+    step="$(aoc_zellij_direction_to_agent_in_current_tab 2>/dev/null || true)"
+    case "$step" in
+      "" ) return 0 ;;
+      done ) return 0 ;;
+      up|down|left|right)
+        zellij action move-focus "$step" >/dev/null 2>&1 || true
+        sleep 0.03
+        ;;
+      *) return 0 ;;
+    esac
+  done
+}
+
+aoc_focus_agent_after_new_tab() {
+  local layout_name="${1:-}"
+  case "$layout_name" in
+    mission-control) return 0 ;;
+  esac
+  command -v zellij >/dev/null 2>&1 || return 0
+
+  (
+    sleep 0.18
+    aoc_focus_agent_in_current_tab
+  ) &
 }

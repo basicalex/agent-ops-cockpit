@@ -1,6 +1,7 @@
 default_mode "normal"
 simplified_ui false
-session_serialization false
+session_serialization true
+theme "catppuccin-mocha"
 
 plugins {
     about location="zellij:about"
@@ -11,7 +12,7 @@ plugins {
     }
     plugin-manager location="zellij:plugin-manager"
     session-manager location="zellij:session-manager"
-    status-bar location="file:{{HOME}}/.config/zellij/plugins/zjstatus.wasm"
+    status-bar location="zellij:status-bar"
     strider location="zellij:strider"
     tab-bar location="zellij:tab-bar"
     welcome-screen location="zellij:session-manager" {
@@ -23,6 +24,9 @@ load_plugins {
 }
 
 keybinds {
+    shared_among "normal" "locked" {
+        bind "Alt s" { NextSwapLayout; }
+    }
     shared_except "locked" {
         unbind "Alt a";
         bind "Alt c" {
@@ -31,7 +35,6 @@ keybinds {
                 close_on_exit true
             };
         }
-        bind "Alt s" { NextSwapLayout; }
         bind "Alt i" { GoToPreviousTab; }
         bind "Alt o" { GoToNextTab; }
         bind "Alt u" { MoveTab "Left"; }

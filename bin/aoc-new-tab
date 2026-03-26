@@ -81,25 +81,20 @@ while [[ $# -gt 0 ]]; do
 done
 
 resolve_session_id() {
+  local project_root="${1:-$PWD}"
   if [[ -n "${ZELLIJ_SESSION_NAME:-}" ]]; then
     printf '%s' "$ZELLIJ_SESSION_NAME"
     return
   fi
-  if [[ -n "${AOC_SESSION_ID:-}" ]]; then
+  if [[ -n "${ZELLIJ:-}" && -n "${AOC_SESSION_ID:-}" ]]; then
     printf '%s' "$AOC_SESSION_ID"
     return
   fi
-  local candidate=""
-  local attempt
-  for attempt in 1 2 3 4 5 6 7 8 9 10 11 12; do
-    candidate="$(generate_whimsical_session_id)"
-    if session_name_exists "$candidate"; then
-      continue
-    fi
-    printf '%s' "$candidate"
+  if [[ -n "${AOC_FORCE_SESSION_ID:-}" ]]; then
+    printf '%s' "$AOC_FORCE_SESSION_ID"
     return
-  done
-  printf 'pid-%s' "$$"
+  fi
+  generate_unique_session_id "$project_root"
 }
 
 cleanup_state() {
@@ -201,19 +196,19 @@ realign_current_pane() {
 # 1. CLI arg (--layout, --aoc, etc)
 # 2. Env var (AOC_LAYOUT)
 # 3. Persistent default file
-# 4. Fallback to "aoc"
+# 4. Fallback to "unstat"
 if [[ -z "$layout_choice" ]]; then
   if [[ -n "${AOC_LAYOUT:-}" ]]; then
     layout_choice="$AOC_LAYOUT"
   elif [[ -f "$default_layout_file" ]]; then
     layout_choice="$(cat "$default_layout_file")"
   else
-    layout_choice="aoc"
+    layout_choice="unstat"
   fi
 fi
 
 if [[ -z "$layout_choice" ]]; then
-  layout_choice="aoc"
+  layout_choice="unstat"
 fi
 
 args=()
@@ -229,7 +224,7 @@ fi
 current_pwd="$(pwd -P)"
 project_root="${tab_cwd:-$current_pwd}"
 launch_agent="${AOC_LAUNCH_AGENT_ID:-${AOC_AGENT_ID:-}}"
-session_id="$(resolve_session_id)"
+session_id="$(resolve_session_id "$project_root")"
 hub_addr="$(resolve_hub_addr "$session_id")"
 hub_url="$(resolve_hub_url "$hub_addr")"
 
@@ -319,6 +314,7 @@ if [[ -f "$layout_path" ]]; then
 fi
 
 realign_current_pane "$current_root"
+aoc_focus_agent_in_current_tab || true
 
 pulse_cmd="${AOC_PULSE_CMD:-}"
 if [[ -z "$pulse_cmd" ]]; then
@@ -336,3 +332,4 @@ AOC_PROJECT_ROOT="$project_root" \
   AOC_PULSE_CMD="$pulse_cmd" \
   ZELLIJ_PROJECT_ROOT="$project_root" \
   zellij action new-tab --layout "$layout_arg" "${args[@]}"
+aoc_focus_agent_after_new_tab "$layout_choice"
