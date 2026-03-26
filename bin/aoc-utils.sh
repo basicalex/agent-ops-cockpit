@@ -197,97 +197,6 @@ ensure_hub_running() {
   _aoc_start_hub_unlocked
 }
 
-aoc_zellij_current_focused_pane_name() {
-  command -v zellij >/dev/null 2>&1 || return 1
-  command -v python3 >/dev/null 2>&1 || return 1
-
-  local panes_json current_tab_json
-  panes_json="$(zellij action list-panes --json 2>/dev/null || true)"
-  current_tab_json="$(zellij action current-tab-info --json 2>/dev/null || true)"
-  [[ -n "$panes_json" && -n "$current_tab_json" ]] || return 1
-
-  python3 - <<'PY' <<<"$panes_json
-__AOC_SPLIT__
-$current_tab_json"
-import json, sys
-
-raw = sys.stdin.read()
-parts = raw.split("\n__AOC_SPLIT__\n")
-if len(parts) != 2:
-    raise SystemExit(1)
-panes_raw, current_raw = parts
-
-
-def load_items(raw):
-    val = json.loads(raw)
-    if isinstance(val, list):
-        return val
-    if isinstance(val, dict):
-        for key in ("panes", "data", "items"):
-            child = val.get(key)
-            if isinstance(child, list):
-                return child
-    return []
-
-
-def load_obj(raw):
-    val = json.loads(raw)
-    if isinstance(val, dict):
-        for key in ("tab", "data", "current_tab"):
-            child = val.get(key)
-            if isinstance(child, dict):
-                return child
-        return val
-    return {}
-
-
-def first(obj, *keys):
-    for key in keys:
-        value = obj.get(key)
-        if value not in (None, ""):
-            return value
-    return None
-
-
-def as_bool(value):
-    if isinstance(value, bool):
-        return value
-    if isinstance(value, (int, float)):
-        return bool(value)
-    if isinstance(value, str):
-        lowered = value.strip().lower()
-        if lowered in {"1", "true", "yes", "on"}:
-            return True
-        if lowered in {"0", "false", "no", "off"}:
-            return False
-    return None
-
-current = load_obj(current_raw)
-current_tab_id = first(current, "tab_id", "id", "tabId")
-current_tab_index = first(current, "position", "index", "tab_index", "tabPosition")
-
-for pane in load_items(panes_raw):
-    if not isinstance(pane, dict):
-        continue
-    pane_tab_id = first(pane, "tab_id", "tabId")
-    pane_tab_index = first(pane, "tab_position", "tab_index", "position")
-    if current_tab_id not in (None, "") and pane_tab_id not in (None, "") and str(pane_tab_id) != str(current_tab_id):
-        continue
-    if current_tab_id in (None, "") and current_tab_index not in (None, "") and pane_tab_index not in (None, "") and str(pane_tab_index) != str(current_tab_index):
-        continue
-    focused = first(pane, "focused", "is_focused", "active", "is_active")
-    if as_bool(focused) is not True:
-        continue
-    name = first(pane, "name", "pane_name", "title", "pane_title")
-    if name is None:
-        name = ""
-    print(str(name))
-    raise SystemExit(0)
-
-raise SystemExit(1)
-PY
-}
-
 aoc_zellij_direction_to_agent_in_current_tab() {
   command -v zellij >/dev/null 2>&1 || return 1
   command -v python3 >/dev/null 2>&1 || return 1
@@ -303,7 +212,7 @@ items = json.loads(sys.stdin.read())
 if not isinstance(items, list):
     raise SystemExit(1)
 
-HELPER_TITLES = {"aoc-focus-agent-pane", "aoc-refresh-layout-state"}
+HELPER_TITLES = {"aoc-refresh-layout-state"}
 
 def pane_tab_key(pane):
     for k in ("tab_id", "tab_position", "tab_name"):

@@ -34,7 +34,7 @@ swap_layouts {
     tab name="__AOC_TAB_NAME__" focus=true {
       pane split_direction="horizontal" {
         pane size=1 borderless=true {
-          plugin location="zellij:status-bar"
+          plugin location="zellij:tab-bar"
         }
 
         pane split_direction="vertical" {
