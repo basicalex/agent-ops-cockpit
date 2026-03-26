@@ -141,7 +141,7 @@ function M:entry()
 
 	local should_resize = should_resize_for_edit()
 	local expand_steps = parse_steps("AOC_YAZI_OPEN_EXPAND_STEPS", parse_steps("AOC_YAZI_PANE_EXPAND_STEPS", 12))
-	local shrink_steps = parse_steps("AOC_YAZI_OPEN_SHRINK_STEPS", parse_steps("AOC_YAZI_PANE_SHRINK_STEPS", 11))
+	local shrink_steps = parse_steps("AOC_YAZI_OPEN_SHRINK_STEPS", parse_steps("AOC_YAZI_PANE_SHRINK_STEPS", expand_steps))
 	local async_expand = parse_bool("AOC_YAZI_OPEN_ASYNC_EXPAND", true)
 
 	local commands = {}
