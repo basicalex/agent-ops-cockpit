@@ -1,0 +1,79 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+source "$(dirname "$0")/aoc-utils.sh"
+source "$(dirname "$0")/aoc-zellij.sh"
+
+pane_name="${AOC_MIND_PANE_NAME:-Project Mind}"
+width="${AOC_MIND_WIDTH:-76%}"
+height="${AOC_MIND_HEIGHT:-78%}"
+x="${AOC_MIND_X:-12%}"
+y="${AOC_MIND_Y:-10%}"
+pinned="${AOC_MIND_PINNED:-false}"
+mission_cmd="${AOC_MIND_CMD:-aoc-mission-control}"
+
+resolve_project_root() {
+  if [[ -n "${AOC_PROJECT_ROOT:-}" && -d "${AOC_PROJECT_ROOT}" ]]; then
+    printf '%s\n' "$AOC_PROJECT_ROOT"
+    return 0
+  fi
+  if [[ -n "${ZELLIJ_SESSION_NAME:-}" ]]; then
+    if root="$(aoc_zellij_current_tab_agent_project_root 2>/dev/null)" && [[ -n "$root" && -d "$root" ]]; then
+      printf '%s\n' "$root"
+      return 0
+    fi
+  fi
+  if command -v aoc-align >/dev/null 2>&1; then
+    if root="$(aoc-align --print-root 2>/dev/null)" && [[ -n "$root" && -d "$root" ]]; then
+      printf '%s\n' "$root"
+      return 0
+    fi
+  fi
+  pwd -P
+}
+
+project_root="$(resolve_project_root)"
+
+if [[ -z "${ZELLIJ_SESSION_NAME:-}" ]]; then
+  export AOC_PROJECT_ROOT="$project_root"
+  export AOC_MIND_PROJECT_SCOPED=1
+  export AOC_MISSION_CONTROL_MODE="mission-control"
+  export AOC_MISSION_CONTROL_START_VIEW="mind"
+  exec "$mission_cmd"
+fi
+
+floating_hidden="$(aoc_zellij_current_tab_floating_hidden 2>/dev/null || echo 0)"
+if pane_id="$(aoc_zellij_find_current_tab_pane_id_by_name "$pane_name" 2>/dev/null)" && [[ -n "$pane_id" ]]; then
+  if [[ "$floating_hidden" == "1" ]]; then
+    aoc_zellij_show_current_tab_floating >/dev/null 2>&1 || true
+    exit 0
+  fi
+  aoc_zellij_hide_current_tab_floating >/dev/null 2>&1 || true
+  exit 0
+fi
+
+session_id="${ZELLIJ_SESSION_NAME:-${AOC_SESSION_ID:-}}"
+if [[ -z "$session_id" ]]; then
+  session_id="$(generate_whimsical_session_id)"
+fi
+hub_addr="${AOC_HUB_ADDR:-}"
+if [[ -z "$hub_addr" ]]; then
+  hub_addr="$(resolve_hub_addr "$session_id")"
+fi
+
+if [[ "$floating_hidden" == "1" ]]; then
+  aoc_zellij_show_current_tab_floating >/dev/null 2>&1 || true
+fi
+
+zellij action new-pane \
+  --floating \
+  --name "$pane_name" \
+  --width "$width" \
+  --height "$height" \
+  --x "$x" \
+  --y "$y" \
+  -- bash -lc "export AOC_SESSION_ID=$(printf '%q' "$session_id"); export AOC_HUB_ADDR=$(printf '%q' "$hub_addr"); export AOC_PROJECT_ROOT=$(printf '%q' "$project_root"); export AOC_MIND_PROJECT_SCOPED=1; export AOC_MISSION_CONTROL_MODE=mission-control; export AOC_MISSION_CONTROL_START_VIEW=mind; exec $(printf '%q' "$mission_cmd")"
+
+if [[ "$pinned" == "true" ]]; then
+  zellij action toggle-pane-pinned >/dev/null 2>&1 || true
+fi

@@ -28,12 +28,13 @@ use aoc_core::{
         AttentionLevel, DriftRisk, ObserverSnapshot, ObserverTimelineEntry, PlanAlignment,
         WorkerSnapshot, WorkerStatus,
     },
+    zellij_cli::query_session_snapshot,
     ProjectData, TaskStatus,
 };
 use aoc_storage::{CanonRevisionState, CompactionCheckpoint, StoredCompactionT0Slice};
 use chrono::{DateTime, TimeZone, Utc};
 use crossterm::{
-    event::{Event, EventStream, KeyCode, KeyEvent, KeyEventKind},
+    event::{Event, EventStream, KeyCode, KeyEvent, KeyEventKind, KeyModifiers},
     execute,
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
 };
@@ -63,6 +64,9 @@ use tokio::{
     io::{AsyncReadExt, AsyncWriteExt, BufReader},
     sync::mpsc,
 };
+mod pulse_tabs;
+
+use pulse_tabs::render_pulse_tab_section;
 use tracing::{debug, info, warn};
 use tracing_subscriber::EnvFilter;
 
@@ -95,9 +99,12 @@ struct Config {
     pulse_vnext_enabled: bool,
     overview_enabled: bool,
     runtime_mode: RuntimeMode,
+    start_view: Option<Mode>,
+    fleet_plane_filter: FleetPlaneFilter,
     layout_source: LayoutSource,
     client_id: String,
     project_root: PathBuf,
+    mind_project_scoped: bool,
     state_dir: PathBuf,
 }
 
@@ -133,6 +140,10 @@ struct AgentStatusPayload {
     agent_label: Option<String>,
     #[serde(default)]
     message: Option<String>,
+    #[serde(default)]
+    session_title: Option<String>,
+    #[serde(default)]
+    chat_title: Option<String>,
 }
 
 #[derive(Deserialize, Serialize, Clone, Debug, Default)]
@@ -413,6 +424,8 @@ struct OverviewRow {
     online: bool,
     age_secs: Option<i64>,
     source: String,
+    session_title: Option<String>,
+    chat_title: Option<String>,
 }
 
 #[derive(Clone, Debug)]
@@ -427,6 +440,8 @@ struct SessionLayout {
     pane_ids: HashSet<String>,
     pane_tabs: HashMap<String, TabMeta>,
     project_tabs: HashMap<String, TabMeta>,
+    tabs: Vec<TabMeta>,
+    focused_tab_index: Option<usize>,
 }
 
 #[derive(Clone, Debug)]
@@ -578,6 +593,14 @@ struct MindArtifactDrilldown {
 }
 
 #[derive(Clone, Debug)]
+struct MindSearchHit {
+    kind: &'static str,
+    title: String,
+    summary: String,
+    score: usize,
+}
+
+#[derive(Clone, Debug)]
 struct MindObserverRow {
     agent_id: String,
     scope: String,
@@ -640,6 +663,7 @@ impl FleetPlaneFilter {
 struct LocalSnapshot {
     overview: Vec<OverviewRow>,
     viewer_tab_index: Option<usize>,
+    tab_roster: Vec<TabMeta>,
     work: Vec<WorkProject>,
     diff: Vec<DiffProject>,
     health: HealthSnapshot,
@@ -840,6 +864,8 @@ struct App {
     mind_lane: MindLaneFilter,
     mind_show_all_tabs: bool,
     mind_show_provenance: bool,
+    mind_search_query: String,
+    mind_search_editing: bool,
     status_note: Option<String>,
     pending_commands: HashMap<String, PendingCommand>,
     pending_consultations: HashMap<String, PendingConsultation>,
@@ -890,24 +916,42 @@ fn apply_cached_tab_meta(row: &mut OverviewRow, cache: &HashMap<String, TabMeta>
     }
 }
 
+fn normalized_project_root_key(value: &str) -> String {
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        return String::new();
+    }
+    let mut normalized = trimmed.replace('\\', "/");
+    while normalized.len() > 1 && normalized.ends_with('/') {
+        normalized.pop();
+    }
+    normalized
+}
+
 impl App {
     fn new(config: Config, command_tx: mpsc::Sender<HubOutbound>, local: LocalSnapshot) -> Self {
         let tab_cache = seed_tab_cache(&local.overview);
         let last_viewer_tab_index = local.viewer_tab_index;
-        let mode = if config.runtime_mode.is_pulse_pane() {
+        let default_mode = if config.runtime_mode.is_pulse_pane() {
             Mode::PulsePane
         } else if config.overview_enabled {
             Mode::Overview
         } else {
             Mode::Overseer
         };
+        let mode = if config.runtime_mode.is_pulse_pane() {
+            default_mode
+        } else {
+            config.start_view.unwrap_or(default_mode)
+        };
         let status_note = if config.runtime_mode.is_pulse_pane() {
-            Some("pulse pane mode: local tab Mind/status only".to_string())
+            Some("pulse pane mode: local Tabs + Mind/status".to_string())
         } else if config.overview_enabled {
             None
         } else {
             Some("overview disabled; using Overseer/Mind/Work/Diff/Health".to_string())
         };
+        let fleet_plane_filter = config.fleet_plane_filter;
         Self {
             config,
             command_tx,
@@ -924,13 +968,15 @@ impl App {
             selected_fleet_job: 0,
             overview_sort_mode: OverviewSortMode::Layout,
             fleet_sort_mode: FleetSortMode::Project,
-            fleet_plane_filter: FleetPlaneFilter::All,
+            fleet_plane_filter,
             fleet_active_only: false,
             follow_viewer_tab: true,
             last_viewer_tab_index,
             mind_lane: MindLaneFilter::T1,
             mind_show_all_tabs: false,
             mind_show_provenance: false,
+            mind_search_query: String::new(),
+            mind_search_editing: false,
             status_note,
             pending_commands: HashMap::new(),
             pending_consultations: HashMap::new(),
@@ -1038,7 +1084,7 @@ impl App {
                 self.hub.observer_timeline = payload.entries;
             }
             HubEvent::LayoutState { payload } => {
-                if !self.config.overview_enabled {
+                if !self.config.overview_enabled && !self.config.runtime_mode.is_pulse_pane() {
                     return;
                 }
                 if payload.session_id != self.config.session_id {
@@ -1073,6 +1119,8 @@ impl App {
                             tab_scope: None,
                             agent_label: Some(extract_label(&payload.agent_id)),
                             message: None,
+                            session_title: None,
+                            chat_title: None,
                         }),
                         last_seen: event_at,
                         last_heartbeat: None,
@@ -1602,11 +1650,13 @@ impl App {
         let LocalSnapshot {
             overview,
             viewer_tab_index,
+            tab_roster,
             work,
             diff,
             health,
         } = local;
         self.set_local_overview(overview, viewer_tab_index);
+        self.local.tab_roster = tab_roster;
         self.local.work = work;
         self.local.diff = diff;
         self.local.health = health;
@@ -1660,9 +1710,10 @@ impl App {
     }
 
     fn refresh_local_layout(&mut self) {
-        let (overview, viewer_tab_index) =
+        let (overview, viewer_tab_index, tab_roster) =
             collect_layout_overview(&self.config, &self.local.overview, &self.tab_cache);
         self.set_local_overview(overview, viewer_tab_index);
+        self.local.tab_roster = tab_roster;
     }
 
     fn collect_local_snapshot(&self) -> LocalSnapshot {
@@ -1926,6 +1977,8 @@ impl App {
                     online,
                     age_secs,
                     source: "hub".to_string(),
+                    session_title: status.and_then(|s| s.session_title.clone()),
+                    chat_title: status.and_then(|s| s.chat_title.clone()),
                 };
                 rows.insert(row.identity_key.clone(), row);
             }
@@ -1963,6 +2016,12 @@ impl App {
                         if existing.lifecycle == "offline" {
                             existing.lifecycle = local.lifecycle.clone();
                         }
+                    }
+                    if existing.session_title.is_none() {
+                        existing.session_title = local.session_title.clone();
+                    }
+                    if existing.chat_title.is_none() {
+                        existing.chat_title = local.chat_title.clone();
                     }
                 } else {
                     let mut local_row = local.clone();
@@ -2373,8 +2432,19 @@ impl App {
         let mut jobs = self
             .hub
             .insight_detached
-            .values()
-            .flat_map(|snapshot| snapshot.jobs.clone())
+            .iter()
+            .filter(|(agent_id, _)| {
+                if !self.config.mind_project_scoped {
+                    return true;
+                }
+                self.hub
+                    .agents
+                    .get(*agent_id)
+                    .and_then(|agent| agent.status.as_ref())
+                    .map(|status| self.mind_project_matches(&status.project_root))
+                    .unwrap_or(false)
+            })
+            .flat_map(|(_, snapshot)| snapshot.jobs.clone())
             .collect::<Vec<_>>();
         jobs.sort_by(|left, right| {
             right
@@ -2765,6 +2835,15 @@ impl App {
         self.status_note = Some(format!("focused project tab via {}", agent_id));
     }
 
+    fn mind_project_matches(&self, project_root: &str) -> bool {
+        if !self.config.mind_project_scoped {
+            return true;
+        }
+        let candidate = normalized_project_root_key(project_root);
+        !candidate.is_empty()
+            && candidate == normalized_project_root_key(&self.config.project_root.to_string_lossy())
+    }
+
     fn mind_rows_for_lane(&self, lane_filter: MindLaneFilter) -> Vec<MindObserverRow> {
         if !self.prefer_hub_data(!self.hub.mind.is_empty()) {
             return Vec::new();
@@ -2789,6 +2868,13 @@ impl App {
                 .unwrap_or_else(|| extract_pane_id(agent_id));
             let tab_scope = status.and_then(|value| value.tab_scope.clone());
             let tab_focused = tab_scope_matches(viewer_scope, tab_scope.as_deref());
+            if let Some(project_root) = status.map(|value| value.project_root.as_str()) {
+                if !self.mind_project_matches(project_root) {
+                    continue;
+                }
+            } else if self.config.mind_project_scoped {
+                continue;
+            }
             if !self.mind_show_all_tabs && viewer_scope.is_some() && !tab_focused {
                 continue;
             }
@@ -2853,6 +2939,13 @@ impl App {
                 .unwrap_or_else(|| extract_pane_id(agent_id));
             let tab_scope = status.and_then(|value| value.tab_scope.clone());
             let tab_focused = tab_scope_matches(viewer_scope, tab_scope.as_deref());
+            if let Some(project_root) = status.map(|value| value.project_root.as_str()) {
+                if !self.mind_project_matches(project_root) {
+                    continue;
+                }
+            } else if self.config.mind_project_scoped {
+                continue;
+            }
             if !self.mind_show_all_tabs && viewer_scope.is_some() && !tab_focused {
                 continue;
             }
@@ -2878,17 +2971,16 @@ impl App {
 
     fn mind_target_agent(&self) -> Option<OverviewRow> {
         let rows = self.overview_rows();
-        rows.into_iter().find(|row| row.tab_focused).or_else(|| {
-            self.hub
-                .agents
-                .iter()
-                .find_map(|(agent_id, agent)| {
+        rows.into_iter()
+            .find(|row| row.tab_focused && self.mind_project_matches(&row.project_root))
+            .or_else(|| {
+                self.hub.agents.iter().find_map(|(agent_id, agent)| {
                     let status = agent.status.as_ref()?;
                     let tab_focused = tab_scope_matches(
                         self.config.tab_scope.as_deref(),
                         status.tab_scope.as_deref(),
                     );
-                    if !tab_focused {
+                    if !tab_focused || !self.mind_project_matches(&status.project_root) {
                         return None;
                     }
                     Some(OverviewRow {
@@ -2907,36 +2999,47 @@ impl App {
                         online: true,
                         age_secs: None,
                         source: "hub".to_string(),
+                        session_title: status.session_title.clone(),
+                        chat_title: status.chat_title.clone(),
                     })
                 })
-                .or_else(|| {
-                    self.hub.agents.iter().next().map(|(agent_id, agent)| {
-                        let status = agent.status.as_ref();
-                        OverviewRow {
-                            identity_key: agent_id.clone(),
-                            label: status
-                                .and_then(|value| value.agent_label.clone())
-                                .unwrap_or_else(|| extract_label(agent_id)),
-                            lifecycle: status
-                                .map(|value| value.status.clone())
-                                .unwrap_or_else(|| "unknown".to_string()),
-                            snippet: status.and_then(|value| value.message.clone()),
-                            pane_id: status
-                                .map(|value| value.pane_id.clone())
-                                .unwrap_or_else(|| extract_pane_id(agent_id)),
-                            tab_index: None,
-                            tab_name: status.and_then(|value| value.tab_scope.clone()),
-                            tab_focused: false,
-                            project_root: status
-                                .map(|value| value.project_root.clone())
-                                .unwrap_or_else(|| "(unknown)".to_string()),
-                            online: true,
-                            age_secs: None,
-                            source: "hub".to_string(),
-                        }
+            })
+            .or_else(|| {
+                self.hub.agents.iter().find_map(|(agent_id, agent)| {
+                    let status = agent.status.as_ref();
+                    if self.config.mind_project_scoped
+                        && !status
+                            .map(|value| self.mind_project_matches(&value.project_root))
+                            .unwrap_or(false)
+                    {
+                        return None;
+                    }
+                    Some(OverviewRow {
+                        identity_key: agent_id.clone(),
+                        label: status
+                            .and_then(|value| value.agent_label.clone())
+                            .unwrap_or_else(|| extract_label(agent_id)),
+                        lifecycle: status
+                            .map(|value| value.status.clone())
+                            .unwrap_or_else(|| "unknown".to_string()),
+                        snippet: status.and_then(|value| value.message.clone()),
+                        pane_id: status
+                            .map(|value| value.pane_id.clone())
+                            .unwrap_or_else(|| extract_pane_id(agent_id)),
+                        tab_index: None,
+                        tab_name: status.and_then(|value| value.tab_scope.clone()),
+                        tab_focused: false,
+                        project_root: status
+                            .map(|value| value.project_root.clone())
+                            .unwrap_or_else(|| "(unknown)".to_string()),
+                        online: true,
+                        age_secs: None,
+                        source: "hub".to_string(),
+                        session_title: status.and_then(|value| value.session_title.clone()),
+                        chat_title: status.and_then(|value| value.chat_title.clone()),
                     })
                 })
-        })
+            })
     }
 
     fn selected_overseer_worker(&mut self) -> Option<WorkerSnapshot> {
@@ -2952,6 +3055,109 @@ impl App {
         let selected = self.selected_overview.min(workers.len().saturating_sub(1));
         self.selected_overview = selected;
         workers.get(selected).cloned()
+    }
+
+    fn selected_overview_row(&mut self) -> Option<OverviewRow> {
+        let rows = self.overview_rows();
+        if rows.is_empty() {
+            self.status_note = Some("no agents available".to_string());
+            return None;
+        }
+        let selected = self.selected_overview_index_for_rows(&rows);
+        self.selected_overview = selected;
+        rows.get(selected).cloned()
+    }
+
+    fn selected_pane_target(&mut self) -> Option<(String, String, PathBuf)> {
+        match self.mode {
+            Mode::Overview => self.selected_overview_row().map(|row| {
+                let project_root = if row.project_root.trim().is_empty() {
+                    self.config.project_root.clone()
+                } else {
+                    PathBuf::from(row.project_root)
+                };
+                (row.pane_id, row.label, project_root)
+            }),
+            Mode::Overseer => self.selected_overseer_worker().map(|worker| {
+                (
+                    worker.pane_id,
+                    worker.agent_id,
+                    self.config.project_root.clone(),
+                )
+            }),
+            Mode::Mind => self.mind_target_agent().map(|row| {
+                let project_root = if row.project_root.trim().is_empty() {
+                    self.config.project_root.clone()
+                } else {
+                    PathBuf::from(row.project_root)
+                };
+                (row.pane_id, row.label, project_root)
+            }),
+            _ => {
+                self.status_note = Some(
+                    "pane evidence is available in Overview, Overseer, or Mind mode".to_string(),
+                );
+                None
+            }
+        }
+    }
+
+    fn capture_selected_pane_evidence(&mut self) {
+        let Some((pane_id, label, _project_root)) = self.selected_pane_target() else {
+            return;
+        };
+        let dir = self
+            .config
+            .state_dir
+            .join("mission-control")
+            .join("pane-evidence");
+        if let Err(err) = fs::create_dir_all(&dir) {
+            self.status_note = Some(format!("create evidence dir failed: {err}"));
+            return;
+        }
+        let stamp = Utc::now().format("%Y%m%d%H%M%S");
+        let filename = format!(
+            "{}-pane-{}-{}.ansi",
+            sanitize_slug(&label),
+            sanitize_slug(&pane_id),
+            stamp
+        );
+        let path = dir.join(filename);
+        match dump_pane_evidence(&self.config.session_id, &pane_id, &path) {
+            Ok(()) => {
+                self.status_note = Some(format!(
+                    "pane evidence saved for {} ({}) -> {}",
+                    label,
+                    pane_id,
+                    path.display()
+                ));
+            }
+            Err(err) => {
+                self.status_note = Some(format!("pane evidence failed for {pane_id}: {err}"));
+            }
+        }
+    }
+
+    fn follow_selected_pane_live(&mut self) {
+        let Some((pane_id, label, project_root)) = self.selected_pane_target() else {
+            return;
+        };
+        if !in_zellij_session() {
+            self.status_note =
+                Some("live pane follow requires running Mission Control inside Zellij".to_string());
+            return;
+        }
+        match launch_pane_follow(&self.config.session_id, &pane_id, &label, &project_root) {
+            Ok(()) => {
+                self.status_note = Some(format!(
+                    "live pane follow opened for {} ({})",
+                    label, pane_id
+                ));
+            }
+            Err(err) => {
+                self.status_note = Some(format!("live pane follow failed for {pane_id}: {err}"));
+            }
+        }
     }
 
     fn consultation_peer_for(&self, focal_agent_id: &str) -> Option<WorkerSnapshot> {
@@ -3892,6 +4098,10 @@ struct RuntimeSnapshot {
     project_root: String,
     #[serde(default)]
     tab_scope: Option<String>,
+    #[serde(default)]
+    session_title: Option<String>,
+    #[serde(default)]
+    chat_title: Option<String>,
     pid: i32,
     status: String,
     last_update: String,
@@ -3967,7 +4177,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
         app.observe_render_latency();
         tokio::select! {
             _ = snapshot_ticker.tick() => {
-                if app.config.overview_enabled {
+                if app.config.overview_enabled || app.config.runtime_mode.is_pulse_pane() {
                     snapshot_refresh_requested = true;
                 }
             }
@@ -4692,6 +4902,8 @@ fn mode_help_lines(app: &App, theme: PulseTheme) -> Vec<Line<'static>> {
                 Line::from("  j/k      select agent row (>> + reverse)"),
                 Line::from("  g        jump to first agent"),
                 Line::from("  Enter    focus selected tab; unmapped -> pane note"),
+                Line::from("  e        capture selected pane evidence"),
+                Line::from("  E        open live pane follow"),
                 Line::from("  x        request stop selected agent"),
                 Line::from("  a        toggle sort (layout/attention)"),
                 Line::from("  o        request manual observer run"),
@@ -4707,6 +4919,8 @@ fn mode_help_lines(app: &App, theme: PulseTheme) -> Vec<Line<'static>> {
             Line::from("  j/k      scroll overseer snapshot and timeline"),
             Line::from("  g        jump to top"),
             Line::from("  Enter    focus selected worker tab"),
+            Line::from("  e        capture selected worker pane evidence"),
+            Line::from("  E        open live pane follow"),
             Line::from("  x        stop selected worker"),
             Line::from("  c        request peer review for selected worker"),
             Line::from("  u        request peer unblock/help for selected worker"),
@@ -4724,6 +4938,8 @@ fn mode_help_lines(app: &App, theme: PulseTheme) -> Vec<Line<'static>> {
             )),
             Line::from("  j/k      scroll observer timeline"),
             Line::from("  g        jump to top"),
+            Line::from("  e        capture focused pane evidence"),
+            Line::from("  E        open live pane follow"),
             Line::from("  o        request manual observer run (T1)"),
             Line::from("  O        run insight_dispatch chain (T1->T2)"),
             Line::from("  b / B    bootstrap dry-run / seed enqueue"),
@@ -4731,6 +4947,7 @@ fn mode_help_lines(app: &App, theme: PulseTheme) -> Vec<Line<'static>> {
             Line::from("  C        rebuild/requeue latest compaction checkpoint"),
             Line::from("  R        requeue latest T3 export slice"),
             Line::from("  H        rebuild handshake baseline"),
+            Line::from("  /        edit local project Mind search query"),
             Line::from("  t        toggle lane (t0/t1/t2/t3/all)"),
             Line::from("  v        toggle scope (active tab/all tabs)"),
             Line::from("  p        toggle provenance drilldown"),
@@ -5632,15 +5849,17 @@ fn render_pulse_pane_lines(
     let mut lines = Vec::new();
     let project_root = app.config.project_root.to_string_lossy().to_string();
     let viewer_scope = app.config.tab_scope.as_deref();
+    let overview_rows = app.overview_rows();
 
-    let focus_row = app
-        .overview_rows()
-        .into_iter()
+    let focus_row = overview_rows
+        .iter()
         .find(|row| row.tab_focused)
+        .cloned()
         .or_else(|| {
-            app.overview_rows()
-                .into_iter()
+            overview_rows
+                .iter()
                 .find(|row| row.project_root == project_root)
+                .cloned()
         });
 
     let status_label = if app.connected {
@@ -5719,6 +5938,12 @@ fn render_pulse_pane_lines(
         }
     }
 
+    let tab_lines = render_pulse_tab_section(app, &overview_rows, theme, compact, width);
+    if !tab_lines.is_empty() {
+        lines.push(Line::from(""));
+        lines.extend(tab_lines);
+    }
+
     let mut work_projects = app
         .work_rows()
         .into_iter()
@@ -5727,7 +5952,7 @@ fn render_pulse_pane_lines(
     if let Some(project) = work_projects.pop() {
         lines.push(Line::from(""));
         lines.push(Line::from(Span::styled(
-            "Local work",
+            "Tasks",
             Style::default()
                 .fg(theme.title)
                 .add_modifier(Modifier::BOLD),
@@ -6279,14 +6504,20 @@ fn render_fleet_lines(app: &App, theme: PulseTheme, compact: bool) -> Vec<Line<'
 fn render_mind_lines(app: &App, theme: PulseTheme, compact: bool) -> Vec<Line<'static>> {
     let rows = app.mind_rows();
     let all_rows = app.mind_rows_for_lane(MindLaneFilter::All);
+    let detached_jobs = app.insight_detached_jobs();
+    let artifact_snapshot =
+        load_mind_artifact_drilldown(&app.config.project_root, &app.config.session_id);
     let mut lines = Vec::new();
 
     let lane_label = app.mind_lane.label().to_ascii_uppercase();
-    let scope_label = if app.mind_show_all_tabs {
+    let scope_label = if app.config.mind_project_scoped {
+        "project"
+    } else if app.mind_show_all_tabs {
         "all-tabs"
     } else {
         "active-tab"
     };
+    let project_label = app.config.project_root.to_string_lossy().to_string();
     let lane_rollup = mind_lane_rollup(&all_rows);
     let mut header = vec![
         Span::styled("lane:", Style::default().fg(theme.muted)),
@@ -6332,6 +6563,25 @@ fn render_mind_lines(app: &App, theme: PulseTheme, compact: bool) -> Vec<Line<'s
         ));
     }
     lines.push(Line::from(header));
+    lines.push(Line::from(vec![
+        Span::styled("project:", Style::default().fg(theme.muted)),
+        Span::raw(" "),
+        Span::styled(
+            ellipsize(&project_label, if compact { 44 } else { 88 }),
+            Style::default()
+                .fg(theme.title)
+                .add_modifier(Modifier::BOLD),
+        ),
+        Span::raw(" "),
+        Span::styled(
+            if app.config.mind_project_scoped {
+                "[project-scoped]"
+            } else {
+                "[session-scoped]"
+            },
+            Style::default().fg(theme.muted),
+        ),
+    ]));
 
     let status_rollup = mind_status_rollup(&rows);
     lines.push(Line::from(vec![
@@ -6363,15 +6613,102 @@ fn render_mind_lines(app: &App, theme: PulseTheme, compact: bool) -> Vec<Line<'s
         ),
     ]));
 
+    let export_status = artifact_snapshot
+        .latest_export
+        .as_ref()
+        .map(|manifest| {
+            mind_timestamp_label(&manifest.exported_at)
+                .map(|label| format!("latest@{label}"))
+                .unwrap_or_else(|| "latest:present".to_string())
+        })
+        .unwrap_or_else(|| "latest:none".to_string());
+    let recovery_status = if artifact_snapshot.compaction_rebuildable {
+        "recovery:ready"
+    } else if artifact_snapshot.compaction_marker_event_available {
+        "recovery:partial"
+    } else {
+        "recovery:none"
+    };
+    lines.push(Line::from(vec![
+        Span::styled("overview:", Style::default().fg(theme.muted)),
+        Span::raw(" "),
+        Span::styled(
+            format!("handshake:{}", artifact_snapshot.handshake_entries.len()),
+            Style::default().fg(theme.info),
+        ),
+        Span::raw(" "),
+        Span::styled(
+            format!("canon:{}", artifact_snapshot.active_canon_entries.len()),
+            Style::default().fg(theme.accent),
+        ),
+        Span::raw(" "),
+        Span::styled(
+            format!("stale:{}", artifact_snapshot.stale_canon_count),
+            Style::default().fg(if artifact_snapshot.stale_canon_count > 0 {
+                theme.warn
+            } else {
+                theme.muted
+            }),
+        ),
+        Span::raw(" "),
+        Span::styled(export_status, Style::default().fg(theme.ok)),
+        Span::raw(" "),
+        Span::styled(
+            recovery_status,
+            Style::default().fg(if artifact_snapshot.compaction_rebuildable {
+                theme.ok
+            } else if artifact_snapshot.compaction_marker_event_available {
+                theme.warn
+            } else {
+                theme.muted
+            }),
+        ),
+        Span::raw(" "),
+        Span::styled(
+            format!("detached:{}", detached_jobs.len()),
+            Style::default().fg(theme.muted),
+        ),
+    ]));
+
     let injection_rows = app.mind_injection_rows();
     if let Some(line) = render_mind_injection_rollup_line(&injection_rows, theme, compact) {
         lines.push(line);
     }
 
-    let detached_jobs = app.insight_detached_jobs();
     if let Some(line) = render_insight_detached_rollup_line(&detached_jobs, theme, compact) {
         lines.push(line);
     }
+
+    let search_lines = render_mind_search_lines(
+        &artifact_snapshot,
+        &app.mind_search_query,
+        app.mind_search_editing,
+        theme,
+        compact,
+    );
+    let artifact_lines = render_mind_artifact_drilldown_lines(
+        &app.config.project_root,
+        &app.config.session_id,
+        theme,
+        compact,
+        app.mind_show_provenance,
+        &all_rows,
+        app.insight_runtime_rollup(),
+    );
+
+    lines.push(Line::from(vec![
+        Span::styled(
+            "Observer activity",
+            Style::default()
+                .fg(theme.title)
+                .add_modifier(Modifier::BOLD),
+        ),
+        Span::raw(" "),
+        Span::styled(
+            format!("[{} events]", rows.len()),
+            Style::default().fg(theme.muted),
+        ),
+    ]));
 
     if rows.is_empty() {
         lines.push(Line::from(Span::styled(
@@ -6382,6 +6719,12 @@ fn render_mind_lines(app: &App, theme: PulseTheme, compact: bool) -> Vec<Line<'s
             "Try: o (T1), O (T1->T2 chain), b (bootstrap dry-run), t/v (filters).",
             Style::default().fg(theme.muted),
         )));
+        lines.push(Line::from(""));
+        lines.extend(search_lines);
+        if !artifact_lines.is_empty() {
+            lines.push(Line::from(""));
+            lines.extend(artifact_lines);
+        }
         return lines;
     }
 
@@ -6498,15 +6841,9 @@ fn render_mind_lines(app: &App, theme: PulseTheme, compact: bool) -> Vec<Line<'s
         ]));
     }
 
-    let artifact_lines = render_mind_artifact_drilldown_lines(
-        &app.config.project_root,
-        &app.config.session_id,
-        theme,
-        compact,
-        app.mind_show_provenance,
-        &all_rows,
-        app.insight_runtime_rollup(),
-    );
+    lines.push(Line::from(""));
+    lines.extend(search_lines);
+
     if !artifact_lines.is_empty() {
         lines.push(Line::from(""));
         lines.extend(artifact_lines);
@@ -6537,11 +6874,13 @@ fn render_mind_artifact_drilldown_lines(
 
     let mut lines = vec![Line::from(vec![
         Span::styled(
-            "Artifact drilldown",
+            "Knowledge artifacts",
             Style::default()
                 .fg(theme.title)
                 .add_modifier(Modifier::BOLD),
         ),
+        Span::raw(" "),
+        Span::styled("Artifact drilldown", Style::default().fg(theme.muted)),
         Span::raw(" "),
         Span::styled(
             if show_provenance {
@@ -6554,6 +6893,10 @@ fn render_mind_artifact_drilldown_lines(
     ])];
 
     if let Some(checkpoint) = snapshot.latest_compaction_checkpoint.as_ref() {
+        lines.push(Line::from(vec![
+            Span::raw("  "),
+            Span::styled("Compaction / recovery", Style::default().fg(theme.title)),
+        ]));
         let mut spans = vec![
             Span::raw("  "),
             Span::styled("compact:", Style::default().fg(theme.muted)),
@@ -6681,6 +7024,10 @@ fn render_mind_artifact_drilldown_lines(
     }
 
     if let Some(manifest) = snapshot.latest_export.as_ref() {
+        lines.push(Line::from(vec![
+            Span::raw("  "),
+            Span::styled("Recent export", Style::default().fg(theme.title)),
+        ]));
         let export_leaf = Path::new(&manifest.export_dir)
             .file_name()
             .and_then(|value| value.to_str())
@@ -6733,6 +7080,10 @@ fn render_mind_artifact_drilldown_lines(
         lines.push(Line::from(spans));
     }
 
+    lines.push(Line::from(vec![
+        Span::raw("  "),
+        Span::styled("Handshake + canon", Style::default().fg(theme.title)),
+    ]));
     lines.push(Line::from(vec![
         Span::raw("  "),
         Span::styled(
@@ -8065,6 +8416,194 @@ fn mind_progress_label(progress: &MindObserverFeedProgress) -> String {
     )
 }
 
+fn score_search_text(text: &str, terms: &[String]) -> usize {
+    let haystack = text.to_ascii_lowercase();
+    terms
+        .iter()
+        .map(|term| {
+            let mut hits = 0usize;
+            let mut start = 0usize;
+            while let Some(pos) = haystack[start..].find(term) {
+                hits += 1;
+                start += pos + term.len();
+            }
+            hits
+        })
+        .sum()
+}
+
+fn collect_mind_search_hits(snapshot: &MindArtifactDrilldown, query: &str) -> Vec<MindSearchHit> {
+    let terms = query
+        .split_whitespace()
+        .map(|term| term.trim().to_ascii_lowercase())
+        .filter(|term| !term.is_empty())
+        .collect::<Vec<_>>();
+    if terms.is_empty() {
+        return Vec::new();
+    }
+
+    let mut hits = Vec::new();
+    for entry in &snapshot.handshake_entries {
+        let title = format!("{} r{}", entry.entry_id, entry.revision);
+        let topic = entry.topic.as_deref().unwrap_or("global");
+        let summary = format!("topic={topic} · {}", entry.summary);
+        let score = score_search_text(&format!("{title} {summary}"), &terms);
+        if score > 0 {
+            hits.push(MindSearchHit {
+                kind: "handshake",
+                title,
+                summary,
+                score,
+            });
+        }
+    }
+    for entry in &snapshot.active_canon_entries {
+        let title = format!("{} r{}", entry.entry_id, entry.revision);
+        let topic = entry.topic.as_deref().unwrap_or("global");
+        let refs = if entry.evidence_refs.is_empty() {
+            "evidence:none".to_string()
+        } else {
+            format!("evidence:{}", entry.evidence_refs.join(", "))
+        };
+        let summary = format!("topic={topic} · {} · {refs}", entry.summary);
+        let score = score_search_text(&format!("{title} {summary}"), &terms);
+        if score > 0 {
+            hits.push(MindSearchHit {
+                kind: "canon",
+                title,
+                summary,
+                score,
+            });
+        }
+    }
+    if let Some(export) = snapshot.latest_export.as_ref() {
+        let title = export
+            .active_tag
+            .clone()
+            .filter(|value| !value.trim().is_empty())
+            .unwrap_or_else(|| "recent-export".to_string());
+        let summary = format!(
+            "session:{} t1:{} t2:{} exported:{}",
+            export.session_id, export.t1_count, export.t2_count, export.exported_at
+        );
+        let score = score_search_text(&format!("{title} {summary}"), &terms);
+        if score > 0 {
+            hits.push(MindSearchHit {
+                kind: "export",
+                title,
+                summary,
+                score,
+            });
+        }
+    }
+    hits.sort_by(|left, right| {
+        right
+            .score
+            .cmp(&left.score)
+            .then_with(|| left.kind.cmp(right.kind))
+            .then_with(|| left.title.cmp(&right.title))
+    });
+    hits.truncate(6);
+    hits
+}
+
+fn render_mind_search_lines(
+    snapshot: &MindArtifactDrilldown,
+    query: &str,
+    editing: bool,
+    theme: PulseTheme,
+    compact: bool,
+) -> Vec<Line<'static>> {
+    let mut lines = vec![Line::from(vec![
+        Span::styled(
+            "Retrieval / search",
+            Style::default()
+                .fg(theme.title)
+                .add_modifier(Modifier::BOLD),
+        ),
+        Span::raw(" "),
+        Span::styled(
+            if editing { "[editing]" } else { "[/ to edit]" },
+            Style::default().fg(theme.muted),
+        ),
+    ])];
+    let prompt = if query.trim().is_empty() {
+        ""
+    } else {
+        query.trim()
+    };
+    lines.push(Line::from(vec![
+        Span::raw("  "),
+        Span::styled("query:", Style::default().fg(theme.muted)),
+        Span::raw(" "),
+        Span::styled(
+            if prompt.is_empty() {
+                "(empty)".to_string()
+            } else if editing {
+                format!("> {prompt}_")
+            } else {
+                format!("> {prompt}")
+            },
+            Style::default().fg(if prompt.is_empty() {
+                theme.muted
+            } else {
+                theme.accent
+            }),
+        ),
+    ]));
+    if prompt.is_empty() {
+        lines.push(Line::from(vec![
+            Span::raw("  -> "),
+            Span::styled(
+                "Type / then a query to search handshake, canon, and recent export summaries.",
+                Style::default().fg(theme.muted),
+            ),
+        ]));
+        return lines;
+    }
+
+    let hits = collect_mind_search_hits(snapshot, prompt);
+    if hits.is_empty() {
+        lines.push(Line::from(vec![
+            Span::raw("  -> "),
+            Span::styled(
+                "No local project Mind hits.",
+                Style::default().fg(theme.warn),
+            ),
+        ]));
+        return lines;
+    }
+
+    lines.push(Line::from(vec![
+        Span::raw("  -> "),
+        Span::styled(
+            format!("{} local hits", hits.len()),
+            Style::default().fg(theme.muted),
+        ),
+    ]));
+    for hit in hits {
+        lines.push(Line::from(vec![
+            Span::raw("  • "),
+            Span::styled(format!("[{}]", hit.kind), Style::default().fg(theme.info)),
+            Span::raw(" "),
+            Span::styled(hit.title, Style::default().fg(theme.accent)),
+            Span::raw(" "),
+            Span::styled(
+                format!("score:{}", hit.score),
+                Style::default().fg(theme.muted),
+            ),
+        ]));
+        lines.push(Line::from(vec![
+            Span::raw("    "),
+            Span::styled(
+                ellipsize(&hit.summary, if compact { 68 } else { 108 }),
+                Style::default().fg(theme.muted),
+            ),
+        ]));
+    }
+    lines
+}
+
 fn render_mind_injection_rollup_line(
     rows: &[MindInjectionRow],
     theme: PulseTheme,
@@ -8453,6 +8992,8 @@ fn status_payload_from_state(state: &AgentState) -> AgentStatusPayload {
         tab_scope,
         agent_label,
         message: state.snippet.clone(),
+        session_title: source_string_field(&state.source, "session_title"),
+        chat_title: source_string_field(&state.source, "chat_title"),
     }
 }
 
@@ -8853,6 +9394,38 @@ fn handle_input(event: Event, app: &mut App, refresh_requested: &mut bool) -> bo
 }
 
 fn handle_key(key: KeyEvent, app: &mut App, refresh_requested: &mut bool) -> bool {
+    if app.mode == Mode::Mind && app.mind_search_editing {
+        match key.code {
+            KeyCode::Esc => {
+                app.mind_search_editing = false;
+                app.status_note = Some("mind search edit cancelled".to_string());
+                return false;
+            }
+            KeyCode::Enter => {
+                app.mind_search_editing = false;
+                app.status_note = Some(if app.mind_search_query.trim().is_empty() {
+                    "mind search cleared".to_string()
+                } else {
+                    format!("mind search: {}", app.mind_search_query.trim())
+                });
+                app.scroll = 0;
+                return false;
+            }
+            KeyCode::Backspace => {
+                app.mind_search_query.pop();
+                return false;
+            }
+            KeyCode::Char(ch)
+                if !key.modifiers.contains(KeyModifiers::CONTROL)
+                    && !key.modifiers.contains(KeyModifiers::ALT) =>
+            {
+                app.mind_search_query.push(ch);
+                return false;
+            }
+            _ => return false,
+        }
+    }
+
     if matches!(key.code, KeyCode::Char('?') | KeyCode::F(1)) {
         app.help_open = !app.help_open;
         return false;
@@ -8875,10 +9448,40 @@ fn handle_key(key: KeyEvent, app: &mut App, refresh_requested: &mut bool) -> boo
             | KeyCode::Char('4')
             | KeyCode::Char('5')
             | KeyCode::Char('6')
-            | KeyCode::Char('m') => {
+            | KeyCode::Char('7')
+            | KeyCode::Char('m')
+            | KeyCode::Enter
+            | KeyCode::Char('x')
+            | KeyCode::Char('e')
+            | KeyCode::Char('E')
+            | KeyCode::Char('o')
+            | KeyCode::Char('i')
+            | KeyCode::Char('h')
+            | KeyCode::Char('c')
+            | KeyCode::Char('u')
+            | KeyCode::Char('s')
+            | KeyCode::Char('d')
+            | KeyCode::Char('O')
+            | KeyCode::Char('b')
+            | KeyCode::Char('B')
+            | KeyCode::Char('F')
+            | KeyCode::Char('C')
+            | KeyCode::Char('R')
+            | KeyCode::Char('H')
+            | KeyCode::Char('t')
+            | KeyCode::Char('v')
+            | KeyCode::Char('p')
+            | KeyCode::Char('/')
+            | KeyCode::Char('f')
+            | KeyCode::Char('A')
+            | KeyCode::Char('S')
+            | KeyCode::Left
+            | KeyCode::Char('[')
+            | KeyCode::Right
+            | KeyCode::Char(']') => {
                 app.mode = Mode::PulsePane;
                 app.scroll = 0;
-                app.status_note = Some("pulse pane is fixed to local Mind/status".to_string());
+                app.status_note = Some("pulse pane is fixed to local Tabs/Mind/status".to_string());
                 return false;
             }
             _ => {}
@@ -8946,6 +9549,14 @@ fn handle_key(key: KeyEvent, app: &mut App, refresh_requested: &mut bool) -> boo
             } else {
                 app.stop_selected_overview_agent();
             }
+            false
+        }
+        KeyCode::Char('e') => {
+            app.capture_selected_pane_evidence();
+            false
+        }
+        KeyCode::Char('E') => {
+            app.follow_selected_pane_live();
             false
         }
         KeyCode::Char('o') => {
@@ -9031,6 +9642,13 @@ fn handle_key(key: KeyEvent, app: &mut App, refresh_requested: &mut bool) -> boo
         KeyCode::Char('p') => {
             if app.mode == Mode::Mind {
                 app.toggle_mind_provenance();
+            }
+            false
+        }
+        KeyCode::Char('/') => {
+            if app.mode == Mode::Mind {
+                app.mind_search_editing = true;
+                app.status_note = Some("editing mind search query".to_string());
             }
             false
         }
@@ -9205,6 +9823,73 @@ fn execute_worker_launch_plan(plan: &WorkerLaunchPlan) -> Result<(), String> {
         Ok(())
     } else {
         Err(format!("{} exited with {}", plan.program, status))
+    }
+}
+
+fn dump_pane_evidence(session_id: &str, pane_id: &str, output_path: &Path) -> Result<(), String> {
+    if pane_id.trim().is_empty() {
+        return Err("empty pane id".to_string());
+    }
+    let output = Command::new("aoc-pane-evidence")
+        .arg("--pane-id")
+        .arg(pane_id)
+        .arg("--session")
+        .arg(session_id)
+        .output()
+        .map_err(|err| format!("aoc-pane-evidence failed: {err}"))?;
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+        if stderr.is_empty() {
+            return Err(format!("aoc-pane-evidence exited with {}", output.status));
+        }
+        return Err(stderr);
+    }
+    fs::write(output_path, &output.stdout)
+        .map_err(|err| format!("write evidence failed: {err}"))?;
+    Ok(())
+}
+
+fn shell_single_quote(value: &str) -> String {
+    format!("'{}'", value.replace('\'', "'\\''"))
+}
+
+fn launch_pane_follow(
+    session_id: &str,
+    pane_id: &str,
+    label: &str,
+    project_root: &Path,
+) -> Result<(), String> {
+    if pane_id.trim().is_empty() {
+        return Err("empty pane id".to_string());
+    }
+    let follow_cmd = format!(
+        "exec aoc-pane-evidence --pane-id {} --session {} --follow --scrollback 300",
+        shell_single_quote(pane_id),
+        shell_single_quote(session_id)
+    );
+    let title = format!("Follow {}", ellipsize(label, 18));
+    let mut cmd = Command::new("zellij");
+    cmd.arg("action")
+        .arg("new-pane")
+        .arg("--floating")
+        .arg("--close-on-exit")
+        .arg("--borderless")
+        .arg("true")
+        .arg("--name")
+        .arg(&title)
+        .arg("--cwd")
+        .arg(project_root)
+        .arg("--")
+        .arg("bash")
+        .arg("-lc")
+        .arg(follow_cmd);
+    let status = cmd
+        .status()
+        .map_err(|err| format!("zellij new-pane failed: {err}"))?;
+    if status.success() {
+        Ok(())
+    } else {
+        Err(format!("zellij action new-pane exited with {}", status))
     }
 }
 
@@ -9424,7 +10109,11 @@ fn build_pulse_hello(config: &Config) -> WireEnvelope {
 }
 
 fn build_pulse_subscribe(config: &Config) -> WireEnvelope {
-    let mut topics = vec!["agent_state".to_string(), "command_result".to_string()];
+    let mut topics = vec![
+        "agent_state".to_string(),
+        "command_result".to_string(),
+        "layout_state".to_string(),
+    ];
     if !config.runtime_mode.is_pulse_pane() {
         topics.push("consultation_response".to_string());
         topics.push("observer_snapshot".to_string());
@@ -9473,10 +10162,16 @@ fn collect_local_with_options(
     include_health: bool,
     previous: Option<&LocalSnapshot>,
 ) -> LocalSnapshot {
-    let viewer_tab_index = None;
-    let mut overview = collect_runtime_overview(config, None);
+    let session_layout = collect_session_layout(&config.session_id);
+    let viewer_tab_index = collect_viewer_tab_index(config, session_layout.as_ref());
+    let tab_roster = session_layout
+        .as_ref()
+        .map(|layout| layout.tabs.clone())
+        .or_else(|| previous.map(|snapshot| snapshot.tab_roster.clone()))
+        .unwrap_or_default();
+    let mut overview = collect_runtime_overview(config, session_layout.as_ref());
     if overview.is_empty() {
-        overview = collect_proc_overview(config, None);
+        overview = collect_proc_overview(config, session_layout.as_ref());
     }
     let project_roots = collect_project_roots(&overview, &config.project_root);
     let (work, taskmaster_status) = if include_work || include_health {
@@ -9512,6 +10207,7 @@ fn collect_local_with_options(
     LocalSnapshot {
         overview,
         viewer_tab_index,
+        tab_roster,
         work,
         diff,
         health,
@@ -9522,18 +10218,22 @@ fn collect_layout_overview(
     config: &Config,
     existing_rows: &[OverviewRow],
     tab_cache: &HashMap<String, TabMeta>,
-) -> (Vec<OverviewRow>, Option<usize>) {
+) -> (Vec<OverviewRow>, Option<usize>, Vec<TabMeta>) {
     let session_layout = collect_session_layout(&config.session_id);
     let viewer_tab_index = collect_viewer_tab_index(config, session_layout.as_ref());
+    let tab_roster = session_layout
+        .as_ref()
+        .map(|layout| layout.tabs.clone())
+        .unwrap_or_default();
     if existing_rows.is_empty() {
-        return (Vec::new(), viewer_tab_index);
+        return (Vec::new(), viewer_tab_index, tab_roster);
     }
     let Some(layout) = session_layout.as_ref() else {
         let mut rows = existing_rows.to_vec();
         for row in &mut rows {
             apply_cached_tab_meta(row, tab_cache);
         }
-        return (sort_overview_rows(rows), viewer_tab_index);
+        return (sort_overview_rows(rows), viewer_tab_index, tab_roster);
     };
 
     let mut rows = existing_rows.to_vec();
@@ -9551,7 +10251,7 @@ fn collect_layout_overview(
             apply_cached_tab_meta(row, tab_cache);
         }
     }
-    (sort_overview_rows(rows), viewer_tab_index)
+    (sort_overview_rows(rows), viewer_tab_index, tab_roster)
 }
 
 fn collect_viewer_tab_index(
@@ -9672,6 +10372,7 @@ fn collect_runtime_overview(
             .or_else(|| snapshot.tab_scope.clone());
         let tab_focused = tab_scope_matches(viewer_scope, snapshot.tab_scope.as_deref())
             || tab_scope_matches(viewer_scope, tab_name.as_deref());
+        let session_title = snapshot.session_title;
         rows.insert(
             identity_key.clone(),
             OverviewRow {
@@ -9687,6 +10388,8 @@ fn collect_runtime_overview(
                 online,
                 age_secs: heartbeat_age,
                 source: "runtime".to_string(),
+                session_title,
+                chat_title: snapshot.chat_title,
             },
         );
     }
@@ -9697,6 +10400,56 @@ fn collect_session_layout(session_id: &str) -> Option<SessionLayout> {
     if session_id.trim().is_empty() {
         return None;
     }
+    if let Ok(Some(snapshot)) = query_session_snapshot(session_id) {
+        let mut parsed = SessionLayout::default();
+        parsed.pane_ids = snapshot.pane_ids;
+        parsed.tabs = snapshot
+            .tabs
+            .into_iter()
+            .filter_map(|tab| {
+                usize::try_from(tab.index).ok().map(|index| TabMeta {
+                    index,
+                    name: tab.name,
+                    focused: tab.focused,
+                })
+            })
+            .collect();
+        parsed.focused_tab_index = snapshot
+            .current_tab_index
+            .and_then(|index| usize::try_from(index).ok())
+            .or_else(|| {
+                parsed
+                    .tabs
+                    .iter()
+                    .find(|tab| tab.focused)
+                    .map(|tab| tab.index)
+            });
+        for pane in snapshot.panes {
+            parsed.pane_tabs.insert(
+                pane.pane_id,
+                TabMeta {
+                    index: pane.tab_index as usize,
+                    name: pane.tab_name,
+                    focused: pane.tab_focused,
+                },
+            );
+        }
+        for (project_root, tab) in snapshot.project_tabs {
+            parsed.project_tabs.insert(
+                project_root,
+                TabMeta {
+                    index: tab.index as usize,
+                    name: tab.name,
+                    focused: tab.focused,
+                },
+            );
+        }
+        if !parsed.pane_ids.is_empty() || !parsed.project_tabs.is_empty() || !parsed.tabs.is_empty()
+        {
+            return Some(parsed);
+        }
+    }
+
     let output = Command::new("zellij")
         .arg("--session")
         .arg(session_id)
@@ -9709,7 +10462,7 @@ fn collect_session_layout(session_id: &str) -> Option<SessionLayout> {
     }
     let layout = String::from_utf8_lossy(&output.stdout);
     let parsed = parse_layout_tabs(&layout);
-    if parsed.pane_ids.is_empty() && parsed.project_tabs.is_empty() {
+    if parsed.pane_ids.is_empty() && parsed.project_tabs.is_empty() && parsed.tabs.is_empty() {
         None
     } else {
         Some(parsed)
@@ -9737,6 +10490,14 @@ fn parse_layout_tabs(layout: &str) -> SessionLayout {
             current_tab_name = extract_layout_attr(line, "name")
                 .unwrap_or_else(|| format!("tab-{current_tab_index}"));
             current_tab_focused = line.contains("focus=true") || line.contains("focus true");
+            parsed.tabs.push(TabMeta {
+                index: current_tab_index,
+                name: current_tab_name.clone(),
+                focused: current_tab_focused,
+            });
+            if current_tab_focused {
+                parsed.focused_tab_index = Some(current_tab_index);
+            }
         }
 
         if current_tab_index > 0
@@ -9981,6 +10742,8 @@ fn collect_proc_overview(
             online: true,
             age_secs: None,
             source: "proc".to_string(),
+            session_title: None,
+            chat_title: None,
         });
     }
     rows.into_values().collect()
@@ -10420,9 +11183,12 @@ fn load_config() -> Config {
     let pulse_vnext_enabled = resolve_pulse_vnext_enabled();
     let overview_enabled = resolve_overview_enabled();
     let runtime_mode = resolve_runtime_mode();
+    let start_view = resolve_start_view(runtime_mode);
+    let fleet_plane_filter = resolve_fleet_plane_filter();
     let layout_source = resolve_layout_source();
     let client_id = format!("aoc-pulse-{}", std::process::id());
     let project_root = resolve_project_root();
+    let mind_project_scoped = resolve_mind_project_scoped();
     let state_dir = resolve_state_dir();
     Config {
         session_id,
@@ -10434,9 +11200,12 @@ fn load_config() -> Config {
         pulse_vnext_enabled,
         overview_enabled,
         runtime_mode,
+        start_view,
+        fleet_plane_filter,
         layout_source,
         client_id,
         project_root,
+        mind_project_scoped,
         state_dir,
     }
 }
@@ -10477,6 +11246,28 @@ fn parse_runtime_mode(value: &str) -> Option<RuntimeMode> {
         "mission-control" | "mission_control" | "mission" | "mc" => {
             Some(RuntimeMode::MissionControl)
         }
+        _ => None,
+    }
+}
+
+fn parse_start_view(value: &str) -> Option<Mode> {
+    match value.trim().to_ascii_lowercase().as_str() {
+        "overview" | "ov" => Some(Mode::Overview),
+        "overseer" => Some(Mode::Overseer),
+        "mind" => Some(Mode::Mind),
+        "fleet" | "detached" | "subagents" => Some(Mode::Fleet),
+        "work" => Some(Mode::Work),
+        "diff" => Some(Mode::Diff),
+        "health" => Some(Mode::Health),
+        _ => None,
+    }
+}
+
+fn parse_fleet_plane_filter(value: &str) -> Option<FleetPlaneFilter> {
+    match value.trim().to_ascii_lowercase().as_str() {
+        "all" => Some(FleetPlaneFilter::All),
+        "delegated" | "specialist" | "subagents" => Some(FleetPlaneFilter::Delegated),
+        "mind" => Some(FleetPlaneFilter::Mind),
         _ => None,
     }
 }
@@ -10539,6 +11330,24 @@ fn resolve_layout_source() -> LayoutSource {
         },
         Err(_) => LayoutSource::Hub,
     }
+}
+
+fn resolve_start_view(runtime_mode: RuntimeMode) -> Option<Mode> {
+    if runtime_mode.is_pulse_pane() {
+        return None;
+    }
+    std::env::var("AOC_MISSION_CONTROL_START_VIEW")
+        .ok()
+        .as_deref()
+        .and_then(parse_start_view)
+}
+
+fn resolve_fleet_plane_filter() -> FleetPlaneFilter {
+    std::env::var("AOC_MISSION_CONTROL_FLEET_PLANE")
+        .ok()
+        .as_deref()
+        .and_then(parse_fleet_plane_filter)
+        .unwrap_or(FleetPlaneFilter::All)
 }
 
 fn parse_pulse_theme_mode(value: &str) -> Option<PulseThemeMode> {
@@ -10646,6 +11455,13 @@ fn resolve_project_root() -> PathBuf {
     std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."))
 }
 
+fn resolve_mind_project_scoped() -> bool {
+    std::env::var("AOC_MIND_PROJECT_SCOPED")
+        .ok()
+        .and_then(|value| parse_bool_flag(&value))
+        .unwrap_or(false)
+}
+
 fn resolve_state_dir() -> PathBuf {
     if let Ok(value) = std::env::var("XDG_STATE_HOME") {
         if !value.trim().is_empty() {
@@ -10722,6 +11538,7 @@ fn sanitize_component(input: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crossterm::event::KeyModifiers;
 
     fn test_config() -> Config {
         Config {
@@ -10734,9 +11551,12 @@ mod tests {
             pulse_vnext_enabled: true,
             overview_enabled: true,
             runtime_mode: RuntimeMode::MissionControl,
+            start_view: None,
+            fleet_plane_filter: FleetPlaneFilter::All,
             layout_source: LayoutSource::Hub,
             client_id: "pulse-test".to_string(),
             project_root: PathBuf::from("/tmp"),
+            mind_project_scoped: false,
             state_dir: PathBuf::from("/tmp"),
         }
     }
@@ -10745,6 +11565,7 @@ mod tests {
         LocalSnapshot {
             overview: Vec::new(),
             viewer_tab_index: None,
+            tab_roster: Vec::new(),
             work: Vec::new(),
             diff: Vec::new(),
             health: HealthSnapshot {
@@ -10795,8 +11616,15 @@ mod tests {
                 online: true,
                 age_secs: Some(2),
                 source: "runtime".to_string(),
+                session_title: Some("Implement Custom Layout Support".to_string()),
+                chat_title: None,
             }],
             viewer_tab_index: Some(1),
+            tab_roster: vec![TabMeta {
+                index: 1,
+                name: "Agent".to_string(),
+                focused: true,
+            }],
             work: vec![WorkProject {
                 project_root: "/tmp".to_string(),
                 scope: "Agent".to_string(),
@@ -10828,10 +11656,152 @@ mod tests {
                 .collect::<Vec<_>>()
                 .join("\n");
         assert!(rendered.contains("pulse-pane"));
-        assert!(rendered.contains("Local work"));
+        assert!(rendered.contains("Tabs"));
+        assert!(rendered.contains("1 Agent"));
+        assert!(rendered.contains("Implement Custom Layout Support"));
+        assert!(rendered.contains("Tasks"));
         assert!(rendered.contains("Mind"));
         assert!(rendered.contains("Health"));
         assert!(!rendered.contains("Session Overseer"));
+    }
+
+    #[test]
+    fn pulse_pane_defaults_pi_subtitle_to_new_without_explicit_title() {
+        let mut cfg = test_config();
+        cfg.runtime_mode = RuntimeMode::PulsePane;
+        let (tx, _rx) = mpsc::channel(4);
+        let local = LocalSnapshot {
+            overview: vec![OverviewRow {
+                identity_key: "session-test::12".to_string(),
+                label: "PI Agent (npm)".to_string(),
+                lifecycle: "running".to_string(),
+                snippet: Some("Implement Custom Layout Support".to_string()),
+                pane_id: "12".to_string(),
+                tab_index: Some(1),
+                tab_name: Some("Agent".to_string()),
+                tab_focused: true,
+                project_root: "/tmp".to_string(),
+                online: true,
+                age_secs: Some(2),
+                source: "runtime".to_string(),
+                session_title: None,
+                chat_title: None,
+            }],
+            viewer_tab_index: Some(1),
+            tab_roster: vec![TabMeta {
+                index: 1,
+                name: "Agent".to_string(),
+                focused: true,
+            }],
+            work: Vec::new(),
+            diff: Vec::new(),
+            health: HealthSnapshot {
+                dependencies: Vec::new(),
+                checks: Vec::new(),
+                taskmaster_status: "available".to_string(),
+            },
+        };
+        let app = App::new(cfg, tx, local);
+        let rendered =
+            render_pulse_pane_lines(&app, pulse_theme(PulseThemeMode::Terminal), false, 120)
+                .into_iter()
+                .map(|line| line.to_string())
+                .collect::<Vec<_>>()
+                .join("\n");
+
+        assert!(rendered.contains("PI Agent (npm) — new"));
+    }
+
+    #[test]
+    fn pulse_pane_renders_roster_tabs_without_agent_rows() {
+        let mut cfg = test_config();
+        cfg.runtime_mode = RuntimeMode::PulsePane;
+        let (tx, _rx) = mpsc::channel(4);
+        let local = LocalSnapshot {
+            overview: Vec::new(),
+            viewer_tab_index: Some(2),
+            tab_roster: vec![
+                TabMeta {
+                    index: 1,
+                    name: "Agent".to_string(),
+                    focused: false,
+                },
+                TabMeta {
+                    index: 2,
+                    name: "Review".to_string(),
+                    focused: true,
+                },
+            ],
+            work: Vec::new(),
+            diff: Vec::new(),
+            health: HealthSnapshot {
+                dependencies: Vec::new(),
+                checks: Vec::new(),
+                taskmaster_status: "available".to_string(),
+            },
+        };
+        let app = App::new(cfg, tx, local);
+        let rendered =
+            render_pulse_pane_lines(&app, pulse_theme(PulseThemeMode::Terminal), true, 80)
+                .into_iter()
+                .map(|line| line.to_string())
+                .collect::<Vec<_>>()
+                .join("\n");
+
+        assert!(rendered.contains("Tabs"));
+        assert!(rendered.contains("1 Agent"));
+        assert!(rendered.contains("2 Review"));
+    }
+
+    #[test]
+    fn pulse_pane_blocks_mode_switches_and_orchestrator_drilldown() {
+        let mut cfg = test_config();
+        cfg.runtime_mode = RuntimeMode::PulsePane;
+        let (tx, _rx) = mpsc::channel(4);
+        let mut app = App::new(cfg, tx, empty_local());
+        let mut refresh_requested = false;
+
+        handle_key(
+            KeyEvent::new(KeyCode::Char('4'), KeyModifiers::NONE),
+            &mut app,
+            &mut refresh_requested,
+        );
+        assert_eq!(app.mode, Mode::PulsePane);
+        assert_eq!(
+            app.status_note.as_deref(),
+            Some("pulse pane is fixed to local Tabs/Mind/status")
+        );
+
+        app.status_note = None;
+        handle_key(
+            KeyEvent::new(KeyCode::Char('E'), KeyModifiers::NONE),
+            &mut app,
+            &mut refresh_requested,
+        );
+        assert_eq!(app.mode, Mode::PulsePane);
+        assert_eq!(
+            app.status_note.as_deref(),
+            Some("pulse pane is fixed to local Tabs/Mind/status")
+        );
+        assert!(!refresh_requested);
+    }
+
+    #[test]
+    fn pulse_pane_allows_local_refresh() {
+        let mut cfg = test_config();
+        cfg.runtime_mode = RuntimeMode::PulsePane;
+        let (tx, _rx) = mpsc::channel(4);
+        let mut app = App::new(cfg, tx, empty_local());
+        let mut refresh_requested = false;
+
+        handle_key(
+            KeyEvent::new(KeyCode::Char('r'), KeyModifiers::NONE),
+            &mut app,
+            &mut refresh_requested,
+        );
+
+        assert!(refresh_requested);
+        assert_eq!(app.mode, Mode::PulsePane);
     }
 
     #[test]
@@ -11491,6 +12461,8 @@ mod tests {
                 online: true,
                 age_secs: Some(1),
                 source: "hub".to_string(),
+                session_title: None,
+                chat_title: None,
             },
             OverviewRow {
                 identity_key: "session-test::1".to_string(),
@@ -11505,6 +12477,8 @@ mod tests {
                 online: true,
                 age_secs: Some(1),
                 source: "hub".to_string(),
+                session_title: None,
+                chat_title: None,
             },
         ];
 
@@ -11529,6 +12503,8 @@ mod tests {
                 online: true,
                 age_secs: Some(1),
                 source: "hub".to_string(),
+                session_title: None,
+                chat_title: None,
             },
             OverviewRow {
                 identity_key: "session-test::2".to_string(),
@@ -11543,6 +12519,8 @@ mod tests {
                 online: true,
                 age_secs: Some(1),
                 source: "hub".to_string(),
+                session_title: None,
+                chat_title: None,
             },
         ];
 
@@ -11567,6 +12545,8 @@ mod tests {
                 online: true,
                 age_secs: Some(1),
                 source: "hub".to_string(),
+                session_title: None,
+                chat_title: None,
             },
             OverviewRow {
                 identity_key: "session-test::2".to_string(),
@@ -11581,6 +12561,8 @@ mod tests {
                 online: true,
                 age_secs: Some(1),
                 source: "hub".to_string(),
+                session_title: None,
+                chat_title: None,
             },
         ];
 
@@ -11607,6 +12589,8 @@ mod tests {
                 online: true,
                 age_secs: Some(1),
                 source: "runtime".to_string(),
+                session_title: None,
+                chat_title: None,
             },
             OverviewRow {
                 identity_key: "session-test::2".to_string(),
@@ -11621,6 +12605,8 @@ mod tests {
                 online: true,
                 age_secs: Some(1),
                 source: "runtime".to_string(),
+                session_title: None,
+                chat_title: None,
             },
         ];
 
@@ -11923,8 +12909,15 @@ mod tests {
                 online: true,
                 age_secs: Some(1),
                 source: "runtime".to_string(),
+                session_title: None,
+                chat_title: None,
             }],
             viewer_tab_index: Some(1),
+            tab_roster: vec![TabMeta {
+                index: 1,
+                name: "Agent".to_string(),
+                focused: true,
+            }],
             work: Vec::new(),
             diff: Vec::new(),
             health: empty_local().health,
@@ -11967,8 +12960,15 @@ mod tests {
                 online: true,
                 age_secs: Some(1),
                 source: "runtime".to_string(),
+                session_title: None,
+                chat_title: None,
             }],
             viewer_tab_index: Some(1),
+            tab_roster: vec![TabMeta {
+                index: 1,
+                name: "Agent".to_string(),
+                focused: true,
+            }],
             work: Vec::new(),
             diff: Vec::new(),
             health: empty_local().health,
@@ -12243,6 +13243,208 @@ mod tests {
     }
 
     #[test]
+    fn render_mind_lines_project_scoped_filters_other_projects() {
+        let (tx, _rx) = mpsc::channel(4);
+        let mut config = test_config();
+        config.project_root = PathBuf::from("/repo-a");
+        config.mind_project_scoped = true;
+        let mut app = App::new(config, tx, empty_local());
+        app.connected = true;
+        app.mode = Mode::Mind;
+        app.mind_lane = MindLaneFilter::All;
+
+        app.apply_hub_event(HubEvent::Snapshot {
+            payload: SnapshotPayload {
+                seq: 1,
+                states: vec![
+                    AgentState {
+                        agent_id: "session-test::12".to_string(),
+                        session_id: "session-test".to_string(),
+                        pane_id: "12".to_string(),
+                        lifecycle: "running".to_string(),
+                        snippet: None,
+                        last_heartbeat_ms: Some(1),
+                        last_activity_ms: Some(1),
+                        updated_at_ms: Some(1),
+                        source: Some(serde_json::json!({
+                            "agent_status": {
+                                "agent_label": "Repo A",
+                                "project_root": "/repo-a",
+                                "tab_scope": "agent"
+                            },
+                            "mind_observer": {
+                                "events": [
+                                    {"status":"success","trigger":"manual_shortcut","runtime":"observer","reason":"repo a event"}
+                                ]
+                            }
+                        })),
+                    },
+                    AgentState {
+                        agent_id: "session-test::13".to_string(),
+                        session_id: "session-test".to_string(),
+                        pane_id: "13".to_string(),
+                        lifecycle: "running".to_string(),
+                        snippet: None,
+                        last_heartbeat_ms: Some(1),
+                        last_activity_ms: Some(1),
+                        updated_at_ms: Some(1),
+                        source: Some(serde_json::json!({
+                            "agent_status": {
+                                "agent_label": "Repo B",
+                                "project_root": "/repo-b",
+                                "tab_scope": "agent"
+                            },
+                            "mind_observer": {
+                                "events": [
+                                    {"status":"success","trigger":"manual_shortcut","runtime":"observer","reason":"repo b event"}
+                                ]
+                            }
+                        })),
+                    }
+                ],
+            },
+            event_at: Utc::now(),
+        });
+
+        let lines = render_mind_lines(&app, pulse_theme(PulseThemeMode::Terminal), false);
+        let rendered = lines
+            .iter()
+            .map(|line| {
+                line.spans
+                    .iter()
+                    .map(|span| span.content.to_string())
+                    .collect::<String>()
+            })
+            .collect::<Vec<_>>()
+            .join("\n");
+
+        assert!(rendered.contains("project: /repo-a [project-scoped]"));
+        assert!(rendered.contains("repo a event"));
+        assert!(!rendered.contains("repo b event"));
+    }
+
+    #[test]
+    fn render_mind_lines_search_query_returns_local_hits() {
+        let root = std::env::temp_dir().join(format!(
+            "aoc-mission-control-mind-search-{}-{}",
+            std::process::id(),
+            Utc::now().timestamp_nanos_opt().unwrap_or(0)
+        ));
+        let store_path = mind_store_path(&root);
+        std::fs::create_dir_all(store_path.parent().expect("store parent"))
+            .expect("create mind dir");
+        let store = aoc_storage::MindStore::open(&store_path).expect("open store");
+        let now = Utc::now();
+        store
+            .upsert_handshake_snapshot(
+                "project",
+                &project_scope_key(&root),
+                "# Mind Handshake Baseline\n\n## Priority canon\n\n- [canon:planner-drift r1] topic=planner confidence=8800 freshness=95 :: Planner drift contract and routing notes\n",
+                "hash:handshake",
+                128,
+                now,
+            )
+            .expect("upsert handshake");
+        store
+            .upsert_canon_entry_revision(
+                "canon:planner-drift",
+                Some("planner"),
+                "Planner drift contract and routing notes",
+                8800,
+                95,
+                None,
+                &["obs:planner".to_string()],
+                now,
+            )
+            .expect("upsert canon");
+
+        let (tx, _rx) = mpsc::channel(4);
+        let mut config = test_config();
+        config.project_root = root.clone();
+        config.mind_project_scoped = true;
+        let mut app = App::new(config, tx, empty_local());
+        app.connected = true;
+        app.mode = Mode::Mind;
+        app.mind_lane = MindLaneFilter::All;
+        app.mind_search_query = "planner drift".to_string();
+
+        let lines = render_mind_lines(&app, pulse_theme(PulseThemeMode::Terminal), false);
+        let rendered = lines
+            .iter()
+            .map(|line| {
+                line.spans
+                    .iter()
+                    .map(|span| span.content.to_string())
+                    .collect::<String>()
+            })
+            .collect::<Vec<_>>()
+            .join("\n");
+
+        assert!(rendered.contains("Retrieval / search"));
+        assert!(rendered.contains("query: > planner drift"));
+        assert!(rendered.contains("[canon] canon:planner-drift r1"));
+        assert!(rendered.contains("Planner drift contract and routing notes"));
+
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn render_mind_lines_without_observer_events_still_shows_artifacts() {
+        let root = std::env::temp_dir().join(format!(
+            "aoc-mission-control-mind-artifacts-only-{}-{}",
+            std::process::id(),
+            Utc::now().timestamp_nanos_opt().unwrap_or(0)
+        ));
+        let store_path = mind_store_path(&root);
+        std::fs::create_dir_all(store_path.parent().expect("store parent"))
+            .expect("create mind dir");
+        let store = aoc_storage::MindStore::open(&store_path).expect("open store");
+        let now = Utc::now();
+        store
+            .upsert_handshake_snapshot(
+                "project",
+                &project_scope_key(&root),
+                "# Mind Handshake Baseline\n\n## Priority canon\n\n- [canon:entry-a r1] topic=mind confidence=8800 freshness=95 :: Keep this in startup context\n",
+                "hash:handshake",
+                128,
+                now,
+            )
+            .expect("upsert handshake");
+
+        let (tx, _rx) = mpsc::channel(4);
+        let mut config = test_config();
+        config.project_root = root.clone();
+        config.mind_project_scoped = true;
+        let mut app = App::new(config, tx, empty_local());
+        app.connected = true;
+        app.mode = Mode::Mind;
+        app.mind_lane = MindLaneFilter::All;
+
+        let lines = render_mind_lines(&app, pulse_theme(PulseThemeMode::Terminal), false);
+        let rendered = lines
+            .iter()
+            .map(|line| {
+                line.spans
+                    .iter()
+                    .map(|span| span.content.to_string())
+                    .collect::<String>()
+            })
+            .collect::<Vec<_>>()
+            .join("\n");
+
+        assert!(rendered.contains("Observer activity [0 events]"));
+        assert!(rendered.contains(
+            "overview: handshake:1 canon:0 stale:0 latest:none recovery:none detached:0"
+        ));
+        assert!(rendered.contains("Retrieval / search"));
+        assert!(rendered.contains("No observer activity yet for current lane/scope."));
+        assert!(rendered.contains("Knowledge artifacts Artifact drilldown"));
+        assert!(rendered.contains("Handshake + canon"));
+
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
     fn render_mind_lines_shows_injection_rollup_and_store_backed_drilldown() {
         let root = std::env::temp_dir().join(format!(
             "aoc-mission-control-mind-v2-{}-{}",
@@ -12343,6 +13545,7 @@ mod tests {
             .collect::<Vec<_>>()
             .join("\n");
 
+        assert!(rendered.contains("overview: handshake:1 canon:1 stale:0"));
         assert!(rendered.contains("inject: [resume] [pending]"));
         assert!(rendered.contains("resume handshake refresh"));
         assert!(rendered.contains("handshake:1 active_canon:1 stale_canon:0"));
@@ -12563,7 +13766,10 @@ mod tests {
     #[test]
     fn layout_state_event_updates_local_tab_overlay() {
         let (tx, _rx) = mpsc::channel(4);
-        let mut app = App::new(test_config(), tx, empty_local());
+        let mut cfg = test_config();
+        cfg.runtime_mode = RuntimeMode::PulsePane;
+        cfg.overview_enabled = false;
+        let mut app = App::new(cfg, tx, empty_local());
         app.apply_hub_event(HubEvent::Connected);
         app.set_local(LocalSnapshot {
             overview: vec![OverviewRow {
@@ -12579,8 +13785,11 @@ mod tests {
                 online: true,
                 age_secs: Some(1),
                 source: "runtime".to_string(),
+                session_title: None,
+                chat_title: None,
             }],
             viewer_tab_index: None,
+            tab_roster: Vec::new(),
             work: Vec::new(),
             diff: Vec::new(),
             health: empty_local().health,
@@ -12673,6 +13882,8 @@ mod tests {
             online: true,
             age_secs: Some(1),
             source: "runtime".to_string(),
+            session_title: None,
+            chat_title: None,
         });
 
         app.apply_hub_event(HubEvent::Connected);
@@ -12714,6 +13925,8 @@ mod tests {
             online: true,
             age_secs: Some(1),
             source: "runtime".to_string(),
+            session_title: None,
+            chat_title: None,
         });
 
         app.apply_hub_event(HubEvent::Connected);
@@ -12814,6 +14027,8 @@ mod tests {
             online: true,
             age_secs: Some(1),
             source: "runtime".to_string(),
+            session_title: None,
+            chat_title: None,
         });
 
         app.apply_hub_event(HubEvent::Connected);
@@ -12854,8 +14069,15 @@ mod tests {
                 online: true,
                 age_secs: Some(1),
                 source: "runtime".to_string(),
+                session_title: None,
+                chat_title: None,
             }],
             viewer_tab_index: Some(2),
+            tab_roster: vec![TabMeta {
+                index: 2,
+                name: "tab-2".to_string(),
+                focused: false,
+            }],
             work: Vec::new(),
             diff: Vec::new(),
             health: empty_local().health,
@@ -12875,8 +14097,15 @@ mod tests {
                 online: true,
                 age_secs: Some(1),
                 source: "runtime".to_string(),
+                session_title: None,
+                chat_title: None,
             }],
             viewer_tab_index: Some(2),
+            tab_roster: vec![TabMeta {
+                index: 2,
+                name: "tab-2".to_string(),
+                focused: false,
+            }],
             work: Vec::new(),
             diff: Vec::new(),
             health: empty_local().health,
@@ -12905,6 +14134,8 @@ mod tests {
             online: true,
             age_secs: Some(1),
             source: "runtime".to_string(),
+            session_title: None,
+            chat_title: None,
         });
 
         app.apply_hub_event(HubEvent::Connected);
@@ -12959,6 +14190,8 @@ mod tests {
             online: true,
             age_secs: Some(47),
             source: "hub+runtime".to_string(),
+            session_title: None,
+            chat_title: None,
         };
 
         let decorations = OverviewDecorations {
@@ -13005,6 +14238,42 @@ mod tests {
     }
 
     #[test]
+    fn parse_start_view_accepts_fleet_and_aliases() {
+        assert_eq!(parse_start_view("fleet"), Some(Mode::Fleet));
+        assert_eq!(parse_start_view("subagents"), Some(Mode::Fleet));
+        assert_eq!(parse_start_view("overview"), Some(Mode::Overview));
+        assert_eq!(parse_start_view("unknown"), None);
+    }
+
+    #[test]
+    fn parse_fleet_plane_filter_accepts_delegated_aliases() {
+        assert_eq!(
+            parse_fleet_plane_filter("delegated"),
+            Some(FleetPlaneFilter::Delegated)
+        );
+        assert_eq!(
+            parse_fleet_plane_filter("subagents"),
+            Some(FleetPlaneFilter::Delegated)
+        );
+        assert_eq!(
+            parse_fleet_plane_filter("mind"),
+            Some(FleetPlaneFilter::Mind)
+        );
+        assert_eq!(parse_fleet_plane_filter("unknown"), None);
+    }
+
+    #[test]
+    fn app_new_honors_start_view_and_fleet_plane_filter() {
+        let (tx, _rx) = mpsc::channel(4);
+        let mut cfg = test_config();
+        cfg.start_view = Some(Mode::Fleet);
+        cfg.fleet_plane_filter = FleetPlaneFilter::Delegated;
+        let app = App::new(cfg, tx, empty_local());
+        assert_eq!(app.mode, Mode::Fleet);
+        assert_eq!(app.fleet_plane_filter, FleetPlaneFilter::Delegated);
+    }
+
+    #[test]
     fn pulse_subscribe_includes_overseer_topics() {
         let subscribe = build_pulse_subscribe(&test_config());
         let WireMsg::Subscribe(payload) = subscribe.msg else {
@@ -13022,6 +14291,7 @@ mod tests {
             .topics
             .iter()
             .any(|topic| topic == "consultation_response"));
+        assert!(payload.topics.iter().any(|topic| topic == "layout_state"));
     }
 
     #[test]
@@ -13046,6 +14316,7 @@ mod tests {
             .any(|topic| topic == "consultation_response"));
         assert!(payload.topics.iter().any(|topic| topic == "agent_state"));
         assert!(payload.topics.iter().any(|topic| topic == "command_result"));
+        assert!(payload.topics.iter().any(|topic| topic == "layout_state"));
     }
 
     #[test]
