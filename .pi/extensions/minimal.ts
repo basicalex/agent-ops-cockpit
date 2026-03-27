@@ -7,8 +7,10 @@
  * - T1 pre-filter load bar (authoritative feed when available, deterministic local fallback)
  * - session context usage bar
  *
- * Shortcut:
- * - Alt+M: request manual observer run (Pulse command: run_observer)
+ * Shortcuts / commands:
+ * - Alt+M: open or toggle the project-scoped AOC Mind floating UI
+ * - /mind: open or toggle the project-scoped AOC Mind floating UI
+ * - /mind-observer-run: manually queue an observer run when needed
  */
 
 import type { ExtensionAPI, ExtensionContext } from "@mariozechner/pi-coding-agent";
@@ -754,6 +756,35 @@ function maybeIngestMindEvent(message: any, ctx: ExtensionContext): void {
 	}
 }
 
+function resolveMindToggleCommand(root: string): string {
+	const local = join(root, "bin", "aoc-mind-toggle");
+	return fs.existsSync(local) ? local : "aoc-mind-toggle";
+}
+
+function launchMindUi(ctx: ExtensionContext): { ok: boolean; message: string } {
+	const sessionManager = ctx.sessionManager as any;
+	const root = sessionManager?.getProjectRoot?.() || process.env.AOC_PROJECT_ROOT || process.cwd();
+	const command = resolveMindToggleCommand(root);
+	try {
+		const result = spawnSync(command, [], {
+			cwd: root,
+			stdio: "ignore",
+			shell: false,
+			timeout: 8000,
+			env: process.env,
+		});
+		if (result.error) {
+			return { ok: false, message: `Mind UI unavailable: ${result.error.message}` };
+		}
+		if ((result.status ?? 1) !== 0) {
+			return { ok: false, message: `Mind UI launcher exited with status ${result.status ?? 1}` };
+		}
+		return { ok: true, message: "Project Mind toggled" };
+	} catch (error) {
+		return { ok: false, message: `Mind UI unavailable: ${error instanceof Error ? error.message : String(error)}` };
+	}
+}
+
 function requestManualObserverRun(ctx: ExtensionContext): boolean {
 	const identity = pulseIdentity(ctx);
 	if (!identity) return false;
@@ -869,11 +900,27 @@ export default function (pi: ExtensionAPI) {
 		applyFooter(ctx);
 	});
 
-	pi.registerShortcut("alt+m", {
-		description: "Trigger AOC Mind observer run",
-		handler: async (ctx) => {
+	pi.registerCommand("mind", {
+		description: "Open or toggle the project-scoped AOC Mind floating UI",
+		handler: async (_args, ctx) => {
+			const result = launchMindUi(ctx);
+			ctx.ui.notify(result.message, result.ok ? "info" : "warning");
+		},
+	});
+
+	pi.registerCommand("mind-observer-run", {
+		description: "Manually queue an AOC Mind observer run",
+		handler: async (_args, ctx) => {
 			const ok = requestManualObserverRun(ctx);
 			ctx.ui.notify(ok ? "Observer run queued" : "Observer run unavailable (Pulse disconnected)", ok ? "info" : "warning");
+		},
+	});
+
+	pi.registerShortcut("alt+m", {
+		description: "Open or toggle the project-scoped AOC Mind floating UI",
+		handler: async (ctx) => {
+			const result = launchMindUi(ctx);
+			ctx.ui.notify(result.message, result.ok ? "info" : "warning");
 		},
 	});
 
