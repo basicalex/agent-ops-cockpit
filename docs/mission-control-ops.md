@@ -114,6 +114,9 @@ How it is wired:
 - `bin/aoc-agent-wrap` resolves the real agent binary, runs the bootloader for
   the handshake, and then (if available) wraps the bootloader with
   `aoc-agent-wrap-rs`.
+- Pi now prefers the Rust wrapper by default when it is available so live Pulse
+  and Mind runtime wiring matches the documented session model. Use
+  `AOC_PI_USE_WRAP_RS=0` only as an explicit legacy direct-exec fallback.
 - `bin/aoc-agent-wrap` also ensures `AOC_SESSION_ID`, `AOC_HUB_ADDR`, and
   `AOC_AGENT_ID` are exported before entering tmux or running the agent.
 
@@ -156,12 +159,18 @@ Keybindings:
 - `s`: spawn a fresh worker tab
 - `d`: delegate the selected worker into a fresh worker tab and write a bounded brief
 - `r`: refresh local snapshot
-- `Esc`: hides floating pane (runs `zellij action toggle-floating-panes`)
+- `Esc`: hides the floating pane (prefers explicit `zellij action hide-floating-panes --tab-id ...` on Zellij `>= 0.44.0`, otherwise falls back to toggle behavior)
 - `q`: quits Mission Control
+
+Mind-mode project UI additions:
+- `/`: edit the local project Mind search query
+- `n` / `N`: browse next / previous search result
+- the `Retrieval / search` section is project-scoped and currently searches local handshake, canon, and recent export summaries
+- the `Activity summary` section is project-local and the `Mission Control bridge` section explains when to switch to Fleet / Overview / Overseer
 
 Fleet mode is intended for detached specialist supervision. It groups detached jobs by project root and ownership plane so operators can distinguish:
 - delegated/operator-launched detached specialists
-- Mind-owned detached work (for example T1/T2/T3 runtime activity)
+- Mind-owned detached work (for example T2/T3 runtime activity in the current detached slice; T1 remains inline/session-scoped)
 
 Fleet mode controls:
 - `j/k` select a fleet group
@@ -199,10 +208,53 @@ Shortcut (Zellij): `Alt+a`
 
 Floating panes are tab-scoped in Zellij. You get one MC per tab.
 
+### Delegated subagent supervision fast path
+Use:
+
+```bash
+aoc-subagent-supervision-toggle
+```
+
+This wrapper reuses the Mission Control floating-pane launcher but starts the surface with:
+- `mission-control` runtime mode
+- `Fleet` as the initial view
+- `delegated` as the initial plane filter
+- a distinct floating pane name (`Subagent Supervision`) so it can coexist with the general Mission Control pane if desired
+
+Recommended use:
+- bind `aoc-subagent-supervision-toggle` to a Zellij shortcut when you want a one-keystroke detached-supervision surface separate from Pi's launch/clarify overlay
+
+Product boundary:
+- Pi manager remains the launch / clarify / approval surface for delegated runs
+- the floating supervision pane is the fast detached-status / drilldown surface
+- Pulse and the durable detached registry remain the source of truth
+
 ### Dedicated Mission Control tab
 For longer orchestration sessions, use the dedicated Mission Control tab flow.
 This runs `aoc-mission-control` in `mission-control` mode, while normal AOC tab
 right panes should run `aoc-pulse-pane` / `AOC_MISSION_CONTROL_MODE=pulse-pane`.
+
+### Project-scoped floating Mind UI
+For lightweight project knowledge review, use the project-scoped floating Mind surface instead of keeping a persistent Mind pane in every AOC tab.
+
+Entry points:
+- `Alt+M` inside Pi
+- `/mind` inside Pi
+- `bin/aoc-mind-toggle`
+
+Behavior:
+- resolves the active project from the current AOC tab, preferring the current Agent pane project root when available
+- outside Zellij, starts `aoc-mission-control` directly in `Mind` view
+- inside Zellij, creates or reuses one named floating pane per tab (`Project Mind` by default)
+- if the pane already exists, invocation toggles current-tab visibility instead of spawning duplicates
+- the floating Mind surface runs Mission Control in `Mind` view with `AOC_MIND_PROJECT_SCOPED=1`
+
+Boundary note:
+- this floating Mind surface is the project-local knowledge UI
+- Fleet remains the global detached-runtime surface
+- normal Pulse panes remain lightweight local status panes; AOC no longer targets one persistent Mind pane per work tab
+
+Boundary note: the normal `pulse-pane` stays local-only. It does not allow switching into Fleet/Overseer orchestration surfaces or running pane evidence/live-follow drilldown; those belong to the dedicated Mission Control surface.
 
 For longer orchestration sessions, use the dedicated Mission Control tab flow:
 
@@ -263,11 +315,22 @@ Mission Control logs:
 ### C) MC does not hide on Esc
 1) Rebuild `aoc-mission-control` and restart MC:
    `cargo build -p aoc-mission-control`
-2) Esc runs `zellij action toggle-floating-panes` (only if inside Zellij).
+2) Esc hides floating panes in the current tab; on Zellij `>= 0.44.0` AOC prefers explicit `hide-floating-panes --tab-id ...`, otherwise it falls back to toggle behavior.
 
 ### D) Hub 500 errors
 1) Ensure hub is rebuilt after code changes.
 2) Restart the hub process so it picks up changes.
+
+### E) Need direct pane evidence
+On Zellij `>= 0.44.0`, use the operator drilldown helper:
+```
+aoc-pane-evidence --pane-id <pane-id>
+aoc-pane-evidence --pane-id <pane-id> --follow --scrollback 300
+```
+- default mode captures a bounded full-screen snapshot via `dump-screen`
+- `--follow` opens a live NDJSON stream via `zellij subscribe`
+
+For a non-interactive live Mind runtime validation runbook, see `docs/mind-runtime-validation.md` and `scripts/pi/validate-mind-runtime-live.sh`.
 
 ## 11) End-to-End Smoke Test
 
@@ -287,7 +350,9 @@ curl "http://$AOC_HUB_ADDR/health"
 ```
 
 4) In MC, you should see the agent list populate and live message updates.
-5) Select a file with diffs and press `Enter` to fetch patch.
+5) In Overview / Overseer / Mind mode, press `e` to capture pane evidence for the selected/focused worker into the local AOC state dir.
+6) Press `E` to open a live floating follow pane for the selected/focused worker via `zellij subscribe --pane-id`.
+7) Select a file with diffs and press `Enter` to fetch patch.
 
 ## 12) Files of Interest
 

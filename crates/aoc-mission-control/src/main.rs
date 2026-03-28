@@ -597,6 +597,7 @@ struct MindSearchHit {
     kind: &'static str,
     title: String,
     summary: String,
+    detail: Vec<String>,
     score: usize,
 }
 
@@ -866,6 +867,7 @@ struct App {
     mind_show_provenance: bool,
     mind_search_query: String,
     mind_search_editing: bool,
+    mind_search_selected: usize,
     status_note: Option<String>,
     pending_commands: HashMap<String, PendingCommand>,
     pending_consultations: HashMap<String, PendingConsultation>,
@@ -977,6 +979,7 @@ impl App {
             mind_show_provenance: false,
             mind_search_query: String::new(),
             mind_search_editing: false,
+            mind_search_selected: 0,
             status_note,
             pending_commands: HashMap::new(),
             pending_consultations: HashMap::new(),
@@ -2690,10 +2693,23 @@ impl App {
             .as_deref()
             .or(job.error.as_deref())
             .unwrap_or("No detached job summary available.");
-        let action = if handoff_only {
-            "/subagent-handoff"
-        } else {
-            "/subagent-inspect"
+        let followup = match job.owner_plane {
+            InsightDetachedOwnerPlane::Delegated => {
+                let action = if handoff_only {
+                    "/subagent-handoff"
+                } else {
+                    "/subagent-inspect"
+                };
+                format!(
+                    "- In the owning Pi session, run: `{action} {}`\n- If the job is still active, optionally cancel from Mission Control Fleet with `x`.\n- If more context is needed, compare against recent jobs in the same project/plane group.",
+                    job.job_id,
+                )
+            }
+            InsightDetachedOwnerPlane::Mind => format!(
+                "- In the owning Pi session, reopen Mission Control Fleet or Mind for project `{}` and inspect detached job `{}`.\n- If the job is still active, optionally cancel from Mission Control Fleet with `x`.\n- Compare against other recent Mind jobs in the same project group before re-running any upstream workflow.",
+                row.project_root,
+                job.job_id,
+            ),
         };
         let recovery = detached_job_recovery_guidance(job)
             .into_iter()
@@ -2701,17 +2717,17 @@ impl App {
             .collect::<Vec<_>>()
             .join("\n");
         format!(
-            "# Mission Control fleet brief\n\n- project: {}\n- job_id: {}\n- target: {}\n- owner_plane: {}\n- worker_kind: {}\n- status: {}\n- fallback_used: {}\n\n## Detached summary\n{}\n\n## Recovery guidance\n{}\n\n## Main session follow-up\n- In the owning Pi session, run: `{action} {}`\n- If the job is still active, optionally cancel from Mission Control Fleet with `x`.\n- If more context is needed, compare against recent jobs in the same project/plane group.\n",
+            "# Mission Control fleet brief\n\n- project: {}\n- job_id: {}\n- target: {}\n- owner_plane: {}\n- worker_kind: {}\n- status: {}\n- fallback_used: {}\n\n## Detached summary\n{}\n\n## Recovery guidance\n{}\n\n## Main session follow-up\n{}\n",
             row.project_root,
             job.job_id,
             target,
             detached_owner_plane_label(job.owner_plane),
-            detached_worker_kind_label(job.worker_kind),
+            detached_worker_kind_display(job.owner_plane, job.worker_kind),
             detached_job_status_label(job.status),
             if job.fallback_used { "yes" } else { "no" },
             summary,
             recovery,
-            job.job_id,
+            followup,
         )
     }
 
@@ -4948,6 +4964,7 @@ fn mode_help_lines(app: &App, theme: PulseTheme) -> Vec<Line<'static>> {
             Line::from("  R        requeue latest T3 export slice"),
             Line::from("  H        rebuild handshake baseline"),
             Line::from("  /        edit local project Mind search query"),
+            Line::from("  n / N    browse search results next / previous"),
             Line::from("  t        toggle lane (t0/t1/t2/t3/all)"),
             Line::from("  v        toggle scope (active tab/all tabs)"),
             Line::from("  p        toggle provenance drilldown"),
@@ -6339,8 +6356,15 @@ fn render_fleet_lines(app: &App, theme: PulseTheme, compact: bool) -> Vec<Line<'
             ),
             Span::raw(" "),
             Span::styled(
-                format!("{}", detached_worker_kind_label(latest.worker_kind)),
+                detached_worker_kind_display(latest.owner_plane, latest.worker_kind),
                 Style::default().fg(theme.muted),
+            ),
+            Span::raw(" "),
+            Span::styled(
+                detached_job_attention_label(latest)
+                    .map(|label| format!("[{label}]"))
+                    .unwrap_or_else(|| "[steady]".to_string()),
+                Style::default().fg(detached_job_attention_color(latest, theme)),
             ),
         ]));
     }
@@ -6397,9 +6421,15 @@ fn render_fleet_lines(app: &App, theme: PulseTheme, compact: bool) -> Vec<Line<'
                     format!(
                         "{} / {}",
                         detached_owner_plane_label(job.owner_plane),
-                        detached_worker_kind_label(job.worker_kind)
+                        detached_worker_kind_display(job.owner_plane, job.worker_kind)
                     ),
                     Style::default().fg(theme.muted),
+                ),
+                Span::raw("  "),
+                Span::raw("attention: "),
+                Span::styled(
+                    detached_job_attention_label(job).unwrap_or_else(|| "steady".to_string()),
+                    Style::default().fg(detached_job_attention_color(job, theme)),
                 ),
                 Span::raw("  "),
                 Span::raw("steps: "),
@@ -6683,6 +6713,15 @@ fn render_mind_lines(app: &App, theme: PulseTheme, compact: bool) -> Vec<Line<'s
         &artifact_snapshot,
         &app.mind_search_query,
         app.mind_search_editing,
+        app.mind_search_selected,
+        theme,
+        compact,
+    );
+    let activity_bridge_lines = render_mind_activity_bridge_lines(
+        &rows,
+        &injection_rows,
+        &detached_jobs,
+        &artifact_snapshot,
         theme,
         compact,
     );
@@ -6721,6 +6760,8 @@ fn render_mind_lines(app: &App, theme: PulseTheme, compact: bool) -> Vec<Line<'s
         )));
         lines.push(Line::from(""));
         lines.extend(search_lines);
+        lines.push(Line::from(""));
+        lines.extend(activity_bridge_lines);
         if !artifact_lines.is_empty() {
             lines.push(Line::from(""));
             lines.extend(artifact_lines);
@@ -6843,6 +6884,9 @@ fn render_mind_lines(app: &App, theme: PulseTheme, compact: bool) -> Vec<Line<'s
 
     lines.push(Line::from(""));
     lines.extend(search_lines);
+
+    lines.push(Line::from(""));
+    lines.extend(activity_bridge_lines);
 
     if !artifact_lines.is_empty() {
         lines.push(Line::from(""));
@@ -8452,7 +8496,13 @@ fn collect_mind_search_hits(snapshot: &MindArtifactDrilldown, query: &str) -> Ve
             hits.push(MindSearchHit {
                 kind: "handshake",
                 title,
-                summary,
+                summary: summary.clone(),
+                detail: vec![
+                    format!("entry:{}", entry.entry_id),
+                    format!("revision:{}", entry.revision),
+                    format!("topic:{}", topic),
+                    summary,
+                ],
                 score,
             });
         }
@@ -8471,7 +8521,13 @@ fn collect_mind_search_hits(snapshot: &MindArtifactDrilldown, query: &str) -> Ve
             hits.push(MindSearchHit {
                 kind: "canon",
                 title,
-                summary,
+                summary: summary.clone(),
+                detail: vec![
+                    format!("entry:{}", entry.entry_id),
+                    format!("revision:{}", entry.revision),
+                    refs,
+                    summary,
+                ],
                 score,
             });
         }
@@ -8491,7 +8547,13 @@ fn collect_mind_search_hits(snapshot: &MindArtifactDrilldown, query: &str) -> Ve
             hits.push(MindSearchHit {
                 kind: "export",
                 title,
-                summary,
+                summary: summary.clone(),
+                detail: vec![
+                    format!("session:{}", export.session_id),
+                    format!("t1:{} t2:{}", export.t1_count, export.t2_count),
+                    format!("exported:{}", export.exported_at),
+                    summary,
+                ],
                 score,
             });
         }
@@ -8511,6 +8573,7 @@ fn render_mind_search_lines(
     snapshot: &MindArtifactDrilldown,
     query: &str,
     editing: bool,
+    selected: usize,
     theme: PulseTheme,
     compact: bool,
 ) -> Vec<Line<'static>> {
@@ -8523,7 +8586,11 @@ fn render_mind_search_lines(
         ),
         Span::raw(" "),
         Span::styled(
-            if editing { "[editing]" } else { "[/ to edit]" },
+            if editing {
+                "[editing]"
+            } else {
+                "[/ edit · n/N browse]"
+            },
             Style::default().fg(theme.muted),
         ),
     ])];
@@ -8574,19 +8641,47 @@ fn render_mind_search_lines(
         return lines;
     }
 
+    let selected = selected.min(hits.len().saturating_sub(1));
     lines.push(Line::from(vec![
         Span::raw("  -> "),
         Span::styled(
             format!("{} local hits", hits.len()),
             Style::default().fg(theme.muted),
         ),
+        Span::raw(" "),
+        Span::styled(
+            format!("selected:{}/{}", selected + 1, hits.len()),
+            Style::default().fg(theme.info),
+        ),
     ]));
-    for hit in hits {
+    for (index, hit) in hits.iter().enumerate() {
+        let is_selected = index == selected;
         lines.push(Line::from(vec![
-            Span::raw("  • "),
-            Span::styled(format!("[{}]", hit.kind), Style::default().fg(theme.info)),
+            Span::styled(
+                if is_selected { "  >> " } else { "  • " },
+                Style::default().fg(if is_selected {
+                    theme.accent
+                } else {
+                    theme.muted
+                }),
+            ),
+            Span::styled(
+                format!("[{}]", hit.kind),
+                Style::default().fg(if is_selected {
+                    theme.accent
+                } else {
+                    theme.info
+                }),
+            ),
             Span::raw(" "),
-            Span::styled(hit.title, Style::default().fg(theme.accent)),
+            Span::styled(
+                hit.title.clone(),
+                Style::default().fg(if is_selected {
+                    theme.text
+                } else {
+                    theme.accent
+                }),
+            ),
             Span::raw(" "),
             Span::styled(
                 format!("score:{}", hit.score),
@@ -8594,12 +8689,33 @@ fn render_mind_search_lines(
             ),
         ]));
         lines.push(Line::from(vec![
-            Span::raw("    "),
+            Span::raw("     "),
             Span::styled(
                 ellipsize(&hit.summary, if compact { 68 } else { 108 }),
                 Style::default().fg(theme.muted),
             ),
         ]));
+    }
+
+    if let Some(hit) = hits.get(selected) {
+        lines.push(Line::from(""));
+        lines.push(Line::from(vec![
+            Span::raw("  "),
+            Span::styled("selected:", Style::default().fg(theme.muted)),
+            Span::raw(" "),
+            Span::styled(format!("[{}]", hit.kind), Style::default().fg(theme.info)),
+            Span::raw(" "),
+            Span::styled(hit.title.clone(), Style::default().fg(theme.accent)),
+        ]));
+        for detail in &hit.detail {
+            lines.push(Line::from(vec![
+                Span::raw("    - "),
+                Span::styled(
+                    ellipsize(detail, if compact { 68 } else { 108 }),
+                    Style::default().fg(theme.muted),
+                ),
+            ]));
+        }
     }
     lines
 }
@@ -8668,6 +8784,111 @@ fn mind_injection_status_color(status: &str, theme: PulseTheme) -> Color {
     }
 }
 
+fn render_mind_activity_bridge_lines(
+    rows: &[MindObserverRow],
+    injections: &[MindInjectionRow],
+    jobs: &[InsightDetachedJob],
+    snapshot: &MindArtifactDrilldown,
+    theme: PulseTheme,
+    compact: bool,
+) -> Vec<Line<'static>> {
+    let mut lines = vec![Line::from(vec![
+        Span::styled(
+            "Activity summary",
+            Style::default()
+                .fg(theme.title)
+                .add_modifier(Modifier::BOLD),
+        ),
+        Span::raw(" "),
+        Span::styled("[project-local]", Style::default().fg(theme.muted)),
+    ])];
+
+    let latest_event = rows.first().and_then(|row| {
+        row.event
+            .completed_at
+            .as_deref()
+            .or(row.event.started_at.as_deref())
+            .or(row.event.enqueued_at.as_deref())
+            .and_then(mind_timestamp_label)
+            .map(|when| (mind_lane_label(mind_event_lane(&row.event)), when))
+    });
+    let latest_injection = injections.first().and_then(|row| {
+        mind_timestamp_label(&row.payload.queued_at).map(|when| (row.payload.status.clone(), when))
+    });
+    let latest_job = jobs.first().and_then(|job| {
+        let when = job
+            .finished_at_ms
+            .or(job.started_at_ms)
+            .unwrap_or(job.created_at_ms);
+        Utc.timestamp_millis_opt(when).single().map(|dt| {
+            (
+                detached_job_status_label(job.status).to_string(),
+                dt.format("%H:%M:%S").to_string(),
+            )
+        })
+    });
+
+    let mut summary_fields = vec![
+        format!("events:{}", rows.len()),
+        format!("inject:{}", injections.len()),
+        format!("detached:{}", jobs.len()),
+        format!("handshake:{}", snapshot.handshake_entries.len()),
+        format!("canon:{}", snapshot.active_canon_entries.len()),
+    ];
+    if let Some((lane, when)) = latest_event.as_ref() {
+        summary_fields.push(format!("latest-event:{lane}@{when}"));
+    }
+    if let Some((status, when)) = latest_injection.as_ref() {
+        summary_fields.push(format!("latest-inject:{status}@{when}"));
+    }
+    if let Some((status, when)) = latest_job.as_ref() {
+        summary_fields.push(format!("latest-detached:{status}@{when}"));
+    }
+    lines.push(Line::from(vec![
+        Span::raw("  "),
+        Span::styled(
+            fit_fields(&summary_fields, if compact { 72 } else { 120 }),
+            Style::default().fg(theme.muted),
+        ),
+    ]));
+
+    lines.push(Line::from(""));
+    lines.push(Line::from(vec![
+        Span::styled(
+            "Mission Control bridge",
+            Style::default()
+                .fg(theme.title)
+                .add_modifier(Modifier::BOLD),
+        ),
+        Span::raw(" "),
+        Span::styled("[global follow-up]", Style::default().fg(theme.muted)),
+    ]));
+    lines.push(Line::from(vec![
+        Span::raw("  -> "),
+        Span::styled(
+            "Stay here for project knowledge review; switch to Fleet for detached runtime drilldown and cancellation.",
+            Style::default().fg(theme.muted),
+        ),
+    ]));
+    lines.push(Line::from(vec![
+        Span::raw("  -> "),
+        Span::styled(
+            "Use Overview/Overseer when you need pane focus, worker follow, or session-level triage.",
+            Style::default().fg(theme.muted),
+        ),
+    ]));
+    let followup_hint = if jobs.is_empty() {
+        "No detached project jobs yet; use o / O / b here, then Fleet if background work appears."
+    } else {
+        "Detached project jobs present; press 4 for Fleet to inspect or cancel them without leaving Mission Control."
+    };
+    lines.push(Line::from(vec![
+        Span::raw("  -> "),
+        Span::styled(followup_hint, Style::default().fg(theme.accent)),
+    ]));
+    lines
+}
+
 fn render_insight_detached_rollup_line(
     jobs: &[InsightDetachedJob],
     theme: PulseTheme,
@@ -8728,7 +8949,7 @@ fn render_insight_detached_rollup_line(
     detail_fields.push(format!("pl:d{}|m{}", delegated, mind));
     detail_fields.push(format!(
         "kind:{}",
-        detached_worker_kind_label(latest.worker_kind)
+        detached_worker_kind_display(latest.owner_plane, latest.worker_kind)
     ));
     if let Some(step_count) = latest.step_count {
         detail_fields.push(format!("steps:{step_count}"));
@@ -8752,9 +8973,10 @@ fn render_insight_detached_rollup_line(
         Span::raw(" "),
         Span::styled(
             format!(
-                "{}:{}",
+                "{}:{}:{}",
                 detached_owner_plane_label(latest.owner_plane),
-                ellipsize(label, if compact { 16 } else { 24 })
+                detached_worker_kind_display(latest.owner_plane, latest.worker_kind),
+                ellipsize(label, if compact { 14 } else { 20 })
             ),
             Style::default().fg(theme.info),
         ),
@@ -8786,6 +9008,74 @@ fn detached_worker_kind_label(worker_kind: Option<InsightDetachedWorkerKind>) ->
     }
 }
 
+fn detached_worker_kind_display(
+    owner_plane: InsightDetachedOwnerPlane,
+    worker_kind: Option<InsightDetachedWorkerKind>,
+) -> &'static str {
+    match (owner_plane, worker_kind) {
+        (InsightDetachedOwnerPlane::Mind, Some(InsightDetachedWorkerKind::T2)) => "t2-reflector",
+        (InsightDetachedOwnerPlane::Mind, Some(InsightDetachedWorkerKind::T3)) => "t3-runtime",
+        _ => detached_worker_kind_label(worker_kind),
+    }
+}
+
+fn detached_job_attention_label(job: &InsightDetachedJob) -> Option<String> {
+    match job.status {
+        InsightDetachedJobStatus::Queued | InsightDetachedJobStatus::Running => {
+            if job.fallback_used {
+                Some("fallback-used".to_string())
+            } else {
+                None
+            }
+        }
+        InsightDetachedJobStatus::Success => {
+            if job.fallback_used {
+                Some("fallback-used".to_string())
+            } else {
+                None
+            }
+        }
+        InsightDetachedJobStatus::Fallback => Some(
+            match job.owner_plane {
+                InsightDetachedOwnerPlane::Mind => "inline-fallback",
+                InsightDetachedOwnerPlane::Delegated => "fallback",
+            }
+            .to_string(),
+        ),
+        InsightDetachedJobStatus::Error => Some("error".to_string()),
+        InsightDetachedJobStatus::Cancelled => Some("cancelled".to_string()),
+        InsightDetachedJobStatus::Stale => Some(
+            match job.owner_plane {
+                InsightDetachedOwnerPlane::Mind => "lease-lost",
+                InsightDetachedOwnerPlane::Delegated => "stale",
+            }
+            .to_string(),
+        ),
+    }
+}
+
+fn detached_job_attention_color(job: &InsightDetachedJob, theme: PulseTheme) -> Color {
+    match job.status {
+        InsightDetachedJobStatus::Queued | InsightDetachedJobStatus::Running => {
+            if job.fallback_used {
+                theme.warn
+            } else {
+                theme.muted
+            }
+        }
+        InsightDetachedJobStatus::Success => {
+            if job.fallback_used {
+                theme.warn
+            } else {
+                theme.muted
+            }
+        }
+        InsightDetachedJobStatus::Fallback => theme.warn,
+        InsightDetachedJobStatus::Error => theme.critical,
+        InsightDetachedJobStatus::Cancelled | InsightDetachedJobStatus::Stale => theme.muted,
+    }
+}
+
 fn detached_job_status_label(status: InsightDetachedJobStatus) -> &'static str {
     match status {
         InsightDetachedJobStatus::Queued => "queued",
@@ -8811,30 +9101,85 @@ fn detached_job_status_color(status: InsightDetachedJobStatus, theme: PulseTheme
 
 fn detached_job_recovery_guidance(job: &InsightDetachedJob) -> Vec<String> {
     let mut steps = Vec::new();
+    let kind = detached_worker_kind_display(job.owner_plane, job.worker_kind);
     match job.status {
         InsightDetachedJobStatus::Queued | InsightDetachedJobStatus::Running => {
-            steps.push(
-                "job is active; wait, inspect, or cancel with x if it is no longer useful"
-                    .to_string(),
-            );
+            steps.push(match job.owner_plane {
+                InsightDetachedOwnerPlane::Mind => format!(
+                    "Mind {kind} is active under the detached coordinator; wait for completion or cancel with x if the run is no longer useful"
+                ),
+                InsightDetachedOwnerPlane::Delegated => {
+                    "job is active; wait, inspect, or cancel with x if it is no longer useful"
+                        .to_string()
+                }
+            });
         }
         InsightDetachedJobStatus::Success => {
-            steps.push("inspect or handoff the selected result into a follow-up tab if operator review is needed".to_string());
+            steps.push(match job.owner_plane {
+                InsightDetachedOwnerPlane::Mind => format!(
+                    "inspect the {kind} result in Fleet/Mind before treating it as the latest project-scoped synthesis"
+                ),
+                InsightDetachedOwnerPlane::Delegated => {
+                    "inspect or handoff the selected result into a follow-up tab if operator review is needed".to_string()
+                }
+            });
         }
         InsightDetachedJobStatus::Fallback => {
-            steps.push("job completed with degraded execution; inspect the brief/error before trusting the result".to_string());
-            steps.push("if the result is insufficient, rerun the specialist from the owning Pi session with a narrower prompt".to_string());
+            steps.push(match job.owner_plane {
+                InsightDetachedOwnerPlane::Mind => format!(
+                    "Mind {kind} completed via degraded inline fallback; inspect the summary/error before trusting the result"
+                ),
+                InsightDetachedOwnerPlane::Delegated => {
+                    "job completed with degraded execution; inspect the brief/error before trusting the result".to_string()
+                }
+            });
+            steps.push(match job.owner_plane {
+                InsightDetachedOwnerPlane::Mind => {
+                    "if the result is insufficient, rerun the upstream workflow that feeds this Mind worker rather than assuming detached coordination is healthy".to_string()
+                }
+                InsightDetachedOwnerPlane::Delegated => {
+                    "if the result is insufficient, rerun the specialist from the owning Pi session with a narrower prompt".to_string()
+                }
+            });
         }
         InsightDetachedJobStatus::Error => {
-            steps.push("job failed; inspect stderr/error context and rerun from the owning Pi session after correcting scope or environment".to_string());
+            steps.push(match job.owner_plane {
+                InsightDetachedOwnerPlane::Mind => format!(
+                    "Mind {kind} failed; inspect summary/error context, then compare against adjacent Mind jobs in the same project group"
+                ),
+                InsightDetachedOwnerPlane::Delegated => {
+                    "job failed; inspect stderr/error context and rerun from the owning Pi session after correcting scope or environment".to_string()
+                }
+            });
             steps.push("compare against other recent jobs in this group to see whether the failure is isolated or systemic".to_string());
         }
         InsightDetachedJobStatus::Cancelled => {
-            steps.push("job was cancelled; relaunch only if the work is still needed".to_string());
+            steps.push(match job.owner_plane {
+                InsightDetachedOwnerPlane::Mind => format!(
+                    "Mind {kind} was cancelled; confirm whether upstream queue pressure still warrants a rerun before restarting work"
+                ),
+                InsightDetachedOwnerPlane::Delegated => {
+                    "job was cancelled; relaunch only if the work is still needed".to_string()
+                }
+            });
         }
         InsightDetachedJobStatus::Stale => {
-            steps.push("job lost live ownership or wrapper continuity; treat it as interrupted, not successful".to_string());
-            steps.push("inspect any partial output, then rerun from the owning session if you still need a complete result".to_string());
+            steps.push(match job.owner_plane {
+                InsightDetachedOwnerPlane::Mind => format!(
+                    "Mind {kind} lost lease or restart continuity; treat it as interrupted, not successful"
+                ),
+                InsightDetachedOwnerPlane::Delegated => {
+                    "job lost live ownership or wrapper continuity; treat it as interrupted, not successful".to_string()
+                }
+            });
+            steps.push(match job.owner_plane {
+                InsightDetachedOwnerPlane::Mind => {
+                    "inspect any partial output, then verify coordinator health before rerunning the upstream workflow".to_string()
+                }
+                InsightDetachedOwnerPlane::Delegated => {
+                    "inspect any partial output, then rerun from the owning session if you still need a complete result".to_string()
+                }
+            });
         }
     }
     if job.fallback_used
@@ -9403,6 +9748,7 @@ fn handle_key(key: KeyEvent, app: &mut App, refresh_requested: &mut bool) -> boo
             }
             KeyCode::Enter => {
                 app.mind_search_editing = false;
+                app.mind_search_selected = 0;
                 app.status_note = Some(if app.mind_search_query.trim().is_empty() {
                     "mind search cleared".to_string()
                 } else {
@@ -9472,6 +9818,8 @@ fn handle_key(key: KeyEvent, app: &mut App, refresh_requested: &mut bool) -> boo
             | KeyCode::Char('v')
             | KeyCode::Char('p')
             | KeyCode::Char('/')
+            | KeyCode::Char('n')
+            | KeyCode::Char('N')
             | KeyCode::Char('f')
             | KeyCode::Char('A')
             | KeyCode::Char('S')
@@ -9648,7 +9996,22 @@ fn handle_key(key: KeyEvent, app: &mut App, refresh_requested: &mut bool) -> boo
         KeyCode::Char('/') => {
             if app.mode == Mode::Mind {
                 app.mind_search_editing = true;
+                app.mind_search_selected = 0;
                 app.status_note = Some("editing mind search query".to_string());
+            }
+            false
+        }
+        KeyCode::Char('n') => {
+            if app.mode == Mode::Mind && !app.mind_search_query.trim().is_empty() {
+                app.mind_search_selected = app.mind_search_selected.saturating_add(1);
+                app.status_note = Some("mind search next result".to_string());
+            }
+            false
+        }
+        KeyCode::Char('N') => {
+            if app.mode == Mode::Mind && !app.mind_search_query.trim().is_empty() {
+                app.mind_search_selected = app.mind_search_selected.saturating_sub(1);
+                app.status_note = Some("mind search previous result".to_string());
             }
             false
         }
@@ -11787,6 +12150,54 @@ mod tests {
     }
 
     #[test]
+    fn mind_search_keys_edit_and_browse_results() {
+        let (tx, _rx) = mpsc::channel(4);
+        let mut app = App::new(test_config(), tx, empty_local());
+        app.mode = Mode::Mind;
+        let mut refresh_requested = false;
+
+        handle_key(
+            KeyEvent::new(KeyCode::Char('/'), KeyModifiers::NONE),
+            &mut app,
+            &mut refresh_requested,
+        );
+        assert!(app.mind_search_editing);
+
+        handle_key(
+            KeyEvent::new(KeyCode::Char('p'), KeyModifiers::NONE),
+            &mut app,
+            &mut refresh_requested,
+        );
+        handle_key(
+            KeyEvent::new(KeyCode::Char('l'), KeyModifiers::NONE),
+            &mut app,
+            &mut refresh_requested,
+        );
+        handle_key(
+            KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE),
+            &mut app,
+            &mut refresh_requested,
+        );
+        assert!(!app.mind_search_editing);
+        assert_eq!(app.mind_search_query, "pl");
+        assert_eq!(app.mind_search_selected, 0);
+
+        handle_key(
+            KeyEvent::new(KeyCode::Char('n'), KeyModifiers::NONE),
+            &mut app,
+            &mut refresh_requested,
+        );
+        assert_eq!(app.mind_search_selected, 1);
+
+        handle_key(
+            KeyEvent::new(KeyCode::Char('N'), KeyModifiers::NONE),
+            &mut app,
+            &mut refresh_requested,
+        );
+        assert_eq!(app.mind_search_selected, 0);
+    }
+
+    #[test]
     fn pulse_pane_allows_local_refresh() {
         let mut cfg = test_config();
         cfg.runtime_mode = RuntimeMode::PulsePane;
@@ -13382,7 +13793,10 @@ mod tests {
 
         assert!(rendered.contains("Retrieval / search"));
         assert!(rendered.contains("query: > planner drift"));
-        assert!(rendered.contains("[canon] canon:planner-drift r1"));
+        assert!(rendered.contains("selected:1/2"));
+        assert!(rendered.contains(">> [canon] canon:planner-drift r1"));
+        assert!(rendered.contains("selected: [canon] canon:planner-drift r1"));
+        assert!(rendered.contains("evidence:obs:planner"));
         assert!(rendered.contains("Planner drift contract and routing notes"));
 
         let _ = std::fs::remove_dir_all(&root);
@@ -13438,10 +13852,107 @@ mod tests {
         ));
         assert!(rendered.contains("Retrieval / search"));
         assert!(rendered.contains("No observer activity yet for current lane/scope."));
+        assert!(rendered.contains("Activity summary [project-local]"));
+        assert!(rendered.contains("Mission Control bridge [global follow-up]"));
         assert!(rendered.contains("Knowledge artifacts Artifact drilldown"));
         assert!(rendered.contains("Handshake + canon"));
 
         let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn render_mind_activity_summary_and_bridge_for_detached_jobs() {
+        let rows = vec![MindObserverRow {
+            agent_id: "agent-1".to_string(),
+            scope: "project".to_string(),
+            pane_id: "11".to_string(),
+            tab_scope: Some("agent".to_string()),
+            tab_focused: true,
+            source: "hub".to_string(),
+            event: MindObserverFeedEvent {
+                status: MindObserverFeedStatus::Success,
+                trigger: MindObserverFeedTriggerKind::ManualShortcut,
+                conversation_id: None,
+                runtime: Some("observer".to_string()),
+                attempt_count: None,
+                latency_ms: None,
+                reason: Some("repo event".to_string()),
+                failure_kind: None,
+                enqueued_at: None,
+                started_at: None,
+                completed_at: Some("2026-03-27T10:00:00Z".to_string()),
+                progress: None,
+            },
+        }];
+        let injections = vec![MindInjectionRow {
+            scope: "project".to_string(),
+            pane_id: "11".to_string(),
+            tab_focused: true,
+            payload: MindInjectionPayload {
+                status: "pending".to_string(),
+                trigger: aoc_core::mind_observer_feed::MindInjectionTriggerKind::Startup,
+                scope: "project".to_string(),
+                scope_key: "project:/repo".to_string(),
+                active_tag: Some("env-protec".to_string()),
+                reason: Some("seed project context".to_string()),
+                snapshot_id: Some("hs:123".to_string()),
+                payload_hash: None,
+                token_estimate: Some(123),
+                context_pack: None,
+                queued_at: "2026-03-27T10:01:00Z".to_string(),
+            },
+        }];
+        let jobs = vec![InsightDetachedJob {
+            job_id: "job-1".to_string(),
+            parent_job_id: None,
+            owner_plane: InsightDetachedOwnerPlane::Mind,
+            worker_kind: Some(InsightDetachedWorkerKind::T2),
+            mode: aoc_core::insight_contracts::InsightDetachedMode::Dispatch,
+            status: InsightDetachedJobStatus::Running,
+            agent: None,
+            team: None,
+            chain: None,
+            created_at_ms: 1_711_533_000_000,
+            started_at_ms: Some(1_711_533_030_000),
+            finished_at_ms: None,
+            current_step_index: None,
+            step_count: None,
+            output_excerpt: None,
+            stdout_excerpt: None,
+            stderr_excerpt: None,
+            error: None,
+            fallback_used: false,
+            step_results: Vec::new(),
+        }];
+        let snapshot = MindArtifactDrilldown {
+            handshake_entries: vec![MindHandshakeEntry {
+                entry_id: "canon:entry-a".to_string(),
+                revision: 1,
+                topic: Some("mind".to_string()),
+                summary: "Keep this in startup context".to_string(),
+            }],
+            ..Default::default()
+        };
+
+        let rendered = render_mind_activity_bridge_lines(
+            &rows,
+            &injections,
+            &jobs,
+            &snapshot,
+            pulse_theme(PulseThemeMode::Terminal),
+            false,
+        )
+        .into_iter()
+        .map(|line| line.to_string())
+        .collect::<Vec<_>>()
+        .join("\n");
+
+        assert!(rendered.contains("Activity summary [project-local]"));
+        assert!(rendered.contains("latest-event:t1@10:00:00"));
+        assert!(rendered.contains("latest-inject:pending@10:01:00"));
+        assert!(rendered.contains("detached:1"));
+        assert!(rendered.contains("Mission Control bridge [global follow-up]"));
+        assert!(rendered.contains("press 4 for Fleet to inspect or cancel them"));
     }
 
     #[test]
@@ -14271,6 +14782,72 @@ mod tests {
         let app = App::new(cfg, tx, empty_local());
         assert_eq!(app.mode, Mode::Fleet);
         assert_eq!(app.fleet_plane_filter, FleetPlaneFilter::Delegated);
+    }
+
+    #[test]
+    fn detached_worker_kind_display_expands_mind_runtime_labels() {
+        assert_eq!(
+            detached_worker_kind_display(
+                InsightDetachedOwnerPlane::Mind,
+                Some(InsightDetachedWorkerKind::T2)
+            ),
+            "t2-reflector"
+        );
+        assert_eq!(
+            detached_worker_kind_display(
+                InsightDetachedOwnerPlane::Mind,
+                Some(InsightDetachedWorkerKind::T3)
+            ),
+            "t3-runtime"
+        );
+        assert_eq!(
+            detached_worker_kind_display(
+                InsightDetachedOwnerPlane::Delegated,
+                Some(InsightDetachedWorkerKind::Specialist)
+            ),
+            "specialist"
+        );
+    }
+
+    #[test]
+    fn render_fleet_brief_uses_mission_control_followup_for_mind_jobs() {
+        let (tx, _rx) = mpsc::channel(4);
+        let app = App::new(test_config(), tx, empty_local());
+        let job = InsightDetachedJob {
+            job_id: "mind-t2-brief-test".to_string(),
+            parent_job_id: None,
+            owner_plane: InsightDetachedOwnerPlane::Mind,
+            worker_kind: Some(InsightDetachedWorkerKind::T2),
+            mode: aoc_core::insight_contracts::InsightDetachedMode::Dispatch,
+            status: InsightDetachedJobStatus::Stale,
+            agent: Some("mind-t2-reflector".to_string()),
+            team: None,
+            chain: None,
+            created_at_ms: 1_700_000_000_000,
+            started_at_ms: Some(1_700_000_000_100),
+            finished_at_ms: Some(1_700_000_000_200),
+            current_step_index: Some(1),
+            step_count: Some(1),
+            output_excerpt: Some("mind t2 worker marked stale after lease expiry".to_string()),
+            stdout_excerpt: None,
+            stderr_excerpt: None,
+            error: Some(
+                "Mind T2 worker lease expired before detached completion was observed".to_string(),
+            ),
+            fallback_used: false,
+            step_results: Vec::new(),
+        };
+        let row = DetachedFleetRow {
+            project_root: "/repo".to_string(),
+            owner_plane: InsightDetachedOwnerPlane::Mind,
+            jobs: vec![job.clone()],
+        };
+
+        let rendered = app.render_fleet_brief(&row, &job, false);
+        assert!(rendered.contains("worker_kind: t2-reflector"));
+        assert!(rendered.contains("Mission Control Fleet or Mind"));
+        assert!(!rendered.contains("/subagent-inspect"));
+        assert!(rendered.contains("lost lease or restart continuity"));
     }
 
     #[test]

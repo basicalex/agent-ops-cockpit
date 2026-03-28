@@ -72,12 +72,18 @@ aoc overseer command run-validation --target-agent-id session-name::12
 ## Runtime modes
 `aoc-mission-control` now has two intended runtime modes:
 
-- `mission-control` — the dedicated session-global orchestration surface
+- `mission-control` — the dedicated session-global orchestration surface, also reused by the floating project Mind surface when launched directly into `Mind` view
 - `pulse-pane` — the tiny per-tab local pulse surface used in normal AOC work tabs
 
 `pulse-pane` should stay local/tab-scoped and intentionally avoids Overseer-only
 topics such as `observer_snapshot`, `observer_timeline`, and consultation
 responses.
+
+Operational boundary note:
+- `pulse-pane` is intentionally not a global orchestration surface.
+- mode switching into Overseer / Fleet and operator drilldown actions such as pane evidence or live follow are blocked there.
+- use the dedicated `mission-control` runtime/tab for fleet review, overseer actions, detached drilldown, and live pane follow.
+- for project-local knowledge review, use the floating project Mind launcher rather than keeping a persistent Mind pane in each work tab.
 
 Within `mission-control` mode, the TUI now includes a dedicated detached-job
 fleet surface that groups registry-backed detached jobs by:
@@ -104,10 +110,30 @@ Mode selection:
 Mission Control can now run as a dedicated tab, not only as a floating pane.
 This is the preferred path for longer-lived orchestration sessions.
 
+## Floating project Mind bootstrap
+AOC also supports a project-scoped floating Mind surface for on-demand knowledge review.
+
+Entry points:
+- `Alt+M` in Pi
+- `/mind` in Pi
+- `bin/aoc-mind-toggle`
+
+Current behavior:
+- resolves `AOC_PROJECT_ROOT` from the active AOC tab context, preferring the current Agent pane project root and falling back to `aoc-align --print-root` / `pwd -P`
+- launches `aoc-mission-control` with `AOC_MIND_PROJECT_SCOPED=1` and `AOC_MISSION_CONTROL_START_VIEW=mind`
+- outside Zellij, runs directly in the current terminal
+- inside Zellij, creates or reuses one named floating pane per tab and toggles visibility if that pane already exists
+
+Product boundary:
+- the floating Mind surface is the project-local knowledge/retrieval surface
+- the dedicated Mission Control tab remains the longer-lived global orchestration surface
+- AOC no longer assumes one persistent Mind pane per normal work tab for this workflow
+
 Entry points:
 - `aoc-mission-control-tab` — open the dedicated Mission Control tab in the current Zellij session
 - `aoc-new-tab --mission-control` — explicit tab creation shortcut
 - `AOC_LAYOUT=mission-control aoc-launch` — bootstrap a new session directly into the Mission Control layout
+- `aoc-subagent-supervision-toggle` — open/focus a delegated-subagent floating supervision pane backed by Mission Control Fleet with the delegated plane selected by default
 
 Current dedicated layout includes:
 - a large Mission Control pane
@@ -182,7 +208,7 @@ the session_id and the hub must reject mismatched sessions.
 | AOC_TAB_SCOPE | Logical tab identity shared by panes in the same tab | Derived from launch layout tab name |
 | AOC_PULSE_THEME | Pulse palette mode (`terminal`, `auto`, `dark`, `light`) | `terminal` |
 | AOC_PULSE_OVERVIEW_ENABLED | Enable Pulse Overview mode in mission-control | 1 (enabled by default) |
-| AOC_PULSE_LAYOUT_WATCH_ENABLED | Enable hub background layout watcher (`dump-layout`) | 0 (disabled by default) |
+| AOC_PULSE_LAYOUT_WATCH_ENABLED | Enable hub background layout watcher (`dump-layout` compatibility path) | 0 (disabled by default) |
 | AOC_PULSE_LAYOUT_WATCH_MS | Hub layout poll interval while layout subscribers are active | 3000 ms |
 | AOC_PULSE_LAYOUT_IDLE_WATCH_MS | Hub layout poll interval when no layout subscribers are active | max(4x active, 12000 ms) |
 | AOC_MISSION_CONTROL_LAYOUT_REFRESH_MS | Mission Control local layout refresh interval (fallback/overview) | 3000 ms |
