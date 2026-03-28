@@ -45,6 +45,7 @@ This note captures the concrete outputs for Taskmaster task **134**: finalize th
 - **141** retrieval across session exports and project canon
 - **110** finalize `aoc-insight` UX over Mind v2 retrieval facets
 - **131** dev-tab Mind feed cutover aligned to Mind v2 pipeline
+- detached runtime is now present for **T2 reflector** and **T3 backlog** workers via the shared insight detached-job substrate; remaining work is operator-surface polish, broader live validation, and explicit cutover confidence
 
 ### Phase 3 — provenance and traversal foundation
 - **132** provenance/query foundation for cross-session and T3 visualization
@@ -87,6 +88,7 @@ Mind v2 is ready for cutover when all of the following are true:
 
 ### F. Observability and recovery
 - operator surfaces expose T0/T1/T2/T3 health and backlog state.
+- detached Mind workers (at least T2/T3) are visible as `owner_plane=Mind` jobs with recovery/fallback state in operator surfaces.
 - compaction/checkpoint failures are visible and replayable.
 - artifact drilldown can traverse handshake -> canon -> session evidence.
 
@@ -99,11 +101,17 @@ Mind v2 is ready for cutover when all of the following are true:
 1. **134** — finalize architecture contracts, phase alignment, and acceptance gate.
 2. **141** — complete retrieval across session/project scopes.
 3. **132** — deliver provenance/query foundation needed for deep drilldown and visualization.
-4. **142** — run hardening/migration/rollout validation suite.
-5. **131** and **110** — cut over dev-tab and finalize insight UX.
-6. **129** — layer specialist role dispatch on top of the stabilized memory substrate.
+4. operator polish — keep Mission Control / project Mind aligned with real detached runtime state, including project-local search, activity bridge, and Mind-specific detached labels.
+5. **142** — run hardening/migration/rollout validation suite, including live validation of detached T2/T3 workers and stale-lease recovery.
+6. **131** and **110** — cut over dev-tab and finalize insight UX.
+7. **129** — layer specialist role dispatch on top of the stabilized memory substrate.
 
 ## Immediate next implementation steps
+
+### Near-term reality check
+1. Treat detached **T2** and **T3** Mind workers as implemented substrate, not speculative architecture.
+2. Keep docs and operator surfaces honest about the current boundary: project-scoped Mind for knowledge review, Mission Control Fleet for detached runtime supervision, and `pulse-pane` as the lightweight local surface.
+3. Validate stale-lease, fallback, and cancel/recovery paths in live operator runbooks in addition to unit coverage.
 
 ### Next coding task: 141
 1. Add retrieval scope planner for `session`, `project`, and `auto`.
