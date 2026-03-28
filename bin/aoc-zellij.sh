@@ -39,8 +39,8 @@ aoc_zellij_supports_native_inventory() {
 aoc_zellij_current_tab_id() {
   local json
   json="$(_aoc_zellij_current_tab_info_json)" || return 1
-  python3 - <<'PY' <<<"$json"
-import json, sys
+  AOC_ZELLIJ_JSON="$json" python3 - <<'PY'
+import json, os
 
 def data_root(raw):
     val = json.loads(raw)
@@ -57,7 +57,7 @@ def first(*values):
             return value
     return None
 
-obj = data_root(sys.stdin.read())
+obj = data_root(os.environ["AOC_ZELLIJ_JSON"])
 value = first(obj.get("tab_id"), obj.get("id"), obj.get("tabId"))
 if value not in (None, ""):
     print(value)
@@ -69,8 +69,8 @@ PY
 aoc_zellij_current_tab_floating_hidden() {
   local json
   if json="$(_aoc_zellij_current_tab_info_json)"; then
-    python3 - <<'PY' <<<"$json"
-import json, sys
+    AOC_ZELLIJ_JSON="$json" python3 - <<'PY'
+import json, os
 
 def data_root(raw):
     val = json.loads(raw)
@@ -94,7 +94,7 @@ def as_bool(value):
             return False
     return None
 
-obj = data_root(sys.stdin.read())
+obj = data_root(os.environ["AOC_ZELLIJ_JSON"])
 hidden = as_bool(obj.get("hide_floating_panes"))
 if hidden is None:
     visible = as_bool(obj.get("floating_panes_visible"))
@@ -165,13 +165,12 @@ aoc_zellij_pane_exists() {
   shift
   local json
   if json="$(_aoc_zellij_list_panes_json)"; then
-    python3 - "$target_name" "$@" <<'PY' <<<"$json"
-import json, re, sys
+    AOC_ZELLIJ_JSON="$json" python3 - "$target_name" "$@" <<'PY'
+import json, os, re, sys
 
 target = sys.argv[1]
 patterns = [re.compile(p) for p in sys.argv[2:]]
-raw = sys.stdin.read()
-val = json.loads(raw)
+val = json.loads(os.environ["AOC_ZELLIJ_JSON"])
 items = []
 if isinstance(val, list):
     items = val
@@ -229,18 +228,15 @@ aoc_zellij_project_root_from_current_tab() {
   tabs_json="$(_aoc_zellij_list_tabs_json)" || return 1
   local current_tab_json
   current_tab_json="$(_aoc_zellij_current_tab_info_json)" || return 1
-  python3 - "$projects_base" <<'PY' <<<"$panes_json
-__AOC_SPLIT__
-$tabs_json
-__AOC_SPLIT__
-$current_tab_json"
+  AOC_ZELLIJ_PANES_JSON="$panes_json" \
+  AOC_ZELLIJ_TABS_JSON="$tabs_json" \
+  AOC_ZELLIJ_CURRENT_TAB_JSON="$current_tab_json" \
+  python3 - "$projects_base" <<'PY'
 import json, os, re, sys
 projects_base = sys.argv[1]
-raw = sys.stdin.read()
-parts = raw.split("\n__AOC_SPLIT__\n")
-if len(parts) != 3:
-    raise SystemExit(1)
-panes_raw, tabs_raw, current_raw = parts
+panes_raw = os.environ["AOC_ZELLIJ_PANES_JSON"]
+tabs_raw = os.environ["AOC_ZELLIJ_TABS_JSON"]
+current_raw = os.environ["AOC_ZELLIJ_CURRENT_TAB_JSON"]
 agent_re = re.compile(r"^Agent\s*\[([^\]]+)\]")
 
 def load(raw):
@@ -303,15 +299,12 @@ aoc_zellij_current_tab_agent_project_root() {
   local panes_json current_tab_json
   panes_json="$(_aoc_zellij_list_panes_json)" || return 1
   current_tab_json="$(_aoc_zellij_current_tab_info_json)" || return 1
-  python3 - <<'PY' <<<"$panes_json
-__AOC_SPLIT__
-$current_tab_json"
-import json, os, re, sys
-raw = sys.stdin.read()
-parts = raw.split("\n__AOC_SPLIT__\n")
-if len(parts) != 2:
-    raise SystemExit(1)
-panes_raw, current_raw = parts
+  AOC_ZELLIJ_PANES_JSON="$panes_json" \
+  AOC_ZELLIJ_CURRENT_TAB_JSON="$current_tab_json" \
+  python3 - <<'PY'
+import json, os, re
+panes_raw = os.environ["AOC_ZELLIJ_PANES_JSON"]
+current_raw = os.environ["AOC_ZELLIJ_CURRENT_TAB_JSON"]
 agent_re = re.compile(r"^Agent\s*\[[^\]]+\]")
 
 def load(raw):
@@ -383,17 +376,14 @@ aoc_zellij_find_current_tab_pane_id_by_name() {
   local panes_json current_tab_json
   panes_json="$(_aoc_zellij_list_panes_json)" || return 1
   current_tab_json="$(_aoc_zellij_current_tab_info_json)" || return 1
-  python3 - "$target_name" <<'PY' <<<"$panes_json
-__AOC_SPLIT__
-$current_tab_json"
-import json, sys
+  AOC_ZELLIJ_PANES_JSON="$panes_json" \
+  AOC_ZELLIJ_CURRENT_TAB_JSON="$current_tab_json" \
+  python3 - "$target_name" <<'PY'
+import json, os, sys
 
 target_name = sys.argv[1]
-raw = sys.stdin.read()
-parts = raw.split("\n__AOC_SPLIT__\n")
-if len(parts) != 2:
-    raise SystemExit(1)
-panes_raw, current_raw = parts
+panes_raw = os.environ["AOC_ZELLIJ_PANES_JSON"]
+current_raw = os.environ["AOC_ZELLIJ_CURRENT_TAB_JSON"]
 
 def load(raw):
     val = json.loads(raw)
