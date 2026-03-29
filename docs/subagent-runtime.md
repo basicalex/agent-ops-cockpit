@@ -386,6 +386,10 @@ Primary review path:
 - `/subagent-handoff <job-id>` for concise operator handoff
 - stable `report.md` / `meta.json` / `stderr.log` artifacts for deeper drilldown
 
+For team / parallel jobs specifically:
+- inspect and handoff views now summarize per-member outcomes when durable `step_results` are available
+- artifact reports include a bounded `Step Results` section so operators can review member-level success/fallback/cancel state without opening raw logs first
+
 ---
 
 ## 12. Recommended operator workflow

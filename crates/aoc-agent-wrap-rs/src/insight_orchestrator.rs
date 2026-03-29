@@ -497,9 +497,48 @@ pub struct DetachedInsightRuntime {
 
 impl DetachedInsightRuntime {
     pub fn new(project_root: impl Into<PathBuf>, store_path: impl Into<PathBuf>) -> Self {
+        Self::new_with_recovery(project_root, store_path, true)
+    }
+
+    pub fn new_without_recovery(
+        project_root: impl Into<PathBuf>,
+        store_path: impl Into<PathBuf>,
+    ) -> Self {
+        Self::new_with_recovery(project_root, store_path, false)
+    }
+
+    pub fn register_running_pid(&self, job_id: &str, pid: u32) {
+        register_running_pid(&self.running_pids, job_id, pid);
+    }
+
+    pub fn is_cancelled(&self, job_id: &str) -> bool {
+        job_cancelled(job_id, &self.cancelled_jobs)
+            || self
+                .status(&InsightDetachedStatusRequest {
+                    job_id: Some(job_id.to_string()),
+                    owner_plane: None,
+                    worker_kind: None,
+                    limit: Some(1),
+                })
+                .jobs
+                .into_iter()
+                .next()
+                .map(|job| job.status == InsightDetachedJobStatus::Cancelled)
+                .unwrap_or(false)
+    }
+
+    fn new_with_recovery(
+        project_root: impl Into<PathBuf>,
+        store_path: impl Into<PathBuf>,
+        recover_on_start: bool,
+    ) -> Self {
         let project_root = project_root.into();
         let store_path = store_path.into();
-        let recovered_jobs = recover_persisted_jobs(&store_path);
+        let recovered_jobs = if recover_on_start {
+            recover_persisted_jobs(&store_path)
+        } else {
+            list_persisted_jobs(&store_path)
+        };
         let next_job_id = recovered_jobs
             .iter()
             .filter_map(|job| {
@@ -757,6 +796,11 @@ impl DetachedInsightRuntime {
             .jobs
             .lock()
             .expect("detached insight jobs lock poisoned");
+        if !jobs.contains_key(&request.job_id) {
+            for job in list_persisted_jobs(&self.store_path) {
+                jobs.insert(job.job_id.clone(), job);
+            }
+        }
         let Some(existing) = jobs.get(&request.job_id).cloned() else {
             return InsightDetachedCancelResult {
                 job_id: request.job_id.clone(),
@@ -2275,6 +2319,90 @@ mod tests {
     }
 
     #[test]
+    fn detached_parallel_runtime_can_cancel_running_team() {
+        let _guard = env_lock().lock().expect("env lock");
+        let root = fixture_root();
+        let store_path = root.join("mind.sqlite");
+        let old = std::env::var("AOC_INSIGHT_AGENT_CMD").ok();
+        let old_parallel_limit = std::env::var("AOC_INSIGHT_DETACHED_PARALLEL_LIMIT").ok();
+        std::env::set_var("AOC_INSIGHT_AGENT_CMD", "trap 'exit 143' TERM; sleep 10");
+        std::env::set_var("AOC_INSIGHT_DETACHED_PARALLEL_LIMIT", "1");
+
+        let runtime = DetachedInsightRuntime::new(&root, &store_path);
+        let dispatch = runtime.dispatch(&InsightDetachedDispatchRequest {
+            mode: InsightDetachedMode::Parallel,
+            team: Some("insight-core".to_string()),
+            input: "hello".to_string(),
+            ..InsightDetachedDispatchRequest::default()
+        });
+        let job_id = dispatch.job.job_id.clone();
+
+        let mut saw_running = false;
+        for _ in 0..80 {
+            let status = runtime.status(&InsightDetachedStatusRequest {
+                job_id: Some(job_id.clone()),
+                owner_plane: None,
+                worker_kind: None,
+                limit: Some(10),
+            });
+            if status.jobs.iter().any(|job| {
+                job.job_id == job_id && job.status == InsightDetachedJobStatus::Running
+            }) {
+                saw_running = true;
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(50));
+        }
+        assert!(saw_running, "parallel parent job never entered running state");
+
+        let cancelled = runtime.cancel(&InsightDetachedCancelRequest {
+            job_id: job_id.clone(),
+            reason: Some("test parallel cancel".to_string()),
+        });
+        assert_eq!(cancelled.status, InsightDetachedJobStatus::Cancelled);
+        assert!(cancelled.cancelled || cancelled.fallback_used);
+
+        let mut terminal = None;
+        for _ in 0..80 {
+            let status = runtime.status(&InsightDetachedStatusRequest {
+                job_id: Some(job_id.clone()),
+                owner_plane: None,
+                worker_kind: None,
+                limit: Some(10),
+            });
+            terminal = status.jobs.iter().find(|job| job.job_id == job_id).cloned();
+            if terminal
+                .as_ref()
+                .map(|job| job.status == InsightDetachedJobStatus::Cancelled)
+                .unwrap_or(false)
+            {
+                assert!(status.jobs.iter().any(|job| {
+                    job.parent_job_id.as_deref() == Some(job_id.as_str())
+                        && job.status == InsightDetachedJobStatus::Cancelled
+                }));
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(50));
+        }
+        assert_eq!(
+            terminal.as_ref().map(|job| job.status),
+            Some(InsightDetachedJobStatus::Cancelled)
+        );
+
+        if let Some(previous) = old {
+            std::env::set_var("AOC_INSIGHT_AGENT_CMD", previous);
+        } else {
+            std::env::remove_var("AOC_INSIGHT_AGENT_CMD");
+        }
+        if let Some(previous) = old_parallel_limit {
+            std::env::set_var("AOC_INSIGHT_DETACHED_PARALLEL_LIMIT", previous);
+        } else {
+            std::env::remove_var("AOC_INSIGHT_DETACHED_PARALLEL_LIMIT");
+        }
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
     fn detached_runtime_marks_recovered_running_job_stale() {
         let root = fixture_root();
         let store_path = root.join("mind.sqlite");
@@ -2316,6 +2444,48 @@ mod tests {
             .as_deref()
             .unwrap_or_default()
             .contains("wrapper restarted before detached result was observed"));
+
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn detached_runtime_can_load_persisted_jobs_without_startup_recovery() {
+        let root = fixture_root();
+        let store_path = root.join("mind.sqlite");
+        let running_job = InsightDetachedJob {
+            job_id: "detached-123-0002".to_string(),
+            parent_job_id: None,
+            owner_plane: InsightDetachedOwnerPlane::Delegated,
+            worker_kind: Some(InsightDetachedWorkerKind::Specialist),
+            mode: InsightDetachedMode::Dispatch,
+            status: InsightDetachedJobStatus::Running,
+            agent: Some("insight-t1-observer".to_string()),
+            team: None,
+            chain: None,
+            created_at_ms: chrono::Utc::now().timestamp_millis(),
+            started_at_ms: Some(chrono::Utc::now().timestamp_millis()),
+            finished_at_ms: None,
+            current_step_index: Some(0),
+            step_count: Some(1),
+            output_excerpt: Some("running before child boot".to_string()),
+            stdout_excerpt: None,
+            stderr_excerpt: None,
+            error: None,
+            fallback_used: false,
+            step_results: Vec::new(),
+        };
+        persist_job(&store_path, &running_job);
+
+        let runtime = DetachedInsightRuntime::new_without_recovery(&root, &store_path);
+        let status = runtime.status(&InsightDetachedStatusRequest {
+            job_id: Some(running_job.job_id.clone()),
+            owner_plane: None,
+            worker_kind: None,
+            limit: Some(1),
+        });
+        let recovered = status.jobs.into_iter().next().expect("recovered job");
+        assert_eq!(recovered.status, InsightDetachedJobStatus::Running);
+        assert!(recovered.error.is_none());
 
         let _ = fs::remove_dir_all(root);
     }

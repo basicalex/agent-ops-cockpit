@@ -382,6 +382,7 @@ async function refreshRegistryJobs(ctx: ExtensionContext, targetJobId?: string, 
 			if (typeof prior?.writeApproved === "boolean" && typeof mapped.writeApproved !== "boolean") mapped.writeApproved = prior.writeApproved;
 			if (typeof prior?.contextPackUsed === "boolean" && typeof mapped.contextPackUsed !== "boolean") mapped.contextPackUsed = prior.contextPackUsed;
 			if (prior?.artifactDir && !mapped.artifactDir) mapped.artifactDir = prior.artifactDir;
+			if (prior?.stepResults?.length && !mapped.stepResults?.length) mapped.stepResults = prior.stepResults;
 			if (prior?.reportPath && !mapped.reportPath) mapped.reportPath = prior.reportPath;
 			if (prior?.metaPath && !mapped.metaPath) mapped.metaPath = prior.metaPath;
 			if (prior?.eventsPath && !mapped.eventsPath) mapped.eventsPath = prior.eventsPath;
@@ -722,7 +723,30 @@ function failureJobs(limit = 5): JobRecord[] {
 	return historyJobs(Math.max(limit, 24)).filter((job) => needsAttentionStatus(job.status)).slice(0, limit);
 }
 
+function summarizeStepResults(job: JobRecord): string | undefined {
+	if (!job.stepResults?.length) return undefined;
+	const successCount = job.stepResults.filter((step) => step.status === "success").length;
+	const cancelledCount = job.stepResults.filter((step) => step.status === "cancelled").length;
+	const fallbackCount = job.stepResults.length - successCount - cancelledCount;
+	return `members=${job.stepResults.length} success=${successCount} fallback=${fallbackCount} cancelled=${cancelledCount}`;
+}
+
+function formatStepResultLines(job: JobRecord, prefix = "  ", limit = 6): string[] {
+	if (!job.stepResults?.length) return [];
+	const lines = [
+		`${prefix}step_results: ${job.stepResults.length}`,
+		...job.stepResults.slice(0, limit).map((step, index) => {
+			const detail = truncate(step.outputExcerpt || step.error || step.stderrExcerpt || "no excerpt recorded", 120) || "no excerpt recorded";
+			return `${prefix}- ${index + 1}. ${step.agent} · ${step.status} · ${detail}`;
+		}),
+	];
+	if (job.stepResults.length > limit) lines.push(`${prefix}- … ${job.stepResults.length - limit} more`);
+	return lines;
+}
+
 function summarizeJobOutcome(job: JobRecord): string {
+	const stepSummary = summarizeStepResults(job);
+	if (stepSummary) return stepSummary;
 	const detail = job.outputExcerpt || job.error || job.stderrExcerpt || "no excerpt recorded";
 	return truncate(detail, 160) || "no excerpt recorded";
 }
@@ -735,6 +759,7 @@ function handoffRecord(job: JobRecord): PersistedHandoffRecord {
 		mode: job.mode,
 		createdAt: job.createdAt,
 		finishedAt: job.finishedAt,
+		teamName: job.teamName,
 		chainName: job.chainName,
 		outputExcerpt: job.outputExcerpt,
 		stderrExcerpt: job.stderrExcerpt,
@@ -888,6 +913,7 @@ function formatJob(job: JobRecord): string {
 	if (job.error) lines.push(`  error: ${job.error}`);
 	if (job.outputExcerpt) lines.push(`  output: ${JSON.stringify(job.outputExcerpt)}`);
 	if (job.stderrExcerpt) lines.push(`  stderr: ${JSON.stringify(job.stderrExcerpt)}`);
+	lines.push(...formatStepResultLines(job));
 	return lines.join("\n");
 }
 
@@ -956,12 +982,15 @@ function formatHandoff(jobId: string): string {
 	if (toolSummary) lines.push(`tool_provenance: ${toolSummary}`);
 	if (job.teamName) lines.push(`team: ${job.teamName}`);
 	if (job.chainName) lines.push(`chain: ${job.chainName}`);
+	const stepSummary = summarizeStepResults(job);
+	if (stepSummary) lines.push(`step_summary: ${stepSummary}`);
 	if (job.finishedAt) lines.push(`finished_at: ${new Date(job.finishedAt).toISOString()}`);
 	if (job.artifactDir) lines.push(`artifacts: ${job.artifactDir}`);
 	if (job.reportPath) lines.push(`report: ${job.reportPath}`);
 	if (job.outputExcerpt) lines.push(`result: ${job.outputExcerpt}`);
 	if (job.error) lines.push(`error: ${job.error}`);
 	if (job.stderrExcerpt) lines.push(`stderr: ${job.stderrExcerpt}`);
+	lines.push(...formatStepResultLines(job, "", 5));
 	lines.push(`next_action: review with /subagent-inspect ${job.jobId}`);
 	return lines.join("\n");
 }
@@ -1173,6 +1202,8 @@ function formatTeamDetail(root: string, name: string, members: string[]): string
 		for (const job of recent) {
 			lines.push(`- ${shortJobId(job.jobId)} · ${job.status} · ${inspectorTime(job)}`);
 			lines.push(`  task: ${truncate(job.task || "(none)", 140)}`);
+			const stepSummary = summarizeStepResults(job);
+			if (stepSummary) lines.push(`  ${stepSummary}`);
 			if (job.reportPath) lines.push(`  report: ${job.reportPath}`);
 		}
 	}
@@ -2435,6 +2466,7 @@ function startDetachedTeam(
 		fallbackUsed: bundle.validationErrors.length > 0,
 		manifestErrors: [...bundle.validationErrors],
 		teamName,
+		stepResults: [],
 	}, { prompt: input });
 	state.jobs.set(jobId, job);
 	persistJob(pi, job);
@@ -2459,6 +2491,13 @@ function startDetachedTeam(
 				stderrExcerpt: truncate(settled.find((entry) => entry.stderr)?.stderr, 320),
 				fallbackUsed: bundle.validationErrors.length > 0 || degradedCount > 0,
 				teamName,
+				stepResults: settled.map((entry) => ({
+					agent: entry.agent,
+					status: entry.status,
+					outputExcerpt: truncate(entry.output),
+					stderrExcerpt: truncate(entry.stderr, 320),
+					error: truncate(entry.error, 320),
+				})),
 			});
 			return;
 		}
@@ -2477,6 +2516,7 @@ function startDetachedTeam(
 			toolPolicies: initialToolPolicies,
 			outputExcerpt: truncate(`team ${teamName}: running ${agent.name} (${index + 1}/${teamAgents.length})`),
 			teamName,
+			stepResults: state.jobs.get(jobId)?.stepResults ?? [],
 		});
 		spawnDetachedStep(pi, ctx, jobId, agent, input, cwd, (result) => {
 			settled.push({ agent: agent.name, status: result.status, output: result.output, error: result.error, stderr: result.stderr });
@@ -2490,6 +2530,13 @@ function startDetachedTeam(
 					tools: Array.from(new Set(teamAgents.flatMap((candidate) => candidate.tools))),
 					toolPolicies: initialToolPolicies,
 					teamName,
+					stepResults: settled.map((entry) => ({
+						agent: entry.agent,
+						status: entry.status,
+						outputExcerpt: truncate(entry.output),
+						stderrExcerpt: truncate(entry.stderr, 320),
+						error: truncate(entry.error, 320),
+					})),
 					outputExcerpt: truncate(`team ${teamName}: completed ${agent.name} (${index + 1}/${teamAgents.length})`),
 				});
 				state.jobs.set(jobId, updated);
