@@ -7,9 +7,11 @@ use aoc_core::{
         ConsultationSourceStatus, ConsultationTaskContext,
     },
     insight_contracts::{
-        InsightBootstrapRequest, InsightCommand, InsightDetachedStatusResult,
-        InsightDispatchRequest, InsightRetrievalCitation, InsightRetrievalDrilldownRef,
-        InsightRetrievalHit, InsightRetrievalMode, InsightRetrievalRequest, InsightRetrievalResult,
+        InsightBootstrapRequest, InsightCommand, InsightDetachedJob, InsightDetachedJobStatus,
+        InsightDetachedMode, InsightDetachedOwnerPlane, InsightDetachedStatusResult,
+        InsightDetachedWorkerKind, InsightDispatchRequest, InsightDispatchStepResult,
+        InsightRetrievalCitation, InsightRetrievalDrilldownRef, InsightRetrievalHit,
+        InsightRetrievalMode, InsightRetrievalRequest, InsightRetrievalResult,
         InsightRetrievalScope, InsightStatusResult,
     },
     mind_contracts::{
@@ -59,6 +61,7 @@ use aoc_storage::{
 };
 use chrono::{TimeZone, Utc};
 use clap::Parser;
+use fs2::FileExt;
 use futures_util::{SinkExt, StreamExt};
 use insight_orchestrator::{DetachedInsightRuntime, InsightSupervisor};
 use notify::{RecommendedWatcher, RecursiveMode, Watcher};
@@ -69,7 +72,7 @@ use std::{
     collections::hash_map::DefaultHasher,
     collections::{HashMap, HashSet},
     env,
-    fs::OpenOptions,
+    fs::{File, OpenOptions},
     hash::{Hash, Hasher},
     io::{self, Read, Write},
     path::{Path, PathBuf},
@@ -118,6 +121,10 @@ const MIND_IDLE_FINALIZE_MS: i64 = 120_000;
 const MIND_IDLE_CHECK_INTERVAL_MS: i64 = 5_000;
 const MIND_T3_TICK_INTERVAL_SECS: u64 = 5;
 const MIND_T3_MAX_ATTEMPTS: u16 = 3;
+const MIND_T2_DISPATCH_STALE_AFTER_MS: i64 = 45_000;
+const MIND_T3_DISPATCH_STALE_AFTER_MS: i64 = 45_000;
+const MIND_DETACHED_KIND_ENV: &str = "AOC_MIND_DETACHED_KIND";
+const MIND_DETACHED_JOB_ID_ENV: &str = "AOC_MIND_DETACHED_JOB_ID";
 const MIND_T3_CANON_SUMMARY_MAX_CHARS: usize = 280;
 const MIND_T3_CANON_STALE_AFTER_DAYS: i64 = 14;
 const MIND_T3_HANDSHAKE_TOKEN_BUDGET: u32 = 500;
@@ -204,6 +211,39 @@ where
         builder.env(key, value);
     }
 }
+
+fn resolve_detached_mind_worker_kind() -> Option<InsightDetachedWorkerKind> {
+    match env::var(MIND_DETACHED_KIND_ENV)
+        .ok()?
+        .trim()
+        .to_ascii_lowercase()
+        .as_str()
+    {
+        "t3" => Some(InsightDetachedWorkerKind::T3),
+        "t2" | "reflector" => Some(InsightDetachedWorkerKind::T2),
+        _ => None,
+    }
+}
+
+fn detached_mind_worker_label(kind: InsightDetachedWorkerKind) -> &'static str {
+    match kind {
+        InsightDetachedWorkerKind::T2 => "mind-t2-reflector",
+        InsightDetachedWorkerKind::T3 => "mind-t3-runtime",
+        _ => "mind-runtime",
+    }
+}
+
+fn detached_worker_kind_label(kind: InsightDetachedWorkerKind) -> &'static str {
+    match kind {
+        InsightDetachedWorkerKind::Specialist => "specialist",
+        InsightDetachedWorkerKind::ChainStep => "chain_step",
+        InsightDetachedWorkerKind::TeamFanout => "team_fanout",
+        InsightDetachedWorkerKind::T1 => "t1",
+        InsightDetachedWorkerKind::T2 => "t2",
+        InsightDetachedWorkerKind::T3 => "t3",
+    }
+}
+
 const TELEMETRY_SECRET_KEYS: [&str; 13] = [
     "access_token",
     "api_key",
@@ -524,6 +564,7 @@ enum PulseUpdate {
         snippet: Option<String>,
         parser_confidence: Option<u8>,
     },
+    SessionTitle(Option<String>),
     TaskSummaries(HashMap<String, TaskSummaryPayload>),
     CurrentTag(CurrentTagPayload),
     DiffSummary(DiffSummaryPayload),
@@ -545,6 +586,7 @@ struct PulseState {
     lifecycle: String,
     snippet: Option<String>,
     parser_confidence: Option<u8>,
+    session_title: Option<String>,
     task_summaries: HashMap<String, TaskSummaryPayload>,
     current_tag: Option<CurrentTagPayload>,
     diff_summary: Option<DiffSummaryPayload>,
@@ -567,6 +609,7 @@ impl PulseState {
             lifecycle: "running".to_string(),
             snippet: None,
             parser_confidence: None,
+            session_title: None,
             task_summaries: HashMap::new(),
             current_tag: None,
             diff_summary: None,
@@ -604,6 +647,10 @@ struct CachedMessages {
     task_summary: HashMap<String, String>,
     task_done_counts: HashMap<String, u32>,
     current_tag: Option<CurrentTagPayload>,
+}
+
+fn stable_json<T: Serialize>(value: &T) -> String {
+    serde_json::to_string(value).unwrap_or_default()
 }
 
 struct LogGuard {
@@ -651,6 +698,10 @@ struct RuntimeSnapshot {
     project_root: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     tab_scope: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    session_title: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    chat_title: Option<String>,
     pid: i32,
     status: String,
     last_update: String,
@@ -720,8 +771,13 @@ impl AgentLifecycle {
 #[tokio::main]
 async fn main() {
     let args = Args::parse();
+    let detached_worker_kind = resolve_detached_mind_worker_kind();
     let config = load_config(args);
     let _log_guard = init_logging(&config);
+
+    if let Some(kind) = detached_worker_kind {
+        std::process::exit(run_detached_mind_worker_process(&config, kind));
+    }
 
     if config.cmd.is_empty() {
         error!("missing command to wrap");
@@ -884,6 +940,36 @@ async fn main() {
     std::process::exit(exit_code);
 }
 
+fn run_detached_mind_worker_process(
+    config: &RuntimeConfig,
+    kind: InsightDetachedWorkerKind,
+) -> i32 {
+    let Some(job_id) = env::var(MIND_DETACHED_JOB_ID_ENV)
+        .ok()
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
+    else {
+        error!("missing detached Mind job id");
+        return 1;
+    };
+
+    let mut runtime = match MindRuntime::new(&config.client) {
+        Ok(runtime) => runtime,
+        Err(err) => {
+            error!(error = %err, "failed to initialize detached Mind runtime");
+            return 1;
+        }
+    };
+
+    match runtime.run_detached_mind_worker(&config.client, kind, &job_id) {
+        Ok(status) => status,
+        Err(err) => {
+            error!(job_id = %job_id, error = %err, "detached Mind worker failed");
+            1
+        }
+    }
+}
+
 fn load_config(args: Args) -> RuntimeConfig {
     let session_id = if !args.session.trim().is_empty() {
         args.session
@@ -1035,7 +1121,8 @@ async fn pulse_loop(cfg: ClientConfig, socket_path: PathBuf, mut rx: mpsc::Recei
             None
         }
     };
-    if let Some(runtime) = mind_runtime.as_ref() {
+    if let Some(runtime) = mind_runtime.as_mut() {
+        runtime.reconcile_detached_mind_jobs_on_startup();
         let startup_injection = build_mind_injection_payload(
             &cfg,
             Some(runtime),
@@ -1068,12 +1155,21 @@ async fn pulse_loop(cfg: ClientConfig, socket_path: PathBuf, mut rx: mpsc::Recei
                                     }
                                 }
                                 Some(other) => {
+                                    let persist_snapshot = matches!(other, PulseUpdate::SessionTitle(_));
                                     apply_pulse_update_with_injection_adapters(
                                         &cfg,
                                         &mut state,
                                         mind_runtime.as_ref(),
                                         other,
                                     );
+                                    if persist_snapshot {
+                                        let _ = persist_runtime_snapshot_with_title(
+                                            &cfg,
+                                            &state.lifecycle,
+                                            state.session_title.as_deref(),
+                                        )
+                                        .await;
+                                    }
                                 }
                             }
                         }
@@ -1123,7 +1219,7 @@ async fn pulse_loop(cfg: ClientConfig, socket_path: PathBuf, mut rx: mpsc::Recei
                                         update,
                                     );
                                 }
-                                for update in runtime.tick_t3_runtime() {
+                                for update in runtime.tick_t3_runtime(&cfg) {
                                     apply_pulse_update_with_injection_adapters(
                                         &cfg,
                                         &mut state,
@@ -1176,11 +1272,11 @@ async fn pulse_loop(cfg: ClientConfig, socket_path: PathBuf, mut rx: mpsc::Recei
                 }
                 _ = reflector_ticker.tick() => {
                     if let Some(runtime) = mind_runtime.as_mut() {
-                        let mut updates = runtime.tick_reflector_runtime();
+                        let mut updates = runtime.tick_reflector_runtime(&cfg);
                         if let Some(finalize) = runtime.maybe_finalize_idle(&cfg, Utc::now()) {
                             updates.extend(finalize.updates);
                         }
-                        updates.extend(runtime.tick_t3_runtime());
+                        updates.extend(runtime.tick_t3_runtime(&cfg));
                         updates.push(runtime.detached_status_update());
                         for update in updates {
                             apply_pulse_update_with_injection_adapters(
@@ -1275,6 +1371,18 @@ fn apply_pulse_update(state: &mut PulseState, update: PulseUpdate) {
                 }
             });
             state.parser_confidence = parser_confidence;
+            state.last_activity_ms = Some(now);
+            state.updated_at_ms = Some(now);
+        }
+        PulseUpdate::SessionTitle(session_title) => {
+            state.session_title = session_title.and_then(|value| {
+                let trimmed = value.trim().to_string();
+                if trimmed.is_empty() {
+                    None
+                } else {
+                    Some(trimmed)
+                }
+            });
             state.last_activity_ms = Some(now);
             state.updated_at_ms = Some(now);
         }
@@ -3381,6 +3489,7 @@ fn build_pulse_agent_state(cfg: &ClientConfig, state: &PulseState) -> PulseAgent
 fn build_pulse_source(cfg: &ClientConfig, state: &PulseState) -> serde_json::Value {
     let mut source = serde_json::Map::new();
     let mut agent_status = serde_json::Map::new();
+    let session_title = state.session_title.clone();
     agent_status.insert(
         "agent_id".to_string(),
         serde_json::Value::String(cfg.agent_key.clone()),
@@ -3401,6 +3510,12 @@ fn build_pulse_source(cfg: &ClientConfig, state: &PulseState) -> serde_json::Val
         agent_status.insert(
             "tab_scope".to_string(),
             serde_json::Value::String(tab_scope.clone()),
+        );
+    }
+    if let Some(value) = session_title.as_ref() {
+        agent_status.insert(
+            "session_title".to_string(),
+            serde_json::Value::String(value.clone()),
         );
     }
     agent_status.insert(
@@ -3445,6 +3560,12 @@ fn build_pulse_source(cfg: &ClientConfig, state: &PulseState) -> serde_json::Val
         source.insert(
             "tab_scope".to_string(),
             serde_json::Value::String(tab_scope.clone()),
+        );
+    }
+    if let Some(value) = session_title {
+        source.insert(
+            "session_title".to_string(),
+            serde_json::Value::String(value),
         );
     }
 
@@ -3740,6 +3861,9 @@ async fn send_pulse_upsert(
         }),
     };
     send_pulse_envelope(writer, &envelope).await?;
+    let _ =
+        persist_runtime_snapshot_with_title(cfg, &state.lifecycle, state.session_title.as_deref())
+            .await;
     *last_state_hash = hash;
     Ok(())
 }
@@ -4046,9 +4170,10 @@ impl MindRuntime {
         distill.t1_hard_cap_tokens = distill.t1_hard_cap_tokens.min(semantic_input_limit);
         let sidecar =
             SessionObserverSidecar::new(distill.clone(), semantic, PiObserverAdapter::default());
+        let reflector_scope_id = reflector_scope_id_for_project_root(&cfg.project_root);
         let reflector_lock_path = resolve_reflector_lock_path(cfg);
         let reflector_worker = DetachedReflectorWorker::new(ReflectorRuntimeConfig {
-            scope_id: cfg.session_id.clone(),
+            scope_id: reflector_scope_id,
             owner_id: cfg.agent_key.clone(),
             owner_pid: Some(std::process::id() as i64),
             lock_path: reflector_lock_path,
@@ -4071,6 +4196,13 @@ impl MindRuntime {
             max_attempts: MIND_T3_MAX_ATTEMPTS,
         });
 
+        let detached_worker_boot = resolve_detached_mind_worker_kind().is_some();
+        let insight_detached = if detached_worker_boot {
+            DetachedInsightRuntime::new_without_recovery(&cfg.project_root, canonical_path.clone())
+        } else {
+            DetachedInsightRuntime::new(&cfg.project_root, canonical_path.clone())
+        };
+
         Ok(Self {
             store,
             sidecar,
@@ -4083,10 +4215,7 @@ impl MindRuntime {
             last_ingest_at: None,
             last_idle_finalize_check: None,
             insight_supervisor: InsightSupervisor::new(&cfg.project_root),
-            insight_detached: DetachedInsightRuntime::new(
-                &cfg.project_root,
-                canonical_path.clone(),
-            ),
+            insight_detached,
             reflector_worker,
             t3_worker,
             insight_health: InsightRuntimeHealthPayload {
@@ -4435,6 +4564,9 @@ impl MindRuntime {
         Ok(updates)
     }
 
+    // T1 observer work remains session-scoped and inline for the first detached
+    // Mind rollout. Task 178's detached coordinator slice starts at T2/T3, where
+    // there is already a project-scoped queue/lease boundary worth supervising.
     fn enqueue_and_run(
         &mut self,
         cfg: &ClientConfig,
@@ -5002,7 +5134,7 @@ impl MindRuntime {
                 ));
             }
 
-            updates.extend(self.tick_reflector_runtime());
+            updates.extend(self.tick_reflector_runtime(cfg));
 
             let observer_pending = self.sidecar.queue().pending_count(&cfg.session_id);
             let observer_active = self.sidecar.queue().has_active_run(&cfg.session_id);
@@ -5151,195 +5283,908 @@ impl MindRuntime {
         ))
     }
 
-    fn tick_reflector_runtime(&mut self) -> Vec<PulseUpdate> {
+    fn reconcile_detached_mind_jobs_on_startup(&mut self) -> usize {
         let now = Utc::now();
-        self.insight_health.reflector_ticks = self.insight_health.reflector_ticks.saturating_add(1);
-        self.insight_health.last_tick_ms = Some(now.timestamp_millis());
+        let t2_changed = self.reconcile_stale_mind_t2_jobs(now);
+        let t3_changed = self.reconcile_stale_mind_t3_jobs(now);
+        self.refresh_mind_queue_depths();
+        t2_changed.saturating_add(t3_changed)
+    }
 
-        let mut updates = Vec::new();
-        match self
-            .reflector_worker
-            .run_once(&self.store, now, |store, job| {
-                process_reflector_job(store, job, now)
-            }) {
-            Ok(report) => {
-                if report.lock_conflict {
-                    self.insight_health.reflector_lock_conflicts = self
-                        .insight_health
-                        .reflector_lock_conflicts
-                        .saturating_add(1);
-                }
-                self.insight_health.reflector_jobs_completed = self
-                    .insight_health
-                    .reflector_jobs_completed
-                    .saturating_add(report.jobs_completed as u64);
-                self.insight_health.reflector_jobs_failed = self
-                    .insight_health
-                    .reflector_jobs_failed
-                    .saturating_add(report.jobs_failed as u64);
-
-                if report.jobs_failed == 0 {
-                    self.insight_health.last_error = None;
-                }
-                if report.jobs_completed > 0 {
-                    updates.push(PulseUpdate::MindObserverEvent(MindObserverFeedEvent {
-                        status: MindObserverFeedStatus::Success,
-                        trigger: MindObserverFeedTriggerKind::TaskCompleted,
-                        conversation_id: self.latest_conversation_id.clone(),
-                        runtime: Some("t2_reflector".to_string()),
-                        attempt_count: Some(1),
-                        latency_ms: None,
-                        reason: Some(format!(
-                            "t2 reflector processed {} job(s)",
-                            report.jobs_completed
-                        )),
-                        failure_kind: None,
-                        enqueued_at: None,
-                        started_at: None,
-                        completed_at: Some(now.to_rfc3339()),
-                        progress: None,
-                    }));
-                }
-                if report.jobs_failed > 0 {
-                    updates.push(PulseUpdate::MindObserverEvent(MindObserverFeedEvent {
-                        status: MindObserverFeedStatus::Error,
-                        trigger: MindObserverFeedTriggerKind::TaskCompleted,
-                        conversation_id: self.latest_conversation_id.clone(),
-                        runtime: Some("t2_reflector".to_string()),
-                        attempt_count: Some(1),
-                        latency_ms: None,
-                        reason: Some(format!("t2 reflector failed {} job(s)", report.jobs_failed)),
-                        failure_kind: Some("runtime_error".to_string()),
-                        enqueued_at: None,
-                        started_at: None,
-                        completed_at: Some(now.to_rfc3339()),
-                        progress: None,
-                    }));
-                }
-            }
-            Err(err) => {
-                self.insight_health.last_error = Some(format!("reflector tick failed: {err}"));
-                updates.push(PulseUpdate::MindObserverEvent(MindObserverFeedEvent {
-                    status: MindObserverFeedStatus::Error,
-                    trigger: MindObserverFeedTriggerKind::TaskCompleted,
-                    conversation_id: self.latest_conversation_id.clone(),
-                    runtime: Some("t2_reflector".to_string()),
-                    attempt_count: Some(1),
-                    latency_ms: None,
-                    reason: Some("reflector tick failed".to_string()),
-                    failure_kind: Some("runtime_error".to_string()),
-                    enqueued_at: None,
-                    started_at: None,
-                    completed_at: Some(now.to_rfc3339()),
-                    progress: None,
-                }));
-            }
+    fn tick_reflector_runtime(&mut self, cfg: &ClientConfig) -> Vec<PulseUpdate> {
+        let mut updates = self
+            .dispatch_detached_reflector_worker_with_launcher(cfg, |cfg, job_id| {
+                Self::launch_detached_reflector_worker_process(cfg, job_id)
+            });
+        if updates.is_empty() {
+            self.refresh_mind_queue_depths();
+            updates.push(PulseUpdate::InsightRuntime(self.insight_health.clone()));
         }
-
-        self.insight_health.queue_depth = self.store.pending_reflector_jobs().unwrap_or_default();
-        self.insight_health.t3_queue_depth =
-            self.store.pending_t3_backlog_jobs().unwrap_or_default();
-        updates.push(PulseUpdate::InsightRuntime(self.insight_health.clone()));
         updates
     }
 
-    fn tick_t3_runtime(&mut self) -> Vec<PulseUpdate> {
-        let now = Utc::now();
-        self.insight_health.t3_ticks = self.insight_health.t3_ticks.saturating_add(1);
+    fn run_reflector_runtime_once(
+        &mut self,
+        now: chrono::DateTime<chrono::Utc>,
+    ) -> Result<aoc_mind::ReflectorTickReport, String> {
+        self.insight_health.reflector_ticks = self.insight_health.reflector_ticks.saturating_add(1);
         self.insight_health.last_tick_ms = Some(now.timestamp_millis());
+        self.reflector_worker
+            .run_once(&self.store, now, |store, job| {
+                process_reflector_job(store, job, now)
+            })
+            .map_err(|err| err.to_string())
+    }
 
-        let mut updates = Vec::new();
-        match self.t3_worker.run_once(&self.store, now, |store, job| {
-            process_t3_backlog_job(store, job, now)
-        }) {
-            Ok(report) => {
-                if report.lock_conflict {
-                    self.insight_health.t3_lock_conflicts =
-                        self.insight_health.t3_lock_conflicts.saturating_add(1);
-                }
-                self.insight_health.t3_jobs_completed = self
-                    .insight_health
-                    .t3_jobs_completed
-                    .saturating_add(report.jobs_completed as u64);
-                self.insight_health.t3_jobs_failed = self
-                    .insight_health
-                    .t3_jobs_failed
-                    .saturating_add(report.jobs_failed as u64);
-                self.insight_health.t3_jobs_requeued = self
-                    .insight_health
-                    .t3_jobs_requeued
-                    .saturating_add(report.jobs_requeued as u64);
-                self.insight_health.t3_jobs_dead_lettered = self
-                    .insight_health
-                    .t3_jobs_dead_lettered
-                    .saturating_add(report.jobs_dead_lettered as u64);
+    fn apply_reflector_tick_report(
+        &mut self,
+        now: chrono::DateTime<chrono::Utc>,
+        report: &aoc_mind::ReflectorTickReport,
+        updates: &mut Vec<PulseUpdate>,
+    ) {
+        if report.lock_conflict {
+            self.insight_health.reflector_lock_conflicts = self
+                .insight_health
+                .reflector_lock_conflicts
+                .saturating_add(1);
+        }
+        self.insight_health.reflector_jobs_completed = self
+            .insight_health
+            .reflector_jobs_completed
+            .saturating_add(report.jobs_completed as u64);
+        self.insight_health.reflector_jobs_failed = self
+            .insight_health
+            .reflector_jobs_failed
+            .saturating_add(report.jobs_failed as u64);
 
-                if report.jobs_failed == 0 {
-                    self.insight_health.last_error = None;
-                }
+        if report.jobs_failed == 0 {
+            self.insight_health.last_error = None;
+        }
+        if report.jobs_completed > 0 {
+            updates.push(PulseUpdate::MindObserverEvent(MindObserverFeedEvent {
+                status: MindObserverFeedStatus::Success,
+                trigger: MindObserverFeedTriggerKind::TaskCompleted,
+                conversation_id: self.latest_conversation_id.clone(),
+                runtime: Some("t2_reflector".to_string()),
+                attempt_count: Some(1),
+                latency_ms: None,
+                reason: Some(format!(
+                    "t2 reflector processed {} job(s)",
+                    report.jobs_completed
+                )),
+                failure_kind: None,
+                enqueued_at: None,
+                started_at: None,
+                completed_at: Some(now.to_rfc3339()),
+                progress: None,
+            }));
+        }
+        if report.jobs_failed > 0 {
+            updates.push(PulseUpdate::MindObserverEvent(MindObserverFeedEvent {
+                status: MindObserverFeedStatus::Error,
+                trigger: MindObserverFeedTriggerKind::TaskCompleted,
+                conversation_id: self.latest_conversation_id.clone(),
+                runtime: Some("t2_reflector".to_string()),
+                attempt_count: Some(1),
+                latency_ms: None,
+                reason: Some(format!("t2 reflector failed {} job(s)", report.jobs_failed)),
+                failure_kind: Some("runtime_error".to_string()),
+                enqueued_at: None,
+                started_at: None,
+                completed_at: Some(now.to_rfc3339()),
+                progress: None,
+            }));
+        }
+    }
 
-                if report.jobs_completed > 0 {
-                    updates.push(PulseUpdate::MindObserverEvent(MindObserverFeedEvent {
-                        status: MindObserverFeedStatus::Success,
-                        trigger: MindObserverFeedTriggerKind::TaskCompleted,
-                        conversation_id: self.latest_conversation_id.clone(),
-                        runtime: Some("t3_backlog".to_string()),
-                        attempt_count: Some(1),
-                        latency_ms: None,
-                        reason: Some(format!(
-                            "t3 backlog processed {} job(s)",
-                            report.jobs_completed
-                        )),
-                        failure_kind: None,
-                        enqueued_at: None,
-                        started_at: None,
-                        completed_at: Some(now.to_rfc3339()),
-                        progress: None,
-                    }));
-                }
-                if report.jobs_failed > 0 {
-                    updates.push(PulseUpdate::MindObserverEvent(MindObserverFeedEvent {
-                        status: MindObserverFeedStatus::Error,
-                        trigger: MindObserverFeedTriggerKind::TaskCompleted,
-                        conversation_id: self.latest_conversation_id.clone(),
-                        runtime: Some("t3_backlog".to_string()),
-                        attempt_count: Some(1),
-                        latency_ms: None,
-                        reason: Some(format!(
-                            "t3 backlog failed {} job(s), requeued {}, dead-lettered {}",
-                            report.jobs_failed, report.jobs_requeued, report.jobs_dead_lettered
-                        )),
-                        failure_kind: Some("runtime_error".to_string()),
-                        enqueued_at: None,
-                        started_at: None,
-                        completed_at: Some(now.to_rfc3339()),
-                        progress: None,
-                    }));
-                }
+    fn t2_detached_status(&self, limit: usize) -> InsightDetachedStatusResult {
+        self.insight_detached
+            .status(&aoc_core::insight_contracts::InsightDetachedStatusRequest {
+                job_id: None,
+                owner_plane: Some(InsightDetachedOwnerPlane::Mind),
+                worker_kind: Some(InsightDetachedWorkerKind::T2),
+                limit: Some(limit),
+            })
+    }
+
+    fn reconcile_stale_mind_t2_jobs(&mut self, now: chrono::DateTime<chrono::Utc>) -> usize {
+        let project_root = self.project_root.to_string_lossy().to_string();
+        let scope_id = reflector_scope_id_for_project_root(&project_root);
+        let lease_active = self
+            .store
+            .reflector_lease(&scope_id)
+            .ok()
+            .flatten()
+            .map(|lease| lease.expires_at >= now)
+            .unwrap_or(false);
+        if lease_active {
+            return 0;
+        }
+
+        let stale_before = now.timestamp_millis() - MIND_T2_DISPATCH_STALE_AFTER_MS;
+        let mut changed = 0usize;
+        for mut job in self.t2_detached_status(24).jobs {
+            if !matches!(
+                job.status,
+                InsightDetachedJobStatus::Queued | InsightDetachedJobStatus::Running
+            ) || job.created_at_ms > stale_before
+            {
+                continue;
+            }
+            job.status = InsightDetachedJobStatus::Stale;
+            job.finished_at_ms = Some(now.timestamp_millis());
+            job.error.get_or_insert_with(|| {
+                "Mind T2 worker lease expired before detached completion was observed".to_string()
+            });
+            if job.output_excerpt.is_none() {
+                job.output_excerpt =
+                    Some("mind t2 worker marked stale after lease expiry".to_string());
+            }
+            self.persist_mind_detached_job(&job);
+            changed = changed.saturating_add(1);
+        }
+        changed
+    }
+
+    fn has_active_mind_t2_job(&self) -> bool {
+        self.t2_detached_status(8).jobs.iter().any(|job| {
+            matches!(
+                job.status,
+                InsightDetachedJobStatus::Queued | InsightDetachedJobStatus::Running
+            )
+        })
+    }
+
+    fn new_mind_t2_job(&self, job_id: String, created_at_ms: i64) -> InsightDetachedJob {
+        InsightDetachedJob {
+            job_id,
+            parent_job_id: None,
+            owner_plane: InsightDetachedOwnerPlane::Mind,
+            worker_kind: Some(InsightDetachedWorkerKind::T2),
+            mode: InsightDetachedMode::Dispatch,
+            status: InsightDetachedJobStatus::Queued,
+            agent: Some(detached_mind_worker_label(InsightDetachedWorkerKind::T2).to_string()),
+            team: None,
+            chain: None,
+            created_at_ms,
+            started_at_ms: None,
+            finished_at_ms: None,
+            current_step_index: Some(0),
+            step_count: Some(1),
+            output_excerpt: Some("mind t2 worker queued".to_string()),
+            stdout_excerpt: None,
+            stderr_excerpt: None,
+            error: None,
+            fallback_used: false,
+            step_results: Vec::new(),
+        }
+    }
+
+    fn detached_mind_job_cancelled(&self, job_id: &str) -> bool {
+        self.insight_detached.is_cancelled(job_id)
+    }
+
+    fn update_mind_t2_job_running(&self, job_id: &str, note: Option<String>) {
+        let mut job = self
+            .t2_detached_status(24)
+            .jobs
+            .into_iter()
+            .find(|job| job.job_id == job_id)
+            .unwrap_or_else(|| {
+                self.new_mind_t2_job(job_id.to_string(), Utc::now().timestamp_millis())
+            });
+        job.status = InsightDetachedJobStatus::Running;
+        job.started_at_ms = Some(Utc::now().timestamp_millis());
+        job.output_excerpt = note.or_else(|| Some("mind t2 worker running".to_string()));
+        self.persist_mind_detached_job(&job);
+    }
+
+    fn finalize_mind_t2_job(
+        &mut self,
+        job_id: &str,
+        status: InsightDetachedJobStatus,
+        summary: String,
+        error: Option<String>,
+        fallback_used: bool,
+    ) {
+        let finished_at_ms = Utc::now().timestamp_millis();
+        let mut job = self
+            .t2_detached_status(24)
+            .jobs
+            .into_iter()
+            .find(|job| job.job_id == job_id)
+            .unwrap_or_else(|| self.new_mind_t2_job(job_id.to_string(), finished_at_ms));
+        if job.status == InsightDetachedJobStatus::Cancelled {
+            job.finished_at_ms.get_or_insert(finished_at_ms);
+            if job.output_excerpt.is_none() {
+                job.output_excerpt = Some(truncate_chars(summary, 320));
+            }
+            if job.stderr_excerpt.is_none() {
+                job.stderr_excerpt = error
+                    .as_ref()
+                    .map(|value| truncate_chars(value.clone(), 240));
+            }
+            if job.error.is_none() {
+                job.error = error;
+            }
+            self.persist_mind_detached_job(&job);
+            return;
+        }
+        let step_status = match status {
+            InsightDetachedJobStatus::Success => "success",
+            InsightDetachedJobStatus::Cancelled => "cancelled",
+            InsightDetachedJobStatus::Error => "error",
+            InsightDetachedJobStatus::Fallback => "fallback",
+            InsightDetachedJobStatus::Stale => "error",
+            InsightDetachedJobStatus::Queued | InsightDetachedJobStatus::Running => "success",
+        }
+        .to_string();
+        job.status = status;
+        job.started_at_ms.get_or_insert(finished_at_ms);
+        job.finished_at_ms = Some(finished_at_ms);
+        job.current_step_index = Some(1);
+        job.step_count = Some(1);
+        job.output_excerpt = Some(truncate_chars(summary.clone(), 320));
+        job.stdout_excerpt = job.output_excerpt.clone();
+        job.stderr_excerpt = error
+            .as_ref()
+            .map(|value| truncate_chars(value.clone(), 240));
+        job.error = error.clone();
+        job.fallback_used = fallback_used;
+        job.step_results = vec![InsightDispatchStepResult {
+            agent: detached_mind_worker_label(InsightDetachedWorkerKind::T2).to_string(),
+            status: step_status,
+            output_excerpt: Some(truncate_chars(summary, 320)),
+            stdout_excerpt: None,
+            stderr_excerpt: error
+                .as_ref()
+                .map(|value| truncate_chars(value.clone(), 240)),
+            error,
+        }];
+        self.persist_mind_detached_job(&job);
+    }
+
+    fn dispatch_detached_reflector_worker_with_launcher<L>(
+        &mut self,
+        cfg: &ClientConfig,
+        mut launcher: L,
+    ) -> Vec<PulseUpdate>
+    where
+        L: FnMut(&ClientConfig, &str) -> Result<u32, String>,
+    {
+        let now = Utc::now();
+        self.refresh_mind_queue_depths();
+        if self.insight_health.queue_depth <= 0 {
+            return Vec::new();
+        }
+
+        let lock_path = resolve_reflector_dispatch_lock_path(cfg);
+        let Ok(_guard) = AdvisorySpawnLock::try_acquire(&lock_path) else {
+            return Vec::new();
+        };
+        let Some(_guard) = _guard else {
+            return Vec::new();
+        };
+
+        let stale_marked = self.reconcile_stale_mind_t2_jobs(now);
+        if self.has_active_mind_t2_job() {
+            let mut updates = Vec::new();
+            if stale_marked > 0 {
+                updates.push(self.detached_status_update());
+            }
+            return updates;
+        }
+
+        let job_id = format!(
+            "mind-t2-{}-{}",
+            now.timestamp_millis().max(0),
+            std::process::id()
+        );
+        let mut job = self.new_mind_t2_job(job_id.clone(), now.timestamp_millis());
+        self.persist_mind_detached_job(&job);
+
+        let mut updates = vec![self.detached_status_update()];
+        match launcher(cfg, &job_id) {
+            Ok(pid) => {
+                self.insight_detached.register_running_pid(&job_id, pid);
+                job.output_excerpt = Some(format!("mind t2 worker queued (pid {pid})"));
+                self.persist_mind_detached_job(&job);
+                updates.push(self.detached_status_update());
             }
             Err(err) => {
-                self.insight_health.last_error = Some(format!("t3 backlog tick failed: {err}"));
-                updates.push(PulseUpdate::MindObserverEvent(MindObserverFeedEvent {
-                    status: MindObserverFeedStatus::Error,
-                    trigger: MindObserverFeedTriggerKind::TaskCompleted,
-                    conversation_id: self.latest_conversation_id.clone(),
-                    runtime: Some("t3_backlog".to_string()),
-                    attempt_count: Some(1),
-                    latency_ms: None,
-                    reason: Some("t3 backlog tick failed".to_string()),
-                    failure_kind: Some("runtime_error".to_string()),
-                    enqueued_at: None,
-                    started_at: None,
-                    completed_at: Some(now.to_rfc3339()),
-                    progress: None,
-                }));
+                self.update_mind_t2_job_running(
+                    &job_id,
+                    Some(format!(
+                        "mind t2 worker fallback inline after spawn failure: {err}"
+                    )),
+                );
+                match self.run_reflector_runtime_once(now) {
+                    Ok(report) => {
+                        self.apply_reflector_tick_report(now, &report, &mut updates);
+                        let status = if report.jobs_failed > 0 {
+                            InsightDetachedJobStatus::Fallback
+                        } else {
+                            InsightDetachedJobStatus::Success
+                        };
+                        let summary = format!(
+                            "mind t2 inline fallback processed claimed={} completed={} failed={}",
+                            report.jobs_claimed, report.jobs_completed, report.jobs_failed
+                        );
+                        self.finalize_mind_t2_job(&job_id, status, summary, Some(err), true);
+                    }
+                    Err(runtime_err) => {
+                        self.insight_health.last_error =
+                            Some(format!("reflector tick failed: {runtime_err}"));
+                        updates.push(PulseUpdate::MindObserverEvent(MindObserverFeedEvent {
+                            status: MindObserverFeedStatus::Error,
+                            trigger: MindObserverFeedTriggerKind::TaskCompleted,
+                            conversation_id: self.latest_conversation_id.clone(),
+                            runtime: Some("t2_reflector".to_string()),
+                            attempt_count: Some(1),
+                            latency_ms: None,
+                            reason: Some("reflector tick failed".to_string()),
+                            failure_kind: Some("runtime_error".to_string()),
+                            enqueued_at: None,
+                            started_at: None,
+                            completed_at: Some(now.to_rfc3339()),
+                            progress: None,
+                        }));
+                        self.finalize_mind_t2_job(
+                            &job_id,
+                            InsightDetachedJobStatus::Error,
+                            "mind t2 inline fallback failed".to_string(),
+                            Some(format!(
+                                "spawn failed: {err}; runtime failed: {runtime_err}"
+                            )),
+                            true,
+                        );
+                    }
+                }
+                self.refresh_mind_queue_depths();
+                updates.push(PulseUpdate::InsightRuntime(self.insight_health.clone()));
+                updates.push(self.detached_status_update());
             }
         }
 
+        updates
+    }
+
+    fn launch_detached_reflector_worker_process(
+        cfg: &ClientConfig,
+        job_id: &str,
+    ) -> Result<u32, String> {
+        let current_exe = std::env::current_exe()
+            .map_err(|err| format!("resolve current executable failed: {err}"))?;
+        let mut command = std::process::Command::new(current_exe);
+        configure_mind_child_std_command_env(
+            &mut command,
+            vec![
+                (MIND_DETACHED_KIND_ENV.to_string(), "t2".to_string()),
+                (MIND_DETACHED_JOB_ID_ENV.to_string(), job_id.to_string()),
+            ],
+        );
+        command
+            .arg("--session")
+            .arg(&cfg.session_id)
+            .arg("--pane_id")
+            .arg(&cfg.pane_id)
+            .arg("--agent_id")
+            .arg(&cfg.agent_label)
+            .arg("--project_root")
+            .arg(&cfg.project_root)
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null());
+        let child = command
+            .spawn()
+            .map_err(|err| format!("spawn detached Mind T2 worker failed: {err}"))?;
+        Ok(child.id())
+    }
+
+    fn refresh_mind_queue_depths(&mut self) {
         self.insight_health.queue_depth = self.store.pending_reflector_jobs().unwrap_or_default();
         self.insight_health.t3_queue_depth =
             self.store.pending_t3_backlog_jobs().unwrap_or_default();
-        updates.push(PulseUpdate::InsightRuntime(self.insight_health.clone()));
+    }
+
+    fn run_t3_runtime_once(
+        &mut self,
+        now: chrono::DateTime<chrono::Utc>,
+    ) -> Result<aoc_mind::T3TickReport, String> {
+        self.insight_health.t3_ticks = self.insight_health.t3_ticks.saturating_add(1);
+        self.insight_health.last_tick_ms = Some(now.timestamp_millis());
+        self.t3_worker
+            .run_once(&self.store, now, |store, job| {
+                process_t3_backlog_job(store, job, now)
+            })
+            .map_err(|err| err.to_string())
+    }
+
+    fn apply_t3_tick_report(
+        &mut self,
+        now: chrono::DateTime<chrono::Utc>,
+        report: &aoc_mind::T3TickReport,
+        updates: &mut Vec<PulseUpdate>,
+    ) {
+        if report.lock_conflict {
+            self.insight_health.t3_lock_conflicts =
+                self.insight_health.t3_lock_conflicts.saturating_add(1);
+        }
+        self.insight_health.t3_jobs_completed = self
+            .insight_health
+            .t3_jobs_completed
+            .saturating_add(report.jobs_completed as u64);
+        self.insight_health.t3_jobs_failed = self
+            .insight_health
+            .t3_jobs_failed
+            .saturating_add(report.jobs_failed as u64);
+        self.insight_health.t3_jobs_requeued = self
+            .insight_health
+            .t3_jobs_requeued
+            .saturating_add(report.jobs_requeued as u64);
+        self.insight_health.t3_jobs_dead_lettered = self
+            .insight_health
+            .t3_jobs_dead_lettered
+            .saturating_add(report.jobs_dead_lettered as u64);
+
+        if report.jobs_failed == 0 {
+            self.insight_health.last_error = None;
+        }
+
+        if report.jobs_completed > 0 {
+            updates.push(PulseUpdate::MindObserverEvent(MindObserverFeedEvent {
+                status: MindObserverFeedStatus::Success,
+                trigger: MindObserverFeedTriggerKind::TaskCompleted,
+                conversation_id: self.latest_conversation_id.clone(),
+                runtime: Some("t3_backlog".to_string()),
+                attempt_count: Some(1),
+                latency_ms: None,
+                reason: Some(format!(
+                    "t3 backlog processed {} job(s)",
+                    report.jobs_completed
+                )),
+                failure_kind: None,
+                enqueued_at: None,
+                started_at: None,
+                completed_at: Some(now.to_rfc3339()),
+                progress: None,
+            }));
+        }
+        if report.jobs_failed > 0 {
+            updates.push(PulseUpdate::MindObserverEvent(MindObserverFeedEvent {
+                status: MindObserverFeedStatus::Error,
+                trigger: MindObserverFeedTriggerKind::TaskCompleted,
+                conversation_id: self.latest_conversation_id.clone(),
+                runtime: Some("t3_backlog".to_string()),
+                attempt_count: Some(1),
+                latency_ms: None,
+                reason: Some(format!(
+                    "t3 backlog failed {} job(s), requeued {}, dead-lettered {}",
+                    report.jobs_failed, report.jobs_requeued, report.jobs_dead_lettered
+                )),
+                failure_kind: Some("runtime_error".to_string()),
+                enqueued_at: None,
+                started_at: None,
+                completed_at: Some(now.to_rfc3339()),
+                progress: None,
+            }));
+        }
+    }
+
+    fn persist_mind_detached_job(&self, job: &InsightDetachedJob) {
+        let _ = self.store.upsert_detached_insight_job(
+            "mind",
+            job.worker_kind.map(detached_worker_kind_label),
+            job,
+        );
+    }
+
+    fn t3_detached_status(&self, limit: usize) -> InsightDetachedStatusResult {
+        self.insight_detached
+            .status(&aoc_core::insight_contracts::InsightDetachedStatusRequest {
+                job_id: None,
+                owner_plane: Some(InsightDetachedOwnerPlane::Mind),
+                worker_kind: Some(InsightDetachedWorkerKind::T3),
+                limit: Some(limit),
+            })
+    }
+
+    fn reconcile_stale_mind_t3_jobs(&mut self, now: chrono::DateTime<chrono::Utc>) -> usize {
+        let project_root = self.project_root.to_string_lossy().to_string();
+        let scope_id = t3_scope_id_for_project_root(&project_root);
+        let lease_active = self
+            .store
+            .t3_runtime_lease(&scope_id)
+            .ok()
+            .flatten()
+            .map(|lease| lease.expires_at >= now)
+            .unwrap_or(false);
+        if lease_active {
+            return 0;
+        }
+
+        let stale_before = now.timestamp_millis() - MIND_T3_DISPATCH_STALE_AFTER_MS;
+        let mut changed = 0usize;
+        for mut job in self.t3_detached_status(24).jobs {
+            if !matches!(
+                job.status,
+                InsightDetachedJobStatus::Queued | InsightDetachedJobStatus::Running
+            ) || job.created_at_ms > stale_before
+            {
+                continue;
+            }
+            job.status = InsightDetachedJobStatus::Stale;
+            job.finished_at_ms = Some(now.timestamp_millis());
+            job.error.get_or_insert_with(|| {
+                "Mind T3 worker lease expired before detached completion was observed".to_string()
+            });
+            if job.output_excerpt.is_none() {
+                job.output_excerpt =
+                    Some("mind t3 worker marked stale after lease expiry".to_string());
+            }
+            self.persist_mind_detached_job(&job);
+            changed = changed.saturating_add(1);
+        }
+        changed
+    }
+
+    fn has_active_mind_t3_job(&self) -> bool {
+        self.t3_detached_status(8).jobs.iter().any(|job| {
+            matches!(
+                job.status,
+                InsightDetachedJobStatus::Queued | InsightDetachedJobStatus::Running
+            )
+        })
+    }
+
+    fn new_mind_t3_job(&self, job_id: String, created_at_ms: i64) -> InsightDetachedJob {
+        InsightDetachedJob {
+            job_id,
+            parent_job_id: None,
+            owner_plane: InsightDetachedOwnerPlane::Mind,
+            worker_kind: Some(InsightDetachedWorkerKind::T3),
+            mode: InsightDetachedMode::Dispatch,
+            status: InsightDetachedJobStatus::Queued,
+            agent: Some(detached_mind_worker_label(InsightDetachedWorkerKind::T3).to_string()),
+            team: None,
+            chain: None,
+            created_at_ms,
+            started_at_ms: None,
+            finished_at_ms: None,
+            current_step_index: Some(0),
+            step_count: Some(1),
+            output_excerpt: Some("mind t3 worker queued".to_string()),
+            stdout_excerpt: None,
+            stderr_excerpt: None,
+            error: None,
+            fallback_used: false,
+            step_results: Vec::new(),
+        }
+    }
+
+    fn update_mind_t3_job_running(&self, job_id: &str, note: Option<String>) {
+        let mut job = self
+            .t3_detached_status(24)
+            .jobs
+            .into_iter()
+            .find(|job| job.job_id == job_id)
+            .unwrap_or_else(|| {
+                self.new_mind_t3_job(job_id.to_string(), Utc::now().timestamp_millis())
+            });
+        job.status = InsightDetachedJobStatus::Running;
+        job.started_at_ms = Some(Utc::now().timestamp_millis());
+        job.output_excerpt = note.or_else(|| Some("mind t3 worker running".to_string()));
+        self.persist_mind_detached_job(&job);
+    }
+
+    fn finalize_mind_t3_job(
+        &mut self,
+        job_id: &str,
+        status: InsightDetachedJobStatus,
+        summary: String,
+        error: Option<String>,
+        fallback_used: bool,
+    ) {
+        let finished_at_ms = Utc::now().timestamp_millis();
+        let mut job = self
+            .t3_detached_status(24)
+            .jobs
+            .into_iter()
+            .find(|job| job.job_id == job_id)
+            .unwrap_or_else(|| self.new_mind_t3_job(job_id.to_string(), finished_at_ms));
+        if job.status == InsightDetachedJobStatus::Cancelled {
+            job.finished_at_ms.get_or_insert(finished_at_ms);
+            if job.output_excerpt.is_none() {
+                job.output_excerpt = Some(truncate_chars(summary, 320));
+            }
+            if job.stderr_excerpt.is_none() {
+                job.stderr_excerpt = error
+                    .as_ref()
+                    .map(|value| truncate_chars(value.clone(), 240));
+            }
+            if job.error.is_none() {
+                job.error = error;
+            }
+            self.persist_mind_detached_job(&job);
+            return;
+        }
+        let step_status = match status {
+            InsightDetachedJobStatus::Success => "success",
+            InsightDetachedJobStatus::Cancelled => "cancelled",
+            InsightDetachedJobStatus::Error => "error",
+            InsightDetachedJobStatus::Fallback => "fallback",
+            InsightDetachedJobStatus::Stale => "error",
+            InsightDetachedJobStatus::Queued | InsightDetachedJobStatus::Running => "success",
+        }
+        .to_string();
+        job.status = status;
+        job.started_at_ms.get_or_insert(finished_at_ms);
+        job.finished_at_ms = Some(finished_at_ms);
+        job.current_step_index = Some(1);
+        job.step_count = Some(1);
+        job.output_excerpt = Some(truncate_chars(summary.clone(), 320));
+        job.stdout_excerpt = job.output_excerpt.clone();
+        job.stderr_excerpt = error
+            .as_ref()
+            .map(|value| truncate_chars(value.clone(), 240));
+        job.error = error.clone();
+        job.fallback_used = fallback_used;
+        job.step_results = vec![InsightDispatchStepResult {
+            agent: detached_mind_worker_label(InsightDetachedWorkerKind::T3).to_string(),
+            status: step_status,
+            output_excerpt: Some(truncate_chars(summary, 320)),
+            stdout_excerpt: None,
+            stderr_excerpt: error
+                .as_ref()
+                .map(|value| truncate_chars(value.clone(), 240)),
+            error,
+        }];
+        self.persist_mind_detached_job(&job);
+    }
+
+    fn dispatch_detached_t3_worker_with_launcher<L>(
+        &mut self,
+        cfg: &ClientConfig,
+        mut launcher: L,
+    ) -> Vec<PulseUpdate>
+    where
+        L: FnMut(&ClientConfig, &str) -> Result<u32, String>,
+    {
+        let now = Utc::now();
+        self.refresh_mind_queue_depths();
+        if self.insight_health.t3_queue_depth <= 0 {
+            return Vec::new();
+        }
+
+        let lock_path = resolve_t3_dispatch_lock_path(cfg);
+        let Ok(_guard) = AdvisorySpawnLock::try_acquire(&lock_path) else {
+            return Vec::new();
+        };
+        let Some(_guard) = _guard else {
+            return Vec::new();
+        };
+
+        let stale_marked = self.reconcile_stale_mind_t3_jobs(now);
+        if self.has_active_mind_t3_job() {
+            let mut updates = Vec::new();
+            if stale_marked > 0 {
+                updates.push(self.detached_status_update());
+            }
+            return updates;
+        }
+
+        let job_id = format!(
+            "mind-t3-{}-{}",
+            now.timestamp_millis().max(0),
+            std::process::id()
+        );
+        let mut job = self.new_mind_t3_job(job_id.clone(), now.timestamp_millis());
+        self.persist_mind_detached_job(&job);
+
+        let mut updates = vec![self.detached_status_update()];
+        match launcher(cfg, &job_id) {
+            Ok(pid) => {
+                self.insight_detached.register_running_pid(&job_id, pid);
+                job.output_excerpt = Some(format!("mind t3 worker queued (pid {pid})"));
+                self.persist_mind_detached_job(&job);
+                updates.push(self.detached_status_update());
+            }
+            Err(err) => {
+                self.update_mind_t3_job_running(
+                    &job_id,
+                    Some(format!(
+                        "mind t3 worker fallback inline after spawn failure: {err}"
+                    )),
+                );
+                match self.run_t3_runtime_once(now) {
+                    Ok(report) => {
+                        self.apply_t3_tick_report(now, &report, &mut updates);
+                        let status = if report.jobs_failed > 0 {
+                            InsightDetachedJobStatus::Fallback
+                        } else {
+                            InsightDetachedJobStatus::Success
+                        };
+                        let summary = format!(
+                            "mind t3 inline fallback processed claimed={} completed={} failed={} requeued={} dead_lettered={}",
+                            report.jobs_claimed,
+                            report.jobs_completed,
+                            report.jobs_failed,
+                            report.jobs_requeued,
+                            report.jobs_dead_lettered
+                        );
+                        self.finalize_mind_t3_job(&job_id, status, summary, Some(err), true);
+                    }
+                    Err(runtime_err) => {
+                        self.insight_health.last_error =
+                            Some(format!("t3 backlog tick failed: {runtime_err}"));
+                        updates.push(PulseUpdate::MindObserverEvent(MindObserverFeedEvent {
+                            status: MindObserverFeedStatus::Error,
+                            trigger: MindObserverFeedTriggerKind::TaskCompleted,
+                            conversation_id: self.latest_conversation_id.clone(),
+                            runtime: Some("t3_backlog".to_string()),
+                            attempt_count: Some(1),
+                            latency_ms: None,
+                            reason: Some("t3 backlog tick failed".to_string()),
+                            failure_kind: Some("runtime_error".to_string()),
+                            enqueued_at: None,
+                            started_at: None,
+                            completed_at: Some(now.to_rfc3339()),
+                            progress: None,
+                        }));
+                        self.finalize_mind_t3_job(
+                            &job_id,
+                            InsightDetachedJobStatus::Error,
+                            "mind t3 inline fallback failed".to_string(),
+                            Some(format!(
+                                "spawn failed: {err}; runtime failed: {runtime_err}"
+                            )),
+                            true,
+                        );
+                    }
+                }
+                self.refresh_mind_queue_depths();
+                updates.push(PulseUpdate::InsightRuntime(self.insight_health.clone()));
+                updates.push(self.detached_status_update());
+            }
+        }
+
+        updates
+    }
+
+    fn launch_detached_t3_worker_process(cfg: &ClientConfig, job_id: &str) -> Result<u32, String> {
+        let current_exe = std::env::current_exe()
+            .map_err(|err| format!("resolve current executable failed: {err}"))?;
+        let mut command = std::process::Command::new(current_exe);
+        configure_mind_child_std_command_env(
+            &mut command,
+            vec![
+                (MIND_DETACHED_KIND_ENV.to_string(), "t3".to_string()),
+                (MIND_DETACHED_JOB_ID_ENV.to_string(), job_id.to_string()),
+            ],
+        );
+        command
+            .arg("--session")
+            .arg(&cfg.session_id)
+            .arg("--pane_id")
+            .arg(&cfg.pane_id)
+            .arg("--agent_id")
+            .arg(&cfg.agent_label)
+            .arg("--project_root")
+            .arg(&cfg.project_root)
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null());
+        let child = command
+            .spawn()
+            .map_err(|err| format!("spawn detached Mind T3 worker failed: {err}"))?;
+        Ok(child.id())
+    }
+
+    fn run_detached_mind_worker(
+        &mut self,
+        _cfg: &ClientConfig,
+        kind: InsightDetachedWorkerKind,
+        job_id: &str,
+    ) -> Result<i32, String> {
+        match kind {
+            InsightDetachedWorkerKind::T2 => {
+                if self.detached_mind_job_cancelled(job_id) {
+                    return Ok(0);
+                }
+                let now = Utc::now();
+                self.update_mind_t2_job_running(job_id, None);
+                if self.detached_mind_job_cancelled(job_id) {
+                    return Ok(0);
+                }
+                match self.run_reflector_runtime_once(now) {
+                    Ok(report) => {
+                        let mut updates = Vec::new();
+                        self.apply_reflector_tick_report(now, &report, &mut updates);
+                        if self.detached_mind_job_cancelled(job_id) {
+                            return Ok(0);
+                        }
+                        let status = if report.jobs_failed > 0 {
+                            InsightDetachedJobStatus::Error
+                        } else {
+                            InsightDetachedJobStatus::Success
+                        };
+                        let summary = format!(
+                            "mind t2 detached worker processed claimed={} completed={} failed={}",
+                            report.jobs_claimed, report.jobs_completed, report.jobs_failed
+                        );
+                        self.finalize_mind_t2_job(job_id, status, summary, None, false);
+                        Ok(if report.jobs_failed > 0 { 1 } else { 0 })
+                    }
+                    Err(err) => {
+                        self.insight_health.last_error =
+                            Some(format!("reflector tick failed: {err}"));
+                        self.finalize_mind_t2_job(
+                            job_id,
+                            InsightDetachedJobStatus::Error,
+                            "mind t2 detached worker failed".to_string(),
+                            Some(err.clone()),
+                            false,
+                        );
+                        Err(err)
+                    }
+                }
+            }
+            InsightDetachedWorkerKind::T3 => {
+                if self.detached_mind_job_cancelled(job_id) {
+                    return Ok(0);
+                }
+                let now = Utc::now();
+                self.update_mind_t3_job_running(job_id, None);
+                if self.detached_mind_job_cancelled(job_id) {
+                    return Ok(0);
+                }
+                match self.run_t3_runtime_once(now) {
+                    Ok(report) => {
+                        let mut updates = Vec::new();
+                        self.apply_t3_tick_report(now, &report, &mut updates);
+                        if self.detached_mind_job_cancelled(job_id) {
+                            return Ok(0);
+                        }
+                        let status = if report.jobs_failed > 0 {
+                            InsightDetachedJobStatus::Error
+                        } else {
+                            InsightDetachedJobStatus::Success
+                        };
+                        let summary = format!(
+                            "mind t3 detached worker processed claimed={} completed={} failed={} requeued={} dead_lettered={}",
+                            report.jobs_claimed,
+                            report.jobs_completed,
+                            report.jobs_failed,
+                            report.jobs_requeued,
+                            report.jobs_dead_lettered
+                        );
+                        self.finalize_mind_t3_job(job_id, status, summary, None, false);
+                        Ok(if report.jobs_failed > 0 { 1 } else { 0 })
+                    }
+                    Err(err) => {
+                        self.insight_health.last_error =
+                            Some(format!("t3 backlog tick failed: {err}"));
+                        self.finalize_mind_t3_job(
+                            job_id,
+                            InsightDetachedJobStatus::Error,
+                            "mind t3 detached worker failed".to_string(),
+                            Some(err.clone()),
+                            false,
+                        );
+                        Err(err)
+                    }
+                }
+            }
+            _ => Err("unsupported detached Mind worker kind".to_string()),
+        }
+    }
+
+    fn tick_t3_runtime(&mut self, cfg: &ClientConfig) -> Vec<PulseUpdate> {
+        let mut updates = self.dispatch_detached_t3_worker_with_launcher(cfg, |cfg, job_id| {
+            Self::launch_detached_t3_worker_process(cfg, job_id)
+        });
+        if updates.is_empty() {
+            self.refresh_mind_queue_depths();
+            updates.push(PulseUpdate::InsightRuntime(self.insight_health.clone()));
+        }
         updates
     }
 }
@@ -6020,35 +6865,160 @@ fn write_handshake_export(
     Ok(())
 }
 
+fn normalized_handshake_tag(active_tag: Option<&str>) -> Option<String> {
+    active_tag
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(|value| value.to_string())
+}
+
+fn handshake_entry_matches_tag(entry: &aoc_storage::CanonEntryRevision, active_tag: Option<&str>) -> bool {
+    let Some(tag) = normalized_handshake_tag(active_tag) else {
+        return false;
+    };
+    entry
+        .topic
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(|topic| topic.eq_ignore_ascii_case(&tag))
+        .unwrap_or(false)
+}
+
+fn ranked_handshake_entries<'a>(
+    entries: &'a [aoc_storage::CanonEntryRevision],
+    active_tag: Option<&str>,
+) -> Vec<&'a aoc_storage::CanonEntryRevision> {
+    let mut ranked = entries.iter().collect::<Vec<_>>();
+    ranked.sort_by(|left, right| {
+        handshake_entry_matches_tag(right, active_tag)
+            .cmp(&handshake_entry_matches_tag(left, active_tag))
+            .then_with(|| right.freshness_score.cmp(&left.freshness_score))
+            .then_with(|| right.confidence_bps.cmp(&left.confidence_bps))
+            .then_with(|| right.created_at.cmp(&left.created_at))
+            .then_with(|| left.entry_id.cmp(&right.entry_id))
+    });
+    ranked
+}
+
+fn handshake_entry_brief(entry: &aoc_storage::CanonEntryRevision, max_chars: usize) -> String {
+    let topic = entry.topic.as_deref().unwrap_or("global");
+    let summary = truncate_chars(normalize_text(&entry.summary), max_chars);
+    format!("[{} r{}] topic={} :: {}", entry.entry_id, entry.revision, topic, summary)
+}
+
+fn handshake_entry_looks_unresolved(entry: &aoc_storage::CanonEntryRevision) -> bool {
+    let mut haystack = entry
+        .topic
+        .as_deref()
+        .unwrap_or_default()
+        .to_ascii_lowercase();
+    if !haystack.is_empty() {
+        haystack.push(' ');
+    }
+    haystack.push_str(&normalize_text(&entry.summary).to_ascii_lowercase());
+    [
+        "todo",
+        "remaining",
+        "follow-up",
+        "follow up",
+        "next step",
+        "next:",
+        "pending",
+        "blocked",
+        "risk",
+        "gap",
+        "unresolved",
+        "needs",
+        "missing",
+    ]
+    .iter()
+    .any(|needle| haystack.contains(needle))
+}
+
 fn render_handshake_markdown(
     entries: &[aoc_storage::CanonEntryRevision],
     active_tag: Option<&str>,
     generated_at: chrono::DateTime<chrono::Utc>,
 ) -> String {
+    let active_tag = normalized_handshake_tag(active_tag);
+    let ranked = ranked_handshake_entries(entries, active_tag.as_deref());
+    let focus_entry = ranked.first().copied();
+    let focus_source = if active_tag.is_some() {
+        "project-active-tag"
+    } else if focus_entry.is_some() {
+        "inferred-project"
+    } else {
+        "none"
+    };
+    let focus_brief = if let Some(entry) = focus_entry {
+        if let Some(tag) = active_tag.as_deref() {
+            format!("tag {} :: {}", tag, handshake_entry_brief(entry, 120))
+        } else {
+            handshake_entry_brief(entry, 120)
+        }
+    } else if let Some(tag) = active_tag.as_deref() {
+        format!("tag {} has no active canon entries yet", tag)
+    } else {
+        "no active canon entries yet".to_string()
+    };
+
     let mut lines = vec![
         "# Mind Handshake Baseline".to_string(),
         String::new(),
         "version: 1".to_string(),
         format!("generated_at: {}", generated_at.to_rfc3339()),
-        format!(
-            "active_tag: {}",
-            active_tag
-                .map(str::trim)
-                .filter(|value| !value.is_empty())
-                .unwrap_or("none")
-        ),
+        format!("active_tag: {}", active_tag.as_deref().unwrap_or("none")),
         String::new(),
-        "## Priority canon".to_string(),
+        "## Focus briefing".to_string(),
+        String::new(),
+        format!("- source: {}", focus_source),
+        format!("- current_focus: {}", focus_brief),
+        "- scope_note: project baseline; tab-local focus may differ".to_string(),
+        String::new(),
+        "## Recent developments".to_string(),
         String::new(),
     ];
 
-    if entries.is_empty() {
+    if ranked.is_empty() {
+        lines.push("- (no active canon entries yet)".to_string());
+        lines.push(String::new());
+        lines.push("## Open fronts".to_string());
+        lines.push(String::new());
+        lines.push("- (no unresolved fronts detected yet)".to_string());
+        lines.push(String::new());
+        lines.push("## Priority canon".to_string());
+        lines.push(String::new());
         lines.push("- (no active canon entries yet)".to_string());
         lines.push(String::new());
         return lines.join("\n") + "\n";
     }
 
-    for entry in entries {
+    for entry in ranked.iter().take(3) {
+        lines.push(format!("- {}", handshake_entry_brief(entry, 140)));
+    }
+    lines.push(String::new());
+    lines.push("## Open fronts".to_string());
+    lines.push(String::new());
+
+    let unresolved = ranked
+        .iter()
+        .copied()
+        .filter(|entry| handshake_entry_looks_unresolved(entry))
+        .take(3)
+        .collect::<Vec<_>>();
+    if unresolved.is_empty() {
+        lines.push("- (no unresolved fronts detected yet)".to_string());
+    } else {
+        for entry in unresolved {
+            lines.push(format!("- {}", handshake_entry_brief(entry, 140)));
+        }
+    }
+    lines.push(String::new());
+    lines.push("## Priority canon".to_string());
+    lines.push(String::new());
+
+    for entry in ranked {
         let topic = entry.topic.as_deref().unwrap_or("global");
         let summary = truncate_chars(normalize_text(&entry.summary), 180);
         lines.push(format!(
@@ -6131,6 +7101,10 @@ fn load_latest_session_export_manifest(
         .map_err(|err| format!("read latest manifest failed: {err}"))?;
     serde_json::from_str::<SessionExportManifest>(&payload)
         .map_err(|err| format!("parse latest manifest failed: {err}"))
+}
+
+fn reflector_scope_id_for_project_root(project_root: &str) -> String {
+    format!("project:{}", project_root)
 }
 
 fn t3_scope_id_for_project_root(project_root: &str) -> String {
@@ -6529,6 +7503,14 @@ fn consultation_response_evidence_refs(
     refs
 }
 
+#[derive(Deserialize)]
+struct SessionTitleCommandPayload {
+    #[serde(default)]
+    session_title: Option<String>,
+    #[serde(default)]
+    title: Option<String>,
+}
+
 fn build_pulse_command_response(
     cfg: &ClientConfig,
     envelope: &PulseWireEnvelope,
@@ -6541,6 +7523,61 @@ fn build_pulse_command_response(
     let command = payload.command.clone();
 
     match payload.command.as_str() {
+        "set_session_title" => {
+            if let Err(error) = ensure_target_matches(cfg, payload.target_agent_id.as_deref()) {
+                return Some(command_result(
+                    cfg,
+                    envelope,
+                    &command,
+                    "error",
+                    Some("target mismatch".to_string()),
+                    Some(error),
+                    false,
+                    Vec::new(),
+                ));
+            }
+
+            let title_payload =
+                match serde_json::from_value::<SessionTitleCommandPayload>(payload.args.clone()) {
+                    Ok(value) => value,
+                    Err(err) => {
+                        return Some(command_result(
+                            cfg,
+                            envelope,
+                            &command,
+                            "error",
+                            Some("invalid session title payload".to_string()),
+                            Some(PulseCommandError {
+                                code: "invalid_args".to_string(),
+                                message: err.to_string(),
+                            }),
+                            false,
+                            Vec::new(),
+                        ));
+                    }
+                };
+
+            let session_title = title_payload
+                .session_title
+                .or(title_payload.title)
+                .map(|value| value.trim().to_string())
+                .filter(|value| !value.is_empty());
+            let message = session_title
+                .as_ref()
+                .map(|value| format!("session title updated: {value}"))
+                .unwrap_or_else(|| "session title cleared".to_string());
+
+            Some(command_result(
+                cfg,
+                envelope,
+                &command,
+                "ok",
+                Some(message),
+                None,
+                false,
+                vec![PulseUpdate::SessionTitle(session_title)],
+            ))
+        }
         "stop_agent" => {
             if let Err(error) = ensure_target_matches(cfg, payload.target_agent_id.as_deref()) {
                 return Some(command_result(
@@ -8610,7 +9647,7 @@ async fn send_task_summaries(
         Ok(data) => {
             let mut tags: Vec<_> = data.tags.into_iter().collect();
             tags.sort_by(|a, b| a.0.cmp(&b.0));
-            let mut messages: HashMap<String, String> = HashMap::new();
+            let mut payload_json_by_tag: HashMap<String, String> = HashMap::new();
             let mut pulse_payloads: HashMap<String, TaskSummaryPayload> = HashMap::new();
             let mut tag_prd_paths: HashMap<String, String> = HashMap::new();
             for (tag, ctx) in tags {
@@ -8620,23 +9657,26 @@ async fn send_task_summaries(
                         tag_prd_paths.insert(tag.clone(), prd.path);
                     }
                 }
-                let msg = build_envelope(
-                    "task_summary",
-                    &cfg.session_id,
-                    &cfg.agent_key,
-                    payload.clone(),
-                    None,
-                );
-                pulse_payloads.insert(tag.clone(), payload);
-                messages.insert(tag, msg);
+                payload_json_by_tag.insert(tag.clone(), stable_json(&payload));
+                pulse_payloads.insert(tag, payload);
             }
             let current_tag =
                 build_current_tag_payload(&pulse_payloads, &tag_prd_paths, &state_path).await;
             let mut cache = cache.lock().await;
             let mut to_send = Vec::new();
-            for (tag, msg) in &messages {
-                if cache.task_summary.get(tag).map(|value| value.as_str()) != Some(msg) {
-                    to_send.push(msg.clone());
+            for (tag, payload) in &pulse_payloads {
+                let payload_json = payload_json_by_tag
+                    .get(tag)
+                    .map(|value| value.as_str())
+                    .unwrap_or("");
+                if cache.task_summary.get(tag).map(|value| value.as_str()) != Some(payload_json) {
+                    to_send.push(build_envelope(
+                        "task_summary",
+                        &cfg.session_id,
+                        &cfg.agent_key,
+                        payload.clone(),
+                        None,
+                    ));
                 }
             }
             let done_counts = pulse_payloads
@@ -8655,10 +9695,10 @@ async fn send_task_summaries(
             let removed = cache
                 .task_summary
                 .keys()
-                .any(|tag| !messages.contains_key(tag));
+                .any(|tag| !payload_json_by_tag.contains_key(tag));
             let changed = removed || !to_send.is_empty();
             let current_tag_changed = cache.current_tag.as_ref() != Some(&current_tag);
-            cache.task_summary = messages;
+            cache.task_summary = payload_json_by_tag;
             cache.task_done_counts = done_counts;
             cache.current_tag = Some(current_tag.clone());
             drop(cache);
@@ -8696,6 +9736,7 @@ async fn send_task_summaries(
             };
             let error = PayloadError { code, message };
             let payload = build_task_summary_payload(cfg, "default", &[], Some(error));
+            let payload_json = stable_json(&payload);
             let msg = build_envelope(
                 "task_summary",
                 &cfg.session_id,
@@ -8710,13 +9751,13 @@ async fn send_task_summaries(
                 .task_summary
                 .get("default")
                 .map(|value| value.as_str())
-                != Some(&msg);
+                != Some(payload_json.as_str());
             let current_tag_changed = cache.current_tag.as_ref() != Some(&current_tag);
             cache.task_summary.clear();
             cache.task_done_counts.clear();
             cache
                 .task_summary
-                .insert("default".to_string(), msg.clone());
+                .insert("default".to_string(), payload_json);
             cache.current_tag = Some(current_tag.clone());
             drop(cache);
             if should_send {
@@ -8860,6 +9901,7 @@ async fn send_diff_summary(
     pulse_tx: &mpsc::Sender<PulseUpdate>,
 ) -> Result<(), ()> {
     let payload = build_diff_summary_payload(cfg).await;
+    let payload_json = stable_json(&payload);
     let msg = build_envelope(
         "diff_summary",
         &cfg.session_id,
@@ -8868,10 +9910,10 @@ async fn send_diff_summary(
         None,
     );
     let mut cached = cache.lock().await;
-    if cached.diff_summary.as_ref().map(|value| value.as_str()) == Some(&msg) {
+    if cached.diff_summary.as_ref().map(|value| value.as_str()) == Some(payload_json.as_str()) {
         return Ok(());
     }
-    cached.diff_summary = Some(msg.clone());
+    cached.diff_summary = Some(payload_json);
     drop(cached);
     let _ = tx.send(msg).await;
     publish_pulse_update(pulse_tx, PulseUpdate::DiffSummary(payload));
@@ -9821,6 +10863,35 @@ fn resolve_legacy_mind_store_path(cfg: &ClientConfig) -> PathBuf {
         .join(format!("{}.sqlite", sanitize_component(&cfg.pane_id)))
 }
 
+struct AdvisorySpawnLock {
+    file: File,
+}
+
+impl AdvisorySpawnLock {
+    fn try_acquire(path: &Path) -> Result<Option<Self>, String> {
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent)
+                .map_err(|err| format!("failed to create spawn lock dir: {err}"))?;
+        }
+        let file = OpenOptions::new()
+            .read(true)
+            .write(true)
+            .create(true)
+            .open(path)
+            .map_err(|err| format!("failed to open spawn lock {}: {err}", path.display()))?;
+        if file.try_lock_exclusive().is_err() {
+            return Ok(None);
+        }
+        Ok(Some(Self { file }))
+    }
+}
+
+impl Drop for AdvisorySpawnLock {
+    fn drop(&mut self) {
+        let _ = self.file.unlock();
+    }
+}
+
 fn resolve_reflector_lock_path(cfg: &ClientConfig) -> PathBuf {
     resolve_reflector_lock_path_with_override(cfg, reflector_lock_path_override().as_deref())
 }
@@ -9852,7 +10923,23 @@ fn resolve_t3_lock_path_with_override(cfg: &ClientConfig, override_path: Option<
         .join("t3.lock")
 }
 
-async fn persist_runtime_snapshot(cfg: &ClientConfig, status: &str) -> io::Result<()> {
+fn resolve_reflector_dispatch_lock_path(cfg: &ClientConfig) -> PathBuf {
+    resolve_mind_runtime_root(&cfg.project_root)
+        .join("locks")
+        .join("reflector-dispatch.lock")
+}
+
+fn resolve_t3_dispatch_lock_path(cfg: &ClientConfig) -> PathBuf {
+    resolve_mind_runtime_root(&cfg.project_root)
+        .join("locks")
+        .join("t3-dispatch.lock")
+}
+
+async fn persist_runtime_snapshot_with_title(
+    cfg: &ClientConfig,
+    status: &str,
+    session_title: Option<&str>,
+) -> io::Result<()> {
     let snapshot = RuntimeSnapshot {
         session_id: cfg.session_id.clone(),
         pane_id: cfg.pane_id.clone(),
@@ -9860,6 +10947,11 @@ async fn persist_runtime_snapshot(cfg: &ClientConfig, status: &str) -> io::Resul
         agent_label: cfg.agent_label.clone(),
         project_root: cfg.project_root.clone(),
         tab_scope: cfg.tab_scope.clone(),
+        session_title: session_title
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(str::to_string),
+        chat_title: None,
         pid: std::process::id() as i32,
         status: status.to_string(),
         last_update: Utc::now().to_rfc3339(),
@@ -9871,6 +10963,10 @@ async fn persist_runtime_snapshot(cfg: &ClientConfig, status: &str) -> io::Resul
         let _ = fs::create_dir_all(parent).await;
     }
     fs::write(path, payload).await
+}
+
+async fn persist_runtime_snapshot(cfg: &ClientConfig, status: &str) -> io::Result<()> {
+    persist_runtime_snapshot_with_title(cfg, status, None).await
 }
 
 fn resolve_session_id() -> String {
@@ -9900,6 +10996,131 @@ fn resolve_project_root(flag: &str) -> String {
         .unwrap_or_else(|_| PathBuf::from("."))
         .to_string_lossy()
         .to_string()
+}
+
+#[cfg(test)]
+#[allow(dead_code)]
+fn resolve_session_title() -> Option<String> {
+    resolve_pi_session_name()
+}
+
+#[cfg(test)]
+#[allow(dead_code)]
+fn resolve_pi_session_name() -> Option<String> {
+    for root in pi_session_roots() {
+        let Some(session_file) = latest_pi_session_file(&root) else {
+            continue;
+        };
+        if let Some(name) = read_pi_session_name_from_file(&session_file) {
+            return Some(name);
+        }
+    }
+    None
+}
+
+#[cfg(test)]
+#[allow(dead_code)]
+fn pi_session_roots() -> Vec<PathBuf> {
+    let mut roots = Vec::new();
+    if let Ok(session_dir) = env::var("AOC_PI_SESSION_DIR") {
+        let session_dir = PathBuf::from(session_dir.trim());
+        if !session_dir.as_os_str().is_empty() {
+            roots.push(session_dir);
+        }
+    }
+    if let Some(default_root) = default_pi_session_root() {
+        if !roots.iter().any(|root| root == &default_root) {
+            roots.push(default_root);
+        }
+    }
+    roots
+}
+
+#[cfg(test)]
+fn default_pi_session_root() -> Option<PathBuf> {
+    let project_root = env::var("AOC_PROJECT_ROOT").ok()?;
+    let project_root = project_root.trim();
+    if project_root.is_empty() {
+        return None;
+    }
+    let agent_root = env::var("AOC_PI_SETTINGS_PATH")
+        .ok()
+        .map(PathBuf::from)
+        .and_then(|path| path.parent().map(Path::to_path_buf))
+        .or_else(|| {
+            env::var("HOME")
+                .ok()
+                .map(|home| PathBuf::from(home).join(".pi").join("agent"))
+        })?;
+    let session_bucket = format!("--{}--", project_root.replace('/', "-").trim_matches('-'));
+    Some(agent_root.join("sessions").join(session_bucket))
+}
+
+#[cfg(test)]
+fn latest_pi_session_file(root: &Path) -> Option<PathBuf> {
+    let mut stack = vec![root.to_path_buf()];
+    let mut newest: Option<(SystemTime, PathBuf)> = None;
+    while let Some(dir) = stack.pop() {
+        let entries = std::fs::read_dir(&dir).ok()?;
+        for entry in entries.flatten() {
+            let path = entry.path();
+            let Ok(file_type) = entry.file_type() else {
+                continue;
+            };
+            if file_type.is_dir() {
+                stack.push(path);
+                continue;
+            }
+            if !file_type.is_file()
+                || path.extension().and_then(|ext| ext.to_str()) != Some("jsonl")
+            {
+                continue;
+            }
+            let modified = entry
+                .metadata()
+                .ok()
+                .and_then(|meta| meta.modified().ok())
+                .unwrap_or(UNIX_EPOCH);
+            match &newest {
+                Some((current_modified, current_path)) => {
+                    if modified > *current_modified
+                        || (modified == *current_modified && path > *current_path)
+                    {
+                        newest = Some((modified, path));
+                    }
+                }
+                None => newest = Some((modified, path)),
+            }
+        }
+    }
+    newest.map(|(_, path)| path)
+}
+
+#[cfg(test)]
+fn read_pi_session_name_from_file(path: &Path) -> Option<String> {
+    let file = std::fs::File::open(path).ok()?;
+    let reader = std::io::BufReader::new(file);
+    let mut latest = None;
+    for line in std::io::BufRead::lines(reader).map_while(Result::ok) {
+        let line = line.trim();
+        if line.is_empty() || !line.contains("session_info") {
+            continue;
+        }
+        let value: serde_json::Value = serde_json::from_str(line).ok()?;
+        if value.get("type").and_then(serde_json::Value::as_str) != Some("session_info") {
+            continue;
+        }
+        let name = value
+            .get("name")
+            .and_then(serde_json::Value::as_str)
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(str::to_string);
+        if name.is_some() {
+            latest = name;
+        }
+    }
+    latest
 }
 
 fn resolve_agent_label(flag: &str, project_root: &str) -> String {
@@ -10141,6 +11362,96 @@ mod tests {
         cfg
     }
 
+    fn test_client_for_runtime(
+        project_root: &str,
+        session_id: &str,
+        pane_id: &str,
+    ) -> ClientConfig {
+        let mut cfg = test_client_with_root(project_root);
+        cfg.session_id = session_id.to_string();
+        cfg.pane_id = pane_id.to_string();
+        cfg.agent_key = format!("{session_id}::{pane_id}");
+        cfg
+    }
+
+    fn temp_test_dir(name: &str) -> PathBuf {
+        let path = std::env::temp_dir().join(format!(
+            "aoc-agent-wrap-rs-{name}-{}-{}",
+            std::process::id(),
+            Utc::now().timestamp_nanos_opt().unwrap_or_default()
+        ));
+        std::fs::create_dir_all(&path).expect("create temp dir");
+        path
+    }
+
+    #[test]
+    fn read_pi_session_name_from_file_uses_latest_session_info_entry() {
+        let dir = temp_test_dir("pi-session-file");
+        let path = dir.join("session.jsonl");
+        std::fs::write(
+            &path,
+            concat!(
+                "{\"type\":\"session\",\"version\":3}\n",
+                "{\"type\":\"session_info\",\"name\":\"First Name\"}\n",
+                "{\"type\":\"message\",\"role\":\"user\"}\n",
+                "{\"type\":\"session_info\",\"name\":\"Final Name\"}\n"
+            ),
+        )
+        .expect("write session file");
+
+        assert_eq!(
+            read_pi_session_name_from_file(&path).as_deref(),
+            Some("Final Name")
+        );
+
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn latest_pi_session_file_prefers_newest_jsonl_file() {
+        let dir = temp_test_dir("pi-session-dir");
+        let nested = dir.join("--repo--");
+        std::fs::create_dir_all(&nested).expect("create nested dir");
+        let older = nested.join("older.jsonl");
+        let newer = nested.join("newer.jsonl");
+        std::fs::write(&older, "{}\n").expect("write older file");
+        std::thread::sleep(Duration::from_millis(5));
+        std::fs::write(&newer, "{}\n").expect("write newer file");
+
+        assert_eq!(
+            latest_pi_session_file(&dir).as_deref(),
+            Some(newer.as_path())
+        );
+
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn default_pi_session_root_matches_pi_layout() {
+        let old_settings = std::env::var("AOC_PI_SETTINGS_PATH").ok();
+        let old_project_root = std::env::var("AOC_PROJECT_ROOT").ok();
+        std::env::set_var("AOC_PI_SETTINGS_PATH", "/tmp/pi-agent/settings.json");
+        std::env::set_var("AOC_PROJECT_ROOT", "/home/ceii/dev/agent-ops-cockpit");
+
+        assert_eq!(
+            default_pi_session_root().as_deref(),
+            Some(Path::new(
+                "/tmp/pi-agent/sessions/--home-ceii-dev-agent-ops-cockpit--"
+            ))
+        );
+
+        if let Some(value) = old_settings {
+            std::env::set_var("AOC_PI_SETTINGS_PATH", value);
+        } else {
+            std::env::remove_var("AOC_PI_SETTINGS_PATH");
+        }
+        if let Some(value) = old_project_root {
+            std::env::set_var("AOC_PROJECT_ROOT", value);
+        } else {
+            std::env::remove_var("AOC_PROJECT_ROOT");
+        }
+    }
+
     #[test]
     fn mind_paths_default_to_state_home_layout() {
         let cfg = test_client_with_root("/repo");
@@ -10169,6 +11480,12 @@ mod tests {
                 .join("reflector.lock")
         );
         assert_eq!(
+            resolve_reflector_dispatch_lock_path(&cfg),
+            resolve_mind_runtime_root(&cfg.project_root)
+                .join("locks")
+                .join("reflector-dispatch.lock")
+        );
+        assert_eq!(
             resolve_legacy_mind_store_path(&cfg),
             resolve_mind_runtime_root(&cfg.project_root)
                 .join("legacy")
@@ -10180,6 +11497,12 @@ mod tests {
             resolve_mind_runtime_root(&cfg.project_root)
                 .join("locks")
                 .join("t3.lock")
+        );
+        assert_eq!(
+            resolve_t3_dispatch_lock_path(&cfg),
+            resolve_mind_runtime_root(&cfg.project_root)
+                .join("locks")
+                .join("t3-dispatch.lock")
         );
         assert!(!resolve_mind_store_path_with_override(&cfg, None)
             .starts_with(PathBuf::from(&cfg.project_root).join(".aoc").join("mind")));
@@ -10221,6 +11544,108 @@ mod tests {
                 args,
             }),
         }
+    }
+
+    fn seed_reflector_backlog_for_test(
+        cfg: &ClientConfig,
+        runtime: &mut MindRuntime,
+        conversation_id: &str,
+    ) {
+        let ingest = command_envelope_for_test(
+            cfg,
+            &format!("req-ingest-reflector-{conversation_id}"),
+            "mind_ingest_event",
+            serde_json::json!({
+                "conversation_id": conversation_id,
+                "event_id": format!("evt-reflector-{conversation_id}-1"),
+                "timestamp_ms": 1_700_000_004_000i64,
+                "body": {
+                    "kind": "message",
+                    "role": "user",
+                    "text": format!("seed reflector backlog for {conversation_id}")
+                }
+            }),
+        );
+        let _ = build_pulse_command_response(cfg, &ingest, Some(runtime)).expect("ingest response");
+
+        let handoff = command_envelope_for_test(
+            cfg,
+            &format!("req-handoff-reflector-{conversation_id}"),
+            "mind_handoff",
+            serde_json::json!({
+                "conversation_id": conversation_id,
+                "reason": "seed detached t2 backlog"
+            }),
+        );
+        let _ =
+            build_pulse_command_response(cfg, &handoff, Some(runtime)).expect("handoff response");
+
+        let observation_ids = runtime
+            .store
+            .artifacts_for_conversation(conversation_id)
+            .expect("conversation artifacts")
+            .into_iter()
+            .filter(|artifact| artifact.kind == "t1")
+            .map(|artifact| artifact.artifact_id)
+            .collect::<Vec<_>>();
+        assert!(
+            !observation_ids.is_empty(),
+            "expected handoff flow to materialize t1 observations"
+        );
+        runtime
+            .store
+            .enqueue_reflector_job(
+                "detached-t2-test",
+                &observation_ids,
+                &[conversation_id.to_string()],
+                120,
+                Utc::now(),
+            )
+            .expect("enqueue reflector job");
+    }
+
+    fn seed_t3_backlog_for_test(
+        cfg: &ClientConfig,
+        runtime: &mut MindRuntime,
+        conversation_id: &str,
+    ) {
+        let ingest = command_envelope_for_test(
+            cfg,
+            &format!("req-ingest-{conversation_id}"),
+            "mind_ingest_event",
+            serde_json::json!({
+                "conversation_id": conversation_id,
+                "event_id": format!("evt-{conversation_id}-1"),
+                "timestamp_ms": 1_700_000_005_000i64,
+                "body": {
+                    "kind": "message",
+                    "role": "user",
+                    "text": format!("seed backlog for {conversation_id}")
+                }
+            }),
+        );
+        let _ = build_pulse_command_response(cfg, &ingest, Some(runtime)).expect("ingest response");
+
+        let handoff = command_envelope_for_test(
+            cfg,
+            &format!("req-handoff-{conversation_id}"),
+            "mind_handoff",
+            serde_json::json!({
+                "conversation_id": conversation_id,
+                "reason": "seed detached t3 backlog"
+            }),
+        );
+        let _ =
+            build_pulse_command_response(cfg, &handoff, Some(runtime)).expect("handoff response");
+
+        let finalize = command_envelope_for_test(
+            cfg,
+            &format!("req-finalize-{conversation_id}"),
+            "mind_finalize_session",
+            serde_json::json!({"reason": "seed detached t3 backlog"}),
+        );
+        let _ =
+            build_pulse_command_response(cfg, &finalize, Some(runtime)).expect("finalize response");
     }
 
     fn consultation_envelope_for_test(
@@ -10591,6 +12016,30 @@ mod tests {
         assert!(!detect_taskmaster_command(
             "reviewing docs and planning next step"
         ));
+    }
+
+    #[test]
+    fn pulse_source_uses_explicit_session_title_from_state() {
+        let cfg = test_client();
+        let mut state = PulseState::new();
+        state.session_title = Some("pulsePlus".to_string());
+
+        let source = build_pulse_source(&cfg, &state);
+        let root = source.as_object().expect("source should be object");
+        assert_eq!(
+            root.get("session_title")
+                .and_then(Value::as_str)
+                .unwrap_or_default(),
+            "pulsePlus"
+        );
+        assert_eq!(
+            root.get("agent_status")
+                .and_then(Value::as_object)
+                .and_then(|status| status.get("session_title"))
+                .and_then(Value::as_str)
+                .unwrap_or_default(),
+            "pulsePlus"
+        );
     }
 
     #[test]
@@ -11062,6 +12511,78 @@ mod tests {
             }
             _ => panic!("expected mind observer feed event"),
         }
+    }
+
+    #[test]
+    fn mind_t1_observer_remains_inline_without_detached_job() {
+        let test_root = temp_test_dir("mind-t1-inline-only");
+        let cfg = test_client_with_root(&test_root.to_string_lossy());
+        let mut runtime = MindRuntime::new(&cfg).expect("mind runtime");
+
+        let ingest = command_envelope_for_test(
+            &cfg,
+            "req-ingest-inline-t1",
+            "mind_ingest_event",
+            serde_json::json!({
+                "conversation_id": "conv-inline-t1",
+                "event_id": "evt-inline-t1-1",
+                "timestamp_ms": 1_700_000_006_000i64,
+                "body": {
+                    "kind": "message",
+                    "role": "user",
+                    "text": "seed observer work for explicit inline-only T1 validation"
+                }
+            }),
+        );
+        let _ = build_pulse_command_response(&cfg, &ingest, Some(&mut runtime))
+            .expect("ingest response");
+
+        let envelope = PulseWireEnvelope {
+            version: ProtocolVersion(CURRENT_PROTOCOL_VERSION),
+            session_id: cfg.session_id.clone(),
+            sender_id: "aoc-mission-control".to_string(),
+            timestamp: Utc::now().to_rfc3339(),
+            request_id: Some("req-inline-t1-run".to_string()),
+            msg: WireMsg::Command(aoc_core::pulse_ipc::CommandPayload {
+                command: "run_observer".to_string(),
+                target_agent_id: Some(cfg.agent_key.clone()),
+                args: serde_json::json!({
+                    "conversation_id": "conv-inline-t1",
+                    "reason": "verify T1 stays inline"
+                }),
+            }),
+        };
+
+        let command = build_pulse_command_response(&cfg, &envelope, Some(&mut runtime))
+            .expect("run observer response");
+        let WireMsg::CommandResult(payload) = command.response.msg else {
+            panic!("expected command_result")
+        };
+        assert_eq!(payload.status, "ok");
+        assert!(command
+            .pulse_updates
+            .iter()
+            .any(|update| matches!(update, PulseUpdate::MindObserverEvent(_))));
+        assert!(runtime
+            .store
+            .artifacts_for_conversation("conv-inline-t1")
+            .expect("conversation artifacts")
+            .iter()
+            .any(|artifact| artifact.kind == "t1"));
+        let detached = runtime.insight_detached.status(
+            &aoc_core::insight_contracts::InsightDetachedStatusRequest {
+                job_id: None,
+                owner_plane: Some(InsightDetachedOwnerPlane::Mind),
+                worker_kind: Some(InsightDetachedWorkerKind::T1),
+                limit: Some(8),
+            },
+        );
+        assert!(
+            detached.jobs.is_empty(),
+            "T1 should remain inline-only for task 178"
+        );
+
+        let _ = std::fs::remove_dir_all(test_root);
     }
 
     #[test]
@@ -11946,6 +13467,76 @@ mod tests {
     }
 
     #[test]
+    fn render_handshake_markdown_focuses_active_tag_and_open_fronts() {
+        let now = Utc.with_ymd_and_hms(2026, 3, 27, 12, 0, 0).unwrap();
+        let entries = vec![
+            aoc_storage::CanonEntryRevision {
+                entry_id: "canon-focus".to_string(),
+                revision: 3,
+                state: CanonRevisionState::Active,
+                topic: Some("env-protec".to_string()),
+                summary: "Detached subagent team runtime is validated; remaining gap is handshake briefing rollout and focus-first polish.".to_string(),
+                confidence_bps: 9100,
+                freshness_score: 9300,
+                supersedes_entry_id: None,
+                evidence_refs: vec!["docs/subagent-runtime.md".to_string()],
+                created_at: now,
+            },
+            aoc_storage::CanonEntryRevision {
+                entry_id: "canon-secondary".to_string(),
+                revision: 1,
+                state: CanonRevisionState::Active,
+                topic: Some("mind".to_string()),
+                summary: "Recent developments landed for project-scoped Mind search and activity summaries.".to_string(),
+                confidence_bps: 8600,
+                freshness_score: 7200,
+                supersedes_entry_id: None,
+                evidence_refs: vec!["docs/mission-control.md".to_string()],
+                created_at: now - chrono::Duration::minutes(5),
+            },
+        ];
+
+        let rendered = render_handshake_markdown(&entries, Some("env-protec"), now);
+        assert!(rendered.contains("## Focus briefing"));
+        assert!(rendered.contains("- source: project-active-tag"));
+        assert!(rendered.contains("- current_focus: tag env-protec :: [canon-focus r3] topic=env-protec"));
+        assert!(rendered.contains("scope_note: project baseline; tab-local focus may differ"));
+        assert!(rendered.contains("## Recent developments"));
+        assert!(rendered.contains("## Open fronts"));
+        assert!(rendered.contains("remaining gap is handshake briefing rollout"));
+        assert!(rendered.contains("## Priority canon"));
+
+        let focus_idx = rendered.find("## Focus briefing").expect("focus section");
+        let recent_idx = rendered.find("## Recent developments").expect("recent section");
+        let open_idx = rendered.find("## Open fronts").expect("open fronts section");
+        let canon_idx = rendered.find("## Priority canon").expect("priority canon section");
+        assert!(focus_idx < recent_idx && recent_idx < open_idx && open_idx < canon_idx);
+    }
+
+    #[test]
+    fn render_handshake_markdown_infers_focus_when_active_tag_missing() {
+        let now = Utc.with_ymd_and_hms(2026, 3, 27, 12, 0, 0).unwrap();
+        let entries = vec![aoc_storage::CanonEntryRevision {
+            entry_id: "canon-inferred".to_string(),
+            revision: 2,
+            state: CanonRevisionState::Active,
+            topic: Some("mission-control".to_string()),
+            summary: "Pending follow-up on focus provenance and workstream health rendering in the handshake baseline.".to_string(),
+            confidence_bps: 8400,
+            freshness_score: 8100,
+            supersedes_entry_id: None,
+            evidence_refs: vec!["docs/mind-v2-architecture-cutover-checklist.md".to_string()],
+            created_at: now,
+        }];
+
+        let rendered = render_handshake_markdown(&entries, None, now);
+        assert!(rendered.contains("active_tag: none"));
+        assert!(rendered.contains("- source: inferred-project"));
+        assert!(rendered.contains("[canon-inferred r2] topic=mission-control"));
+        assert!(rendered.contains("Pending follow-up on focus provenance"));
+    }
+
+    #[test]
     fn pulse_mind_handshake_rebuild_writes_baseline_and_injection_update() {
         let test_root = std::env::temp_dir().join(format!(
             "aoc-mind-handshake-rebuild-test-{}-{}",
@@ -12051,7 +13642,9 @@ mod tests {
                 >= 1
         );
 
-        let updates = runtime.tick_t3_runtime();
+        let updates = runtime.dispatch_detached_t3_worker_with_launcher(&cfg, |_cfg, _job_id| {
+            Err("inline fallback test".to_string())
+        });
         assert!(updates.iter().any(|update| {
             matches!(
                 update,
@@ -12223,8 +13816,10 @@ mod tests {
             if pending_jobs() == 0 {
                 break;
             }
-            for (_cfg, runtime) in runtimes.iter_mut() {
-                runtime.tick_t3_runtime();
+            for (cfg, runtime) in runtimes.iter_mut() {
+                runtime.dispatch_detached_t3_worker_with_launcher(cfg, |_cfg, _job_id| {
+                    Err("inline fallback stress test".to_string())
+                });
             }
         }
 
@@ -12263,6 +13858,584 @@ mod tests {
             .expect("handshake query")
             .expect("handshake snapshot exists");
         assert!(handshake_snapshot.token_estimate <= MIND_T3_HANDSHAKE_TOKEN_BUDGET);
+
+        let _ = std::fs::remove_dir_all(test_root);
+    }
+
+    #[test]
+    fn mind_t2_dispatcher_stamps_detached_jobs_and_falls_back_inline() {
+        let test_root = temp_test_dir("mind-t2-detached-inline");
+        let cfg = test_client_with_root(&test_root.to_string_lossy());
+        let mut runtime = MindRuntime::new(&cfg).expect("mind runtime");
+
+        seed_reflector_backlog_for_test(&cfg, &mut runtime, "conv-detached-reflector");
+        assert!(
+            runtime
+                .store
+                .pending_reflector_jobs()
+                .expect("pending reflector jobs")
+                > 0
+        );
+
+        let updates = runtime
+            .dispatch_detached_reflector_worker_with_launcher(&cfg, |_cfg, _job_id| {
+                Err("launcher unavailable in test".to_string())
+            });
+        assert!(updates
+            .iter()
+            .any(|update| matches!(update, PulseUpdate::InsightDetached(_))));
+
+        let status = runtime.t2_detached_status(8);
+        assert_eq!(status.jobs.len(), 1);
+        let job = &status.jobs[0];
+        assert_eq!(job.owner_plane, InsightDetachedOwnerPlane::Mind);
+        assert_eq!(job.worker_kind, Some(InsightDetachedWorkerKind::T2));
+        assert!(matches!(
+            job.status,
+            InsightDetachedJobStatus::Success | InsightDetachedJobStatus::Fallback
+        ));
+        assert!(job.fallback_used);
+        assert_eq!(
+            job.agent.as_deref(),
+            Some(detached_mind_worker_label(InsightDetachedWorkerKind::T2))
+        );
+        assert_eq!(
+            runtime
+                .store
+                .pending_reflector_jobs()
+                .expect("pending reflector jobs"),
+            0
+        );
+        let artifacts = runtime
+            .store
+            .artifacts_for_conversation("conv-detached-reflector")
+            .expect("conversation artifacts");
+        assert!(artifacts.iter().any(|artifact| artifact.kind == "t2"));
+
+        let _ = std::fs::remove_dir_all(test_root);
+    }
+
+    #[test]
+    fn mind_t2_dispatcher_skips_launch_when_fresh_detached_job_is_active() {
+        let test_root = temp_test_dir("mind-t2-detached-dedup");
+        let cfg = test_client_with_root(&test_root.to_string_lossy());
+        let mut runtime = MindRuntime::new(&cfg).expect("mind runtime");
+
+        seed_reflector_backlog_for_test(&cfg, &mut runtime, "conv-detached-reflector-dedup");
+        let job = runtime.new_mind_t2_job(
+            "mind-t2-active-test".to_string(),
+            Utc::now().timestamp_millis(),
+        );
+        runtime.persist_mind_detached_job(&job);
+
+        let launch_calls = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let launches = launch_calls.clone();
+        let _ =
+            runtime.dispatch_detached_reflector_worker_with_launcher(&cfg, move |_cfg, _job_id| {
+                launches.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                Ok(31337)
+            });
+
+        assert_eq!(launch_calls.load(std::sync::atomic::Ordering::SeqCst), 0);
+        assert_eq!(
+            runtime
+                .t2_detached_status(8)
+                .jobs
+                .iter()
+                .filter(|job| matches!(
+                    job.status,
+                    InsightDetachedJobStatus::Queued | InsightDetachedJobStatus::Running
+                ))
+                .count(),
+            1
+        );
+        assert!(
+            runtime
+                .store
+                .pending_reflector_jobs()
+                .expect("pending reflector jobs")
+                > 0
+        );
+
+        let _ = std::fs::remove_dir_all(test_root);
+    }
+
+    #[test]
+    fn mind_t2_dispatcher_dedups_across_project_runtimes() {
+        let test_root = temp_test_dir("mind-t2-cross-runtime-dedup");
+        let project_root = test_root.to_string_lossy().to_string();
+        let cfg_a = test_client_for_runtime(&project_root, "session-a", "12");
+        let cfg_b = test_client_for_runtime(&project_root, "session-b", "21");
+        let mut runtime_a = MindRuntime::new(&cfg_a).expect("mind runtime a");
+        let mut runtime_b = MindRuntime::new(&cfg_b).expect("mind runtime b");
+
+        seed_reflector_backlog_for_test(
+            &cfg_a,
+            &mut runtime_a,
+            "conv-detached-reflector-cross-runtime",
+        );
+
+        let launch_calls = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let launches_a = launch_calls.clone();
+        let _ = runtime_a.dispatch_detached_reflector_worker_with_launcher(
+            &cfg_a,
+            move |_cfg, _job_id| {
+                launches_a.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                Ok(31337)
+            },
+        );
+        let launches_b = launch_calls.clone();
+        let _ = runtime_b.dispatch_detached_reflector_worker_with_launcher(
+            &cfg_b,
+            move |_cfg, _job_id| {
+                launches_b.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                Ok(31338)
+            },
+        );
+
+        assert_eq!(launch_calls.load(std::sync::atomic::Ordering::SeqCst), 1);
+        assert_eq!(
+            runtime_b
+                .t2_detached_status(8)
+                .jobs
+                .iter()
+                .filter(|job| matches!(
+                    job.status,
+                    InsightDetachedJobStatus::Queued | InsightDetachedJobStatus::Running
+                ))
+                .count(),
+            1
+        );
+
+        let _ = std::fs::remove_dir_all(test_root);
+    }
+
+    #[test]
+    fn mind_t2_dispatcher_limits_burst_backlog_to_single_detached_worker() {
+        let test_root = temp_test_dir("mind-t2-burst-bounded");
+        let cfg = test_client_with_root(&test_root.to_string_lossy());
+        let mut runtime = MindRuntime::new(&cfg).expect("mind runtime");
+
+        for conversation_id in [
+            "conv-detached-reflector-burst-a",
+            "conv-detached-reflector-burst-b",
+            "conv-detached-reflector-burst-c",
+        ] {
+            seed_reflector_backlog_for_test(&cfg, &mut runtime, conversation_id);
+        }
+        assert!(
+            runtime
+                .store
+                .pending_reflector_jobs()
+                .expect("pending reflector jobs")
+                >= 3
+        );
+
+        let launch_calls = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let launches_first = launch_calls.clone();
+        let _ =
+            runtime.dispatch_detached_reflector_worker_with_launcher(&cfg, move |_cfg, _job_id| {
+                launches_first.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                Ok(31339)
+            });
+        let launches_second = launch_calls.clone();
+        let _ =
+            runtime.dispatch_detached_reflector_worker_with_launcher(&cfg, move |_cfg, _job_id| {
+                launches_second.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                Ok(31340)
+            });
+
+        assert_eq!(launch_calls.load(std::sync::atomic::Ordering::SeqCst), 1);
+        assert_eq!(
+            runtime
+                .t2_detached_status(8)
+                .jobs
+                .iter()
+                .filter(|job| matches!(
+                    job.status,
+                    InsightDetachedJobStatus::Queued | InsightDetachedJobStatus::Running
+                ))
+                .count(),
+            1
+        );
+        assert!(
+            runtime
+                .store
+                .pending_reflector_jobs()
+                .expect("pending reflector jobs")
+                > 0
+        );
+
+        let _ = std::fs::remove_dir_all(test_root);
+    }
+
+    #[test]
+    fn mind_startup_reconciles_stale_detached_t2_and_t3_jobs() {
+        let test_root = temp_test_dir("mind-startup-detached-recovery");
+        let cfg = test_client_with_root(&test_root.to_string_lossy());
+        let mut runtime = MindRuntime::new(&cfg).expect("mind runtime");
+        let created_at_ms = (Utc::now()
+            - chrono::Duration::milliseconds(MIND_T3_DISPATCH_STALE_AFTER_MS + 1_000))
+        .timestamp_millis();
+
+        let mut t2_job = runtime.new_mind_t2_job("mind-t2-stale-test".to_string(), created_at_ms);
+        t2_job.status = InsightDetachedJobStatus::Running;
+        runtime.persist_mind_detached_job(&t2_job);
+
+        let mut t3_job = runtime.new_mind_t3_job("mind-t3-stale-test".to_string(), created_at_ms);
+        t3_job.status = InsightDetachedJobStatus::Queued;
+        runtime.persist_mind_detached_job(&t3_job);
+
+        let changed = runtime.reconcile_detached_mind_jobs_on_startup();
+        assert_eq!(changed, 2);
+
+        let t2 = runtime
+            .t2_detached_status(8)
+            .jobs
+            .into_iter()
+            .find(|job| job.job_id == "mind-t2-stale-test")
+            .expect("t2 job");
+        assert_eq!(t2.status, InsightDetachedJobStatus::Stale);
+        assert!(t2
+            .error
+            .as_deref()
+            .unwrap_or_default()
+            .contains("lease expired"));
+
+        let t3 = runtime
+            .t3_detached_status(8)
+            .jobs
+            .into_iter()
+            .find(|job| job.job_id == "mind-t3-stale-test")
+            .expect("t3 job");
+        assert_eq!(t3.status, InsightDetachedJobStatus::Stale);
+        assert!(t3
+            .error
+            .as_deref()
+            .unwrap_or_default()
+            .contains("lease expired"));
+
+        let _ = std::fs::remove_dir_all(test_root);
+    }
+
+    #[test]
+    fn mind_startup_preserves_active_detached_t2_and_t3_jobs_when_leases_exist() {
+        let test_root = temp_test_dir("mind-startup-detached-lease");
+        let cfg = test_client_with_root(&test_root.to_string_lossy());
+        let mut runtime = MindRuntime::new(&cfg).expect("mind runtime");
+        let now = Utc::now();
+        let created_at_ms = (now
+            - chrono::Duration::milliseconds(MIND_T3_DISPATCH_STALE_AFTER_MS + 1_000))
+        .timestamp_millis();
+
+        let t2_scope = reflector_scope_id_for_project_root(&cfg.project_root);
+        let t3_scope = t3_scope_id_for_project_root(&cfg.project_root);
+        assert!(runtime
+            .store
+            .try_acquire_reflector_lease(&t2_scope, "test-owner", Some(11), now, 60_000)
+            .expect("acquire reflector lease"));
+        assert!(runtime
+            .store
+            .try_acquire_t3_runtime_lease(&t3_scope, "test-owner", Some(22), now, 60_000)
+            .expect("acquire t3 lease"));
+
+        let mut t2_job = runtime.new_mind_t2_job("mind-t2-live-test".to_string(), created_at_ms);
+        t2_job.status = InsightDetachedJobStatus::Running;
+        runtime.persist_mind_detached_job(&t2_job);
+
+        let mut t3_job = runtime.new_mind_t3_job("mind-t3-live-test".to_string(), created_at_ms);
+        t3_job.status = InsightDetachedJobStatus::Running;
+        runtime.persist_mind_detached_job(&t3_job);
+
+        let changed = runtime.reconcile_detached_mind_jobs_on_startup();
+        assert_eq!(changed, 0);
+
+        let t2 = runtime
+            .t2_detached_status(8)
+            .jobs
+            .into_iter()
+            .find(|job| job.job_id == "mind-t2-live-test")
+            .expect("t2 job");
+        assert_eq!(t2.status, InsightDetachedJobStatus::Running);
+
+        let t3 = runtime
+            .t3_detached_status(8)
+            .jobs
+            .into_iter()
+            .find(|job| job.job_id == "mind-t3-live-test")
+            .expect("t3 job");
+        assert_eq!(t3.status, InsightDetachedJobStatus::Running);
+
+        let _ = std::fs::remove_dir_all(test_root);
+    }
+
+    #[test]
+    fn mind_detached_t2_worker_respects_cancelled_job_state() {
+        let test_root = temp_test_dir("mind-t2-cancelled-worker");
+        let cfg = test_client_with_root(&test_root.to_string_lossy());
+        let mut runtime = MindRuntime::new(&cfg).expect("mind runtime");
+
+        let job = runtime.new_mind_t2_job(
+            "mind-t2-cancelled-test".to_string(),
+            Utc::now().timestamp_millis(),
+        );
+        runtime.persist_mind_detached_job(&job);
+        let cancel = runtime.insight_detached_cancel(
+            aoc_core::insight_contracts::InsightDetachedCancelRequest {
+                job_id: job.job_id.clone(),
+                reason: Some("operator cancel".to_string()),
+            },
+        );
+        assert_eq!(cancel.status, InsightDetachedJobStatus::Cancelled);
+
+        let exit = runtime
+            .run_detached_mind_worker(&cfg, InsightDetachedWorkerKind::T2, &job.job_id)
+            .expect("cancelled worker exit");
+        assert_eq!(exit, 0);
+
+        let job = runtime
+            .t2_detached_status(8)
+            .jobs
+            .into_iter()
+            .find(|entry| entry.job_id == "mind-t2-cancelled-test")
+            .expect("t2 job");
+        assert_eq!(job.status, InsightDetachedJobStatus::Cancelled);
+        assert!(job
+            .error
+            .as_deref()
+            .unwrap_or_default()
+            .contains("cancelled"));
+
+        let _ = std::fs::remove_dir_all(test_root);
+    }
+
+    #[test]
+    fn mind_detached_t3_worker_respects_cancelled_job_state() {
+        let test_root = temp_test_dir("mind-t3-cancelled-worker");
+        let cfg = test_client_with_root(&test_root.to_string_lossy());
+        let mut runtime = MindRuntime::new(&cfg).expect("mind runtime");
+
+        let job = runtime.new_mind_t3_job(
+            "mind-t3-cancelled-test".to_string(),
+            Utc::now().timestamp_millis(),
+        );
+        runtime.persist_mind_detached_job(&job);
+        let cancel = runtime.insight_detached_cancel(
+            aoc_core::insight_contracts::InsightDetachedCancelRequest {
+                job_id: job.job_id.clone(),
+                reason: Some("operator cancel".to_string()),
+            },
+        );
+        assert_eq!(cancel.status, InsightDetachedJobStatus::Cancelled);
+
+        let exit = runtime
+            .run_detached_mind_worker(&cfg, InsightDetachedWorkerKind::T3, &job.job_id)
+            .expect("cancelled worker exit");
+        assert_eq!(exit, 0);
+
+        let job = runtime
+            .t3_detached_status(8)
+            .jobs
+            .into_iter()
+            .find(|entry| entry.job_id == "mind-t3-cancelled-test")
+            .expect("t3 job");
+        assert_eq!(job.status, InsightDetachedJobStatus::Cancelled);
+        assert!(job
+            .error
+            .as_deref()
+            .unwrap_or_default()
+            .contains("cancelled"));
+
+        let _ = std::fs::remove_dir_all(test_root);
+    }
+
+    #[test]
+    fn mind_t3_dispatcher_stamps_detached_jobs_and_falls_back_inline() {
+        let test_root = temp_test_dir("mind-t3-detached-inline");
+        let cfg = test_client_with_root(&test_root.to_string_lossy());
+        let mut runtime = MindRuntime::new(&cfg).expect("mind runtime");
+
+        seed_t3_backlog_for_test(&cfg, &mut runtime, "conv-detached-inline");
+        assert!(
+            runtime
+                .store
+                .pending_t3_backlog_jobs()
+                .expect("pending t3 jobs")
+                > 0
+        );
+
+        let updates = runtime.dispatch_detached_t3_worker_with_launcher(&cfg, |_cfg, _job_id| {
+            Err("launcher unavailable in test".to_string())
+        });
+        assert!(updates
+            .iter()
+            .any(|update| matches!(update, PulseUpdate::InsightDetached(_))));
+
+        let status = runtime.t3_detached_status(8);
+        assert_eq!(status.jobs.len(), 1);
+        let job = &status.jobs[0];
+        assert_eq!(job.owner_plane, InsightDetachedOwnerPlane::Mind);
+        assert_eq!(job.worker_kind, Some(InsightDetachedWorkerKind::T3));
+        assert!(matches!(
+            job.status,
+            InsightDetachedJobStatus::Success | InsightDetachedJobStatus::Fallback
+        ));
+        assert!(job.fallback_used);
+        assert_eq!(
+            job.agent.as_deref(),
+            Some(detached_mind_worker_label(InsightDetachedWorkerKind::T3))
+        );
+        assert_eq!(
+            runtime
+                .store
+                .pending_t3_backlog_jobs()
+                .expect("pending t3 jobs"),
+            0
+        );
+
+        let _ = std::fs::remove_dir_all(test_root);
+    }
+
+    #[test]
+    fn mind_t3_dispatcher_skips_launch_when_fresh_detached_job_is_active() {
+        let test_root = temp_test_dir("mind-t3-detached-dedup");
+        let cfg = test_client_with_root(&test_root.to_string_lossy());
+        let mut runtime = MindRuntime::new(&cfg).expect("mind runtime");
+
+        seed_t3_backlog_for_test(&cfg, &mut runtime, "conv-detached-dedup");
+        let job = runtime.new_mind_t3_job(
+            "mind-t3-active-test".to_string(),
+            Utc::now().timestamp_millis(),
+        );
+        runtime.persist_mind_detached_job(&job);
+
+        let launch_calls = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let launches = launch_calls.clone();
+        let _ = runtime.dispatch_detached_t3_worker_with_launcher(&cfg, move |_cfg, _job_id| {
+            launches.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            Ok(4242)
+        });
+
+        assert_eq!(launch_calls.load(std::sync::atomic::Ordering::SeqCst), 0);
+        assert_eq!(
+            runtime
+                .t3_detached_status(8)
+                .jobs
+                .iter()
+                .filter(|job| matches!(
+                    job.status,
+                    InsightDetachedJobStatus::Queued | InsightDetachedJobStatus::Running
+                ))
+                .count(),
+            1
+        );
+        assert!(
+            runtime
+                .store
+                .pending_t3_backlog_jobs()
+                .expect("pending t3 jobs")
+                > 0
+        );
+
+        let _ = std::fs::remove_dir_all(test_root);
+    }
+
+    #[test]
+    fn mind_t3_dispatcher_dedups_across_project_runtimes() {
+        let test_root = temp_test_dir("mind-t3-cross-runtime-dedup");
+        let project_root = test_root.to_string_lossy().to_string();
+        let cfg_a = test_client_for_runtime(&project_root, "session-a", "12");
+        let cfg_b = test_client_for_runtime(&project_root, "session-b", "21");
+        let mut runtime_a = MindRuntime::new(&cfg_a).expect("mind runtime a");
+        let mut runtime_b = MindRuntime::new(&cfg_b).expect("mind runtime b");
+
+        seed_t3_backlog_for_test(&cfg_a, &mut runtime_a, "conv-detached-cross-runtime");
+
+        let launch_calls = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let launches_a = launch_calls.clone();
+        let _ =
+            runtime_a.dispatch_detached_t3_worker_with_launcher(&cfg_a, move |_cfg, _job_id| {
+                launches_a.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                Ok(4243)
+            });
+        let launches_b = launch_calls.clone();
+        let _ =
+            runtime_b.dispatch_detached_t3_worker_with_launcher(&cfg_b, move |_cfg, _job_id| {
+                launches_b.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                Ok(4244)
+            });
+
+        assert_eq!(launch_calls.load(std::sync::atomic::Ordering::SeqCst), 1);
+        assert_eq!(
+            runtime_b
+                .t3_detached_status(8)
+                .jobs
+                .iter()
+                .filter(|job| matches!(
+                    job.status,
+                    InsightDetachedJobStatus::Queued | InsightDetachedJobStatus::Running
+                ))
+                .count(),
+            1
+        );
+
+        let _ = std::fs::remove_dir_all(test_root);
+    }
+
+    #[test]
+    fn mind_t3_dispatcher_limits_burst_backlog_to_single_detached_worker() {
+        let test_root = temp_test_dir("mind-t3-burst-bounded");
+        let project_root = test_root.to_string_lossy().to_string();
+        let cfg_a = test_client_for_runtime(&project_root, "session-a", "12");
+        let cfg_b = test_client_for_runtime(&project_root, "session-b", "21");
+        let cfg_c = test_client_for_runtime(&project_root, "session-c", "34");
+        let mut runtime = MindRuntime::new(&cfg_a).expect("mind runtime");
+        let mut runtime_b = MindRuntime::new(&cfg_b).expect("mind runtime b");
+        let mut runtime_c = MindRuntime::new(&cfg_c).expect("mind runtime c");
+
+        seed_t3_backlog_for_test(&cfg_a, &mut runtime, "conv-detached-burst-a");
+        seed_t3_backlog_for_test(&cfg_b, &mut runtime_b, "conv-detached-burst-b");
+        seed_t3_backlog_for_test(&cfg_c, &mut runtime_c, "conv-detached-burst-c");
+        assert!(
+            runtime
+                .store
+                .pending_t3_backlog_jobs()
+                .expect("pending t3 jobs")
+                >= 3
+        );
+
+        let launch_calls = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let launches_first = launch_calls.clone();
+        let _ = runtime.dispatch_detached_t3_worker_with_launcher(&cfg_a, move |_cfg, _job_id| {
+            launches_first.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            Ok(4245)
+        });
+        let launches_second = launch_calls.clone();
+        let _ = runtime.dispatch_detached_t3_worker_with_launcher(&cfg_a, move |_cfg, _job_id| {
+            launches_second.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            Ok(4246)
+        });
+
+        assert_eq!(launch_calls.load(std::sync::atomic::Ordering::SeqCst), 1);
+        assert_eq!(
+            runtime
+                .t3_detached_status(8)
+                .jobs
+                .iter()
+                .filter(|job| matches!(
+                    job.status,
+                    InsightDetachedJobStatus::Queued | InsightDetachedJobStatus::Running
+                ))
+                .count(),
+            1
+        );
+        assert!(
+            runtime
+                .store
+                .pending_t3_backlog_jobs()
+                .expect("pending t3 jobs")
+                > 0
+        );
 
         let _ = std::fs::remove_dir_all(test_root);
     }
@@ -13267,6 +15440,32 @@ mod tests {
             .unwrap_or(false));
 
         let _ = std::fs::remove_dir_all(&test_root);
+    }
+
+    #[test]
+    fn set_session_title_command_updates_pulse_state() {
+        let cfg = test_client();
+        let envelope = command_envelope_for_test(
+            &cfg,
+            "req-session-title",
+            "set_session_title",
+            serde_json::json!({ "session_title": "pulsePlus" }),
+        );
+
+        let command =
+            build_pulse_command_response(&cfg, &envelope, None).expect("response expected");
+        let WireMsg::CommandResult(payload) = command.response.msg else {
+            panic!("expected command_result")
+        };
+        assert_eq!(payload.status, "ok");
+        assert_eq!(
+            payload.message.as_deref(),
+            Some("session title updated: pulsePlus")
+        );
+        assert!(command
+            .pulse_updates
+            .iter()
+            .any(|update| matches!(update, PulseUpdate::SessionTitle(Some(value)) if value == "pulsePlus")));
     }
 
     #[test]
