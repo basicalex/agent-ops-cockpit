@@ -50,6 +50,14 @@ export type DurableDetachedJob = {
 	stderr_excerpt?: string | null;
 	error?: string | null;
 	fallback_used?: boolean;
+	step_results?: Array<{
+		agent: string;
+		status: string;
+		output_excerpt?: string | null;
+		stdout_excerpt?: string | null;
+		stderr_excerpt?: string | null;
+		error?: string | null;
+	}>;
 };
 
 export type DurableDetachedStatusResult = {
@@ -192,6 +200,13 @@ export function mapDurableJob(job: DurableDetachedJob, root: string): JobRecord 
 		fallbackUsed: Boolean(job.fallback_used),
 		manifestErrors: [],
 		teamName: job.team ?? undefined,
+		stepResults: job.step_results?.map((step) => ({
+			agent: step.agent,
+			status: statusFromDurable(step.status),
+			outputExcerpt: truncate(step.output_excerpt ?? step.stdout_excerpt ?? undefined),
+			stderrExcerpt: truncate(step.stderr_excerpt ?? undefined, 320),
+			error: truncate(step.error ?? undefined, 320),
+		})),
 		chainName: job.chain ?? undefined,
 		chainStepIndex: job.current_step_index ?? undefined,
 		chainStepCount: job.step_count ?? undefined,

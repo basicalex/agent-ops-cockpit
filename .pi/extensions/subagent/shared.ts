@@ -54,6 +54,14 @@ export type ToolPolicyRecord = {
 	sourceInfo?: ToolSourceInfo;
 };
 
+export type JobStepResult = {
+	agent: string;
+	status: JobStatus;
+	outputExcerpt?: string;
+	stderrExcerpt?: string;
+	error?: string;
+};
+
 export type SpecialistRoleName = "scout" | "planner" | "builder" | "reviewer" | "documenter" | "red-team";
 
 export type JobRecord = {
@@ -82,6 +90,7 @@ export type JobRecord = {
 	fallbackUsed: boolean;
 	manifestErrors: string[];
 	teamName?: string;
+	stepResults?: JobStepResult[];
 	chainName?: string;
 	chainStepIndex?: number;
 	chainStepCount?: number;

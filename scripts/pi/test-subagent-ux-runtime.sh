@@ -42,6 +42,12 @@ for needle in [
 ]:
     if needle not in artifact_block:
         raise SystemExit(f'persistArtifactBundle missing: {needle}')
+for needle in [
+    'if (job.stepResults?.length) {',
+    '## Step Results',
+]:
+    if needle not in artifacts_src:
+        raise SystemExit(f'artifact report step-results support missing: {needle}')
 
 manifest_block = block(manifests_src, 'loadManifestBundle')
 for needle in [
@@ -60,6 +66,7 @@ for needle in [
     'if (prior?.model && !mapped.model) mapped.model = prior.model;',
     'if (prior?.executionMode) mapped.executionMode = prior.executionMode;',
     'if (prior?.artifactDir && !mapped.artifactDir) mapped.artifactDir = prior.artifactDir;',
+    'if (prior?.stepResults?.length && !mapped.stepResults?.length) mapped.stepResults = prior.stepResults;',
     'const enriched = persistArtifactBundle(root, job);',
     'return true;',
     'return false;',
@@ -82,6 +89,10 @@ for needle in [
 dispatch_registry = re.search(r'async function startDetachedDispatchViaRegistry\((.*?)\n\}', extension_src, re.S)
 if not dispatch_registry:
     raise SystemExit('missing startDetachedDispatchViaRegistry block')
+if 'step_results?: Array<' not in registry_src:
+    raise SystemExit('registry step_results contract missing')
+if 'stepResults: job.step_results?.map((step) => ({' not in registry_src:
+    raise SystemExit('registry durable step_results mapping missing')
 for needle in [
     'job.task = task;',
     'job.cwd = cwd;',
@@ -90,6 +101,17 @@ for needle in [
 ]:
     if needle not in dispatch_registry.group(0):
         raise SystemExit(f'startDetachedDispatchViaRegistry missing: {needle}')
+
+team_fallback = re.search(r'function startDetachedTeam\((.*?)\n\}', extension_src, re.S)
+if not team_fallback:
+    raise SystemExit('missing startDetachedTeam block')
+for needle in [
+    'stepResults: [],',
+    'stepResults: settled.map((entry) => ({',
+    'stepResults: state.jobs.get(jobId)?.stepResults ?? [],',
+]:
+    if needle not in team_fallback.group(0):
+        raise SystemExit(f'startDetachedTeam missing: {needle}')
 
 for helper_name, fallback in [('launchAgentJob', 'startDetachedDispatch'), ('launchTeamJob', 'startDetachedTeam'), ('launchChainJob', 'startDetachedChain')]:
     helper_block = re.search(rf'async function {helper_name}\((.*?)\n\}}', extension_src, re.S)
@@ -215,6 +237,7 @@ for needle in [
         raise SystemExit(f'SubagentInspector missing: {needle}')
 
 for needle in [
+    'export type JobStepResult = {',
     'export type ExecutionMode = "background" | "inline_wait" | "inline_summary";',
     'export function normalizeExecutionMode(value: string | undefined): ExecutionMode {',
     'export const INLINE_WAIT_TIMEOUT_MS = 45_000;',
@@ -224,6 +247,8 @@ for needle in [
 
 for needle in [
     'async function waitForTerminalJob(pi: ExtensionAPI, ctx: ExtensionContext, jobId: string, timeoutMs = INLINE_WAIT_TIMEOUT_MS): Promise<JobRecord | undefined> {',
+    'function summarizeStepResults(job: JobRecord): string | undefined {',
+    'function formatStepResultLines(job: JobRecord, prefix = "  ", limit = 6): string[] {',
     'function needsAttentionStatus(status: JobStatus): boolean {',
     'const MAX_SUBAGENT_NESTING_DEPTH = 1;',
     'function assertSupportedSessionMode(sessionMode: string | undefined): void {',
@@ -233,6 +258,8 @@ for needle in [
     'function formatFailureJobs(limit = 5): string {',
     'function recentJobsForTeam(teamName: string, limit = 3): JobRecord[] {',
     'function formatTeamDetail(root: string, name: string, members: string[]): string {',
+    'const stepSummary = summarizeStepResults(job);',
+    'if (stepSummary) lines.push(`  ${stepSummary}`);',
     'function recentJobsForChain(chainName: string, limit = 3): JobRecord[] {',
     'function formatChainDetail(root: string, name: string, chain: ChainDefinition): string {',
     'function launchRequestFromJob(root: string, job: JobRecord): LaunchDialogRequest | undefined {',
