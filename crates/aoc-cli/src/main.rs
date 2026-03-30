@@ -1,6 +1,7 @@
 use anyhow::Result;
 use clap::{Parser, Subcommand};
 
+mod insight;
 mod overseer;
 mod rlm;
 mod task;
@@ -30,6 +31,11 @@ enum Commands {
         #[command(subcommand)]
         action: rlm::RlmCommand,
     },
+    /// Query Mind-backed insight retrieval, provenance, and runtime status
+    Insight {
+        #[command(subcommand)]
+        action: insight::InsightCommand,
+    },
     /// Inspect and steer the session overseer control plane
     Overseer {
         #[command(subcommand)]
@@ -54,6 +60,7 @@ fn main() -> Result<()> {
             }
         },
         Commands::Rlm { action } => rlm::handle_rlm_command(action),
+        Commands::Insight { action } => insight::handle_insight_command(action),
         Commands::Overseer { action } => overseer::handle_overseer_command(action),
     }
 }

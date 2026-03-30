@@ -1,7 +1,7 @@
 # AOC - Terminal-First AI Workspace
 
 [![Version](https://img.shields.io/badge/version-0.1.0-blue.svg)](./CHANGELOG.md)
-[![Zellij](https://img.shields.io/badge/zellij-%E2%89%A50.43.1-green.svg)](https://zellij.dev)
+[![Zellij](https://img.shields.io/badge/zellij-%E2%89%A50.44.0%20recommended-green.svg)](https://zellij.dev)
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](./LICENSE)
 [![Build](https://github.com/basicalex/agent-ops-cockpit/actions/workflows/ci.yml/badge.svg)](https://github.com/basicalex/agent-ops-cockpit/actions/workflows/ci.yml)
 
@@ -182,6 +182,7 @@ aoc-pi           # Open tab with PI Agent (npm)
 - Real-time context updates (`.aoc/context.md`)
 - Task integration (Taskmaster TUI)
 - tmux-backed scrollback for reliability
+- stable per-project Zellij sessions for better attach/resurrection DX
 
 Need another agent CLI? AOC keeps core support PI-only, but you can plug in alternatives via wrappers: [Agent Extensibility](./docs/agent-extensibility.md).
 
@@ -205,7 +206,24 @@ Rust-based task management with rich interactions:
 - ✅ Status filtering (All/Pending/Done)
 - ✅ Progress bars and dependency visualization
 
-### 3. RLM Skill - Large Codebase Analysis
+### 3. Insight CLI - Mind-backed retrieval and provenance
+
+Use `aoc insight` (or `bin/aoc-insight`) from inside an AOC pane to query the live Mind/Insight runtime:
+
+```bash
+# Retrieve bounded citations/snippets across project canon + session exports
+aoc insight retrieve --scope auto --mode brief --active-tag mind "planner drift"
+
+# Inspect provenance / traversal graph for an artifact, task, or file
+aoc insight provenance --artifact-id obs:1
+aoc insight provenance --task-id 132
+aoc insight provenance --file-path docs/configuration.md
+
+# Check runtime health
+aoc insight status
+```
+
+### 4. RLM Skill - Large Codebase Analysis
 
 Built-in tooling for analyzing large repositories without context overflow:
 
@@ -365,6 +383,11 @@ aoc-layout --set minimal
 **Included layouts:**
 - `aoc` (default) - Full cockpit with all features
 - `minimal` - Streamlined for focused work
+- `unstat` - AOC layout without zjstatus status bars (temporary fallback for Zellij 0.44 plugin issues)
+
+**Related launchers:**
+- `aoc.unstat` - launch AOC with the `unstat` layout
+- `aoc.zlj` - launch AOC with the regular `aoc` layout (top/bottom `zjstatus` bars)
 
 **Create your own** with context injection placeholders (`__AOC_PROJECT_ROOT__`, `__AOC_TAB_NAME__`, `__AOC_AGENT_ID__`).
 
@@ -445,7 +468,7 @@ When you start working in AOC:
 ## 📋 Requirements
 
 **Core Dependencies:**
-- `zellij` >= 0.43.1
+- `zellij` >= 0.43.1 (`>= 0.44.0` recommended for native pane/tab JSON inventory and explicit floating-pane control)
 - `yazi` (file manager)
 - `fzf` (fuzzy finder)
 - `micro` (editor - auto-installed)

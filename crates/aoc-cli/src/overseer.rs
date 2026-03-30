@@ -271,12 +271,12 @@ fn handle_command(args: CommandArgs) -> Result<()> {
 }
 
 #[derive(serde::Serialize)]
-struct CommandResultView {
-    command: String,
-    target_agent_id: Option<String>,
-    status: String,
-    error_code: Option<String>,
-    message: Option<String>,
+pub(crate) struct CommandResultView {
+    pub(crate) command: String,
+    pub(crate) target_agent_id: Option<String>,
+    pub(crate) status: String,
+    pub(crate) error_code: Option<String>,
+    pub(crate) message: Option<String>,
 }
 
 fn is_terminal_command_status(status: &str) -> bool {
@@ -952,7 +952,7 @@ fn request_timeline(
     }
 }
 
-fn request_command_result(
+pub(crate) fn request_command_result(
     session_id: &str,
     socket_path: &PathBuf,
     timeout: Duration,
@@ -1120,7 +1120,7 @@ fn command_args_json(args: &CommandArgs) -> serde_json::Value {
     }
 }
 
-fn resolve_session_id(value: Option<String>) -> Result<String> {
+pub(crate) fn resolve_session_id(value: Option<String>) -> Result<String> {
     if let Some(value) = value
         .map(|value| value.trim().to_string())
         .filter(|value| !value.is_empty())
@@ -1136,7 +1136,7 @@ fn resolve_session_id(value: Option<String>) -> Result<String> {
     bail!("missing session id; pass --session-id or set AOC_SESSION_ID")
 }
 
-fn resolve_pulse_socket_path(session_id: &str, override_path: Option<PathBuf>) -> PathBuf {
+pub(crate) fn resolve_pulse_socket_path(session_id: &str, override_path: Option<PathBuf>) -> PathBuf {
     if let Some(path) = override_path {
         return path;
     }
