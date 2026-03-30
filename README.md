@@ -609,6 +609,7 @@ cargo build --workspace
 | [MoreMotion](./docs/moremotion.md) | Optional Remotion integration |
 | [Custom Layouts](./docs/layouts.md) | Creating "AOC Modes" |
 | [Mission Control](./docs/mission-control.md) | Architecture and event schema |
+| [Mind Runtime Validation](./docs/mind-runtime-validation.md) | Live smoke check + one-command hardening suite for Mind rollout confidence |
 | [PI-only Rollout Checklist](./docs/pi-only-rollout-checklist.md) | Release closeout + post-release verification |
 | [CHANGELOG.md](./CHANGELOG.md) | Release history |
 | [ROADMAP.md](./ROADMAP.md) | Future development plans |
@@ -627,6 +628,8 @@ aoc-task list       # Canonical command
 aoc-mem read        # Check memory system
 aoc-rtk status      # Check RTK routing state
 aoc-rtk git status  # Manual RTK routing smoke check
+bash scripts/pi/validate-mind-runtime-live.sh       # Fast Mind runtime smoke check
+bash scripts/pi/validate-mind-runtime-hardening.sh  # Broader Mind rollout/hardening suite
 ```
 
 **Common issues:**

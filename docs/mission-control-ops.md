@@ -330,7 +330,7 @@ aoc-pane-evidence --pane-id <pane-id> --follow --scrollback 300
 - default mode captures a bounded full-screen snapshot via `dump-screen`
 - `--follow` opens a live NDJSON stream via `zellij subscribe`
 
-For a non-interactive live Mind runtime validation runbook, see `docs/mind-runtime-validation.md` and `scripts/pi/validate-mind-runtime-live.sh`.
+For a non-interactive Mind runtime validation runbook, see `docs/mind-runtime-validation.md`. Use `scripts/pi/validate-mind-runtime-live.sh` for the fast smoke check or `scripts/pi/validate-mind-runtime-hardening.sh` for the broader rollout/hardening suite.
 
 ## 11) End-to-End Smoke Test
 
