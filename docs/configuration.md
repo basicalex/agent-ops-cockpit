@@ -80,6 +80,7 @@ Control layout behavior and appearance:
 | Variable | Description | Default |
 |----------|-------------|---------|
 | `AOC_ZELLIJ_CONFIG` | Custom Zellij config file | `~/.config/zellij/aoc.config.kdl` |
+| `AOC_SESSION_ID` | Explicit Zellij/AOC session name override | stable per-project `aoc-<repo-name>` |
 | `AOC_FULLSCREEN` | Auto-fullscreen on launch | `1` (Linux X11 only) |
 | `AOC_CONTROL_FLOATING` | Open aoc-control as floating pane | `1` |
 | `AOC_CONTROL_TOGGLE_OPEN_MODE` | `aoc-control-toggle` open behavior (`inplace` or `new-pane`) | `inplace` |
@@ -96,6 +97,7 @@ Control layout behavior and appearance:
 Cleanup note:
 
 - Auto-cleanup launched by `aoc-launch` and `aoc-new-tab` is guarded by default (`AOC_CLEANUP_SESSIONS=current`, `AOC_CLEANUP_REQUIRE_ACTIVE_SIGNALS=1`, `AOC_CLEANUP_SKIP_IF_NO_SESSIONS=1`, plus age delay filters).
+- AOC now prefers a stable per-project Zellij session name (`aoc-<repo-name>`) so session attach/resurrection can work naturally across terminal restarts. Set `AOC_SESSION_ID` to override that naming rule.
 
 ### Pulse and Mission Control
 
@@ -117,6 +119,7 @@ Notes:
 - With `AOC_PULSE_OVERVIEW_ENABLED=1` (default), Mission Control starts in Overview mode.
 - Set `AOC_PULSE_OVERVIEW_ENABLED=0` to run only Work/Diff/Health.
 - With `AOC_PULSE_LAYOUT_WATCH_ENABLED=0` (default), hub background layout polling is disabled.
+- On Zellij `>= 0.44.0`, AOC increasingly prefers native pane/tab JSON inventory for local operator flows; layout polling remains a compatibility path.
 - `AOC_PULSE_THEME=terminal` (default) keeps Pulse integrated with your terminal/system theme.
 
 ### RTK Routing
@@ -149,6 +152,7 @@ Runtime/debug variables (usually set by `aoc-agent-wrap`):
 |----------|-------------|
 | `AOC_RTK_ACTIVE` | `1` when RTK shims are active in the current agent session |
 | `AOC_RTK_SHIM_DIR` | Session-local shim directory prepended to PATH |
+| `AOC_PI_USE_WRAP_RS` | Pi launch mode for `aoc-agent-wrap` (`auto`/unset = prefer Rust wrapper when available, `1` = force wrapper, `0` = legacy direct exec) |
 
 Project config file: `.aoc/rtk.toml` (seeded by `aoc-init`).
 
@@ -359,7 +363,8 @@ Valid `AOC_AGENT_ID` value is `pi`.
 
 - `pi` launches the npm PI Agent CLI.
 - `pi` auto-appends `.aoc/prompts/pi-low-token.md` unless disabled by `AOC_PI_LOW_TOKEN_MODE=0` or overridden by explicit PI prompt flags.
-- `pi` defaults to compact handshake output; set `AOC_PI_HANDSHAKE_MODE=full` for full context dump.
+- `pi` defaults to compact handshake output; set `AOC_PI_HANDSHAKE_MODE=full` for the richer focus-first briefing.
+- Full handshake mode now favors: focus provenance, high-value open work, workstream health, recent developments, and open fronts before lower-value inventory.
 - `pi` enables RTK ultra-compact output and non-tty routing by default (`AOC_RTK_ULTRA_COMPACT=1`, `AOC_RTK_ROUTE_NON_TTY_STDIN=1`) unless you override them.
 
 ## Custom Layouts
