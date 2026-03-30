@@ -431,7 +431,7 @@ struct SharedDiffSummaryCacheEntry {
     payload: DiffSummaryPayload,
 }
 
-#[derive(Serialize, Deserialize, Clone, Default)]
+#[derive(Debug, Serialize, Deserialize, Clone, Default, PartialEq, Eq)]
 struct TaskCounts {
     total: u32,
     pending: u32,
@@ -6781,6 +6781,159 @@ fn render_project_mind_markdown(
     lines.join("\n") + "\n"
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct HandshakeWorkstreamSummary {
+    tag: String,
+    counts: TaskCounts,
+    prd_backed_open: usize,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct HandshakeTaskSummary {
+    id: String,
+    tag: String,
+    title: String,
+    status: String,
+    priority: String,
+    prd_source: Option<&'static str>,
+    active_agent: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+struct HandshakeProjectSnapshot {
+    workstreams: Vec<HandshakeWorkstreamSummary>,
+    priority_tasks: Vec<HandshakeTaskSummary>,
+}
+
+fn task_status_rank(status: &TaskStatus) -> u8 {
+    match status {
+        TaskStatus::InProgress => 0,
+        TaskStatus::Blocked => 1,
+        TaskStatus::Review => 2,
+        TaskStatus::Pending => 3,
+        TaskStatus::Deferred => 4,
+        TaskStatus::Done | TaskStatus::Cancelled => 5,
+    }
+}
+
+fn task_priority_rank(priority: &aoc_core::TaskPriority) -> u8 {
+    match priority {
+        aoc_core::TaskPriority::High => 0,
+        aoc_core::TaskPriority::Medium => 1,
+        aoc_core::TaskPriority::Low => 2,
+    }
+}
+
+fn open_task_counts(tasks: &[Task]) -> TaskCounts {
+    let mut counts = TaskCounts::default();
+    counts.total = tasks.len() as u32;
+    for task in tasks {
+        match task.status {
+            TaskStatus::Pending => counts.pending += 1,
+            TaskStatus::InProgress => counts.in_progress += 1,
+            TaskStatus::Blocked => counts.blocked += 1,
+            TaskStatus::Review => {}
+            TaskStatus::Deferred => {}
+            TaskStatus::Done | TaskStatus::Cancelled => counts.done += 1,
+        }
+    }
+    counts
+}
+
+fn handshake_project_snapshot(
+    project_root: &str,
+    active_tag: Option<&str>,
+) -> Result<HandshakeProjectSnapshot, TaskError> {
+    let data = load_tasks_sync(&tasks_file_path(project_root))?;
+    let active_tag = normalized_handshake_tag(active_tag);
+    let mut workstreams = Vec::new();
+    let mut priority_tasks = Vec::new();
+
+    for (tag, ctx) in data.tags {
+        let tag_prd = ctx.tag_prd();
+        let counts = open_task_counts(&ctx.tasks);
+        let prd_backed_open = ctx
+            .tasks
+            .iter()
+            .filter(|task| !task.status.is_done() && (task.aoc_prd.is_some() || tag_prd.is_some()))
+            .count();
+        if counts.in_progress > 0 || counts.blocked > 0 || counts.pending > 0 || prd_backed_open > 0 {
+            workstreams.push(HandshakeWorkstreamSummary {
+                tag: tag.clone(),
+                counts,
+                prd_backed_open,
+            });
+        }
+
+        for task in ctx.tasks {
+            if task.status.is_done() || matches!(task.status, TaskStatus::Deferred) {
+                continue;
+            }
+            let prd_source = if task.aoc_prd.is_some() {
+                Some("task-prd")
+            } else if tag_prd.is_some() {
+                Some("tag-prd")
+            } else {
+                None
+            };
+            priority_tasks.push((
+                tag.clone(),
+                task,
+                prd_source,
+                active_tag
+                    .as_deref()
+                    .map(|candidate| candidate.eq_ignore_ascii_case(&tag))
+                    .unwrap_or(false),
+            ));
+        }
+    }
+
+    workstreams.sort_by(|left, right| {
+        let right_active = active_tag
+            .as_deref()
+            .map(|tag| right.tag.eq_ignore_ascii_case(tag))
+            .unwrap_or(false);
+        let left_active = active_tag
+            .as_deref()
+            .map(|tag| left.tag.eq_ignore_ascii_case(tag))
+            .unwrap_or(false);
+        right_active
+            .cmp(&left_active)
+            .then_with(|| right.counts.in_progress.cmp(&left.counts.in_progress))
+            .then_with(|| right.counts.blocked.cmp(&left.counts.blocked))
+            .then_with(|| right.prd_backed_open.cmp(&left.prd_backed_open))
+            .then_with(|| right.counts.pending.cmp(&left.counts.pending))
+            .then_with(|| left.tag.cmp(&right.tag))
+    });
+
+    priority_tasks.sort_by(|left, right| {
+        right.3
+            .cmp(&left.3)
+            .then_with(|| right.2.is_some().cmp(&left.2.is_some()))
+            .then_with(|| right.1.active_agent.cmp(&left.1.active_agent))
+            .then_with(|| task_status_rank(&left.1.status).cmp(&task_status_rank(&right.1.status)))
+            .then_with(|| task_priority_rank(&left.1.priority).cmp(&task_priority_rank(&right.1.priority)))
+            .then_with(|| left.1.id.cmp(&right.1.id))
+    });
+
+    Ok(HandshakeProjectSnapshot {
+        workstreams: workstreams.into_iter().take(5).collect(),
+        priority_tasks: priority_tasks
+            .into_iter()
+            .take(6)
+            .map(|(tag, task, prd_source, _matches_active_tag)| HandshakeTaskSummary {
+                id: task.id,
+                tag,
+                title: truncate_chars(normalize_text(&task.title), 120),
+                status: task.status.as_str().to_string(),
+                priority: task.priority.as_str().to_string(),
+                prd_source,
+                active_agent: task.active_agent,
+            })
+            .collect(),
+    })
+}
+
 fn write_handshake_export(
     store: &MindStore,
     project_root: &str,
@@ -6816,14 +6969,16 @@ fn write_handshake_export(
         entries.truncate(MIND_T3_HANDSHAKE_MAX_ITEMS);
     }
 
+    let project_snapshot = handshake_project_snapshot(project_root, active_tag).ok();
+
     let mut selected = Vec::new();
-    let mut payload = render_handshake_markdown(&selected, active_tag, now);
+    let mut payload = render_handshake_markdown(&selected, project_snapshot.as_ref(), active_tag, now);
     let mut token_estimate = estimate_text_tokens(&payload);
 
     for entry in entries {
         let mut candidate = selected.clone();
         candidate.push(entry);
-        let candidate_payload = render_handshake_markdown(&candidate, active_tag, now);
+        let candidate_payload = render_handshake_markdown(&candidate, project_snapshot.as_ref(), active_tag, now);
         let candidate_tokens = estimate_text_tokens(&candidate_payload);
         if selected.is_empty() || candidate_tokens <= MIND_T3_HANDSHAKE_TOKEN_BUDGET {
             selected = candidate;
@@ -6938,6 +7093,7 @@ fn handshake_entry_looks_unresolved(entry: &aoc_storage::CanonEntryRevision) -> 
 
 fn render_handshake_markdown(
     entries: &[aoc_storage::CanonEntryRevision],
+    project_snapshot: Option<&HandshakeProjectSnapshot>,
     active_tag: Option<&str>,
     generated_at: chrono::DateTime<chrono::Utc>,
 ) -> String {
@@ -6976,9 +7132,50 @@ fn render_handshake_markdown(
         format!("- current_focus: {}", focus_brief),
         "- scope_note: project baseline; tab-local focus may differ".to_string(),
         String::new(),
-        "## Recent developments".to_string(),
+        "## High-value work".to_string(),
         String::new(),
     ];
+
+    if let Some(snapshot) = project_snapshot {
+        if snapshot.priority_tasks.is_empty() {
+            lines.push("- (no open PRD-backed or active tasks detected)".to_string());
+        } else {
+            for task in snapshot.priority_tasks.iter().take(4) {
+                let prd = task.prd_source.unwrap_or("no-prd");
+                let active = if task.active_agent { " active-agent" } else { "" };
+                lines.push(format!(
+                    "- [{}] ({}/{}) {} — {} [{}{}]",
+                    task.id, task.status, task.priority, task.tag, task.title, prd, active
+                ));
+            }
+        }
+    } else {
+        lines.push("- (task state unavailable)".to_string());
+    }
+    lines.push(String::new());
+    lines.push("## Workstream health".to_string());
+    lines.push(String::new());
+    if let Some(snapshot) = project_snapshot {
+        if snapshot.workstreams.is_empty() {
+            lines.push("- (no active workstreams detected)".to_string());
+        } else {
+            for stream in snapshot.workstreams.iter().take(4) {
+                lines.push(format!(
+                    "- {} :: in-progress={} blocked={} pending={} prd_open={}",
+                    stream.tag,
+                    stream.counts.in_progress,
+                    stream.counts.blocked,
+                    stream.counts.pending,
+                    stream.prd_backed_open,
+                ));
+            }
+        }
+    } else {
+        lines.push("- (task state unavailable)".to_string());
+    }
+    lines.push(String::new());
+    lines.push("## Recent developments".to_string());
+    lines.push(String::new());
 
     if ranked.is_empty() {
         lines.push("- (no active canon entries yet)".to_string());
@@ -10655,6 +10852,21 @@ fn tasks_file_path(project_root: &str) -> PathBuf {
         .join("tasks.json")
 }
 
+fn load_tasks_sync(path: &Path) -> Result<ProjectData, TaskError> {
+    match std::fs::read_to_string(path) {
+        Ok(contents) => {
+            serde_json::from_str(&contents).map_err(|err| TaskError::Malformed(err.to_string()))
+        }
+        Err(err) => {
+            if err.kind() == io::ErrorKind::NotFound {
+                Err(TaskError::Missing)
+            } else {
+                Err(TaskError::Io(err.to_string()))
+            }
+        }
+    }
+}
+
 fn state_file_path(project_root: &str) -> PathBuf {
     PathBuf::from(project_root)
         .join(".taskmaster")
@@ -13496,21 +13708,49 @@ mod tests {
             },
         ];
 
-        let rendered = render_handshake_markdown(&entries, Some("env-protec"), now);
+        let snapshot = HandshakeProjectSnapshot {
+            workstreams: vec![HandshakeWorkstreamSummary {
+                tag: "env-protec".to_string(),
+                counts: TaskCounts {
+                    total: 3,
+                    pending: 1,
+                    in_progress: 1,
+                    done: 0,
+                    blocked: 1,
+                },
+                prd_backed_open: 2,
+            }],
+            priority_tasks: vec![HandshakeTaskSummary {
+                id: "177".to_string(),
+                tag: "env-protec".to_string(),
+                title: "Handshake briefing v2".to_string(),
+                status: "in-progress".to_string(),
+                priority: "high".to_string(),
+                prd_source: Some("task-prd"),
+                active_agent: true,
+            }],
+        };
+        let rendered = render_handshake_markdown(&entries, Some(&snapshot), Some("env-protec"), now);
         assert!(rendered.contains("## Focus briefing"));
         assert!(rendered.contains("- source: project-active-tag"));
         assert!(rendered.contains("- current_focus: tag env-protec :: [canon-focus r3] topic=env-protec"));
         assert!(rendered.contains("scope_note: project baseline; tab-local focus may differ"));
+        assert!(rendered.contains("## High-value work"));
+        assert!(rendered.contains("[177] (in-progress/high) env-protec — Handshake briefing v2 [task-prd active-agent]"));
+        assert!(rendered.contains("## Workstream health"));
+        assert!(rendered.contains("env-protec :: in-progress=1 blocked=1 pending=1 prd_open=2"));
         assert!(rendered.contains("## Recent developments"));
         assert!(rendered.contains("## Open fronts"));
         assert!(rendered.contains("remaining gap is handshake briefing rollout"));
         assert!(rendered.contains("## Priority canon"));
 
         let focus_idx = rendered.find("## Focus briefing").expect("focus section");
+        let high_value_idx = rendered.find("## High-value work").expect("high-value section");
+        let workstream_idx = rendered.find("## Workstream health").expect("workstream section");
         let recent_idx = rendered.find("## Recent developments").expect("recent section");
         let open_idx = rendered.find("## Open fronts").expect("open fronts section");
         let canon_idx = rendered.find("## Priority canon").expect("priority canon section");
-        assert!(focus_idx < recent_idx && recent_idx < open_idx && open_idx < canon_idx);
+        assert!(focus_idx < high_value_idx && high_value_idx < workstream_idx && workstream_idx < recent_idx && recent_idx < open_idx && open_idx < canon_idx);
     }
 
     #[test]
@@ -13529,7 +13769,7 @@ mod tests {
             created_at: now,
         }];
 
-        let rendered = render_handshake_markdown(&entries, None, now);
+        let rendered = render_handshake_markdown(&entries, None, None, now);
         assert!(rendered.contains("active_tag: none"));
         assert!(rendered.contains("- source: inferred-project"));
         assert!(rendered.contains("[canon-inferred r2] topic=mission-control"));
