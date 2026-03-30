@@ -15,6 +15,8 @@ bash scripts/pi/test-aoc-init-pi-first.sh
 bash scripts/pi/test-pi-only-agent-surface.sh
 aoc-skill validate --root .
 cargo check --manifest-path crates/Cargo.toml -p aoc-control
+# When the release touches Mind runtime / retrieval / Mission Control integration:
+bash scripts/pi/validate-mind-runtime-hardening.sh
 ```
 
 ## 2) Release notes + user notice timing
