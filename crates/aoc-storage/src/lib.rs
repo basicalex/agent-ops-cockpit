@@ -1,7 +1,7 @@
 use aoc_core::{
     insight_contracts::{
         InsightDetachedJob, InsightDetachedJobStatus, InsightDetachedMode,
-        InsightDispatchStepResult,
+        InsightDetachedOwnerPlane, InsightDetachedWorkerKind, InsightDispatchStepResult,
     },
     mind_contracts::{
         canonical_payload_hash, parse_conversation_lineage_metadata,
@@ -1358,6 +1358,23 @@ impl MindStore {
             links.push(row?);
         }
         Ok(links)
+    }
+
+    pub fn artifact_ids_for_file_path(&self, path: &str) -> Result<Vec<String>, StorageError> {
+        let mut statement = self.conn.prepare(
+            "
+            SELECT DISTINCT artifact_id
+            FROM artifact_file_links
+            WHERE path = ?1
+            ORDER BY artifact_id ASC
+            ",
+        )?;
+        let rows = statement.query_map([path], |row| row.get::<_, String>(0))?;
+        let mut artifact_ids = Vec::new();
+        for row in rows {
+            artifact_ids.push(row?);
+        }
+        Ok(artifact_ids)
     }
 
     pub fn insert_reflection(
@@ -2771,7 +2788,7 @@ impl MindStore {
         limit: Option<usize>,
     ) -> Result<Vec<InsightDetachedJob>, StorageError> {
         let mut sql = String::from(
-            "SELECT job_id, parent_job_id, mode, status, agent, team, chain_name, created_at_ms, started_at_ms, finished_at_ms, current_step_index, step_count, output_excerpt, stdout_excerpt, stderr_excerpt, error_text, fallback_used, step_results_json FROM detached_insight_jobs",
+            "SELECT job_id, parent_job_id, owner_plane, worker_kind, mode, status, agent, team, chain_name, created_at_ms, started_at_ms, finished_at_ms, current_step_index, step_count, output_excerpt, stdout_excerpt, stderr_excerpt, error_text, fallback_used, step_results_json FROM detached_insight_jobs",
         );
         let mut args = Vec::<String>::new();
         if let Some(owner_plane) = owner_plane.map(str::trim).filter(|value| !value.is_empty()) {
@@ -3216,6 +3233,23 @@ impl MindStore {
             links.push(row?);
         }
         Ok(links)
+    }
+
+    pub fn artifact_ids_for_task_id(&self, task_id: &str) -> Result<Vec<String>, StorageError> {
+        let mut statement = self.conn.prepare(
+            "
+            SELECT DISTINCT artifact_id
+            FROM artifact_task_links
+            WHERE task_id = ?1
+            ORDER BY artifact_id ASC
+            ",
+        )?;
+        let rows = statement.query_map([task_id], |row| row.get::<_, String>(0))?;
+        let mut artifact_ids = Vec::new();
+        for row in rows {
+            artifact_ids.push(row?);
+        }
+        Ok(artifact_ids)
     }
 
     pub fn replace_segment_route(&self, route: &SegmentRoute) -> Result<(), StorageError> {
@@ -3710,10 +3744,40 @@ fn canon_revision_state_as_str(state: CanonRevisionState) -> &'static str {
 }
 
 fn parse_detached_insight_job_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<InsightDetachedJob> {
-    let mode_raw: String = row.get(2)?;
+    let owner_plane_raw: String = row.get(2)?;
+    let owner_plane =
+        serde_json::from_str::<InsightDetachedOwnerPlane>(&format!("\"{}\"", owner_plane_raw))
+            .map_err(|err| {
+                rusqlite::Error::FromSqlConversionFailure(
+                    2,
+                    rusqlite::types::Type::Text,
+                    Box::new(std::io::Error::new(
+                        std::io::ErrorKind::InvalidData,
+                        format!("invalid detached insight owner_plane: {owner_plane_raw} ({err})"),
+                    )),
+                )
+            })?;
+    let worker_kind = row
+        .get::<_, Option<String>>(3)?
+        .map(|raw| {
+            serde_json::from_str::<InsightDetachedWorkerKind>(&format!("\"{}\"", raw)).map_err(
+                |err| {
+                    rusqlite::Error::FromSqlConversionFailure(
+                        3,
+                        rusqlite::types::Type::Text,
+                        Box::new(std::io::Error::new(
+                            std::io::ErrorKind::InvalidData,
+                            format!("invalid detached insight worker_kind: {raw} ({err})"),
+                        )),
+                    )
+                },
+            )
+        })
+        .transpose()?;
+    let mode_raw: String = row.get(4)?;
     let mode = parse_detached_mode(&mode_raw).ok_or_else(|| {
         rusqlite::Error::FromSqlConversionFailure(
-            2,
+            4,
             rusqlite::types::Type::Text,
             Box::new(std::io::Error::new(
                 std::io::ErrorKind::InvalidData,
@@ -3721,10 +3785,10 @@ fn parse_detached_insight_job_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<I
             )),
         )
     })?;
-    let status_raw: String = row.get(3)?;
+    let status_raw: String = row.get(5)?;
     let status = parse_detached_job_status(&status_raw).ok_or_else(|| {
         rusqlite::Error::FromSqlConversionFailure(
-            3,
+            5,
             rusqlite::types::Type::Text,
             Box::new(std::io::Error::new(
                 std::io::ErrorKind::InvalidData,
@@ -3732,14 +3796,14 @@ fn parse_detached_insight_job_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<I
             )),
         )
     })?;
-    let step_results_json = row.get::<_, Option<String>>(17)?;
+    let step_results_json = row.get::<_, Option<String>>(19)?;
     let step_results = step_results_json
         .as_deref()
         .map(|json| serde_json::from_str::<Vec<InsightDispatchStepResult>>(json))
         .transpose()
         .map_err(|err| {
             rusqlite::Error::FromSqlConversionFailure(
-                17,
+                19,
                 rusqlite::types::Type::Text,
                 Box::new(err),
             )
@@ -3748,21 +3812,23 @@ fn parse_detached_insight_job_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<I
     Ok(InsightDetachedJob {
         job_id: row.get(0)?,
         parent_job_id: row.get(1)?,
+        owner_plane,
+        worker_kind,
         mode,
         status,
-        agent: row.get(4)?,
-        team: row.get(5)?,
-        chain: row.get(6)?,
-        created_at_ms: row.get(7)?,
-        started_at_ms: row.get(8)?,
-        finished_at_ms: row.get(9)?,
-        current_step_index: row.get::<_, Option<i64>>(10)?.map(|value| value as usize),
-        step_count: row.get::<_, Option<i64>>(11)?.map(|value| value as usize),
-        output_excerpt: row.get(12)?,
-        stdout_excerpt: row.get(13)?,
-        stderr_excerpt: row.get(14)?,
-        error: row.get(15)?,
-        fallback_used: row.get::<_, i64>(16)? != 0,
+        agent: row.get(6)?,
+        team: row.get(7)?,
+        chain: row.get(8)?,
+        created_at_ms: row.get(9)?,
+        started_at_ms: row.get(10)?,
+        finished_at_ms: row.get(11)?,
+        current_step_index: row.get::<_, Option<i64>>(12)?.map(|value| value as usize),
+        step_count: row.get::<_, Option<i64>>(13)?.map(|value| value as usize),
+        output_excerpt: row.get(14)?,
+        stdout_excerpt: row.get(15)?,
+        stderr_excerpt: row.get(16)?,
+        error: row.get(17)?,
+        fallback_used: row.get::<_, i64>(18)? != 0,
         step_results,
     })
 }
@@ -5108,6 +5174,8 @@ mod tests {
             &InsightDetachedJob {
                 job_id: "detached-1".to_string(),
                 parent_job_id: None,
+                owner_plane: InsightDetachedOwnerPlane::Delegated,
+                worker_kind: Some(InsightDetachedWorkerKind::Specialist),
                 mode: InsightDetachedMode::Dispatch,
                 status: InsightDetachedJobStatus::Queued,
                 agent: Some("insight-t1-observer".to_string()),
@@ -5141,6 +5209,8 @@ mod tests {
             &InsightDetachedJob {
                 job_id: "detached-2".to_string(),
                 parent_job_id: Some("detached-parent".to_string()),
+                owner_plane: InsightDetachedOwnerPlane::Delegated,
+                worker_kind: Some(InsightDetachedWorkerKind::ChainStep),
                 mode: InsightDetachedMode::Chain,
                 status: InsightDetachedJobStatus::Running,
                 agent: None,
@@ -5174,6 +5244,11 @@ mod tests {
         assert_eq!(jobs.len(), 2);
         assert_eq!(jobs[0].job_id, "detached-2");
         assert_eq!(jobs[0].parent_job_id.as_deref(), Some("detached-parent"));
+        assert_eq!(jobs[0].owner_plane, InsightDetachedOwnerPlane::Delegated);
+        assert_eq!(
+            jobs[0].worker_kind,
+            Some(InsightDetachedWorkerKind::ChainStep)
+        );
         assert_eq!(jobs[0].stdout_excerpt.as_deref(), Some("running stdout"));
         assert_eq!(jobs[0].stderr_excerpt.as_deref(), Some("running stderr"));
         assert_eq!(jobs[0].step_results.len(), 1);

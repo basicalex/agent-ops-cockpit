@@ -84,6 +84,10 @@ pub struct MindProvenanceQueryRequest {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub canon_entry_id: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub task_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub file_path: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub active_tag: Option<String>,
     #[serde(default)]
     pub include_stale_canon: bool,
@@ -206,6 +210,14 @@ impl MindProvenanceMissionControlView {
                                     .unwrap_or(false)
                             })
                             .unwrap_or(false)
+                        || seed
+                            .strip_prefix("task:")
+                            .map(|value| node.reference.as_deref() == Some(value))
+                            .unwrap_or(false)
+                        || seed
+                            .strip_prefix("file:")
+                            .map(|value| node.reference.as_deref() == Some(value))
+                            .unwrap_or(false)
                 })
             })
             .map(|node| node.node_id.clone())
@@ -273,12 +285,14 @@ mod tests {
     fn parse_provenance_query_defaults_bounds() {
         let command = MindProvenanceCommand::parse(
             "mind_provenance_query",
-            serde_json::json!({"conversation_id": "conv-1"}),
+            serde_json::json!({"conversation_id": "conv-1", "task_id": "141", "file_path": "docs/mission-control.md"}),
         )
         .expect("parse provenance query");
 
         let MindProvenanceCommand::Query(request) = command;
         assert_eq!(request.conversation_id.as_deref(), Some("conv-1"));
+        assert_eq!(request.task_id.as_deref(), Some("141"));
+        assert_eq!(request.file_path.as_deref(), Some("docs/mission-control.md"));
         assert_eq!(request.max_nodes, 64);
         assert_eq!(request.max_edges, 128);
     }
@@ -291,6 +305,8 @@ mod tests {
             seed_refs: vec![
                 "conversation:conv-1".to_string(),
                 "artifact:obs:1".to_string(),
+                "task:141".to_string(),
+                "file:docs/mission-control.md".to_string(),
             ],
             nodes: vec![
                 MindProvenanceNode {
@@ -307,6 +323,20 @@ mod tests {
                     reference: Some("obs:1".to_string()),
                     attrs: BTreeMap::new(),
                 },
+                MindProvenanceNode {
+                    node_id: "task:141".to_string(),
+                    kind: MindProvenanceNodeKind::Task,
+                    label: "141".to_string(),
+                    reference: Some("141".to_string()),
+                    attrs: BTreeMap::new(),
+                },
+                MindProvenanceNode {
+                    node_id: "file:docs/mission-control.md".to_string(),
+                    kind: MindProvenanceNodeKind::File,
+                    label: "docs/mission-control.md".to_string(),
+                    reference: Some("docs/mission-control.md".to_string()),
+                    attrs: BTreeMap::new(),
+                },
             ],
             edges: vec![],
             truncated: true,
@@ -321,7 +351,7 @@ mod tests {
         );
 
         assert_eq!(export.schema_version, MIND_PROVENANCE_SCHEMA_VERSION);
-        assert_eq!(export.mission_control.node_count, 2);
+        assert_eq!(export.mission_control.node_count, 4);
         assert_eq!(export.mission_control.edge_count, 0);
         assert!(export.mission_control.truncated);
         assert!(export
@@ -332,5 +362,13 @@ mod tests {
             .mission_control
             .focus_node_ids
             .contains(&"artifact:obs:1".to_string()));
+        assert!(export
+            .mission_control
+            .focus_node_ids
+            .contains(&"task:141".to_string()));
+        assert!(export
+            .mission_control
+            .focus_node_ids
+            .contains(&"file:docs/mission-control.md".to_string()));
     }
 }

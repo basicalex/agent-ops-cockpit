@@ -2726,6 +2726,12 @@ fn compile_mind_provenance_graph(
     if let Some(canon_entry_id) = request.canon_entry_id.as_ref() {
         seed_refs.push(format!("canon:{}", canon_entry_id));
     }
+    if let Some(task_id) = request.task_id.as_ref() {
+        seed_refs.push(format!("task:{}", task_id));
+    }
+    if let Some(file_path) = request.file_path.as_ref() {
+        seed_refs.push(format!("file:{}", file_path));
+    }
 
     let mut graph = MindProvenanceGraphBuilder::new(request.max_nodes, request.max_edges);
     let mut conversation_ids = HashSet::<String>::new();
@@ -2814,6 +2820,32 @@ fn compile_mind_provenance_graph(
         {
             conversation_ids.insert(checkpoint.conversation_id.clone());
             add_provenance_checkpoint_branch(store, &mut graph, &checkpoint)?;
+        }
+    }
+
+    if let Some(task_id) = request.task_id.as_ref() {
+        graph.add_node(MindProvenanceNode {
+            node_id: format!("task:{}", task_id),
+            kind: MindProvenanceNodeKind::Task,
+            label: task_id.clone(),
+            reference: Some(task_id.clone()),
+            attrs: std::collections::BTreeMap::new(),
+        });
+        for artifact_id in store
+            .artifact_ids_for_task_id(task_id)
+            .map_err(|err| format!("load task-linked artifacts failed: {err}"))?
+        {
+            artifact_ids.insert(artifact_id);
+        }
+    }
+
+    if let Some(file_path) = request.file_path.as_ref() {
+        add_provenance_file_node(&mut graph, file_path, Some("seed"));
+        for artifact_id in store
+            .artifact_ids_for_file_path(file_path)
+            .map_err(|err| format!("load file-linked artifacts failed: {err}"))?
+        {
+            artifact_ids.insert(artifact_id);
         }
     }
 
@@ -15216,6 +15248,117 @@ mod tests {
                 edge.to
             );
         }
+    }
+
+    #[test]
+    fn mind_provenance_graph_supports_task_and_file_seed_queries() {
+        let store = MindStore::open_in_memory().expect("store");
+        let now = Utc
+            .with_ymd_and_hms(2026, 3, 2, 12, 0, 0)
+            .single()
+            .expect("ts");
+
+        store
+            .insert_raw_event(&RawEvent {
+                event_id: "evt-task-file".to_string(),
+                conversation_id: "conv-task-file".to_string(),
+                agent_id: "session-test::24".to_string(),
+                ts: now,
+                body: RawEventBody::Message(MessageEvent {
+                    role: ConversationRole::Assistant,
+                    text: "task/file provenance".to_string(),
+                }),
+                attrs: canonical_lineage_attrs(&ConversationLineageMetadata {
+                    session_id: "session-task-file".to_string(),
+                    parent_conversation_id: None,
+                    root_conversation_id: "conv-task-file".to_string(),
+                }),
+            })
+            .expect("insert raw event");
+        store
+            .insert_observation(
+                "obs:task-file",
+                "conv-task-file",
+                now + chrono::Duration::seconds(1),
+                "task and file linked artifact",
+                &[],
+            )
+            .expect("insert observation");
+        store
+            .upsert_artifact_file_link(&ArtifactFileLink {
+                artifact_id: "obs:task-file".to_string(),
+                path: "docs/configuration.md".to_string(),
+                relation: "modified".to_string(),
+                source: "test".to_string(),
+                additions: Some(3),
+                deletions: Some(1),
+                staged: false,
+                untracked: false,
+                created_at: now + chrono::Duration::seconds(2),
+                updated_at: now + chrono::Duration::seconds(2),
+            })
+            .expect("upsert file link");
+        store
+            .upsert_artifact_task_link(
+                &aoc_core::mind_contracts::ArtifactTaskLink::new(
+                    "obs:task-file".to_string(),
+                    "132".to_string(),
+                    aoc_core::mind_contracts::ArtifactTaskRelation::WorkedOn,
+                    9100,
+                    vec!["evt-task-file".to_string()],
+                    "test".to_string(),
+                    now + chrono::Duration::seconds(2),
+                    None,
+                )
+                .expect("task link"),
+            )
+            .expect("upsert task link");
+
+        let task_seed = compile_mind_provenance_graph(
+            &store,
+            &MindProvenanceQueryRequest {
+                task_id: Some("132".to_string()),
+                max_nodes: 32,
+                max_edges: 64,
+                ..Default::default()
+            },
+        )
+        .expect("compile task-seeded graph");
+        assert_provenance_graph_integrity(&task_seed);
+        assert!(task_seed.seed_refs.contains(&"task:132".to_string()));
+        assert!(task_seed.nodes.iter().any(|node| node.node_id == "task:132"));
+        assert!(task_seed.nodes.iter().any(|node| node.node_id == "artifact:obs:task-file"));
+        assert!(task_seed.edges.iter().any(|edge| {
+            edge.kind == MindProvenanceEdgeKind::ArtifactTaskLink
+                && edge.from == "artifact:obs:task-file"
+                && edge.to == "task:132"
+        }));
+
+        let file_seed = compile_mind_provenance_graph(
+            &store,
+            &MindProvenanceQueryRequest {
+                file_path: Some("docs/configuration.md".to_string()),
+                max_nodes: 32,
+                max_edges: 64,
+                ..Default::default()
+            },
+        )
+        .expect("compile file-seeded graph");
+        assert_provenance_graph_integrity(&file_seed);
+        assert!(file_seed.seed_refs.contains(&"file:docs/configuration.md".to_string()));
+        assert!(file_seed
+            .nodes
+            .iter()
+            .any(|node| node.node_id == "file:docs/configuration.md"));
+        assert!(file_seed
+            .nodes
+            .iter()
+            .any(|node| node.node_id == "artifact:obs:task-file"));
+        assert!(file_seed.edges.iter().any(|edge| {
+            edge.kind == MindProvenanceEdgeKind::ArtifactFileLink
+                && edge.from == "artifact:obs:task-file"
+                && edge.to == "file:docs/configuration.md"
+        }));
     }
 
     #[test]
