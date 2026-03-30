@@ -52,6 +52,8 @@ This note captures the concrete outputs for Taskmaster task **134**: finalize th
 
 ### Phase 4 — hardening and rollout
 - **142** hardening, migration, and rollout validation suite
+- rollout runbook command now lives at `scripts/pi/validate-mind-runtime-hardening.sh`, with the faster smoke check at `scripts/pi/validate-mind-runtime-live.sh`
+- the hardening suite now covers live validation, stale-lease recovery, cancel/fallback handling, finalization drain/idempotence, storage migration safety, replay stability, checkpoint rebuild/requeue safety, and deterministic compaction generation
 
 ### Phase 5 — advanced orchestration surfaces
 - **129** PI specialist role interface with human-in-command dispatch
@@ -102,7 +104,7 @@ Mind v2 is ready for cutover when all of the following are true:
 2. **141** — complete retrieval across session/project scopes.
 3. **132** — deliver provenance/query foundation needed for deep drilldown and visualization.
 4. operator polish — keep Mission Control / project Mind aligned with real detached runtime state, including project-local search, activity bridge, and Mind-specific detached labels.
-5. **142** — run hardening/migration/rollout validation suite, including live validation of detached T2/T3 workers and stale-lease recovery.
+5. **142** — run hardening/migration/rollout validation suite, including live validation of detached T2/T3 workers and stale-lease recovery (`scripts/pi/validate-mind-runtime-hardening.sh`).
 6. **131** and **110** — cut over dev-tab and finalize insight UX.
 7. **129** — layer specialist role dispatch on top of the stabilized memory substrate.
 
