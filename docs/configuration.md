@@ -365,6 +365,7 @@ Valid `AOC_AGENT_ID` value is `pi`.
 - `pi` auto-appends `.aoc/prompts/pi-low-token.md` unless disabled by `AOC_PI_LOW_TOKEN_MODE=0` or overridden by explicit PI prompt flags.
 - `pi` defaults to compact handshake output; set `AOC_PI_HANDSHAKE_MODE=full` for the richer focus-first briefing.
 - Full handshake mode now favors: focus provenance, high-value open work, workstream health, recent developments, and open fronts before lower-value inventory.
+- When canon or task state is missing, the briefing degrades explicitly with fallback status notes instead of silently pretending a stronger focus signal exists.
 - `pi` enables RTK ultra-compact output and non-tty routing by default (`AOC_RTK_ULTRA_COMPACT=1`, `AOC_RTK_ROUTE_NON_TTY_STDIN=1`) unless you override them.
 
 ## Custom Layouts

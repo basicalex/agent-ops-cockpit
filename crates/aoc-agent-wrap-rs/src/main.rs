@@ -7100,10 +7100,22 @@ fn render_handshake_markdown(
     let active_tag = normalized_handshake_tag(active_tag);
     let ranked = ranked_handshake_entries(entries, active_tag.as_deref());
     let focus_entry = ranked.first().copied();
-    let focus_source = if active_tag.is_some() {
+    let task_focus = project_snapshot.and_then(|snapshot| snapshot.priority_tasks.first());
+    let task_focus_matches_active_tag = active_tag
+        .as_deref()
+        .zip(task_focus)
+        .map(|(tag, task)| task.tag.eq_ignore_ascii_case(tag))
+        .unwrap_or(false);
+    let canon_status = if focus_entry.is_some() { "available" } else { "missing" };
+    let task_state_status = if project_snapshot.is_some() { "available" } else { "unavailable" };
+    let focus_source = if focus_entry.is_some() && active_tag.is_some() {
         "project-active-tag"
     } else if focus_entry.is_some() {
-        "inferred-project"
+        "inferred-project-canon"
+    } else if task_focus_matches_active_tag {
+        "project-active-tag-task-state"
+    } else if task_focus.is_some() {
+        "inferred-project-task-state"
     } else {
         "none"
     };
@@ -7113,10 +7125,22 @@ fn render_handshake_markdown(
         } else {
             handshake_entry_brief(entry, 120)
         }
+    } else if let Some(task) = task_focus {
+        let prd = task.prd_source.unwrap_or("no-prd");
+        format!(
+            "task [{}] ({}/{}) {} — {} [{}]",
+            task.id, task.status, task.priority, task.tag, task.title, prd
+        )
     } else if let Some(tag) = active_tag.as_deref() {
-        format!("tag {} has no active canon entries yet", tag)
+        if project_snapshot.is_some() {
+            format!("tag {} has no active canon entries and no open task-backed focus", tag)
+        } else {
+            format!("tag {} has no active canon entries; task state unavailable", tag)
+        }
+    } else if project_snapshot.is_some() {
+        "no active canon entries and no open task-backed focus".to_string()
     } else {
-        "no active canon entries yet".to_string()
+        "no active canon entries; task state unavailable".to_string()
     };
 
     let mut lines = vec![
@@ -7130,6 +7154,7 @@ fn render_handshake_markdown(
         String::new(),
         format!("- source: {}", focus_source),
         format!("- current_focus: {}", focus_brief),
+        format!("- fallback_status: canon={} task_state={}", canon_status, task_state_status),
         "- scope_note: project baseline; tab-local focus may differ".to_string(),
         String::new(),
         "## High-value work".to_string(),
@@ -13734,6 +13759,7 @@ mod tests {
         assert!(rendered.contains("## Focus briefing"));
         assert!(rendered.contains("- source: project-active-tag"));
         assert!(rendered.contains("- current_focus: tag env-protec :: [canon-focus r3] topic=env-protec"));
+        assert!(rendered.contains("- fallback_status: canon=available task_state=available"));
         assert!(rendered.contains("scope_note: project baseline; tab-local focus may differ"));
         assert!(rendered.contains("## High-value work"));
         assert!(rendered.contains("[177] (in-progress/high) env-protec — Handshake briefing v2 [task-prd active-agent]"));
@@ -13771,9 +13797,59 @@ mod tests {
 
         let rendered = render_handshake_markdown(&entries, None, None, now);
         assert!(rendered.contains("active_tag: none"));
-        assert!(rendered.contains("- source: inferred-project"));
+        assert!(rendered.contains("- source: inferred-project-canon"));
         assert!(rendered.contains("[canon-inferred r2] topic=mission-control"));
         assert!(rendered.contains("Pending follow-up on focus provenance"));
+        assert!(rendered.contains("- fallback_status: canon=available task_state=unavailable"));
+    }
+
+    #[test]
+    fn render_handshake_markdown_falls_back_to_task_state_when_canon_missing() {
+        let now = Utc.with_ymd_and_hms(2026, 3, 27, 12, 0, 0).unwrap();
+        let snapshot = HandshakeProjectSnapshot {
+            workstreams: vec![HandshakeWorkstreamSummary {
+                tag: "env-protec".to_string(),
+                counts: TaskCounts {
+                    total: 2,
+                    pending: 1,
+                    in_progress: 1,
+                    done: 0,
+                    blocked: 0,
+                },
+                prd_backed_open: 1,
+            }],
+            priority_tasks: vec![HandshakeTaskSummary {
+                id: "177".to_string(),
+                tag: "env-protec".to_string(),
+                title: "Handshake briefing v2".to_string(),
+                status: "in-progress".to_string(),
+                priority: "high".to_string(),
+                prd_source: Some("task-prd"),
+                active_agent: false,
+            }],
+        };
+
+        let rendered = render_handshake_markdown(&[], Some(&snapshot), Some("env-protec"), now);
+        assert!(rendered.contains("- source: project-active-tag-task-state"));
+        assert!(rendered.contains("- current_focus: task [177] (in-progress/high) env-protec — Handshake briefing v2 [task-prd]"));
+        assert!(rendered.contains("- fallback_status: canon=missing task_state=available"));
+        assert!(rendered.contains("## High-value work"));
+        assert!(rendered.contains("## Workstream health"));
+        assert!(rendered.contains("## Recent developments"));
+        assert!(rendered.contains("- (no active canon entries yet)"));
+    }
+
+    #[test]
+    fn render_handshake_markdown_reports_unavailable_task_state_without_canon() {
+        let now = Utc.with_ymd_and_hms(2026, 3, 27, 12, 0, 0).unwrap();
+        let rendered = render_handshake_markdown(&[], None, Some("env-protec"), now);
+        assert!(rendered.contains("- source: none"));
+        assert!(rendered.contains("tag env-protec has no active canon entries; task state unavailable"));
+        assert!(rendered.contains("- fallback_status: canon=missing task_state=unavailable"));
+        assert!(rendered.contains("## High-value work"));
+        assert!(rendered.contains("- (task state unavailable)"));
+        assert!(rendered.contains("## Workstream health"));
+        assert!(rendered.contains("## Priority canon"));
     }
 
     #[test]
