@@ -1940,12 +1940,17 @@ fn compile_insight_retrieval(
         InsightRetrievalScope::Session => InsightRetrievalScope::Session,
         InsightRetrievalScope::Project => InsightRetrievalScope::Project,
         InsightRetrievalScope::Auto => {
-            if load_latest_session_export_manifest(project_root)
+            if load_session_export_manifests(project_root, INSIGHT_RETRIEVAL_SESSION_EXPORT_SCAN_LIMIT)
                 .ok()
-                .filter(|manifest| {
-                    export_matches_active_tag(manifest.active_tag.as_deref(), active_tag.as_deref())
+                .map(|manifests| {
+                    manifests.into_iter().any(|manifest| {
+                        export_matches_active_tag(
+                            manifest.active_tag.as_deref(),
+                            active_tag.as_deref(),
+                        )
+                    })
                 })
-                .is_some()
+                .unwrap_or(false)
             {
                 InsightRetrievalScope::Auto
             } else {
@@ -2057,15 +2062,24 @@ fn collect_insight_retrieval_sources(
         scope,
         InsightRetrievalScope::Session | InsightRetrievalScope::Auto
     ) {
-        if let Ok(manifest) = load_latest_session_export_manifest(project_root) {
-            if export_matches_active_tag(manifest.active_tag.as_deref(), active_tag) {
+        if let Ok(manifests) = load_session_export_manifests(
+            project_root,
+            INSIGHT_RETRIEVAL_SESSION_EXPORT_SCAN_LIMIT,
+        ) {
+            for (index, manifest) in manifests.into_iter().enumerate() {
+                if !export_matches_active_tag(manifest.active_tag.as_deref(), active_tag) {
+                    continue;
+                }
                 let export_dir = PathBuf::from(&manifest.export_dir);
+                let recency_bias =
+                    (INSIGHT_RETRIEVAL_SESSION_EXPORT_SCAN_LIMIT.saturating_sub(index)) as i64;
                 if let Some(text) = read_optional_text(&export_dir.join("t2.md")) {
                     sources.extend(parse_session_export_retrieval_sources(
                         &text,
                         "t2",
                         &manifest,
                         &format!("{}/t2.md", manifest.export_dir),
+                        recency_bias,
                     ));
                 }
                 if let Some(text) = read_optional_text(&export_dir.join("t1.md")) {
@@ -2074,6 +2088,7 @@ fn collect_insight_retrieval_sources(
                         "t1",
                         &manifest,
                         &format!("{}/t1.md", manifest.export_dir),
+                        recency_bias,
                     ));
                 }
             }
@@ -2081,6 +2096,43 @@ fn collect_insight_retrieval_sources(
     }
 
     sources
+}
+
+fn load_session_export_manifests(
+    project_root: &str,
+    limit: usize,
+) -> Result<Vec<SessionExportManifest>, String> {
+    let insight_root = PathBuf::from(project_root)
+        .join(".aoc")
+        .join("mind")
+        .join("insight");
+    let entries = std::fs::read_dir(&insight_root)
+        .map_err(|err| format!("read insight export dir failed: {err}"))?;
+
+    let mut manifests = entries
+        .filter_map(|entry| entry.ok().map(|entry| entry.path()))
+        .filter(|path| path.is_dir())
+        .filter_map(|dir| {
+            let manifest_path = dir.join("manifest.json");
+            let payload = std::fs::read_to_string(&manifest_path).ok()?;
+            let manifest = serde_json::from_str::<SessionExportManifest>(&payload).ok()?;
+            Some((dir, manifest))
+        })
+        .collect::<Vec<_>>();
+
+    manifests.sort_by(|left, right| {
+        right
+            .1
+            .exported_at
+            .cmp(&left.1.exported_at)
+            .then_with(|| right.0.cmp(&left.0))
+    });
+
+    Ok(manifests
+        .into_iter()
+        .take(limit.max(1))
+        .map(|(_, manifest)| manifest)
+        .collect())
 }
 
 fn parse_project_mind_retrieval_sources(
@@ -2275,6 +2327,7 @@ fn parse_session_export_retrieval_sources(
     kind: &str,
     manifest: &SessionExportManifest,
     reference: &str,
+    recency_bias: i64,
 ) -> Vec<InsightRetrievalSource> {
     let mut sources = Vec::new();
     let mut heading: Option<String> = None;
@@ -2345,7 +2398,7 @@ fn parse_session_export_retrieval_sources(
             lines,
             citations,
             drilldown_refs,
-            score_bias: if kind == "t2" { 8 } else { 4 },
+            score_bias: if kind == "t2" { 8 + recency_bias } else { 4 + recency_bias },
         });
     };
 
@@ -2394,7 +2447,7 @@ fn parse_session_export_retrieval_sources(
                         reference: manifest.export_dir.clone(),
                     },
                 ],
-                score_bias: if kind == "t2" { 8 } else { 4 },
+                score_bias: if kind == "t2" { 8 + recency_bias } else { 4 + recency_bias },
             });
         }
     }
@@ -4078,6 +4131,7 @@ struct InsightRetrievalSource {
 
 const INSIGHT_RETRIEVAL_MAX_RESULTS_DEFAULT: usize = 4;
 const INSIGHT_RETRIEVAL_MAX_RESULTS_CAP: usize = 8;
+const INSIGHT_RETRIEVAL_SESSION_EXPORT_SCAN_LIMIT: usize = 6;
 const INSIGHT_RETRIEVAL_BRIEF_LINE_BUDGET: usize = 2;
 const INSIGHT_RETRIEVAL_REFS_LINE_BUDGET: usize = 0;
 const INSIGHT_RETRIEVAL_SNIPS_LINE_BUDGET: usize = 5;
@@ -7301,28 +7355,10 @@ fn requeue_latest_t3_from_manifest(
 fn load_latest_session_export_manifest(
     project_root: &str,
 ) -> Result<SessionExportManifest, String> {
-    let insight_root = PathBuf::from(project_root)
-        .join(".aoc")
-        .join("mind")
-        .join("insight");
-    let entries = std::fs::read_dir(&insight_root)
-        .map_err(|err| format!("read insight export dir failed: {err}"))?;
-
-    let mut export_dirs = entries
-        .filter_map(|entry| entry.ok().map(|entry| entry.path()))
-        .filter(|path| path.is_dir())
-        .collect::<Vec<_>>();
-    export_dirs.sort();
-
-    let Some(latest_dir) = export_dirs.last() else {
-        return Err("no session exports found to requeue".to_string());
-    };
-
-    let manifest_path = latest_dir.join("manifest.json");
-    let payload = std::fs::read_to_string(&manifest_path)
-        .map_err(|err| format!("read latest manifest failed: {err}"))?;
-    serde_json::from_str::<SessionExportManifest>(&payload)
-        .map_err(|err| format!("parse latest manifest failed: {err}"))
+    load_session_export_manifests(project_root, 1)?
+        .into_iter()
+        .next()
+        .ok_or_else(|| "no session exports found to requeue".to_string())
 }
 
 fn reflector_scope_id_for_project_root(project_root: &str) -> String {
@@ -15547,6 +15583,127 @@ mod tests {
             .hits
             .iter()
             .all(|hit| hit.scope == InsightRetrievalScope::Project));
+
+        let _ = std::fs::remove_dir_all(&test_root);
+    }
+
+    #[test]
+    fn insight_retrieve_auto_scope_uses_older_matching_session_export_when_latest_mismatches() {
+        let test_root = std::env::temp_dir().join(format!(
+            "aoc-insight-auto-multi-export-test-{}-{}",
+            std::process::id(),
+            Utc::now().timestamp_nanos_opt().unwrap_or_default()
+        ));
+        std::fs::create_dir_all(test_root.join(".aoc/mind/t3")).expect("create t3 dir");
+        let export_a = test_root.join(".aoc/mind/insight/export-a");
+        let export_b = test_root.join(".aoc/mind/insight/export-b");
+        std::fs::create_dir_all(&export_a).expect("create export a");
+        std::fs::create_dir_all(&export_b).expect("create export b");
+        std::fs::write(
+            test_root.join(".aoc/mind/t3/project_mind.md"),
+            "# Project Mind Canon\n\n## Active canon\n\n### canon:planner r1\n- topic: mind\n\nProject planner canon\n",
+        )
+        .expect("write canon");
+        std::fs::write(export_a.join("t2.md"), "# T2 export\n## art:old [conv]\nplanner drift from older matching export\n")
+            .expect("write old t2");
+        std::fs::write(export_b.join("t2.md"), "# T2 export\n## art:new [conv]\nops-only latest export\n")
+            .expect("write new t2");
+
+        let mut older = test_context_pack_manifest(Some("mind"));
+        older.session_id = "session-old".to_string();
+        older.project_root = test_root.to_string_lossy().to_string();
+        older.export_dir = export_a.to_string_lossy().to_string();
+        older.exported_at = "2026-03-07T18:00:00Z".to_string();
+        std::fs::write(
+            export_a.join("manifest.json"),
+            serde_json::to_string(&older).expect("older manifest json"),
+        )
+        .expect("write older manifest");
+
+        let mut latest = test_context_pack_manifest(Some("ops"));
+        latest.session_id = "session-new".to_string();
+        latest.project_root = test_root.to_string_lossy().to_string();
+        latest.export_dir = export_b.to_string_lossy().to_string();
+        latest.exported_at = "2026-03-08T18:00:00Z".to_string();
+        std::fs::write(
+            export_b.join("manifest.json"),
+            serde_json::to_string(&latest).expect("latest manifest json"),
+        )
+        .expect("write latest manifest");
+
+        let result = compile_insight_retrieval(
+            &test_root.to_string_lossy(),
+            InsightRetrievalRequest {
+                query: "planner drift".to_string(),
+                scope: InsightRetrievalScope::Auto,
+                mode: InsightRetrievalMode::Brief,
+                active_tag: Some("mind".to_string()),
+                max_results: Some(4),
+            },
+        );
+        assert_eq!(result.status, "ok");
+        assert_eq!(result.resolved_scope, InsightRetrievalScope::Auto);
+        assert!(result
+            .hits
+            .iter()
+            .any(|hit| hit.source_id == "session_t2:art:old"));
+
+        let _ = std::fs::remove_dir_all(&test_root);
+    }
+
+    #[test]
+    fn insight_retrieve_session_scope_prefers_newer_matching_export() {
+        let test_root = std::env::temp_dir().join(format!(
+            "aoc-insight-session-multi-export-test-{}-{}",
+            std::process::id(),
+            Utc::now().timestamp_nanos_opt().unwrap_or_default()
+        ));
+        let export_a = test_root.join(".aoc/mind/insight/export-a");
+        let export_b = test_root.join(".aoc/mind/insight/export-b");
+        std::fs::create_dir_all(&export_a).expect("create export a");
+        std::fs::create_dir_all(&export_b).expect("create export b");
+        std::fs::write(export_a.join("t2.md"), "# T2 export\n## art:old [conv]\nplanner checkpoint older export\n")
+            .expect("write old t2");
+        std::fs::write(export_b.join("t2.md"), "# T2 export\n## art:new [conv]\nplanner checkpoint newer export\n")
+            .expect("write new t2");
+
+        let mut older = test_context_pack_manifest(Some("mind"));
+        older.session_id = "session-old".to_string();
+        older.project_root = test_root.to_string_lossy().to_string();
+        older.export_dir = export_a.to_string_lossy().to_string();
+        older.exported_at = "2026-03-07T18:00:00Z".to_string();
+        std::fs::write(
+            export_a.join("manifest.json"),
+            serde_json::to_string(&older).expect("older manifest json"),
+        )
+        .expect("write older manifest");
+
+        let mut latest = test_context_pack_manifest(Some("mind"));
+        latest.session_id = "session-new".to_string();
+        latest.project_root = test_root.to_string_lossy().to_string();
+        latest.export_dir = export_b.to_string_lossy().to_string();
+        latest.exported_at = "2026-03-08T18:00:00Z".to_string();
+        std::fs::write(
+            export_b.join("manifest.json"),
+            serde_json::to_string(&latest).expect("latest manifest json"),
+        )
+        .expect("write latest manifest");
+
+        let result = compile_insight_retrieval(
+            &test_root.to_string_lossy(),
+            InsightRetrievalRequest {
+                query: "planner checkpoint".to_string(),
+                scope: InsightRetrievalScope::Session,
+                mode: InsightRetrievalMode::Brief,
+                active_tag: Some("mind".to_string()),
+                max_results: Some(2),
+            },
+        );
+        assert_eq!(result.status, "ok");
+        assert_eq!(
+            result.hits.first().map(|hit| hit.source_id.as_str()),
+            Some("session_t2:art:new")
+        );
 
         let _ = std::fs::remove_dir_all(&test_root);
     }
