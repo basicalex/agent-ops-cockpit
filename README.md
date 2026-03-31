@@ -609,6 +609,7 @@ cargo build --workspace
 | [MoreMotion](./docs/moremotion.md) | Optional Remotion integration |
 | [Custom Layouts](./docs/layouts.md) | Creating "AOC Modes" |
 | [Mission Control](./docs/mission-control.md) | Architecture and event schema |
+| [Implementation Status Checklist](./docs/implementation-status-checklist.md) | Current shipped/partial/deferred overview across AOC surfaces |
 | [Mind Runtime Validation](./docs/mind-runtime-validation.md) | Live smoke check + one-command hardening suite for Mind rollout confidence |
 | [PI-only Rollout Checklist](./docs/pi-only-rollout-checklist.md) | Release closeout + post-release verification |
 | [CHANGELOG.md](./CHANGELOG.md) | Release history |
