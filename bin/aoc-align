@@ -1,14 +1,17 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+source "$(dirname "$0")/aoc-zellij.sh"
+
 # aoc-align: Discover project root for the current AOC tab
 #
 # Strategy:
-# 1. If inside Zellij, use `zellij action dump-layout` to get layout
-# 2. Find the focused tab (has focus=true attribute)
-# 3. Within that tab, find the Agent pane by name pattern "Agent [<agent_id>]"
-# 4. Derive root as ~/dev/<agent_id>
-# 5. Fall back to walking up from $PWD looking for .aoc or .git
+# 1. Prefer explicit AOC_PROJECT_ROOT from the current pane environment.
+# 2. If Zellij 0.44+ native inventory is available, inspect cwd metadata for
+#    panes in the current tab and normalize to the nearest repo root.
+# 3. Otherwise fall back to parsing the focused tab layout for injected cwd/cd
+#    paths and normalize them to the nearest repo root.
+# 4. Fall back to walking up from $PWD looking for .aoc or .git.
 
 print_only=false
 if [[ "${1:-}" == "--print-root" ]]; then
@@ -63,9 +66,42 @@ extract_focused_tab() {
   '
 }
 
-# Try to get root from Zellij layout by parsing Agent pane name in focused tab
+normalize_project_root() {
+  local input="$1"
+  [[ -n "$input" ]] || return 1
+
+  local probe="$input"
+  if [[ -d "$probe" ]]; then
+    probe="$(cd "$probe" 2>/dev/null && pwd -P)"
+  elif [[ -e "$probe" ]]; then
+    probe="$(cd "$(dirname "$probe")" 2>/dev/null && pwd -P)/$(basename "$probe")"
+  fi
+
+  while [[ -n "$probe" && "$probe" != "/" ]]; do
+    if [[ -d "$probe/.aoc" || -d "$probe/.git" ]]; then
+      printf '%s\n' "$probe"
+      return 0
+    fi
+    probe="$(dirname "$probe")"
+  done
+
+  if [[ -d "$input" ]]; then
+    printf '%s\n' "$(cd "$input" 2>/dev/null && pwd -P)"
+    return 0
+  fi
+
+  return 1
+}
+
+# Try to get root from current Zellij tab metadata or layout-injected paths.
 discover_from_zellij() {
-  # Try to get layout - works if we're in a Zellij-managed pane even without env vars
+  local root
+  if root="$(aoc_zellij_current_tab_project_root 2>/dev/null)" && [[ -n "$root" ]]; then
+    echo "$root"
+    return 0
+  fi
+
+  # Fallback for older Zellij versions.
   local layout
   layout="$(zellij action dump-layout 2>/dev/null)" || return 1
 
@@ -73,30 +109,33 @@ discover_from_zellij() {
     return 1
   fi
 
-  # Extract just the focused tab's content
   local focused_tab
   focused_tab="$(extract_focused_tab "$layout")"
-  
   if [[ -z "$focused_tab" ]]; then
     return 1
   fi
 
-  # Look for Agent pane pattern within the focused tab: name="Agent [<agent_id>]"
-  # The agent_id is the directory name (e.g., agent-ops-cockpit)
-  local agent_id
-  agent_id="$(echo "$focused_tab" | grep -oP 'name="Agent \[\K[^\]]+' | head -1)" || true
-
-  if [[ -z "$agent_id" ]]; then
-    return 1
-  fi
-
-  # Derive project root from agent_id
-  local root="${AOC_PROJECTS_BASE}/${agent_id}"
-
-  if [[ -d "$root" ]]; then
-    echo "$root"
-    return 0
-  fi
+  local candidate
+  while IFS= read -r candidate; do
+    [[ -n "$candidate" ]] || continue
+    if root="$(normalize_project_root "$candidate" 2>/dev/null)" && [[ -n "$root" ]]; then
+      echo "$root"
+      return 0
+    fi
+  done < <(
+    AOC_ALIGN_FOCUSED_TAB="$focused_tab" python3 - <<'PY'
+import os, re
+text = os.environ.get("AOC_ALIGN_FOCUSED_TAB", "")
+seen = []
+for pattern in [r'\bcd\s+"([^"]+)"', r'cwd\s*=\s*"([^"]+)"', r'cwd\s+"([^"]+)"']:
+    for match in re.finditer(pattern, text):
+        value = (match.group(1) or "").strip()
+        if value.startswith("/") and value not in seen:
+            seen.append(value)
+for value in seen:
+    print(value)
+PY
+  )
 
   return 1
 }
@@ -105,17 +144,9 @@ discover_from_zellij() {
 discover_from_pwd() {
   local probe="$PWD"
 
-  while [[ -n "$probe" && "$probe" != "/" ]]; do
-    if [[ -d "$probe/.aoc" ]]; then
-      echo "$probe"
-      return 0
-    fi
-    if [[ -d "$probe/.git" ]]; then
-      echo "$probe"
-      return 0
-    fi
-    probe="$(dirname "$probe")"
-  done
+  if normalize_project_root "$probe" 2>/dev/null; then
+    return 0
+  fi
 
   # Last resort: current directory
   echo "$PWD"
@@ -124,9 +155,11 @@ discover_from_pwd() {
 # Main discovery logic
 root=""
 
-# Try Zellij-based discovery first (works even without ZELLIJ env var)
-if root="$(discover_from_zellij 2>/dev/null)" && [[ -n "$root" ]]; then
-  : # Success
+if [[ -n "${AOC_PROJECT_ROOT:-}" ]] && root="$(normalize_project_root "$AOC_PROJECT_ROOT" 2>/dev/null)" && [[ -n "$root" ]]; then
+  :
+# Try Zellij-based discovery next (works even without ZELLIJ env var)
+elif root="$(discover_from_zellij 2>/dev/null)" && [[ -n "$root" ]]; then
+  :
 else
   # Fall back to PWD-based discovery
   root="$(discover_from_pwd)"

@@ -9,7 +9,21 @@ _aoc_zellij_supports_action() {
   if ! command -v zellij >/dev/null 2>&1; then
     return 1
   fi
-  zellij action "$action" --help >/dev/null 2>&1
+
+  local cache_var="_AOC_ZELLIJ_SUPPORTS_${action//-/_}"
+  local cached="${!cache_var-}"
+  if [[ -n "$cached" ]]; then
+    [[ "$cached" == "1" ]]
+    return
+  fi
+
+  if zellij action "$action" --help >/dev/null 2>&1; then
+    printf -v "$cache_var" '%s' "1"
+    return 0
+  fi
+
+  printf -v "$cache_var" '%s' "0"
+  return 1
 }
 
 _aoc_zellij_current_tab_info_json() {
@@ -222,80 +236,14 @@ PY
 }
 
 aoc_zellij_project_root_from_current_tab() {
-  local projects_base="$1"
-  local panes_json tabs_json
-  panes_json="$(_aoc_zellij_list_panes_json)" || return 1
-  tabs_json="$(_aoc_zellij_list_tabs_json)" || return 1
-  local current_tab_json
-  current_tab_json="$(_aoc_zellij_current_tab_info_json)" || return 1
-  AOC_ZELLIJ_PANES_JSON="$panes_json" \
-  AOC_ZELLIJ_TABS_JSON="$tabs_json" \
-  AOC_ZELLIJ_CURRENT_TAB_JSON="$current_tab_json" \
-  python3 - "$projects_base" <<'PY'
-import json, os, re, sys
-projects_base = sys.argv[1]
-panes_raw = os.environ["AOC_ZELLIJ_PANES_JSON"]
-tabs_raw = os.environ["AOC_ZELLIJ_TABS_JSON"]
-current_raw = os.environ["AOC_ZELLIJ_CURRENT_TAB_JSON"]
-agent_re = re.compile(r"^Agent\s*\[([^\]]+)\]")
-
-def load(raw):
-    val = json.loads(raw)
-    if isinstance(val, list):
-        return val
-    if isinstance(val, dict):
-        for key in ("panes", "tabs", "data", "items"):
-            child = val.get(key)
-            if isinstance(child, list):
-                return child
-    return []
-
-def load_obj(raw):
-    val = json.loads(raw)
-    if isinstance(val, dict):
-        for key in ("tab", "data", "current_tab"):
-            child = val.get(key)
-            if isinstance(child, dict):
-                return child
-        return val
-    return {}
-
-def first(obj, *keys):
-    for key in keys:
-        value = obj.get(key)
-        if value not in (None, ""):
-            return value
-    return None
-
-current = load_obj(current_raw)
-current_tab_id = first(current, "tab_id", "id", "tabId")
-current_index = first(current, "position", "index", "tab_index", "tabPosition")
-
-for pane in load(panes_raw):
-    if not isinstance(pane, dict):
-        continue
-    tab_id = first(pane, "tab_id", "tabId")
-    tab_index = first(pane, "tab_position", "tab_index", "position")
-    if current_tab_id is not None and tab_id is not None and str(tab_id) != str(current_tab_id):
-        continue
-    if current_tab_id is None and current_index is not None and tab_index is not None and str(tab_index) != str(current_index):
-        continue
-    name = first(pane, "name", "pane_name")
-    if not isinstance(name, str):
-        continue
-    m = agent_re.match(name)
-    if not m:
-        continue
-    agent_id = m.group(1)
-    root = os.path.join(projects_base, agent_id)
-    if os.path.isdir(root):
-        print(root)
-        raise SystemExit(0)
-raise SystemExit(1)
-PY
+  local _projects_base="${1:-}"
+  if aoc_zellij_current_tab_project_root 2>/dev/null; then
+    return 0
+  fi
+  return 1
 }
 
-aoc_zellij_current_tab_agent_project_root() {
+aoc_zellij_current_tab_project_root() {
   local panes_json current_tab_json
   panes_json="$(_aoc_zellij_list_panes_json)" || return 1
   current_tab_json="$(_aoc_zellij_current_tab_info_json)" || return 1
@@ -305,7 +253,9 @@ aoc_zellij_current_tab_agent_project_root() {
 import json, os, re
 panes_raw = os.environ["AOC_ZELLIJ_PANES_JSON"]
 current_raw = os.environ["AOC_ZELLIJ_CURRENT_TAB_JSON"]
-agent_re = re.compile(r"^Agent\s*\[[^\]]+\]")
+AGENT_TOKEN_RE = re.compile(r"\b(pi|aoc-pi|aoc-agent-run|aoc-agent-wrap|codex|claude|gemini|opencode|open-code|kimi)\b", re.IGNORECASE)
+HELPER_TITLES = {"aoc-refresh-layout-state"}
+
 
 def load(raw):
     val = json.loads(raw)
@@ -318,6 +268,7 @@ def load(raw):
                 return child
     return []
 
+
 def load_obj(raw):
     val = json.loads(raw)
     if isinstance(val, dict):
@@ -328,12 +279,69 @@ def load_obj(raw):
         return val
     return {}
 
+
 def first(obj, *keys):
     for key in keys:
         value = obj.get(key)
         if value not in (None, ""):
             return value
     return None
+
+
+def is_truthy(value):
+    if value in (True, 1):
+        return True
+    if isinstance(value, str):
+        return value.strip().lower() in {"1", "true", "yes", "on"}
+    return False
+
+
+def collect_tokens(value):
+    if isinstance(value, str):
+        stripped = value.strip()
+        return [stripped] if stripped else []
+    if isinstance(value, list):
+        tokens = []
+        for item in value:
+            tokens.extend(collect_tokens(item))
+        return tokens
+    if isinstance(value, dict):
+        tokens = []
+        for item in value.values():
+            tokens.extend(collect_tokens(item))
+        return tokens
+    return []
+
+
+def pane_title(pane):
+    title = first(pane, "title", "name", "pane_name", "pane_title")
+    return title if isinstance(title, str) else ""
+
+
+def is_agentish_title(title):
+    stripped = title.strip()
+    return (
+        stripped == "Agent"
+        or stripped.startswith("Agent[")
+        or stripped.startswith("Agent [")
+        or stripped.startswith("aoc:")
+        or stripped.startswith("π -")
+        or stripped.startswith("Pi -")
+    )
+
+
+def normalize_root(path):
+    real = os.path.realpath(path)
+    probe = real
+    while probe and probe != "/":
+        if os.path.isdir(os.path.join(probe, ".aoc")) or os.path.isdir(os.path.join(probe, ".git")):
+            return probe
+        parent = os.path.dirname(probe)
+        if parent == probe:
+            break
+        probe = parent
+    return real
+
 
 current = load_obj(current_raw)
 current_tab_id = first(current, "tab_id", "id", "tabId")
@@ -349,18 +357,37 @@ for pane in load(panes_raw):
         continue
     if current_tab_id is None and current_index is not None and tab_index is not None and str(tab_index) != str(current_index):
         continue
-    name = first(pane, "name", "pane_name")
-    if not isinstance(name, str) or not agent_re.match(name):
-        continue
-    cwd = first(pane, "cwd", "current_working_directory", "current_cwd", "working_dir", "working_directory", "path")
+    cwd = first(
+        pane,
+        "cwd",
+        "current_working_directory",
+        "current_cwd",
+        "working_dir",
+        "working_directory",
+        "path",
+    )
     if not isinstance(cwd, str) or not cwd.startswith("/"):
         continue
+
+    title = pane_title(pane)
+    if title in HELPER_TITLES:
+        continue
+
     score = 0
-    if first(pane, "is_focused", "focused", "active") in (True, "true", "1", 1):
-        score += 10
-    if first(pane, "is_plugin", "plugin") in (True, "true", "1", 1):
-        score -= 20
-    candidates.append((score, len(candidates), os.path.realpath(cwd)))
+    if is_agentish_title(title):
+        score += 60
+    if is_truthy(first(pane, "is_focused", "focused", "active")):
+        score += 20
+    if is_truthy(first(pane, "is_plugin", "plugin")):
+        score -= 50
+
+    pane_tokens = []
+    for key in ("command", "pane_command", "cmd", "executable", "argv", "args", "command_line"):
+        pane_tokens.extend(collect_tokens(pane.get(key)))
+    if any(AGENT_TOKEN_RE.search(token) for token in pane_tokens):
+        score += 35
+
+    candidates.append((score, len(candidates), normalize_root(cwd)))
 
 if not candidates:
     raise SystemExit(1)
@@ -368,6 +395,10 @@ if not candidates:
 candidates.sort(key=lambda item: (-item[0], item[1]))
 print(candidates[0][2])
 PY
+}
+
+aoc_zellij_current_tab_agent_project_root() {
+  aoc_zellij_current_tab_project_root "$@"
 }
 
 aoc_zellij_find_current_tab_pane_id_by_name() {

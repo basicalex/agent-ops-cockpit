@@ -222,23 +222,43 @@ else
 fi
 
 current_pwd="$(pwd -P)"
-project_root="${tab_cwd:-$current_pwd}"
+current_root=""
+if [[ -z "$tab_cwd" ]]; then
+  if [[ -n "${AOC_PROJECT_ROOT:-}" && -d "${AOC_PROJECT_ROOT}" ]]; then
+    current_root="$(cd "${AOC_PROJECT_ROOT}" && pwd -P)"
+  elif command -v aoc-align >/dev/null 2>&1; then
+    current_root="$(aoc-align --print-root || true)"
+  fi
+fi
+
+if [[ -n "$tab_cwd" ]]; then
+  project_root="$tab_cwd"
+elif [[ -n "$current_root" ]]; then
+  project_root="$current_root"
+else
+  project_root="$current_pwd"
+fi
+
 launch_agent="${AOC_LAUNCH_AGENT_ID:-${AOC_AGENT_ID:-}}"
 session_id="$(resolve_session_id "$project_root")"
 hub_addr="$(resolve_hub_addr "$session_id")"
 hub_url="$(resolve_hub_url "$hub_addr")"
 
-current_root=""
-if command -v aoc-align >/dev/null 2>&1; then
-  current_root="$(aoc-align --print-root || true)"
-fi
 
+background_task() {
+  (
+    "$@"
+  ) >/dev/null 2>&1 &
+}
 
 mkdir -p "$state_dir"
 cleanup_state "$state_dir"
-ensure_hub_running "$session_id" "$hub_addr" "$state_dir"
-sync_aoc_theme_profile
+
+# Launch-time responsiveness matters more than blocking on hub/theme warmup.
+# Use the current theme.env immediately, then refresh hub/theme in the background.
 load_aoc_theme_values
+background_task ensure_hub_running "$session_id" "$hub_addr" "$state_dir"
+background_task sync_aoc_theme_profile
 
 # Generate Tab Name (First word of repo, Title Case)
 raw_name="$(basename "$project_root")"
@@ -246,7 +266,7 @@ computed_tab_name="$(echo "$raw_name" | cut -d'-' -f1 | awk '{print toupper(subs
 if [[ -z "$computed_tab_name" ]]; then computed_tab_name="AOC"; fi
 tab_name_to_use="${tab_name:-$computed_tab_name}"
 
-# Agent ID is just the raw repo name (used in pane name for alignment)
+# Agent ID tracks the project/repo slug used for metadata and launch context.
 agent_id="$raw_name"
 
 layout_arg="$layout_choice"
@@ -313,8 +333,9 @@ if [[ -f "$layout_path" ]]; then
   layout_arg="$layout_tmp"
 fi
 
-realign_current_pane "$current_root"
-aoc_focus_agent_in_current_tab || true
+if [[ "${AOC_REALIGN_CURRENT_PANE:-0}" == "1" ]]; then
+  realign_current_pane "$current_root"
+fi
 
 pulse_cmd="${AOC_PULSE_CMD:-}"
 if [[ -z "$pulse_cmd" ]]; then

@@ -11,6 +11,7 @@ pub mod mind_observer_feed;
 pub mod provenance_contracts;
 pub mod pulse_ipc;
 pub mod session_overseer;
+pub mod zellij_cli;
 
 pub const TAG_PRD_KEY: &str = "aocPrd";
 

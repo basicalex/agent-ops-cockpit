@@ -49,6 +49,7 @@ mkdir -p "${XDG_CONFIG_HOME:-$HOME/.config}/aoc/prompts/pi"
 mkdir -p "${XDG_CONFIG_HOME:-$HOME/.config}/aoc/skills-optional"
 mkdir -p "${XDG_CONFIG_HOME:-$HOME/.config}/aoc/prompts-optional/pi"
 mkdir -p "${XDG_STATE_HOME:-$HOME/.local/state}/aoc"
+DEFAULT_LAYOUT_FILE="${XDG_STATE_HOME:-$HOME/.local/state}/aoc/layout_default"
 
 log() { echo ">> $1"; }
 warn() { echo "!! $1"; }
@@ -1009,6 +1010,14 @@ sed \
 sed \
   -e "s|{{HOME}}|$HOME|g" \
   "$ROOT_DIR/zellij/layouts/minimal.kdl.template" > "$HOME/.config/zellij/layouts/minimal.kdl"
+
+sed \
+  -e "s|{{HOME}}|$HOME|g" \
+  "$ROOT_DIR/zellij/layouts/unstat.kdl.template" > "$HOME/.config/zellij/layouts/unstat.kdl"
+
+if [[ ! -f "$DEFAULT_LAYOUT_FILE" ]] || [[ "$(cat "$DEFAULT_LAYOUT_FILE" 2>/dev/null || true)" == "aoc" ]]; then
+  printf 'unstat\n' > "$DEFAULT_LAYOUT_FILE"
+fi
 
 log "Generated layouts in $HOME/.config/zellij/layouts/"
 

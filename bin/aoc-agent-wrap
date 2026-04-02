@@ -12,8 +12,13 @@ agent_bin="${2:-}"
 agent_label="${3:-}"
 shift 3 || true
 
-# Set title early, before any execs
-if [[ -n "$agent_label" ]]; then
+# Set a short initial title immediately so Zellij does not show a transient
+# command-line/blob title before the real runtime takes over.
+project_title="${AOC_PROJECT_ROOT:-$PWD}"
+project_title="$(basename "$project_title")"
+if [[ "$agent_id" == "pi" ]]; then
+  printf "\033]0;π - starting - ${project_title:-agent}\007"
+elif [[ -n "$agent_label" ]]; then
   printf "\033]0;Agent [$agent_label]\007"
 fi
 
@@ -256,10 +261,27 @@ if [[ -z "${AOC_TAB_SCOPE:-}" ]]; then
   fi
 fi
 if [[ -z "${AOC_AGENT_PTY:-}" ]]; then
-  export AOC_AGENT_PTY=0
+  if [[ "$agent_id" == "pi" ]]; then
+    export AOC_AGENT_PTY="${AOC_PI_USE_PTY:-0}"
+  else
+    export AOC_AGENT_PTY=0
+  fi
 fi
 if [[ -z "${AOC_AGENT_ID:-}" ]]; then
   export AOC_AGENT_ID="$agent_id"
+fi
+if [[ "$agent_id" == "pi" && -z "${AOC_AGENT_FILTER_MOUSE:-}" ]]; then
+  export AOC_AGENT_FILTER_MOUSE=0
+fi
+
+# Pi renders unreliably inside Zellij when inheriting the outer kitty TERM.
+# Normalize to a generic terminal type for the Pi child path.
+if [[ "$agent_id" == "pi" && ( -n "${ZELLIJ:-}" || -n "${ZELLIJ_SESSION_NAME:-}" ) ]]; then
+  case "${TERM:-}" in
+    xterm-kitty|kitty)
+      export TERM="xterm-256color"
+      ;;
+  esac
 fi
 
 sanitize_component() {
@@ -433,6 +455,181 @@ find_aoc_dir() {
   return 1
 }
 
+find_python_bin() {
+  if command -v python3 >/dev/null 2>&1; then
+    echo "python3"
+    return 0
+  fi
+  if command -v python >/dev/null 2>&1; then
+    echo "python"
+    return 0
+  fi
+  return 1
+}
+
+context_code_block() {
+  local file="$1"
+  local heading="$2"
+  [[ -f "$file" ]] || return 1
+  awk -v heading="$heading" '
+    $0 == heading { in_heading=1; next }
+    in_heading && /^```$/ { in_code=!in_code; next }
+    in_heading && in_code { print }
+    in_heading && !in_code && /^## / { exit }
+  ' "$file"
+}
+
+context_scalar_after_heading() {
+  local file="$1"
+  local heading="$2"
+  [[ -f "$file" ]] || return 1
+  awk -v heading="$heading" '
+    $0 == heading { capture=1; next }
+    capture && /^- / { print; exit }
+    capture && /^## / { exit }
+  ' "$file"
+}
+
+print_task_briefing() {
+  local aoc_dir="$1"
+  local focus_tag="$2"
+  local python_bin=""
+  local tm_json=""
+  local py_script=""
+  python_bin="$(find_python_bin)" || return 1
+  tm_json="$(tm list --all-tags --json 2>/dev/null)"
+  py_script="$(cat <<'PY'
+import json, os, sys
+from datetime import datetime, timezone, timedelta
+
+raw = sys.stdin.read()
+if not raw.strip():
+    raise SystemExit(0)
+
+obj = json.loads(raw)
+focus_tag = (os.environ.get("FOCUS_TAG") or "").strip()
+now = datetime.now(timezone.utc)
+recent_cutoff = now - timedelta(days=14)
+
+workstreams = []
+high_value = []
+focus_exists = False
+
+for tag, data in obj.items():
+    tasks = data.get("tasks", [])
+    tag_prd = data.get("aocPrd")
+    counts = {"in-progress": 0, "pending": 0, "done_recent": 0}
+    latest_open = None
+    for task in tasks:
+        status = task.get("status") or "unknown"
+        updated = task.get("updatedAt")
+        updated_dt = None
+        if updated:
+            try:
+                updated_dt = datetime.fromisoformat(updated.replace("Z", "+00:00"))
+            except ValueError:
+                updated_dt = None
+        if status == "in-progress":
+            counts["in-progress"] += 1
+        elif status != "done":
+            counts["pending"] += 1
+        elif updated_dt and updated_dt >= recent_cutoff:
+            counts["done_recent"] += 1
+        if status != "done" and latest_open is None:
+            latest_open = task
+        if status != "done" and (task.get("aocPrd") or tag_prd):
+            high_value.append({
+                "tag": tag,
+                "id": task.get("id"),
+                "title": task.get("title", ""),
+                "status": status,
+                "priority": task.get("priority", ""),
+                "has_task_prd": bool(task.get("aocPrd")),
+            })
+    total_open = counts["in-progress"] + counts["pending"]
+    if tag == focus_tag and total_open > 0:
+        focus_exists = True
+    if total_open == 0 and counts["done_recent"] == 0:
+        continue
+    summary = latest_open.get("title", "") if latest_open else "recently completed stream"
+    workstreams.append({
+        "tag": tag,
+        "in_progress": counts["in-progress"],
+        "pending": counts["pending"],
+        "done_recent": counts["done_recent"],
+        "summary": summary,
+    })
+
+workstreams.sort(key=lambda item: (
+    0 if focus_tag and item["tag"] == focus_tag and focus_exists else 1,
+    -item["in_progress"],
+    -item["pending"],
+    -item["done_recent"],
+    item["tag"],
+))
+
+priority_order = {"high": 0, "medium": 1, "low": 2, "": 3}
+high_value.sort(key=lambda item: (
+    0 if focus_tag and item["tag"] == focus_tag and focus_exists else 1,
+    0 if item["status"] == "in-progress" else 1,
+    priority_order.get(item["priority"], 3),
+    int(item["id"]) if str(item.get("id", "")).isdigit() else 10**9,
+))
+
+if focus_tag:
+    if focus_exists:
+        print(f"🧭 FOCUS:\n- Tab focus: {focus_tag} (open work present)")
+    else:
+        print(f"🧭 FOCUS:\n- Tab focus: {focus_tag} (no open tasks found; using project-active fallbacks)")
+else:
+    print("🧭 FOCUS:\n- Tab focus: none set; using project-active workstreams")
+
+print("\n📈 ACTIVE WORKSTREAMS:")
+if workstreams:
+    for item in workstreams[:5]:
+        summary = item["summary"].strip().replace("\n", " ")
+        if len(summary) > 88:
+            summary = summary[:85] + "..."
+        print(f"- {item['tag']}: {item['in_progress']} in-progress / {item['pending']} pending / {item['done_recent']} recent-done — {summary}")
+else:
+    print("- No active workstreams found.")
+
+print("\n📋 OPEN SPEC-BEARING WORK:")
+if high_value:
+    for item in high_value[:6]:
+        prd_kind = "task PRD" if item["has_task_prd"] else "tag PRD"
+        print(f"- [{item['id']}] ({item['status']}/{item['priority']}) {item['tag']} — {item['title']} [{prd_kind}]")
+else:
+    print("- No open PRD-backed tasks found.")
+PY
+)"
+  printf '%s' "$tm_json" | FOCUS_TAG="$focus_tag" AOC_DIR="$aoc_dir" "$python_bin" -c "$py_script"
+}
+
+print_memory_briefing() {
+  local aoc_dir="$1"
+  if [[ ! -f "$aoc_dir/memory.md" ]]; then
+    return 1
+  fi
+  echo "🧠 RECENT MEMORY SIGNALS:"
+  grep '^-' "$aoc_dir/memory.md" | tail -n 6
+}
+
+print_context_briefing() {
+  local aoc_dir="$1"
+  local context_file="$aoc_dir/context.md"
+  local repo_line=""
+  local root_line=""
+  local branch_line=""
+  repo_line="$(grep -m 1 '^- Name:' "$context_file" 2>/dev/null || true)"
+  root_line="$(grep -m 1 '^- Root:' "$context_file" 2>/dev/null || true)"
+  branch_line="$(grep -m 1 '^- Git branch:' "$context_file" 2>/dev/null || true)"
+  echo "📂 PROJECT BRIEF:"
+  [[ -n "$repo_line" ]] && echo "$repo_line"
+  [[ -n "$root_line" ]] && echo "$root_line"
+  [[ -n "$branch_line" ]] && echo "$branch_line"
+}
+
 construct_handshake() {
   local aoc_dir=""
   local stm_latest=""
@@ -468,6 +665,13 @@ construct_handshake() {
     return
   fi
 
+  local context_focus_tag=""
+  local focus_tag="${AOC_TAG:-}"
+  context_focus_tag="$(context_code_block "$aoc_dir/context.md" "## Current Task Tag" | head -n 1)"
+  if [[ -z "$focus_tag" ]]; then
+    focus_tag="$context_focus_tag"
+  fi
+
   echo "──────────────────────────────────────────────────────────────────────────────"
   echo "🚀 AOC SYSTEM HANDSHAKE (Agent Orientation)"
   echo "──────────────────────────────────────────────────────────────────────────────"
@@ -477,15 +681,18 @@ construct_handshake() {
 
   if [[ "$handshake_mode" == "compact" ]]; then
     echo
-    echo "📂 PROJECT ROOT: ${AOC_PROJECT_ROOT:-$PWD}"
-    echo "Context map: $aoc_dir/context.md (open on demand)"
-    echo "Memory log: $aoc_dir/memory.md (use: aoc-mem read)"
-    echo "Tasks: use tm list / aoc-task list on demand"
+    print_context_briefing "$aoc_dir"
+    echo "- Context map: $aoc_dir/context.md"
+    echo "- Memory log: use aoc-mem read"
+    echo "- Tasks: use tm list / aoc-task list on demand"
+
+    echo
+    print_task_briefing "$aoc_dir" "$focus_tag" | sed -n '1,10p'
 
     echo
     echo "🧪 RTK ROUTING:"
     if [[ "${AOC_RTK_ACTIVE:-0}" == "1" ]]; then
-      echo "Active (mode=${AOC_RTK_MODE:-on}, fail-open=${AOC_RTK_FAIL_OPEN:-1})."
+      echo "Active (mode=${AOC_RTK_MODE:-on}, fail-open=${AOC_RTK_FAIL_OPEN:-1}) — allowlisted noisy commands may be compacted; native fallback stays available."
     elif is_truthy "${AOC_RTK_BYPASS:-0}" || [[ "${AOC_RTK_MODE:-}" == "off" ]]; then
       echo "Bypassed (AOC_RTK_BYPASS=1 or AOC_RTK_MODE=off)."
     else
@@ -493,16 +700,14 @@ construct_handshake() {
     fi
 
     echo
-    echo "⚡ STM DIARY:"
+    echo "⚡ STM: use only for handoff/resume continuity."
     if [[ -n "$stm_latest" ]]; then
-      echo "Latest archive: $stm_latest"
-    else
-      echo "Latest archive: none"
+      echo "- Latest archive: $stm_latest"
     fi
     if [[ "$stm_current_has_content" == "1" ]]; then
-      echo "Current draft has unarchived notes: $stm_current"
+      echo "- Current draft has unarchived notes: $stm_current"
     fi
-    echo "Resume command: aoc-stm handoff"
+    echo "- Resume/handoff commands: aoc-stm resume | aoc-stm handoff"
 
     echo
     echo "──────────────────────────────────────────────────────────────────────────────"
@@ -511,33 +716,18 @@ construct_handshake() {
     return
   fi
   echo
-  echo "📂 PROJECT CONTEXT ($aoc_dir/context.md):"
-  if [[ -f "$aoc_dir/context.md" ]]; then
-    cat "$aoc_dir/context.md"
-  elif [[ -f "$aoc_dir/GEMINI.md" ]]; then
-    cat "$aoc_dir/GEMINI.md"
-  fi
+  print_context_briefing "$aoc_dir"
+
   echo
-  echo "🧠 PROJECT MEMORY ($aoc_dir/memory.md):"
-  if [[ -f "$aoc_dir/memory.md" ]]; then
-    tail -n 20 "$aoc_dir/memory.md"
-  fi
+  print_task_briefing "$aoc_dir" "$focus_tag" || echo "📋 OPEN WORK: unavailable (tm list --all-tags --json failed)"
+
   echo
-  echo "📋 ACTIVE TASKS (.taskmaster/):"
-  if command -v tm >/dev/null 2>&1; then
-    tm list --tag "${AOC_TAG:-master}" 2>/dev/null | head -n 20 || echo "No active tasks."
-  elif command -v aoc-task >/dev/null 2>&1; then
-    aoc-task list --tag "${AOC_TAG:-master}" 2>/dev/null | head -n 20 || echo "No active tasks."
-  elif command -v aoc-cli >/dev/null 2>&1; then
-    aoc-cli task list --tag "${AOC_TAG:-master}" 2>/dev/null | head -n 20 || echo "No active tasks."
-  elif command -v task-master >/dev/null 2>&1; then
-    task-master list --tag "${AOC_TAG:-master}" 2>/dev/null | head -n 20 || echo "No active tasks."
-  fi
+  print_memory_briefing "$aoc_dir" || true
 
   echo
   echo "🧪 RTK ROUTING:"
   if [[ "${AOC_RTK_ACTIVE:-0}" == "1" ]]; then
-    echo "Active (mode=${AOC_RTK_MODE:-on}, fail-open=${AOC_RTK_FAIL_OPEN:-1})."
+    echo "Active (mode=${AOC_RTK_MODE:-on}, fail-open=${AOC_RTK_FAIL_OPEN:-1}) — allowlisted noisy commands may be compacted; native fallback stays available."
   elif is_truthy "${AOC_RTK_BYPASS:-0}" || [[ "${AOC_RTK_MODE:-}" == "off" ]]; then
     echo "Bypassed (AOC_RTK_BYPASS=1 or AOC_RTK_MODE=off)."
   else
@@ -546,52 +736,78 @@ construct_handshake() {
 
   echo
   if [[ -n "$stm_latest" || "$stm_current_has_content" == "1" ]]; then
-    echo "⚡ STM DIARY AVAILABLE:"
-    if [[ -n "$stm_latest" ]]; then
-      echo "Latest archive: $stm_latest"
-    else
-      echo "Latest archive: none"
-    fi
-    if [[ "$stm_current_has_content" == "1" ]]; then
-      echo "Current draft: $stm_current (has unarchived notes)"
-    fi
-    echo "Do not auto-read STM unless the user asks for it (eg: starts with 'stm ...')."
-    echo "If not requested, mention STM availability at the end of your first response."
-    echo "To finalize the current session handoff, run: aoc-stm handoff (archives current draft and prints snapshot)."
-    echo "To resume in a new session, run: aoc-stm resume (or aoc-stm read)."
-    echo "To inspect the unarchived draft explicitly, run: aoc-stm (or aoc-stm read-current)."
+    echo "⚡ STM: handoff/resume aid only; do not auto-read unless the user asks."
+    [[ -n "$stm_latest" ]] && echo "- Latest archive: $stm_latest"
+    [[ "$stm_current_has_content" == "1" ]] && echo "- Current draft has unarchived notes: $stm_current"
+    echo "- Commands: aoc-stm handoff | aoc-stm resume | aoc-stm"
   else
-    echo "⚡ STM DIARY AVAILABLE: none"
+    echo "⚡ STM: none"
   fi
 
   echo
-  echo "💡 OPERATIONAL DIRECTIVE:"
-  echo "1. The file '$aoc_dir/memory.md' is the LIVE source of truth for architectural decisions."
-  echo "2. Use 'aoc-mem add \"fact\"' to record new decisions."
-  echo "3. Use 'tm' (alias for 'aoc-task') to track your progress."
-  echo "4. If a task has a PRD link, read it before implementation (aoc-task prd show <task-id>)."
-  echo "5. PRD links are task-level only; subtasks must not define PRD links."
-  echo "6. Use aoc-stm add/edit for STM drafts, aoc-stm handoff to seal+print handoff snapshots, and aoc-stm resume/aoc-stm read for archived resume context."
+  echo "💡 OPERATIONAL DIRECTIVES:"
+  echo "1. Memory is the durable architectural log: use aoc-mem read / aoc-mem add."
+  echo "2. Use tm (aoc-task) for status and progress; prefer open PRD-backed tasks first."
+  echo "3. If a task has a PRD link, read it before implementation (aoc-task prd show <task-id>)."
+  echo "4. PRD links are task-level only; subtasks must not define PRD links."
   echo
   echo "──────────────────────────────────────────────────────────────────────────────"
   echo "Starting ${AOC_AGENT_LABEL:-$agent_label} CLI..."
   echo "──────────────────────────────────────────────────────────────────────────────"
 }
 
-# We'll use a temporary script to handle the handshake and exec to avoid complex quoting in tmux
-bootloader="$(mktemp /tmp/aoc-bootloader-XXXXXX.sh)"
-chmod +x "$bootloader"
-{
-  echo "#!/usr/bin/env bash"
-  declare -f find_aoc_dir
-  echo "construct_handshake() {"
-  declare -f construct_handshake | tail -n +2
-  echo "}"
-  echo "printf \"\\033]0;Agent [$agent_label]\\007\""
-  echo "construct_handshake"
-  echo "rm -f \"\$0\"" # Self-destruct
-  echo "exec \"$real_bin\" \"\$@\""
-} > "$bootloader"
+agent_runtime_id="${AOC_AGENT_ID:-$agent_id}"
+is_omo_agent=0
+if [[ "$agent_runtime_id" == "omo" ]]; then
+  is_omo_agent=1
+fi
+is_pi_family_agent=0
+if [[ "$agent_runtime_id" == "pi" ]]; then
+  is_pi_family_agent=1
+fi
+
+use_bootloader=1
+if [[ "$is_pi_family_agent" == "1" ]]; then
+  case "$(printf '%s' "${AOC_PI_USE_BOOTLOADER:-1}" | tr '[:upper:]' '[:lower:]')" in
+    0|false|no|off)
+      use_bootloader=0
+      ;;
+    *)
+      use_bootloader=1
+      ;;
+  esac
+fi
+
+bootloader=""
+if [[ "$use_bootloader" == "1" ]]; then
+  # We'll use a temporary script to handle the handshake and exec to avoid complex quoting in tmux
+  bootloader="$(mktemp /tmp/aoc-bootloader-XXXXXX.sh)"
+  chmod +x "$bootloader"
+  {
+    echo "#!/usr/bin/env bash"
+    declare -f find_python_bin
+    declare -f context_code_block
+    declare -f context_scalar_after_heading
+    declare -f print_task_briefing
+    declare -f print_memory_briefing
+    declare -f print_context_briefing
+    declare -f find_aoc_dir
+    declare -f is_truthy
+    echo "construct_handshake() {"
+    declare -f construct_handshake | tail -n +2
+    echo "}"
+    if [[ "$agent_id" == "pi" ]]; then
+      echo 'project_title="${AOC_PROJECT_ROOT:-$PWD}"'
+      echo 'project_title="$(basename "$project_title")"'
+      echo 'printf "\033]0;π - starting - ${project_title:-agent}\007"'
+    else
+      echo "printf \"\\033]0;Agent [$agent_label]\\007\""
+    fi
+    echo "construct_handshake"
+    echo "rm -f \"\$0\"" # Self-destruct
+    echo "exec \"$real_bin\" \"\$@\""
+  } > "$bootloader"
+fi
 
 resolve_wrap_rs_cmd
 wrapped_cmd=()
@@ -612,7 +828,7 @@ if ((${#wrap_rs_cmd[@]} > 0)); then
     "${wrap_rs_cmd[@]}"
     --session "$AOC_SESSION_ID"
     --pane-id "$AOC_PANE_ID"
-    --agent-id "$AOC_AGENT_LABEL"
+    --agent-id "$agent_id"
     --project-root "$AOC_PROJECT_ROOT"
   )
   if [[ "$wrap_rs_supports_tab_scope" == "1" && -n "${AOC_TAB_SCOPE:-}" ]]; then
@@ -621,23 +837,18 @@ if ((${#wrap_rs_cmd[@]} > 0)); then
   if [[ "$wrap_rs_supports_hub_addr" == "1" ]]; then
     wrapped_cmd+=(--hub-addr "$AOC_HUB_ADDR")
   fi
-  wrapped_cmd+=(
-    --
-    "$bootloader"
-    "$@"
-  )
+  wrapped_cmd+=(--)
+  if [[ "$use_bootloader" == "1" ]]; then
+    wrapped_cmd+=("$bootloader" "$@")
+  else
+    wrapped_cmd+=("$real_bin" "$@")
+  fi
 else
-  wrapped_cmd=("$bootloader" "$@")
-fi
-
-agent_runtime_id="${AOC_AGENT_ID:-$agent_id}"
-is_omo_agent=0
-if [[ "$agent_runtime_id" == "omo" ]]; then
-  is_omo_agent=1
-fi
-is_pi_family_agent=0
-if [[ "$agent_runtime_id" == "pi" ]]; then
-  is_pi_family_agent=1
+  if [[ "$use_bootloader" == "1" ]]; then
+    wrapped_cmd=("$bootloader" "$@")
+  else
+    wrapped_cmd=("$real_bin" "$@")
+  fi
 fi
 
 stderr_capture_enabled="${AOC_AGENT_CAPTURE_STDERR:-0}"
@@ -671,6 +882,36 @@ run_wrapped_exec() {
   fi
   exec "$@"
 }
+
+run_pi_direct_exec() {
+  construct_handshake
+  if [[ -n "$stderr_log_file" ]]; then
+    exec "$real_bin" "$@" 2> >(tee -a "$stderr_log_file" >&2)
+  fi
+  exec "$real_bin" "$@"
+}
+
+pi_wrap_rs_mode="${AOC_PI_USE_WRAP_RS:-auto}"
+pi_use_direct_exec=0
+if [[ "$is_pi_family_agent" == "1" && "${AOC_PI_USE_TMUX:-0}" != "1" ]]; then
+  case "$(printf '%s' "$pi_wrap_rs_mode" | tr '[:upper:]' '[:lower:]')" in
+    1|true|yes|on)
+      pi_use_direct_exec=0
+      ;;
+    0|false|no|off)
+      pi_use_direct_exec=1
+      ;;
+    *)
+      # Default Pi to direct exec in terminal panes. The Rust wrapper remains
+      # available as an explicit opt-in once the PTY path is known-good.
+      pi_use_direct_exec=1
+      ;;
+  esac
+fi
+
+if [[ "$pi_use_direct_exec" == "1" ]]; then
+  run_pi_direct_exec "$@"
+fi
 
 tmux_allowlist=",${AOC_TMUX_AGENT_ALLOWLIST:-pi},"
 tmux_allowlist="${tmux_allowlist//[[:space:]]/}"
