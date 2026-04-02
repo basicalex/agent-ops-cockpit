@@ -16,3 +16,4 @@ dirs = "5.0"
 globset = "=0.4.17"
 ignore = "0.4"
 fs2 = "0.4.3"
+mermaid-rs-renderer = { version = "0.2.1", default-features = false }
