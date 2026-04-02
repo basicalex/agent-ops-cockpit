@@ -10864,7 +10864,9 @@ fn parse_layout_tabs(layout: &str) -> SessionLayout {
         }
 
         if current_tab_index > 0
-            && (line.contains("name=\"Agent [") || line.contains("name=\"Agent["))
+            && (line.contains("name=\"Agent [")
+                || line.contains("name=\"Agent[")
+                || line.contains("name=\"Agent\""))
         {
             if let Some(cwd) = extract_layout_attr(line, "cwd") {
                 if let Some(project_root) = resolve_layout_cwd(base_cwd.as_deref(), &cwd) {

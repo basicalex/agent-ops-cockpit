@@ -224,6 +224,17 @@ def pane_tab_key(pane):
 def pane_title(pane):
     return str(pane.get("title") or pane.get("name") or "")
 
+def is_agentish_title(title):
+    stripped = title.strip()
+    return (
+        stripped == "Agent"
+        or stripped.startswith("Agent[")
+        or stripped.startswith("Agent [")
+        or stripped.startswith("aoc:")
+        or stripped.startswith("π -")
+        or stripped.startswith("Pi -")
+    )
+
 def pane_area(pane):
     return int(pane.get("pane_columns") or 0) * int(pane.get("pane_rows") or 0)
 
@@ -249,13 +260,13 @@ for pane in items:
         continue
     if pane_tab_key(pane) != current_tab:
         continue
-    if pane_title(pane).startswith("Agent ["):
+    if is_agentish_title(pane_title(pane)):
         agent = pane
         break
 if agent is None:
     raise SystemExit(1)
 
-if pane_title(current).startswith("Agent ["):
+if is_agentish_title(pane_title(current)):
     print("done")
     raise SystemExit(0)
 

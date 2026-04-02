@@ -162,15 +162,22 @@ fi
 
 project_root="${ZELLIJ_PROJECT_ROOT:-$PWD}"
 launch_agent="${AOC_LAUNCH_AGENT_ID:-${AOC_AGENT_ID:-}}"
+
+background_task() {
+  (
+    "$@"
+  ) >/dev/null 2>&1 &
+}
+
 mkdir -p "$state_dir"
 cleanup_state "$state_dir"
-sync_aoc_theme_profile
 load_aoc_theme_values
 
 session_id="$(resolve_session_id "$project_root")"
 hub_addr="$(resolve_hub_addr "$session_id")"
 hub_url="$(resolve_hub_url "$hub_addr")"
-ensure_hub_running "$session_id" "$hub_addr" "$state_dir"
+background_task ensure_hub_running "$session_id" "$hub_addr" "$state_dir"
+background_task sync_aoc_theme_profile
 
 # Generate Tab Name (First word of repo, Title Case)
 # e.g., agent-ops-cockpit -> Agent
@@ -178,7 +185,7 @@ raw_name="$(basename "$project_root")"
 tab_name="$(echo "$raw_name" | cut -d'-' -f1 | awk '{print toupper(substr($0,1,1)) tolower(substr($0,2))}')"
 if [[ -z "$tab_name" ]]; then tab_name="AOC"; fi
 
-# Agent ID is just the raw repo name (used in pane name for alignment)
+# Agent ID is the raw repo name used for launch metadata and session context.
 agent_id="$raw_name"
 
 layout_path="$(resolve_layout_path "$layout" "$project_root")"
