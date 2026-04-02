@@ -24,6 +24,7 @@ use std::{
     io::{self, Read, Seek, SeekFrom, Write},
     path::{Path, PathBuf},
     process::{Child, Command, ExitStatus, Stdio},
+    sync::mpsc::{self, Receiver},
     thread,
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
@@ -271,6 +272,13 @@ struct SearchConfig {
 }
 
 #[derive(Debug)]
+enum StartupUpdate {
+    Rtk(RtkStatus),
+    AgentInstallEntries(Vec<AgentInstallEntry>),
+    PiCompactionStatus(PiCompactionStatus),
+}
+
+#[derive(Debug)]
 struct App {
     active_tab: Tab,
     focus: Focus,
@@ -339,12 +347,16 @@ struct App {
     search_verify_last_status: String,
     search_status_checked: bool,
     search_status: SearchStatusSummary,
+    rtk_loaded: bool,
+    agent_install_entries_loaded: bool,
+    pi_compaction_status_loaded: bool,
     pending_moremotion_clone_source: Option<PathBuf>,
     pending_moremotion_clone_url: Option<String>,
     in_zellij: bool,
     floating_active: bool,
     close_on_exit: bool,
     pane_rename_remaining: u8,
+    startup_rx: Option<Receiver<StartupUpdate>>,
 }
 
 impl App {
@@ -436,20 +448,68 @@ impl App {
             search_verify_last_status: "idle".to_string(),
             search_status_checked: false,
             search_status: SearchStatusSummary::default(),
+            rtk_loaded: false,
+            agent_install_entries_loaded: false,
+            pi_compaction_status_loaded: false,
             pending_moremotion_clone_source: None,
             pending_moremotion_clone_url: None,
             in_zellij: in_zellij(),
             floating_active: is_floating_active(),
             close_on_exit: false,
             pane_rename_remaining: if in_zellij() { 6 } else { 0 },
+            startup_rx: None,
         };
         app.apply_project_filter();
-        app.refresh_rtk_status_quiet();
-        app.refresh_agent_install_statuses_quiet();
-        app.refresh_pi_compaction_status_quiet();
         app.refresh_theme_identity_quiet();
+        app.start_background_startup_refresh();
         app.ensure_selections();
         Ok(app)
+    }
+
+    fn start_background_startup_refresh(&mut self) {
+        let (tx, rx) = mpsc::channel();
+        self.startup_rx = Some(rx);
+        thread::spawn(move || {
+            if let Ok(status) = load_rtk_status() {
+                let _ = tx.send(StartupUpdate::Rtk(status));
+            }
+            let _ = tx.send(StartupUpdate::AgentInstallEntries(
+                load_agent_install_entries(),
+            ));
+            if let Ok(status) = load_pi_compaction_status() {
+                let _ = tx.send(StartupUpdate::PiCompactionStatus(status));
+            }
+        });
+    }
+
+    fn poll_startup_refresh(&mut self) {
+        let mut disconnected = false;
+        if let Some(rx) = self.startup_rx.as_ref() {
+            loop {
+                match rx.try_recv() {
+                    Ok(StartupUpdate::Rtk(status)) => {
+                        self.rtk_status = status;
+                        self.rtk_loaded = true;
+                    }
+                    Ok(StartupUpdate::AgentInstallEntries(entries)) => {
+                        self.agent_install_entries = entries;
+                        self.agent_install_entries_loaded = true;
+                    }
+                    Ok(StartupUpdate::PiCompactionStatus(status)) => {
+                        self.pi_compaction_status = status;
+                        self.pi_compaction_status_loaded = true;
+                    }
+                    Err(mpsc::TryRecvError::Empty) => break,
+                    Err(mpsc::TryRecvError::Disconnected) => {
+                        disconnected = true;
+                        break;
+                    }
+                }
+            }
+        }
+        if disconnected {
+            self.startup_rx = None;
+        }
     }
 
     fn ensure_selections(&mut self) {
@@ -1089,6 +1149,7 @@ impl App {
     fn refresh_rtk_status_quiet(&mut self) {
         if let Ok(status) = load_rtk_status() {
             self.rtk_status = status;
+            self.rtk_loaded = true;
         }
     }
 
@@ -1096,6 +1157,7 @@ impl App {
         match load_rtk_status() {
             Ok(status) => {
                 self.rtk_status = status;
+                self.rtk_loaded = true;
                 self.set_status(format!("RTK: {}", rtk_summary(&self.rtk_status)));
             }
             Err(err) => self.set_status(format!("RTK status failed: {err}")),
@@ -1103,13 +1165,13 @@ impl App {
     }
 
     fn open_rtk_actions(&mut self) {
-        self.refresh_rtk_status_quiet();
         ensure_selection(&mut self.rtk_actions_state, rtk_action_options().len());
         self.mode = Mode::RtkActions;
     }
 
     fn refresh_agent_install_statuses_quiet(&mut self) {
         self.agent_install_entries = load_agent_install_entries();
+        self.agent_install_entries_loaded = true;
     }
 
     fn refresh_agent_install_statuses(&mut self) {
@@ -1123,6 +1185,7 @@ impl App {
     fn refresh_pi_compaction_status_quiet(&mut self) {
         if let Ok(status) = load_pi_compaction_status() {
             self.pi_compaction_status = status;
+            self.pi_compaction_status_loaded = true;
         }
     }
 
@@ -1130,6 +1193,7 @@ impl App {
         match load_pi_compaction_status() {
             Ok(status) => {
                 self.pi_compaction_status = status;
+                self.pi_compaction_status_loaded = true;
                 self.set_status(format!(
                     "PI compaction: {}",
                     pi_compaction_summary(&self.pi_compaction_status)
@@ -1140,7 +1204,6 @@ impl App {
     }
 
     fn open_pi_compaction_actions(&mut self) {
-        self.refresh_pi_compaction_status_quiet();
         ensure_selection(
             &mut self.pi_compaction_actions_state,
             pi_compaction_presets(self.pi_compaction_context_window).len(),
@@ -1205,6 +1268,13 @@ impl App {
     fn refresh_search_status_quiet(&mut self) {
         self.search_status = load_search_status_via_cli().unwrap_or_else(|_| load_search_status());
         self.search_status_checked = true;
+    }
+
+    fn run_aoc_see_init_action(&mut self) {
+        match seed_aoc_see() {
+            Ok(message) => self.set_status(message),
+            Err(err) => self.set_status(format!("AOC See seed failed: {err}")),
+        }
     }
 
     fn run_search_enable_action(&mut self) {
@@ -1276,7 +1346,6 @@ impl App {
     }
 
     fn open_agent_install_actions(&mut self) {
-        self.refresh_agent_install_statuses_quiet();
         ensure_selection(
             &mut self.agent_install_actions_state,
             self.agent_install_entries.len(),
@@ -1701,6 +1770,7 @@ impl App {
     }
 
     fn tick(&mut self) {
+        self.poll_startup_refresh();
         self.flush_pending_theme_preview();
         self.poll_agent_browser_job();
         self.poll_search_job();
@@ -2326,9 +2396,10 @@ fn activate_selection(app: &mut App) {
                 1 => app.open_agent_install_actions(),
                 2 => app.set_settings_section(SettingsSection::ToolsPiCompaction),
                 3 => app.set_settings_section(SettingsSection::ToolsAgentBrowser),
-                4 => app.set_settings_section(SettingsSection::ToolsVercel),
-                5 => app.set_settings_section(SettingsSection::ToolsMoremotion),
-                6 => app.set_settings_section(SettingsSection::Root),
+                4 => app.run_aoc_see_init_action(),
+                5 => app.set_settings_section(SettingsSection::ToolsVercel),
+                6 => app.set_settings_section(SettingsSection::ToolsMoremotion),
+                7 => app.set_settings_section(SettingsSection::Root),
                 _ => {}
             },
             SettingsSection::ToolsPiCompaction => {
@@ -2530,14 +2601,29 @@ fn draw_defaults(frame: &mut ratatui::Frame, area: Rect, app: &mut App, focused:
         }
         SettingsSection::Tools => {
             let items = vec![
-                ListItem::new(format!("RTK routing · {}", rtk_summary(&app.rtk_status))),
+                ListItem::new(format!(
+                    "RTK routing · {}",
+                    if app.rtk_loaded {
+                        rtk_summary(&app.rtk_status)
+                    } else {
+                        "loading...".to_string()
+                    }
+                )),
                 ListItem::new(format!(
                     "PI agent installer · {}",
-                    agent_install_summary(&app.agent_install_entries)
+                    if app.agent_install_entries_loaded {
+                        agent_install_summary(&app.agent_install_entries)
+                    } else {
+                        "loading...".to_string()
+                    }
                 )),
                 ListItem::new(format!(
                     "PI compaction · {}",
-                    pi_compaction_summary(&app.pi_compaction_status)
+                    if app.pi_compaction_status_loaded {
+                        pi_compaction_summary(&app.pi_compaction_status)
+                    } else {
+                        "loading...".to_string()
+                    }
                 )),
                 ListItem::new(format!(
                     "Agent Browser + Search · {}",
@@ -2547,6 +2633,7 @@ fn draw_defaults(frame: &mut ratatui::Frame, area: Rect, app: &mut App, focused:
                         &app.search_status,
                     )
                 )),
+                ListItem::new(format!("AOC See microsite · {}", aoc_see_summary())),
                 ListItem::new(format!("Vercel CLI + PI skill · {}", vercel_summary())),
                 ListItem::new(format!("MoreMotion + /momo · {}", moremotion_summary())),
                 ListItem::new("Back"),
@@ -2561,7 +2648,11 @@ fn draw_defaults(frame: &mut ratatui::Frame, area: Rect, app: &mut App, focused:
                 )),
                 ListItem::new(format!(
                     "Apply preset · {}",
-                    pi_compaction_summary(&app.pi_compaction_status)
+                    if app.pi_compaction_status_loaded {
+                        pi_compaction_summary(&app.pi_compaction_status)
+                    } else {
+                        "loading...".to_string()
+                    }
                 )),
                 ListItem::new("Refresh status"),
                 ListItem::new("Back"),
@@ -3007,7 +3098,7 @@ fn draw_help_modal(frame: &mut ratatui::Frame, area: Rect) {
         Line::from("  Enter  open section/action"),
         Line::from("  Esc    back one settings level"),
         Line::from("  t      jump to Theme section"),
-        Line::from("  Tools includes RTK, agent installers, PI compaction, Agent Browser, Vercel CLI, MoreMotion"),
+        Line::from("  Tools includes RTK, agent installers, PI compaction, Agent Browser, AOC See, Vercel CLI, MoreMotion"),
         Line::from("  Right pane shows details for selected settings item"),
         Line::from("  Agent Browser/search jobs: PgUp/PgDn scroll, x cancel, Shift+O open log"),
         Line::from("  Theme manager: j/k preview, Enter activate+persist, n/i/r actions"),
@@ -3323,6 +3414,7 @@ fn settings_tools_options() -> Vec<String> {
         "PI agent installer".to_string(),
         "PI compaction".to_string(),
         "Agent Browser + Search".to_string(),
+        "AOC See microsite".to_string(),
         "Vercel CLI + PI skill".to_string(),
         "MoreMotion + /momo".to_string(),
         "Back".to_string(),
@@ -3572,7 +3664,11 @@ fn settings_detail_lines(app: &App) -> Vec<Line<'static>> {
                 lines.push(Line::from(""));
                 lines.push(Line::from(format!(
                     "Status: {}",
-                    rtk_summary(&app.rtk_status)
+                    if app.rtk_loaded {
+                        rtk_summary(&app.rtk_status)
+                    } else {
+                        "loading...".to_string()
+                    }
                 )));
                 lines.push(Line::from(
                     "Enter opens RTK controls (install/enable/disable/doctor).",
@@ -3583,7 +3679,11 @@ fn settings_detail_lines(app: &App) -> Vec<Line<'static>> {
                 lines.push(Line::from(""));
                 lines.push(Line::from(format!(
                     "Status: {}",
-                    agent_install_summary(&app.agent_install_entries)
+                    if app.agent_install_entries_loaded {
+                        agent_install_summary(&app.agent_install_entries)
+                    } else {
+                        "loading...".to_string()
+                    }
                 )));
                 lines.push(Line::from("Enter opens PI install/update actions."));
             }
@@ -3592,7 +3692,11 @@ fn settings_detail_lines(app: &App) -> Vec<Line<'static>> {
                 lines.push(Line::from(""));
                 lines.push(Line::from(format!(
                     "Status: {}",
-                    pi_compaction_summary(&app.pi_compaction_status)
+                    if app.pi_compaction_status_loaded {
+                        pi_compaction_summary(&app.pi_compaction_status)
+                    } else {
+                        "loading...".to_string()
+                    }
                 )));
                 lines.push(Line::from(
                     "Manage global auto-compaction presets written to ~/.pi/agent/settings.json.",
@@ -3623,6 +3727,17 @@ fn settings_detail_lines(app: &App) -> Vec<Line<'static>> {
                 ));
             }
             4 => {
+                lines.push(Line::from("AOC See microsite"));
+                lines.push(Line::from(""));
+                lines.push(Line::from(format!("Status: {}", aoc_see_summary())));
+                lines.push(Line::from(
+                    "Enter syncs .pi/skills/aoc-see/SKILL.md and runs 'aoc-see init' in the current repo.",
+                ));
+                lines.push(Line::from(
+                    "Use this to ensure both the agent skill and the project-local visualization microsite shell exist.",
+                ));
+            }
+            5 => {
                 lines.push(Line::from("Vercel CLI + PI skill"));
                 lines.push(Line::from(""));
                 lines.push(Line::from(format!("Status: {}", vercel_summary())));
@@ -3630,7 +3745,7 @@ fn settings_detail_lines(app: &App) -> Vec<Line<'static>> {
                     "Enter opens nested actions (tool install/update, skill sync, verify).",
                 ));
             }
-            5 => {
+            6 => {
                 lines.push(Line::from("MoreMotion + /momo"));
                 lines.push(Line::from(""));
                 lines.push(Line::from(format!("Status: {}", moremotion_summary())));
@@ -3664,7 +3779,11 @@ fn settings_detail_lines(app: &App) -> Vec<Line<'static>> {
                 lines.push(Line::from(""));
                 lines.push(Line::from(format!(
                     "Current global policy: {}",
-                    pi_compaction_summary(&app.pi_compaction_status)
+                    if app.pi_compaction_status_loaded {
+                        pi_compaction_summary(&app.pi_compaction_status)
+                    } else {
+                        "loading...".to_string()
+                    }
                 )));
                 lines.push(Line::from(
                     "Enter opens preset choices for global ~/.pi/agent/settings.json.",
@@ -5694,6 +5813,77 @@ fn verify_vercel_cli() -> io::Result<String> {
         .to_string();
 
     Ok(format!("Vercel CLI {version} ({})", vercel_summary()))
+}
+
+fn aoc_see_skill_installed() -> bool {
+    project_relative_exists(".pi/skills/aoc-see/SKILL.md")
+}
+
+fn install_aoc_see_skill() -> io::Result<String> {
+    let Some(project_root) = project_root_path() else {
+        return Err(io::Error::other("unable to resolve project root"));
+    };
+
+    let target_dir = project_root.join(".pi").join("skills").join("aoc-see");
+    fs::create_dir_all(&target_dir)?;
+    let target_file = target_dir.join("SKILL.md");
+    fs::write(
+        &target_file,
+        include_str!("../../../.pi/skills/aoc-see/SKILL.md"),
+    )?;
+
+    Ok(format!(
+        "Synced AOC See skill ({})",
+        target_file.to_string_lossy()
+    ))
+}
+
+fn aoc_see_summary() -> String {
+    let diagrams = project_relative_is_dir(".aoc/diagrams");
+    let pages = project_relative_is_dir(".aoc/diagrams/pages");
+    let manifest = project_relative_exists(".aoc/diagrams/manifest.json");
+    let index = project_relative_exists(".aoc/diagrams/index.html");
+    let workspace = match (diagrams, pages, manifest, index) {
+        (true, true, true, true) => "workspace seeded",
+        (true, _, _, _) => "workspace partial",
+        _ => "workspace missing",
+    };
+    let skill = if aoc_see_skill_installed() {
+        "skill present"
+    } else {
+        "skill missing"
+    };
+    format!("{workspace}, {skill}")
+}
+
+fn run_aoc_see_init() -> io::Result<String> {
+    let project_root =
+        project_root_path().ok_or_else(|| io::Error::other("unable to resolve project root"))?;
+    let output = Command::new("aoc-see")
+        .args(["init"])
+        .current_dir(project_root)
+        .output()?;
+    if !output.status.success() {
+        return Err(command_failure("aoc-see init", &output));
+    }
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    let first_line = stdout
+        .lines()
+        .find(|line| !line.trim().is_empty())
+        .or_else(|| stderr.lines().find(|line| !line.trim().is_empty()))
+        .unwrap_or("AOC See initialized")
+        .trim()
+        .to_string();
+
+    Ok(format!("{first_line} ({})", aoc_see_summary()))
+}
+
+fn seed_aoc_see() -> io::Result<String> {
+    let skill_message = install_aoc_see_skill()?;
+    let init_message = run_aoc_see_init()?;
+    Ok(format!("{skill_message}; {init_message}"))
 }
 
 fn moremotion_summary() -> String {

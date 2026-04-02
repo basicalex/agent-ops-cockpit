@@ -1,0 +1,2022 @@
+use anyhow::{anyhow, bail, Context, Result};
+use chrono::Utc;
+use clap::{Args, Subcommand, ValueEnum};
+use mermaid_rs_renderer::render as render_mermaid_to_svg;
+use serde::{Deserialize, Serialize};
+use std::collections::{BTreeMap, BTreeSet};
+use std::fs;
+use std::path::{Path, PathBuf};
+use std::process::Command;
+
+const DIAGRAMS_DIR: &str = ".aoc/diagrams";
+const PAGES_DIR: &str = ".aoc/diagrams/pages";
+const MANIFEST_PATH: &str = ".aoc/diagrams/manifest.json";
+const INDEX_PATH: &str = ".aoc/diagrams/index.html";
+const README_PATH: &str = ".aoc/diagrams/README.md";
+const AOC_SEE_SKILL_PATH: &str = ".pi/skills/aoc-see/SKILL.md";
+const MERMAID_OUTPUT_START: &str = "<!-- aoc-see:mermaid-output:start -->";
+const MERMAID_OUTPUT_END: &str = "<!-- aoc-see:mermaid-output:end -->";
+
+#[derive(Subcommand, Debug)]
+#[command(rename_all = "kebab-case")]
+pub enum SeeCommand {
+    /// Initialize the project-local AOC See microsite workspace
+    Init(InitArgs),
+    /// Scaffold a new AOC See page
+    New(NewArgs),
+    /// List available AOC See pages
+    List(ListArgs),
+    /// Regenerate the AOC See homepage
+    Build(BuildArgs),
+    /// Serve the AOC See microsite over a local dev server
+    Serve(ServeArgs),
+}
+
+#[derive(Args, Debug)]
+pub struct InitArgs {
+    /// Overwrite starter files if they already exist
+    #[arg(long)]
+    pub force: bool,
+}
+
+#[derive(Args, Debug)]
+pub struct NewArgs {
+    /// URL/file slug, e.g. agent-topology
+    pub slug: String,
+    /// Human-friendly page title
+    #[arg(long)]
+    pub title: Option<String>,
+    /// Optional short summary shown on the homepage
+    #[arg(long)]
+    pub summary: Option<String>,
+    /// Page kind
+    #[arg(long, value_enum, default_value_t = DiagramKindArg::Explain)]
+    pub kind: DiagramKindArg,
+    /// Site collection/section
+    #[arg(long, value_enum, default_value_t = DiagramSectionArg::Explainers)]
+    pub section: DiagramSectionArg,
+    /// Lifecycle status badge shown on the homepage
+    #[arg(long, value_enum, default_value_t = DiagramStatusArg::Draft)]
+    pub status: DiagramStatusArg,
+    /// Comma-delimited tags
+    #[arg(long, value_delimiter = ',')]
+    pub tags: Vec<String>,
+    /// Source paths or references cited by this page
+    #[arg(long = "source", value_delimiter = ',')]
+    pub source_paths: Vec<String>,
+    /// Feature this page near the top of the homepage
+    #[arg(long)]
+    pub featured: bool,
+    /// Mark this page as generated from repo/AOC state
+    #[arg(long)]
+    pub generated: bool,
+    /// Optional manual ordering hint (lower first)
+    #[arg(long)]
+    pub order: Option<u32>,
+    /// Overwrite an existing page/manifest entry
+    #[arg(long)]
+    pub force: bool,
+}
+
+#[derive(Args, Debug)]
+pub struct ListArgs {
+    #[arg(long)]
+    pub json: bool,
+}
+
+#[derive(Args, Debug)]
+pub struct BuildArgs {}
+
+#[derive(Args, Debug)]
+pub struct ServeArgs {
+    /// Bind host
+    #[arg(long, default_value = "127.0.0.1")]
+    pub host: String,
+    /// Bind port
+    #[arg(long, default_value_t = 43111)]
+    pub port: u16,
+    /// Try to open the browser automatically
+    #[arg(long)]
+    pub open: bool,
+}
+
+#[derive(Clone, Copy, Debug, ValueEnum)]
+pub enum DiagramKindArg {
+    Flow,
+    Sequence,
+    Timeline,
+    Topology,
+    Dashboard,
+    Explain,
+    Other,
+}
+
+impl DiagramKindArg {
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::Flow => "flow",
+            Self::Sequence => "sequence",
+            Self::Timeline => "timeline",
+            Self::Topology => "topology",
+            Self::Dashboard => "dashboard",
+            Self::Explain => "explain",
+            Self::Other => "other",
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, ValueEnum)]
+pub enum DiagramSectionArg {
+    Architecture,
+    Agents,
+    Tasks,
+    Mind,
+    Ops,
+    Dashboards,
+    Explainers,
+    Research,
+    Other,
+}
+
+impl DiagramSectionArg {
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::Architecture => "architecture",
+            Self::Agents => "agents",
+            Self::Tasks => "tasks",
+            Self::Mind => "mind",
+            Self::Ops => "ops",
+            Self::Dashboards => "dashboards",
+            Self::Explainers => "explainers",
+            Self::Research => "research",
+            Self::Other => "other",
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, ValueEnum)]
+pub enum DiagramStatusArg {
+    Draft,
+    Active,
+    Stable,
+    Archived,
+}
+
+impl DiagramStatusArg {
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::Draft => "draft",
+            Self::Active => "active",
+            Self::Stable => "stable",
+            Self::Archived => "archived",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+struct DiagramManifest {
+    #[serde(default = "default_manifest_version")]
+    version: u32,
+    #[serde(default)]
+    site: SiteConfig,
+    #[serde(default)]
+    diagrams: Vec<DiagramRecord>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+struct SiteConfig {
+    #[serde(default)]
+    title: Option<String>,
+    #[serde(default)]
+    description: Option<String>,
+    #[serde(default)]
+    project_name: Option<String>,
+    #[serde(default)]
+    collections: Vec<CollectionRecord>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+struct CollectionRecord {
+    key: String,
+    title: String,
+    #[serde(default)]
+    description: Option<String>,
+    #[serde(default)]
+    order: u32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+struct DiagramRecord {
+    slug: String,
+    title: String,
+    #[serde(default)]
+    page: Option<String>,
+    #[serde(default)]
+    summary: Option<String>,
+    #[serde(default)]
+    section: Option<String>,
+    #[serde(default)]
+    kind: Option<String>,
+    #[serde(default)]
+    status: Option<String>,
+    #[serde(default)]
+    tags: Vec<String>,
+    #[serde(default)]
+    source_paths: Vec<String>,
+    #[serde(default)]
+    featured: bool,
+    #[serde(default)]
+    generated: bool,
+    #[serde(default)]
+    order: Option<u32>,
+    #[serde(default)]
+    created_at: Option<String>,
+    #[serde(default)]
+    updated_at: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct DiagramView {
+    slug: String,
+    title: String,
+    page: String,
+    summary: Option<String>,
+    section: String,
+    section_title: String,
+    kind: String,
+    status: String,
+    tags: Vec<String>,
+    source_paths: Vec<String>,
+    featured: bool,
+    generated: bool,
+    order: Option<u32>,
+    created_at: Option<String>,
+    updated_at: Option<String>,
+    inferred: bool,
+}
+
+#[derive(Debug, Clone, Default)]
+struct HtmlMetadata {
+    title: Option<String>,
+    summary: Option<String>,
+    section: Option<String>,
+    kind: Option<String>,
+    status: Option<String>,
+    tags: Vec<String>,
+}
+
+#[derive(Debug, Clone)]
+struct SiteView {
+    title: String,
+    description: String,
+    project_name: String,
+    project_root: String,
+    generated_at: String,
+    collections: Vec<CollectionRecord>,
+}
+
+#[derive(Debug, Clone)]
+struct SeePaths {
+    root: PathBuf,
+    diagrams_dir: PathBuf,
+    pages_dir: PathBuf,
+    manifest_path: PathBuf,
+    index_path: PathBuf,
+    readme_path: PathBuf,
+}
+
+fn default_manifest_version() -> u32 {
+    2
+}
+
+pub fn handle_see_command(command: SeeCommand) -> Result<()> {
+    match command {
+        SeeCommand::Init(args) => handle_init(args),
+        SeeCommand::New(args) => handle_new(args),
+        SeeCommand::List(args) => handle_list(args),
+        SeeCommand::Build(args) => handle_build(args),
+        SeeCommand::Serve(args) => handle_serve(args),
+    }
+}
+
+fn handle_init(args: InitArgs) -> Result<()> {
+    let paths = SeePaths::from_root(resolve_project_root()?);
+    ensure_dirs(&paths)?;
+    ensure_aoc_see_skill(&paths.root, args.force)?;
+
+    let mut manifest = load_manifest(&paths.manifest_path)?;
+    apply_manifest_defaults(&mut manifest, &paths, args.force);
+    write_manifest(&paths.manifest_path, &manifest)?;
+    write_if_missing_or_forced(&paths.readme_path, &starter_readme(), args.force)?;
+    build_index(&paths)?;
+
+    println!("initialized {}", paths.diagrams_dir.display());
+    Ok(())
+}
+
+fn handle_new(args: NewArgs) -> Result<()> {
+    let paths = SeePaths::from_root(resolve_project_root()?);
+    ensure_dirs(&paths)?;
+
+    let slug = validate_slug(&args.slug)?;
+    let mut manifest = load_manifest(&paths.manifest_path)?;
+    apply_manifest_defaults(&mut manifest, &paths, false);
+
+    let title = args.title.unwrap_or_else(|| title_from_slug(&slug));
+    let page_name = format!("{slug}.html");
+    let page_rel = format!("pages/{page_name}");
+    let page_path = paths.pages_dir.join(&page_name);
+    if page_path.exists() && !args.force {
+        bail!(
+            "{} already exists (use --force to overwrite)",
+            page_path.display()
+        );
+    }
+
+    let now = Utc::now().to_rfc3339();
+    let existing = manifest
+        .diagrams
+        .iter()
+        .find(|entry| entry.slug == slug)
+        .cloned();
+    let record = DiagramRecord {
+        slug: slug.clone(),
+        title: title.clone(),
+        page: Some(page_rel),
+        summary: args.summary.clone(),
+        section: Some(args.section.as_str().to_string()),
+        kind: Some(args.kind.as_str().to_string()),
+        status: Some(args.status.as_str().to_string()),
+        tags: normalize_tokens(args.tags),
+        source_paths: normalize_source_paths(args.source_paths),
+        featured: args.featured,
+        generated: args.generated,
+        order: args.order,
+        created_at: existing
+            .as_ref()
+            .and_then(|entry| entry.created_at.clone())
+            .or(Some(now.clone())),
+        updated_at: Some(now),
+    };
+    upsert_manifest_record(&mut manifest, record.clone());
+    write_manifest(&paths.manifest_path, &manifest)?;
+
+    fs::write(
+        &page_path,
+        starter_page_html(&manifest.site, &title, &record, &slug),
+    )
+    .with_context(|| format!("failed to write {}", page_path.display()))?;
+
+    build_index(&paths)?;
+    println!("created {}", page_path.display());
+    Ok(())
+}
+
+fn handle_list(args: ListArgs) -> Result<()> {
+    let paths = SeePaths::from_root(resolve_project_root()?);
+    let manifest = load_and_normalize_manifest(&paths)?;
+    let diagrams = collect_diagrams(&paths, &manifest)?;
+
+    if args.json {
+        println!("{}", serde_json::to_string_pretty(&diagrams)?);
+        return Ok(());
+    }
+    if diagrams.is_empty() {
+        println!("no AOC See pages found under {}", paths.pages_dir.display());
+        return Ok(());
+    }
+
+    for diagram in diagrams {
+        println!(
+            "{}\t{}\t{}\t{}\t{}\t{}",
+            diagram.slug,
+            diagram.section,
+            diagram.kind,
+            diagram.status,
+            diagram.page,
+            diagram.summary.unwrap_or_default()
+        );
+    }
+    Ok(())
+}
+
+fn handle_build(_args: BuildArgs) -> Result<()> {
+    let paths = SeePaths::from_root(resolve_project_root()?);
+    ensure_dirs(&paths)?;
+    build_index(&paths)?;
+    println!("built {}", paths.index_path.display());
+    Ok(())
+}
+
+fn handle_serve(args: ServeArgs) -> Result<()> {
+    let paths = SeePaths::from_root(resolve_project_root()?);
+    ensure_dirs(&paths)?;
+    build_index(&paths)?;
+
+    let url = format!("http://{}:{}/", args.host, args.port);
+    if args.open {
+        let _ = try_open_browser(&url);
+    }
+
+    let python = find_python()
+        .ok_or_else(|| anyhow!("python3/python is required to serve AOC See via aoc-see"))?;
+
+    println!("serving {} at {}", paths.diagrams_dir.display(), url);
+    println!("press Ctrl-C to stop");
+
+    let status = Command::new(python)
+        .args([
+            "-m",
+            "http.server",
+            &args.port.to_string(),
+            "--bind",
+            &args.host,
+            "--directory",
+            paths.diagrams_dir.to_string_lossy().as_ref(),
+        ])
+        .status()
+        .context("failed to launch python http.server")?;
+
+    if status.success() {
+        Ok(())
+    } else {
+        bail!("diagram dev server exited with status {status}")
+    }
+}
+
+impl SeePaths {
+    fn from_root(root: PathBuf) -> Self {
+        Self {
+            diagrams_dir: root.join(DIAGRAMS_DIR),
+            pages_dir: root.join(PAGES_DIR),
+            manifest_path: root.join(MANIFEST_PATH),
+            index_path: root.join(INDEX_PATH),
+            readme_path: root.join(README_PATH),
+            root,
+        }
+    }
+}
+
+fn resolve_project_root() -> Result<PathBuf> {
+    let cwd = std::env::current_dir()?;
+    for candidate in std::iter::once(cwd.as_path()).chain(cwd.ancestors().skip(1)) {
+        if candidate.join(".aoc").exists() || candidate.join(".git").exists() {
+            return Ok(candidate.to_path_buf());
+        }
+    }
+    Ok(cwd)
+}
+
+fn ensure_dirs(paths: &SeePaths) -> Result<()> {
+    fs::create_dir_all(&paths.pages_dir)
+        .with_context(|| format!("failed to create {}", paths.pages_dir.display()))?;
+    Ok(())
+}
+
+fn ensure_aoc_see_skill(root: &Path, force: bool) -> Result<()> {
+    let path = root.join(AOC_SEE_SKILL_PATH);
+    if path.exists() && !force {
+        return Ok(());
+    }
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent)
+            .with_context(|| format!("failed to create {}", parent.display()))?;
+    }
+    fs::write(&path, include_str!("../../../.pi/skills/aoc-see/SKILL.md"))
+        .with_context(|| format!("failed to write {}", path.display()))?;
+    Ok(())
+}
+
+fn render_mermaid_pages(paths: &SeePaths) -> Result<()> {
+    if !paths.pages_dir.exists() {
+        return Ok(());
+    }
+
+    for entry in fs::read_dir(&paths.pages_dir)
+        .with_context(|| format!("failed to read {}", paths.pages_dir.display()))?
+    {
+        let entry = entry?;
+        let path = entry.path();
+        if !path.is_file() || path.extension().and_then(|value| value.to_str()) != Some("html") {
+            continue;
+        }
+        render_mermaid_page(&path)?;
+    }
+
+    Ok(())
+}
+
+fn render_mermaid_page(path: &Path) -> Result<()> {
+    let content =
+        fs::read_to_string(path).with_context(|| format!("failed to read {}", path.display()))?;
+    let rendered = render_mermaid_blocks(&content)
+        .with_context(|| format!("failed to render Mermaid blocks in {}", path.display()))?;
+    if rendered != content {
+        fs::write(path, rendered).with_context(|| format!("failed to write {}", path.display()))?;
+    }
+    Ok(())
+}
+
+fn render_mermaid_blocks(content: &str) -> Result<String> {
+    let mut output = String::with_capacity(content.len() + 1024);
+    let mut cursor = 0;
+    let mut changed = false;
+
+    while let Some(script_rel_start) = content[cursor..].find("<script") {
+        let script_start = cursor + script_rel_start;
+        output.push_str(&content[cursor..script_start]);
+
+        let open_end_rel = content[script_start..]
+            .find('>')
+            .ok_or_else(|| anyhow!("unterminated <script> tag"))?;
+        let open_end = script_start + open_end_rel + 1;
+        let close_rel = content[open_end..]
+            .find("</script>")
+            .ok_or_else(|| anyhow!("unterminated </script> tag"))?;
+        let close_start = open_end + close_rel;
+        let close_end = close_start + "</script>".len();
+        let block = &content[script_start..close_end];
+        let open_tag = &content[script_start..open_end];
+
+        if open_tag.contains("data-aoc-see-mermaid") {
+            let source = content[open_end..close_start].trim();
+            if source.is_empty() {
+                output.push_str(block);
+            } else {
+                let svg = render_mermaid_to_svg(source)
+                    .map_err(|err| anyhow!("Mermaid render error: {err}"))?;
+                output.push_str(block);
+                output.push('\n');
+                output.push_str(&rendered_mermaid_block(&svg));
+                changed = true;
+                if let Some(consumed) = consume_existing_mermaid_output(&content[close_end..]) {
+                    cursor = close_end + consumed;
+                    continue;
+                }
+            }
+        } else {
+            output.push_str(block);
+        }
+
+        cursor = close_end;
+    }
+
+    output.push_str(&content[cursor..]);
+    if changed {
+        Ok(output)
+    } else {
+        Ok(content.to_string())
+    }
+}
+
+fn rendered_mermaid_block(svg: &str) -> String {
+    format!(
+        "{MERMAID_OUTPUT_START}\n<div class=\"mermaid-rendered\" data-aoc-see-generated=\"true\">\n{svg}\n</div>\n{MERMAID_OUTPUT_END}"
+    )
+}
+
+fn consume_existing_mermaid_output(input: &str) -> Option<usize> {
+    let trimmed = input.trim_start_matches(char::is_whitespace);
+    let whitespace_len = input.len() - trimmed.len();
+    if !trimmed.starts_with(MERMAID_OUTPUT_START) {
+        return None;
+    }
+    let end_rel = trimmed.find(MERMAID_OUTPUT_END)?;
+    Some(whitespace_len + end_rel + MERMAID_OUTPUT_END.len())
+}
+
+fn write_if_missing_or_forced(path: &Path, content: &str, force: bool) -> Result<()> {
+    if path.exists() && !force {
+        return Ok(());
+    }
+    fs::write(path, content).with_context(|| format!("failed to write {}", path.display()))
+}
+
+fn load_manifest(path: &Path) -> Result<DiagramManifest> {
+    if !path.exists() {
+        return Ok(DiagramManifest {
+            version: default_manifest_version(),
+            site: SiteConfig::default(),
+            diagrams: Vec::new(),
+        });
+    }
+    let content =
+        fs::read_to_string(path).with_context(|| format!("failed to read {}", path.display()))?;
+    let manifest: DiagramManifest = serde_json::from_str(&content)
+        .with_context(|| format!("failed to parse {}", path.display()))?;
+    Ok(manifest)
+}
+
+fn load_and_normalize_manifest(paths: &SeePaths) -> Result<DiagramManifest> {
+    let mut manifest = load_manifest(&paths.manifest_path)?;
+    apply_manifest_defaults(&mut manifest, paths, false);
+    if !paths.manifest_path.exists() || manifest.version != default_manifest_version() {
+        manifest.version = default_manifest_version();
+        write_manifest(&paths.manifest_path, &manifest)?;
+    }
+    Ok(manifest)
+}
+
+fn write_manifest(path: &Path, manifest: &DiagramManifest) -> Result<()> {
+    fs::write(path, serde_json::to_string_pretty(manifest)?)
+        .with_context(|| format!("failed to write {}", path.display()))
+}
+
+fn apply_manifest_defaults(manifest: &mut DiagramManifest, paths: &SeePaths, force: bool) {
+    manifest.version = default_manifest_version();
+
+    let defaults = default_site_config(paths);
+    if force
+        || manifest
+            .site
+            .title
+            .as_deref()
+            .unwrap_or("")
+            .trim()
+            .is_empty()
+    {
+        manifest.site.title = defaults.title;
+    }
+    if force
+        || manifest
+            .site
+            .description
+            .as_deref()
+            .unwrap_or("")
+            .trim()
+            .is_empty()
+    {
+        manifest.site.description = defaults.description;
+    }
+    if force
+        || manifest
+            .site
+            .project_name
+            .as_deref()
+            .unwrap_or("")
+            .trim()
+            .is_empty()
+    {
+        manifest.site.project_name = defaults.project_name;
+    }
+    if force || manifest.site.collections.is_empty() {
+        manifest.site.collections = defaults.collections;
+    } else {
+        manifest.site.collections = normalized_collections(manifest.site.collections.clone());
+    }
+}
+
+fn default_site_config(paths: &SeePaths) -> SiteConfig {
+    let repo_name = paths
+        .root
+        .file_name()
+        .and_then(|value| value.to_str())
+        .unwrap_or("project")
+        .to_string();
+    let pretty = title_from_slug(&repo_name.replace(['_', ' '], "-"));
+    SiteConfig {
+        title: Some(format!("{} · AOC See", pretty)),
+        description: Some(format!(
+            "Visualization layer for {}. Use this microsite to browse architecture explainers, agent maps, task views, provenance pages, and operational runbooks for the repo.",
+            pretty
+        )),
+        project_name: Some(pretty),
+        collections: default_collections(),
+    }
+}
+
+fn normalized_collections(mut collections: Vec<CollectionRecord>) -> Vec<CollectionRecord> {
+    if collections.is_empty() {
+        return default_collections();
+    }
+    for collection in &mut collections {
+        collection.key = normalize_key(&collection.key);
+        if collection.title.trim().is_empty() {
+            collection.title = title_from_slug(&collection.key);
+        }
+    }
+    collections.sort_by(|left, right| {
+        left.order
+            .cmp(&right.order)
+            .then_with(|| left.title.cmp(&right.title))
+    });
+    collections
+}
+
+fn default_collections() -> Vec<CollectionRecord> {
+    vec![
+        CollectionRecord {
+            key: "architecture".to_string(),
+            title: "Architecture".to_string(),
+            description: Some(
+                "System structure, boundaries, core data flow, and major implementation surfaces."
+                    .to_string(),
+            ),
+            order: 10,
+        },
+        CollectionRecord {
+            key: "agents".to_string(),
+            title: "Agents".to_string(),
+            description: Some(
+                "Specialist roles, subagents, orchestration routes, wrappers, and runtime behavior."
+                    .to_string(),
+            ),
+            order: 20,
+        },
+        CollectionRecord {
+            key: "tasks".to_string(),
+            title: "Tasks".to_string(),
+            description: Some(
+                "Taskmaster flows, dependencies, delivery plans, and work decomposition."
+                    .to_string(),
+            ),
+            order: 30,
+        },
+        CollectionRecord {
+            key: "mind".to_string(),
+            title: "Mind".to_string(),
+            description: Some(
+                "Insight, provenance, compaction, observer/reflector paths, and memory views."
+                    .to_string(),
+            ),
+            order: 40,
+        },
+        CollectionRecord {
+            key: "ops".to_string(),
+            title: "Ops".to_string(),
+            description: Some(
+                "Operational runbooks, session lifecycle pages, troubleshooting surfaces, and control flows."
+                    .to_string(),
+            ),
+            order: 50,
+        },
+        CollectionRecord {
+            key: "dashboards".to_string(),
+            title: "Dashboards".to_string(),
+            description: Some(
+                "Visual summaries, fleet views, status boards, and rollups derived from repo state."
+                    .to_string(),
+            ),
+            order: 60,
+        },
+        CollectionRecord {
+            key: "explainers".to_string(),
+            title: "Explainers".to_string(),
+            description: Some(
+                "Narrative visual walkthroughs for humans and agents who need fast orientation."
+                    .to_string(),
+            ),
+            order: 70,
+        },
+        CollectionRecord {
+            key: "research".to_string(),
+            title: "Research".to_string(),
+            description: Some(
+                "Investigations, comparisons, spikes, and references captured as visual notes."
+                    .to_string(),
+            ),
+            order: 80,
+        },
+        CollectionRecord {
+            key: "other".to_string(),
+            title: "Other".to_string(),
+            description: Some("Everything else that benefits from a browsable visual artifact.".to_string()),
+            order: 90,
+        },
+    ]
+}
+
+fn validate_slug(value: &str) -> Result<String> {
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        bail!("slug cannot be empty");
+    }
+    let valid = trimmed
+        .chars()
+        .all(|ch| ch.is_ascii_lowercase() || ch.is_ascii_digit() || ch == '-');
+    if !valid || trimmed.starts_with('-') || trimmed.ends_with('-') {
+        bail!("slug must match [a-z0-9-] and cannot start/end with '-'");
+    }
+    Ok(trimmed.to_string())
+}
+
+fn title_from_slug(slug: &str) -> String {
+    slug.split('-')
+        .filter(|part| !part.is_empty())
+        .map(|part| {
+            let mut chars = part.chars();
+            match chars.next() {
+                Some(first) => format!("{}{}", first.to_ascii_uppercase(), chars.as_str()),
+                None => String::new(),
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+fn normalize_key(value: &str) -> String {
+    let mut normalized = String::new();
+    let mut last_dash = false;
+    for ch in value.trim().chars() {
+        let mapped = if ch.is_ascii_alphanumeric() {
+            ch.to_ascii_lowercase()
+        } else if matches!(ch, '-' | '_' | ' ') {
+            '-'
+        } else {
+            continue;
+        };
+        if mapped == '-' {
+            if last_dash || normalized.is_empty() {
+                continue;
+            }
+            last_dash = true;
+            normalized.push(mapped);
+        } else {
+            last_dash = false;
+            normalized.push(mapped);
+        }
+    }
+    normalized.trim_matches('-').to_string()
+}
+
+fn normalize_tokens(tokens: Vec<String>) -> Vec<String> {
+    let mut deduped = BTreeSet::new();
+    for token in tokens {
+        let normalized = normalize_key(&token);
+        if !normalized.is_empty() {
+            deduped.insert(normalized);
+        }
+    }
+    deduped.into_iter().collect()
+}
+
+fn normalize_source_paths(values: Vec<String>) -> Vec<String> {
+    let mut deduped = BTreeSet::new();
+    for value in values {
+        let trimmed = value.trim();
+        if !trimmed.is_empty() {
+            deduped.insert(trimmed.to_string());
+        }
+    }
+    deduped.into_iter().collect()
+}
+
+fn upsert_manifest_record(manifest: &mut DiagramManifest, record: DiagramRecord) {
+    if let Some(existing) = manifest
+        .diagrams
+        .iter_mut()
+        .find(|entry| entry.slug == record.slug)
+    {
+        *existing = record;
+    } else {
+        manifest.diagrams.push(record);
+    }
+    manifest.diagrams.sort_by(|left, right| {
+        left.order
+            .unwrap_or(u32::MAX)
+            .cmp(&right.order.unwrap_or(u32::MAX))
+            .then_with(|| left.slug.cmp(&right.slug))
+    });
+}
+
+fn collect_diagrams(paths: &SeePaths, manifest: &DiagramManifest) -> Result<Vec<DiagramView>> {
+    let by_slug: BTreeMap<_, _> = manifest
+        .diagrams
+        .iter()
+        .cloned()
+        .map(|record| (record.slug.clone(), record))
+        .collect();
+    let by_page: BTreeMap<_, _> = manifest
+        .diagrams
+        .iter()
+        .cloned()
+        .filter_map(|record| record.page.clone().map(|page| (page, record)))
+        .collect();
+
+    let mut views = Vec::new();
+    if paths.pages_dir.exists() {
+        for entry in fs::read_dir(&paths.pages_dir)
+            .with_context(|| format!("failed to read {}", paths.pages_dir.display()))?
+        {
+            let entry = entry?;
+            let path = entry.path();
+            if !path.is_file() || path.extension().and_then(|ext| ext.to_str()) != Some("html") {
+                continue;
+            }
+
+            let page_rel = format!(
+                "pages/{}",
+                path.file_name()
+                    .and_then(|name| name.to_str())
+                    .ok_or_else(|| anyhow!("invalid page filename {}", path.display()))?
+            );
+            let slug = path
+                .file_stem()
+                .and_then(|stem| stem.to_str())
+                .ok_or_else(|| anyhow!("invalid page filename {}", path.display()))?
+                .to_string();
+            let html_meta = extract_html_metadata(&path)?;
+            let record = by_page.get(&page_rel).or_else(|| by_slug.get(&slug));
+            let section = record
+                .and_then(|item| item.section.clone())
+                .or(html_meta.section)
+                .map(|value| normalize_key(&value))
+                .filter(|value| !value.is_empty())
+                .unwrap_or_else(|| infer_section(record.and_then(|item| item.kind.as_deref())));
+            let kind = record
+                .and_then(|item| item.kind.clone())
+                .or(html_meta.kind)
+                .map(|value| normalize_key(&value))
+                .filter(|value| !value.is_empty())
+                .unwrap_or_else(|| "other".to_string());
+            let status = record
+                .and_then(|item| item.status.clone())
+                .or(html_meta.status)
+                .map(|value| normalize_key(&value))
+                .filter(|value| !value.is_empty())
+                .unwrap_or_else(|| "draft".to_string());
+            let mut tags = record.map(|item| item.tags.clone()).unwrap_or_default();
+            tags.extend(html_meta.tags);
+            let tags = normalize_tokens(tags);
+
+            views.push(DiagramView {
+                slug: slug.clone(),
+                title: record
+                    .map(|item| item.title.clone())
+                    .filter(|value| !value.trim().is_empty())
+                    .or(html_meta.title)
+                    .unwrap_or_else(|| title_from_slug(&slug)),
+                page: page_rel,
+                summary: record
+                    .and_then(|item| item.summary.clone())
+                    .or(html_meta.summary),
+                section_title: section_title(&section, &manifest.site.collections),
+                section,
+                kind,
+                status,
+                tags,
+                source_paths: record
+                    .map(|item| item.source_paths.clone())
+                    .unwrap_or_default(),
+                featured: record.map(|item| item.featured).unwrap_or(false),
+                generated: record.map(|item| item.generated).unwrap_or(false),
+                order: record.and_then(|item| item.order),
+                created_at: record.and_then(|item| item.created_at.clone()),
+                updated_at: record.and_then(|item| item.updated_at.clone()),
+                inferred: record.is_none(),
+            });
+        }
+    }
+
+    views.sort_by(|left, right| compare_diagrams(left, right));
+    Ok(views)
+}
+
+fn compare_diagrams(left: &DiagramView, right: &DiagramView) -> std::cmp::Ordering {
+    right
+        .featured
+        .cmp(&left.featured)
+        .then_with(|| {
+            left.order
+                .unwrap_or(u32::MAX)
+                .cmp(&right.order.unwrap_or(u32::MAX))
+        })
+        .then_with(|| right.updated_at.cmp(&left.updated_at))
+        .then_with(|| left.title.cmp(&right.title))
+}
+
+fn infer_section(kind: Option<&str>) -> String {
+    match kind.map(normalize_key).as_deref() {
+        Some("dashboard") => "dashboards".to_string(),
+        Some("topology") => "agents".to_string(),
+        Some("timeline") => "ops".to_string(),
+        _ => "explainers".to_string(),
+    }
+}
+
+fn extract_html_metadata(path: &Path) -> Result<HtmlMetadata> {
+    let content =
+        fs::read_to_string(path).with_context(|| format!("failed to read {}", path.display()))?;
+    Ok(HtmlMetadata {
+        title: extract_tag_text(&content, "title").or_else(|| extract_tag_text(&content, "h1")),
+        summary: extract_named_meta(&content, "aoc-see:summary"),
+        section: extract_named_meta(&content, "aoc-see:section"),
+        kind: extract_named_meta(&content, "aoc-see:kind"),
+        status: extract_named_meta(&content, "aoc-see:status"),
+        tags: extract_named_meta(&content, "aoc-see:tags")
+            .map(|value| {
+                value
+                    .split(',')
+                    .map(|part| part.trim().to_string())
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default(),
+    })
+}
+
+fn extract_named_meta(content: &str, name: &str) -> Option<String> {
+    for quote in ['"', '\''] {
+        let needle = format!("name={quote}{name}{quote}");
+        let Some(start) = content.find(&needle) else {
+            continue;
+        };
+        let rest = &content[start..];
+        let Some(tag_end) = rest.find('>') else {
+            continue;
+        };
+        let tag = &rest[..tag_end];
+        if let Some(value) = extract_attr(tag, "content") {
+            let trimmed = value.trim();
+            if !trimmed.is_empty() {
+                return Some(trimmed.to_string());
+            }
+        }
+    }
+    None
+}
+
+fn extract_attr(tag: &str, attr: &str) -> Option<String> {
+    for quote in ['"', '\''] {
+        let needle = format!("{attr}={quote}");
+        if let Some(start) = tag.find(&needle) {
+            let tail = &tag[start + needle.len()..];
+            let end = tail.find(quote)?;
+            return Some(tail[..end].to_string());
+        }
+    }
+    None
+}
+
+fn extract_tag_text(content: &str, tag: &str) -> Option<String> {
+    let open = format!("<{tag}");
+    let start = content.find(&open)?;
+    let rest = &content[start..];
+    let open_end = rest.find('>')? + 1;
+    let close = format!("</{tag}>");
+    let inner = &rest[open_end..];
+    let end = inner.find(&close)?;
+    let value = inner[..end].trim();
+    if value.is_empty() {
+        None
+    } else {
+        Some(value.to_string())
+    }
+}
+
+fn build_index(paths: &SeePaths) -> Result<()> {
+    render_mermaid_pages(paths)?;
+    let manifest = load_and_normalize_manifest(paths)?;
+    let diagrams = collect_diagrams(paths, &manifest)?;
+    let site = build_site_view(paths, &manifest);
+    let html = render_index_html(&site, &diagrams);
+    fs::write(&paths.index_path, html)
+        .with_context(|| format!("failed to write {}", paths.index_path.display()))?;
+    Ok(())
+}
+
+fn build_site_view(paths: &SeePaths, manifest: &DiagramManifest) -> SiteView {
+    let defaults = default_site_config(paths);
+    SiteView {
+        title: manifest
+            .site
+            .title
+            .clone()
+            .or(defaults.title)
+            .unwrap_or_else(|| "AOC See".to_string()),
+        description: manifest
+            .site
+            .description
+            .clone()
+            .or(defaults.description)
+            .unwrap_or_else(|| "Project-local visualization layer".to_string()),
+        project_name: manifest
+            .site
+            .project_name
+            .clone()
+            .or(defaults.project_name)
+            .unwrap_or_else(|| "Project".to_string()),
+        project_root: paths.root.display().to_string(),
+        generated_at: Utc::now().to_rfc3339(),
+        collections: normalized_collections(manifest.site.collections.clone()),
+    }
+}
+
+fn render_index_html(site: &SiteView, diagrams: &[DiagramView]) -> String {
+    let total_pages = diagrams.len();
+    let section_keys = used_section_keys(diagrams, &site.collections);
+    let unique_tags = collect_unique_tags(diagrams);
+    let unique_kinds = collect_unique_kinds(diagrams);
+    let visible_section_count = section_keys.len();
+    let recent = recent_diagrams(diagrams);
+    let section_nav = render_section_nav(&section_keys, &site.collections);
+    let section_blocks = render_sections(diagrams, &section_keys, &site.collections);
+    let featured_block = render_featured(diagrams);
+    let recent_block = render_recent(&recent);
+    let section_filters = render_filter_buttons("section", &section_keys);
+    let kind_filters = render_filter_buttons("kind", &unique_kinds);
+    let tag_filters = render_filter_buttons("tag", &unique_tags);
+    let empty_state = if total_pages == 0 {
+        "<section class=\"empty-site\"><h2>No pages yet</h2><p>This repo already has an AOC See homepage. Now start adding pages with <code>aoc-see new agent-topology --section agents --kind topology</code>, then rebuild or serve the site.</p></section>".to_string()
+    } else {
+        String::new()
+    };
+
+    format!(
+        r##"<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{title}</title>
+  <meta name="description" content="{description}">
+  <style>
+    :root {{
+      color-scheme: dark;
+      --bg: #07111d;
+      --bg-2: #0b1727;
+      --panel: rgba(12, 20, 36, 0.9);
+      --panel-2: rgba(15, 26, 46, 0.95);
+      --line: #243756;
+      --line-soft: rgba(120, 158, 220, 0.14);
+      --text: #eaf1ff;
+      --muted: #9eb1d1;
+      --accent: #79c0ff;
+      --accent-2: #8dd694;
+      --accent-3: #f2cc8f;
+      --danger: #ef8d8d;
+      --shadow: 0 20px 40px rgba(0, 0, 0, 0.28);
+      --radius: 18px;
+    }}
+    * {{ box-sizing: border-box; }}
+    html {{ scroll-behavior: smooth; }}
+    body {{
+      margin: 0;
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background:
+        radial-gradient(circle at top right, rgba(121, 192, 255, 0.14), transparent 25%),
+        radial-gradient(circle at top left, rgba(141, 214, 148, 0.10), transparent 25%),
+        linear-gradient(180deg, var(--bg), #091321 45%, #08111c);
+      color: var(--text);
+    }}
+    a {{ color: var(--accent); text-decoration: none; }}
+    a:hover {{ text-decoration: underline; }}
+    code {{
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 0.92em;
+      color: var(--accent);
+      background: rgba(8, 16, 28, 0.85);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 0.15rem 0.38rem;
+    }}
+    .shell {{ max-width: 1260px; margin: 0 auto; padding: 24px 20px 72px; }}
+    .topbar {{
+      position: sticky; top: 0; z-index: 20; backdrop-filter: blur(14px);
+      background: rgba(7, 12, 20, 0.72); border: 1px solid var(--line-soft);
+      border-radius: 16px; padding: 12px 16px; display: flex; gap: 12px; justify-content: space-between; align-items: center;
+      margin-bottom: 18px;
+    }}
+    .brand {{ display: flex; gap: 12px; align-items: center; min-width: 0; }}
+    .brand-badge {{
+      display: inline-flex; align-items: center; justify-content: center; width: 42px; height: 42px;
+      border-radius: 12px; background: linear-gradient(135deg, rgba(121,192,255,0.25), rgba(141,214,148,0.18));
+      border: 1px solid var(--line); font-weight: 800;
+    }}
+    .brand-title {{ font-weight: 700; font-size: 1rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }}
+    .brand-subtitle {{ color: var(--muted); font-size: 0.88rem; }}
+    .nav-links {{ display: flex; flex-wrap: wrap; gap: 8px; justify-content: flex-end; }}
+    .nav-links a {{
+      display: inline-flex; align-items: center; gap: 8px; padding: 8px 12px; border-radius: 999px;
+      border: 1px solid var(--line); background: rgba(12, 20, 36, 0.7); color: var(--muted);
+    }}
+    .hero {{
+      display: grid; grid-template-columns: minmax(0, 1.7fr) minmax(320px, 0.9fr);
+      gap: 18px; margin: 24px 0 18px;
+    }}
+    .panel {{
+      background: linear-gradient(180deg, rgba(17,27,45,0.9), rgba(10,17,31,0.92));
+      border: 1px solid var(--line); border-radius: var(--radius); box-shadow: var(--shadow);
+    }}
+    .hero-main {{ padding: 28px; }}
+    .eyebrow {{
+      display: inline-flex; align-items: center; gap: 8px; padding: 7px 12px; margin-bottom: 18px;
+      border-radius: 999px; border: 1px solid var(--line); color: var(--accent); background: rgba(10, 18, 31, 0.88);
+      font-size: 0.88rem; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase;
+    }}
+    h1 {{ margin: 0 0 12px; font-size: clamp(2rem, 5vw, 3.2rem); line-height: 1.04; }}
+    .hero p {{ margin: 0; color: var(--muted); line-height: 1.65; }}
+    .hero-actions {{ display: flex; flex-wrap: wrap; gap: 10px; margin-top: 20px; }}
+    .button {{
+      display: inline-flex; align-items: center; gap: 10px; padding: 11px 14px; border-radius: 12px;
+      border: 1px solid var(--line); text-decoration: none; color: var(--text); background: rgba(12, 20, 36, 0.86);
+      font-weight: 600;
+    }}
+    .button.primary {{ color: #05101c; background: linear-gradient(135deg, var(--accent), #9fd2ff); border-color: transparent; }}
+    .hero-side {{ padding: 22px; display: grid; gap: 14px; align-content: start; }}
+    .mini-grid {{ display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }}
+    .metric {{ padding: 15px; border-radius: 16px; background: rgba(8, 15, 26, 0.82); border: 1px solid var(--line); }}
+    .metric-label {{ color: var(--muted); font-size: 0.86rem; margin-bottom: 6px; }}
+    .metric-value {{ font-size: 1.45rem; font-weight: 800; }}
+    .note {{ padding: 14px 15px; border-radius: 14px; border: 1px solid var(--line); background: rgba(8, 15, 26, 0.82); }}
+    .note strong {{ display: block; margin-bottom: 6px; }}
+    .search-panel {{ padding: 18px; margin: 18px 0; }}
+    .search-row {{ display: flex; flex-wrap: wrap; gap: 12px; align-items: center; justify-content: space-between; margin-bottom: 16px; }}
+    .search-row h2 {{ margin: 0; font-size: 1.08rem; }}
+    .search-row p {{ margin: 0; color: var(--muted); }}
+    .search-box {{ width: 100%; }}
+    .search-box input {{
+      width: 100%; border: 1px solid var(--line); border-radius: 14px; background: rgba(8, 14, 24, 0.92);
+      color: var(--text); padding: 13px 14px; font-size: 1rem; outline: none;
+    }}
+    .search-box input:focus {{ border-color: var(--accent); box-shadow: 0 0 0 3px rgba(121, 192, 255, 0.12); }}
+    .filter-stack {{ display: grid; gap: 14px; }}
+    .filter-group-label {{ color: var(--muted); font-size: 0.86rem; margin-bottom: 8px; text-transform: uppercase; letter-spacing: 0.06em; }}
+    .chips {{ display: flex; flex-wrap: wrap; gap: 8px; }}
+    .chip {{
+      border: 1px solid var(--line); background: rgba(12, 20, 36, 0.82); color: var(--muted);
+      border-radius: 999px; padding: 8px 12px; cursor: pointer; font: inherit;
+    }}
+    .chip.active {{ background: rgba(121, 192, 255, 0.14); color: var(--text); border-color: rgba(121, 192, 255, 0.5); }}
+    .layout {{ display: grid; grid-template-columns: minmax(0, 1.65fr) minmax(300px, 0.75fr); gap: 18px; align-items: start; }}
+    .stack {{ display: grid; gap: 18px; }}
+    .featured {{ padding: 20px; }}
+    .featured h2, .section-header h2, .sidebar-card h2 {{ margin: 0 0 8px; font-size: 1.12rem; }}
+    .section-header p, .featured p, .sidebar-card p {{ margin: 0; color: var(--muted); line-height: 1.55; }}
+    .card-grid {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 14px; margin-top: 16px; }}
+    .card {{
+      display: grid; gap: 12px; align-content: start; padding: 18px;
+      border-radius: 18px; background: linear-gradient(180deg, rgba(12, 20, 36, 0.95), rgba(9, 16, 28, 0.98));
+      border: 1px solid var(--line); min-height: 255px;
+    }}
+    .card-top {{ display: flex; gap: 8px; flex-wrap: wrap; align-items: center; justify-content: space-between; }}
+    .badge-row {{ display: flex; gap: 8px; flex-wrap: wrap; }}
+    .badge {{
+      display: inline-flex; align-items: center; gap: 6px; padding: 5px 10px; border-radius: 999px;
+      border: 1px solid var(--line); font-size: 0.8rem; background: rgba(10, 17, 29, 0.9); color: var(--muted);
+      text-transform: uppercase; letter-spacing: 0.04em;
+    }}
+    .badge.kind {{ color: var(--accent); }}
+    .badge.status-stable {{ color: var(--accent-2); }}
+    .badge.status-active {{ color: var(--accent); }}
+    .badge.status-draft {{ color: var(--accent-3); }}
+    .badge.status-archived {{ color: var(--danger); }}
+    .card h3 {{ margin: 0; font-size: 1.1rem; line-height: 1.3; }}
+    .card p {{ margin: 0; color: var(--muted); line-height: 1.55; }}
+    .meta-list {{ display: grid; gap: 8px; color: var(--muted); font-size: 0.92rem; }}
+    .tags {{ display: flex; flex-wrap: wrap; gap: 8px; }}
+    .tag {{ border-radius: 999px; background: rgba(21, 34, 57, 0.92); border: 1px solid var(--line); color: var(--muted); padding: 5px 10px; font-size: 0.85rem; }}
+    .section-block {{ padding: 20px; }}
+    .section-header {{ display: flex; gap: 12px; justify-content: space-between; align-items: start; margin-bottom: 6px; }}
+    .section-count {{ color: var(--muted); font-size: 0.92rem; white-space: nowrap; }}
+    .sidebar {{ display: grid; gap: 18px; }}
+    .sidebar-card {{ padding: 18px; }}
+    .list {{ display: grid; gap: 10px; margin-top: 14px; }}
+    .list-item {{ padding: 12px 13px; border-radius: 14px; border: 1px solid var(--line); background: rgba(8, 14, 24, 0.88); }}
+    .list-item strong {{ display: block; margin-bottom: 5px; }}
+    .section-block.hidden, .card.hidden, #no-results.hidden, #empty-sections.hidden {{ display: none; }}
+    .empty-site, .empty-results {{ padding: 20px; border-radius: 18px; border: 1px dashed var(--line); background: rgba(8, 14, 24, 0.78); color: var(--muted); }}
+    footer {{ margin-top: 24px; padding: 18px; color: var(--muted); border: 1px solid var(--line); border-radius: 16px; background: rgba(8, 14, 24, 0.82); }}
+    @media (max-width: 980px) {{
+      .hero, .layout {{ grid-template-columns: 1fr; }}
+      .topbar {{ position: static; }}
+    }}
+  </style>
+</head>
+<body>
+  <div class="shell">
+    <div class="topbar">
+      <div class="brand">
+        <div class="brand-badge">AØ</div>
+        <div>
+          <div class="brand-title">{title}</div>
+          <div class="brand-subtitle">{project_name} · project-local visualization microsite</div>
+        </div>
+      </div>
+      <nav class="nav-links">
+        <a href="#filters">Filters</a>
+        <a href="#collections">Collections</a>
+        <a href="#recent">Recent</a>
+      </nav>
+    </div>
+
+    <section class="hero">
+      <div class="panel hero-main">
+        <div class="eyebrow">AOC See · Visualization Layer</div>
+        <h1>Explore the repo as a browsable site.</h1>
+        <p>{description}</p>
+        <div class="hero-actions">
+          <a class="button primary" href="#collections">Browse pages</a>
+          <a class="button" href="#filters">Search & filter</a>
+          <span class="button"><code>aoc-see serve --open</code></span>
+        </div>
+      </div>
+      <aside class="panel hero-side">
+        <div class="mini-grid">
+          <div class="metric">
+            <div class="metric-label">Pages</div>
+            <div class="metric-value" id="visible-page-count">{total_pages}</div>
+          </div>
+          <div class="metric">
+            <div class="metric-label">Collections</div>
+            <div class="metric-value">{visible_section_count}</div>
+          </div>
+          <div class="metric">
+            <div class="metric-label">Kinds</div>
+            <div class="metric-value">{kind_count}</div>
+          </div>
+          <div class="metric">
+            <div class="metric-label">Tags</div>
+            <div class="metric-value">{tag_count}</div>
+          </div>
+        </div>
+        <div class="note">
+          <strong>How to add a page</strong>
+          Scaffold with <code>aoc-see new task-flow --section tasks --kind flow</code>, then edit the generated HTML in <code>.aoc/diagrams/pages/</code>.
+        </div>
+        <div class="note">
+          <strong>Project root</strong>
+          <code>{project_root}</code>
+        </div>
+      </aside>
+    </section>
+
+    <section class="panel search-panel" id="filters">
+      <div class="search-row">
+        <div>
+          <h2>Discover pages fast</h2>
+          <p>Filter by collection, page kind, tag, or free-text search.</p>
+        </div>
+        <div class="badge-row">
+          <span class="badge">generated {generated_at}</span>
+          <span class="badge">{total_pages} total pages</span>
+        </div>
+      </div>
+      <div class="search-box">
+        <input id="search-input" type="search" placeholder="Search by title, summary, tag, section, or kind..." autocomplete="off">
+      </div>
+      <div class="filter-stack">
+        <div>
+          <div class="filter-group-label">Collections</div>
+          <div class="chips" data-group="section">
+            <button class="chip active" type="button" data-filter-group="section" data-filter-value="all">All</button>
+            {section_filters}
+          </div>
+        </div>
+        <div>
+          <div class="filter-group-label">Kinds</div>
+          <div class="chips" data-group="kind">
+            <button class="chip active" type="button" data-filter-group="kind" data-filter-value="all">All</button>
+            {kind_filters}
+          </div>
+        </div>
+        <div>
+          <div class="filter-group-label">Tags</div>
+          <div class="chips" data-group="tag">
+            <button class="chip active" type="button" data-filter-group="tag" data-filter-value="all">All</button>
+            {tag_filters}
+          </div>
+        </div>
+      </div>
+    </section>
+
+    {empty_state}
+
+    <div class="layout">
+      <main class="stack" id="collections">
+        {featured_block}
+        {section_nav}
+        <div id="no-results" class="empty-results hidden">
+          <h2>No matching pages</h2>
+          <p>Try clearing some filters or search terms.</p>
+        </div>
+        <div id="empty-sections" class="hidden"></div>
+        {section_blocks}
+      </main>
+      <aside class="sidebar">
+        <section class="panel sidebar-card" id="recent">
+          <h2>Recent updates</h2>
+          <p>Most recently updated pages in this microsite.</p>
+          {recent_block}
+        </section>
+        <section class="panel sidebar-card">
+          <h2>Suggested collections</h2>
+          <p>Good homepage categories for long-lived AOC projects.</p>
+          <div class="list">
+            <div class="list-item"><strong>Architecture</strong>Boundaries, components, data flow, and repo layout.</div>
+            <div class="list-item"><strong>Agents</strong>Roles, subagent orchestration, wrappers, sessions, and handoffs.</div>
+            <div class="list-item"><strong>Tasks & Mind</strong>Task graphs, provenance, compaction, exports, and recovery paths.</div>
+            <div class="list-item"><strong>Ops</strong>Runbooks, debugging surfaces, status boards, and lifecycle pages.</div>
+          </div>
+        </section>
+      </aside>
+    </div>
+
+    <footer>
+      <strong>{title}</strong> is generated from <code>.aoc/diagrams/manifest.json</code> plus any self-contained HTML pages in <code>.aoc/diagrams/pages/</code>. Build with <code>aoc-see build</code> and serve with <code>aoc-see serve</code>.
+    </footer>
+  </div>
+
+  <script>
+    (() => {{
+      const state = {{ section: 'all', kind: 'all', tag: 'all', query: '' }};
+      const cards = Array.from(document.querySelectorAll('.card[data-card="1"]'));
+      const sections = Array.from(document.querySelectorAll('.section-block[data-section-block]'));
+      const visibleCount = document.getElementById('visible-page-count');
+      const noResults = document.getElementById('no-results');
+      const searchInput = document.getElementById('search-input');
+
+      function normalize(value) {{
+        return (value || '').toLowerCase();
+      }}
+
+      function matches(card) {{
+        const query = normalize(state.query);
+        const haystack = normalize(card.dataset.search || '');
+        if (query && !haystack.includes(query)) return false;
+        if (state.section !== 'all' && normalize(card.dataset.section) !== state.section) return false;
+        if (state.kind !== 'all' && normalize(card.dataset.kind) !== state.kind) return false;
+        if (state.tag !== 'all') {{
+          const tags = normalize(card.dataset.tags || '').split(' ').filter(Boolean);
+          if (!tags.includes(state.tag)) return false;
+        }}
+        return true;
+      }}
+
+      function apply() {{
+        let visible = 0;
+        cards.forEach(card => {{
+          const show = matches(card);
+          card.classList.toggle('hidden', !show);
+          if (show) visible += 1;
+        }});
+
+        sections.forEach(section => {{
+          const cardsInSection = Array.from(section.querySelectorAll('.card[data-card="1"]'));
+          const anyVisible = cardsInSection.some(card => !card.classList.contains('hidden'));
+          section.classList.toggle('hidden', !anyVisible);
+          const counter = section.querySelector('[data-section-count]');
+          if (counter) counter.textContent = `${{cardsInSection.filter(card => !card.classList.contains('hidden')).length}} pages`;
+        }});
+
+        visibleCount.textContent = String(visible);
+        noResults.classList.toggle('hidden', visible !== 0);
+      }}
+
+      document.querySelectorAll('.chip[data-filter-group]').forEach(button => {{
+        button.addEventListener('click', () => {{
+          const group = button.dataset.filterGroup;
+          const value = normalize(button.dataset.filterValue || 'all');
+          state[group] = value;
+          document.querySelectorAll(`.chip[data-filter-group="${{group}}"]`).forEach(el => el.classList.remove('active'));
+          button.classList.add('active');
+          apply();
+        }});
+      }});
+
+      if (searchInput) {{
+        searchInput.addEventListener('input', event => {{
+          state.query = event.target.value || '';
+          apply();
+        }});
+      }}
+
+      apply();
+    }})();
+  </script>
+</body>
+</html>
+"##,
+        title = escape_html(&site.title),
+        description = escape_html(&site.description),
+        project_name = escape_html(&site.project_name),
+        project_root = escape_html(&site.project_root),
+        generated_at = escape_html(&site.generated_at),
+        total_pages = total_pages,
+        visible_section_count = visible_section_count,
+        kind_count = unique_kinds.len(),
+        tag_count = unique_tags.len(),
+        section_filters = section_filters,
+        kind_filters = kind_filters,
+        tag_filters = tag_filters,
+        featured_block = featured_block,
+        section_nav = section_nav,
+        section_blocks = section_blocks,
+        recent_block = recent_block,
+        empty_state = empty_state,
+    )
+}
+
+fn used_section_keys(diagrams: &[DiagramView], collections: &[CollectionRecord]) -> Vec<String> {
+    let mut used: BTreeSet<String> = diagrams
+        .iter()
+        .map(|diagram| diagram.section.clone())
+        .collect();
+    if used.is_empty() {
+        used = collections.iter().map(|item| item.key.clone()).collect();
+    }
+
+    let mut ordered = Vec::new();
+    for collection in collections {
+        if used.remove(&collection.key) {
+            ordered.push(collection.key.clone());
+        }
+    }
+    let mut rest: Vec<_> = used.into_iter().collect();
+    rest.sort();
+    ordered.extend(rest);
+    ordered
+}
+
+fn collect_unique_tags(diagrams: &[DiagramView]) -> Vec<String> {
+    let mut values = BTreeSet::new();
+    for diagram in diagrams {
+        for tag in &diagram.tags {
+            values.insert(tag.clone());
+        }
+    }
+    values.into_iter().collect()
+}
+
+fn collect_unique_kinds(diagrams: &[DiagramView]) -> Vec<String> {
+    let mut values = BTreeSet::new();
+    for diagram in diagrams {
+        values.insert(diagram.kind.clone());
+    }
+    values.into_iter().collect()
+}
+
+fn recent_diagrams(diagrams: &[DiagramView]) -> Vec<DiagramView> {
+    let mut items = diagrams.to_vec();
+    items.sort_by(|left, right| {
+        right
+            .updated_at
+            .cmp(&left.updated_at)
+            .then_with(|| left.title.cmp(&right.title))
+    });
+    items.into_iter().take(6).collect()
+}
+
+fn render_section_nav(section_keys: &[String], collections: &[CollectionRecord]) -> String {
+    if section_keys.is_empty() {
+        return String::new();
+    }
+    let links = section_keys
+        .iter()
+        .map(|key| {
+            format!(
+                "<a href=\"#section-{}\">{}</a>",
+                escape_html(key),
+                escape_html(&section_title(key, collections))
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("");
+    format!(
+        "<section class=\"panel featured\"><div class=\"section-header\"><div><h2>Collections</h2><p>Jump between the major visualization areas for this project.</p></div></div><div class=\"nav-links\">{links}</div></section>"
+    )
+}
+
+fn render_featured(diagrams: &[DiagramView]) -> String {
+    let featured: Vec<_> = diagrams.iter().filter(|diagram| diagram.featured).collect();
+    if featured.is_empty() {
+        return String::new();
+    }
+    let cards = featured
+        .into_iter()
+        .map(render_card)
+        .collect::<Vec<_>>()
+        .join("\n");
+    format!(
+        "<section class=\"panel featured\"><div class=\"section-header\"><div><h2>Featured pages</h2><p>Priority explainers and visual surfaces worth starting with.</p></div></div><div class=\"card-grid\">{cards}</div></section>"
+    )
+}
+
+fn render_recent(diagrams: &[DiagramView]) -> String {
+    if diagrams.is_empty() {
+        return "<div class=\"list\"><div class=\"list-item\">No pages yet.</div></div>"
+            .to_string();
+    }
+    let items = diagrams
+        .iter()
+        .map(|diagram| {
+            format!(
+                "<div class=\"list-item\"><strong><a href=\"{}\">{}</a></strong><div>{}</div><div class=\"badge-row\"><span class=\"badge\">{}</span><span class=\"badge\">{}</span></div></div>",
+                escape_html(&diagram.page),
+                escape_html(&diagram.title),
+                escape_html(diagram.summary.as_deref().unwrap_or("No summary yet.")),
+                escape_html(&diagram.section_title),
+                escape_html(diagram.updated_at.as_deref().unwrap_or("untracked")),
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("");
+    format!("<div class=\"list\">{items}</div>")
+}
+
+fn render_sections(
+    diagrams: &[DiagramView],
+    section_keys: &[String],
+    collections: &[CollectionRecord],
+) -> String {
+    let mut by_section: BTreeMap<String, Vec<&DiagramView>> = BTreeMap::new();
+    for diagram in diagrams {
+        by_section
+            .entry(diagram.section.clone())
+            .or_default()
+            .push(diagram);
+    }
+
+    section_keys
+        .iter()
+        .map(|key| {
+            let mut items = by_section.remove(key).unwrap_or_default();
+            items.sort_by(|left, right| compare_diagrams(left, right));
+            let count = items.len();
+            let cards = if items.is_empty() {
+                "<div class=\"empty-results\"><p>No pages in this collection yet.</p></div>".to_string()
+            } else {
+                items.into_iter().map(render_card).collect::<Vec<_>>().join("\n")
+            };
+            let title = section_title(key, collections);
+            let description = section_description(key, collections)
+                .unwrap_or_else(|| "AOC See pages in this collection.".to_string());
+            format!(
+                "<section class=\"panel section-block\" id=\"section-{}\" data-section-block=\"{}\"><div class=\"section-header\"><div><h2>{}</h2><p>{}</p></div><div class=\"section-count\" data-section-count>{} pages</div></div><div class=\"card-grid\">{}</div></section>",
+                escape_html(key),
+                escape_html(key),
+                escape_html(&title),
+                escape_html(&description),
+                count,
+                cards,
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+fn render_filter_buttons(group: &str, values: &[String]) -> String {
+    values
+        .iter()
+        .map(|value| {
+            format!(
+                "<button class=\"chip\" type=\"button\" data-filter-group=\"{}\" data-filter-value=\"{}\">{}</button>",
+                escape_html(group),
+                escape_html(value),
+                escape_html(&title_from_slug(value)),
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("")
+}
+
+fn render_card(diagram: &DiagramView) -> String {
+    let tags = if diagram.tags.is_empty() {
+        String::new()
+    } else {
+        format!(
+            "<div class=\"tags\">{}</div>",
+            diagram
+                .tags
+                .iter()
+                .map(|tag| format!("<span class=\"tag\">{}</span>", escape_html(tag)))
+                .collect::<Vec<_>>()
+                .join("")
+        )
+    };
+    let search = format!(
+        "{} {} {} {} {} {}",
+        diagram.title,
+        diagram.summary.clone().unwrap_or_default(),
+        diagram.section,
+        diagram.kind,
+        diagram.status,
+        diagram.tags.join(" ")
+    );
+    let sources = if diagram.source_paths.is_empty() {
+        "No sources listed".to_string()
+    } else {
+        format!("Sources: {}", diagram.source_paths.join(", "))
+    };
+    let generated_badge = if diagram.generated {
+        "<span class=\"badge\">generated</span>"
+    } else {
+        ""
+    };
+    let inferred_badge = if diagram.inferred {
+        "<span class=\"badge\">inferred</span>"
+    } else {
+        ""
+    };
+
+    format!(
+        "<article class=\"card\" data-card=\"1\" data-section=\"{}\" data-kind=\"{}\" data-tags=\"{}\" data-search=\"{}\">\n  <div class=\"card-top\">\n    <div class=\"badge-row\">\n      <span class=\"badge\">{}</span>\n      <span class=\"badge kind\">{}</span>\n      <span class=\"badge status-{}\">{}</span>\n      {}{}\n    </div>\n  </div>\n  <div>\n    <h3><a href=\"{}\">{}</a></h3>\n    <p>{}</p>\n  </div>\n  {}\n  <div class=\"meta-list\">\n    <div><strong>Slug:</strong> {}</div>\n    <div><strong>Updated:</strong> {}</div>\n    <div><strong>{}</strong></div>\n  </div>\n  <div class=\"hero-actions\">\n    <a class=\"button\" href=\"{}\">Open page</a>\n  </div>\n</article>",
+        escape_html(&diagram.section),
+        escape_html(&diagram.kind),
+        escape_html(&diagram.tags.join(" ")),
+        escape_html(&search),
+        escape_html(&diagram.section_title),
+        escape_html(&title_from_slug(&diagram.kind)),
+        escape_html(&diagram.status),
+        escape_html(&title_from_slug(&diagram.status)),
+        generated_badge,
+        inferred_badge,
+        escape_html(&diagram.page),
+        escape_html(&diagram.title),
+        escape_html(diagram.summary.as_deref().unwrap_or("No summary yet. Open the page for details.")),
+        tags,
+        escape_html(&diagram.slug),
+        escape_html(diagram.updated_at.as_deref().unwrap_or("untracked")),
+        escape_html(&sources),
+        escape_html(&diagram.page),
+    )
+}
+
+fn section_title(section: &str, collections: &[CollectionRecord]) -> String {
+    collections
+        .iter()
+        .find(|collection| collection.key == section)
+        .map(|collection| collection.title.clone())
+        .unwrap_or_else(|| title_from_slug(section))
+}
+
+fn section_description(section: &str, collections: &[CollectionRecord]) -> Option<String> {
+    collections
+        .iter()
+        .find(|collection| collection.key == section)
+        .and_then(|collection| collection.description.clone())
+}
+
+fn starter_readme() -> String {
+    "# AOC See\n\nAOC See is the project-local visualization microsite for this repo.\n\n## Layout\n- `pages/*.html` — self-contained pages for diagrams, explainers, dashboards, and visual notes.\n- `manifest.json` — site metadata and page metadata used for the homepage shell.\n- `index.html` — generated homepage for the microsite.\n\n## Workflow\n1. `aoc-see init`\n2. `aoc-see new agent-topology --section agents --kind topology --summary \"How agents route through the project\"`\n3. Edit the generated page under `pages/`. The default scaffold includes an embedded Mermaid source block.\n4. Rebuild with `aoc-see build` to refresh inline Mermaid SVG output.\n5. Browse locally with `aoc-see serve --open`.\n\n## Metadata conventions\nPages can also declare metadata directly in HTML via meta tags such as:\n- `<meta name=\"aoc-see:summary\" content=\"...\">`\n- `<meta name=\"aoc-see:section\" content=\"agents\">`\n- `<meta name=\"aoc-see:kind\" content=\"topology\">`\n- `<meta name=\"aoc-see:status\" content=\"active\">`\n- `<meta name=\"aoc-see:tags\" content=\"agents,orchestration\">`\n\n## Mermaid authoring\nUse a source block like:\n\n```html\n<script type=\"text/plain\" data-aoc-see-mermaid>\nflowchart LR\n  A[Repo] --> B[Model]\n  B --> C[View]\n</script>\n```\n\n`aoc-see build` renders those blocks to inline SVG and keeps the Mermaid source in the page for later edits.\n\nPrefer self-contained HTML/CSS/JS/SVG and avoid external CDNs when possible.\n"
+            .to_string()
+}
+
+fn starter_page_html(site: &SiteConfig, title: &str, record: &DiagramRecord, slug: &str) -> String {
+    let site_title = site.title.clone().unwrap_or_else(|| "AOC See".to_string());
+    let summary = record.summary.clone().unwrap_or_else(|| {
+        "Describe the system, process, or workflow this page visualizes.".to_string()
+    });
+    let section = record
+        .section
+        .clone()
+        .unwrap_or_else(|| "explainers".to_string());
+    let kind = record.kind.clone().unwrap_or_else(|| "explain".to_string());
+    let status = record.status.clone().unwrap_or_else(|| "draft".to_string());
+    let tags = if record.tags.is_empty() {
+        "".to_string()
+    } else {
+        record.tags.join(",")
+    };
+    let source_list = if record.source_paths.is_empty() {
+        "<li><code>Add file paths, task IDs, or commands here.</code></li>".to_string()
+    } else {
+        record
+            .source_paths
+            .iter()
+            .map(|source| format!("<li><code>{}</code></li>", escape_html(source)))
+            .collect::<Vec<_>>()
+            .join("")
+    };
+    let mermaid_source = r#"flowchart LR
+    inputs[Repo inputs\ncode · tasks · runtime] --> model[Model the system]
+    model --> page[Render AOC See page]
+    page --> decision{Need next step?}
+    decision --> explain[Add narrative + source refs]
+    decision --> action[Open follow-up task or runbook]
+"#;
+
+    format!(
+        r##"<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{title}</title>
+  <meta name="description" content="{summary}">
+  <meta name="aoc-see:summary" content="{summary}">
+  <meta name="aoc-see:section" content="{section}">
+  <meta name="aoc-see:kind" content="{kind}">
+  <meta name="aoc-see:status" content="{status}">
+  <meta name="aoc-see:tags" content="{tags}">
+  <style>
+    :root {{
+      color-scheme: dark;
+      --bg: #08111c;
+      --panel: rgba(13, 20, 35, 0.92);
+      --line: #223352;
+      --text: #eaf1ff;
+      --muted: #9cb0d0;
+      --accent: #79c0ff;
+      --accent-2: #8dd694;
+      --accent-3: #f2cc8f;
+    }}
+    * {{ box-sizing: border-box; }}
+    body {{
+      margin: 0;
+      font-family: Inter, ui-sans-serif, system-ui, sans-serif;
+      background: radial-gradient(circle at top right, rgba(121,192,255,0.14), transparent 24%), linear-gradient(180deg, #08111c, #091320 42%, #08111b);
+      color: var(--text);
+    }}
+    a {{ color: var(--accent); }}
+    code {{ background: rgba(8, 14, 24, 0.9); border: 1px solid var(--line); border-radius: 8px; padding: 0.14rem 0.4rem; color: var(--accent); }}
+    main {{ max-width: 1280px; margin: 0 auto; padding: 24px 20px 64px; }}
+    .top {{ display: flex; flex-wrap: wrap; justify-content: space-between; gap: 12px; align-items: center; margin-bottom: 16px; }}
+    .pill-row {{ display: flex; flex-wrap: wrap; gap: 8px; }}
+    .pill {{ padding: 7px 11px; border-radius: 999px; border: 1px solid var(--line); color: var(--muted); background: rgba(13, 20, 35, 0.86); }}
+    .panel {{ background: var(--panel); border: 1px solid var(--line); border-radius: 22px; padding: 22px; box-shadow: 0 24px 60px rgba(0, 0, 0, 0.22); }}
+    .hero {{ display: grid; gap: 18px; margin-bottom: 18px; }}
+    .hero-copy {{ display: flex; flex-wrap: wrap; justify-content: space-between; gap: 18px; align-items: end; }}
+    .hero-copy > div:first-child {{ flex: 1 1 560px; }}
+    h1 {{ margin: 0 0 10px; font-size: clamp(2.2rem, 5vw, 3.5rem); line-height: 1.02; }}
+    h2, h3 {{ margin-top: 0; }}
+    p, li {{ color: var(--muted); line-height: 1.65; }}
+    .hero-metrics {{ display: grid; grid-template-columns: repeat(3, minmax(120px, 1fr)); gap: 12px; min-width: min(100%, 360px); }}
+    .metric {{ padding: 14px 16px; border-radius: 18px; border: 1px solid var(--line); background: rgba(8, 14, 24, 0.78); }}
+    .metric strong {{ display: block; font-size: 1.35rem; color: var(--text); }}
+    .stage {{ padding: 18px; border-radius: 20px; border: 1px solid var(--line); background: linear-gradient(180deg, rgba(8, 14, 24, 0.94), rgba(10, 18, 30, 0.9)); overflow: hidden; }}
+    .stage-head {{ display: flex; flex-wrap: wrap; justify-content: space-between; gap: 12px; align-items: center; margin-bottom: 14px; }}
+    .stage-head p {{ margin: 0; }}
+    .legend {{ display: flex; flex-wrap: wrap; gap: 10px; }}
+    .legend span {{ display: inline-flex; align-items: center; gap: 8px; padding: 6px 10px; border-radius: 999px; border: 1px solid var(--line); color: var(--muted); background: rgba(13, 20, 35, 0.82); }}
+    .dot {{ width: 10px; height: 10px; border-radius: 999px; display: inline-block; }}
+    .viz-frame {{ min-height: 360px; border-radius: 18px; border: 1px dashed rgba(121, 192, 255, 0.18); background: rgba(6, 10, 18, 0.54); padding: 12px; }}
+    .mermaid-rendered {{ width: 100%; overflow: auto; }}
+    .mermaid-rendered svg {{ width: 100%; height: auto; display: block; max-height: 72vh; }}
+    .support-grid {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 16px; margin-top: 18px; }}
+    .note {{ padding: 18px; border-radius: 18px; border: 1px solid var(--line); background: rgba(8, 14, 24, 0.88); }}
+    .note ul {{ margin: 0; padding-left: 18px; }}
+    .footer {{ margin-top: 20px; color: var(--muted); }}
+    @media (max-width: 760px) {{ .hero-metrics {{ grid-template-columns: 1fr; }} }}
+  </style>
+</head>
+<body>
+  <main>
+    <div class="top">
+      <a href="../index.html">← Back to {site_title}</a>
+      <div class="pill-row">
+        <span class="pill">section: {section}</span>
+        <span class="pill">kind: {kind}</span>
+        <span class="pill">status: {status}</span>
+        <span class="pill">slug: {slug}</span>
+      </div>
+    </div>
+
+    <section class="hero panel">
+      <div class="hero-copy">
+        <div>
+          <h1>{title}</h1>
+          <p>{summary}</p>
+        </div>
+        <div class="hero-metrics">
+          <div class="metric"><strong>1</strong><span>primary graph</span></div>
+          <div class="metric"><strong>{kind}</strong><span>page kind</span></div>
+          <div class="metric"><strong>{section}</strong><span>collection</span></div>
+        </div>
+      </div>
+
+      <div class="stage">
+        <div class="stage-head">
+          <div>
+            <h2>Primary visualization</h2>
+            <p>Edit the embedded Mermaid source block in this HTML file, then run <code>aoc-see build</code> to regenerate the inline SVG.</p>
+          </div>
+          <div class="legend">
+            <span><i class="dot" style="background: var(--accent);"></i>inputs</span>
+            <span><i class="dot" style="background: var(--accent-2);"></i>transform</span>
+            <span><i class="dot" style="background: var(--accent-3);"></i>decision/action</span>
+          </div>
+        </div>
+        <div class="viz-frame">
+          <script type="text/plain" data-aoc-see-mermaid>
+{mermaid_source}
+          </script>
+        </div>
+      </div>
+    </section>
+
+    <section class="support-grid">
+      <article class="note">
+        <h3>How to focus the page</h3>
+        <ul>
+          <li>Make the graph the main artifact, not the prose.</li>
+          <li>Keep one core question per page.</li>
+          <li>Use short labels and link the graph back to source paths.</li>
+        </ul>
+      </article>
+      <article class="note">
+        <h3>Source references</h3>
+        <ul>{source_list}</ul>
+      </article>
+      <article class="note">
+        <h3>Editing notes</h3>
+        <ul>
+          <li>Replace the starter Mermaid with repo-specific structure.</li>
+          <li>Add or revise <code>aoc-see:*</code> meta tags in the page head when needed.</li>
+          <li>Inline SVG, HTML, and Canvas blocks still work alongside Mermaid.</li>
+        </ul>
+      </article>
+    </section>
+
+    <div class="footer">Generated by <code>aoc-see new</code>. This scaffold is visual-first by default and renders Mermaid to inline SVG during <code>aoc-see build</code>.</div>
+  </main>
+</body>
+</html>
+"##,
+        site_title = escape_html(&site_title),
+        title = escape_html(title),
+        summary = escape_html(&summary),
+        section = escape_html(&section),
+        kind = escape_html(&kind),
+        status = escape_html(&status),
+        slug = escape_html(slug),
+        tags = escape_html(&tags),
+        source_list = source_list,
+        mermaid_source = mermaid_source,
+    )
+}
+
+fn escape_html(value: &str) -> String {
+    value
+        .replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('"', "&quot;")
+        .replace('\'', "&#39;")
+}
+
+fn find_python() -> Option<&'static str> {
+    for candidate in ["python3", "python"] {
+        let Ok(status) = Command::new(candidate).arg("--version").status() else {
+            continue;
+        };
+        if status.success() {
+            return Some(candidate);
+        }
+    }
+    None
+}
+
+fn try_open_browser(url: &str) -> Result<()> {
+    let commands: &[(&str, &[&str])] = if cfg!(target_os = "macos") {
+        &[("open", &[url])]
+    } else {
+        &[("xdg-open", &[url])]
+    };
+    for (command, args) in commands {
+        if let Ok(status) = Command::new(command).args(*args).status() {
+            if status.success() {
+                return Ok(());
+            }
+        }
+    }
+    bail!("failed to open browser automatically")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{
+        infer_section, normalize_key, normalize_tokens, render_mermaid_blocks, validate_slug,
+        MERMAID_OUTPUT_END, MERMAID_OUTPUT_START,
+    };
+
+    #[test]
+    fn slug_validation_accepts_expected_format() {
+        assert_eq!(validate_slug("agent-topology").unwrap(), "agent-topology");
+        assert!(validate_slug("AgentTopology").is_err());
+        assert!(validate_slug("bad_slug").is_err());
+    }
+
+    #[test]
+    fn normalize_key_collapses_spacing_and_case() {
+        assert_eq!(normalize_key("Agent Topology"), "agent-topology");
+        assert_eq!(normalize_key("mind__ops"), "mind-ops");
+    }
+
+    #[test]
+    fn normalize_tokens_dedupes_and_sorts() {
+        assert_eq!(
+            normalize_tokens(vec!["Ops".into(), "ops".into(), "Mind Flow".into()]),
+            vec!["mind-flow".to_string(), "ops".to_string()]
+        );
+    }
+
+    #[test]
+    fn section_inference_prefers_dashboard_and_topology_defaults() {
+        assert_eq!(infer_section(Some("dashboard")), "dashboards");
+        assert_eq!(infer_section(Some("topology")), "agents");
+        assert_eq!(infer_section(Some("flow")), "explainers");
+    }
+
+    #[test]
+    fn mermaid_blocks_render_to_inline_svg_and_replace_existing_output() {
+        let input = format!(
+            "<section><script type=\"text/plain\" data-aoc-see-mermaid>flowchart LR; A-->B</script>\n{MERMAID_OUTPUT_START}<div>old</div>{MERMAID_OUTPUT_END}</section>"
+        );
+        let output = render_mermaid_blocks(&input).unwrap();
+        assert!(output.contains("data-aoc-see-mermaid"));
+        assert!(output.contains(MERMAID_OUTPUT_START));
+        assert!(output.contains(MERMAID_OUTPUT_END));
+        assert!(output.contains("<svg"));
+        assert!(!output.contains("<div>old</div>"));
+    }
+}
