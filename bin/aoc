@@ -9,6 +9,10 @@ if [[ $# -gt 0 ]]; then
       DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" >/dev/null 2>&1 && pwd)"
       if [[ -x "$DIR/aoc-cli" ]]; then
         exec "$DIR/aoc-cli" "$@"
+      elif [[ -x "$DIR/../crates/target/debug/aoc-cli" ]]; then
+        exec "$DIR/../crates/target/debug/aoc-cli" "$@"
+      elif [[ -x "$DIR/../crates/target/release/aoc-cli" ]]; then
+        exec "$DIR/../crates/target/release/aoc-cli" "$@"
       elif command -v aoc-cli >/dev/null 2>&1; then
         exec aoc-cli "$@"
       fi

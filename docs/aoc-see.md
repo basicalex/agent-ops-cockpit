@@ -104,7 +104,7 @@ Optional metadata supported by the manifest/page model:
 
 ## Mermaid rendering
 
-AOC See now supports embedded Mermaid source blocks inside page HTML:
+AOC See supports embedded Mermaid source blocks inside page HTML:
 
 ```html
 <script type="text/plain" data-aoc-see-mermaid>
@@ -114,13 +114,14 @@ flowchart LR
 </script>
 ```
 
-During `aoc-see build` and `aoc-see serve`, those blocks are rendered with a Rust Mermaid renderer and written back into the page as inline SVG. The Mermaid source block remains in the file so agents can keep editing the source-of-truth.
+AOC See uses **vendored repo-local Mermaid JS assets** to render those blocks in the browser. `aoc-see init` / `aoc-see build` sync the local Mermaid assets under `.aoc/diagrams/assets/`, and pages render offline without a CDN.
 
 This keeps pages:
 - repo-local
 - self-contained
 - reviewable in git
-- free of browser/CDN Mermaid runtime dependencies
+- offline-capable
+- free of external/CDN Mermaid dependencies
 
 ## HTML metadata discovery
 
@@ -139,7 +140,7 @@ This lets agents author standalone HTML pages that still show up correctly on th
 ## Authoring guidance
 
 - Prefer self-contained HTML/CSS/JS/SVG.
-- Prefer Mermaid for quickly authoring graphs, then let AOC See render it to inline SVG.
+- Prefer Mermaid for quickly authoring graphs, then let AOC See render it locally from vendored Mermaid JS.
 - Make the visualization the main artifact; keep prose secondary.
 - Avoid external CDNs when possible.
 - Cite source files, commands, task IDs, or runtime surfaces.
