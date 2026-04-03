@@ -1,8 +1,8 @@
-# AOC See
+# AOC Map
 
-`aoc-see` turns `.aoc/see/` into a **project-local graph and visualization microsite** for any repo using AOC.
+`aoc-map` turns `.aoc/map/` into a **project-local graph and visualization microsite** for any repo using AOC.
 
-Instead of treating diagrams as isolated files, AOC See treats them as pages in a small browsable site for the codebase:
+Instead of treating diagrams as isolated files, AOC Map treats them as pages in a small browsable site for the codebase:
 
 - architecture explainers
 - agent and subagent maps
@@ -16,7 +16,7 @@ Instead of treating diagrams as isolated files, AOC See treats them as pages in 
 Each repo gets a local website layer:
 
 ```text
-.aoc/see/
+.aoc/map/
   README.md
   manifest.json
   index.html          # generated homepage / gallery / site shell
@@ -31,21 +31,21 @@ Each repo gets a local website layer:
     session-lifecycle.html
 ```
 
-`aoc-see serve` then serves that folder as a real microsite, not just a raw directory listing.
+`aoc-map serve` then serves that folder as a real microsite, not just a raw directory listing.
 
 ## Commands
 
 ```bash
-aoc-see init
-aoc-see new agent-topology --section agents --kind topology --summary "How AOC agents route through this repo"
-aoc-see list
-aoc-see build
-aoc-see serve --port 43111 --open
+aoc-map init
+aoc-map new agent-topology --section agents --kind topology --summary "How AOC agents route through this repo"
+aoc-map list
+aoc-map build
+aoc-map serve --port 43111 --open
 ```
 
 You can also seed/confirm the microsite from the floating control pane:
 
-- `Alt+C -> Settings -> Tools -> AOC See microsite`
+- `Alt+C -> Settings -> Tools -> AOC Map microsite`
 
 ## What the homepage provides
 
@@ -74,7 +74,7 @@ Default collections:
 
 ## Page scaffolding
 
-`aoc-see new` creates both:
+`aoc-map new` creates both:
 - a minimal graph-first HTML page in `pages/`
 - a Mermaid source file in `diagrams/`
 
@@ -83,12 +83,12 @@ The default scaffold is now **visual-first**:
 - a page that points at a Mermaid file under `diagrams/`
 - supporting notes and source references kept intentionally minimal
 
-`aoc-see init` is safe to re-run. It is the canonical seed/confirm action used both from the CLI and from the Alt+C control pane.
+`aoc-map init` is safe to re-run. It is the canonical seed/confirm action used both from the CLI and from the Alt+C control pane.
 
 Useful flags:
 
 ```bash
-aoc-see new task-flow \
+aoc-map new task-flow \
   --section tasks \
   --kind flow \
   --summary "Task lifecycle and dependency flow" \
@@ -110,15 +110,15 @@ Optional metadata supported by the manifest/page model:
 
 ## Mermaid rendering
 
-AOC See supports both inline Mermaid blocks and graph files referenced from pages.
+AOC Map supports both inline Mermaid blocks and graph files referenced from pages.
 
 Preferred pattern:
 
 ```html
-<script type="text/plain" data-aoc-see-mermaid-src="../diagrams/agent-topology.mmd"></script>
+<script type="text/plain" data-aoc-map-mermaid-src="../diagrams/agent-topology.mmd"></script>
 ```
 
-AOC See uses **vendored repo-local Mermaid JS assets** to render those graphs in the browser. `aoc-see init` / `aoc-see build` sync the local Mermaid assets under `.aoc/see/assets/`, and pages render offline without a CDN.
+AOC Map uses **vendored repo-local Mermaid JS assets** to render those graphs in the browser. `aoc-map init` / `aoc-map build` sync the local Mermaid assets under `.aoc/map/assets/`, and pages render offline without a CDN.
 
 This keeps pages:
 - repo-local
@@ -129,15 +129,15 @@ This keeps pages:
 
 ## HTML metadata discovery
 
-Pages can also self-declare metadata with meta tags, which AOC See can discover while building the homepage:
+Pages can also self-declare metadata with meta tags, which AOC Map can discover while building the homepage:
 
 ```html
-<meta name="aoc-see:summary" content="How the session lifecycle works">
-<meta name="aoc-see:section" content="ops">
-<meta name="aoc-see:kind" content="timeline">
-<meta name="aoc-see:status" content="active">
-<meta name="aoc-see:diagram" content="diagrams/session-lifecycle.mmd">
-<meta name="aoc-see:tags" content="sessions,lifecycle,ops">
+<meta name="aoc-map:summary" content="How the session lifecycle works">
+<meta name="aoc-map:section" content="ops">
+<meta name="aoc-map:kind" content="timeline">
+<meta name="aoc-map:status" content="active">
+<meta name="aoc-map:diagram" content="diagrams/session-lifecycle.mmd">
+<meta name="aoc-map:tags" content="sessions,lifecycle,ops">
 ```
 
 This lets agents author standalone HTML pages that still show up correctly on the site homepage.
@@ -145,20 +145,20 @@ This lets agents author standalone HTML pages that still show up correctly on th
 ## Authoring guidance
 
 - Prefer self-contained HTML/CSS/JS/SVG.
-- Prefer Mermaid files under `.aoc/see/diagrams/` so graph sources stay project-local and reusable.
+- Prefer Mermaid files under `.aoc/map/diagrams/` so graph sources stay project-local and reusable.
 - Make the visualization the main artifact; keep prose secondary and minimal.
 - Avoid external CDNs when possible.
 - Cite source files, commands, task IDs, or runtime surfaces.
 - Prefer updating an existing page over creating overlapping duplicates.
-- Treat AOC See as the repo’s **visual explanation layer**.
+- Treat AOC Map as the repo’s **visual explanation layer**.
 
 ## Suggested future generators
 
-AOC See is ready for generated pages too, for example:
+AOC Map is ready for generated pages too, for example:
 
-- `aoc-see agents`
-- `aoc-see tasks`
-- `aoc-see provenance`
-- `aoc-see session-map`
+- `aoc-map agents`
+- `aoc-map tasks`
+- `aoc-map provenance`
+- `aoc-map session-map`
 
-Those can emit HTML pages into `.aoc/see/pages/` and Mermaid files into `.aoc/see/diagrams/`, then let the homepage surface them automatically.
+Those can emit HTML pages into `.aoc/map/pages/` and Mermaid files into `.aoc/map/diagrams/`, then let the homepage surface them automatically.

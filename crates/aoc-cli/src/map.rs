@@ -7,35 +7,37 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-const SEE_DIR: &str = ".aoc/see";
-const PAGES_DIR: &str = ".aoc/see/pages";
-const DIAGRAM_FILES_DIR: &str = ".aoc/see/diagrams";
-const ASSETS_DIR: &str = ".aoc/see/assets";
-const MANIFEST_PATH: &str = ".aoc/see/manifest.json";
-const INDEX_PATH: &str = ".aoc/see/index.html";
-const README_PATH: &str = ".aoc/see/README.md";
-const AOC_SEE_SKILL_PATH: &str = ".pi/skills/aoc-see/SKILL.md";
-const MERMAID_JS_PATH: &str = ".aoc/see/assets/mermaid.min.js";
-const MERMAID_RENDER_HELPER_PATH: &str = ".aoc/see/assets/render-mermaid.js";
-const LEGACY_SEE_DIR: &str = ".aoc/diagrams";
-const MERMAID_OUTPUT_START: &str = "<!-- aoc-see:mermaid-output:start -->";
-const MERMAID_OUTPUT_END: &str = "<!-- aoc-see:mermaid-output:end -->";
+const MAP_DIR: &str = ".aoc/map";
+const PAGES_DIR: &str = ".aoc/map/pages";
+const DIAGRAM_FILES_DIR: &str = ".aoc/map/diagrams";
+const ASSETS_DIR: &str = ".aoc/map/assets";
+const MANIFEST_PATH: &str = ".aoc/map/manifest.json";
+const INDEX_PATH: &str = ".aoc/map/index.html";
+const README_PATH: &str = ".aoc/map/README.md";
+const AOC_MAP_SKILL_PATH: &str = ".pi/skills/aoc-map/SKILL.md";
+const LEGACY_AOC_SEE_SKILL_DIR: &str = ".pi/skills/aoc-see";
+const MERMAID_JS_PATH: &str = ".aoc/map/assets/mermaid.min.js";
+const MERMAID_RENDER_HELPER_PATH: &str = ".aoc/map/assets/render-mermaid.js";
+const LEGACY_SEE_DIR: &str = ".aoc/see";
+const LEGACY_DIAGRAMS_DIR: &str = ".aoc/diagrams";
+const MERMAID_OUTPUT_START: &str = "<!-- aoc-map:mermaid-output:start -->";
+const MERMAID_OUTPUT_END: &str = "<!-- aoc-map:mermaid-output:end -->";
 const MERMAID_JS_TAG: &str = r#"<script defer src="../assets/mermaid.min.js"></script>"#;
 const MERMAID_RENDER_HELPER_TAG: &str =
     r#"<script defer src="../assets/render-mermaid.js"></script>"#;
 
 #[derive(Subcommand, Debug)]
 #[command(rename_all = "kebab-case")]
-pub enum SeeCommand {
-    /// Initialize the project-local AOC See microsite workspace
+pub enum MapCommand {
+    /// Initialize the project-local AOC Map microsite workspace
     Init(InitArgs),
-    /// Scaffold a new AOC See page
+    /// Scaffold a new AOC Map page
     New(NewArgs),
-    /// List available AOC See pages
+    /// List available AOC Map pages
     List(ListArgs),
-    /// Regenerate the AOC See homepage
+    /// Regenerate the AOC Map homepage
     Build(BuildArgs),
-    /// Serve the AOC See microsite over a local dev server
+    /// Serve the AOC Map microsite over a local dev server
     Serve(ServeArgs),
 }
 
@@ -287,9 +289,9 @@ struct SiteView {
 }
 
 #[derive(Debug, Clone)]
-struct SeePaths {
+struct MapPaths {
     root: PathBuf,
-    see_dir: PathBuf,
+    map_dir: PathBuf,
     pages_dir: PathBuf,
     diagrams_dir: PathBuf,
     assets_dir: PathBuf,
@@ -299,27 +301,28 @@ struct SeePaths {
     mermaid_js_path: PathBuf,
     mermaid_render_helper_path: PathBuf,
     legacy_see_dir: PathBuf,
+    legacy_diagrams_dir: PathBuf,
 }
 
 fn default_manifest_version() -> u32 {
     3
 }
 
-pub fn handle_see_command(command: SeeCommand) -> Result<()> {
+pub fn handle_map_command(command: MapCommand) -> Result<()> {
     match command {
-        SeeCommand::Init(args) => handle_init(args),
-        SeeCommand::New(args) => handle_new(args),
-        SeeCommand::List(args) => handle_list(args),
-        SeeCommand::Build(args) => handle_build(args),
-        SeeCommand::Serve(args) => handle_serve(args),
+        MapCommand::Init(args) => handle_init(args),
+        MapCommand::New(args) => handle_new(args),
+        MapCommand::List(args) => handle_list(args),
+        MapCommand::Build(args) => handle_build(args),
+        MapCommand::Serve(args) => handle_serve(args),
     }
 }
 
 fn handle_init(args: InitArgs) -> Result<()> {
-    let paths = SeePaths::from_root(resolve_project_root()?);
+    let paths = MapPaths::from_root(resolve_project_root()?);
     migrate_legacy_workspace(&paths)?;
     ensure_dirs(&paths)?;
-    ensure_aoc_see_skill(&paths.root, args.force)?;
+    ensure_aoc_map_skill(&paths.root, args.force)?;
 
     let mut manifest = load_manifest(&paths.manifest_path)?;
     apply_manifest_defaults(&mut manifest, &paths, args.force);
@@ -327,12 +330,12 @@ fn handle_init(args: InitArgs) -> Result<()> {
     write_if_missing_or_forced(&paths.readme_path, &starter_readme(), args.force)?;
     build_index(&paths)?;
 
-    println!("initialized {}", paths.see_dir.display());
+    println!("initialized {}", paths.map_dir.display());
     Ok(())
 }
 
 fn handle_new(args: NewArgs) -> Result<()> {
-    let paths = SeePaths::from_root(resolve_project_root()?);
+    let paths = MapPaths::from_root(resolve_project_root()?);
     migrate_legacy_workspace(&paths)?;
     ensure_dirs(&paths)?;
 
@@ -403,7 +406,7 @@ fn handle_new(args: NewArgs) -> Result<()> {
 }
 
 fn handle_list(args: ListArgs) -> Result<()> {
-    let paths = SeePaths::from_root(resolve_project_root()?);
+    let paths = MapPaths::from_root(resolve_project_root()?);
     migrate_legacy_workspace(&paths)?;
     let manifest = load_and_normalize_manifest(&paths)?;
     let diagrams = collect_diagrams(&paths, &manifest)?;
@@ -413,7 +416,7 @@ fn handle_list(args: ListArgs) -> Result<()> {
         return Ok(());
     }
     if diagrams.is_empty() {
-        println!("no AOC See pages found under {}", paths.pages_dir.display());
+        println!("no AOC Map pages found under {}", paths.pages_dir.display());
         return Ok(());
     }
 
@@ -432,7 +435,7 @@ fn handle_list(args: ListArgs) -> Result<()> {
 }
 
 fn handle_build(_args: BuildArgs) -> Result<()> {
-    let paths = SeePaths::from_root(resolve_project_root()?);
+    let paths = MapPaths::from_root(resolve_project_root()?);
     migrate_legacy_workspace(&paths)?;
     ensure_dirs(&paths)?;
     build_index(&paths)?;
@@ -441,7 +444,7 @@ fn handle_build(_args: BuildArgs) -> Result<()> {
 }
 
 fn handle_serve(args: ServeArgs) -> Result<()> {
-    let paths = SeePaths::from_root(resolve_project_root()?);
+    let paths = MapPaths::from_root(resolve_project_root()?);
     migrate_legacy_workspace(&paths)?;
     ensure_dirs(&paths)?;
     build_index(&paths)?;
@@ -452,9 +455,9 @@ fn handle_serve(args: ServeArgs) -> Result<()> {
     }
 
     let python = find_python()
-        .ok_or_else(|| anyhow!("python3/python is required to serve AOC See via aoc-see"))?;
+        .ok_or_else(|| anyhow!("python3/python is required to serve AOC Map via aoc-map"))?;
 
-    println!("serving {} at {}", paths.see_dir.display(), url);
+    println!("serving {} at {}", paths.map_dir.display(), url);
     println!("press Ctrl-C to stop");
 
     let status = Command::new(python)
@@ -465,7 +468,7 @@ fn handle_serve(args: ServeArgs) -> Result<()> {
             "--bind",
             &args.host,
             "--directory",
-            paths.see_dir.to_string_lossy().as_ref(),
+            paths.map_dir.to_string_lossy().as_ref(),
         ])
         .status()
         .context("failed to launch python http.server")?;
@@ -473,14 +476,14 @@ fn handle_serve(args: ServeArgs) -> Result<()> {
     if status.success() {
         Ok(())
     } else {
-        bail!("diagram dev server exited with status {status}")
+        bail!("map dev server exited with status {status}")
     }
 }
 
-impl SeePaths {
+impl MapPaths {
     fn from_root(root: PathBuf) -> Self {
         Self {
-            see_dir: root.join(SEE_DIR),
+            map_dir: root.join(MAP_DIR),
             pages_dir: root.join(PAGES_DIR),
             diagrams_dir: root.join(DIAGRAM_FILES_DIR),
             assets_dir: root.join(ASSETS_DIR),
@@ -490,6 +493,7 @@ impl SeePaths {
             mermaid_js_path: root.join(MERMAID_JS_PATH),
             mermaid_render_helper_path: root.join(MERMAID_RENDER_HELPER_PATH),
             legacy_see_dir: root.join(LEGACY_SEE_DIR),
+            legacy_diagrams_dir: root.join(LEGACY_DIAGRAMS_DIR),
             root,
         }
     }
@@ -505,22 +509,34 @@ fn resolve_project_root() -> Result<PathBuf> {
     Ok(cwd)
 }
 
-fn migrate_legacy_workspace(paths: &SeePaths) -> Result<()> {
-    if paths.see_dir.exists() || !paths.legacy_see_dir.exists() {
+fn migrate_legacy_workspace(paths: &MapPaths) -> Result<()> {
+    if paths.map_dir.exists() {
         return Ok(());
     }
 
-    fs::rename(&paths.legacy_see_dir, &paths.see_dir).with_context(|| {
+    let legacy_source = if paths.legacy_see_dir.exists() {
+        Some(&paths.legacy_see_dir)
+    } else if paths.legacy_diagrams_dir.exists() {
+        Some(&paths.legacy_diagrams_dir)
+    } else {
+        None
+    };
+
+    let Some(legacy_source) = legacy_source else {
+        return Ok(());
+    };
+
+    fs::rename(legacy_source, &paths.map_dir).with_context(|| {
         format!(
-            "failed to migrate legacy AOC See workspace from {} to {}",
-            paths.legacy_see_dir.display(),
-            paths.see_dir.display()
+            "failed to migrate legacy AOC Map workspace from {} to {}",
+            legacy_source.display(),
+            paths.map_dir.display()
         )
     })?;
     Ok(())
 }
 
-fn ensure_dirs(paths: &SeePaths) -> Result<()> {
+fn ensure_dirs(paths: &MapPaths) -> Result<()> {
     fs::create_dir_all(&paths.pages_dir)
         .with_context(|| format!("failed to create {}", paths.pages_dir.display()))?;
     fs::create_dir_all(&paths.diagrams_dir)
@@ -530,21 +546,34 @@ fn ensure_dirs(paths: &SeePaths) -> Result<()> {
     Ok(())
 }
 
-fn ensure_aoc_see_skill(root: &Path, force: bool) -> Result<()> {
-    let path = root.join(AOC_SEE_SKILL_PATH);
+fn ensure_aoc_map_skill(root: &Path, force: bool) -> Result<()> {
+    let path = root.join(AOC_MAP_SKILL_PATH);
+    let target_dir = path
+        .parent()
+        .ok_or_else(|| anyhow!("invalid AOC Map skill path: {}", path.display()))?;
+    let legacy_dir = root.join(LEGACY_AOC_SEE_SKILL_DIR);
+
+    if !target_dir.exists() && legacy_dir.exists() {
+        fs::rename(&legacy_dir, target_dir).with_context(|| {
+            format!(
+                "failed to migrate legacy AOC Map skill from {} to {}",
+                legacy_dir.display(),
+                target_dir.display()
+            )
+        })?;
+    }
+
     if path.exists() && !force {
         return Ok(());
     }
-    if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent)
-            .with_context(|| format!("failed to create {}", parent.display()))?;
-    }
-    fs::write(&path, include_str!("../../../.pi/skills/aoc-see/SKILL.md"))
+    fs::create_dir_all(target_dir)
+        .with_context(|| format!("failed to create {}", target_dir.display()))?;
+    fs::write(&path, include_str!("../../../.pi/skills/aoc-map/SKILL.md"))
         .with_context(|| format!("failed to write {}", path.display()))?;
     Ok(())
 }
 
-fn sync_mermaid_assets(paths: &SeePaths) -> Result<()> {
+fn sync_mermaid_assets(paths: &MapPaths) -> Result<()> {
     write_bytes_if_changed(
         &paths.mermaid_js_path,
         include_bytes!("../assets/mermaid.min.js"),
@@ -556,7 +585,7 @@ fn sync_mermaid_assets(paths: &SeePaths) -> Result<()> {
     Ok(())
 }
 
-fn normalize_mermaid_pages(paths: &SeePaths) -> Result<()> {
+fn normalize_mermaid_pages(paths: &MapPaths) -> Result<()> {
     if !paths.pages_dir.exists() {
         return Ok(());
     }
@@ -587,13 +616,24 @@ fn normalize_mermaid_page(path: &Path) -> Result<()> {
 }
 
 fn normalize_mermaid_page_html(content: &str) -> String {
-    let without_legacy_output = strip_legacy_mermaid_output(content);
-    if !without_legacy_output.contains("data-aoc-see-mermaid")
-        && !without_legacy_output.contains("data-aoc-see-mermaid-src")
+    let migrated = migrate_legacy_map_markup(&strip_legacy_mermaid_output(content));
+    if !migrated.contains("data-aoc-map-mermaid") && !migrated.contains("data-aoc-map-mermaid-src")
     {
-        return without_legacy_output;
+        return migrated;
     }
-    ensure_mermaid_script_tags(&without_legacy_output)
+    ensure_mermaid_script_tags(&migrated)
+}
+
+fn migrate_legacy_map_markup(content: &str) -> String {
+    content
+        .replace("data-aoc-see-mermaid-output", "data-aoc-map-mermaid-output")
+        .replace("data-aoc-see-mermaid-src", "data-aoc-map-mermaid-src")
+        .replace("data-aoc-see-mermaid", "data-aoc-map-mermaid")
+        .replace("aoc-see-mermaid-render", "aoc-map-mermaid-render")
+        .replace("aoc-see:", "aoc-map:")
+        .replace(".aoc/see", ".aoc/map")
+        .replace("AOC See", "AOC Map")
+        .replace("aoc-see", "aoc-map")
 }
 
 fn strip_legacy_mermaid_output(content: &str) -> String {
@@ -704,7 +744,7 @@ fn load_manifest(path: &Path) -> Result<DiagramManifest> {
     Ok(manifest)
 }
 
-fn load_and_normalize_manifest(paths: &SeePaths) -> Result<DiagramManifest> {
+fn load_and_normalize_manifest(paths: &MapPaths) -> Result<DiagramManifest> {
     let mut manifest = load_manifest(&paths.manifest_path)?;
     apply_manifest_defaults(&mut manifest, paths, false);
     if !paths.manifest_path.exists() || manifest.version != default_manifest_version() {
@@ -719,7 +759,7 @@ fn write_manifest(path: &Path, manifest: &DiagramManifest) -> Result<()> {
         .with_context(|| format!("failed to write {}", path.display()))
 }
 
-fn apply_manifest_defaults(manifest: &mut DiagramManifest, paths: &SeePaths, force: bool) {
+fn apply_manifest_defaults(manifest: &mut DiagramManifest, paths: &MapPaths, force: bool) {
     manifest.version = default_manifest_version();
 
     let defaults = default_site_config(paths);
@@ -776,7 +816,7 @@ fn apply_manifest_defaults(manifest: &mut DiagramManifest, paths: &SeePaths, for
     }
 }
 
-fn default_site_config(paths: &SeePaths) -> SiteConfig {
+fn default_site_config(paths: &MapPaths) -> SiteConfig {
     let repo_name = paths
         .root
         .file_name()
@@ -785,7 +825,7 @@ fn default_site_config(paths: &SeePaths) -> SiteConfig {
         .to_string();
     let pretty = title_from_slug(&repo_name.replace(['_', ' '], "-"));
     SiteConfig {
-        title: Some(format!("{} · AOC See", pretty)),
+        title: Some(format!("{} · AOC Map", pretty)),
         description: Some(format!(
             "Graph-first visualization layer for {}. Use this microsite to browse project flows, architecture maps, agent routes, task views, and other minimal visual explanations.",
             pretty
@@ -989,7 +1029,7 @@ fn upsert_manifest_record(manifest: &mut DiagramManifest, record: DiagramRecord)
     });
 }
 
-fn collect_diagrams(paths: &SeePaths, manifest: &DiagramManifest) -> Result<Vec<DiagramView>> {
+fn collect_diagrams(paths: &MapPaths, manifest: &DiagramManifest) -> Result<Vec<DiagramView>> {
     let by_slug: BTreeMap<_, _> = manifest
         .diagrams
         .iter()
@@ -1112,12 +1152,12 @@ fn extract_html_metadata(path: &Path) -> Result<HtmlMetadata> {
         fs::read_to_string(path).with_context(|| format!("failed to read {}", path.display()))?;
     Ok(HtmlMetadata {
         title: extract_tag_text(&content, "title").or_else(|| extract_tag_text(&content, "h1")),
-        summary: extract_named_meta(&content, "aoc-see:summary"),
-        section: extract_named_meta(&content, "aoc-see:section"),
-        kind: extract_named_meta(&content, "aoc-see:kind"),
-        status: extract_named_meta(&content, "aoc-see:status"),
-        diagram_path: extract_named_meta(&content, "aoc-see:diagram"),
-        tags: extract_named_meta(&content, "aoc-see:tags")
+        summary: extract_named_meta_compat(&content, "summary"),
+        section: extract_named_meta_compat(&content, "section"),
+        kind: extract_named_meta_compat(&content, "kind"),
+        status: extract_named_meta_compat(&content, "status"),
+        diagram_path: extract_named_meta_compat(&content, "diagram"),
+        tags: extract_named_meta_compat(&content, "tags")
             .map(|value| {
                 value
                     .split(',')
@@ -1126,6 +1166,11 @@ fn extract_html_metadata(path: &Path) -> Result<HtmlMetadata> {
             })
             .unwrap_or_default(),
     })
+}
+
+fn extract_named_meta_compat(content: &str, suffix: &str) -> Option<String> {
+    extract_named_meta(content, &format!("aoc-map:{suffix}"))
+        .or_else(|| extract_named_meta(content, &format!("aoc-see:{suffix}")))
 }
 
 fn extract_named_meta(content: &str, name: &str) -> Option<String> {
@@ -1177,7 +1222,7 @@ fn extract_tag_text(content: &str, tag: &str) -> Option<String> {
     }
 }
 
-fn build_index(paths: &SeePaths) -> Result<()> {
+fn build_index(paths: &MapPaths) -> Result<()> {
     sync_mermaid_assets(paths)?;
     normalize_mermaid_pages(paths)?;
     let manifest = load_and_normalize_manifest(paths)?;
@@ -1189,7 +1234,7 @@ fn build_index(paths: &SeePaths) -> Result<()> {
     Ok(())
 }
 
-fn build_site_view(paths: &SeePaths, manifest: &DiagramManifest) -> SiteView {
+fn build_site_view(paths: &MapPaths, manifest: &DiagramManifest) -> SiteView {
     let defaults = default_site_config(paths);
     SiteView {
         title: manifest
@@ -1197,7 +1242,7 @@ fn build_site_view(paths: &SeePaths, manifest: &DiagramManifest) -> SiteView {
             .title
             .clone()
             .or(defaults.title)
-            .unwrap_or_else(|| "AOC See".to_string()),
+            .unwrap_or_else(|| "AOC Map".to_string()),
         description: manifest
             .site
             .description
@@ -1231,7 +1276,7 @@ fn render_index_html(site: &SiteView, diagrams: &[DiagramView]) -> String {
     let kind_filters = render_filter_buttons("kind", &unique_kinds);
     let tag_filters = render_filter_buttons("tag", &unique_tags);
     let empty_state = if total_pages == 0 {
-        "<section class=\"empty-site\"><h2>No pages yet</h2><p>This repo already has an AOC See homepage. Now start adding pages with <code>aoc-see new agent-topology --section agents --kind topology</code>, then rebuild or serve the site.</p></section>".to_string()
+        "<section class=\"empty-site\"><h2>No pages yet</h2><p>This repo already has an AOC Map homepage. Now start adding pages with <code>aoc-map new agent-topology --section agents --kind topology</code>, then rebuild or serve the site.</p></section>".to_string()
     } else {
         String::new()
     };
@@ -1416,13 +1461,13 @@ fn render_index_html(site: &SiteView, diagrams: &[DiagramView]) -> String {
 
     <section class="hero">
       <div class="panel hero-main">
-        <div class="eyebrow">AOC See · Visualization Layer</div>
+        <div class="eyebrow">AOC Map · Visualization Layer</div>
         <h1>Explore the repo as a browsable site.</h1>
         <p>{description}</p>
         <div class="hero-actions">
           <a class="button primary" href="#collections">Browse pages</a>
           <a class="button" href="#filters">Search & filter</a>
-          <span class="button"><code>aoc-see serve --open</code></span>
+          <span class="button"><code>aoc-map serve --open</code></span>
         </div>
       </div>
       <aside class="panel hero-side">
@@ -1446,7 +1491,7 @@ fn render_index_html(site: &SiteView, diagrams: &[DiagramView]) -> String {
         </div>
         <div class="note">
           <strong>How to add a page</strong>
-          Scaffold with <code>aoc-see new task-flow --section tasks --kind flow</code>, then edit the generated Mermaid in <code>.aoc/see/diagrams/</code> and keep the page in <code>.aoc/see/pages/</code> graph-first.
+          Scaffold with <code>aoc-map new task-flow --section tasks --kind flow</code>, then edit the generated Mermaid in <code>.aoc/map/diagrams/</code> and keep the page in <code>.aoc/map/pages/</code> graph-first.
         </div>
         <div class="note">
           <strong>Project root</strong>
@@ -1527,7 +1572,7 @@ fn render_index_html(site: &SiteView, diagrams: &[DiagramView]) -> String {
     </div>
 
     <footer>
-      <strong>{title}</strong> is generated from <code>.aoc/see/manifest.json</code> plus any graph-backed pages in <code>.aoc/see/pages/</code>. Mermaid source files live in <code>.aoc/see/diagrams/</code>. Build with <code>aoc-see build</code> and serve with <code>aoc-see serve</code>.
+      <strong>{title}</strong> is generated from <code>.aoc/map/manifest.json</code> plus any graph-backed pages in <code>.aoc/map/pages/</code>. Mermaid source files live in <code>.aoc/map/diagrams/</code>. Build with <code>aoc-map build</code> and serve with <code>aoc-map serve</code>.
     </footer>
   </div>
 
@@ -1754,7 +1799,7 @@ fn render_sections(
             };
             let title = section_title(key, collections);
             let description = section_description(key, collections)
-                .unwrap_or_else(|| "AOC See pages in this collection.".to_string());
+                .unwrap_or_else(|| "AOC Map pages in this collection.".to_string());
             format!(
                 "<section class=\"panel section-block\" id=\"section-{}\" data-section-block=\"{}\"><div class=\"section-header\"><div><h2>{}</h2><p>{}</p></div><div class=\"section-count\" data-section-count>{} pages</div></div><div class=\"card-grid\">{}</div></section>",
                 escape_html(key),
@@ -1862,19 +1907,19 @@ fn section_description(section: &str, collections: &[CollectionRecord]) -> Optio
 }
 
 fn starter_readme() -> String {
-    "# AOC See\n\nAOC See is the project-local graph and visualization microsite for this repo. The main artifact is the graph, not the chrome around it.\n\n## Layout\n- `pages/*.html` — minimal graph-first presentation pages.\n- `diagrams/*.mmd` — Mermaid source files used as the canonical graph definitions.\n- `assets/mermaid.min.js` — vendored Mermaid runtime used locally/offline.\n- `assets/render-mermaid.js` — AOC See helper that renders Mermaid blocks and Mermaid source files in the browser.\n- `manifest.json` — site metadata and page metadata used for the homepage shell.\n- `index.html` — generated homepage for the microsite.\n\n## Workflow\n1. `aoc-see init`\n2. `aoc-see new agent-topology --section agents --kind topology --summary \"How AOC agents route through this repo\"`\n3. Edit the generated Mermaid file under `diagrams/agent-topology.mmd`.\n4. Keep the page under `pages/agent-topology.html` minimal and graph-first.\n5. Rebuild with `aoc-see build`, then browse with `aoc-see serve --open`.\n\n## Metadata conventions\nPages can declare metadata directly in HTML via meta tags such as:\n- `<meta name=\"aoc-see:summary\" content=\"...\">`\n- `<meta name=\"aoc-see:section\" content=\"agents\">`\n- `<meta name=\"aoc-see:kind\" content=\"topology\">`\n- `<meta name=\"aoc-see:status\" content=\"active\">`\n- `<meta name=\"aoc-see:diagram\" content=\"diagrams/agent-topology.mmd\">`\n- `<meta name=\"aoc-see:tags\" content=\"agents,orchestration\">`\n\n## Graph authoring\nPrefer Mermaid files in `diagrams/*.mmd` and reference them from pages with:\n\n```html\n<script type=\"text/plain\" data-aoc-see-mermaid-src=\"../diagrams/agent-topology.mmd\"></script>\n```\n\nInline Mermaid blocks still work, but external graph files are the preferred project-context-friendly path.\n\nPrefer self-contained HTML/CSS/JS/SVG and avoid external network-loaded assets when possible.\n"
+    "# AOC Map\n\nAOC Map is the project-local graph and visualization microsite for this repo. The main artifact is the graph, not the chrome around it.\n\n## Layout\n- `pages/*.html` — minimal graph-first presentation pages.\n- `diagrams/*.mmd` — Mermaid source files used as the canonical graph definitions.\n- `assets/mermaid.min.js` — vendored Mermaid runtime used locally/offline.\n- `assets/render-mermaid.js` — AOC Map helper that renders Mermaid blocks and Mermaid source files in the browser.\n- `manifest.json` — site metadata and page metadata used for the homepage shell.\n- `index.html` — generated homepage for the microsite.\n\n## Workflow\n1. `aoc-map init`\n2. `aoc-map new agent-topology --section agents --kind topology --summary \"How AOC agents route through this repo\"`\n3. Edit the generated Mermaid file under `diagrams/agent-topology.mmd`.\n4. Keep the page under `pages/agent-topology.html` minimal and graph-first.\n5. Rebuild with `aoc-map build`, then browse with `aoc-map serve --open`.\n\n## Metadata conventions\nPages can declare metadata directly in HTML via meta tags such as:\n- `<meta name=\"aoc-map:summary\" content=\"...\">`\n- `<meta name=\"aoc-map:section\" content=\"agents\">`\n- `<meta name=\"aoc-map:kind\" content=\"topology\">`\n- `<meta name=\"aoc-map:status\" content=\"active\">`\n- `<meta name=\"aoc-map:diagram\" content=\"diagrams/agent-topology.mmd\">`\n- `<meta name=\"aoc-map:tags\" content=\"agents,orchestration\">`\n\n## Graph authoring\nPrefer Mermaid files in `diagrams/*.mmd` and reference them from pages with:\n\n```html\n<script type=\"text/plain\" data-aoc-map-mermaid-src=\"../diagrams/agent-topology.mmd\"></script>\n```\n\nInline Mermaid blocks still work, but external graph files are the preferred project-context-friendly path.\n\nPrefer self-contained HTML/CSS/JS/SVG and avoid external network-loaded assets when possible.\n"
             .to_string()
 }
 
 fn starter_mermaid_source(title: &str) -> String {
     let label = title.replace('"', "'");
     format!(
-        "flowchart LR\n    repo[Project context] --> graph[{label}]\n    graph --> page[Minimal AOC See page]\n    graph --> refs[Code · tasks · docs]\n    refs --> next[Explore or explain]\n"
+        "flowchart LR\n    repo[Project context] --> graph[{label}]\n    graph --> page[Minimal AOC Map page]\n    graph --> refs[Code · tasks · docs]\n    refs --> next[Explore or explain]\n"
     )
 }
 
 fn starter_page_html(site: &SiteConfig, title: &str, record: &DiagramRecord, slug: &str) -> String {
-    let site_title = site.title.clone().unwrap_or_else(|| "AOC See".to_string());
+    let site_title = site.title.clone().unwrap_or_else(|| "AOC Map".to_string());
     let summary = record.summary.clone().unwrap_or_else(|| {
         "Describe the graph, the flow it captures, and why it matters in the project.".to_string()
     });
@@ -1913,12 +1958,12 @@ fn starter_page_html(site: &SiteConfig, title: &str, record: &DiagramRecord, slu
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{title}</title>
   <meta name="description" content="{summary}">
-  <meta name="aoc-see:summary" content="{summary}">
-  <meta name="aoc-see:section" content="{section}">
-  <meta name="aoc-see:kind" content="{kind}">
-  <meta name="aoc-see:status" content="{status}">
-  <meta name="aoc-see:diagram" content="{diagram_path}">
-  <meta name="aoc-see:tags" content="{tags}">
+  <meta name="aoc-map:summary" content="{summary}">
+  <meta name="aoc-map:section" content="{section}">
+  <meta name="aoc-map:kind" content="{kind}">
+  <meta name="aoc-map:status" content="{status}">
+  <meta name="aoc-map:diagram" content="{diagram_path}">
+  <meta name="aoc-map:tags" content="{tags}">
   <script defer src="../assets/mermaid.min.js"></script>
   <script defer src="../assets/render-mermaid.js"></script>
   <style>
@@ -1973,9 +2018,9 @@ fn starter_page_html(site: &SiteConfig, title: &str, record: &DiagramRecord, slu
           <p>{summary}</p>
         </div>
         <div class="graph-frame">
-          <script type="text/plain" data-aoc-see-mermaid-src="{diagram_src}"></script>
+          <script type="text/plain" data-aoc-map-mermaid-src="{diagram_src}"></script>
         </div>
-        <div class="footer">Primary graph source: <code>{diagram_path}</code>. Edit that Mermaid file, then run <code>aoc-see build</code> and preview with <code>aoc-see serve</code>.</div>
+        <div class="footer">Primary graph source: <code>{diagram_path}</code>. Edit that Mermaid file, then run <code>aoc-map build</code> and preview with <code>aoc-map serve</code>.</div>
       </section>
 
       <aside class="stack">
@@ -1995,7 +2040,7 @@ fn starter_page_html(site: &SiteConfig, title: &str, record: &DiagramRecord, slu
           <h3>Editing notes</h3>
           <ul>
             <li>Store Mermaid source in <code>{diagram_path}</code>.</li>
-            <li>Keep metadata in the page head with <code>aoc-see:*</code> tags.</li>
+            <li>Keep metadata in the page head with <code>aoc-map:*</code> tags.</li>
             <li>Inline Mermaid blocks still work when needed.</li>
           </ul>
         </article>
@@ -2094,10 +2139,10 @@ mod tests {
     #[test]
     fn mermaid_pages_get_local_script_tags_and_strip_legacy_output() {
         let input = format!(
-            "<html><head><title>x</title></head><body><section><script type=\"text/plain\" data-aoc-see-mermaid>flowchart LR; A-->B</script>\n{MERMAID_OUTPUT_START}<div>old</div>{MERMAID_OUTPUT_END}</section></body></html>"
+            "<html><head><title>x</title></head><body><section><script type=\"text/plain\" data-aoc-map-mermaid>flowchart LR; A-->B</script>\n{MERMAID_OUTPUT_START}<div>old</div>{MERMAID_OUTPUT_END}</section></body></html>"
         );
         let output = normalize_mermaid_page_html(&input);
-        assert!(output.contains("data-aoc-see-mermaid"));
+        assert!(output.contains("data-aoc-map-mermaid"));
         assert!(output.contains("../assets/mermaid.min.js"));
         assert!(output.contains("../assets/render-mermaid.js"));
         assert!(!output.contains(MERMAID_OUTPUT_START));
@@ -2107,7 +2152,7 @@ mod tests {
 
     #[test]
     fn mermaid_script_injection_is_idempotent() {
-        let input = "<html><head><title>x</title></head><body><script type=\"text/plain\" data-aoc-see-mermaid>flowchart LR; A-->B</script></body></html>";
+        let input = "<html><head><title>x</title></head><body><script type=\"text/plain\" data-aoc-map-mermaid>flowchart LR; A-->B</script></body></html>";
         let once = normalize_mermaid_page_html(input);
         let twice = normalize_mermaid_page_html(&once);
         assert_eq!(once.matches("mermaid.min.js").count(), 1);
@@ -2117,9 +2162,9 @@ mod tests {
 
     #[test]
     fn mermaid_src_blocks_also_get_local_script_tags() {
-        let input = "<html><head><title>x</title></head><body><script type=\"text/plain\" data-aoc-see-mermaid-src=\"../diagrams/agent-topology.mmd\"></script></body></html>";
+        let input = "<html><head><title>x</title></head><body><script type=\"text/plain\" data-aoc-map-mermaid-src=\"../diagrams/agent-topology.mmd\"></script></body></html>";
         let output = normalize_mermaid_page_html(input);
-        assert!(output.contains("data-aoc-see-mermaid-src"));
+        assert!(output.contains("data-aoc-map-mermaid-src"));
         assert!(output.contains("../assets/mermaid.min.js"));
         assert!(output.contains("../assets/render-mermaid.js"));
     }

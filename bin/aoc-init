@@ -12,7 +12,7 @@ usage() {
 Usage: aoc-init [--force] [path]
 
 Options:
-  --force   Refresh canonical AOC See seed files and pass --force to aoc-see init
+  --force   Refresh canonical AOC Map seed files and pass --force to aoc-map init
   -h, --help  Show this help text
 EOF
 }
@@ -1510,11 +1510,11 @@ setup_env() {
   fi
 }
 
-setup_aoc_see() {
-  local see_dir="$project_root/.aoc/see"
-  local aoc_see_skill="$project_root/.pi/skills/aoc-see/SKILL.md"
-  local aoc_see_skill_dir="$project_root/.pi/skills/aoc-see"
-  local canonical_skill_src="$script_dir/../.pi/skills/aoc-see/SKILL.md"
+setup_aoc_map() {
+  local map_dir="$project_root/.aoc/map"
+  local aoc_map_skill="$project_root/.pi/skills/aoc-map/SKILL.md"
+  local aoc_map_skill_dir="$project_root/.pi/skills/aoc-map"
+  local canonical_skill_src="$script_dir/../.pi/skills/aoc-map/SKILL.md"
   local output=""
   local -a init_args=(init)
 
@@ -1522,44 +1522,44 @@ setup_aoc_see() {
     init_args+=(--force)
   fi
 
-  if [[ -f "$aoc_see_skill" && $aoc_init_force -eq 0 ]]; then
-    log "AOC See skill exists ($aoc_see_skill). Preserving."
+  if [[ -f "$aoc_map_skill" && $aoc_init_force -eq 0 ]]; then
+    log "AOC Map skill exists ($aoc_map_skill). Preserving."
   elif [[ -f "$canonical_skill_src" ]]; then
-    mkdir -p "$aoc_see_skill_dir"
-    cp "$canonical_skill_src" "$aoc_see_skill"
+    mkdir -p "$aoc_map_skill_dir"
+    cp "$canonical_skill_src" "$aoc_map_skill"
     if (( aoc_init_force == 1 )); then
-      log "Refreshed AOC See skill ($aoc_see_skill)."
+      log "Refreshed AOC Map skill ($aoc_map_skill)."
     else
-      log "Seeded AOC See skill ($aoc_see_skill)."
+      log "Seeded AOC Map skill ($aoc_map_skill)."
     fi
   fi
 
-  if command -v aoc-see >/dev/null 2>&1; then
-    if output="$(cd "$project_root" && aoc-see "${init_args[@]}" 2>&1)"; then
-      log "AOC See workspace ready ($see_dir)."
-      if [[ -f "$aoc_see_skill" ]]; then
-        log "AOC See skill ready ($aoc_see_skill)."
+  if command -v aoc-map >/dev/null 2>&1; then
+    if output="$(cd "$project_root" && aoc-map "${init_args[@]}" 2>&1)"; then
+      log "AOC Map workspace ready ($map_dir)."
+      if [[ -f "$aoc_map_skill" ]]; then
+        log "AOC Map skill ready ($aoc_map_skill)."
       else
-        warn "AOC See skill missing after aoc-see init ($aoc_see_skill)."
+        warn "AOC Map skill missing after aoc-map init ($aoc_map_skill)."
       fi
     else
-      warn "aoc-see init failed; unable to seed $see_dir."
+      warn "aoc-map init failed; unable to seed $map_dir."
       [[ -n "$output" ]] && warn "$output"
     fi
-  elif [[ -x "$script_dir/aoc-see" ]]; then
-    if output="$(cd "$project_root" && "$script_dir/aoc-see" "${init_args[@]}" 2>&1)"; then
-      log "AOC See workspace ready ($see_dir)."
-      if [[ -f "$aoc_see_skill" ]]; then
-        log "AOC See skill ready ($aoc_see_skill)."
+  elif [[ -x "$script_dir/aoc-map" ]]; then
+    if output="$(cd "$project_root" && "$script_dir/aoc-map" "${init_args[@]}" 2>&1)"; then
+      log "AOC Map workspace ready ($map_dir)."
+      if [[ -f "$aoc_map_skill" ]]; then
+        log "AOC Map skill ready ($aoc_map_skill)."
       else
-        warn "AOC See skill missing after aoc-see init ($aoc_see_skill)."
+        warn "AOC Map skill missing after aoc-map init ($aoc_map_skill)."
       fi
     else
-      warn "aoc-see init failed; unable to seed $see_dir."
+      warn "aoc-map init failed; unable to seed $map_dir."
       [[ -n "$output" ]] && warn "$output"
     fi
   else
-    warn "aoc-see not found; skipping AOC See workspace seeding."
+    warn "aoc-map not found; skipping AOC Map workspace seeding."
   fi
 }
 
@@ -1625,7 +1625,7 @@ main() {
   setup_pi_prompts
   setup_pi_skills
   setup_skills
-  setup_aoc_see
+  setup_aoc_map
   setup_tasks
   ensure_git_tracking_policy
   setup_env

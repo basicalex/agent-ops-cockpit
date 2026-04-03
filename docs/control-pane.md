@@ -12,7 +12,7 @@ Main areas currently exposed through the control pane include:
 - PI agent installer
 - PI compaction presets
 - Agent Browser + Search
-- AOC See microsite
+- AOC Map microsite
 - Vercel CLI
 - MoreMotion
 
@@ -84,17 +84,17 @@ That confirms:
 - local search can return results
 - `agent-browser` can open and inspect the top result
 
-## AOC See microsite
+## AOC Map microsite
 
 Path:
 
-- `Alt+C -> Settings -> Tools -> AOC See microsite`
+- `Alt+C -> Settings -> Tools -> AOC Map microsite`
 
 Use it to:
-- sync `.pi/skills/aoc-see/SKILL.md` for the current repo
-- run `aoc-see init`
-- seed or confirm `.aoc/see/`
-- quickly see whether the AOC See workspace and skill are present
+- sync `.pi/skills/aoc-map/SKILL.md` for the current repo
+- run `aoc-map init`
+- seed or confirm `.aoc/map/`
+- quickly see whether the AOC Map workspace and skill are present
 
 ## PI installer
 
