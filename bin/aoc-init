@@ -2,12 +2,59 @@
 set -euo pipefail
 
 # AOC Initialization Script
-# Usage: aoc-init [path]
+# Usage: aoc-init [--force] [path]
 #
 # This script standardizes a project for the Agent Ops Cockpit.
 # It is IDEMPOTENT: safe to run multiple times. It respects existing data.
 
-project_root="${1:-$PWD}"
+usage() {
+  cat <<'EOF'
+Usage: aoc-init [--force] [path]
+
+Options:
+  --force   Refresh canonical AOC See seed files and pass --force to aoc-see init
+  -h, --help  Show this help text
+EOF
+}
+
+aoc_init_force=0
+project_root="$PWD"
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --force)
+      aoc_init_force=1
+      shift
+      ;;
+    -h|--help)
+      usage
+      exit 0
+      ;;
+    --)
+      shift
+      if [[ $# -gt 0 ]]; then
+        project_root="$1"
+        shift
+      fi
+      break
+      ;;
+    -*)
+      echo "Unknown option: $1" >&2
+      usage >&2
+      exit 1
+      ;;
+    *)
+      project_root="$1"
+      shift
+      ;;
+  esac
+done
+
+if [[ $# -gt 0 ]]; then
+  echo "Unexpected extra arguments: $*" >&2
+  usage >&2
+  exit 1
+fi
+
 aoc_dir="$project_root/.aoc"
 gemini_dir="$project_root/.gemini"
 task_dir="$project_root/.taskmaster"
@@ -1469,17 +1516,26 @@ setup_aoc_see() {
   local aoc_see_skill_dir="$project_root/.pi/skills/aoc-see"
   local canonical_skill_src="$script_dir/../.pi/skills/aoc-see/SKILL.md"
   local output=""
+  local -a init_args=(init)
 
-  if [[ -f "$aoc_see_skill" ]]; then
+  if (( aoc_init_force == 1 )); then
+    init_args+=(--force)
+  fi
+
+  if [[ -f "$aoc_see_skill" && $aoc_init_force -eq 0 ]]; then
     log "AOC See skill exists ($aoc_see_skill). Preserving."
   elif [[ -f "$canonical_skill_src" ]]; then
     mkdir -p "$aoc_see_skill_dir"
     cp "$canonical_skill_src" "$aoc_see_skill"
-    log "Seeded AOC See skill ($aoc_see_skill)."
+    if (( aoc_init_force == 1 )); then
+      log "Refreshed AOC See skill ($aoc_see_skill)."
+    else
+      log "Seeded AOC See skill ($aoc_see_skill)."
+    fi
   fi
 
   if command -v aoc-see >/dev/null 2>&1; then
-    if output="$(cd "$project_root" && aoc-see init 2>&1)"; then
+    if output="$(cd "$project_root" && aoc-see "${init_args[@]}" 2>&1)"; then
       log "AOC See workspace ready ($diagrams_dir)."
       if [[ -f "$aoc_see_skill" ]]; then
         log "AOC See skill ready ($aoc_see_skill)."
@@ -1491,7 +1547,7 @@ setup_aoc_see() {
       [[ -n "$output" ]] && warn "$output"
     fi
   elif [[ -x "$script_dir/aoc-see" ]]; then
-    if output="$(cd "$project_root" && "$script_dir/aoc-see" init 2>&1)"; then
+    if output="$(cd "$project_root" && "$script_dir/aoc-see" "${init_args[@]}" 2>&1)"; then
       log "AOC See workspace ready ($diagrams_dir)."
       if [[ -f "$aoc_see_skill" ]]; then
         log "AOC See skill ready ($aoc_see_skill)."

@@ -33,7 +33,7 @@ Each page under `.aoc/diagrams/pages/` is a first-class page in that site, and `
 3. Edit the generated HTML page in `.aoc/diagrams/pages/`.
 4. Prefer a visual-first page: make the graph or dashboard the first-class artifact and keep prose secondary.
 5. Use embedded Mermaid blocks when a graph is the clearest authoring format.
-6. Rebuild the homepage with `aoc-see build`.
+6. Rebuild the homepage and sync Mermaid assets with `aoc-see build`.
 7. Preview the full microsite with `aoc-see serve`.
 
 ## Preferred collections
@@ -79,7 +79,7 @@ flowchart LR
 </script>
 ```
 
-- `aoc-see build` renders those Mermaid blocks to inline SVG and keeps the source block in the page.
+- `aoc-see build` syncs local Mermaid JS assets and ensures Mermaid pages reference the vendored renderer.
 - Include a clear title, short summary, and visible source references.
 - If the page explains repo behavior, cite file paths and commands used.
 - Prefer updating an existing page over creating a duplicate.
@@ -100,6 +100,6 @@ Use this when you want a page to remain understandable and discoverable even if 
 
 ## Guardrails
 - Do not write outside `.aoc/diagrams/` unless the user asks.
-- Avoid external analytics or network-loaded assets.
+- Avoid external analytics or network-loaded assets. Use the repo-local vendored Mermaid assets seeded by AOC See.
 - Keep pages reviewable offline when possible.
 - Treat the homepage as the repo’s visual entrypoint, not a dumping ground.

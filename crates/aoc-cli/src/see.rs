@@ -1,7 +1,6 @@
 use anyhow::{anyhow, bail, Context, Result};
 use chrono::Utc;
 use clap::{Args, Subcommand, ValueEnum};
-use mermaid_rs_renderer::render as render_mermaid_to_svg;
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
@@ -10,12 +9,18 @@ use std::process::Command;
 
 const DIAGRAMS_DIR: &str = ".aoc/diagrams";
 const PAGES_DIR: &str = ".aoc/diagrams/pages";
+const ASSETS_DIR: &str = ".aoc/diagrams/assets";
 const MANIFEST_PATH: &str = ".aoc/diagrams/manifest.json";
 const INDEX_PATH: &str = ".aoc/diagrams/index.html";
 const README_PATH: &str = ".aoc/diagrams/README.md";
 const AOC_SEE_SKILL_PATH: &str = ".pi/skills/aoc-see/SKILL.md";
+const MERMAID_JS_PATH: &str = ".aoc/diagrams/assets/mermaid.min.js";
+const MERMAID_RENDER_HELPER_PATH: &str = ".aoc/diagrams/assets/render-mermaid.js";
 const MERMAID_OUTPUT_START: &str = "<!-- aoc-see:mermaid-output:start -->";
 const MERMAID_OUTPUT_END: &str = "<!-- aoc-see:mermaid-output:end -->";
+const MERMAID_JS_TAG: &str = r#"<script defer src="../assets/mermaid.min.js"></script>"#;
+const MERMAID_RENDER_HELPER_TAG: &str =
+    r#"<script defer src="../assets/render-mermaid.js"></script>"#;
 
 #[derive(Subcommand, Debug)]
 #[command(rename_all = "kebab-case")]
@@ -280,9 +285,12 @@ struct SeePaths {
     root: PathBuf,
     diagrams_dir: PathBuf,
     pages_dir: PathBuf,
+    assets_dir: PathBuf,
     manifest_path: PathBuf,
     index_path: PathBuf,
     readme_path: PathBuf,
+    mermaid_js_path: PathBuf,
+    mermaid_render_helper_path: PathBuf,
 }
 
 fn default_manifest_version() -> u32 {
@@ -449,9 +457,12 @@ impl SeePaths {
         Self {
             diagrams_dir: root.join(DIAGRAMS_DIR),
             pages_dir: root.join(PAGES_DIR),
+            assets_dir: root.join(ASSETS_DIR),
             manifest_path: root.join(MANIFEST_PATH),
             index_path: root.join(INDEX_PATH),
             readme_path: root.join(README_PATH),
+            mermaid_js_path: root.join(MERMAID_JS_PATH),
+            mermaid_render_helper_path: root.join(MERMAID_RENDER_HELPER_PATH),
             root,
         }
     }
@@ -470,6 +481,8 @@ fn resolve_project_root() -> Result<PathBuf> {
 fn ensure_dirs(paths: &SeePaths) -> Result<()> {
     fs::create_dir_all(&paths.pages_dir)
         .with_context(|| format!("failed to create {}", paths.pages_dir.display()))?;
+    fs::create_dir_all(&paths.assets_dir)
+        .with_context(|| format!("failed to create {}", paths.assets_dir.display()))?;
     Ok(())
 }
 
@@ -487,7 +500,19 @@ fn ensure_aoc_see_skill(root: &Path, force: bool) -> Result<()> {
     Ok(())
 }
 
-fn render_mermaid_pages(paths: &SeePaths) -> Result<()> {
+fn sync_mermaid_assets(paths: &SeePaths) -> Result<()> {
+    write_bytes_if_changed(
+        &paths.mermaid_js_path,
+        include_bytes!("../assets/mermaid.min.js"),
+    )?;
+    write_string_if_changed(
+        &paths.mermaid_render_helper_path,
+        include_str!("../assets/render-mermaid.js"),
+    )?;
+    Ok(())
+}
+
+fn normalize_mermaid_pages(paths: &SeePaths) -> Result<()> {
     if !paths.pages_dir.exists() {
         return Ok(());
     }
@@ -500,89 +525,115 @@ fn render_mermaid_pages(paths: &SeePaths) -> Result<()> {
         if !path.is_file() || path.extension().and_then(|value| value.to_str()) != Some("html") {
             continue;
         }
-        render_mermaid_page(&path)?;
+        normalize_mermaid_page(&path)?;
     }
 
     Ok(())
 }
 
-fn render_mermaid_page(path: &Path) -> Result<()> {
+fn normalize_mermaid_page(path: &Path) -> Result<()> {
     let content =
         fs::read_to_string(path).with_context(|| format!("failed to read {}", path.display()))?;
-    let rendered = render_mermaid_blocks(&content)
-        .with_context(|| format!("failed to render Mermaid blocks in {}", path.display()))?;
-    if rendered != content {
-        fs::write(path, rendered).with_context(|| format!("failed to write {}", path.display()))?;
+    let normalized = normalize_mermaid_page_html(&content);
+    if normalized != content {
+        fs::write(path, normalized)
+            .with_context(|| format!("failed to write {}", path.display()))?;
     }
     Ok(())
 }
 
-fn render_mermaid_blocks(content: &str) -> Result<String> {
-    let mut output = String::with_capacity(content.len() + 1024);
+fn normalize_mermaid_page_html(content: &str) -> String {
+    let without_legacy_output = strip_legacy_mermaid_output(content);
+    if !without_legacy_output.contains("data-aoc-see-mermaid") {
+        return without_legacy_output;
+    }
+    ensure_mermaid_script_tags(&without_legacy_output)
+}
+
+fn strip_legacy_mermaid_output(content: &str) -> String {
+    let mut output = String::with_capacity(content.len());
     let mut cursor = 0;
     let mut changed = false;
 
-    while let Some(script_rel_start) = content[cursor..].find("<script") {
-        let script_start = cursor + script_rel_start;
-        output.push_str(&content[cursor..script_start]);
-
-        let open_end_rel = content[script_start..]
-            .find('>')
-            .ok_or_else(|| anyhow!("unterminated <script> tag"))?;
-        let open_end = script_start + open_end_rel + 1;
-        let close_rel = content[open_end..]
-            .find("</script>")
-            .ok_or_else(|| anyhow!("unterminated </script> tag"))?;
-        let close_start = open_end + close_rel;
-        let close_end = close_start + "</script>".len();
-        let block = &content[script_start..close_end];
-        let open_tag = &content[script_start..open_end];
-
-        if open_tag.contains("data-aoc-see-mermaid") {
-            let source = content[open_end..close_start].trim();
-            if source.is_empty() {
-                output.push_str(block);
-            } else {
-                let svg = render_mermaid_to_svg(source)
-                    .map_err(|err| anyhow!("Mermaid render error: {err}"))?;
-                output.push_str(block);
-                output.push('\n');
-                output.push_str(&rendered_mermaid_block(&svg));
-                changed = true;
-                if let Some(consumed) = consume_existing_mermaid_output(&content[close_end..]) {
-                    cursor = close_end + consumed;
-                    continue;
-                }
-            }
-        } else {
-            output.push_str(block);
-        }
-
-        cursor = close_end;
+    while let Some(start_rel) = content[cursor..].find(MERMAID_OUTPUT_START) {
+        let start = cursor + start_rel;
+        output.push_str(&content[cursor..start]);
+        let after_start = start + MERMAID_OUTPUT_START.len();
+        let Some(end_rel) = content[after_start..].find(MERMAID_OUTPUT_END) else {
+            output.push_str(&content[start..]);
+            return output;
+        };
+        let end = after_start + end_rel + MERMAID_OUTPUT_END.len();
+        cursor = end;
+        changed = true;
     }
 
-    output.push_str(&content[cursor..]);
     if changed {
-        Ok(output)
+        output.push_str(&content[cursor..]);
+        output
     } else {
-        Ok(content.to_string())
+        content.to_string()
     }
 }
 
-fn rendered_mermaid_block(svg: &str) -> String {
-    format!(
-        "{MERMAID_OUTPUT_START}\n<div class=\"mermaid-rendered\" data-aoc-see-generated=\"true\">\n{svg}\n</div>\n{MERMAID_OUTPUT_END}"
-    )
+fn ensure_mermaid_script_tags(content: &str) -> String {
+    let needs_mermaid_js = !content.contains("mermaid.min.js");
+    let needs_render_helper = !content.contains("render-mermaid.js");
+    if !needs_mermaid_js && !needs_render_helper {
+        return content.to_string();
+    }
+
+    let mut injection = String::new();
+    if needs_mermaid_js {
+        injection.push_str("\n  ");
+        injection.push_str(MERMAID_JS_TAG);
+    }
+    if needs_render_helper {
+        injection.push_str("\n  ");
+        injection.push_str(MERMAID_RENDER_HELPER_TAG);
+    }
+
+    if let Some(index) = content.find("</head>") {
+        let mut output = String::with_capacity(content.len() + injection.len() + 1);
+        output.push_str(&content[..index]);
+        output.push_str(&injection);
+        output.push('\n');
+        output.push_str(&content[index..]);
+        return output;
+    }
+
+    if let Some(index) = content.find("</body>") {
+        let mut output = String::with_capacity(content.len() + injection.len() + 1);
+        output.push_str(&content[..index]);
+        output.push_str(&injection);
+        output.push('\n');
+        output.push_str(&content[index..]);
+        return output;
+    }
+
+    format!("{content}{injection}\n")
 }
 
-fn consume_existing_mermaid_output(input: &str) -> Option<usize> {
-    let trimmed = input.trim_start_matches(char::is_whitespace);
-    let whitespace_len = input.len() - trimmed.len();
-    if !trimmed.starts_with(MERMAID_OUTPUT_START) {
-        return None;
+fn write_bytes_if_changed(path: &Path, bytes: &[u8]) -> Result<()> {
+    let should_write = match fs::read(path) {
+        Ok(existing) => existing != bytes,
+        Err(_) => true,
+    };
+    if should_write {
+        fs::write(path, bytes).with_context(|| format!("failed to write {}", path.display()))?;
     }
-    let end_rel = trimmed.find(MERMAID_OUTPUT_END)?;
-    Some(whitespace_len + end_rel + MERMAID_OUTPUT_END.len())
+    Ok(())
+}
+
+fn write_string_if_changed(path: &Path, content: &str) -> Result<()> {
+    let should_write = match fs::read_to_string(path) {
+        Ok(existing) => existing != content,
+        Err(_) => true,
+    };
+    if should_write {
+        fs::write(path, content).with_context(|| format!("failed to write {}", path.display()))?;
+    }
+    Ok(())
 }
 
 fn write_if_missing_or_forced(path: &Path, content: &str, force: bool) -> Result<()> {
@@ -1064,7 +1115,8 @@ fn extract_tag_text(content: &str, tag: &str) -> Option<String> {
 }
 
 fn build_index(paths: &SeePaths) -> Result<()> {
-    render_mermaid_pages(paths)?;
+    sync_mermaid_assets(paths)?;
+    normalize_mermaid_pages(paths)?;
     let manifest = load_and_normalize_manifest(paths)?;
     let diagrams = collect_diagrams(paths, &manifest)?;
     let site = build_site_view(paths, &manifest);
@@ -1747,7 +1799,7 @@ fn section_description(section: &str, collections: &[CollectionRecord]) -> Optio
 }
 
 fn starter_readme() -> String {
-    "# AOC See\n\nAOC See is the project-local visualization microsite for this repo.\n\n## Layout\n- `pages/*.html` — self-contained pages for diagrams, explainers, dashboards, and visual notes.\n- `manifest.json` — site metadata and page metadata used for the homepage shell.\n- `index.html` — generated homepage for the microsite.\n\n## Workflow\n1. `aoc-see init`\n2. `aoc-see new agent-topology --section agents --kind topology --summary \"How agents route through the project\"`\n3. Edit the generated page under `pages/`. The default scaffold includes an embedded Mermaid source block.\n4. Rebuild with `aoc-see build` to refresh inline Mermaid SVG output.\n5. Browse locally with `aoc-see serve --open`.\n\n## Metadata conventions\nPages can also declare metadata directly in HTML via meta tags such as:\n- `<meta name=\"aoc-see:summary\" content=\"...\">`\n- `<meta name=\"aoc-see:section\" content=\"agents\">`\n- `<meta name=\"aoc-see:kind\" content=\"topology\">`\n- `<meta name=\"aoc-see:status\" content=\"active\">`\n- `<meta name=\"aoc-see:tags\" content=\"agents,orchestration\">`\n\n## Mermaid authoring\nUse a source block like:\n\n```html\n<script type=\"text/plain\" data-aoc-see-mermaid>\nflowchart LR\n  A[Repo] --> B[Model]\n  B --> C[View]\n</script>\n```\n\n`aoc-see build` renders those blocks to inline SVG and keeps the Mermaid source in the page for later edits.\n\nPrefer self-contained HTML/CSS/JS/SVG and avoid external CDNs when possible.\n"
+    "# AOC See\n\nAOC See is the project-local visualization microsite for this repo.\n\n## Layout\n- `pages/*.html` — self-contained pages for diagrams, explainers, dashboards, and visual notes.\n- `assets/mermaid.min.js` — vendored Mermaid runtime used locally/offline.\n- `assets/render-mermaid.js` — AOC See helper that renders embedded Mermaid blocks in the browser.\n- `manifest.json` — site metadata and page metadata used for the homepage shell.\n- `index.html` — generated homepage for the microsite.\n\n## Workflow\n1. `aoc-see init`\n2. `aoc-see new agent-topology --section agents --kind topology --summary \"How agents route through the project\"`\n3. Edit the generated page under `pages/`. The default scaffold includes an embedded Mermaid source block.\n4. Rebuild with `aoc-see build` to refresh the homepage and sync local Mermaid assets.\n5. Browse locally with `aoc-see serve --open`. Mermaid diagrams render in-browser from the local vendored assets.\n\n## Metadata conventions\nPages can also declare metadata directly in HTML via meta tags such as:\n- `<meta name=\"aoc-see:summary\" content=\"...\">`\n- `<meta name=\"aoc-see:section\" content=\"agents\">`\n- `<meta name=\"aoc-see:kind\" content=\"topology\">`\n- `<meta name=\"aoc-see:status\" content=\"active\">`\n- `<meta name=\"aoc-see:tags\" content=\"agents,orchestration\">`\n\n## Mermaid authoring\nUse a source block like:\n\n```html\n<script type=\"text/plain\" data-aoc-see-mermaid>\nflowchart LR\n  A[Repo] --> B[Model]\n  B --> C[View]\n</script>\n```\n\nAOC See injects repo-local Mermaid JS assets into Mermaid pages when needed. No CDN is required.\n\nPrefer self-contained HTML/CSS/JS/SVG and avoid external network-loaded assets when possible.\n"
             .to_string()
 }
 
@@ -1798,6 +1850,8 @@ fn starter_page_html(site: &SiteConfig, title: &str, record: &DiagramRecord, slu
   <meta name="aoc-see:kind" content="{kind}">
   <meta name="aoc-see:status" content="{status}">
   <meta name="aoc-see:tags" content="{tags}">
+  <script defer src="../assets/mermaid.min.js"></script>
+  <script defer src="../assets/render-mermaid.js"></script>
   <style>
     :root {{
       color-scheme: dark;
@@ -1878,7 +1932,7 @@ fn starter_page_html(site: &SiteConfig, title: &str, record: &DiagramRecord, slu
         <div class="stage-head">
           <div>
             <h2>Primary visualization</h2>
-            <p>Edit the embedded Mermaid source block in this HTML file, then run <code>aoc-see build</code> to regenerate the inline SVG.</p>
+            <p>Edit the embedded Mermaid source block in this HTML file, then run <code>aoc-see build</code> to sync the microsite and preview it with <code>aoc-see serve</code>.</p>
           </div>
           <div class="legend">
             <span><i class="dot" style="background: var(--accent);"></i>inputs</span>
@@ -1917,7 +1971,7 @@ fn starter_page_html(site: &SiteConfig, title: &str, record: &DiagramRecord, slu
       </article>
     </section>
 
-    <div class="footer">Generated by <code>aoc-see new</code>. This scaffold is visual-first by default and renders Mermaid to inline SVG during <code>aoc-see build</code>.</div>
+    <div class="footer">Generated by <code>aoc-see new</code>. This scaffold is visual-first by default and uses vendored Mermaid JS for offline local rendering.</div>
   </main>
 </body>
 </html>
@@ -1975,7 +2029,7 @@ fn try_open_browser(url: &str) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::{
-        infer_section, normalize_key, normalize_tokens, render_mermaid_blocks, validate_slug,
+        infer_section, normalize_key, normalize_mermaid_page_html, normalize_tokens, validate_slug,
         MERMAID_OUTPUT_END, MERMAID_OUTPUT_START,
     };
 
@@ -2008,15 +2062,26 @@ mod tests {
     }
 
     #[test]
-    fn mermaid_blocks_render_to_inline_svg_and_replace_existing_output() {
+    fn mermaid_pages_get_local_script_tags_and_strip_legacy_output() {
         let input = format!(
-            "<section><script type=\"text/plain\" data-aoc-see-mermaid>flowchart LR; A-->B</script>\n{MERMAID_OUTPUT_START}<div>old</div>{MERMAID_OUTPUT_END}</section>"
+            "<html><head><title>x</title></head><body><section><script type=\"text/plain\" data-aoc-see-mermaid>flowchart LR; A-->B</script>\n{MERMAID_OUTPUT_START}<div>old</div>{MERMAID_OUTPUT_END}</section></body></html>"
         );
-        let output = render_mermaid_blocks(&input).unwrap();
+        let output = normalize_mermaid_page_html(&input);
         assert!(output.contains("data-aoc-see-mermaid"));
-        assert!(output.contains(MERMAID_OUTPUT_START));
-        assert!(output.contains(MERMAID_OUTPUT_END));
-        assert!(output.contains("<svg"));
+        assert!(output.contains("../assets/mermaid.min.js"));
+        assert!(output.contains("../assets/render-mermaid.js"));
+        assert!(!output.contains(MERMAID_OUTPUT_START));
+        assert!(!output.contains(MERMAID_OUTPUT_END));
         assert!(!output.contains("<div>old</div>"));
+    }
+
+    #[test]
+    fn mermaid_script_injection_is_idempotent() {
+        let input = "<html><head><title>x</title></head><body><script type=\"text/plain\" data-aoc-see-mermaid>flowchart LR; A-->B</script></body></html>";
+        let once = normalize_mermaid_page_html(input);
+        let twice = normalize_mermaid_page_html(&once);
+        assert_eq!(once.matches("mermaid.min.js").count(), 1);
+        assert_eq!(once.matches("render-mermaid.js").count(), 1);
+        assert_eq!(once, twice);
     }
 }
