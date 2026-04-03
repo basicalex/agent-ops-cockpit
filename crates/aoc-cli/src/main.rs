@@ -2,9 +2,9 @@ use anyhow::Result;
 use clap::{Parser, Subcommand};
 
 mod insight;
+mod map;
 mod overseer;
 mod rlm;
-mod see;
 mod task;
 
 #[derive(Parser)]
@@ -42,10 +42,11 @@ enum Commands {
         #[command(subcommand)]
         action: overseer::OverseerCommand,
     },
-    /// Build and serve agent-authored project diagrams
-    See {
+    /// Build and serve agent-authored project maps
+    #[command(alias = "see")]
+    Map {
         #[command(subcommand)]
-        action: see::SeeCommand,
+        action: map::MapCommand,
     },
 }
 
@@ -68,6 +69,6 @@ fn main() -> Result<()> {
         Commands::Rlm { action } => rlm::handle_rlm_command(action),
         Commands::Insight { action } => insight::handle_insight_command(action),
         Commands::Overseer { action } => overseer::handle_overseer_command(action),
-        Commands::See { action } => see::handle_see_command(action),
+        Commands::Map { action } => map::handle_map_command(action),
     }
 }

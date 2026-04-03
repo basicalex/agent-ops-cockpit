@@ -1270,10 +1270,10 @@ impl App {
         self.search_status_checked = true;
     }
 
-    fn run_aoc_see_init_action(&mut self) {
-        match seed_aoc_see() {
+    fn run_aoc_map_init_action(&mut self) {
+        match seed_aoc_map() {
             Ok(message) => self.set_status(message),
-            Err(err) => self.set_status(format!("AOC See seed failed: {err}")),
+            Err(err) => self.set_status(format!("AOC Map seed failed: {err}")),
         }
     }
 
@@ -2396,7 +2396,7 @@ fn activate_selection(app: &mut App) {
                 1 => app.open_agent_install_actions(),
                 2 => app.set_settings_section(SettingsSection::ToolsPiCompaction),
                 3 => app.set_settings_section(SettingsSection::ToolsAgentBrowser),
-                4 => app.run_aoc_see_init_action(),
+                4 => app.run_aoc_map_init_action(),
                 5 => app.set_settings_section(SettingsSection::ToolsVercel),
                 6 => app.set_settings_section(SettingsSection::ToolsMoremotion),
                 7 => app.set_settings_section(SettingsSection::Root),
@@ -2633,7 +2633,7 @@ fn draw_defaults(frame: &mut ratatui::Frame, area: Rect, app: &mut App, focused:
                         &app.search_status,
                     )
                 )),
-                ListItem::new(format!("AOC See microsite · {}", aoc_see_summary())),
+                ListItem::new(format!("AOC Map microsite · {}", aoc_map_summary())),
                 ListItem::new(format!("Vercel CLI + PI skill · {}", vercel_summary())),
                 ListItem::new(format!("MoreMotion + /momo · {}", moremotion_summary())),
                 ListItem::new("Back"),
@@ -3098,7 +3098,7 @@ fn draw_help_modal(frame: &mut ratatui::Frame, area: Rect) {
         Line::from("  Enter  open section/action"),
         Line::from("  Esc    back one settings level"),
         Line::from("  t      jump to Theme section"),
-        Line::from("  Tools includes RTK, agent installers, PI compaction, Agent Browser, AOC See, Vercel CLI, MoreMotion"),
+        Line::from("  Tools includes RTK, agent installers, PI compaction, Agent Browser, AOC Map, Vercel CLI, MoreMotion"),
         Line::from("  Right pane shows details for selected settings item"),
         Line::from("  Agent Browser/search jobs: PgUp/PgDn scroll, x cancel, Shift+O open log"),
         Line::from("  Theme manager: j/k preview, Enter activate+persist, n/i/r actions"),
@@ -3414,7 +3414,7 @@ fn settings_tools_options() -> Vec<String> {
         "PI agent installer".to_string(),
         "PI compaction".to_string(),
         "Agent Browser + Search".to_string(),
-        "AOC See microsite".to_string(),
+        "AOC Map microsite".to_string(),
         "Vercel CLI + PI skill".to_string(),
         "MoreMotion + /momo".to_string(),
         "Back".to_string(),
@@ -3727,11 +3727,11 @@ fn settings_detail_lines(app: &App) -> Vec<Line<'static>> {
                 ));
             }
             4 => {
-                lines.push(Line::from("AOC See microsite"));
+                lines.push(Line::from("AOC Map microsite"));
                 lines.push(Line::from(""));
-                lines.push(Line::from(format!("Status: {}", aoc_see_summary())));
+                lines.push(Line::from(format!("Status: {}", aoc_map_summary())));
                 lines.push(Line::from(
-                    "Enter syncs .pi/skills/aoc-see/SKILL.md and runs 'aoc-see init' in the current repo (.aoc/see workspace).",
+                    "Enter syncs .pi/skills/aoc-map/SKILL.md and runs 'aoc-map init' in the current repo (.aoc/map workspace).",
                 ));
                 lines.push(Line::from(
                     "Use this to ensure both the agent skill and the project-local visualization microsite shell exist.",
@@ -5815,43 +5815,48 @@ fn verify_vercel_cli() -> io::Result<String> {
     Ok(format!("Vercel CLI {version} ({})", vercel_summary()))
 }
 
-fn aoc_see_skill_installed() -> bool {
-    project_relative_exists(".pi/skills/aoc-see/SKILL.md")
+fn aoc_map_skill_installed() -> bool {
+    project_relative_exists(".pi/skills/aoc-map/SKILL.md")
 }
 
-fn install_aoc_see_skill() -> io::Result<String> {
+fn install_aoc_map_skill() -> io::Result<String> {
     let Some(project_root) = project_root_path() else {
         return Err(io::Error::other("unable to resolve project root"));
     };
 
-    let target_dir = project_root.join(".pi").join("skills").join("aoc-see");
+    let target_dir = project_root.join(".pi").join("skills").join("aoc-map");
     fs::create_dir_all(&target_dir)?;
     let target_file = target_dir.join("SKILL.md");
     fs::write(
         &target_file,
-        include_str!("../../../.pi/skills/aoc-see/SKILL.md"),
+        include_str!("../../../.pi/skills/aoc-map/SKILL.md"),
     )?;
 
     Ok(format!(
-        "Synced AOC See skill ({})",
+        "Synced AOC Map skill ({})",
         target_file.to_string_lossy()
     ))
 }
 
-fn aoc_see_summary() -> String {
-    let see_root = project_relative_is_dir(".aoc/see") || project_relative_is_dir(".aoc/diagrams");
-    let pages =
-        project_relative_is_dir(".aoc/see/pages") || project_relative_is_dir(".aoc/diagrams/pages");
-    let manifest = project_relative_exists(".aoc/see/manifest.json")
+fn aoc_map_summary() -> String {
+    let map_root = project_relative_is_dir(".aoc/map")
+        || project_relative_is_dir(".aoc/see")
+        || project_relative_is_dir(".aoc/diagrams");
+    let pages = project_relative_is_dir(".aoc/map/pages")
+        || project_relative_is_dir(".aoc/see/pages")
+        || project_relative_is_dir(".aoc/diagrams/pages");
+    let manifest = project_relative_exists(".aoc/map/manifest.json")
+        || project_relative_exists(".aoc/see/manifest.json")
         || project_relative_exists(".aoc/diagrams/manifest.json");
-    let index = project_relative_exists(".aoc/see/index.html")
+    let index = project_relative_exists(".aoc/map/index.html")
+        || project_relative_exists(".aoc/see/index.html")
         || project_relative_exists(".aoc/diagrams/index.html");
-    let workspace = match (see_root, pages, manifest, index) {
+    let workspace = match (map_root, pages, manifest, index) {
         (true, true, true, true) => "workspace seeded",
         (true, _, _, _) => "workspace partial",
         _ => "workspace missing",
     };
-    let skill = if aoc_see_skill_installed() {
+    let skill = if aoc_map_skill_installed() {
         "skill present"
     } else {
         "skill missing"
@@ -5859,15 +5864,15 @@ fn aoc_see_summary() -> String {
     format!("{workspace}, {skill}")
 }
 
-fn run_aoc_see_init() -> io::Result<String> {
+fn run_aoc_map_init() -> io::Result<String> {
     let project_root =
         project_root_path().ok_or_else(|| io::Error::other("unable to resolve project root"))?;
-    let output = Command::new("aoc-see")
+    let output = Command::new("aoc-map")
         .args(["init"])
         .current_dir(project_root)
         .output()?;
     if !output.status.success() {
-        return Err(command_failure("aoc-see init", &output));
+        return Err(command_failure("aoc-map init", &output));
     }
 
     let stdout = String::from_utf8_lossy(&output.stdout);
@@ -5876,16 +5881,16 @@ fn run_aoc_see_init() -> io::Result<String> {
         .lines()
         .find(|line| !line.trim().is_empty())
         .or_else(|| stderr.lines().find(|line| !line.trim().is_empty()))
-        .unwrap_or("AOC See initialized")
+        .unwrap_or("AOC Map initialized")
         .trim()
         .to_string();
 
-    Ok(format!("{first_line} ({})", aoc_see_summary()))
+    Ok(format!("{first_line} ({})", aoc_map_summary()))
 }
 
-fn seed_aoc_see() -> io::Result<String> {
-    let skill_message = install_aoc_see_skill()?;
-    let init_message = run_aoc_see_init()?;
+fn seed_aoc_map() -> io::Result<String> {
+    let skill_message = install_aoc_map_skill()?;
+    let init_message = run_aoc_map_init()?;
     Ok(format!("{skill_message}; {init_message}"))
 }
 
