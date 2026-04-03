@@ -1,0 +1,371 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Agent Ops Cockpit · AOC Map</title>
+  <meta name="description" content="Graph-first visualization layer for Agent Ops Cockpit. Use this microsite to browse project flows, architecture maps, agent routes, task views, and other minimal visual explanations.">
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #07111d;
+      --bg-2: #0b1727;
+      --panel: rgba(12, 20, 36, 0.9);
+      --panel-2: rgba(15, 26, 46, 0.95);
+      --line: #243756;
+      --line-soft: rgba(120, 158, 220, 0.14);
+      --text: #eaf1ff;
+      --muted: #9eb1d1;
+      --accent: #79c0ff;
+      --accent-2: #8dd694;
+      --accent-3: #f2cc8f;
+      --danger: #ef8d8d;
+      --shadow: 0 20px 40px rgba(0, 0, 0, 0.28);
+      --radius: 18px;
+    }
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body {
+      margin: 0;
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background:
+        radial-gradient(circle at top right, rgba(121, 192, 255, 0.14), transparent 25%),
+        radial-gradient(circle at top left, rgba(141, 214, 148, 0.10), transparent 25%),
+        linear-gradient(180deg, var(--bg), #091321 45%, #08111c);
+      color: var(--text);
+    }
+    a { color: var(--accent); text-decoration: none; }
+    a:hover { text-decoration: underline; }
+    code {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 0.92em;
+      color: var(--accent);
+      background: rgba(8, 16, 28, 0.85);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 0.15rem 0.38rem;
+    }
+    .shell { max-width: 1260px; margin: 0 auto; padding: 24px 20px 72px; }
+    .topbar {
+      position: sticky; top: 0; z-index: 20; backdrop-filter: blur(14px);
+      background: rgba(7, 12, 20, 0.72); border: 1px solid var(--line-soft);
+      border-radius: 16px; padding: 12px 16px; display: flex; gap: 12px; justify-content: space-between; align-items: center;
+      margin-bottom: 18px;
+    }
+    .brand { display: flex; gap: 12px; align-items: center; min-width: 0; }
+    .brand-badge {
+      display: inline-flex; align-items: center; justify-content: center; width: 42px; height: 42px;
+      border-radius: 12px; background: linear-gradient(135deg, rgba(121,192,255,0.25), rgba(141,214,148,0.18));
+      border: 1px solid var(--line); font-weight: 800;
+    }
+    .brand-title { font-weight: 700; font-size: 1rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .brand-subtitle { color: var(--muted); font-size: 0.88rem; }
+    .nav-links { display: flex; flex-wrap: wrap; gap: 8px; justify-content: flex-end; }
+    .nav-links a {
+      display: inline-flex; align-items: center; gap: 8px; padding: 8px 12px; border-radius: 999px;
+      border: 1px solid var(--line); background: rgba(12, 20, 36, 0.7); color: var(--muted);
+    }
+    .hero {
+      display: grid; grid-template-columns: minmax(0, 1.7fr) minmax(320px, 0.9fr);
+      gap: 18px; margin: 24px 0 18px;
+    }
+    .panel {
+      background: linear-gradient(180deg, rgba(17,27,45,0.9), rgba(10,17,31,0.92));
+      border: 1px solid var(--line); border-radius: var(--radius); box-shadow: var(--shadow);
+    }
+    .hero-main { padding: 28px; }
+    .eyebrow {
+      display: inline-flex; align-items: center; gap: 8px; padding: 7px 12px; margin-bottom: 18px;
+      border-radius: 999px; border: 1px solid var(--line); color: var(--accent); background: rgba(10, 18, 31, 0.88);
+      font-size: 0.88rem; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase;
+    }
+    h1 { margin: 0 0 12px; font-size: clamp(2rem, 5vw, 3.2rem); line-height: 1.04; }
+    .hero p { margin: 0; color: var(--muted); line-height: 1.65; }
+    .hero-actions { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 20px; }
+    .button {
+      display: inline-flex; align-items: center; gap: 10px; padding: 11px 14px; border-radius: 12px;
+      border: 1px solid var(--line); text-decoration: none; color: var(--text); background: rgba(12, 20, 36, 0.86);
+      font-weight: 600;
+    }
+    .button.primary { color: #05101c; background: linear-gradient(135deg, var(--accent), #9fd2ff); border-color: transparent; }
+    .hero-side { padding: 22px; display: grid; gap: 14px; align-content: start; }
+    .mini-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+    .metric { padding: 15px; border-radius: 16px; background: rgba(8, 15, 26, 0.82); border: 1px solid var(--line); }
+    .metric-label { color: var(--muted); font-size: 0.86rem; margin-bottom: 6px; }
+    .metric-value { font-size: 1.45rem; font-weight: 800; }
+    .note { padding: 14px 15px; border-radius: 14px; border: 1px solid var(--line); background: rgba(8, 15, 26, 0.82); }
+    .note strong { display: block; margin-bottom: 6px; }
+    .search-panel { padding: 18px; margin: 18px 0; }
+    .search-row { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; justify-content: space-between; margin-bottom: 16px; }
+    .search-row h2 { margin: 0; font-size: 1.08rem; }
+    .search-row p { margin: 0; color: var(--muted); }
+    .search-box { width: 100%; }
+    .search-box input {
+      width: 100%; border: 1px solid var(--line); border-radius: 14px; background: rgba(8, 14, 24, 0.92);
+      color: var(--text); padding: 13px 14px; font-size: 1rem; outline: none;
+    }
+    .search-box input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(121, 192, 255, 0.12); }
+    .filter-stack { display: grid; gap: 14px; }
+    .filter-group-label { color: var(--muted); font-size: 0.86rem; margin-bottom: 8px; text-transform: uppercase; letter-spacing: 0.06em; }
+    .chips { display: flex; flex-wrap: wrap; gap: 8px; }
+    .chip {
+      border: 1px solid var(--line); background: rgba(12, 20, 36, 0.82); color: var(--muted);
+      border-radius: 999px; padding: 8px 12px; cursor: pointer; font: inherit;
+    }
+    .chip.active { background: rgba(121, 192, 255, 0.14); color: var(--text); border-color: rgba(121, 192, 255, 0.5); }
+    .layout { display: grid; grid-template-columns: minmax(0, 1.65fr) minmax(300px, 0.75fr); gap: 18px; align-items: start; }
+    .stack { display: grid; gap: 18px; }
+    .featured { padding: 20px; }
+    .featured h2, .section-header h2, .sidebar-card h2 { margin: 0 0 8px; font-size: 1.12rem; }
+    .section-header p, .featured p, .sidebar-card p { margin: 0; color: var(--muted); line-height: 1.55; }
+    .card-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 14px; margin-top: 16px; }
+    .card {
+      display: grid; gap: 12px; align-content: start; padding: 18px;
+      border-radius: 18px; background: linear-gradient(180deg, rgba(12, 20, 36, 0.95), rgba(9, 16, 28, 0.98));
+      border: 1px solid var(--line); min-height: 255px;
+    }
+    .card-top { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; justify-content: space-between; }
+    .badge-row { display: flex; gap: 8px; flex-wrap: wrap; }
+    .badge {
+      display: inline-flex; align-items: center; gap: 6px; padding: 5px 10px; border-radius: 999px;
+      border: 1px solid var(--line); font-size: 0.8rem; background: rgba(10, 17, 29, 0.9); color: var(--muted);
+      text-transform: uppercase; letter-spacing: 0.04em;
+    }
+    .badge.kind { color: var(--accent); }
+    .badge.status-stable { color: var(--accent-2); }
+    .badge.status-active { color: var(--accent); }
+    .badge.status-draft { color: var(--accent-3); }
+    .badge.status-archived { color: var(--danger); }
+    .card h3 { margin: 0; font-size: 1.1rem; line-height: 1.3; }
+    .card p { margin: 0; color: var(--muted); line-height: 1.55; }
+    .meta-list { display: grid; gap: 8px; color: var(--muted); font-size: 0.92rem; }
+    .tags { display: flex; flex-wrap: wrap; gap: 8px; }
+    .tag { border-radius: 999px; background: rgba(21, 34, 57, 0.92); border: 1px solid var(--line); color: var(--muted); padding: 5px 10px; font-size: 0.85rem; }
+    .section-block { padding: 20px; }
+    .section-header { display: flex; gap: 12px; justify-content: space-between; align-items: start; margin-bottom: 6px; }
+    .section-count { color: var(--muted); font-size: 0.92rem; white-space: nowrap; }
+    .sidebar { display: grid; gap: 18px; }
+    .sidebar-card { padding: 18px; }
+    .list { display: grid; gap: 10px; margin-top: 14px; }
+    .list-item { padding: 12px 13px; border-radius: 14px; border: 1px solid var(--line); background: rgba(8, 14, 24, 0.88); }
+    .list-item strong { display: block; margin-bottom: 5px; }
+    .section-block.hidden, .card.hidden, #no-results.hidden, #empty-sections.hidden { display: none; }
+    .empty-site, .empty-results { padding: 20px; border-radius: 18px; border: 1px dashed var(--line); background: rgba(8, 14, 24, 0.78); color: var(--muted); }
+    footer { margin-top: 24px; padding: 18px; color: var(--muted); border: 1px solid var(--line); border-radius: 16px; background: rgba(8, 14, 24, 0.82); }
+    @media (max-width: 980px) {
+      .hero, .layout { grid-template-columns: 1fr; }
+      .topbar { position: static; }
+    }
+  </style>
+</head>
+<body>
+  <div class="shell">
+    <div class="topbar">
+      <div class="brand">
+        <div class="brand-badge">AØ</div>
+        <div>
+          <div class="brand-title">Agent Ops Cockpit · AOC Map</div>
+          <div class="brand-subtitle">Agent Ops Cockpit · project-local visualization microsite</div>
+        </div>
+      </div>
+      <nav class="nav-links">
+        <a href="#filters">Filters</a>
+        <a href="#collections">Collections</a>
+        <a href="#recent">Recent</a>
+      </nav>
+    </div>
+
+    <section class="hero">
+      <div class="panel hero-main">
+        <div class="eyebrow">AOC Map · Visualization Layer</div>
+        <h1>Explore the repo as a browsable site.</h1>
+        <p>Graph-first visualization layer for Agent Ops Cockpit. Use this microsite to browse project flows, architecture maps, agent routes, task views, and other minimal visual explanations.</p>
+        <div class="hero-actions">
+          <a class="button primary" href="#collections">Browse pages</a>
+          <a class="button" href="#filters">Search & filter</a>
+          <span class="button"><code>aoc-map serve --open</code></span>
+        </div>
+      </div>
+      <aside class="panel hero-side">
+        <div class="mini-grid">
+          <div class="metric">
+            <div class="metric-label">Pages</div>
+            <div class="metric-value" id="visible-page-count">0</div>
+          </div>
+          <div class="metric">
+            <div class="metric-label">Collections</div>
+            <div class="metric-value">9</div>
+          </div>
+          <div class="metric">
+            <div class="metric-label">Kinds</div>
+            <div class="metric-value">0</div>
+          </div>
+          <div class="metric">
+            <div class="metric-label">Tags</div>
+            <div class="metric-value">0</div>
+          </div>
+        </div>
+        <div class="note">
+          <strong>How to add a page</strong>
+          Scaffold with <code>aoc-map new task-flow --section tasks --kind flow</code>, then edit the generated Mermaid in <code>.aoc/map/diagrams/</code> and keep the page in <code>.aoc/map/pages/</code> graph-first.
+        </div>
+        <div class="note">
+          <strong>Project root</strong>
+          <code>/home/ceii/dev/agent-ops-cockpit</code>
+        </div>
+      </aside>
+    </section>
+
+    <section class="panel search-panel" id="filters">
+      <div class="search-row">
+        <div>
+          <h2>Discover pages fast</h2>
+          <p>Filter by collection, page kind, tag, or free-text search.</p>
+        </div>
+        <div class="badge-row">
+          <span class="badge">generated 2026-04-03T16:18:14.244369347+00:00</span>
+          <span class="badge">0 total pages</span>
+        </div>
+      </div>
+      <div class="search-box">
+        <input id="search-input" type="search" placeholder="Search by title, summary, tag, section, or kind..." autocomplete="off">
+      </div>
+      <div class="filter-stack">
+        <div>
+          <div class="filter-group-label">Collections</div>
+          <div class="chips" data-group="section">
+            <button class="chip active" type="button" data-filter-group="section" data-filter-value="all">All</button>
+            <button class="chip" type="button" data-filter-group="section" data-filter-value="architecture">Architecture</button><button class="chip" type="button" data-filter-group="section" data-filter-value="agents">Agents</button><button class="chip" type="button" data-filter-group="section" data-filter-value="tasks">Tasks</button><button class="chip" type="button" data-filter-group="section" data-filter-value="mind">Mind</button><button class="chip" type="button" data-filter-group="section" data-filter-value="ops">Ops</button><button class="chip" type="button" data-filter-group="section" data-filter-value="dashboards">Dashboards</button><button class="chip" type="button" data-filter-group="section" data-filter-value="explainers">Explainers</button><button class="chip" type="button" data-filter-group="section" data-filter-value="research">Research</button><button class="chip" type="button" data-filter-group="section" data-filter-value="other">Other</button>
+          </div>
+        </div>
+        <div>
+          <div class="filter-group-label">Kinds</div>
+          <div class="chips" data-group="kind">
+            <button class="chip active" type="button" data-filter-group="kind" data-filter-value="all">All</button>
+            
+          </div>
+        </div>
+        <div>
+          <div class="filter-group-label">Tags</div>
+          <div class="chips" data-group="tag">
+            <button class="chip active" type="button" data-filter-group="tag" data-filter-value="all">All</button>
+            
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="empty-site"><h2>No pages yet</h2><p>This repo already has an AOC Map homepage. Now start adding pages with <code>aoc-map new agent-topology --section agents --kind topology</code>, then rebuild or serve the site.</p></section>
+
+    <div class="layout">
+      <main class="stack" id="collections">
+        
+        <section class="panel featured"><div class="section-header"><div><h2>Collections</h2><p>Jump between the major visualization areas for this project.</p></div></div><div class="nav-links"><a href="#section-architecture">Architecture</a><a href="#section-agents">Agents</a><a href="#section-tasks">Tasks</a><a href="#section-mind">Mind</a><a href="#section-ops">Ops</a><a href="#section-dashboards">Dashboards</a><a href="#section-explainers">Explainers</a><a href="#section-research">Research</a><a href="#section-other">Other</a></div></section>
+        <div id="no-results" class="empty-results hidden">
+          <h2>No matching pages</h2>
+          <p>Try clearing some filters or search terms.</p>
+        </div>
+        <div id="empty-sections" class="hidden"></div>
+        <section class="panel section-block" id="section-architecture" data-section-block="architecture"><div class="section-header"><div><h2>Architecture</h2><p>System structure, boundaries, core data flow, and major implementation surfaces.</p></div><div class="section-count" data-section-count>0 pages</div></div><div class="card-grid"><div class="empty-results"><p>No pages in this collection yet.</p></div></div></section>
+<section class="panel section-block" id="section-agents" data-section-block="agents"><div class="section-header"><div><h2>Agents</h2><p>Specialist roles, subagents, orchestration routes, wrappers, and runtime behavior.</p></div><div class="section-count" data-section-count>0 pages</div></div><div class="card-grid"><div class="empty-results"><p>No pages in this collection yet.</p></div></div></section>
+<section class="panel section-block" id="section-tasks" data-section-block="tasks"><div class="section-header"><div><h2>Tasks</h2><p>Taskmaster flows, dependencies, delivery plans, and work decomposition.</p></div><div class="section-count" data-section-count>0 pages</div></div><div class="card-grid"><div class="empty-results"><p>No pages in this collection yet.</p></div></div></section>
+<section class="panel section-block" id="section-mind" data-section-block="mind"><div class="section-header"><div><h2>Mind</h2><p>Insight, provenance, compaction, observer/reflector paths, and memory views.</p></div><div class="section-count" data-section-count>0 pages</div></div><div class="card-grid"><div class="empty-results"><p>No pages in this collection yet.</p></div></div></section>
+<section class="panel section-block" id="section-ops" data-section-block="ops"><div class="section-header"><div><h2>Ops</h2><p>Operational runbooks, session lifecycle pages, troubleshooting surfaces, and control flows.</p></div><div class="section-count" data-section-count>0 pages</div></div><div class="card-grid"><div class="empty-results"><p>No pages in this collection yet.</p></div></div></section>
+<section class="panel section-block" id="section-dashboards" data-section-block="dashboards"><div class="section-header"><div><h2>Dashboards</h2><p>Visual summaries, fleet views, status boards, and rollups derived from repo state.</p></div><div class="section-count" data-section-count>0 pages</div></div><div class="card-grid"><div class="empty-results"><p>No pages in this collection yet.</p></div></div></section>
+<section class="panel section-block" id="section-explainers" data-section-block="explainers"><div class="section-header"><div><h2>Explainers</h2><p>Narrative visual walkthroughs for humans and agents who need fast orientation.</p></div><div class="section-count" data-section-count>0 pages</div></div><div class="card-grid"><div class="empty-results"><p>No pages in this collection yet.</p></div></div></section>
+<section class="panel section-block" id="section-research" data-section-block="research"><div class="section-header"><div><h2>Research</h2><p>Investigations, comparisons, spikes, and references captured as visual notes.</p></div><div class="section-count" data-section-count>0 pages</div></div><div class="card-grid"><div class="empty-results"><p>No pages in this collection yet.</p></div></div></section>
+<section class="panel section-block" id="section-other" data-section-block="other"><div class="section-header"><div><h2>Other</h2><p>Everything else that benefits from a browsable visual artifact.</p></div><div class="section-count" data-section-count>0 pages</div></div><div class="card-grid"><div class="empty-results"><p>No pages in this collection yet.</p></div></div></section>
+      </main>
+      <aside class="sidebar">
+        <section class="panel sidebar-card" id="recent">
+          <h2>Recent updates</h2>
+          <p>Most recently updated pages in this microsite.</p>
+          <div class="list"><div class="list-item">No pages yet.</div></div>
+        </section>
+        <section class="panel sidebar-card">
+          <h2>Suggested collections</h2>
+          <p>Good homepage categories for long-lived AOC projects.</p>
+          <div class="list">
+            <div class="list-item"><strong>Architecture</strong>Boundaries, components, data flow, and repo layout.</div>
+            <div class="list-item"><strong>Agents</strong>Roles, subagent orchestration, wrappers, sessions, and handoffs.</div>
+            <div class="list-item"><strong>Tasks & Mind</strong>Task graphs, provenance, compaction, exports, and recovery paths.</div>
+            <div class="list-item"><strong>Ops</strong>Runbooks, debugging surfaces, status boards, and lifecycle pages.</div>
+          </div>
+        </section>
+      </aside>
+    </div>
+
+    <footer>
+      <strong>Agent Ops Cockpit · AOC Map</strong> is generated from <code>.aoc/map/manifest.json</code> plus any graph-backed pages in <code>.aoc/map/pages/</code>. Mermaid source files live in <code>.aoc/map/diagrams/</code>. Build with <code>aoc-map build</code> and serve with <code>aoc-map serve</code>.
+    </footer>
+  </div>
+
+  <script>
+    (() => {
+      const state = { section: 'all', kind: 'all', tag: 'all', query: '' };
+      const cards = Array.from(document.querySelectorAll('.card[data-card="1"]'));
+      const sections = Array.from(document.querySelectorAll('.section-block[data-section-block]'));
+      const visibleCount = document.getElementById('visible-page-count');
+      const noResults = document.getElementById('no-results');
+      const searchInput = document.getElementById('search-input');
+
+      function normalize(value) {
+        return (value || '').toLowerCase();
+      }
+
+      function matches(card) {
+        const query = normalize(state.query);
+        const haystack = normalize(card.dataset.search || '');
+        if (query && !haystack.includes(query)) return false;
+        if (state.section !== 'all' && normalize(card.dataset.section) !== state.section) return false;
+        if (state.kind !== 'all' && normalize(card.dataset.kind) !== state.kind) return false;
+        if (state.tag !== 'all') {
+          const tags = normalize(card.dataset.tags || '').split(' ').filter(Boolean);
+          if (!tags.includes(state.tag)) return false;
+        }
+        return true;
+      }
+
+      function apply() {
+        let visible = 0;
+        cards.forEach(card => {
+          const show = matches(card);
+          card.classList.toggle('hidden', !show);
+          if (show) visible += 1;
+        });
+
+        sections.forEach(section => {
+          const cardsInSection = Array.from(section.querySelectorAll('.card[data-card="1"]'));
+          const anyVisible = cardsInSection.some(card => !card.classList.contains('hidden'));
+          section.classList.toggle('hidden', !anyVisible);
+          const counter = section.querySelector('[data-section-count]');
+          if (counter) counter.textContent = `${cardsInSection.filter(card => !card.classList.contains('hidden')).length} pages`;
+        });
+
+        visibleCount.textContent = String(visible);
+        noResults.classList.toggle('hidden', visible !== 0);
+      }
+
+      document.querySelectorAll('.chip[data-filter-group]').forEach(button => {
+        button.addEventListener('click', () => {
+          const group = button.dataset.filterGroup;
+          const value = normalize(button.dataset.filterValue || 'all');
+          state[group] = value;
+          document.querySelectorAll(`.chip[data-filter-group="${group}"]`).forEach(el => el.classList.remove('active'));
+          button.classList.add('active');
+          apply();
+        });
+      });
+
+      if (searchInput) {
+        searchInput.addEventListener('input', event => {
+          state.query = event.target.value || '';
+          apply();
+        });
+      }
+
+      apply();
+    })();
+  </script>
+</body>
+</html>

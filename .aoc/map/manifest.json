@@ -1,0 +1,65 @@
+{
+  "version": 3,
+  "site": {
+    "title": "Agent Ops Cockpit · AOC Map",
+    "description": "Graph-first visualization layer for Agent Ops Cockpit. Use this microsite to browse project flows, architecture maps, agent routes, task views, and other minimal visual explanations.",
+    "project_name": "Agent Ops Cockpit",
+    "collections": [
+      {
+        "key": "architecture",
+        "title": "Architecture",
+        "description": "System structure, boundaries, core data flow, and major implementation surfaces.",
+        "order": 10
+      },
+      {
+        "key": "agents",
+        "title": "Agents",
+        "description": "Specialist roles, subagents, orchestration routes, wrappers, and runtime behavior.",
+        "order": 20
+      },
+      {
+        "key": "tasks",
+        "title": "Tasks",
+        "description": "Taskmaster flows, dependencies, delivery plans, and work decomposition.",
+        "order": 30
+      },
+      {
+        "key": "mind",
+        "title": "Mind",
+        "description": "Insight, provenance, compaction, observer/reflector paths, and memory views.",
+        "order": 40
+      },
+      {
+        "key": "ops",
+        "title": "Ops",
+        "description": "Operational runbooks, session lifecycle pages, troubleshooting surfaces, and control flows.",
+        "order": 50
+      },
+      {
+        "key": "dashboards",
+        "title": "Dashboards",
+        "description": "Visual summaries, fleet views, status boards, and rollups derived from repo state.",
+        "order": 60
+      },
+      {
+        "key": "explainers",
+        "title": "Explainers",
+        "description": "Narrative visual walkthroughs for humans and agents who need fast orientation.",
+        "order": 70
+      },
+      {
+        "key": "research",
+        "title": "Research",
+        "description": "Investigations, comparisons, spikes, and references captured as visual notes.",
+        "order": 80
+      },
+      {
+        "key": "other",
+        "title": "Other",
+        "description": "Everything else that benefits from a browsable visual artifact.",
+        "order": 90
+      }
+    ]
+  },
+  "diagrams": []
+}
