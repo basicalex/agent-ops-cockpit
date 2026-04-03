@@ -93,7 +93,7 @@ Path:
 Use it to:
 - sync `.pi/skills/aoc-see/SKILL.md` for the current repo
 - run `aoc-see init`
-- seed or confirm `.aoc/diagrams/`
+- seed or confirm `.aoc/see/`
 - quickly see whether the AOC See workspace and skill are present
 
 ## PI installer

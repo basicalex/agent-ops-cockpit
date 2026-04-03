@@ -1511,7 +1511,7 @@ setup_env() {
 }
 
 setup_aoc_see() {
-  local diagrams_dir="$project_root/.aoc/diagrams"
+  local see_dir="$project_root/.aoc/see"
   local aoc_see_skill="$project_root/.pi/skills/aoc-see/SKILL.md"
   local aoc_see_skill_dir="$project_root/.pi/skills/aoc-see"
   local canonical_skill_src="$script_dir/../.pi/skills/aoc-see/SKILL.md"
@@ -1536,26 +1536,26 @@ setup_aoc_see() {
 
   if command -v aoc-see >/dev/null 2>&1; then
     if output="$(cd "$project_root" && aoc-see "${init_args[@]}" 2>&1)"; then
-      log "AOC See workspace ready ($diagrams_dir)."
+      log "AOC See workspace ready ($see_dir)."
       if [[ -f "$aoc_see_skill" ]]; then
         log "AOC See skill ready ($aoc_see_skill)."
       else
         warn "AOC See skill missing after aoc-see init ($aoc_see_skill)."
       fi
     else
-      warn "aoc-see init failed; unable to seed $diagrams_dir."
+      warn "aoc-see init failed; unable to seed $see_dir."
       [[ -n "$output" ]] && warn "$output"
     fi
   elif [[ -x "$script_dir/aoc-see" ]]; then
     if output="$(cd "$project_root" && "$script_dir/aoc-see" "${init_args[@]}" 2>&1)"; then
-      log "AOC See workspace ready ($diagrams_dir)."
+      log "AOC See workspace ready ($see_dir)."
       if [[ -f "$aoc_see_skill" ]]; then
         log "AOC See skill ready ($aoc_see_skill)."
       else
         warn "AOC See skill missing after aoc-see init ($aoc_see_skill)."
       fi
     else
-      warn "aoc-see init failed; unable to seed $diagrams_dir."
+      warn "aoc-see init failed; unable to seed $see_dir."
       [[ -n "$output" ]] && warn "$output"
     fi
   else
