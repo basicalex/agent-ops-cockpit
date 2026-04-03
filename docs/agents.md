@@ -34,6 +34,22 @@ AOC now guarantees the two baseline PI extensions are present after `aoc-init`:
 
 PI auto-discovers `.pi/extensions/*.ts`, so seeded defaults are active after session start (`/reload` if already running).
 
+## OpenCode Zen defaults for PI
+
+AOC now seeds project-local PI defaults for the built-in **OpenCode Zen** provider:
+
+- `defaultProvider: "opencode"`
+- `defaultModel: "gpt-5.3-codex"`
+- `defaultThinkingLevel: "medium"`
+- no seeded `enabledModels` filter, so the full PI model catalog remains visible
+
+Credential handling stays out of the repo:
+
+- set `OPENCODE_API_KEY` in your shell, or
+- store an `opencode` API key entry in `~/.pi/agent/auth.json`
+
+Do **not** commit API keys into `.pi/settings.json`. PI already ships native OpenCode Zen support, so AOC only seeds project defaults.
+
 ## Prompt templates
 
 Seeded prompt templates:
