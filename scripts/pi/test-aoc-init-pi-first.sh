@@ -57,6 +57,12 @@ assert_exists "$project_fresh/.aoc/context.md"
 assert_exists "$project_fresh/.aoc/memory.md"
 assert_exists "$project_fresh/.aoc/stm/current.md"
 assert_exists "$project_fresh/.pi/settings.json"
+assert_contains '"defaultProvider": "opencode"' "$project_fresh/.pi/settings.json"
+assert_contains '"defaultModel": "gpt-5.3-codex"' "$project_fresh/.pi/settings.json"
+assert_contains '"defaultThinkingLevel": "medium"' "$project_fresh/.pi/settings.json"
+if grep -Fq '"enabledModels"' "$project_fresh/.pi/settings.json"; then
+  fail "Did not expect enabledModels to be seeded into PI settings"
+fi
 assert_exists "$project_fresh/.pi/prompts/tm-cc.md"
 assert_exists "$project_fresh/.pi/skills/aoc-init-ops/SKILL.md"
 assert_exists "$project_fresh/.pi/extensions/minimal.ts"
@@ -89,6 +95,48 @@ EOF
 refresh_log="$tmp_root/refresh-init.log"
 run_init "$project_refresh" "$refresh_log"
 assert_same_file "$repo_root/.pi/extensions/minimal.ts" "$project_refresh/.pi/extensions/minimal.ts"
+
+# --- Existing PI settings remain authoritative when already customized ---
+project_settings="$tmp_root/settings-preserve"
+mkdir -p "$project_settings/.git" "$project_settings/.pi"
+cat > "$project_settings/.pi/settings.json" <<'EOF'
+{
+  "extensions": [],
+  "defaultProvider": "openai",
+  "defaultModel": "gpt-4o-mini"
+}
+EOF
+
+settings_log="$tmp_root/settings-preserve-init.log"
+run_init "$project_settings" "$settings_log"
+assert_contains '"defaultProvider": "openai"' "$project_settings/.pi/settings.json"
+assert_contains '"defaultModel": "gpt-4o-mini"' "$project_settings/.pi/settings.json"
+if grep -Fq '"enabledModels"' "$project_settings/.pi/settings.json"; then
+  fail "Did not expect enabledModels to be injected into customized PI settings"
+fi
+
+# --- Legacy seeded enabledModels are cleaned up ---
+project_legacy_enabled="$tmp_root/legacy-enabled"
+mkdir -p "$project_legacy_enabled/.git" "$project_legacy_enabled/.pi"
+cat > "$project_legacy_enabled/.pi/settings.json" <<'EOF'
+{
+  "extensions": [],
+  "defaultProvider": "opencode",
+  "defaultModel": "gpt-5.3-codex",
+  "defaultThinkingLevel": "medium",
+  "enabledModels": [
+    "opencode/gpt-5.3-codex:medium",
+    "opencode/claude-sonnet-4-6:medium",
+    "opencode/gemini-3.1-pro:medium",
+    "opencode/kimi-k2.5:medium"
+  ]
+}
+EOF
+legacy_enabled_log="$tmp_root/legacy-enabled-init.log"
+run_init "$project_legacy_enabled" "$legacy_enabled_log"
+if grep -Fq '"enabledModels"' "$project_legacy_enabled/.pi/settings.json"; then
+  fail "Expected legacy seeded enabledModels to be removed"
+fi
 
 # --- Existing repo migration flow ---
 project_migration="$tmp_root/migration"

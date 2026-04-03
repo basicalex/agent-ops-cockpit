@@ -1,3 +1,6 @@
 {
-  "extensions": []
+  "extensions": [],
+  "defaultProvider": "opencode",
+  "defaultModel": "gpt-5.3-codex",
+  "defaultThinkingLevel": "medium"
 }

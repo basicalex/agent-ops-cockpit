@@ -763,6 +763,7 @@ EOF
 setup_pi_settings() {
   local pi_dir="$project_root/.pi"
   local pi_settings="$pi_dir/settings.json"
+  local settings_status=""
 
   if [[ ! -d "$pi_dir" ]]; then
     mkdir -p "$pi_dir"
@@ -771,16 +772,88 @@ setup_pi_settings() {
   # Deterministic PI-first baseline directory contract.
   mkdir -p "$pi_dir/prompts" "$pi_dir/skills" "$pi_dir/extensions"
 
-  if [[ ! -f "$pi_settings" ]]; then
-    cat <<'EOF' > "$pi_settings"
-{
-  "extensions": []
+  settings_status="$(python3 - "$pi_settings" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+path = Path(sys.argv[1])
+zen_defaults = {
+    "defaultProvider": "opencode",
+    "defaultModel": "gpt-5.3-codex",
+    "defaultThinkingLevel": "medium",
 }
-EOF
-    log "Seeded PI settings: $pi_settings"
-  else
-    log "PI settings exist ($pi_settings). Preserving."
-  fi
+legacy_seeded_enabled_models = [
+    "opencode/gpt-5.3-codex:medium",
+    "opencode/claude-sonnet-4-6:medium",
+    "opencode/gemini-3.1-pro:medium",
+    "opencode/kimi-k2.5:medium",
+]
+defaults = {"extensions": [], **zen_defaults}
+
+if not path.exists():
+    path.write_text(json.dumps(defaults, indent=2) + "\n", encoding="utf-8")
+    print("seeded")
+    raise SystemExit(0)
+
+try:
+    data = json.loads(path.read_text(encoding="utf-8"))
+except Exception:
+    print("invalid")
+    raise SystemExit(0)
+
+if not isinstance(data, dict):
+    print("invalid")
+    raise SystemExit(0)
+
+changed = False
+if "extensions" not in data:
+    data["extensions"] = []
+    changed = True
+
+has_provider = "defaultProvider" in data
+has_model = "defaultModel" in data
+
+if not has_provider and not has_model:
+    for key, value in zen_defaults.items():
+        if key not in data:
+            data[key] = value
+            changed = True
+elif data.get("defaultProvider") == "opencode":
+    for key, value in zen_defaults.items():
+        if key not in data:
+            data[key] = value
+            changed = True
+
+if data.get("enabledModels") == legacy_seeded_enabled_models:
+    del data["enabledModels"]
+    changed = True
+
+if changed:
+    path.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
+    print("updated")
+else:
+    print("unchanged")
+PY
+)"
+
+  case "$settings_status" in
+    seeded)
+      log "Seeded PI settings: $pi_settings"
+      ;;
+    updated)
+      log "Updated PI settings with OpenCode Zen defaults: $pi_settings"
+      ;;
+    unchanged)
+      log "PI settings exist ($pi_settings). Preserving."
+      ;;
+    invalid)
+      warn "PI settings exist but are not valid JSON ($pi_settings). Preserving."
+      ;;
+    *)
+      warn "Unexpected PI settings status '$settings_status' for $pi_settings"
+      ;;
+  esac
 }
 
 discover_pi_extension_template() {
