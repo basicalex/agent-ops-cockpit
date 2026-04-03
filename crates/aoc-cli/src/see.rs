@@ -7,15 +7,17 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-const DIAGRAMS_DIR: &str = ".aoc/diagrams";
-const PAGES_DIR: &str = ".aoc/diagrams/pages";
-const ASSETS_DIR: &str = ".aoc/diagrams/assets";
-const MANIFEST_PATH: &str = ".aoc/diagrams/manifest.json";
-const INDEX_PATH: &str = ".aoc/diagrams/index.html";
-const README_PATH: &str = ".aoc/diagrams/README.md";
+const SEE_DIR: &str = ".aoc/see";
+const PAGES_DIR: &str = ".aoc/see/pages";
+const DIAGRAM_FILES_DIR: &str = ".aoc/see/diagrams";
+const ASSETS_DIR: &str = ".aoc/see/assets";
+const MANIFEST_PATH: &str = ".aoc/see/manifest.json";
+const INDEX_PATH: &str = ".aoc/see/index.html";
+const README_PATH: &str = ".aoc/see/README.md";
 const AOC_SEE_SKILL_PATH: &str = ".pi/skills/aoc-see/SKILL.md";
-const MERMAID_JS_PATH: &str = ".aoc/diagrams/assets/mermaid.min.js";
-const MERMAID_RENDER_HELPER_PATH: &str = ".aoc/diagrams/assets/render-mermaid.js";
+const MERMAID_JS_PATH: &str = ".aoc/see/assets/mermaid.min.js";
+const MERMAID_RENDER_HELPER_PATH: &str = ".aoc/see/assets/render-mermaid.js";
+const LEGACY_SEE_DIR: &str = ".aoc/diagrams";
 const MERMAID_OUTPUT_START: &str = "<!-- aoc-see:mermaid-output:start -->";
 const MERMAID_OUTPUT_END: &str = "<!-- aoc-see:mermaid-output:end -->";
 const MERMAID_JS_TAG: &str = r#"<script defer src="../assets/mermaid.min.js"></script>"#;
@@ -217,6 +219,8 @@ struct DiagramRecord {
     #[serde(default)]
     page: Option<String>,
     #[serde(default)]
+    diagram_path: Option<String>,
+    #[serde(default)]
     summary: Option<String>,
     #[serde(default)]
     section: Option<String>,
@@ -245,6 +249,7 @@ struct DiagramView {
     slug: String,
     title: String,
     page: String,
+    diagram_path: Option<String>,
     summary: Option<String>,
     section: String,
     section_title: String,
@@ -267,6 +272,7 @@ struct HtmlMetadata {
     section: Option<String>,
     kind: Option<String>,
     status: Option<String>,
+    diagram_path: Option<String>,
     tags: Vec<String>,
 }
 
@@ -283,18 +289,20 @@ struct SiteView {
 #[derive(Debug, Clone)]
 struct SeePaths {
     root: PathBuf,
-    diagrams_dir: PathBuf,
+    see_dir: PathBuf,
     pages_dir: PathBuf,
+    diagrams_dir: PathBuf,
     assets_dir: PathBuf,
     manifest_path: PathBuf,
     index_path: PathBuf,
     readme_path: PathBuf,
     mermaid_js_path: PathBuf,
     mermaid_render_helper_path: PathBuf,
+    legacy_see_dir: PathBuf,
 }
 
 fn default_manifest_version() -> u32 {
-    2
+    3
 }
 
 pub fn handle_see_command(command: SeeCommand) -> Result<()> {
@@ -309,6 +317,7 @@ pub fn handle_see_command(command: SeeCommand) -> Result<()> {
 
 fn handle_init(args: InitArgs) -> Result<()> {
     let paths = SeePaths::from_root(resolve_project_root()?);
+    migrate_legacy_workspace(&paths)?;
     ensure_dirs(&paths)?;
     ensure_aoc_see_skill(&paths.root, args.force)?;
 
@@ -318,12 +327,13 @@ fn handle_init(args: InitArgs) -> Result<()> {
     write_if_missing_or_forced(&paths.readme_path, &starter_readme(), args.force)?;
     build_index(&paths)?;
 
-    println!("initialized {}", paths.diagrams_dir.display());
+    println!("initialized {}", paths.see_dir.display());
     Ok(())
 }
 
 fn handle_new(args: NewArgs) -> Result<()> {
     let paths = SeePaths::from_root(resolve_project_root()?);
+    migrate_legacy_workspace(&paths)?;
     ensure_dirs(&paths)?;
 
     let slug = validate_slug(&args.slug)?;
@@ -334,10 +344,18 @@ fn handle_new(args: NewArgs) -> Result<()> {
     let page_name = format!("{slug}.html");
     let page_rel = format!("pages/{page_name}");
     let page_path = paths.pages_dir.join(&page_name);
-    if page_path.exists() && !args.force {
+    let diagram_name = format!("{slug}.mmd");
+    let diagram_rel = format!("diagrams/{diagram_name}");
+    let diagram_path = paths.diagrams_dir.join(&diagram_name);
+    if (page_path.exists() || diagram_path.exists()) && !args.force {
+        let existing_path = if page_path.exists() {
+            &page_path
+        } else {
+            &diagram_path
+        };
         bail!(
             "{} already exists (use --force to overwrite)",
-            page_path.display()
+            existing_path.display()
         );
     }
 
@@ -351,6 +369,7 @@ fn handle_new(args: NewArgs) -> Result<()> {
         slug: slug.clone(),
         title: title.clone(),
         page: Some(page_rel),
+        diagram_path: Some(diagram_rel.clone()),
         summary: args.summary.clone(),
         section: Some(args.section.as_str().to_string()),
         kind: Some(args.kind.as_str().to_string()),
@@ -374,14 +393,18 @@ fn handle_new(args: NewArgs) -> Result<()> {
         starter_page_html(&manifest.site, &title, &record, &slug),
     )
     .with_context(|| format!("failed to write {}", page_path.display()))?;
+    fs::write(&diagram_path, starter_mermaid_source(&title))
+        .with_context(|| format!("failed to write {}", diagram_path.display()))?;
 
     build_index(&paths)?;
     println!("created {}", page_path.display());
+    println!("created {}", diagram_path.display());
     Ok(())
 }
 
 fn handle_list(args: ListArgs) -> Result<()> {
     let paths = SeePaths::from_root(resolve_project_root()?);
+    migrate_legacy_workspace(&paths)?;
     let manifest = load_and_normalize_manifest(&paths)?;
     let diagrams = collect_diagrams(&paths, &manifest)?;
 
@@ -410,6 +433,7 @@ fn handle_list(args: ListArgs) -> Result<()> {
 
 fn handle_build(_args: BuildArgs) -> Result<()> {
     let paths = SeePaths::from_root(resolve_project_root()?);
+    migrate_legacy_workspace(&paths)?;
     ensure_dirs(&paths)?;
     build_index(&paths)?;
     println!("built {}", paths.index_path.display());
@@ -418,6 +442,7 @@ fn handle_build(_args: BuildArgs) -> Result<()> {
 
 fn handle_serve(args: ServeArgs) -> Result<()> {
     let paths = SeePaths::from_root(resolve_project_root()?);
+    migrate_legacy_workspace(&paths)?;
     ensure_dirs(&paths)?;
     build_index(&paths)?;
 
@@ -429,7 +454,7 @@ fn handle_serve(args: ServeArgs) -> Result<()> {
     let python = find_python()
         .ok_or_else(|| anyhow!("python3/python is required to serve AOC See via aoc-see"))?;
 
-    println!("serving {} at {}", paths.diagrams_dir.display(), url);
+    println!("serving {} at {}", paths.see_dir.display(), url);
     println!("press Ctrl-C to stop");
 
     let status = Command::new(python)
@@ -440,7 +465,7 @@ fn handle_serve(args: ServeArgs) -> Result<()> {
             "--bind",
             &args.host,
             "--directory",
-            paths.diagrams_dir.to_string_lossy().as_ref(),
+            paths.see_dir.to_string_lossy().as_ref(),
         ])
         .status()
         .context("failed to launch python http.server")?;
@@ -455,14 +480,16 @@ fn handle_serve(args: ServeArgs) -> Result<()> {
 impl SeePaths {
     fn from_root(root: PathBuf) -> Self {
         Self {
-            diagrams_dir: root.join(DIAGRAMS_DIR),
+            see_dir: root.join(SEE_DIR),
             pages_dir: root.join(PAGES_DIR),
+            diagrams_dir: root.join(DIAGRAM_FILES_DIR),
             assets_dir: root.join(ASSETS_DIR),
             manifest_path: root.join(MANIFEST_PATH),
             index_path: root.join(INDEX_PATH),
             readme_path: root.join(README_PATH),
             mermaid_js_path: root.join(MERMAID_JS_PATH),
             mermaid_render_helper_path: root.join(MERMAID_RENDER_HELPER_PATH),
+            legacy_see_dir: root.join(LEGACY_SEE_DIR),
             root,
         }
     }
@@ -478,9 +505,26 @@ fn resolve_project_root() -> Result<PathBuf> {
     Ok(cwd)
 }
 
+fn migrate_legacy_workspace(paths: &SeePaths) -> Result<()> {
+    if paths.see_dir.exists() || !paths.legacy_see_dir.exists() {
+        return Ok(());
+    }
+
+    fs::rename(&paths.legacy_see_dir, &paths.see_dir).with_context(|| {
+        format!(
+            "failed to migrate legacy AOC See workspace from {} to {}",
+            paths.legacy_see_dir.display(),
+            paths.see_dir.display()
+        )
+    })?;
+    Ok(())
+}
+
 fn ensure_dirs(paths: &SeePaths) -> Result<()> {
     fs::create_dir_all(&paths.pages_dir)
         .with_context(|| format!("failed to create {}", paths.pages_dir.display()))?;
+    fs::create_dir_all(&paths.diagrams_dir)
+        .with_context(|| format!("failed to create {}", paths.diagrams_dir.display()))?;
     fs::create_dir_all(&paths.assets_dir)
         .with_context(|| format!("failed to create {}", paths.assets_dir.display()))?;
     Ok(())
@@ -544,7 +588,9 @@ fn normalize_mermaid_page(path: &Path) -> Result<()> {
 
 fn normalize_mermaid_page_html(content: &str) -> String {
     let without_legacy_output = strip_legacy_mermaid_output(content);
-    if !without_legacy_output.contains("data-aoc-see-mermaid") {
+    if !without_legacy_output.contains("data-aoc-see-mermaid")
+        && !without_legacy_output.contains("data-aoc-see-mermaid-src")
+    {
         return without_legacy_output;
     }
     ensure_mermaid_script_tags(&without_legacy_output)
@@ -715,6 +761,19 @@ fn apply_manifest_defaults(manifest: &mut DiagramManifest, paths: &SeePaths, for
     } else {
         manifest.site.collections = normalized_collections(manifest.site.collections.clone());
     }
+
+    for record in &mut manifest.diagrams {
+        if force
+            || record
+                .diagram_path
+                .as_deref()
+                .unwrap_or("")
+                .trim()
+                .is_empty()
+        {
+            record.diagram_path = Some(format!("diagrams/{}.mmd", record.slug));
+        }
+    }
 }
 
 fn default_site_config(paths: &SeePaths) -> SiteConfig {
@@ -728,7 +787,7 @@ fn default_site_config(paths: &SeePaths) -> SiteConfig {
     SiteConfig {
         title: Some(format!("{} · AOC See", pretty)),
         description: Some(format!(
-            "Visualization layer for {}. Use this microsite to browse architecture explainers, agent maps, task views, provenance pages, and operational runbooks for the repo.",
+            "Graph-first visualization layer for {}. Use this microsite to browse project flows, architecture maps, agent routes, task views, and other minimal visual explanations.",
             pretty
         )),
         project_name: Some(pretty),
@@ -998,6 +1057,9 @@ fn collect_diagrams(paths: &SeePaths, manifest: &DiagramManifest) -> Result<Vec<
                     .or(html_meta.title)
                     .unwrap_or_else(|| title_from_slug(&slug)),
                 page: page_rel,
+                diagram_path: record
+                    .and_then(|item| item.diagram_path.clone())
+                    .or(html_meta.diagram_path),
                 summary: record
                     .and_then(|item| item.summary.clone())
                     .or(html_meta.summary),
@@ -1054,6 +1116,7 @@ fn extract_html_metadata(path: &Path) -> Result<HtmlMetadata> {
         section: extract_named_meta(&content, "aoc-see:section"),
         kind: extract_named_meta(&content, "aoc-see:kind"),
         status: extract_named_meta(&content, "aoc-see:status"),
+        diagram_path: extract_named_meta(&content, "aoc-see:diagram"),
         tags: extract_named_meta(&content, "aoc-see:tags")
             .map(|value| {
                 value
@@ -1383,7 +1446,7 @@ fn render_index_html(site: &SiteView, diagrams: &[DiagramView]) -> String {
         </div>
         <div class="note">
           <strong>How to add a page</strong>
-          Scaffold with <code>aoc-see new task-flow --section tasks --kind flow</code>, then edit the generated HTML in <code>.aoc/diagrams/pages/</code>.
+          Scaffold with <code>aoc-see new task-flow --section tasks --kind flow</code>, then edit the generated Mermaid in <code>.aoc/see/diagrams/</code> and keep the page in <code>.aoc/see/pages/</code> graph-first.
         </div>
         <div class="note">
           <strong>Project root</strong>
@@ -1464,7 +1527,7 @@ fn render_index_html(site: &SiteView, diagrams: &[DiagramView]) -> String {
     </div>
 
     <footer>
-      <strong>{title}</strong> is generated from <code>.aoc/diagrams/manifest.json</code> plus any self-contained HTML pages in <code>.aoc/diagrams/pages/</code>. Build with <code>aoc-see build</code> and serve with <code>aoc-see serve</code>.
+      <strong>{title}</strong> is generated from <code>.aoc/see/manifest.json</code> plus any graph-backed pages in <code>.aoc/see/pages/</code>. Mermaid source files live in <code>.aoc/see/diagrams/</code>. Build with <code>aoc-see build</code> and serve with <code>aoc-see serve</code>.
     </footer>
   </div>
 
@@ -1799,14 +1862,21 @@ fn section_description(section: &str, collections: &[CollectionRecord]) -> Optio
 }
 
 fn starter_readme() -> String {
-    "# AOC See\n\nAOC See is the project-local visualization microsite for this repo.\n\n## Layout\n- `pages/*.html` — self-contained pages for diagrams, explainers, dashboards, and visual notes.\n- `assets/mermaid.min.js` — vendored Mermaid runtime used locally/offline.\n- `assets/render-mermaid.js` — AOC See helper that renders embedded Mermaid blocks in the browser.\n- `manifest.json` — site metadata and page metadata used for the homepage shell.\n- `index.html` — generated homepage for the microsite.\n\n## Workflow\n1. `aoc-see init`\n2. `aoc-see new agent-topology --section agents --kind topology --summary \"How agents route through the project\"`\n3. Edit the generated page under `pages/`. The default scaffold includes an embedded Mermaid source block.\n4. Rebuild with `aoc-see build` to refresh the homepage and sync local Mermaid assets.\n5. Browse locally with `aoc-see serve --open`. Mermaid diagrams render in-browser from the local vendored assets.\n\n## Metadata conventions\nPages can also declare metadata directly in HTML via meta tags such as:\n- `<meta name=\"aoc-see:summary\" content=\"...\">`\n- `<meta name=\"aoc-see:section\" content=\"agents\">`\n- `<meta name=\"aoc-see:kind\" content=\"topology\">`\n- `<meta name=\"aoc-see:status\" content=\"active\">`\n- `<meta name=\"aoc-see:tags\" content=\"agents,orchestration\">`\n\n## Mermaid authoring\nUse a source block like:\n\n```html\n<script type=\"text/plain\" data-aoc-see-mermaid>\nflowchart LR\n  A[Repo] --> B[Model]\n  B --> C[View]\n</script>\n```\n\nAOC See injects repo-local Mermaid JS assets into Mermaid pages when needed. No CDN is required.\n\nPrefer self-contained HTML/CSS/JS/SVG and avoid external network-loaded assets when possible.\n"
+    "# AOC See\n\nAOC See is the project-local graph and visualization microsite for this repo. The main artifact is the graph, not the chrome around it.\n\n## Layout\n- `pages/*.html` — minimal graph-first presentation pages.\n- `diagrams/*.mmd` — Mermaid source files used as the canonical graph definitions.\n- `assets/mermaid.min.js` — vendored Mermaid runtime used locally/offline.\n- `assets/render-mermaid.js` — AOC See helper that renders Mermaid blocks and Mermaid source files in the browser.\n- `manifest.json` — site metadata and page metadata used for the homepage shell.\n- `index.html` — generated homepage for the microsite.\n\n## Workflow\n1. `aoc-see init`\n2. `aoc-see new agent-topology --section agents --kind topology --summary \"How AOC agents route through this repo\"`\n3. Edit the generated Mermaid file under `diagrams/agent-topology.mmd`.\n4. Keep the page under `pages/agent-topology.html` minimal and graph-first.\n5. Rebuild with `aoc-see build`, then browse with `aoc-see serve --open`.\n\n## Metadata conventions\nPages can declare metadata directly in HTML via meta tags such as:\n- `<meta name=\"aoc-see:summary\" content=\"...\">`\n- `<meta name=\"aoc-see:section\" content=\"agents\">`\n- `<meta name=\"aoc-see:kind\" content=\"topology\">`\n- `<meta name=\"aoc-see:status\" content=\"active\">`\n- `<meta name=\"aoc-see:diagram\" content=\"diagrams/agent-topology.mmd\">`\n- `<meta name=\"aoc-see:tags\" content=\"agents,orchestration\">`\n\n## Graph authoring\nPrefer Mermaid files in `diagrams/*.mmd` and reference them from pages with:\n\n```html\n<script type=\"text/plain\" data-aoc-see-mermaid-src=\"../diagrams/agent-topology.mmd\"></script>\n```\n\nInline Mermaid blocks still work, but external graph files are the preferred project-context-friendly path.\n\nPrefer self-contained HTML/CSS/JS/SVG and avoid external network-loaded assets when possible.\n"
             .to_string()
+}
+
+fn starter_mermaid_source(title: &str) -> String {
+    let label = title.replace('"', "'");
+    format!(
+        "flowchart LR\n    repo[Project context] --> graph[{label}]\n    graph --> page[Minimal AOC See page]\n    graph --> refs[Code · tasks · docs]\n    refs --> next[Explore or explain]\n"
+    )
 }
 
 fn starter_page_html(site: &SiteConfig, title: &str, record: &DiagramRecord, slug: &str) -> String {
     let site_title = site.title.clone().unwrap_or_else(|| "AOC See".to_string());
     let summary = record.summary.clone().unwrap_or_else(|| {
-        "Describe the system, process, or workflow this page visualizes.".to_string()
+        "Describe the graph, the flow it captures, and why it matters in the project.".to_string()
     });
     let section = record
         .section
@@ -1814,6 +1884,11 @@ fn starter_page_html(site: &SiteConfig, title: &str, record: &DiagramRecord, slu
         .unwrap_or_else(|| "explainers".to_string());
     let kind = record.kind.clone().unwrap_or_else(|| "explain".to_string());
     let status = record.status.clone().unwrap_or_else(|| "draft".to_string());
+    let diagram_path = record
+        .diagram_path
+        .clone()
+        .unwrap_or_else(|| format!("diagrams/{slug}.mmd"));
+    let diagram_src = format!("../{diagram_path}");
     let tags = if record.tags.is_empty() {
         "".to_string()
     } else {
@@ -1829,13 +1904,6 @@ fn starter_page_html(site: &SiteConfig, title: &str, record: &DiagramRecord, slu
             .collect::<Vec<_>>()
             .join("")
     };
-    let mermaid_source = r#"flowchart LR
-    inputs[Repo inputs\ncode · tasks · runtime] --> model[Model the system]
-    model --> page[Render AOC See page]
-    page --> decision{Need next step?}
-    decision --> explain[Add narrative + source refs]
-    decision --> action[Open follow-up task or runbook]
-"#;
 
     format!(
         r##"<!doctype html>
@@ -1849,65 +1917,48 @@ fn starter_page_html(site: &SiteConfig, title: &str, record: &DiagramRecord, slu
   <meta name="aoc-see:section" content="{section}">
   <meta name="aoc-see:kind" content="{kind}">
   <meta name="aoc-see:status" content="{status}">
+  <meta name="aoc-see:diagram" content="{diagram_path}">
   <meta name="aoc-see:tags" content="{tags}">
   <script defer src="../assets/mermaid.min.js"></script>
   <script defer src="../assets/render-mermaid.js"></script>
   <style>
     :root {{
       color-scheme: dark;
-      --bg: #08111c;
-      --panel: rgba(13, 20, 35, 0.92);
+      --bg: #09111b;
+      --panel: #0f1724;
       --line: #223352;
-      --text: #eaf1ff;
+      --text: #eef4ff;
       --muted: #9cb0d0;
       --accent: #79c0ff;
-      --accent-2: #8dd694;
-      --accent-3: #f2cc8f;
     }}
     * {{ box-sizing: border-box; }}
-    body {{
-      margin: 0;
-      font-family: Inter, ui-sans-serif, system-ui, sans-serif;
-      background: radial-gradient(circle at top right, rgba(121,192,255,0.14), transparent 24%), linear-gradient(180deg, #08111c, #091320 42%, #08111b);
-      color: var(--text);
-    }}
+    body {{ margin: 0; font-family: Inter, ui-sans-serif, system-ui, sans-serif; background: var(--bg); color: var(--text); }}
     a {{ color: var(--accent); }}
-    code {{ background: rgba(8, 14, 24, 0.9); border: 1px solid var(--line); border-radius: 8px; padding: 0.14rem 0.4rem; color: var(--accent); }}
-    main {{ max-width: 1280px; margin: 0 auto; padding: 24px 20px 64px; }}
-    .top {{ display: flex; flex-wrap: wrap; justify-content: space-between; gap: 12px; align-items: center; margin-bottom: 16px; }}
-    .pill-row {{ display: flex; flex-wrap: wrap; gap: 8px; }}
-    .pill {{ padding: 7px 11px; border-radius: 999px; border: 1px solid var(--line); color: var(--muted); background: rgba(13, 20, 35, 0.86); }}
-    .panel {{ background: var(--panel); border: 1px solid var(--line); border-radius: 22px; padding: 22px; box-shadow: 0 24px 60px rgba(0, 0, 0, 0.22); }}
-    .hero {{ display: grid; gap: 18px; margin-bottom: 18px; }}
-    .hero-copy {{ display: flex; flex-wrap: wrap; justify-content: space-between; gap: 18px; align-items: end; }}
-    .hero-copy > div:first-child {{ flex: 1 1 560px; }}
-    h1 {{ margin: 0 0 10px; font-size: clamp(2.2rem, 5vw, 3.5rem); line-height: 1.02; }}
-    h2, h3 {{ margin-top: 0; }}
-    p, li {{ color: var(--muted); line-height: 1.65; }}
-    .hero-metrics {{ display: grid; grid-template-columns: repeat(3, minmax(120px, 1fr)); gap: 12px; min-width: min(100%, 360px); }}
-    .metric {{ padding: 14px 16px; border-radius: 18px; border: 1px solid var(--line); background: rgba(8, 14, 24, 0.78); }}
-    .metric strong {{ display: block; font-size: 1.35rem; color: var(--text); }}
-    .stage {{ padding: 18px; border-radius: 20px; border: 1px solid var(--line); background: linear-gradient(180deg, rgba(8, 14, 24, 0.94), rgba(10, 18, 30, 0.9)); overflow: hidden; }}
-    .stage-head {{ display: flex; flex-wrap: wrap; justify-content: space-between; gap: 12px; align-items: center; margin-bottom: 14px; }}
-    .stage-head p {{ margin: 0; }}
-    .legend {{ display: flex; flex-wrap: wrap; gap: 10px; }}
-    .legend span {{ display: inline-flex; align-items: center; gap: 8px; padding: 6px 10px; border-radius: 999px; border: 1px solid var(--line); color: var(--muted); background: rgba(13, 20, 35, 0.82); }}
-    .dot {{ width: 10px; height: 10px; border-radius: 999px; display: inline-block; }}
-    .viz-frame {{ min-height: 360px; border-radius: 18px; border: 1px dashed rgba(121, 192, 255, 0.18); background: rgba(6, 10, 18, 0.54); padding: 12px; }}
-    .mermaid-rendered {{ width: 100%; overflow: auto; }}
-    .mermaid-rendered svg {{ width: 100%; height: auto; display: block; max-height: 72vh; }}
-    .support-grid {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 16px; margin-top: 18px; }}
-    .note {{ padding: 18px; border-radius: 18px; border: 1px solid var(--line); background: rgba(8, 14, 24, 0.88); }}
-    .note ul {{ margin: 0; padding-left: 18px; }}
-    .footer {{ margin-top: 20px; color: var(--muted); }}
-    @media (max-width: 760px) {{ .hero-metrics {{ grid-template-columns: 1fr; }} }}
+    code {{ background: #09111b; border: 1px solid var(--line); border-radius: 8px; padding: 0.12rem 0.4rem; color: var(--accent); }}
+    main {{ max-width: 1240px; margin: 0 auto; padding: 22px 18px 40px; }}
+    .top {{ display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap; align-items: center; margin-bottom: 18px; }}
+    .meta {{ display: flex; flex-wrap: wrap; gap: 8px; }}
+    .pill {{ padding: 6px 10px; border-radius: 999px; border: 1px solid var(--line); color: var(--muted); background: #0b1320; }}
+    .layout {{ display: grid; gap: 18px; grid-template-columns: minmax(0, 1.9fr) minmax(280px, 0.9fr); }}
+    .panel {{ background: var(--panel); border: 1px solid var(--line); border-radius: 18px; padding: 18px; }}
+    h1 {{ margin: 0 0 8px; font-size: clamp(2rem, 4vw, 3rem); line-height: 1.05; }}
+    h2, h3 {{ margin: 0 0 10px; }}
+    p, li {{ color: var(--muted); line-height: 1.6; }}
+    .graph-shell {{ min-height: 72vh; display: flex; flex-direction: column; gap: 14px; }}
+    .graph-frame {{ flex: 1; min-height: 520px; border-radius: 14px; border: 1px solid var(--line); background: #0a1220; padding: 12px; overflow: hidden; }}
+    .mermaid-rendered {{ width: 100%; height: 100%; overflow: auto; }}
+    .mermaid-rendered svg {{ width: 100%; height: auto; display: block; min-width: 720px; }}
+    .stack {{ display: grid; gap: 16px; align-content: start; }}
+    .stack ul {{ margin: 0; padding-left: 18px; }}
+    .footer {{ margin-top: 16px; color: var(--muted); }}
+    @media (max-width: 940px) {{ .layout {{ grid-template-columns: 1fr; }} .graph-frame {{ min-height: 420px; }} }}
   </style>
 </head>
 <body>
   <main>
     <div class="top">
       <a href="../index.html">← Back to {site_title}</a>
-      <div class="pill-row">
+      <div class="meta">
         <span class="pill">section: {section}</span>
         <span class="pill">kind: {kind}</span>
         <span class="pill">status: {status}</span>
@@ -1915,63 +1966,41 @@ fn starter_page_html(site: &SiteConfig, title: &str, record: &DiagramRecord, slu
       </div>
     </div>
 
-    <section class="hero panel">
-      <div class="hero-copy">
+    <div class="layout">
+      <section class="panel graph-shell">
         <div>
           <h1>{title}</h1>
           <p>{summary}</p>
         </div>
-        <div class="hero-metrics">
-          <div class="metric"><strong>1</strong><span>primary graph</span></div>
-          <div class="metric"><strong>{kind}</strong><span>page kind</span></div>
-          <div class="metric"><strong>{section}</strong><span>collection</span></div>
+        <div class="graph-frame">
+          <script type="text/plain" data-aoc-see-mermaid-src="{diagram_src}"></script>
         </div>
-      </div>
+        <div class="footer">Primary graph source: <code>{diagram_path}</code>. Edit that Mermaid file, then run <code>aoc-see build</code> and preview with <code>aoc-see serve</code>.</div>
+      </section>
 
-      <div class="stage">
-        <div class="stage-head">
-          <div>
-            <h2>Primary visualization</h2>
-            <p>Edit the embedded Mermaid source block in this HTML file, then run <code>aoc-see build</code> to sync the microsite and preview it with <code>aoc-see serve</code>.</p>
-          </div>
-          <div class="legend">
-            <span><i class="dot" style="background: var(--accent);"></i>inputs</span>
-            <span><i class="dot" style="background: var(--accent-2);"></i>transform</span>
-            <span><i class="dot" style="background: var(--accent-3);"></i>decision/action</span>
-          </div>
-        </div>
-        <div class="viz-frame">
-          <script type="text/plain" data-aoc-see-mermaid>
-{mermaid_source}
-          </script>
-        </div>
-      </div>
-    </section>
-
-    <section class="support-grid">
-      <article class="note">
-        <h3>How to focus the page</h3>
-        <ul>
-          <li>Make the graph the main artifact, not the prose.</li>
-          <li>Keep one core question per page.</li>
-          <li>Use short labels and link the graph back to source paths.</li>
-        </ul>
-      </article>
-      <article class="note">
-        <h3>Source references</h3>
-        <ul>{source_list}</ul>
-      </article>
-      <article class="note">
-        <h3>Editing notes</h3>
-        <ul>
-          <li>Replace the starter Mermaid with repo-specific structure.</li>
-          <li>Add or revise <code>aoc-see:*</code> meta tags in the page head when needed.</li>
-          <li>Inline SVG, HTML, and Canvas blocks still work alongside Mermaid.</li>
-        </ul>
-      </article>
-    </section>
-
-    <div class="footer">Generated by <code>aoc-see new</code>. This scaffold is visual-first by default and uses vendored Mermaid JS for offline local rendering.</div>
+      <aside class="stack">
+        <article class="panel">
+          <h3>Focus</h3>
+          <ul>
+            <li>Keep the graph as the main artifact.</li>
+            <li>Use minimal prose around the flow.</li>
+            <li>Prefer one graph question per page.</li>
+          </ul>
+        </article>
+        <article class="panel">
+          <h3>Source references</h3>
+          <ul>{source_list}</ul>
+        </article>
+        <article class="panel">
+          <h3>Editing notes</h3>
+          <ul>
+            <li>Store Mermaid source in <code>{diagram_path}</code>.</li>
+            <li>Keep metadata in the page head with <code>aoc-see:*</code> tags.</li>
+            <li>Inline Mermaid blocks still work when needed.</li>
+          </ul>
+        </article>
+      </aside>
+    </div>
   </main>
 </body>
 </html>
@@ -1984,8 +2013,9 @@ fn starter_page_html(site: &SiteConfig, title: &str, record: &DiagramRecord, slu
         status = escape_html(&status),
         slug = escape_html(slug),
         tags = escape_html(&tags),
+        diagram_path = escape_html(&diagram_path),
+        diagram_src = escape_html(&diagram_src),
         source_list = source_list,
-        mermaid_source = mermaid_source,
     )
 }
 
@@ -2083,5 +2113,14 @@ mod tests {
         assert_eq!(once.matches("mermaid.min.js").count(), 1);
         assert_eq!(once.matches("render-mermaid.js").count(), 1);
         assert_eq!(once, twice);
+    }
+
+    #[test]
+    fn mermaid_src_blocks_also_get_local_script_tags() {
+        let input = "<html><head><title>x</title></head><body><script type=\"text/plain\" data-aoc-see-mermaid-src=\"../diagrams/agent-topology.mmd\"></script></body></html>";
+        let output = normalize_mermaid_page_html(input);
+        assert!(output.contains("data-aoc-see-mermaid-src"));
+        assert!(output.contains("../assets/mermaid.min.js"));
+        assert!(output.contains("../assets/render-mermaid.js"));
     }
 }

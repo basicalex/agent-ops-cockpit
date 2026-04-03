@@ -3731,7 +3731,7 @@ fn settings_detail_lines(app: &App) -> Vec<Line<'static>> {
                 lines.push(Line::from(""));
                 lines.push(Line::from(format!("Status: {}", aoc_see_summary())));
                 lines.push(Line::from(
-                    "Enter syncs .pi/skills/aoc-see/SKILL.md and runs 'aoc-see init' in the current repo.",
+                    "Enter syncs .pi/skills/aoc-see/SKILL.md and runs 'aoc-see init' in the current repo (.aoc/see workspace).",
                 ));
                 lines.push(Line::from(
                     "Use this to ensure both the agent skill and the project-local visualization microsite shell exist.",
@@ -5839,11 +5839,14 @@ fn install_aoc_see_skill() -> io::Result<String> {
 }
 
 fn aoc_see_summary() -> String {
-    let diagrams = project_relative_is_dir(".aoc/diagrams");
-    let pages = project_relative_is_dir(".aoc/diagrams/pages");
-    let manifest = project_relative_exists(".aoc/diagrams/manifest.json");
-    let index = project_relative_exists(".aoc/diagrams/index.html");
-    let workspace = match (diagrams, pages, manifest, index) {
+    let see_root = project_relative_is_dir(".aoc/see") || project_relative_is_dir(".aoc/diagrams");
+    let pages =
+        project_relative_is_dir(".aoc/see/pages") || project_relative_is_dir(".aoc/diagrams/pages");
+    let manifest = project_relative_exists(".aoc/see/manifest.json")
+        || project_relative_exists(".aoc/diagrams/manifest.json");
+    let index = project_relative_exists(".aoc/see/index.html")
+        || project_relative_exists(".aoc/diagrams/index.html");
+    let workspace = match (see_root, pages, manifest, index) {
         (true, true, true, true) => "workspace seeded",
         (true, _, _, _) => "workspace partial",
         _ => "workspace missing",
