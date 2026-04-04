@@ -252,6 +252,7 @@ struct DiagramView {
     title: String,
     page: String,
     diagram_path: Option<String>,
+    diagram_count: usize,
     summary: Option<String>,
     section: String,
     section_title: String,
@@ -275,6 +276,7 @@ struct HtmlMetadata {
     kind: Option<String>,
     status: Option<String>,
     diagram_path: Option<String>,
+    diagram_count: usize,
     tags: Vec<String>,
 }
 
@@ -282,9 +284,6 @@ struct HtmlMetadata {
 struct SiteView {
     title: String,
     description: String,
-    project_name: String,
-    project_root: String,
-    generated_at: String,
     collections: Vec<CollectionRecord>,
 }
 
@@ -1066,43 +1065,56 @@ fn collect_diagrams(paths: &MapPaths, manifest: &DiagramManifest) -> Result<Vec<
                 .ok_or_else(|| anyhow!("invalid page filename {}", path.display()))?
                 .to_string();
             let html_meta = extract_html_metadata(&path)?;
+            let HtmlMetadata {
+                title: html_title,
+                summary: html_summary,
+                section: html_section,
+                kind: html_kind,
+                status: html_status,
+                diagram_path: html_diagram_path,
+                diagram_count: html_diagram_count,
+                tags: html_tags,
+            } = html_meta;
             let record = by_page.get(&page_rel).or_else(|| by_slug.get(&slug));
             let section = record
                 .and_then(|item| item.section.clone())
-                .or(html_meta.section)
+                .or(html_section)
                 .map(|value| normalize_key(&value))
                 .filter(|value| !value.is_empty())
                 .unwrap_or_else(|| infer_section(record.and_then(|item| item.kind.as_deref())));
             let kind = record
                 .and_then(|item| item.kind.clone())
-                .or(html_meta.kind)
+                .or(html_kind)
                 .map(|value| normalize_key(&value))
                 .filter(|value| !value.is_empty())
                 .unwrap_or_else(|| "other".to_string());
             let status = record
                 .and_then(|item| item.status.clone())
-                .or(html_meta.status)
+                .or(html_status)
                 .map(|value| normalize_key(&value))
                 .filter(|value| !value.is_empty())
                 .unwrap_or_else(|| "draft".to_string());
             let mut tags = record.map(|item| item.tags.clone()).unwrap_or_default();
-            tags.extend(html_meta.tags);
+            tags.extend(html_tags);
             let tags = normalize_tokens(tags);
+            let diagram_path = record
+                .and_then(|item| item.diagram_path.clone())
+                .or(html_diagram_path);
+            let diagram_count = html_diagram_count.max(usize::from(diagram_path.is_some()));
 
             views.push(DiagramView {
                 slug: slug.clone(),
                 title: record
                     .map(|item| item.title.clone())
                     .filter(|value| !value.trim().is_empty())
-                    .or(html_meta.title)
+                    .or(html_title)
                     .unwrap_or_else(|| title_from_slug(&slug)),
                 page: page_rel,
-                diagram_path: record
-                    .and_then(|item| item.diagram_path.clone())
-                    .or(html_meta.diagram_path),
+                diagram_path,
+                diagram_count,
                 summary: record
                     .and_then(|item| item.summary.clone())
-                    .or(html_meta.summary),
+                    .or(html_summary),
                 section_title: section_title(&section, &manifest.site.collections),
                 section,
                 kind,
@@ -1150,13 +1162,16 @@ fn infer_section(kind: Option<&str>) -> String {
 fn extract_html_metadata(path: &Path) -> Result<HtmlMetadata> {
     let content =
         fs::read_to_string(path).with_context(|| format!("failed to read {}", path.display()))?;
+    let diagram_path = extract_named_meta_compat(&content, "diagram");
+    let diagram_count = count_mermaid_blocks(&content).max(usize::from(diagram_path.is_some()));
     Ok(HtmlMetadata {
         title: extract_tag_text(&content, "title").or_else(|| extract_tag_text(&content, "h1")),
         summary: extract_named_meta_compat(&content, "summary"),
         section: extract_named_meta_compat(&content, "section"),
         kind: extract_named_meta_compat(&content, "kind"),
         status: extract_named_meta_compat(&content, "status"),
-        diagram_path: extract_named_meta_compat(&content, "diagram"),
+        diagram_path,
+        diagram_count,
         tags: extract_named_meta_compat(&content, "tags")
             .map(|value| {
                 value
@@ -1166,6 +1181,27 @@ fn extract_html_metadata(path: &Path) -> Result<HtmlMetadata> {
             })
             .unwrap_or_default(),
     })
+}
+
+fn count_mermaid_blocks(content: &str) -> usize {
+    let mut count = 0;
+    let mut rest = content;
+    while let Some(start) = rest.find("<script") {
+        let after_start = &rest[start..];
+        let Some(tag_end) = after_start.find('>') else {
+            break;
+        };
+        let tag = &after_start[..tag_end];
+        if tag.contains("data-aoc-map-mermaid-src")
+            || tag.contains("data-aoc-map-mermaid")
+            || tag.contains("data-aoc-see-mermaid-src")
+            || tag.contains("data-aoc-see-mermaid")
+        {
+            count += 1;
+        }
+        rest = &after_start[tag_end + 1..];
+    }
+    count
 }
 
 fn extract_named_meta_compat(content: &str, suffix: &str) -> Option<String> {
@@ -1249,37 +1285,22 @@ fn build_site_view(paths: &MapPaths, manifest: &DiagramManifest) -> SiteView {
             .clone()
             .or(defaults.description)
             .unwrap_or_else(|| "Project-local visualization layer".to_string()),
-        project_name: manifest
-            .site
-            .project_name
-            .clone()
-            .or(defaults.project_name)
-            .unwrap_or_else(|| "Project".to_string()),
-        project_root: paths.root.display().to_string(),
-        generated_at: Utc::now().to_rfc3339(),
         collections: normalized_collections(manifest.site.collections.clone()),
     }
 }
 
 fn render_index_html(site: &SiteView, diagrams: &[DiagramView]) -> String {
     let total_pages = diagrams.len();
+    let total_diagrams: usize = diagrams.iter().map(|diagram| diagram.diagram_count).sum();
     let section_keys = used_section_keys(diagrams, &site.collections);
     let unique_tags = collect_unique_tags(diagrams);
     let unique_kinds = collect_unique_kinds(diagrams);
-    let visible_section_count = section_keys.len();
     let recent = recent_diagrams(diagrams);
-    let section_nav = render_section_nav(&section_keys, &site.collections);
-    let section_blocks = render_sections(diagrams, &section_keys, &site.collections);
-    let featured_block = render_featured(diagrams);
     let recent_block = render_recent(&recent);
+    let pages_block = render_pages(diagrams);
     let section_filters = render_filter_buttons("section", &section_keys);
     let kind_filters = render_filter_buttons("kind", &unique_kinds);
     let tag_filters = render_filter_buttons("tag", &unique_tags);
-    let empty_state = if total_pages == 0 {
-        "<section class=\"empty-site\"><h2>No pages yet</h2><p>This repo already has an AOC Map homepage. Now start adding pages with <code>aoc-map new agent-topology --section agents --kind topology</code>, then rebuild or serve the site.</p></section>".to_string()
-    } else {
-        String::new()
-    };
 
     format!(
         r##"<!doctype html>
@@ -1294,8 +1315,8 @@ fn render_index_html(site: &SiteView, diagrams: &[DiagramView]) -> String {
       color-scheme: dark;
       --bg: #07111d;
       --bg-2: #0b1727;
-      --panel: rgba(12, 20, 36, 0.9);
-      --panel-2: rgba(15, 26, 46, 0.95);
+      --panel: rgba(12, 20, 36, 0.92);
+      --panel-2: rgba(15, 26, 46, 0.96);
       --line: #243756;
       --line-soft: rgba(120, 158, 220, 0.14);
       --text: #eaf1ff;
@@ -1329,7 +1350,7 @@ fn render_index_html(site: &SiteView, diagrams: &[DiagramView]) -> String {
       border-radius: 8px;
       padding: 0.15rem 0.38rem;
     }}
-    .shell {{ max-width: 1260px; margin: 0 auto; padding: 24px 20px 72px; }}
+    .shell {{ max-width: 1200px; margin: 0 auto; padding: 24px 20px 72px; }}
     .topbar {{
       position: sticky; top: 0; z-index: 20; backdrop-filter: blur(14px);
       background: rgba(7, 12, 20, 0.72); border: 1px solid var(--line-soft);
@@ -1342,54 +1363,43 @@ fn render_index_html(site: &SiteView, diagrams: &[DiagramView]) -> String {
       border-radius: 12px; background: linear-gradient(135deg, rgba(121,192,255,0.25), rgba(141,214,148,0.18));
       border: 1px solid var(--line); font-weight: 800;
     }}
-    .brand-title {{ font-weight: 700; font-size: 1rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }}
-    .brand-subtitle {{ color: var(--muted); font-size: 0.88rem; }}
+    .brand-title {{ font-weight: 800; font-size: 1rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }}
     .nav-links {{ display: flex; flex-wrap: wrap; gap: 8px; justify-content: flex-end; }}
     .nav-links a {{
       display: inline-flex; align-items: center; gap: 8px; padding: 8px 12px; border-radius: 999px;
       border: 1px solid var(--line); background: rgba(12, 20, 36, 0.7); color: var(--muted);
     }}
-    .hero {{
-      display: grid; grid-template-columns: minmax(0, 1.7fr) minmax(320px, 0.9fr);
-      gap: 18px; margin: 24px 0 18px;
-    }}
     .panel {{
       background: linear-gradient(180deg, rgba(17,27,45,0.9), rgba(10,17,31,0.92));
       border: 1px solid var(--line); border-radius: var(--radius); box-shadow: var(--shadow);
     }}
-    .hero-main {{ padding: 28px; }}
-    .eyebrow {{
-      display: inline-flex; align-items: center; gap: 8px; padding: 7px 12px; margin-bottom: 18px;
-      border-radius: 999px; border: 1px solid var(--line); color: var(--accent); background: rgba(10, 18, 31, 0.88);
-      font-size: 0.88rem; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase;
+    .hero {{
+      display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(280px, 0.85fr);
+      gap: 18px; align-items: stretch; margin: 20px 0 18px; padding: 24px;
     }}
-    h1 {{ margin: 0 0 12px; font-size: clamp(2rem, 5vw, 3.2rem); line-height: 1.04; }}
-    .hero p {{ margin: 0; color: var(--muted); line-height: 1.65; }}
-    .hero-actions {{ display: flex; flex-wrap: wrap; gap: 10px; margin-top: 20px; }}
-    .button {{
-      display: inline-flex; align-items: center; gap: 10px; padding: 11px 14px; border-radius: 12px;
-      border: 1px solid var(--line); text-decoration: none; color: var(--text); background: rgba(12, 20, 36, 0.86);
-      font-weight: 600;
-    }}
-    .button.primary {{ color: #05101c; background: linear-gradient(135deg, var(--accent), #9fd2ff); border-color: transparent; }}
-    .hero-side {{ padding: 22px; display: grid; gap: 14px; align-content: start; }}
+    h1 {{ margin: 0; font-size: clamp(2.4rem, 8vw, 4.6rem); line-height: 0.95; letter-spacing: -0.05em; }}
     .mini-grid {{ display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }}
-    .metric {{ padding: 15px; border-radius: 16px; background: rgba(8, 15, 26, 0.82); border: 1px solid var(--line); }}
+    .metric {{ padding: 16px; border-radius: 16px; background: rgba(8, 15, 26, 0.82); border: 1px solid var(--line); }}
     .metric-label {{ color: var(--muted); font-size: 0.86rem; margin-bottom: 6px; }}
-    .metric-value {{ font-size: 1.45rem; font-weight: 800; }}
-    .note {{ padding: 14px 15px; border-radius: 14px; border: 1px solid var(--line); background: rgba(8, 15, 26, 0.82); }}
-    .note strong {{ display: block; margin-bottom: 6px; }}
+    .metric-value {{ font-size: 1.8rem; font-weight: 800; }}
     .search-panel {{ padding: 18px; margin: 18px 0; }}
-    .search-row {{ display: flex; flex-wrap: wrap; gap: 12px; align-items: center; justify-content: space-between; margin-bottom: 16px; }}
+    .search-row {{ display: flex; flex-wrap: wrap; gap: 12px; align-items: center; justify-content: space-between; margin-bottom: 14px; }}
     .search-row h2 {{ margin: 0; font-size: 1.08rem; }}
-    .search-row p {{ margin: 0; color: var(--muted); }}
     .search-box {{ width: 100%; }}
     .search-box input {{
       width: 100%; border: 1px solid var(--line); border-radius: 14px; background: rgba(8, 14, 24, 0.92);
       color: var(--text); padding: 13px 14px; font-size: 1rem; outline: none;
     }}
     .search-box input:focus {{ border-color: var(--accent); box-shadow: 0 0 0 3px rgba(121, 192, 255, 0.12); }}
-    .filter-stack {{ display: grid; gap: 14px; }}
+    .filters-details {{ margin-top: 14px; }}
+    .filters-details > summary {{ list-style: none; cursor: pointer; user-select: none; }}
+    .filters-details > summary::-webkit-details-marker {{ display: none; }}
+    .button {{
+      display: inline-flex; align-items: center; gap: 10px; padding: 11px 14px; border-radius: 12px;
+      border: 1px solid var(--line); text-decoration: none; color: var(--text); background: rgba(12, 20, 36, 0.86);
+      font-weight: 600;
+    }}
+    .filters-body {{ display: grid; gap: 14px; margin-top: 14px; }}
     .filter-group-label {{ color: var(--muted); font-size: 0.86rem; margin-bottom: 8px; text-transform: uppercase; letter-spacing: 0.06em; }}
     .chips {{ display: flex; flex-wrap: wrap; gap: 8px; }}
     .chip {{
@@ -1397,18 +1407,18 @@ fn render_index_html(site: &SiteView, diagrams: &[DiagramView]) -> String {
       border-radius: 999px; padding: 8px 12px; cursor: pointer; font: inherit;
     }}
     .chip.active {{ background: rgba(121, 192, 255, 0.14); color: var(--text); border-color: rgba(121, 192, 255, 0.5); }}
-    .layout {{ display: grid; grid-template-columns: minmax(0, 1.65fr) minmax(300px, 0.75fr); gap: 18px; align-items: start; }}
-    .stack {{ display: grid; gap: 18px; }}
-    .featured {{ padding: 20px; }}
-    .featured h2, .section-header h2, .sidebar-card h2 {{ margin: 0 0 8px; font-size: 1.12rem; }}
-    .section-header p, .featured p, .sidebar-card p {{ margin: 0; color: var(--muted); line-height: 1.55; }}
-    .card-grid {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 14px; margin-top: 16px; }}
+    .layout {{ display: grid; grid-template-columns: minmax(0, 1.7fr) minmax(260px, 0.7fr); gap: 18px; align-items: start; }}
+    .section-block, .sidebar-card {{ padding: 18px; }}
+    .section-header {{ display: flex; gap: 12px; justify-content: space-between; align-items: center; margin-bottom: 14px; }}
+    .section-header h2, .sidebar-card h2 {{ margin: 0; font-size: 1.12rem; }}
+    .section-count {{ color: var(--muted); font-size: 0.92rem; white-space: nowrap; }}
+    .card-grid {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 12px; }}
     .card {{
-      display: grid; gap: 12px; align-content: start; padding: 18px;
-      border-radius: 18px; background: linear-gradient(180deg, rgba(12, 20, 36, 0.95), rgba(9, 16, 28, 0.98));
-      border: 1px solid var(--line); min-height: 255px;
+      display: grid; gap: 10px; align-content: start; padding: 14px;
+      border-radius: 16px; background: linear-gradient(180deg, rgba(12, 20, 36, 0.95), rgba(9, 16, 28, 0.98));
+      border: 1px solid var(--line);
     }}
-    .card-top {{ display: flex; gap: 8px; flex-wrap: wrap; align-items: center; justify-content: space-between; }}
+    .card-head {{ display: flex; justify-content: space-between; align-items: start; gap: 10px; }}
     .badge-row {{ display: flex; gap: 8px; flex-wrap: wrap; }}
     .badge {{
       display: inline-flex; align-items: center; gap: 6px; padding: 5px 10px; border-radius: 999px;
@@ -1420,20 +1430,16 @@ fn render_index_html(site: &SiteView, diagrams: &[DiagramView]) -> String {
     .badge.status-active {{ color: var(--accent); }}
     .badge.status-draft {{ color: var(--accent-3); }}
     .badge.status-archived {{ color: var(--danger); }}
-    .card h3 {{ margin: 0; font-size: 1.1rem; line-height: 1.3; }}
-    .card p {{ margin: 0; color: var(--muted); line-height: 1.55; }}
-    .meta-list {{ display: grid; gap: 8px; color: var(--muted); font-size: 0.92rem; }}
-    .tags {{ display: flex; flex-wrap: wrap; gap: 8px; }}
-    .tag {{ border-radius: 999px; background: rgba(21, 34, 57, 0.92); border: 1px solid var(--line); color: var(--muted); padding: 5px 10px; font-size: 0.85rem; }}
-    .section-block {{ padding: 20px; }}
-    .section-header {{ display: flex; gap: 12px; justify-content: space-between; align-items: start; margin-bottom: 6px; }}
-    .section-count {{ color: var(--muted); font-size: 0.92rem; white-space: nowrap; }}
+    .card h3 {{ margin: 0; font-size: 1.02rem; line-height: 1.3; }}
+    .card p {{ margin: 0; color: var(--muted); line-height: 1.5; }}
     .sidebar {{ display: grid; gap: 18px; }}
-    .sidebar-card {{ padding: 18px; }}
-    .list {{ display: grid; gap: 10px; margin-top: 14px; }}
-    .list-item {{ padding: 12px 13px; border-radius: 14px; border: 1px solid var(--line); background: rgba(8, 14, 24, 0.88); }}
-    .list-item strong {{ display: block; margin-bottom: 5px; }}
-    .section-block.hidden, .card.hidden, #no-results.hidden, #empty-sections.hidden {{ display: none; }}
+    .list {{ display: grid; gap: 10px; }}
+    .list-item {{
+      display: flex; justify-content: space-between; align-items: center; gap: 12px;
+      padding: 12px 13px; border-radius: 14px; border: 1px solid var(--line); background: rgba(8, 14, 24, 0.88);
+    }}
+    .list-item a {{ font-weight: 600; }}
+    .card.hidden, #no-results.hidden {{ display: none; }}
     .empty-site, .empty-results {{ padding: 20px; border-radius: 18px; border: 1px dashed var(--line); background: rgba(8, 14, 24, 0.78); color: var(--muted); }}
     footer {{ margin-top: 24px; padding: 18px; color: var(--muted); border: 1px solid var(--line); border-radius: 16px; background: rgba(8, 14, 24, 0.82); }}
     @media (max-width: 980px) {{
@@ -1447,126 +1453,79 @@ fn render_index_html(site: &SiteView, diagrams: &[DiagramView]) -> String {
     <div class="topbar">
       <div class="brand">
         <div class="brand-badge">AØ</div>
-        <div>
-          <div class="brand-title">{title}</div>
-          <div class="brand-subtitle">{project_name} · project-local visualization microsite</div>
-        </div>
+        <div class="brand-title">AOC Map</div>
       </div>
       <nav class="nav-links">
         <a href="#filters">Filters</a>
-        <a href="#collections">Collections</a>
+        <a href="#pages">Pages</a>
         <a href="#recent">Recent</a>
       </nav>
     </div>
 
-    <section class="hero">
-      <div class="panel hero-main">
-        <div class="eyebrow">AOC Map · Visualization Layer</div>
-        <h1>Explore the repo as a browsable site.</h1>
-        <p>{description}</p>
-        <div class="hero-actions">
-          <a class="button primary" href="#collections">Browse pages</a>
-          <a class="button" href="#filters">Search & filter</a>
-          <span class="button"><code>aoc-map serve --open</code></span>
+    <section class="panel hero">
+      <div>
+        <h1>AOC Map</h1>
+      </div>
+      <div class="mini-grid">
+        <div class="metric">
+          <div class="metric-label">Pages</div>
+          <div class="metric-value">{total_pages}</div>
+        </div>
+        <div class="metric">
+          <div class="metric-label">Diagrams</div>
+          <div class="metric-value">{total_diagrams}</div>
         </div>
       </div>
-      <aside class="panel hero-side">
-        <div class="mini-grid">
-          <div class="metric">
-            <div class="metric-label">Pages</div>
-            <div class="metric-value" id="visible-page-count">{total_pages}</div>
-          </div>
-          <div class="metric">
-            <div class="metric-label">Collections</div>
-            <div class="metric-value">{visible_section_count}</div>
-          </div>
-          <div class="metric">
-            <div class="metric-label">Kinds</div>
-            <div class="metric-value">{kind_count}</div>
-          </div>
-          <div class="metric">
-            <div class="metric-label">Tags</div>
-            <div class="metric-value">{tag_count}</div>
-          </div>
-        </div>
-        <div class="note">
-          <strong>How to add a page</strong>
-          Scaffold with <code>aoc-map new task-flow --section tasks --kind flow</code>, then edit the generated Mermaid in <code>.aoc/map/diagrams/</code> and keep the page in <code>.aoc/map/pages/</code> graph-first.
-        </div>
-        <div class="note">
-          <strong>Project root</strong>
-          <code>{project_root}</code>
-        </div>
-      </aside>
     </section>
 
     <section class="panel search-panel" id="filters">
       <div class="search-row">
-        <div>
-          <h2>Discover pages fast</h2>
-          <p>Filter by collection, page kind, tag, or free-text search.</p>
-        </div>
-        <div class="badge-row">
-          <span class="badge">generated {generated_at}</span>
-          <span class="badge">{total_pages} total pages</span>
-        </div>
+        <h2>Search pages</h2>
+        <span class="badge"><span id="results-count">{total_pages}</span> shown</span>
       </div>
       <div class="search-box">
         <input id="search-input" type="search" placeholder="Search by title, summary, tag, section, or kind..." autocomplete="off">
       </div>
-      <div class="filter-stack">
-        <div>
-          <div class="filter-group-label">Collections</div>
-          <div class="chips" data-group="section">
-            <button class="chip active" type="button" data-filter-group="section" data-filter-value="all">All</button>
-            {section_filters}
+      <details class="filters-details">
+        <summary class="button">Filters</summary>
+        <div class="filters-body">
+          <div>
+            <div class="filter-group-label">Sections</div>
+            <div class="chips" data-group="section">
+              <button class="chip active" type="button" data-filter-group="section" data-filter-value="all">All</button>
+              {section_filters}
+            </div>
+          </div>
+          <div>
+            <div class="filter-group-label">Kinds</div>
+            <div class="chips" data-group="kind">
+              <button class="chip active" type="button" data-filter-group="kind" data-filter-value="all">All</button>
+              {kind_filters}
+            </div>
+          </div>
+          <div>
+            <div class="filter-group-label">Tags</div>
+            <div class="chips" data-group="tag">
+              <button class="chip active" type="button" data-filter-group="tag" data-filter-value="all">All</button>
+              {tag_filters}
+            </div>
           </div>
         </div>
-        <div>
-          <div class="filter-group-label">Kinds</div>
-          <div class="chips" data-group="kind">
-            <button class="chip active" type="button" data-filter-group="kind" data-filter-value="all">All</button>
-            {kind_filters}
-          </div>
-        </div>
-        <div>
-          <div class="filter-group-label">Tags</div>
-          <div class="chips" data-group="tag">
-            <button class="chip active" type="button" data-filter-group="tag" data-filter-value="all">All</button>
-            {tag_filters}
-          </div>
-        </div>
-      </div>
+      </details>
     </section>
 
-    {empty_state}
-
     <div class="layout">
-      <main class="stack" id="collections">
-        {featured_block}
-        {section_nav}
+      <main>
+        {pages_block}
         <div id="no-results" class="empty-results hidden">
           <h2>No matching pages</h2>
           <p>Try clearing some filters or search terms.</p>
         </div>
-        <div id="empty-sections" class="hidden"></div>
-        {section_blocks}
       </main>
       <aside class="sidebar">
         <section class="panel sidebar-card" id="recent">
           <h2>Recent updates</h2>
-          <p>Most recently updated pages in this microsite.</p>
           {recent_block}
-        </section>
-        <section class="panel sidebar-card">
-          <h2>Suggested collections</h2>
-          <p>Good homepage categories for long-lived AOC projects.</p>
-          <div class="list">
-            <div class="list-item"><strong>Architecture</strong>Boundaries, components, data flow, and repo layout.</div>
-            <div class="list-item"><strong>Agents</strong>Roles, subagent orchestration, wrappers, sessions, and handoffs.</div>
-            <div class="list-item"><strong>Tasks & Mind</strong>Task graphs, provenance, compaction, exports, and recovery paths.</div>
-            <div class="list-item"><strong>Ops</strong>Runbooks, debugging surfaces, status boards, and lifecycle pages.</div>
-          </div>
         </section>
       </aside>
     </div>
@@ -1580,10 +1539,9 @@ fn render_index_html(site: &SiteView, diagrams: &[DiagramView]) -> String {
     (() => {{
       const state = {{ section: 'all', kind: 'all', tag: 'all', query: '' }};
       const cards = Array.from(document.querySelectorAll('.card[data-card="1"]'));
-      const sections = Array.from(document.querySelectorAll('.section-block[data-section-block]'));
-      const visibleCount = document.getElementById('visible-page-count');
       const noResults = document.getElementById('no-results');
       const searchInput = document.getElementById('search-input');
+      const resultsCount = document.getElementById('results-count');
 
       function normalize(value) {{
         return (value || '').toLowerCase();
@@ -1609,17 +1567,8 @@ fn render_index_html(site: &SiteView, diagrams: &[DiagramView]) -> String {
           card.classList.toggle('hidden', !show);
           if (show) visible += 1;
         }});
-
-        sections.forEach(section => {{
-          const cardsInSection = Array.from(section.querySelectorAll('.card[data-card="1"]'));
-          const anyVisible = cardsInSection.some(card => !card.classList.contains('hidden'));
-          section.classList.toggle('hidden', !anyVisible);
-          const counter = section.querySelector('[data-section-count]');
-          if (counter) counter.textContent = `${{cardsInSection.filter(card => !card.classList.contains('hidden')).length}} pages`;
-        }});
-
-        visibleCount.textContent = String(visible);
-        noResults.classList.toggle('hidden', visible !== 0);
+        if (resultsCount) resultsCount.textContent = String(visible);
+        if (noResults) noResults.classList.toggle('hidden', visible !== 0 || cards.length === 0);
       }}
 
       document.querySelectorAll('.chip[data-filter-group]').forEach(button => {{
@@ -1648,21 +1597,13 @@ fn render_index_html(site: &SiteView, diagrams: &[DiagramView]) -> String {
 "##,
         title = escape_html(&site.title),
         description = escape_html(&site.description),
-        project_name = escape_html(&site.project_name),
-        project_root = escape_html(&site.project_root),
-        generated_at = escape_html(&site.generated_at),
         total_pages = total_pages,
-        visible_section_count = visible_section_count,
-        kind_count = unique_kinds.len(),
-        tag_count = unique_tags.len(),
+        total_diagrams = total_diagrams,
         section_filters = section_filters,
         kind_filters = kind_filters,
         tag_filters = tag_filters,
-        featured_block = featured_block,
-        section_nav = section_nav,
-        section_blocks = section_blocks,
+        pages_block = pages_block,
         recent_block = recent_block,
-        empty_state = empty_state,
     )
 }
 
@@ -1716,38 +1657,20 @@ fn recent_diagrams(diagrams: &[DiagramView]) -> Vec<DiagramView> {
     items.into_iter().take(6).collect()
 }
 
-fn render_section_nav(section_keys: &[String], collections: &[CollectionRecord]) -> String {
-    if section_keys.is_empty() {
-        return String::new();
-    }
-    let links = section_keys
-        .iter()
-        .map(|key| {
-            format!(
-                "<a href=\"#section-{}\">{}</a>",
-                escape_html(key),
-                escape_html(&section_title(key, collections))
-            )
-        })
-        .collect::<Vec<_>>()
-        .join("");
-    format!(
-        "<section class=\"panel featured\"><div class=\"section-header\"><div><h2>Collections</h2><p>Jump between the major visualization areas for this project.</p></div></div><div class=\"nav-links\">{links}</div></section>"
-    )
-}
+fn render_pages(diagrams: &[DiagramView]) -> String {
+    let content = if diagrams.is_empty() {
+        "<div class=\"empty-site\"><h2>No pages yet</h2><p>This repo already has AOC Map initialized. Add a page with <code>aoc-map new agent-topology --section agents --kind topology</code>, then rebuild or serve the site.</p></div>".to_string()
+    } else {
+        let cards = diagrams
+            .iter()
+            .map(render_card)
+            .collect::<Vec<_>>()
+            .join("\n");
+        format!("<div class=\"card-grid\">{cards}</div>")
+    };
 
-fn render_featured(diagrams: &[DiagramView]) -> String {
-    let featured: Vec<_> = diagrams.iter().filter(|diagram| diagram.featured).collect();
-    if featured.is_empty() {
-        return String::new();
-    }
-    let cards = featured
-        .into_iter()
-        .map(render_card)
-        .collect::<Vec<_>>()
-        .join("\n");
     format!(
-        "<section class=\"panel featured\"><div class=\"section-header\"><div><h2>Featured pages</h2><p>Priority explainers and visual surfaces worth starting with.</p></div></div><div class=\"card-grid\">{cards}</div></section>"
+        "<section class=\"panel section-block\" id=\"pages\"><div class=\"section-header\"><h2>Pages</h2></div>{content}</section>"
     )
 }
 
@@ -1760,12 +1683,10 @@ fn render_recent(diagrams: &[DiagramView]) -> String {
         .iter()
         .map(|diagram| {
             format!(
-                "<div class=\"list-item\"><strong><a href=\"{}\">{}</a></strong><div>{}</div><div class=\"badge-row\"><span class=\"badge\">{}</span><span class=\"badge\">{}</span></div></div>",
+                "<div class=\"list-item\"><a href=\"{}\">{}</a>{}</div>",
                 escape_html(&diagram.page),
                 escape_html(&diagram.title),
-                escape_html(diagram.summary.as_deref().unwrap_or("No summary yet.")),
-                escape_html(&diagram.section_title),
-                escape_html(diagram.updated_at.as_deref().unwrap_or("untracked")),
+                render_diagram_badge(diagram.diagram_count),
             )
         })
         .collect::<Vec<_>>()
@@ -1773,45 +1694,16 @@ fn render_recent(diagrams: &[DiagramView]) -> String {
     format!("<div class=\"list\">{items}</div>")
 }
 
-fn render_sections(
-    diagrams: &[DiagramView],
-    section_keys: &[String],
-    collections: &[CollectionRecord],
-) -> String {
-    let mut by_section: BTreeMap<String, Vec<&DiagramView>> = BTreeMap::new();
-    for diagram in diagrams {
-        by_section
-            .entry(diagram.section.clone())
-            .or_default()
-            .push(diagram);
+fn render_diagram_badge(diagram_count: usize) -> String {
+    if diagram_count == 0 {
+        return String::new();
     }
-
-    section_keys
-        .iter()
-        .map(|key| {
-            let mut items = by_section.remove(key).unwrap_or_default();
-            items.sort_by(|left, right| compare_diagrams(left, right));
-            let count = items.len();
-            let cards = if items.is_empty() {
-                "<div class=\"empty-results\"><p>No pages in this collection yet.</p></div>".to_string()
-            } else {
-                items.into_iter().map(render_card).collect::<Vec<_>>().join("\n")
-            };
-            let title = section_title(key, collections);
-            let description = section_description(key, collections)
-                .unwrap_or_else(|| "AOC Map pages in this collection.".to_string());
-            format!(
-                "<section class=\"panel section-block\" id=\"section-{}\" data-section-block=\"{}\"><div class=\"section-header\"><div><h2>{}</h2><p>{}</p></div><div class=\"section-count\" data-section-count>{} pages</div></div><div class=\"card-grid\">{}</div></section>",
-                escape_html(key),
-                escape_html(key),
-                escape_html(&title),
-                escape_html(&description),
-                count,
-                cards,
-            )
-        })
-        .collect::<Vec<_>>()
-        .join("\n")
+    let label = if diagram_count == 1 {
+        "diagram"
+    } else {
+        "diagrams"
+    };
+    format!("<span class=\"badge\">{} {}</span>", diagram_count, label)
 }
 
 fn render_filter_buttons(group: &str, values: &[String]) -> String {
@@ -1830,19 +1722,6 @@ fn render_filter_buttons(group: &str, values: &[String]) -> String {
 }
 
 fn render_card(diagram: &DiagramView) -> String {
-    let tags = if diagram.tags.is_empty() {
-        String::new()
-    } else {
-        format!(
-            "<div class=\"tags\">{}</div>",
-            diagram
-                .tags
-                .iter()
-                .map(|tag| format!("<span class=\"tag\">{}</span>", escape_html(tag)))
-                .collect::<Vec<_>>()
-                .join("")
-        )
-    };
     let search = format!(
         "{} {} {} {} {} {}",
         diagram.title,
@@ -1852,24 +1731,14 @@ fn render_card(diagram: &DiagramView) -> String {
         diagram.status,
         diagram.tags.join(" ")
     );
-    let sources = if diagram.source_paths.is_empty() {
-        "No sources listed".to_string()
-    } else {
-        format!("Sources: {}", diagram.source_paths.join(", "))
-    };
-    let generated_badge = if diagram.generated {
-        "<span class=\"badge\">generated</span>"
-    } else {
-        ""
-    };
-    let inferred_badge = if diagram.inferred {
-        "<span class=\"badge\">inferred</span>"
-    } else {
-        ""
-    };
+    let summary = diagram
+        .summary
+        .as_deref()
+        .map(|summary| format!("<p>{}</p>", escape_html(summary)))
+        .unwrap_or_default();
 
     format!(
-        "<article class=\"card\" data-card=\"1\" data-section=\"{}\" data-kind=\"{}\" data-tags=\"{}\" data-search=\"{}\">\n  <div class=\"card-top\">\n    <div class=\"badge-row\">\n      <span class=\"badge\">{}</span>\n      <span class=\"badge kind\">{}</span>\n      <span class=\"badge status-{}\">{}</span>\n      {}{}\n    </div>\n  </div>\n  <div>\n    <h3><a href=\"{}\">{}</a></h3>\n    <p>{}</p>\n  </div>\n  {}\n  <div class=\"meta-list\">\n    <div><strong>Slug:</strong> {}</div>\n    <div><strong>Updated:</strong> {}</div>\n    <div><strong>{}</strong></div>\n  </div>\n  <div class=\"hero-actions\">\n    <a class=\"button\" href=\"{}\">Open page</a>\n  </div>\n</article>",
+        "<article class=\"card\" data-card=\"1\" data-section=\"{}\" data-kind=\"{}\" data-tags=\"{}\" data-search=\"{}\">\n  <div class=\"card-head\">\n    <div class=\"badge-row\">\n      <span class=\"badge\">{}</span>\n      <span class=\"badge kind\">{}</span>\n      <span class=\"badge status-{}\">{}</span>\n    </div>\n    {}\n  </div>\n  <h3><a href=\"{}\">{}</a></h3>\n  {}\n</article>",
         escape_html(&diagram.section),
         escape_html(&diagram.kind),
         escape_html(&diagram.tags.join(" ")),
@@ -1878,16 +1747,10 @@ fn render_card(diagram: &DiagramView) -> String {
         escape_html(&title_from_slug(&diagram.kind)),
         escape_html(&diagram.status),
         escape_html(&title_from_slug(&diagram.status)),
-        generated_badge,
-        inferred_badge,
+        render_diagram_badge(diagram.diagram_count),
         escape_html(&diagram.page),
         escape_html(&diagram.title),
-        escape_html(diagram.summary.as_deref().unwrap_or("No summary yet. Open the page for details.")),
-        tags,
-        escape_html(&diagram.slug),
-        escape_html(diagram.updated_at.as_deref().unwrap_or("untracked")),
-        escape_html(&sources),
-        escape_html(&diagram.page),
+        summary,
     )
 }
 
@@ -1897,13 +1760,6 @@ fn section_title(section: &str, collections: &[CollectionRecord]) -> String {
         .find(|collection| collection.key == section)
         .map(|collection| collection.title.clone())
         .unwrap_or_else(|| title_from_slug(section))
-}
-
-fn section_description(section: &str, collections: &[CollectionRecord]) -> Option<String> {
-    collections
-        .iter()
-        .find(|collection| collection.key == section)
-        .and_then(|collection| collection.description.clone())
 }
 
 fn starter_readme() -> String {
@@ -2104,8 +1960,8 @@ fn try_open_browser(url: &str) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::{
-        infer_section, normalize_key, normalize_mermaid_page_html, normalize_tokens, validate_slug,
-        MERMAID_OUTPUT_END, MERMAID_OUTPUT_START,
+        count_mermaid_blocks, infer_section, normalize_key, normalize_mermaid_page_html,
+        normalize_tokens, validate_slug, MERMAID_OUTPUT_END, MERMAID_OUTPUT_START,
     };
 
     #[test]
@@ -2167,5 +2023,11 @@ mod tests {
         assert!(output.contains("data-aoc-map-mermaid-src"));
         assert!(output.contains("../assets/mermaid.min.js"));
         assert!(output.contains("../assets/render-mermaid.js"));
+    }
+
+    #[test]
+    fn count_mermaid_blocks_supports_map_and_legacy_attrs() {
+        let input = "<script data-aoc-map-mermaid></script><script data-aoc-map-mermaid-src=\"x\"></script><script data-aoc-see-mermaid></script><script data-aoc-see-mermaid-src=\"y\"></script>";
+        assert_eq!(count_mermaid_blocks(input), 4);
     }
 }

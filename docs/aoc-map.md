@@ -51,14 +51,12 @@ You can also seed/confirm the microsite from the floating control pane:
 
 The generated `index.html` is a site shell with:
 
-- hero / repo intro
-- collection navigation
-- counts for pages, collections, kinds, and tags
-- search box
-- filters for collection, kind, and tag
-- featured pages
-- recent updates
-- grouped collection sections
+- a minimal AOC Map header
+- counts for total pages and total diagrams
+- a search box
+- collapsible filters for section, kind, and tag
+- one filtered page list
+- a compact recent updates sidebar
 
 Default collections:
 
