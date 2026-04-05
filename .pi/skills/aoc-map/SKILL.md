@@ -5,20 +5,20 @@ description: Build and maintain a project-local graph-first microsite under `.ao
 
 ## When to use
 - The user wants a visual explainer, architecture page, workflow diagram, timeline, topology map, provenance walkthrough, or status/dashboard page.
-- The user wants a repo-local **website layer** for project understanding, not just one-off diagrams.
+- The user wants a repo-local graph microsite, not just a one-off diagram.
 - You want reviewable HTML artifacts that agents and humans can browse locally.
 
 ## Mental model
 AOC Map is not just a folder of diagrams.
-It is a **microsite for the repo**.
+It is the repo's graph-first microsite.
 
-Each page under `.aoc/map/pages/` is a first-class page in that site, and `aoc-map build` regenerates the homepage/gallery shell that ties them together.
+Each page under `.aoc/map/pages/` is a first-class page in that site, and `aoc-map build` regenerates the homepage shell that ties them together.
 
 ## Workspace layout
 - `.aoc/map/pages/*.html` — minimal graph-first pages.
 - `.aoc/map/diagrams/*.mmd` — Mermaid graph sources.
 - `.aoc/map/manifest.json` — site + page metadata.
-- `.aoc/map/index.html` — generated microsite homepage.
+- `.aoc/map/index.html` — generated homepage.
 - `.aoc/map/README.md` — local guidance.
 
 ## Core commands
@@ -28,17 +28,37 @@ Each page under `.aoc/map/pages/` is a first-class page in that site, and `aoc-m
 - `aoc-map build`
 - `aoc-map serve --port 43111 --open`
 
+Legacy note:
+- `aoc see ...` may still work as a compatibility alias, but new usage should be `aoc-map`.
+
 ## Recommended workflow
 1. Run `aoc-map init` once per project.
 2. Scaffold a page with `aoc-map new <slug>`.
-3. Edit the generated Mermaid file in `.aoc/map/diagrams/` and keep the page in `.aoc/map/pages/` minimal.
-4. Prefer a visual-first page: make the graph or dashboard the first-class artifact and keep prose secondary.
-5. Prefer Mermaid source files referenced from the page when a graph is the clearest authoring format.
-6. Rebuild the homepage and sync Mermaid assets with `aoc-map build`.
-7. Preview the full microsite with `aoc-map serve`.
+3. Edit the generated Mermaid file in `.aoc/map/diagrams/`.
+4. Keep the page in `.aoc/map/pages/` minimal and graph-first.
+5. Rebuild the homepage and sync Mermaid assets with `aoc-map build`.
+6. Preview the microsite with `aoc-map serve`.
 
-## Preferred collections
-Use these sections when the page fits:
+## Homepage expectations
+The generated homepage should stay compact and low-clutter.
+
+Prefer this shape:
+- title: `AOC Map`
+- metrics: total pages + total diagrams
+- one search box
+- one filters dropdown, closed by default
+- one main filtered page list
+- one compact recent-updates sidebar
+
+Avoid this on the homepage unless the user explicitly wants it:
+- repeating the same pages in multiple sections
+- large visible tag clouds inside cards
+- source-path dumps on cards
+- oversized hero copy
+- always-open filter walls
+
+## Preferred sections
+Use these when the page fits:
 - `architecture`
 - `agents`
 - `tasks`
@@ -49,7 +69,7 @@ Use these sections when the page fits:
 - `research`
 - `other`
 
-## Common page kinds
+## Common kinds
 - `flow`
 - `sequence`
 - `timeline`
@@ -58,18 +78,9 @@ Use these sections when the page fits:
 - `explain`
 - `other`
 
-## Good page examples
-- Agent topology / routing maps
-- Task dependency and lifecycle pages
-- Mind/provenance walkthroughs
-- Session lifecycle / overseer runbooks
-- Architecture overview pages
-- Research comparison pages
-- Local dashboards sourced from AOC state
-
 ## Authoring guidance
 - Prefer plain HTML + CSS + inline SVG for portability.
-- Prefer visual-first layouts with a large primary graph or dashboard surface near the top.
+- Prefer visual-first layouts with a large primary graph or dashboard near the top.
 - Prefer Mermaid source files under `.aoc/map/diagrams/` and reference them from pages:
 
 ```html
@@ -78,8 +89,9 @@ Use these sections when the page fits:
 
 - Inline Mermaid blocks still work when helpful.
 - `aoc-map build` syncs local Mermaid JS assets and ensures Mermaid pages reference the vendored renderer.
-- Include a clear title, short summary, and visible source references.
-- If the page explains repo behavior, cite file paths and commands used.
+- Include a clear title and short summary.
+- Keep prose secondary to the graph.
+- If the page explains repo behavior, cite file paths and commands inside the page when useful.
 - Prefer updating an existing page over creating a duplicate.
 - If the content is speculative, label it clearly.
 
@@ -95,10 +107,15 @@ Pages can self-register metadata using meta tags:
 <meta name="aoc-map:tags" content="agents,orchestration,routing">
 ```
 
-Use this when you want a page to remain understandable and discoverable even if the manifest is only partially maintained.
+## Migration compatibility
+AOC Map should tolerate older AOC See repos:
+- `.aoc/see/` may need migration to `.aoc/map/`
+- `.aoc/diagrams/` may need migration to `.aoc/map/`
+- old `aoc-see:*` / `data-aoc-see-*` metadata may still exist and should be normalized when rebuilding
 
 ## Guardrails
 - Do not write outside `.aoc/map/` unless the user asks.
-- Avoid external analytics or network-loaded assets. Use the repo-local vendored Mermaid assets seeded by AOC Map.
+- Avoid external analytics or network-loaded assets.
+- Use the repo-local vendored Mermaid assets seeded by AOC Map.
 - Keep pages reviewable offline when possible.
-- Treat the homepage as the repo’s visual entrypoint, not a dumping ground.
+- Treat the homepage as the repo's visual entrypoint, not a dumping ground.

@@ -94,6 +94,7 @@ Use it to:
 - sync `.pi/skills/aoc-map/SKILL.md` for the current repo
 - run `aoc-map init`
 - seed or confirm `.aoc/map/`
+- migrate older AOC See workspaces when needed
 - quickly see whether the AOC Map workspace and skill are present
 
 ## PI installer
