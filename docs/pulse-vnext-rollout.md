@@ -19,7 +19,7 @@ Rollback is immediate: set `AOC_PULSE_VNEXT_ENABLED=0` and restart hub/mission-c
   layout polling dependency.
 - Scope: retain `AOC_PULSE_OVERVIEW_ENABLED` as an explicit runtime toggle.
 - CPU guardrail: `AOC_PULSE_LAYOUT_WATCH_ENABLED=0` by default to avoid
-  background `dump-layout` churn.
+  background session-topology polling churn.
 
 ## Structured Observability Events
 

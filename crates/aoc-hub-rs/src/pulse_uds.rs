@@ -12,6 +12,7 @@ use aoc_core::{
         ObserverEventKind, ObserverSnapshot, ObserverTimelineEntry, OverseerRetentionPolicy,
         OverseerSourceKind, PlanAlignment, WorkerSnapshot, WorkerStatus,
     },
+    zellij_cli::query_session_snapshot,
 };
 use chrono::Utc;
 use std::{
@@ -902,7 +903,7 @@ impl PulseUdsHub {
                             self.prune_closed_panes(closed).await;
                         }
 
-                        self.emit_layout_state_if_changed(layout_snapshot).await;
+                        let _ = self.emit_layout_state_if_changed(layout_snapshot).await;
 
                         let elapsed_ms = started.elapsed().as_millis() as u64;
                         if elapsed_ms > 500 {
@@ -957,7 +958,7 @@ impl PulseUdsHub {
         });
     }
 
-    async fn emit_layout_state_if_changed(&self, snapshot: LayoutSnapshot) {
+    async fn emit_layout_state_if_changed(&self, snapshot: LayoutSnapshot) -> bool {
         let signature = layout_signature(&snapshot.tabs, &snapshot.panes);
         let mut layout_state = self.layout_state.write().await;
         if layout_state
@@ -965,7 +966,7 @@ impl PulseUdsHub {
             .map(|entry| entry.signature == signature)
             .unwrap_or(false)
         {
-            return;
+            return false;
         }
 
         let payload = LayoutStatePayload {
@@ -984,6 +985,7 @@ impl PulseUdsHub {
         self.layout_emit_count.fetch_add(1, Ordering::Relaxed);
         let envelope = self.make_envelope("aoc-hub", None, WireMsg::LayoutState(payload));
         self.broadcast_to_subscribers(envelope).await;
+        true
     }
 
     async fn has_layout_state_subscribers(&self) -> bool {
@@ -1169,6 +1171,14 @@ impl PulseUdsHub {
                 self.handle_focus_tab_command(source_conn_id, envelope.request_id, payload)
                     .await;
             }
+            "refresh_layout_state" => {
+                self.handle_refresh_layout_state_command(
+                    source_conn_id,
+                    envelope.request_id,
+                    payload,
+                )
+                .await;
+            }
             "stop_agent"
             | "run_observer"
             | "mind_ingest_event"
@@ -1179,6 +1189,8 @@ impl PulseUdsHub {
             | "mind_finalize_session"
             | "mind_t3_requeue"
             | "mind_handshake_rebuild"
+            | "mind_context_pack"
+            | "mind_provenance_query"
             | "insight_ingest"
             | "insight_handoff"
             | "insight_resume"
@@ -1492,6 +1504,60 @@ impl PulseUdsHub {
                 .await;
             }
         }
+    }
+
+    async fn handle_refresh_layout_state_command(
+        &self,
+        source_conn_id: &str,
+        request_id: Option<String>,
+        payload: CommandPayload,
+    ) {
+        match self.execute_refresh_layout_state().await {
+            Ok(message) => {
+                self.send_command_result(
+                    source_conn_id,
+                    request_id,
+                    &payload.command,
+                    "ok",
+                    &message,
+                    None,
+                )
+                .await;
+            }
+            Err(err) => {
+                let message = err.message.clone();
+                self.send_command_result(
+                    source_conn_id,
+                    request_id,
+                    &payload.command,
+                    "error",
+                    &message,
+                    Some(err),
+                )
+                .await;
+            }
+        }
+    }
+
+    async fn execute_refresh_layout_state(&self) -> Result<String, CommandError> {
+        let snapshot = collect_layout_snapshot(&self.config.session_id)
+            .await
+            .map_err(|message| CommandError {
+                code: "layout_refresh_failed".to_string(),
+                message,
+            })?;
+
+        let (_opened, closed) = self.reconcile_layout_panes(snapshot.pane_ids.clone()).await;
+        if !closed.is_empty() {
+            self.prune_closed_panes(closed).await;
+        }
+
+        let changed = self.emit_layout_state_if_changed(snapshot).await;
+        Ok(if changed {
+            "layout_state refreshed".to_string()
+        } else {
+            "layout_state already current".to_string()
+        })
     }
 
     async fn execute_focus_tab(&self, args: &serde_json::Value) -> Result<String, CommandError> {
@@ -2007,28 +2073,27 @@ async fn collect_layout_snapshot(session_id: &str) -> Result<LayoutSnapshot, Str
             panes: Vec::new(),
         });
     }
-    let session = session_id.to_string();
-    let output = tokio::task::spawn_blocking(move || {
-        std::process::Command::new("zellij")
-            .arg("--session")
-            .arg(session)
-            .arg("action")
-            .arg("dump-layout")
-            .output()
-    })
-    .await
-    .map_err(|err| format!("join_error:{err}"))
-    .and_then(|result| result.map_err(|err| format!("spawn_error:{err}")))?;
+    let session_for_query = session_id.to_string();
+    let snapshot = tokio::task::spawn_blocking(move || query_session_snapshot(&session_for_query))
+        .await
+        .map_err(|err| format!("join_error:{err}"))??;
 
-    if !output.status.success() {
-        return Err(format!("dump_layout_exit:{}", output.status));
+    if let Some(snapshot) = snapshot {
+        return Ok(LayoutSnapshot {
+            pane_ids: snapshot.pane_ids,
+            tabs: snapshot.tabs,
+            panes: snapshot.panes,
+        });
     }
 
-    let layout = String::from_utf8(output.stdout).map_err(|err| format!("utf8:{err}"))?;
-    Ok(parse_layout_snapshot(&layout))
+    Ok(LayoutSnapshot {
+        pane_ids: HashSet::new(),
+        tabs: Vec::new(),
+        panes: Vec::new(),
+    })
 }
 
-#[cfg(unix)]
+#[cfg(all(unix, test))]
 fn parse_layout_snapshot(layout: &str) -> LayoutSnapshot {
     let mut pane_ids = HashSet::new();
     let mut tabs = Vec::new();
@@ -2086,7 +2151,7 @@ fn parse_layout_snapshot(layout: &str) -> LayoutSnapshot {
     }
 }
 
-#[cfg(unix)]
+#[cfg(all(unix, test))]
 fn extract_pane_ids_from_layout_line(line: &str) -> Vec<String> {
     let mut pane_ids = extract_quoted_flag_values(line, "--pane-id");
     pane_ids.extend(extract_legacy_flag_values(line, "--pane-id\""));
@@ -2097,13 +2162,13 @@ fn extract_pane_ids_from_layout_line(line: &str) -> Vec<String> {
     pane_ids
 }
 
-#[cfg(unix)]
+#[cfg(all(unix, test))]
 fn line_is_tab_decl(line: &str) -> bool {
     let trimmed = line.trim_start();
     trimmed.starts_with("tab ") || trimmed == "tab" || trimmed.starts_with("tab\t")
 }
 
-#[cfg(unix)]
+#[cfg(all(unix, test))]
 fn extract_layout_attr(line: &str, attr: &str) -> Option<String> {
     let with_equals = format!("{attr}=\"");
     if let Some(start) = line.find(&with_equals) {
@@ -2130,7 +2195,7 @@ fn extract_layout_attr(line: &str, attr: &str) -> Option<String> {
     None
 }
 
-#[cfg(unix)]
+#[cfg(all(unix, test))]
 fn extract_quoted_flag_values(line: &str, flag: &str) -> Vec<String> {
     let mut out = Vec::new();
     let parts: Vec<&str> = line.split('"').collect();
@@ -2150,7 +2215,7 @@ fn extract_quoted_flag_values(line: &str, flag: &str) -> Vec<String> {
     out
 }
 
-#[cfg(unix)]
+#[cfg(all(unix, test))]
 fn extract_legacy_flag_values(line: &str, marker: &str) -> Vec<String> {
     let mut values = Vec::new();
     let mut cursor = line;
@@ -2172,7 +2237,7 @@ fn extract_legacy_flag_values(line: &str, marker: &str) -> Vec<String> {
     values
 }
 
-#[cfg(unix)]
+#[cfg(all(unix, test))]
 fn extract_attr_values(line: &str, attr: &str) -> Vec<String> {
     let mut out = Vec::new();
     let marker = format!("{attr}=\"");
@@ -2191,9 +2256,18 @@ fn extract_attr_values(line: &str, attr: &str) -> Vec<String> {
     out
 }
 
-#[cfg(unix)]
+#[cfg(all(unix, test))]
 fn pane_id_number_u64(value: &str) -> Option<u64> {
     value.trim().parse::<u64>().ok()
+}
+
+#[cfg(all(unix, test))]
+fn parse_layout_pane_ids(layout: &str) -> HashSet<String> {
+    let mut pane_ids = HashSet::new();
+    for line in layout.lines() {
+        pane_ids.extend(extract_pane_ids_from_layout_line(line));
+    }
+    pane_ids
 }
 
 #[cfg(unix)]
@@ -3447,6 +3521,102 @@ tab name="Review"
             panic!("expected command_result ack")
         };
         assert_eq!(payload.command, "mind_handshake_rebuild");
+        assert_eq!(payload.status, "accepted");
+
+        let _ = shutdown_tx.send(true);
+        let result = handle.await.expect("join hub");
+        assert!(result.is_ok(), "hub returned error: {result:?}");
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn mind_context_pack_command_routes_and_acks() {
+        let session = "pulse-mind-context-pack-command-session";
+        let (path, shutdown_tx, handle) = launch_hub(
+            "mind-context-pack-command-route",
+            session,
+            Some(Duration::from_secs(2)),
+        )
+        .await;
+        let agent = format!("{session}::12");
+
+        let (mut pub_reader, _pub_writer) = connect_client(
+            &path,
+            hello_envelope(session, "pub-1", "publisher", Some(&agent)),
+        )
+        .await;
+        let (mut sub_reader, mut sub_writer) =
+            connect_client(&path, hello_envelope(session, "sub-1", "subscriber", None)).await;
+        let _ = read_frame(&mut sub_reader).await;
+
+        let command = command_envelope(
+            session,
+            "sub-1",
+            "req-mind-context-pack",
+            "mind_context_pack",
+            Some(&agent),
+            serde_json::json!({"mode": "dispatch", "detail": true}),
+        );
+        send_frame(&mut sub_writer, &command).await;
+
+        let routed = read_frame(&mut pub_reader).await;
+        let WireMsg::Command(payload) = routed.msg else {
+            panic!("expected command routed to publisher")
+        };
+        assert_eq!(payload.command, "mind_context_pack");
+
+        let ack = read_frame(&mut sub_reader).await;
+        let WireMsg::CommandResult(payload) = ack.msg else {
+            panic!("expected command_result ack")
+        };
+        assert_eq!(payload.command, "mind_context_pack");
+        assert_eq!(payload.status, "accepted");
+
+        let _ = shutdown_tx.send(true);
+        let result = handle.await.expect("join hub");
+        assert!(result.is_ok(), "hub returned error: {result:?}");
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn mind_provenance_query_command_routes_and_acks() {
+        let session = "pulse-mind-provenance-command-session";
+        let (path, shutdown_tx, handle) = launch_hub(
+            "mind-provenance-command-route",
+            session,
+            Some(Duration::from_secs(2)),
+        )
+        .await;
+        let agent = format!("{session}::12");
+
+        let (mut pub_reader, _pub_writer) = connect_client(
+            &path,
+            hello_envelope(session, "pub-1", "publisher", Some(&agent)),
+        )
+        .await;
+        let (mut sub_reader, mut sub_writer) =
+            connect_client(&path, hello_envelope(session, "sub-1", "subscriber", None)).await;
+        let _ = read_frame(&mut sub_reader).await;
+
+        let command = command_envelope(
+            session,
+            "sub-1",
+            "req-mind-provenance-query",
+            "mind_provenance_query",
+            Some(&agent),
+            serde_json::json!({"conversation_id": "conv-1", "max_nodes": 16, "max_edges": 16}),
+        );
+        send_frame(&mut sub_writer, &command).await;
+
+        let routed = read_frame(&mut pub_reader).await;
+        let WireMsg::Command(payload) = routed.msg else {
+            panic!("expected command routed to publisher")
+        };
+        assert_eq!(payload.command, "mind_provenance_query");
+
+        let ack = read_frame(&mut sub_reader).await;
+        let WireMsg::CommandResult(payload) = ack.msg else {
+            panic!("expected command_result ack")
+        };
+        assert_eq!(payload.command, "mind_provenance_query");
         assert_eq!(payload.status, "accepted");
 
         let _ = shutdown_tx.send(true);

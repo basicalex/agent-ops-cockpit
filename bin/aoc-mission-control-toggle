@@ -2,6 +2,7 @@
 set -euo pipefail
 
 source "$(dirname "$0")/aoc-utils.sh"
+source "$(dirname "$0")/aoc-zellij.sh"
 
 if [[ "${AOC_SMOKE_TEST:-0}" == "1" ]]; then
   exit 0
@@ -21,28 +22,9 @@ y="${AOC_MISSION_CONTROL_Y:-15%}"
 pinned="false"
 state_dir="${XDG_STATE_HOME:-$HOME/.local/state}/aoc"
 
-layout="$(zellij action dump-layout 2>/dev/null || true)"
-floating_hidden="0"
-if command -v awk >/dev/null 2>&1; then
-  floating_hidden=$(printf '%s\n' "$layout" | awk '
-    /tab .*focus=true/ {
-      if (index($0, "hide_floating_panes=true") > 0) {
-        print 1
-      } else {
-        print 0
-      }
-      exit
-    }
-    END {
-      if (NR == 0) {
-        print 0
-      }
-    }
-  ')
-fi
+floating_hidden="$(aoc_zellij_current_tab_floating_hidden 2>/dev/null || echo 0)"
 if [[ "$floating_hidden" == "1" ]]; then
-  zellij action toggle-floating-panes >/dev/null 2>&1 || true
-  layout="$(zellij action dump-layout 2>/dev/null || true)"
+  aoc_zellij_show_current_tab_floating >/dev/null 2>&1 || true
 fi
 
 session_id="${ZELLIJ_SESSION_NAME:-${AOC_SESSION_ID:-}}"
@@ -62,27 +44,7 @@ if [[ -z "$close_pane_flag" ]]; then
   fi
 fi
 
-has_mission_control="0"
-if command -v awk >/dev/null 2>&1; then
-  has_mission_control=$(printf '%s\n' "$layout" | awk -v target="$pane_name" '
-    /^[[:space:]]*pane / {
-      if (index($0, "name=\"" target "\"") > 0) {
-        found = 1
-      }
-      if ($0 ~ /command="[^\"]*aoc-mission-control([^\"]*)"/) {
-        found = 1
-      }
-      if ($0 ~ /command="[^\"]*aoc-mission-control-native([^\"]*)"/) {
-        found = 1
-      }
-    }
-    END { print found + 0 }
-  ')
-fi
-if [[ "$has_mission_control" == "0" ]] && printf '%s' "$layout" | grep -Eq "name=\"$pane_name\"|command=\"[^\"]*aoc-mission-control([^\"]*)\"|command=\"[^\"]*aoc-mission-control-native([^\"]*)\""; then
-  has_mission_control="1"
-fi
-if [[ "$has_mission_control" == "1" ]]; then
+if aoc_zellij_pane_exists "$pane_name" 'command="[^\"]*aoc-mission-control([^\"]*)"' 'command="[^\"]*aoc-mission-control-native([^\"]*)"' 'aoc-mission-control-native([^[:alnum:]_-]|$)' 'aoc-mission-control([^[:alnum:]_-]|$)' ; then
   exit 0
 fi
 

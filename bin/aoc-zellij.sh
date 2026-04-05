@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 
 # Shared Zellij capability/query helpers for AOC.
-# Prefer Zellij 0.44+ native JSON inventory when available, but fail open to
-# dump-layout parsing on older versions or when python3/json parsing is absent.
+# Zellij 0.44+ native JSON inventory is the primary substrate for pane/tab
+# discovery and floating-pane lifecycle. New flows should not depend on
+# dump-layout parsing.
 
 _aoc_zellij_supports_action() {
   local action="$1"
@@ -123,32 +124,6 @@ PY
     return 0
   fi
 
-  local layout="${1:-}"
-  if [[ -z "$layout" ]]; then
-    layout="$(zellij action dump-layout 2>/dev/null || true)"
-  fi
-  if [[ -z "$layout" ]]; then
-    echo "0"
-    return 0
-  fi
-  if command -v awk >/dev/null 2>&1; then
-    printf '%s\n' "$layout" | awk '
-      /tab .*focus=true/ {
-        if (index($0, "hide_floating_panes=true") > 0) {
-          print 1
-        } else {
-          print 0
-        }
-        exit
-      }
-      END {
-        if (NR == 0) {
-          print 0
-        }
-      }
-    '
-    return 0
-  fi
   echo "0"
 }
 
@@ -219,19 +194,6 @@ PY
     return $?
   fi
 
-  local layout="$(zellij action dump-layout 2>/dev/null || true)"
-  if [[ -z "$layout" ]]; then
-    return 1
-  fi
-  if printf '%s' "$layout" | grep -Eq "name=\"$target_name\""; then
-    return 0
-  fi
-  local pattern
-  for pattern in "$@"; do
-    if printf '%s' "$layout" | grep -Eq "$pattern"; then
-      return 0
-    fi
-  done
   return 1
 }
 

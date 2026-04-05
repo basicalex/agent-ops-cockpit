@@ -23,6 +23,18 @@ esac
 have() { command -v "$1" >/dev/null 2>&1; }
 have_bat() { have bat || have batcat; }
 
+version_ge() {
+  [[ "$1" == "$2" ]] && return 0
+  local first
+  first="$(printf '%s\n%s\n' "$1" "$2" | sort -V | head -n1)"
+  [[ "$first" == "$2" ]]
+}
+
+zellij_version() {
+  have zellij || return 1
+  zellij --version 2>/dev/null | awk '{print $2}' | head -n1
+}
+
 detect_task_control_backend() {
   if have aoc-task; then
     echo "aoc-task"
@@ -232,6 +244,16 @@ fi
 
 missing_required=()
 missing_optional=()
+zellij_ver="$(zellij_version || true)"
+zellij_recommended="0.44.0"
+zellij_native_inventory="unknown"
+if [[ -n "$zellij_ver" ]]; then
+  if version_ge "$zellij_ver" "$zellij_recommended"; then
+    zellij_native_inventory="yes"
+  else
+    zellij_native_inventory="fallback-only"
+  fi
+fi
 
 for tool in "${required[@]}"; do
   if ! have "$tool"; then
@@ -290,6 +312,15 @@ if [[ "$quiet" -eq 0 ]]; then
       echo "    -> $(hint_for "$tool")"
     fi
   done
+  if [[ -n "$zellij_ver" ]]; then
+    echo "  Zellij version: $zellij_ver"
+    if version_ge "$zellij_ver" "$zellij_recommended"; then
+      echo "  [ok] Native pane/tab JSON inventory available (recommended baseline: >= $zellij_recommended)"
+    else
+      echo "  [warn] Native pane/tab JSON inventory not available; operator pane discovery/floating controls may be limited"
+      echo "    -> Upgrade zellij to >= $zellij_recommended for explicit list-panes/list-tabs/current-tab-info support"
+    fi
+  fi
   echo
   echo "Optional (features may degrade if missing):"
   for tool in "${optional[@]}"; do

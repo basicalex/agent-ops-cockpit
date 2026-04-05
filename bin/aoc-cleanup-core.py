@@ -142,12 +142,6 @@ skip_if_no_sessions = env_truthy("AOC_CLEANUP_SKIP_IF_NO_SESSIONS")
 min_process_age_secs = env_int("AOC_CLEANUP_MIN_PROCESS_AGE_SECS", 0, 0)
 
 
-def dump_layout(session=None):
-    if session:
-        return run_cmd(["zellij", "-s", session, "action", "dump-layout"])
-    return run_cmd(["zellij", "action", "dump-layout"])
-
-
 def zellij_action_json(session, *action_args):
     cmd = ["zellij"]
     if session:
@@ -454,120 +448,6 @@ def is_agent_process(args, comm):
     return False
 
 
-def parse_layout(text, projects_base=None):
-    active_commands = set()
-    agent_cwds = set()
-    agent_ids = set()
-    expected_cwds = collections.Counter()
-    expected_ids = collections.Counter()
-
-    tabs = []
-    current_tab = None
-
-    def flush_tab():
-        nonlocal current_tab
-        if current_tab and current_tab["name"]:
-            tabs.append(current_tab)
-        current_tab = None
-
-    for line in text.splitlines():
-        tab_match = re.search(r'tab\s+name="([^"]+)"', line)
-        if tab_match:
-            flush_tab()
-            current_tab = {
-                "name": tab_match.group(1),
-                "cwds": [],
-                "agent_ids": [],
-                "agent_count": 0,
-            }
-            continue
-
-        if current_tab is None:
-            current_tab = {"name": "", "cwds": [], "agent_ids": [], "agent_count": 0}
-
-        if "name=" in line:
-            name_match = re.search(r'name\s*=\s*"([^"]+)"', line)
-            if not name_match:
-                name_match = re.search(r'name\s+"([^"]+)"', line)
-            if name_match:
-                name = name_match.group(1).strip()
-                agent_id = parse_agent_id_from_name(name)
-                if agent_id:
-                    agent_ids.add(agent_id)
-                    expected_ids[agent_id] += 1
-                    current_tab["agent_ids"].append(agent_id)
-                if is_agentish_pane_name(name):
-                    current_tab["agent_count"] += 1
-
-        if "command" in line or "args" in line or "cwd" in line:
-            quoted = re.findall(r'"([^"]+)"', line)
-            for token in quoted:
-                if AGENT_NAME_PATTERN.search(token):
-                    active_commands.add(token)
-                cd_match = re.search(r'\bcd\s+"([^"]+)"', token)
-                if cd_match:
-                    agent_cwds.add(normalize_cwd(cd_match.group(1), projects_base))
-
-            cwd_match = re.search(r'cwd\s*=\s*"([^"]+)"', line)
-            if not cwd_match:
-                cwd_match = re.search(r'cwd\s+"([^"]+)"', line)
-            if cwd_match:
-                cwd = normalize_cwd(cwd_match.group(1), projects_base)
-                if cwd:
-                    agent_cwds.add(cwd)
-                    current_tab["cwds"].append(cwd)
-
-            cmd_match = re.search(r'command\s*=\s*"([^"]+)"', line)
-            if not cmd_match:
-                cmd_match = re.search(r'command\s+"([^"]+)"', line)
-            if cmd_match:
-                cmd = cmd_match.group(1)
-                if AGENT_NAME_PATTERN.search(cmd):
-                    active_commands.add(cmd)
-
-    flush_tab()
-
-    for tab in tabs:
-        if not tab["cwds"]:
-            continue
-        counts = collections.Counter(tab["cwds"])
-        root = counts.most_common(1)[0][0]
-        if tab["agent_count"] > 0:
-            expected_cwds[root] += tab["agent_count"]
-
-    if projects_base:
-        for agent_id, count in expected_ids.items():
-            guess = os.path.join(projects_base, agent_id)
-            if os.path.isdir(guess):
-                agent_cwds.add(guess)
-                if guess not in expected_cwds:
-                    expected_cwds[guess] += count
-
-    return active_commands, agent_cwds, expected_cwds, expected_ids
-
-
-def parse_layout_pane_ids(text):
-    pane_ids = set()
-    for match in re.finditer(r'--pane-id"\s*"([^"]+)"', text):
-        pane_id = (match.group(1) or "").strip()
-        if pane_id:
-            pane_ids.add(pane_id)
-    if pane_ids:
-        return pane_ids
-    for part in text.split('--pane-id"')[1:]:
-        quote = part.find('"')
-        if quote == -1:
-            continue
-        tail = part[quote + 1 :]
-        end = tail.find('"')
-        if end == -1:
-            continue
-        pane_id = tail[:end].strip()
-        if pane_id:
-            pane_ids.add(pane_id)
-    return pane_ids
-
-
 def build_active_pane_map(allowed_sessions=None):
     pane_map = {}
     sessions = list_sessions()
@@ -578,39 +458,16 @@ def build_active_pane_map(allowed_sessions=None):
             native = parse_native_inventory(session)
             if native and native["pane_ids"]:
                 pane_map[session] = native["pane_ids"]
-                continue
-            layout = dump_layout(session)
-            if not layout:
-                continue
-            pane_ids = parse_layout_pane_ids(layout)
-            if pane_ids:
-                pane_map[session] = pane_ids
         return pane_map
 
-    if allowed_sessions is None:
-        curr = get_current_session()
-        if curr:
-            native = parse_native_inventory(curr)
-            if native and native["pane_ids"]:
-                pane_map[curr] = native["pane_ids"]
-                return pane_map
-        layout = dump_layout()
-        if curr and layout:
-            pane_ids = parse_layout_pane_ids(layout)
-            if pane_ids:
-                pane_map[curr] = pane_ids
-    else:
-        curr = get_current_session()
-        if curr and curr in allowed_sessions:
-            native = parse_native_inventory(curr)
-            if native and native["pane_ids"]:
-                pane_map[curr] = native["pane_ids"]
-                return pane_map
-            layout = dump_layout()
-            if layout:
-                pane_ids = parse_layout_pane_ids(layout)
-                if pane_ids:
-                    pane_map[curr] = pane_ids
+    curr = get_current_session()
+    if not curr:
+        return pane_map
+    if allowed_sessions is not None and curr not in allowed_sessions:
+        return pane_map
+    native = parse_native_inventory(curr)
+    if native and native["pane_ids"]:
+        pane_map[curr] = native["pane_ids"]
     return pane_map
 
 
@@ -626,56 +483,26 @@ def build_active_sets(allowed_sessions=None):
     if sessions:
         for session in sessions:
             native = parse_native_inventory(session, projects_base)
-            if native is not None:
-                active_commands.update(native["active_commands"])
-                agent_cwds.update(native["agent_cwds"])
-                expected_cwds.update(native["expected_cwds"])
-                expected_ids.update(native["expected_ids"])
+            if native is None:
                 continue
-            layout = dump_layout(session)
-            if not layout:
-                continue
-            cmds, cwds, exp, ids = parse_layout(layout, projects_base)
-            active_commands.update(cmds)
-            agent_cwds.update(cwds)
-            expected_cwds.update(exp)
-            expected_ids.update(ids)
+            active_commands.update(native["active_commands"])
+            agent_cwds.update(native["agent_cwds"])
+            expected_cwds.update(native["expected_cwds"])
+            expected_ids.update(native["expected_ids"])
         return active_commands, agent_cwds, expected_cwds, expected_ids
 
-    if allowed_sessions is None:
-        curr = get_current_session()
-        if curr:
-            native = parse_native_inventory(curr, projects_base)
-            if native is not None:
-                active_commands.update(native["active_commands"])
-                agent_cwds.update(native["agent_cwds"])
-                expected_cwds.update(native["expected_cwds"])
-                expected_ids.update(native["expected_ids"])
-                return active_commands, agent_cwds, expected_cwds, expected_ids
-        layout = dump_layout()
-        if layout:
-            cmds, cwds, exp, ids = parse_layout(layout, projects_base)
-            active_commands.update(cmds)
-            agent_cwds.update(cwds)
-            expected_cwds.update(exp)
-            expected_ids.update(ids)
-    else:
-        curr = get_current_session()
-        if curr and curr in allowed_sessions:
-            native = parse_native_inventory(curr, projects_base)
-            if native is not None:
-                active_commands.update(native["active_commands"])
-                agent_cwds.update(native["agent_cwds"])
-                expected_cwds.update(native["expected_cwds"])
-                expected_ids.update(native["expected_ids"])
-                return active_commands, agent_cwds, expected_cwds, expected_ids
-            layout = dump_layout()
-            if layout:
-                cmds, cwds, exp, ids = parse_layout(layout, projects_base)
-                active_commands.update(cmds)
-                agent_cwds.update(cwds)
-                expected_cwds.update(exp)
-                expected_ids.update(ids)
+    curr = get_current_session()
+    if not curr:
+        return active_commands, agent_cwds, expected_cwds, expected_ids
+    if allowed_sessions is not None and curr not in allowed_sessions:
+        return active_commands, agent_cwds, expected_cwds, expected_ids
+    native = parse_native_inventory(curr, projects_base)
+    if native is None:
+        return active_commands, agent_cwds, expected_cwds, expected_ids
+    active_commands.update(native["active_commands"])
+    agent_cwds.update(native["agent_cwds"])
+    expected_cwds.update(native["expected_cwds"])
+    expected_ids.update(native["expected_ids"])
     return active_commands, agent_cwds, expected_cwds, expected_ids
 
 
