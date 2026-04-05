@@ -882,6 +882,16 @@ if cargo_bin="$(cargo_cmd)"; then
   else
     log "WARNING: Failed to build aoc-mission-control."
   fi
+
+  # Build aoc-yazi-mermaid (Yazi Mermaid preview helper)
+  log "Building aoc-yazi-mermaid..."
+  if "$cargo_bin" build --release -p aoc-yazi-mermaid --manifest-path "$ROOT_DIR/crates/Cargo.toml"; then
+    if [[ -f "$ROOT_DIR/crates/target/release/aoc-yazi-mermaid" ]]; then
+      install -m 0755 "$ROOT_DIR/crates/target/release/aoc-yazi-mermaid" "$BIN_DIR/aoc-yazi-mermaid-native"
+    fi
+  else
+    log "WARNING: Failed to build aoc-yazi-mermaid."
+  fi
 else
   log "WARNING: cargo not found. Skipping Rust builds. You must install aoc-cli manually."
 fi

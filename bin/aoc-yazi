@@ -6,4 +6,19 @@ if ! command -v yazi >/dev/null 2>&1; then
 	exit 1
 fi
 
+force_kitty_in_zellij="${AOC_YAZI_FORCE_KITTY_IN_ZELLIJ:-1}"
+in_zellij=0
+[[ -n "${ZELLIJ:-}" || -n "${ZELLIJ_SESSION_NAME:-}" ]] && in_zellij=1
+in_kitty=0
+[[ -n "${KITTY_PID:-}" || -n "${KITTY_WINDOW_ID:-}" || "${TERM:-}" == xterm-kitty || "${TERM_PROGRAM:-}" == kitty ]] && in_kitty=1
+
+if [[ "$force_kitty_in_zellij" != "0" && $in_zellij -eq 1 && $in_kitty -eq 1 ]]; then
+	env \
+		-u ZELLIJ \
+		-u ZELLIJ_SESSION_NAME \
+		TERM_PROGRAM="${TERM_PROGRAM:-kitty}" \
+		yazi "$@"
+	exit $?
+fi
+
 exec yazi "$@"

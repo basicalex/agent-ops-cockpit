@@ -1,0 +1,27 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+if [[ $# -lt 1 ]]; then
+	exit 0
+fi
+
+input="$1"
+if [[ -z "$input" ]]; then
+	exit 0
+fi
+
+cols="${AOC_YAZI_MERMAID_OPEN_COLS:-180}"
+rows="${AOC_YAZI_MERMAID_OPEN_ROWS:-60}"
+
+args=(--input "$input" --cols "$cols" --rows "$rows")
+if [[ -n "${AOC_YAZI_MERMAID_BLOCK_INDEX:-}" ]]; then
+	args+=(--block-index "$AOC_YAZI_MERMAID_BLOCK_INDEX")
+fi
+
+png="$(aoc-yazi-mermaid "${args[@]}")"
+if [[ -z "$png" ]]; then
+	echo "aoc-yazi-mermaid-open: helper returned empty output" >&2
+	exit 1
+fi
+
+exec aoc-open-file "$png"

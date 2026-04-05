@@ -14,5 +14,6 @@ members = [
     "aoc-control",
     "aoc-mission-control",
     "aoc-taskmaster",
+    "aoc-yazi-mermaid",
 ]
 resolver = "2"
