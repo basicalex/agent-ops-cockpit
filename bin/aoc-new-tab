@@ -221,13 +221,42 @@ else
   args+=(--cwd "$PWD")
 fi
 
+resolve_root_from_path() {
+  local probe="$1"
+  [[ -n "$probe" ]] || return 1
+  probe="$(cd "$probe" 2>/dev/null && pwd -P)" || return 1
+  while [[ -n "$probe" && "$probe" != "/" ]]; do
+    if [[ -d "$probe/.aoc" || -d "$probe/.git" ]]; then
+      printf '%s\n' "$probe"
+      return 0
+    fi
+    probe="$(dirname "$probe")"
+  done
+  return 1
+}
+
 current_pwd="$(pwd -P)"
+pwd_root="$(resolve_root_from_path "$current_pwd" 2>/dev/null || true)"
+inherited_root=""
 current_root=""
+realign_root=""
 if [[ -z "$tab_cwd" ]]; then
   if [[ -n "${AOC_PROJECT_ROOT:-}" && -d "${AOC_PROJECT_ROOT}" ]]; then
-    current_root="$(cd "${AOC_PROJECT_ROOT}" && pwd -P)"
+    inherited_root="$(cd "${AOC_PROJECT_ROOT}" && pwd -P)"
+  fi
+
+  if [[ -n "$pwd_root" ]]; then
+    current_root="$pwd_root"
+  elif [[ -n "$inherited_root" ]]; then
+    current_root="$inherited_root"
   elif command -v aoc-align >/dev/null 2>&1; then
     current_root="$(aoc-align --print-root || true)"
+  fi
+
+  if [[ -n "$inherited_root" ]]; then
+    realign_root="$inherited_root"
+  else
+    realign_root="$current_root"
   fi
 fi
 
@@ -333,8 +362,8 @@ if [[ -f "$layout_path" ]]; then
   layout_arg="$layout_tmp"
 fi
 
-if [[ "${AOC_REALIGN_CURRENT_PANE:-0}" == "1" ]]; then
-  realign_current_pane "$current_root"
+if [[ "${AOC_REALIGN_CURRENT_PANE:-1}" == "1" ]]; then
+  realign_current_pane "$realign_root"
 fi
 
 pulse_cmd="${AOC_PULSE_CMD:-}"

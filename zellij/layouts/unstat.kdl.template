@@ -2,7 +2,23 @@ layout {
   tab name="__AOC_TAB_NAME__" focus=true {
     pane split_direction="horizontal" {
       pane size=1 borderless=true {
-        plugin location="zellij:tab-bar"
+        plugin location="file:{{HOME}}/.config/zellij/plugins/zjstatus-aoc.wasm" {
+          format_left   "#[fg=__AOC_THEME_WHITE__] {session} "
+          format_center "{tabs}"
+          format_right  "#[fg=__AOC_THEME_WHITE__] __AOC_AGENT_ID__ "
+          format_space  ""
+          disable_mouse "false"
+
+          border_enabled  "false"
+          border_char     "─"
+          border_format   "#[fg=black]{char}"
+          border_position "bottom"
+
+          hide_frame_for_single_pane "false"
+
+          tab_normal   "#[fg=black] {name} "
+          tab_active   "#[fg=white,bold,italic] {name} "
+        }
       }
 
       pane split_direction="vertical" {
