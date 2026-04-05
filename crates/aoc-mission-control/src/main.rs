@@ -10763,75 +10763,55 @@ fn collect_session_layout(session_id: &str) -> Option<SessionLayout> {
     if session_id.trim().is_empty() {
         return None;
     }
-    if let Ok(Some(snapshot)) = query_session_snapshot(session_id) {
-        let mut parsed = SessionLayout::default();
-        parsed.pane_ids = snapshot.pane_ids;
-        parsed.tabs = snapshot
-            .tabs
-            .into_iter()
-            .filter_map(|tab| {
-                usize::try_from(tab.index).ok().map(|index| TabMeta {
-                    index,
-                    name: tab.name,
-                    focused: tab.focused,
-                })
+    let snapshot = query_session_snapshot(session_id).ok()??;
+    let mut parsed = SessionLayout::default();
+    parsed.pane_ids = snapshot.pane_ids;
+    parsed.tabs = snapshot
+        .tabs
+        .into_iter()
+        .filter_map(|tab| {
+            usize::try_from(tab.index).ok().map(|index| TabMeta {
+                index,
+                name: tab.name,
+                focused: tab.focused,
             })
-            .collect();
-        parsed.focused_tab_index = snapshot
-            .current_tab_index
-            .and_then(|index| usize::try_from(index).ok())
-            .or_else(|| {
-                parsed
-                    .tabs
-                    .iter()
-                    .find(|tab| tab.focused)
-                    .map(|tab| tab.index)
-            });
-        for pane in snapshot.panes {
-            parsed.pane_tabs.insert(
-                pane.pane_id,
-                TabMeta {
-                    index: pane.tab_index as usize,
-                    name: pane.tab_name,
-                    focused: pane.tab_focused,
-                },
-            );
-        }
-        for (project_root, tab) in snapshot.project_tabs {
-            parsed.project_tabs.insert(
-                project_root,
-                TabMeta {
-                    index: tab.index as usize,
-                    name: tab.name,
-                    focused: tab.focused,
-                },
-            );
-        }
-        if !parsed.pane_ids.is_empty() || !parsed.project_tabs.is_empty() || !parsed.tabs.is_empty()
-        {
-            return Some(parsed);
-        }
+        })
+        .collect();
+    parsed.focused_tab_index = snapshot
+        .current_tab_index
+        .and_then(|index| usize::try_from(index).ok())
+        .or_else(|| {
+            parsed
+                .tabs
+                .iter()
+                .find(|tab| tab.focused)
+                .map(|tab| tab.index)
+        });
+    for pane in snapshot.panes {
+        parsed.pane_tabs.insert(
+            pane.pane_id,
+            TabMeta {
+                index: pane.tab_index as usize,
+                name: pane.tab_name,
+                focused: pane.tab_focused,
+            },
+        );
     }
-
-    let output = Command::new("zellij")
-        .arg("--session")
-        .arg(session_id)
-        .arg("action")
-        .arg("dump-layout")
-        .output()
-        .ok()?;
-    if !output.status.success() {
-        return None;
+    for (project_root, tab) in snapshot.project_tabs {
+        parsed.project_tabs.insert(
+            project_root,
+            TabMeta {
+                index: tab.index as usize,
+                name: tab.name,
+                focused: tab.focused,
+            },
+        );
     }
-    let layout = String::from_utf8_lossy(&output.stdout);
-    let parsed = parse_layout_tabs(&layout);
-    if parsed.pane_ids.is_empty() && parsed.project_tabs.is_empty() && parsed.tabs.is_empty() {
-        None
-    } else {
-        Some(parsed)
-    }
+    Some(parsed)
 }
 
+#[cfg(test)]
+#[allow(dead_code)]
 fn parse_layout_tabs(layout: &str) -> SessionLayout {
     let mut parsed = SessionLayout::default();
     let mut current_tab_index = 0usize;
@@ -10899,6 +10879,8 @@ fn parse_layout_tabs(layout: &str) -> SessionLayout {
     parsed
 }
 
+#[cfg(test)]
+#[allow(dead_code)]
 fn resolve_layout_cwd(base_cwd: Option<&str>, cwd: &str) -> Option<String> {
     if cwd.trim().is_empty() {
         return None;
@@ -10911,11 +10893,15 @@ fn resolve_layout_cwd(base_cwd: Option<&str>, cwd: &str) -> Option<String> {
     Some(PathBuf::from(base).join(path).to_string_lossy().to_string())
 }
 
+#[cfg(test)]
+#[allow(dead_code)]
 fn line_is_tab_decl(line: &str) -> bool {
     let trimmed = line.trim_start();
     trimmed.starts_with("tab ") || trimmed == "tab" || trimmed.starts_with("tab\t")
 }
 
+#[cfg(test)]
+#[allow(dead_code)]
 fn extract_layout_attr(line: &str, attr: &str) -> Option<String> {
     let with_equals = format!("{attr}=\"");
     if let Some(start) = line.find(&with_equals) {
@@ -10941,6 +10927,7 @@ fn extract_layout_attr(line: &str, attr: &str) -> Option<String> {
     None
 }
 
+#[cfg(test)]
 fn extract_pane_ids_from_layout_line(line: &str) -> Vec<String> {
     let mut pane_ids = extract_quoted_flag_values(line, "--pane-id");
     pane_ids.extend(extract_attr_values(line, "pane_id"));
@@ -10950,6 +10937,7 @@ fn extract_pane_ids_from_layout_line(line: &str) -> Vec<String> {
     pane_ids
 }
 
+#[cfg(test)]
 fn extract_quoted_flag_values(line: &str, flag: &str) -> Vec<String> {
     let mut out = Vec::new();
     let parts: Vec<&str> = line.split('"').collect();
@@ -10969,6 +10957,7 @@ fn extract_quoted_flag_values(line: &str, flag: &str) -> Vec<String> {
     out
 }
 
+#[cfg(test)]
 fn extract_attr_values(line: &str, attr: &str) -> Vec<String> {
     let mut out = Vec::new();
     let marker = format!("{attr}=\"");

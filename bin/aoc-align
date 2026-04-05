@@ -7,11 +7,9 @@ source "$(dirname "$0")/aoc-zellij.sh"
 #
 # Strategy:
 # 1. Prefer explicit AOC_PROJECT_ROOT from the current pane environment.
-# 2. If Zellij 0.44+ native inventory is available, inspect cwd metadata for
-#    panes in the current tab and normalize to the nearest repo root.
-# 3. Otherwise fall back to parsing the focused tab layout for injected cwd/cd
-#    paths and normalize them to the nearest repo root.
-# 4. Fall back to walking up from $PWD looking for .aoc or .git.
+# 2. Use Zellij 0.44+ native inventory to inspect cwd metadata for panes in
+#    the current tab and normalize to the nearest repo root.
+# 3. Fall back to walking up from $PWD looking for .aoc or .git.
 
 print_only=false
 if [[ "${1:-}" == "--print-root" ]]; then
@@ -27,44 +25,6 @@ if [[ -z "${AOC_PROJECTS_BASE:-}" && -f "$config_path" ]]; then
   config_base="$(sed -n 's/^projects_base[[:space:]]*=[[:space:]]*"\(.*\)"/\1/p' "$config_path" | head -n 1)"
 fi
 AOC_PROJECTS_BASE="${AOC_PROJECTS_BASE:-${config_base:-$HOME/dev}}"
-
-# Extract the focused tab's content from the layout dump
-# Returns just the KDL content between the focused tab's braces
-extract_focused_tab() {
-  local layout="$1"
-  
-  # Use awk to find the tab with focus=true and extract its content
-  echo "$layout" | awk '
-    BEGIN { in_focused_tab = 0; brace_depth = 0; }
-    
-    # Match a tab line with focus=true
-    /^[[:space:]]*tab[[:space:]].*focus=true/ {
-      in_focused_tab = 1
-      brace_depth = 0
-    }
-    
-    in_focused_tab {
-      # Count opening braces
-      n = gsub(/{/, "{")
-      brace_depth += n
-      
-      # Print line if we are inside the focused tab
-      if (brace_depth > 0) {
-        print
-      }
-      
-      # Count closing braces
-      n = gsub(/}/, "}")
-      brace_depth -= n
-      
-      # If we have closed all braces, we are done with the focused tab
-      if (brace_depth <= 0 && in_focused_tab == 1) {
-        in_focused_tab = 0
-        exit
-      }
-    }
-  '
-}
 
 normalize_project_root() {
   local input="$1"
@@ -93,49 +53,13 @@ normalize_project_root() {
   return 1
 }
 
-# Try to get root from current Zellij tab metadata or layout-injected paths.
+# Try to get root from current Zellij tab metadata.
 discover_from_zellij() {
   local root
   if root="$(aoc_zellij_current_tab_project_root 2>/dev/null)" && [[ -n "$root" ]]; then
     echo "$root"
     return 0
   fi
-
-  # Fallback for older Zellij versions.
-  local layout
-  layout="$(zellij action dump-layout 2>/dev/null)" || return 1
-
-  if [[ -z "$layout" ]]; then
-    return 1
-  fi
-
-  local focused_tab
-  focused_tab="$(extract_focused_tab "$layout")"
-  if [[ -z "$focused_tab" ]]; then
-    return 1
-  fi
-
-  local candidate
-  while IFS= read -r candidate; do
-    [[ -n "$candidate" ]] || continue
-    if root="$(normalize_project_root "$candidate" 2>/dev/null)" && [[ -n "$root" ]]; then
-      echo "$root"
-      return 0
-    fi
-  done < <(
-    AOC_ALIGN_FOCUSED_TAB="$focused_tab" python3 - <<'PY'
-import os, re
-text = os.environ.get("AOC_ALIGN_FOCUSED_TAB", "")
-seen = []
-for pattern in [r'\bcd\s+"([^"]+)"', r'cwd\s*=\s*"([^"]+)"', r'cwd\s+"([^"]+)"']:
-    for match in re.finditer(pattern, text):
-        value = (match.group(1) or "").strip()
-        if value.startswith("/") and value not in seen:
-            seen.append(value)
-for value in seen:
-    print(value)
-PY
-  )
 
   return 1
 }
@@ -179,7 +103,10 @@ if [[ -z "$root" ]]; then
 fi
 
 # If not in Zellij context at all, don't try to write chars
-if ! zellij action dump-layout >/dev/null 2>&1; then
+if [[ -z "${ZELLIJ:-}" && -z "${ZELLIJ_SESSION_NAME:-}" ]]; then
+  exit 0
+fi
+if ! command -v zellij >/dev/null 2>&1; then
   exit 0
 fi
 

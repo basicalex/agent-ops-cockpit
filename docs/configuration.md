@@ -109,7 +109,7 @@ Control Pulse vNext and the Mission Control Pulse Overview mode:
 | `AOC_PULSE_OVERVIEW_ENABLED` | Enable Pulse Overview pane mode and related polling/display paths | `1` |
 | `AOC_PULSE_THEME` | Pulse palette mode (`terminal`, `auto`, `dark`, `light`) | `terminal` |
 | `AOC_TAB_SCOPE` | Shared logical tab identity for panes in the same tab | Layout-derived tab name |
-| `AOC_PULSE_LAYOUT_WATCH_ENABLED` | Enable hub layout watcher (`zellij action dump-layout`) | `0` |
+| `AOC_PULSE_LAYOUT_WATCH_ENABLED` | Enable hub session topology watcher (native Zellij snapshot polling) | `0` |
 | `AOC_PULSE_LAYOUT_WATCH_MS` | Hub layout poll interval when layout watcher is active | `3000` |
 | `AOC_PULSE_LAYOUT_IDLE_WATCH_MS` | Hub layout poll interval with no layout subscribers | `max(4x active, 12000)` |
 | `AOC_MISSION_CONTROL_LAYOUT_REFRESH_MS` | Mission Control local layout refresh interval (local mode only) | `3000` |
@@ -119,7 +119,7 @@ Notes:
 - With `AOC_PULSE_OVERVIEW_ENABLED=1` (default), Mission Control starts in Overview mode.
 - Set `AOC_PULSE_OVERVIEW_ENABLED=0` to run only Work/Diff/Health.
 - With `AOC_PULSE_LAYOUT_WATCH_ENABLED=0` (default), hub background layout polling is disabled.
-- On Zellij `>= 0.44.0`, AOC increasingly prefers native pane/tab JSON inventory for local operator flows; layout polling remains a compatibility path.
+- On Zellij `>= 0.44.0`, AOC uses native pane/tab JSON inventory for local operator flows, and hub topology polling also uses native session snapshots.
 - `AOC_PULSE_THEME=terminal` (default) keeps Pulse integrated with your terminal/system theme.
 
 ### RTK Routing
@@ -205,7 +205,7 @@ Safety model:
 
 What it guarantees:
 - Seeds/repairs canonical PI runtime paths under `.pi/**` (`settings.json`, prompts, skills, extensions).
-- Seeds default PI extensions when missing: `.pi/extensions/minimal.ts` and `.pi/extensions/themeMap.ts`.
+- Seeds default PI extensions when missing: `.pi/extensions/minimal.ts`, `.pi/extensions/themeMap.ts`, `.pi/extensions/mind-ingest.ts`, `.pi/extensions/mind-ops.ts`, `.pi/extensions/mind-context.ts`, `.pi/extensions/mind-focus.ts`, and `.pi/extensions/lib/mind.ts`.
 - Keeps AOC control-plane state under `.aoc/**`.
 - Migrates missing project-local legacy assets from `.aoc/prompts/pi/` and `.aoc/skills/` into `.pi/**` without overwriting existing canonical files.
 - Preserves existing `.pi/extensions/*` files (non-destructive).
