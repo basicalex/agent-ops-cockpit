@@ -1,39 +1,87 @@
 # AOC Map
 
-`aoc-map` turns `.aoc/map/` into a **project-local graph and visualization microsite** for any repo using AOC.
+`aoc-map` is the canonical AOC mapping system.
 
-Instead of treating diagrams as isolated files, AOC Map treats them as pages in a small browsable site for the codebase:
+It turns `.aoc/map/` into a **project-local graph microsite** for a repo: graph pages, Mermaid sources, a generated homepage, and a local server for browsing the whole thing as a small site.
 
-- architecture explainers
-- agent and subagent maps
-- task and workflow views
-- Mind/provenance walkthroughs
-- ops/runbook dashboards
-- research or visual notes
+## Canonical naming
 
-## Core idea
+AOC Map is the canonical surface now:
 
-Each repo gets a local website layer:
+- command: `aoc-map`
+- subcommand: `aoc map ...`
+- workspace: `.aoc/map/`
+- skill: `.pi/skills/aoc-map/SKILL.md`
+
+Legacy compatibility still exists during transition:
+
+- `aoc see ...` still resolves to the map command surface
+- old `.aoc/see/` workspaces migrate to `.aoc/map/`
+- old `.aoc/diagrams/` workspaces also migrate to `.aoc/map/`
+- old page metadata such as `aoc-see:*` and `data-aoc-see-*` is normalized to `aoc-map:*` and `data-aoc-map-*` during build/migration flows
+
+## Workspace layout
 
 ```text
 .aoc/map/
   README.md
   manifest.json
-  index.html          # generated homepage / gallery / site shell
+  index.html
   assets/
+    mermaid.min.js
+    render-mermaid.js
   diagrams/
     agent-topology.mmd
     task-flow.mmd
   pages/
     agent-topology.html
     task-flow.html
-    provenance-map.html
-    session-lifecycle.html
 ```
 
-`aoc-map serve` then serves that folder as a real microsite, not just a raw directory listing.
+Purpose of each part:
 
-## Commands
+- `pages/*.html` — graph-first pages
+- `diagrams/*.mmd` — canonical Mermaid graph sources
+- `assets/*` — vendored local Mermaid runtime/helpers
+- `manifest.json` — site/page metadata
+- `index.html` — generated homepage
+- `README.md` — local usage guidance for the repo
+
+## How it gets seeded
+
+You can seed or refresh AOC Map in three main ways:
+
+### CLI
+
+```bash
+aoc-map init
+aoc-map build
+aoc-map serve --open
+```
+
+### Through `aoc-init`
+
+```bash
+aoc-init
+aoc-init --force
+```
+
+`aoc-init` now seeds the AOC Map skill and workspace as part of repo setup.
+
+### Through Alt+C
+
+Path:
+
+- `Alt+C -> Settings -> Tools -> AOC Map microsite`
+
+That action:
+
+- syncs `.pi/skills/aoc-map/SKILL.md`
+- runs `aoc-map init`
+- seeds or confirms `.aoc/map/`
+- migrates older AOC See workspaces when needed
+
+## Core commands
 
 ```bash
 aoc-map init
@@ -43,47 +91,40 @@ aoc-map build
 aoc-map serve --port 43111 --open
 ```
 
-You can also seed/confirm the microsite from the floating control pane:
+## Homepage behavior
 
-- `Alt+C -> Settings -> Tools -> AOC Map microsite`
+The generated homepage is intentionally compact.
 
-## What the homepage provides
+It now provides:
 
-The generated `index.html` is a site shell with:
-
-- a minimal AOC Map header
-- counts for total pages and total diagrams
+- a minimal `AOC Map` title area
+- total page count
+- total diagram count
 - a search box
-- collapsible filters for section, kind, and tag
+- a closed-by-default filters dropdown
 - one filtered page list
-- a compact recent updates sidebar
+- a compact recent-updates sidebar
 
-Default collections:
+### UX rules
 
-- Architecture
-- Agents
-- Tasks
-- Mind
-- Ops
-- Dashboards
-- Explainers
-- Research
-- Other
+The homepage should stay low-clutter:
 
-## Page scaffolding
+- page cards should not show visible tags or source lists
+- recent updates should stay compact and title-first
+- filters should stay collapsed by default
+- pages should appear in one main list, not repeated across multiple homepage sections
+- the hero should remain minimal and metrics-only
 
-`aoc-map new` creates both:
-- a minimal graph-first HTML page in `pages/`
-- a Mermaid source file in `diagrams/`
+## Typical workflow
 
-The default scaffold is now **visual-first**:
-- a large primary visualization stage at the top
-- a page that points at a Mermaid file under `diagrams/`
-- supporting notes and source references kept intentionally minimal
+1. Run `aoc-map init` once.
+2. Create a page with `aoc-map new <slug>`.
+3. Edit the generated Mermaid file in `.aoc/map/diagrams/`.
+4. Keep the page in `.aoc/map/pages/` minimal and visual-first.
+5. Run `aoc-map build` to refresh the homepage and sync assets.
+6. Use `aoc-map serve` to browse locally.
 
-`aoc-map init` is safe to re-run. It is the canonical seed/confirm action used both from the CLI and from the Alt+C control pane.
-
-Useful flags:
+Example:
 
 ```bash
 aoc-map new task-flow \
@@ -95,20 +136,21 @@ aoc-map new task-flow \
   --source docs/plan.md
 ```
 
-Optional metadata supported by the manifest/page model:
+## Page scaffolding
 
-- `section`
-- `kind`
-- `status`
-- `tags`
-- `source_paths`
-- `featured`
-- `generated`
-- `order`
+`aoc-map new` creates both:
+
+- a page shell in `pages/`
+- a Mermaid source file in `diagrams/`
+
+The default scaffold is visual-first:
+
+- primary graph first
+- summary second
+- supporting notes minimal
+- local Mermaid assets already wired
 
 ## Mermaid rendering
-
-AOC Map supports both inline Mermaid blocks and graph files referenced from pages.
 
 Preferred pattern:
 
@@ -116,18 +158,13 @@ Preferred pattern:
 <script type="text/plain" data-aoc-map-mermaid-src="../diagrams/agent-topology.mmd"></script>
 ```
 
-AOC Map uses **vendored repo-local Mermaid JS assets** to render those graphs in the browser. `aoc-map init` / `aoc-map build` sync the local Mermaid assets under `.aoc/map/assets/`, and pages render offline without a CDN.
+Inline Mermaid blocks still work, but external `.mmd` files are preferred.
 
-This keeps pages:
-- repo-local
-- self-contained
-- reviewable in git
-- offline-capable
-- free of external/CDN Mermaid dependencies
+AOC Map uses vendored repo-local Mermaid JS assets under `.aoc/map/assets/`, so pages render offline without CDNs.
 
-## HTML metadata discovery
+## Metadata discovery
 
-Pages can also self-declare metadata with meta tags, which AOC Map can discover while building the homepage:
+Pages can self-declare metadata:
 
 ```html
 <meta name="aoc-map:summary" content="How the session lifecycle works">
@@ -138,25 +175,49 @@ Pages can also self-declare metadata with meta tags, which AOC Map can discover 
 <meta name="aoc-map:tags" content="sessions,lifecycle,ops">
 ```
 
-This lets agents author standalone HTML pages that still show up correctly on the site homepage.
+Supported metadata fields include:
+
+- `summary`
+- `section`
+- `kind`
+- `status`
+- `diagram`
+- `tags`
+
+The manifest can also store:
+
+- `source_paths`
+- `featured`
+- `generated`
+- `order`
+- timestamps
 
 ## Authoring guidance
 
-- Prefer self-contained HTML/CSS/JS/SVG.
-- Prefer Mermaid files under `.aoc/map/diagrams/` so graph sources stay project-local and reusable.
-- Make the visualization the main artifact; keep prose secondary and minimal.
-- Avoid external CDNs when possible.
-- Cite source files, commands, task IDs, or runtime surfaces.
-- Prefer updating an existing page over creating overlapping duplicates.
-- Treat AOC Map as the repo’s **visual explanation layer**.
+- Prefer Mermaid files under `.aoc/map/diagrams/`.
+- Keep pages graph-first.
+- Keep prose secondary.
+- Avoid external assets when possible.
+- Prefer updating an existing page over making overlapping duplicates.
+- Treat AOC Map as the repo’s visual explanation layer.
 
-## Suggested future generators
+## Migration notes
 
-AOC Map is ready for generated pages too, for example:
+If a repo still has old AOC See content:
 
-- `aoc-map agents`
-- `aoc-map tasks`
-- `aoc-map provenance`
-- `aoc-map session-map`
+- `.aoc/see/` is migrated to `.aoc/map/`
+- `.aoc/diagrams/` is migrated to `.aoc/map/`
+- `.pi/skills/aoc-see/` is replaced by `.pi/skills/aoc-map/`
+- old page attributes are normalized to the new `aoc-map` names
 
-Those can emit HTML pages into `.aoc/map/pages/` and Mermaid files into `.aoc/map/diagrams/`, then let the homepage surface them automatically.
+For a stale older repo, the safest refresh path is usually:
+
+```bash
+aoc-init --force
+```
+
+or:
+
+```bash
+aoc-map init --force
+```
