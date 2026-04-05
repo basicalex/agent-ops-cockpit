@@ -11,6 +11,7 @@ prepend_keymap = [
   # SMART OPEN (Enter / o)
   { on = ["<Enter>"], run = "plugin aoc-open", desc = "Smart Open" },
   { on = ["o"], run = "plugin aoc-open", desc = "Smart Open (Yazi o)" },
+  { on = ["<A-Enter>"], run = "plugin aoc-mermaid-open", desc = "Open rendered Mermaid PNG" },
   { on = ["<S-Enter>"], run = "plugin aoc-open-explorer", desc = "Open in Explorer" },
 
   # Pane Expansion

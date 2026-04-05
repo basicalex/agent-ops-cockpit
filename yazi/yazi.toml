@@ -11,3 +11,13 @@ mouse_events = ["click", "scroll"]
 [preview]
 image_filter = "lanczos3"
 image_quality = 90
+
+[plugin]
+prepend_previewers = [
+  { url = "*.mmd", run = "aoc-mermaid" },
+  { url = "*.mermaid", run = "aoc-mermaid" },
+]
+prepend_preloaders = [
+  { url = "*.mmd", run = "aoc-mermaid" },
+  { url = "*.mermaid", run = "aoc-mermaid" },
+]

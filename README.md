@@ -611,6 +611,7 @@ cargo build --workspace
 | [Mission Control](./docs/mission-control.md) | Architecture and event schema |
 | [Implementation Status Checklist](./docs/implementation-status-checklist.md) | Current shipped/partial/deferred overview across AOC surfaces |
 | [Mind Runtime Validation](./docs/mind-runtime-validation.md) | Live smoke check + one-command hardening suite for Mind rollout confidence |
+| [Yazi Mermaid Preview](./docs/yazi-mermaid-preview.md) | Mermaid preview architecture, cache behavior, fallback UX, and current limitations |
 | [PI-only Rollout Checklist](./docs/pi-only-rollout-checklist.md) | Release closeout + post-release verification |
 | [CHANGELOG.md](./CHANGELOG.md) | Release history |
 | [ROADMAP.md](./ROADMAP.md) | Future development plans |

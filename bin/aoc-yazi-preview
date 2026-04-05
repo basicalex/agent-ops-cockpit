@@ -55,9 +55,14 @@ has_pdftoppm=0
 have pdftoppm && has_pdftoppm=1
 has_ffmpeg=0
 have ffmpeg && has_ffmpeg=1
+has_aoc_yazi_mermaid=0
+have aoc-yazi-mermaid && has_aoc_yazi_mermaid=1
 
 in_tmux=0
 [[ -n "${TMUX:-}" || "${TERM:-}" == tmux* || "${TERM_PROGRAM:-}" == "tmux" ]] && in_tmux=1
+force_kitty_in_zellij=0
+[[ "${AOC_YAZI_FORCE_KITTY_IN_ZELLIJ:-1}" != "0" ]] && force_kitty_in_zellij=1
+
 in_zellij=0
 [[ -n "${ZELLIJ:-}" || -n "${ZELLIJ_SESSION_NAME:-}" ]] && in_zellij=1
 
@@ -82,6 +87,17 @@ if (( has_resvg )) && [[ "$native_backend" != "none" ]]; then
   native_ready=1
 fi
 
+forced_kitty_zellij=0
+if (( force_kitty_in_zellij && in_zellij )) && [[ "$terminal_family" == "kitty" ]] && (( has_kitten || has_kitty )); then
+  forced_kitty_zellij=1
+  native_ready=1
+  if (( has_kitten )); then
+    native_backend="kitten"
+  else
+    native_backend="kitty"
+  fi
+fi
+
 custom_overlay_ready=0
 if (( is_linux && has_ueberzugpp && has_resvg )); then
   custom_overlay_ready=1
@@ -90,7 +106,12 @@ fi
 fallback_ready=1
 
 quality_note="fallback only"
-if (( custom_overlay_ready )); then
+if (( has_aoc_yazi_mermaid )); then
+  quality_note="Mermaid preview helper available; Yazi can render cached Mermaid previews for .mmd/.mermaid"
+  if (( forced_kitty_zellij )); then
+    quality_note="$quality_note; forcing Kitty-native preview preference inside Zellij via aoc-yazi wrapper"
+  fi
+elif (( custom_overlay_ready )); then
   quality_note="custom-overlay candidate available (recommended for Linux/Alacritty when implemented)"
 elif (( native_ready )); then
   if [[ "$terminal_family" == "kitty" ]]; then
@@ -163,6 +184,8 @@ kitten=$(bool "$has_kitten")
 chafa=$(bool "$has_chafa")
 pdftoppm=$(bool "$has_pdftoppm")
 ffmpeg=$(bool "$has_ffmpeg")
+aoc_yazi_mermaid=$(bool "$has_aoc_yazi_mermaid")
+forced_kitty_zellij=$(bool "$forced_kitty_zellij")
 native_backend=$native_backend
 native_ready=$(bool "$native_ready")
 custom_overlay_ready=$(bool "$custom_overlay_ready")
