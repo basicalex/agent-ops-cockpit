@@ -72,6 +72,24 @@ if ! bash bin/aoc-tab-metadata status >/dev/null; then
   exit 1
 fi
 
+echo "Smoke testing custom layout create/edit flow..."
+layout_smoke_name="smoke-layout-$$"
+if ! VISUAL=true EDITOR=true bash bin/aoc-layout --create "$layout_smoke_name" --scope global >/dev/null; then
+  echo "ERROR: Smoke test failed for bin/aoc-layout --create"
+  rm -f "$HOME/.config/zellij/layouts/$layout_smoke_name.kdl"
+  exit 1
+fi
+if ! test -f "$HOME/.config/zellij/layouts/$layout_smoke_name.kdl"; then
+  echo "ERROR: Smoke layout file was not created"
+  exit 1
+fi
+if ! VISUAL=true EDITOR=true bash bin/aoc-layout --edit "$layout_smoke_name" --scope auto >/dev/null; then
+  echo "ERROR: Smoke test failed for bin/aoc-layout --edit"
+  rm -f "$HOME/.config/zellij/layouts/$layout_smoke_name.kdl"
+  exit 1
+fi
+rm -f "$HOME/.config/zellij/layouts/$layout_smoke_name.kdl"
+
 echo "Smoke testing non-PI agent rejection..."
 if bash bin/aoc-agent-install status codex >/dev/null 2>&1; then
   echo "ERROR: non-PI agent status unexpectedly succeeded"

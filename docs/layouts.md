@@ -40,7 +40,7 @@ Older defaults using those names are normalized back to `aoc`.
 
 ## Custom layouts
 
-Custom layouts can still live in either location:
+Custom layouts can live in either location:
 
 - project shared: `.aoc/layouts/`
 - personal global: `~/.config/zellij/layouts/`
@@ -57,6 +57,38 @@ When a custom layout name exists in both places, AOC resolves it in this order:
 - global custom layouts
 
 Internal/deprecated managed names are filtered out.
+
+## Creator/editor flow
+
+AOC now includes a built-in custom-layout creator/editor flow.
+
+### From Alt+C
+
+```text
+Alt+C -> Settings -> Layout
+```
+
+Available actions:
+- set the default layout
+- create a project custom layout
+- create a global custom layout
+- edit an existing custom layout
+
+Creation opens your `$EDITOR` on a generated starter template that already preserves the managed AOC top bar and `aoc-tab-metadata sync` hooks.
+
+### From CLI
+
+```bash
+aoc-layout --create review --scope project
+aoc-layout --create scratch-review --scope global
+aoc-layout --edit review
+aoc-layout --set review
+aoc-new-tab --layout review
+```
+
+A dedicated agent skill is also available at:
+
+- `.pi/skills/custom-layout-ops/SKILL.md`
 
 ## Context injection
 
@@ -102,4 +134,5 @@ aoc-new-tab --layout review
 ## Notes
 
 - Official AOC panes call `aoc-tab-metadata sync` so the managed top bar can group tabs using explicit project metadata rather than only tab-name inference.
-- Future custom-layout creation/edit flows may be surfaced through `aoc-control`, but the file-based custom layout contract remains supported.
+- The Alt+C and `aoc-layout --create/--edit` flows are now the recommended way to author custom layouts.
+- The file-based custom layout contract remains supported for manual edits and automation.

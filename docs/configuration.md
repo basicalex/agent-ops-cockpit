@@ -381,6 +381,10 @@ aoc-layout --set aoc
 # Open a custom layout
 aoc-new-tab --layout review
 
+# Create/edit custom layouts
+aoc-layout --create review --scope project
+aoc-layout --edit review
+
 # Create shared team layouts in .aoc/layouts/
 # Create personal layouts in ~/.config/zellij/layouts/
 ```
@@ -401,6 +405,8 @@ Layout name resolution order:
 2. `~/.config/zellij/layouts/<name>.kdl`
 
 `aoc-layout` hides deprecated/internal managed layout names such as `unstat`, `minimal`, `aoc-zjstatus-single`, `aoc-zjstatus-test`, and `aoc.hybrid`.
+
+You can also create/edit custom layouts from `Alt+C -> Settings -> Layout`.
 
 ## Theme Management
 
