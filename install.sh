@@ -3,6 +3,7 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 BIN_DIR="$HOME/.local/bin"
+AOC_CONFIG_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/aoc"
 INSTALL_MIND_EXPLICIT=0
 
 while [[ $# -gt 0 ]]; do
@@ -41,13 +42,14 @@ mkdir -p "$HOME/.config/zellij/plugins"
 mkdir -p "$HOME/.config/yazi"
 mkdir -p "$HOME/.config/yazi/plugins"
 mkdir -p "${MICRO_CONFIG_HOME:-${XDG_CONFIG_HOME:-$HOME/.config}/micro}"
-mkdir -p "${XDG_CONFIG_HOME:-$HOME/.config}/aoc"
-mkdir -p "${XDG_CONFIG_HOME:-$HOME/.config}/aoc/btop"
-mkdir -p "${XDG_CONFIG_HOME:-$HOME/.config}/aoc/skills"
-mkdir -p "${XDG_CONFIG_HOME:-$HOME/.config}/aoc/taskmaster/templates"
-mkdir -p "${XDG_CONFIG_HOME:-$HOME/.config}/aoc/prompts/pi"
-mkdir -p "${XDG_CONFIG_HOME:-$HOME/.config}/aoc/skills-optional"
-mkdir -p "${XDG_CONFIG_HOME:-$HOME/.config}/aoc/prompts-optional/pi"
+mkdir -p "$AOC_CONFIG_DIR"
+mkdir -p "$AOC_CONFIG_DIR/btop"
+mkdir -p "$AOC_CONFIG_DIR/skills"
+mkdir -p "$AOC_CONFIG_DIR/taskmaster/templates"
+mkdir -p "$AOC_CONFIG_DIR/prompts/pi"
+mkdir -p "$AOC_CONFIG_DIR/skills-optional"
+mkdir -p "$AOC_CONFIG_DIR/prompts-optional/pi"
+mkdir -p "$AOC_CONFIG_DIR/zellij/plugins"
 mkdir -p "${XDG_STATE_HOME:-$HOME/.local/state}/aoc"
 DEFAULT_LAYOUT_FILE="${XDG_STATE_HOME:-$HOME/.local/state}/aoc/layout_default"
 
@@ -742,6 +744,7 @@ required_bin_scripts=(
   aoc-agent-wrap
   aoc-utils.sh
   aoc-init
+  aoc-zellij-plugin
   aoc-doctor
   tm
 )
@@ -987,25 +990,25 @@ else
   log "Micro found."
 fi
 
-# ZJStatus
-ZJSTATUS_PATH="$HOME/.config/zellij/plugins/zjstatus.wasm"
-if [[ ! -f "$ZJSTATUS_PATH" ]]; then
-  log "Downloading zjstatus.wasm..."
-  if have curl; then
-    if ! curl -fsSL -o "$ZJSTATUS_PATH" https://github.com/dj95/zjstatus/releases/latest/download/zjstatus.wasm; then
-      warn "Failed to download zjstatus.wasm via curl."
-    fi
-  elif have wget; then
-    if ! wget -qO "$ZJSTATUS_PATH" https://github.com/dj95/zjstatus/releases/latest/download/zjstatus.wasm; then
-      warn "Failed to download zjstatus.wasm via wget."
-    fi
-  else
-    warn "curl or wget required to download zjstatus.wasm."
-  fi
-fi
-
 # 4. Generate & Install Configs
 log "Generating configurations..."
+
+# Managed AOC Zellij plugin asset cache
+if [[ -f "$ROOT_DIR/zellij/plugins/zjstatus-aoc.wasm" ]]; then
+  install -m 0644 "$ROOT_DIR/zellij/plugins/zjstatus-aoc.wasm" "$AOC_CONFIG_DIR/zellij/plugins/zjstatus-aoc.wasm"
+fi
+if [[ -d "$ROOT_DIR/vendor/zjstatus-aoc" ]]; then
+  rm -rf "$AOC_CONFIG_DIR/zellij/plugins/zjstatus-aoc-src"
+  mkdir -p "$AOC_CONFIG_DIR/zellij/plugins"
+  cp -R "$ROOT_DIR/vendor/zjstatus-aoc" "$AOC_CONFIG_DIR/zellij/plugins/zjstatus-aoc-src"
+fi
+if [[ -x "$BIN_DIR/aoc-zellij-plugin" ]]; then
+  AOC_ZELLIJ_PLUGIN_QUIET=1 "$BIN_DIR/aoc-zellij-plugin" install || warn "Failed to install managed AOC Zellij plugin."
+elif have aoc-zellij-plugin; then
+  AOC_ZELLIJ_PLUGIN_QUIET=1 aoc-zellij-plugin install || warn "Failed to install managed AOC Zellij plugin."
+else
+  warn "aoc-zellij-plugin not found during install; managed top-bar plugin may be missing."
+fi
 
 # Zellij Layout
 # Replace placeholders in template
