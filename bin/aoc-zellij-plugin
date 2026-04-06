@@ -1,0 +1,218 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+usage() {
+  cat <<'EOF'
+Usage: aoc-zellij-plugin [install|status]
+
+Commands:
+  install   Install/update the managed AOC zjstatus plugin wasm
+  status    Show resolved source/cache/install paths
+
+Environment:
+  AOC_ZELLIJ_PLUGIN_BUILD=1   Build from vendored source before install
+  AOC_ZELLIJ_PLUGIN_FORCE=1   Reinstall even if target matches
+  AOC_ZELLIJ_PLUGIN_QUIET=1   Reduce log output
+EOF
+}
+
+command_name="${1:-install}"
+case "$command_name" in
+  install|status)
+    shift || true
+    ;;
+  -h|--help)
+    usage
+    exit 0
+    ;;
+  *)
+    echo "Unknown command: $command_name" >&2
+    usage >&2
+    exit 1
+    ;;
+esac
+
+log() {
+  if [[ "${AOC_ZELLIJ_PLUGIN_QUIET:-0}" != "1" ]]; then
+    echo ">> $1" >&2
+  fi
+}
+
+warn() { echo "!! $1" >&2; }
+
+script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+repo_root="$(cd "$script_dir/.." && pwd)"
+aoc_config_dir="${XDG_CONFIG_HOME:-$HOME/.config}/aoc"
+cache_root="$aoc_config_dir/zellij/plugins"
+cache_wasm="$cache_root/zjstatus-aoc.wasm"
+cache_src_dir="$cache_root/zjstatus-aoc-src"
+repo_wasm="$repo_root/zellij/plugins/zjstatus-aoc.wasm"
+repo_src_dir="$repo_root/vendor/zjstatus-aoc"
+dest_dir="${ZELLIJ_CONFIG_DIR:-$HOME/.config/zellij}/plugins"
+dest_wasm="$dest_dir/zjstatus-aoc.wasm"
+plugin_target="${AOC_ZELLIJ_PLUGIN_TARGET:-wasm32-wasip1}"
+plugin_force="${AOC_ZELLIJ_PLUGIN_FORCE:-0}"
+plugin_build="${AOC_ZELLIJ_PLUGIN_BUILD:-0}"
+
+copy_file_if_changed() {
+  local src="$1"
+  local dst="$2"
+  mkdir -p "$(dirname "$dst")"
+  if [[ -f "$dst" ]] && cmp -s "$src" "$dst"; then
+    return 1
+  fi
+  cp "$src" "$dst"
+  return 0
+}
+
+sync_dir() {
+  local src="$1"
+  local dst="$2"
+  mkdir -p "$(dirname "$dst")"
+  rm -rf "$dst"
+  cp -R "$src" "$dst"
+}
+
+refresh_cache_from_repo() {
+  local changed=0
+  mkdir -p "$cache_root"
+
+  if [[ -f "$repo_wasm" ]]; then
+    if copy_file_if_changed "$repo_wasm" "$cache_wasm"; then
+      log "Refreshed cached AOC plugin wasm."
+      changed=1
+    fi
+  fi
+
+  if [[ -d "$repo_src_dir" ]]; then
+    if [[ ! -d "$cache_src_dir" ]]; then
+      sync_dir "$repo_src_dir" "$cache_src_dir"
+      log "Seeded cached AOC plugin source."
+      changed=1
+    elif ! diff -qr "$repo_src_dir" "$cache_src_dir" >/dev/null 2>&1; then
+      sync_dir "$repo_src_dir" "$cache_src_dir"
+      log "Refreshed cached AOC plugin source."
+      changed=1
+    fi
+  fi
+
+  return "$changed"
+}
+
+ensure_wasm_target() {
+  if ! command -v rustup >/dev/null 2>&1; then
+    return 1
+  fi
+  if rustup target list --installed 2>/dev/null | grep -Fxq "$plugin_target"; then
+    return 0
+  fi
+  log "Installing Rust target $plugin_target for managed AOC plugin build..."
+  rustup target add "$plugin_target" >/dev/null
+}
+
+build_from_source() {
+  local src_dir=""
+  if [[ -d "$cache_src_dir" ]]; then
+    src_dir="$cache_src_dir"
+  elif [[ -d "$repo_src_dir" ]]; then
+    src_dir="$repo_src_dir"
+  else
+    return 1
+  fi
+
+  if ! command -v cargo >/dev/null 2>&1; then
+    warn "cargo not found; cannot build managed AOC plugin from source."
+    return 1
+  fi
+
+  if ! ensure_wasm_target; then
+    warn "Rust target $plugin_target not available; falling back to bundled wasm."
+    return 1
+  fi
+
+  log "Building managed AOC zjstatus plugin from source..."
+  cargo build --manifest-path "$src_dir/Cargo.toml" --release --target "$plugin_target" --bin zjstatus >/dev/null
+  local built_wasm="$src_dir/target/$plugin_target/release/zjstatus.wasm"
+  if [[ ! -f "$built_wasm" ]]; then
+    warn "Managed AOC plugin build completed without expected wasm output."
+    return 1
+  fi
+
+  mkdir -p "$cache_root"
+  cp "$built_wasm" "$cache_wasm"
+  printf '%s\n' "$built_wasm"
+}
+
+resolve_install_source() {
+  local built_wasm=""
+  if [[ "$plugin_build" == "1" ]]; then
+    built_wasm="$(build_from_source || true)"
+    if [[ -n "$built_wasm" && -f "$built_wasm" ]]; then
+      printf '%s\n' "$built_wasm"
+      return 0
+    fi
+  fi
+
+  if [[ -f "$cache_wasm" ]]; then
+    printf '%s\n' "$cache_wasm"
+    return 0
+  fi
+
+  if [[ -f "$repo_wasm" ]]; then
+    printf '%s\n' "$repo_wasm"
+    return 0
+  fi
+
+  return 1
+}
+
+install_plugin() {
+  refresh_cache_from_repo || true
+
+  local src_wasm=""
+  src_wasm="$(resolve_install_source || true)"
+  if [[ -z "$src_wasm" || ! -f "$src_wasm" ]]; then
+    warn "No managed AOC zjstatus wasm found (repo/cache/build)."
+    return 1
+  fi
+
+  mkdir -p "$dest_dir"
+  if [[ "$plugin_force" != "1" ]] && [[ -f "$dest_wasm" ]] && cmp -s "$src_wasm" "$dest_wasm"; then
+    log "Managed AOC plugin already installed: $dest_wasm"
+    return 0
+  fi
+
+  if [[ -f "$dest_wasm" ]]; then
+    local backup="$dest_wasm.bak.$(date +%Y%m%d%H%M%S)"
+    cp "$dest_wasm" "$backup"
+    log "Backed up existing managed AOC plugin to $backup"
+  fi
+
+  cp "$src_wasm" "$dest_wasm"
+  log "Installed managed AOC plugin: $dest_wasm"
+}
+
+show_status() {
+  refresh_cache_from_repo || true
+  cat <<EOF
+repo_wasm=$repo_wasm
+repo_src_dir=$repo_src_dir
+cache_wasm=$cache_wasm
+cache_src_dir=$cache_src_dir
+dest_wasm=$dest_wasm
+repo_wasm_exists=$([[ -f "$repo_wasm" ]] && echo 1 || echo 0)
+repo_src_exists=$([[ -d "$repo_src_dir" ]] && echo 1 || echo 0)
+cache_wasm_exists=$([[ -f "$cache_wasm" ]] && echo 1 || echo 0)
+cache_src_exists=$([[ -d "$cache_src_dir" ]] && echo 1 || echo 0)
+dest_exists=$([[ -f "$dest_wasm" ]] && echo 1 || echo 0)
+EOF
+}
+
+case "$command_name" in
+  install)
+    install_plugin
+    ;;
+  status)
+    show_status
+    ;;
+esac

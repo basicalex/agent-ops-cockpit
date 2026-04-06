@@ -102,6 +102,7 @@ After install (or manual `aoc-init`), a PI-first project should include:
 - `.pi/skills/aoc-init-ops/SKILL.md` (plus other seeded skills)
 - `.pi/extensions/minimal.ts`
 - `.pi/extensions/themeMap.ts`
+- `~/.config/zellij/plugins/zjstatus-aoc.wasm`
 - `.aoc/context.md`
 - `.aoc/rtk.toml`
 
@@ -112,7 +113,10 @@ test -f .pi/extensions/minimal.ts
 test -f .pi/extensions/themeMap.ts
 test -f .pi/prompts/tm-cc.md
 test -f .pi/settings.json
+test -f ~/.config/zellij/plugins/zjstatus-aoc.wasm
 ```
+
+`aoc-init` also installs the managed AOC top-bar plugin from the bundled cache/source snapshot, so the AOC layouts do not depend on a separately downloaded personal `zjstatus` build.
 
 If anything is missing, run:
 

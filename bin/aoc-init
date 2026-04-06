@@ -798,6 +798,7 @@ description: Initialize or repair AOC context, memory, and tasks safely.
 - Seeds `.pi/settings.json` when missing
 - Seeds PI prompt templates in `.pi/prompts/` (`/aoc-ops`, `/teach`, `/teach-full`, `/teach-dive`, `/teach-ask`, `/tm-cc`) when missing
 - Seeds PI default extensions in `.pi/extensions/` (`minimal.ts`, `themeMap.ts`) when missing
+- Installs the managed AOC Zellij top-bar plugin to `~/.config/zellij/plugins/zjstatus-aoc.wasm`
 - Migrates missing legacy PI prompts/skills from `.aoc/prompts/pi/` and `.aoc/skills/` into `.pi/**` (non-destructive), and cleans safe `tmcc` prompt alias duplicates
 - Optional MoreMotion prompt `/momo` is seeded by `aoc-momo init`
 - Ensures `.pi/skills` baseline (PI-first canonical)
@@ -1563,6 +1564,27 @@ setup_aoc_map() {
   fi
 }
 
+setup_managed_zellij_plugin() {
+  local plugin_cmd=""
+
+  if [[ -x "$script_dir/aoc-zellij-plugin" ]]; then
+    plugin_cmd="$script_dir/aoc-zellij-plugin"
+  elif command -v aoc-zellij-plugin >/dev/null 2>&1; then
+    plugin_cmd="$(command -v aoc-zellij-plugin)"
+  fi
+
+  if [[ -z "$plugin_cmd" ]]; then
+    warn "aoc-zellij-plugin not found; managed Zellij top-bar plugin may be missing."
+    return
+  fi
+
+  if "$plugin_cmd" install; then
+    log "Managed AOC Zellij plugin ready (~/.config/zellij/plugins/zjstatus-aoc.wasm)."
+  else
+    warn "Managed AOC Zellij plugin install failed."
+  fi
+}
+
 # 4. Ensure AOC Rust binaries are available
 setup_binaries() {
   if [[ "${AOC_INIT_SKIP_BUILD:-0}" == "1" ]]; then
@@ -1629,6 +1651,7 @@ main() {
   setup_tasks
   ensure_git_tracking_policy
   setup_env
+  setup_managed_zellij_plugin
   setup_binaries
   log "AOC Initialization Complete. Ready to launch."
 }
