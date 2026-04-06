@@ -22,6 +22,23 @@ esac
 
 have() { command -v "$1" >/dev/null 2>&1; }
 have_bat() { have bat || have batcat; }
+sha256_file() {
+  local path="$1"
+  [[ -f "$path" ]] || return 1
+  if have sha256sum; then
+    sha256sum "$path" | awk '{print $1}'
+    return 0
+  fi
+  if have shasum; then
+    shasum -a 256 "$path" | awk '{print $1}'
+    return 0
+  fi
+  if have openssl; then
+    openssl dgst -sha256 "$path" | awk '{print $NF}'
+    return 0
+  fi
+  return 1
+}
 
 version_ge() {
   [[ "$1" == "$2" ]] && return 0
@@ -244,9 +261,15 @@ fi
 
 missing_required=()
 missing_optional=()
+managed_runtime_issues=()
+managed_runtime_warnings=()
+stale_layout_paths=()
 zellij_ver="$(zellij_version || true)"
 zellij_recommended="0.44.0"
 zellij_native_inventory="unknown"
+managed_plugin_dest="${ZELLIJ_CONFIG_DIR:-$HOME/.config/zellij}/plugins/zjstatus-aoc.wasm"
+managed_plugin_cache="${XDG_CONFIG_HOME:-$HOME/.config}/aoc/zellij/plugins/zjstatus-aoc.wasm"
+default_layout_file="${XDG_STATE_HOME:-$HOME/.local/state}/aoc/layout_default"
 if [[ -n "$zellij_ver" ]]; then
   if version_ge "$zellij_ver" "$zellij_recommended"; then
     zellij_native_inventory="yes"
@@ -278,6 +301,44 @@ for tool in "${optional[@]}"; do
     missing_optional+=("$tool")
   fi
 done
+
+managed_plugin_dest_sha="$(sha256_file "$managed_plugin_dest" || true)"
+managed_plugin_cache_sha="$(sha256_file "$managed_plugin_cache" || true)"
+if [[ ! -f "$managed_plugin_dest" ]]; then
+  managed_runtime_issues+=("managed plugin missing: $managed_plugin_dest")
+elif [[ -f "$managed_plugin_cache" ]]; then
+  if ! cmp -s "$managed_plugin_cache" "$managed_plugin_dest"; then
+    managed_runtime_issues+=("managed plugin stale/diverged: run 'aoc-zellij-plugin install' to restore $managed_plugin_dest")
+  fi
+fi
+
+if [[ -d "$HOME/.config/zellij/layouts" ]]; then
+  while IFS= read -r layout_path; do
+    [[ -n "$layout_path" ]] || continue
+    case "$(basename "$layout_path")" in
+      unstat.kdl|minimal.kdl|aoc-zjstatus-single.kdl|aoc-zjstatus-test.kdl|aoc.hybrid.kdl)
+        stale_layout_paths+=("$layout_path")
+        continue
+        ;;
+    esac
+    if grep -Eq 'zjstatus\.wasm|zjstatus-aoc\.wasm[^\n]*command_cwd_interval|aoc-zjstatus-single|aoc-zjstatus-test' "$layout_path" 2>/dev/null; then
+      stale_layout_paths+=("$layout_path")
+    fi
+  done < <(find "$HOME/.config/zellij/layouts" -maxdepth 1 -type f -name '*.kdl' | sort)
+fi
+
+if [[ -f "$default_layout_file" ]]; then
+  current_default_layout="$(cat "$default_layout_file" 2>/dev/null || true)"
+  case "$current_default_layout" in
+    unstat|minimal|aoc-zjstatus-single|aoc-zjstatus-test|aoc.hybrid)
+      managed_runtime_warnings+=("default layout '$current_default_layout' is deprecated; switch to 'aoc'")
+      ;;
+  esac
+fi
+
+if ((${#stale_layout_paths[@]} > 0)); then
+  managed_runtime_warnings+=("stale global Zellij layouts detected under ~/.config/zellij/layouts")
+fi
 
 if [[ "$quiet" -eq 0 ]]; then
   echo "AOC Doctor"
@@ -321,6 +382,44 @@ if [[ "$quiet" -eq 0 ]]; then
       echo "    -> Upgrade zellij to >= $zellij_recommended for explicit list-panes/list-tabs/current-tab-info support"
     fi
   fi
+  echo
+  echo "Managed Zellij Top Bar:"
+  if [[ -f "$managed_plugin_dest" ]]; then
+    echo "  [ok] installed plugin: $managed_plugin_dest"
+  else
+    echo "  [missing] installed plugin: $managed_plugin_dest"
+    echo "    -> aoc-zellij-plugin install"
+  fi
+  if [[ -f "$managed_plugin_cache" ]]; then
+    echo "  [ok] managed cache: $managed_plugin_cache"
+  else
+    echo "  [warn] managed cache missing: $managed_plugin_cache"
+  fi
+  if [[ -n "$managed_plugin_dest_sha" ]]; then
+    echo "  Installed SHA256: $managed_plugin_dest_sha"
+  fi
+  if [[ -n "$managed_plugin_cache_sha" ]]; then
+    echo "  Managed  SHA256: $managed_plugin_cache_sha"
+  fi
+  if ((${#managed_runtime_issues[@]} > 0)); then
+    local_issue="${managed_runtime_issues[0]}"
+    echo "  [missing] ${local_issue}"
+  elif [[ -f "$managed_plugin_dest" ]]; then
+    echo "  [ok] managed plugin matches bundled cache"
+  fi
+  if ((${#stale_layout_paths[@]} > 0)); then
+    echo "  [warn] stale global layouts detected:"
+    for layout_path in "${stale_layout_paths[@]}"; do
+      echo "    - $layout_path"
+    done
+    echo "    -> rerun install.sh or remove deprecated managed layout files"
+  fi
+  if ((${#managed_runtime_warnings[@]} > 0)); then
+    for warning in "${managed_runtime_warnings[@]}"; do
+      echo "  [warn] $warning"
+    done
+  fi
+
   echo
   echo "Optional (features may degrade if missing):"
   for tool in "${optional[@]}"; do
@@ -382,7 +481,7 @@ if [[ "$quiet" -eq 0 ]]; then
   fi
 fi
 
-if [[ "${#missing_required[@]}" -gt 0 ]]; then
+if [[ "${#missing_required[@]}" -gt 0 ]] || [[ "${#managed_runtime_issues[@]}" -gt 0 ]]; then
   exit 1
 fi
 exit 0

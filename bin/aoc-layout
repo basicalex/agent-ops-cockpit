@@ -16,9 +16,42 @@ cwd_override=""
 
 mkdir -p "$state_dir"
 
+normalize_layout_name() {
+  case "${1:-}" in
+    "" ) printf 'aoc' ;;
+    unstat|aoc-zjstatus-single|aoc-zjstatus-test|aoc.hybrid) printf 'aoc' ;;
+    *) printf '%s' "$1" ;;
+  esac
+}
+
+layout_is_hidden_internal() {
+  case "${1:-}" in
+    unstat|minimal|mission-control|aoc-zjstatus-single|aoc-zjstatus-test|aoc.hybrid)
+      return 0
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+}
+
+list_layouts_from_dir() {
+  local dir="$1"
+  [[ -d "$dir" ]] || return 0
+  find "$dir" -maxdepth 1 -name "*.kdl" -printf "%f\n" 2>/dev/null \
+    | sed 's/\.kdl$//' \
+    | while IFS= read -r layout; do
+        [[ -n "$layout" ]] || continue
+        layout="$(normalize_layout_name "$layout")"
+        if layout_is_hidden_internal "$layout"; then
+          continue
+        fi
+        printf '%s\n' "$layout"
+      done
+}
+
 list_layouts() {
-  # List .kdl files from project and global layout directories.
-  # Project layouts are checked first so shared repo layouts are visible.
+  # List project and global custom layouts, plus the one official managed layout.
   local project_root=""
   local project_layout_dir=""
   project_root="$(resolve_project_root || true)"
@@ -29,9 +62,9 @@ list_layouts() {
   {
     echo "aoc"
     if [[ -n "$project_layout_dir" ]]; then
-      find "$project_layout_dir" -maxdepth 1 -name "*.kdl" -printf "%f\n" 2>/dev/null | sed 's/\.kdl$//'
+      list_layouts_from_dir "$project_layout_dir"
     fi
-    find "$HOME/.config/zellij/layouts" -maxdepth 1 -name "*.kdl" -printf "%f\n" 2>/dev/null | sed 's/\.kdl$//'
+    list_layouts_from_dir "$HOME/.config/zellij/layouts"
   } | awk 'NF && !seen[$0]++'
 }
 
@@ -196,7 +229,7 @@ pick_layout() {
 
 current_layout() {
   if [[ -f "$default_file" ]]; then
-    cat "$default_file" 2>/dev/null || true
+    normalize_layout_name "$(cat "$default_file" 2>/dev/null || true)"
   else
     echo "aoc"
   fi
@@ -211,6 +244,7 @@ set_default() {
     echo "No layout selected." >&2
     exit 1
   fi
+  layout="$(normalize_layout_name "$layout")"
   echo "$layout" >"$default_file"
   echo "Default layout set to '$layout'."
 }
@@ -225,6 +259,7 @@ open_tab() {
     exit 1
   fi
   
+  layout="$(normalize_layout_name "$layout")"
   if [[ -n "${ZELLIJ:-}" || -n "${ZELLIJ_SESSION_NAME:-}" ]]; then
     aoc-new-tab --layout "$layout"
   else

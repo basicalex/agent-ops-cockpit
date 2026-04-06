@@ -105,9 +105,18 @@ cleanup_state() {
   find "$dir" -maxdepth 1 -type f -name 'project_root.*' -delete 2>/dev/null || true
 }
 
+normalize_layout_name() {
+  case "${1:-}" in
+    "" ) printf 'aoc' ;;
+    unstat|aoc-zjstatus-single|aoc-zjstatus-test|aoc.hybrid) printf 'aoc' ;;
+    *) printf '%s' "$1" ;;
+  esac
+}
+
 resolve_layout_path() {
   local layout_name="$1"
   local layout_root="${2:-}"
+  layout_name="$(normalize_layout_name "$layout_name")"
   if [[ "$layout_name" == /* || "$layout_name" == *.kdl ]]; then
     printf '%s' "$layout_name"
     return
@@ -196,19 +205,20 @@ realign_current_pane() {
 # 1. CLI arg (--layout, --aoc, etc)
 # 2. Env var (AOC_LAYOUT)
 # 3. Persistent default file
-# 4. Fallback to "unstat"
+# 4. Fallback to "aoc"
 if [[ -z "$layout_choice" ]]; then
   if [[ -n "${AOC_LAYOUT:-}" ]]; then
     layout_choice="$AOC_LAYOUT"
   elif [[ -f "$default_layout_file" ]]; then
     layout_choice="$(cat "$default_layout_file")"
   else
-    layout_choice="unstat"
+    layout_choice="aoc"
   fi
 fi
 
+layout_choice="$(normalize_layout_name "$layout_choice")"
 if [[ -z "$layout_choice" ]]; then
-  layout_choice="unstat"
+  layout_choice="aoc"
 fi
 
 args=()

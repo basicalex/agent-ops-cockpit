@@ -145,4 +145,6 @@ bin/aoc-web-smoke
 
 - [Installation Guide](./installation.md)
 - [Configuration Guide](./configuration.md)
+- [Layouts](./layouts.md)
+- [Managed Zellij Top Bar](./zellij-top-bar.md)
 - [Agents](./agents.md)

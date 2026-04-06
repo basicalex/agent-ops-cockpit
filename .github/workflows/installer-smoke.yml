@@ -35,10 +35,12 @@ jobs:
               command -v aoc
               command -v aoc-cli
               command -v aoc-init
+              command -v aoc-zellij-plugin
               command -v aoc-doctor
               command -v pi
               aoc task --help >/dev/null
               test -f ~/.config/zellij/layouts/aoc.kdl
+              test -f ~/.config/zellij/plugins/zjstatus-aoc.wasm
               test -f ~/.config/yazi/yazi.toml
 
               mkdir -p ~/sandbox && cd ~/sandbox
@@ -47,6 +49,9 @@ jobs:
               test -f .aoc/context.md
               test -f .aoc/memory.md
               test -f .taskmaster/tasks/tasks.json
+              rm -f ~/.config/zellij/plugins/zjstatus-aoc.wasm
+              AOC_INIT_SKIP_BUILD=1 aoc-init
+              test -f ~/.config/zellij/plugins/zjstatus-aoc.wasm
 
               AOC_DEFAULT_REPO=${{ github.repository }} \
                 curl -fsSL https://raw.githubusercontent.com/${{ github.repository }}/${{ github.sha }}/install/bootstrap.sh \
@@ -81,10 +86,12 @@ jobs:
               command -v aoc
               command -v aoc-cli
               command -v aoc-init
+              command -v aoc-zellij-plugin
               command -v aoc-doctor
               command -v pi
               aoc task --help >/dev/null
               test -f ~/.config/zellij/layouts/aoc.kdl
+              test -f ~/.config/zellij/plugins/zjstatus-aoc.wasm
               test -f ~/.config/yazi/yazi.toml
 
               mkdir -p ~/sandbox && cd ~/sandbox
@@ -93,6 +100,9 @@ jobs:
               test -f .aoc/context.md
               test -f .aoc/memory.md
               test -f .taskmaster/tasks/tasks.json
+              rm -f ~/.config/zellij/plugins/zjstatus-aoc.wasm
+              AOC_INIT_SKIP_BUILD=1 aoc-init
+              test -f ~/.config/zellij/plugins/zjstatus-aoc.wasm
 
               AOC_DEFAULT_REPO=${{ github.repository }} \
                 curl -fsSL https://raw.githubusercontent.com/${{ github.repository }}/${{ github.ref_name }}/install/bootstrap.sh \

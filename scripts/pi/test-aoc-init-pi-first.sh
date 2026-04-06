@@ -75,6 +75,7 @@ assert_exists "$project_fresh/.pi/extensions/mind-ops.ts"
 assert_exists "$project_fresh/.pi/extensions/mind-context.ts"
 assert_exists "$project_fresh/.pi/extensions/mind-focus.ts"
 assert_exists "$project_fresh/.pi/extensions/lib/mind.ts"
+assert_exists "$HOME/.config/zellij/plugins/zjstatus-aoc.wasm"
 
 assert_not_exists "$project_fresh/.aoc/skills"
 assert_not_exists "$project_fresh/.codex/skills"
@@ -83,8 +84,10 @@ assert_not_exists "$project_fresh/.opencode/skills"
 assert_not_exists "$project_fresh/.agents/skills"
 
 printf 'custom teach marker\n' > "$project_fresh/.pi/prompts/teach.md"
+rm -f "$HOME/.config/zellij/plugins/zjstatus-aoc.wasm"
 run_init "$project_fresh" "$fresh_log_2"
 assert_contains "custom teach marker" "$project_fresh/.pi/prompts/teach.md"
+assert_exists "$HOME/.config/zellij/plugins/zjstatus-aoc.wasm"
 
 # --- Managed extension refresh flow (stale global/project template upgraded) ---
 project_refresh="$tmp_root/refresh"
