@@ -1,125 +1,105 @@
-# Custom Layouts & "AOC Modes"
+# Layouts
 
-AOC isn't just one static layout. It's a platform for running different "Modes" (layouts) that automatically adapt to your current project. This allows you to have a `writing` mode, a `coding` mode, or a `review` mode, all powered by the same AOC engine.
+AOC now treats **`aoc`** as the single official managed general-purpose layout.
 
-## Quick Start
+That keeps the default experience consistent while still allowing custom layouts for project-specific workflows.
 
-AOC comes with a `minimal` layout out of the box.
+## Official managed layout
 
-**Try it now:**
-```bash
-# Open a new tab in Minimal Mode
-aoc.minimal
+The official layout is:
 
-# List available shortcuts in current project
-# (or type `aoc.` then press Tab)
-aoc.
+- `aoc`
 
-# Or set it as your default for all future tabs
-aoc-layout --set minimal
-```
+It is installed to:
 
-`aoc` remains the regular/default launch path. `aoc.<layout>` opens that specific layout directly.
+- `~/.config/zellij/layouts/aoc.kdl`
 
-## Creating Your Own Layout
+`aoc-layout` always exposes this managed layout.
 
-Layouts can live in either location:
+## Dedicated system layout
 
-- **Project shared (recommended for teams):** `.aoc/layouts/` (commit to git)
-- **Personal global:** `~/.config/zellij/layouts/`
+Mission Control uses its own explicit layout and launcher:
 
-Any standard [Zellij KDL layout](https://zellij.dev/documentation/layouts.html) works, but AOC adds a special layer of "Context Injection" that makes them powerful.
+- `.aoc/layouts/mission-control.kdl`
+- `aoc-new-tab --mission-control`
+- `aoc-mission-control-tab`
 
-When a layout name exists in both places, AOC resolves it in this order:
+This is a system/runtime layout, not a normal general-purpose mode.
+
+## Deprecated managed layout names
+
+These older managed names are deprecated and hidden from `aoc-layout`:
+
+- `unstat`
+- `minimal`
+- `aoc-zjstatus-single`
+- `aoc-zjstatus-test`
+- `aoc.hybrid`
+
+Older defaults using those names are normalized back to `aoc`.
+
+## Custom layouts
+
+Custom layouts can still live in either location:
+
+- project shared: `.aoc/layouts/`
+- personal global: `~/.config/zellij/layouts/`
+
+When a custom layout name exists in both places, AOC resolves it in this order:
+
 1. `.aoc/layouts/<name>.kdl`
 2. `~/.config/zellij/layouts/<name>.kdl`
 
-### The Magic Placeholders
+`aoc-layout` shows:
 
-When you launch a tab, AOC reads your layout and replaces these tokens with real values from your current project:
+- the official managed layout: `aoc`
+- project custom layouts
+- global custom layouts
 
-| Placeholder | Replaced With | Example |
-|-------------|---------------|---------|
-| `__AOC_TAB_NAME__` | The name of the tab | "Agent" or "MyProject" |
-| `__AOC_PROJECT_ROOT__` | Absolute path to the project | `/home/user/dev/my-app` |
-| `__AOC_AGENT_ID__` | Unique ID for the project/tab | `my-app` |
-| `__AOC_SESSION_ID__` | Current Zellij session ID | `otter-debugs` |
-| `__AOC_HUB_ADDR__` | Hub host:port for this session | `127.0.0.1:42017` |
-| `__AOC_HUB_URL__` | Hub websocket URL for this session | `ws://127.0.0.1:42017/ws` |
+Internal/deprecated managed names are filtered out.
 
-### Example: The "Review" Layout
+## Context injection
+
+When AOC launches a layout, it replaces these placeholders with live values:
+
+| Placeholder | Meaning |
+|---|---|
+| `__AOC_TAB_NAME__` | tab label |
+| `__AOC_PROJECT_ROOT__` | absolute project path |
+| `__AOC_AGENT_ID__` | repo/project slug |
+| `__AOC_SESSION_ID__` | current Zellij session id |
+| `__AOC_HUB_ADDR__` | hub host:port |
+| `__AOC_HUB_URL__` | hub websocket URL |
+
+## Example custom layout
 
 Create `.aoc/layouts/review.kdl`:
 
 ```kdl
 layout {
-    tab name="__AOC_TAB_NAME__ [Review]" focus=true {
-        pane split_direction="vertical" {
-            // Left: Git status
-            pane name="Git" size="30%" command="bash" {
-                args "-lc" "cd \"__AOC_PROJECT_ROOT__\" && git status"
-            }
-            // Right: Editor
-            pane name="Review" size="70%" command="bash" {
-                 args "-lc" "cd \"__AOC_PROJECT_ROOT__\" && ${EDITOR:-micro} ."
-            }
-        }
-        // Essential status bar
-        pane size=1 borderless=true {
-             plugin location="zellij:status-bar"
-        }
+  tab name="__AOC_TAB_NAME__ [Review]" focus=true {
+    pane split_direction="vertical" {
+      pane name="Git" size="30%" command="bash" {
+        args "-lc" "export AOC_PROJECT_ROOT=\"__AOC_PROJECT_ROOT__\"; if command -v aoc-tab-metadata >/dev/null 2>&1; then aoc-tab-metadata sync >/dev/null 2>&1 || true; fi; cd \"__AOC_PROJECT_ROOT__\" && git status"
+      }
+      pane name="Review" size="70%" command="bash" {
+        args "-lc" "export AOC_PROJECT_ROOT=\"__AOC_PROJECT_ROOT__\"; if command -v aoc-tab-metadata >/dev/null 2>&1; then aoc-tab-metadata sync >/dev/null 2>&1 || true; fi; cd \"__AOC_PROJECT_ROOT__\" && ${EDITOR:-micro} ."
+      }
     }
+  }
 }
 ```
 
-Now you can run: `aoc-new-tab --layout review` inside any project, and it will open rooted in that project!
+## Commands
 
-## Managing Layouts (`aoc-layout`)
+```bash
+aoc-layout --list
+aoc-layout --current
+aoc-layout --set aoc
+aoc-new-tab --layout review
+```
 
-The `aoc-layout` tool is your dashboard for managing these modes. It lists both project and global layouts.
+## Notes
 
-### Commands
-
-| Command | Description |
-|---------|-------------|
-| `aoc-layout --set [name]` | Sets the **default** layout for new tabs/sessions. |
-| `aoc-layout --tab [name]` | Opens a **single** new tab with the specified layout. |
-| `aoc-layout --current` | Prints the name of the currently active default layout. |
-| `aoc-layout --list` | Prints discovered layouts (project first, then global). |
-| `aoc-layout --shell-init bash` | Emits Bash integration for dynamic `aoc.<layout>` shortcuts. |
-| `aoc-layout` | Interactive menu to select any of the above. |
-
-## Bash Shortcut Integration
-
-After install, AOC enables a Bash integration snippet in `~/.bashrc` that evaluates `aoc-layout --shell-init bash`.
-Open a new shell (or run `source ~/.bashrc`) after install to activate shortcuts.
-
-This provides:
-
-- Dynamic commands like `aoc.minimal`, `aoc.hybrid`, etc.
-- Per-project refresh when your working directory changes
-- `aoc.` helper output plus command completion support for shortcut discovery
-
-Shortcut names are derived from layout names:
-
-- `minimal.kdl` -> `aoc.minimal`
-- `aoc.hybrid.kdl` -> `aoc.hybrid` (leading `aoc.` is normalized)
-
-### "AOC Mode" vs. Standard Zellij Layouts
-
-Why use `aoc-layout` instead of just `zellij action new-tab --layout ...`?
-
-1.  **Context Awareness:** Standard Zellij layouts can't easily inherit the "project root" of your current specific tab. AOC injects `__AOC_PROJECT_ROOT__` dynamically, so your terminals start in the right place.
-2.  **Persistence:** `aoc-layout` remembers your preference across reboots.
-3.  **Integration:** It works seamlessly with `aoc-launch` and `aoc-new-tab`.
-
-## Community Layouts
-
-We encourage sharing layouts! If you create a useful mode (e.g., for Rust dev, Python data science, or writing markdown), share it in the [Discussions](https://github.com/basicalex/agent-ops-cockpit/discussions).
-
-## Troubleshooting
-
-*   **Layout not found?** Ensure it ends in `.kdl` and is located in `.aoc/layouts/` or `~/.config/zellij/layouts/`.
-*   **Terminals starting in home dir?** Make sure you used the `__AOC_PROJECT_ROOT__` placeholder in your `args`.
-    *   *Correct:* `args "-lc" "cd \"__AOC_PROJECT_ROOT__\" && ..."`
-    *   *Incorrect:* `cwd "__AOC_PROJECT_ROOT__"` (Zellij 0.43+ supports `cwd`, but our injection method ensures robust variable expansion even inside command arguments).
+- Official AOC panes call `aoc-tab-metadata sync` so the managed top bar can group tabs using explicit project metadata rather than only tab-name inference.
+- Future custom-layout creation/edit flows may be surfaced through `aoc-control`, but the file-based custom layout contract remains supported.

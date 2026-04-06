@@ -113,6 +113,7 @@ impl ZellijPlugin for State {
             cache_mask: 0,
             incoming_notification: None,
             runtime_theme: Default::default(),
+            runtime_tab_metadata: BTreeMap::new(),
         };
     }
 
@@ -283,6 +284,11 @@ impl State {
                 tracing::debug!(tab_count = ?tab_info.len());
 
                 self.state.cache_mask = UpdateEventMask::Tab as u8;
+                self.state.runtime_tab_metadata = config::reconcile_runtime_tab_metadata(
+                    &self.state.tabs,
+                    &tab_info,
+                    &self.state.runtime_tab_metadata,
+                );
                 self.state.tabs = tab_info;
 
                 should_render = true;

@@ -745,6 +745,7 @@ required_bin_scripts=(
   aoc-utils.sh
   aoc-init
   aoc-zellij-plugin
+  aoc-tab-metadata
   aoc-doctor
   tm
 )
@@ -769,6 +770,9 @@ retired_prefixed_wrappers=(
   aoc-kimi
   aoc-omo
   aoc-codex-tab
+  aoc.unstat
+  aoc.zjtest
+  aoc.zlj
   aoc-opencode-profile
 )
 retired_legacy_aliases=(
@@ -1020,19 +1024,25 @@ sed \
   -e "s|{{PROJECTS_BASE}}|$PROJECTS_BASE|g" \
   "$ROOT_DIR/zellij/layouts/aoc.kdl.template" > "$HOME/.config/zellij/layouts/aoc.kdl"
 
-sed \
-  -e "s|{{HOME}}|$HOME|g" \
-  "$ROOT_DIR/zellij/layouts/minimal.kdl.template" > "$HOME/.config/zellij/layouts/minimal.kdl"
+legacy_managed_layouts=(
+  "$HOME/.config/zellij/layouts/unstat.kdl"
+  "$HOME/.config/zellij/layouts/minimal.kdl"
+  "$HOME/.config/zellij/layouts/aoc-zjstatus-single.kdl"
+  "$HOME/.config/zellij/layouts/aoc-zjstatus-test.kdl"
+  "$HOME/.config/zellij/layouts/aoc.hybrid.kdl"
+)
+for legacy_layout in "${legacy_managed_layouts[@]}"; do
+  rm -f "$legacy_layout"
+done
 
-sed \
-  -e "s|{{HOME}}|$HOME|g" \
-  "$ROOT_DIR/zellij/layouts/unstat.kdl.template" > "$HOME/.config/zellij/layouts/unstat.kdl"
+current_default_layout="$(cat "$DEFAULT_LAYOUT_FILE" 2>/dev/null || true)"
+case "$current_default_layout" in
+  ""|unstat|minimal|aoc-zjstatus-single|aoc-zjstatus-test|aoc.hybrid)
+    printf 'aoc\n' > "$DEFAULT_LAYOUT_FILE"
+    ;;
+esac
 
-if [[ ! -f "$DEFAULT_LAYOUT_FILE" ]] || [[ "$(cat "$DEFAULT_LAYOUT_FILE" 2>/dev/null || true)" == "aoc" ]]; then
-  printf 'unstat\n' > "$DEFAULT_LAYOUT_FILE"
-fi
-
-log "Generated layouts in $HOME/.config/zellij/layouts/"
+log "Generated managed layout in $HOME/.config/zellij/layouts/aoc.kdl"
 
 sed \
   -e "s|{{HOME}}|$HOME|g" \

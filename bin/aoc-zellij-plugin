@@ -3,11 +3,12 @@ set -euo pipefail
 
 usage() {
   cat <<'EOF'
-Usage: aoc-zellij-plugin [install|status]
+Usage: aoc-zellij-plugin [install|status|verify]
 
 Commands:
   install   Install/update the managed AOC zjstatus plugin wasm
-  status    Show resolved source/cache/install paths
+  status    Show resolved source/cache/install paths and hashes
+  verify    Exit non-zero if the installed wasm is missing or diverges from the managed copy
 
 Environment:
   AOC_ZELLIJ_PLUGIN_BUILD=1   Build from vendored source before install
@@ -18,7 +19,7 @@ EOF
 
 command_name="${1:-install}"
 case "$command_name" in
-  install|status)
+  install|status|verify)
     shift || true
     ;;
   -h|--help)
@@ -53,6 +54,26 @@ dest_wasm="$dest_dir/zjstatus-aoc.wasm"
 plugin_target="${AOC_ZELLIJ_PLUGIN_TARGET:-wasm32-wasip1}"
 plugin_force="${AOC_ZELLIJ_PLUGIN_FORCE:-0}"
 plugin_build="${AOC_ZELLIJ_PLUGIN_BUILD:-0}"
+
+sha256_file() {
+  local path="$1"
+  if [[ ! -f "$path" ]]; then
+    return 1
+  fi
+  if command -v sha256sum >/dev/null 2>&1; then
+    sha256sum "$path" | awk '{print $1}'
+    return 0
+  fi
+  if command -v shasum >/dev/null 2>&1; then
+    shasum -a 256 "$path" | awk '{print $1}'
+    return 0
+  fi
+  if command -v openssl >/dev/null 2>&1; then
+    openssl dgst -sha256 "$path" | awk '{print $NF}'
+    return 0
+  fi
+  return 1
+}
 
 copy_file_if_changed() {
   local src="$1"
@@ -132,7 +153,8 @@ build_from_source() {
 
   log "Building managed AOC zjstatus plugin from source..."
   cargo build --manifest-path "$src_dir/Cargo.toml" --release --target "$plugin_target" --bin zjstatus >/dev/null
-  local built_wasm="$src_dir/target/$plugin_target/release/zjstatus.wasm"
+  local cargo_target_dir="${CARGO_TARGET_DIR:-$src_dir/target}"
+  local built_wasm="$cargo_target_dir/$plugin_target/release/zjstatus.wasm"
   if [[ ! -f "$built_wasm" ]]; then
     warn "Managed AOC plugin build completed without expected wasm output."
     return 1
@@ -192,19 +214,72 @@ install_plugin() {
   log "Installed managed AOC plugin: $dest_wasm"
 }
 
-show_status() {
+managed_reference_wasm() {
   refresh_cache_from_repo || true
+  if [[ -f "$cache_wasm" ]]; then
+    printf '%s\n' "$cache_wasm"
+    return 0
+  fi
+  if [[ -f "$repo_wasm" ]]; then
+    printf '%s\n' "$repo_wasm"
+    return 0
+  fi
+  return 1
+}
+
+verify_plugin() {
+  local ref_wasm=""
+  ref_wasm="$(managed_reference_wasm || true)"
+  if [[ -z "$ref_wasm" || ! -f "$ref_wasm" ]]; then
+    warn "No managed AOC plugin reference wasm available."
+    return 1
+  fi
+  if [[ ! -f "$dest_wasm" ]]; then
+    warn "Managed AOC plugin is not installed: $dest_wasm"
+    return 1
+  fi
+  if ! cmp -s "$ref_wasm" "$dest_wasm"; then
+    warn "Installed managed AOC plugin differs from the bundled managed copy."
+    return 1
+  fi
+  log "Managed AOC plugin matches bundled copy."
+}
+
+show_status() {
+  local ref_wasm=""
+  local repo_sha=""
+  local cache_sha=""
+  local dest_sha=""
+  local ref_sha=""
+  local ref_matches_dest=0
+
+  ref_wasm="$(managed_reference_wasm || true)"
+  repo_sha="$(sha256_file "$repo_wasm" || true)"
+  cache_sha="$(sha256_file "$cache_wasm" || true)"
+  dest_sha="$(sha256_file "$dest_wasm" || true)"
+  ref_sha="$(sha256_file "$ref_wasm" || true)"
+
+  if [[ -n "$ref_wasm" && -f "$ref_wasm" && -f "$dest_wasm" ]] && cmp -s "$ref_wasm" "$dest_wasm"; then
+    ref_matches_dest=1
+  fi
+
   cat <<EOF
 repo_wasm=$repo_wasm
 repo_src_dir=$repo_src_dir
 cache_wasm=$cache_wasm
 cache_src_dir=$cache_src_dir
 dest_wasm=$dest_wasm
+reference_wasm=$ref_wasm
 repo_wasm_exists=$([[ -f "$repo_wasm" ]] && echo 1 || echo 0)
 repo_src_exists=$([[ -d "$repo_src_dir" ]] && echo 1 || echo 0)
 cache_wasm_exists=$([[ -f "$cache_wasm" ]] && echo 1 || echo 0)
 cache_src_exists=$([[ -d "$cache_src_dir" ]] && echo 1 || echo 0)
 dest_exists=$([[ -f "$dest_wasm" ]] && echo 1 || echo 0)
+repo_wasm_sha256=$repo_sha
+cache_wasm_sha256=$cache_sha
+dest_wasm_sha256=$dest_sha
+reference_wasm_sha256=$ref_sha
+dest_matches_reference=$ref_matches_dest
 EOF
 }
 
@@ -214,5 +289,8 @@ case "$command_name" in
     ;;
   status)
     show_status
+    ;;
+  verify)
+    verify_plugin
     ;;
 esac

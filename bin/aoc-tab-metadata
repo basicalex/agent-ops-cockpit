@@ -1,0 +1,215 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+usage() {
+  cat <<'EOF'
+Usage: aoc-tab-metadata [sync|set|status] [options]
+
+Commands:
+  sync    Derive metadata from env/git/PWD and broadcast it to the managed AOC tab bar
+  set     Same as sync, but also supports renaming the active tab
+  status  Print the current active-tab metadata inputs
+
+Options:
+  --project-root PATH   Explicit project root to register
+  --project-key KEY     Explicit project key/group key to register
+  --tab-name NAME       Rename the active tab before broadcasting metadata
+  --no-rename           Do not rename the tab even if --tab-name is provided
+  -h, --help            Show help
+
+Notes:
+  - This command only broadcasts metadata when running inside Zellij.
+  - Official AOC layouts call `aoc-tab-metadata sync` automatically at pane startup.
+EOF
+}
+
+command_name="${1:-sync}"
+case "$command_name" in
+  sync|set|status)
+    shift || true
+    ;;
+  -h|--help)
+    usage
+    exit 0
+    ;;
+  *)
+    echo "Unknown command: $command_name" >&2
+    usage >&2
+    exit 1
+    ;;
+esac
+
+project_root_override=""
+project_key_override=""
+tab_name_override=""
+do_rename=1
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --project-root)
+      project_root_override="${2:-}"
+      shift
+      ;;
+    --project-key)
+      project_key_override="${2:-}"
+      shift
+      ;;
+    --tab-name)
+      tab_name_override="${2:-}"
+      shift
+      ;;
+    --no-rename)
+      do_rename=0
+      ;;
+    -h|--help)
+      usage
+      exit 0
+      ;;
+    *)
+      echo "Unknown option: $1" >&2
+      usage >&2
+      exit 1
+      ;;
+  esac
+  shift || true
+done
+
+have() { command -v "$1" >/dev/null 2>&1; }
+
+in_zellij() {
+  [[ -n "${ZELLIJ:-}" || -n "${ZELLIJ_SESSION_NAME:-}" ]]
+}
+
+resolve_project_root() {
+  local probe="${project_root_override:-${AOC_PROJECT_ROOT:-}}"
+  if [[ -n "$probe" && -d "$probe" ]]; then
+    cd "$probe" >/dev/null 2>&1 && pwd -P
+    return 0
+  fi
+
+  if have git; then
+    local git_root=""
+    git_root="$(git rev-parse --show-toplevel 2>/dev/null || true)"
+    if [[ -n "$git_root" && -d "$git_root" ]]; then
+      cd "$git_root" >/dev/null 2>&1 && pwd -P
+      return 0
+    fi
+  fi
+
+  pwd -P
+}
+
+normalize_project_key() {
+  local raw="$1"
+  raw="$(printf '%s' "$raw" | tr '[:upper:]' '[:lower:]')"
+  raw="$(printf '%s' "$raw" | sed -E 's/[^a-z0-9._-]+/-/g; s/^-+//; s/-+$//; s/-+/-/g')"
+  if [[ -z "$raw" ]]; then
+    raw="project"
+  fi
+  printf '%s' "$raw"
+}
+
+resolve_project_key() {
+  local root="$1"
+  if [[ -n "$project_key_override" ]]; then
+    normalize_project_key "$project_key_override"
+    return 0
+  fi
+  if [[ -n "${AOC_ROOT_TAG:-}" ]]; then
+    normalize_project_key "$AOC_ROOT_TAG"
+    return 0
+  fi
+  if [[ -n "${AOC_AGENT_ID:-}" ]]; then
+    normalize_project_key "$AOC_AGENT_ID"
+    return 0
+  fi
+  normalize_project_key "$(basename "$root")"
+}
+
+current_tab_name() {
+  if ! in_zellij || ! have zellij; then
+    return 1
+  fi
+  zellij action current-tab-info --json 2>/dev/null | python -c '
+import json, sys
+try:
+    data = json.load(sys.stdin)
+except Exception:
+    raise SystemExit(1)
+name = data.get("name")
+if not isinstance(name, str):
+    raise SystemExit(1)
+print(name)
+'
+}
+
+rename_active_tab() {
+  local next_name="$1"
+  [[ -n "$next_name" ]] || return 0
+  in_zellij || return 1
+  zellij action rename-tab "$next_name" >/dev/null 2>&1
+}
+
+broadcast_metadata() {
+  local root="$1"
+  local key="$2"
+  local tab_name="$3"
+  local payload=""
+
+  payload+="target=active"$'\n'
+  payload+="project_root=$root"$'\n'
+  payload+="project_key=$key"$'\n'
+  if [[ -n "$tab_name" ]]; then
+    payload+="tab_name=$tab_name"$'\n'
+  fi
+
+  zellij action pipe --name aoc_tab_metadata -- "$payload" >/dev/null 2>&1
+}
+
+show_status() {
+  local root key tab_name
+  root="$(resolve_project_root)"
+  key="$(resolve_project_key "$root")"
+  tab_name="$(current_tab_name || true)"
+  cat <<EOF
+in_zellij=$([[ -n "${ZELLIJ:-}" || -n "${ZELLIJ_SESSION_NAME:-}" ]] && echo 1 || echo 0)
+project_root=$root
+project_key=$key
+current_tab_name=$tab_name
+EOF
+}
+
+run_sync() {
+  local root key tab_name
+  if ! in_zellij; then
+    echo "aoc-tab-metadata: not running inside Zellij" >&2
+    return 1
+  fi
+  if ! have zellij; then
+    echo "aoc-tab-metadata: zellij command not found" >&2
+    return 1
+  fi
+
+  root="$(resolve_project_root)"
+  key="$(resolve_project_key "$root")"
+
+  if [[ -n "$tab_name_override" && "$do_rename" == "1" ]]; then
+    rename_active_tab "$tab_name_override"
+  fi
+
+  tab_name="$(current_tab_name || true)"
+  if [[ -z "$tab_name" && -n "$tab_name_override" ]]; then
+    tab_name="$tab_name_override"
+  fi
+
+  broadcast_metadata "$root" "$key" "$tab_name"
+}
+
+case "$command_name" in
+  status)
+    show_status
+    ;;
+  sync|set)
+    run_sync
+    ;;
+esac

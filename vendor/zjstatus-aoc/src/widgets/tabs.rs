@@ -302,7 +302,7 @@ impl TabsWidget {
             get_tab_window(&state.tabs, self.tab_display_count);
         let project_palette = self.effective_project_palette(state);
         let active_fg = self.effective_active_fg(state);
-        let project_colors = self.project_color_map(&tabs, &project_palette);
+        let project_colors = self.project_color_map(state, &tabs, &project_palette);
 
         if truncated_start > 0 {
             for f in &self.tab_truncate_start_format {
@@ -320,6 +320,7 @@ impl TabsWidget {
                 .and_then(|prev_index| tabs.get(prev_index));
             let next = tabs.get(index + 1);
             output.push_str(&self.render_project_segment_tab(
+                state,
                 tab,
                 prev,
                 next,
@@ -349,7 +350,7 @@ impl TabsWidget {
             get_tab_window(&state.tabs, self.tab_display_count);
         let project_palette = self.effective_project_palette(state);
         let active_fg = self.effective_active_fg(state);
-        let project_colors = self.project_color_map(&tabs, &project_palette);
+        let project_colors = self.project_color_map(state, &tabs, &project_palette);
 
         let active_pos = &state
             .tabs
@@ -380,6 +381,7 @@ impl TabsWidget {
                 .and_then(|prev_index| tabs.get(prev_index));
             let next = tabs.get(index + 1);
             let rendered_content = self.render_project_segment_tab(
+                state,
                 tab,
                 prev,
                 next,
@@ -444,6 +446,7 @@ impl TabsWidget {
 
     fn render_project_segment_tab(
         &self,
+        state: &ZellijState,
         tab: &TabInfo,
         prev: Option<&TabInfo>,
         next: Option<&TabInfo>,
@@ -452,12 +455,12 @@ impl TabsWidget {
         panes: &PaneManifest,
         mode: &ModeInfo,
     ) -> String {
-        let project_key = self.project_key(tab);
+        let project_key = self.project_key(state, tab);
         let prev_same_project = prev
-            .map(|prev_tab| self.project_key(prev_tab) == project_key)
+            .map(|prev_tab| self.project_key(state, prev_tab) == project_key)
             .unwrap_or(false);
         let next_same_project = next
-            .map(|next_tab| self.project_key(next_tab) == project_key)
+            .map(|next_tab| self.project_key(state, next_tab) == project_key)
             .unwrap_or(false);
         let project_color = project_colors
             .get(&project_key)
@@ -569,7 +572,22 @@ impl TabsWidget {
         indicators.join(" ")
     }
 
-    fn project_key(&self, tab: &TabInfo) -> String {
+    fn project_key(&self, state: &ZellijState, tab: &TabInfo) -> String {
+        if let Some(metadata) = state.runtime_tab_metadata.get(&tab.position)
+            && !metadata.project_key.trim().is_empty()
+        {
+            let normalized = metadata
+                .project_key
+                .trim()
+                .chars()
+                .filter(|c| c.is_ascii_alphanumeric() || *c == '-' || *c == '_')
+                .collect::<String>()
+                .to_ascii_lowercase();
+            if !normalized.is_empty() {
+                return normalized;
+            }
+        }
+
         let trimmed = tab.name.trim();
         let token = trimmed
             .split(|c: char| {
@@ -598,6 +616,7 @@ impl TabsWidget {
 
     fn project_color_map(
         &self,
+        state: &ZellijState,
         tabs: &[TabInfo],
         project_palette: &[String],
     ) -> BTreeMap<String, String> {
@@ -605,7 +624,7 @@ impl TabsWidget {
         let mut next_index = 0usize;
 
         for tab in tabs {
-            let key = self.project_key(tab);
+            let key = self.project_key(state, tab);
             if project_colors.contains_key(&key) {
                 continue;
             }

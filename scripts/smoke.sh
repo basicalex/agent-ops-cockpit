@@ -60,6 +60,18 @@ if ! bash bin/aoc-agent-install status pi >/dev/null; then
   exit 1
 fi
 
+echo "Smoke testing bin/aoc-zellij-plugin status..."
+if ! bash bin/aoc-zellij-plugin status >/dev/null; then
+  echo "ERROR: Smoke test failed for bin/aoc-zellij-plugin status"
+  exit 1
+fi
+
+echo "Smoke testing bin/aoc-tab-metadata status..."
+if ! bash bin/aoc-tab-metadata status >/dev/null; then
+  echo "ERROR: Smoke test failed for bin/aoc-tab-metadata status"
+  exit 1
+fi
+
 echo "Smoke testing non-PI agent rejection..."
 if bash bin/aoc-agent-install status codex >/dev/null 2>&1; then
   echo "ERROR: non-PI agent status unexpectedly succeeded"

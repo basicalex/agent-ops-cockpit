@@ -47,6 +47,13 @@ impl RuntimeTheme {
     }
 }
 
+#[derive(Default, Debug, Clone, PartialEq, Eq)]
+pub struct RuntimeTabMetadata {
+    pub tab_name: String,
+    pub project_key: String,
+    pub project_root: String,
+}
+
 #[derive(Default, Debug, Clone)]
 pub struct ZellijState {
     pub cols: usize,
@@ -61,6 +68,7 @@ pub struct ZellijState {
     pub incoming_notification: Option<notification::Message>,
     pub cache_mask: u8,
     pub runtime_theme: RuntimeTheme,
+    pub runtime_tab_metadata: BTreeMap<usize, RuntimeTabMetadata>,
 }
 
 #[derive(Clone, Debug, Ord, Eq, PartialEq, PartialOrd, Copy)]
@@ -81,6 +89,54 @@ impl FromStr for Part {
     }
 
     type Err = anyhow::Error;
+}
+
+pub fn reconcile_runtime_tab_metadata(
+    old_tabs: &[TabInfo],
+    new_tabs: &[TabInfo],
+    metadata_by_position: &BTreeMap<usize, RuntimeTabMetadata>,
+) -> BTreeMap<usize, RuntimeTabMetadata> {
+    let mut reconciled = BTreeMap::new();
+    let mut assigned_positions = std::collections::BTreeSet::new();
+    let mut consumed_old_positions = std::collections::BTreeSet::new();
+
+    for old_tab in old_tabs {
+        let Some(metadata) = metadata_by_position.get(&old_tab.position) else {
+            continue;
+        };
+
+        if let Some(new_tab) = new_tabs.iter().find(|candidate| {
+            candidate.position == old_tab.position && candidate.name == old_tab.name
+        }) {
+            reconciled.insert(new_tab.position, metadata.clone());
+            assigned_positions.insert(new_tab.position);
+            consumed_old_positions.insert(old_tab.position);
+        }
+    }
+
+    for old_tab in old_tabs {
+        let Some(metadata) = metadata_by_position.get(&old_tab.position) else {
+            continue;
+        };
+        if consumed_old_positions.contains(&old_tab.position) {
+            continue;
+        }
+
+        let mut candidates = new_tabs
+            .iter()
+            .filter(|candidate| !assigned_positions.contains(&candidate.position))
+            .filter(|candidate| {
+                candidate.name == metadata.tab_name || candidate.name == old_tab.name
+            });
+
+        if let Some(candidate) = candidates.next() {
+            reconciled.insert(candidate.position, metadata.clone());
+            assigned_positions.insert(candidate.position);
+            consumed_old_positions.insert(old_tab.position);
+        }
+    }
+
+    reconciled
 }
 
 pub enum UpdateEventMask {

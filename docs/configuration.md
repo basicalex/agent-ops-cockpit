@@ -375,11 +375,11 @@ AOC supports custom "AOC Modes" - see [Custom Layouts Guide](layouts.md) for det
 **Quick Reference:**
 
 ```bash
-# Use minimal layout
-aoc-new-tab --layout minimal
+# Use the official managed layout
+aoc-layout --set aoc
 
-# Set default layout
-aoc-layout --set minimal
+# Open a custom layout
+aoc-new-tab --layout review
 
 # Create shared team layouts in .aoc/layouts/
 # Create personal layouts in ~/.config/zellij/layouts/
@@ -399,6 +399,8 @@ When creating custom layouts, AOC automatically replaces these tokens:
 Layout name resolution order:
 1. `.aoc/layouts/<name>.kdl`
 2. `~/.config/zellij/layouts/<name>.kdl`
+
+`aoc-layout` hides deprecated/internal managed layout names such as `unstat`, `minimal`, `aoc-zjstatus-single`, `aoc-zjstatus-test`, and `aoc.hybrid`.
 
 ## Theme Management
 

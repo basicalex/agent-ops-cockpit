@@ -4,7 +4,7 @@ use chrono::{Duration, Local};
 use zellij_tile::prelude::PipeMessage;
 
 use crate::{
-    config::{RuntimeTheme, UpdateEventMask, ZellijState},
+    config::{RuntimeTabMetadata, RuntimeTheme, UpdateEventMask, ZellijState},
     widgets::{command::TIMESTAMP_FORMAT, notification},
 };
 
@@ -44,6 +44,13 @@ pub fn parse_protocol(state: &mut ZellijState, input: &str) -> bool {
 pub fn handle_pipe_message(state: &mut ZellijState, pipe_message: &PipeMessage) -> bool {
     if pipe_message.name == "aoc_theme" {
         return update_aoc_theme_from_payload(state, pipe_message.payload.as_deref().unwrap_or(""));
+    }
+
+    if pipe_message.name == "aoc_tab_metadata" {
+        return update_aoc_tab_metadata_from_payload(
+            state,
+            pipe_message.payload.as_deref().unwrap_or(""),
+        );
     }
 
     if let Some(input) = pipe_message.payload.as_deref() {
@@ -131,8 +138,8 @@ fn rerun_command(state: &mut ZellijState, command_name: &str) {
         .insert(command_name.to_string(), command_result.clone());
 }
 
-fn update_aoc_theme_from_payload(state: &mut ZellijState, payload: &str) -> bool {
-    let mut next_theme = RuntimeTheme::default();
+fn parse_payload_fields(payload: &str) -> std::collections::BTreeMap<String, String> {
+    let mut fields = std::collections::BTreeMap::new();
 
     for raw_line in payload.lines() {
         let line = raw_line.trim();
@@ -145,7 +152,19 @@ fn update_aoc_theme_from_payload(state: &mut ZellijState, payload: &str) -> bool
             continue;
         };
 
-        let value = raw_value.trim().trim_matches('"').to_string();
+        fields.insert(
+            key.trim().to_string(),
+            raw_value.trim().trim_matches('"').to_string(),
+        );
+    }
+
+    fields
+}
+
+fn update_aoc_theme_from_payload(state: &mut ZellijState, payload: &str) -> bool {
+    let mut next_theme = RuntimeTheme::default();
+
+    for (key, value) in parse_payload_fields(payload) {
         match key.trim() {
             "AOC_THEME_BLUE" => next_theme.blue = value,
             "AOC_THEME_GREEN" => next_theme.green = value,
@@ -172,6 +191,74 @@ fn update_aoc_theme_from_payload(state: &mut ZellijState, payload: &str) -> bool
     }
 
     state.runtime_theme = next_theme;
+    state.cache_mask = UpdateEventMask::Tab as u8;
+    true
+}
+
+fn update_aoc_tab_metadata_from_payload(state: &mut ZellijState, payload: &str) -> bool {
+    let fields = parse_payload_fields(payload);
+    if fields.is_empty() {
+        return false;
+    }
+
+    let target_position = fields
+        .get("tab_position")
+        .and_then(|value| value.parse::<usize>().ok())
+        .or_else(|| {
+            if fields.get("target").map(String::as_str) == Some("active") {
+                state
+                    .tabs
+                    .iter()
+                    .find(|tab| tab.active)
+                    .map(|tab| tab.position)
+            } else {
+                fields.get("tab_name").and_then(|target_name| {
+                    state
+                        .tabs
+                        .iter()
+                        .find(|tab| tab.name == *target_name)
+                        .map(|tab| tab.position)
+                })
+            }
+        });
+
+    let Some(tab_position) = target_position else {
+        return false;
+    };
+    let Some(tab) = state.tabs.iter().find(|tab| tab.position == tab_position) else {
+        return false;
+    };
+
+    let project_key = fields
+        .get("project_key")
+        .cloned()
+        .unwrap_or_default()
+        .trim()
+        .to_string();
+    let project_root = fields
+        .get("project_root")
+        .cloned()
+        .unwrap_or_default()
+        .trim()
+        .to_string();
+
+    if project_key.is_empty() && project_root.is_empty() {
+        return false;
+    }
+
+    let next_metadata = RuntimeTabMetadata {
+        tab_name: tab.name.clone(),
+        project_key,
+        project_root,
+    };
+
+    if state.runtime_tab_metadata.get(&tab_position) == Some(&next_metadata) {
+        return false;
+    }
+
+    state
+        .runtime_tab_metadata
+        .insert(tab_position, next_metadata);
     state.cache_mask = UpdateEventMask::Tab as u8;
     true
 }

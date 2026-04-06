@@ -101,6 +101,11 @@ After install (or manual `aoc-init`), a PI-first project should include:
 - `.pi/prompts/tm-cc.md`
 - `.pi/skills/aoc-init-ops/SKILL.md` (plus other seeded skills)
 - `.pi/extensions/minimal.ts`
+- `.pi/extensions/mind-ingest.ts`
+- `.pi/extensions/mind-ops.ts`
+- `.pi/extensions/mind-context.ts`
+- `.pi/extensions/mind-focus.ts`
+- `.pi/extensions/lib/mind.ts`
 - `.pi/extensions/themeMap.ts`
 - `~/.config/zellij/plugins/zjstatus-aoc.wasm`
 - `.aoc/context.md`
@@ -110,6 +115,11 @@ Quick verification:
 
 ```bash
 test -f .pi/extensions/minimal.ts
+test -f .pi/extensions/mind-ingest.ts
+test -f .pi/extensions/mind-ops.ts
+test -f .pi/extensions/mind-context.ts
+test -f .pi/extensions/mind-focus.ts
+test -f .pi/extensions/lib/mind.ts
 test -f .pi/extensions/themeMap.ts
 test -f .pi/prompts/tm-cc.md
 test -f .pi/settings.json
@@ -117,6 +127,14 @@ test -f ~/.config/zellij/plugins/zjstatus-aoc.wasm
 ```
 
 `aoc-init` also installs the managed AOC top-bar plugin from the bundled cache/source snapshot, so the AOC layouts do not depend on a separately downloaded personal `zjstatus` build.
+
+You can inspect or repair it with:
+
+```bash
+aoc-zellij-plugin status
+aoc-zellij-plugin install
+aoc-zellij-plugin verify
+```
 
 If anything is missing, run:
 
@@ -285,13 +303,14 @@ aoc-doctor
 ```
 
 This will check for:
-- Zellij version (>= 0.43.1)
+- Zellij version (>= 0.43.1, with >= 0.44.0 recommended for native pane/tab JSON inventory)
 - Yazi functionality
 - All optional components
 
 ## Setup Checklist
 
 - [ ] `zellij --version` is >= 0.43.1
+- [ ] if you want the newer native pane/tab inventory paths, `zellij --version` is >= 0.44.0
 - [ ] `yazi` opens and previews images
 - [ ] `aoc-doctor` reports all green
 
@@ -436,4 +455,5 @@ On Ubuntu, the binary is named `batcat` instead of `bat`. AOC's `aoc-doctor` acc
 **Next Steps:**
 - Return to [Main README](../README.md)
 - Read about [Configuration](configuration.md)
-- Learn about [Custom Layouts](layouts.md)
+- Learn about [Layouts](layouts.md)
+- Learn about the [Managed Zellij Top Bar](zellij-top-bar.md)
