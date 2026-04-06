@@ -8,6 +8,8 @@ Use it to inspect runtime state, configure integrations, and run setup/verificat
 
 Main areas currently exposed through the control pane include:
 
+- Theme management
+- Layout defaults and custom layout creation/editing
 - RTK routing
 - PI agent installer
 - PI compaction presets
@@ -46,6 +48,27 @@ Useful controls:
 - `PgUp` / `PgDn` — scroll recent log output
 - `x` — cancel the running job
 - `Shift+O` — open the full log in a pager
+
+## Layout creator/editor
+
+Path:
+
+- `Alt+C -> Settings -> Layout`
+
+Available actions include:
+
+- set the default layout
+- create a project custom layout
+- create a global custom layout
+- edit an existing custom layout in `$EDITOR`
+
+The generated starter template preserves:
+
+- the managed `zjstatus-aoc` top bar
+- grouped tab metadata sync via `aoc-tab-metadata sync`
+- the standard AOC placeholder/env contract
+
+Prefer project scope for shared repo workflows and global scope for personal machine-local layouts.
 
 ## Agent Browser + Search
 
@@ -147,4 +170,5 @@ bin/aoc-web-smoke
 - [Configuration Guide](./configuration.md)
 - [Layouts](./layouts.md)
 - [Managed Zellij Top Bar](./zellij-top-bar.md)
+- [Custom Layout Skill](../.pi/skills/custom-layout-ops/SKILL.md)
 - [Agents](./agents.md)

@@ -3,16 +3,26 @@ set -euo pipefail
 
 usage() {
   cat <<'EOF'
-Usage: aoc-layout [--set [layout]] [--tab [layout]] [--current] [--list] [--cwd PATH] [--shell-init bash]
+Usage:
+  aoc-layout [--set [layout]] [--tab [layout]] [--current] [--list]
+             [--create [name]] [--edit [name]] [--scope auto|project|global]
+             [--cwd PATH] [--shell-init bash] [--no-open]
 
 Interactive dashboard for selecting the default layout or launching tabs.
 Layouts are discovered from project `.aoc/layouts/` and global `~/.config/zellij/layouts/`.
+
+Custom layout workflow:
+  aoc-layout --create review --scope project
+  aoc-layout --create ops-dash --scope global
+  aoc-layout --edit review
 EOF
 }
 
 state_dir="${XDG_STATE_HOME:-$HOME/.local/state}/aoc"
 default_file="${state_dir}/layout_default"
 cwd_override=""
+layout_scope="auto"
+open_after_action=1
 
 mkdir -p "$state_dir"
 
@@ -35,6 +45,21 @@ layout_is_hidden_internal() {
   esac
 }
 
+layout_is_reserved_managed() {
+  case "${1:-}" in
+    aoc|mission-control|unstat|minimal|aoc-zjstatus-single|aoc-zjstatus-test|aoc.hybrid)
+      return 0
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+}
+
+validate_custom_layout_name() {
+  [[ "${1:-}" =~ ^[A-Za-z0-9._-]+$ ]]
+}
+
 list_layouts_from_dir() {
   local dir="$1"
   [[ -d "$dir" ]] || return 0
@@ -51,7 +76,6 @@ list_layouts_from_dir() {
 }
 
 list_layouts() {
-  # List project and global custom layouts, plus the one official managed layout.
   local project_root=""
   local project_layout_dir=""
   project_root="$(resolve_project_root || true)"
@@ -66,6 +90,10 @@ list_layouts() {
     fi
     list_layouts_from_dir "$HOME/.config/zellij/layouts"
   } | awk 'NF && !seen[$0]++'
+}
+
+list_custom_layouts() {
+  list_layouts | awk '$0 != "aoc"'
 }
 
 resolve_project_root() {
@@ -85,6 +113,76 @@ resolve_project_root() {
     fi
     probe="$(dirname "$probe")"
   done
+
+  return 1
+}
+
+resolve_layout_dir() {
+  local scope="$1"
+  case "$scope" in
+    project)
+      local project_root=""
+      project_root="$(resolve_project_root || true)"
+      if [[ -z "$project_root" ]]; then
+        echo "Project scope requires running inside an AOC project (with .aoc/)." >&2
+        return 1
+      fi
+      printf '%s' "$project_root/.aoc/layouts"
+      ;;
+    global)
+      printf '%s' "$HOME/.config/zellij/layouts"
+      ;;
+    *)
+      echo "Unsupported layout scope: $scope" >&2
+      return 1
+      ;;
+  esac
+}
+
+resolve_existing_layout_path() {
+  local layout="$1"
+  local scope="$2"
+  local project_root=""
+  local project_path=""
+  local global_path=""
+
+  layout="$(normalize_layout_name "$layout")"
+  project_root="$(resolve_project_root || true)"
+  project_path="${project_root:+$project_root/.aoc/layouts/$layout.kdl}"
+  global_path="$HOME/.config/zellij/layouts/$layout.kdl"
+
+  case "$scope" in
+    auto)
+      if [[ -n "$project_path" && -f "$project_path" ]]; then
+        printf '%s' "$project_path"
+        return 0
+      fi
+      if [[ -f "$global_path" ]]; then
+        printf '%s' "$global_path"
+        return 0
+      fi
+      ;;
+    project)
+      if [[ -z "$project_root" ]]; then
+        echo "Project scope requires running inside an AOC project (with .aoc/)." >&2
+        return 1
+      fi
+      if [[ -f "$project_path" ]]; then
+        printf '%s' "$project_path"
+        return 0
+      fi
+      ;;
+    global)
+      if [[ -f "$global_path" ]]; then
+        printf '%s' "$global_path"
+        return 0
+      fi
+      ;;
+    *)
+      echo "Unsupported layout scope: $scope" >&2
+      return 1
+      ;;
+  esac
 
   return 1
 }
@@ -204,27 +302,48 @@ __aoc_layout_install_prompt_hook
 EOF
 }
 
-pick_layout() {
+pick_layout_from_stream() {
+  local prompt="$1"
   local choice=""
+  local -a layouts=()
+
+  mapfile -t layouts
+  if [[ ${#layouts[@]} -eq 0 ]]; then
+    return 1
+  fi
+
   if command -v fzf >/dev/null 2>&1; then
-    choice="$(list_layouts | fzf --prompt="Layout > " || true)"
-    printf "%s" "$choice"
+    choice="$(printf '%s\n' "${layouts[@]}" | fzf --prompt="$prompt" || true)"
+    printf '%s' "$choice"
     return 0
   fi
 
   echo "Select layout:"
   local i=1
-  local layouts=()
-  while IFS= read -r line; do
-    layouts+=("$line")
-    echo "  $i) $line"
+  for choice in "${layouts[@]}"; do
+    echo "  $i) $choice"
     ((i++))
-  done < <(list_layouts)
+  done
 
   read -r -p "Layout number > " choice
   if [[ "$choice" =~ ^[0-9]+$ ]] && ((choice >= 1 && choice <= ${#layouts[@]})); then
-    printf "%s" "${layouts[$((choice-1))]}"
+    printf '%s' "${layouts[$((choice-1))]}"
   fi
+}
+
+pick_layout() {
+  list_layouts | pick_layout_from_stream "Layout > "
+}
+
+pick_custom_layout() {
+  list_custom_layouts | pick_layout_from_stream "Custom layout > "
+}
+
+prompt_layout_name() {
+  local prompt="$1"
+  local value=""
+  read -r -p "$prompt" value
+  printf '%s' "$value"
 }
 
 current_layout() {
@@ -233,6 +352,77 @@ current_layout() {
   else
     echo "aoc"
   fi
+}
+
+resolve_editor_fallback() {
+  local candidate=""
+  for candidate in micro nano vim vi; do
+    if command -v "$candidate" >/dev/null 2>&1; then
+      printf '%s' "$candidate"
+      return 0
+    fi
+  done
+  return 1
+}
+
+open_in_editor() {
+  local path="$1"
+  local fallback_editor=""
+  fallback_editor="$(resolve_editor_fallback || true)"
+  if [[ -z "${VISUAL:-}" && -z "${EDITOR:-}" && -z "$fallback_editor" ]]; then
+    echo "No editor found. Set VISUAL or EDITOR." >&2
+    return 1
+  fi
+
+  AOC_LAYOUT_EDITOR_FALLBACK="$fallback_editor" \
+    bash -c 'editor="${VISUAL:-${EDITOR:-${AOC_LAYOUT_EDITOR_FALLBACK:-}}}"; [[ -n "$editor" ]] || exit 127; exec ${editor} "$1"' bash "$path"
+}
+
+write_custom_layout_template() {
+  local path="$1"
+  cat >"$path" <<'EOF'
+layout {
+  tab name="__AOC_TAB_NAME__" focus=true {
+    pane split_direction="horizontal" {
+      pane size=1 borderless=true {
+        plugin location="file:{{HOME}}/.config/zellij/plugins/zjstatus-aoc.wasm" {
+          format_left   "#[fg=__AOC_THEME_WHITE__] {session} "
+          format_center "{tabs}"
+          format_right  "#[fg=__AOC_THEME_WHITE__] __AOC_AGENT_ID__ "
+          format_space  ""
+          disable_mouse "false"
+          tab_project_segments       "true"
+          tab_project_palette        "__AOC_THEME_CYAN__,__AOC_THEME_MAGENTA__,__AOC_THEME_ORANGE__,__AOC_THEME_GREEN__,__AOC_THEME_YELLOW__,__AOC_THEME_BLUE__"
+          tab_project_group_left     ""
+          tab_project_group_right    ""
+          tab_project_same_separator "  "
+          tab_project_group_gap      "  "
+          tab_project_active_fg      "__AOC_THEME_BG_BASE__"
+          tab_project_inactive_fg    "__AOC_THEME_BG_BASE__"
+          tab_project_separator_fg   "__AOC_THEME_BG_BASE__"
+          border_enabled  "false"
+          border_char     "─"
+          border_format   "#[fg=black]{char}"
+          border_position "bottom"
+          hide_frame_for_single_pane "false"
+          tab_normal   "#[fg=black] {name} "
+          tab_active   "#[fg=white,bold,italic] {name} "
+        }
+      }
+
+      pane split_direction="vertical" {
+        pane size="60%" focus=true command="bash" {
+          args "-lc" "export PATH=\"$HOME/.cargo/bin:$PATH\"; theme_env=\"${XDG_CONFIG_HOME:-$HOME/.config}/aoc/theme.env\"; if [[ -f \"$theme_env\" ]]; then source \"$theme_env\"; fi; export AOC_SESSION_ID=\"__AOC_SESSION_ID__\"; export AOC_HUB_ADDR=\"__AOC_HUB_ADDR__\"; export AOC_HUB_URL=\"__AOC_HUB_URL__\"; export AOC_PROJECT_ROOT=\"__AOC_PROJECT_ROOT__\"; export AOC_TAB_SCOPE=\"__AOC_TAB_NAME__\"; if command -v aoc-tab-metadata >/dev/null 2>&1; then aoc-tab-metadata sync >/dev/null 2>&1 || true; fi; export AOC_PANE_ID=\"${ZELLIJ_PANE_ID:-}\"; export AOC_PI_USE_WRAP_RS=1; cd \"__AOC_PROJECT_ROOT__\" && AOC_AGENT_RUN=1 exec ${AOC_AGENT_CMD:-aoc-agent-wrap pi pi 'PI Agent'}"
+        }
+
+        pane name="Terminal" size="40%" command="bash" {
+          args "-lc" "export PATH=\"$HOME/.cargo/bin:$PATH\"; theme_env=\"${XDG_CONFIG_HOME:-$HOME/.config}/aoc/theme.env\"; if [[ -f \"$theme_env\" ]]; then source \"$theme_env\"; fi; export AOC_SESSION_ID=\"__AOC_SESSION_ID__\"; export AOC_HUB_ADDR=\"__AOC_HUB_ADDR__\"; export AOC_HUB_URL=\"__AOC_HUB_URL__\"; export AOC_PROJECT_ROOT=\"__AOC_PROJECT_ROOT__\"; export AOC_TAB_SCOPE=\"__AOC_TAB_NAME__\"; if command -v aoc-tab-metadata >/dev/null 2>&1; then aoc-tab-metadata sync >/dev/null 2>&1 || true; fi; cd \"__AOC_PROJECT_ROOT__\" && exec ${AOC_TERMINAL_CMD:-$SHELL}"
+        }
+      }
+    }
+  }
+}
+EOF
 }
 
 set_default() {
@@ -258,13 +448,86 @@ open_tab() {
     echo "No layout selected." >&2
     exit 1
   fi
-  
+
   layout="$(normalize_layout_name "$layout")"
   if [[ -n "${ZELLIJ:-}" || -n "${ZELLIJ_SESSION_NAME:-}" ]]; then
     aoc-new-tab --layout "$layout"
   else
-    # If not in Zellij, launch new session with this layout
     AOC_LAYOUT="$layout" aoc-launch
+  fi
+}
+
+create_custom_layout() {
+  local layout="$1"
+  local scope="$2"
+  local target_dir=""
+  local target_path=""
+
+  if [[ -z "$layout" ]]; then
+    layout="$(prompt_layout_name "New custom layout name > ")"
+  fi
+  layout="${layout// /}"
+  if [[ -z "$layout" ]]; then
+    echo "Layout name cannot be empty." >&2
+    return 1
+  fi
+  if ! validate_custom_layout_name "$layout"; then
+    echo "Invalid layout name '$layout'. Use letters, numbers, dots, underscores, or dashes." >&2
+    return 1
+  fi
+  layout="$(normalize_layout_name "$layout")"
+  if layout_is_reserved_managed "$layout"; then
+    echo "Layout name '$layout' is reserved for managed/internal layouts." >&2
+    return 1
+  fi
+
+  target_dir="$(resolve_layout_dir "$scope")"
+  mkdir -p "$target_dir"
+  target_path="$target_dir/$layout.kdl"
+
+  if [[ -e "$target_path" ]]; then
+    echo "Layout already exists: $target_path" >&2
+    return 1
+  fi
+
+  write_custom_layout_template "$target_path"
+  echo "Created custom layout: $target_path"
+  if [[ "$open_after_action" == "1" ]]; then
+    open_in_editor "$target_path"
+    echo "Opened custom layout in editor: $target_path"
+  fi
+}
+
+edit_custom_layout() {
+  local layout="$1"
+  local scope="$2"
+  local target_path=""
+
+  if [[ -z "$layout" ]]; then
+    layout="$(pick_custom_layout || true)"
+  fi
+  if [[ -z "$layout" ]]; then
+    echo "No custom layout selected." >&2
+    return 1
+  fi
+
+  layout="$(normalize_layout_name "$layout")"
+  if layout_is_reserved_managed "$layout"; then
+    echo "Managed layout '$layout' is not editable here. Create a custom layout instead." >&2
+    return 1
+  fi
+
+  target_path="$(resolve_existing_layout_path "$layout" "$scope" || true)"
+  if [[ -z "$target_path" ]]; then
+    echo "Custom layout '$layout' not found for scope '$scope'." >&2
+    return 1
+  fi
+
+  if [[ "$open_after_action" == "1" ]]; then
+    open_in_editor "$target_path"
+    echo "Opened custom layout in editor: $target_path"
+  else
+    echo "$target_path"
   fi
 }
 
@@ -287,6 +550,31 @@ while [[ $# -gt 0 ]]; do
         value="$2"
         shift
       fi
+      ;;
+    --create)
+      action="create"
+      if [[ $# -gt 1 && "${2:-}" != --* ]]; then
+        value="$2"
+        shift
+      fi
+      ;;
+    --edit)
+      action="edit"
+      if [[ $# -gt 1 && "${2:-}" != --* ]]; then
+        value="$2"
+        shift
+      fi
+      ;;
+    --scope)
+      shift
+      layout_scope="${1:-}"
+      if [[ -z "$layout_scope" ]]; then
+        echo "--scope requires auto, project, or global." >&2
+        exit 1
+      fi
+      ;;
+    --no-open)
+      open_after_action=0
       ;;
     --current)
       action="current"
@@ -324,6 +612,15 @@ while [[ $# -gt 0 ]]; do
   shift || true
 done
 
+case "$layout_scope" in
+  auto|project|global)
+    ;;
+  *)
+    echo "Unsupported --scope: $layout_scope" >&2
+    exit 1
+    ;;
+esac
+
 case "$action" in
   set)
     set_default "$value"
@@ -331,6 +628,17 @@ case "$action" in
     ;;
   tab)
     open_tab "$value"
+    exit 0
+    ;;
+  create)
+    if [[ "$layout_scope" == "auto" ]]; then
+      layout_scope="project"
+    fi
+    create_custom_layout "$value" "$layout_scope"
+    exit 0
+    ;;
+  edit)
+    edit_custom_layout "$value" "$layout_scope"
     exit 0
     ;;
   current)
@@ -366,12 +674,18 @@ fi
 action="$(printf "%s\n" \
   "Set default layout" \
   "Open new tab" \
+  "Create project custom layout" \
+  "Create global custom layout" \
+  "Edit custom layout" \
   "Show current" \
-  | fzf --prompt="AOC Layout > " --height=40% --border || true)"
+  | fzf --prompt="AOC Layout > " --height=50% --border || true)"
 
 case "$action" in
   "Set default layout") set_default "" ;;
   "Open new tab") open_tab "" ;;
+  "Create project custom layout") create_custom_layout "" "project" ;;
+  "Create global custom layout") create_custom_layout "" "global" ;;
+  "Edit custom layout") edit_custom_layout "" "auto" ;;
   "Show current")
     current="$(current_layout)"
     if [[ -z "$current" ]]; then

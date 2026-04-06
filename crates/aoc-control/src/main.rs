@@ -52,6 +52,7 @@ enum Focus {
 enum PickTarget {
     Defaults,
     Override,
+    Edit,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -76,6 +77,8 @@ enum Mode {
     EditProjectsBase,
     SearchProjects,
     NewProject,
+    NewProjectLayout,
+    NewGlobalLayout,
     NewTheme,
     RtkActions,
     AgentInstallActions,
@@ -862,6 +865,52 @@ impl App {
         self.session_overrides.layout = Some(layout.clone());
         self.set_status(format!("Override layout set to {layout}"));
         self.mode = Mode::Normal;
+    }
+
+    fn commit_new_project_layout(&mut self) {
+        let layout_name = self.input_buffer.trim().to_string();
+        if layout_name.is_empty() {
+            self.set_status("Layout name cannot be empty");
+            return;
+        }
+        match run_layout_command_interactive(&["--create", layout_name.as_str(), "--scope", "project"]) {
+            Ok(()) => {
+                self.set_status(format!(
+                    "Created/opened project custom layout '{}'",
+                    layout_name
+                ));
+                self.cancel_input();
+            }
+            Err(err) => self.set_status(format!("Project custom layout create failed: {err}")),
+        }
+    }
+
+    fn commit_new_global_layout(&mut self) {
+        let layout_name = self.input_buffer.trim().to_string();
+        if layout_name.is_empty() {
+            self.set_status("Layout name cannot be empty");
+            return;
+        }
+        match run_layout_command_interactive(&["--create", layout_name.as_str(), "--scope", "global"]) {
+            Ok(()) => {
+                self.set_status(format!(
+                    "Created/opened global custom layout '{}'",
+                    layout_name
+                ));
+                self.cancel_input();
+            }
+            Err(err) => self.set_status(format!("Global custom layout create failed: {err}")),
+        }
+    }
+
+    fn edit_custom_layout(&mut self, layout: String) {
+        match run_layout_command_interactive(&["--edit", layout.as_str(), "--scope", "auto"]) {
+            Ok(()) => {
+                self.set_status(format!("Opened custom layout '{}'", layout));
+                self.mode = Mode::Normal;
+            }
+            Err(err) => self.set_status(format!("Custom layout edit failed: {err}")),
+        }
     }
 
     fn set_override_agent(&mut self, agent: String) {
@@ -1834,6 +1883,8 @@ fn handle_key(app: &mut App, key: KeyEvent) {
         Mode::EditProjectsBase => handle_key_input(app, key, InputMode::ProjectsBase),
         Mode::SearchProjects => handle_key_input(app, key, InputMode::Search),
         Mode::NewProject => handle_key_input(app, key, InputMode::NewProject),
+        Mode::NewProjectLayout => handle_key_input(app, key, InputMode::NewProjectLayout),
+        Mode::NewGlobalLayout => handle_key_input(app, key, InputMode::NewGlobalLayout),
         Mode::NewTheme => handle_key_input(app, key, InputMode::NewTheme),
         Mode::RtkActions => handle_key_rtk_actions(app, key),
         Mode::AgentInstallActions => handle_key_agent_install_actions(app, key),
@@ -2102,12 +2153,19 @@ enum Picker {
     BackgroundProfile,
 }
 
+fn layout_picker_options_for(target: PickTarget) -> Vec<String> {
+    match target {
+        PickTarget::Edit => custom_layout_options(),
+        PickTarget::Defaults | PickTarget::Override => layout_options(),
+    }
+}
+
 fn handle_key_picker(app: &mut App, key: KeyEvent, picker: Picker) {
     match key.code {
         KeyCode::Esc => app.mode = Mode::Normal,
         KeyCode::Char('j') | KeyCode::Down => match picker {
-            Picker::Layout(_) => {
-                list_next_state(&mut app.layout_picker_state, layout_options().len())
+            Picker::Layout(target) => {
+                list_next_state(&mut app.layout_picker_state, layout_picker_options_for(target).len())
             }
             Picker::Agent(_) => list_next_state(&mut app.agent_picker_state, agent_options().len()),
             Picker::BackgroundProfile => list_next_state(
@@ -2116,8 +2174,8 @@ fn handle_key_picker(app: &mut App, key: KeyEvent, picker: Picker) {
             ),
         },
         KeyCode::Char('k') | KeyCode::Up => match picker {
-            Picker::Layout(_) => {
-                list_prev_state(&mut app.layout_picker_state, layout_options().len())
+            Picker::Layout(target) => {
+                list_prev_state(&mut app.layout_picker_state, layout_picker_options_for(target).len())
             }
             Picker::Agent(_) => list_prev_state(&mut app.agent_picker_state, agent_options().len()),
             Picker::BackgroundProfile => list_prev_state(
@@ -2128,11 +2186,12 @@ fn handle_key_picker(app: &mut App, key: KeyEvent, picker: Picker) {
         KeyCode::Enter => match picker {
             Picker::Layout(target) => {
                 let index = app.layout_picker_state.selected().unwrap_or(0);
-                let options = layout_options();
+                let options = layout_picker_options_for(target);
                 if let Some(choice) = options.get(index).cloned() {
                     match target {
                         PickTarget::Defaults => app.set_default_layout(choice),
                         PickTarget::Override => app.set_override_layout(choice),
+                        PickTarget::Edit => app.edit_custom_layout(choice),
                     }
                 }
             }
@@ -2143,6 +2202,7 @@ fn handle_key_picker(app: &mut App, key: KeyEvent, picker: Picker) {
                     match target {
                         PickTarget::Defaults => app.set_default_agent(choice),
                         PickTarget::Override => app.set_override_agent(choice),
+                        PickTarget::Edit => app.mode = Mode::Normal,
                     }
                 }
             }
@@ -2162,6 +2222,8 @@ enum InputMode {
     ProjectsBase,
     Search,
     NewProject,
+    NewProjectLayout,
+    NewGlobalLayout,
     NewTheme,
 }
 
@@ -2181,6 +2243,8 @@ fn handle_key_input(app: &mut App, key: KeyEvent, mode: InputMode) {
             InputMode::ProjectsBase => app.commit_projects_base(),
             InputMode::Search => app.commit_search(),
             InputMode::NewProject => app.commit_new_project(),
+            InputMode::NewProjectLayout => app.commit_new_project_layout(),
+            InputMode::NewGlobalLayout => app.commit_new_global_layout(),
             InputMode::NewTheme => app.commit_new_theme(),
         },
         KeyCode::Backspace => {
@@ -2388,7 +2452,23 @@ fn activate_selection(app: &mut App) {
                     select_picker(&mut app.layout_picker_state, &layout_options(), &current);
                     app.mode = Mode::PickLayout(PickTarget::Defaults);
                 }
-                1 => app.set_settings_section(SettingsSection::Root),
+                1 => app.start_input(Mode::NewProjectLayout, String::new()),
+                2 => app.start_input(Mode::NewGlobalLayout, String::new()),
+                3 => {
+                    let options = custom_layout_options();
+                    if options.is_empty() {
+                        app.set_status("No custom layouts found yet");
+                    } else {
+                        let current = if options.iter().any(|value| value == &app.default_layout) {
+                            app.default_layout.clone()
+                        } else {
+                            options[0].clone()
+                        };
+                        select_picker(&mut app.layout_picker_state, &options, &current);
+                        app.mode = Mode::PickLayout(PickTarget::Edit);
+                    }
+                }
+                4 => app.set_settings_section(SettingsSection::Root),
                 _ => {}
             },
             SettingsSection::Tools => match app.settings_tools_state.selected().unwrap_or(0) {
@@ -2595,6 +2675,12 @@ fn draw_defaults(frame: &mut ratatui::Frame, area: Rect, app: &mut App, focused:
         SettingsSection::Layout => {
             let items = vec![
                 ListItem::new(format!("Default layout · {}", app.default_layout)),
+                ListItem::new("Create project custom layout"),
+                ListItem::new("Create global custom layout"),
+                ListItem::new(format!(
+                    "Edit custom layout · {} available",
+                    custom_layout_options().len()
+                )),
                 ListItem::new("Back"),
             ];
             ("Settings · Layout", items)
@@ -2925,8 +3011,12 @@ fn draw_modal(frame: &mut ratatui::Frame, app: &mut App) {
             let title = match target {
                 PickTarget::Defaults => "Select Layout (Default)",
                 PickTarget::Override => "Select Layout (Launch)",
+                PickTarget::Edit => "Select Custom Layout to Edit",
             };
-            let items: Vec<ListItem> = layout_options().into_iter().map(ListItem::new).collect();
+            let items: Vec<ListItem> = layout_picker_options_for(target)
+                .into_iter()
+                .map(ListItem::new)
+                .collect();
             let list = List::new(items)
                 .block(Block::default().borders(Borders::ALL).title(title))
                 .highlight_style(
@@ -2940,6 +3030,7 @@ fn draw_modal(frame: &mut ratatui::Frame, app: &mut App) {
             let title = match target {
                 PickTarget::Defaults => "Select Agent (Default)",
                 PickTarget::Override => "Select Agent (Launch)",
+                PickTarget::Edit => "Select Agent",
             };
             let items: Vec<ListItem> = agent_options().into_iter().map(ListItem::new).collect();
             let list = List::new(items)
@@ -2972,6 +3063,12 @@ fn draw_modal(frame: &mut ratatui::Frame, app: &mut App) {
         Mode::EditProjectsBase => draw_input_modal(frame, area, "Projects base", &app.input_buffer),
         Mode::SearchProjects => draw_input_modal(frame, area, "Search projects", &app.input_buffer),
         Mode::NewProject => draw_input_modal(frame, area, "New project", &app.input_buffer),
+        Mode::NewProjectLayout => {
+            draw_input_modal(frame, area, "New project custom layout", &app.input_buffer)
+        }
+        Mode::NewGlobalLayout => {
+            draw_input_modal(frame, area, "New global custom layout", &app.input_buffer)
+        }
         Mode::NewTheme => {
             draw_input_modal(frame, area, "New theme (kebab-case)", &app.input_buffer)
         }
@@ -3102,6 +3199,7 @@ fn draw_help_modal(frame: &mut ratatui::Frame, area: Rect) {
         Line::from("  Right pane shows details for selected settings item"),
         Line::from("  Agent Browser/search jobs: PgUp/PgDn scroll, x cancel, Shift+O open log"),
         Line::from("  Theme manager: j/k preview, Enter activate+persist, n/i/r actions"),
+        Line::from("  Layout section can create/edit custom layouts through your $EDITOR"),
         Line::from(""),
         Line::from("Projects:"),
         Line::from("  Enter or o  open project"),
@@ -3177,7 +3275,12 @@ fn footer_lines(app: &App) -> Vec<Line<'_>> {
     ]));
 
     let action_line = match app.mode {
-        Mode::EditProjectsBase | Mode::SearchProjects | Mode::NewProject | Mode::NewTheme => vec![
+        Mode::EditProjectsBase
+        | Mode::SearchProjects
+        | Mode::NewProject
+        | Mode::NewProjectLayout
+        | Mode::NewGlobalLayout
+        | Mode::NewTheme => vec![
             keycap("Enter"),
             Span::raw(" save  "),
             keycap("Esc"),
@@ -3405,7 +3508,13 @@ fn settings_theme_options() -> Vec<String> {
 }
 
 fn settings_layout_options() -> Vec<String> {
-    vec!["Default layout".to_string(), "Back".to_string()]
+    vec![
+        "Default layout".to_string(),
+        "Create project custom layout".to_string(),
+        "Create global custom layout".to_string(),
+        "Edit custom layout".to_string(),
+        "Back".to_string(),
+    ]
 }
 
 fn settings_tools_options() -> Vec<String> {
@@ -3651,6 +3760,42 @@ fn settings_detail_lines(app: &App) -> Vec<Line<'static>> {
                     "Used when launching new sessions without overrides.",
                 ));
                 lines.push(Line::from("Enter opens layout picker."));
+            }
+            1 => {
+                lines.push(Line::from("Create project custom layout"));
+                lines.push(Line::from(""));
+                lines.push(Line::from(
+                    "Creates .aoc/layouts/<name>.kdl inside the current project.",
+                ));
+                lines.push(Line::from(
+                    "A starter template includes the managed zjstatus top bar and metadata sync.",
+                ));
+                lines.push(Line::from("Enter prompts for a layout name, then opens $EDITOR."));
+            }
+            2 => {
+                lines.push(Line::from("Create global custom layout"));
+                lines.push(Line::from(""));
+                lines.push(Line::from(
+                    "Creates ~/.config/zellij/layouts/<name>.kdl for personal reuse across repos.",
+                ));
+                lines.push(Line::from(
+                    "Use this for personal workflows that should not be committed to a repo.",
+                ));
+                lines.push(Line::from("Enter prompts for a layout name, then opens $EDITOR."));
+            }
+            3 => {
+                lines.push(Line::from("Edit custom layout"));
+                lines.push(Line::from(""));
+                lines.push(Line::from(format!(
+                    "Available custom layouts: {}",
+                    custom_layout_options().len()
+                )));
+                lines.push(Line::from(
+                    "Picks a project/global custom layout and opens it in your editor.",
+                ));
+                lines.push(Line::from(
+                    "Managed layout 'aoc' is intentionally excluded from direct editing.",
+                ));
             }
             _ => {
                 lines.push(Line::from("Back"));
@@ -6360,6 +6505,22 @@ fn run_theme_apply_quiet(theme_name: &str) -> io::Result<()> {
     })
 }
 
+fn run_layout_command_interactive(args: &[&str]) -> io::Result<()> {
+    let status = with_cooked_mode(|| Command::new("aoc-layout").args(args).status())?;
+    if status.success() {
+        Ok(())
+    } else {
+        let rendered = if args.is_empty() {
+            "aoc-layout".to_string()
+        } else {
+            format!("aoc-layout {}", args.join(" "))
+        };
+        Err(io::Error::other(format!(
+            "{rendered} exited with status {status}"
+        )))
+    }
+}
+
 fn command_failure(command: &str, output: &std::process::Output) -> io::Error {
     let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
     let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
@@ -6609,6 +6770,23 @@ fn load_projects(base: &Path) -> io::Result<Vec<ProjectEntry>> {
     Ok(entries)
 }
 
+fn normalize_layout_name(layout: &str) -> String {
+    match layout {
+        "" => "aoc".to_string(),
+        "unstat" | "aoc-zjstatus-single" | "aoc-zjstatus-test" | "aoc.hybrid" => {
+            "aoc".to_string()
+        }
+        _ => layout.to_string(),
+    }
+}
+
+fn layout_is_hidden_internal(layout: &str) -> bool {
+    matches!(
+        layout,
+        "unstat" | "minimal" | "mission-control" | "aoc-zjstatus-single" | "aoc-zjstatus-test" | "aoc.hybrid"
+    )
+}
+
 fn layout_options() -> Vec<String> {
     let mut options = vec!["aoc".to_string()];
     if let Some(project_root) = find_project_root() {
@@ -6620,13 +6798,24 @@ fn layout_options() -> Vec<String> {
     options
 }
 
+fn custom_layout_options() -> Vec<String> {
+    layout_options()
+        .into_iter()
+        .filter(|layout| layout != "aoc")
+        .collect()
+}
+
 fn append_layout_options(layouts_dir: &Path, options: &mut Vec<String>) {
     if let Ok(entries) = fs::read_dir(layouts_dir) {
         for entry in entries.flatten() {
             let path = entry.path();
             if path.extension().is_some_and(|ext| ext == "kdl") {
                 if let Some(name) = path.file_stem() {
-                    options.push(name.to_string_lossy().to_string());
+                    let name = normalize_layout_name(&name.to_string_lossy());
+                    if layout_is_hidden_internal(&name) {
+                        continue;
+                    }
+                    options.push(name);
                 }
             }
         }
