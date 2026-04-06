@@ -1,6 +1,13 @@
 {
   "extensions": [],
-  "defaultProvider": "opencode",
-  "defaultModel": "gpt-5.3-codex",
-  "defaultThinkingLevel": "medium"
+  "defaultProvider": "openai-codex",
+  "defaultModel": "gpt-5.4",
+  "defaultThinkingLevel": "medium",
+  "enabledModels": [
+    "openai-codex/gpt-5.4",
+    "opencode/glm-5",
+    "opencode/gemini-3-flash",
+    "opencode/gemini-3.1-pro",
+    "alibaba/qwen3.6-plus"
+  ]
 }

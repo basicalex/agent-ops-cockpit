@@ -797,7 +797,7 @@ description: Initialize or repair AOC context, memory, and tasks safely.
 - Ensures PRD directory `.taskmaster/docs/prds/` is available for tag/task links
 - Seeds `.pi/settings.json` when missing
 - Seeds PI prompt templates in `.pi/prompts/` (`/aoc-ops`, `/teach`, `/teach-full`, `/teach-dive`, `/teach-ask`, `/tm-cc`) when missing
-- Seeds PI default extensions in `.pi/extensions/` (`minimal.ts`, `themeMap.ts`) when missing
+- Seeds PI default extensions in `.pi/extensions/` (`minimal.ts`, `themeMap.ts`, `mind-ingest.ts`, `mind-ops.ts`, `mind-context.ts`, `mind-focus.ts`, plus `lib/mind.ts`) when missing
 - Installs the managed AOC Zellij top-bar plugin to `~/.config/zellij/plugins/zjstatus-aoc.wasm`
 - Migrates missing legacy PI prompts/skills from `.aoc/prompts/pi/` and `.aoc/skills/` into `.pi/**` (non-destructive), and cleans safe `tmcc` prompt alias duplicates
 - Optional MoreMotion prompt `/momo` is seeded by `aoc-momo init`
@@ -826,7 +826,19 @@ import sys
 from pathlib import Path
 
 path = Path(sys.argv[1])
-zen_defaults = {
+pi_defaults = {
+    "defaultProvider": "openai-codex",
+    "defaultModel": "gpt-5.4",
+    "defaultThinkingLevel": "medium",
+}
+seeded_enabled_models = [
+    "openai-codex/gpt-5.4",
+    "opencode/glm-5",
+    "opencode/gemini-3-flash",
+    "opencode/gemini-3.1-pro",
+    "alibaba/qwen3.6-plus",
+]
+legacy_seeded_defaults = {
     "defaultProvider": "opencode",
     "defaultModel": "gpt-5.3-codex",
     "defaultThinkingLevel": "medium",
@@ -837,7 +849,7 @@ legacy_seeded_enabled_models = [
     "opencode/gemini-3.1-pro:medium",
     "opencode/kimi-k2.5:medium",
 ]
-defaults = {"extensions": [], **zen_defaults}
+defaults = {"extensions": [], **pi_defaults, "enabledModels": seeded_enabled_models}
 
 if not path.exists():
     path.write_text(json.dumps(defaults, indent=2) + "\n", encoding="utf-8")
@@ -863,18 +875,25 @@ has_provider = "defaultProvider" in data
 has_model = "defaultModel" in data
 
 if not has_provider and not has_model:
-    for key, value in zen_defaults.items():
+    for key, value in defaults.items():
         if key not in data:
             data[key] = value
             changed = True
-elif data.get("defaultProvider") == "opencode":
-    for key, value in zen_defaults.items():
-        if key not in data:
+elif all(data.get(key) == value for key, value in legacy_seeded_defaults.items()):
+    for key, value in pi_defaults.items():
+        if data.get(key) != value:
             data[key] = value
             changed = True
+    if data.get("enabledModels") != seeded_enabled_models:
+        data["enabledModels"] = seeded_enabled_models
+        changed = True
+elif all(data.get(key) == value for key, value in pi_defaults.items()):
+    if "enabledModels" not in data:
+        data["enabledModels"] = seeded_enabled_models
+        changed = True
 
 if data.get("enabledModels") == legacy_seeded_enabled_models:
-    del data["enabledModels"]
+    data["enabledModels"] = seeded_enabled_models
     changed = True
 
 if changed:
@@ -1037,6 +1056,11 @@ setup_pi_extensions() {
   local required_extensions=(
     "minimal.ts"
     "themeMap.ts"
+    "mind-ingest.ts"
+    "mind-ops.ts"
+    "mind-context.ts"
+    "mind-focus.ts"
+    "lib/mind.ts"
   )
 
   mkdir -p "$pi_extensions_dir" "$global_template_dir"
@@ -1051,6 +1075,7 @@ setup_pi_extensions() {
   for extension_file in "${required_extensions[@]}"; do
     target_file="$pi_extensions_dir/$extension_file"
     cache_file="$global_template_dir/$extension_file"
+    mkdir -p "$(dirname "$target_file")" "$(dirname "$cache_file")"
 
     preferred_seed_file=""
     for candidate in "${canonical_seed_dirs[@]}"; do
