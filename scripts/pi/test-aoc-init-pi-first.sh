@@ -57,16 +57,24 @@ assert_exists "$project_fresh/.aoc/context.md"
 assert_exists "$project_fresh/.aoc/memory.md"
 assert_exists "$project_fresh/.aoc/stm/current.md"
 assert_exists "$project_fresh/.pi/settings.json"
-assert_contains '"defaultProvider": "opencode"' "$project_fresh/.pi/settings.json"
-assert_contains '"defaultModel": "gpt-5.3-codex"' "$project_fresh/.pi/settings.json"
+assert_contains '"defaultProvider": "openai-codex"' "$project_fresh/.pi/settings.json"
+assert_contains '"defaultModel": "gpt-5.4"' "$project_fresh/.pi/settings.json"
 assert_contains '"defaultThinkingLevel": "medium"' "$project_fresh/.pi/settings.json"
-if grep -Fq '"enabledModels"' "$project_fresh/.pi/settings.json"; then
-  fail "Did not expect enabledModels to be seeded into PI settings"
-fi
+assert_contains '"enabledModels": [' "$project_fresh/.pi/settings.json"
+assert_contains '"openai-codex/gpt-5.4"' "$project_fresh/.pi/settings.json"
+assert_contains '"opencode/glm-5"' "$project_fresh/.pi/settings.json"
+assert_contains '"opencode/gemini-3-flash"' "$project_fresh/.pi/settings.json"
+assert_contains '"opencode/gemini-3.1-pro"' "$project_fresh/.pi/settings.json"
+assert_contains '"alibaba/qwen3.6-plus"' "$project_fresh/.pi/settings.json"
 assert_exists "$project_fresh/.pi/prompts/tm-cc.md"
 assert_exists "$project_fresh/.pi/skills/aoc-init-ops/SKILL.md"
 assert_exists "$project_fresh/.pi/extensions/minimal.ts"
 assert_exists "$project_fresh/.pi/extensions/themeMap.ts"
+assert_exists "$project_fresh/.pi/extensions/mind-ingest.ts"
+assert_exists "$project_fresh/.pi/extensions/mind-ops.ts"
+assert_exists "$project_fresh/.pi/extensions/mind-context.ts"
+assert_exists "$project_fresh/.pi/extensions/mind-focus.ts"
+assert_exists "$project_fresh/.pi/extensions/lib/mind.ts"
 
 assert_not_exists "$project_fresh/.aoc/skills"
 assert_not_exists "$project_fresh/.codex/skills"
@@ -115,7 +123,7 @@ if grep -Fq '"enabledModels"' "$project_settings/.pi/settings.json"; then
   fail "Did not expect enabledModels to be injected into customized PI settings"
 fi
 
-# --- Legacy seeded enabledModels are cleaned up ---
+# --- Legacy seeded PI defaults migrate to current defaults ---
 project_legacy_enabled="$tmp_root/legacy-enabled"
 mkdir -p "$project_legacy_enabled/.git" "$project_legacy_enabled/.pi"
 cat > "$project_legacy_enabled/.pi/settings.json" <<'EOF'
@@ -134,9 +142,13 @@ cat > "$project_legacy_enabled/.pi/settings.json" <<'EOF'
 EOF
 legacy_enabled_log="$tmp_root/legacy-enabled-init.log"
 run_init "$project_legacy_enabled" "$legacy_enabled_log"
-if grep -Fq '"enabledModels"' "$project_legacy_enabled/.pi/settings.json"; then
-  fail "Expected legacy seeded enabledModels to be removed"
-fi
+assert_contains '"defaultProvider": "openai-codex"' "$project_legacy_enabled/.pi/settings.json"
+assert_contains '"defaultModel": "gpt-5.4"' "$project_legacy_enabled/.pi/settings.json"
+assert_contains '"openai-codex/gpt-5.4"' "$project_legacy_enabled/.pi/settings.json"
+assert_contains '"opencode/glm-5"' "$project_legacy_enabled/.pi/settings.json"
+assert_contains '"opencode/gemini-3-flash"' "$project_legacy_enabled/.pi/settings.json"
+assert_contains '"opencode/gemini-3.1-pro"' "$project_legacy_enabled/.pi/settings.json"
+assert_contains '"alibaba/qwen3.6-plus"' "$project_legacy_enabled/.pi/settings.json"
 
 # --- Existing repo migration flow ---
 project_migration="$tmp_root/migration"

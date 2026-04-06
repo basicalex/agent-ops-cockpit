@@ -20,6 +20,11 @@ Expected project-local runtime paths:
 - `.pi/extensions/`
   - `minimal.ts`
   - `themeMap.ts`
+  - `mind-ingest.ts`
+  - `mind-ops.ts`
+  - `mind-context.ts`
+  - `mind-focus.ts`
+  - `lib/mind.ts`
 - Optional orchestration assets:
   - `.pi/agents/` (specialists, teams, chain manifests)
 
@@ -27,28 +32,60 @@ Control-plane state remains under `.aoc/**` (`context.md`, `memory.md`, `stm/`, 
 
 ## Default extensions and theme behavior
 
-AOC now guarantees the two baseline PI extensions are present after `aoc-init`:
+AOC now guarantees the baseline PI extensions are present after `aoc-init`:
 
 - `minimal.ts` — default footer/status UX (mind + context meters)
 - `themeMap.ts` — extension-to-theme defaults + title behavior
+- `mind-ingest.ts` — native Pi→Mind ingest + compaction checkpoints
+- `mind-ops.ts` — `/mind`, `/mind-status`, finalize, and operator controls
+- `mind-context.ts` — `mind_context_pack` retrieval commands
+- `mind-focus.ts` — local focus/task/file inference helpers
+- `lib/mind.ts` — shared Pulse/Mind transport + state helpers
 
 PI auto-discovers `.pi/extensions/*.ts`, so seeded defaults are active after session start (`/reload` if already running).
 
-## OpenCode Zen defaults for PI
+## OpenCode Zen + PI model defaults
 
-AOC now seeds project-local PI defaults for the built-in **OpenCode Zen** provider:
+This repo now seeds project-local PI defaults as follows:
 
-- `defaultProvider: "opencode"`
-- `defaultModel: "gpt-5.3-codex"`
+- `defaultProvider: "openai-codex"`
+- `defaultModel: "gpt-5.4"`
 - `defaultThinkingLevel: "medium"`
-- no seeded `enabledModels` filter, so the full PI model catalog remains visible
+- seeded `enabledModels` filter:
+  - `openai-codex/gpt-5.4`
+  - `opencode/glm-5`
+  - `opencode/gemini-3-flash`
+  - `opencode/gemini-3.1-pro`
+  - `alibaba/qwen3.6-plus`
+
+This keeps OpenCode Zen available, exposes only the curated OpenCode Zen models above, and also keeps the project-local Alibaba Qwen 3.6 Plus model visible in the PI model selector.
 
 Credential handling stays out of the repo:
 
 - set `OPENCODE_API_KEY` in your shell, or
 - store an `opencode` API key entry in `~/.pi/agent/auth.json`
 
-Do **not** commit API keys into `.pi/settings.json`. PI already ships native OpenCode Zen support, so AOC only seeds project defaults.
+Do **not** commit API keys into `.pi/settings.json`. PI already ships native OpenCode Zen support, so AOC only seeds project defaults and model visibility.
+
+## Additional project-local providers
+
+This repo also ships a project-local PI provider extension for **Alibaba Cloud Model Studio / DashScope**:
+
+- extension file: `.pi/extensions/alibaba-model-studio.ts`
+- provider id: `alibaba`
+- model added to `/model`: `qwen3.6-plus`
+- credential env var: `DASHSCOPE_API_KEY`
+- optional endpoint override: `DASHSCOPE_BASE_URL`
+
+The project-local Alibaba extension supports an explicit workspace OpenAI-compatible endpoint via env var:
+
+- `DASHSCOPE_BASE_URL=https://ws-<workspace>.eu-central-1.maas.aliyuncs.com/compatible-mode/v1`
+
+This is the preferred setting when Model Studio shows you a workspace-specific host. The provider also sends `Authorization: Bearer $DASHSCOPE_API_KEY` explicitly via PI's `authHeader` support. If no explicit env var is set, the extension falls back to:
+
+- `https://dashscope-intl.aliyuncs.com/compatible-mode/v1`
+
+PI auto-discovers `.pi/extensions/*.ts`, so the Alibaba model appears in the selector after session start (or after `/reload` in an already-running session).
 
 ## Prompt templates
 
@@ -88,6 +125,11 @@ See also: [Deprecations and removals](deprecations.md), [Insight sub-agent orche
    - `.pi/skills/<name>/SKILL.md`
    - `.pi/extensions/minimal.ts`
    - `.pi/extensions/themeMap.ts`
+   - `.pi/extensions/mind-ingest.ts`
+   - `.pi/extensions/mind-ops.ts`
+   - `.pi/extensions/mind-context.ts`
+   - `.pi/extensions/mind-focus.ts`
+   - `.pi/extensions/lib/mind.ts`
 3. Verify control-plane paths under `.aoc/` (`context.md`, `memory.md`, `stm/`, `rtk.toml`).
 4. Check migration logs for warnings:
    - prompt/skill conflicts are preserved (no overwrite)
