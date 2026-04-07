@@ -404,7 +404,7 @@ Layout name resolution order:
 1. `.aoc/layouts/<name>.kdl`
 2. `~/.config/zellij/layouts/<name>.kdl`
 
-`aoc-layout` hides deprecated/internal managed layout names such as `unstat`, `minimal`, `aoc-zjstatus-single`, `aoc-zjstatus-test`, and `aoc.hybrid`.
+`aoc` is the only official managed general-purpose layout. Older managed names such as `unstat`, `minimal`, `aoc-zjstatus-single`, `aoc-zjstatus-test`, and `aoc.hybrid` are legacy artifacts that AOC prunes or normalizes away.
 
 You can also create/edit custom layouts from `Alt+C -> Settings -> Layout`.
 

@@ -144,7 +144,7 @@ Choose your path:
 
 | 🚀 **Start Coding** | 🤖 **Configure Agents** | 🔧 **Customize** |
 |---------------------|------------------------|------------------|
-| `aoc` in any project dir | `aoc-agent --set` | `aoc.minimal` |
+| `aoc` in any project dir | `aoc-agent --set` | `aoc-layout --create review --scope project` |
 | Open files in Yazi | Choose PI Agent (npm, recommended) | Create your own "AOC Modes" |
 | Press `Enter` to edit with `micro` | PI-first core + optional BYO wrappers | [Custom Layouts Guide](./docs/layouts.md) |
 
@@ -367,27 +367,20 @@ See also: [Installation Guide](./docs/installation.md), [Configuration Guide](./
 Create specialized layouts for different workflows:
 
 ```bash
-# Try the minimal layout
-aoc.minimal
-
 # See available layout shortcuts in this project
 # (type and press Tab for completion)
 aoc.
 
 # Set as default
-aoc-layout --set minimal
+aoc-layout --set aoc
 ```
 
-`aoc` still opens your regular default tab/session. `aoc.<layout>` opens a tab/session with that layout (for example `aoc.hybrid`).
+`aoc` still opens your regular default tab/session. `aoc.<layout>` opens a tab/session with that layout.
 
-**Included layouts:**
+**Included managed layout:**
 - `aoc` (default) - Full cockpit with all features
-- `minimal` - Streamlined for focused work
-- `unstat` - AOC layout without zjstatus status bars (temporary fallback for Zellij 0.44 plugin issues)
 
-**Related launchers:**
-- `aoc.unstat` - launch AOC with the `unstat` layout
-- `aoc.zlj` - launch AOC with the regular `aoc` layout (top/bottom `zjstatus` bars)
+Legacy managed layouts such as `minimal`, `unstat`, `aoc-zjstatus-single`, `aoc-zjstatus-test`, and `aoc.hybrid` are historical artifacts and should not be reused.
 
 **Create your own** with context injection placeholders (`__AOC_PROJECT_ROOT__`, `__AOC_TAB_NAME__`, `__AOC_AGENT_ID__`).
 
@@ -638,7 +631,7 @@ bash scripts/pi/validate-mind-runtime-hardening.sh  # Broader Mind rollout/harde
 
 | Issue | Solution |
 |-------|----------|
-| Missing previews | Run `aoc-doctor`; install `file`, `resvg` (use Cargo on Ubuntu/Debian), and a supported Yazi image backend (`ueberzugpp` when available, or Kitty/kitten) |
+| Missing previews | Run `aoc-doctor`; install `file` and `resvg` (use Cargo on Ubuntu/Debian). Kitty/kitten gives the best inline Yazi graph/image preview path; `Alt+Enter` remains the safe fallback. |
 | Blank task list | Run `aoc-task init` then `tm list` |
 | RLM not working | Build with `cargo build --release -p aoc-cli` |
 | TeX preview errors | Install `tectonic` via Cargo |

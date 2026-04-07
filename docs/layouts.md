@@ -26,9 +26,9 @@ Mission Control uses its own explicit layout and launcher:
 
 This is a system/runtime layout, not a normal general-purpose mode.
 
-## Deprecated managed layout names
+## Legacy managed layout names
 
-These older managed names are deprecated and hidden from `aoc-layout`:
+These older managed names are legacy artifacts from previous installs and should not be reused:
 
 - `unstat`
 - `minimal`
@@ -36,7 +36,7 @@ These older managed names are deprecated and hidden from `aoc-layout`:
 - `aoc-zjstatus-test`
 - `aoc.hybrid`
 
-Older defaults using those names are normalized back to `aoc`.
+AOC prunes the old managed layout files during install and normalizes stale defaults back to `aoc`.
 
 ## Custom layouts
 
@@ -56,7 +56,7 @@ When a custom layout name exists in both places, AOC resolves it in this order:
 - project custom layouts
 - global custom layouts
 
-Internal/deprecated managed names are filtered out.
+Legacy/internal managed names are filtered out.
 
 ## Creator/editor flow
 

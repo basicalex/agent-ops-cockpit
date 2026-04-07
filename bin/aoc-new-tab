@@ -108,7 +108,7 @@ cleanup_state() {
 normalize_layout_name() {
   case "${1:-}" in
     "" ) printf 'aoc' ;;
-    unstat|aoc-zjstatus-single|aoc-zjstatus-test|aoc.hybrid) printf 'aoc' ;;
+    unstat|minimal|aoc-zjstatus-single|aoc-zjstatus-test|aoc.hybrid) printf 'aoc' ;;
     *) printf '%s' "$1" ;;
   esac
 }

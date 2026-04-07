@@ -11,7 +11,7 @@ Commands:
   help      Show this help
 
 Environment / config:
-  AOC_YAZI_PREVIEW_MODE=auto|native|custom-overlay|fallback
+  AOC_YAZI_PREVIEW_MODE=auto|native|fallback
   ~/.config/aoc/preview.env (or $XDG_CONFIG_HOME/aoc/preview.env)
     AOC_YAZI_PREVIEW_MODE=...
 EOF
@@ -36,15 +36,10 @@ bool() {
   fi
 }
 
-is_linux=0
-[[ "$(uname -s)" == "Linux" ]] && is_linux=1
-
 has_resvg=0
 have resvg && has_resvg=1
 has_file=0
 have file && has_file=1
-has_ueberzugpp=0
-have ueberzugpp && has_ueberzugpp=1
 has_kitty=0
 have kitty && has_kitty=1
 has_kitten=0
@@ -78,8 +73,6 @@ if (( has_kitten )); then
   native_backend="kitten"
 elif (( has_kitty )); then
   native_backend="kitty"
-elif (( has_ueberzugpp )); then
-  native_backend="ueberzugpp"
 fi
 
 native_ready=0
@@ -98,11 +91,6 @@ if (( force_kitty_in_zellij && in_zellij )) && [[ "$terminal_family" == "kitty" 
   fi
 fi
 
-custom_overlay_ready=0
-if (( is_linux && has_ueberzugpp && has_resvg )); then
-  custom_overlay_ready=1
-fi
-
 fallback_ready=1
 
 quality_note="fallback only"
@@ -111,8 +99,6 @@ if (( has_aoc_yazi_mermaid )); then
   if (( forced_kitty_zellij )); then
     quality_note="$quality_note; forcing Kitty-native preview preference inside Zellij via aoc-yazi wrapper"
   fi
-elif (( custom_overlay_ready )); then
-  quality_note="custom-overlay candidate available (recommended for Linux/Alacritty when implemented)"
 elif (( native_ready )); then
   if [[ "$terminal_family" == "kitty" ]]; then
     quality_note="native preview candidate available via Kitty backend; verify actual pane quality"
@@ -128,9 +114,6 @@ fi
 if [[ "$native_backend" == "none" ]]; then
   blockers+=("missing-image-backend")
 fi
-if [[ "$terminal_family" == "alacritty" ]] && (( ! has_ueberzugpp )); then
-  blockers+=("alacritty-needs-custom-backend")
-fi
 
 select_mode() {
   case "$preview_mode_override" in
@@ -141,20 +124,11 @@ select_mode() {
         printf 'fallback\n'
       fi
       ;;
-    custom-overlay)
-      if (( custom_overlay_ready )); then
-        printf 'custom-overlay\n'
-      else
-        printf 'fallback\n'
-      fi
-      ;;
     fallback)
       printf 'fallback\n'
       ;;
     auto|"")
-      if (( custom_overlay_ready )); then
-        printf 'custom-overlay\n'
-      elif (( native_ready )); then
+      if (( native_ready )); then
         printf 'native\n'
       else
         printf 'fallback\n'
@@ -178,7 +152,6 @@ in_tmux=$(bool "$in_tmux")
 in_zellij=$(bool "$in_zellij")
 resvg=$(bool "$has_resvg")
 file=$(bool "$has_file")
-ueberzugpp=$(bool "$has_ueberzugpp")
 kitty=$(bool "$has_kitty")
 kitten=$(bool "$has_kitten")
 chafa=$(bool "$has_chafa")
@@ -188,7 +161,6 @@ aoc_yazi_mermaid=$(bool "$has_aoc_yazi_mermaid")
 forced_kitty_zellij=$(bool "$forced_kitty_zellij")
 native_backend=$native_backend
 native_ready=$(bool "$native_ready")
-custom_overlay_ready=$(bool "$custom_overlay_ready")
 fallback_ready=$(bool "$fallback_ready")
 quality_note=$quality_note
 blockers=${blockers[*]:-none}

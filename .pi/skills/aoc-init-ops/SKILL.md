@@ -22,6 +22,6 @@ description: Initialize or repair AOC context, memory, and tasks safely.
 - Seeds PI prompt templates in `.pi/prompts/` (`/aoc-ops`, `/teach`, `/teach-full`, `/teach-dive`, `/teach-ask`, `/tm-cc`) when missing
 - Seeds PI default extensions in `.pi/extensions/` (`minimal.ts`, `themeMap.ts`, `mind-ingest.ts`, `mind-ops.ts`, `mind-context.ts`, `mind-focus.ts`, `alibaba-model-studio.ts`, plus `lib/mind.ts`) when missing
 - Installs the managed AOC Zellij top-bar plugin to `~/.config/zellij/plugins/zjstatus-aoc.wasm`
-- Migrates missing legacy PI prompts/skills from `.aoc/prompts/pi/` and `.aoc/skills/` into `.pi/**` (non-destructive), and cleans safe `tmcc` prompt alias duplicates
+- Migrates missing legacy project-local PI prompts/skills from `.aoc/prompts/pi/` and `.aoc/skills/` into `.pi/**` (non-destructive), and cleans safe `tmcc` prompt alias duplicates
 - Optional MoreMotion prompt `/momo` is seeded by `aoc-momo init`
 - Ensures `.pi/skills` baseline (PI-first canonical)

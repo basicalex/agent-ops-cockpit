@@ -6773,7 +6773,7 @@ fn load_projects(base: &Path) -> io::Result<Vec<ProjectEntry>> {
 fn normalize_layout_name(layout: &str) -> String {
     match layout {
         "" => "aoc".to_string(),
-        "unstat" | "aoc-zjstatus-single" | "aoc-zjstatus-test" | "aoc.hybrid" => {
+        "unstat" | "minimal" | "aoc-zjstatus-single" | "aoc-zjstatus-test" | "aoc.hybrid" => {
             "aoc".to_string()
         }
         _ => layout.to_string(),

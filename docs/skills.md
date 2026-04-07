@@ -16,9 +16,9 @@ aoc-skill sync --agent pi
 
 Sync is additive: existing skills in target directories are preserved. If a name collision exists, AOC skips that skill and logs a warning.
 
-## Compatibility window
-- Legacy `.aoc/skills` remains a fallback **source** only while migration is in progress.
-- `aoc-init` migrates missing project-local legacy skills from `.aoc/skills` to `.pi/skills` (non-destructive).
+## PI-first migration notes
+- `.pi/skills` is the only canonical skill source for sync/validation.
+- `aoc-init` still migrates missing project-local legacy skills from `.aoc/skills` to `.pi/skills` (non-destructive).
 - Non-PI skill targets are no longer auto-synced by `aoc-init`.
 - In PI-only mode, use `aoc-skill sync --agent pi` as the canonical sync path.
 

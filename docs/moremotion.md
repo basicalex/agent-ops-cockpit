@@ -12,7 +12,7 @@ By default this:
 - Resolves a local MoreMotion source (prefers `AOC_MOMO_SOURCE`, then `../MoreMotion` / `../moremotion`).
 - Initializes/updates `moremotion/` under the project root from that source.
 - Adds `moremotion/` to `.gitignore`.
-- Adds the `moremotion` skill to `.aoc/skills`.
+- Adds the `moremotion` skill to `.pi/skills`.
 - Seeds the PI `momo` prompt template in `.pi/prompts/momo.md`.
 
 If no source can be resolved, `aoc-momo` exits with guidance to set `--source` / `AOC_MOMO_SOURCE`.
