@@ -101,7 +101,7 @@ ensure_aoc() {
 }
 
 seed_skill() {
-  local dest="$root/.aoc/skills/moremotion"
+  local dest="$root/.pi/skills/moremotion"
   if [[ -d "$dest" ]]; then
     return 0
   fi
@@ -118,8 +118,9 @@ seed_skill() {
     warn "No MoreMotion skill template found."
     return 0
   fi
+  mkdir -p "$root/.pi/skills"
   cp -R "$source_dir" "$dest"
-  log "Added MoreMotion skill to .aoc/skills."
+  log "Added MoreMotion skill to .pi/skills."
 }
 
 seed_pi_prompt() {

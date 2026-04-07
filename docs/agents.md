@@ -98,15 +98,15 @@ Seeded prompt templates:
 - `/teach-ask <question>` — direct answer-only mentor Q&A
 - `/tm-cc` — cross-project Taskmaster control mode
 
-## Compatibility window
+## PI-first migration notes
 
-Legacy sources remain migration fallbacks only:
+Canonical ownership is `.pi/**`.
+
+Legacy project-local assets are only used for one-way migration into `.pi/**` when present:
 
 - `.aoc/prompts/pi/` -> `.pi/prompts/` (missing files only)
 - `.aoc/skills/` -> `.pi/skills/` (missing files only)
 - safe alias cleanup: `.pi/prompts/tmcc.md` -> `.pi/prompts/tm-cc.md`
-
-Canonical ownership is `.pi/**`.
 
 ## Runtime support boundary
 
@@ -146,6 +146,7 @@ bash scripts/pi/test-pi-only-agent-surface.sh
 Run `aoc-momo init` in a host repo to seed:
 
 ```
+.pi/skills/moremotion/
 .pi/prompts/momo.md
 ```
 

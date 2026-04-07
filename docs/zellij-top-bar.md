@@ -74,7 +74,7 @@ This improves grouped-tab accuracy beyond plain tab-name inference, especially w
 
 AOC now treats `aoc` as the single official managed general-purpose layout.
 
-Deprecated managed layout names such as these should be removed or ignored:
+Legacy managed layout names such as these should be removed and not reused:
 
 - `unstat`
 - `minimal`
@@ -82,4 +82,4 @@ Deprecated managed layout names such as these should be removed or ignored:
 - `aoc-zjstatus-test`
 - `aoc.hybrid`
 
-`aoc-layout` hides these internal/deprecated managed names. Dedicated Mission Control still uses its own explicit layout path and launcher.
+AOC prunes these stale managed layout files during install. Dedicated Mission Control still uses its own explicit layout path and launcher.

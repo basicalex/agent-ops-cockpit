@@ -44,9 +44,10 @@ mkdir -p "$HOME/.config/yazi/plugins"
 mkdir -p "${MICRO_CONFIG_HOME:-${XDG_CONFIG_HOME:-$HOME/.config}/micro}"
 mkdir -p "$AOC_CONFIG_DIR"
 mkdir -p "$AOC_CONFIG_DIR/btop"
-mkdir -p "$AOC_CONFIG_DIR/skills"
+mkdir -p "$AOC_CONFIG_DIR/pi/skills"
+mkdir -p "$AOC_CONFIG_DIR/pi/prompts"
+mkdir -p "$AOC_CONFIG_DIR/pi/extensions"
 mkdir -p "$AOC_CONFIG_DIR/taskmaster/templates"
-mkdir -p "$AOC_CONFIG_DIR/prompts/pi"
 mkdir -p "$AOC_CONFIG_DIR/skills-optional"
 mkdir -p "$AOC_CONFIG_DIR/prompts-optional/pi"
 mkdir -p "$AOC_CONFIG_DIR/zellij/plugins"
@@ -159,45 +160,6 @@ install_pi_agent_if_enabled() {
 
   warn "PI agent install completed but '$pi_bin' is still missing from PATH."
   return 1
-}
-
-install_omo_if_enabled() {
-  if ! is_truthy "${AOC_INSTALL_OMO:-0}"; then
-    log "Skipping OmO install (set AOC_INSTALL_OMO=1 to enable)."
-    return
-  fi
-
-  local script_path="$ROOT_DIR/scripts/opencode/install-omo.sh"
-  if [[ ! -f "$script_path" ]]; then
-    warn "OmO installer wrapper not found at $script_path"
-    if is_truthy "${AOC_INSTALL_OMO_REQUIRED:-0}"; then
-      exit 1
-    fi
-    return
-  fi
-
-  local profile_name="${AOC_OMO_PROFILE:-sandbox}"
-  local claude="${AOC_OMO_CLAUDE:-no}"
-  local openai="${AOC_OMO_OPENAI:-no}"
-  local gemini="${AOC_OMO_GEMINI:-no}"
-  local copilot="${AOC_OMO_COPILOT:-no}"
-  local opencode_zen="${AOC_OMO_OPENCODE_ZEN:-no}"
-  local zai_coding_plan="${AOC_OMO_ZAI_CODING_PLAN:-no}"
-
-  log "Installing OmO into OpenCode profile '$profile_name'..."
-  if ! bash "$script_path" install \
-    --profile "$profile_name" \
-    --claude "$claude" \
-    --openai "$openai" \
-    --gemini "$gemini" \
-    --copilot "$copilot" \
-    --opencode-zen "$opencode_zen" \
-    --zai-coding-plan "$zai_coding_plan"; then
-    warn "OmO install failed for profile '$profile_name'."
-    if is_truthy "${AOC_INSTALL_OMO_REQUIRED:-0}"; then
-      exit 1
-    fi
-  fi
 }
 
 github_token() {
@@ -673,19 +635,6 @@ install_tool() {
     file)
       pm_install file || warn "Failed to install file."
       ;;
-    ueberzugpp)
-      case "$pm" in
-        pacman|brew|apk)
-          pm_install ueberzugpp || warn "Failed to install ueberzugpp."
-          ;;
-        apt)
-          warn "ueberzugpp is typically unavailable in default Ubuntu/Debian repos; install it from upstream or use Kitty as the Yazi image backend."
-          ;;
-        *)
-          warn "No package manager mapping for ueberzugpp."
-          ;;
-      esac
-      ;;
     rg)
       pm_install ripgrep || warn "Failed to install ripgrep."
       ;;
@@ -951,15 +900,8 @@ fi
 if ! ensure_bat; then
   missing_optional+=("bat")
 fi
-if [[ "$(uname -s)" == "Linux" ]]; then
-  if ! have ueberzugpp; then
-    log "No native Yazi image-preview backend detected; attempting ueberzugpp install..."
-    install_tool ueberzugpp
-  fi
-  if ! have ueberzugpp; then
-    missing_optional+=("ueberzugpp")
-    warn "Native Yazi image previews may be unavailable until a supported backend is installed (recommended: ueberzugpp; alternatives depend on your terminal, e.g. Kitty/Sixel)."
-  fi
+if ! have kitty && ! have kitten; then
+  warn "Kitty is recommended for the best Yazi graph/image preview experience; Alt+Enter remains the safe external-open fallback."
 fi
 
 if ((${#missing_required[@]} > 0)); then
@@ -1058,19 +1000,21 @@ install -m 0644 "$ROOT_DIR/micro/bindings.json" "${MICRO_CONFIG_HOME:-${XDG_CONF
 install -m 0644 "$ROOT_DIR/config/codex-tmux.conf" "${XDG_CONFIG_HOME:-$HOME/.config}/aoc/codex-tmux.conf"
 install -m 0644 "$ROOT_DIR/config/btop.conf" "${XDG_CONFIG_HOME:-$HOME/.config}/aoc/btop/btop.conf"
 
-# AOC default skills
-if [[ -d "$ROOT_DIR/.aoc/skills" ]]; then
-  for d in "$ROOT_DIR/.aoc/skills"/*; do
+# AOC default PI skills
+if [[ -d "$ROOT_DIR/.pi/skills" ]]; then
+  for d in "$ROOT_DIR/.pi/skills"/*; do
     [[ -d "$d" ]] || continue
-    dest="${XDG_CONFIG_HOME:-$HOME/.config}/aoc/skills/$(basename "$d")"
-    if [[ -e "$dest" ]]; then
+    dest="${XDG_CONFIG_HOME:-$HOME/.config}/aoc/pi/skills/$(basename "$d")"
+    if [[ ! -d "$dest" || ! -f "$dest/SKILL.md" ]]; then
+      rm -rf "$dest"
+      cp -R "$d" "$dest"
       continue
     fi
-    cp -R "$d" "$dest"
+    if ! cmp -s "$d/SKILL.md" "$dest/SKILL.md"; then
+      rm -rf "$dest"
+      cp -R "$d" "$dest"
+    fi
   done
-  if [[ -f "$ROOT_DIR/.aoc/skills/manifest.toml" && ! -f "${XDG_CONFIG_HOME:-$HOME/.config}/aoc/skills/manifest.toml" ]]; then
-    cp "$ROOT_DIR/.aoc/skills/manifest.toml" "${XDG_CONFIG_HOME:-$HOME/.config}/aoc/skills/manifest.toml"
-  fi
 fi
 
 # Upstream Taskmaster PRD templates for project seeding
@@ -1086,11 +1030,15 @@ if [[ -d "$ROOT_DIR/.taskmaster/templates" ]]; then
 fi
 
 # AOC default PI prompt templates
-if [[ -d "$ROOT_DIR/.aoc/prompts/pi" ]]; then
-  for f in "$ROOT_DIR/.aoc/prompts/pi"/*.md; do
+if [[ -d "$ROOT_DIR/.pi/prompts" ]]; then
+  for f in "$ROOT_DIR/.pi/prompts"/*.md; do
     [[ -f "$f" ]] || continue
-    dest="${XDG_CONFIG_HOME:-$HOME/.config}/aoc/prompts/pi/$(basename "$f")"
+    dest="${XDG_CONFIG_HOME:-$HOME/.config}/aoc/pi/prompts/$(basename "$f")"
     if [[ ! -f "$dest" ]]; then
+      cp "$f" "$dest"
+      continue
+    fi
+    if ! cmp -s "$f" "$dest"; then
       cp "$f" "$dest"
     fi
   done
@@ -1203,40 +1151,11 @@ if ! install_pi_agent_if_enabled; then
   warn "PI agent installation failed; continuing because AOC_INSTALL_PI_REQUIRED=0."
 fi
 
-if is_truthy "${AOC_INSTALL_AUTO_INIT:-1}"; then
-  init_target="${AOC_INIT_TARGET:-$PWD}"
-  if [[ -d "$init_target" ]]; then
-    init_bin=""
-    if [[ -x "$BIN_DIR/aoc-init" ]]; then
-      init_bin="$BIN_DIR/aoc-init"
-    elif have aoc-init; then
-      init_bin="$(command -v aoc-init)"
-    elif [[ -x "$ROOT_DIR/bin/aoc-init" ]]; then
-      init_bin="$ROOT_DIR/bin/aoc-init"
-    fi
-
-    if [[ -n "$init_bin" ]]; then
-      log "Running aoc-init in $init_target..."
-      if "$init_bin" "$init_target"; then
-        log "aoc-init completed (RTK config seeded in $init_target/.aoc/rtk.toml)."
-      else
-        warn "aoc-init failed for $init_target. Run 'aoc-init $init_target' manually."
-      fi
-    else
-      warn "aoc-init binary not found after install; run it manually in your project."
-    fi
-  else
-    warn "AOC_INIT_TARGET does not exist: $init_target"
-  fi
-else
-  log "Skipping automatic aoc-init (set AOC_INSTALL_AUTO_INIT=1 to enable)."
-fi
-
-install_omo_if_enabled
+log "Install finished. Initialize each repo explicitly with: aoc-init /path/to/repo"
 
 log "AOC Installed Successfully!"
 if (( INSTALL_MIND_EXPLICIT == 1 )); then
   log "Mind runtime refreshed: PI agent, aoc-hub-rs, and aoc-agent-wrap-rs should now be current in $BIN_DIR."
   log "Start a fresh AOC/Zellij session to pick up the refreshed Mind runtime binaries."
 fi
-log "Run 'aoc' to start."
+log "Run 'aoc-init /path/to/repo' next, then 'aoc' inside that repo."

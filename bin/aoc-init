@@ -799,7 +799,7 @@ description: Initialize or repair AOC context, memory, and tasks safely.
 - Seeds PI prompt templates in `.pi/prompts/` (`/aoc-ops`, `/teach`, `/teach-full`, `/teach-dive`, `/teach-ask`, `/tm-cc`) when missing
 - Seeds PI default extensions in `.pi/extensions/` (`minimal.ts`, `themeMap.ts`, `mind-ingest.ts`, `mind-ops.ts`, `mind-context.ts`, `mind-focus.ts`, `alibaba-model-studio.ts`, plus `lib/mind.ts`) when missing
 - Installs the managed AOC Zellij top-bar plugin to `~/.config/zellij/plugins/zjstatus-aoc.wasm`
-- Migrates missing legacy PI prompts/skills from `.aoc/prompts/pi/` and `.aoc/skills/` into `.pi/**` (non-destructive), and cleans safe `tmcc` prompt alias duplicates
+- Migrates missing legacy project-local PI prompts/skills from `.aoc/prompts/pi/` and `.aoc/skills/` into `.pi/**` (non-destructive), and cleans safe `tmcc` prompt alias duplicates
 - Optional MoreMotion prompt `/momo` is seeded by `aoc-momo init`
 - Ensures `.pi/skills` baseline (PI-first canonical)
 EOF
@@ -1240,10 +1240,6 @@ setup_pi_prompts() {
     "$aoc_config_dir/pi/prompts"
     "$script_dir/../.pi/prompts"
   )
-  local legacy_seed_dirs=(
-    "$aoc_config_dir/prompts/pi"
-    "$script_dir/../.aoc/prompts/pi"
-  )
   local required_prompts=(
     "aoc-ops"
     "teach"
@@ -1260,37 +1256,20 @@ setup_pi_prompts() {
   local seeded_any=0
   local prompt_name=""
   local seed_file=""
-  local seed_mode=""
   local target_file=""
   for prompt_name in "${required_prompts[@]}"; do
     seed_file=""
-    seed_mode=""
 
     for candidate in "${canonical_seed_dirs[@]}"; do
       if [[ -f "$candidate/${prompt_name}.md" ]]; then
         seed_file="$candidate/${prompt_name}.md"
-        seed_mode="canonical"
         break
       fi
     done
 
     if [[ -z "$seed_file" ]]; then
-      for candidate in "${legacy_seed_dirs[@]}"; do
-        if [[ -f "$candidate/${prompt_name}.md" ]]; then
-          seed_file="$candidate/${prompt_name}.md"
-          seed_mode="legacy"
-          break
-        fi
-      done
-    fi
-
-    if [[ -z "$seed_file" ]]; then
       warn "Missing PI prompt template: /$prompt_name"
       continue
-    fi
-
-    if [[ "$seed_mode" == "legacy" ]]; then
-      log "Using legacy prompt source for /$prompt_name (compatibility window)."
     fi
 
     target_file="$pi_prompts_dir/${prompt_name}.md"
@@ -1320,15 +1299,10 @@ setup_pi_skills() {
     "$aoc_config_dir/pi/skills"
     "$script_dir/../.pi/skills"
   )
-  local legacy_seed_dirs=(
-    "$aoc_config_dir/skills"
-    "$script_dir/../.aoc/skills"
-  )
 
   mkdir -p "$pi_skills_dir"
 
   local seed_dir=""
-  local seed_mode=""
   local skill_list=()
 
   for candidate in "${canonical_seed_dirs[@]}"; do
@@ -1338,32 +1312,13 @@ setup_pi_skills() {
     shopt -u nullglob
     if ((${#skill_list[@]} > 0)); then
       seed_dir="$candidate"
-      seed_mode="canonical"
       break
     fi
   done
 
   if [[ -z "$seed_dir" ]]; then
-    for candidate in "${legacy_seed_dirs[@]}"; do
-      [[ -d "$candidate" ]] || continue
-      shopt -s nullglob
-      skill_list=("$candidate"/*/SKILL.md)
-      shopt -u nullglob
-      if ((${#skill_list[@]} > 0)); then
-        seed_dir="$candidate"
-        seed_mode="legacy"
-        break
-      fi
-    done
-  fi
-
-  if [[ -z "$seed_dir" ]]; then
     warn "No PI skill templates found; skipping PI skill seeding."
     return
-  fi
-
-  if [[ "$seed_mode" == "legacy" ]]; then
-    log "Using legacy skill source for PI skill seeding (compatibility window)."
   fi
 
   local copied_any=0

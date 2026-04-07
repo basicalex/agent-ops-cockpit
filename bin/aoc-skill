@@ -7,7 +7,7 @@ Usage: aoc-skill sync [--agent AGENT] [--active] [--existing] [--root PATH] [--q
        aoc-skill validate [--root PATH] [--quiet]
 
 Sync AOC skills for PI targets.
-PI-first canonical source is `.pi/skills` (fallback: `.aoc/skills` during compatibility window).
+PI-first canonical source is `.pi/skills`.
 
 Options:
   --agent AGENT   Sync skills for a specific agent (pi).
@@ -135,25 +135,14 @@ skills_present() {
 resolve_source_skills_dir() {
   local root="$1"
   local canonical="$root/.pi/skills"
-  local legacy="$root/.aoc/skills"
 
   if [[ -d "$canonical" ]] && skills_present "$canonical"; then
     printf '%s\n' "$canonical"
     return 0
   fi
 
-  if [[ -d "$legacy" ]] && skills_present "$legacy"; then
-    printf '%s\n' "$legacy"
-    return 0
-  fi
-
   if [[ -d "$canonical" ]]; then
     printf '%s\n' "$canonical"
-    return 0
-  fi
-
-  if [[ -d "$legacy" ]]; then
-    printf '%s\n' "$legacy"
     return 0
   fi
 
@@ -287,12 +276,8 @@ validate_skills() {
 
   skills_dir="$(resolve_source_skills_dir "$root" || true)"
   if [[ -z "$skills_dir" || ! -d "$skills_dir" ]]; then
-    warn "No skills directory present (.pi/skills or .aoc/skills)."
+    warn "No skills directory present (.pi/skills)."
     return 1
-  fi
-
-  if [[ "$skills_dir" == "$root/.aoc/skills" ]]; then
-    log "Validating skills from legacy source (.aoc/skills compatibility mode)."
   fi
 
   shopt -s nullglob
@@ -498,17 +483,13 @@ fi
 
 skills_dir="$(resolve_source_skills_dir "$root" || true)"
 if [[ -z "$skills_dir" || ! -d "$skills_dir" ]]; then
-  log "No skills directory present (.pi/skills or .aoc/skills). Skipping."
+  log "No skills directory present (.pi/skills). Skipping."
   exit 0
 fi
 
 if ! skills_present "$skills_dir"; then
   log "No skills found in $skills_dir. Skipping."
   exit 0
-fi
-
-if [[ "$skills_dir" == "$root/.aoc/skills" ]]; then
-  log "Using legacy skill source (.aoc/skills compatibility mode)."
 fi
 
 targets=()

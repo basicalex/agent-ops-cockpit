@@ -25,7 +25,7 @@ If you need another CLI, use the wrapper path described in [Agent Extensibility]
   - skills
   - extensions
 
-### Legacy fallback sources (migration only)
+### Legacy migration sources
 
 - `.aoc/prompts/pi/**`
 - `.aoc/skills/**`

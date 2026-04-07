@@ -31,7 +31,7 @@ Resolution order for launches:
 
 ## Guardrails
 - Do **not** edit the managed `aoc` layout directly.
-- Do **not** reuse deprecated/internal managed names:
+- Do **not** reuse reserved/legacy managed names:
   - `unstat`
   - `minimal`
   - `aoc-zjstatus-single`

@@ -175,15 +175,6 @@ hint_for() {
         *) echo "Install file(1) via your package manager." ;;
       esac
       ;;
-    ueberzugpp)
-      case "$pm" in
-        apt) echo "Install ueberzugpp from an upstream release/build (not usually in default Ubuntu repos), or use Kitty/kitten as the Yazi image backend." ;;
-        pacman) echo "sudo pacman -S ueberzugpp" ;;
-        brew) echo "brew install ueberzugpp" ;;
-        apk) echo "sudo apk add ueberzugpp" ;;
-        *) echo "Install ueberzugpp (recommended Linux backend for native Yazi image previews) or use a terminal with Kitty/Sixel support." ;;
-      esac
-      ;;
     pdftoppm)
       case "$pm" in
         apt) echo "sudo apt-get install -y poppler-utils" ;;
@@ -255,9 +246,6 @@ hint_for() {
 
 required=(zellij yazi fzf pi)
 optional=(tmux chafa ffmpeg resvg file pdftoppm rg bat tectonic task-master python3 git)
-if [[ "$(uname -s)" == "Linux" ]]; then
-  optional+=(ueberzugpp)
-fi
 
 missing_required=()
 missing_optional=()
@@ -291,10 +279,6 @@ for tool in "${optional[@]}"; do
     fi
   elif [[ "$tool" == "task-master" ]]; then
     if [[ -z "$task_control_backend" ]]; then
-      missing_optional+=("$tool")
-    fi
-  elif [[ "$tool" == "ueberzugpp" ]]; then
-    if ! have ueberzugpp && ! have kitten && ! have kitty; then
       missing_optional+=("$tool")
     fi
   elif ! have "$tool"; then
@@ -439,17 +423,6 @@ if [[ "$quiet" -eq 0 ]]; then
         echo "  [missing] task control"
         echo "    -> $(hint_for "$tool")"
       fi
-    elif [[ "$tool" == "ueberzugpp" ]]; then
-      if have ueberzugpp; then
-        echo "  [ok] ueberzugpp"
-      elif have kitten; then
-        echo "  [ok] native Yazi image backend (via kitten)"
-      elif have kitty; then
-        echo "  [ok] native Yazi image backend (via kitty)"
-      else
-        echo "  [missing] native Yazi image backend"
-        echo "    -> $(hint_for "$tool")"
-      fi
     elif have "$tool"; then
       echo "  [ok] $tool"
     else
@@ -472,7 +445,6 @@ if [[ "$quiet" -eq 0 ]]; then
     echo "  Multiplexer: tmux=$(preview_get in_tmux), zellij=$(preview_get in_zellij)"
     echo "  Native backend: $(preview_get native_backend)"
     echo "  Native ready: $(preview_get native_ready)"
-    echo "  Custom overlay ready: $(preview_get custom_overlay_ready)"
     echo "  Quality note: $(preview_get quality_note)"
     blockers="$(preview_get blockers)"
     if [[ -n "$blockers" && "$blockers" != "none" ]]; then

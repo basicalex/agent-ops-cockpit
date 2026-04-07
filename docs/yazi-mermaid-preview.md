@@ -90,19 +90,14 @@ The helper can also extract Mermaid blocks from Markdown, but Markdown files are
 
 ## Install and rollout
 
-This feature is intended to work through normal AOC install flow:
+This feature is intended to work through the normal AOC install flow:
 
 ```bash
 ./install.sh
+aoc-init /path/to/repo
 ```
 
 The installer builds and installs the native helper so the feature can be used from other repos after standard AOC setup.
-
-Typical validation:
-
-```bash
-AOC_INIT_TARGET=/path/to/other/repo ./install.sh
-```
 
 ## Cache behavior
 
@@ -233,7 +228,8 @@ is still limited by Zellij image protocol handling.
 ### Practical outcome
 
 - outside restrictive multiplexer paths, Yazi image preview can work well
-- inside current released Zellij, inline image behavior depends heavily on backend support
+- inside current released Zellij, inline image behavior still depends on terminal/backend behavior
+- Kitty/kitten is the preferred path for inline graph/image preview
 - the safe fallback is `Alt+Enter` external open
 
 That fallback is intentional and is currently the recommended escape hatch.
@@ -251,7 +247,7 @@ Look for fields such as:
 - `aoc_yazi_mermaid=yes`
 - `effective_mode=...`
 - `terminal_family=...`
-- `native_backend=...`
+- `native_backend=kitty|kitten|none`
 - `in_zellij=yes|no`
 
 ## Helper environment variables

@@ -8,9 +8,10 @@ For most users:
 
 1. run the bootstrap installer
 2. run `aoc-doctor`
-3. run `aoc` inside a project
-4. press `Alt+C`
-5. use **Settings -> Tools** for PI runtime setup and optional integrations
+3. run `aoc-init /path/to/project`
+4. run `aoc` inside that project
+5. press `Alt+C`
+6. use **Settings -> Tools** for PI runtime setup and optional integrations
 
 If you want web research, the short path is:
 
@@ -70,19 +71,15 @@ curl -fsSL https://raw.githubusercontent.com/basicalex/agent-ops-cockpit/main/in
 
 If you already cloned the repo, you can still run `./install.sh` directly.
 
-By default, `install.sh` now runs `aoc-init` for your current working directory (`$PWD`) after installation so AOC files (including `.aoc/rtk.toml`) are seeded immediately.
+`install.sh` is machine/bootstrap setup only. It installs binaries, global configs, Yazi/Zellij/Micro assets, and the PI CLI when enabled. It does **not** initialize the current repo automatically.
+
+After install, run `aoc-init` explicitly in each repo you want to use with AOC.
 
 RTK routing defaults to `mode = "on"` for newly initialized projects. If a project already has `.aoc/rtk.toml` with `mode = "off"`, `aoc-init` preserves that explicit disable and logs it.
 
 Install-time overrides:
 
 ```bash
-# Skip automatic project initialization
-AOC_INSTALL_AUTO_INIT=0 ./install.sh
-
-# Initialize a specific project path after install
-AOC_INIT_TARGET=~/dev/my-project ./install.sh
-
 # Skip automatic PI agent install (enabled by default)
 AOC_INSTALL_PI_AGENT=0 ./install.sh
 
@@ -107,6 +104,7 @@ After install (or manual `aoc-init`), a PI-first project should include:
 - `.pi/extensions/mind-focus.ts`
 - `.pi/extensions/lib/mind.ts`
 - `.pi/extensions/themeMap.ts`
+- `.pi/extensions/alibaba-model-studio.ts`
 - `~/.config/zellij/plugins/zjstatus-aoc.wasm`
 - `.aoc/context.md`
 - `.aoc/rtk.toml`
@@ -185,9 +183,9 @@ cargo install --locked --force yazi-build
 cargo install --locked resvg
 ```
 
-**Yazi image backend on Ubuntu/Debian:**
-- `ueberzugpp` is often not available in default apt repos
-- install `ueberzugpp` from upstream, or use Kitty/kitten as the image backend
+**Yazi preview note on Ubuntu/Debian:**
+- AOC keeps the Kitty/kitten path for the best inline graph/image preview experience
+- `Alt+Enter` remains the safe external-open fallback for Mermaid/image inspection
 
 **Note:** On Ubuntu, the `bat` binary is named `batcat`. AOC accepts either.
 
@@ -200,13 +198,13 @@ sudo dnf install -y zellij fzf ffmpeg chafa poppler-utils ripgrep bat file resvg
 ### Arch Linux
 
 ```bash
-sudo pacman -S zellij fzf ffmpeg chafa poppler ripgrep bat file resvg ueberzugpp
+sudo pacman -S zellij fzf ffmpeg chafa poppler ripgrep bat file resvg
 ```
 
 ### Alpine
 
 ```bash
-sudo apk add zellij fzf ffmpeg chafa poppler-utils ripgrep bat file resvg ueberzugpp
+sudo apk add zellij fzf ffmpeg chafa poppler-utils ripgrep bat file resvg
 ```
 
 ## WSL (Windows)
@@ -413,9 +411,8 @@ cargo install --locked resvg
 aoc-doctor
 ```
 
-On Ubuntu/Debian, `ueberzugpp` is often not available in the default apt repos.
-Install it from upstream, or use Kitty/kitten as the native Yazi image backend.
-On Linux generally, `ueberzugpp` is the recommended backend when available.
+Kitty/kitten is the recommended path for the best inline Yazi graph/image preview experience.
+AOC keeps `Alt+Enter` as the safe external-open fallback when inline preview quality is limited.
 
 ### Blank Task List
 
