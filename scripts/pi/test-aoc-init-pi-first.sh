@@ -74,6 +74,7 @@ assert_exists "$project_fresh/.pi/extensions/mind-ingest.ts"
 assert_exists "$project_fresh/.pi/extensions/mind-ops.ts"
 assert_exists "$project_fresh/.pi/extensions/mind-context.ts"
 assert_exists "$project_fresh/.pi/extensions/mind-focus.ts"
+assert_exists "$project_fresh/.pi/extensions/alibaba-model-studio.ts"
 assert_exists "$project_fresh/.pi/extensions/lib/mind.ts"
 assert_exists "$HOME/.config/zellij/plugins/zjstatus-aoc.wasm"
 
