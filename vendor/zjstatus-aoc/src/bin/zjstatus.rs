@@ -114,6 +114,7 @@ impl ZellijPlugin for State {
             incoming_notification: None,
             runtime_theme: Default::default(),
             runtime_tab_metadata: BTreeMap::new(),
+            pending_runtime_tab_metadata: BTreeMap::new(),
         };
     }
 
@@ -288,6 +289,11 @@ impl State {
                     &self.state.tabs,
                     &tab_info,
                     &self.state.runtime_tab_metadata,
+                );
+                config::apply_pending_runtime_tab_metadata(
+                    &tab_info,
+                    &mut self.state.runtime_tab_metadata,
+                    &mut self.state.pending_runtime_tab_metadata,
                 );
                 self.state.tabs = tab_info;
 

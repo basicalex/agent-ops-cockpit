@@ -201,6 +201,23 @@ fn update_aoc_tab_metadata_from_payload(state: &mut ZellijState, payload: &str) 
         return false;
     }
 
+    let project_key = fields
+        .get("project_key")
+        .cloned()
+        .unwrap_or_default()
+        .trim()
+        .to_string();
+    let project_root = fields
+        .get("project_root")
+        .cloned()
+        .unwrap_or_default()
+        .trim()
+        .to_string();
+
+    if project_key.is_empty() && project_root.is_empty() {
+        return false;
+    }
+
     let target_position = fields
         .get("tab_position")
         .and_then(|value| value.parse::<usize>().ok())
@@ -222,43 +239,54 @@ fn update_aoc_tab_metadata_from_payload(state: &mut ZellijState, payload: &str) 
             }
         });
 
-    let Some(tab_position) = target_position else {
-        return false;
-    };
-    let Some(tab) = state.tabs.iter().find(|tab| tab.position == tab_position) else {
-        return false;
-    };
-
-    let project_key = fields
-        .get("project_key")
-        .cloned()
-        .unwrap_or_default()
-        .trim()
-        .to_string();
-    let project_root = fields
-        .get("project_root")
+    let resolved_tab_name = fields
+        .get("tab_name")
         .cloned()
         .unwrap_or_default()
         .trim()
         .to_string();
 
-    if project_key.is_empty() && project_root.is_empty() {
+    if let Some(tab_position) = target_position
+        && let Some(tab) = state.tabs.iter().find(|tab| tab.position == tab_position)
+    {
+        let next_metadata = RuntimeTabMetadata {
+            tab_name: if resolved_tab_name.is_empty() {
+                tab.name.clone()
+            } else {
+                resolved_tab_name.clone()
+            },
+            project_key,
+            project_root,
+        };
+
+        if state.runtime_tab_metadata.get(&tab_position) == Some(&next_metadata) {
+            return false;
+        }
+
+        state
+            .runtime_tab_metadata
+            .insert(tab_position, next_metadata);
+        state.pending_runtime_tab_metadata.remove(&tab.name);
+        state.cache_mask = UpdateEventMask::Tab as u8;
+        return true;
+    }
+
+    if resolved_tab_name.is_empty() {
         return false;
     }
 
     let next_metadata = RuntimeTabMetadata {
-        tab_name: tab.name.clone(),
+        tab_name: resolved_tab_name.clone(),
         project_key,
         project_root,
     };
 
-    if state.runtime_tab_metadata.get(&tab_position) == Some(&next_metadata) {
+    if state.pending_runtime_tab_metadata.get(&resolved_tab_name) == Some(&next_metadata) {
         return false;
     }
 
     state
-        .runtime_tab_metadata
-        .insert(tab_position, next_metadata);
-    state.cache_mask = UpdateEventMask::Tab as u8;
-    true
+        .pending_runtime_tab_metadata
+        .insert(resolved_tab_name, next_metadata);
+    false
 }

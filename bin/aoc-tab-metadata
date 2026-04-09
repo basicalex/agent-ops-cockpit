@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+source "$(dirname "$0")/aoc-utils.sh"
+
 usage() {
   cat <<'EOF'
 Usage: aoc-tab-metadata [sync|set|status] [options]
@@ -100,13 +102,7 @@ resolve_project_root() {
 }
 
 normalize_project_key() {
-  local raw="$1"
-  raw="$(printf '%s' "$raw" | tr '[:upper:]' '[:lower:]')"
-  raw="$(printf '%s' "$raw" | sed -E 's/[^a-z0-9._-]+/-/g; s/^-+//; s/-+$//; s/-+/-/g')"
-  if [[ -z "$raw" ]]; then
-    raw="project"
-  fi
-  printf '%s' "$raw"
+  aoc_normalize_tab_group "$1"
 }
 
 resolve_project_key() {
@@ -126,21 +122,40 @@ resolve_project_key() {
   normalize_project_key "$(basename "$root")"
 }
 
-current_tab_name() {
+current_tab_info_field() {
+  local field="$1"
   if ! in_zellij || ! have zellij; then
     return 1
   fi
   zellij action current-tab-info --json 2>/dev/null | python -c '
 import json, sys
+field = sys.argv[1]
 try:
     data = json.load(sys.stdin)
 except Exception:
     raise SystemExit(1)
-name = data.get("name")
-if not isinstance(name, str):
+value = data.get(field)
+if value is None:
     raise SystemExit(1)
-print(name)
-'
+print(value)
+' "$field"
+}
+
+current_tab_name() {
+  current_tab_info_field name
+}
+
+current_tab_position() {
+  current_tab_info_field position
+}
+
+canonicalize_tab_name_override() {
+  local _root="$1"
+  local _key="$2"
+  local requested_name="$3"
+
+  [[ -n "$requested_name" ]] || return 0
+  printf '%s' "$requested_name"
 }
 
 rename_active_tab() {
@@ -154,6 +169,7 @@ broadcast_metadata() {
   local root="$1"
   local key="$2"
   local tab_name="$3"
+  local tab_position="$4"
   local payload=""
 
   payload+="target=active"$'\n'
@@ -162,25 +178,34 @@ broadcast_metadata() {
   if [[ -n "$tab_name" ]]; then
     payload+="tab_name=$tab_name"$'\n'
   fi
+  if [[ -n "$tab_position" ]]; then
+    payload+="tab_position=$tab_position"$'\n'
+  fi
 
   zellij action pipe --name aoc_tab_metadata -- "$payload" >/dev/null 2>&1
 }
 
 show_status() {
-  local root key tab_name
+  local root key tab_name tab_position current_group current_label
   root="$(resolve_project_root)"
   key="$(resolve_project_key "$root")"
   tab_name="$(current_tab_name || true)"
+  tab_position="$(current_tab_position || true)"
+  current_group="$(aoc_tab_group_from_name "$tab_name" || true)"
+  current_label="$(aoc_tab_label_from_name "$tab_name" || true)"
   cat <<EOF
 in_zellij=$([[ -n "${ZELLIJ:-}" || -n "${ZELLIJ_SESSION_NAME:-}" ]] && echo 1 || echo 0)
 project_root=$root
 project_key=$key
 current_tab_name=$tab_name
+current_tab_position=$tab_position
+current_tab_group=$current_group
+current_tab_label=$current_label
 EOF
 }
 
 run_sync() {
-  local root key tab_name
+  local root key tab_name tab_position
   if ! in_zellij; then
     echo "aoc-tab-metadata: not running inside Zellij" >&2
     return 1
@@ -193,16 +218,21 @@ run_sync() {
   root="$(resolve_project_root)"
   key="$(resolve_project_key "$root")"
 
+  if [[ -n "$tab_name_override" ]]; then
+    tab_name_override="$(canonicalize_tab_name_override "$root" "$key" "$tab_name_override")"
+  fi
+
   if [[ -n "$tab_name_override" && "$do_rename" == "1" ]]; then
     rename_active_tab "$tab_name_override"
   fi
 
   tab_name="$(current_tab_name || true)"
+  tab_position="$(current_tab_position || true)"
   if [[ -z "$tab_name" && -n "$tab_name_override" ]]; then
     tab_name="$tab_name_override"
   fi
 
-  broadcast_metadata "$root" "$key" "$tab_name"
+  broadcast_metadata "$root" "$key" "$tab_name" "$tab_position"
 }
 
 case "$command_name" in

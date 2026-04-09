@@ -69,6 +69,7 @@ pub struct ZellijState {
     pub cache_mask: u8,
     pub runtime_theme: RuntimeTheme,
     pub runtime_tab_metadata: BTreeMap<usize, RuntimeTabMetadata>,
+    pub pending_runtime_tab_metadata: BTreeMap<String, RuntimeTabMetadata>,
 }
 
 #[derive(Clone, Debug, Ord, Eq, PartialEq, PartialOrd, Copy)]
@@ -137,6 +138,27 @@ pub fn reconcile_runtime_tab_metadata(
     }
 
     reconciled
+}
+
+pub fn apply_pending_runtime_tab_metadata(
+    tabs: &[TabInfo],
+    metadata_by_position: &mut BTreeMap<usize, RuntimeTabMetadata>,
+    pending_by_tab_name: &mut BTreeMap<String, RuntimeTabMetadata>,
+) {
+    let mut consumed_names = Vec::new();
+
+    for (tab_name, metadata) in pending_by_tab_name.iter() {
+        let Some(tab) = tabs.iter().find(|candidate| candidate.name == *tab_name) else {
+            continue;
+        };
+
+        metadata_by_position.insert(tab.position, metadata.clone());
+        consumed_names.push(tab_name.clone());
+    }
+
+    for tab_name in consumed_names {
+        pending_by_tab_name.remove(&tab_name);
+    }
 }
 
 pub enum UpdateEventMask {
@@ -665,5 +687,35 @@ mod test {
                 ..Default::default()
             },
         )
+    }
+
+    #[test]
+    fn test_apply_pending_runtime_tab_metadata_when_tab_appears() {
+        let mut metadata_by_position = BTreeMap::new();
+        let mut pending_by_tab_name = BTreeMap::from([(
+            "Voyager".to_string(),
+            RuntimeTabMetadata {
+                tab_name: "Voyager".to_string(),
+                project_key: "voyager".to_string(),
+                project_root: "/tmp/voyager".to_string(),
+            },
+        )]);
+        let tabs = vec![TabInfo {
+            position: 3,
+            name: "Voyager".to_string(),
+            ..TabInfo::default()
+        }];
+
+        apply_pending_runtime_tab_metadata(&tabs, &mut metadata_by_position, &mut pending_by_tab_name);
+
+        assert_eq!(
+            metadata_by_position.get(&3),
+            Some(&RuntimeTabMetadata {
+                tab_name: "Voyager".to_string(),
+                project_key: "voyager".to_string(),
+                project_root: "/tmp/voyager".to_string(),
+            })
+        );
+        assert!(pending_by_tab_name.is_empty());
     }
 }

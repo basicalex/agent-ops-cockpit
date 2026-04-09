@@ -52,23 +52,44 @@ CI also runs the managed plugin smoke/build path to keep the source snapshot and
 
 ## Tab project metadata
 
-The grouped tab bar now supports explicit project metadata via Zellij pipe messages.
-
-Official AOC layouts call this automatically at pane startup:
+AOC layouts still broadcast project metadata at pane startup:
 
 ```bash
 aoc-tab-metadata sync
 ```
 
-You can also inspect or override the current tab metadata manually:
+You can inspect it manually with:
 
 ```bash
 aoc-tab-metadata status
-aoc-tab-metadata set --project-key voyager
-aoc-tab-metadata set --project-key voyager --tab-name Voyager
 ```
 
-This improves grouped-tab accuracy beyond plain tab-name inference, especially when tab labels are short or customized.
+This metadata is useful for project context, but grouped-tab behavior is now driven by the tab name itself rather than runtime metadata.
+
+## Numeric tab grouping
+
+Grouping is now explicit and rename-driven.
+
+Use the normal Zellij rename flow (`Ctrl+t r`) and, if desired, start the name with a number:
+
+- raw/internal tab name: `2 PI Agent`
+- normal top-bar rendering: `PI Agent`
+- rename-mode/top-bar rendering: `2 PI Agent`
+- another tab in the same group: `2 Review`
+- ungrouped tab: `Logs`
+
+Tabs with the same leading numeric prefix group together. Tabs without a numeric prefix stay ungrouped.
+
+Helpful commands:
+
+```bash
+aoc-tab-group status
+aoc-tab-group set 2
+aoc-tab-group rename "Review"
+aoc-tab-group clear
+```
+
+`aoc-new-tab` and `aoc-launch` now create plain short tab names by default. Add a numeric prefix only when you want grouping.
 
 ## Layout hygiene
 

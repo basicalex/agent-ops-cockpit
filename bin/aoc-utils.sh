@@ -97,6 +97,82 @@ sanitize_name() {
   printf '%s' "${raw:-tab}"
 }
 
+aoc_default_tab_label() {
+  local project_root="${1:-$PWD}"
+  local raw_name=""
+  raw_name="$(basename "$project_root")"
+  local label
+  label="$(echo "$raw_name" | cut -d'-' -f1 | awk '{print toupper(substr($0,1,1)) tolower(substr($0,2))}')"
+  printf '%s' "${label:-AOC}"
+}
+
+aoc_normalize_tab_group() {
+  local raw="$1"
+  raw="$(printf '%s' "$raw" | tr '[:upper:]' '[:lower:]')"
+  raw="$(printf '%s' "$raw" | sed -E 's/[^a-z0-9._-]+/-/g; s/^-+//; s/-+$//; s/-+/-/g')"
+  printf '%s' "${raw:-project}"
+}
+
+aoc_group_key_for_project() {
+  local project_root="${1:-$PWD}"
+  local raw="${AOC_ROOT_TAG:-${AOC_AGENT_ID:-$(basename "$project_root")}}"
+  aoc_normalize_tab_group "$raw"
+}
+
+aoc_tab_name_has_group_prefix() {
+  local raw_name="$1"
+  [[ "$raw_name" =~ ^[[:space:]]*[0-9]+[[:space:]]+.+$ ]] || [[ "$raw_name" =~ ^\[[^][]+\][[:space:]]*.*$ ]]
+}
+
+aoc_normalize_numeric_tab_group() {
+  local raw="$1"
+  raw="$(printf '%s' "$raw" | tr -cd '0-9')"
+  [[ -n "$raw" ]] || return 1
+  printf '%s' "$((10#$raw))"
+}
+
+aoc_tab_group_from_name() {
+  local raw_name="$1"
+  if [[ "$raw_name" =~ ^[[:space:]]*([0-9]+)[[:space:]]+(.+)$ ]]; then
+    printf '%s' "$((10#${BASH_REMATCH[1]}))"
+    return 0
+  fi
+  if [[ "$raw_name" =~ ^\[([^][]+)\][[:space:]]*(.*)$ ]]; then
+    printf '%s' "${BASH_REMATCH[1]}"
+    return 0
+  fi
+  return 1
+}
+
+aoc_tab_label_from_name() {
+  local raw_name="$1"
+  if [[ "$raw_name" =~ ^[[:space:]]*([0-9]+)[[:space:]]+(.+)$ ]]; then
+    printf '%s' "${BASH_REMATCH[2]}"
+    return 0
+  fi
+  if [[ "$raw_name" =~ ^\[([^][]+)\][[:space:]]*(.*)$ ]]; then
+    local label="${BASH_REMATCH[2]}"
+    if [[ -n "$label" ]]; then
+      printf '%s' "$label"
+    else
+      printf '%s' "${BASH_REMATCH[1]}"
+    fi
+    return 0
+  fi
+  printf '%s' "$raw_name"
+}
+
+aoc_build_tab_name() {
+  local project_root="${1:-$PWD}"
+  local label="${2:-}"
+
+  if [[ -z "$label" ]]; then
+    label="$(aoc_default_tab_label "$project_root")"
+  fi
+
+  printf '%s' "$label"
+}
+
 hub_health_ok() {
   local addr="$1"
   if command -v curl >/dev/null 2>&1; then

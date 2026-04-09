@@ -222,9 +222,6 @@ if [[ -z "$layout_choice" ]]; then
 fi
 
 args=()
-if [[ -n "$tab_name" ]]; then
-  args+=(--name "$tab_name")
-fi
 if [[ -n "$tab_cwd" ]]; then
   args+=(--cwd "$tab_cwd")
 else
@@ -299,11 +296,19 @@ load_aoc_theme_values
 background_task ensure_hub_running "$session_id" "$hub_addr" "$state_dir"
 background_task sync_aoc_theme_profile
 
-# Generate Tab Name (First word of repo, Title Case)
+# Default to a short plain tab label. Operators can opt into grouping later by
+# renaming tabs to a numeric-prefix form like "2 Review".
 raw_name="$(basename "$project_root")"
-computed_tab_name="$(echo "$raw_name" | cut -d'-' -f1 | awk '{print toupper(substr($0,1,1)) tolower(substr($0,2))}')"
-if [[ -z "$computed_tab_name" ]]; then computed_tab_name="AOC"; fi
-tab_name_to_use="${tab_name:-$computed_tab_name}"
+computed_tab_label="$(aoc_default_tab_label "$project_root")"
+if [[ "$layout_choice" == "mission-control" ]]; then
+  tab_name_to_use="${tab_name:-Mission Control}"
+else
+  tab_name_to_use="$(aoc_build_tab_name "$project_root" "${tab_name:-$computed_tab_label}")"
+fi
+
+if [[ -n "$tab_name_to_use" ]]; then
+  args=(--name "$tab_name_to_use" "${args[@]}")
+fi
 
 # Agent ID tracks the project/repo slug used for metadata and launch context.
 agent_id="$raw_name"
