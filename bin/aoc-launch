@@ -189,11 +189,10 @@ hub_url="$(resolve_hub_url "$hub_addr")"
 background_task ensure_hub_running "$session_id" "$hub_addr" "$state_dir"
 background_task sync_aoc_theme_profile
 
-# Generate Tab Name (First word of repo, Title Case)
-# e.g., agent-ops-cockpit -> Agent
+# Default to a short plain tab label. Operators can opt into grouping later by
+# renaming tabs to a numeric-prefix form like "2 Review".
 raw_name="$(basename "$project_root")"
-tab_name="$(echo "$raw_name" | cut -d'-' -f1 | awk '{print toupper(substr($0,1,1)) tolower(substr($0,2))}')"
-if [[ -z "$tab_name" ]]; then tab_name="AOC"; fi
+tab_name="$(aoc_build_tab_name "$project_root" "$(aoc_default_tab_label "$project_root")")"
 
 # Agent ID is the raw repo name used for launch metadata and session context.
 agent_id="$raw_name"

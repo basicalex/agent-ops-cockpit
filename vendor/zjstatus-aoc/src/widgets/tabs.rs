@@ -1,4 +1,4 @@
-use std::{cmp, collections::BTreeMap};
+use std::{borrow::Cow, cmp, collections::BTreeMap};
 
 use zellij_tile::{
     prelude::{InputMode, ModeInfo, PaneInfo, PaneManifest, TabInfo},
@@ -523,7 +523,7 @@ impl TabsWidget {
     }
 
     fn render_project_label(&self, tab: &TabInfo, panes: &PaneManifest, mode: &ModeInfo) -> String {
-        let mut label = self.resolved_tab_name(tab, mode).to_owned();
+        let mut label = self.resolved_tab_name(tab, mode).into_owned();
         let indicators = self.tab_indicator_suffix(tab, panes);
         if !indicators.is_empty() {
             label.push(' ');
@@ -532,14 +532,55 @@ impl TabsWidget {
         label
     }
 
-    fn resolved_tab_name<'a>(&self, tab: &'a TabInfo, mode: &ModeInfo) -> &'a str {
+    fn parse_grouped_tab_name<'a>(&self, raw_name: &'a str) -> (Option<String>, Cow<'a, str>) {
+        let trimmed = raw_name.trim_start();
+        if let Some(first_non_digit) = trimmed.find(|c: char| !c.is_ascii_digit()) {
+            let (digits, rest) = trimmed.split_at(first_non_digit);
+            if !digits.is_empty() && rest.chars().next().is_some_and(char::is_whitespace) {
+                let label = rest.trim_start();
+                if !label.is_empty() {
+                    return (Some(digits.to_string()), Cow::Borrowed(label));
+                }
+            }
+        }
+
+        if !trimmed.starts_with('[') {
+            return (None, Cow::Borrowed(raw_name));
+        }
+
+        let Some(close_idx) = trimmed.find(']') else {
+            return (None, Cow::Borrowed(raw_name));
+        };
+
+        let group = trimmed[1..close_idx].trim();
+        if group.is_empty() {
+            return (None, Cow::Borrowed(raw_name));
+        }
+
+        let label = trimmed[close_idx + 1..].trim_start();
+        if label.is_empty() {
+            return (Some(group.to_string()), Cow::Owned(group.to_string()));
+        }
+
+        (Some(group.to_string()), Cow::Borrowed(label))
+    }
+
+    fn resolved_tab_name<'a>(&self, tab: &'a TabInfo, mode: &ModeInfo) -> Cow<'a, str> {
         match mode.mode {
             InputMode::RenameTab => match tab.name.is_empty() {
-                true => "Enter name...",
-                false => tab.name.as_str(),
+                true => Cow::Borrowed("Enter name..."),
+                false => Cow::Borrowed(tab.name.as_str()),
             },
-            _ => tab.name.as_str(),
+            _ => self.parse_grouped_tab_name(tab.name.as_str()).1,
         }
+    }
+
+    fn normalize_project_key(&self, raw: &str) -> String {
+        raw.trim()
+            .chars()
+            .filter(|c| c.is_ascii_alphanumeric() || *c == '-' || *c == '_')
+            .collect::<String>()
+            .to_ascii_lowercase()
     }
 
     fn tab_indicator_suffix(&self, tab: &TabInfo, panes: &PaneManifest) -> String {
@@ -572,46 +613,16 @@ impl TabsWidget {
         indicators.join(" ")
     }
 
-    fn project_key(&self, state: &ZellijState, tab: &TabInfo) -> String {
-        if let Some(metadata) = state.runtime_tab_metadata.get(&tab.position)
-            && !metadata.project_key.trim().is_empty()
-        {
-            let normalized = metadata
-                .project_key
-                .trim()
-                .chars()
-                .filter(|c| c.is_ascii_alphanumeric() || *c == '-' || *c == '_')
-                .collect::<String>()
-                .to_ascii_lowercase();
+    fn project_key(&self, _state: &ZellijState, tab: &TabInfo) -> String {
+        let (explicit_group, _) = self.parse_grouped_tab_name(tab.name.as_str());
+        if let Some(group) = explicit_group {
+            let normalized = self.normalize_project_key(&group);
             if !normalized.is_empty() {
                 return normalized;
             }
         }
 
-        let trimmed = tab.name.trim();
-        let token = trimmed
-            .split(|c: char| {
-                c.is_whitespace()
-                    || matches!(
-                        c,
-                        '/' | '\\' | '|' | ':' | '[' | ']' | '(' | ')' | '<' | '>' | '{' | '}'
-                    )
-            })
-            .find(|part| !part.is_empty())
-            .unwrap_or(trimmed);
-
-        let normalized = token
-            .trim_matches(|c: char| !c.is_ascii_alphanumeric())
-            .chars()
-            .filter(|c| c.is_ascii_alphanumeric() || *c == '-' || *c == '_')
-            .collect::<String>()
-            .to_ascii_lowercase();
-
-        if normalized.is_empty() {
-            format!("tab-{}", tab.position)
-        } else {
-            normalized
-        }
+        format!("tab-{}", tab.position)
     }
 
     fn project_color_map(
@@ -713,7 +724,7 @@ impl TabsWidget {
             let tab_name = self.resolved_tab_name(tab, mode);
 
             if content.contains("{name}") {
-                content = content.replace("{name}", tab_name);
+                content = content.replace("{name}", tab_name.as_ref());
             }
 
             if content.contains("{index}") {
@@ -824,9 +835,13 @@ pub fn get_tab_window(
 
 #[cfg(test)]
 mod test {
-    use zellij_tile::prelude::TabInfo;
+    use std::collections::BTreeMap;
 
-    use super::get_tab_window;
+    use zellij_tile::prelude::{InputMode, ModeInfo, TabInfo};
+
+    use crate::config::ZellijState;
+
+    use super::{TabsWidget, get_tab_window};
     use rstest::rstest;
 
     #[rstest]
@@ -1202,5 +1217,70 @@ mod test {
         let res = get_tab_window(&tabs, max_count);
 
         assert_eq!(res, expected);
+    }
+
+    #[test]
+    fn grouped_prefix_is_hidden_during_normal_render_but_visible_in_rename_mode() {
+        let widget = TabsWidget::new(&BTreeMap::new());
+        let tab = TabInfo {
+            name: "2 PI Agent".to_string(),
+            ..TabInfo::default()
+        };
+
+        assert_eq!(widget.resolved_tab_name(&tab, &ModeInfo::default()).as_ref(), "PI Agent");
+        assert_eq!(
+            widget
+                .resolved_tab_name(
+                    &tab,
+                    &ModeInfo {
+                        mode: InputMode::RenameTab,
+                        ..ModeInfo::default()
+                    },
+                )
+                .as_ref(),
+            "2 PI Agent"
+        );
+    }
+
+    #[test]
+    fn project_key_prefers_explicit_numeric_group_prefix_over_runtime_metadata() {
+        let widget = TabsWidget::new(&BTreeMap::new());
+        let tab = TabInfo {
+            position: 2,
+            name: "2 Review".to_string(),
+            ..TabInfo::default()
+        };
+        let mut state = ZellijState::default();
+        state.runtime_tab_metadata.insert(
+            2,
+            crate::config::RuntimeTabMetadata {
+                tab_name: "2 Review".to_string(),
+                project_key: "voyager".to_string(),
+                project_root: "/tmp/voyager".to_string(),
+            },
+        );
+
+        assert_eq!(widget.project_key(&state, &tab), "2");
+    }
+
+    #[test]
+    fn ungrouped_tabs_do_not_fall_back_to_runtime_metadata_grouping() {
+        let widget = TabsWidget::new(&BTreeMap::new());
+        let tab = TabInfo {
+            position: 4,
+            name: "Review".to_string(),
+            ..TabInfo::default()
+        };
+        let mut state = ZellijState::default();
+        state.runtime_tab_metadata.insert(
+            4,
+            crate::config::RuntimeTabMetadata {
+                tab_name: "Review".to_string(),
+                project_key: "voyager".to_string(),
+                project_root: "/tmp/voyager".to_string(),
+            },
+        );
+
+        assert_eq!(widget.project_key(&state, &tab), "tab-4");
     }
 }

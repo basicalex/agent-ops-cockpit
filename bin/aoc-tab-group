@@ -1,0 +1,140 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+source "$(dirname "$0")/aoc-utils.sh"
+
+usage() {
+  cat <<'EOF'
+Usage: aoc-tab-group [status|set|clear|rename] [args]
+
+Commands:
+  status            Show the active tab's raw name, numeric group, and visible label
+  set GROUP [LABEL] Put the active tab in numeric GROUP, optionally replacing the label
+  clear [LABEL]     Remove numeric grouping, optionally replacing the label
+  rename LABEL      Rename the active tab while preserving its current numeric group
+
+Examples:
+  aoc-tab-group status
+  aoc-tab-group set 2
+  aoc-tab-group set 2 Review
+  aoc-tab-group clear
+  aoc-tab-group rename "PI Agent"
+EOF
+}
+
+have() { command -v "$1" >/dev/null 2>&1; }
+
+in_zellij() {
+  [[ -n "${ZELLIJ:-}" || -n "${ZELLIJ_SESSION_NAME:-}" ]]
+}
+
+current_tab_name() {
+  if ! in_zellij || ! have zellij; then
+    return 1
+  fi
+  zellij action current-tab-info --json 2>/dev/null | python -c '
+import json, sys
+try:
+    data = json.load(sys.stdin)
+except Exception:
+    raise SystemExit(1)
+name = data.get("name")
+if not isinstance(name, str):
+    raise SystemExit(1)
+print(name)
+'
+}
+
+resolve_project_root() {
+  local probe="${AOC_PROJECT_ROOT:-}"
+  if [[ -n "$probe" && -d "$probe" ]]; then
+    cd "$probe" >/dev/null 2>&1 && pwd -P
+    return 0
+  fi
+  if have git; then
+    local git_root=""
+    git_root="$(git rev-parse --show-toplevel 2>/dev/null || true)"
+    if [[ -n "$git_root" && -d "$git_root" ]]; then
+      cd "$git_root" >/dev/null 2>&1 && pwd -P
+      return 0
+    fi
+  fi
+  pwd -P
+}
+
+rename_active_tab() {
+  local next_name="$1"
+  [[ -n "$next_name" ]] || return 1
+  zellij action rename-tab "$next_name" >/dev/null 2>&1
+}
+
+if ! in_zellij; then
+  echo "aoc-tab-group: not running inside Zellij" >&2
+  exit 1
+fi
+if ! have zellij; then
+  echo "aoc-tab-group: zellij command not found" >&2
+  exit 1
+fi
+
+command_name="${1:-status}"
+shift || true
+
+case "$command_name" in
+  status)
+    raw_name="$(current_tab_name || true)"
+    printf 'current_tab_name=%s\n' "$raw_name"
+    printf 'current_tab_group=%s\n' "$(aoc_tab_group_from_name "$raw_name" || true)"
+    printf 'current_tab_label=%s\n' "$(aoc_tab_label_from_name "$raw_name" || true)"
+    ;;
+  set)
+    group="${1:-}"
+    shift || true
+    if [[ -z "$group" ]]; then
+      echo "aoc-tab-group set: missing GROUP" >&2
+      usage >&2
+      exit 1
+    fi
+    if ! group="$(aoc_normalize_numeric_tab_group "$group")"; then
+      echo "aoc-tab-group set: GROUP must contain digits" >&2
+      exit 1
+    fi
+    raw_name="$(current_tab_name || true)"
+    label="${*:-$(aoc_tab_label_from_name "$raw_name" || true)}"
+    if [[ -z "$label" ]]; then
+      label="$(aoc_default_tab_label "$(resolve_project_root)")"
+    fi
+    rename_active_tab "$group $label"
+    ;;
+  clear)
+    raw_name="$(current_tab_name || true)"
+    label="${*:-$(aoc_tab_label_from_name "$raw_name" || true)}"
+    if [[ -z "$label" ]]; then
+      label="$(aoc_default_tab_label "$(resolve_project_root)")"
+    fi
+    rename_active_tab "$label"
+    ;;
+  rename)
+    if [[ $# -eq 0 ]]; then
+      echo "aoc-tab-group rename: missing LABEL" >&2
+      usage >&2
+      exit 1
+    fi
+    raw_name="$(current_tab_name || true)"
+    label="$*"
+    group="$(aoc_tab_group_from_name "$raw_name" || true)"
+    if [[ -n "$group" ]] && normalized_group="$(aoc_normalize_numeric_tab_group "$group" 2>/dev/null || true)" && [[ -n "$normalized_group" ]]; then
+      rename_active_tab "$normalized_group $label"
+    else
+      rename_active_tab "$label"
+    fi
+    ;;
+  -h|--help|help)
+    usage
+    ;;
+  *)
+    echo "Unknown command: $command_name" >&2
+    usage >&2
+    exit 1
+    ;;
+esac
