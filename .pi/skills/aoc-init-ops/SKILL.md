@@ -20,6 +20,7 @@ description: Initialize or repair AOC context, memory, and tasks safely.
 - Ensures PRD directory `.taskmaster/docs/prds/` is available for tag/task links
 - Seeds `.pi/settings.json` when missing
 - Seeds PI prompt templates in `.pi/prompts/` (`/aoc-ops`, `/teach`, `/teach-full`, `/teach-dive`, `/teach-ask`, `/tm-cc`) when missing
+- Ensures global PI multi-auth package `npm:pi-multi-auth@0.1.2` is installed by default when the `pi` CLI is available
 - Seeds PI default extensions in `.pi/extensions/` (`minimal.ts`, `themeMap.ts`, `mind-ingest.ts`, `mind-ops.ts`, `mind-context.ts`, `mind-focus.ts`, `alibaba-model-studio.ts`, plus `lib/mind.ts`) when missing
 - Installs the managed AOC Zellij top-bar plugin to `~/.config/zellij/plugins/zjstatus-aoc.wasm`
 - Migrates missing legacy project-local PI prompts/skills from `.aoc/prompts/pi/` and `.aoc/skills/` into `.pi/**` (non-destructive), and cleans safe `tmcc` prompt alias duplicates

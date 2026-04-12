@@ -44,6 +44,8 @@ AOC now guarantees the baseline PI extensions are present after `aoc-init`:
 
 PI auto-discovers `.pi/extensions/*.ts`, so seeded defaults are active after session start (`/reload` if already running).
 
+`aoc-init` also ensures the global PI package `npm:pi-multi-auth@0.1.2` is installed by default when the `pi` CLI is available, so Codex OAuth account rotation is part of the baseline AOC environment across projects.
+
 ## OpenCode Zen + PI model defaults
 
 This repo now seeds project-local PI defaults as follows:

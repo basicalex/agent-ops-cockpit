@@ -65,6 +65,15 @@ script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 log() { echo ">> $1"; }
 warn() { echo "!! $1"; }
 
+is_truthy() {
+  local value="${1:-}"
+  value="$(printf '%s' "$value" | tr '[:upper:]' '[:lower:]')"
+  case "$value" in
+    1|true|yes|on) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
 positive_int_or_default() {
   local candidate="$1"
   local fallback="$2"
@@ -797,6 +806,7 @@ description: Initialize or repair AOC context, memory, and tasks safely.
 - Ensures PRD directory `.taskmaster/docs/prds/` is available for tag/task links
 - Seeds `.pi/settings.json` when missing
 - Seeds PI prompt templates in `.pi/prompts/` (`/aoc-ops`, `/teach`, `/teach-full`, `/teach-dive`, `/teach-ask`, `/tm-cc`) when missing
+- Ensures global PI multi-auth package `npm:pi-multi-auth@0.1.2` is installed by default when the `pi` CLI is available
 - Seeds PI default extensions in `.pi/extensions/` (`minimal.ts`, `themeMap.ts`, `mind-ingest.ts`, `mind-ops.ts`, `mind-context.ts`, `mind-focus.ts`, `alibaba-model-studio.ts`, plus `lib/mind.ts`) when missing
 - Installs the managed AOC Zellij top-bar plugin to `~/.config/zellij/plugins/zjstatus-aoc.wasm`
 - Migrates missing legacy project-local PI prompts/skills from `.aoc/prompts/pi/` and `.aoc/skills/` into `.pi/**` (non-destructive), and cleans safe `tmcc` prompt alias duplicates
@@ -919,6 +929,90 @@ PY
       ;;
     *)
       warn "Unexpected PI settings status '$settings_status' for $pi_settings"
+      ;;
+  esac
+}
+
+setup_global_pi_multi_auth() {
+  local enabled="${AOC_INIT_INSTALL_PI_MULTI_AUTH:-1}"
+  local pi_bin="${AOC_PI_BIN:-pi}"
+  local package_source="${AOC_PI_MULTI_AUTH_SOURCE:-npm:pi-multi-auth@0.1.2}"
+  local global_pi_dir="$HOME/.pi/agent"
+  local global_settings="$global_pi_dir/settings.json"
+  local package_status=""
+
+  if ! is_truthy "$enabled"; then
+    log "Skipping default PI multi-auth install (AOC_INIT_INSTALL_PI_MULTI_AUTH=$enabled)."
+    return 0
+  fi
+
+  if ! command -v "$pi_bin" >/dev/null 2>&1; then
+    warn "PI CLI not found; skipping default PI multi-auth install ($package_source)."
+    return 0
+  fi
+
+  mkdir -p "$global_pi_dir"
+
+  package_status="$(python3 - "$global_settings" "$package_source" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+path = Path(sys.argv[1])
+source = sys.argv[2]
+
+if not path.exists():
+    print("missing")
+    raise SystemExit(0)
+
+try:
+    data = json.loads(path.read_text(encoding="utf-8"))
+except Exception:
+    print("invalid")
+    raise SystemExit(0)
+
+if not isinstance(data, dict):
+    print("invalid")
+    raise SystemExit(0)
+
+packages = data.get("packages")
+if not isinstance(packages, list):
+    print("missing")
+    raise SystemExit(0)
+
+def source_value(entry):
+    if isinstance(entry, str):
+        return entry
+    if isinstance(entry, dict) and isinstance(entry.get("source"), str):
+        return entry["source"]
+    return ""
+
+for entry in packages:
+    value = source_value(entry)
+    if value == source or value == "pi-multi-auth" or value.startswith("npm:pi-multi-auth"):
+        print("present")
+        break
+else:
+    print("missing")
+PY
+)"
+
+  case "$package_status" in
+    present)
+      log "Global PI multi-auth package already configured: $package_source"
+      ;;
+    missing)
+      if "$pi_bin" install "$package_source"; then
+        log "Installed global PI multi-auth package: $package_source"
+      else
+        warn "Failed to install global PI multi-auth package: $package_source"
+      fi
+      ;;
+    invalid)
+      warn "Global PI settings are invalid ($global_settings); skipping default PI multi-auth install."
+      ;;
+    *)
+      warn "Unexpected global PI multi-auth status '$package_status' for $global_settings"
       ;;
   esac
 }
@@ -1623,6 +1717,7 @@ main() {
   log "Initializing AOC in: $project_root"
   setup_memory
   setup_pi_settings
+  setup_global_pi_multi_auth
   setup_pi_extensions
   migrate_legacy_pi_assets
   setup_pi_prompts
