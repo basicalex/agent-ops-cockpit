@@ -20,6 +20,7 @@ description: Initialize or repair AOC context, memory, and tasks safely.
 - Ensures PRD directory `.taskmaster/docs/prds/` is available for tag/task links
 - Seeds `.pi/settings.json` when missing
 - Seeds PI prompt templates in `.pi/prompts/` (`/aoc-ops`, `/teach`, `/teach-full`, `/teach-dive`, `/teach-ask`, `/tm-cc`) when missing
+- Ensures global PI multi-auth package `npm:pi-multi-auth@0.1.2` is installed by default when the `pi` CLI is available
 - Migrates missing legacy PI prompts/skills from `.aoc/prompts/pi/` and `.aoc/skills/` into `.pi/**` (non-destructive), and cleans safe `tmcc` prompt alias duplicates
 - Optional MoreMotion prompt `/momo` is seeded by `aoc-momo init`
 - Ensures `.pi/skills` baseline (PI-first canonical)

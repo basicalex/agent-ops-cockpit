@@ -45,6 +45,60 @@ export HOME="$tmp_root/home"
 export XDG_CONFIG_HOME="$tmp_root/config"
 mkdir -p "$HOME" "$XDG_CONFIG_HOME"
 
+fake_bin="$tmp_root/bin"
+mkdir -p "$fake_bin"
+cat > "$fake_bin/pi" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+
+cmd="${1:-}"
+if [[ "$cmd" != "install" ]]; then
+  echo "unsupported fake pi command: $*" >&2
+  exit 1
+fi
+shift
+
+if [[ "${1:-}" == "-l" || "${1:-}" == "--local" ]]; then
+  echo "unexpected local install in fake pi: $*" >&2
+  exit 1
+fi
+
+source_spec="${1:-}"
+[[ -n "$source_spec" ]] || {
+  echo "missing source for fake pi install" >&2
+  exit 1
+}
+
+log_file="${AOC_PI_TEST_INSTALL_LOG:-$HOME/pi-install.log}"
+printf '%s\n' "$source_spec" >> "$log_file"
+
+python3 - "$HOME/.pi/agent/settings.json" "$source_spec" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+path = Path(sys.argv[1])
+source = sys.argv[2]
+path.parent.mkdir(parents=True, exist_ok=True)
+
+if path.exists():
+    data = json.loads(path.read_text(encoding="utf-8"))
+else:
+    data = {}
+
+packages = data.get("packages")
+if not isinstance(packages, list):
+    packages = []
+if source not in packages:
+    packages.append(source)
+data["packages"] = packages
+path.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
+PY
+EOF
+chmod +x "$fake_bin/pi"
+export PATH="$fake_bin:$PATH"
+export AOC_PI_TEST_INSTALL_LOG="$tmp_root/pi-install.log"
+
 # --- Fresh repo flow ---
 project_fresh="$tmp_root/fresh"
 mkdir -p "$project_fresh/.git"
@@ -57,6 +111,9 @@ assert_exists "$project_fresh/.aoc/context.md"
 assert_exists "$project_fresh/.aoc/memory.md"
 assert_exists "$project_fresh/.aoc/stm/current.md"
 assert_exists "$project_fresh/.pi/settings.json"
+assert_exists "$HOME/.pi/agent/settings.json"
+assert_contains '"packages": [' "$HOME/.pi/agent/settings.json"
+assert_contains '"npm:pi-multi-auth@0.1.2"' "$HOME/.pi/agent/settings.json"
 assert_contains '"defaultProvider": "openai-codex"' "$project_fresh/.pi/settings.json"
 assert_contains '"defaultModel": "gpt-5.4"' "$project_fresh/.pi/settings.json"
 assert_contains '"defaultThinkingLevel": "medium"' "$project_fresh/.pi/settings.json"
@@ -89,6 +146,9 @@ rm -f "$HOME/.config/zellij/plugins/zjstatus-aoc.wasm"
 run_init "$project_fresh" "$fresh_log_2"
 assert_contains "custom teach marker" "$project_fresh/.pi/prompts/teach.md"
 assert_exists "$HOME/.config/zellij/plugins/zjstatus-aoc.wasm"
+
+install_count="$(grep -c 'npm:pi-multi-auth@0.1.2' "$AOC_PI_TEST_INSTALL_LOG" || true)"
+[[ "$install_count" -eq 1 ]] || fail "Expected one global pi-multi-auth install, got $install_count"
 
 # --- Managed extension refresh flow (stale global/project template upgraded) ---
 project_refresh="$tmp_root/refresh"
@@ -184,5 +244,8 @@ assert_exists "$project_migration/.aoc/skills/custom/SKILL.md"
 
 assert_contains "Removed legacy PI prompt alias duplicate: .pi/prompts/tmcc.md" "$migration_log"
 assert_contains "Migrated legacy PI skill: .aoc/skills/custom -> .pi/skills/custom" "$migration_log"
+
+install_count="$(grep -c 'npm:pi-multi-auth@0.1.2' "$AOC_PI_TEST_INSTALL_LOG" || true)"
+[[ "$install_count" -eq 1 ]] || fail "Expected pi-multi-auth install to stay idempotent across runs, got $install_count"
 
 echo "aoc-init PI-first fresh + migration smoke tests passed."

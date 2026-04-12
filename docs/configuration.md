@@ -206,6 +206,7 @@ Safety model:
 What it guarantees:
 - Seeds/repairs canonical PI runtime paths under `.pi/**` (`settings.json`, prompts, skills, extensions).
 - Seeds default PI extensions when missing: `.pi/extensions/minimal.ts`, `.pi/extensions/themeMap.ts`, `.pi/extensions/mind-ingest.ts`, `.pi/extensions/mind-ops.ts`, `.pi/extensions/mind-context.ts`, `.pi/extensions/mind-focus.ts`, and `.pi/extensions/lib/mind.ts`.
+- Ensures the global PI package `npm:pi-multi-auth@0.1.2` is installed by default when the `pi` CLI is available.
 - Keeps AOC control-plane state under `.aoc/**`.
 - Migrates missing project-local legacy assets from `.aoc/prompts/pi/` and `.aoc/skills/` into `.pi/**` without overwriting existing canonical files.
 - Preserves existing `.pi/extensions/*` files (non-destructive).
