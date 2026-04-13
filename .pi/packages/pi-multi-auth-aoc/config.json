@@ -1,0 +1,45 @@
+{
+  "debug": false,
+  "excludeProviders": [
+    "anthropic",
+    "github-copilot",
+    "google-antigravity",
+    "google-gemini-cli"
+  ],
+  "cascade": {
+    "initialBackoffMs": 1000,
+    "maxBackoffMs": 300000,
+    "backoffMultiplier": 2,
+    "maxHistoryEntries": 10
+  },
+  "health": {
+    "windowSize": 100,
+    "maxLatencyMs": 5000,
+    "uptimeWindowMs": 3600000,
+    "minRequests": 5,
+    "staleThresholdMs": 3600000,
+    "weights": {
+      "successRate": 0.4,
+      "latencyFactor": 0.2,
+      "uptimeFactor": 0.2,
+      "recoveryFactor": 0.2
+    }
+  },
+  "historyPersistence": {
+    "enabled": true,
+    "healthFileName": "pi-multi-auth-health-history.json",
+    "cascadeFileName": "pi-multi-auth-cascade-history.json"
+  },
+  "oauthRefresh": {
+    "safetyWindowMs": 60000,
+    "minRefreshWindowMs": 30000,
+    "checkIntervalMs": 60000,
+    "maxConcurrentRefreshes": 3,
+    "requestTimeoutMs": 15000,
+    "enabled": true
+  },
+  "streamTimeouts": {
+    "attemptTimeoutMs": 600000,
+    "idleTimeoutMs": 45000
+  }
+}
