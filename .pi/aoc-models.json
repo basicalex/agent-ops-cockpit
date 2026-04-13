@@ -1,0 +1,9 @@
+{
+  "deprecated": true,
+  "message": "AOC starred model state has been removed. Use Pi built-in /scoped-models to manage scoped models.",
+  "providers": [
+    "openai-codex",
+    "opencode",
+    "openrouter"
+  ]
+}

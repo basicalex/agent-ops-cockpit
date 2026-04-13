@@ -806,8 +806,9 @@ description: Initialize or repair AOC context, memory, and tasks safely.
 - Ensures PRD directory `.taskmaster/docs/prds/` is available for tag/task links
 - Seeds `.pi/settings.json` when missing
 - Seeds PI prompt templates in `.pi/prompts/` (`/aoc-ops`, `/teach`, `/teach-full`, `/teach-dive`, `/teach-ask`, `/tm-cc`) when missing
-- Ensures global PI multi-auth package `npm:pi-multi-auth@0.1.2` is installed by default when the `pi` CLI is available
-- Seeds PI default extensions in `.pi/extensions/` (`minimal.ts`, `themeMap.ts`, `mind-ingest.ts`, `mind-ops.ts`, `mind-context.ts`, `mind-focus.ts`, `alibaba-model-studio.ts`, plus `lib/mind.ts`) when missing
+- Seeds PI default extensions in `.pi/extensions/` (`minimal.ts`, `themeMap.ts`, `mind-ingest.ts`, `mind-ops.ts`, `mind-context.ts`, `mind-focus.ts`, `aoc-models.ts`, plus `lib/mind.ts`) when missing
+- Seeds the vendored local PI multi-auth package at `.pi/packages/pi-multi-auth-aoc` and wires `.pi/settings.json` to load it by path
+- Removes legacy global npm `pi-multi-auth` package entries from `~/.pi/agent/settings.json` to avoid duplicate extension loading
 - Installs the managed AOC Zellij top-bar plugin to `~/.config/zellij/plugins/zjstatus-aoc.wasm`
 - Migrates missing legacy project-local PI prompts/skills from `.aoc/prompts/pi/` and `.aoc/skills/` into `.pi/**` (non-destructive), and cleans safe `tmcc` prompt alias duplicates
 - Optional MoreMotion prompt `/momo` is seeded by `aoc-momo init`
@@ -828,7 +829,7 @@ setup_pi_settings() {
   fi
 
   # Deterministic PI-first baseline directory contract.
-  mkdir -p "$pi_dir/prompts" "$pi_dir/skills" "$pi_dir/extensions"
+  mkdir -p "$pi_dir/prompts" "$pi_dir/skills" "$pi_dir/extensions" "$pi_dir/packages"
 
   settings_status="$(python3 - "$pi_settings" <<'PY'
 import json
@@ -836,12 +837,31 @@ import sys
 from pathlib import Path
 
 path = Path(sys.argv[1])
+local_multi_auth_package = "./packages/pi-multi-auth-aoc"
 pi_defaults = {
     "defaultProvider": "openai-codex",
     "defaultModel": "gpt-5.4",
     "defaultThinkingLevel": "medium",
 }
 seeded_enabled_models = [
+    "openai-codex/gpt-5.4",
+    "opencode/glm-5",
+    "opencode/gemini-3-flash",
+    "opencode/gemini-3.1-pro",
+    "openrouter/anthropic/claude-sonnet-4",
+    "openrouter/openai/gpt-5.1-codex",
+    "openrouter/google/gemini-2.5-pro",
+    "openrouter/google/gemini-2.5-flash",
+    "openrouter/qwen/qwen3.6-plus",
+]
+previous_seeded_enabled_models = [
+    "openai-codex/gpt-5.4",
+    "opencode/glm-5",
+    "opencode/gemini-3-flash",
+    "opencode/gemini-3.1-pro",
+    "openrouter/alibaba/qwen3.6-plus",
+]
+older_previous_seeded_enabled_models = [
     "openai-codex/gpt-5.4",
     "opencode/glm-5",
     "opencode/gemini-3-flash",
@@ -859,7 +879,30 @@ legacy_seeded_enabled_models = [
     "opencode/gemini-3.1-pro:medium",
     "opencode/kimi-k2.5:medium",
 ]
-defaults = {"extensions": [], **pi_defaults, "enabledModels": seeded_enabled_models}
+defaults = {
+    "extensions": [],
+    "packages": [local_multi_auth_package],
+    **pi_defaults,
+    "enabledModels": seeded_enabled_models,
+}
+legacy_package_prefixes = ("npm:pi-multi-auth",)
+legacy_package_values = {"pi-multi-auth", local_multi_auth_package}
+
+
+def source_value(entry):
+    if isinstance(entry, str):
+        return entry
+    if isinstance(entry, dict) and isinstance(entry.get("source"), str):
+        return entry["source"]
+    return ""
+
+
+def is_legacy_multi_auth(entry):
+    value = source_value(entry)
+    if value in legacy_package_values:
+        return value != local_multi_auth_package
+    return value.startswith(legacy_package_prefixes)
+
 
 if not path.exists():
     path.write_text(json.dumps(defaults, indent=2) + "\n", encoding="utf-8")
@@ -879,6 +922,22 @@ if not isinstance(data, dict):
 changed = False
 if "extensions" not in data:
     data["extensions"] = []
+    changed = True
+
+packages = data.get("packages")
+if not isinstance(packages, list):
+    packages = []
+    data["packages"] = packages
+    changed = True
+
+normalized_packages = [entry for entry in packages if not is_legacy_multi_auth(entry)]
+if normalized_packages != packages:
+    data["packages"] = normalized_packages
+    packages = normalized_packages
+    changed = True
+
+if local_multi_auth_package not in [source_value(entry) for entry in packages]:
+    packages.append(local_multi_auth_package)
     changed = True
 
 has_provider = "defaultProvider" in data
@@ -903,6 +962,14 @@ elif all(data.get(key) == value for key, value in pi_defaults.items()):
         changed = True
 
 if data.get("enabledModels") == legacy_seeded_enabled_models:
+    data["enabledModels"] = seeded_enabled_models
+    changed = True
+
+if data.get("enabledModels") == previous_seeded_enabled_models:
+    data["enabledModels"] = seeded_enabled_models
+    changed = True
+
+if data.get("enabledModels") == older_previous_seeded_enabled_models:
     data["enabledModels"] = seeded_enabled_models
     changed = True
 
@@ -933,33 +1000,73 @@ PY
   esac
 }
 
-setup_global_pi_multi_auth() {
-  local enabled="${AOC_INIT_INSTALL_PI_MULTI_AUTH:-1}"
-  local pi_bin="${AOC_PI_BIN:-pi}"
-  local package_source="${AOC_PI_MULTI_AUTH_SOURCE:-npm:pi-multi-auth@0.1.2}"
-  local global_pi_dir="$HOME/.pi/agent"
-  local global_settings="$global_pi_dir/settings.json"
-  local package_status=""
+setup_pi_packages() {
+  local pi_packages_dir="$project_root/.pi/packages"
+  local source_package_dir="$script_dir/../.pi/packages/pi-multi-auth-aoc"
+  local target_package_dir="$pi_packages_dir/pi-multi-auth-aoc"
+
+  mkdir -p "$pi_packages_dir"
+
+  if [[ ! -d "$source_package_dir" ]]; then
+    warn "Missing bundled PI package seed: $source_package_dir"
+    return 0
+  fi
+
+  if [[ ! -d "$target_package_dir" ]]; then
+    python3 - "$source_package_dir" "$target_package_dir" <<'PY'
+import shutil
+import sys
+from pathlib import Path
+
+src = Path(sys.argv[1])
+dst = Path(sys.argv[2])
+dst.parent.mkdir(parents=True, exist_ok=True)
+shutil.copytree(src, dst)
+PY
+    log "Seeded PI package: .pi/packages/pi-multi-auth-aoc"
+    return 0
+  fi
+
+  if [[ "$(cd "$source_package_dir" && pwd)" == "$(cd "$target_package_dir" && pwd)" ]]; then
+    log "Bundled PI package already present at target path (.pi/packages/pi-multi-auth-aoc)."
+    return 0
+  fi
+
+  if [[ -f "$target_package_dir/.aoc-managed" ]]; then
+    python3 - "$source_package_dir" "$target_package_dir" <<'PY'
+import shutil
+import sys
+from pathlib import Path
+
+src = Path(sys.argv[1])
+dst = Path(sys.argv[2])
+if dst.exists():
+    shutil.rmtree(dst)
+shutil.copytree(src, dst)
+PY
+    log "Refreshed managed PI package: .pi/packages/pi-multi-auth-aoc"
+    return 0
+  fi
+
+  log "PI package exists (.pi/packages/pi-multi-auth-aoc). Preserving."
+}
+
+cleanup_global_pi_multi_auth() {
+  local enabled="${AOC_INIT_CLEANUP_GLOBAL_PI_MULTI_AUTH:-1}"
+  local global_settings="$HOME/.pi/agent/settings.json"
+  local cleanup_status=""
 
   if ! is_truthy "$enabled"; then
-    log "Skipping default PI multi-auth install (AOC_INIT_INSTALL_PI_MULTI_AUTH=$enabled)."
+    log "Skipping global PI multi-auth cleanup (AOC_INIT_CLEANUP_GLOBAL_PI_MULTI_AUTH=$enabled)."
     return 0
   fi
 
-  if ! command -v "$pi_bin" >/dev/null 2>&1; then
-    warn "PI CLI not found; skipping default PI multi-auth install ($package_source)."
-    return 0
-  fi
-
-  mkdir -p "$global_pi_dir"
-
-  package_status="$(python3 - "$global_settings" "$package_source" <<'PY'
+  cleanup_status="$(python3 - "$global_settings" <<'PY'
 import json
 import sys
 from pathlib import Path
 
 path = Path(sys.argv[1])
-source = sys.argv[2]
 
 if not path.exists():
     print("missing")
@@ -980,6 +1087,7 @@ if not isinstance(packages, list):
     print("missing")
     raise SystemExit(0)
 
+
 def source_value(entry):
     if isinstance(entry, str):
         return entry
@@ -987,32 +1095,40 @@ def source_value(entry):
         return entry["source"]
     return ""
 
+filtered = []
+removed = 0
 for entry in packages:
     value = source_value(entry)
-    if value == source or value == "pi-multi-auth" or value.startswith("npm:pi-multi-auth"):
-        print("present")
-        break
-else:
-    print("missing")
+    if value == "pi-multi-auth" or value.startswith("npm:pi-multi-auth"):
+        removed += 1
+        continue
+    filtered.append(entry)
+
+if removed == 0:
+    print("unchanged")
+    raise SystemExit(0)
+
+data["packages"] = filtered
+path.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
+print("removed")
 PY
 )"
 
-  case "$package_status" in
-    present)
-      log "Global PI multi-auth package already configured: $package_source"
+  case "$cleanup_status" in
+    removed)
+      log "Removed legacy global npm PI multi-auth package entry from ~/.pi/agent/settings.json"
+      ;;
+    unchanged)
+      log "Global PI settings already avoid legacy npm PI multi-auth package entries."
       ;;
     missing)
-      if "$pi_bin" install "$package_source"; then
-        log "Installed global PI multi-auth package: $package_source"
-      else
-        warn "Failed to install global PI multi-auth package: $package_source"
-      fi
+      log "Global PI settings missing or have no package list. Nothing to clean."
       ;;
     invalid)
-      warn "Global PI settings are invalid ($global_settings); skipping default PI multi-auth install."
+      warn "Global PI settings are invalid ($global_settings); skipping legacy npm PI multi-auth cleanup."
       ;;
     *)
-      warn "Unexpected global PI multi-auth status '$package_status' for $global_settings"
+      warn "Unexpected global PI multi-auth cleanup status '$cleanup_status' for $global_settings"
       ;;
   esac
 }
@@ -1138,6 +1254,34 @@ is_legacy_pi_extension_template() {
   return 1
 }
 
+cleanup_deprecated_pi_extensions() {
+  local pi_extensions_dir="$1"
+  local global_template_dir="$2"
+  local deprecated_project_extension="$pi_extensions_dir/alibaba-model-studio.ts"
+  local deprecated_global_template="$global_template_dir/alibaba-model-studio.ts"
+  local deprecated_archive=""
+
+  if [[ -f "$deprecated_project_extension" ]]; then
+    if grep -Fq 'DEFAULT_ALIBABA_MODEL_STUDIO_BASE_URL' "$deprecated_project_extension" 2>/dev/null \
+      && grep -Fq 'pi.registerProvider("alibaba"' "$deprecated_project_extension" 2>/dev/null; then
+      rm -f "$deprecated_project_extension"
+      log "Removed deprecated PI extension: alibaba-model-studio.ts"
+    else
+      deprecated_archive="$pi_extensions_dir/alibaba-model-studio.ts.disabled"
+      if [[ -e "$deprecated_archive" ]]; then
+        deprecated_archive="$pi_extensions_dir/alibaba-model-studio.ts.disabled.$(date +%s)"
+      fi
+      mv "$deprecated_project_extension" "$deprecated_archive"
+      warn "Archived deprecated PI extension: .pi/extensions/alibaba-model-studio.ts -> $(basename "$deprecated_archive")"
+    fi
+  fi
+
+  if [[ -f "$deprecated_global_template" ]]; then
+    rm -f "$deprecated_global_template"
+    log "Removed deprecated global PI extension template: alibaba-model-studio.ts"
+  fi
+}
+
 # 1d. Setup PI default extensions (.pi/extensions)
 setup_pi_extensions() {
   local pi_extensions_dir="$project_root/.pi/extensions"
@@ -1154,7 +1298,7 @@ setup_pi_extensions() {
     "mind-ops.ts"
     "mind-context.ts"
     "mind-focus.ts"
-    "alibaba-model-studio.ts"
+    "aoc-models.ts"
     "lib/mind.ts"
   )
 
@@ -1247,12 +1391,14 @@ setup_pi_extensions() {
     warn "Missing PI extension template: $extension_file"
   done
 
+  cleanup_deprecated_pi_extensions "$pi_extensions_dir" "$global_template_dir"
+
   if [[ "$seeded_any" != "1" ]]; then
     log "PI default extensions already present in .pi/extensions. Preserving."
   fi
 }
 
-# 1e. Migrate legacy PI runtime assets from project-local .aoc paths
+# 1d. Migrate legacy PI runtime assets from project-local .aoc paths
 migrate_legacy_pi_assets() {
   local pi_prompts_dir="$project_root/.pi/prompts"
   local pi_skills_dir="$project_root/.pi/skills"
@@ -1717,7 +1863,8 @@ main() {
   log "Initializing AOC in: $project_root"
   setup_memory
   setup_pi_settings
-  setup_global_pi_multi_auth
+  setup_pi_packages
+  cleanup_global_pi_multi_auth
   setup_pi_extensions
   migrate_legacy_pi_assets
   setup_pi_prompts
