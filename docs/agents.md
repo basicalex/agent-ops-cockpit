@@ -24,6 +24,7 @@ Expected project-local runtime paths:
   - `mind-ops.ts`
   - `mind-context.ts`
   - `mind-focus.ts`
+  - `aoc-models.ts`
   - `lib/mind.ts`
 - Optional orchestration assets:
   - `.pi/agents/` (specialists, teams, chain manifests)
@@ -37,14 +38,15 @@ AOC now guarantees the baseline PI extensions are present after `aoc-init`:
 - `minimal.ts` — default footer/status UX (mind + context meters)
 - `themeMap.ts` — extension-to-theme defaults + title behavior
 - `mind-ingest.ts` — native Pi→Mind ingest + compaction checkpoints
-- `mind-ops.ts` — `/mind`, `/mind-status`, finalize, and operator controls
+- `mind-ops.ts` — `/mind`, `/mind-status`, `/aoc-status`, finalize, and operator controls
 - `mind-context.ts` — `mind_context_pack` retrieval commands
 - `mind-focus.ts` — local focus/task/file inference helpers
+- `aoc-models.ts` — legacy OpenRouter bridge migration/status shim; Pi native `/model` + `/scoped-models` own catalog scope
 - `lib/mind.ts` — shared Pulse/Mind transport + state helpers
 
 PI auto-discovers `.pi/extensions/*.ts`, so seeded defaults are active after session start (`/reload` if already running).
 
-`aoc-init` also ensures the global PI package `npm:pi-multi-auth@0.1.2` is installed by default when the `pi` CLI is available, so Codex OAuth account rotation is part of the baseline AOC environment across projects.
+`aoc-init` seeds a vendored local PI package at `.pi/packages/pi-multi-auth-aoc` and wires `.pi/settings.json` to load it by path, so Codex/OpenRouter multi-auth rotation is part of the baseline AOC environment without relying on a global npm package. Pi now owns the native OpenRouter provider/catalog surface, while the vendored multi-auth package wraps `openrouter` for credential storage, TUI account management, and rotation/failover. The `aoc-models.ts` shim only migrates legacy AOC-managed OpenRouter bridge state out of `~/.pi/agent/models.json` when detected.
 
 ## OpenCode Zen + PI model defaults
 
@@ -58,36 +60,39 @@ This repo now seeds project-local PI defaults as follows:
   - `opencode/glm-5`
   - `opencode/gemini-3-flash`
   - `opencode/gemini-3.1-pro`
-  - `alibaba/qwen3.6-plus`
+  - `openrouter/anthropic/claude-sonnet-4`
+  - `openrouter/openai/gpt-5.1-codex`
+  - `openrouter/google/gemini-2.5-pro`
+  - `openrouter/google/gemini-2.5-flash`
+  - `openrouter/qwen/qwen3.6-plus`
 
-This keeps OpenCode Zen available, exposes only the curated OpenCode Zen models above, and also keeps the project-local Alibaba Qwen 3.6 Plus model visible in the PI model selector.
+This keeps OpenCode Zen available while also exposing a small curated OpenRouter slice for low-noise model cycling.
 
 Credential handling stays out of the repo:
 
 - set `OPENCODE_API_KEY` in your shell, or
 - store an `opencode` API key entry in `~/.pi/agent/auth.json`
 
+When the vendored multi-auth package is active, AOC now bootstraps `OPENCODE_API_KEY` and `OPENROUTER_API_KEY` from the environment into PI auth storage on startup, deduplicates matching keys, and lets multi-auth own rotation state in `~/.pi/agent/multi-auth.json`.
+
 Do **not** commit API keys into `.pi/settings.json`. PI already ships native OpenCode Zen support, so AOC only seeds project defaults and model visibility.
 
-## Additional project-local providers
+## Pi-native OpenRouter + multi-auth rotation
 
-This repo also ships a project-local PI provider extension for **Alibaba Cloud Model Studio / DashScope**:
+This repo now treats OpenRouter as a **Pi-native** provider surface:
 
-- extension file: `.pi/extensions/alibaba-model-studio.ts`
-- provider id: `alibaba`
-- model added to `/model`: `qwen3.6-plus`
-- credential env var: `DASHSCOPE_API_KEY`
-- optional endpoint override: `DASHSCOPE_BASE_URL`
+- extension file: `.pi/extensions/aoc-models.ts` (migration/status shim only)
+- provider id: `openrouter`
+- vendored multi-auth package: `.pi/packages/pi-multi-auth-aoc`
+- credential env var: `OPENROUTER_API_KEY`
+- auth storage: PI multi-auth / PI auth storage in `~/.pi/agent/auth.json`
+- optional endpoint override: `OPENROUTER_BASE_URL` or `AOC_OPENROUTER_BASE_URL`
+- model scope UI: Pi native `/model` and `/scoped-models`
+- rotation UI: `/multi-auth`
 
-The project-local Alibaba extension supports an explicit workspace OpenAI-compatible endpoint via env var:
+Multi-auth still wraps `openrouter` so multiple API keys can be added, selected, and rotated from the `/multi-auth` TUI, but provider/model metadata now comes from Pi's native OpenRouter integration first. `~/.pi/agent/models.json` is no longer AOC-owned; any surviving legacy AOC-managed OpenRouter snapshot is backed up and removed automatically.
 
-- `DASHSCOPE_BASE_URL=https://ws-<workspace>.eu-central-1.maas.aliyuncs.com/compatible-mode/v1`
-
-This is the preferred setting when Model Studio shows you a workspace-specific host. The provider also sends `Authorization: Bearer $DASHSCOPE_API_KEY` explicitly via PI's `authHeader` support. If no explicit env var is set, the extension falls back to:
-
-- `https://dashscope-intl.aliyuncs.com/compatible-mode/v1`
-
-PI auto-discovers `.pi/extensions/*.ts`, so the Alibaba model appears in the selector after session start (or after `/reload` in an already-running session).
+AOC still seeds a curated OpenRouter slice into `enabledModels`, so Ctrl+P cycling stays intentionally small without replacing Pi's native catalog.
 
 ## Prompt templates
 
@@ -131,6 +136,7 @@ See also: [Deprecations and removals](deprecations.md), [Insight sub-agent orche
    - `.pi/extensions/mind-ops.ts`
    - `.pi/extensions/mind-context.ts`
    - `.pi/extensions/mind-focus.ts`
+   - `.pi/extensions/aoc-models.ts`
    - `.pi/extensions/lib/mind.ts`
 3. Verify control-plane paths under `.aoc/` (`context.md`, `memory.md`, `stm/`, `rtk.toml`).
 4. Check migration logs for warnings:

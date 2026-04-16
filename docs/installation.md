@@ -94,7 +94,13 @@ AOC_INSTALL_RUST=0 ./install.sh
 
 After install (or manual `aoc-init`), a PI-first project should include:
 
+- Pi-native OpenRouter catalog/model handling, with `.pi/extensions/aoc-models.ts` retained only as a legacy migration/status shim
+- Project-local seeded `enabledModels` still includes curated OpenRouter entries such as `openrouter/qwen/qwen3.6-plus`
+- `/model` and `/scoped-models` for native model scope, plus `/multi-auth` for OpenRouter credential rotation
+- `OPENROUTER_API_KEY` available in the environment or PI auth storage when you want to use OpenRouter models
+
 - `.pi/settings.json`
+- `.pi/packages/pi-multi-auth-aoc/package.json`
 - `.pi/prompts/tm-cc.md`
 - `.pi/skills/aoc-init-ops/SKILL.md` (plus other seeded skills)
 - `.pi/extensions/minimal.ts`
@@ -104,7 +110,7 @@ After install (or manual `aoc-init`), a PI-first project should include:
 - `.pi/extensions/mind-focus.ts`
 - `.pi/extensions/lib/mind.ts`
 - `.pi/extensions/themeMap.ts`
-- `.pi/extensions/alibaba-model-studio.ts`
+- `.pi/extensions/aoc-models.ts`
 - `~/.config/zellij/plugins/zjstatus-aoc.wasm`
 - `.aoc/context.md`
 - `.aoc/rtk.toml`
@@ -113,12 +119,14 @@ Quick verification:
 
 ```bash
 test -f .pi/extensions/minimal.ts
+test -f .pi/packages/pi-multi-auth-aoc/package.json
 test -f .pi/extensions/mind-ingest.ts
 test -f .pi/extensions/mind-ops.ts
 test -f .pi/extensions/mind-context.ts
 test -f .pi/extensions/mind-focus.ts
 test -f .pi/extensions/lib/mind.ts
 test -f .pi/extensions/themeMap.ts
+test -f .pi/extensions/aoc-models.ts
 test -f .pi/prompts/tm-cc.md
 test -f .pi/settings.json
 test -f ~/.config/zellij/plugins/zjstatus-aoc.wasm

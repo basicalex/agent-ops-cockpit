@@ -1,0 +1,87 @@
+# pi-multi-auth-aoc
+
+Vendored AOC-managed fork of `pi-multi-auth`, delivered as a local Pi package under `.pi/packages/pi-multi-auth-aoc`.
+
+AOC-specific changes:
+- native OpenRouter provider discovery/registration in multi-auth
+- Pi built-in provider metadata stays authoritative; `~/.pi/agent/models.json` is treated as additive override input
+- intended for project-local delivery via `.pi/settings.json` package path, not global npm install
+
+Original upstream project: [MasuRii/pi-multi-auth](https://github.com/MasuRii/pi-multi-auth)
+
+<img width="1024" height="506" alt="image" src="https://github.com/user-attachments/assets/1aff63b4-0e1e-4eaa-93b4-5f4f9188224b" />
+
+`pi-multi-auth` is a Pi extension for multi-provider credential management, OAuth login, and quota-aware account rotation.
+
+- **npm**: https://www.npmjs.com/package/pi-multi-auth
+- **GitHub**: https://github.com/MasuRii/pi-multi-auth
+
+## Repository structure
+
+This package now follows a conventional `src/` layout. The published entrypoint stays at the repository root as `index.ts`, runtime implementation lives under `src/`, and targeted compatibility shims remain at the package root for stable balancer subpaths.
+
+```text
+pi-multi-auth/
+├── index.ts
+├── balancer/
+│   ├── index.ts
+│   └── credential-backoff.ts
+├── src/
+│   ├── index.ts
+│   ├── balancer/
+│   ├── formatters/
+│   ├── usage/
+│   └── *.ts
+├── tests/
+├── package.json
+├── tsconfig.json
+├── tsconfig.test.json
+├── README.md
+├── CHANGELOG.md
+└── LICENSE
+```
+
+## Local usage
+
+Place this folder in one of Pi's extension discovery paths:
+
+| Scope | Path |
+|-------|------|
+| Global | `~/.pi/agent/extensions/pi-multi-auth` |
+| Project | `.pi/extensions/pi-multi-auth` |
+
+Pi discovers the extension through the root `index.ts` entry listed in `package.json`, which forwards to `src/index.ts`.
+
+## Configuration
+
+Runtime configuration lives in `config.json` at the extension root. The extension creates the file automatically with defaults on first load if it does not already exist.
+
+| Key | Type | Default | Purpose |
+|-----|------|---------|---------|
+| `debugLog` | `boolean` | `false` | Enables JSONL debug logging under `debug/pi-multi-auth-debug.jsonl` |
+| `excludeProviders` | `string[]` | `[]` | Prevents selected providers from being wrapped by multi-auth |
+| `cascade` | `object` | built-in defaults | Tunes retry backoff and retained failure history |
+| `health` | `object` | built-in defaults | Tunes rolling health windows and scoring weights |
+| `oauthRefresh` | `object` | built-in defaults | Controls proactive OAuth token refresh scheduling |
+
+The published package intentionally excludes `config.json` and `debug/`; both are created locally as needed by the running extension.
+
+## Validation
+
+```bash
+npm run build
+npm run lint
+npm run test
+npm run check
+```
+
+## Related Pi Extensions
+
+- [pi-permission-system](https://github.com/MasuRii/pi-permission-system) — Permission enforcement for tool and command access
+- [pi-tool-display](https://github.com/MasuRii/pi-tool-display) — Compact tool rendering and diff visualization
+- [pi-MUST-have-extension](https://github.com/MasuRii/pi-MUST-have-extension) — RFC 2119 keyword normalization for prompts
+- [pi-rtk-optimizer](https://github.com/MasuRii/pi-rtk-optimizer) — RTK command rewriting and output compaction
+
+## License
+
+MIT

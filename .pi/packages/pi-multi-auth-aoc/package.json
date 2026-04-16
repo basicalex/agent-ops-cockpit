@@ -1,0 +1,75 @@
+{
+  "name": "pi-multi-auth-aoc",
+  "version": "0.1.2-aoc.1",
+  "private": true,
+  "description": "AOC-vendored pi-multi-auth package with OpenRouter-aware multi-auth support.",
+  "type": "module",
+  "main": "./index.ts",
+  "exports": {
+    ".": "./index.ts",
+    "./balancer": "./src/balancer/index.ts",
+    "./balancer/index.js": "./src/balancer/index.ts",
+    "./balancer/credential-backoff": "./src/balancer/credential-backoff.ts",
+    "./balancer/credential-backoff.js": "./src/balancer/credential-backoff.ts"
+  },
+  "files": [
+    "index.ts",
+    "src",
+    "README.md",
+    "CHANGELOG.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "npm run typecheck",
+    "typecheck": "node ./scripts/validate-vendored.mjs",
+    "lint": "npm run typecheck",
+    "test": "npm run typecheck",
+    "check": "npm run typecheck && npm run test"
+  },
+  "keywords": [
+    "pi-package",
+    "pi",
+    "pi-extension",
+    "pi-coding-agent",
+    "coding-agent",
+    "multi-auth",
+    "multi-provider",
+    "oauth",
+    "authentication",
+    "credentials",
+    "credential-management",
+    "rotation",
+    "account-rotation"
+  ],
+  "author": "MasuRii",
+  "license": "MIT",
+  "homepage": "https://github.com/ceii/agent-ops-cockpit",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ceii/agent-ops-cockpit.git"
+  },
+  "bugs": {
+    "url": "https://github.com/ceii/agent-ops-cockpit/issues"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "pi": {
+    "extensions": [
+      "./index.ts"
+    ]
+  },
+  "dependencies": {},
+  "peerDependencies": {
+    "@mariozechner/pi-ai": "^0.64.0",
+    "@mariozechner/pi-coding-agent": "^0.64.0",
+    "@mariozechner/pi-tui": "^0.64.0"
+  },
+  "devDependencies": {
+    "@mariozechner/pi-ai": "^0.64.0",
+    "@mariozechner/pi-coding-agent": "^0.64.0",
+    "@mariozechner/pi-tui": "^0.64.0",
+    "@types/node": "^25.5.0",
+    "typescript": "^6.0.2"
+  }
+}
