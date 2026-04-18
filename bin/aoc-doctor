@@ -20,6 +20,13 @@ case "${1:-}" in
   *) echo "Unknown option: $1" >&2; usage; exit 1 ;;
 esac
 
+project_root="$PWD"
+aoc_project_dir="$project_root/.aoc"
+aoc_init_state_file="$aoc_project_dir/init-state.json"
+pi_settings_file="$project_root/.pi/settings.json"
+pi_multi_auth_package_dir="$project_root/.pi/packages/pi-multi-auth-aoc"
+local_multi_auth_package_ref="./packages/pi-multi-auth-aoc"
+
 have() { command -v "$1" >/dev/null 2>&1; }
 have_bat() { have bat || have batcat; }
 sha256_file() {
@@ -45,6 +52,75 @@ version_ge() {
   local first
   first="$(printf '%s\n%s\n' "$1" "$2" | sort -V | head -n1)"
   [[ "$first" == "$2" ]]
+}
+
+read_project_aoc_version() {
+  python3 - "$aoc_init_state_file" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+path = Path(sys.argv[1])
+if not path.exists():
+    print(0)
+    raise SystemExit(0)
+
+try:
+    data = json.loads(path.read_text(encoding="utf-8"))
+except Exception:
+    print(0)
+    raise SystemExit(0)
+
+if not isinstance(data, dict):
+    print(0)
+    raise SystemExit(0)
+
+value = data.get("projectAocVersion", data.get("version", 0))
+print(value if isinstance(value, int) and value >= 0 else 0)
+PY
+}
+
+compute_project_pi_runtime_contract_status() {
+  python3 - "$pi_settings_file" "$pi_multi_auth_package_dir" "$local_multi_auth_package_ref" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+settings_path = Path(sys.argv[1])
+package_path = Path(sys.argv[2])
+local_package = sys.argv[3]
+
+if not settings_path.exists():
+    print("missing_settings")
+    raise SystemExit(0)
+
+try:
+    data = json.loads(settings_path.read_text(encoding="utf-8"))
+except Exception:
+    print("invalid_settings")
+    raise SystemExit(0)
+
+packages = data.get("packages")
+if not isinstance(packages, list):
+    packages = []
+
+normalized = []
+for entry in packages:
+    if isinstance(entry, str):
+        normalized.append(entry)
+    elif isinstance(entry, dict) and isinstance(entry.get("source"), str):
+        normalized.append(entry["source"])
+
+references_local = local_package in normalized
+package_exists = package_path.is_dir()
+
+if references_local and not package_exists:
+    print("invalid_missing_local_package")
+elif package_exists and not references_local:
+    print("warning_missing_local_package_reference")
+else:
+    print("ok")
+PY
 }
 
 zellij_version() {
@@ -251,6 +327,8 @@ missing_required=()
 missing_optional=()
 managed_runtime_issues=()
 managed_runtime_warnings=()
+project_runtime_issues=()
+project_runtime_warnings=()
 stale_layout_paths=()
 zellij_ver="$(zellij_version || true)"
 zellij_recommended="0.44.0"
@@ -296,6 +374,43 @@ elif [[ -f "$managed_plugin_cache" ]]; then
   fi
 fi
 
+project_aoc_version="$(read_project_aoc_version)"
+project_pi_runtime_status="$(compute_project_pi_runtime_contract_status)"
+
+if [[ -d "$project_root/.aoc" ]]; then
+  [[ -f "$project_root/.aoc/context.md" ]] || project_runtime_issues+=("missing project context: .aoc/context.md")
+  [[ -f "$project_root/.aoc/memory.md" ]] || project_runtime_issues+=("missing project memory: .aoc/memory.md")
+  [[ -f "$project_root/.aoc/stm/current.md" ]] || project_runtime_issues+=("missing project STM draft: .aoc/stm/current.md")
+  [[ -f "$project_root/.aoc/rtk.toml" ]] || project_runtime_warnings+=("missing RTK config: .aoc/rtk.toml")
+  [[ -f "$aoc_init_state_file" ]] || project_runtime_warnings+=("missing init state: .aoc/init-state.json (run 'aoc-init' to record project AOC version)")
+else
+  if [[ -d "$project_root/.gemini" ]]; then
+    project_runtime_warnings+=("legacy .gemini/ detected; run 'aoc-init' to migrate to .aoc/")
+  else
+    project_runtime_issues+=("missing project control plane: .aoc/")
+  fi
+fi
+
+case "$project_pi_runtime_status" in
+  ok)
+    ;;
+  warning_missing_local_package_reference)
+    project_runtime_warnings+=("local PI package exists but settings are not wired to ./packages/pi-multi-auth-aoc")
+    ;;
+  invalid_missing_local_package)
+    project_runtime_issues+=(".pi/settings.json references ./packages/pi-multi-auth-aoc but .pi/packages/pi-multi-auth-aoc is missing")
+    ;;
+  missing_settings)
+    project_runtime_issues+=("missing PI settings: .pi/settings.json")
+    ;;
+  invalid_settings)
+    project_runtime_issues+=("invalid PI settings: .pi/settings.json")
+    ;;
+  *)
+    project_runtime_warnings+=("unexpected PI runtime status: $project_pi_runtime_status")
+    ;;
+esac
+
 if [[ -d "$HOME/.config/zellij/layouts" ]]; then
   while IFS= read -r layout_path; do
     [[ -n "$layout_path" ]] || continue
@@ -331,20 +446,94 @@ if [[ "$quiet" -eq 0 ]]; then
   echo "Project Integrity:"
   if [[ -d ".aoc" ]]; then
     echo "  [ok] .aoc/ directory found"
-    if [[ -f ".aoc/context.md" ]]; then
-      echo "    [ok] context.md present"
-    else
-      echo "    [missing] context.md"
-    fi
-    if [[ -f ".aoc/memory.md" ]]; then
-      echo "    [ok] memory.md present"
-    else
-      echo "    [missing] memory.md"
-    fi
   elif [[ -d ".gemini" ]]; then
     echo "  [warn] .gemini/ found (legacy). Run 'aoc-init' to migrate to .aoc/"
   else
     echo "  [missing] .aoc/ directory. Run 'aoc-init' to initialize."
+  fi
+
+  if [[ -f ".aoc/context.md" ]]; then
+    echo "    [ok] context.md present"
+  else
+    echo "    [missing] context.md"
+  fi
+  if [[ -f ".aoc/memory.md" ]]; then
+    echo "    [ok] memory.md present"
+  else
+    echo "    [missing] memory.md"
+  fi
+  if [[ -f ".aoc/stm/current.md" ]]; then
+    echo "    [ok] stm/current.md present"
+  else
+    echo "    [missing] stm/current.md"
+  fi
+  if [[ -f ".aoc/rtk.toml" ]]; then
+    echo "    [ok] rtk.toml present"
+  else
+    echo "    [warn] rtk.toml missing"
+  fi
+  if [[ -f ".aoc/init-state.json" ]]; then
+    echo "    [ok] init-state.json present"
+    echo "    Project AOC version: $project_aoc_version"
+  else
+    echo "    [warn] init-state.json missing"
+    echo "    Project AOC version: 0 (legacy/unversioned)"
+  fi
+
+  if [[ -f ".pi/settings.json" ]]; then
+    echo "    [ok] .pi/settings.json present"
+  else
+    echo "    [missing] .pi/settings.json"
+  fi
+  if [[ -d ".pi/packages/pi-multi-auth-aoc" ]]; then
+    echo "    [ok] .pi/packages/pi-multi-auth-aoc present"
+  else
+    echo "    [warn] .pi/packages/pi-multi-auth-aoc missing"
+  fi
+  case "$project_pi_runtime_status" in
+    ok)
+      echo "    [ok] PI runtime package wiring"
+      ;;
+    warning_missing_local_package_reference)
+      echo "    [warn] PI package exists but .pi/settings.json is not wired to ./packages/pi-multi-auth-aoc"
+      ;;
+    invalid_missing_local_package)
+      echo "    [missing] .pi/settings.json references ./packages/pi-multi-auth-aoc but the package directory is missing"
+      ;;
+    missing_settings)
+      echo "    [missing] PI runtime settings missing (.pi/settings.json)"
+      ;;
+    invalid_settings)
+      echo "    [missing] PI runtime settings invalid (.pi/settings.json)"
+      ;;
+    *)
+      echo "    [warn] PI runtime status unknown: $project_pi_runtime_status"
+      ;;
+  esac
+
+  if ((${#project_runtime_issues[@]} > 0)); then
+    for issue in "${project_runtime_issues[@]}"; do
+      echo "    [missing] $issue"
+    done
+  fi
+  if ((${#project_runtime_warnings[@]} > 0)); then
+    for warning in "${project_runtime_warnings[@]}"; do
+      echo "    [warn] $warning"
+    done
+  fi
+  if (( ${#project_runtime_issues[@]} > 0 )) || (( ${#project_runtime_warnings[@]} > 0 )); then
+    echo "    Remediation:"
+    if [[ ! -d ".aoc" ]] || [[ ! -f ".aoc/init-state.json" ]] || [[ "$project_aoc_version" == "0" ]]; then
+      echo "      - Run 'aoc-init' to initialize or migrate this project to the current AOC version."
+    fi
+    case "$project_pi_runtime_status" in
+      invalid_missing_local_package|missing_settings|invalid_settings|warning_missing_local_package_reference)
+        echo "      - Run 'aoc-init' to repair PI runtime package seeding and .pi/settings.json wiring."
+        ;;
+    esac
+    if [[ -f ".aoc/init-state.json" ]] && [[ "$project_aoc_version" != "0" ]]; then
+      echo "      - Inspect project state with 'aoc-init --status'."
+    fi
   fi
   echo
 
@@ -453,7 +642,7 @@ if [[ "$quiet" -eq 0 ]]; then
   fi
 fi
 
-if [[ "${#missing_required[@]}" -gt 0 ]] || [[ "${#managed_runtime_issues[@]}" -gt 0 ]]; then
+if [[ "${#missing_required[@]}" -gt 0 ]] || [[ "${#managed_runtime_issues[@]}" -gt 0 ]] || [[ "${#project_runtime_issues[@]}" -gt 0 ]]; then
   exit 1
 fi
 exit 0

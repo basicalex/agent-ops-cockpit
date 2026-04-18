@@ -20,8 +20,10 @@ description: Initialize or repair AOC context, memory, and tasks safely.
 - Ensures PRD directory `.taskmaster/docs/prds/` is available for tag/task links
 - Seeds `.pi/settings.json` when missing
 - Seeds PI prompt templates in `.pi/prompts/` (`/aoc-ops`, `/teach`, `/teach-full`, `/teach-dive`, `/teach-ask`, `/tm-cc`) when missing
-- Ensures global PI multi-auth package `npm:pi-multi-auth@0.1.2` is installed by default when the `pi` CLI is available
-- Seeds PI default extensions in `.pi/extensions/` (`minimal.ts`, `themeMap.ts`, `mind-ingest.ts`, `mind-ops.ts`, `mind-context.ts`, `mind-focus.ts`, `alibaba-model-studio.ts`, plus `lib/mind.ts`) when missing
+- Seeds PI default extensions in `.pi/extensions/` (`minimal.ts`, `themeMap.ts`, `mind-ingest.ts`, `mind-ops.ts`, `mind-context.ts`, `mind-focus.ts`, `aoc-models.ts`, plus `lib/mind.ts`) when missing
+- Seeds `.aoc/init-state.json` with the current AOC project version and applies version-specific migrations on older repos
+- Seeds the vendored local PI multi-auth package at `.pi/packages/pi-multi-auth-aoc` and wires `.pi/settings.json` to load it only when the package is available
+- Removes legacy global npm `pi-multi-auth` package entries from `~/.pi/agent/settings.json` to avoid duplicate extension loading
 - Installs the managed AOC Zellij top-bar plugin to `~/.config/zellij/plugins/zjstatus-aoc.wasm`
 - Migrates missing legacy project-local PI prompts/skills from `.aoc/prompts/pi/` and `.aoc/skills/` into `.pi/**` (non-destructive), and cleans safe `tmcc` prompt alias duplicates
 - Optional MoreMotion prompt `/momo` is seeded by `aoc-momo init`

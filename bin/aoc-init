@@ -9,20 +9,26 @@ set -euo pipefail
 
 usage() {
   cat <<'EOF'
-Usage: aoc-init [--force] [path]
+Usage: aoc-init [--force] [--status] [path]
 
 Options:
   --force   Refresh canonical AOC Map seed files and pass --force to aoc-map init
+  --status  Print AOC init/version/runtime status for the target project and exit
   -h, --help  Show this help text
 EOF
 }
 
 aoc_init_force=0
+aoc_init_status_only=0
 project_root="$PWD"
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --force)
       aoc_init_force=1
+      shift
+      ;;
+    --status)
+      aoc_init_status_only=1
       shift
       ;;
     -h|--help)
@@ -61,6 +67,17 @@ task_dir="$project_root/.taskmaster"
 global_task_conf="$HOME/.taskmaster/config.json"
 aoc_config_dir="${XDG_CONFIG_HOME:-$HOME/.config}/aoc"
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+aoc_init_state_file="$aoc_dir/init-state.json"
+
+AOC_PROJECT_LAYOUT_VERSION=1
+AOC_INIT_STATE_SCHEMA_VERSION=1
+AOC_LOCAL_MULTI_AUTH_PACKAGE="./packages/pi-multi-auth-aoc"
+
+aoc_project_version_before=0
+aoc_project_version_after="$AOC_PROJECT_LAYOUT_VERSION"
+aoc_project_migrations_applied=()
+aoc_local_multi_auth_available=0
+aoc_local_multi_auth_seed_source="unresolved"
 
 log() { echo ">> $1"; }
 warn() { echo "!! $1"; }
@@ -81,6 +98,346 @@ positive_int_or_default() {
     printf '%s' "$candidate"
   else
     printf '%s' "$fallback"
+  fi
+}
+
+copy_tree_force() {
+  local source_dir="$1"
+  local target_dir="$2"
+  python3 - "$source_dir" "$target_dir" <<'PY'
+import shutil
+import sys
+from pathlib import Path
+
+src = Path(sys.argv[1])
+dst = Path(sys.argv[2])
+if dst.exists():
+    shutil.rmtree(dst)
+dst.parent.mkdir(parents=True, exist_ok=True)
+shutil.copytree(src, dst)
+PY
+}
+
+directories_match() {
+  local left_dir="$1"
+  local right_dir="$2"
+  python3 - "$left_dir" "$right_dir" <<'PY'
+import hashlib
+import sys
+from pathlib import Path
+
+left = Path(sys.argv[1])
+right = Path(sys.argv[2])
+
+if not left.is_dir() or not right.is_dir():
+    raise SystemExit(1)
+
+
+def digest_tree(root: Path):
+    files = []
+    for path in sorted(p for p in root.rglob('*') if p.is_file()):
+        rel = path.relative_to(root).as_posix()
+        h = hashlib.sha256(path.read_bytes()).hexdigest()
+        files.append((rel, h))
+    return files
+
+raise SystemExit(0 if digest_tree(left) == digest_tree(right) else 1)
+PY
+}
+
+get_project_pi_multi_auth_package_dir() {
+  printf '%s\n' "$project_root/.pi/packages/pi-multi-auth-aoc"
+}
+
+get_cached_pi_multi_auth_package_dir() {
+  printf '%s\n' "$aoc_config_dir/pi/packages/pi-multi-auth-aoc"
+}
+
+get_canonical_pi_multi_auth_package_dir() {
+  printf '%s\n' "$script_dir/../.pi/packages/pi-multi-auth-aoc"
+}
+
+sync_cached_pi_multi_auth_package() {
+  local canonical_dir
+  local cache_dir
+  canonical_dir="$(get_canonical_pi_multi_auth_package_dir)"
+  cache_dir="$(get_cached_pi_multi_auth_package_dir)"
+
+  if [[ ! -d "$canonical_dir" ]]; then
+    return 0
+  fi
+
+  if [[ -d "$cache_dir" ]] && directories_match "$canonical_dir" "$cache_dir"; then
+    return 0
+  fi
+
+  copy_tree_force "$canonical_dir" "$cache_dir"
+  echo ">> Refreshed cached PI package seed: pi-multi-auth-aoc" >&2
+}
+
+resolve_pi_multi_auth_seed_dir() {
+  local canonical_dir
+  local cache_dir
+  canonical_dir="$(get_canonical_pi_multi_auth_package_dir)"
+  cache_dir="$(get_cached_pi_multi_auth_package_dir)"
+
+  sync_cached_pi_multi_auth_package
+
+  if [[ -d "$canonical_dir" ]]; then
+    printf '%s\n' "$canonical_dir"
+    return 0
+  fi
+
+  if [[ -d "$cache_dir" ]]; then
+    printf '%s\n' "$cache_dir"
+    return 0
+  fi
+
+  return 1
+}
+
+read_project_aoc_version() {
+  python3 - "$aoc_init_state_file" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+path = Path(sys.argv[1])
+if not path.exists():
+    print(0)
+    raise SystemExit(0)
+
+try:
+    data = json.loads(path.read_text(encoding="utf-8"))
+except Exception:
+    print(0)
+    raise SystemExit(0)
+
+if not isinstance(data, dict):
+    print(0)
+    raise SystemExit(0)
+
+value = data.get("projectAocVersion", data.get("version", 0))
+print(value if isinstance(value, int) and value >= 0 else 0)
+PY
+}
+
+note_project_migration() {
+  local migration_id="$1"
+  local message="$2"
+  aoc_project_migrations_applied+=("$migration_id")
+  log "$message"
+}
+
+prepare_project_aoc_state() {
+  aoc_project_version_before="$(read_project_aoc_version)"
+  aoc_project_version_after="$AOC_PROJECT_LAYOUT_VERSION"
+}
+
+apply_project_version_migrations() {
+  if (( aoc_project_version_before > AOC_PROJECT_LAYOUT_VERSION )); then
+    aoc_project_version_after="$aoc_project_version_before"
+    warn "Project AOC version $aoc_project_version_before is newer than this aoc-init supports (current $AOC_PROJECT_LAYOUT_VERSION). Preserving newer version marker."
+    return 0
+  fi
+
+  if (( aoc_project_version_before < 1 )); then
+    note_project_migration \
+      "v1-versioned-init-state-and-pi-runtime-repair" \
+      "Applying AOC project migration v1: initialize versioned state and repair PI runtime package wiring."
+  fi
+}
+
+write_project_aoc_state() {
+  local package_path
+  local joined_migrations=""
+  local migration=""
+  package_path="$(get_project_pi_multi_auth_package_dir)"
+
+  for migration in "${aoc_project_migrations_applied[@]:-}"; do
+    if [[ -n "$migration" ]]; then
+      if [[ -n "$joined_migrations" ]]; then
+        joined_migrations+=$'\n'
+      fi
+      joined_migrations+="$migration"
+    fi
+  done
+
+  python3 - "$aoc_init_state_file" "$aoc_project_version_before" "$aoc_project_version_after" "$AOC_INIT_STATE_SCHEMA_VERSION" "$package_path" "$aoc_local_multi_auth_available" "$aoc_local_multi_auth_seed_source" "$script_dir" "$joined_migrations" <<'PY'
+import json
+import sys
+from datetime import datetime, timezone
+from pathlib import Path
+
+state_path = Path(sys.argv[1])
+previous_version = int(sys.argv[2])
+project_version = int(sys.argv[3])
+schema_version = int(sys.argv[4])
+package_path = Path(sys.argv[5])
+package_available = sys.argv[6] == "1"
+seed_source = sys.argv[7]
+script_dir = sys.argv[8]
+migrations_raw = sys.argv[9]
+migrations = [line for line in migrations_raw.splitlines() if line]
+
+state_path.parent.mkdir(parents=True, exist_ok=True)
+payload = {
+    "schemaVersion": schema_version,
+    "projectAocVersion": project_version,
+    "previousProjectAocVersion": previous_version,
+    "lastInitializedAt": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+    "lastInitScriptDir": script_dir,
+    "pi": {
+        "localMultiAuthPackage": {
+            "configuredPath": "./packages/pi-multi-auth-aoc",
+            "projectPath": str(package_path),
+            "available": package_available,
+            "seedSource": seed_source,
+        }
+    },
+    "migrationsApplied": migrations,
+}
+state_path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+PY
+}
+
+compute_project_pi_runtime_contract_status() {
+  local settings_path="$project_root/.pi/settings.json"
+  local package_path
+  package_path="$(get_project_pi_multi_auth_package_dir)"
+
+  python3 - "$settings_path" "$package_path" "$AOC_LOCAL_MULTI_AUTH_PACKAGE" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+settings_path = Path(sys.argv[1])
+package_path = Path(sys.argv[2])
+local_package = sys.argv[3]
+
+if not settings_path.exists():
+    print("missing_settings")
+    raise SystemExit(0)
+
+try:
+    data = json.loads(settings_path.read_text(encoding="utf-8"))
+except Exception:
+    print("invalid_settings")
+    raise SystemExit(0)
+
+packages = data.get("packages")
+if not isinstance(packages, list):
+    packages = []
+
+normalized = []
+for entry in packages:
+    if isinstance(entry, str):
+        normalized.append(entry)
+    elif isinstance(entry, dict) and isinstance(entry.get("source"), str):
+        normalized.append(entry["source"])
+
+references_local = local_package in normalized
+package_exists = package_path.is_dir()
+
+if references_local and not package_exists:
+    print("invalid_missing_local_package")
+elif package_exists and not references_local:
+    print("warning_missing_local_package_reference")
+else:
+    print("ok")
+PY
+}
+
+validate_project_pi_runtime_contract() {
+  local validation_status=""
+  validation_status="$(compute_project_pi_runtime_contract_status)"
+
+  case "$validation_status" in
+    ok)
+      return 0
+      ;;
+    warning_missing_local_package_reference)
+      warn "PI package exists but settings are not wired to it: .pi/packages/pi-multi-auth-aoc"
+      return 0
+      ;;
+    invalid_missing_local_package)
+      warn "PI settings reference ./packages/pi-multi-auth-aoc but the package directory is missing."
+      return 1
+      ;;
+    missing_settings)
+      warn "PI settings missing after initialization: $settings_path"
+      return 1
+      ;;
+    invalid_settings)
+      warn "PI settings invalid after initialization: $settings_path"
+      return 1
+      ;;
+    *)
+      warn "Unexpected PI runtime validation status: $validation_status"
+      return 1
+      ;;
+  esac
+}
+
+print_project_aoc_status() {
+  local current_version="0"
+  local runtime_status=""
+  local package_dir
+  local package_ref_status="missing"
+  local settings_path="$project_root/.pi/settings.json"
+  local state_path="$aoc_init_state_file"
+  local has_context="no"
+  local has_memory="no"
+  local has_stm="no"
+  local has_rtk="no"
+  local migration_lines=""
+
+  current_version="$(read_project_aoc_version)"
+  runtime_status="$(compute_project_pi_runtime_contract_status)"
+  package_dir="$(get_project_pi_multi_auth_package_dir)"
+
+  if [[ -f "$project_root/.aoc/context.md" ]]; then has_context="yes"; fi
+  if [[ -f "$project_root/.aoc/memory.md" ]]; then has_memory="yes"; fi
+  if [[ -f "$project_root/.aoc/stm/current.md" ]]; then has_stm="yes"; fi
+  if [[ -f "$project_root/.aoc/rtk.toml" ]]; then has_rtk="yes"; fi
+  if [[ -d "$package_dir" ]]; then package_ref_status="present"; fi
+
+  migration_lines="$(python3 - "$state_path" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+path = Path(sys.argv[1])
+if not path.exists():
+    raise SystemExit(0)
+try:
+    data = json.loads(path.read_text(encoding='utf-8'))
+except Exception:
+    raise SystemExit(0)
+for item in data.get('migrationsApplied', []):
+    if isinstance(item, str) and item.strip():
+        print(item)
+PY
+)"
+
+  printf '%s\n' "AOC Init Status"
+  printf '%s\n' "  project_root: $project_root"
+  printf '%s\n' "  target_project_aoc_version: $AOC_PROJECT_LAYOUT_VERSION"
+  printf '%s\n' "  project_aoc_version: $current_version"
+  printf '%s\n' "  init_state: $([[ -f "$state_path" ]] && echo present || echo missing)"
+  printf '%s\n' "  aoc_context: $has_context"
+  printf '%s\n' "  aoc_memory: $has_memory"
+  printf '%s\n' "  aoc_stm: $has_stm"
+  printf '%s\n' "  aoc_rtk: $has_rtk"
+  printf '%s\n' "  pi_settings: $([[ -f "$settings_path" ]] && echo present || echo missing)"
+  printf '%s\n' "  pi_multi_auth_package: $package_ref_status"
+  printf '%s\n' "  pi_runtime_status: $runtime_status"
+  if [[ -n "$migration_lines" ]]; then
+    printf '%s\n' "  migrations_applied:"
+    while IFS= read -r line; do
+      [[ -n "$line" ]] || continue
+      printf '%s\n' "    - $line"
+    done <<< "$migration_lines"
   fi
 }
 
@@ -807,7 +1164,8 @@ description: Initialize or repair AOC context, memory, and tasks safely.
 - Seeds `.pi/settings.json` when missing
 - Seeds PI prompt templates in `.pi/prompts/` (`/aoc-ops`, `/teach`, `/teach-full`, `/teach-dive`, `/teach-ask`, `/tm-cc`) when missing
 - Seeds PI default extensions in `.pi/extensions/` (`minimal.ts`, `themeMap.ts`, `mind-ingest.ts`, `mind-ops.ts`, `mind-context.ts`, `mind-focus.ts`, `aoc-models.ts`, plus `lib/mind.ts`) when missing
-- Seeds the vendored local PI multi-auth package at `.pi/packages/pi-multi-auth-aoc` and wires `.pi/settings.json` to load it by path
+- Seeds `.aoc/init-state.json` with the current AOC project version and applies version-specific migrations on older repos
+- Seeds the vendored local PI multi-auth package at `.pi/packages/pi-multi-auth-aoc` and wires `.pi/settings.json` to load it only when the package is available
 - Removes legacy global npm `pi-multi-auth` package entries from `~/.pi/agent/settings.json` to avoid duplicate extension loading
 - Installs the managed AOC Zellij top-bar plugin to `~/.config/zellij/plugins/zjstatus-aoc.wasm`
 - Migrates missing legacy project-local PI prompts/skills from `.aoc/prompts/pi/` and `.aoc/skills/` into `.pi/**` (non-destructive), and cleans safe `tmcc` prompt alias duplicates
@@ -822,6 +1180,7 @@ EOF
 setup_pi_settings() {
   local pi_dir="$project_root/.pi"
   local pi_settings="$pi_dir/settings.json"
+  local local_package_dir="$(get_project_pi_multi_auth_package_dir)"
   local settings_status=""
 
   if [[ ! -d "$pi_dir" ]]; then
@@ -831,13 +1190,15 @@ setup_pi_settings() {
   # Deterministic PI-first baseline directory contract.
   mkdir -p "$pi_dir/prompts" "$pi_dir/skills" "$pi_dir/extensions" "$pi_dir/packages"
 
-  settings_status="$(python3 - "$pi_settings" <<'PY'
+  settings_status="$(python3 - "$pi_settings" "$local_package_dir" "$AOC_LOCAL_MULTI_AUTH_PACKAGE" <<'PY'
 import json
 import sys
 from pathlib import Path
 
 path = Path(sys.argv[1])
-local_multi_auth_package = "./packages/pi-multi-auth-aoc"
+local_package_dir = Path(sys.argv[2])
+local_multi_auth_package = sys.argv[3]
+include_local_multi_auth_package = local_package_dir.is_dir()
 pi_defaults = {
     "defaultProvider": "openai-codex",
     "defaultModel": "gpt-5.4",
@@ -881,7 +1242,7 @@ legacy_seeded_enabled_models = [
 ]
 defaults = {
     "extensions": [],
-    "packages": [local_multi_auth_package],
+    "packages": ([local_multi_auth_package] if include_local_multi_auth_package else []),
     **pi_defaults,
     "enabledModels": seeded_enabled_models,
 }
@@ -936,8 +1297,14 @@ if normalized_packages != packages:
     packages = normalized_packages
     changed = True
 
-if local_multi_auth_package not in [source_value(entry) for entry in packages]:
-    packages.append(local_multi_auth_package)
+package_sources = [source_value(entry) for entry in packages]
+if include_local_multi_auth_package:
+    if local_multi_auth_package not in package_sources:
+        packages.append(local_multi_auth_package)
+        changed = True
+elif local_multi_auth_package in package_sources:
+    packages = [entry for entry in packages if source_value(entry) != local_multi_auth_package]
+    data["packages"] = packages
     changed = True
 
 has_provider = "defaultProvider" in data
@@ -1002,48 +1369,45 @@ PY
 
 setup_pi_packages() {
   local pi_packages_dir="$project_root/.pi/packages"
-  local source_package_dir="$script_dir/../.pi/packages/pi-multi-auth-aoc"
   local target_package_dir="$pi_packages_dir/pi-multi-auth-aoc"
+  local seed_package_dir=""
 
   mkdir -p "$pi_packages_dir"
+  aoc_local_multi_auth_available=0
+  aoc_local_multi_auth_seed_source="unresolved"
 
-  if [[ ! -d "$source_package_dir" ]]; then
-    warn "Missing bundled PI package seed: $source_package_dir"
-    return 0
-  fi
+  seed_package_dir="$(resolve_pi_multi_auth_seed_dir || true)"
 
   if [[ ! -d "$target_package_dir" ]]; then
-    python3 - "$source_package_dir" "$target_package_dir" <<'PY'
-import shutil
-import sys
-from pathlib import Path
+    if [[ -z "$seed_package_dir" ]]; then
+      warn "Missing PI package seed for pi-multi-auth-aoc; leaving project settings unwired until a seed is available."
+      return 0
+    fi
 
-src = Path(sys.argv[1])
-dst = Path(sys.argv[2])
-dst.parent.mkdir(parents=True, exist_ok=True)
-shutil.copytree(src, dst)
-PY
+    copy_tree_force "$seed_package_dir" "$target_package_dir"
+    aoc_local_multi_auth_available=1
+    aoc_local_multi_auth_seed_source="$seed_package_dir"
     log "Seeded PI package: .pi/packages/pi-multi-auth-aoc"
     return 0
   fi
 
-  if [[ "$(cd "$source_package_dir" && pwd)" == "$(cd "$target_package_dir" && pwd)" ]]; then
+  aoc_local_multi_auth_available=1
+  aoc_local_multi_auth_seed_source="existing-project-copy"
+
+  if [[ -z "$seed_package_dir" ]]; then
+    log "PI package exists (.pi/packages/pi-multi-auth-aoc). Preserving."
+    return 0
+  fi
+
+  if [[ "$(cd "$seed_package_dir" && pwd)" == "$(cd "$target_package_dir" && pwd)" ]]; then
+    aoc_local_multi_auth_seed_source="$seed_package_dir"
     log "Bundled PI package already present at target path (.pi/packages/pi-multi-auth-aoc)."
     return 0
   fi
 
   if [[ -f "$target_package_dir/.aoc-managed" ]]; then
-    python3 - "$source_package_dir" "$target_package_dir" <<'PY'
-import shutil
-import sys
-from pathlib import Path
-
-src = Path(sys.argv[1])
-dst = Path(sys.argv[2])
-if dst.exists():
-    shutil.rmtree(dst)
-shutil.copytree(src, dst)
-PY
+    copy_tree_force "$seed_package_dir" "$target_package_dir"
+    aoc_local_multi_auth_seed_source="$seed_package_dir"
     log "Refreshed managed PI package: .pi/packages/pi-multi-auth-aoc"
     return 0
   fi
@@ -1860,10 +2224,17 @@ setup_binaries() {
 }
 
 main() {
+  if [[ "$aoc_init_status_only" == "1" ]]; then
+    print_project_aoc_status
+    return 0
+  fi
+
   log "Initializing AOC in: $project_root"
   setup_memory
-  setup_pi_settings
+  prepare_project_aoc_state
+  apply_project_version_migrations
   setup_pi_packages
+  setup_pi_settings
   cleanup_global_pi_multi_auth
   setup_pi_extensions
   migrate_legacy_pi_assets
@@ -1876,6 +2247,11 @@ main() {
   setup_env
   setup_managed_zellij_plugin
   setup_binaries
+  write_project_aoc_state
+  if ! validate_project_pi_runtime_contract; then
+    warn "AOC initialization finished with PI runtime validation errors."
+    exit 1
+  fi
   log "AOC Initialization Complete. Ready to launch."
 }
 
