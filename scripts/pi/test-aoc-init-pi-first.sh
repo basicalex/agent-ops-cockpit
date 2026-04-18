@@ -38,6 +38,23 @@ run_init() {
   AOC_INIT_SKIP_BUILD=1 bash "$aoc_init_bin" "$project_root" >"$log_file" 2>&1
 }
 
+run_installed_init() {
+  local installed_bin="$1"
+  local project_root="$2"
+  local log_file="$3"
+  AOC_INIT_SKIP_BUILD=1 bash "$installed_bin" "$project_root" >"$log_file" 2>&1
+}
+
+seed_cached_pi_runtime() {
+  local cache_root="$XDG_CONFIG_HOME/aoc/pi"
+  mkdir -p "$cache_root"
+  cp -R "$repo_root/.pi/extensions" "$cache_root/extensions"
+  cp -R "$repo_root/.pi/prompts" "$cache_root/prompts"
+  cp -R "$repo_root/.pi/skills" "$cache_root/skills"
+  mkdir -p "$cache_root/packages"
+  cp -R "$repo_root/.pi/packages/pi-multi-auth-aoc" "$cache_root/packages/pi-multi-auth-aoc"
+}
+
 tmp_root="$(mktemp -d "${TMPDIR:-/tmp}/aoc-init-pi-first-test.XXXXXX")"
 trap 'rm -rf "$tmp_root"' EXIT
 
@@ -110,10 +127,13 @@ run_init "$project_fresh" "$fresh_log_1"
 assert_exists "$project_fresh/.aoc/context.md"
 assert_exists "$project_fresh/.aoc/memory.md"
 assert_exists "$project_fresh/.aoc/stm/current.md"
+assert_exists "$project_fresh/.aoc/init-state.json"
+assert_contains '"projectAocVersion": 1' "$project_fresh/.aoc/init-state.json"
 assert_exists "$project_fresh/.pi/settings.json"
-assert_exists "$HOME/.pi/agent/settings.json"
-assert_contains '"packages": [' "$HOME/.pi/agent/settings.json"
-assert_contains '"npm:pi-multi-auth@0.1.2"' "$HOME/.pi/agent/settings.json"
+assert_exists "$project_fresh/.pi/packages/pi-multi-auth-aoc/package.json"
+assert_exists "$project_fresh/.pi/packages/pi-multi-auth-aoc/.aoc-managed"
+assert_contains '"packages": [' "$project_fresh/.pi/settings.json"
+assert_contains '"./packages/pi-multi-auth-aoc"' "$project_fresh/.pi/settings.json"
 assert_contains '"defaultProvider": "openai-codex"' "$project_fresh/.pi/settings.json"
 assert_contains '"defaultModel": "gpt-5.4"' "$project_fresh/.pi/settings.json"
 assert_contains '"defaultThinkingLevel": "medium"' "$project_fresh/.pi/settings.json"
@@ -122,7 +142,11 @@ assert_contains '"openai-codex/gpt-5.4"' "$project_fresh/.pi/settings.json"
 assert_contains '"opencode/glm-5"' "$project_fresh/.pi/settings.json"
 assert_contains '"opencode/gemini-3-flash"' "$project_fresh/.pi/settings.json"
 assert_contains '"opencode/gemini-3.1-pro"' "$project_fresh/.pi/settings.json"
-assert_contains '"alibaba/qwen3.6-plus"' "$project_fresh/.pi/settings.json"
+assert_contains '"openrouter/anthropic/claude-sonnet-4"' "$project_fresh/.pi/settings.json"
+assert_contains '"openrouter/openai/gpt-5.1-codex"' "$project_fresh/.pi/settings.json"
+assert_contains '"openrouter/google/gemini-2.5-pro"' "$project_fresh/.pi/settings.json"
+assert_contains '"openrouter/google/gemini-2.5-flash"' "$project_fresh/.pi/settings.json"
+assert_contains '"openrouter/qwen/qwen3.6-plus"' "$project_fresh/.pi/settings.json"
 assert_exists "$project_fresh/.pi/prompts/tm-cc.md"
 assert_exists "$project_fresh/.pi/skills/aoc-init-ops/SKILL.md"
 assert_exists "$project_fresh/.pi/extensions/minimal.ts"
@@ -131,8 +155,9 @@ assert_exists "$project_fresh/.pi/extensions/mind-ingest.ts"
 assert_exists "$project_fresh/.pi/extensions/mind-ops.ts"
 assert_exists "$project_fresh/.pi/extensions/mind-context.ts"
 assert_exists "$project_fresh/.pi/extensions/mind-focus.ts"
-assert_exists "$project_fresh/.pi/extensions/alibaba-model-studio.ts"
+assert_exists "$project_fresh/.pi/extensions/aoc-models.ts"
 assert_exists "$project_fresh/.pi/extensions/lib/mind.ts"
+assert_not_exists "$project_fresh/.pi/extensions/alibaba-model-studio.ts"
 assert_exists "$HOME/.config/zellij/plugins/zjstatus-aoc.wasm"
 
 assert_not_exists "$project_fresh/.aoc/skills"
@@ -147,8 +172,8 @@ run_init "$project_fresh" "$fresh_log_2"
 assert_contains "custom teach marker" "$project_fresh/.pi/prompts/teach.md"
 assert_exists "$HOME/.config/zellij/plugins/zjstatus-aoc.wasm"
 
-install_count="$(grep -c 'npm:pi-multi-auth@0.1.2' "$AOC_PI_TEST_INSTALL_LOG" || true)"
-[[ "$install_count" -eq 1 ]] || fail "Expected one global pi-multi-auth install, got $install_count"
+install_count="$(grep -c 'pi-multi-auth' "$AOC_PI_TEST_INSTALL_LOG" 2>/dev/null || true)"
+[[ "$install_count" -eq 0 ]] || fail "Expected no global pi-multi-auth install attempts, got $install_count"
 
 # --- Managed extension refresh flow (stale global/project template upgraded) ---
 project_refresh="$tmp_root/refresh"
@@ -183,6 +208,8 @@ settings_log="$tmp_root/settings-preserve-init.log"
 run_init "$project_settings" "$settings_log"
 assert_contains '"defaultProvider": "openai"' "$project_settings/.pi/settings.json"
 assert_contains '"defaultModel": "gpt-4o-mini"' "$project_settings/.pi/settings.json"
+assert_contains '"packages": [' "$project_settings/.pi/settings.json"
+assert_contains '"./packages/pi-multi-auth-aoc"' "$project_settings/.pi/settings.json"
 if grep -Fq '"enabledModels"' "$project_settings/.pi/settings.json"; then
   fail "Did not expect enabledModels to be injected into customized PI settings"
 fi
@@ -212,7 +239,44 @@ assert_contains '"openai-codex/gpt-5.4"' "$project_legacy_enabled/.pi/settings.j
 assert_contains '"opencode/glm-5"' "$project_legacy_enabled/.pi/settings.json"
 assert_contains '"opencode/gemini-3-flash"' "$project_legacy_enabled/.pi/settings.json"
 assert_contains '"opencode/gemini-3.1-pro"' "$project_legacy_enabled/.pi/settings.json"
-assert_contains '"alibaba/qwen3.6-plus"' "$project_legacy_enabled/.pi/settings.json"
+assert_contains '"openrouter/anthropic/claude-sonnet-4"' "$project_legacy_enabled/.pi/settings.json"
+assert_contains '"openrouter/openai/gpt-5.1-codex"' "$project_legacy_enabled/.pi/settings.json"
+assert_contains '"openrouter/google/gemini-2.5-pro"' "$project_legacy_enabled/.pi/settings.json"
+assert_contains '"openrouter/google/gemini-2.5-flash"' "$project_legacy_enabled/.pi/settings.json"
+assert_contains '"openrouter/qwen/qwen3.6-plus"' "$project_legacy_enabled/.pi/settings.json"
+
+# --- Deprecated Alibaba provider extension is removed/archived on repair ---
+project_deprecated_alibaba="$tmp_root/deprecated-alibaba"
+mkdir -p "$project_deprecated_alibaba/.git" "$project_deprecated_alibaba/.pi/extensions"
+cat > "$project_deprecated_alibaba/.pi/extensions/alibaba-model-studio.ts" <<'EOF'
+import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
+const DEFAULT_ALIBABA_MODEL_STUDIO_BASE_URL = "https://dashscope-intl.aliyuncs.com/compatible-mode/v1";
+export default function (pi: ExtensionAPI) {
+  pi.registerProvider("alibaba", {
+    baseUrl: DEFAULT_ALIBABA_MODEL_STUDIO_BASE_URL,
+    apiKey: "DASHSCOPE_API_KEY",
+    authHeader: true,
+    api: "openai-completions",
+    models: [
+      {
+        id: "qwen3.6-plus",
+        name: "Alibaba Qwen 3.6 Plus",
+        reasoning: true,
+        input: ["text", "image"],
+        cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+        contextWindow: 1000000,
+        maxTokens: 65536
+      }
+    ]
+  });
+}
+EOF
+
+deprecated_alibaba_log="$tmp_root/deprecated-alibaba-init.log"
+run_init "$project_deprecated_alibaba" "$deprecated_alibaba_log"
+assert_not_exists "$project_deprecated_alibaba/.pi/extensions/alibaba-model-studio.ts"
+assert_exists "$project_deprecated_alibaba/.pi/extensions/aoc-models.ts"
+assert_contains "Removed deprecated PI extension: alibaba-model-studio.ts" "$deprecated_alibaba_log"
 
 # --- Existing repo migration flow ---
 project_migration="$tmp_root/migration"
@@ -245,7 +309,52 @@ assert_exists "$project_migration/.aoc/skills/custom/SKILL.md"
 assert_contains "Removed legacy PI prompt alias duplicate: .pi/prompts/tmcc.md" "$migration_log"
 assert_contains "Migrated legacy PI skill: .aoc/skills/custom -> .pi/skills/custom" "$migration_log"
 
-install_count="$(grep -c 'npm:pi-multi-auth@0.1.2' "$AOC_PI_TEST_INSTALL_LOG" || true)"
-[[ "$install_count" -eq 1 ]] || fail "Expected pi-multi-auth install to stay idempotent across runs, got $install_count"
+# --- Installed-copy flow uses cached package seed + versioned migration repair ---
+seed_cached_pi_runtime
+installed_bin_dir="$tmp_root/installed/bin"
+mkdir -p "$installed_bin_dir"
+installed_aoc_init="$installed_bin_dir/aoc-init"
+cp "$aoc_init_bin" "$installed_aoc_init"
+chmod +x "$installed_aoc_init"
+
+project_versioned="$tmp_root/versioned-migration"
+mkdir -p "$project_versioned/.git" "$project_versioned/.aoc" "$project_versioned/.pi"
+cat > "$project_versioned/.aoc/init-state.json" <<'EOF'
+{
+  "schemaVersion": 1,
+  "projectAocVersion": 0
+}
+EOF
+cat > "$project_versioned/.pi/settings.json" <<'EOF'
+{
+  "extensions": [],
+  "packages": [
+    "./packages/pi-multi-auth-aoc"
+  ]
+}
+EOF
+
+versioned_log_1="$tmp_root/versioned-init-1.log"
+run_installed_init "$installed_aoc_init" "$project_versioned" "$versioned_log_1"
+assert_exists "$project_versioned/.pi/packages/pi-multi-auth-aoc/package.json"
+assert_contains '"projectAocVersion": 1' "$project_versioned/.aoc/init-state.json"
+assert_contains '"available": true' "$project_versioned/.aoc/init-state.json"
+assert_contains "Applying AOC project migration v1: initialize versioned state and repair PI runtime package wiring." "$versioned_log_1"
+
+versioned_log_2="$tmp_root/versioned-init-2.log"
+run_installed_init "$installed_aoc_init" "$project_versioned" "$versioned_log_2"
+if grep -Fq "Applying AOC project migration v1" "$versioned_log_2"; then
+  fail "Did not expect versioned migration to rerun once projectAocVersion is current"
+fi
+
+status_log="$tmp_root/status.log"
+bash "$aoc_init_bin" --status "$project_versioned" >"$status_log" 2>&1
+assert_contains 'AOC Init Status' "$status_log"
+assert_contains 'project_aoc_version: 1' "$status_log"
+assert_contains 'pi_runtime_status: ok' "$status_log"
+assert_contains 'pi_multi_auth_package: present' "$status_log"
+
+install_count="$(grep -c 'pi-multi-auth' "$AOC_PI_TEST_INSTALL_LOG" 2>/dev/null || true)"
+[[ "$install_count" -eq 0 ]] || fail "Expected no global pi-multi-auth install attempts across runs, got $install_count"
 
 echo "aoc-init PI-first fresh + migration smoke tests passed."

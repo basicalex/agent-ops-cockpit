@@ -26,10 +26,12 @@ Expected project-local runtime paths:
   - `mind-focus.ts`
   - `aoc-models.ts`
   - `lib/mind.ts`
+- `.pi/packages/`
+  - `pi-multi-auth-aoc/`
 - Optional orchestration assets:
   - `.pi/agents/` (specialists, teams, chain manifests)
 
-Control-plane state remains under `.aoc/**` (`context.md`, `memory.md`, `stm/`, `rtk.toml`).
+Control-plane state remains under `.aoc/**` (`context.md`, `memory.md`, `stm/`, `rtk.toml`, `init-state.json`).
 
 ## Default extensions and theme behavior
 
@@ -46,7 +48,17 @@ AOC now guarantees the baseline PI extensions are present after `aoc-init`:
 
 PI auto-discovers `.pi/extensions/*.ts`, so seeded defaults are active after session start (`/reload` if already running).
 
-`aoc-init` seeds a vendored local PI package at `.pi/packages/pi-multi-auth-aoc` and wires `.pi/settings.json` to load it by path, so Codex/OpenRouter multi-auth rotation is part of the baseline AOC environment without relying on a global npm package. Pi now owns the native OpenRouter provider/catalog surface, while the vendored multi-auth package wraps `openrouter` for credential storage, TUI account management, and rotation/failover. The `aoc-models.ts` shim only migrates legacy AOC-managed OpenRouter bridge state out of `~/.pi/agent/models.json` when detected.
+`aoc-init` seeds a vendored local PI package at `.pi/packages/pi-multi-auth-aoc` and wires `.pi/settings.json` to load it by path only when the package is actually available, so Codex/OpenRouter multi-auth rotation is part of the baseline AOC environment without relying on a global npm package. Pi now owns the native OpenRouter provider/catalog surface, while the vendored multi-auth package wraps `openrouter` for credential storage, TUI account management, and rotation/failover. The `aoc-models.ts` shim only migrates legacy AOC-managed OpenRouter bridge state out of `~/.pi/agent/models.json` when detected.
+
+`aoc-init` also writes `.aoc/init-state.json` with the current AOC project version and applies version-specific migrations when an older repo is repaired. This is the canonical place to inspect the last initialized AOC project version and migration history.
+
+Quick inspection:
+
+```bash
+aoc-init --status
+```
+
+This prints the current project AOC version, whether the init state exists, the PI local multi-auth package presence/wiring status, and any applied migrations.
 
 ## OpenCode Zen + PI model defaults
 
@@ -105,6 +117,20 @@ Seeded prompt templates:
 - `/teach-ask <question>` — direct answer-only mentor Q&A
 - `/tm-cc` — cross-project Taskmaster control mode
 
+## AOC project version migrations
+
+`aoc-init` now treats the project layout as versioned state and records it in `.aoc/init-state.json`.
+
+| Project AOC version | Meaning | Migration behavior |
+|---|---|---|
+| `0` | Legacy/unversioned project | `aoc-init` treats the repo as pre-versioned and applies all current migrations |
+| `1` | Versioned init state + PI runtime repair baseline | repairs local `pi-multi-auth-aoc` seeding/wiring, writes `.aoc/init-state.json`, validates PI runtime contract |
+
+Rules:
+- If project version is older than the current supported version, `aoc-init` applies forward migrations.
+- If project version matches the current supported version, migrations do not rerun.
+- If project version is newer than the local `aoc-init`, the newer marker is preserved and a warning is emitted instead of downgrading the project.
+
 ## PI-first migration notes
 
 Canonical ownership is `.pi/**`.
@@ -138,7 +164,8 @@ See also: [Deprecations and removals](deprecations.md), [Insight sub-agent orche
    - `.pi/extensions/mind-focus.ts`
    - `.pi/extensions/aoc-models.ts`
    - `.pi/extensions/lib/mind.ts`
-3. Verify control-plane paths under `.aoc/` (`context.md`, `memory.md`, `stm/`, `rtk.toml`).
+   - `.pi/packages/pi-multi-auth-aoc/`
+3. Verify control-plane paths under `.aoc/` (`context.md`, `memory.md`, `stm/`, `rtk.toml`, `init-state.json`).
 4. Check migration logs for warnings:
    - prompt/skill conflicts are preserved (no overwrite)
    - `tmcc` alias duplicates are cleaned when safe
