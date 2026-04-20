@@ -1,0 +1,39 @@
+id = "design"
+label = "Design"
+layout = "design"
+defaultMode = "critique"
+version = 1
+
+[runtime]
+controller = "aoc-presets"
+statusBadge = "DESIGN"
+persistSessionState = true
+
+[activation]
+envPreset = "design"
+envMode = "critique"
+
+[components]
+core = ["core"]
+default = ["core", "mode-critique"]
+
+[components.modes]
+critique = ["core", "mode-critique"]
+spec = ["core", "mode-spec"]
+diff = ["core", "mode-diff"]
+handoff = ["core", "mode-handoff"]
+tokens = ["core", "mode-tokens"]
+brand = ["core", "mode-brand"]
+motion = ["core", "mode-motion"]
+
+[commands]
+enable = ["design-director"]
+disable = ["design-off"]
+
+[skills]
+recommended = ["design-director", "motion-director", "design-review", "design-spec", "design-diff", "design-handoff", "design-tokens"]
+
+[integrations.mind]
+policy = "separate"
+available = true
+default = "off"

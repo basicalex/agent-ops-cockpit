@@ -125,6 +125,7 @@ Seeded prompt templates:
 |---|---|---|
 | `0` | Legacy/unversioned project | `aoc-init` treats the repo as pre-versioned and applies all current migrations |
 | `1` | Versioned init state + PI runtime repair baseline | repairs local `pi-multi-auth-aoc` seeding/wiring, writes `.aoc/init-state.json`, validates PI runtime contract |
+| `2` | Preset runtime + design preset seeding baseline | seeds `.pi/extensions/aoc-presets/**`, `.aoc/presets/design/**`, and `.aoc/layouts/design.kdl` for cross-project preset boot |
 
 Rules:
 - If project version is older than the current supported version, `aoc-init` applies forward migrations.

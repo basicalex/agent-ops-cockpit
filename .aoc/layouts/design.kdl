@@ -1,0 +1,47 @@
+layout {
+  tab name="__AOC_TAB_NAME__ [Design]" focus=true {
+    pane split_direction="horizontal" {
+      pane size=1 borderless=true {
+        plugin location="file:{{HOME}}/.config/zellij/plugins/zjstatus-aoc.wasm" {
+          format_left   "#[fg=__AOC_THEME_WHITE__] {session} "
+          format_center "{tabs}"
+          format_right  "#[fg=__AOC_THEME_WHITE__] __AOC_AGENT_ID__ "
+          format_space  ""
+          disable_mouse "false"
+          tab_project_segments       "true"
+          tab_project_palette        "__AOC_THEME_CYAN__,__AOC_THEME_MAGENTA__,__AOC_THEME_ORANGE__,__AOC_THEME_GREEN__,__AOC_THEME_YELLOW__,__AOC_THEME_BLUE__"
+          tab_project_group_left     ""
+          tab_project_group_right    ""
+          tab_project_same_separator "  "
+          tab_project_group_gap      "  "
+          tab_project_active_fg      "__AOC_THEME_BG_BASE__"
+          tab_project_inactive_fg    "__AOC_THEME_BG_BASE__"
+          tab_project_separator_fg   "__AOC_THEME_BG_BASE__"
+          border_enabled  "false"
+          border_char     "─"
+          border_format   "#[fg=black]{char}"
+          border_position "bottom"
+          hide_frame_for_single_pane "false"
+          tab_normal   "#[fg=black] {name} "
+          tab_active   "#[fg=white,bold,italic] {name} "
+        }
+      }
+
+      pane split_direction="vertical" {
+        pane name="Workspace" size="30%" command="bash" {
+          args "-lc" "export PATH=\"$HOME/.cargo/bin:$PATH\"; theme_env=\"${XDG_CONFIG_HOME:-$HOME/.config}/aoc/theme.env\"; if [[ -f \"$theme_env\" ]]; then source \"$theme_env\"; fi; export AOC_SESSION_ID=\"__AOC_SESSION_ID__\"; export AOC_HUB_ADDR=\"__AOC_HUB_ADDR__\"; export AOC_HUB_URL=\"__AOC_HUB_URL__\"; export AOC_PROJECT_ROOT=\"__AOC_PROJECT_ROOT__\"; export AOC_TAB_SCOPE=\"__AOC_TAB_NAME__\"; if command -v aoc-tab-metadata >/dev/null 2>&1; then aoc-tab-metadata sync >/dev/null 2>&1 || true; fi; cd \"__AOC_PROJECT_ROOT__\" && exec bash -lc 'printf \"Design preset layout ready\\n\\n\"; git status --short --branch 2>/dev/null || true; printf \"\\nUseful commands:\\n- aoc.design\\n- /design-director spec\\n- /motion-director plan\\n- /design-off\\n\"; exec ${AOC_TERMINAL_CMD:-$SHELL}'"
+        }
+
+        pane split_direction="horizontal" size="70%" {
+          pane name="Design Agent" size="65%" focus=true command="bash" {
+            args "-lc" "export PATH=\"$HOME/.cargo/bin:$PATH\"; theme_env=\"${XDG_CONFIG_HOME:-$HOME/.config}/aoc/theme.env\"; if [[ -f \"$theme_env\" ]]; then source \"$theme_env\"; fi; export AOC_SESSION_ID=\"__AOC_SESSION_ID__\"; export AOC_HUB_ADDR=\"__AOC_HUB_ADDR__\"; export AOC_HUB_URL=\"__AOC_HUB_URL__\"; export AOC_PROJECT_ROOT=\"__AOC_PROJECT_ROOT__\"; export AOC_TAB_SCOPE=\"__AOC_TAB_NAME__\"; export AOC_PRESET=design; export AOC_PRESET_MODE=critique; export AOC_PRESET_SOURCE=layout; if command -v aoc-tab-metadata >/dev/null 2>&1; then aoc-tab-metadata sync >/dev/null 2>&1 || true; fi; export AOC_PANE_ID=\"${ZELLIJ_PANE_ID:-}\"; export AOC_PI_USE_WRAP_RS=0; export AOC_PI_USE_PTY=1; export AOC_AGENT_PTY=1; export AOC_PI_USE_BOOTLOADER=1; export AOC_PI_USE_TMUX=0; cd \"__AOC_PROJECT_ROOT__\" && AOC_AGENT_RUN=1 exec ${AOC_AGENT_CMD:-aoc-agent-wrap pi pi 'PI Agent'}"
+          }
+
+          pane name="Terminal" size="35%" command="bash" {
+            args "-lc" "export PATH=\"$HOME/.cargo/bin:$PATH\"; theme_env=\"${XDG_CONFIG_HOME:-$HOME/.config}/aoc/theme.env\"; if [[ -f \"$theme_env\" ]]; then source \"$theme_env\"; fi; export AOC_SESSION_ID=\"__AOC_SESSION_ID__\"; export AOC_HUB_ADDR=\"__AOC_HUB_ADDR__\"; export AOC_HUB_URL=\"__AOC_HUB_URL__\"; export AOC_PROJECT_ROOT=\"__AOC_PROJECT_ROOT__\"; export AOC_TAB_SCOPE=\"__AOC_TAB_NAME__\"; if command -v aoc-tab-metadata >/dev/null 2>&1; then aoc-tab-metadata sync >/dev/null 2>&1 || true; fi; cd \"__AOC_PROJECT_ROOT__\" && exec ${AOC_TERMINAL_CMD:-$SHELL}"
+          }
+        }
+      }
+    }
+  }
+}

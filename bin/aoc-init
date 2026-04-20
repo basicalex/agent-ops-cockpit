@@ -69,7 +69,7 @@ aoc_config_dir="${XDG_CONFIG_HOME:-$HOME/.config}/aoc"
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 aoc_init_state_file="$aoc_dir/init-state.json"
 
-AOC_PROJECT_LAYOUT_VERSION=1
+AOC_PROJECT_LAYOUT_VERSION=2
 AOC_INIT_STATE_SCHEMA_VERSION=1
 AOC_LOCAL_MULTI_AUTH_PACKAGE="./packages/pi-multi-auth-aoc"
 
@@ -115,6 +115,33 @@ if dst.exists():
     shutil.rmtree(dst)
 dst.parent.mkdir(parents=True, exist_ok=True)
 shutil.copytree(src, dst)
+PY
+}
+
+copy_tree_missing_only() {
+  local source_dir="$1"
+  local target_dir="$2"
+  python3 - "$source_dir" "$target_dir" <<'PY'
+import shutil
+import sys
+from pathlib import Path
+
+src = Path(sys.argv[1])
+dst = Path(sys.argv[2])
+if not src.is_dir():
+    raise SystemExit(1)
+
+dst.mkdir(parents=True, exist_ok=True)
+for path in sorted(src.rglob('*')):
+    rel = path.relative_to(src)
+    target = dst / rel
+    if path.is_dir():
+        target.mkdir(parents=True, exist_ok=True)
+        continue
+    if target.exists():
+        continue
+    target.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(path, target)
 PY
 }
 
@@ -245,6 +272,12 @@ apply_project_version_migrations() {
     note_project_migration \
       "v1-versioned-init-state-and-pi-runtime-repair" \
       "Applying AOC project migration v1: initialize versioned state and repair PI runtime package wiring."
+  fi
+
+  if (( aoc_project_version_before < 2 )); then
+    note_project_migration \
+      "v2-presets-and-design-layout-seeding" \
+      "Applying AOC project migration v2: seed reusable preset runtime, design preset assets, and design layout templates."
   fi
 }
 
@@ -1164,6 +1197,8 @@ description: Initialize or repair AOC context, memory, and tasks safely.
 - Seeds `.pi/settings.json` when missing
 - Seeds PI prompt templates in `.pi/prompts/` (`/aoc-ops`, `/teach`, `/teach-full`, `/teach-dive`, `/teach-ask`, `/tm-cc`) when missing
 - Seeds PI default extensions in `.pi/extensions/` (`minimal.ts`, `themeMap.ts`, `mind-ingest.ts`, `mind-ops.ts`, `mind-context.ts`, `mind-focus.ts`, `aoc-models.ts`, plus `lib/mind.ts`) when missing
+- Seeds the preset runtime family in `.pi/extensions/aoc-presets/` when missing
+- Seeds reusable design preset assets in `.aoc/presets/design/` and `.aoc/layouts/design.kdl` when missing
 - Seeds `.aoc/init-state.json` with the current AOC project version and applies version-specific migrations on older repos
 - Seeds the vendored local PI multi-auth package at `.pi/packages/pi-multi-auth-aoc` and wires `.pi/settings.json` to load it only when the package is available
 - Removes legacy global npm `pi-multi-auth` package entries from `~/.pi/agent/settings.json` to avoid duplicate extension loading
@@ -1762,6 +1797,136 @@ setup_pi_extensions() {
   fi
 }
 
+setup_pi_extension_families() {
+  local pi_extensions_dir="$project_root/.pi/extensions"
+  local global_template_dir="$aoc_config_dir/pi/extensions"
+  local canonical_seed_dirs=(
+    "$script_dir/../.pi/extensions"
+    "$global_template_dir"
+  )
+  local required_families=(
+    "aoc-presets"
+  )
+
+  mkdir -p "$pi_extensions_dir" "$global_template_dir"
+
+  local family_name=""
+  local seed_dir=""
+  local target_dir=""
+  local cache_dir=""
+  local candidate=""
+  local seeded_any=0
+
+  for family_name in "${required_families[@]}"; do
+    seed_dir=""
+    for candidate in "${canonical_seed_dirs[@]}"; do
+      if [[ -d "$candidate/$family_name" ]]; then
+        seed_dir="$candidate/$family_name"
+        break
+      fi
+    done
+
+    if [[ -z "$seed_dir" ]]; then
+      warn "Missing PI extension family template: $family_name"
+      continue
+    fi
+
+    target_dir="$pi_extensions_dir/$family_name"
+    cache_dir="$global_template_dir/$family_name"
+
+    if [[ ! -d "$target_dir" ]]; then
+      copy_tree_force "$seed_dir" "$target_dir"
+      log "Seeded PI extension family: $family_name"
+      seeded_any=1
+    else
+      copy_tree_missing_only "$seed_dir" "$target_dir"
+      log "PI extension family $family_name already present. Seeded missing files only."
+    fi
+
+    if [[ ! -d "$cache_dir" ]] || ! directories_match "$seed_dir" "$cache_dir"; then
+      copy_tree_force "$seed_dir" "$cache_dir"
+      log "Refreshed global PI extension family template: $family_name"
+    fi
+  done
+
+  if [[ "$seeded_any" != "1" ]]; then
+    log "PI extension families already present in .pi/extensions. Preserving existing files."
+  fi
+}
+
+setup_aoc_preset_assets() {
+  local presets_dir="$project_root/.aoc/presets"
+  local layouts_dir="$project_root/.aoc/layouts"
+  local global_presets_dir="$aoc_config_dir/presets"
+  local global_layouts_dir="$aoc_config_dir/layouts"
+  local preset_name="design"
+  local canonical_preset_seed_dirs=(
+    "$script_dir/../.aoc/presets"
+    "$global_presets_dir"
+  )
+  local canonical_layout_seed_dirs=(
+    "$script_dir/../.aoc/layouts"
+    "$global_layouts_dir"
+  )
+  local candidate=""
+  local preset_seed_dir=""
+  local target_preset_dir="$presets_dir/$preset_name"
+  local cache_preset_dir="$global_presets_dir/$preset_name"
+  local layout_name="design.kdl"
+  local layout_seed_file=""
+  local target_layout_file="$layouts_dir/$layout_name"
+  local cache_layout_file="$global_layouts_dir/$layout_name"
+
+  mkdir -p "$presets_dir" "$layouts_dir" "$global_presets_dir" "$global_layouts_dir"
+
+  for candidate in "${canonical_preset_seed_dirs[@]}"; do
+    if [[ -d "$candidate/$preset_name" ]]; then
+      preset_seed_dir="$candidate/$preset_name"
+      break
+    fi
+  done
+
+  if [[ -n "$preset_seed_dir" ]]; then
+    if [[ ! -d "$target_preset_dir" ]]; then
+      copy_tree_force "$preset_seed_dir" "$target_preset_dir"
+      log "Seeded AOC preset assets: $preset_name"
+    else
+      copy_tree_missing_only "$preset_seed_dir" "$target_preset_dir"
+      log "AOC preset assets $preset_name already present. Seeded missing files only."
+    fi
+
+    if [[ ! -d "$cache_preset_dir" ]] || ! directories_match "$preset_seed_dir" "$cache_preset_dir"; then
+      copy_tree_force "$preset_seed_dir" "$cache_preset_dir"
+      log "Refreshed global AOC preset template: $preset_name"
+    fi
+  else
+    warn "Missing AOC preset template: $preset_name"
+  fi
+
+  for candidate in "${canonical_layout_seed_dirs[@]}"; do
+    if [[ -f "$candidate/$layout_name" ]]; then
+      layout_seed_file="$candidate/$layout_name"
+      break
+    fi
+  done
+
+  if [[ -n "$layout_seed_file" ]]; then
+    if [[ ! -f "$target_layout_file" ]]; then
+      cp "$layout_seed_file" "$target_layout_file"
+      log "Seeded AOC layout: ${layout_name%.kdl}"
+    else
+      log "AOC layout ${layout_name%.kdl} already present. Preserving."
+    fi
+
+    if [[ ! -f "$cache_layout_file" ]] || ! cmp -s "$layout_seed_file" "$cache_layout_file"; then
+      cp "$layout_seed_file" "$cache_layout_file"
+      log "Refreshed global AOC layout template: ${layout_name%.kdl}"
+    fi
+  else
+    warn "Missing AOC layout template: $layout_name"
+  fi
+}
+
 # 1d. Migrate legacy PI runtime assets from project-local .aoc paths
 migrate_legacy_pi_assets() {
   local pi_prompts_dir="$project_root/.pi/prompts"
@@ -1939,16 +2104,18 @@ setup_pi_skills() {
     skill_name="$(basename "$seed_skill_dir")"
     target_skill_dir="$pi_skills_dir/$skill_name"
     if [[ ! -e "$target_skill_dir" ]]; then
-      mkdir -p "$target_skill_dir"
-      cp "$seed_skill_dir/SKILL.md" "$target_skill_dir/SKILL.md"
+      copy_tree_force "$seed_skill_dir" "$target_skill_dir"
       copied_any=1
+      continue
     fi
+
+    copy_tree_missing_only "$seed_skill_dir" "$target_skill_dir"
   done
 
   if [[ "$copied_any" == "1" ]]; then
     log "Seeded PI skills into .pi/skills."
   else
-    log "PI skills already present in .pi/skills. Preserving."
+    log "PI skills already present in .pi/skills. Seeded missing support files only."
   fi
 }
 
@@ -2237,9 +2404,11 @@ main() {
   setup_pi_settings
   cleanup_global_pi_multi_auth
   setup_pi_extensions
+  setup_pi_extension_families
   migrate_legacy_pi_assets
   setup_pi_prompts
   setup_pi_skills
+  setup_aoc_preset_assets
   setup_skills
   setup_aoc_map
   setup_tasks
