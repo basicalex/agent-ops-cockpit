@@ -1047,18 +1047,33 @@ fi
 # AOC default PI extension templates
 if [[ -d "$ROOT_DIR/.pi/extensions" ]]; then
   mkdir -p "${XDG_CONFIG_HOME:-$HOME/.config}/aoc/pi/extensions"
-  for f in "$ROOT_DIR/.pi/extensions"/*.ts; do
-    [[ -f "$f" ]] || continue
-    dest="${XDG_CONFIG_HOME:-$HOME/.config}/aoc/pi/extensions/$(basename "$f")"
-    if [[ ! -f "$dest" ]]; then
-      cp "$f" "$dest"
+  find "$ROOT_DIR/.pi/extensions" -mindepth 1 \( -type f -o -type d \) | while read -r entry; do
+    rel="${entry#"$ROOT_DIR/.pi/extensions/"}"
+    dest="${XDG_CONFIG_HOME:-$HOME/.config}/aoc/pi/extensions/$rel"
+    if [[ -d "$entry" ]]; then
+      mkdir -p "$dest"
       continue
     fi
-
-    if ! cmp -s "$f" "$dest"; then
-      cp "$f" "$dest"
+    mkdir -p "$(dirname "$dest")"
+    if [[ ! -f "$dest" ]] || ! cmp -s "$entry" "$dest"; then
+      cp "$entry" "$dest"
     fi
   done
+fi
+
+# AOC preset and project-layout templates for cross-project seeding
+if [[ -d "$ROOT_DIR/.aoc/presets" ]]; then
+  mkdir -p "${XDG_CONFIG_HOME:-$HOME/.config}/aoc/presets"
+  for d in "$ROOT_DIR/.aoc/presets"/*; do
+    [[ -d "$d" ]] || continue
+    dest="${XDG_CONFIG_HOME:-$HOME/.config}/aoc/presets/$(basename "$d")"
+    rm -rf "$dest"
+    cp -R "$d" "$dest"
+  done
+fi
+if [[ -f "$ROOT_DIR/.aoc/layouts/design.kdl" ]]; then
+  mkdir -p "${XDG_CONFIG_HOME:-$HOME/.config}/aoc/layouts"
+  cp "$ROOT_DIR/.aoc/layouts/design.kdl" "${XDG_CONFIG_HOME:-$HOME/.config}/aoc/layouts/design.kdl"
 fi
 
 # Optional skills and PI prompts (MoreMotion)

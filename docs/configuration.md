@@ -205,10 +205,11 @@ Safety model:
 
 What it guarantees:
 - Seeds/repairs canonical PI runtime paths under `.pi/**` (`settings.json`, prompts, skills, extensions).
-- Seeds default PI extensions when missing: `.pi/extensions/minimal.ts`, `.pi/extensions/themeMap.ts`, `.pi/extensions/mind-ingest.ts`, `.pi/extensions/mind-ops.ts`, `.pi/extensions/mind-context.ts`, `.pi/extensions/mind-focus.ts`, and `.pi/extensions/lib/mind.ts`.
-- Ensures the global PI package `npm:pi-multi-auth@0.1.2` is installed by default when the `pi` CLI is available.
+- Seeds default PI extensions when missing: `.pi/extensions/minimal.ts`, `.pi/extensions/themeMap.ts`, `.pi/extensions/mind-ingest.ts`, `.pi/extensions/mind-ops.ts`, `.pi/extensions/mind-context.ts`, `.pi/extensions/mind-focus.ts`, `.pi/extensions/aoc-models.ts`, `.pi/extensions/lib/mind.ts`, plus the preset runtime family under `.pi/extensions/aoc-presets/`.
+- Seeds vendored local PI package `.pi/packages/pi-multi-auth-aoc`, wires `.pi/settings.json` to load it by path, and removes legacy global npm `pi-multi-auth` package entries to avoid duplicate extension loading.
 - Keeps AOC control-plane state under `.aoc/**`.
 - Migrates missing project-local legacy assets from `.aoc/prompts/pi/` and `.aoc/skills/` into `.pi/**` without overwriting existing canonical files.
+- Seeds reusable preset/layout assets when missing: `.aoc/presets/design/**` and `.aoc/layouts/design.kdl`.
 - Preserves existing `.pi/extensions/*` files (non-destructive).
 - Cleans safe prompt alias duplicates (`.pi/prompts/tmcc.md` -> `.pi/prompts/tm-cc.md`) and warns when manual merge is required.
 - Does not auto-sync non-PI skill targets (`.codex/.claude/.opencode/.agents`) in PI-first mode.
