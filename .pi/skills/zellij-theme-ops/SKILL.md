@@ -25,7 +25,7 @@ description: Create and manage global Zellij themes for AOC.
 ## What gets themed
 - Zellij core theme (`theme "..."`)
 - Zellij status surfaces (`zjstatus`) in shipped AOC layouts
-- AOC Pulse (`aoc-mission-control`) via `AOC_THEME_*` palette env
+- Mission Control (`aoc-mission-control`) via `AOC_THEME_*` palette env
 - Yazi via generated `~/.config/yazi/theme.toml`
 - Pi via generated `~/.pi/agent/themes/aoc-live.json` (`theme: aoc-live`) for live palette sync during AOC theme apply/sync/activate
 - Pi extension map respects AOC lock (`AOC_PI_THEME_LOCKED=1`) so extension defaults do not override active AOC theme

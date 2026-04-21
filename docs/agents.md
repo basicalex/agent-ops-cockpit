@@ -44,7 +44,7 @@ AOC now guarantees the baseline PI extensions are present after `aoc-init`:
 - `mind-context.ts` — `mind_context_pack` retrieval commands
 - `mind-focus.ts` — local focus/task/file inference helpers
 - `aoc-models.ts` — legacy OpenRouter bridge migration/status shim; Pi native `/model` + `/scoped-models` own catalog scope
-- `lib/mind.ts` — shared Pulse/Mind transport + state helpers
+- `lib/mind.ts` — shared standalone Mind service + state helpers
 
 PI auto-discovers `.pi/extensions/*.ts`, so seeded defaults are active after session start (`/reload` if already running).
 

@@ -70,20 +70,19 @@ aoc overseer command run-validation --target-agent-id session-name::12
 ```
 
 ## Runtime modes
-`aoc-mission-control` now has two intended runtime modes:
+`aoc-mission-control` has one active runtime surface today:
 
 - `mission-control` — the dedicated session-global orchestration surface, also reused by the floating project Mind surface when launched directly into `Mind` view
-- `pulse-pane` — the tiny per-tab local pulse surface used in normal AOC work tabs
 
-`pulse-pane` should stay local/tab-scoped and intentionally avoids Overseer-only
-topics such as `observer_snapshot`, `observer_timeline`, and consultation
-responses.
+Legacy compatibility note:
+- older invocations may still pass `pulse-pane`, `pulse_pane`, or `pulse`
+- those labels now degrade to normal `mission-control` behavior
+- current AOC layouts should not depend on a separate pulse-pane surface being present
 
 Operational boundary note:
-- `pulse-pane` is intentionally not a global orchestration surface.
-- mode switching into Overseer / Fleet and operator drilldown actions such as pane evidence or live follow are blocked there.
-- use the dedicated `mission-control` runtime/tab for fleet review, overseer actions, detached drilldown, and live pane follow.
-- for project-local knowledge review, use the floating project Mind launcher rather than keeping a persistent Mind pane in each work tab.
+- use the dedicated `mission-control` runtime/tab for fleet review, overseer actions, detached drilldown, and live pane follow
+- for project-local knowledge review, use the floating project Mind launcher rather than keeping a persistent Mind pane in each work tab
+- do not treat `pulse-pane` as a required current layout primitive; it is now only a legacy compatibility label
 
 Within `mission-control` mode, the TUI now includes a dedicated detached-job
 fleet surface that groups registry-backed detached jobs by:
@@ -102,9 +101,9 @@ This makes cross-project detached specialist activity reviewable without mixing
 operator-launched delegated specialists into Mind/T1/T2/T3 worker summaries.
 
 Mode selection:
-- `AOC_MISSION_CONTROL_MODE=mission-control|pulse-pane`
-- `aoc-mission-control --mode mission-control|pulse-pane`
-- legacy compatibility: `AOC_PULSE_LIGHT_PANE=1` still maps to `pulse-pane`
+- `AOC_MISSION_CONTROL_MODE=mission-control`
+- `aoc-mission-control --mode mission-control`
+- legacy compatibility: `AOC_MISSION_CONTROL_MODE=pulse-pane|pulse_pane|pulse` and `AOC_PULSE_LIGHT_PANE=1` still map to normal `mission-control`
 
 ## Mission Control dedicated tab bootstrap
 Mission Control can now run as a dedicated tab, not only as a floating pane.
@@ -206,24 +205,25 @@ the session_id and the hub must reject mismatched sessions.
 | AOC_HUB_ADDR | Hub listen address (host:port) | 127.0.0.1:<port-from-session> |
 | AOC_HUB_URL | Websocket URL for hub | ws://AOC_HUB_ADDR/ws |
 | AOC_TAB_SCOPE | Logical tab identity shared by panes in the same tab | Derived from launch layout tab name |
-| AOC_PULSE_THEME | Pulse palette mode (`terminal`, `auto`, `dark`, `light`) | `terminal` |
-| AOC_PULSE_OVERVIEW_ENABLED | Enable Pulse Overview mode in mission-control | 1 (enabled by default) |
+| AOC_MISSION_CONTROL_THEME | Mission Control palette mode (`terminal`, `auto`, `dark`, `light`) | `terminal` |
+| AOC_PULSE_OVERVIEW_ENABLED | Enable Mission Control Overview mode | 1 (enabled by default) |
 | AOC_PULSE_LAYOUT_WATCH_ENABLED | Enable hub background session topology watcher (native Zellij snapshot polling) | 0 (disabled by default) |
 | AOC_PULSE_LAYOUT_WATCH_MS | Hub layout poll interval while layout subscribers are active | 3000 ms |
 | AOC_PULSE_LAYOUT_IDLE_WATCH_MS | Hub layout poll interval when no layout subscribers are active | max(4x active, 12000 ms) |
 | AOC_MISSION_CONTROL_LAYOUT_REFRESH_MS | Mission Control local layout refresh interval (fallback/overview) | 3000 ms |
+| AOC_PULSE_THEME | Legacy alias for AOC_MISSION_CONTROL_THEME | — |
 | AOC_LOG_DIR | Log output directory | .aoc/logs |
 
-## AOC Pulse Data Source Strategy
+## Mission Control Data Source Strategy
 
-The default top-right pane is **AOC Pulse** and starts in Overview mode.
+The default operator pane is **Mission Control** and starts in Overview mode.
 Work, Diff, and Health remain available as companion operational modes.
 
-By default, Pulse uses `AOC_PULSE_THEME=terminal`, which keeps the pane surface
+By default, Mission Control uses `AOC_MISSION_CONTROL_THEME=terminal`, which keeps the pane surface
 and text aligned with the active terminal/system theme.
 
 ### v1 Fallback (No Hub Required)
-- Pulse must run headless-safe and useful even when hub is down.
+- Mission Control must run headless-safe and useful even when hub is down.
 - Data sources are local-only:
   - runtime/process introspection for session/pane liveness
   - Taskmaster JSON for work state
@@ -231,11 +231,11 @@ and text aligned with the active terminal/system theme.
   - dependency/marker checks for health
 
 ### v2 Preferred (Hub Available)
-- If hub is reachable, Pulse prefers hub snapshots/events for:
+- If hub is reachable, Mission Control prefers hub snapshots/events for:
   - `agent_status` + `heartbeat` (Overview, when enabled)
   - `task_summary` (Work)
   - `diff_summary` (Diff)
-- If hub disconnects or lacks data, Pulse automatically falls back to v1.
+- If hub disconnects or lacks data, Mission Control automatically falls back to v1.
 
 ### Overview Availability
 - Overview is enabled by default (`AOC_PULSE_OVERVIEW_ENABLED=1`).

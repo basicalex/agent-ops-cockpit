@@ -15,11 +15,8 @@ use aoc_core::{
         InsightRetrievalScope, InsightStatusResult,
     },
     mind_contracts::{
-        build_compaction_t0_slice, canonical_lineage_attrs, canonical_payload_hash,
-        compact_raw_event_to_t0, compose_context_pack, sanitize_raw_event_for_storage,
-        text_contains_unredacted_secret, ContextLayer, ContextPackInput,
+        build_compaction_t0_slice, canonical_lineage_attrs, text_contains_unredacted_secret,
         ConversationLineageMetadata, ConversationRole, MessageEvent, RawEvent, RawEventBody,
-        SemanticProvenance, SemanticRuntime, SemanticRuntimeMode, SemanticStage,
         T0CompactionPolicy, ToolExecutionStatus, ToolResultEvent,
     },
     mind_observer_feed::{
@@ -28,8 +25,7 @@ use aoc_core::{
         MindObserverFeedTriggerKind,
     },
     provenance_contracts::{
-        MindProvenanceCommand, MindProvenanceEdge, MindProvenanceEdgeKind, MindProvenanceExport,
-        MindProvenanceNode, MindProvenanceNodeKind, MindProvenanceQueryRequest,
+        MindProvenanceCommand, MindProvenanceExport, MindProvenanceQueryRequest,
         MindProvenanceQueryResult,
     },
     pulse_ipc::{
@@ -51,21 +47,25 @@ use aoc_core::{
     ProjectData, Task, TaskStatus,
 };
 use aoc_mind::{
-    observer_feed_event_from_outcome, DetachedReflectorWorker, DetachedT3Worker,
-    DistillationConfig, PiObserverAdapter, ReflectorRuntimeConfig, SemanticObserverConfig,
-    SessionObserverSidecar, T3RuntimeConfig,
+    build_handshake_export, build_project_mind_export, canonical_mind_command_name,
+    execute_manual_compaction_rebuild, execute_manual_t3_requeue_from_manifest, ingest_raw_event,
+    mind_handoff_resume_conversation_missing, mind_handshake_rebuild_failed,
+    mind_store_path_with_override, persist_handshake_rebuild_snapshot,
+    prepare_handoff_resume_command, prepare_handshake_rebuild, prepare_session_finalize_plan,
+    project_scope_key, reflector_dispatch_lock_path, reflector_lock_path_with_override,
+    t3_dispatch_lock_path, t3_lock_path_with_override, HandshakeProjectSnapshot,
+    HandshakeTaskCounts, HandshakeTaskSummary, HandshakeWorkstreamSummary, MindCommandResultPolicy,
+    MindRuntimeConfig, MindRuntimeCore, MindServiceHealthSnapshot, SessionExportManifest,
+    SessionFinalizeHostPlan, SessionFinalizeMessageSet, SessionFinalizePlanOutcome, T0IngestConfig,
 };
-use aoc_storage::{
-    ArtifactFileLink, CanonRevisionState, CompactionCheckpoint, MindStore, ProjectWatermark,
-    ReflectorJob, StoredArtifact, T3BacklogJob,
-};
+use aoc_storage::{ArtifactFileLink, CompactionCheckpoint, MindStore};
 use chrono::{TimeZone, Utc};
 use clap::Parser;
 use fs2::FileExt;
 use futures_util::{SinkExt, StreamExt};
 use insight_orchestrator::{DetachedInsightRuntime, InsightSupervisor};
 use notify::{RecommendedWatcher, RecursiveMode, Watcher};
-use portable_pty::{native_pty_system, CommandBuilder, PtySize};
+use portable_pty::{native_pty_system, CommandBuilder, MasterPty, PtySize};
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 use std::{
@@ -91,11 +91,36 @@ use tokio::{
 use tokio::{
     io::{AsyncBufReadExt, AsyncWriteExt, BufReader},
     net::{unix::OwnedWriteHalf, UnixStream},
+    signal::unix::{signal, SignalKind},
 };
 use tokio_tungstenite::connect_async;
 use tracing::{error, info, warn};
 use tracing_subscriber::{fmt::writer::BoxMakeWriter, EnvFilter};
 use url::Url;
+
+struct RawModeGuard {
+    active: bool,
+}
+
+impl RawModeGuard {
+    fn acquire() -> Self {
+        match crossterm::terminal::enable_raw_mode() {
+            Ok(()) => Self { active: true },
+            Err(err) => {
+                warn!("failed to enable raw mode: {err}");
+                Self { active: false }
+            }
+        }
+    }
+}
+
+impl Drop for RawModeGuard {
+    fn drop(&mut self) {
+        if self.active {
+            let _ = crossterm::terminal::disable_raw_mode();
+        }
+    }
+}
 
 const PROTOCOL_VERSION: &str = "1";
 const MAX_PATCH_BYTES: usize = 1024 * 1024;
@@ -125,17 +150,8 @@ const MIND_T2_DISPATCH_STALE_AFTER_MS: i64 = 45_000;
 const MIND_T3_DISPATCH_STALE_AFTER_MS: i64 = 45_000;
 const MIND_DETACHED_KIND_ENV: &str = "AOC_MIND_DETACHED_KIND";
 const MIND_DETACHED_JOB_ID_ENV: &str = "AOC_MIND_DETACHED_JOB_ID";
-const MIND_T3_CANON_SUMMARY_MAX_CHARS: usize = 280;
-const MIND_T3_CANON_STALE_AFTER_DAYS: i64 = 14;
-const MIND_T3_HANDSHAKE_TOKEN_BUDGET: u32 = 500;
-const MIND_T3_HANDSHAKE_MAX_ITEMS: usize = 12;
 const MIND_INJECTION_COOLDOWN_MS: i64 = 20_000;
 const MIND_INJECTION_PRESSURE_SUPPRESS_PCT: u8 = 70;
-const MIND_CONTEXT_PACK_SCHEMA_VERSION: u16 = 1;
-const MIND_CONTEXT_PACK_COMPACT_MAX_LINES: usize = 24;
-const MIND_CONTEXT_PACK_EXPANDED_MAX_LINES: usize = 48;
-const MIND_CONTEXT_PACK_COMPACT_SOURCE_MAX_LINES: usize = 5;
-const MIND_CONTEXT_PACK_EXPANDED_SOURCE_MAX_LINES: usize = 10;
 const MIND_CHILD_ENV_ALLOWLIST: &[&str] = &[
     "PATH",
     "HOME",
@@ -152,10 +168,14 @@ const MIND_CHILD_ENV_ALLOWLIST: &[&str] = &[
     "TEMP",
     "NO_COLOR",
     "CI",
+    "PWD",
+    "TMUX",
+    "TMUX_PANE",
     "RUST_LOG",
     "RUST_BACKTRACE",
     "RUST_LIB_BACKTRACE",
 ];
+const MIND_CHILD_ENV_PREFIX_ALLOWLIST: &[&str] = &["AOC_", "ZELLIJ_", "XDG_"];
 const REDACTED_SECRET: &str = "[REDACTED]";
 
 fn mind_child_env<I, K, V>(extra_env: I) -> Vec<(String, String)>
@@ -165,27 +185,38 @@ where
     V: AsRef<str>,
 {
     let mut pairs = Vec::new();
+    let mut seen = HashSet::new();
     for key in MIND_CHILD_ENV_ALLOWLIST {
         if let Ok(value) = env::var(key) {
             pairs.push(((*key).to_string(), value));
+            seen.insert((*key).to_string());
+        }
+    }
+    for (key, value) in env::vars() {
+        if seen.contains(&key) {
+            continue;
+        }
+        if MIND_CHILD_ENV_PREFIX_ALLOWLIST
+            .iter()
+            .any(|prefix| key.starts_with(prefix))
+        {
+            seen.insert(key.clone());
+            pairs.push((key, value));
         }
     }
     for (key, value) in extra_env {
-        pairs.push((key.as_ref().to_string(), value.as_ref().to_string()));
+        let key = key.as_ref().to_string();
+        let value = value.as_ref().to_string();
+        if seen.insert(key.clone()) {
+            pairs.push((key, value));
+        } else if let Some(existing) = pairs
+            .iter_mut()
+            .find(|(existing_key, _)| *existing_key == key)
+        {
+            existing.1 = value;
+        }
     }
     pairs
-}
-
-fn configure_mind_child_command_env<I, K, V>(command: &mut Command, extra_env: I)
-where
-    I: IntoIterator<Item = (K, V)>,
-    K: AsRef<str>,
-    V: AsRef<str>,
-{
-    command.env_clear();
-    for (key, value) in mind_child_env(extra_env) {
-        command.env(key, value);
-    }
 }
 
 fn configure_mind_child_std_command_env<I, K, V>(command: &mut std::process::Command, extra_env: I)
@@ -197,18 +228,6 @@ where
     command.env_clear();
     for (key, value) in mind_child_env(extra_env) {
         command.env(key, value);
-    }
-}
-
-fn configure_mind_child_pty_env<I, K, V>(builder: &mut CommandBuilder, extra_env: I)
-where
-    I: IntoIterator<Item = (K, V)>,
-    K: AsRef<str>,
-    V: AsRef<str>,
-{
-    builder.env_clear();
-    for (key, value) in mind_child_env(extra_env) {
-        builder.env(key, value);
     }
 }
 
@@ -498,45 +517,7 @@ struct HealthSnapshotPayload {
     taskmaster_status: String,
 }
 
-#[derive(Serialize, Deserialize, Clone, Default)]
-struct InsightRuntimeHealthPayload {
-    #[serde(default)]
-    reflector_enabled: bool,
-    #[serde(default)]
-    reflector_ticks: u64,
-    #[serde(default)]
-    reflector_lock_conflicts: u64,
-    #[serde(default)]
-    reflector_jobs_completed: u64,
-    #[serde(default)]
-    reflector_jobs_failed: u64,
-    #[serde(default)]
-    t3_enabled: bool,
-    #[serde(default)]
-    t3_ticks: u64,
-    #[serde(default)]
-    t3_lock_conflicts: u64,
-    #[serde(default)]
-    t3_jobs_completed: u64,
-    #[serde(default)]
-    t3_jobs_failed: u64,
-    #[serde(default)]
-    t3_jobs_requeued: u64,
-    #[serde(default)]
-    t3_jobs_dead_lettered: u64,
-    #[serde(default)]
-    t3_queue_depth: i64,
-    #[serde(default)]
-    supervisor_runs: u64,
-    #[serde(default)]
-    supervisor_failures: u64,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    last_tick_ms: Option<i64>,
-    #[serde(default)]
-    queue_depth: i64,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    last_error: Option<String>,
-}
+type InsightRuntimeHealthPayload = MindServiceHealthSnapshot;
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 struct ConsultationInboxEntry {
@@ -895,16 +876,17 @@ async fn main() {
     });
 
     let use_pty = resolve_use_pty();
+    let child_cwd = config.client.project_root.clone();
     let exit_code = if use_pty {
-        match run_child_pty(&config.cmd, Some(tap_buffer.clone())).await {
+        match run_child_pty(&config.cmd, &child_cwd, Some(tap_buffer.clone())).await {
             Ok(code) => code,
             Err(err) => {
                 warn!("pty_spawn_failed: {err}; falling back to pipes");
-                run_child_piped(&config.cmd).await
+                run_child_piped(&config.cmd, &child_cwd).await
             }
         }
     } else {
-        run_child_piped(&config.cmd).await
+        run_child_piped(&config.cmd, &child_cwd).await
     };
 
     let offline = build_agent_status(&config.client, "offline", Some("exit"));
@@ -1595,12 +1577,7 @@ fn apply_pulse_update_with_injection_adapters(
 }
 
 fn mind_context_pack_mode_for_trigger(trigger: MindInjectionTriggerKind) -> MindContextPackMode {
-    match trigger {
-        MindInjectionTriggerKind::Startup => MindContextPackMode::Startup,
-        MindInjectionTriggerKind::TagSwitch => MindContextPackMode::TagSwitch,
-        MindInjectionTriggerKind::Resume => MindContextPackMode::Resume,
-        MindInjectionTriggerKind::Handoff => MindContextPackMode::Handoff,
-    }
+    aoc_mind::mind_context_pack_mode_for_trigger(trigger)
 }
 
 fn compile_mind_context_pack(
@@ -1609,245 +1586,12 @@ fn compile_mind_context_pack(
     request: MindContextPackRequest,
     overrides: Option<&MindContextPackSourceOverrides>,
 ) -> Result<MindContextPack, String> {
-    let active_tag = request
-        .active_tag
-        .as_deref()
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .map(|value| value.to_string());
-    let role = request
-        .role
-        .as_deref()
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .map(|value| value.to_string());
-    let reason = request
-        .reason
-        .as_deref()
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .map(|value| value.to_string());
-
-    let profile = request.profile;
-    let line_budget = match profile {
-        MindContextPackProfile::Compact => MIND_CONTEXT_PACK_COMPACT_MAX_LINES,
-        MindContextPackProfile::Expanded => MIND_CONTEXT_PACK_EXPANDED_MAX_LINES,
-    };
-    let source_line_limit = match profile {
-        MindContextPackProfile::Compact => MIND_CONTEXT_PACK_COMPACT_SOURCE_MAX_LINES,
-        MindContextPackProfile::Expanded => MIND_CONTEXT_PACK_EXPANDED_SOURCE_MAX_LINES,
-    };
-
-    let mut sections = Vec::new();
-    let mut citations = Vec::new();
-
-    if let Some(text) = overrides
-        .and_then(|value| value.aoc_mem.clone())
-        .or_else(|| load_context_cli_output(&cfg.project_root, "aoc-mem", &["read"]))
-    {
-        push_context_pack_section(
-            &mut sections,
-            &mut citations,
-            ContextLayer::AocMem,
-            "aoc_mem",
-            "AOC memory",
-            "cmd:aoc-mem read",
-            extract_nonempty_lines(&text, source_line_limit),
-        );
-    }
-
-    let stm_source = match request.mode {
-        MindContextPackMode::Resume => overrides
-            .and_then(|value| value.aoc_stm_resume.clone())
-            .or_else(|| load_context_cli_output(&cfg.project_root, "aoc-stm", &["resume"]))
-            .or_else(|| overrides.and_then(|value| value.aoc_stm_current.clone()))
-            .or_else(|| load_context_cli_output(&cfg.project_root, "aoc-stm", &[])),
-        _ => overrides
-            .and_then(|value| value.aoc_stm_current.clone())
-            .or_else(|| load_context_cli_output(&cfg.project_root, "aoc-stm", &[])),
-    };
-    if let Some(text) = stm_source {
-        let label = match request.mode {
-            MindContextPackMode::Resume => "cmd:aoc-stm resume",
-            _ => "cmd:aoc-stm",
-        };
-        push_context_pack_section(
-            &mut sections,
-            &mut citations,
-            ContextLayer::AocStm,
-            "aoc_stm",
-            "AOC short-term memory",
-            label,
-            extract_nonempty_lines(&text, source_line_limit),
-        );
-    }
-
-    let handshake_text = overrides
-        .and_then(|value| value.handshake_markdown.clone())
-        .or_else(|| {
-            runtime.and_then(|runtime| {
-                runtime
-                    .store
-                    .latest_handshake_snapshot(
-                        "project",
-                        &t3_scope_id_for_project_root(&cfg.project_root),
-                    )
-                    .ok()
-                    .flatten()
-                    .map(|snapshot| snapshot.payload_text)
-            })
-        })
-        .or_else(|| {
-            read_optional_text(
-                &PathBuf::from(&cfg.project_root)
-                    .join(".aoc")
-                    .join("mind")
-                    .join("t3")
-                    .join("handshake.md"),
-            )
-        });
-    if let Some(text) = handshake_text {
-        push_context_pack_section(
-            &mut sections,
-            &mut citations,
-            ContextLayer::AocMind,
-            "t3_handshake",
-            "Mind handshake canon",
-            ".aoc/mind/t3/handshake.md",
-            extract_nonempty_lines(&text, source_line_limit),
-        );
-    }
-
-    if matches!(profile, MindContextPackProfile::Expanded) {
-        if let Some(text) = overrides
-            .and_then(|value| value.project_mind_markdown.clone())
-            .or_else(|| {
-                read_optional_text(
-                    &PathBuf::from(&cfg.project_root)
-                        .join(".aoc")
-                        .join("mind")
-                        .join("t3")
-                        .join("project_mind.md"),
-                )
-            })
-        {
-            let canon_lines =
-                extract_project_mind_lines(&text, active_tag.as_deref(), source_line_limit);
-            push_context_pack_section(
-                &mut sections,
-                &mut citations,
-                ContextLayer::AocMind,
-                "t3_canon",
-                "Project mind canon",
-                ".aoc/mind/t3/project_mind.md",
-                canon_lines,
-            );
-        }
-    }
-
-    let export_manifest = overrides
-        .and_then(|value| value.latest_export_manifest.clone())
-        .or_else(|| load_latest_session_export_manifest(&cfg.project_root).ok());
-    if let Some(manifest) = export_manifest.filter(|manifest| {
-        export_matches_active_tag(manifest.active_tag.as_deref(), active_tag.as_deref())
-    }) {
-        let export_dir = PathBuf::from(&manifest.export_dir);
-        let t2_text = overrides
-            .and_then(|value| value.latest_t2_markdown.clone())
-            .or_else(|| read_optional_text(&export_dir.join("t2.md")));
-        if let Some(text) = t2_text {
-            push_context_pack_section(
-                &mut sections,
-                &mut citations,
-                ContextLayer::AocMind,
-                "session_t2",
-                "Session reflections",
-                &format!("{}/t2.md", manifest.export_dir),
-                extract_nonempty_lines(&text, source_line_limit),
-            );
-        }
-
-        let t1_text = overrides
-            .and_then(|value| value.latest_t1_markdown.clone())
-            .or_else(|| read_optional_text(&export_dir.join("t1.md")));
-        if let Some(text) = t1_text {
-            push_context_pack_section(
-                &mut sections,
-                &mut citations,
-                ContextLayer::AocMind,
-                "session_t1",
-                "Session observations",
-                &format!("{}/t1.md", manifest.export_dir),
-                extract_nonempty_lines(&text, source_line_limit),
-            );
-        }
-    }
-
-    if sections.is_empty() {
-        return Err("no context-pack sources available".to_string());
-    }
-
-    let inputs = sections
-        .iter()
-        .map(|section| ContextPackInput {
-            layer: section.layer,
-            lines: render_context_pack_section(section),
-        })
-        .collect::<Vec<_>>();
-    let composed = compose_context_pack(&inputs, line_budget)
-        .map_err(|err| format!("compose context pack failed: {err}"))?;
-    let section_truncated = sections.iter().any(|section| section.truncated);
-
-    Ok(MindContextPack {
-        schema_version: MIND_CONTEXT_PACK_SCHEMA_VERSION,
-        mode: request.mode,
-        profile,
-        role,
-        active_tag,
-        reason,
-        line_budget,
-        truncated: composed.truncated || section_truncated,
-        rendered_lines: composed.lines,
-        sections,
-        citations,
-        generated_at: Utc::now().to_rfc3339(),
-    })
-}
-
-fn push_context_pack_section(
-    sections: &mut Vec<MindContextPackSection>,
-    citations: &mut Vec<MindContextPackCitation>,
-    layer: ContextLayer,
-    source_id: &str,
-    title: &str,
-    reference: &str,
-    extracted: (Vec<String>, bool),
-) {
-    let (lines, truncated) = extracted;
-    if lines.is_empty() {
-        return;
-    }
-
-    let citation = format!("[{source_id}]");
-    sections.push(MindContextPackSection {
-        source_id: source_id.to_string(),
-        layer,
-        title: title.to_string(),
-        citation: citation.clone(),
-        lines,
-        truncated,
-    });
-    citations.push(MindContextPackCitation {
-        source_id: source_id.to_string(),
-        label: title.to_string(),
-        reference: reference.to_string(),
-    });
-}
-
-fn render_context_pack_section(section: &MindContextPackSection) -> Vec<String> {
-    let mut lines = vec![format!("{} {}", section.citation, section.title)];
-    lines.extend(section.lines.iter().cloned());
-    lines
+    aoc_mind::compile_mind_context_pack(
+        &cfg.project_root,
+        runtime.map(|runtime| runtime.core.store()),
+        request,
+        overrides,
+    )
 }
 
 fn extract_nonempty_lines(text: &str, max_lines: usize) -> (Vec<String>, bool) {
@@ -1861,56 +1605,6 @@ fn extract_nonempty_lines(text: &str, max_lines: usize) -> (Vec<String>, bool) {
         .collect::<Vec<_>>();
     let truncated = cleaned.len() > max_lines;
     (cleaned.into_iter().take(max_lines).collect(), truncated)
-}
-
-fn extract_project_mind_lines(
-    text: &str,
-    active_tag: Option<&str>,
-    max_lines: usize,
-) -> (Vec<String>, bool) {
-    let requested = active_tag
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .map(|value| value.to_ascii_lowercase());
-    let mut selected = Vec::new();
-    let mut block = Vec::new();
-    let mut include_block = requested.is_none();
-
-    let flush_block = |selected: &mut Vec<String>, block: &mut Vec<String>, include_block: bool| {
-        if include_block {
-            selected.extend(block.iter().cloned());
-        }
-        block.clear();
-    };
-
-    for raw in text.lines() {
-        let line = raw.trim();
-        if line.starts_with("## ") {
-            flush_block(&mut selected, &mut block, include_block);
-            include_block = false;
-            continue;
-        }
-        if line.starts_with("### ") {
-            flush_block(&mut selected, &mut block, include_block);
-            include_block = requested.is_none();
-            block.push(line.to_string());
-            continue;
-        }
-        if line.is_empty() || line == "(none)" {
-            continue;
-        }
-        if let Some(requested) = requested.as_ref() {
-            if let Some(topic) = line.strip_prefix("- topic:") {
-                let topic = topic.trim().to_ascii_lowercase();
-                include_block = topic == *requested || topic == "global";
-            }
-        }
-        block.push(line.to_string());
-    }
-    flush_block(&mut selected, &mut block, include_block);
-
-    let truncated = selected.len() > max_lines;
-    (selected.into_iter().take(max_lines).collect(), truncated)
 }
 
 fn export_matches_active_tag(export_tag: Option<&str>, requested_tag: Option<&str>) -> bool {
@@ -1940,17 +1634,17 @@ fn compile_insight_retrieval(
         InsightRetrievalScope::Session => InsightRetrievalScope::Session,
         InsightRetrievalScope::Project => InsightRetrievalScope::Project,
         InsightRetrievalScope::Auto => {
-            if load_session_export_manifests(project_root, INSIGHT_RETRIEVAL_SESSION_EXPORT_SCAN_LIMIT)
-                .ok()
-                .map(|manifests| {
-                    manifests.into_iter().any(|manifest| {
-                        export_matches_active_tag(
-                            manifest.active_tag.as_deref(),
-                            active_tag.as_deref(),
-                        )
-                    })
+            if load_session_export_manifests(
+                project_root,
+                INSIGHT_RETRIEVAL_SESSION_EXPORT_SCAN_LIMIT,
+            )
+            .ok()
+            .map(|manifests| {
+                manifests.into_iter().any(|manifest| {
+                    export_matches_active_tag(manifest.active_tag.as_deref(), active_tag.as_deref())
                 })
-                .unwrap_or(false)
+            })
+            .unwrap_or(false)
             {
                 InsightRetrievalScope::Auto
             } else {
@@ -2062,10 +1756,9 @@ fn collect_insight_retrieval_sources(
         scope,
         InsightRetrievalScope::Session | InsightRetrievalScope::Auto
     ) {
-        if let Ok(manifests) = load_session_export_manifests(
-            project_root,
-            INSIGHT_RETRIEVAL_SESSION_EXPORT_SCAN_LIMIT,
-        ) {
+        if let Ok(manifests) =
+            load_session_export_manifests(project_root, INSIGHT_RETRIEVAL_SESSION_EXPORT_SCAN_LIMIT)
+        {
             for (index, manifest) in manifests.into_iter().enumerate() {
                 if !export_matches_active_tag(manifest.active_tag.as_deref(), active_tag) {
                     continue;
@@ -2398,7 +2091,11 @@ fn parse_session_export_retrieval_sources(
             lines,
             citations,
             drilldown_refs,
-            score_bias: if kind == "t2" { 8 + recency_bias } else { 4 + recency_bias },
+            score_bias: if kind == "t2" {
+                8 + recency_bias
+            } else {
+                4 + recency_bias
+            },
         });
     };
 
@@ -2447,7 +2144,11 @@ fn parse_session_export_retrieval_sources(
                         reference: manifest.export_dir.clone(),
                     },
                 ],
-                score_bias: if kind == "t2" { 8 + recency_bias } else { 4 + recency_bias },
+                score_bias: if kind == "t2" {
+                    8 + recency_bias
+                } else {
+                    4 + recency_bias
+                },
             });
         }
     }
@@ -2558,863 +2259,19 @@ fn rank_insight_retrieval_source(
     })
 }
 
-fn edge_kind_key(kind: MindProvenanceEdgeKind) -> &'static str {
-    match kind {
-        MindProvenanceEdgeKind::ScopeSession => "scope_session",
-        MindProvenanceEdgeKind::ScopeHandshake => "scope_handshake",
-        MindProvenanceEdgeKind::ScopeBacklogJob => "scope_backlog_job",
-        MindProvenanceEdgeKind::SessionConversation => "session_conversation",
-        MindProvenanceEdgeKind::ConversationParent => "conversation_parent",
-        MindProvenanceEdgeKind::ConversationRoot => "conversation_root",
-        MindProvenanceEdgeKind::ConversationArtifact => "conversation_artifact",
-        MindProvenanceEdgeKind::ConversationCheckpoint => "conversation_checkpoint",
-        MindProvenanceEdgeKind::ArtifactTrace => "artifact_trace",
-        MindProvenanceEdgeKind::ArtifactSemanticProvenance => "artifact_semantic_provenance",
-        MindProvenanceEdgeKind::ArtifactFileLink => "artifact_file_link",
-        MindProvenanceEdgeKind::ArtifactTaskLink => "artifact_task_link",
-        MindProvenanceEdgeKind::CheckpointSlice => "checkpoint_slice",
-        MindProvenanceEdgeKind::SliceFileRead => "slice_file_read",
-        MindProvenanceEdgeKind::SliceFileModified => "slice_file_modified",
-        MindProvenanceEdgeKind::CanonSupersedes => "canon_supersedes",
-        MindProvenanceEdgeKind::CanonEvidence => "canon_evidence",
-        MindProvenanceEdgeKind::HandshakeCanon => "handshake_canon",
-        MindProvenanceEdgeKind::BacklogJobArtifact => "backlog_job_artifact",
-        MindProvenanceEdgeKind::BacklogJobCanon => "backlog_job_canon",
-    }
-}
-
-struct MindProvenanceGraphBuilder {
-    max_nodes: usize,
-    max_edges: usize,
-    nodes: Vec<MindProvenanceNode>,
-    edges: Vec<MindProvenanceEdge>,
-    node_ids: HashSet<String>,
-    edge_ids: HashSet<String>,
-    truncated: bool,
-}
-
-impl MindProvenanceGraphBuilder {
-    fn new(max_nodes: usize, max_edges: usize) -> Self {
-        Self {
-            max_nodes: max_nodes.max(1),
-            max_edges: max_edges.max(1),
-            nodes: Vec::new(),
-            edges: Vec::new(),
-            node_ids: HashSet::new(),
-            edge_ids: HashSet::new(),
-            truncated: false,
-        }
-    }
-
-    fn add_node(&mut self, node: MindProvenanceNode) {
-        if self.node_ids.contains(&node.node_id) {
-            return;
-        }
-        if self.nodes.len() >= self.max_nodes {
-            self.truncated = true;
-            return;
-        }
-        self.node_ids.insert(node.node_id.clone());
-        self.nodes.push(node);
-    }
-
-    fn add_edge(
-        &mut self,
-        kind: MindProvenanceEdgeKind,
-        from: impl Into<String>,
-        to: impl Into<String>,
-        label: Option<String>,
-        attrs: std::collections::BTreeMap<String, serde_json::Value>,
-    ) {
-        let from = from.into();
-        let to = to.into();
-        if !self.node_ids.contains(&from) || !self.node_ids.contains(&to) {
-            return;
-        }
-        let edge_id = format!(
-            "{}:{}:{}:{}",
-            edge_kind_key(kind),
-            from,
-            to,
-            label.as_deref().unwrap_or_default()
-        );
-        if self.edge_ids.contains(&edge_id) {
-            return;
-        }
-        if self.edges.len() >= self.max_edges {
-            self.truncated = true;
-            return;
-        }
-        self.edge_ids.insert(edge_id.clone());
-        self.edges.push(MindProvenanceEdge {
-            edge_id,
-            kind,
-            from,
-            to,
-            label,
-            attrs,
-        });
-    }
-
-    fn finish(
-        mut self,
-        status: &str,
-        summary: String,
-        seed_refs: Vec<String>,
-    ) -> MindProvenanceQueryResult {
-        self.nodes.sort_by(|a, b| a.node_id.cmp(&b.node_id));
-        self.edges.sort_by(|a, b| a.edge_id.cmp(&b.edge_id));
-        MindProvenanceQueryResult {
-            status: status.to_string(),
-            summary,
-            seed_refs,
-            nodes: self.nodes,
-            edges: self.edges,
-            truncated: self.truncated,
-        }
-    }
-}
-
-fn json_string_attr(
-    attrs: &mut std::collections::BTreeMap<String, serde_json::Value>,
-    key: &str,
-    value: impl Into<String>,
-) {
-    attrs.insert(key.to_string(), serde_json::Value::String(value.into()));
-}
-
-fn json_bool_attr(
-    attrs: &mut std::collections::BTreeMap<String, serde_json::Value>,
-    key: &str,
-    value: bool,
-) {
-    attrs.insert(key.to_string(), serde_json::Value::Bool(value));
-}
-
-fn json_u64_attr(
-    attrs: &mut std::collections::BTreeMap<String, serde_json::Value>,
-    key: &str,
-    value: u64,
-) {
-    attrs.insert(
-        key.to_string(),
-        serde_json::Value::Number(serde_json::Number::from(value)),
-    );
-}
-
 #[allow(dead_code)]
 fn compile_mind_provenance_graph(
     store: &MindStore,
     request: &MindProvenanceQueryRequest,
 ) -> Result<MindProvenanceQueryResult, String> {
-    let mut seed_refs = Vec::new();
-    if let Some(project_root) = request.project_root.as_ref() {
-        seed_refs.push(format!("project:{}", project_root));
-    }
-    if let Some(session_id) = request.session_id.as_ref() {
-        seed_refs.push(format!("session:{}", session_id));
-    }
-    if let Some(conversation_id) = request.conversation_id.as_ref() {
-        seed_refs.push(format!("conversation:{}", conversation_id));
-    }
-    if let Some(artifact_id) = request.artifact_id.as_ref() {
-        seed_refs.push(format!("artifact:{}", artifact_id));
-    }
-    if let Some(checkpoint_id) = request.checkpoint_id.as_ref() {
-        seed_refs.push(format!("checkpoint:{}", checkpoint_id));
-    }
-    if let Some(canon_entry_id) = request.canon_entry_id.as_ref() {
-        seed_refs.push(format!("canon:{}", canon_entry_id));
-    }
-    if let Some(task_id) = request.task_id.as_ref() {
-        seed_refs.push(format!("task:{}", task_id));
-    }
-    if let Some(file_path) = request.file_path.as_ref() {
-        seed_refs.push(format!("file:{}", file_path));
-    }
-
-    let mut graph = MindProvenanceGraphBuilder::new(request.max_nodes, request.max_edges);
-    let mut conversation_ids = HashSet::<String>::new();
-    let mut artifact_ids = HashSet::<String>::new();
-    let mut canon_entry_ids = HashSet::<String>::new();
-
-    let project_scope_id = if let Some(project_root) = request.project_root.as_ref() {
-        let scope_key = t3_scope_id_for_project_root(project_root);
-        let mut attrs = std::collections::BTreeMap::new();
-        json_string_attr(&mut attrs, "project_root", project_root.clone());
-        json_string_attr(&mut attrs, "scope_key", scope_key.clone());
-        if let Some(watermark) = store
-            .project_watermark(&scope_key)
-            .map_err(|err| format!("load project watermark failed: {err}"))?
-        {
-            if let Some(last_artifact_id) = watermark.last_artifact_id.as_ref() {
-                json_string_attr(
-                    &mut attrs,
-                    "watermark_last_artifact_id",
-                    last_artifact_id.clone(),
-                );
-            }
-            if let Some(last_artifact_ts) = watermark.last_artifact_ts.as_ref() {
-                json_string_attr(
-                    &mut attrs,
-                    "watermark_last_artifact_ts",
-                    last_artifact_ts.to_rfc3339(),
-                );
-            }
-        }
-        graph.add_node(MindProvenanceNode {
-            node_id: format!("scope:{}", scope_key),
-            kind: MindProvenanceNodeKind::ProjectScope,
-            label: project_root.clone(),
-            reference: Some(scope_key.clone()),
-            attrs,
-        });
-        Some(scope_key)
-    } else {
-        None
-    };
-
-    if let Some(session_id) = request.session_id.as_ref() {
-        graph.add_node(MindProvenanceNode {
-            node_id: format!("session:{}", session_id),
-            kind: MindProvenanceNodeKind::Session,
-            label: format!("Session {session_id}"),
-            reference: Some(session_id.clone()),
-            attrs: std::collections::BTreeMap::new(),
-        });
-        if let Some(scope_key) = project_scope_id.as_ref() {
-            graph.add_edge(
-                MindProvenanceEdgeKind::ScopeSession,
-                format!("scope:{}", scope_key),
-                format!("session:{}", session_id),
-                Some("contains".to_string()),
-                std::collections::BTreeMap::new(),
-            );
-        }
-        for conversation_id in store
-            .conversation_ids_for_session(session_id)
-            .map_err(|err| format!("list conversation lineage failed: {err}"))?
-        {
-            conversation_ids.insert(conversation_id);
-        }
-    }
-
-    if let Some(conversation_id) = request.conversation_id.as_ref() {
-        conversation_ids.insert(conversation_id.clone());
-    }
-
-    if let Some(artifact_id) = request.artifact_id.as_ref() {
-        artifact_ids.insert(artifact_id.clone());
-        if let Some(artifact) = store
-            .artifact_by_id(artifact_id)
-            .map_err(|err| format!("load artifact failed: {err}"))?
-        {
-            conversation_ids.insert(artifact.conversation_id);
-        }
-    }
-
-    if let Some(checkpoint_id) = request.checkpoint_id.as_ref() {
-        if let Some(checkpoint) = store
-            .compaction_checkpoint_by_id(checkpoint_id)
-            .map_err(|err| format!("load checkpoint failed: {err}"))?
-        {
-            conversation_ids.insert(checkpoint.conversation_id.clone());
-            add_provenance_checkpoint_branch(store, &mut graph, &checkpoint)?;
-        }
-    }
-
-    if let Some(task_id) = request.task_id.as_ref() {
-        graph.add_node(MindProvenanceNode {
-            node_id: format!("task:{}", task_id),
-            kind: MindProvenanceNodeKind::Task,
-            label: task_id.clone(),
-            reference: Some(task_id.clone()),
-            attrs: std::collections::BTreeMap::new(),
-        });
-        for artifact_id in store
-            .artifact_ids_for_task_id(task_id)
-            .map_err(|err| format!("load task-linked artifacts failed: {err}"))?
-        {
-            artifact_ids.insert(artifact_id);
-        }
-    }
-
-    if let Some(file_path) = request.file_path.as_ref() {
-        add_provenance_file_node(&mut graph, file_path, Some("seed"));
-        for artifact_id in store
-            .artifact_ids_for_file_path(file_path)
-            .map_err(|err| format!("load file-linked artifacts failed: {err}"))?
-        {
-            artifact_ids.insert(artifact_id);
-        }
-    }
-
-    for conversation_id in conversation_ids.iter() {
-        let lineage = store
-            .conversation_lineage(conversation_id)
-            .map_err(|err| format!("load conversation lineage failed: {err}"))?;
-        let mut attrs = std::collections::BTreeMap::new();
-        if let Some(lineage) = lineage.as_ref() {
-            json_string_attr(&mut attrs, "session_id", lineage.session_id.clone());
-            json_string_attr(
-                &mut attrs,
-                "root_conversation_id",
-                lineage.root_conversation_id.clone(),
-            );
-            if let Some(parent) = lineage.parent_conversation_id.as_ref() {
-                json_string_attr(&mut attrs, "parent_conversation_id", parent.clone());
-            }
-        }
-        graph.add_node(MindProvenanceNode {
-            node_id: format!("conversation:{}", conversation_id),
-            kind: MindProvenanceNodeKind::Conversation,
-            label: format!("Conversation {conversation_id}"),
-            reference: Some(conversation_id.clone()),
-            attrs,
-        });
-
-        if let Some(lineage) = lineage.as_ref() {
-            graph.add_node(MindProvenanceNode {
-                node_id: format!("session:{}", lineage.session_id),
-                kind: MindProvenanceNodeKind::Session,
-                label: format!("Session {}", lineage.session_id),
-                reference: Some(lineage.session_id.clone()),
-                attrs: std::collections::BTreeMap::new(),
-            });
-            if let Some(scope_key) = project_scope_id.as_ref() {
-                graph.add_edge(
-                    MindProvenanceEdgeKind::ScopeSession,
-                    format!("scope:{}", scope_key),
-                    format!("session:{}", lineage.session_id),
-                    Some("contains".to_string()),
-                    std::collections::BTreeMap::new(),
-                );
-            }
-            graph.add_edge(
-                MindProvenanceEdgeKind::SessionConversation,
-                format!("session:{}", lineage.session_id),
-                format!("conversation:{}", conversation_id),
-                Some("contains".to_string()),
-                std::collections::BTreeMap::new(),
-            );
-            if let Some(parent) = lineage.parent_conversation_id.as_ref() {
-                graph.add_node(MindProvenanceNode {
-                    node_id: format!("conversation:{}", parent),
-                    kind: MindProvenanceNodeKind::Conversation,
-                    label: format!("Conversation {parent}"),
-                    reference: Some(parent.clone()),
-                    attrs: std::collections::BTreeMap::new(),
-                });
-                graph.add_edge(
-                    MindProvenanceEdgeKind::ConversationParent,
-                    format!("conversation:{}", conversation_id),
-                    format!("conversation:{}", parent),
-                    Some("parent".to_string()),
-                    std::collections::BTreeMap::new(),
-                );
-            }
-            if lineage.root_conversation_id != *conversation_id {
-                graph.add_node(MindProvenanceNode {
-                    node_id: format!("conversation:{}", lineage.root_conversation_id),
-                    kind: MindProvenanceNodeKind::Conversation,
-                    label: format!("Conversation {}", lineage.root_conversation_id),
-                    reference: Some(lineage.root_conversation_id.clone()),
-                    attrs: std::collections::BTreeMap::new(),
-                });
-                graph.add_edge(
-                    MindProvenanceEdgeKind::ConversationRoot,
-                    format!("conversation:{}", conversation_id),
-                    format!("conversation:{}", lineage.root_conversation_id),
-                    Some("root".to_string()),
-                    std::collections::BTreeMap::new(),
-                );
-            }
-        }
-
-        for artifact in store
-            .artifacts_for_conversation(conversation_id)
-            .map_err(|err| format!("list conversation artifacts failed: {err}"))?
-        {
-            artifact_ids.insert(artifact.artifact_id.clone());
-            add_provenance_artifact_node(&mut graph, &artifact);
-            graph.add_edge(
-                MindProvenanceEdgeKind::ConversationArtifact,
-                format!("conversation:{}", conversation_id),
-                format!("artifact:{}", artifact.artifact_id),
-                Some(artifact.kind.clone()),
-                std::collections::BTreeMap::new(),
-            );
-        }
-
-        for checkpoint in store
-            .compaction_checkpoints_for_conversation(conversation_id)
-            .map_err(|err| format!("list conversation checkpoints failed: {err}"))?
-        {
-            add_provenance_checkpoint_branch(store, &mut graph, &checkpoint)?;
-        }
-    }
-
-    let mut artifact_queue = artifact_ids.iter().cloned().collect::<Vec<_>>();
-    artifact_queue.sort();
-    for artifact_id in artifact_queue {
-        let Some(artifact) = store
-            .artifact_by_id(&artifact_id)
-            .map_err(|err| format!("load artifact by id failed: {err}"))?
-        else {
-            continue;
-        };
-        add_provenance_artifact_node(&mut graph, &artifact);
-        for trace_id in &artifact.trace_ids {
-            if let Some(traced) = store
-                .artifact_by_id(trace_id)
-                .map_err(|err| format!("load traced artifact failed: {err}"))?
-            {
-                add_provenance_artifact_node(&mut graph, &traced);
-                graph.add_edge(
-                    MindProvenanceEdgeKind::ArtifactTrace,
-                    format!("artifact:{}", artifact.artifact_id),
-                    format!("artifact:{}", traced.artifact_id),
-                    Some("trace".to_string()),
-                    std::collections::BTreeMap::new(),
-                );
-            }
-        }
-        for entry in store
-            .semantic_provenance_for_artifact(&artifact.artifact_id)
-            .map_err(|err| format!("load semantic provenance failed: {err}"))?
-        {
-            let node_id = format!(
-                "semantic:{}:{}:{}",
-                artifact.artifact_id, entry.prompt_version, entry.attempt_count
-            );
-            let mut attrs = std::collections::BTreeMap::new();
-            json_string_attr(
-                &mut attrs,
-                "stage",
-                format!("{:?}", entry.stage).to_lowercase(),
-            );
-            json_string_attr(
-                &mut attrs,
-                "runtime",
-                format!("{:?}", entry.runtime).to_lowercase(),
-            );
-            json_string_attr(&mut attrs, "prompt_version", entry.prompt_version.clone());
-            json_bool_attr(&mut attrs, "fallback_used", entry.fallback_used);
-            json_u64_attr(&mut attrs, "attempt_count", entry.attempt_count as u64);
-            graph.add_node(MindProvenanceNode {
-                node_id: node_id.clone(),
-                kind: MindProvenanceNodeKind::SemanticProvenance,
-                label: format!("{} attempt {}", artifact.artifact_id, entry.attempt_count),
-                reference: Some(artifact.artifact_id.clone()),
-                attrs,
-            });
-            graph.add_edge(
-                MindProvenanceEdgeKind::ArtifactSemanticProvenance,
-                format!("artifact:{}", artifact.artifact_id),
-                node_id,
-                Some("semantic_provenance".to_string()),
-                std::collections::BTreeMap::new(),
-            );
-        }
-        for file_link in store
-            .artifact_file_links(&artifact.artifact_id)
-            .map_err(|err| format!("load artifact file links failed: {err}"))?
-        {
-            add_provenance_file_node(&mut graph, &file_link.path, Some(&file_link.relation));
-            let mut attrs = std::collections::BTreeMap::new();
-            json_string_attr(&mut attrs, "relation", file_link.relation.clone());
-            json_string_attr(&mut attrs, "source", file_link.source.clone());
-            graph.add_edge(
-                MindProvenanceEdgeKind::ArtifactFileLink,
-                format!("artifact:{}", artifact.artifact_id),
-                format!("file:{}", file_link.path),
-                Some(file_link.relation.clone()),
-                attrs,
-            );
-        }
-        for task_link in store
-            .artifact_task_links_for_artifact(&artifact.artifact_id)
-            .map_err(|err| format!("load artifact task links failed: {err}"))?
-        {
-            let task_id = format!("task:{}", task_link.task_id);
-            let mut task_attrs = std::collections::BTreeMap::new();
-            json_u64_attr(
-                &mut task_attrs,
-                "confidence_bps",
-                task_link.confidence_bps as u64,
-            );
-            graph.add_node(MindProvenanceNode {
-                node_id: task_id.clone(),
-                kind: MindProvenanceNodeKind::Task,
-                label: task_link.task_id.clone(),
-                reference: Some(task_link.task_id.clone()),
-                attrs: task_attrs,
-            });
-            let mut edge_attrs = std::collections::BTreeMap::new();
-            json_string_attr(
-                &mut edge_attrs,
-                "relation",
-                format!("{:?}", task_link.relation).to_lowercase(),
-            );
-            json_string_attr(&mut edge_attrs, "source", task_link.source.clone());
-            graph.add_edge(
-                MindProvenanceEdgeKind::ArtifactTaskLink,
-                format!("artifact:{}", artifact.artifact_id),
-                task_id,
-                Some(format!("{:?}", task_link.relation).to_lowercase()),
-                edge_attrs,
-            );
-        }
-    }
-
-    let canon_topic = request.active_tag.as_deref();
-    let mut canon_revisions = if let Some(seed_entry) = request.canon_entry_id.as_ref() {
-        store
-            .canon_entry_revisions(seed_entry)
-            .map_err(|err| format!("load canon revisions failed: {err}"))?
-    } else {
-        let mut revisions = store
-            .active_canon_entries(canon_topic)
-            .map_err(|err| format!("load active canon failed: {err}"))?;
-        if request.include_stale_canon {
-            revisions.extend(
-                store
-                    .canon_entries_by_state(CanonRevisionState::Stale, canon_topic)
-                    .map_err(|err| format!("load stale canon failed: {err}"))?,
-            );
-        }
-        revisions
-    };
-    if !request.include_stale_canon {
-        canon_revisions.retain(|revision| revision.state != CanonRevisionState::Stale);
-    }
-    canon_revisions.sort_by(|a, b| {
-        a.entry_id
-            .cmp(&b.entry_id)
-            .then_with(|| b.revision.cmp(&a.revision))
-    });
-    for revision in canon_revisions {
-        let node_id = format!("canon:{}#r{}", revision.entry_id, revision.revision);
-        canon_entry_ids.insert(node_id.clone());
-        let mut attrs = std::collections::BTreeMap::new();
-        json_u64_attr(&mut attrs, "revision", revision.revision as u64);
-        json_u64_attr(&mut attrs, "confidence_bps", revision.confidence_bps as u64);
-        json_u64_attr(
-            &mut attrs,
-            "freshness_score",
-            revision.freshness_score as u64,
-        );
-        if let Some(topic) = revision.topic.as_ref() {
-            json_string_attr(&mut attrs, "topic", topic.clone());
-        }
-        json_string_attr(
-            &mut attrs,
-            "state",
-            format!("{:?}", revision.state).to_lowercase(),
-        );
-        graph.add_node(MindProvenanceNode {
-            node_id: node_id.clone(),
-            kind: MindProvenanceNodeKind::CanonEntryRevision,
-            label: revision.summary.clone(),
-            reference: Some(format!("{}.r{}", revision.entry_id, revision.revision)),
-            attrs,
-        });
-        if let Some(previous) = revision.supersedes_entry_id.as_ref() {
-            for prior in store
-                .canon_entry_revisions(previous)
-                .map_err(|err| format!("load superseded canon failed: {err}"))?
-                .into_iter()
-                .take(1)
-            {
-                let prior_id = format!("canon:{}#r{}", prior.entry_id, prior.revision);
-                graph.add_node(MindProvenanceNode {
-                    node_id: prior_id.clone(),
-                    kind: MindProvenanceNodeKind::CanonEntryRevision,
-                    label: prior.summary.clone(),
-                    reference: Some(format!("{}.r{}", prior.entry_id, prior.revision)),
-                    attrs: std::collections::BTreeMap::new(),
-                });
-                graph.add_edge(
-                    MindProvenanceEdgeKind::CanonSupersedes,
-                    node_id.clone(),
-                    prior_id,
-                    Some("supersedes".to_string()),
-                    std::collections::BTreeMap::new(),
-                );
-            }
-        }
-        for evidence_ref in &revision.evidence_refs {
-            if let Some(artifact) = store
-                .artifact_by_id(evidence_ref)
-                .map_err(|err| format!("load canon evidence artifact failed: {err}"))?
-            {
-                add_provenance_artifact_node(&mut graph, &artifact);
-                graph.add_edge(
-                    MindProvenanceEdgeKind::CanonEvidence,
-                    node_id.clone(),
-                    format!("artifact:{}", artifact.artifact_id),
-                    Some("evidence".to_string()),
-                    std::collections::BTreeMap::new(),
-                );
-            }
-        }
-    }
-
-    if let (Some(project_root), Some(scope_key)) =
-        (request.project_root.as_ref(), project_scope_id.as_ref())
-    {
-        for job in store
-            .t3_backlog_jobs_for_project_root(project_root)
-            .map_err(|err| format!("load t3 backlog jobs failed: {err}"))?
-        {
-            let mut attrs = std::collections::BTreeMap::new();
-            json_string_attr(&mut attrs, "session_id", job.session_id.clone());
-            json_string_attr(&mut attrs, "pane_id", job.pane_id.clone());
-            json_string_attr(
-                &mut attrs,
-                "status",
-                format!("{:?}", job.status).to_lowercase(),
-            );
-            json_u64_attr(&mut attrs, "attempts", job.attempts as u64);
-            if let Some(active_tag) = job.active_tag.as_ref() {
-                json_string_attr(&mut attrs, "active_tag", active_tag.clone());
-            }
-            if let Some(slice_start_id) = job.slice_start_id.as_ref() {
-                json_string_attr(&mut attrs, "slice_start_id", slice_start_id.clone());
-            }
-            if let Some(slice_end_id) = job.slice_end_id.as_ref() {
-                json_string_attr(&mut attrs, "slice_end_id", slice_end_id.clone());
-            }
-            graph.add_node(MindProvenanceNode {
-                node_id: format!("backlog:{}", job.job_id),
-                kind: MindProvenanceNodeKind::T3BacklogJob,
-                label: job.job_id.clone(),
-                reference: Some(job.job_id.clone()),
-                attrs,
-            });
-            graph.add_edge(
-                MindProvenanceEdgeKind::ScopeBacklogJob,
-                format!("scope:{}", scope_key),
-                format!("backlog:{}", job.job_id),
-                Some("queued".to_string()),
-                std::collections::BTreeMap::new(),
-            );
-            for artifact_id in &job.artifact_refs {
-                if let Some(artifact) = store
-                    .artifact_by_id(artifact_id)
-                    .map_err(|err| format!("load backlog artifact failed: {err}"))?
-                {
-                    add_provenance_artifact_node(&mut graph, &artifact);
-                    graph.add_edge(
-                        MindProvenanceEdgeKind::BacklogJobArtifact,
-                        format!("backlog:{}", job.job_id),
-                        format!("artifact:{}", artifact.artifact_id),
-                        Some("input".to_string()),
-                        std::collections::BTreeMap::new(),
-                    );
-                }
-            }
-            for canon_id in canon_entry_ids.iter().cloned().collect::<Vec<_>>() {
-                graph.add_edge(
-                    MindProvenanceEdgeKind::BacklogJobCanon,
-                    format!("backlog:{}", job.job_id),
-                    canon_id,
-                    Some("targets".to_string()),
-                    std::collections::BTreeMap::new(),
-                );
-            }
-        }
-
-        if let Some(snapshot) = store
-            .latest_handshake_snapshot("project", scope_key)
-            .map_err(|err| format!("load handshake snapshot failed: {err}"))?
-        {
-            let mut attrs = std::collections::BTreeMap::new();
-            json_u64_attr(&mut attrs, "token_estimate", snapshot.token_estimate as u64);
-            json_string_attr(&mut attrs, "scope", snapshot.scope.clone());
-            graph.add_node(MindProvenanceNode {
-                node_id: format!("handshake:{}", snapshot.snapshot_id),
-                kind: MindProvenanceNodeKind::HandshakeSnapshot,
-                label: format!("Handshake {}", project_root),
-                reference: Some(".aoc/mind/t3/handshake.md".to_string()),
-                attrs,
-            });
-            graph.add_edge(
-                MindProvenanceEdgeKind::ScopeHandshake,
-                format!("scope:{}", scope_key),
-                format!("handshake:{}", snapshot.snapshot_id),
-                Some("latest".to_string()),
-                std::collections::BTreeMap::new(),
-            );
-            for canon_id in canon_entry_ids.iter().cloned().collect::<Vec<_>>() {
-                graph.add_edge(
-                    MindProvenanceEdgeKind::HandshakeCanon,
-                    format!("handshake:{}", snapshot.snapshot_id),
-                    canon_id,
-                    Some("renders".to_string()),
-                    std::collections::BTreeMap::new(),
-                );
-            }
-        }
-    }
-
-    let node_count = graph.nodes.len();
-    let edge_count = graph.edges.len();
-    Ok(graph.finish(
-        "ok",
-        format!(
-            "{} nodes, {} edges across lineage, artifacts, checkpoints, canon, and handshake",
-            node_count, edge_count
-        ),
-        seed_refs,
-    ))
-}
-
-fn add_provenance_artifact_node(graph: &mut MindProvenanceGraphBuilder, artifact: &StoredArtifact) {
-    let mut attrs = std::collections::BTreeMap::new();
-    json_string_attr(
-        &mut attrs,
-        "conversation_id",
-        artifact.conversation_id.clone(),
-    );
-    json_string_attr(&mut attrs, "kind", artifact.kind.clone());
-    json_u64_attr(&mut attrs, "trace_count", artifact.trace_ids.len() as u64);
-    graph.add_node(MindProvenanceNode {
-        node_id: format!("artifact:{}", artifact.artifact_id),
-        kind: MindProvenanceNodeKind::Artifact,
-        label: artifact.artifact_id.clone(),
-        reference: Some(artifact.artifact_id.clone()),
-        attrs,
-    });
-}
-
-fn add_provenance_file_node(
-    graph: &mut MindProvenanceGraphBuilder,
-    path: &str,
-    relation: Option<&str>,
-) {
-    let mut attrs = std::collections::BTreeMap::new();
-    if let Some(relation) = relation {
-        json_string_attr(&mut attrs, "relation", relation.to_string());
-    }
-    graph.add_node(MindProvenanceNode {
-        node_id: format!("file:{path}"),
-        kind: MindProvenanceNodeKind::File,
-        label: path.to_string(),
-        reference: Some(path.to_string()),
-        attrs,
-    });
+    aoc_mind::compile_mind_provenance_graph(store, request)
 }
 
 fn compile_mind_provenance_export(
     store: &MindStore,
     request: MindProvenanceQueryRequest,
 ) -> Result<MindProvenanceExport, String> {
-    let graph = compile_mind_provenance_graph(store, &request)?;
-    Ok(MindProvenanceExport::new(request, graph))
-}
-
-fn add_provenance_checkpoint_branch(
-    store: &MindStore,
-    graph: &mut MindProvenanceGraphBuilder,
-    checkpoint: &CompactionCheckpoint,
-) -> Result<(), String> {
-    let mut attrs = std::collections::BTreeMap::new();
-    json_string_attr(&mut attrs, "session_id", checkpoint.session_id.clone());
-    json_string_attr(
-        &mut attrs,
-        "trigger_source",
-        checkpoint.trigger_source.clone(),
-    );
-    if let Some(reason) = checkpoint.reason.as_ref() {
-        json_string_attr(&mut attrs, "reason", reason.clone());
-    }
-    graph.add_node(MindProvenanceNode {
-        node_id: format!("checkpoint:{}", checkpoint.checkpoint_id),
-        kind: MindProvenanceNodeKind::CompactionCheckpoint,
-        label: checkpoint.checkpoint_id.clone(),
-        reference: Some(checkpoint.checkpoint_id.clone()),
-        attrs,
-    });
-    graph.add_node(MindProvenanceNode {
-        node_id: format!("conversation:{}", checkpoint.conversation_id),
-        kind: MindProvenanceNodeKind::Conversation,
-        label: format!("Conversation {}", checkpoint.conversation_id),
-        reference: Some(checkpoint.conversation_id.clone()),
-        attrs: std::collections::BTreeMap::new(),
-    });
-    graph.add_edge(
-        MindProvenanceEdgeKind::ConversationCheckpoint,
-        format!("conversation:{}", checkpoint.conversation_id),
-        format!("checkpoint:{}", checkpoint.checkpoint_id),
-        Some("checkpoint".to_string()),
-        std::collections::BTreeMap::new(),
-    );
-
-    if let Some(slice) = store
-        .compaction_t0_slice_for_checkpoint(&checkpoint.checkpoint_id)
-        .map_err(|err| format!("load compaction t0 slice failed: {err}"))?
-    {
-        let mut slice_attrs = std::collections::BTreeMap::new();
-        json_string_attr(&mut slice_attrs, "source_kind", slice.source_kind.clone());
-        json_u64_attr(
-            &mut slice_attrs,
-            "schema_version",
-            slice.schema_version as u64,
-        );
-        graph.add_node(MindProvenanceNode {
-            node_id: format!("slice:{}", slice.slice_id),
-            kind: MindProvenanceNodeKind::CompactionT0Slice,
-            label: slice.slice_id.clone(),
-            reference: Some(slice.slice_id.clone()),
-            attrs: slice_attrs,
-        });
-        graph.add_edge(
-            MindProvenanceEdgeKind::CheckpointSlice,
-            format!("checkpoint:{}", checkpoint.checkpoint_id),
-            format!("slice:{}", slice.slice_id),
-            Some("materializes".to_string()),
-            std::collections::BTreeMap::new(),
-        );
-        for path in &slice.read_files {
-            add_provenance_file_node(graph, path, Some("read"));
-            graph.add_edge(
-                MindProvenanceEdgeKind::SliceFileRead,
-                format!("slice:{}", slice.slice_id),
-                format!("file:{path}"),
-                Some("read".to_string()),
-                std::collections::BTreeMap::new(),
-            );
-        }
-        for path in &slice.modified_files {
-            add_provenance_file_node(graph, path, Some("modified"));
-            graph.add_edge(
-                MindProvenanceEdgeKind::SliceFileModified,
-                format!("slice:{}", slice.slice_id),
-                format!("file:{path}"),
-                Some("modified".to_string()),
-                std::collections::BTreeMap::new(),
-            );
-        }
-    }
-    Ok(())
-}
-
-fn load_context_cli_output(project_root: &str, program: &str, args: &[&str]) -> Option<String> {
-    let output = std::process::Command::new(program)
-        .args(args)
-        .current_dir(project_root)
-        .output()
-        .ok()?;
-    if !output.status.success() {
-        return None;
-    }
-    let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
-    if stdout.is_empty() {
-        None
-    } else {
-        Some(stdout)
-    }
+    aoc_mind::compile_mind_provenance_export(store, request)
 }
 
 fn read_optional_text(path: &Path) -> Option<String> {
@@ -3435,7 +2292,8 @@ fn build_mind_injection_payload(
     let scope_key = t3_scope_id_for_project_root(&cfg.project_root);
     let snapshot = runtime.and_then(|runtime| {
         runtime
-            .store
+            .core
+            .store()
             .latest_handshake_snapshot(&scope, &scope_key)
             .ok()
             .flatten()
@@ -4036,6 +2894,8 @@ struct MindIngestEventPayload {
     parent_conversation_id: Option<String>,
     #[serde(default)]
     root_conversation_id: Option<String>,
+    #[serde(default)]
+    attrs: std::collections::BTreeMap<String, serde_json::Value>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -4045,29 +2905,6 @@ enum MindFinalizeTrigger {
     Idle,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-struct SessionExportManifest {
-    schema_version: u32,
-    session_id: String,
-    pane_id: String,
-    project_root: String,
-    active_tag: Option<String>,
-    conversation_ids: Vec<String>,
-    export_dir: String,
-    t1_count: usize,
-    t2_count: usize,
-    t1_artifact_ids: Vec<String>,
-    t2_artifact_ids: Vec<String>,
-    slice_start_id: String,
-    slice_end_id: String,
-    slice_hash: String,
-    exported_at: String,
-    last_artifact_ts: String,
-    watermark_scope: String,
-    t3_job_id: String,
-    t3_job_inserted: bool,
-}
-
 #[derive(Clone)]
 struct SessionFinalizeOutcome {
     status: &'static str,
@@ -4075,79 +2912,11 @@ struct SessionFinalizeOutcome {
     updates: Vec<PulseUpdate>,
 }
 
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(rename_all = "snake_case")]
-enum MindContextPackMode {
-    Startup,
-    TagSwitch,
-    Resume,
-    Handoff,
-    Dispatch,
-}
-
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(rename_all = "snake_case")]
-enum MindContextPackProfile {
-    Compact,
-    Expanded,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-struct MindContextPackCitation {
-    source_id: String,
-    label: String,
-    reference: String,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-struct MindContextPackSection {
-    source_id: String,
-    layer: ContextLayer,
-    title: String,
-    citation: String,
-    lines: Vec<String>,
-    truncated: bool,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-struct MindContextPack {
-    schema_version: u16,
-    mode: MindContextPackMode,
-    profile: MindContextPackProfile,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    role: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    active_tag: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    reason: Option<String>,
-    line_budget: usize,
-    truncated: bool,
-    rendered_lines: Vec<String>,
-    sections: Vec<MindContextPackSection>,
-    citations: Vec<MindContextPackCitation>,
-    generated_at: String,
-}
-
-#[derive(Debug, Clone)]
-struct MindContextPackRequest {
-    mode: MindContextPackMode,
-    profile: MindContextPackProfile,
-    active_tag: Option<String>,
-    reason: Option<String>,
-    role: Option<String>,
-}
-
-#[derive(Debug, Clone, Default)]
-struct MindContextPackSourceOverrides {
-    aoc_mem: Option<String>,
-    aoc_stm_current: Option<String>,
-    aoc_stm_resume: Option<String>,
-    handshake_markdown: Option<String>,
-    project_mind_markdown: Option<String>,
-    latest_export_manifest: Option<SessionExportManifest>,
-    latest_t1_markdown: Option<String>,
-    latest_t2_markdown: Option<String>,
-}
+type MindContextPackMode = aoc_mind::MindContextPackMode;
+type MindContextPackProfile = aoc_mind::MindContextPackProfile;
+type MindContextPack = aoc_mind::MindContextPack;
+type MindContextPackRequest = aoc_mind::MindContextPackRequest;
+type MindContextPackSourceOverrides = aoc_mind::MindContextPackSourceOverrides;
 
 #[derive(Debug, Clone)]
 struct InsightRetrievalSource {
@@ -4178,20 +2947,9 @@ struct CompactionTrailFile {
 }
 
 struct MindRuntime {
-    store: MindStore,
-    sidecar: SessionObserverSidecar<PiObserverAdapter>,
-    policy: T0CompactionPolicy,
-    distill: DistillationConfig,
-    session_id: String,
-    pane_id: String,
-    project_root: PathBuf,
-    latest_conversation_id: Option<String>,
-    last_ingest_at: Option<chrono::DateTime<chrono::Utc>>,
-    last_idle_finalize_check: Option<chrono::DateTime<chrono::Utc>>,
+    core: MindRuntimeCore,
     insight_supervisor: InsightSupervisor,
     insight_detached: DetachedInsightRuntime,
-    reflector_worker: DetachedReflectorWorker,
-    t3_worker: DetachedT3Worker,
     insight_health: InsightRuntimeHealthPayload,
 }
 
@@ -4217,99 +2975,43 @@ struct MindCompactionCheckpointPayload {
 impl MindRuntime {
     fn new(cfg: &ClientConfig) -> Result<Self, String> {
         let canonical_path = resolve_mind_store_path(cfg);
-        if let Some(parent) = canonical_path.parent() {
-            std::fs::create_dir_all(parent)
-                .map_err(|err| format!("failed to create mind store dir: {err}"))?;
-        }
-
-        let store = MindStore::open(&canonical_path)
-            .map_err(|err| format!("mind store open failed: {err}"))?;
-
-        if mind_store_path_override().is_none() {
-            let legacy_path = resolve_legacy_mind_store_path(cfg);
-            if legacy_path != canonical_path && legacy_path.exists() {
-                match store.import_legacy_store(&legacy_path) {
-                    Ok(report) => {
-                        if report.rows_imported > 0 {
-                            info!(
-                                legacy = %legacy_path.display(),
-                                tables_imported = report.tables_imported,
-                                rows_imported = report.rows_imported,
-                                "mind_legacy_import_completed"
-                            );
-                        }
-                    }
-                    Err(err) => warn!(
-                        legacy = %legacy_path.display(),
-                        error = %err,
-                        "mind_legacy_import_failed"
-                    ),
-                }
-            }
-        }
-
-        let mut distill = DistillationConfig::default();
-        let mut semantic = SemanticObserverConfig::default();
-        semantic.mode = SemanticRuntimeMode::DeterministicOnly;
-        let semantic_input_limit = semantic.profile.max_input_tokens.max(1);
-        distill.t1_target_tokens = distill.t1_target_tokens.min(semantic_input_limit);
-        distill.t1_hard_cap_tokens = distill.t1_hard_cap_tokens.min(semantic_input_limit);
-        let sidecar =
-            SessionObserverSidecar::new(distill.clone(), semantic, PiObserverAdapter::default());
-        let reflector_scope_id = reflector_scope_id_for_project_root(&cfg.project_root);
-        let reflector_lock_path = resolve_reflector_lock_path(cfg);
-        let reflector_worker = DetachedReflectorWorker::new(ReflectorRuntimeConfig {
-            scope_id: reflector_scope_id,
-            owner_id: cfg.agent_key.clone(),
-            owner_pid: Some(std::process::id() as i64),
-            lock_path: reflector_lock_path,
-            lease_ttl_ms: 30_000,
-            max_jobs_per_tick: 2,
-            requeue_on_error: true,
-        });
-
-        let t3_scope_id = t3_scope_id_for_project_root(&cfg.project_root);
-        let t3_lock_path = resolve_t3_lock_path(cfg);
-        let t3_worker = DetachedT3Worker::new(T3RuntimeConfig {
-            scope_id: t3_scope_id,
-            owner_id: cfg.agent_key.clone(),
-            owner_pid: Some(std::process::id() as i64),
-            lock_path: t3_lock_path,
-            lease_ttl_ms: 30_000,
-            stale_claim_after_ms: 60_000,
-            max_jobs_per_tick: 4,
-            requeue_on_error: true,
-            max_attempts: MIND_T3_MAX_ATTEMPTS,
-        });
-
         let detached_worker_boot = resolve_detached_mind_worker_kind().is_some();
+        let core = MindRuntimeCore::new(MindRuntimeConfig {
+            project_root: cfg.project_root.clone(),
+            session_id: cfg.session_id.clone(),
+            pane_id: cfg.pane_id.clone(),
+            agent_key: cfg.agent_key.clone(),
+            store_path_override: mind_store_path_override(),
+            reflector_lock_path: resolve_reflector_lock_path(cfg),
+            t3_lock_path: resolve_t3_lock_path(cfg),
+            debounce_run_ms: MIND_DEBOUNCE_RUN_MS,
+            t3_max_attempts: MIND_T3_MAX_ATTEMPTS,
+        })?;
         let insight_detached = if detached_worker_boot {
             DetachedInsightRuntime::new_without_recovery(&cfg.project_root, canonical_path.clone())
         } else {
             DetachedInsightRuntime::new(&cfg.project_root, canonical_path.clone())
         };
 
-        Ok(Self {
-            store,
-            sidecar,
-            policy: T0CompactionPolicy::default(),
-            distill,
-            session_id: cfg.session_id.clone(),
-            pane_id: cfg.pane_id.clone(),
-            project_root: PathBuf::from(&cfg.project_root),
-            latest_conversation_id: None,
-            last_ingest_at: None,
-            last_idle_finalize_check: None,
+        let mut runtime = Self {
+            core,
             insight_supervisor: InsightSupervisor::new(&cfg.project_root),
             insight_detached,
-            reflector_worker,
-            t3_worker,
             insight_health: InsightRuntimeHealthPayload {
+                lifecycle: "running".to_string(),
                 reflector_enabled: true,
                 t3_enabled: true,
                 ..InsightRuntimeHealthPayload::default()
             },
-        })
+        };
+        runtime.heartbeat_mind_service();
+        Ok(runtime)
+    }
+
+    fn heartbeat_mind_service(&mut self) {
+        if let Err(err) = self.core.heartbeat_service(&mut self.insight_health) {
+            self.insight_health.last_error = Some(err);
+        }
     }
 
     fn ingest_event(
@@ -4363,11 +3065,17 @@ impl MindRuntime {
             .map(|value| value.trim().to_string())
             .filter(|value| !value.is_empty())
             .unwrap_or_else(|| conversation_id.to_string());
-        let attrs = canonical_lineage_attrs(&ConversationLineageMetadata {
+        let mut attrs = canonical_lineage_attrs(&ConversationLineageMetadata {
             session_id: cfg.session_id.clone(),
             parent_conversation_id,
             root_conversation_id,
         });
+        for (key, value) in payload.attrs {
+            if key.trim().is_empty() {
+                continue;
+            }
+            attrs.insert(key, value);
+        }
 
         let raw = RawEvent {
             event_id: payload.event_id,
@@ -4377,54 +3085,26 @@ impl MindRuntime {
             body,
             attrs,
         };
-        let raw = sanitize_raw_event_for_storage(&raw);
+        let distill = self.core.distill().clone();
+        let ingest = ingest_raw_event(
+            self.core.store(),
+            &raw,
+            &T0IngestConfig {
+                policy: T0CompactionPolicy::default(),
+                t1_target_tokens: distill.t1_target_tokens,
+                t1_hard_cap_tokens: distill.t1_hard_cap_tokens,
+            },
+        )
+        .map_err(|err| format!("mind raw ingest failed: {err}"))?;
 
-        let _ = self
-            .store
-            .insert_raw_event(&raw)
-            .map_err(|err| format!("mind raw ingest failed: {err}"))?;
-
-        if let Some(compact) = compact_raw_event_to_t0(&raw, &self.policy)
-            .map_err(|err| format!("mind compaction failed: {err}"))?
-        {
-            self.store
-                .upsert_t0_compact_event(&compact)
-                .map_err(|err| format!("mind t0 upsert failed: {err}"))?;
-        }
-
-        self.latest_conversation_id = Some(conversation_id.to_string());
-        self.last_ingest_at = Some(ts);
-        self.progress_for_conversation(conversation_id)
-            .ok_or_else(|| "mind progress unavailable".to_string())
+        self.core
+            .set_latest_conversation_id(Some(conversation_id.to_string()));
+        self.core.set_last_ingest_at(Some(ts));
+        Ok(ingest.progress)
     }
 
     fn resolve_conversation_id(&self, args: &serde_json::Value) -> Option<String> {
-        args.as_object()
-            .and_then(|value| value.get("conversation_id"))
-            .and_then(serde_json::Value::as_str)
-            .map(str::trim)
-            .filter(|value| !value.is_empty())
-            .map(|value| value.to_string())
-            .or_else(|| self.latest_conversation_id.clone())
-    }
-
-    fn progress_for_conversation(&self, conversation_id: &str) -> Option<MindObserverFeedProgress> {
-        let t0_events = self
-            .store
-            .t0_events_for_conversation(conversation_id)
-            .ok()?;
-        let t0_estimated_tokens = t0_events.iter().fold(0_u32, |total, event| {
-            total.saturating_add(estimate_compact_tokens(event))
-        });
-        Some(MindObserverFeedProgress {
-            t0_estimated_tokens,
-            t1_target_tokens: self.distill.t1_target_tokens,
-            t1_hard_cap_tokens: self.distill.t1_hard_cap_tokens,
-            tokens_until_next_run: self
-                .distill
-                .t1_target_tokens
-                .saturating_sub(t0_estimated_tokens),
-        })
+        self.core.resolve_conversation_id(args)
     }
 
     fn checkpoint_compaction(
@@ -4493,7 +3173,7 @@ impl MindRuntime {
             );
         }
 
-        let trail_files = snapshot_compaction_trail_files(&self.project_root);
+        let trail_files = snapshot_compaction_trail_files(self.core.project_root());
         let modified_files = trail_files
             .iter()
             .map(|file| file.path.clone())
@@ -4538,7 +3218,8 @@ impl MindRuntime {
         };
 
         let inserted = self
-            .store
+            .core
+            .store()
             .insert_raw_event(&marker_event)
             .map_err(|err| format!("mind compaction checkpoint ingest failed: {err}"))?;
 
@@ -4572,7 +3253,8 @@ impl MindRuntime {
             created_at: ts,
             updated_at: ts,
         };
-        self.store
+        self.core
+            .store()
             .upsert_compaction_checkpoint(&checkpoint)
             .map_err(|err| format!("mind compaction checkpoint persist failed: {err}"))?;
 
@@ -4595,12 +3277,14 @@ impl MindRuntime {
             "t0.compaction.v1",
         )
         .map_err(|err| format!("mind compaction slice build failed: {err}"))?;
-        self.store
+        self.core
+            .store()
             .upsert_compaction_t0_slice(&slice)
             .map_err(|err| format!("mind compaction slice persist failed: {err}"))?;
 
-        self.latest_conversation_id = Some(conversation_id.to_string());
-        self.last_ingest_at = Some(ts);
+        self.core
+            .set_latest_conversation_id(Some(conversation_id.to_string()));
+        self.core.set_last_ingest_at(Some(ts));
 
         let default_reason = if inserted {
             "pi compaction checkpoint"
@@ -4616,7 +3300,8 @@ impl MindRuntime {
             .unwrap_or_else(|| default_reason.to_string());
 
         let before_artifact_ids: HashSet<String> = self
-            .store
+            .core
+            .store()
             .artifacts_for_conversation(conversation_id)
             .unwrap_or_default()
             .into_iter()
@@ -4631,7 +3316,7 @@ impl MindRuntime {
         );
 
         let _ = link_new_artifacts_to_compaction_slice(
-            &self.store,
+            self.core.store(),
             conversation_id,
             &before_artifact_ids,
             &slice.slice_id,
@@ -4639,7 +3324,7 @@ impl MindRuntime {
 
         if !trail_files.is_empty() {
             let _ = link_new_t1_artifacts_to_trail(
-                &self.store,
+                self.core.store(),
                 conversation_id,
                 &before_artifact_ids,
                 &trail_files,
@@ -4650,112 +3335,32 @@ impl MindRuntime {
         Ok(updates)
     }
 
-    // T1 observer work remains session-scoped and inline for the first detached
-    // Mind rollout. Task 178's detached coordinator slice starts at T2/T3, where
-    // there is already a project-scoped queue/lease boundary worth supervising.
+    // T1 observer work remains session-scoped for now, but queue/run orchestration
+    // is delegated to aoc-mind so wrapper stays a transport/runtime host.
     fn enqueue_and_run(
         &mut self,
-        cfg: &ClientConfig,
+        _cfg: &ClientConfig,
         conversation_id: &str,
         trigger: MindObserverFeedTriggerKind,
         reason: Option<String>,
     ) -> Vec<PulseUpdate> {
-        let now = Utc::now();
-        match trigger {
-            MindObserverFeedTriggerKind::TokenThreshold => {
-                self.sidecar
-                    .enqueue_token_threshold(&cfg.session_id, conversation_id, now)
-            }
-            MindObserverFeedTriggerKind::TaskCompleted => {
-                self.sidecar
-                    .enqueue_task_completed(&cfg.session_id, conversation_id, now)
-            }
-            MindObserverFeedTriggerKind::ManualShortcut => {
-                self.sidecar
-                    .enqueue_manual(&cfg.session_id, conversation_id, now)
-            }
-            MindObserverFeedTriggerKind::Handoff => {
-                self.sidecar
-                    .enqueue_handoff(&cfg.session_id, conversation_id, now)
-            }
-            MindObserverFeedTriggerKind::Compaction => {
-                self.sidecar
-                    .enqueue_compaction(&cfg.session_id, conversation_id, now)
-            }
-        }
-
-        let progress = self.progress_for_conversation(conversation_id);
-        let mut updates = vec![PulseUpdate::MindObserverEvent(MindObserverFeedEvent {
-            status: MindObserverFeedStatus::Queued,
-            trigger,
-            conversation_id: Some(conversation_id.to_string()),
-            runtime: None,
-            attempt_count: None,
-            latency_ms: None,
-            reason,
-            failure_kind: None,
-            enqueued_at: Some(now.to_rfc3339()),
-            started_at: None,
-            completed_at: None,
-            progress: progress.clone(),
-        })];
-
-        let run_at = if trigger == MindObserverFeedTriggerKind::TokenThreshold {
-            now + chrono::Duration::milliseconds(MIND_DEBOUNCE_RUN_MS)
-        } else {
-            now
-        };
-        let outcomes = self.sidecar.run_ready(&self.store, run_at);
-        let completed_at = Utc::now();
-        for outcome in outcomes {
-            updates.push(PulseUpdate::MindObserverEvent(MindObserverFeedEvent {
-                status: MindObserverFeedStatus::Running,
-                trigger: map_observer_trigger(outcome.trigger.kind),
-                conversation_id: Some(outcome.conversation_id.clone()),
-                runtime: None,
-                attempt_count: None,
-                latency_ms: None,
-                reason: None,
-                failure_kind: None,
-                enqueued_at: Some(outcome.enqueued_at.to_rfc3339()),
-                started_at: Some(outcome.started_at.to_rfc3339()),
-                completed_at: None,
-                progress: outcome.progress.clone(),
-            }));
-            updates.push(PulseUpdate::MindObserverEvent(
-                observer_feed_event_from_outcome(&self.store, &outcome, completed_at),
-            ));
-        }
-
-        updates
+        self.core
+            .enqueue_observer_events(conversation_id, trigger, reason)
+            .into_iter()
+            .map(PulseUpdate::MindObserverEvent)
+            .collect()
     }
 
     fn maybe_run_token_threshold(
         &mut self,
-        cfg: &ClientConfig,
+        _cfg: &ClientConfig,
         conversation_id: &str,
     ) -> Vec<PulseUpdate> {
-        let Some(progress) = self.progress_for_conversation(conversation_id) else {
-            return Vec::new();
-        };
-        if progress.t0_estimated_tokens < self.distill.t1_target_tokens {
-            return Vec::new();
-        }
-
-        match self.store.conversation_needs_observer_run(conversation_id) {
-            Ok(true) => self.enqueue_and_run(
-                cfg,
-                conversation_id,
-                MindObserverFeedTriggerKind::TokenThreshold,
-                Some("t0 target reached".to_string()),
-            ),
-            Ok(false) => Vec::new(),
-            Err(err) => vec![PulseUpdate::MindObserverEvent(mind_observer_event(
-                MindObserverFeedStatus::Error,
-                MindObserverFeedTriggerKind::TokenThreshold,
-                Some(format!("mind threshold check failed: {err}")),
-            ))],
-        }
+        self.core
+            .maybe_run_token_threshold_events(conversation_id)
+            .into_iter()
+            .map(PulseUpdate::MindObserverEvent)
+            .collect()
     }
 
     fn maybe_finalize_idle(
@@ -4763,31 +3368,47 @@ impl MindRuntime {
         cfg: &ClientConfig,
         now: chrono::DateTime<chrono::Utc>,
     ) -> Option<SessionFinalizeOutcome> {
-        let Some(last_ingest_at) = self.last_ingest_at else {
-            return None;
+        self.core
+            .take_idle_finalize_reason(
+                now,
+                resolve_mind_idle_finalize_ms(),
+                MIND_IDLE_CHECK_INTERVAL_MS,
+            )
+            .map(|reason| self.finalize_session(cfg, MindFinalizeTrigger::Idle, Some(reason)))
+    }
+
+    fn finalize_session_error(
+        &self,
+        updates: Vec<PulseUpdate>,
+        trigger: MindObserverFeedTriggerKind,
+        stage: &str,
+        err: impl std::fmt::Display,
+    ) -> SessionFinalizeOutcome {
+        let message = aoc_mind::session_finalize_error(stage, err);
+        self.finalize_session_from_messages(updates, trigger, message)
+    }
+
+    fn finalize_session_from_messages(
+        &self,
+        mut updates: Vec<PulseUpdate>,
+        trigger: MindObserverFeedTriggerKind,
+        message: SessionFinalizeMessageSet,
+    ) -> SessionFinalizeOutcome {
+        let observer_status = if message.status == "ok" {
+            MindObserverFeedStatus::Success
+        } else {
+            MindObserverFeedStatus::Error
         };
-
-        let idle_timeout_ms = resolve_mind_idle_finalize_ms();
-        if idle_timeout_ms <= 0 {
-            return None;
+        updates.push(PulseUpdate::MindObserverEvent(mind_observer_event(
+            observer_status,
+            trigger,
+            Some(message.observer_reason),
+        )));
+        SessionFinalizeOutcome {
+            status: message.status,
+            reason: message.reason,
+            updates,
         }
-
-        if now < last_ingest_at + chrono::Duration::milliseconds(idle_timeout_ms) {
-            return None;
-        }
-
-        if let Some(last_check) = self.last_idle_finalize_check {
-            if now < last_check + chrono::Duration::milliseconds(MIND_IDLE_CHECK_INTERVAL_MS) {
-                return None;
-            }
-        }
-
-        self.last_idle_finalize_check = Some(now);
-        Some(self.finalize_session(
-            cfg,
-            MindFinalizeTrigger::Idle,
-            Some("idle timeout finalize".to_string()),
-        ))
     }
 
     fn finalize_session(
@@ -4807,124 +3428,45 @@ impl MindRuntime {
         let deadline = Utc::now() + chrono::Duration::milliseconds(timeout_ms.max(0));
         let mut updates = self.drain_pending_runtime(cfg, finalize_trigger, deadline);
 
-        let scope_key = self.session_watermark_scope_key();
-        let watermark = match self.store.project_watermark(&scope_key) {
-            Ok(value) => value,
-            Err(err) => {
+        let scope_key = self.core.session_watermark_scope_key();
+        let plan = match prepare_session_finalize_plan(
+            self.core.store(),
+            self.core.session_id(),
+            self.core.pane_id(),
+            self.core.latest_conversation_id(),
+            &scope_key,
+        ) {
+            Ok(SessionFinalizePlanOutcome::Skip {
+                observer_reason,
+                outcome_reason_suffix,
+            }) => {
                 updates.push(PulseUpdate::MindObserverEvent(mind_observer_event(
-                    MindObserverFeedStatus::Error,
+                    MindObserverFeedStatus::Success,
                     finalize_trigger,
-                    Some(format!("finalize watermark read failed: {err}")),
+                    Some(observer_reason.to_string()),
                 )));
                 return SessionFinalizeOutcome {
-                    status: "error",
-                    reason: format!("finalize failed: watermark read error: {err}"),
+                    status: "ok",
+                    reason: format!("{}: {}", finalize_reason, outcome_reason_suffix),
                     updates,
                 };
             }
-        };
-
-        let (conversation_ids, delta_artifacts) =
-            match self.collect_delta_artifacts(watermark.as_ref()) {
-                Ok(value) => value,
-                Err(err) => {
-                    updates.push(PulseUpdate::MindObserverEvent(mind_observer_event(
-                        MindObserverFeedStatus::Error,
-                        finalize_trigger,
-                        Some(format!("finalize collect failed: {err}")),
-                    )));
-                    return SessionFinalizeOutcome {
-                        status: "error",
-                        reason: format!("finalize failed: {err}"),
-                        updates,
-                    };
-                }
-            };
-
-        if delta_artifacts.is_empty() {
-            updates.push(PulseUpdate::MindObserverEvent(mind_observer_event(
-                MindObserverFeedStatus::Success,
-                finalize_trigger,
-                Some("finalize skipped: no new artifacts".to_string()),
-            )));
-            return SessionFinalizeOutcome {
-                status: "ok",
-                reason: format!("{}: no new finalized artifacts", finalize_reason),
-                updates,
-            };
-        }
-
-        let active_tag = self.resolve_session_active_tag(&conversation_ids);
-        let t1_artifacts = delta_artifacts
-            .iter()
-            .filter(|artifact| artifact.kind == "t1")
-            .cloned()
-            .collect::<Vec<_>>();
-        let t2_artifacts = delta_artifacts
-            .iter()
-            .filter(|artifact| artifact.kind == "t2")
-            .cloned()
-            .collect::<Vec<_>>();
-
-        if t1_artifacts.is_empty() && t2_artifacts.is_empty() {
-            updates.push(PulseUpdate::MindObserverEvent(mind_observer_event(
-                MindObserverFeedStatus::Success,
-                finalize_trigger,
-                Some("finalize skipped: no t1/t2 artifacts".to_string()),
-            )));
-            return SessionFinalizeOutcome {
-                status: "ok",
-                reason: format!("{}: no t1/t2 artifacts available", finalize_reason),
-                updates,
-            };
-        }
-
-        let first = delta_artifacts
-            .first()
-            .expect("delta_artifacts is non-empty");
-        let last = delta_artifacts
-            .last()
-            .expect("delta_artifacts is non-empty");
-        let slice_start_id = first.artifact_id.clone();
-        let slice_end_id = last.artifact_id.clone();
-        let artifact_ids = delta_artifacts
-            .iter()
-            .map(|artifact| artifact.artifact_id.clone())
-            .collect::<Vec<_>>();
-        let slice_hash = match canonical_payload_hash(&(
-            self.session_id.as_str(),
-            self.pane_id.as_str(),
-            &slice_start_id,
-            &slice_end_id,
-            &artifact_ids,
-        )) {
-            Ok(value) => value,
+            Ok(SessionFinalizePlanOutcome::Ready(plan)) => plan,
             Err(err) => {
-                updates.push(PulseUpdate::MindObserverEvent(mind_observer_event(
-                    MindObserverFeedStatus::Error,
-                    finalize_trigger,
-                    Some(format!("finalize hash failed: {err}")),
-                )));
-                return SessionFinalizeOutcome {
-                    status: "error",
-                    reason: format!("finalize failed: hash error: {err}"),
-                    updates,
-                };
+                return self.finalize_session_error(updates, finalize_trigger, "planning", err);
             }
         };
 
-        let export_dir_name = format!(
-            "{}_{}_{}",
-            sanitize_component(&self.session_id),
-            last.ts.format("%Y%m%dT%H%M%SZ"),
-            &slice_hash[..12]
+        let active_tag = plan.active_tag.clone();
+        let slice_start_id = plan.slice_start_id.clone();
+        let slice_end_id = plan.slice_end_id.clone();
+        let artifact_ids = plan.artifact_ids.clone();
+        let export_location = aoc_mind::prepare_session_finalize_export_location(
+            &cfg.project_root,
+            self.core.session_id(),
+            &plan,
         );
-        let export_dir = self
-            .project_root
-            .join(".aoc")
-            .join("mind")
-            .join("insight")
-            .join(export_dir_name);
+        let export_dir = PathBuf::from(&export_location.export_dir);
 
         if let Err(err) = std::fs::create_dir_all(&export_dir) {
             updates.push(PulseUpdate::MindObserverEvent(mind_observer_event(
@@ -4939,65 +3481,10 @@ impl MindRuntime {
             };
         }
 
-        let t1_markdown = render_artifact_markdown("t1", &t1_artifacts);
-        let t2_markdown = render_artifact_markdown("t2", &t2_artifacts);
-
-        if let Err(err) = ensure_safe_export_text(&t1_markdown, "t1 export") {
-            updates.push(PulseUpdate::MindObserverEvent(mind_observer_event(
-                MindObserverFeedStatus::Error,
-                finalize_trigger,
-                Some(err.clone()),
-            )));
-            return SessionFinalizeOutcome {
-                status: "error",
-                reason: format!("finalize failed: {err}"),
-                updates,
-            };
-        }
-
-        if let Err(err) = ensure_safe_export_text(&t2_markdown, "t2 export") {
-            updates.push(PulseUpdate::MindObserverEvent(mind_observer_event(
-                MindObserverFeedStatus::Error,
-                finalize_trigger,
-                Some(err.clone()),
-            )));
-            return SessionFinalizeOutcome {
-                status: "error",
-                reason: format!("finalize failed: {err}"),
-                updates,
-            };
-        }
-
-        if let Err(err) = std::fs::write(export_dir.join("t1.md"), t1_markdown) {
-            updates.push(PulseUpdate::MindObserverEvent(mind_observer_event(
-                MindObserverFeedStatus::Error,
-                finalize_trigger,
-                Some(format!("finalize write t1.md failed: {err}")),
-            )));
-            return SessionFinalizeOutcome {
-                status: "error",
-                reason: format!("finalize failed: t1 export error: {err}"),
-                updates,
-            };
-        }
-
-        if let Err(err) = std::fs::write(export_dir.join("t2.md"), t2_markdown) {
-            updates.push(PulseUpdate::MindObserverEvent(mind_observer_event(
-                MindObserverFeedStatus::Error,
-                finalize_trigger,
-                Some(format!("finalize write t2.md failed: {err}")),
-            )));
-            return SessionFinalizeOutcome {
-                status: "error",
-                reason: format!("finalize failed: t2 export error: {err}"),
-                updates,
-            };
-        }
-
-        let (t3_job_id, t3_job_inserted) = match self.store.enqueue_t3_backlog_job(
+        let (t3_job_id, t3_job_inserted) = match self.core.store().enqueue_t3_backlog_job(
             &cfg.project_root,
-            &self.session_id,
-            &self.pane_id,
+            self.core.session_id(),
+            self.core.pane_id(),
             active_tag.as_deref(),
             Some(&slice_start_id),
             Some(&slice_end_id),
@@ -5006,186 +3493,80 @@ impl MindRuntime {
         ) {
             Ok(result) => result,
             Err(err) => {
-                updates.push(PulseUpdate::MindObserverEvent(mind_observer_event(
-                    MindObserverFeedStatus::Error,
-                    finalize_trigger,
-                    Some(format!("finalize t3 enqueue failed: {err}")),
-                )));
-                return SessionFinalizeOutcome {
-                    status: "error",
-                    reason: format!("finalize failed: t3 enqueue error: {err}"),
-                    updates,
-                };
+                return self.finalize_session_error(updates, finalize_trigger, "t3_enqueue", err);
             }
         };
 
-        let manifest = SessionExportManifest {
-            schema_version: 1,
-            session_id: self.session_id.clone(),
-            pane_id: self.pane_id.clone(),
-            project_root: cfg.project_root.clone(),
-            active_tag,
-            conversation_ids: conversation_ids.clone(),
-            export_dir: export_dir.to_string_lossy().to_string(),
-            t1_count: t1_artifacts.len(),
-            t2_count: t2_artifacts.len(),
-            t1_artifact_ids: t1_artifacts
-                .iter()
-                .map(|artifact| artifact.artifact_id.clone())
-                .collect(),
-            t2_artifact_ids: t2_artifacts
-                .iter()
-                .map(|artifact| artifact.artifact_id.clone())
-                .collect(),
-            slice_start_id,
-            slice_end_id: slice_end_id.clone(),
-            slice_hash,
-            exported_at: last.ts.to_rfc3339(),
-            last_artifact_ts: last.ts.to_rfc3339(),
-            watermark_scope: scope_key.clone(),
-            t3_job_id,
+        let host_plan = match aoc_mind::prepare_session_finalize_host_plan(
+            &plan,
+            self.core.session_id(),
+            self.core.pane_id(),
+            &cfg.project_root,
+            &export_location.export_dir,
+            &t3_job_id,
             t3_job_inserted,
-        };
-
-        let manifest_json = match serde_json::to_string_pretty(&manifest) {
-            Ok(value) => value,
+            &finalize_reason,
+        ) {
+            Ok(host_plan) => host_plan,
             Err(err) => {
-                updates.push(PulseUpdate::MindObserverEvent(mind_observer_event(
-                    MindObserverFeedStatus::Error,
-                    finalize_trigger,
-                    Some(format!("finalize manifest serialize failed: {err}")),
-                )));
-                return SessionFinalizeOutcome {
-                    status: "error",
-                    reason: format!("finalize failed: manifest serialization error: {err}"),
+                return self.finalize_session_error(
                     updates,
-                };
+                    finalize_trigger,
+                    "export_bundle",
+                    err,
+                );
             }
         };
 
-        if let Err(err) = std::fs::write(export_dir.join("manifest.json"), manifest_json) {
-            updates.push(PulseUpdate::MindObserverEvent(mind_observer_event(
-                MindObserverFeedStatus::Error,
-                finalize_trigger,
-                Some(format!("finalize write manifest failed: {err}")),
-            )));
-            return SessionFinalizeOutcome {
-                status: "error",
-                reason: format!("finalize failed: manifest write error: {err}"),
-                updates,
-            };
+        self.execute_finalize_host_plan(
+            &scope_key,
+            &export_dir,
+            host_plan,
+            updates,
+            finalize_trigger,
+        )
+    }
+
+    fn execute_finalize_host_plan(
+        &mut self,
+        scope_key: &str,
+        export_dir: &Path,
+        host_plan: SessionFinalizeHostPlan,
+        updates: Vec<PulseUpdate>,
+        finalize_trigger: MindObserverFeedTriggerKind,
+    ) -> SessionFinalizeOutcome {
+        for file in &host_plan.export_files {
+            if let Err(err) = ensure_safe_export_text(&file.contents, file.safety_label) {
+                return self.finalize_session_from_messages(
+                    updates,
+                    finalize_trigger,
+                    SessionFinalizeMessageSet {
+                        status: "error",
+                        reason: format!("finalize failed: {err}"),
+                        observer_reason: err,
+                    },
+                );
+            }
+            if let Err(err) = std::fs::write(export_dir.join(file.file_name), &file.contents) {
+                return self.finalize_session_error(
+                    updates,
+                    finalize_trigger,
+                    file.write_stage,
+                    err,
+                );
+            }
         }
 
-        if let Err(err) = self.store.advance_project_watermark(
-            &scope_key,
-            Some(last.ts),
-            Some(&slice_end_id),
+        if let Err(err) = self.core.store().advance_project_watermark(
+            scope_key,
+            Some(host_plan.watermark_ts),
+            Some(&host_plan.watermark_artifact_id),
             Utc::now(),
         ) {
-            updates.push(PulseUpdate::MindObserverEvent(mind_observer_event(
-                MindObserverFeedStatus::Error,
-                finalize_trigger,
-                Some(format!("finalize watermark advance failed: {err}")),
-            )));
-            return SessionFinalizeOutcome {
-                status: "error",
-                reason: format!("finalize failed: watermark write error: {err}"),
-                updates,
-            };
+            return self.finalize_session_error(updates, finalize_trigger, "watermark_write", err);
         }
 
-        updates.push(PulseUpdate::MindObserverEvent(mind_observer_event(
-            MindObserverFeedStatus::Success,
-            finalize_trigger,
-            Some(format!(
-                "{}: session export finalized: t1={} t2={} t3_job_inserted={}",
-                finalize_reason, manifest.t1_count, manifest.t2_count, manifest.t3_job_inserted
-            )),
-        )));
-
-        SessionFinalizeOutcome {
-            status: "ok",
-            reason: format!(
-                "{}: session export finalized at {}",
-                finalize_reason,
-                export_dir.to_string_lossy()
-            ),
-            updates,
-        }
-    }
-
-    fn session_watermark_scope_key(&self) -> String {
-        format!("session:{}:pane:{}", self.session_id, self.pane_id)
-    }
-
-    fn collect_delta_artifacts(
-        &self,
-        watermark: Option<&ProjectWatermark>,
-    ) -> Result<(Vec<String>, Vec<StoredArtifact>), String> {
-        let mut conversation_ids = self
-            .store
-            .conversation_ids_for_session(&self.session_id)
-            .map_err(|err| format!("conversation lookup failed: {err}"))?;
-        if let Some(conversation_id) = self.latest_conversation_id.as_ref() {
-            conversation_ids.push(conversation_id.clone());
-        }
-        conversation_ids.sort();
-        conversation_ids.dedup();
-
-        let mut artifacts = Vec::new();
-        for conversation_id in &conversation_ids {
-            let mut rows = self
-                .store
-                .artifacts_for_conversation(conversation_id)
-                .map_err(|err| format!("artifact lookup failed for {conversation_id}: {err}"))?;
-            artifacts.append(&mut rows);
-        }
-
-        artifacts.sort_by(|left, right| {
-            left.ts
-                .cmp(&right.ts)
-                .then(left.artifact_id.cmp(&right.artifact_id))
-        });
-        artifacts.dedup_by(|left, right| left.artifact_id == right.artifact_id);
-
-        let delta = artifacts
-            .into_iter()
-            .filter(|artifact| artifact.kind == "t1" || artifact.kind == "t2")
-            .filter(|artifact| artifact_after_watermark(artifact, watermark))
-            .collect::<Vec<_>>();
-
-        Ok((conversation_ids, delta))
-    }
-
-    fn resolve_session_active_tag(&self, conversation_ids: &[String]) -> Option<String> {
-        let mut latest: Option<(chrono::DateTime<chrono::Utc>, String)> = None;
-        for conversation_id in conversation_ids {
-            let states = match self.store.context_states(conversation_id) {
-                Ok(value) => value,
-                Err(_) => continue,
-            };
-            for state in states {
-                let Some(tag) = state
-                    .active_tag
-                    .as_deref()
-                    .map(str::trim)
-                    .filter(|value| !value.is_empty())
-                    .map(|value| value.to_string())
-                else {
-                    continue;
-                };
-
-                let should_update = latest
-                    .as_ref()
-                    .map(|(ts, _)| state.ts > *ts)
-                    .unwrap_or(true);
-                if should_update {
-                    latest = Some((state.ts, tag));
-                }
-            }
-        }
-
-        latest.map(|(_, tag)| tag)
+        self.finalize_session_from_messages(updates, finalize_trigger, host_plan.success)
     }
 
     fn drain_pending_runtime(
@@ -5197,45 +3578,27 @@ impl MindRuntime {
         let mut updates = Vec::new();
 
         loop {
-            let run_at = Utc::now() + chrono::Duration::milliseconds(MIND_DEBOUNCE_RUN_MS + 1);
-            let outcomes = self.sidecar.run_ready(&self.store, run_at);
-            let completed_at = Utc::now();
-            for outcome in outcomes {
-                updates.push(PulseUpdate::MindObserverEvent(MindObserverFeedEvent {
-                    status: MindObserverFeedStatus::Running,
-                    trigger: map_observer_trigger(outcome.trigger.kind),
-                    conversation_id: Some(outcome.conversation_id.clone()),
-                    runtime: None,
-                    attempt_count: None,
-                    latency_ms: None,
-                    reason: None,
-                    failure_kind: None,
-                    enqueued_at: Some(outcome.enqueued_at.to_rfc3339()),
-                    started_at: Some(outcome.started_at.to_rfc3339()),
-                    completed_at: None,
-                    progress: outcome.progress.clone(),
-                }));
-                updates.push(PulseUpdate::MindObserverEvent(
-                    observer_feed_event_from_outcome(&self.store, &outcome, completed_at),
-                ));
-            }
-
             updates.extend(self.tick_reflector_runtime(cfg));
-
-            let observer_pending = self.sidecar.queue().pending_count(&cfg.session_id);
-            let observer_active = self.sidecar.queue().has_active_run(&cfg.session_id);
-            let reflector_pending = self.store.pending_reflector_jobs().unwrap_or_default();
-
-            if observer_pending == 0 && !observer_active && reflector_pending == 0 {
-                break;
-            }
-
-            if Utc::now() >= deadline {
+            let drain = self.core.finalize_drain_step(
+                Some(&cfg.session_id),
+                deadline,
+                self.core.pending_reflector_jobs(),
+            );
+            updates.extend(
+                drain
+                    .observer_events
+                    .into_iter()
+                    .map(PulseUpdate::MindObserverEvent),
+            );
+            if let Some(observer_reason) = drain.timed_out_reason {
                 updates.push(PulseUpdate::MindObserverEvent(mind_observer_event(
                     MindObserverFeedStatus::Fallback,
                     trigger,
-                    Some("finalize drain timeout reached; exporting current slice".to_string()),
+                    Some(observer_reason),
                 )));
+                break;
+            }
+            if drain.settled {
                 break;
             }
         }
@@ -5272,12 +3635,13 @@ impl MindRuntime {
 
         if !result.dry_run && !result.seeds.is_empty() {
             let conversation_id = self
-                .latest_conversation_id
-                .clone()
+                .core
+                .latest_conversation_id()
+                .map(str::to_string)
                 .unwrap_or_else(|| "bootstrap".to_string());
             let now = Utc::now();
             for seed in &result.seeds {
-                let _ = self.store.enqueue_reflector_job(
+                let _ = self.core.store().enqueue_reflector_job(
                     &seed.scope_tag,
                     &seed.source_gap_ids,
                     std::slice::from_ref(&conversation_id),
@@ -5287,17 +3651,23 @@ impl MindRuntime {
             }
         }
 
-        self.insight_health.queue_depth = self.store.pending_reflector_jobs().unwrap_or_default();
-        self.insight_health.t3_queue_depth =
-            self.store.pending_t3_backlog_jobs().unwrap_or_default();
+        self.insight_health.queue_depth = self
+            .core
+            .store()
+            .pending_reflector_jobs()
+            .unwrap_or_default();
+        self.insight_health.t3_queue_depth = self
+            .core
+            .store()
+            .pending_t3_backlog_jobs()
+            .unwrap_or_default();
         self.insight_health.last_tick_ms = Some(Utc::now().timestamp_millis());
         result
     }
 
     fn insight_status(&mut self) -> InsightStatusResult {
-        self.insight_health.queue_depth = self.store.pending_reflector_jobs().unwrap_or_default();
-        self.insight_health.t3_queue_depth =
-            self.store.pending_t3_backlog_jobs().unwrap_or_default();
+        self.refresh_mind_queue_depths();
+        self.heartbeat_mind_service();
         InsightStatusResult {
             queue_depth: self.insight_health.queue_depth + self.insight_health.t3_queue_depth,
             reflector_enabled: self.insight_health.reflector_enabled,
@@ -5311,13 +3681,15 @@ impl MindRuntime {
     }
 
     fn insight_retrieve(&mut self, request: InsightRetrievalRequest) -> InsightRetrievalResult {
-        let result = compile_insight_retrieval(&self.project_root.to_string_lossy(), request);
+        let result =
+            compile_insight_retrieval(&self.core.project_root().to_string_lossy(), request);
         self.insight_health.last_tick_ms = Some(Utc::now().timestamp_millis());
         if result.fallback_used {
             self.insight_health.last_error = Some("insight retrieval fallback".to_string());
         } else {
             self.insight_health.last_error = None;
         }
+        self.heartbeat_mind_service();
         result
     }
 
@@ -5333,6 +3705,7 @@ impl MindRuntime {
                 self.insight_health.supervisor_failures.saturating_add(1);
             self.insight_health.last_error = Some(result.summary.clone());
         }
+        self.heartbeat_mind_service();
         result
     }
 
@@ -5341,7 +3714,9 @@ impl MindRuntime {
         request: aoc_core::insight_contracts::InsightDetachedStatusRequest,
     ) -> aoc_core::insight_contracts::InsightDetachedStatusResult {
         self.insight_health.last_tick_ms = Some(Utc::now().timestamp_millis());
-        self.insight_detached.status(&request)
+        let result = self.insight_detached.status(&request);
+        self.heartbeat_mind_service();
+        result
     }
 
     fn insight_detached_cancel(
@@ -5355,6 +3730,7 @@ impl MindRuntime {
                 self.insight_health.supervisor_failures.saturating_add(1);
             self.insight_health.last_error = Some(result.summary.clone());
         }
+        self.heartbeat_mind_service();
         result
     }
 
@@ -5395,11 +3771,7 @@ impl MindRuntime {
     ) -> Result<aoc_mind::ReflectorTickReport, String> {
         self.insight_health.reflector_ticks = self.insight_health.reflector_ticks.saturating_add(1);
         self.insight_health.last_tick_ms = Some(now.timestamp_millis());
-        self.reflector_worker
-            .run_once(&self.store, now, |store, job| {
-                process_reflector_job(store, job, now)
-            })
-            .map_err(|err| err.to_string())
+        self.core.run_reflector_tick(now)
     }
 
     fn apply_reflector_tick_report(
@@ -5430,7 +3802,7 @@ impl MindRuntime {
             updates.push(PulseUpdate::MindObserverEvent(MindObserverFeedEvent {
                 status: MindObserverFeedStatus::Success,
                 trigger: MindObserverFeedTriggerKind::TaskCompleted,
-                conversation_id: self.latest_conversation_id.clone(),
+                conversation_id: self.core.latest_conversation_id().map(str::to_string),
                 runtime: Some("t2_reflector".to_string()),
                 attempt_count: Some(1),
                 latency_ms: None,
@@ -5449,7 +3821,7 @@ impl MindRuntime {
             updates.push(PulseUpdate::MindObserverEvent(MindObserverFeedEvent {
                 status: MindObserverFeedStatus::Error,
                 trigger: MindObserverFeedTriggerKind::TaskCompleted,
-                conversation_id: self.latest_conversation_id.clone(),
+                conversation_id: self.core.latest_conversation_id().map(str::to_string),
                 runtime: Some("t2_reflector".to_string()),
                 attempt_count: Some(1),
                 latency_ms: None,
@@ -5474,10 +3846,11 @@ impl MindRuntime {
     }
 
     fn reconcile_stale_mind_t2_jobs(&mut self, now: chrono::DateTime<chrono::Utc>) -> usize {
-        let project_root = self.project_root.to_string_lossy().to_string();
+        let project_root = self.core.project_root().to_string_lossy().to_string();
         let scope_id = reflector_scope_id_for_project_root(&project_root);
         let lease_active = self
-            .store
+            .core
+            .store()
             .reflector_lease(&scope_id)
             .ok()
             .flatten()
@@ -5704,7 +4077,7 @@ impl MindRuntime {
                         updates.push(PulseUpdate::MindObserverEvent(MindObserverFeedEvent {
                             status: MindObserverFeedStatus::Error,
                             trigger: MindObserverFeedTriggerKind::TaskCompleted,
-                            conversation_id: self.latest_conversation_id.clone(),
+                            conversation_id: self.core.latest_conversation_id().map(str::to_string),
                             runtime: Some("t2_reflector".to_string()),
                             attempt_count: Some(1),
                             latency_ms: None,
@@ -5767,9 +4140,9 @@ impl MindRuntime {
     }
 
     fn refresh_mind_queue_depths(&mut self) {
-        self.insight_health.queue_depth = self.store.pending_reflector_jobs().unwrap_or_default();
-        self.insight_health.t3_queue_depth =
-            self.store.pending_t3_backlog_jobs().unwrap_or_default();
+        self.insight_health.queue_depth = self.core.pending_reflector_jobs();
+        self.insight_health.t3_queue_depth = self.core.pending_t3_backlog_jobs();
+        self.heartbeat_mind_service();
     }
 
     fn run_t3_runtime_once(
@@ -5778,11 +4151,12 @@ impl MindRuntime {
     ) -> Result<aoc_mind::T3TickReport, String> {
         self.insight_health.t3_ticks = self.insight_health.t3_ticks.saturating_add(1);
         self.insight_health.last_tick_ms = Some(now.timestamp_millis());
-        self.t3_worker
-            .run_once(&self.store, now, |store, job| {
-                process_t3_backlog_job(store, job, now)
+        self.core
+            .run_t3_tick(now, |store, project_root, active_tag, now| {
+                write_project_mind_export(store, project_root, now)?;
+                write_handshake_export(store, project_root, active_tag, now)?;
+                Ok(())
             })
-            .map_err(|err| err.to_string())
     }
 
     fn apply_t3_tick_report(
@@ -5820,7 +4194,7 @@ impl MindRuntime {
             updates.push(PulseUpdate::MindObserverEvent(MindObserverFeedEvent {
                 status: MindObserverFeedStatus::Success,
                 trigger: MindObserverFeedTriggerKind::TaskCompleted,
-                conversation_id: self.latest_conversation_id.clone(),
+                conversation_id: self.core.latest_conversation_id().map(str::to_string),
                 runtime: Some("t3_backlog".to_string()),
                 attempt_count: Some(1),
                 latency_ms: None,
@@ -5839,7 +4213,7 @@ impl MindRuntime {
             updates.push(PulseUpdate::MindObserverEvent(MindObserverFeedEvent {
                 status: MindObserverFeedStatus::Error,
                 trigger: MindObserverFeedTriggerKind::TaskCompleted,
-                conversation_id: self.latest_conversation_id.clone(),
+                conversation_id: self.core.latest_conversation_id().map(str::to_string),
                 runtime: Some("t3_backlog".to_string()),
                 attempt_count: Some(1),
                 latency_ms: None,
@@ -5857,7 +4231,7 @@ impl MindRuntime {
     }
 
     fn persist_mind_detached_job(&self, job: &InsightDetachedJob) {
-        let _ = self.store.upsert_detached_insight_job(
+        let _ = self.core.store().upsert_detached_insight_job(
             "mind",
             job.worker_kind.map(detached_worker_kind_label),
             job,
@@ -5875,10 +4249,11 @@ impl MindRuntime {
     }
 
     fn reconcile_stale_mind_t3_jobs(&mut self, now: chrono::DateTime<chrono::Utc>) -> usize {
-        let project_root = self.project_root.to_string_lossy().to_string();
+        let project_root = self.core.project_root().to_string_lossy().to_string();
         let scope_id = t3_scope_id_for_project_root(&project_root);
         let lease_active = self
-            .store
+            .core
+            .store()
             .t3_runtime_lease(&scope_id)
             .ok()
             .flatten()
@@ -6105,7 +4480,7 @@ impl MindRuntime {
                         updates.push(PulseUpdate::MindObserverEvent(MindObserverFeedEvent {
                             status: MindObserverFeedStatus::Error,
                             trigger: MindObserverFeedTriggerKind::TaskCompleted,
-                            conversation_id: self.latest_conversation_id.clone(),
+                            conversation_id: self.core.latest_conversation_id().map(str::to_string),
                             runtime: Some("t3_backlog".to_string()),
                             attempt_count: Some(1),
                             latency_ms: None,
@@ -6275,210 +4650,6 @@ impl MindRuntime {
     }
 }
 
-fn process_reflector_job(
-    store: &MindStore,
-    job: &ReflectorJob,
-    now: chrono::DateTime<chrono::Utc>,
-) -> Result<(), String> {
-    let mut observations = Vec::new();
-    for conversation_id in &job.conversation_ids {
-        let artifacts = store
-            .artifacts_for_conversation(conversation_id)
-            .map_err(|err| format!("load artifacts failed: {err}"))?;
-        for artifact in artifacts {
-            if artifact.kind == "t1" && job.observation_ids.contains(&artifact.artifact_id) {
-                observations.push(artifact);
-            }
-        }
-    }
-
-    if observations.is_empty() {
-        return Err("no matching observations found for reflector job".to_string());
-    }
-
-    observations.sort_by(|a, b| a.artifact_id.cmp(&b.artifact_id));
-    let mut lines = vec![format!(
-        "T2 runtime reflection for tag={} observations={}",
-        job.active_tag,
-        observations.len()
-    )];
-    for artifact in &observations {
-        let preview = truncate_chars(normalize_text(&artifact.text), 180);
-        lines.push(format!("{}: {}", artifact.artifact_id, preview));
-    }
-    let text = lines.join("\n");
-
-    let input_hash = canonical_payload_hash(&(
-        &job.active_tag,
-        &job.observation_ids,
-        &job.conversation_ids,
-        job.estimated_tokens,
-    ))
-    .map_err(|err| err.to_string())?;
-    let output_hash = canonical_payload_hash(&text).map_err(|err| err.to_string())?;
-    let artifact_id = format!("ref:auto:{}", &input_hash[..16]);
-    let conversation_id = observations
-        .first()
-        .map(|artifact| artifact.conversation_id.clone())
-        .unwrap_or_else(|| "unknown".to_string());
-    let trace_ids = observations
-        .iter()
-        .map(|artifact| artifact.artifact_id.clone())
-        .collect::<Vec<_>>();
-
-    store
-        .insert_reflection(&artifact_id, &conversation_id, now, &text, &trace_ids)
-        .map_err(|err| format!("insert reflection failed: {err}"))?;
-    store
-        .upsert_semantic_provenance(&SemanticProvenance {
-            artifact_id,
-            stage: SemanticStage::T2Reflector,
-            runtime: SemanticRuntime::Deterministic,
-            provider_name: None,
-            model_id: None,
-            prompt_version: "deterministic.reflector.runtime.v1".to_string(),
-            input_hash,
-            output_hash: Some(output_hash),
-            latency_ms: None,
-            attempt_count: 1,
-            fallback_used: false,
-            fallback_reason: None,
-            failure_kind: None,
-            created_at: now,
-        })
-        .map_err(|err| format!("insert provenance failed: {err}"))?;
-
-    Ok(())
-}
-
-fn process_t3_backlog_job(
-    store: &MindStore,
-    job: &T3BacklogJob,
-    now: chrono::DateTime<chrono::Utc>,
-) -> Result<(), String> {
-    let mut artifacts = Vec::new();
-    for artifact_id in &job.artifact_refs {
-        let maybe_artifact = store
-            .artifact_by_id(artifact_id)
-            .map_err(|err| format!("t3 load artifact {artifact_id} failed: {err}"))?;
-        if let Some(artifact) = maybe_artifact {
-            artifacts.push(artifact);
-        }
-    }
-
-    if artifacts.is_empty() {
-        return Err(format!(
-            "t3 backlog job {} has no resolvable artifacts",
-            job.job_id
-        ));
-    }
-
-    artifacts.sort_by(|left, right| {
-        left.ts
-            .cmp(&right.ts)
-            .then(left.artifact_id.cmp(&right.artifact_id))
-    });
-    artifacts.dedup_by(|left, right| left.artifact_id == right.artifact_id);
-
-    let watermark_scope = t3_scope_id_for_project_root(&job.project_root);
-    let watermark = store
-        .project_watermark(&watermark_scope)
-        .map_err(|err| format!("t3 watermark lookup failed: {err}"))?;
-
-    let delta = artifacts
-        .into_iter()
-        .filter(|artifact| artifact_after_watermark(artifact, watermark.as_ref()))
-        .collect::<Vec<_>>();
-
-    if delta.is_empty() {
-        return Ok(());
-    }
-
-    let topic = job
-        .active_tag
-        .as_deref()
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .map(|value| value.to_string());
-
-    let mut latest_by_entry: HashMap<String, StoredArtifact> = HashMap::new();
-    for artifact in delta.iter().cloned() {
-        let entry_id =
-            project_canon_entry_id_for_artifact(&job.project_root, topic.as_deref(), &artifact)?;
-        if let Some(current) = latest_by_entry.get(&entry_id) {
-            let should_replace = artifact.ts > current.ts
-                || (artifact.ts == current.ts && artifact.artifact_id > current.artifact_id);
-            if !should_replace {
-                continue;
-            }
-        }
-        latest_by_entry.insert(entry_id, artifact);
-    }
-
-    let mut touched_entry_ids = Vec::new();
-    let mut entry_ids = latest_by_entry.keys().cloned().collect::<Vec<_>>();
-    entry_ids.sort();
-
-    for entry_id in entry_ids {
-        let artifact = latest_by_entry
-            .get(&entry_id)
-            .ok_or_else(|| format!("missing t3 artifact for entry {entry_id}"))?;
-        let summary = project_canon_summary(artifact);
-        let evidence_refs = project_canon_evidence_refs(store, artifact)?;
-        let confidence_bps = project_canon_confidence_bps(now, artifact, evidence_refs.len());
-        let freshness_score = project_canon_freshness_score(now, artifact.ts);
-
-        let revision = store
-            .upsert_canon_entry_revision(
-                &entry_id,
-                topic.as_deref(),
-                &summary,
-                confidence_bps,
-                freshness_score,
-                None,
-                &evidence_refs,
-                now,
-            )
-            .map_err(|err| format!("t3 canon upsert failed for {entry_id}: {err}"))?;
-        touched_entry_ids.push(revision.entry_id);
-    }
-
-    let stale_before = now - chrono::Duration::days(MIND_T3_CANON_STALE_AFTER_DAYS);
-    store
-        .mark_active_canon_entries_stale(topic.as_deref(), stale_before, &touched_entry_ids)
-        .map_err(|err| format!("t3 canon stale update failed: {err}"))?;
-
-    write_project_mind_export(store, &job.project_root, now)?;
-    write_handshake_export(store, &job.project_root, topic.as_deref(), now)?;
-
-    let last = delta.last().expect("delta is non-empty");
-    store
-        .advance_project_watermark(
-            &watermark_scope,
-            Some(last.ts),
-            Some(&last.artifact_id),
-            now,
-        )
-        .map_err(|err| format!("t3 watermark advance failed: {err}"))?;
-
-    Ok(())
-}
-
-fn project_canon_entry_id_for_artifact(
-    project_root: &str,
-    topic: Option<&str>,
-    artifact: &StoredArtifact,
-) -> Result<String, String> {
-    let digest = canonical_payload_hash(&(
-        project_root,
-        topic,
-        artifact.conversation_id.as_str(),
-        artifact.kind.as_str(),
-    ))
-    .map_err(|err| format!("canon entry hash failed: {err}"))?;
-    Ok(format!("canon:{}", &digest[..16]))
-}
-
 fn parse_git_numstat_into(
     files: &mut HashMap<String, CompactionTrailFile>,
     raw: &str,
@@ -6557,66 +4728,6 @@ fn snapshot_compaction_trail_files(project_root: &Path) -> Vec<CompactionTrailFi
     values
 }
 
-fn string_list_attr(
-    attrs: &std::collections::BTreeMap<String, serde_json::Value>,
-    key: &str,
-) -> Vec<String> {
-    attrs
-        .get(key)
-        .and_then(serde_json::Value::as_array)
-        .into_iter()
-        .flatten()
-        .filter_map(|value: &serde_json::Value| value.as_str().map(|s| s.trim().to_string()))
-        .filter(|value: &String| !value.is_empty())
-        .collect()
-}
-
-fn rebuild_compaction_t0_slice_from_checkpoint(
-    store: &MindStore,
-    checkpoint: &CompactionCheckpoint,
-) -> Result<Option<aoc_core::mind_contracts::CompactionT0Slice>, String> {
-    let Some(marker_event_id) = checkpoint.marker_event_id.as_deref() else {
-        return Ok(None);
-    };
-    let Some(marker_event) = store
-        .raw_event_by_id(marker_event_id)
-        .map_err(|err| format!("load compaction marker failed: {err}"))?
-    else {
-        return Ok(None);
-    };
-
-    let read_files = string_list_attr(&marker_event.attrs, "pi_detail_read_files");
-    let modified_files = {
-        let live = string_list_attr(&marker_event.attrs, "mind_compaction_modified_files");
-        if live.is_empty() {
-            string_list_attr(&marker_event.attrs, "pi_detail_modified_files")
-        } else {
-            live
-        }
-    };
-    let slice = build_compaction_t0_slice(
-        &checkpoint.conversation_id,
-        &checkpoint.session_id,
-        checkpoint.ts,
-        &checkpoint.trigger_source,
-        checkpoint.reason.as_deref(),
-        checkpoint.summary.as_deref(),
-        checkpoint.tokens_before,
-        checkpoint.first_kept_entry_id.as_deref(),
-        checkpoint.compaction_entry_id.as_deref(),
-        checkpoint.from_extension,
-        "pi_compaction_checkpoint",
-        &[marker_event.event_id],
-        &read_files,
-        &modified_files,
-        Some(&checkpoint.checkpoint_id),
-        "t0.compaction.v1",
-    )
-    .map_err(|err| format!("rebuild compaction slice failed: {err}"))?;
-
-    Ok(Some(slice))
-}
-
 fn link_new_artifacts_to_compaction_slice(
     store: &MindStore,
     conversation_id: &str,
@@ -6675,89 +4786,6 @@ fn link_new_t1_artifacts_to_trail(
     Ok(())
 }
 
-fn project_canon_summary(artifact: &StoredArtifact) -> String {
-    let heading = if artifact.kind == "t2" {
-        "Reflection"
-    } else {
-        "Observation"
-    };
-    let preview = truncate_chars(
-        normalize_text(&artifact.text),
-        MIND_T3_CANON_SUMMARY_MAX_CHARS,
-    );
-    format!(
-        "{heading} for {} in {}: {}",
-        artifact.kind, artifact.conversation_id, preview
-    )
-}
-
-fn project_canon_confidence_bps(
-    now: chrono::DateTime<chrono::Utc>,
-    artifact: &StoredArtifact,
-    evidence_count: usize,
-) -> u16 {
-    let base = if artifact.kind == "t2" {
-        8_200u16
-    } else {
-        7_100u16
-    };
-    let evidence_boost = ((evidence_count.saturating_sub(1) as u16).saturating_mul(220)).min(1_200);
-    let recency_boost = if now - artifact.ts <= chrono::Duration::days(1) {
-        300u16
-    } else if now - artifact.ts <= chrono::Duration::days(7) {
-        120u16
-    } else {
-        0u16
-    };
-    base.saturating_add(evidence_boost)
-        .saturating_add(recency_boost)
-        .min(10_000)
-}
-
-fn project_canon_freshness_score(
-    now: chrono::DateTime<chrono::Utc>,
-    artifact_ts: chrono::DateTime<chrono::Utc>,
-) -> u16 {
-    if artifact_ts >= now {
-        return 10_000;
-    }
-
-    let age_hours = (now - artifact_ts).num_hours().max(0) as u16;
-    let decay = age_hours.saturating_mul(12).min(10_000);
-    10_000u16.saturating_sub(decay)
-}
-
-fn project_canon_evidence_refs(
-    store: &MindStore,
-    artifact: &StoredArtifact,
-) -> Result<Vec<String>, String> {
-    let mut evidence_refs = vec![artifact.artifact_id.clone()];
-
-    for trace_id in &artifact.trace_ids {
-        if trace_id == &artifact.artifact_id {
-            continue;
-        }
-        let resolvable = store
-            .artifact_by_id(trace_id)
-            .map_err(|err| format!("t3 evidence lookup failed for {trace_id}: {err}"))?
-            .is_some();
-        if resolvable {
-            evidence_refs.push(trace_id.clone());
-        }
-    }
-
-    evidence_refs.sort();
-    evidence_refs.dedup();
-    if evidence_refs.is_empty() {
-        return Err(format!(
-            "canon evidence set is empty for artifact {}",
-            artifact.artifact_id
-        ));
-    }
-
-    Ok(evidence_refs)
-}
-
 fn ensure_safe_export_text(payload: &str, label: &str) -> Result<(), String> {
     if text_contains_unredacted_secret(payload) {
         return Err(format!(
@@ -6772,14 +4800,8 @@ fn write_project_mind_export(
     project_root: &str,
     now: chrono::DateTime<chrono::Utc>,
 ) -> Result<(), String> {
-    let active_entries = store
-        .active_canon_entries(None)
-        .map_err(|err| format!("load active canon entries failed: {err}"))?;
-    let stale_entries = store
-        .canon_entries_by_state(CanonRevisionState::Stale, None)
-        .map_err(|err| format!("load stale canon entries failed: {err}"))?;
-
-    let payload = render_project_mind_markdown(&active_entries, &stale_entries, now);
+    let payload = build_project_mind_export(store, now)
+        .map_err(|err| format!("build project_mind export failed: {err}"))?;
     ensure_safe_export_text(&payload, "project_mind export")?;
     let export_path = PathBuf::from(project_root)
         .join(".aoc")
@@ -6794,101 +4816,6 @@ fn write_project_mind_export(
         .map_err(|err| format!("write project_mind export failed: {err}"))?;
 
     Ok(())
-}
-
-fn render_project_mind_markdown(
-    active_entries: &[aoc_storage::CanonEntryRevision],
-    stale_entries: &[aoc_storage::CanonEntryRevision],
-    generated_at: chrono::DateTime<chrono::Utc>,
-) -> String {
-    let mut lines = vec![
-        "# Project Mind Canon".to_string(),
-        String::new(),
-        format!("_generated_at: {}_", generated_at.to_rfc3339()),
-        String::new(),
-        format!("active_entries: {}", active_entries.len()),
-        format!("stale_entries: {}", stale_entries.len()),
-        String::new(),
-        "## Active canon".to_string(),
-        String::new(),
-    ];
-
-    if active_entries.is_empty() {
-        lines.push("(none)".to_string());
-        lines.push(String::new());
-    } else {
-        for entry in active_entries {
-            lines.push(format!("### {} r{}", entry.entry_id, entry.revision));
-            if let Some(topic) = entry.topic.as_deref() {
-                lines.push(format!("- topic: {topic}"));
-            }
-            lines.push(format!("- confidence_bps: {}", entry.confidence_bps));
-            lines.push(format!("- freshness_score: {}", entry.freshness_score));
-            if let Some(supersedes) = entry.supersedes_entry_id.as_deref() {
-                lines.push(format!("- supersedes_entry_id: {supersedes}"));
-            }
-            if !entry.evidence_refs.is_empty() {
-                lines.push(format!(
-                    "- evidence_refs: {}",
-                    entry.evidence_refs.join(", ")
-                ));
-            }
-            lines.push(String::new());
-            lines.push(entry.summary.trim().to_string());
-            lines.push(String::new());
-        }
-    }
-
-    lines.push("## Stale canon".to_string());
-    lines.push(String::new());
-    if stale_entries.is_empty() {
-        lines.push("(none)".to_string());
-        lines.push(String::new());
-    } else {
-        for entry in stale_entries {
-            lines.push(format!("### {} r{}", entry.entry_id, entry.revision));
-            if let Some(topic) = entry.topic.as_deref() {
-                lines.push(format!("- topic: {topic}"));
-            }
-            lines.push(format!("- confidence_bps: {}", entry.confidence_bps));
-            lines.push(format!("- freshness_score: {}", entry.freshness_score));
-            if !entry.evidence_refs.is_empty() {
-                lines.push(format!(
-                    "- evidence_refs: {}",
-                    entry.evidence_refs.join(", ")
-                ));
-            }
-            lines.push(String::new());
-            lines.push(entry.summary.trim().to_string());
-            lines.push(String::new());
-        }
-    }
-
-    lines.join("\n") + "\n"
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-struct HandshakeWorkstreamSummary {
-    tag: String,
-    counts: TaskCounts,
-    prd_backed_open: usize,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-struct HandshakeTaskSummary {
-    id: String,
-    tag: String,
-    title: String,
-    status: String,
-    priority: String,
-    prd_source: Option<&'static str>,
-    active_agent: bool,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Default)]
-struct HandshakeProjectSnapshot {
-    workstreams: Vec<HandshakeWorkstreamSummary>,
-    priority_tasks: Vec<HandshakeTaskSummary>,
 }
 
 fn task_status_rank(status: &TaskStatus) -> u8 {
@@ -6910,8 +4837,8 @@ fn task_priority_rank(priority: &aoc_core::TaskPriority) -> u8 {
     }
 }
 
-fn open_task_counts(tasks: &[Task]) -> TaskCounts {
-    let mut counts = TaskCounts::default();
+fn open_task_counts(tasks: &[Task]) -> HandshakeTaskCounts {
+    let mut counts = HandshakeTaskCounts::default();
     counts.total = tasks.len() as u32;
     for task in tasks {
         match task.status {
@@ -6943,7 +4870,8 @@ fn handshake_project_snapshot(
             .iter()
             .filter(|task| !task.status.is_done() && (task.aoc_prd.is_some() || tag_prd.is_some()))
             .count();
-        if counts.in_progress > 0 || counts.blocked > 0 || counts.pending > 0 || prd_backed_open > 0 {
+        if counts.in_progress > 0 || counts.blocked > 0 || counts.pending > 0 || prd_backed_open > 0
+        {
             workstreams.push(HandshakeWorkstreamSummary {
                 tag: tag.clone(),
                 counts,
@@ -6993,12 +4921,15 @@ fn handshake_project_snapshot(
     });
 
     priority_tasks.sort_by(|left, right| {
-        right.3
+        right
+            .3
             .cmp(&left.3)
             .then_with(|| right.2.is_some().cmp(&left.2.is_some()))
             .then_with(|| right.1.active_agent.cmp(&left.1.active_agent))
             .then_with(|| task_status_rank(&left.1.status).cmp(&task_status_rank(&right.1.status)))
-            .then_with(|| task_priority_rank(&left.1.priority).cmp(&task_priority_rank(&right.1.priority)))
+            .then_with(|| {
+                task_priority_rank(&left.1.priority).cmp(&task_priority_rank(&right.1.priority))
+            })
             .then_with(|| left.1.id.cmp(&right.1.id))
     });
 
@@ -7007,15 +4938,17 @@ fn handshake_project_snapshot(
         priority_tasks: priority_tasks
             .into_iter()
             .take(6)
-            .map(|(tag, task, prd_source, _matches_active_tag)| HandshakeTaskSummary {
-                id: task.id,
-                tag,
-                title: truncate_chars(normalize_text(&task.title), 120),
-                status: task.status.as_str().to_string(),
-                priority: task.priority.as_str().to_string(),
-                prd_source,
-                active_agent: task.active_agent,
-            })
+            .map(
+                |(tag, task, prd_source, _matches_active_tag)| HandshakeTaskSummary {
+                    id: task.id,
+                    tag,
+                    title: truncate_chars(normalize_text(&task.title), 120),
+                    status: task.status.as_str().to_string(),
+                    priority: task.priority.as_str().to_string(),
+                    prd_source,
+                    active_agent: task.active_agent,
+                },
+            )
             .collect(),
     })
 }
@@ -7028,65 +4961,19 @@ fn write_handshake_export(
 ) -> Result<(), String> {
     let scope = "project";
     let scope_key = t3_scope_id_for_project_root(project_root);
-
-    let mut entries = Vec::new();
-    if let Some(tag) = active_tag.filter(|value| !value.trim().is_empty()) {
-        let mut tagged = store
-            .active_canon_entries(Some(tag))
-            .map_err(|err| format!("load tag-scoped canon entries failed: {err}"))?;
-        entries.append(&mut tagged);
-    }
-
-    let all_active = store
-        .active_canon_entries(None)
-        .map_err(|err| format!("load active canon entries failed: {err}"))?;
-
-    for entry in all_active {
-        if entries
-            .iter()
-            .any(|existing: &aoc_storage::CanonEntryRevision| existing.entry_id == entry.entry_id)
-        {
-            continue;
-        }
-        entries.push(entry);
-    }
-
-    if entries.len() > MIND_T3_HANDSHAKE_MAX_ITEMS {
-        entries.truncate(MIND_T3_HANDSHAKE_MAX_ITEMS);
-    }
-
     let project_snapshot = handshake_project_snapshot(project_root, active_tag).ok();
+    let bundle = build_handshake_export(store, project_snapshot.as_ref(), active_tag, now)
+        .map_err(|err| format!("build handshake export failed: {err}"))?;
 
-    let mut selected = Vec::new();
-    let mut payload = render_handshake_markdown(&selected, project_snapshot.as_ref(), active_tag, now);
-    let mut token_estimate = estimate_text_tokens(&payload);
-
-    for entry in entries {
-        let mut candidate = selected.clone();
-        candidate.push(entry);
-        let candidate_payload = render_handshake_markdown(&candidate, project_snapshot.as_ref(), active_tag, now);
-        let candidate_tokens = estimate_text_tokens(&candidate_payload);
-        if selected.is_empty() || candidate_tokens <= MIND_T3_HANDSHAKE_TOKEN_BUDGET {
-            selected = candidate;
-            payload = candidate_payload;
-            token_estimate = candidate_tokens;
-        } else {
-            break;
-        }
-    }
-
-    ensure_safe_export_text(&payload, "handshake export")?;
-
-    let payload_hash = canonical_payload_hash(&payload)
-        .map_err(|err| format!("handshake payload hash failed: {err}"))?;
+    ensure_safe_export_text(&bundle.payload, "handshake export")?;
 
     let _ = store
         .upsert_handshake_snapshot(
             scope,
             &scope_key,
-            &payload,
-            &payload_hash,
-            token_estimate,
+            &bundle.payload,
+            &bundle.payload_hash,
+            bundle.token_estimate,
             now,
         )
         .map_err(|err| format!("persist handshake snapshot failed: {err}"))?;
@@ -7100,7 +4987,7 @@ fn write_handshake_export(
         std::fs::create_dir_all(parent)
             .map_err(|err| format!("create handshake export directory failed: {err}"))?;
     }
-    std::fs::write(&export_path, payload)
+    std::fs::write(&export_path, bundle.payload)
         .map_err(|err| format!("write handshake export failed: {err}"))?;
 
     Ok(())
@@ -7113,324 +5000,12 @@ fn normalized_handshake_tag(active_tag: Option<&str>) -> Option<String> {
         .map(|value| value.to_string())
 }
 
-fn handshake_entry_matches_tag(entry: &aoc_storage::CanonEntryRevision, active_tag: Option<&str>) -> bool {
-    let Some(tag) = normalized_handshake_tag(active_tag) else {
-        return false;
-    };
-    entry
-        .topic
-        .as_deref()
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .map(|topic| topic.eq_ignore_ascii_case(&tag))
-        .unwrap_or(false)
-}
-
-fn ranked_handshake_entries<'a>(
-    entries: &'a [aoc_storage::CanonEntryRevision],
-    active_tag: Option<&str>,
-) -> Vec<&'a aoc_storage::CanonEntryRevision> {
-    let mut ranked = entries.iter().collect::<Vec<_>>();
-    ranked.sort_by(|left, right| {
-        handshake_entry_matches_tag(right, active_tag)
-            .cmp(&handshake_entry_matches_tag(left, active_tag))
-            .then_with(|| right.freshness_score.cmp(&left.freshness_score))
-            .then_with(|| right.confidence_bps.cmp(&left.confidence_bps))
-            .then_with(|| right.created_at.cmp(&left.created_at))
-            .then_with(|| left.entry_id.cmp(&right.entry_id))
-    });
-    ranked
-}
-
-fn handshake_entry_brief(entry: &aoc_storage::CanonEntryRevision, max_chars: usize) -> String {
-    let topic = entry.topic.as_deref().unwrap_or("global");
-    let summary = truncate_chars(normalize_text(&entry.summary), max_chars);
-    format!("[{} r{}] topic={} :: {}", entry.entry_id, entry.revision, topic, summary)
-}
-
-fn handshake_entry_looks_unresolved(entry: &aoc_storage::CanonEntryRevision) -> bool {
-    let mut haystack = entry
-        .topic
-        .as_deref()
-        .unwrap_or_default()
-        .to_ascii_lowercase();
-    if !haystack.is_empty() {
-        haystack.push(' ');
-    }
-    haystack.push_str(&normalize_text(&entry.summary).to_ascii_lowercase());
-    [
-        "todo",
-        "remaining",
-        "follow-up",
-        "follow up",
-        "next step",
-        "next:",
-        "pending",
-        "blocked",
-        "risk",
-        "gap",
-        "unresolved",
-        "needs",
-        "missing",
-    ]
-    .iter()
-    .any(|needle| haystack.contains(needle))
-}
-
-fn render_handshake_markdown(
-    entries: &[aoc_storage::CanonEntryRevision],
-    project_snapshot: Option<&HandshakeProjectSnapshot>,
-    active_tag: Option<&str>,
-    generated_at: chrono::DateTime<chrono::Utc>,
-) -> String {
-    let active_tag = normalized_handshake_tag(active_tag);
-    let ranked = ranked_handshake_entries(entries, active_tag.as_deref());
-    let focus_entry = ranked.first().copied();
-    let task_focus = project_snapshot.and_then(|snapshot| snapshot.priority_tasks.first());
-    let task_focus_matches_active_tag = active_tag
-        .as_deref()
-        .zip(task_focus)
-        .map(|(tag, task)| task.tag.eq_ignore_ascii_case(tag))
-        .unwrap_or(false);
-    let canon_status = if focus_entry.is_some() { "available" } else { "missing" };
-    let task_state_status = if project_snapshot.is_some() { "available" } else { "unavailable" };
-    let focus_source = if focus_entry.is_some() && active_tag.is_some() {
-        "project-active-tag"
-    } else if focus_entry.is_some() {
-        "inferred-project-canon"
-    } else if task_focus_matches_active_tag {
-        "project-active-tag-task-state"
-    } else if task_focus.is_some() {
-        "inferred-project-task-state"
-    } else {
-        "none"
-    };
-    let focus_brief = if let Some(entry) = focus_entry {
-        if let Some(tag) = active_tag.as_deref() {
-            format!("tag {} :: {}", tag, handshake_entry_brief(entry, 120))
-        } else {
-            handshake_entry_brief(entry, 120)
-        }
-    } else if let Some(task) = task_focus {
-        let prd = task.prd_source.unwrap_or("no-prd");
-        format!(
-            "task [{}] ({}/{}) {} — {} [{}]",
-            task.id, task.status, task.priority, task.tag, task.title, prd
-        )
-    } else if let Some(tag) = active_tag.as_deref() {
-        if project_snapshot.is_some() {
-            format!("tag {} has no active canon entries and no open task-backed focus", tag)
-        } else {
-            format!("tag {} has no active canon entries; task state unavailable", tag)
-        }
-    } else if project_snapshot.is_some() {
-        "no active canon entries and no open task-backed focus".to_string()
-    } else {
-        "no active canon entries; task state unavailable".to_string()
-    };
-
-    let mut lines = vec![
-        "# Mind Handshake Baseline".to_string(),
-        String::new(),
-        "version: 1".to_string(),
-        format!("generated_at: {}", generated_at.to_rfc3339()),
-        format!("active_tag: {}", active_tag.as_deref().unwrap_or("none")),
-        String::new(),
-        "## Focus briefing".to_string(),
-        String::new(),
-        format!("- source: {}", focus_source),
-        format!("- current_focus: {}", focus_brief),
-        format!("- fallback_status: canon={} task_state={}", canon_status, task_state_status),
-        "- scope_note: project baseline; tab-local focus may differ".to_string(),
-        String::new(),
-        "## High-value work".to_string(),
-        String::new(),
-    ];
-
-    if let Some(snapshot) = project_snapshot {
-        if snapshot.priority_tasks.is_empty() {
-            lines.push("- (no open PRD-backed or active tasks detected)".to_string());
-        } else {
-            for task in snapshot.priority_tasks.iter().take(4) {
-                let prd = task.prd_source.unwrap_or("no-prd");
-                let active = if task.active_agent { " active-agent" } else { "" };
-                lines.push(format!(
-                    "- [{}] ({}/{}) {} — {} [{}{}]",
-                    task.id, task.status, task.priority, task.tag, task.title, prd, active
-                ));
-            }
-        }
-    } else {
-        lines.push("- (task state unavailable)".to_string());
-    }
-    lines.push(String::new());
-    lines.push("## Workstream health".to_string());
-    lines.push(String::new());
-    if let Some(snapshot) = project_snapshot {
-        if snapshot.workstreams.is_empty() {
-            lines.push("- (no active workstreams detected)".to_string());
-        } else {
-            for stream in snapshot.workstreams.iter().take(4) {
-                lines.push(format!(
-                    "- {} :: in-progress={} blocked={} pending={} prd_open={}",
-                    stream.tag,
-                    stream.counts.in_progress,
-                    stream.counts.blocked,
-                    stream.counts.pending,
-                    stream.prd_backed_open,
-                ));
-            }
-        }
-    } else {
-        lines.push("- (task state unavailable)".to_string());
-    }
-    lines.push(String::new());
-    lines.push("## Recent developments".to_string());
-    lines.push(String::new());
-
-    if ranked.is_empty() {
-        lines.push("- (no active canon entries yet)".to_string());
-        lines.push(String::new());
-        lines.push("## Open fronts".to_string());
-        lines.push(String::new());
-        lines.push("- (no unresolved fronts detected yet)".to_string());
-        lines.push(String::new());
-        lines.push("## Priority canon".to_string());
-        lines.push(String::new());
-        lines.push("- (no active canon entries yet)".to_string());
-        lines.push(String::new());
-        return lines.join("\n") + "\n";
-    }
-
-    for entry in ranked.iter().take(3) {
-        lines.push(format!("- {}", handshake_entry_brief(entry, 140)));
-    }
-    lines.push(String::new());
-    lines.push("## Open fronts".to_string());
-    lines.push(String::new());
-
-    let unresolved = ranked
-        .iter()
-        .copied()
-        .filter(|entry| handshake_entry_looks_unresolved(entry))
-        .take(3)
-        .collect::<Vec<_>>();
-    if unresolved.is_empty() {
-        lines.push("- (no unresolved fronts detected yet)".to_string());
-    } else {
-        for entry in unresolved {
-            lines.push(format!("- {}", handshake_entry_brief(entry, 140)));
-        }
-    }
-    lines.push(String::new());
-    lines.push("## Priority canon".to_string());
-    lines.push(String::new());
-
-    for entry in ranked {
-        let topic = entry.topic.as_deref().unwrap_or("global");
-        let summary = truncate_chars(normalize_text(&entry.summary), 180);
-        lines.push(format!(
-            "- [{} r{}] topic={} confidence={} freshness={} :: {}",
-            entry.entry_id,
-            entry.revision,
-            topic,
-            entry.confidence_bps,
-            entry.freshness_score,
-            summary
-        ));
-    }
-    lines.push(String::new());
-
-    lines.join("\n") + "\n"
-}
-
-fn requeue_latest_t3_from_manifest(
-    store: &MindStore,
-    project_root: &str,
-) -> Result<(String, bool), String> {
-    let manifest = load_latest_session_export_manifest(project_root)?;
-    let mut artifact_ids = manifest.t1_artifact_ids.clone();
-    artifact_ids.extend(manifest.t2_artifact_ids.clone());
-    artifact_ids.sort();
-    artifact_ids.dedup();
-
-    if artifact_ids.is_empty() {
-        return Err("latest session export has no t1/t2 artifact ids".to_string());
-    }
-
-    let slice_start = manifest.slice_start_id.trim();
-    let slice_end = manifest.slice_end_id.trim();
-    let (job_id, inserted) = store
-        .enqueue_t3_backlog_job(
-            project_root,
-            &manifest.session_id,
-            &manifest.pane_id,
-            manifest.active_tag.as_deref(),
-            if slice_start.is_empty() {
-                None
-            } else {
-                Some(slice_start)
-            },
-            if slice_end.is_empty() {
-                None
-            } else {
-                Some(slice_end)
-            },
-            &artifact_ids,
-            Utc::now(),
-        )
-        .map_err(|err| format!("enqueue t3 backlog job failed: {err}"))?;
-
-    Ok((job_id, inserted))
-}
-
-fn load_latest_session_export_manifest(
-    project_root: &str,
-) -> Result<SessionExportManifest, String> {
-    load_session_export_manifests(project_root, 1)?
-        .into_iter()
-        .next()
-        .ok_or_else(|| "no session exports found to requeue".to_string())
-}
-
 fn reflector_scope_id_for_project_root(project_root: &str) -> String {
-    format!("project:{}", project_root)
+    project_scope_key(Path::new(project_root))
 }
 
 fn t3_scope_id_for_project_root(project_root: &str) -> String {
-    format!("project:{}", project_root)
-}
-
-fn map_observer_trigger(kind: aoc_mind::ObserverTriggerKind) -> MindObserverFeedTriggerKind {
-    match kind {
-        aoc_mind::ObserverTriggerKind::TokenThreshold => {
-            MindObserverFeedTriggerKind::TokenThreshold
-        }
-        aoc_mind::ObserverTriggerKind::TaskCompleted => MindObserverFeedTriggerKind::TaskCompleted,
-        aoc_mind::ObserverTriggerKind::ManualShortcut => {
-            MindObserverFeedTriggerKind::ManualShortcut
-        }
-        aoc_mind::ObserverTriggerKind::Handoff => MindObserverFeedTriggerKind::Handoff,
-        aoc_mind::ObserverTriggerKind::Compaction => MindObserverFeedTriggerKind::Compaction,
-    }
-}
-
-fn estimate_compact_tokens(event: &aoc_storage::StoredCompactEvent) -> u32 {
-    let text_tokens = event
-        .text
-        .as_deref()
-        .map(estimate_text_tokens)
-        .unwrap_or_default();
-    let tool_tokens = event
-        .tool_meta
-        .as_ref()
-        .map(|meta| 14 + ((meta.output_bytes as u32) / 180))
-        .unwrap_or_default();
-    (text_tokens + tool_tokens).max(1)
-}
-
-fn estimate_text_tokens(text: &str) -> u32 {
-    (text.chars().count() as u32 / 4).max(1)
+    project_scope_key(Path::new(project_root))
 }
 
 fn normalize_text(text: &str) -> String {
@@ -7450,49 +5025,6 @@ fn truncate_chars(text: String, max_chars: usize) -> String {
         .collect::<String>();
     out.push_str("...");
     out
-}
-
-fn artifact_after_watermark(
-    artifact: &StoredArtifact,
-    watermark: Option<&ProjectWatermark>,
-) -> bool {
-    let Some(watermark) = watermark else {
-        return true;
-    };
-
-    match (
-        watermark.last_artifact_ts,
-        watermark.last_artifact_id.as_ref(),
-    ) {
-        (Some(last_ts), Some(last_id)) => {
-            artifact.ts > last_ts || (artifact.ts == last_ts && artifact.artifact_id > *last_id)
-        }
-        (Some(last_ts), None) => artifact.ts > last_ts,
-        (None, Some(last_id)) => artifact.artifact_id > *last_id,
-        (None, None) => true,
-    }
-}
-
-fn render_artifact_markdown(kind: &str, artifacts: &[StoredArtifact]) -> String {
-    let mut lines = vec![format!("# {} export", kind.to_uppercase())];
-
-    if artifacts.is_empty() {
-        lines.push("(empty)".to_string());
-        return lines.join("\n") + "\n";
-    }
-
-    for artifact in artifacts {
-        lines.push(format!(
-            "## {} [{}] ({})",
-            artifact.artifact_id,
-            artifact.conversation_id,
-            artifact.ts.to_rfc3339()
-        ));
-        lines.push(artifact.text.trim().to_string());
-        lines.push(String::new());
-    }
-
-    lines.join("\n")
 }
 
 fn resolve_mind_finalize_drain_timeout_ms() -> i64 {
@@ -7541,6 +5073,50 @@ fn command_result(
         interrupt,
         pulse_updates,
     }
+}
+
+fn command_result_from_mind_policy(
+    cfg: &ClientConfig,
+    envelope: &PulseWireEnvelope,
+    command: &str,
+    policy: MindCommandResultPolicy,
+    interrupt: bool,
+    pulse_updates: Vec<PulseUpdate>,
+) -> PulseCommandHandling {
+    let error = match (policy.error_code, policy.error_message.clone()) {
+        (Some(code), message) => Some(PulseCommandError {
+            code: code.to_string(),
+            message: message.unwrap_or_else(|| code.to_string()),
+        }),
+        (None, _) => None,
+    };
+    command_result(
+        cfg,
+        envelope,
+        command,
+        policy.status,
+        Some(policy.reason.clone()),
+        error,
+        interrupt,
+        prepend_mind_command_observer_update(pulse_updates, &policy),
+    )
+}
+
+fn prepend_mind_command_observer_update(
+    mut pulse_updates: Vec<PulseUpdate>,
+    policy: &MindCommandResultPolicy,
+) -> Vec<PulseUpdate> {
+    if let Some(observer) = policy.observer_event.as_ref() {
+        pulse_updates.insert(
+            0,
+            PulseUpdate::MindObserverEvent(mind_observer_event(
+                observer.status,
+                observer.trigger,
+                Some(observer.reason.clone()),
+            )),
+        );
+    }
+    pulse_updates
 }
 
 fn consultation_response(
@@ -7811,8 +5387,9 @@ fn build_pulse_command_response(
     };
 
     let command = payload.command.clone();
+    let normalized_command = canonical_mind_command_name(&command).unwrap_or(command.as_str());
 
-    match payload.command.as_str() {
+    match normalized_command {
         "set_session_title" => {
             if let Err(error) = ensure_target_matches(cfg, payload.target_agent_id.as_deref()) {
                 return Some(command_result(
@@ -8040,7 +5617,7 @@ fn build_pulse_command_response(
                 )),
             }
         }
-        "mind_ingest_event" | "insight_ingest" => {
+        "mind_ingest_event" => {
             if let Err(error) = ensure_target_matches(cfg, payload.target_agent_id.as_deref()) {
                 return Some(command_result(
                     cfg,
@@ -8078,8 +5655,9 @@ fn build_pulse_command_response(
             match ingest {
                 Ok(progress) => {
                     let conversation_id = runtime
-                        .latest_conversation_id
-                        .clone()
+                        .core
+                        .latest_conversation_id()
+                        .map(str::to_string)
                         .unwrap_or_else(|| "unknown".to_string());
                     let mut updates = vec![PulseUpdate::MindObserverEvent(MindObserverFeedEvent {
                         status: MindObserverFeedStatus::Queued,
@@ -8126,7 +5704,7 @@ fn build_pulse_command_response(
                 )),
             }
         }
-        "mind_handoff" | "insight_handoff" | "mind_resume" | "insight_resume" => {
+        "mind_handoff" | "mind_resume" => {
             if let Err(error) = ensure_target_matches(cfg, payload.target_agent_id.as_deref()) {
                 return Some(command_result(
                     cfg,
@@ -8155,15 +5733,14 @@ fn build_pulse_command_response(
                 ));
             };
 
-            let reason = payload
-                .args
-                .as_object()
-                .and_then(|args| args.get("reason"))
-                .and_then(serde_json::Value::as_str)
-                .map(str::trim)
-                .filter(|reason| !reason.is_empty())
-                .map(|reason| reason.to_string())
-                .unwrap_or_else(|| "stm handoff".to_string());
+            let handoff_plan = prepare_handoff_resume_command(
+                normalized_command,
+                payload
+                    .args
+                    .as_object()
+                    .and_then(|args| args.get("reason"))
+                    .and_then(serde_json::Value::as_str),
+            );
 
             let active_tag = payload
                 .args
@@ -8174,26 +5751,12 @@ fn build_pulse_command_response(
                 .filter(|value| !value.is_empty())
                 .map(|value| value.to_string());
 
-            let trigger = if payload.command.ends_with("_resume")
-                || reason.to_ascii_lowercase().contains("resume")
-            {
-                MindInjectionTriggerKind::Resume
-            } else {
-                MindInjectionTriggerKind::Handoff
-            };
-
             let Some(conversation_id) = runtime.resolve_conversation_id(&payload.args) else {
-                return Some(command_result(
+                return Some(command_result_from_mind_policy(
                     cfg,
                     envelope,
                     &command,
-                    "error",
-                    Some("conversation unavailable".to_string()),
-                    Some(PulseCommandError {
-                        code: "conversation_missing".to_string(),
-                        message: "no conversation available for handoff observer trigger"
-                            .to_string(),
-                    }),
+                    mind_handoff_resume_conversation_missing(),
                     false,
                     Vec::new(),
                 ));
@@ -8203,28 +5766,29 @@ fn build_pulse_command_response(
                 cfg,
                 &conversation_id,
                 MindObserverFeedTriggerKind::Handoff,
-                Some(reason.clone()),
+                handoff_plan.followup.queue_reason.clone(),
             );
             updates.push(PulseUpdate::MindInjection(build_mind_injection_payload(
                 cfg,
                 Some(&*runtime),
-                trigger,
+                handoff_plan
+                    .followup
+                    .injection_trigger
+                    .expect("handoff plan injection trigger"),
                 active_tag.as_deref(),
-                Some(reason.clone()),
+                handoff_plan.followup.injection_reason.clone(),
             )));
 
-            Some(command_result(
+            Some(command_result_from_mind_policy(
                 cfg,
                 envelope,
                 &command,
-                "ok",
-                Some("handoff/resume observer trigger queued".to_string()),
-                None,
+                handoff_plan.result,
                 false,
                 updates,
             ))
         }
-        "mind_finalize" | "mind_finalize_session" => {
+        "mind_finalize_session" => {
             if let Err(error) = ensure_target_matches(cfg, payload.target_agent_id.as_deref()) {
                 return Some(command_result(
                     cfg,
@@ -8320,145 +5884,32 @@ fn build_pulse_command_response(
                 .filter(|reason| !reason.is_empty())
                 .unwrap_or("operator compaction rebuild request");
 
-            let checkpoint = match runtime
-                .store
-                .latest_compaction_checkpoint_for_session(&cfg.session_id)
-            {
-                Ok(Some(checkpoint)) => checkpoint,
-                Ok(None) => {
-                    return Some(command_result(
+            match execute_manual_compaction_rebuild(runtime.core.store(), &cfg.session_id, reason) {
+                aoc_mind::ManualCompactionRebuildOutcome::QueueObserver {
+                    conversation_id,
+                    queue_reason,
+                    result,
+                } => {
+                    let updates = runtime.enqueue_and_run(
                         cfg,
-                        envelope,
-                        &command,
-                        "error",
-                        Some("no compaction checkpoint found".to_string()),
-                        Some(PulseCommandError {
-                            code: "mind_compaction_checkpoint_missing".to_string(),
-                            message: "no compaction checkpoint found for session".to_string(),
-                        }),
-                        false,
-                        vec![PulseUpdate::MindObserverEvent(mind_observer_event(
-                            MindObserverFeedStatus::Error,
-                            MindObserverFeedTriggerKind::ManualShortcut,
-                            Some(
-                                "compaction rebuild failed: no compaction checkpoint found"
-                                    .to_string(),
-                            ),
-                        ))],
-                    ));
-                }
-                Err(err) => {
-                    return Some(command_result(
-                        cfg,
-                        envelope,
-                        &command,
-                        "error",
-                        Some("compaction checkpoint lookup failed".to_string()),
-                        Some(PulseCommandError {
-                            code: "mind_compaction_checkpoint_lookup_failed".to_string(),
-                            message: err.to_string(),
-                        }),
-                        false,
-                        vec![PulseUpdate::MindObserverEvent(mind_observer_event(
-                            MindObserverFeedStatus::Error,
-                            MindObserverFeedTriggerKind::ManualShortcut,
-                            Some(format!("compaction rebuild failed: {err}")),
-                        ))],
-                    ));
-                }
-            };
-
-            match rebuild_compaction_t0_slice_from_checkpoint(&runtime.store, &checkpoint) {
-                Ok(Some(slice)) => {
-                    if let Err(err) = runtime.store.upsert_compaction_t0_slice(&slice) {
-                        return Some(command_result(
-                            cfg,
-                            envelope,
-                            &command,
-                            "error",
-                            Some("compaction rebuild failed".to_string()),
-                            Some(PulseCommandError {
-                                code: "mind_compaction_rebuild_failed".to_string(),
-                                message: err.to_string(),
-                            }),
-                            false,
-                            vec![PulseUpdate::MindObserverEvent(mind_observer_event(
-                                MindObserverFeedStatus::Error,
-                                MindObserverFeedTriggerKind::ManualShortcut,
-                                Some(format!("compaction rebuild failed: {err}")),
-                            ))],
-                        ));
-                    }
-                    let mut updates = runtime.enqueue_and_run(
-                        cfg,
-                        &checkpoint.conversation_id,
+                        &conversation_id,
                         MindObserverFeedTriggerKind::Compaction,
-                        Some(format!(
-                            "compaction rebuild requested ({reason}): {}",
-                            checkpoint.checkpoint_id
-                        )),
+                        Some(queue_reason),
                     );
-                    updates.insert(
-                        0,
-                        PulseUpdate::MindObserverEvent(mind_observer_event(
-                            MindObserverFeedStatus::Success,
-                            MindObserverFeedTriggerKind::ManualShortcut,
-                            Some(format!(
-                                "compaction slice rebuilt: {}",
-                                checkpoint.checkpoint_id
-                            )),
-                        )),
-                    );
-                    Some(command_result(
-                        cfg,
-                        envelope,
-                        &command,
-                        "ok",
-                        Some(format!(
-                            "compaction rebuilt and requeued: {}",
-                            checkpoint.checkpoint_id
-                        )),
-                        None,
-                        false,
-                        updates,
+                    Some(command_result_from_mind_policy(
+                        cfg, envelope, &command, result, false, updates,
                     ))
                 }
-                Ok(None) => Some(command_result(
-                    cfg,
-                    envelope,
-                    &command,
-                    "error",
-                    Some("compaction rebuild unavailable".to_string()),
-                    Some(PulseCommandError {
-                        code: "mind_compaction_rebuild_unavailable".to_string(),
-                        message: "checkpoint marker provenance unavailable for rebuild".to_string(),
-                    }),
-                    false,
-                    vec![PulseUpdate::MindObserverEvent(mind_observer_event(
-                        MindObserverFeedStatus::Error,
-                        MindObserverFeedTriggerKind::ManualShortcut,
-                        Some(
-                            "compaction rebuild unavailable: marker provenance missing".to_string(),
-                        ),
-                    ))],
-                )),
-                Err(err) => Some(command_result(
-                    cfg,
-                    envelope,
-                    &command,
-                    "error",
-                    Some("compaction rebuild failed".to_string()),
-                    Some(PulseCommandError {
-                        code: "mind_compaction_rebuild_failed".to_string(),
-                        message: err.clone(),
-                    }),
-                    false,
-                    vec![PulseUpdate::MindObserverEvent(mind_observer_event(
-                        MindObserverFeedStatus::Error,
-                        MindObserverFeedTriggerKind::ManualShortcut,
-                        Some(format!("compaction rebuild failed: {err}")),
-                    ))],
-                )),
+                aoc_mind::ManualCompactionRebuildOutcome::Complete { result } => {
+                    Some(command_result_from_mind_policy(
+                        cfg,
+                        envelope,
+                        &command,
+                        result,
+                        false,
+                        Vec::new(),
+                    ))
+                }
             }
         }
         "mind_t3_requeue" => {
@@ -8499,53 +5950,25 @@ fn build_pulse_command_response(
                 .filter(|reason| !reason.is_empty())
                 .unwrap_or("operator requeue request");
 
-            match requeue_latest_t3_from_manifest(&runtime.store, &cfg.project_root) {
-                Ok((job_id, inserted)) => {
-                    let mut updates = vec![PulseUpdate::MindObserverEvent(mind_observer_event(
-                        MindObserverFeedStatus::Queued,
-                        MindObserverFeedTriggerKind::ManualShortcut,
-                        Some(format!(
-                            "t3 requeue requested ({reason}): {} ({})",
-                            job_id,
-                            if inserted { "inserted" } else { "existing" }
-                        )),
-                    ))];
-                    runtime.insight_health.t3_queue_depth =
-                        runtime.store.pending_t3_backlog_jobs().unwrap_or_default();
-                    updates.push(PulseUpdate::InsightRuntime(runtime.insight_health.clone()));
-                    Some(command_result(
-                        cfg,
-                        envelope,
-                        &command,
-                        "ok",
-                        Some(format!(
-                            "t3 requeue {} ({})",
-                            job_id,
-                            if inserted { "inserted" } else { "existing" }
-                        )),
-                        None,
-                        false,
-                        updates,
-                    ))
-                }
-                Err(err) => Some(command_result(
-                    cfg,
-                    envelope,
-                    &command,
-                    "error",
-                    Some("t3 requeue failed".to_string()),
-                    Some(PulseCommandError {
-                        code: "mind_t3_requeue_failed".to_string(),
-                        message: err.clone(),
-                    }),
-                    false,
-                    vec![PulseUpdate::MindObserverEvent(mind_observer_event(
-                        MindObserverFeedStatus::Error,
-                        MindObserverFeedTriggerKind::ManualShortcut,
-                        Some(format!("t3 requeue failed: {err}")),
-                    ))],
-                )),
-            }
+            let outcome = execute_manual_t3_requeue_from_manifest(
+                runtime.core.store(),
+                &cfg.project_root,
+                reason,
+            );
+            let updates = if let Some(pending_jobs) = outcome.pending_jobs {
+                runtime.insight_health.t3_queue_depth = pending_jobs;
+                vec![PulseUpdate::InsightRuntime(runtime.insight_health.clone())]
+            } else {
+                Vec::new()
+            };
+            Some(command_result_from_mind_policy(
+                cfg,
+                envelope,
+                &command,
+                outcome.result,
+                false,
+                updates,
+            ))
         }
         "mind_handshake_rebuild" => {
             if let Err(error) = ensure_target_matches(cfg, payload.target_agent_id.as_deref()) {
@@ -8585,52 +6008,100 @@ fn build_pulse_command_response(
                 .filter(|value| !value.is_empty())
                 .map(|value| value.to_string());
 
-            match write_handshake_export(
-                &runtime.store,
+            let project_snapshot =
+                handshake_project_snapshot(&cfg.project_root, active_tag.as_deref()).ok();
+            match prepare_handshake_rebuild(
+                runtime.core.store(),
                 &cfg.project_root,
+                project_snapshot.as_ref(),
                 active_tag.as_deref(),
                 Utc::now(),
             ) {
-                Ok(()) => {
-                    let mut updates = vec![PulseUpdate::MindObserverEvent(mind_observer_event(
-                        MindObserverFeedStatus::Success,
-                        MindObserverFeedTriggerKind::ManualShortcut,
-                        Some("handshake baseline rebuilt".to_string()),
-                    ))];
-                    updates.push(PulseUpdate::MindInjection(build_mind_injection_payload(
+                Ok(prepared) => {
+                    if let Err(err) =
+                        ensure_safe_export_text(&prepared.bundle.payload, "handshake export")
+                    {
+                        return Some(command_result_from_mind_policy(
+                            cfg,
+                            envelope,
+                            &command,
+                            mind_handshake_rebuild_failed(err),
+                            false,
+                            Vec::new(),
+                        ));
+                    }
+                    if let Err(err) = persist_handshake_rebuild_snapshot(
+                        runtime.core.store(),
+                        &prepared,
+                        Utc::now(),
+                    ) {
+                        return Some(command_result_from_mind_policy(
+                            cfg,
+                            envelope,
+                            &command,
+                            mind_handshake_rebuild_failed(err),
+                            false,
+                            Vec::new(),
+                        ));
+                    }
+                    let export_path = PathBuf::from(&cfg.project_root)
+                        .join(".aoc")
+                        .join("mind")
+                        .join("t3")
+                        .join("handshake.md");
+                    if let Some(parent) = export_path.parent() {
+                        if let Err(err) = std::fs::create_dir_all(parent) {
+                            return Some(command_result_from_mind_policy(
+                                cfg,
+                                envelope,
+                                &command,
+                                mind_handshake_rebuild_failed(format!(
+                                    "create handshake export directory failed: {err}"
+                                )),
+                                false,
+                                Vec::new(),
+                            ));
+                        }
+                    }
+                    if let Err(err) = std::fs::write(&export_path, &prepared.bundle.payload) {
+                        return Some(command_result_from_mind_policy(
+                            cfg,
+                            envelope,
+                            &command,
+                            mind_handshake_rebuild_failed(format!(
+                                "write handshake export failed: {err}"
+                            )),
+                            false,
+                            Vec::new(),
+                        ));
+                    }
+                    let updates = vec![PulseUpdate::MindInjection(build_mind_injection_payload(
                         cfg,
                         Some(&*runtime),
-                        MindInjectionTriggerKind::Startup,
+                        prepared
+                            .policy
+                            .followup
+                            .injection_trigger
+                            .expect("handshake plan injection trigger"),
                         active_tag.as_deref(),
-                        Some("handshake rebuild".to_string()),
-                    )));
-                    Some(command_result(
+                        prepared.policy.followup.injection_reason.clone(),
+                    ))];
+                    Some(command_result_from_mind_policy(
                         cfg,
                         envelope,
                         &command,
-                        "ok",
-                        Some("handshake baseline rebuilt".to_string()),
-                        None,
+                        prepared.policy.result,
                         false,
                         updates,
                     ))
                 }
-                Err(err) => Some(command_result(
+                Err(err) => Some(command_result_from_mind_policy(
                     cfg,
                     envelope,
                     &command,
-                    "error",
-                    Some("handshake rebuild failed".to_string()),
-                    Some(PulseCommandError {
-                        code: "mind_handshake_rebuild_failed".to_string(),
-                        message: err.clone(),
-                    }),
+                    mind_handshake_rebuild_failed(err),
                     false,
-                    vec![PulseUpdate::MindObserverEvent(mind_observer_event(
-                        MindObserverFeedStatus::Error,
-                        MindObserverFeedTriggerKind::ManualShortcut,
-                        Some(format!("handshake rebuild failed: {err}")),
-                    ))],
+                    Vec::new(),
                 )),
             }
         }
@@ -8767,7 +6238,7 @@ fn build_pulse_command_response(
             let parsed = MindProvenanceCommand::parse(&command, payload.args.clone());
             let export = match parsed {
                 Ok(MindProvenanceCommand::Query(args)) => {
-                    match compile_mind_provenance_export(&runtime.store, args) {
+                    match compile_mind_provenance_export(runtime.core.store(), args) {
                         Ok(export) => export,
                         Err(err) => {
                             return Some(command_result(
@@ -9081,6 +6552,14 @@ fn resolve_use_pty() -> bool {
             return parsed;
         }
     }
+    let agent_id = env::var("AOC_AGENT_ID").unwrap_or_default();
+    let agent_run = env::var("AOC_AGENT_RUN")
+        .ok()
+        .and_then(|value| parse_bool_env(&value))
+        .unwrap_or(false);
+    if agent_id == "pi" && agent_run {
+        return true;
+    }
     false
 }
 
@@ -9262,6 +6741,36 @@ fn resolve_pty_size() -> PtySize {
         pixel_height: 0,
     }
 }
+
+fn current_pty_size() -> PtySize {
+    match crossterm::terminal::size() {
+        Ok((cols, rows)) => PtySize {
+            rows: rows.max(1),
+            cols: cols.max(1),
+            pixel_width: 0,
+            pixel_height: 0,
+        },
+        Err(_) => resolve_pty_size(),
+    }
+}
+
+#[cfg(unix)]
+fn spawn_pty_resize_forwarder(master: Arc<StdMutex<Box<dyn MasterPty + Send>>>) {
+    tokio::spawn(async move {
+        let Ok(mut sigwinch) = signal(SignalKind::window_change()) else {
+            return;
+        };
+        while sigwinch.recv().await.is_some() {
+            let size = current_pty_size();
+            if let Ok(master) = master.lock() {
+                let _ = master.resize(size);
+            }
+        }
+    });
+}
+
+#[cfg(not(unix))]
+fn spawn_pty_resize_forwarder(_master: Arc<StdMutex<Box<dyn MasterPty + Send>>>) {}
 
 async fn tap_state_reporter_loop(
     cfg: ClientConfig,
@@ -9632,10 +7141,12 @@ fn strip_ansi(input: &str) -> String {
     output
 }
 
-async fn run_child_piped(cmd: &[String]) -> i32 {
+async fn run_child_piped(cmd: &[String], cwd: &str) -> i32 {
     let mut child = Command::new(&cmd[0]);
-    configure_mind_child_command_env(&mut child, std::iter::empty::<(&str, &str)>());
     child
+        .current_dir(cwd)
+        .env("PWD", cwd)
+        .env("AOC_PROJECT_ROOT", cwd)
         .args(&cmd[1..])
         .stdin(Stdio::inherit())
         .stdout(Stdio::inherit())
@@ -9666,16 +7177,19 @@ async fn run_child_piped(cmd: &[String]) -> i32 {
 
 async fn run_child_pty(
     cmd: &[String],
+    cwd: &str,
     tap_buffer: Option<Arc<StdMutex<TapBuffer>>>,
 ) -> io::Result<i32> {
     let pty_system = native_pty_system();
     let pair = pty_system
-        .openpty(resolve_pty_size())
+        .openpty(current_pty_size())
         .map_err(|err| io::Error::new(io::ErrorKind::Other, err.to_string()))?;
 
     let mut builder = CommandBuilder::new(&cmd[0]);
+    builder.cwd(cwd);
     builder.args(&cmd[1..]);
-    configure_mind_child_pty_env(&mut builder, std::iter::empty::<(&str, &str)>());
+    builder.env("PWD", cwd);
+    builder.env("AOC_PROJECT_ROOT", cwd);
     if env::var("TERM").is_err() {
         builder.env("TERM", "xterm-256color");
     }
@@ -9686,14 +7200,19 @@ async fn run_child_pty(
         .map_err(|err| io::Error::new(io::ErrorKind::Other, err.to_string()))?;
     drop(pair.slave);
 
-    let mut reader = pair
-        .master
+    let master = pair.master;
+    let _ = master.resize(current_pty_size());
+    let mut reader = master
         .try_clone_reader()
         .map_err(|err| io::Error::new(io::ErrorKind::Other, err.to_string()))?;
     let writer =
-        Arc::new(StdMutex::new(pair.master.take_writer().map_err(|err| {
+        Arc::new(StdMutex::new(master.take_writer().map_err(|err| {
             io::Error::new(io::ErrorKind::Other, err.to_string())
         })?));
+    let master = Arc::new(StdMutex::new(master));
+    spawn_pty_resize_forwarder(master.clone());
+
+    let _raw_mode_guard = RawModeGuard::acquire();
 
     let filter_mouse = resolve_filter_mouse();
     if filter_mouse {
@@ -11097,24 +8616,39 @@ fn resolve_aoc_state_home() -> PathBuf {
     )
 }
 
+#[cfg(test)]
 fn resolve_mind_runtime_root_with_env(
     project_root: &str,
     xdg_state_home: Option<&str>,
     home: Option<&str>,
 ) -> PathBuf {
-    resolve_aoc_state_home_with_env(xdg_state_home, home)
-        .join("aoc")
-        .join("mind")
-        .join("projects")
-        .join(sanitize_component(project_root))
+    let previous_xdg = env::var("XDG_STATE_HOME").ok();
+    let previous_home = env::var("HOME").ok();
+    match xdg_state_home {
+        Some(value) => env::set_var("XDG_STATE_HOME", value),
+        None => env::remove_var("XDG_STATE_HOME"),
+    }
+    match home {
+        Some(value) => env::set_var("HOME", value),
+        None => env::remove_var("HOME"),
+    }
+    let resolved = aoc_mind::mind_runtime_root(Path::new(project_root));
+    if let Some(value) = previous_xdg {
+        env::set_var("XDG_STATE_HOME", value);
+    } else {
+        env::remove_var("XDG_STATE_HOME");
+    }
+    if let Some(value) = previous_home {
+        env::set_var("HOME", value);
+    } else {
+        env::remove_var("HOME");
+    }
+    resolved
 }
 
+#[cfg(test)]
 fn resolve_mind_runtime_root(project_root: &str) -> PathBuf {
-    resolve_mind_runtime_root_with_env(
-        project_root,
-        env::var("XDG_STATE_HOME").ok().as_deref(),
-        env::var("HOME").ok().as_deref(),
-    )
+    aoc_mind::mind_runtime_root(Path::new(project_root))
 }
 
 fn runtime_snapshot_path(session_id: &str, pane_id: &str) -> PathBuf {
@@ -11126,6 +8660,12 @@ fn runtime_snapshot_path(session_id: &str, pane_id: &str) -> PathBuf {
 }
 
 fn mind_store_path_override() -> Option<String> {
+    #[cfg(test)]
+    {
+        return None;
+    }
+
+    #[allow(unreachable_code)]
     env::var("AOC_MIND_STORE_PATH")
         .ok()
         .map(|value| value.trim().to_string())
@@ -11154,18 +8694,12 @@ fn resolve_mind_store_path_with_override(
     cfg: &ClientConfig,
     override_path: Option<&str>,
 ) -> PathBuf {
-    if let Some(path) = override_path {
-        return PathBuf::from(path);
-    }
-
-    resolve_mind_runtime_root(&cfg.project_root).join("project.sqlite")
+    mind_store_path_with_override(Path::new(&cfg.project_root), override_path)
 }
 
+#[cfg(test)]
 fn resolve_legacy_mind_store_path(cfg: &ClientConfig) -> PathBuf {
-    resolve_mind_runtime_root(&cfg.project_root)
-        .join("legacy")
-        .join(sanitize_component(&cfg.session_id))
-        .join(format!("{}.sqlite", sanitize_component(&cfg.pane_id)))
+    aoc_mind::legacy_mind_store_path(Path::new(&cfg.project_root), &cfg.session_id, &cfg.pane_id)
 }
 
 struct AdvisorySpawnLock {
@@ -11205,13 +8739,7 @@ fn resolve_reflector_lock_path_with_override(
     cfg: &ClientConfig,
     override_path: Option<&str>,
 ) -> PathBuf {
-    if let Some(path) = override_path {
-        return PathBuf::from(path);
-    }
-
-    resolve_mind_runtime_root(&cfg.project_root)
-        .join("locks")
-        .join("reflector.lock")
+    reflector_lock_path_with_override(Path::new(&cfg.project_root), override_path)
 }
 
 fn resolve_t3_lock_path(cfg: &ClientConfig) -> PathBuf {
@@ -11219,25 +8747,15 @@ fn resolve_t3_lock_path(cfg: &ClientConfig) -> PathBuf {
 }
 
 fn resolve_t3_lock_path_with_override(cfg: &ClientConfig, override_path: Option<&str>) -> PathBuf {
-    if let Some(path) = override_path {
-        return PathBuf::from(path);
-    }
-
-    resolve_mind_runtime_root(&cfg.project_root)
-        .join("locks")
-        .join("t3.lock")
+    t3_lock_path_with_override(Path::new(&cfg.project_root), override_path)
 }
 
 fn resolve_reflector_dispatch_lock_path(cfg: &ClientConfig) -> PathBuf {
-    resolve_mind_runtime_root(&cfg.project_root)
-        .join("locks")
-        .join("reflector-dispatch.lock")
+    reflector_dispatch_lock_path(Path::new(&cfg.project_root))
 }
 
 fn resolve_t3_dispatch_lock_path(cfg: &ClientConfig) -> PathBuf {
-    resolve_mind_runtime_root(&cfg.project_root)
-        .join("locks")
-        .join("t3-dispatch.lock")
+    t3_dispatch_lock_path(Path::new(&cfg.project_root))
 }
 
 async fn persist_runtime_snapshot_with_title(
@@ -11636,7 +9154,11 @@ fn next_backoff(current: Duration) -> Duration {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use aoc_storage::T3BacklogJobStatus;
+    use aoc_core::{
+        mind_contracts::{SemanticProvenance, SemanticRuntime, SemanticStage},
+        provenance_contracts::MindProvenanceEdgeKind,
+    };
+    use aoc_storage::{CanonRevisionState, T3BacklogJobStatus};
     use serde_json::Value;
     use std::path::{Path, PathBuf};
     use std::time::{Duration, Instant};
@@ -11886,7 +9408,8 @@ mod tests {
             build_pulse_command_response(cfg, &handoff, Some(runtime)).expect("handoff response");
 
         let observation_ids = runtime
-            .store
+            .core
+            .store()
             .artifacts_for_conversation(conversation_id)
             .expect("conversation artifacts")
             .into_iter()
@@ -11898,7 +9421,8 @@ mod tests {
             "expected handoff flow to materialize t1 observations"
         );
         runtime
-            .store
+            .core
+            .store()
             .enqueue_reflector_job(
                 "detached-t2-test",
                 &observation_ids,
@@ -12869,7 +10393,8 @@ mod tests {
             .iter()
             .any(|update| matches!(update, PulseUpdate::MindObserverEvent(_))));
         assert!(runtime
-            .store
+            .core
+            .store()
             .artifacts_for_conversation("conv-inline-t1")
             .expect("conversation artifacts")
             .iter()
@@ -12929,7 +10454,8 @@ mod tests {
             .expect("ingest response");
 
         let before = runtime
-            .store
+            .core
+            .store()
             .raw_event_count("conv-compact")
             .expect("raw event count before");
 
@@ -12956,13 +10482,15 @@ mod tests {
         assert_eq!(payload.status, "ok");
 
         let after = runtime
-            .store
+            .core
+            .store()
             .raw_event_count("conv-compact")
             .expect("raw event count after");
         assert_eq!(after, before + 1, "expected raw compaction marker event");
 
         let checkpoint = runtime
-            .store
+            .core
+            .store()
             .latest_compaction_checkpoint_for_conversation("conv-compact")
             .expect("load compaction checkpoint")
             .expect("compaction checkpoint exists");
@@ -12972,7 +10500,8 @@ mod tests {
         assert_eq!(checkpoint.trigger_source, "pi_compact");
 
         let slice = runtime
-            .store
+            .core
+            .store()
             .latest_compaction_t0_slice_for_conversation("conv-compact")
             .expect("load compaction slice")
             .expect("compaction slice exists");
@@ -12985,7 +10514,8 @@ mod tests {
         assert!(slice.modified_files.iter().any(|path| path == "trail.txt"));
 
         let t1_artifacts = runtime
-            .store
+            .core
+            .store()
             .artifacts_for_conversation("conv-compact")
             .expect("load artifacts")
             .into_iter()
@@ -13000,14 +10530,16 @@ mod tests {
             .iter()
             .any(|trace_id| trace_id == &slice.slice_id));
         let linked_artifacts = runtime
-            .store
+            .core
+            .store()
             .artifacts_with_trace_id("conv-compact", &slice.slice_id)
             .expect("lookup artifacts by slice trace");
         assert!(linked_artifacts
             .iter()
             .any(|artifact| artifact.artifact_id == t1_artifacts[0].artifact_id));
         let links = runtime
-            .store
+            .core
+            .store()
             .artifact_file_links(&t1_artifacts[0].artifact_id)
             .expect("load artifact file links");
         assert!(
@@ -13078,7 +10610,8 @@ mod tests {
         };
 
         let before = runtime
-            .store
+            .core
+            .store()
             .raw_event_count("conv-compact-idempotent")
             .expect("raw event count before");
 
@@ -13088,7 +10621,8 @@ mod tests {
             .expect("second checkpoint response");
 
         let after = runtime
-            .store
+            .core
+            .store()
             .raw_event_count("conv-compact-idempotent")
             .expect("raw event count after");
         assert_eq!(
@@ -13098,7 +10632,8 @@ mod tests {
         );
 
         let checkpoints = runtime
-            .store
+            .core
+            .store()
             .compaction_checkpoints_for_conversation("conv-compact-idempotent")
             .expect("list compaction checkpoints");
         assert_eq!(checkpoints.len(), 1, "duplicate checkpoints should upsert");
@@ -13170,19 +10705,23 @@ mod tests {
             .expect("checkpoint response");
 
         let stored_checkpoint = runtime
-            .store
+            .core
+            .store()
             .latest_compaction_checkpoint_for_conversation("conv-compact-rebuild")
             .expect("load checkpoint")
             .expect("checkpoint exists");
         let stored_slice = runtime
-            .store
+            .core
+            .store()
             .compaction_t0_slice_for_checkpoint(&stored_checkpoint.checkpoint_id)
             .expect("slice by checkpoint")
             .expect("stored slice exists");
-        let rebuilt =
-            rebuild_compaction_t0_slice_from_checkpoint(&runtime.store, &stored_checkpoint)
-                .expect("rebuild call")
-                .expect("rebuilt slice exists");
+        let rebuilt = aoc_mind::rebuild_compaction_t0_slice_from_checkpoint(
+            runtime.core.store(),
+            &stored_checkpoint,
+        )
+        .expect("rebuild call")
+        .expect("rebuilt slice exists");
 
         assert_eq!(rebuilt.slice_id, stored_slice.slice_id);
         assert_eq!(rebuilt.slice_hash, stored_slice.slice_hash);
@@ -13194,7 +10733,8 @@ mod tests {
             .any(|path| path == "trail.txt"));
 
         let marker_event = runtime
-            .store
+            .core
+            .store()
             .raw_event_by_id(
                 stored_checkpoint
                     .marker_event_id
@@ -13235,6 +10775,11 @@ mod tests {
                 "conversation_id": "conv-1",
                 "event_id": "evt-1",
                 "timestamp_ms": 1700000000000i64,
+                "attrs": {
+                    "project_root": test_root.to_string_lossy().to_string(),
+                    "task_ids": ["177"],
+                    "file_paths": ["crates/aoc-agent-wrap-rs/src/main.rs"]
+                },
                 "body": {
                     "kind": "message",
                     "role": "user",
@@ -13259,6 +10804,29 @@ mod tests {
             )
         });
         assert!(has_progress, "expected token-threshold progress update");
+
+        let stored = runtime
+            .core
+            .store()
+            .raw_event_by_id("evt-1")
+            .expect("raw event lookup")
+            .expect("raw event exists");
+        assert_eq!(
+            stored
+                .attrs
+                .get("project_root")
+                .and_then(serde_json::Value::as_str),
+            Some(test_root.to_string_lossy().as_ref())
+        );
+        assert_eq!(
+            stored
+                .attrs
+                .get("task_ids")
+                .and_then(serde_json::Value::as_array)
+                .and_then(|value| value.first())
+                .and_then(serde_json::Value::as_str),
+            Some("177")
+        );
 
         let _ = std::fs::remove_dir_all(test_root);
     }
@@ -13551,12 +11119,14 @@ mod tests {
             .contains("compaction rebuilt and requeued"));
 
         let checkpoint = runtime
-            .store
+            .core
+            .store()
             .latest_compaction_checkpoint_for_conversation("conv-compact-requeue")
             .expect("load checkpoint")
             .expect("checkpoint exists");
         let rebuilt_slice = runtime
-            .store
+            .core
+            .store()
             .compaction_t0_slice_for_checkpoint(&checkpoint.checkpoint_id)
             .expect("slice by checkpoint")
             .expect("slice exists after rebuild");
@@ -13670,7 +11240,8 @@ mod tests {
 
         assert!(
             runtime
-                .store
+                .core
+                .store()
                 .pending_t3_backlog_jobs()
                 .expect("pending t3 jobs")
                 >= 1
@@ -13717,7 +11288,8 @@ mod tests {
                 .expect("ts"),
         };
         runtime
-            .store
+            .core
+            .store()
             .upsert_compaction_checkpoint(&checkpoint)
             .expect("upsert checkpoint");
 
@@ -13758,12 +11330,14 @@ mod tests {
         }));
 
         assert!(runtime
-            .store
+            .core
+            .store()
             .latest_compaction_checkpoint_for_conversation("conv-missing")
             .expect("lookup checkpoint")
             .is_some());
         assert!(runtime
-            .store
+            .core
+            .store()
             .compaction_t0_slice_for_checkpoint("cmpchk:conv-missing:compact-1")
             .expect("lookup slice")
             .is_none());
@@ -13804,7 +11378,7 @@ mod tests {
         let snapshot = HandshakeProjectSnapshot {
             workstreams: vec![HandshakeWorkstreamSummary {
                 tag: "env-protec".to_string(),
-                counts: TaskCounts {
+                counts: HandshakeTaskCounts {
                     total: 3,
                     pending: 1,
                     in_progress: 1,
@@ -13823,14 +11397,18 @@ mod tests {
                 active_agent: true,
             }],
         };
-        let rendered = render_handshake_markdown(&entries, Some(&snapshot), Some("env-protec"), now);
+        let rendered =
+            aoc_mind::render_handshake_markdown(&entries, Some(&snapshot), Some("env-protec"), now);
         assert!(rendered.contains("## Focus briefing"));
         assert!(rendered.contains("- source: project-active-tag"));
-        assert!(rendered.contains("- current_focus: tag env-protec :: [canon-focus r3] topic=env-protec"));
+        assert!(rendered
+            .contains("- current_focus: tag env-protec :: [canon-focus r3] topic=env-protec"));
         assert!(rendered.contains("- fallback_status: canon=available task_state=available"));
         assert!(rendered.contains("scope_note: project baseline; tab-local focus may differ"));
         assert!(rendered.contains("## High-value work"));
-        assert!(rendered.contains("[177] (in-progress/high) env-protec — Handshake briefing v2 [task-prd active-agent]"));
+        assert!(rendered.contains(
+            "[177] (in-progress/high) env-protec — Handshake briefing v2 [task-prd active-agent]"
+        ));
         assert!(rendered.contains("## Workstream health"));
         assert!(rendered.contains("env-protec :: in-progress=1 blocked=1 pending=1 prd_open=2"));
         assert!(rendered.contains("## Recent developments"));
@@ -13839,12 +11417,28 @@ mod tests {
         assert!(rendered.contains("## Priority canon"));
 
         let focus_idx = rendered.find("## Focus briefing").expect("focus section");
-        let high_value_idx = rendered.find("## High-value work").expect("high-value section");
-        let workstream_idx = rendered.find("## Workstream health").expect("workstream section");
-        let recent_idx = rendered.find("## Recent developments").expect("recent section");
-        let open_idx = rendered.find("## Open fronts").expect("open fronts section");
-        let canon_idx = rendered.find("## Priority canon").expect("priority canon section");
-        assert!(focus_idx < high_value_idx && high_value_idx < workstream_idx && workstream_idx < recent_idx && recent_idx < open_idx && open_idx < canon_idx);
+        let high_value_idx = rendered
+            .find("## High-value work")
+            .expect("high-value section");
+        let workstream_idx = rendered
+            .find("## Workstream health")
+            .expect("workstream section");
+        let recent_idx = rendered
+            .find("## Recent developments")
+            .expect("recent section");
+        let open_idx = rendered
+            .find("## Open fronts")
+            .expect("open fronts section");
+        let canon_idx = rendered
+            .find("## Priority canon")
+            .expect("priority canon section");
+        assert!(
+            focus_idx < high_value_idx
+                && high_value_idx < workstream_idx
+                && workstream_idx < recent_idx
+                && recent_idx < open_idx
+                && open_idx < canon_idx
+        );
     }
 
     #[test]
@@ -13863,7 +11457,7 @@ mod tests {
             created_at: now,
         }];
 
-        let rendered = render_handshake_markdown(&entries, None, None, now);
+        let rendered = aoc_mind::render_handshake_markdown(&entries, None, None, now);
         assert!(rendered.contains("active_tag: none"));
         assert!(rendered.contains("- source: inferred-project-canon"));
         assert!(rendered.contains("[canon-inferred r2] topic=mission-control"));
@@ -13877,7 +11471,7 @@ mod tests {
         let snapshot = HandshakeProjectSnapshot {
             workstreams: vec![HandshakeWorkstreamSummary {
                 tag: "env-protec".to_string(),
-                counts: TaskCounts {
+                counts: HandshakeTaskCounts {
                     total: 2,
                     pending: 1,
                     in_progress: 1,
@@ -13897,7 +11491,8 @@ mod tests {
             }],
         };
 
-        let rendered = render_handshake_markdown(&[], Some(&snapshot), Some("env-protec"), now);
+        let rendered =
+            aoc_mind::render_handshake_markdown(&[], Some(&snapshot), Some("env-protec"), now);
         assert!(rendered.contains("- source: project-active-tag-task-state"));
         assert!(rendered.contains("- current_focus: task [177] (in-progress/high) env-protec — Handshake briefing v2 [task-prd]"));
         assert!(rendered.contains("- fallback_status: canon=missing task_state=available"));
@@ -13910,9 +11505,11 @@ mod tests {
     #[test]
     fn render_handshake_markdown_reports_unavailable_task_state_without_canon() {
         let now = Utc.with_ymd_and_hms(2026, 3, 27, 12, 0, 0).unwrap();
-        let rendered = render_handshake_markdown(&[], None, Some("env-protec"), now);
+        let rendered = aoc_mind::render_handshake_markdown(&[], None, Some("env-protec"), now);
         assert!(rendered.contains("- source: none"));
-        assert!(rendered.contains("tag env-protec has no active canon entries; task state unavailable"));
+        assert!(
+            rendered.contains("tag env-protec has no active canon entries; task state unavailable")
+        );
         assert!(rendered.contains("- fallback_status: canon=missing task_state=unavailable"));
         assert!(rendered.contains("## High-value work"));
         assert!(rendered.contains("- (task state unavailable)"));
@@ -14020,7 +11617,8 @@ mod tests {
 
         assert!(
             runtime
-                .store
+                .core
+                .store()
                 .pending_t3_backlog_jobs()
                 .expect("pending count")
                 >= 1
@@ -14039,21 +11637,24 @@ mod tests {
 
         assert_eq!(
             runtime
-                .store
+                .core
+                .store()
                 .pending_t3_backlog_jobs()
                 .expect("pending count"),
             0
         );
 
         let watermark = runtime
-            .store
+            .core
+            .store()
             .project_watermark(&t3_scope_id_for_project_root(&cfg.project_root))
             .expect("watermark query")
             .expect("watermark exists");
         assert!(watermark.last_artifact_id.is_some());
 
         let active_entries = runtime
-            .store
+            .core
+            .store()
             .active_canon_entries(None)
             .expect("active canon query");
         assert!(!active_entries.is_empty());
@@ -14062,7 +11663,8 @@ mod tests {
             for evidence_ref in &entry.evidence_refs {
                 assert!(
                     runtime
-                        .store
+                        .core
+                        .store()
                         .artifact_by_id(evidence_ref)
                         .expect("artifact lookup")
                         .is_some(),
@@ -14093,11 +11695,12 @@ mod tests {
         assert!(handshake.contains("# Mind Handshake Baseline"));
 
         let handshake_snapshot = runtime
-            .store
+            .core
+            .store()
             .latest_handshake_snapshot("project", &t3_scope_id_for_project_root(&cfg.project_root))
             .expect("snapshot query")
             .expect("handshake snapshot exists");
-        assert!(handshake_snapshot.token_estimate <= MIND_T3_HANDSHAKE_TOKEN_BUDGET);
+        assert!(handshake_snapshot.token_estimate <= aoc_mind::MIND_T3_HANDSHAKE_TOKEN_BUDGET);
         assert_eq!(handshake_snapshot.payload_text, handshake);
 
         let _ = std::fs::remove_dir_all(test_root);
@@ -14241,7 +11844,7 @@ mod tests {
             )
             .expect("handshake query")
             .expect("handshake snapshot exists");
-        assert!(handshake_snapshot.token_estimate <= MIND_T3_HANDSHAKE_TOKEN_BUDGET);
+        assert!(handshake_snapshot.token_estimate <= aoc_mind::MIND_T3_HANDSHAKE_TOKEN_BUDGET);
 
         let _ = std::fs::remove_dir_all(test_root);
     }
@@ -14255,7 +11858,8 @@ mod tests {
         seed_reflector_backlog_for_test(&cfg, &mut runtime, "conv-detached-reflector");
         assert!(
             runtime
-                .store
+                .core
+                .store()
                 .pending_reflector_jobs()
                 .expect("pending reflector jobs")
                 > 0
@@ -14285,13 +11889,15 @@ mod tests {
         );
         assert_eq!(
             runtime
-                .store
+                .core
+                .store()
                 .pending_reflector_jobs()
                 .expect("pending reflector jobs"),
             0
         );
         let artifacts = runtime
-            .store
+            .core
+            .store()
             .artifacts_for_conversation("conv-detached-reflector")
             .expect("conversation artifacts");
         assert!(artifacts.iter().any(|artifact| artifact.kind == "t2"));
@@ -14335,7 +11941,8 @@ mod tests {
         );
         assert!(
             runtime
-                .store
+                .core
+                .store()
                 .pending_reflector_jobs()
                 .expect("pending reflector jobs")
                 > 0
@@ -14409,7 +12016,8 @@ mod tests {
         }
         assert!(
             runtime
-                .store
+                .core
+                .store()
                 .pending_reflector_jobs()
                 .expect("pending reflector jobs")
                 >= 3
@@ -14444,7 +12052,8 @@ mod tests {
         );
         assert!(
             runtime
-                .store
+                .core
+                .store()
                 .pending_reflector_jobs()
                 .expect("pending reflector jobs")
                 > 0
@@ -14515,11 +12124,13 @@ mod tests {
         let t2_scope = reflector_scope_id_for_project_root(&cfg.project_root);
         let t3_scope = t3_scope_id_for_project_root(&cfg.project_root);
         assert!(runtime
-            .store
+            .core
+            .store()
             .try_acquire_reflector_lease(&t2_scope, "test-owner", Some(11), now, 60_000)
             .expect("acquire reflector lease"));
         assert!(runtime
-            .store
+            .core
+            .store()
             .try_acquire_t3_runtime_lease(&t3_scope, "test-owner", Some(22), now, 60_000)
             .expect("acquire t3 lease"));
 
@@ -14642,7 +12253,8 @@ mod tests {
         seed_t3_backlog_for_test(&cfg, &mut runtime, "conv-detached-inline");
         assert!(
             runtime
-                .store
+                .core
+                .store()
                 .pending_t3_backlog_jobs()
                 .expect("pending t3 jobs")
                 > 0
@@ -14671,7 +12283,8 @@ mod tests {
         );
         assert_eq!(
             runtime
-                .store
+                .core
+                .store()
                 .pending_t3_backlog_jobs()
                 .expect("pending t3 jobs"),
             0
@@ -14715,7 +12328,8 @@ mod tests {
         );
         assert!(
             runtime
-                .store
+                .core
+                .store()
                 .pending_t3_backlog_jobs()
                 .expect("pending t3 jobs")
                 > 0
@@ -14782,7 +12396,8 @@ mod tests {
         seed_t3_backlog_for_test(&cfg_c, &mut runtime_c, "conv-detached-burst-c");
         assert!(
             runtime
-                .store
+                .core
+                .store()
                 .pending_t3_backlog_jobs()
                 .expect("pending t3 jobs")
                 >= 3
@@ -14815,7 +12430,8 @@ mod tests {
         );
         assert!(
             runtime
-                .store
+                .core
+                .store()
                 .pending_t3_backlog_jobs()
                 .expect("pending t3 jobs")
                 > 0
@@ -15326,8 +12942,14 @@ mod tests {
         .expect("compile task-seeded graph");
         assert_provenance_graph_integrity(&task_seed);
         assert!(task_seed.seed_refs.contains(&"task:132".to_string()));
-        assert!(task_seed.nodes.iter().any(|node| node.node_id == "task:132"));
-        assert!(task_seed.nodes.iter().any(|node| node.node_id == "artifact:obs:task-file"));
+        assert!(task_seed
+            .nodes
+            .iter()
+            .any(|node| node.node_id == "task:132"));
+        assert!(task_seed
+            .nodes
+            .iter()
+            .any(|node| node.node_id == "artifact:obs:task-file"));
         assert!(task_seed.edges.iter().any(|edge| {
             edge.kind == MindProvenanceEdgeKind::ArtifactTaskLink
                 && edge.from == "artifact:obs:task-file"
@@ -15345,7 +12967,9 @@ mod tests {
         )
         .expect("compile file-seeded graph");
         assert_provenance_graph_integrity(&file_seed);
-        assert!(file_seed.seed_refs.contains(&"file:docs/configuration.md".to_string()));
+        assert!(file_seed
+            .seed_refs
+            .contains(&"file:docs/configuration.md".to_string()));
         assert!(file_seed
             .nodes
             .iter()
@@ -15747,10 +13371,16 @@ mod tests {
             "# Project Mind Canon\n\n## Active canon\n\n### canon:planner r1\n- topic: mind\n\nProject planner canon\n",
         )
         .expect("write canon");
-        std::fs::write(export_a.join("t2.md"), "# T2 export\n## art:old [conv]\nplanner drift from older matching export\n")
-            .expect("write old t2");
-        std::fs::write(export_b.join("t2.md"), "# T2 export\n## art:new [conv]\nops-only latest export\n")
-            .expect("write new t2");
+        std::fs::write(
+            export_a.join("t2.md"),
+            "# T2 export\n## art:old [conv]\nplanner drift from older matching export\n",
+        )
+        .expect("write old t2");
+        std::fs::write(
+            export_b.join("t2.md"),
+            "# T2 export\n## art:new [conv]\nops-only latest export\n",
+        )
+        .expect("write new t2");
 
         let mut older = test_context_pack_manifest(Some("mind"));
         older.session_id = "session-old".to_string();
@@ -15805,10 +13435,16 @@ mod tests {
         let export_b = test_root.join(".aoc/mind/insight/export-b");
         std::fs::create_dir_all(&export_a).expect("create export a");
         std::fs::create_dir_all(&export_b).expect("create export b");
-        std::fs::write(export_a.join("t2.md"), "# T2 export\n## art:old [conv]\nplanner checkpoint older export\n")
-            .expect("write old t2");
-        std::fs::write(export_b.join("t2.md"), "# T2 export\n## art:new [conv]\nplanner checkpoint newer export\n")
-            .expect("write new t2");
+        std::fs::write(
+            export_a.join("t2.md"),
+            "# T2 export\n## art:old [conv]\nplanner checkpoint older export\n",
+        )
+        .expect("write old t2");
+        std::fs::write(
+            export_b.join("t2.md"),
+            "# T2 export\n## art:new [conv]\nplanner checkpoint newer export\n",
+        )
+        .expect("write new t2");
 
         let mut older = test_context_pack_manifest(Some("mind"));
         older.session_id = "session-old".to_string();
@@ -15987,7 +13623,8 @@ mod tests {
             .expect("ts");
 
         runtime
-            .store
+            .core
+            .store()
             .insert_raw_event(&RawEvent {
                 event_id: "evt-1".to_string(),
                 conversation_id: "conv-1".to_string(),
@@ -16005,7 +13642,8 @@ mod tests {
             })
             .expect("insert raw event");
         runtime
-            .store
+            .core
+            .store()
             .insert_observation("obs:1", "conv-1", now, "note", &[])
             .expect("insert observation");
 
