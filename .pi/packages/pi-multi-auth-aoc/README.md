@@ -4,6 +4,7 @@ Vendored AOC-managed fork of `pi-multi-auth`, delivered as a local Pi package un
 
 AOC-specific changes:
 - native OpenRouter provider discovery/registration in multi-auth
+- first-class Kimi Code provider integration for `/multi-auth` (device-code OAuth, request shaping, prompt-cache binding)
 - Pi built-in provider metadata stays authoritative; `~/.pi/agent/models.json` is treated as additive override input
 - intended for project-local delivery via `.pi/settings.json` package path, not global npm install
 

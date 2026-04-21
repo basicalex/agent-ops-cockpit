@@ -30,6 +30,10 @@ import {
 	DEFAULT_STREAM_TIMEOUT_CONFIG,
 	type StreamTimeoutConfig,
 } from "./types-stream-timeout.js";
+import {
+	KIMI_CODING_PROVIDER_ID,
+	streamSimpleKimi,
+} from "./providers/kimi-code.js";
 import type {
 	ProviderRegistrationMetadata,
 	SupportedProviderId,
@@ -679,11 +683,18 @@ export function createRotatingStreamWrapper(
 					});
 					let innerStream: AssistantMessageEventStream;
 					try {
-						innerStream = activeBaseProvider.streamSimple(activeModel, context, {
-							...options,
-							apiKey: selected.secret,
-							signal: watchdog.signal,
-						});
+						innerStream =
+							activeProviderId === KIMI_CODING_PROVIDER_ID
+								? streamSimpleKimi(activeModel, context, {
+									...options,
+									apiKey: selected.secret,
+									signal: watchdog.signal,
+								})
+								: activeBaseProvider.streamSimple(activeModel, context, {
+									...options,
+									apiKey: selected.secret,
+									signal: watchdog.signal,
+								});
 					} catch (error: unknown) {
 						watchdog.dispose();
 						if (watchdog.isCallerAbort(error)) {

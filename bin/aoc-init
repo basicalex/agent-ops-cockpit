@@ -1249,6 +1249,7 @@ seeded_enabled_models = [
     "openrouter/google/gemini-2.5-pro",
     "openrouter/google/gemini-2.5-flash",
     "openrouter/qwen/qwen3.6-plus",
+    "kimi-coding/kimi-for-coding",
 ]
 previous_seeded_enabled_models = [
     "openai-codex/gpt-5.4",

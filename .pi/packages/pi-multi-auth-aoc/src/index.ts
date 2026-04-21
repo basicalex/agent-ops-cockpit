@@ -19,6 +19,7 @@ const STARTUP_REFINEMENT_DELAY_MS = 1_500;
 const ENV_API_KEY_PROVIDERS = [
 	{ provider: "openrouter", envVar: "OPENROUTER_API_KEY" },
 	{ provider: "opencode", envVar: "OPENCODE_API_KEY" },
+	{ provider: "kimi-coding", envVar: "KIMI_API_KEY" },
 ] as const;
 
 function getErrorMessage(error: unknown): string {

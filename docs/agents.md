@@ -77,6 +77,7 @@ This repo now seeds project-local PI defaults as follows:
   - `openrouter/google/gemini-2.5-pro`
   - `openrouter/google/gemini-2.5-flash`
   - `openrouter/qwen/qwen3.6-plus`
+  - `kimi-coding/kimi-for-coding`
 
 This keeps OpenCode Zen available while also exposing a small curated OpenRouter slice for low-noise model cycling.
 
@@ -85,7 +86,7 @@ Credential handling stays out of the repo:
 - set `OPENCODE_API_KEY` in your shell, or
 - store an `opencode` API key entry in `~/.pi/agent/auth.json`
 
-When the vendored multi-auth package is active, AOC now bootstraps `OPENCODE_API_KEY` and `OPENROUTER_API_KEY` from the environment into PI auth storage on startup, deduplicates matching keys, and lets multi-auth own rotation state in `~/.pi/agent/multi-auth.json`.
+When the vendored multi-auth package is active, AOC now bootstraps `OPENCODE_API_KEY`, `OPENROUTER_API_KEY`, and `KIMI_API_KEY` from the environment into PI auth storage on startup, deduplicates matching keys, and lets multi-auth own rotation state in `~/.pi/agent/multi-auth.json`.
 
 Do **not** commit API keys into `.pi/settings.json`. PI already ships native OpenCode Zen support, so AOC only seeds project defaults and model visibility.
 
@@ -104,7 +105,7 @@ This repo now treats OpenRouter as a **Pi-native** provider surface:
 
 Multi-auth still wraps `openrouter` so multiple API keys can be added, selected, and rotated from the `/multi-auth` TUI, but provider/model metadata now comes from Pi's native OpenRouter integration first. `~/.pi/agent/models.json` is no longer AOC-owned; any surviving legacy AOC-managed OpenRouter snapshot is backed up and removed automatically.
 
-AOC still seeds a curated OpenRouter slice into `enabledModels`, so Ctrl+P cycling stays intentionally small without replacing Pi's native catalog.
+AOC still seeds a curated OpenRouter slice plus `kimi-coding/kimi-for-coding` into `enabledModels`, so Ctrl+P cycling stays intentionally small without replacing Pi's native catalog.
 
 ## Prompt templates
 
