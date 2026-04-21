@@ -329,6 +329,7 @@ if [[ -f "$layout_path" ]]; then
       -v session_id="$session_id" \
       -v hub_addr="$hub_addr" \
       -v hub_url="$hub_url" \
+      -v home_dir="$HOME" \
       -v theme_blue="$AOC_THEME_BLUE" \
       -v theme_green="$AOC_THEME_GREEN" \
       -v theme_red="$AOC_THEME_RED" \
@@ -352,6 +353,7 @@ if [[ -f "$layout_path" ]]; then
     gsub(/__AOC_SESSION_ID__/, session_id)
     gsub(/__AOC_HUB_ADDR__/, hub_addr)
     gsub(/__AOC_HUB_URL__/, hub_url)
+    gsub(/\{\{HOME\}\}/, home_dir)
     gsub(/__AOC_THEME_BLUE__/, theme_blue)
     gsub(/__AOC_THEME_GREEN__/, theme_green)
     gsub(/__AOC_THEME_RED__/, theme_red)
