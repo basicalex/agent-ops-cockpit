@@ -8,12 +8,14 @@ import {
 } from "@mariozechner/pi-ai/oauth";
 import { extractCodexCredentialIdentity } from "./openai-codex-identity.js";
 import { determineTokenExpiration } from "./oauth-refresh-scheduler.js";
+import { getKimiOAuthProvider, KIMI_CODING_PROVIDER_ID } from "./providers/kimi-code.js";
 import {
 	OAuthRefreshFailureError,
 	UNSUPPORTED_OAUTH_REFRESH_PROVIDER_ERROR_CODE,
 } from "./types-oauth.js";
 
 const OPENAI_CODEX_PROVIDER_ID = "openai-codex";
+const localOAuthProviders = [getKimiOAuthProvider()];
 const OPENAI_CODEX_TOKEN_URL = "https://auth.openai.com/oauth/token";
 const OPENAI_CODEX_CLIENT_ID = "app_EMoamEEZ73f0CkXaXp7hrann";
 const MAX_OAUTH_ERROR_BODY_CHARS = 2_000;
@@ -268,11 +270,22 @@ async function refreshOpenAICodexCredential(
 export function getOAuthProvider(
 	id: OAuthProviderId,
 ): OAuthProviderInterface | undefined {
+	for (const provider of localOAuthProviders) {
+		if (provider.id === id) {
+			return provider;
+		}
+	}
 	return getOAuthProviderFromPiAi(id);
 }
 
 export function getOAuthProviders(): OAuthProviderInterface[] {
-	return getOAuthProvidersFromPiAi();
+	const providers = [...getOAuthProvidersFromPiAi()];
+	for (const provider of localOAuthProviders) {
+		if (!providers.some((entry) => entry.id === provider.id)) {
+			providers.push(provider);
+		}
+	}
+	return providers;
 }
 
 export interface OAuthRefreshExecutionOptions {
@@ -292,6 +305,10 @@ export async function refreshOAuthCredential(
 				? Math.floor(options.requestTimeoutMs)
 				: DEFAULT_OAUTH_REFRESH_TIMEOUT_MS;
 		return refreshOpenAICodexCredential(credentials, requestTimeoutMs);
+	}
+
+	if (providerId === KIMI_CODING_PROVIDER_ID) {
+		return getKimiOAuthProvider().refreshToken(credentials);
 	}
 
 	const provider = getOAuthProviderFromPiAi(providerId);

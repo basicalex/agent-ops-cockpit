@@ -1,6 +1,10 @@
 import { readFile, stat } from "node:fs/promises";
 import { getModels, type Api, type Model } from "@mariozechner/pi-ai";
 import { getOAuthProvider, getOAuthProviders } from "./oauth-compat.js";
+import {
+	getKimiProviderRegistrationMetadata,
+	KIMI_CODING_PROVIDER_ID,
+} from "./providers/kimi-code.js";
 import { AuthWriter } from "./auth-writer.js";
 import { resolveAgentRuntimePath } from "./runtime-paths.js";
 import {
@@ -407,6 +411,15 @@ function getDefaultModelsPath(): string {
 	return resolveAgentRuntimePath("models.json");
 }
 
+function getStaticProviderRegistrationMetadata(
+	provider: SupportedProviderId,
+): ProviderRegistrationMetadata | null {
+	if (provider === KIMI_CODING_PROVIDER_ID) {
+		return getKimiProviderRegistrationMetadata();
+	}
+	return null;
+}
+
 function createModelsFileCacheKey(fileStats: {
 	mtimeMs: number;
 	ctimeMs: number;
@@ -522,6 +535,10 @@ export class ProviderRegistry {
 	 * Returns true when provider has model metadata from built-in registry or models.json.
 	 */
 	async hasModelMetadata(provider: SupportedProviderId): Promise<boolean> {
+		if (getStaticProviderRegistrationMetadata(provider)) {
+			return true;
+		}
+
 		const builtInModels = getModels(provider as Parameters<typeof getModels>[0]);
 		if (builtInModels.length > 0) {
 			return true;
@@ -562,6 +579,11 @@ export class ProviderRegistry {
 	async resolveProviderRegistrationMetadata(
 		provider: SupportedProviderId,
 	): Promise<ProviderRegistrationMetadata | null> {
+		const staticMetadata = getStaticProviderRegistrationMetadata(provider);
+		if (staticMetadata) {
+			return staticMetadata;
+		}
+
 		const modelsFile = await this.readModelsFile();
 		let fromFile = modelsFile.providers[provider];
 		if (provider === "openrouter" && isLegacyManagedOpenRouterEntry(fromFile)) {
