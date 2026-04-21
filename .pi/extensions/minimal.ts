@@ -7,145 +7,23 @@
  * - T1 pre-filter load bar (authoritative feed when available, deterministic local fallback)
  * - session context usage bar
  *
- * Shortcuts / commands:
- * - Alt+M: open or toggle the project-scoped AOC Mind floating UI
- * - /mind: open or toggle the project-scoped AOC Mind floating UI
- * - /mind-observer-run: manually queue an observer run when needed
+ * Mind transport / commands now live in the native Mind extension stack:
+ * - `mind-ingest.ts`
+ * - `mind-ops.ts`
+ * - `mind-context.ts`
+ * - `mind-focus.ts`
  */
 
 import type { ExtensionAPI, ExtensionContext } from "@mariozechner/pi-coding-agent";
 import { applyExtensionDefaults } from "./themeMap.ts";
+import type { AutocompleteItem } from "@mariozechner/pi-tui";
 import { truncateToWidth, visibleWidth } from "@mariozechner/pi-tui";
-import * as fs from "node:fs";
-import { spawnSync } from "node:child_process";
-import { createConnection, type Socket } from "node:net";
-import { join } from "node:path";
+import { currentMindSnapshot } from "./lib/mind.ts";
 
 type MindStatus = "idle" | "queued" | "running" | "success" | "fallback" | "error";
+type CavemanLevel = "off" | "lite" | "full" | "ultra";
 
 type Sample = { at: number; tokens: number };
-
-type MindFeedProgress = {
-	t0_estimated_tokens: number;
-	t1_target_tokens: number;
-	t1_hard_cap_tokens: number;
-	tokens_until_next_run: number;
-};
-
-type PendingCompactionPreparation = {
-	capturedAtMs: number;
-	firstKeptEntryId?: string;
-	tokensBefore?: number;
-};
-
-type SubagentStatus = "idle" | "running" | "success" | "warn" | "error";
-
-type SubagentIndicator = {
-	key: string;
-	label: string;
-	agent: string;
-	available: boolean;
-	status: SubagentStatus;
-};
-
-type PersistedSubagentJobRecord = {
-	jobId: string;
-	agent: string;
-	status: string;
-	createdAt?: number;
-	finishedAt?: number;
-	fallbackUsed?: boolean;
-	error?: string;
-};
-
-type ExtensionState = {
-	ctx?: ExtensionContext;
-	initialized: boolean;
-	filteredTokens: number;
-	samples: Sample[];
-	lastEstimateAtMs?: number;
-	lastTokenRecomputeAtMs?: number;
-	sessionStartAnimationStartedAtMs?: number;
-	mindStatus: MindStatus;
-	mindReason?: string;
-	mindUpdatedAtMs?: number;
-	mindProgress?: MindFeedProgress;
-	pulseConnected: boolean;
-	pulseSocket?: Socket;
-	pulseBuffer: string;
-	reconnectTimer?: NodeJS.Timeout;
-	refreshTimer?: NodeJS.Timeout;
-	lastPulseRequestId?: string;
-	pendingCompactionPreparation?: PendingCompactionPreparation;
-	subagentIndicators: SubagentIndicator[];
-	lastSubagentRefreshAtMs?: number;
-};
-
-const T1_TARGET_TOKENS = 28_000;
-const SAMPLE_WINDOW_MS = 10 * 60 * 1000;
-const REFRESH_INTERVAL_MS = 117;
-const TOKEN_RECOMPUTE_INTERVAL_MS = 2_000;
-const RUNNING_ANIMATION_STEP_MS = 117;
-const MIND_BAR_WIDTH = 10;
-const SESSION_START_ANIMATION_STEPS = Math.max(1, (MIND_BAR_WIDTH - 1) * 2);
-const SESSION_START_ANIMATION_MS = (SESSION_START_ANIMATION_STEPS + 1) * RUNNING_ANIMATION_STEP_MS;
-const SUBAGENT_ENTRY_TYPE = "aoc-subagent-job-v1";
-const SUBAGENT_REFRESH_INTERVAL_MS = 30_000;
-const SUBAGENT_RECENT_WINDOW_MS = 5 * 60 * 1000;
-const SUBAGENT_SPECS = [
-	{ key: "sc", label: "sc", agent: "scout-web-agent" },
-	{ key: "tst", label: "tst", agent: "testing-agent" },
-	{ key: "rvu", label: "rvu", agent: "code-review-agent" },
-	{ key: "ex", label: "ex", agent: "explorer-agent" },
-] as const;
-const SUBAGENT_SPINNER = ["—", "\\", "|", "/"] as const;
-
-const state: ExtensionState = {
-	initialized: false,
-	filteredTokens: 0,
-	samples: [],
-	mindStatus: "idle",
-	pulseConnected: false,
-	pulseBuffer: "",
-	pendingCompactionPreparation: undefined,
-	subagentIndicators: [],
-};
-
-function stableHashHex(input: string): string {
-	let hash = 2166136261;
-	for (let i = 0; i < input.length; i++) {
-		hash ^= input.charCodeAt(i);
-		hash = Math.imul(hash, 16777619) >>> 0;
-	}
-	return hash.toString(16).padStart(8, "0");
-}
-
-function sessionSlug(sessionId: string): string {
-	let slug = "";
-	for (const ch of sessionId) {
-		slug += /[A-Za-z0-9._-]/.test(ch) ? ch : "-";
-	}
-	while (slug.includes("--")) slug = slug.replaceAll("--", "-");
-	slug = slug.replace(/^-+|-+$/g, "");
-	const base = slug.length > 0 ? slug : "session";
-	const short = base.length > 48 ? base.slice(0, 48) : base;
-	return `${short}-${stableHashHex(sessionId)}`;
-}
-
-function pulseSocketPath(sessionId: string): string {
-	const envPath = process.env.AOC_PULSE_SOCK?.trim();
-	if (envPath) return envPath;
-
-	const runtimeDir = process.env.XDG_RUNTIME_DIR?.trim()
-		|| (typeof process.getuid === "function" ? `/run/user/${process.getuid()}` : "")
-		|| "/tmp";
-
-	return join(runtimeDir, "aoc", sessionSlug(sessionId), "pulse.sock");
-}
-
-function nowIso(): string {
-	return new Date().toISOString();
-}
 
 function estimateTokens(text: string): number {
 	if (!text) return 0;
@@ -182,6 +60,37 @@ function toolMetaLine(message: any): string {
 	if (typeof outBytes === "number") line += ` bytes=${outBytes}`;
 	return line;
 }
+
+type ExtensionState = {
+	ctx?: ExtensionContext;
+	initialized: boolean;
+	filteredTokens: number;
+	samples: Sample[];
+	lastEstimateAtMs?: number;
+	lastTokenRecomputeAtMs?: number;
+	sessionStartAnimationStartedAtMs?: number;
+	refreshTimer?: NodeJS.Timeout;
+	cavemanLevel: CavemanLevel;
+};
+
+const T1_TARGET_TOKENS = 28_000;
+const SAMPLE_WINDOW_MS = 10 * 60 * 1000;
+const REFRESH_INTERVAL_MS = 117;
+const TOKEN_RECOMPUTE_INTERVAL_MS = 2_000;
+const RUNNING_ANIMATION_STEP_MS = 117;
+const MIND_BAR_WIDTH = 10;
+const SESSION_START_ANIMATION_STEPS = Math.max(1, (MIND_BAR_WIDTH - 1) * 2);
+const SESSION_START_ANIMATION_MS = (SESSION_START_ANIMATION_STEPS + 1) * RUNNING_ANIMATION_STEP_MS;
+const CAVEMAN_LEVELS: [CavemanLevel, CavemanLevel, CavemanLevel, CavemanLevel] = ["off", "lite", "full", "ultra"];
+const CAVEMAN_GLYPHS: Record<CavemanLevel, string> = { off: "·", lite: "◇", full: "◈", ultra: "◆" };
+const CAVEMAN_LABELS: Record<CavemanLevel, string> = { off: "off", lite: "lite", full: "full", ultra: "ultra" };
+
+const state: ExtensionState = {
+	initialized: false,
+	filteredTokens: 0,
+	samples: [],
+	cavemanLevel: "off",
+};
 
 function recomputeFilteredTokens(ctx: ExtensionContext): void {
 	const branch = ctx.sessionManager.getBranch?.() ?? [];
@@ -279,120 +188,6 @@ function mindBar(pct: number, status: MindStatus, width = MIND_BAR_WIDTH): strin
 	return bar(pct, width);
 }
 
-function parseMindProgress(input: any): MindFeedProgress | undefined {
-	if (!input || typeof input !== "object") return undefined;
-	const t0 = Number(input.t0_estimated_tokens);
-	const target = Number(input.t1_target_tokens);
-	const hardCap = Number(input.t1_hard_cap_tokens);
-	const until = Number(input.tokens_until_next_run);
-	if (!Number.isFinite(t0) || !Number.isFinite(target) || !Number.isFinite(hardCap) || !Number.isFinite(until)) {
-		return undefined;
-	}
-	if (target <= 0 || hardCap < target) return undefined;
-	return {
-		t0_estimated_tokens: Math.max(0, Math.round(t0)),
-		t1_target_tokens: Math.max(1, Math.round(target)),
-		t1_hard_cap_tokens: Math.max(Math.round(target), Math.round(hardCap)),
-		tokens_until_next_run: Math.max(0, Math.round(until)),
-	};
-}
-
-function commandAvailable(command: string, args: string[]): boolean {
-	try {
-		const result = spawnSync(command, args, {
-			stdio: "ignore",
-			shell: false,
-			timeout: 4000,
-			env: process.env,
-		});
-		return !result.error && result.status === 0;
-	} catch {
-		return false;
-	}
-}
-
-function resolveSearchCommand(root: string): string {
-	const local = join(root, "bin", "aoc-search");
-	return fs.existsSync(local) ? local : "aoc-search";
-}
-
-function scoutAvailable(root: string): boolean {
-	const browserBin = process.env.AOC_AGENT_BROWSER_BIN?.trim() || "agent-browser";
-	return fs.existsSync(join(root, ".pi", "skills", "agent-browser", "SKILL.md"))
-		&& fs.existsSync(join(root, ".aoc", "search.toml"))
-		&& fs.existsSync(join(root, ".aoc", "services", "searxng", "docker-compose.yml"))
-		&& fs.existsSync(join(root, ".aoc", "services", "searxng", "settings.yml"))
-		&& commandAvailable(browserBin, ["--version"])
-		&& commandAvailable(resolveSearchCommand(root), ["health"]);
-}
-
-function subagentAvailable(root: string, agent: string): boolean {
-	if (agent === "scout-web-agent") return scoutAvailable(root);
-	return fs.existsSync(join(root, ".pi", "agents", `${agent}.md`));
-}
-
-function spinnerFrame(): string {
-	return SUBAGENT_SPINNER[Math.floor(Date.now() / RUNNING_ANIMATION_STEP_MS) % SUBAGENT_SPINNER.length];
-}
-
-function subagentGlyph(status: SubagentStatus): string {
-	switch (status) {
-		case "running":
-			return spinnerFrame();
-		case "success":
-			return "✓";
-		case "warn":
-			return "!";
-		case "error":
-			return "✗";
-		case "idle":
-		default:
-			return "·";
-	}
-}
-
-function refreshSubagentIndicators(ctx: ExtensionContext, force = false): void {
-	const now = Date.now();
-	if (!force && state.lastSubagentRefreshAtMs && now - state.lastSubagentRefreshAtMs < SUBAGENT_REFRESH_INTERVAL_MS) return;
-	const root = ctx.cwd ?? process.cwd();
-	const entries = ctx.sessionManager.getEntries?.() ?? [];
-	const latestByJob = new Map<string, PersistedSubagentJobRecord>();
-	for (const entry of entries) {
-		const rec = entry as any;
-		if (rec?.type !== "custom" || rec?.customType !== SUBAGENT_ENTRY_TYPE || !rec?.data) continue;
-		const data = rec.data as PersistedSubagentJobRecord;
-		if (!data?.jobId || !data?.agent) continue;
-		const prior = latestByJob.get(data.jobId);
-		if (!prior || (data.createdAt ?? 0) >= (prior.createdAt ?? 0) || (data.finishedAt ?? 0) >= (prior.finishedAt ?? 0)) {
-			latestByJob.set(data.jobId, data);
-		}
-	}
-	state.subagentIndicators = SUBAGENT_SPECS
-		.filter((spec) => subagentAvailable(root, spec.agent))
-		.map((spec) => {
-			const jobs = Array.from(latestByJob.values()).filter((job) => job.agent === spec.agent);
-			let status: SubagentStatus = "idle";
-			if (jobs.some((job) => job.status === "queued" || job.status === "running")) {
-				status = "running";
-			} else {
-				const recent = jobs
-					.filter((job) => typeof job.finishedAt === "number" && now - (job.finishedAt as number) <= SUBAGENT_RECENT_WINDOW_MS)
-					.sort((a, b) => (b.finishedAt ?? 0) - (a.finishedAt ?? 0))[0];
-				if (recent) {
-					if (recent.status === "success") status = "success";
-					else if (recent.status === "fallback" || recent.status === "stale" || recent.status === "cancelled" || recent.fallbackUsed) status = "warn";
-					else if (recent.status === "error") status = "error";
-				}
-			}
-			return { ...spec, available: true, status };
-		});
-	state.lastSubagentRefreshAtMs = now;
-}
-
-function renderSubagentTokens(): string[] {
-	return state.subagentIndicators.map((indicator) => `${indicator.label}${subagentGlyph(indicator.status)}`);
-}
-
 function composeCenteredFooterLine(left: string, center: string, right: string, width: number): string {
 	const leftWidth = visibleWidth(left);
 	const centerWidth = visibleWidth(center);
@@ -470,23 +265,21 @@ function renderFooter(width: number, _theme: any): string {
 	const model = ctx?.model?.id || "no-model";
 	const usage = ctx?.getContextUsage?.();
 	const ctxPct = usage && usage.percent !== null ? Number(usage.percent) / 100 : 0;
+	const mind = currentMindSnapshot(state.ctx);
 
-	const t0Tokens = state.mindProgress?.t0_estimated_tokens ?? state.filteredTokens;
-	const t1Target = state.mindProgress?.t1_target_tokens ?? T1_TARGET_TOKENS;
+	const t0Tokens = mind.mindProgress?.t0_estimated_tokens ?? state.filteredTokens;
+	const t1Target = mind.mindProgress?.t1_target_tokens ?? T1_TARGET_TOKENS;
 	const mindLoadPct = Math.min(1, t0Tokens / Math.max(1, t1Target));
-	const tokens = renderSubagentTokens();
-	const leftBridge = [tokens[0], tokens[1]].filter(Boolean).join(" ");
-	const rightBridge = [tokens[2], tokens[3]].filter(Boolean).join(" ");
-	const mindPart = `✦ [${mindBar(mindLoadPct, state.mindStatus, MIND_BAR_WIDTH)}]✦`;
+	const mindPart = `✦ [${mindBar(mindLoadPct, mind.mindStatus, MIND_BAR_WIDTH)}]✦`;
 	const leftPart = ` ${model}`;
 	const ctxPart = `[${bar(ctxPct)}] ${Math.round(ctxPct * 100)}% `;
+	const cavBadge = `🪨${CAVEMAN_GLYPHS[state.cavemanLevel]}${state.cavemanLevel !== "off" ? state.cavemanLevel : ""}`;
 
-	return composeFooterWithBridges(leftPart, leftBridge, mindPart, rightBridge, ctxPart, width);
+	return composeCenteredFooterLine(leftPart, mindPart, ctxPart + cavBadge, width);
 }
 
 function applyFooter(ctx: ExtensionContext): void {
 	state.ctx = ctx;
-	refreshSubagentIndicators(ctx);
 	ctx.ui.setFooter((_tui: unknown, theme: any, _footerData: unknown) => ({
 		dispose: () => {},
 		invalidate() {},
@@ -494,324 +287,6 @@ function applyFooter(ctx: ExtensionContext): void {
 			return [renderFooter(width, theme)];
 		},
 	}));
-}
-
-function applyMindPayload(payload: any): void {
-	const events = Array.isArray(payload?.events) ? payload.events : [];
-	const latest = events.length > 0 ? events[0] : undefined;
-	const statusRaw = typeof latest?.status === "string" ? latest.status : "";
-
-	switch (statusRaw) {
-		case "queued":
-		case "running":
-		case "success":
-		case "fallback":
-		case "error":
-			state.mindStatus = statusRaw;
-			break;
-		default:
-			break;
-	}
-
-	state.mindReason = typeof latest?.reason === "string" ? latest.reason : undefined;
-	const progress = parseMindProgress(latest?.progress) ?? parseMindProgress(payload?.progress);
-	if (progress) {
-		state.mindProgress = progress;
-	}
-	if (typeof payload?.updated_at_ms === "number") {
-		state.mindUpdatedAtMs = payload.updated_at_ms;
-	}
-}
-
-function parseEnvelope(line: string): any | undefined {
-	if (!line.trim()) return undefined;
-	try {
-		return JSON.parse(line);
-	} catch {
-		return undefined;
-	}
-}
-
-function writeEnvelope(socket: Socket | undefined, envelope: any): void {
-	if (!socket || socket.destroyed) return;
-	socket.write(JSON.stringify(envelope) + "\n");
-}
-
-function pulseIdentity(ctx: ExtensionContext): { sessionId: string; paneId: string; senderId: string; agentId: string } | undefined {
-	const sessionId = process.env.AOC_SESSION_ID?.trim();
-	const paneId = process.env.AOC_PANE_ID?.trim();
-	if (!sessionId || !paneId) return undefined;
-	const senderId = `pi-minimal-${process.pid}`;
-	const agentId = `${sessionId}::${paneId}`;
-	return { sessionId, paneId, senderId, agentId };
-}
-
-function sendPulseCommand(ctx: ExtensionContext, command: string, args: Record<string, unknown>): boolean {
-	const identity = pulseIdentity(ctx);
-	if (!identity) return false;
-	const socket = state.pulseSocket;
-	if (!socket || socket.destroyed || !state.pulseConnected) return false;
-	writeEnvelope(socket, {
-		version: "1",
-		type: "command",
-		session_id: identity.sessionId,
-		sender_id: identity.senderId,
-		request_id: `${command}-${Date.now()}`,
-		timestamp: nowIso(),
-		payload: {
-			command,
-			target_agent_id: identity.agentId,
-			args,
-		},
-	});
-	return true;
-}
-
-function startPulse(ctx: ExtensionContext): void {
-	const identity = pulseIdentity(ctx);
-	if (!identity) return;
-	const { sessionId, paneId, senderId, agentId } = identity;
-
-	const socketPath = pulseSocketPath(sessionId);
-
-	const connect = () => {
-		if (state.pulseSocket && !state.pulseSocket.destroyed) return;
-
-		const socket = createConnection(socketPath);
-		state.pulseSocket = socket;
-		state.pulseBuffer = "";
-
-		socket.on("connect", () => {
-			state.pulseConnected = true;
-
-			writeEnvelope(socket, {
-				version: "1",
-				type: "hello",
-				session_id: sessionId,
-				sender_id: senderId,
-				timestamp: nowIso(),
-				payload: {
-					client_id: senderId,
-					role: "subscriber",
-					capabilities: ["mind_observer"],
-					agent_id: agentId,
-					pane_id: paneId,
-				},
-			});
-
-			writeEnvelope(socket, {
-				version: "1",
-				type: "subscribe",
-				session_id: sessionId,
-				sender_id: senderId,
-				timestamp: nowIso(),
-				payload: {
-					topics: ["agent_state", "health"],
-				},
-			});
-		});
-
-		socket.on("data", (chunk: Buffer) => {
-			state.pulseBuffer += chunk.toString("utf8");
-			for (;;) {
-				const idx = state.pulseBuffer.indexOf("\n");
-				if (idx < 0) break;
-				const line = state.pulseBuffer.slice(0, idx);
-				state.pulseBuffer = state.pulseBuffer.slice(idx + 1);
-				const env = parseEnvelope(line);
-				if (!env || env.session_id !== sessionId) continue;
-
-				if (env.type === "snapshot") {
-					const states = Array.isArray(env.payload?.states) ? env.payload.states : [];
-					const mine = states.find((s: any) => s?.agent_id === agentId);
-					if (mine?.source?.mind_observer) applyMindPayload(mine.source.mind_observer);
-				}
-
-				if (env.type === "delta") {
-					const changes = Array.isArray(env.payload?.changes) ? env.payload.changes : [];
-					for (const change of changes) {
-						if (change?.agent_id !== agentId) continue;
-						if (change?.op === "remove") {
-							state.mindStatus = "idle";
-							state.mindProgress = undefined;
-							continue;
-						}
-						if (change?.state?.source?.mind_observer) {
-							applyMindPayload(change.state.source.mind_observer);
-						}
-					}
-				}
-
-				if (env.type === "command_result" && env.request_id && env.request_id === state.lastPulseRequestId) {
-					if (env.payload?.command === "run_observer" && env.payload?.status === "accepted") {
-						state.mindStatus = "queued";
-					}
-				}
-			}
-		});
-
-		const scheduleReconnect = () => {
-			state.pulseConnected = false;
-			if (state.pulseSocket && !state.pulseSocket.destroyed) state.pulseSocket.destroy();
-			state.pulseSocket = undefined;
-			if (state.reconnectTimer) clearTimeout(state.reconnectTimer);
-			state.reconnectTimer = setTimeout(connect, 2000);
-		};
-
-		socket.on("error", () => scheduleReconnect());
-		socket.on("close", () => scheduleReconnect());
-	};
-
-	connect();
-}
-
-function extractCommandHintFromToolResult(message: any): string | undefined {
-	const details = message?.details;
-	if (details && typeof details === "object") {
-		const command = (details as any).command;
-		if (typeof command === "string" && command.trim().length > 0) {
-			return command.trim();
-		}
-	}
-	const text = blocksToText(message?.content);
-	const cmdPrefix = "Command:";
-	const idx = text.indexOf(cmdPrefix);
-	if (idx >= 0) {
-		const line = text.slice(idx + cmdPrefix.length).split("\n")[0]?.trim();
-		if (line) return line;
-	}
-	return undefined;
-}
-
-function buildMindIngestPayload(message: any, ctx: ExtensionContext): Record<string, unknown> | undefined {
-	const conversationId = ctx.sessionManager.getSessionId?.();
-	if (!conversationId || typeof conversationId !== "string") return undefined;
-	const timestampMs = typeof message?.timestamp === "number" ? Math.round(message.timestamp) : Date.now();
-	const role = typeof message?.role === "string" ? message.role : "";
-	const eventIdSeed = JSON.stringify({
-		role,
-		timestampMs,
-		text: blocksToText(message?.content),
-		tool: message?.toolName,
-		details: message?.details,
-	});
-	const eventId = `pi:${conversationId}:${stableHashHex(eventIdSeed)}`;
-
-	if (role === "user" || role === "assistant" || role === "system") {
-		return {
-			conversation_id: conversationId,
-			event_id: eventId,
-			timestamp_ms: timestampMs,
-			body: {
-				kind: "message",
-				role,
-				text: blocksToText(message?.content),
-			},
-		};
-	}
-
-	if (role === "toolResult") {
-		const toolName = typeof message?.toolName === "string" ? message.toolName : "tool";
-		const details = message?.details ?? {};
-		const outputText = blocksToText(message?.content);
-		return {
-			conversation_id: conversationId,
-			event_id: eventId,
-			timestamp_ms: timestampMs,
-			body: {
-				kind: "tool_result",
-				tool_name: toolName,
-				is_error: Boolean(message?.isError),
-				latency_ms: typeof details?.latencyMs === "number"
-					? details.latencyMs
-					: (typeof details?.latency_ms === "number" ? details.latency_ms : undefined),
-				exit_code: typeof details?.exitCode === "number"
-					? details.exitCode
-					: (typeof details?.exit_code === "number" ? details.exit_code : undefined),
-				output: outputText || undefined,
-				redacted: Boolean(details?.redacted),
-			},
-		};
-	}
-
-	return undefined;
-}
-
-function maybeIngestMindEvent(message: any, ctx: ExtensionContext): void {
-	const payload = buildMindIngestPayload(message, ctx);
-	if (!payload) return;
-	sendPulseCommand(ctx, "mind_ingest_event", payload);
-
-	if (message?.role === "toolResult") {
-		const toolName = typeof message?.toolName === "string" ? message.toolName.toLowerCase() : "";
-		if (toolName === "bash") {
-			const commandHint = extractCommandHintFromToolResult(message) ?? "";
-			if (/\baoc-stm\s+handoff\b/i.test(commandHint)) {
-				sendPulseCommand(ctx, "mind_handoff", {
-					conversation_id: ctx.sessionManager.getSessionId?.(),
-					reason: "stm handoff",
-				});
-			}
-		}
-	}
-}
-
-function resolveMindToggleCommand(root: string): string {
-	const local = join(root, "bin", "aoc-mind-toggle");
-	return fs.existsSync(local) ? local : "aoc-mind-toggle";
-}
-
-function launchMindUi(ctx: ExtensionContext): { ok: boolean; message: string } {
-	const sessionManager = ctx.sessionManager as any;
-	const root = sessionManager?.getProjectRoot?.() || process.env.AOC_PROJECT_ROOT || process.cwd();
-	const command = resolveMindToggleCommand(root);
-	try {
-		const result = spawnSync(command, [], {
-			cwd: root,
-			stdio: "ignore",
-			shell: false,
-			timeout: 8000,
-			env: process.env,
-		});
-		if (result.error) {
-			return { ok: false, message: `Mind UI unavailable: ${result.error.message}` };
-		}
-		if ((result.status ?? 1) !== 0) {
-			return { ok: false, message: `Mind UI launcher exited with status ${result.status ?? 1}` };
-		}
-		return { ok: true, message: "Project Mind toggled" };
-	} catch (error) {
-		return { ok: false, message: `Mind UI unavailable: ${error instanceof Error ? error.message : String(error)}` };
-	}
-}
-
-function requestManualObserverRun(ctx: ExtensionContext): boolean {
-	const identity = pulseIdentity(ctx);
-	if (!identity) return false;
-	const socket = state.pulseSocket;
-	if (!socket || socket.destroyed || !state.pulseConnected) return false;
-
-	const requestId = `mind-run-${Date.now()}`;
-	state.lastPulseRequestId = requestId;
-
-	writeEnvelope(socket, {
-		version: "1",
-		type: "command",
-		session_id: identity.sessionId,
-		sender_id: identity.senderId,
-		request_id: requestId,
-		timestamp: nowIso(),
-		payload: {
-			command: "run_observer",
-			target_agent_id: identity.agentId,
-			args: {
-				reason: "pi shortcut",
-				conversation_id: ctx.sessionManager.getSessionId?.(),
-			},
-		},
-	});
-	state.mindStatus = "queued";
-	return true;
 }
 
 function startRefreshLoop(ctx: ExtensionContext): void {
@@ -833,102 +308,89 @@ function bootstrap(ctx: ExtensionContext, options?: { animateOnStart?: boolean }
 	}
 	applyExtensionDefaults(import.meta.url, ctx);
 	recomputeFilteredTokens(ctx);
-	refreshSubagentIndicators(ctx, true);
 	applyFooter(ctx);
 	startRefreshLoop(ctx);
-	startPulse(ctx);
 	state.initialized = true;
 }
 
 export default function (pi: ExtensionAPI) {
 	pi.on("session_start", async (_event, ctx) => {
 		if (!ctx?.ui) return;
+		// Restore persisted caveman level from session entries
+		for (const entry of ctx.sessionManager.getBranch()) {
+			if ((entry as any).type === "toolResult" && (entry as any).message?.toolName === "appendEntry") {
+				const data = (entry as any).message?.details;
+				if (data?.cavemanLevel && CAVEMAN_LEVELS.includes(data.cavemanLevel)) {
+					state.cavemanLevel = data.cavemanLevel;
+					break;
+				}
+			}
+		}
 		bootstrap(ctx, { animateOnStart: true });
 	});
 
 	pi.on("session_switch", async (_event, ctx) => {
 		if (!ctx?.ui) return;
+		for (const entry of ctx.sessionManager.getBranch()) {
+			if ((entry as any).type === "toolResult" && (entry as any).message?.toolName === "appendEntry") {
+				const data = (entry as any).message?.details;
+				if (data?.cavemanLevel && CAVEMAN_LEVELS.includes(data.cavemanLevel)) {
+					state.cavemanLevel = data.cavemanLevel;
+					break;
+				}
+			}
+		}
 		bootstrap(ctx);
 	});
 
-	pi.on("message_end", async (event, ctx) => {
-		maybeIngestMindEvent((event as any)?.message, ctx);
+	pi.on("message_end", async (_event, ctx) => {
 		recomputeFilteredTokens(ctx);
-		refreshSubagentIndicators(ctx, true);
 		applyFooter(ctx);
-	});
-
-	pi.on("session_before_compact", async (event, _ctx) => {
-		const preparation = (event as any)?.preparation;
-		state.pendingCompactionPreparation = {
-			capturedAtMs: Date.now(),
-			firstKeptEntryId: typeof preparation?.firstKeptEntryId === "string"
-				? preparation.firstKeptEntryId
-				: undefined,
-			tokensBefore: typeof preparation?.tokensBefore === "number"
-				? preparation.tokensBefore
-				: undefined,
-		};
-	});
-
-	pi.on("session_compact", async (event, ctx) => {
-		const entry = (event as any)?.compactionEntry;
-		const preparation = state.pendingCompactionPreparation;
-		const ok = sendPulseCommand(ctx, "mind_compaction_checkpoint", {
-			schema_version: 1,
-			conversation_id: ctx.sessionManager.getSessionId?.(),
-			reason: "pi compaction",
-			summary: typeof entry?.summary === "string" ? entry.summary : undefined,
-			tokens_before: typeof entry?.tokensBefore === "number"
-				? entry.tokensBefore
-				: preparation?.tokensBefore,
-			first_kept_entry_id: typeof entry?.firstKeptEntryId === "string"
-				? entry.firstKeptEntryId
-				: preparation?.firstKeptEntryId,
-			compaction_entry_id: typeof entry?.id === "string" ? entry.id : undefined,
-			from_extension: Boolean((entry as any)?.fromHook ?? (event as any)?.fromExtension),
-		});
-		state.pendingCompactionPreparation = undefined;
-		if (!ok) {
-			ctx.ui.setStatus("mind", "compact checkpoint pending (pulse offline)");
-		}
 	});
 
 	pi.on("turn_end", async (_event, ctx) => {
 		recomputeFilteredTokens(ctx);
-		refreshSubagentIndicators(ctx, true);
 		applyFooter(ctx);
-	});
-
-	pi.registerCommand("mind", {
-		description: "Open or toggle the project-scoped AOC Mind floating UI",
-		handler: async (_args, ctx) => {
-			const result = launchMindUi(ctx);
-			ctx.ui.notify(result.message, result.ok ? "info" : "warning");
-		},
-	});
-
-	pi.registerCommand("mind-observer-run", {
-		description: "Manually queue an AOC Mind observer run",
-		handler: async (_args, ctx) => {
-			const ok = requestManualObserverRun(ctx);
-			ctx.ui.notify(ok ? "Observer run queued" : "Observer run unavailable (Pulse disconnected)", ok ? "info" : "warning");
-		},
-	});
-
-	pi.registerShortcut("alt+m", {
-		description: "Open or toggle the project-scoped AOC Mind floating UI",
-		handler: async (ctx) => {
-			const result = launchMindUi(ctx);
-			ctx.ui.notify(result.message, result.ok ? "info" : "warning");
-		},
 	});
 
 	pi.on("session_shutdown", async () => {
 		if (state.refreshTimer) clearInterval(state.refreshTimer);
-		if (state.reconnectTimer) clearTimeout(state.reconnectTimer);
-		if (state.pulseSocket && !state.pulseSocket.destroyed) state.pulseSocket.destroy();
-		state.pulseSocket = undefined;
-		state.pulseConnected = false;
+	});
+
+	// --- Caveman command -------------------------------------------
+	pi.registerCommand("caveman", {
+		description: "Toggle caveman: off → lite → full → ultra",
+		getArgumentCompletions: (prefix: string): AutocompleteItem[] | null => {
+			const items = (["off", "lite", "full", "ultra"] as const)
+				.filter(l => l.startsWith(prefix))
+				.map(l => ({ value: l, label: `caveman ${l}` }));
+			return items.length > 0 ? items : null;
+		},
+		handler: async (args, ctx) => {
+			const arg = args?.trim().toLowerCase();
+			let next: CavemanLevel;
+			if (arg && CAVEMAN_LEVELS.includes(arg as CavemanLevel)) {
+				next = arg as CavemanLevel;
+			} else {
+				const idx = CAVEMAN_LEVELS.indexOf(state.cavemanLevel);
+				next = CAVEMAN_LEVELS[(idx + 1) % CAVEMAN_LEVELS.length];
+			}
+			state.cavemanLevel = next;
+			pi.appendEntry("caveman-level-v1", { level: next, at: Date.now() });
+			applyFooter(ctx);
+			ctx.ui.notify(`caveman: ${CAVEMAN_LABELS[next]}`, next === "off" ? "info" : "success");
+		},
+	});
+
+	// --- Caveman prompt injection ----------------------------------
+	pi.on("before_agent_start", async (event: any) => {
+		const level = state.cavemanLevel;
+		if (level === "off" || !event.systemPrompt) return;
+		const rules: Record<string, string> = {
+			lite: "Drop filler/hedging/pleasantries. Keep articles + full sentences. Professional but tight. Technical terms exact. Code unchanged.",
+			full: "Drop articles/filler/hedging/pleasantries. Fragments OK. Short synonyms. Technical terms exact. Code unchanged. Pattern: [thing] [action] [reason]. [next step].",
+			ultra: "Drop articles/filler/hedging/pleasantries/conjunctions. Abbreviate (DB/auth/req/res/fn). Arrows for causality (X→Y). One word when one word enough. Technical terms exact. Code unchanged.",
+		};
+		event.systemPrompt += `\n\n[CAVEMAN MODE: ${level.toUpperCase()}] ${rules[level]} Auto-clarity: use full English for security warnings, irreversible actions, and when user repeats a question. Resume caveman after.`;
 	});
 }

@@ -27,17 +27,15 @@ bash scripts/pi/validate-mind-runtime-hardening.sh
 1. starts a fresh temp project root
 2. starts `bin/aoc-hub`
 3. starts a fresh wrapped Pi session via `bin/aoc-agent-wrap`
-4. verifies Pulse snapshot state arrives over the UDS socket
-5. sends live runtime commands through Pulse:
-   - `mind_ingest_event`
-   - `run_observer`
-   - `mind_handoff`
-   - `mind_finalize_session`
-   - `mind_provenance_query`
-   - `insight_detached_status` with `owner_plane=mind`
+4. verifies standalone/runtime state is discoverable for the project
+5. exercises live Mind command surfaces across the current runtime split:
+   - standalone ingest / sync into `.aoc/mind/project.sqlite`
+   - standalone `observer-run`
+   - standalone `finalize-session`
+   - standalone `context-pack`
+   - compatibility/detached status queries where still runtime-owned elsewhere
 6. verifies:
-   - snapshot state exists
-   - Mind fields are visible over Pulse
+   - standalone/runtime state exists
    - `.aoc/mind/project.sqlite` exists
    - an insight export bundle exists with `t1.md`, `t2.md`, and `manifest.json`
    - provenance export returns `graph.status = ok`
@@ -69,7 +67,7 @@ executes the most important bounded Mind-runtime recovery regressions from
 
 This gives task 142 a single operator/maintainer command that covers:
 
-- live Pulse + Mind roundtrips
+- live standalone Mind roundtrips
 - detached Mind visibility
 - stale-lease recovery on startup
 - cancel handling for detached T2/T3 workers
@@ -83,39 +81,64 @@ This gives task 142 a single operator/maintainer command that covers:
 ## Pi launch-mode expectation
 
 Pi now prefers `aoc-agent-wrap-rs` by default when that binary is available.
-This keeps live Pulse + Mind runtime activation aligned with the documented
-session model.
+For managed AOC Zellij panes, the hot path is now intentionally thin:
+
+```text
+zellij pane
+  -> aoc-agent-wrap
+    -> aoc-agent-wrap-rs
+      -> pi
+```
+
+Managed-pane defaults:
+
+- `AOC_PI_USE_WRAP_RS=1`
+- `AOC_AGENT_PTY=1`
+- `AOC_PI_USE_BOOTLOADER=0`
+- `AOC_PI_USE_TMUX=0`
 
 Override only when needed:
 
 - `AOC_PI_USE_WRAP_RS=1` — force wrapper mode
 - `AOC_PI_USE_WRAP_RS=0` — explicit legacy direct-exec fallback
 - unset / `auto` — prefer wrapper when available, otherwise fall back direct
+- `AOC_PI_USE_BOOTLOADER=1` — opt back into the shell handshake path
+- `AOC_PI_USE_TMUX=1` — opt back into nested tmux for PI
 
 ## Operator-visible signals
 
 ### Pi footer / commands
 
-Defined in `.pi/extensions/minimal.ts`:
+Defined across the native Pi Mind extension stack:
 
-- footer shows AOC Mind observer state:
-  - `idle`
-  - `queued`
-  - `running`
-  - `success`
-  - `fallback`
-  - `error`
-- `Alt+M` / `/mind` toggles the project Mind floating UI
-- `/mind-observer-run` queues a manual observer run
+- `.pi/extensions/minimal.ts`
+  - footer shows AOC Mind observer state:
+    - `idle`
+    - `queued`
+    - `running`
+    - `success`
+    - `fallback`
+    - `error`
+- `.pi/extensions/mind-ops.ts`
+  - `Alt+M` / `/mind` toggles the project Mind floating UI
+  - `/mind-observer-run` queues a manual observer run
+  - `/mind-status` shows ingest/runtime health
+  - `/aoc-status` shows managed launch/runtime health
+  - `/mind-finalize` requests finalize/export
+- `.pi/extensions/mind-context.ts`
+  - `/mind-pack`
+  - `/mind-pack-expanded`
+- `.pi/extensions/mind-focus.ts`
+  - `/mind-focus`
 - notification strings include:
   - `Project Mind toggled`
   - `Observer run queued`
-  - `Observer run unavailable (Pulse disconnected)`
+  - `Mind sync failed: ...` (standalone service/runtime warning; inspect the surfaced error text rather than assuming transport failure)
   - `Mind UI unavailable: ...`
 
 ### Mission Control
 
-Mission Control shows live Mind health from wrapper snapshots, including:
+Mission Control currently shows live Mind health from wrapper-driven runtime snapshots, while the architecture is being cut over toward canonical standalone/service-owned health, including:
 
 - observer feed status transitions
 - `queue_depth`
@@ -158,7 +181,6 @@ For logs, inspect:
   confidence command.
 
 - The validator is intentionally non-interactive so it can run in a normal shell.
-- It validates the same Pulse command surfaces used by the live Pi/Mission
-  Control path, even though it uses a bounded synthetic session/task payload.
+- It validates the current standalone-first Pi Mind command surface plus the remaining bounded compatibility/runtime seams, even though it uses a synthetic session/task payload.
 - If the validator fails, rerun with `AOC_KEEP_MIND_RUNTIME_LIVE_TMP=1` and
   inspect the preserved workspace, especially `.aoc/logs/` and `.aoc/mind/`.

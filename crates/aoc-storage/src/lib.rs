@@ -19,6 +19,36 @@ use thiserror::Error;
 
 pub const MIND_SCHEMA_VERSION: i64 = 11;
 
+fn record_schema_migration(conn: &Connection, version: i64) -> Result<(), StorageError> {
+    conn.execute(
+        "
+        INSERT OR IGNORE INTO mind_schema_migrations(version, applied_at)
+        VALUES (?1, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+        ",
+        params![version],
+    )?;
+    Ok(())
+}
+
+fn detached_insight_jobs_column_exists(
+    conn: &Connection,
+    column: &str,
+) -> Result<bool, StorageError> {
+    Ok(conn
+        .query_row(
+            "
+            SELECT 1
+            FROM pragma_table_info('detached_insight_jobs')
+            WHERE name = ?1
+            LIMIT 1
+            ",
+            params![column],
+            |_| Ok(()),
+        )
+        .optional()?
+        .is_some())
+}
+
 fn ensure_no_secrets_in_text(value: &str, field: &str) -> Result<(), StorageError> {
     if text_contains_unredacted_secret(value) {
         return Err(StorageError::SecurityViolation(format!(
@@ -393,8 +423,20 @@ impl MindStore {
         }
 
         if current < 10 {
-            let sql = include_str!("../migrations/0010_detached_insight_job_hierarchy.sql");
-            self.conn.execute_batch(sql)?;
+            if !detached_insight_jobs_column_exists(&self.conn, "parent_job_id")? {
+                self.conn.execute(
+                    "ALTER TABLE detached_insight_jobs ADD COLUMN parent_job_id TEXT",
+                    [],
+                )?;
+            }
+            self.conn.execute(
+                "
+                CREATE INDEX IF NOT EXISTS idx_detached_insight_jobs_parent_created
+                    ON detached_insight_jobs(parent_job_id, created_at_ms DESC)
+                ",
+                [],
+            )?;
+            record_schema_migration(&self.conn, 10)?;
             self.conn
                 .execute("PRAGMA user_version = 10", [])
                 .map(|_| ())?;
@@ -402,8 +444,15 @@ impl MindStore {
         }
 
         if current < 11 {
-            let sql = include_str!("../migrations/0011_detached_insight_job_results.sql");
-            self.conn.execute_batch(sql)?;
+            for column in ["stdout_excerpt", "stderr_excerpt", "step_results_json"] {
+                if !detached_insight_jobs_column_exists(&self.conn, column)? {
+                    self.conn.execute(
+                        &format!("ALTER TABLE detached_insight_jobs ADD COLUMN {column} TEXT"),
+                        [],
+                    )?;
+                }
+            }
+            record_schema_migration(&self.conn, 11)?;
             self.conn
                 .execute("PRAGMA user_version = 11", [])
                 .map(|_| ())?;

@@ -18,9 +18,9 @@ Key components:
 - UI: `crates/aoc-mission-control` (binary `aoc-mission-control`)
 - Toggle launcher: `bin/aoc-mission-control-toggle`
 
-## Pulse Overview Status (2026-02)
+## Mission Control Overview Status (2026-02)
 
-- Decision: Pulse Overview is re-enabled by default.
+- Decision: Mission Control Overview is re-enabled by default.
 - Default behavior: Mission Control starts in `Overview` mode.
 - Gate: set `AOC_PULSE_OVERVIEW_ENABLED=0` to run `Work`/`Diff`/`Health` only.
 - CPU guardrail: keep background layout watcher off by default with
@@ -89,20 +89,27 @@ Note: Hub is started only once per session by `aoc-launch`, not by `aoc-new-tab`
 
 ## 5) Agent Wrapper Chain
 
-Goal: keep tmux scrollback (PI by default) while capturing stdout/stderr for streaming.
+Goal: keep the managed PI startup path thin and reliable while still allowing optional richer wrapping outside the hot path.
 
-Wrapper chain (tmux-enabled agents, default `pi`):
+Managed AOC Zellij PI pane (default):
+```
+aoc-agent-wrap
+  -> aoc-agent-wrap-rs
+    -> pi
+```
+
+Optional/manual PI launch with explicit tmux/bootloader opt-in:
 ```
 tmux
-  -> aoc-agent-wrap-rs (Rust wrapper)
-    -> aoc-agent-wrap (bootloader + handshake)
+  -> aoc-agent-wrap-rs
+    -> aoc-agent-wrap (optional shell handshake)
       -> pi
 ```
 
-Wrapper chain (other agents, unless allowlisted for tmux):
+Other agents (unless explicitly tmux-enabled):
 ```
 aoc-agent-wrap-rs
-  -> aoc-agent-wrap (bootloader + handshake)
+  -> aoc-agent-wrap
     -> agent CLI
 ```
 
@@ -111,18 +118,13 @@ To run a custom agent via the main layout, set `AOC_AGENT_CMD` to your wrapper c
 How it is wired:
 - `bin/aoc-agent-run` chooses agent based on `AOC_AGENT_ID` or state file.
 - `bin/aoc-pi` respects `AOC_AGENT_RUN=1` and execs `aoc-agent-wrap`.
-- `bin/aoc-agent-wrap` resolves the real agent binary, runs the bootloader for
-  the handshake, and then (if available) wraps the bootloader with
-  `aoc-agent-wrap-rs`.
-- Pi now prefers the Rust wrapper by default when it is available so live Pulse
-  and Mind runtime wiring matches the documented session model. Use
-  `AOC_PI_USE_WRAP_RS=0` only as an explicit legacy direct-exec fallback.
-- `bin/aoc-agent-wrap` also ensures `AOC_SESSION_ID`, `AOC_HUB_ADDR`, and
-  `AOC_AGENT_ID` are exported before entering tmux or running the agent.
+- `bin/aoc-agent-wrap` resolves the real agent binary, exports the managed AOC session/project env, and then selects the smallest viable runtime path.
+- Managed PI panes now default to: wrapper on, PTY on, bootloader off, nested tmux off.
+- Pi prefers the Rust wrapper by default when it is available for managed pane/session wiring, but Pi Mind ingest/status/manual commands are now standalone-service driven. Use `AOC_PI_USE_WRAP_RS=0` only as an explicit legacy direct-exec fallback.
+- `bin/aoc-agent-wrap` also ensures `AOC_SESSION_ID`, `AOC_HUB_ADDR`, `AOC_AGENT_ID`, `AOC_AGENT_LAUNCH_MODE`, `AOC_AGENT_WRAP_MODE`, `AOC_AGENT_TMUX_ACTIVE`, and `AOC_AGENT_BOOTLOADER_ACTIVE` are exported before running the child.
 
 Important: `aoc-agent-wrap-rs` must be on PATH or present in
-`<project_root>/crates/target/(debug|release)/aoc-agent-wrap-rs` or it will
-fall back to the legacy chain (no streaming).
+`<project_root>/crates/target/(debug|release)/aoc-agent-wrap-rs` or managed PI panes will fall back to the legacy direct-exec path (still usable, but without the live wrapped publisher/runtime surface).
 
 ## 6) Hub Behavior
 
@@ -231,8 +233,11 @@ Product boundary:
 
 ### Dedicated Mission Control tab
 For longer orchestration sessions, use the dedicated Mission Control tab flow.
-This runs `aoc-mission-control` in `mission-control` mode, while normal AOC tab
-right panes should run `aoc-pulse-pane` / `AOC_MISSION_CONTROL_MODE=pulse-pane`.
+This runs `aoc-mission-control` in `mission-control` mode.
+
+Current layout note:
+- normal AOC layouts should not rely on `aoc-pulse-pane` or `AOC_MISSION_CONTROL_MODE=pulse-pane`
+- older pulse-pane references are legacy compatibility history, not a required current surface
 
 ### Project-scoped floating Mind UI
 For lightweight project knowledge review, use the project-scoped floating Mind surface instead of keeping a persistent Mind pane in every AOC tab.
@@ -252,9 +257,8 @@ Behavior:
 Boundary note:
 - this floating Mind surface is the project-local knowledge UI
 - Fleet remains the global detached-runtime surface
-- normal Pulse panes remain lightweight local status panes; AOC no longer targets one persistent Mind pane per work tab
-
-Boundary note: the normal `pulse-pane` stays local-only. It does not allow switching into Fleet/Overseer orchestration surfaces or running pane evidence/live-follow drilldown; those belong to the dedicated Mission Control surface.
+- AOC no longer targets one persistent Mind pane per work tab
+- `pulse-pane` should be treated as a legacy compatibility label, not a current layout surface
 
 For longer orchestration sessions, use the dedicated Mission Control tab flow:
 

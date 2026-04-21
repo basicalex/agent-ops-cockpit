@@ -112,7 +112,7 @@ Mind v2 is ready for cutover when all of the following are true:
 
 ### Near-term reality check
 1. Treat detached **T2** and **T3** Mind workers as implemented substrate, not speculative architecture.
-2. Keep docs and operator surfaces honest about the current boundary: project-scoped Mind for knowledge review, Mission Control Fleet for detached runtime supervision, and `pulse-pane` as the lightweight local surface.
+2. Keep docs and operator surfaces honest about the current boundary: project-scoped Mind for knowledge review, Mission Control Fleet for detached runtime supervision, and `pulse-pane` only as a legacy compatibility label rather than a required current surface.
 3. Validate stale-lease, fallback, and cancel/recovery paths in live operator runbooks in addition to unit coverage.
 
 ### Next coding task: 141

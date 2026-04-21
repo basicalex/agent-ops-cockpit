@@ -109,6 +109,7 @@ dependencies = [
  "aoc-storage",
  "chrono",
  "clap",
+ "crossterm",
  "fs2",
  "futures-util",
  "notify",
@@ -191,10 +192,15 @@ name = "aoc-mind"
 version = "0.1.0"
 dependencies = [
  "aoc-core",
+ "aoc-pi-adapter",
  "aoc-storage",
  "aoc-task-attribution",
  "chrono",
+ "clap",
  "fs2",
+ "ratatui",
+ "serde",
+ "serde_json",
  "sha2",
  "thiserror 1.0.69",
 ]
@@ -204,6 +210,7 @@ name = "aoc-mission-control"
 version = "0.1.0"
 dependencies = [
  "aoc-core",
+ "aoc-mind",
  "aoc-storage",
  "chrono",
  "crossterm",

@@ -99,20 +99,21 @@ Cleanup note:
 - Auto-cleanup launched by `aoc-launch` and `aoc-new-tab` is guarded by default (`AOC_CLEANUP_SESSIONS=current`, `AOC_CLEANUP_REQUIRE_ACTIVE_SIGNALS=1`, `AOC_CLEANUP_SKIP_IF_NO_SESSIONS=1`, plus age delay filters).
 - AOC now prefers a stable per-project Zellij session name (`aoc-<repo-name>`) so session attach/resurrection can work naturally across terminal restarts. Set `AOC_SESSION_ID` to override that naming rule.
 
-### Pulse and Mission Control
+### Pulse transport and Mission Control
 
-Control Pulse vNext and the Mission Control Pulse Overview mode:
+Control Pulse transport and Mission Control Overview mode:
 
 | Variable | Description | Default |
 |----------|-------------|---------|
 | `AOC_PULSE_VNEXT_ENABLED` | Enable Pulse UDS hub/subscriber paths | `1` |
-| `AOC_PULSE_OVERVIEW_ENABLED` | Enable Pulse Overview pane mode and related polling/display paths | `1` |
-| `AOC_PULSE_THEME` | Pulse palette mode (`terminal`, `auto`, `dark`, `light`) | `terminal` |
+| `AOC_PULSE_OVERVIEW_ENABLED` | Enable Mission Control Overview mode and related polling/display paths | `1` |
+| `AOC_MISSION_CONTROL_THEME` | Mission Control palette mode (`terminal`, `auto`, `dark`, `light`) | `terminal` |
 | `AOC_TAB_SCOPE` | Shared logical tab identity for panes in the same tab | Layout-derived tab name |
 | `AOC_PULSE_LAYOUT_WATCH_ENABLED` | Enable hub session topology watcher (native Zellij snapshot polling) | `0` |
 | `AOC_PULSE_LAYOUT_WATCH_MS` | Hub layout poll interval when layout watcher is active | `3000` |
 | `AOC_PULSE_LAYOUT_IDLE_WATCH_MS` | Hub layout poll interval with no layout subscribers | `max(4x active, 12000)` |
 | `AOC_MISSION_CONTROL_LAYOUT_REFRESH_MS` | Mission Control local layout refresh interval (local mode only) | `3000` |
+| `AOC_PULSE_THEME` | Legacy alias for `AOC_MISSION_CONTROL_THEME` | — |
 
 Notes:
 
@@ -120,7 +121,7 @@ Notes:
 - Set `AOC_PULSE_OVERVIEW_ENABLED=0` to run only Work/Diff/Health.
 - With `AOC_PULSE_LAYOUT_WATCH_ENABLED=0` (default), hub background layout polling is disabled.
 - On Zellij `>= 0.44.0`, AOC uses native pane/tab JSON inventory for local operator flows, and hub topology polling also uses native session snapshots.
-- `AOC_PULSE_THEME=terminal` (default) keeps Pulse integrated with your terminal/system theme.
+- `AOC_MISSION_CONTROL_THEME=terminal` (default) keeps Mission Control integrated with your terminal/system theme.
 
 ### RTK Routing
 
@@ -357,9 +358,14 @@ bin/aoc-web-smoke
 | `AOC_PI_APPEND_SYSTEM_PROMPT` | Extra `--append-system-prompt` text/path passed to PI | None |
 | `AOC_PI_HANDSHAKE_MODE` | PI handshake verbosity (`compact`, `full`, `off`) | `compact` |
 | `AOC_HANDSHAKE_MODE` | Global handshake verbosity override (`compact`, `full`, `off`) | Agent default |
+| `AOC_PI_USE_WRAP_RS` | PI launch mode (`auto`, `1`, `0`) | `auto` |
+| `AOC_PI_USE_PTY` | Preferred PTY mode for PI children | managed pane=`1`, manual=`0` |
+| `AOC_AGENT_PTY` | Explicit PTY override for the wrapped child | Auto |
+| `AOC_PI_USE_BOOTLOADER` | Pre-PI shell handshake/bootloader (`auto`, `1`, `0`) | managed pane=`0`, manual=`1` |
+| `AOC_PI_USE_TMUX` | Nested tmux use for PI (`auto`, `1`, `0`) | managed pane=`0`, manual=`allowlist` |
 | `AOC_AGENT_PATTERN` | Additional agent names for cleanup | None |
 | `AOC_AGENT_TMUX_CONF` | Custom tmux config for tmux-enabled agents | Default |
-| `AOC_TMUX_AGENT_ALLOWLIST` | Comma-separated agent IDs that should run inside tmux | `pi` |
+| `AOC_TMUX_AGENT_ALLOWLIST` | Comma-separated agent IDs that should run inside tmux when tmux is enabled/auto | `pi` |
 
 Valid `AOC_AGENT_ID` value is `pi`.
 
@@ -369,6 +375,7 @@ Valid `AOC_AGENT_ID` value is `pi`.
 - Full handshake mode now favors: focus provenance, high-value open work, workstream health, recent developments, and open fronts before lower-value inventory.
 - When canon or task state is missing, the briefing degrades explicitly with fallback status notes instead of silently pretending a stronger focus signal exists.
 - `pi` enables RTK ultra-compact output and non-tty routing by default (`AOC_RTK_ULTRA_COMPACT=1`, `AOC_RTK_ROUTE_NON_TTY_STDIN=1`) unless you override them.
+- In managed AOC Zellij panes, `pi` now defaults to the thin startup path: `aoc-agent-wrap -> aoc-agent-wrap-rs -> pi` with wrapper on, PTY on, bootloader off, and nested tmux off.
 
 ## Custom Layouts
 
