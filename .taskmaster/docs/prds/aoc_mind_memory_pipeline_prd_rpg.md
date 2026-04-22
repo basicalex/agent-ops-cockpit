@@ -1,5 +1,7 @@
 # AOC Mind Memory Pipeline PRD (RPG)
 
+> Umbrella alignment note: this PRD remains authoritative for Mind memory/storage/runtime behavior, but the detached worker orchestration relationship between Mind, delegated specialists, and Mission Control is now aligned under `.taskmaster/docs/prds/aoc_detached_orchestration_prd_rpg.md`. Use the umbrella PRD for shared detached substrate policy, `owner_plane` / `worker_kind` framing, and project-scoped worker-orchestration boundaries.
+
 ## Problem Statement
 AOC Mind has progressed beyond its original Mission Control + Mind sketch, but the remaining tracked work is partially stale relative to the actual architecture now in flight. The current system already has project-scoped Mind storage, T1/T2/T3 runtimes, session finalization, handshake compilation, compaction checkpoint ingestion, and early evidence links. What remains is to align the backlog to the real end-state: Pi-native session history as a source substrate, Mind SQLite as the canonical derived semantic store, bounded T1/T2/T3 layers with durable provenance, and operator-visible recovery/query surfaces.
 
