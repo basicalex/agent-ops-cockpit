@@ -21,6 +21,8 @@ description: Initialize or repair AOC context, memory, and tasks safely.
 - Seeds `.pi/settings.json` when missing
 - Seeds PI prompt templates in `.pi/prompts/` (`/aoc-ops`, `/teach`, `/teach-full`, `/teach-dive`, `/teach-ask`, `/tm-cc`) when missing
 - Seeds PI default extensions in `.pi/extensions/` (`minimal.ts`, `themeMap.ts`, `mind-ingest.ts`, `mind-ops.ts`, `mind-context.ts`, `mind-focus.ts`, `aoc-models.ts`, plus `lib/mind.ts`) when missing
+- Seeds the preset runtime family in `.pi/extensions/aoc-presets/` when missing
+- Seeds reusable design preset assets in `.aoc/presets/design/` and `.aoc/layouts/design.kdl` when missing
 - Seeds `.aoc/init-state.json` with the current AOC project version and applies version-specific migrations on older repos
 - Seeds the vendored local PI multi-auth package at `.pi/packages/pi-multi-auth-aoc` and wires `.pi/settings.json` to load it only when the package is available
 - Removes legacy global npm `pi-multi-auth` package entries from `~/.pi/agent/settings.json` to avoid duplicate extension loading
