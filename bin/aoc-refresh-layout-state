@@ -1,0 +1,93 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+session_id="${AOC_SESSION_ID:-${ZELLIJ_SESSION_NAME:-}}"
+if [[ -z "$session_id" ]]; then
+  exit 0
+fi
+
+socket_path="${AOC_PULSE_SOCK:-}"
+if [[ -z "$socket_path" ]]; then
+  runtime_dir="${XDG_RUNTIME_DIR:-}"
+  if [[ -z "$runtime_dir" ]]; then
+    if [[ -n "${UID:-}" ]]; then
+      runtime_dir="/run/user/${UID}"
+    else
+      runtime_dir="/tmp"
+    fi
+  fi
+  session_slug="$(printf '%s' "$session_id" | tr -c '[:alnum:]_.-' '_')"
+  socket_path="${runtime_dir}/aoc/${session_slug}/pulse.sock"
+fi
+
+[[ -S "$socket_path" ]] || exit 0
+command -v python3 >/dev/null 2>&1 || exit 0
+
+python3 - "$session_id" "$socket_path" <<'PY'
+import json
+import os
+import socket
+import sys
+import time
+
+session_id = sys.argv[1]
+socket_path = sys.argv[2]
+request_id = f"refresh-layout-{os.getpid()}-{time.time_ns()}"
+sender_id = f"aoc-layout-refresh-{os.getpid()}"
+
+def send(sock, typ, payload, request=None):
+    env = {
+        "version": "1",
+        "type": typ,
+        "session_id": session_id,
+        "sender_id": sender_id,
+        "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+        "request_id": request,
+        "payload": payload,
+    }
+    sock.sendall((json.dumps(env) + "\n").encode("utf-8"))
+
+try:
+    sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    sock.settimeout(0.75)
+    sock.connect(socket_path)
+    send(sock, "hello", {
+        "client_id": sender_id,
+        "role": "subscriber",
+        "capabilities": ["command_result"],
+    })
+    send(sock, "subscribe", {"topics": ["command_result"]})
+    send(sock, "command", {"command": "refresh_layout_state", "args": {}}, request_id)
+
+    buffer = ""
+    deadline = time.time() + 0.75
+    while time.time() < deadline:
+        try:
+            chunk = sock.recv(65536)
+        except socket.timeout:
+            continue
+        if not chunk:
+            break
+        buffer += chunk.decode("utf-8", errors="ignore")
+        while "\n" in buffer:
+            line, buffer = buffer.split("\n", 1)
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                env = json.loads(line)
+            except Exception:
+                continue
+            if env.get("session_id") != session_id:
+                continue
+            if env.get("request_id") != request_id:
+                continue
+            if env.get("type") != "command_result":
+                continue
+            payload = env.get("payload") or {}
+            if payload.get("status") in {"ok", "error"}:
+                raise SystemExit(0 if payload.get("status") == "ok" else 1)
+    raise SystemExit(0)
+except Exception:
+    raise SystemExit(0)
+PY
