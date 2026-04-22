@@ -1136,7 +1136,10 @@ pub(crate) fn resolve_session_id(value: Option<String>) -> Result<String> {
     bail!("missing session id; pass --session-id or set AOC_SESSION_ID")
 }
 
-pub(crate) fn resolve_pulse_socket_path(session_id: &str, override_path: Option<PathBuf>) -> PathBuf {
+pub(crate) fn resolve_pulse_socket_path(
+    session_id: &str,
+    override_path: Option<PathBuf>,
+) -> PathBuf {
     if let Some(path) = override_path {
         return path;
     }

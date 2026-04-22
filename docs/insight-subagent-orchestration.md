@@ -159,7 +159,7 @@ Expected operator behavior:
 ## Technology choices
 
 - **Rust runtime plane**: `aoc-core`, `aoc-agent-wrap-rs`, `aoc-mind`, `aoc-hub-rs`, `aoc-mission-control`
-- **TypeScript extension plane**: `.pi/extensions/minimal.ts`
+- **TypeScript extension plane**: `.pi/extensions/minimal.ts` plus native Mind helpers under `.pi/extensions/mind-*.ts`
 - **Transport**: Pulse UDS NDJSON envelopes
 - **Storage**: SQLite-backed MindStore (raw/T0/T1/T2/provenance/queue/lease)
 - **Execution**: supervised Pi subprocess workers for isolation
@@ -176,6 +176,7 @@ AOC adopts the useful orchestration primitives while adding stricter contract ty
 
 ## Related docs
 
+- `docs/subagent-runtime.md` — delegated specialist operator/runtime reference for Pi session launch, status, handoff, recovery, and trust semantics
 - `docs/insight-t3-alignment.md` — planned T3 alignment layer and manual/on-demand trigger workflow
 - `docs/insight-compaction-ingest.md` — planned Pi compaction -> Mind checkpoint integration
 

@@ -181,7 +181,7 @@ aoc-pi           # Open tab with PI Agent (npm)
 - Persistent project memory (`.aoc/memory.md`)
 - Real-time context updates (`.aoc/context.md`)
 - Task integration (Taskmaster TUI)
-- tmux-backed scrollback for reliability
+- wrapped PTY runtime for reliable managed PI startup (optional tmux outside the hot path)
 - stable per-project Zellij sessions for better attach/resurrection DX
 
 Need another agent CLI? AOC keeps core support PI-only, but you can plug in alternatives via wrappers: [Agent Extensibility](./docs/agent-extensibility.md).
@@ -467,7 +467,7 @@ When you start working in AOC:
 - `micro` (editor - auto-installed)
 
 **Optional but Recommended:**
-- `tmux` (for agent scrollback)
+- `tmux` (optional for agent scrollback outside managed Zellij PI panes)
 - `git` (for RLM and git integration)
 
 **Platform Support:**
@@ -489,7 +489,7 @@ When you start working in AOC:
 | **Task integration** | ✅ Built-in | ❌ None | ⚠️ Plugin |
 | **File manager** | ✅ Yazi | ⚠️ Optional | ✅ Yes |
 | **Context persistence** | ✅ 3-layer | ❌ None | ⚠️ Limited |
-| **Scrollback reliability** | ✅ tmux-backed | ✅ Yes | ✅ Yes |
+| **Scrollback reliability** | ✅ Wrapped PTY (optional tmux) | ✅ Yes | ✅ Yes |
 
 ---
 

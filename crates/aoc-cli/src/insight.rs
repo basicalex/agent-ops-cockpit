@@ -1,11 +1,7 @@
 use anyhow::{bail, Context, Result};
 use clap::{Args, Subcommand, ValueEnum};
 use serde_json::Value;
-use std::{
-    env,
-    path::PathBuf,
-    time::Duration,
-};
+use std::{env, path::PathBuf, time::Duration};
 
 use aoc_core::{
     insight_contracts::{
@@ -290,7 +286,10 @@ fn handle_status(args: StatusArgs) -> Result<()> {
 }
 
 fn resolve_target_agent_id(session_id: &str, explicit: Option<String>) -> Result<String> {
-    if let Some(value) = explicit.map(|value| value.trim().to_string()).filter(|value| !value.is_empty()) {
+    if let Some(value) = explicit
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
+    {
         return Ok(value);
     }
     let pane_id = env::var("AOC_PANE_ID")
