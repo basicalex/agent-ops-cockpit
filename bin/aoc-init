@@ -114,8 +114,17 @@ dst = Path(sys.argv[2])
 if dst.exists():
     shutil.rmtree(dst)
 dst.parent.mkdir(parents=True, exist_ok=True)
-shutil.copytree(src, dst)
+shutil.copytree(src, dst, dirs_exist_ok=True)
 PY
+}
+
+remove_pi_multi_auth_mutable_dirs() {
+  local package_dir="$1"
+  local debug_dir="$package_dir/debug"
+
+  if [[ -d "$debug_dir" ]]; then
+    rm -rf "$debug_dir"
+  fi
 }
 
 copy_tree_missing_only() {
@@ -170,6 +179,30 @@ def digest_tree(root: Path):
 
 raise SystemExit(0 if digest_tree(left) == digest_tree(right) else 1)
 PY
+}
+
+managed_pi_skill_name() {
+  local skill_name="$1"
+  case "$skill_name" in
+    aoc-init-ops|design-diff|design-director|design-handoff|design-premium-ui|design-redesign|design-review|design-spec|design-tokens|motion-director)
+      return 0
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+}
+
+managed_pi_extension_name() {
+  local extension_name="$1"
+  case "$extension_name" in
+    minimal.ts|themeMap.ts|mind-ingest.ts|mind-ops.ts|mind-context.ts|mind-focus.ts|aoc-models.ts|lib/mind.ts|lib/caveman.ts)
+      return 0
+      ;;
+    *)
+      return 1
+      ;;
+  esac
 }
 
 get_project_pi_multi_auth_package_dir() {
@@ -1196,7 +1229,7 @@ description: Initialize or repair AOC context, memory, and tasks safely.
 - Ensures PRD directory `.taskmaster/docs/prds/` is available for tag/task links
 - Seeds `.pi/settings.json` when missing
 - Seeds PI prompt templates in `.pi/prompts/` (`/aoc-ops`, `/teach`, `/teach-full`, `/teach-dive`, `/teach-ask`, `/tm-cc`) when missing
-- Seeds PI default extensions in `.pi/extensions/` (`minimal.ts`, `themeMap.ts`, `mind-ingest.ts`, `mind-ops.ts`, `mind-context.ts`, `mind-focus.ts`, `aoc-models.ts`, plus `lib/mind.ts`) when missing
+- Seeds PI default extensions in `.pi/extensions/` (`minimal.ts`, `themeMap.ts`, `mind-ingest.ts`, `mind-ops.ts`, `mind-context.ts`, `mind-focus.ts`, `aoc-models.ts`, plus `lib/mind.ts` and `lib/caveman.ts`) when missing
 - Seeds the preset runtime family in `.pi/extensions/aoc-presets/` when missing
 - Seeds reusable design preset assets in `.aoc/presets/design/` and `.aoc/layouts/design.kdl` when missing
 - Seeds `.aoc/init-state.json` with the current AOC project version and applies version-specific migrations on older repos
@@ -1421,6 +1454,7 @@ setup_pi_packages() {
     fi
 
     copy_tree_force "$seed_package_dir" "$target_package_dir"
+    remove_pi_multi_auth_mutable_dirs "$target_package_dir"
     aoc_local_multi_auth_available=1
     aoc_local_multi_auth_seed_source="$seed_package_dir"
     log "Seeded PI package: .pi/packages/pi-multi-auth-aoc"
@@ -1443,11 +1477,13 @@ setup_pi_packages() {
 
   if [[ -f "$target_package_dir/.aoc-managed" ]]; then
     copy_tree_force "$seed_package_dir" "$target_package_dir"
+    remove_pi_multi_auth_mutable_dirs "$target_package_dir"
     aoc_local_multi_auth_seed_source="$seed_package_dir"
     log "Refreshed managed PI package: .pi/packages/pi-multi-auth-aoc"
     return 0
   fi
 
+  remove_pi_multi_auth_mutable_dirs "$target_package_dir"
   log "PI package exists (.pi/packages/pi-multi-auth-aoc). Preserving."
 }
 
@@ -1700,6 +1736,7 @@ setup_pi_extensions() {
     "mind-focus.ts"
     "aoc-models.ts"
     "lib/mind.ts"
+    "lib/caveman.ts"
   )
 
   mkdir -p "$pi_extensions_dir" "$global_template_dir"
@@ -1743,6 +1780,10 @@ setup_pi_extensions() {
         done
 
         if [[ "$managed_target" != "1" ]] && is_legacy_pi_extension_template "$extension_file" "$target_file"; then
+          managed_target="1"
+        fi
+
+        if [[ "$managed_target" != "1" ]] && managed_pi_extension_name "$extension_file"; then
           managed_target="1"
         fi
 
@@ -1840,8 +1881,9 @@ setup_pi_extension_families() {
       log "Seeded PI extension family: $family_name"
       seeded_any=1
     else
-      copy_tree_missing_only "$seed_dir" "$target_dir"
-      log "PI extension family $family_name already present. Seeded missing files only."
+      copy_tree_force "$seed_dir" "$target_dir"
+      log "Refreshed managed PI extension family: $family_name"
+      seeded_any=1
     fi
 
     if [[ ! -d "$cache_dir" ]] || ! directories_match "$seed_dir" "$cache_dir"; then
@@ -1892,8 +1934,8 @@ setup_aoc_preset_assets() {
       copy_tree_force "$preset_seed_dir" "$target_preset_dir"
       log "Seeded AOC preset assets: $preset_name"
     else
-      copy_tree_missing_only "$preset_seed_dir" "$target_preset_dir"
-      log "AOC preset assets $preset_name already present. Seeded missing files only."
+      copy_tree_force "$preset_seed_dir" "$target_preset_dir"
+      log "Refreshed managed AOC preset assets: $preset_name"
     fi
 
     if [[ ! -d "$cache_preset_dir" ]] || ! directories_match "$preset_seed_dir" "$cache_preset_dir"; then
@@ -1916,7 +1958,8 @@ setup_aoc_preset_assets() {
       cp "$layout_seed_file" "$target_layout_file"
       log "Seeded AOC layout: ${layout_name%.kdl}"
     else
-      log "AOC layout ${layout_name%.kdl} already present. Preserving."
+      cp "$layout_seed_file" "$target_layout_file"
+      log "Refreshed managed AOC layout: ${layout_name%.kdl}"
     fi
 
     if [[ ! -f "$cache_layout_file" ]] || ! cmp -s "$layout_seed_file" "$cache_layout_file"; then
@@ -2066,8 +2109,8 @@ setup_pi_skills() {
   local pi_skills_dir="$project_root/.pi/skills"
   local candidate=""
   local canonical_seed_dirs=(
-    "$aoc_config_dir/pi/skills"
     "$script_dir/../.pi/skills"
+    "$aoc_config_dir/pi/skills"
   )
 
   mkdir -p "$pi_skills_dir"
@@ -2110,11 +2153,17 @@ setup_pi_skills() {
       continue
     fi
 
+    if managed_pi_skill_name "$skill_name"; then
+      copy_tree_force "$seed_skill_dir" "$target_skill_dir"
+      copied_any=1
+      continue
+    fi
+
     copy_tree_missing_only "$seed_skill_dir" "$target_skill_dir"
   done
 
   if [[ "$copied_any" == "1" ]]; then
-    log "Seeded PI skills into .pi/skills."
+    log "Seeded/refreshed PI skills into .pi/skills."
   else
     log "PI skills already present in .pi/skills. Seeded missing support files only."
   fi

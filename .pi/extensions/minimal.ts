@@ -19,9 +19,9 @@ import { applyExtensionDefaults } from "./themeMap.ts";
 import type { AutocompleteItem } from "@mariozechner/pi-tui";
 import { truncateToWidth, visibleWidth } from "@mariozechner/pi-tui";
 import { currentMindSnapshot } from "./lib/mind.ts";
+import { CAVEMAN_EVENT_SET_LEVEL, CAVEMAN_LEVELS, type CavemanLevel } from "./lib/caveman.ts";
 
 type MindStatus = "idle" | "queued" | "running" | "success" | "fallback" | "error";
-type CavemanLevel = "off" | "lite" | "full" | "ultra";
 
 type Sample = { at: number; tokens: number };
 
@@ -71,6 +71,8 @@ type ExtensionState = {
 	sessionStartAnimationStartedAtMs?: number;
 	refreshTimer?: NodeJS.Timeout;
 	cavemanLevel: CavemanLevel;
+	lastModelId?: string;
+	lastContextUsagePct: number;
 };
 
 const T1_TARGET_TOKENS = 28_000;
@@ -81,8 +83,6 @@ const RUNNING_ANIMATION_STEP_MS = 117;
 const MIND_BAR_WIDTH = 10;
 const SESSION_START_ANIMATION_STEPS = Math.max(1, (MIND_BAR_WIDTH - 1) * 2);
 const SESSION_START_ANIMATION_MS = (SESSION_START_ANIMATION_STEPS + 1) * RUNNING_ANIMATION_STEP_MS;
-const CAVEMAN_LEVELS: [CavemanLevel, CavemanLevel, CavemanLevel, CavemanLevel] = ["off", "lite", "full", "ultra"];
-const CAVEMAN_GLYPHS: Record<CavemanLevel, string> = { off: "·", lite: "◇", full: "◈", ultra: "◆" };
 const CAVEMAN_LABELS: Record<CavemanLevel, string> = { off: "off", lite: "lite", full: "full", ultra: "ultra" };
 
 const state: ExtensionState = {
@@ -90,6 +90,8 @@ const state: ExtensionState = {
 	filteredTokens: 0,
 	samples: [],
 	cavemanLevel: "off",
+	lastModelId: undefined,
+	lastContextUsagePct: 0,
 };
 
 function recomputeFilteredTokens(ctx: ExtensionContext): void {
@@ -260,12 +262,22 @@ function composeFooterWithBridges(
 	);
 }
 
-function renderFooter(width: number, _theme: any): string {
-	const ctx = state.ctx as any;
-	const model = ctx?.model?.id || "no-model";
-	const usage = ctx?.getContextUsage?.();
-	const ctxPct = usage && usage.percent !== null ? Number(usage.percent) / 100 : 0;
-	const mind = currentMindSnapshot(state.ctx);
+function captureFooterSnapshot(ctx?: ExtensionContext): void {
+	if (!ctx) return;
+	try {
+		state.lastModelId = ctx.model?.id || state.lastModelId || "no-model";
+		const usage = ctx.getContextUsage?.();
+		state.lastContextUsagePct = usage && usage.percent !== null ? Number(usage.percent) / 100 : 0;
+	} catch {
+		// Session replacement invalidates old ctx objects. Keep last good snapshot.
+	}
+}
+
+function renderFooter(width: number, _theme: any): string[] {
+	captureFooterSnapshot(state.ctx);
+	const model = state.lastModelId || "no-model";
+	const ctxPct = state.lastContextUsagePct;
+	const mind = currentMindSnapshot();
 
 	const t0Tokens = mind.mindProgress?.t0_estimated_tokens ?? state.filteredTokens;
 	const t1Target = mind.mindProgress?.t1_target_tokens ?? T1_TARGET_TOKENS;
@@ -273,18 +285,24 @@ function renderFooter(width: number, _theme: any): string {
 	const mindPart = `✦ [${mindBar(mindLoadPct, mind.mindStatus, MIND_BAR_WIDTH)}]✦`;
 	const leftPart = ` ${model}`;
 	const ctxPart = `[${bar(ctxPct)}] ${Math.round(ctxPct * 100)}% `;
-	const cavBadge = `🪨${CAVEMAN_GLYPHS[state.cavemanLevel]}${state.cavemanLevel !== "off" ? state.cavemanLevel : ""}`;
+	return [composeCenteredFooterLine(leftPart, mindPart, ctxPart, width)];
+}
 
-	return composeCenteredFooterLine(leftPart, mindPart, ctxPart + cavBadge, width);
+function applyCavemanLevel(pi: ExtensionAPI, next: CavemanLevel, options?: { silent?: boolean }): void {
+	state.cavemanLevel = next;
+	pi.appendEntry("caveman-level-v1", { cavemanLevel: next, level: next, at: Date.now() });
+	if (state.ctx) applyFooter(state.ctx);
+	if (!options?.silent) state.ctx?.ui.notify(`caveman: ${CAVEMAN_LABELS[next]}`, next === "off" ? "info" : "success");
 }
 
 function applyFooter(ctx: ExtensionContext): void {
 	state.ctx = ctx;
+	captureFooterSnapshot(ctx);
 	ctx.ui.setFooter((_tui: unknown, theme: any, _footerData: unknown) => ({
 		dispose: () => {},
 		invalidate() {},
 		render(width: number): string[] {
-			return [renderFooter(width, theme)];
+			return renderFooter(width, theme);
 		},
 	}));
 }
@@ -313,34 +331,23 @@ function bootstrap(ctx: ExtensionContext, options?: { animateOnStart?: boolean }
 	state.initialized = true;
 }
 
+function restoreCavemanLevel(ctx: ExtensionContext): void {
+	for (const entry of [...ctx.sessionManager.getBranch()].reverse()) {
+		if ((entry as any).type !== "custom" || (entry as any).customType !== "caveman-level-v1") continue;
+		const data = (entry as any).data;
+		const restored = data?.cavemanLevel ?? data?.level;
+		if (restored && CAVEMAN_LEVELS.includes(restored)) {
+			state.cavemanLevel = restored;
+			return;
+		}
+	}
+}
+
 export default function (pi: ExtensionAPI) {
 	pi.on("session_start", async (_event, ctx) => {
 		if (!ctx?.ui) return;
-		// Restore persisted caveman level from session entries
-		for (const entry of ctx.sessionManager.getBranch()) {
-			if ((entry as any).type === "toolResult" && (entry as any).message?.toolName === "appendEntry") {
-				const data = (entry as any).message?.details;
-				if (data?.cavemanLevel && CAVEMAN_LEVELS.includes(data.cavemanLevel)) {
-					state.cavemanLevel = data.cavemanLevel;
-					break;
-				}
-			}
-		}
+		restoreCavemanLevel(ctx);
 		bootstrap(ctx, { animateOnStart: true });
-	});
-
-	pi.on("session_switch", async (_event, ctx) => {
-		if (!ctx?.ui) return;
-		for (const entry of ctx.sessionManager.getBranch()) {
-			if ((entry as any).type === "toolResult" && (entry as any).message?.toolName === "appendEntry") {
-				const data = (entry as any).message?.details;
-				if (data?.cavemanLevel && CAVEMAN_LEVELS.includes(data.cavemanLevel)) {
-					state.cavemanLevel = data.cavemanLevel;
-					break;
-				}
-			}
-		}
-		bootstrap(ctx);
 	});
 
 	pi.on("message_end", async (_event, ctx) => {
@@ -355,6 +362,16 @@ export default function (pi: ExtensionAPI) {
 
 	pi.on("session_shutdown", async () => {
 		if (state.refreshTimer) clearInterval(state.refreshTimer);
+		state.refreshTimer = undefined;
+		state.ctx = undefined;
+	});
+
+	pi.events.on(CAVEMAN_EVENT_SET_LEVEL, (data: unknown) => {
+		const next = typeof data === "object" && data && "level" in (data as Record<string, unknown>)
+			? (data as Record<string, unknown>).level
+			: undefined;
+		if (typeof next !== "string" || !CAVEMAN_LEVELS.includes(next as CavemanLevel)) return;
+		applyCavemanLevel(pi, next as CavemanLevel);
 	});
 
 	// --- Caveman command -------------------------------------------
@@ -366,7 +383,7 @@ export default function (pi: ExtensionAPI) {
 				.map(l => ({ value: l, label: `caveman ${l}` }));
 			return items.length > 0 ? items : null;
 		},
-		handler: async (args, ctx) => {
+		handler: async (args, _ctx) => {
 			const arg = args?.trim().toLowerCase();
 			let next: CavemanLevel;
 			if (arg && CAVEMAN_LEVELS.includes(arg as CavemanLevel)) {
@@ -375,10 +392,7 @@ export default function (pi: ExtensionAPI) {
 				const idx = CAVEMAN_LEVELS.indexOf(state.cavemanLevel);
 				next = CAVEMAN_LEVELS[(idx + 1) % CAVEMAN_LEVELS.length];
 			}
-			state.cavemanLevel = next;
-			pi.appendEntry("caveman-level-v1", { level: next, at: Date.now() });
-			applyFooter(ctx);
-			ctx.ui.notify(`caveman: ${CAVEMAN_LABELS[next]}`, next === "off" ? "info" : "success");
+			applyCavemanLevel(pi, next);
 		},
 	});
 
@@ -391,6 +405,8 @@ export default function (pi: ExtensionAPI) {
 			full: "Drop articles/filler/hedging/pleasantries. Fragments OK. Short synonyms. Technical terms exact. Code unchanged. Pattern: [thing] [action] [reason]. [next step].",
 			ultra: "Drop articles/filler/hedging/pleasantries/conjunctions. Abbreviate (DB/auth/req/res/fn). Arrows for causality (X→Y). One word when one word enough. Technical terms exact. Code unchanged.",
 		};
-		event.systemPrompt += `\n\n[CAVEMAN MODE: ${level.toUpperCase()}] ${rules[level]} Auto-clarity: use full English for security warnings, irreversible actions, and when user repeats a question. Resume caveman after.`;
+		return {
+			systemPrompt: `${event.systemPrompt}\n\n[CAVEMAN MODE: ${level.toUpperCase()}] ${rules[level]} Auto-clarity: use full English for security warnings, irreversible actions, and when user repeats a question. Resume caveman after.`,
+		};
 	});
 }
