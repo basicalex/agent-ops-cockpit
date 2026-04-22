@@ -2,347 +2,287 @@
 
 Canonical product architecture and crate boundary definitions for Agent Ops Cockpit.
 
-## Status Snapshot (2026-04-17)
+## Status Snapshot (2026-04-22)
 
-The Mission Control refactor is no longer in the original monolith state.
+The original Mission Control/Mind architecture drift has been substantially corrected.
 
-- `crates/aoc-mission-control/src/main.rs` is down to roughly **900 lines** and now acts as crate root/runtime wiring rather than a 15k-line product blob.
-- Mind query/loading logic now lives canonically in `crates/aoc-mind/src/query.rs`.
-- Mission Control-specific Mind hosting is split into focused adapter modules:
+- `crates/aoc-mission-control/src/main.rs` is no longer a giant mixed-responsibility product blob; the high-value Phase 2 seams are now split into focused modules.
+- Mission Control host-side Mind integration is thin:
   - `mind_glue.rs` — thin coordinator
-  - `mind_artifact_drilldown.rs` — host-side drilldown/compaction presentation
-  - `mind_host_render.rs` — host-side search/activity bridge helpers
-  - `consultation_memory.rs` — consultation persistence/markdown helpers
-- Legacy embedded Mission Control pulse-pane mode has been removed as a first-class surface; compatibility labels now degrade to normal Mission Control behavior.
-- New standalone Mind foundation now exists in `crates/aoc-mind/src/standalone.rs` with direct Pi JSONL ingest helpers and `aoc-mind-service` bootstrap commands (`status`, `sync-pi`, `watch-pi`).
-
-The next architectural move is no longer “split the Mission Control monolith” — that work is effectively done. The next move is to finish the ownership cut so **Mind becomes a project-scoped standalone runtime/service instead of remaining operationally coupled to `aoc-agent-wrap-rs` and Pulse transport**.
+  - `mind_summary_render.rs` — Mind summary/activity presentation
+  - `mind_host_render.rs` — host bridge/search helpers
+  - `mind_artifact_drilldown.rs` — drilldown/compaction presentation
+- Mission Control Overseer rendering is now split into focused modules:
+  - `overseer.rs` — section coordinator
+  - `overseer_consultation.rs` — consultation packet/render policy
+  - `overseer_worker_render.rs` — worker and semantic row rendering
+  - `overseer_ops_render.rs` — orchestration tool and timeline rendering
+- Pi Mind is now standalone-service driven rather than Pulse-coupled.
+- `aoc-mind-service` now exposes standalone Mind command surfaces for:
+  - `status`
+  - `sync-pi`
+  - `watch-pi`
+  - `context-pack`
+  - `provenance-query`
+  - `observer-run`
+  - `finalize-session`
+- `aoc-mind` now owns the major canonical seams that previously lived in wrapper host code:
+  - project-scoped runtime authority
+  - detached dispatch policy
+  - detached lifecycle shaping
+  - runtime tick/health semantics
+  - runtime failure/completion policy
+  - finalize/export preparation policy
+  - context-pack compilation
+  - provenance graph/export compilation
+- The largest remaining Mind closeout seam is no longer runtime authority. It is the small set of **compatibility/manual command hosts still left in `aoc-agent-wrap-rs`**, especially `insight_retrieve` and legacy `mind_*` / `insight_*` Pulse command handling.
 
 ## Mental Model
 
-AOC has **three independent surfaces** with clean product boundaries:
+AOC has three independent product surfaces plus one transport/runtime substrate:
 
-```
-┌──────────────────────────────────────────────────────────────┐
-│                    GLOBAL (cross-session)                    │
-│                                                              │
-│   Mission Control  ──  Fleet / Session / Agent oversight     │
-│        │             ──  Overseer / Delegation / Commands    │
-│        │             ──  Health & Diff rollups               │
-│   (dedicated Zellij tab)                                     │
-└──────────────────────────┬───────────────────────────────────┘
-                           │  Pulse UDS / Hub IPC
-          ┌────────────────┼────────────────┐
-          ▼                ▼                ▼
-   ┌──────────────┐ ┌──────────────┐ ┌──────────────┐
-   │   Pulse      │ │    Mind      │ │   Control    │
-   │   (per-tab)  │ │ (per-project)│ │ (operator)   │
-   │              │ │              │ │              │
-   │ Agent status │ │ Project      │ │ Settings,    │
-   │ telemetry    │ │ knowledge,   │ │ layouts,     │
-   │ strip        │ │ retrieval,   │ │ integrations │
-   │              │ │ synthesis    │ │              │
-   └──────────────┘ └──────────────┘ └──────────────┘
+```text
+Mission Control  = global fleet / session / worker oversight
+Mind             = project-scoped knowledge + runtime state
+Control          = operator configuration surface
+Pulse            = transport / IPC / telemetry bus
 ```
 
-## 1. Surfaces (Product Concepts)
+## 1. Product Surfaces
 
-### Mission Control — Global Fleet Orchestrator
+### Mission Control — Global Operator Surface
 
-**Role:** Session-crosscutting operational oversight. Lives in a dedicated Zellij tab.
-
-**Responsibilities:**
-- Fleet overview: all sessions, agents, health across the workspace
-- Overseer view: per-worker status, timelines, consultation commands
-- Session delegation: dispatch, focus, stop actions across sessions
-- Health & Diff rollups: cross-agent change summary
-- Operator commands via Pulse (focus_tab, stop_agent, etc.)
-
-**Does NOT do:**
-- Project-scoped knowledge retrieval (that's Mind)
-- Per-project context injection (that's Mind)
-- Settings / operator config (that's Control)
-- Pulse telemetry strip (that's Pulse)
-
-### Mind — Project-Scoped Knowledge Surface
-
-**Role:** Floating, project-local knowledge pane. Invoked from any project tab.
+**Role:** cross-session operational oversight in a dedicated tab.
 
 **Responsibilities:**
-- Project knowledge retrieval / search
-- T0/T1/T2/T3 compaction pipeline state display
-- Canon / handshake / watermark inspection
-- Observer feed activity (T1 pre-filter, T2 synthesis, T3 output)
-- Provenance / artifact drilldown
-- Injection triggers (startup, tag-switch, resume, handoff)
-- Search across project's Mind artifacts
+- fleet/session/worker supervision
+- overseer timelines and consultation requests
+- delegated runtime visibility
+- global health and diff rollups
+- operator command dispatch
 
-**Does NOT do:**
-- Cross-session fleet view (that's Mission Control)
-- Agent dispatch commands (that's Mission Control)
-- Per-tab telemetry strip (that's Pulse)
-- Operator settings config (that's Control)
+**Non-goals:**
+- project-local knowledge retrieval
+- project-local context injection authorship
+- per-tab telemetry strip branding
+- operator settings editing
 
-### Pulse — Per-Tab Telemetry Strip
+### Mind — Project-Scoped Knowledge Runtime
 
-**Role:** Minimal live status strip embedded in every project work tab.
+**Role:** project-local knowledge/runtime surface backed by a project store.
 
 **Responsibilities:**
-- Current agent status (running / busy / idle / error / needs-input)
-- Active task name & progress
-- Minimal diff summary indicator
-- Hub connection health indicator
+- Pi ingest into project-scoped Mind store
+- T0/T1/T2/T3 runtime ownership
+- project canon / handshake / watermark semantics
+- bounded context-pack and provenance compilation
+- observer/finalize flows
+- project-local drilldown/search/render inputs
 
-**Does NOT do:**
-- Overseer / consultation views
-- Mind knowledge retrieval
-- Fleet overview
-- Anything interactive beyond status display
+**Non-goals:**
+- cross-session fleet supervision
+- global delegation/focus orchestration
+- generic transport ownership
+- operator config UX
 
 ### Control — Operator Config Surface
 
-**Role:** Alt+C config / setup / integrations panel.
+**Role:** settings/config/integration surface.
 
-**Responsibilities:**
-- Theme management
-- Layout defaults and custom layout creation
-- RTK routing config
-- PI agent installer
-- PI compaction presets
-- Agent Browser + Search config
-- AOC Map microsite
-- Vercel CLI integration access
+### Pulse — Transport / IPC Layer
 
-**Does NOT do:**
-- Runtime agent monitoring
-- Mind knowledge display
-- Pulse telemetry
+**Role:** shared socket/protocol/runtime substrate.
+
+Pulse is still a real system where it names protocol/runtime transport accurately:
+- `aoc-core::pulse_ipc`
+- `pulse.sock`
+- `AOC_PULSE_SOCK`
+- `AOC_PULSE_VNEXT_ENABLED`
+- hub/client transport code
+
+Pulse is **not** the canonical product identity for Pi Mind anymore.
 
 ---
 
-## 2. Crate Boundaries (Implementation)
+## 2. Crate Boundaries
 
-These align product concepts to code. Current state and next target:
+| Concern | Canonical Crate | Current Status |
+|---|---|---|
+| Mind storage/query/render/runtime/finalize/provenance | `aoc-mind` | ✅ canonical |
+| Pi JSONL normalization/import semantics | `aoc-pi-adapter` | ✅ canonical |
+| Pulse protocol/shared contracts | `aoc-core` | ✅ canonical |
+| Mission Control fleet/overseer presentation | `aoc-mission-control` | ✅ host/presenter only |
+| Wrapper compatibility bridge | `aoc-agent-wrap-rs` | ⚠ compatibility/manual command host still present |
+| Standalone Mind service/bootstrap | `aoc-mind` | ✅ canonical service surface landed |
+| Operator configuration TUI | `aoc-control` | ✅ separate |
 
-| Concept | Canonical Crate | Current State |
-|---------|------------------|---------------|
-| Mind query/loading/parsing | `aoc-mind` | ✅ canonical in `query.rs` |
-| Mind shared render primitives | `aoc-mind` | ✅ canonical in `render.rs` |
-| Mind host adaptation inside Mission Control | `aoc-mission-control` | ✅ thin host adapter modules |
-| Fleet / Overseer / Delegation | `aoc-mission-control` | ✅ modularized out of the old monolith |
-| Pulse IPC protocol | `aoc-core` | ✅ canonical |
-| Pi JSONL normalization/import | `aoc-pi-adapter` | ✅ canonical |
-| Wrapper compatibility bridge | `aoc-agent-wrap-rs` | ⚠ still owns too much live Mind runtime/bootstrap |
-| Standalone Mind bootstrap/service | `aoc-mind` | 🚧 foundation landed; ownership cut not complete |
-| Operator config TUI | `aoc-control` | ✅ separate surface |
+### Current architectural truth
 
-### The Core Problem
+The main problem is no longer “split the monolith.”
 
-The main architecture problem has shifted.
+The main remaining architecture question is:
 
-The Mission Control file split is no longer the primary blocker. The primary blocker is now the remaining **runtime ownership** still held in `aoc-agent-wrap-rs`, even though Pi-side Mind ingest/status/manual operations are already standalone-service driven.
+**how much legacy compatibility command/result shaping should remain in `aoc-agent-wrap-rs`, and how much should continue moving into `aoc-mind`?**
 
-- Mind is conceptually a **project-scoped** surface
-- Pi JSONL ingest already has a canonical adapter in `aoc-pi-adapter`
-- detached Mind workers already use project-scoped `owner_plane=mind` semantics
-- Pi now consumes project-local Mind state through `aoc-mind-service` without requiring Pulse transport
-
-So the real next-step architecture target is:
-
-1. `aoc-mind` owns canonical project runtime roots, ingest bootstrap, and standalone service lifecycle
-2. `aoc-agent-wrap-rs` shrinks toward a telemetry/compatibility bridge
-3. Mission Control remains a global operator surface only
-4. Pi consumes fresh project-local Mind state directly from standalone Mind service/store state
-
-### Target Crate Layout
-
-```
-aoc-core/          # Shared types: pulse_ipc, mind_contracts, mind_observer_feed,
-                   #   session_overseer, consultation_contracts, zellij_cli, etc.
-
-aoc-mind/          # Mind runtime library (already correct)
-                   #   lib.rs           — storage APIs, T3 worker, canon, handshake
-                   #   t3_runtime.rs    — T3 synthesis, revision lifecycle
-                   #   observer_runtime.rs  — observer feed processing
-                   #   reflector_runtime.rs — reflector / projection
-                   #   + NEW: render.rs — shared Mind TUI rendering (Ratatui lines)
-
-aoc-mission-control/   # Mission Control binary (fleet/overseer/delegation only)
-                   #   main.rs          — App, Pulse IPC, Mission Control views
-                   #   pulse_tabs.rs    — Pulse strip rendering
-                   #   fleet.rs         — Fleet view rendering
-                   #   overseer.rs      — Overseer, consultation, commands
-                   #   diff.rs          — Diff view
-                   #   health.rs        — Health view
-                   #   (removes all Mind rendering + logic)
-
-aoc-control/       # Control binary (Alt+C config surface, already separate)
-```
+The important part is that live runtime authority is already on the correct side:
+- standalone Pi Mind no longer depends on Pulse
+- Mind runtime/service lease/health state is standalone and project-scoped
+- finalize/export planning is Mind-owned
+- provenance/context-pack compilation is Mind-owned
+- Mission Control is now a host/presenter, not a second Mind implementation
 
 ---
 
-## 3. Binary Launch Map
+## 3. Current Launch / Runtime Model
 
-How the surfaces are invoked — current messy state vs. clean target.
+| Surface | Current Host | Notes |
+|---|---|---|
+| Mission Control | `aoc-mission-control` | dedicated global operator UI |
+| Mind view | `aoc-mission-control --view mind` | acceptable current TUI host |
+| Standalone Mind runtime/service | `aoc-mind-service` | canonical project-scoped ingest/runtime/status/query surface |
+| Control | `aoc-control` | operator config surface |
+| Hub | `aoc-hub-rs` | background transport/runtime host |
+| Agent wrapper | `aoc-agent-wrap-rs` | compatibility bridge + transport/host edges |
 
-### Current Reality (Problematic)
+### Important decision
 
-| Binary | What it does | Problem |
-|--------|-------------|---------|
-| `aoc-mission-control` | Renders **all** views (Overview, Overseer, Mind, Fleet, Work, Diff, Health, Pulse, Fleet, Search) depending on `--mode`/`--view` runtime flags | One binary pretending to be multiple surfaces |
-| `aoc-mission-control-toggle` | Toggle floating Mission Control | Unclear which view it toggles |
-| `aoc-mission-control-tab` | Launch in dedicated tab | Good, but reuses same binary |
-| `aoc-mind-toggle` | ??? | Shell script, unclear |
-| `aoc-pulse-pane` | Historical/aspirational pulse-strip binary name | Not a current crate or required layout dependency |
-| `aoc-control` | Control pane (Alt+C) | Correct, but overlaps with some config flows |
+Near-term extraction of `aoc-mind-tui` is **not** the finish-line requirement.
 
-### Target
+The success gate is:
+- canonical Mind ownership in `aoc-mind`
+- thin hosts
+- explicit compatibility boundaries
+- validated standalone service behavior
 
-| Surface | Binary | Launch Method |
-|---------|--------|---------------|
-| Mission Control | `aoc-mission-control` | Dedicated Zellij tab / `aoc-mission-control-tab` |
-| Mind | `aoc-mission-control --view mind` **→** eventually `aoc-mind-tui` | Floating pane from any project tab |
-| Pulse | Legacy compatibility label only (`pulse-pane` degrades to Mission Control) | Not a required current layout surface |
-| Control | `aoc-control` | Alt+C floating pane |
-| Hub | `aoc-hub-rs` | Background process via `aoc-launch` |
-| Agent wrap | `aoc-agent-wrap-rs` | via `aoc-agent-run` for each agent |
-
-**Phase 1 (practical):** Keep `aoc-mission-control` as the binary host for all TUI views, but enforce *compile-time* or *hardcoded* view routing so the code structure maps 1:1 to product concepts. Mind rendering moves into a clean module boundary.
-
-**Phase 2 (clean):** Extract `aoc-mind` into its own binary (`aoc-mind-tui`) that can be invoked as a floating pane. Mission control shrinks to fleet-only.
+A separate `aoc-mind-tui` may still happen later, but it is not required to declare the Mind ownership cut successful.
 
 ---
 
 ## 4. Data Flow
 
-```
-Agent Process
-    │
-    ▼
-aoc-agent-wrap-rs  ─── publishes status, diff, heartbeat, mind_* events
-    │                            to Pulse UDS socket
-    ▼
-Pulse UDS Socket  ──  /run/user/<uid>/aoc/<session>/pulse.sock
-    │
-    ├────────────┬──────────────┬──────────────┐
-    ▼            ▼              ▼              ▼
-  Legacy      Mission        Mind          aoc-insight
-  pulse       Control         (project-      (Pi
-  label       (fleet)         scoped)        extension)
-    ▲            ▲              ▲              ▲
-    │            │              │              │
-    └────────────┴──────────────┴──────────────┘
-              aoc-core::pulse_ipc
+### Canonical standalone Mind path
+
+```text
+Pi session JSONL
+   ↓
+aoc-pi-adapter
+   ↓
+aoc-mind / aoc-mind-service
+   ↓
+.aoc/mind/project.sqlite
+   ↓
+Pi extension / Mission Control Mind view / standalone status-query surfaces
 ```
 
-### Message Types (aoc_core::pulse_ipc)
+### Compatibility Pulse path
 
-- `hello` / `subscribe` — subscriber registration
-- `agent_status` — worker lifecycle state
-- `delta` — patch to previous state
-- `snapshot` — full state dump on subscribe
-- `heartbeat` — liveness ping
-- `mind_injection` — Mind injection trigger event
-- `mind_observer_feed` — Mind observer progress/status
-- `command` / `command_result` — operator → agent commands
-- `observer_snapshot` / `observer_timeline` — overseer data
-
-### Mind-Specific Pipeline
-
+```text
+Mission Control / wrapper / legacy operator commands
+   ↓
+Pulse command transport
+   ↓
+aoc-agent-wrap-rs compatibility host
+   ↓
+aoc-mind canonical runtime/query/finalize/provenance APIs
 ```
-Agent activity (token flow, file changes, git state)
-    │
-    ▼
-aoc-agent-wrap-rs  ──  publishes mind_* events to Pulse UDS
-    │
-    ▼
-aoc-mind (lib)
-    │
-    ├── T0: raw token/activity capture (ingestion boundary)
-    ├── T1: pre-filter compaction (bounded by token budget)
-    ├── T2: synthesis (canon revision, semantic enrichment)
-    └── T3: structured output (handshake compilation, export)
-         │
-         ▼
-.aoc/mind/project.sqlite  ──  durable artifact store
-                                ↑
-                                │ queries for rendering
-    ┌───────────────────────────┘
-    ▼
-Mind TUI (floating pane per project tab)
-```
+
+The compatibility path still exists, but it is no longer the source of truth for Pi Mind.
 
 ---
 
-## 5. Naming & CLI Contract
+## 5. Canonical vs Compatibility vs Deprecated Surfaces
 
-| Surface | CLI Binary | Config Env | Doc |
-|---------|-----------|------------|-----|
-| Mission Control | `aoc-mission-control` | `AOC_CONTROL_*` | `docs/mission-control.md` |
-| Mind | `aoc-mission-control --view mind` (→ `aoc-mind-tui`) | `AOC_MIND_*` | `docs/mind-*.md` |
-| Pulse | Legacy compatibility labels only (`pulse-pane` / `pulse_pane` / `pulse`) | legacy `AOC_PULSE_*` / compatibility vars | stale docs should not be treated as active product truth |
-| Control | `aoc-control` | `AOC_CONTROL_PANE_*` | `docs/control-pane.md` |
-| Hub | `aoc-hub-rs` | `AOC_HUB_*` | embedded |
+### Canonical
 
-### Environment Variables (by surface)
+These are the source-of-truth Mind surfaces now:
 
-**Shared:**
-- `AOC_SESSION_ID` — current Zellij session
-- `AOC_PANE_ID` — current pane identifier
-- `AOC_PROJECT_ROOT` — project root path
-- `AOC_PULSE_VNEXT_ENABLED` — Pulse UDS gate
+- `aoc-mind` library for:
+  - runtime authority
+  - service lease/health semantics
+  - detached job policy/lifecycle/result shaping
+  - finalize/export preparation
+  - context-pack compilation
+  - provenance graph/export compilation
+- `aoc-mind-service` for standalone operator/extension entrypoints:
+  - `status`
+  - `sync-pi`
+  - `watch-pi`
+  - `context-pack`
+  - `provenance-query`
+  - `observer-run`
+  - `finalize-session`
+- project store path:
+  - `.aoc/mind/project.sqlite`
 
-**Mission Control:**
-- `AOC_CONTROL_NO_FLOAT` — suppress floating launch
-- `AOC_CONTROL_FLOATING_ACTIVE` — launched from floating keybind
-- `AOC_FLEET_PLANE_FILTER` — fleet plane filter
-- `AOC_MIND_PROJECT_SCOPED` — project isolation flag
+### Compatibility
 
-**Mind:**
-- `AOC_MIND_DB` — project SQLite path (default: `.aoc/mind/project.sqlite`)
-- `AOC_MIND_STATE_DIR` — Mind runtime state directory
+These still exist for migration/transport compatibility and are intentionally thinner than before:
+
+- wrapper-hosted Pulse command handling for:
+  - `mind_handoff`
+  - `mind_resume`
+  - `mind_finalize_session`
+  - `mind_compaction_rebuild`
+  - `mind_t3_requeue`
+  - `mind_handshake_rebuild`
+  - `mind_context_pack`
+  - `mind_provenance_query`
+  - `insight_*` command family
+- wrapper-hosted `insight_retrieve` compilation/result shaping
+- Mission Control command emission that still targets compatibility command names
+
+### Deprecated / legacy
+
+These should not be treated as active product truth:
+
+- Pi Mind via Pulse transport
+- `.pi/extensions/pulse/index.ts` for Pi Mind behavior
+- `Mind ingest unavailable: pulse offline` style UX framing
+- `pulse-pane` as an active required product surface
+- docs implying Mind is still primarily wrapper/Pulse coupled
 
 ---
 
-## 6. Known Drift / Debt
+## 6. What Is Actually Done
 
-| Issue | Description | Severity |
-|-------|-------------|----------|
-| **Monolithic main.rs** | 15,189 lines in aoc-mission-control/src/main.rs | 🔴 |
-| **Mind not used as library** | aoc-mind crate exists but mission-control re-implements everything | 🔴 |
-| **Overloaded binary** | One binary serves 3 distinct surfaces via runtime flags | 🟡 |
-| **Stale Pulse sockets** | 40+ orphaned .sock files from past sessions | 🟡 |
-| **Pi Mind standalone cutover** | Pi Mind now uses standalone service commands; remaining work is wrapper/runtime ownership cleanup, not extension transport recovery | 🟢 |
-| **Mind floating pane** | Task #182 pending since Feb | 🟡 |
-| **aoc-insight UX** | Task #110 pending | 🟡 |
-| **Naming drift** | "Mission Control" used for both fleet and Mind views in docs/UI | 🟡 |
+### Done enough to count as architectural closure on the big seams
+
+- Pi Mind works standalone without requiring Pulse.
+- `aoc-mind-service` is the canonical standalone service surface for Pi Mind operations.
+- `aoc-mind` owns runtime authority, provenance, context-pack, and finalize planning.
+- wrapper no longer owns the high-value runtime policy seams.
+- Mission Control Mind host code is thin.
+- Overseer is no longer a dense mixed consultation/render/policy knot.
+
+### Still remaining
+
+These are the remaining bounded closeout items, in priority order:
+
+1. **Wrapper compatibility thinning**
+   - especially `insight_retrieve`
+   - and any remaining manual command policy that is still better owned by `aoc-mind`
+
+2. **Docs/acceptance alignment**
+   - keep architecture docs honest
+   - keep compatibility boundaries explicit
+
+3. **Taskmaster closeout hygiene**
+   - mark finished subtasks accurately
+   - avoid leaving obviously stale in-progress markers for completed seams
 
 ---
 
-## 7. Refactoring Phases
+## 7. Acceptance Status
 
-### Phase 0: Stop the Bleeding
-- [ ] Document this architecture (this file)
-- [ ] Update AGENTS.md to reference canonical boundaries
+Mind ownership cut is now best described as:
 
-### Phase 1: Extract Mind Rendering
-- [ ] Move all `render_mind_*` functions from `main.rs` to `aoc-mind/src/render.rs`
-- [ ] Move all Mind state queries (artifact drilldown, search, injection, observer rows) to use `aoc-mind` library APIs
-- [ ] Add `aoc-mind` as dependency of `aoc-mission-control`
-- [ ] Wire Mission Control Mind tab to call into `aoc-mind` render + query APIs
-- [ ] Ensure tests pass
+- **Canonical ownership:** mostly complete
+- **Host thinning:** substantially complete
+- **Compatibility boundary clarity:** good, now explicit
+- **Standalone Pi operation:** complete
+- **Mission Control presentation split:** substantially complete
+- **Final closeout remaining:** bounded and small
 
-### Phase 2: Split Crate Files
-- [ ] Break `main.rs` 15k lines into: `app.rs`, `pulse.rs`, `overview.rs`, `overseer.rs`, `fleet.rs`, `diff.rs`, `health.rs`, `work.rs`, `help.rs`
-- [ ] Each module handles its own state, rendering, and key handling
-- [ ] App struct uses typed sub-state structs per view
+This means the project is past the “architecture still fundamentally wrong” phase.
 
-### Phase 3: Mind as Independent Binary
-- [ ] Create `aoc-mind-tui` binary that provides the floating Mind pane
-- [ ] Keep it also available as a library consumer for Mission Control's Mind tab
-- [ ] Update launch scripts / keybinds to use the new binary
-
-### Phase 4: Cleanup
-- [ ] Fix stale Pulse socket cleanup (hub cleanup on exit)
-- [x] Cut Pi Mind extension over to standalone service commands for ingest/status/context-pack/finalize/observer-run
-- [ ] Update all docs to use cleaned-up naming
+The remaining work is closeout work, not another large rewrite.

@@ -3,6 +3,7 @@
 //! Extracted from main.rs (Phase 2).
 
 use super::*;
+use crate::overseer_consultation::derive_overseer_consultation_packet;
 
 impl App {
     pub(crate) fn new(
