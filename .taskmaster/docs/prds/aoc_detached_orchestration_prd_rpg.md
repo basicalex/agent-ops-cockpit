@@ -1,5 +1,15 @@
 # AOC Detached Orchestration PRD (RPG)
 
+## Pi 0.62 / Zellij 0.44 Alignment Delta
+
+This umbrella PRD now has two concrete implementation-alignment updates:
+- **Pi 0.62 provenance**: detached jobs and specialist-role dispatch should adopt Pi-native `sourceInfo` so AOC can distinguish built-in, project-local, and extension-provided tools/agents when enforcing trust and capability policy.
+- **Pi tool rendering**: `renderCall` / `renderResult` should be treated as a compact UX enhancement for detached inspection, status, and handoff surfaces rather than a new orchestration architecture.
+- **Zellij 0.44 topology**: detached operator surfaces should prefer native pane/tab JSON inventory (`list-panes`, `list-tabs`, `current-tab-info`) over `dump-layout` parsing wherever possible.
+- **Zellij 0.44 drilldown**: bounded pane evidence capture (`dump-screen --pane-id`) and opt-in live follow (`subscribe --pane-id`) are valid operator drilldown tools, but they remain secondary to Pulse/runtime state and the durable detached registry.
+
+Source alignment note: see `docs/research/zellij-0.44-aoc-alignment.md`.
+
 ## Problem Statement
 AOC now has the core ingredients for detached worker execution, but the end-to-end orchestration model is still split across multiple domain PRDs and implementation slices. Detached delegated specialist subagents are becoming real in Pi, Mind already has project-scoped T1/T2/T3 runtimes, and Mission Control / pulse panes have an increasingly clear UI boundary. What is still missing is one canonical architecture plan that defines how these parts fit together as a single system.
 
@@ -131,10 +141,10 @@ Run Mind detached workers per project/repo, not per Zellij pane.
 - **Behavior**: default to minimal background overhead; never spawn one permanent worker per pane.
 
 #### Feature: Mind runtime bridge into detached registry
-- **Description**: Launch T1/T2/T3-oriented Mind work through the shared detached registry without adopting delegated-subagent UX semantics.
+- **Description**: Launch the project-scoped Mind worker slices that already have a clear queue/lease boundary through the shared detached registry without adopting delegated-subagent UX semantics.
 - **Inputs**: reflector/T3 queue claims, runtime ownership policy, project store path.
-- **Outputs**: detached jobs stamped with `owner_plane=mind` and `worker_kind=t1|t2|t3`.
-- **Behavior**: preserve queue/lease correctness, fail-open behavior, and project-scoped isolation.
+- **Outputs**: detached jobs stamped with `owner_plane=mind` and `worker_kind=t2|t3` for the first shipped slice.
+- **Behavior**: preserve queue/lease correctness, fail-open behavior, and project-scoped isolation; keep T1 observer work session-scoped and inline until a real detached admission boundary exists.
 
 ### Capability: Reliability, Deduplication, and Restart Safety
 Keep detached orchestration safe under multiple panes, multiple sessions, and restarts.

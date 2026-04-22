@@ -6,10 +6,19 @@
 - Status: pending
 - Priority: high
 
+## Zellij 0.44 Update Changes (Exact Delta)
+
+This PRD still treats wrapper/hub telemetry as the primary Pulse substrate, but one earlier assumption has changed:
+- Zellij 0.44 now makes `dump-screen --pane-id` and `subscribe --pane-id` viable for explicit operator capture, drilldown, and debugging of non-focused panes
+- these capabilities should remain secondary to wrapper-originated state and should not replace Pulse as the default telemetry path
+- layout/topology discovery should also prefer native pane/tab JSON inventory over string-parsed `dump-layout` wherever AOC evolves this design further
+
+Source alignment note: see `docs/research/zellij-0.44-aoc-alignment.md`.
+
 ## Problem
 Pulse needs near-real-time, session-wide agent visibility without breaking interactive agent TUIs.
 
-The previous PTY proxy approach proved brittle for mouse tracking and complex terminal rendering, and hub-only scraping via `zellij action dump-screen` is not viable for background panes in current Zellij.
+The previous PTY proxy approach proved brittle for mouse tracking and complex terminal rendering, and hub-only scraping via `zellij action dump-screen` was not viable enough to use as the primary substrate in earlier Zellij versions. Wrapper-originated telemetry remains the primary Pulse model even though Zellij 0.44 now makes targeted capture and subscription viable for explicit drilldown.
 
 We need an architecture that is:
 - fast enough for Mission Control (target sub-second reconciliation)

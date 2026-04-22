@@ -1,5 +1,18 @@
 # AOC Session Overseer PRD (RPG)
 
+> Umbrella alignment note: this PRD remains authoritative for session overseer semantics, consultation packets, and the Mission Control versus pulse-pane boundary, but the whole detached system now has a cross-cutting umbrella under `.taskmaster/docs/prds/aoc_detached_orchestration_prd_rpg.md`. Use that umbrella PRD for shared detached ownership-plane policy, fleet-view expectations, and coordination with delegated specialists and project-scoped Mind workers.
+
+## Zellij 0.44 Update Changes (Exact Delta)
+
+This PRD keeps Pulse/wrapper telemetry as the default overseer substrate, but Zellij 0.44 changes the operator-facing implementation in several concrete ways:
+- replace `dump-layout`-first pane/tab inference with native `list-panes --json`, `list-tabs --json`, and `current-tab-info --json`
+- add bounded pane evidence capture for overseer drilldown via `dump-screen --pane-id --full --ansi`
+- add opt-in live pane follow for Mission Control/operator drilldown via `zellij subscribe --pane-id --format json --scrollback N --ansi`
+- replace floating-pane visibility heuristics with explicit `show-floating-panes --tab-id` / `hide-floating-panes --tab-id`
+- keep pane capture as **operator drilldown evidence**, not as the default cross-agent communication or telemetry model
+
+Source alignment note: see `docs/research/zellij-0.44-aoc-alignment.md`.
+
 ## Problem Statement
 AOC already gives each agent tab strong local isolation and basic Pulse visibility, but it does not yet provide a first-class way for one manager agent and the directing developer to understand whether parallel worker tabs are making plan-aligned progress in real time.
 
@@ -58,6 +71,14 @@ We need a session-scoped overseer control plane that lets AOC publish structured
 - Mission Control should primarily consume bounded consultation packets, Mind-derived summaries, checkpoint state, evidence references, task state, and runtime health.
 - Mission Control may synthesize next prompts, audits, recovery suggestions, and delegation recommendations, but it is not a transcript-consuming super-agent or a general-purpose implementation worker.
 - Mission Control is one intelligence layer among several: worker agents execute, Mind runtimes derive memory/synthesis, and Mission Control orchestrates and surfaces decisions for the developer.
+
+### Pulse Pane vs Mission Control Boundary
+- Normal AOC work tabs should expose a lightweight, tab-local pulse pane rather than a reduced copy of full Mission Control.
+- The per-tab pulse pane should focus on the current tab's local AOC/Mind status: local health, task/work summary, compact Mind/handshake/canon state, tab roster/focus, and other project-scoped signals that help the worker/operator in that tab.
+- The per-tab pulse pane should consume pushed layout/title state where available (for example hub/layout-state updates and Pi-owned session-title hooks) and use polling only as fail-open fallback.
+- The per-tab pulse pane should not own session-global overseer surfaces such as cross-worker roster views, duplicate-work heuristics, consultation streams, manager steering controls, or the retained global observer timeline.
+- Session-global orchestration views belong in the dedicated Mission Control tab/layout, which is the single place for manager-grade supervision and cross-tab coordination.
+- Implementation should prefer a first-class dedicated pulse-pane runtime mode over accumulating feature flags on the full Mission Control experience.
 
 ### Continuity and Handoff Positioning
 - Handoff remains a supported operator artifact, fallback mechanism, and recovery/debug signal.
