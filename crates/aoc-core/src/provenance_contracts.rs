@@ -292,7 +292,10 @@ mod tests {
         let MindProvenanceCommand::Query(request) = command;
         assert_eq!(request.conversation_id.as_deref(), Some("conv-1"));
         assert_eq!(request.task_id.as_deref(), Some("141"));
-        assert_eq!(request.file_path.as_deref(), Some("docs/mission-control.md"));
+        assert_eq!(
+            request.file_path.as_deref(),
+            Some("docs/mission-control.md")
+        );
         assert_eq!(request.max_nodes, 64);
         assert_eq!(request.max_edges, 128);
     }

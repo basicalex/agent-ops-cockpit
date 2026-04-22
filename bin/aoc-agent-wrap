@@ -250,9 +250,17 @@ hub_url="$(resolve_hub_url "$hub_addr")"
 export AOC_SESSION_ID="$session_id"
 export AOC_PANE_ID="$pane_id"
 export AOC_PROJECT_ROOT="$project_root"
+if [[ -z "${AOC_MIND_STORE_PATH:-}" ]]; then
+  export AOC_MIND_STORE_PATH="$project_root/.aoc/mind/project.sqlite"
+fi
 export AOC_HUB_ADDR="$hub_addr"
 export AOC_HUB_URL="$hub_url"
 export AOC_AGENT_LABEL="$agent_label"
+if [[ "${AOC_AGENT_RUN:-0}" == "1" ]]; then
+  export AOC_AGENT_LAUNCH_MODE="managed"
+else
+  export AOC_AGENT_LAUNCH_MODE="manual"
+fi
 if [[ -z "${AOC_TAB_SCOPE:-}" ]]; then
   if [[ -n "${AOC_TAB_NAME:-}" ]]; then
     export AOC_TAB_SCOPE="$AOC_TAB_NAME"
@@ -260,7 +268,9 @@ if [[ -z "${AOC_TAB_SCOPE:-}" ]]; then
     export AOC_TAB_SCOPE="$ZELLIJ_TAB_NAME"
   fi
 fi
-if [[ -z "${AOC_AGENT_PTY:-}" ]]; then
+if [[ "$agent_id" == "pi" && "${AOC_AGENT_RUN:-0}" == "1" ]]; then
+  export AOC_AGENT_PTY="${AOC_PI_USE_PTY:-1}"
+elif [[ -z "${AOC_AGENT_PTY:-}" ]]; then
   if [[ "$agent_id" == "pi" ]]; then
     export AOC_AGENT_PTY="${AOC_PI_USE_PTY:-0}"
   else
@@ -389,7 +399,7 @@ setup_rtk_routing() {
       continue
     fi
     seen="$seen$cmd_name "
-    printf '#!/usr/bin/env bash\nexec "%s" "%s" "$@"\n' "$rtk_proxy" "$cmd_name" > "$shim_dir/$cmd_name"
+    printf '#!/usr/bin/env bash\nexport AOC_RTK_SHIM_DIR="%s"\nexec "%s" "%s" "$@"\n' "$shim_dir" "$rtk_proxy" "$cmd_name" > "$shim_dir/$cmd_name"
     chmod +x "$shim_dir/$cmd_name"
     created=1
   done
@@ -768,12 +778,20 @@ fi
 
 use_bootloader=1
 if [[ "$is_pi_family_agent" == "1" ]]; then
-  case "$(printf '%s' "${AOC_PI_USE_BOOTLOADER:-1}" | tr '[:upper:]' '[:lower:]')" in
+  pi_bootloader_mode="${AOC_PI_USE_BOOTLOADER:-auto}"
+  case "$(printf '%s' "$pi_bootloader_mode" | tr '[:upper:]' '[:lower:]')" in
     0|false|no|off)
       use_bootloader=0
       ;;
-    *)
+    1|true|yes|on)
       use_bootloader=1
+      ;;
+    *)
+      if [[ "${AOC_AGENT_RUN:-0}" == "1" ]]; then
+        use_bootloader=0
+      else
+        use_bootloader=1
+      fi
       ;;
   esac
 fi
@@ -807,6 +825,30 @@ if [[ "$use_bootloader" == "1" ]]; then
     echo "rm -f \"\$0\"" # Self-destruct
     echo "exec \"$real_bin\" \"\$@\""
   } > "$bootloader"
+elif [[ "$is_pi_family_agent" == "1" ]]; then
+  bootloader="$(mktemp /tmp/aoc-pi-launcher-XXXXXX.sh)"
+  chmod +x "$bootloader"
+  {
+    echo "#!/usr/bin/env bash"
+    echo "cd $(printf '%q' "$AOC_PROJECT_ROOT")"
+    while IFS='=' read -r name value; do
+      case "$name" in
+        AOC_*|ZELLIJ_*|XDG_*)
+          if [[ "$name" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]]; then
+            printf 'export %s=%q\n' "$name" "$value"
+          fi
+          ;;
+      esac
+    done < <(env)
+    for name in PATH HOME USER LOGNAME SHELL TERM LANG LC_ALL LC_CTYPE COLORTERM TMPDIR TMP TEMP NO_COLOR CI; do
+      if [[ -n "${!name:-}" ]]; then
+        printf 'export %s=%q\n' "$name" "${!name}"
+      fi
+    done
+    echo "export PWD=$(printf '%q' "$AOC_PROJECT_ROOT")"
+    echo "rm -f \"\$0\""
+    echo "exec \"$real_bin\" \"\$@\""
+  } > "$bootloader"
 fi
 
 resolve_wrap_rs_cmd
@@ -838,13 +880,13 @@ if ((${#wrap_rs_cmd[@]} > 0)); then
     wrapped_cmd+=(--hub-addr "$AOC_HUB_ADDR")
   fi
   wrapped_cmd+=(--)
-  if [[ "$use_bootloader" == "1" ]]; then
+  if [[ -n "$bootloader" ]]; then
     wrapped_cmd+=("$bootloader" "$@")
   else
     wrapped_cmd+=("$real_bin" "$@")
   fi
 else
-  if [[ "$use_bootloader" == "1" ]]; then
+  if [[ -n "$bootloader" ]]; then
     wrapped_cmd=("$bootloader" "$@")
   else
     wrapped_cmd=("$real_bin" "$@")
@@ -883,17 +925,125 @@ run_wrapped_exec() {
   exec "$@"
 }
 
+sync_pi_preset_skill_filters() {
+  if [[ "$is_pi_family_agent" != "1" || -z "${AOC_PROJECT_ROOT:-}" || ! -d "$AOC_PROJECT_ROOT/.pi" ]]; then
+    return 0
+  fi
+
+  local pybin=""
+  pybin="$(find_python_bin || true)"
+  if [[ -z "$pybin" ]]; then
+    return 0
+  fi
+
+  "$pybin" - <<'PY'
+import json
+import os
+from pathlib import Path
+
+project_root = Path(os.environ.get("AOC_PROJECT_ROOT", "") or ".")
+settings_path = project_root / ".pi" / "settings.json"
+if not settings_path.parent.exists():
+    raise SystemExit(0)
+
+managed_names = [
+    "design-diff",
+    "design-director",
+    "design-handoff",
+    "design-review",
+    "design-spec",
+    "design-tokens",
+    "motion-director",
+    "animejs-core-api",
+    "animejs-performance-a11y",
+    "animejs-react-integration",
+    "animejs-reviewer",
+    "animejs-scene-planner",
+    "animejs-scroll-interaction",
+    "animejs-svg-motion",
+    "animejs-text-splitting",
+    "animejs-timelines",
+]
+base_excludes = [
+    "!skills/design-*",
+    "!skills/motion-director",
+    "!skills/animejs-*",
+]
+managed_entries = set(base_excludes) | {f"+skills/{name}" for name in managed_names}
+
+preset = (os.environ.get("AOC_PRESET") or "").strip().lower()
+mode = (os.environ.get("AOC_PRESET_MODE") or "").strip().lower() or "critique"
+submode = (os.environ.get("AOC_PRESET_SUBMODE") or "").strip().lower() or "plan"
+
+visible = []
+if preset == "design":
+    visible.append("design-director")
+    by_mode = {
+        "critique": ["design-review"],
+        "spec": ["design-spec"],
+        "diff": ["design-diff"],
+        "handoff": ["design-handoff"],
+        "tokens": ["design-tokens"],
+        "brand": [],
+        "motion": ["motion-director"],
+    }
+    by_submode = {
+        "plan": ["animejs-scene-planner", "animejs-core-api", "animejs-performance-a11y"],
+        "timeline": ["animejs-timelines", "animejs-core-api", "animejs-performance-a11y"],
+        "scroll": ["animejs-scroll-interaction", "animejs-core-api", "animejs-performance-a11y"],
+        "svg": ["animejs-svg-motion", "animejs-core-api", "animejs-performance-a11y"],
+        "text": ["animejs-text-splitting", "animejs-core-api", "animejs-performance-a11y"],
+        "react": ["animejs-react-integration", "animejs-core-api", "animejs-performance-a11y"],
+        "audit": ["animejs-reviewer", "animejs-performance-a11y"],
+    }
+    visible.extend(by_mode.get(mode, ["design-review"]))
+    if mode == "motion":
+        visible.extend(by_submode.get(submode, by_submode["plan"]))
+
+visible = sorted({name for name in visible if name in managed_names})
+entries = [*base_excludes, *[f"+skills/{name}" for name in visible]]
+
+settings = {}
+if settings_path.exists():
+    raw = settings_path.read_text(encoding="utf-8").strip()
+    if raw:
+        settings = json.loads(raw)
+
+skills = settings.get("skills")
+if not isinstance(skills, list):
+    skills = []
+preserved = [entry for entry in skills if isinstance(entry, str) and entry not in managed_entries]
+next_skills = [*preserved, *entries]
+if skills == next_skills:
+    raise SystemExit(0)
+settings["skills"] = next_skills
+settings_path.write_text(json.dumps(settings, indent=2) + "\n", encoding="utf-8")
+PY
+}
+
 run_pi_direct_exec() {
-  construct_handshake
+  if [[ "$is_pi_family_agent" == "1" && -n "${AOC_PROJECT_ROOT:-}" && -d "$AOC_PROJECT_ROOT" ]]; then
+    cd "$AOC_PROJECT_ROOT"
+    export PWD="$AOC_PROJECT_ROOT"
+    export AOC_PROJECT_ROOT
+  fi
+  if [[ "$use_bootloader" == "1" ]]; then
+    construct_handshake
+  fi
   if [[ -n "$stderr_log_file" ]]; then
     exec "$real_bin" "$@" 2> >(tee -a "$stderr_log_file" >&2)
   fi
   exec "$real_bin" "$@"
 }
 
+managed_agent_pane=0
+if [[ "${AOC_AGENT_RUN:-0}" == "1" ]]; then
+  managed_agent_pane=1
+fi
+
 pi_wrap_rs_mode="${AOC_PI_USE_WRAP_RS:-auto}"
 pi_use_direct_exec=0
-if [[ "$is_pi_family_agent" == "1" && "${AOC_PI_USE_TMUX:-0}" != "1" ]]; then
+if [[ "$is_pi_family_agent" == "1" ]]; then
   case "$(printf '%s' "$pi_wrap_rs_mode" | tr '[:upper:]' '[:lower:]')" in
     1|true|yes|on)
       pi_use_direct_exec=0
@@ -902,35 +1052,74 @@ if [[ "$is_pi_family_agent" == "1" && "${AOC_PI_USE_TMUX:-0}" != "1" ]]; then
       pi_use_direct_exec=1
       ;;
     *)
-      # Default Pi to direct exec in terminal panes. The Rust wrapper remains
-      # available as an explicit opt-in once the PTY path is known-good.
+      # Default Pi to direct exec for interactive panes. The wrap-rs PTY path
+      # remains available as an explicit opt-in, but the safe hot path is the
+      # terminal-native Pi process under Zellij.
       pi_use_direct_exec=1
       ;;
   esac
 fi
 
 if [[ "$pi_use_direct_exec" == "1" ]]; then
-  run_pi_direct_exec "$@"
+  export AOC_AGENT_WRAP_MODE="direct"
+else
+  export AOC_AGENT_WRAP_MODE="wrap-rs"
 fi
+export AOC_AGENT_BOOTLOADER_ACTIVE="$use_bootloader"
 
 tmux_allowlist=",${AOC_TMUX_AGENT_ALLOWLIST:-pi},"
 tmux_allowlist="${tmux_allowlist//[[:space:]]/}"
-
-if [[ "$tmux_allowlist" != *",$agent_id,"* ]]; then
-  run_wrapped_exec "${wrapped_cmd[@]}"
+agent_tmux_allowlisted=0
+if [[ "$tmux_allowlist" == *",$agent_id,"* ]]; then
+  agent_tmux_allowlisted=1
 fi
 
+use_tmux=0
 if [[ "${AOC_NO_TMUX:-0}" == "1" ]]; then
+  use_tmux=0
+elif [[ "$is_pi_family_agent" == "1" ]]; then
+  pi_tmux_mode="${AOC_PI_USE_TMUX:-auto}"
+  case "$(printf '%s' "$pi_tmux_mode" | tr '[:upper:]' '[:lower:]')" in
+    1|true|yes|on)
+      use_tmux=1
+      ;;
+    0|false|no|off)
+      use_tmux=0
+      ;;
+    *)
+      if [[ "$managed_agent_pane" == "1" ]]; then
+        use_tmux=0
+      else
+        use_tmux="$agent_tmux_allowlisted"
+      fi
+      ;;
+  esac
+else
+  use_tmux="$agent_tmux_allowlisted"
+fi
+export AOC_AGENT_TMUX_ACTIVE="$use_tmux"
+
+if [[ "$is_pi_family_agent" == "1" ]]; then
+  sync_pi_preset_skill_filters || true
+fi
+
+if [[ "$pi_use_direct_exec" == "1" ]]; then
+  run_pi_direct_exec "$@"
+fi
+
+if [[ "$use_tmux" != "1" ]]; then
   run_wrapped_exec "${wrapped_cmd[@]}"
 fi
 
 if ! command -v tmux >/dev/null 2>&1; then
-  echo "aoc-$agent_id: tmux not found; running $agent_bin with handshake but no tmux wrapper." >&2
+  echo "aoc-$agent_id: tmux not found; running $agent_bin without tmux wrapper." >&2
   run_wrapped_exec "${wrapped_cmd[@]}"
 fi
 
 conf="${AOC_AGENT_TMUX_CONF:-${XDG_CONFIG_HOME:-$HOME/.config}/aoc/codex-tmux.conf}"
-socket="aoc-${agent_id}-${ZELLIJ_PANE_ID:-$$}"
+tmux_identity="${AOC_SESSION_ID:-unknown}:${AOC_PANE_ID:-${ZELLIJ_PANE_ID:-$$}}:${AOC_PANE_INSTANCE_ID:-$$}:${agent_id}"
+tmux_key="$(printf '%s' "$tmux_identity" | cksum | awk '{print $1}')"
+socket="aoc-${agent_id}-${tmux_key}"
 session="$agent_id"
 socket_dir="/tmp/tmux-$(id -u)"
 socket_path="$socket_dir/$socket"

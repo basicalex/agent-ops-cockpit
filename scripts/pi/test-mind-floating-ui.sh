@@ -6,7 +6,11 @@ repo_root="$(cd "$script_dir/../.." && pwd)"
 mind_toggle="$repo_root/bin/aoc-mind-toggle"
 mission_doc="$repo_root/docs/mission-control.md"
 mission_ops_doc="$repo_root/docs/mission-control-ops.md"
-minimal_ext="$repo_root/.pi/extensions/minimal.ts"
+mind_ops_ext="$repo_root/.pi/extensions/mind-ops.ts"
+mind_ctx_ext="$repo_root/.pi/extensions/mind-context.ts"
+mind_focus_ext="$repo_root/.pi/extensions/mind-focus.ts"
+mind_ingest_ext="$repo_root/.pi/extensions/mind-ingest.ts"
+mind_lib="$repo_root/.pi/extensions/lib/mind.ts"
 
 fail() {
   echo "FAIL: $*" >&2
@@ -157,8 +161,17 @@ run_zellij_project_resolution_and_new_pane_test
 assert_contains "$mind_toggle" 'if pane_id="$(aoc_zellij_find_current_tab_pane_id_by_name "$pane_name" 2>/dev/null)" && [[ -n "$pane_id" ]]; then'
 assert_contains "$mind_toggle" 'aoc_zellij_show_current_tab_floating >/dev/null 2>&1 || true'
 assert_contains "$mind_toggle" 'aoc_zellij_hide_current_tab_floating >/dev/null 2>&1 || true'
-assert_contains "$minimal_ext" 'pi.registerCommand("mind", {'
-assert_contains "$minimal_ext" 'pi.registerShortcut("alt+m", {'
+assert_contains "$mind_ops_ext" 'pi.registerCommand("mind", {'
+assert_contains "$mind_ops_ext" 'pi.registerCommand("mind-status", {'
+assert_contains "$mind_ops_ext" 'pi.registerCommand("aoc-status", {'
+assert_contains "$mind_ops_ext" 'pi.registerCommand("mind-finalize", {'
+assert_contains "$mind_ops_ext" 'pi.registerShortcut("alt+m", {'
+assert_contains "$mind_ctx_ext" 'pi.registerCommand("mind-pack", {'
+assert_contains "$mind_ctx_ext" 'pi.registerCommand("mind-pack-expanded", {'
+assert_contains "$mind_focus_ext" 'pi.registerCommand("mind-focus", {'
+assert_contains "$mind_ingest_ext" 'pi.on("message_end", async (event, ctx) => {'
+assert_contains "$mind_lib" 'export async function ingestMindMessage(message: any, ctx: ExtensionContext): Promise<{ ok: boolean; error?: string }> {'
+assert_contains "$mind_lib" 'export async function sendMindCompactionCheckpoint(event: any, ctx: ExtensionContext): Promise<{ ok: boolean; error?: string }> {'
 assert_contains "$mission_doc" 'Floating project Mind bootstrap'
 assert_contains "$mission_ops_doc" 'Project-scoped floating Mind UI'
 

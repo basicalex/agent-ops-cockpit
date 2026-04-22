@@ -873,7 +873,12 @@ impl App {
             self.set_status("Layout name cannot be empty");
             return;
         }
-        match run_layout_command_interactive(&["--create", layout_name.as_str(), "--scope", "project"]) {
+        match run_layout_command_interactive(&[
+            "--create",
+            layout_name.as_str(),
+            "--scope",
+            "project",
+        ]) {
             Ok(()) => {
                 self.set_status(format!(
                     "Created/opened project custom layout '{}'",
@@ -891,7 +896,12 @@ impl App {
             self.set_status("Layout name cannot be empty");
             return;
         }
-        match run_layout_command_interactive(&["--create", layout_name.as_str(), "--scope", "global"]) {
+        match run_layout_command_interactive(&[
+            "--create",
+            layout_name.as_str(),
+            "--scope",
+            "global",
+        ]) {
             Ok(()) => {
                 self.set_status(format!(
                     "Created/opened global custom layout '{}'",
@@ -2164,9 +2174,10 @@ fn handle_key_picker(app: &mut App, key: KeyEvent, picker: Picker) {
     match key.code {
         KeyCode::Esc => app.mode = Mode::Normal,
         KeyCode::Char('j') | KeyCode::Down => match picker {
-            Picker::Layout(target) => {
-                list_next_state(&mut app.layout_picker_state, layout_picker_options_for(target).len())
-            }
+            Picker::Layout(target) => list_next_state(
+                &mut app.layout_picker_state,
+                layout_picker_options_for(target).len(),
+            ),
             Picker::Agent(_) => list_next_state(&mut app.agent_picker_state, agent_options().len()),
             Picker::BackgroundProfile => list_next_state(
                 &mut app.background_picker_state,
@@ -2174,9 +2185,10 @@ fn handle_key_picker(app: &mut App, key: KeyEvent, picker: Picker) {
             ),
         },
         KeyCode::Char('k') | KeyCode::Up => match picker {
-            Picker::Layout(target) => {
-                list_prev_state(&mut app.layout_picker_state, layout_picker_options_for(target).len())
-            }
+            Picker::Layout(target) => list_prev_state(
+                &mut app.layout_picker_state,
+                layout_picker_options_for(target).len(),
+            ),
             Picker::Agent(_) => list_prev_state(&mut app.agent_picker_state, agent_options().len()),
             Picker::BackgroundProfile => list_prev_state(
                 &mut app.background_picker_state,
@@ -3770,7 +3782,9 @@ fn settings_detail_lines(app: &App) -> Vec<Line<'static>> {
                 lines.push(Line::from(
                     "A starter template includes the managed zjstatus top bar and metadata sync.",
                 ));
-                lines.push(Line::from("Enter prompts for a layout name, then opens $EDITOR."));
+                lines.push(Line::from(
+                    "Enter prompts for a layout name, then opens $EDITOR.",
+                ));
             }
             2 => {
                 lines.push(Line::from("Create global custom layout"));
@@ -3781,7 +3795,9 @@ fn settings_detail_lines(app: &App) -> Vec<Line<'static>> {
                 lines.push(Line::from(
                     "Use this for personal workflows that should not be committed to a repo.",
                 ));
-                lines.push(Line::from("Enter prompts for a layout name, then opens $EDITOR."));
+                lines.push(Line::from(
+                    "Enter prompts for a layout name, then opens $EDITOR.",
+                ));
             }
             3 => {
                 lines.push(Line::from("Edit custom layout"));
@@ -6783,7 +6799,12 @@ fn normalize_layout_name(layout: &str) -> String {
 fn layout_is_hidden_internal(layout: &str) -> bool {
     matches!(
         layout,
-        "unstat" | "minimal" | "mission-control" | "aoc-zjstatus-single" | "aoc-zjstatus-test" | "aoc.hybrid"
+        "unstat"
+            | "minimal"
+            | "mission-control"
+            | "aoc-zjstatus-single"
+            | "aoc-zjstatus-test"
+            | "aoc.hybrid"
     )
 }
 

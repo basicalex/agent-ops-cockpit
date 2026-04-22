@@ -2345,15 +2345,20 @@ mod tests {
                 worker_kind: None,
                 limit: Some(10),
             });
-            if status.jobs.iter().any(|job| {
-                job.job_id == job_id && job.status == InsightDetachedJobStatus::Running
-            }) {
+            if status
+                .jobs
+                .iter()
+                .any(|job| job.job_id == job_id && job.status == InsightDetachedJobStatus::Running)
+            {
                 saw_running = true;
                 break;
             }
             std::thread::sleep(Duration::from_millis(50));
         }
-        assert!(saw_running, "parallel parent job never entered running state");
+        assert!(
+            saw_running,
+            "parallel parent job never entered running state"
+        );
 
         let cancelled = runtime.cancel(&InsightDetachedCancelRequest {
             job_id: job_id.clone(),
