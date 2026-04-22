@@ -58,6 +58,40 @@ This note captures the concrete outputs for Taskmaster task **134**: finalize th
 ### Phase 5 — advanced orchestration surfaces
 - **129** PI specialist role interface with human-in-command dispatch
 
+## Closeout snapshot (2026-04-22)
+
+The major Mind v2 ownership seams are now substantially closed.
+
+### Canonical surfaces now in place
+- `aoc-mind` owns:
+  - standalone runtime authority
+  - service lease/health semantics
+  - detached T2/T3 dispatch/lifecycle/result policy
+  - finalize/export preparation
+  - context-pack compilation
+  - provenance graph/export compilation
+- `aoc-mind-service` exposes standalone command surfaces for:
+  - `status`
+  - `sync-pi`
+  - `watch-pi`
+  - `context-pack`
+  - `provenance-query`
+  - `observer-run`
+  - `finalize-session`
+- Pi Mind extension behavior is standalone-service driven rather than Pulse-coupled.
+- Mission Control Mind rendering is host/presenter-only.
+
+### Explicit compatibility boundary
+These surfaces still exist mainly for compatibility/manual command hosting and transport bridging:
+- wrapper Pulse command host for legacy `mind_*` and `insight_*` commands
+- wrapper-hosted `insight_retrieve` compilation/result shaping
+- Mission Control command emission still targeting those compatibility command names
+
+### Remaining bounded closeout work
+1. decide whether `insight_retrieve` should remain a wrapper compatibility surface or move canonically into `aoc-mind`
+2. keep docs/Taskmaster aligned with the now-thin-host architecture
+3. continue avoiding low-value extractions that do not change ownership
+
 ## Cutover acceptance gate
 
 Mind v2 is ready for cutover when all of the following are true:
@@ -99,14 +133,34 @@ Mind v2 is ready for cutover when all of the following are true:
 - no-context-loss regressions cover compaction, finalization, replay, and recovery.
 - rollout guidance exists for operators and maintainers.
 
-## Recommended execution order from current state
-1. **134** — finalize architecture contracts, phase alignment, and acceptance gate.
-2. **141** — complete retrieval across session/project scopes.
-3. **132** — deliver provenance/query foundation needed for deep drilldown and visualization.
-4. operator polish — keep Mission Control / project Mind aligned with real detached runtime state, including project-local search, activity bridge, and Mind-specific detached labels.
-5. **142** — run hardening/migration/rollout validation suite, including live validation of detached T2/T3 workers and stale-lease recovery (`scripts/pi/validate-mind-runtime-hardening.sh`).
-6. **131** and **110** — cut over dev-tab and finalize insight UX.
-7. **129** — layer specialist role dispatch on top of the stabilized memory substrate.
+## Acceptance status from current state
+
+### A. Replayable substrate
+**Substantially satisfied.**
+
+### B. Deterministic session sealing
+**Satisfied for the extracted ownership seams.**
+
+### C. T3 canon correctness
+**Substantially satisfied.**
+
+### D. Bounded injection correctness
+**Satisfied.**
+
+### E. Retrieval correctness
+**Satisfied for the current compatibility surface, with one remaining ownership question around wrapper-hosted `insight_retrieve`.**
+
+### F. Observability and recovery
+**Substantially satisfied.** Mission Control and standalone status now reflect canonical Mind runtime/service state more directly.
+
+### G. Release safety
+**Partially satisfied / ongoing hardening.** The architecture seams are in place; broader rollout/hardening evidence remains an ongoing validation track rather than a blocker for the ownership conclusion.
+
+## Recommended closeout order from current state
+1. keep docs and acceptance notes aligned with the actual thin-host boundary
+2. decide the final canonical home of `insight_retrieve`
+3. run/retain targeted hardening validation for stale-lease, replay, finalize, and recovery paths
+4. stop after those bounded closeout items instead of reopening broader refactors
 
 ## Immediate next implementation steps
 
