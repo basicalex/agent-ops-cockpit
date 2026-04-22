@@ -2,7 +2,7 @@ id = "design"
 label = "Design"
 layout = "design"
 defaultMode = "critique"
-version = 1
+version = 2
 
 [runtime]
 controller = "aoc-presets"
@@ -31,7 +31,50 @@ enable = ["design-director"]
 disable = ["design-off"]
 
 [skills]
-recommended = ["design-director", "motion-director", "design-review", "design-spec", "design-diff", "design-handoff", "design-tokens"]
+active = ["design-director"]
+recommended = []
+
+[skills.activeByMode]
+motion = ["motion-director"]
+
+[skills.recommendedByMode]
+critique = ["design-review"]
+spec = ["design-spec"]
+diff = ["design-diff"]
+handoff = ["design-handoff"]
+tokens = ["design-tokens"]
+brand = ["design-director"]
+motion = ["motion-director"]
+
+[skills.recommendedBySubmode]
+plan = ["animejs-scene-planner", "animejs-core-api", "animejs-performance-a11y"]
+timeline = ["animejs-timelines", "animejs-core-api", "animejs-performance-a11y"]
+scroll = ["animejs-scroll-interaction", "animejs-core-api", "animejs-performance-a11y"]
+svg = ["animejs-svg-motion", "animejs-core-api", "animejs-performance-a11y"]
+text = ["animejs-text-splitting", "animejs-core-api", "animejs-performance-a11y"]
+react = ["animejs-react-integration", "animejs-core-api", "animejs-performance-a11y"]
+audit = ["animejs-reviewer", "animejs-performance-a11y"]
+
+[handoff]
+enabled = true
+
+[handoff.modeNotes]
+critique = "Carry forward the current artifact, top hierarchy problems, spacing/alignment issues, and priority fixes."
+spec = "Convert the current design direction into implementation-ready guidance with explicit constraints, states, and accessibility notes."
+diff = "Preserve baseline versus current comparisons and separate clear improvements from regressions and mismatches."
+handoff = "Preserve exact values, flex zones, implementation notes, QA checks, and responsive constraints for developers."
+tokens = "Preserve existing patterns, candidate token groupings, inconsistencies, and migration guidance."
+brand = "Preserve the intended brand adjectives, supporting cues, and the strongest direction corrections."
+motion = "Preserve motion intent, trigger, targets, reduced-motion rules, and performance constraints while staying aligned with the design goal."
+
+[handoff.submodeNotes]
+plan = "Carry forward motion purpose, target elements, sequencing intent, and reduced-motion fallback expectations."
+timeline = "Carry forward choreography order, labels/offset needs, and how each motion segment supports hierarchy and feedback."
+scroll = "Carry forward trigger thresholds, sync behavior, container assumptions, and scroll readability constraints."
+svg = "Carry forward path/morph targets, drawing intent, and SVG performance costs."
+text = "Carry forward the split granularity, responsive behavior, accessibility fallback, and cleanup expectations."
+react = "Carry forward refs, lifecycle cleanup, responsive rebuild needs, and reduced-motion handling."
+audit = "Carry forward performance risks, cleanup discipline, and accessibility gaps that need verification."
 
 [integrations.mind]
 policy = "separate"
