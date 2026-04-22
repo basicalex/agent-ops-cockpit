@@ -1,9 +1,14 @@
 use super::*;
-use aoc_core::mind_contracts::{
-    canonical_lineage_attrs, compact_raw_event_to_t0, ConversationLineageMetadata,
-    ConversationRole, MessageEvent, ObserverAdapter, ObserverInput, ObserverOutput, RawEvent,
-    RawEventBody, SemanticAdapterError, SemanticFailureKind, SemanticGuardrails,
-    SemanticModelProfile, T0CompactionPolicy,
+use aoc_core::{
+    insight_contracts::{
+        InsightDetachedJob, InsightDetachedJobStatus, InsightDetachedWorkerKind,
+    },
+    mind_contracts::{
+        canonical_lineage_attrs, compact_raw_event_to_t0, ConversationLineageMetadata,
+        ConversationRole, MessageEvent, ObserverAdapter, ObserverInput, ObserverOutput, RawEvent,
+        RawEventBody, SemanticAdapterError, SemanticFailureKind, SemanticGuardrails,
+        SemanticModelProfile, T0CompactionPolicy,
+    },
 };
 use aoc_core::mind_observer_feed::MindInjectionTriggerKind;
 use aoc_storage::{
@@ -11,6 +16,7 @@ use aoc_storage::{
 };
 use chrono::{DateTime, TimeZone, Utc};
 use std::cell::RefCell;
+use std::path::PathBuf;
 use std::thread;
 use std::time::Duration;
 
@@ -18,6 +24,35 @@ fn ts(hour: u32, min: u32, sec: u32) -> DateTime<Utc> {
     Utc.with_ymd_and_hms(2026, 2, 23, hour, min, sec)
         .single()
         .expect("valid timestamp")
+}
+
+fn temp_project_root(label: &str) -> PathBuf {
+    let unique = format!(
+        "aoc-mind-test-{}-{}-{}",
+        label,
+        std::process::id(),
+        Utc::now().timestamp_nanos_opt().unwrap_or_default()
+    );
+    let root = std::env::temp_dir().join(unique);
+    std::fs::create_dir_all(&root).expect("create temp project root");
+    root
+}
+
+fn runtime_for_test(label: &str) -> MindRuntimeCore {
+    let root = temp_project_root(label);
+    let runtime = MindRuntimeCore::new(MindRuntimeConfig {
+        project_root: root.to_string_lossy().to_string(),
+        session_id: "session-test".to_string(),
+        pane_id: "7".to_string(),
+        agent_key: format!("agent-{label}"),
+        store_path_override: None,
+        reflector_lock_path: root.join("reflector.lock"),
+        t3_lock_path: root.join("t3.lock"),
+        debounce_run_ms: 300,
+        t3_max_attempts: 3,
+    })
+    .expect("runtime");
+    runtime
 }
 
 fn raw_message(event_id: &str, conversation_id: &str, ts: DateTime<Utc>, text: &str) -> RawEvent {
@@ -90,6 +125,418 @@ impl ObserverAdapter for SequenceObserverAdapter {
 
         scripted.remove(0)
     }
+}
+
+#[test]
+fn retrieval_compiler_lives_in_aoc_mind() {
+    let root = temp_project_root("retrieval-compiler");
+    let project_mind = root.join(".aoc").join("mind").join("t3").join("project_mind.md");
+    std::fs::create_dir_all(project_mind.parent().expect("parent")).expect("create t3 dir");
+    std::fs::write(
+        &project_mind,
+        "## Active canon\n\n### entry-1 Build retrieval seam\n- topic: mind\n- evidence_refs: artifact:obs:1\n- retrieval compiler now lives in aoc-mind\n",
+    )
+    .expect("write project mind");
+
+    let result = compile_insight_retrieval(
+        &root.to_string_lossy(),
+        aoc_core::insight_contracts::InsightRetrievalRequest {
+            query: "retrieval compiler".to_string(),
+            scope: aoc_core::insight_contracts::InsightRetrievalScope::Project,
+            mode: aoc_core::insight_contracts::InsightRetrievalMode::Brief,
+            active_tag: Some("mind".to_string()),
+            max_results: Some(4),
+        },
+    );
+
+    assert_eq!(result.status, "ok");
+    assert_eq!(
+        result.resolved_scope,
+        aoc_core::insight_contracts::InsightRetrievalScope::Project
+    );
+    assert!(!result.hits.is_empty());
+    assert!(result.hits[0].reference.contains("project_mind.md#entry-1"));
+    assert!(result.summary_lines.iter().any(|line| line.contains("Project canon")));
+}
+
+#[test]
+fn compatibility_queries_own_context_pack_request_parsing() {
+    let request = parse_mind_context_pack_request(&serde_json::json!({
+        "mode": "tag-switch",
+        "detail": true,
+        "active_tag": "  mind  ",
+        "reason": "  sync now  ",
+        "role": "  insight-t1-observer  "
+    }));
+
+    assert_eq!(request.mode, MindContextPackMode::TagSwitch);
+    assert_eq!(request.profile, MindContextPackProfile::Expanded);
+    assert_eq!(request.active_tag.as_deref(), Some("mind"));
+    assert_eq!(request.reason.as_deref(), Some("sync now"));
+    assert_eq!(request.role.as_deref(), Some("insight-t1-observer"));
+
+    let fallback = parse_mind_context_pack_request(&serde_json::json!({}));
+    assert_eq!(fallback.mode, MindContextPackMode::Handoff);
+    assert_eq!(fallback.profile, MindContextPackProfile::Compact);
+}
+
+#[test]
+fn runtime_owns_scope_and_lease_queries() {
+    let runtime = runtime_for_test("lease-scope");
+    let now = ts(11, 0, 0);
+
+    assert_eq!(runtime.session_watermark_scope_key(), "session:session-test:pane:7");
+    assert!(runtime.reflector_scope_key().starts_with("project:"));
+    assert_eq!(runtime.reflector_scope_key(), runtime.t3_scope_key());
+    assert_eq!(runtime.stale_detached_cutoff_ms(now, 45_000), now.timestamp_millis() - 45_000);
+    assert!(!runtime.reflector_lease_active_at(now));
+    assert!(!runtime.t3_runtime_lease_active_at(now));
+
+    runtime
+        .store()
+        .try_acquire_reflector_lease(&runtime.reflector_scope_key(), "owner", Some(1), now, 60_000)
+        .expect("acquire reflector lease");
+    runtime
+        .store()
+        .try_acquire_t3_runtime_lease(&runtime.t3_scope_key(), "owner", Some(2), now, 60_000)
+        .expect("acquire t3 lease");
+
+    assert!(runtime.reflector_lease_active_at(now));
+    assert!(runtime.t3_runtime_lease_active_at(now));
+    assert!(!runtime.reflector_lease_active_at(now + chrono::Duration::milliseconds(60_001)));
+    assert!(!runtime.t3_runtime_lease_active_at(now + chrono::Duration::milliseconds(60_001)));
+}
+
+#[test]
+fn runtime_owns_detached_job_lifecycle_shaping() {
+    let runtime = runtime_for_test("detached-job-lifecycle");
+    let created_at_ms = ts(11, 15, 0).timestamp_millis();
+
+    let t2 = runtime.new_detached_job(
+        InsightDetachedWorkerKind::T2,
+        "mind-t2-test".to_string(),
+        created_at_ms,
+    );
+    assert_eq!(t2.status, InsightDetachedJobStatus::Queued);
+    assert_eq!(t2.agent.as_deref(), Some("mind t2 worker"));
+    assert!(t2
+        .output_excerpt
+        .as_deref()
+        .unwrap_or_default()
+        .contains("queued"));
+
+    let running = runtime.mark_detached_job_running(
+        t2.clone(),
+        created_at_ms + 10,
+        Some("custom running note".to_string()),
+    );
+    assert_eq!(running.status, InsightDetachedJobStatus::Running);
+    assert_eq!(running.started_at_ms, Some(created_at_ms + 10));
+    assert_eq!(running.output_excerpt.as_deref(), Some("custom running note"));
+
+    let stale = runtime.mark_detached_job_stale(running.clone(), created_at_ms + 20);
+    assert_eq!(stale.status, InsightDetachedJobStatus::Stale);
+    assert_eq!(stale.finished_at_ms, Some(created_at_ms + 20));
+    assert!(stale.error.as_deref().unwrap_or_default().contains("lease expired"));
+
+    let finalized = runtime.finalize_detached_job(
+        running,
+        InsightDetachedJobStatus::Fallback,
+        "summary line".to_string(),
+        Some("runtime failed".to_string()),
+        true,
+        created_at_ms + 30,
+    );
+    assert_eq!(finalized.status, InsightDetachedJobStatus::Fallback);
+    assert_eq!(finalized.finished_at_ms, Some(created_at_ms + 30));
+    assert!(finalized.fallback_used);
+    assert_eq!(finalized.step_results.len(), 1);
+    assert_eq!(finalized.step_results[0].agent, "mind t2 worker");
+    assert_eq!(finalized.step_results[0].status, "fallback");
+    assert!(finalized.stdout_excerpt.is_some());
+    assert!(finalized.stderr_excerpt.is_some());
+
+    let cancelled = InsightDetachedJob {
+        status: InsightDetachedJobStatus::Cancelled,
+        output_excerpt: None,
+        stderr_excerpt: None,
+        error: None,
+        ..runtime.new_detached_job(
+            InsightDetachedWorkerKind::T3,
+            "mind-t3-cancelled".to_string(),
+            created_at_ms,
+        )
+    };
+    let cancelled_finalized = runtime.finalize_detached_job(
+        cancelled,
+        InsightDetachedJobStatus::Error,
+        "cancelled summary".to_string(),
+        Some("should preserve cancellation".to_string()),
+        true,
+        created_at_ms + 40,
+    );
+    assert_eq!(cancelled_finalized.status, InsightDetachedJobStatus::Cancelled);
+    assert_eq!(cancelled_finalized.finished_at_ms, Some(created_at_ms + 40));
+    assert_eq!(
+        cancelled_finalized.output_excerpt.as_deref(),
+        Some("cancelled summary")
+    );
+    assert!(cancelled_finalized.step_results.is_empty());
+}
+
+#[test]
+fn runtime_owns_detached_dispatch_policy() {
+    let runtime = runtime_for_test("detached-dispatch-policy");
+    let now = ts(11, 18, 0);
+    let stale_created_at_ms = now.timestamp_millis() - 61_000;
+    let fresh_created_at_ms = now.timestamp_millis() - 1_000;
+
+    let stale_job = runtime.mark_detached_job_running(
+        runtime.new_detached_job(
+            InsightDetachedWorkerKind::T2,
+            "mind-t2-stale".to_string(),
+            stale_created_at_ms,
+        ),
+        stale_created_at_ms + 10,
+        None,
+    );
+    let active_job = runtime.new_detached_job(
+        InsightDetachedWorkerKind::T2,
+        "mind-t2-active".to_string(),
+        fresh_created_at_ms,
+    );
+
+    let stale_jobs = runtime.reconcile_stale_detached_jobs(
+        InsightDetachedWorkerKind::T2,
+        vec![stale_job.clone(), active_job.clone()],
+        false,
+        now,
+        60_000,
+    );
+    assert_eq!(stale_jobs.len(), 1);
+    assert_eq!(stale_jobs[0].job_id, "mind-t2-stale");
+    assert_eq!(stale_jobs[0].status, InsightDetachedJobStatus::Stale);
+
+    assert!(runtime.has_active_detached_job(
+        InsightDetachedWorkerKind::T2,
+        &[active_job.clone()]
+    ));
+    assert!(!runtime.has_active_detached_job(InsightDetachedWorkerKind::T3, &[active_job]));
+
+    let skip = runtime.detached_dispatch_decision(
+        InsightDetachedWorkerKind::T2,
+        0,
+        Vec::new(),
+        false,
+        now,
+        60_000,
+    );
+    assert!(!skip.should_dispatch);
+    assert!(!skip.emit_status_update);
+    assert!(skip.job_id.is_none());
+
+    let blocked = runtime.detached_dispatch_decision(
+        InsightDetachedWorkerKind::T2,
+        1,
+        vec![stale_job],
+        false,
+        now,
+        60_000,
+    );
+    assert!(!blocked.should_dispatch);
+    assert!(blocked.emit_status_update);
+    assert_eq!(blocked.stale_jobs.len(), 1);
+
+    let launch = runtime.detached_dispatch_decision(
+        InsightDetachedWorkerKind::T3,
+        2,
+        Vec::new(),
+        false,
+        now,
+        60_000,
+    );
+    assert!(launch.should_dispatch);
+    assert!(launch.emit_status_update);
+    assert!(launch.job_id.as_deref().unwrap_or_default().starts_with("mind-t3-"));
+
+    assert_eq!(
+        runtime.detached_spawned_pid_note(InsightDetachedWorkerKind::T2, 42),
+        "mind t2 worker queued (pid 42)"
+    );
+    assert_eq!(
+        runtime.detached_spawn_fallback_note(InsightDetachedWorkerKind::T3, "spawn failed"),
+        "mind t3 worker fallback inline after spawn failure: spawn failed"
+    );
+}
+
+#[test]
+fn runtime_owns_runtime_failure_and_completion_policy() {
+    let mut runtime = runtime_for_test("runtime-failure-policy");
+    runtime.set_latest_conversation_id(Some("conv-failure".to_string()));
+    let now = ts(11, 20, 0);
+    let mut snapshot = MindServiceHealthSnapshot::default();
+
+    let reflector_outcome = runtime.reflector_completion_outcome(
+        &ReflectorTickReport {
+            file_lock_acquired: true,
+            lease_acquired: true,
+            lock_conflict: false,
+            jobs_claimed: 2,
+            jobs_completed: 1,
+            jobs_failed: 1,
+        },
+        true,
+    );
+    assert_eq!(reflector_outcome.status, InsightDetachedJobStatus::Fallback);
+    assert_eq!(reflector_outcome.exit_code, 1);
+    assert!(reflector_outcome.summary.contains("inline fallback processed"));
+
+    let t3_outcome = runtime.t3_completion_outcome(
+        &T3TickReport {
+            file_lock_acquired: true,
+            lease_acquired: true,
+            lock_conflict: false,
+            jobs_claimed: 2,
+            jobs_completed: 2,
+            jobs_failed: 0,
+            jobs_requeued: 0,
+            jobs_dead_lettered: 0,
+        },
+        false,
+    );
+    assert_eq!(t3_outcome.status, InsightDetachedJobStatus::Success);
+    assert_eq!(t3_outcome.exit_code, 0);
+    assert!(t3_outcome.summary.contains("detached worker processed"));
+
+    let reflector_failure = runtime.apply_reflector_runtime_failure(&mut snapshot, "boom", now);
+    assert_eq!(
+        snapshot.last_error.as_deref(),
+        Some("reflector tick failed: boom")
+    );
+    assert_eq!(reflector_failure.observer_events.len(), 1);
+    assert_eq!(
+        reflector_failure.observer_events[0].runtime.as_deref(),
+        Some("t2_reflector")
+    );
+
+    let t3_failure = runtime.apply_t3_runtime_failure(&mut snapshot, "kaput", now);
+    assert_eq!(
+        snapshot.last_error.as_deref(),
+        Some("t3 backlog tick failed: kaput")
+    );
+    assert_eq!(t3_failure.observer_events.len(), 1);
+    assert_eq!(t3_failure.observer_events[0].runtime.as_deref(), Some("t3_backlog"));
+
+    assert_eq!(
+        runtime.runtime_failure_job_summary(InsightDetachedWorkerKind::T2, true),
+        "mind t2 inline fallback failed"
+    );
+    assert_eq!(
+        runtime.compose_runtime_failure_error(Some("spawn"), "runtime"),
+        "spawn failed: spawn; runtime failed: runtime"
+    );
+    assert_eq!(
+        runtime.compose_runtime_failure_error(None, "runtime"),
+        "runtime"
+    );
+}
+
+#[test]
+fn runtime_owns_tick_health_and_observer_effects() {
+    let mut runtime = runtime_for_test("tick-effects");
+    runtime.set_latest_conversation_id(Some("conv-health".to_string()));
+    let now = ts(11, 30, 0);
+    let mut snapshot = MindServiceHealthSnapshot::default();
+
+    runtime.begin_reflector_tick(&mut snapshot, now);
+    runtime.begin_t3_tick(&mut snapshot, now);
+    assert_eq!(snapshot.reflector_ticks, 1);
+    assert_eq!(snapshot.t3_ticks, 1);
+    assert_eq!(snapshot.last_tick_ms, Some(now.timestamp_millis()));
+
+    let reflector_effects = runtime.apply_reflector_tick_effects(
+        &mut snapshot,
+        &ReflectorTickReport {
+            file_lock_acquired: true,
+            lease_acquired: true,
+            jobs_claimed: 2,
+            jobs_completed: 1,
+            jobs_failed: 1,
+            lock_conflict: true,
+        },
+        now,
+    );
+    assert_eq!(snapshot.reflector_lock_conflicts, 1);
+    assert_eq!(snapshot.reflector_jobs_completed, 1);
+    assert_eq!(snapshot.reflector_jobs_failed, 1);
+    assert_eq!(reflector_effects.observer_events.len(), 2);
+    assert_eq!(
+        reflector_effects.observer_events[0].runtime.as_deref(),
+        Some("t2_reflector")
+    );
+    assert_eq!(
+        reflector_effects.observer_events[0].conversation_id.as_deref(),
+        Some("conv-health")
+    );
+    assert!(reflector_effects.observer_events[0]
+        .reason
+        .as_deref()
+        .unwrap_or_default()
+        .contains("processed 1 job"));
+    assert!(reflector_effects.observer_events[1]
+        .reason
+        .as_deref()
+        .unwrap_or_default()
+        .contains("failed 1 job"));
+
+    snapshot.last_error = Some("old error".to_string());
+    let t3_effects = runtime.apply_t3_tick_effects(
+        &mut snapshot,
+        &T3TickReport {
+            file_lock_acquired: true,
+            lease_acquired: true,
+            jobs_claimed: 3,
+            jobs_completed: 2,
+            jobs_failed: 0,
+            jobs_requeued: 1,
+            jobs_dead_lettered: 0,
+            lock_conflict: true,
+        },
+        now,
+    );
+    assert_eq!(snapshot.t3_lock_conflicts, 1);
+    assert_eq!(snapshot.t3_jobs_completed, 2);
+    assert_eq!(snapshot.t3_jobs_failed, 0);
+    assert_eq!(snapshot.t3_jobs_requeued, 1);
+    assert_eq!(snapshot.t3_jobs_dead_lettered, 0);
+    assert_eq!(snapshot.last_error, None);
+    assert_eq!(t3_effects.observer_events.len(), 1);
+    assert_eq!(t3_effects.observer_events[0].runtime.as_deref(), Some("t3_backlog"));
+
+    insert_t0(runtime.store(), "e1", "conv-health", now, "queue depth input");
+    let observation_ids = vec!["t0:e1".to_string()];
+    let conversation_ids = vec!["conv-health".to_string()];
+    runtime
+        .store()
+        .enqueue_reflector_job("tag-a", &observation_ids, &conversation_ids, 10, now)
+        .expect("enqueue reflector job");
+    let artifact_refs = vec!["artifact-1".to_string()];
+    runtime
+        .store()
+        .enqueue_t3_backlog_job(
+            &runtime.project_root().to_string_lossy(),
+            runtime.session_id(),
+            runtime.pane_id(),
+            Some("tag-a"),
+            None,
+            None,
+            &artifact_refs,
+            now,
+        )
+        .expect("enqueue t3 job");
+    runtime.refresh_queue_depths(&mut snapshot);
+    assert_eq!(snapshot.queue_depth, 1);
+    assert_eq!(snapshot.t3_queue_depth, 1);
 }
 
 #[test]
@@ -1331,6 +1778,33 @@ fn prepare_session_finalize_plan_skips_when_no_new_artifacts() {
 }
 
 #[test]
+fn prepare_session_finalize_execution_skips_when_no_new_artifacts() {
+    let store = MindStore::open_in_memory().expect("open");
+    let outcome = prepare_session_finalize_execution(
+        &store,
+        "/tmp/project",
+        "session-empty",
+        "12",
+        None,
+        "manual finalize",
+        Utc::now(),
+    )
+    .expect("prepare finalize execution");
+
+    match outcome {
+        SessionFinalizePreparationOutcome::Skip(message) => {
+            assert_eq!(message.status, "ok");
+            assert_eq!(
+                message.reason,
+                "manual finalize: no new finalized artifacts"
+            );
+            assert_eq!(message.observer_reason, "finalize skipped: no new artifacts");
+        }
+        SessionFinalizePreparationOutcome::Ready(_) => panic!("expected skip outcome"),
+    }
+}
+
+#[test]
 fn prepare_session_finalize_export_location_sanitizes_session_and_builds_path() {
     let now = Utc::now();
     let plan = FinalizeArtifactPlan {
@@ -1412,6 +1886,55 @@ fn prepare_session_finalize_host_plan_builds_files_and_watermark() {
         .reason
         .contains("manual finalize: session export finalized at"));
     assert_eq!(host.manifest.t3_job_id, "job-1");
+}
+
+#[test]
+fn prepare_session_finalize_execution_builds_host_plan_and_enqueues_t3() {
+    let store = MindStore::open_in_memory().expect("open");
+    let now = ts(17, 6, 0);
+    store
+        .insert_observation(
+            "obs-finalize",
+            "conv-finalize",
+            now,
+            "observer output",
+            &[],
+        )
+        .expect("insert t1");
+    store
+        .insert_reflection(
+            "ref-finalize",
+            "conv-finalize",
+            now + chrono::Duration::seconds(1),
+            "reflection output",
+            &["obs-finalize".to_string()],
+        )
+        .expect("insert t2");
+
+    let outcome = prepare_session_finalize_execution(
+        &store,
+        "/tmp/project",
+        "session-finalize",
+        "12",
+        Some("conv-finalize"),
+        "manual finalize",
+        now + chrono::Duration::seconds(2),
+    )
+    .expect("prepare finalize execution");
+
+    let prepared = match outcome {
+        SessionFinalizePreparationOutcome::Skip(_) => panic!("expected ready outcome"),
+        SessionFinalizePreparationOutcome::Ready(prepared) => prepared,
+    };
+
+    assert_eq!(prepared.scope_key, "session:session-finalize:pane:12");
+    assert!(prepared.export_dir.contains("/.aoc/mind/insight/"));
+    assert!(prepared.t3_job_inserted);
+    assert_eq!(prepared.host_plan.export_files.len(), 3);
+    assert_eq!(prepared.host_plan.manifest.t1_count, 1);
+    assert_eq!(prepared.host_plan.manifest.t2_count, 1);
+    assert_eq!(prepared.host_plan.manifest.t3_job_inserted, prepared.t3_job_inserted);
+    assert_eq!(store.pending_t3_backlog_jobs().expect("pending t3"), 1);
 }
 
 #[test]

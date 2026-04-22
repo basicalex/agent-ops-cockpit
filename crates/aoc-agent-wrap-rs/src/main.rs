@@ -8,11 +8,9 @@ use aoc_core::{
     },
     insight_contracts::{
         InsightBootstrapRequest, InsightCommand, InsightDetachedJob, InsightDetachedJobStatus,
-        InsightDetachedMode, InsightDetachedOwnerPlane, InsightDetachedStatusResult,
-        InsightDetachedWorkerKind, InsightDispatchRequest, InsightDispatchStepResult,
-        InsightRetrievalCitation, InsightRetrievalDrilldownRef, InsightRetrievalHit,
-        InsightRetrievalMode, InsightRetrievalRequest, InsightRetrievalResult,
-        InsightRetrievalScope, InsightStatusResult,
+        InsightDetachedOwnerPlane, InsightDetachedStatusResult, InsightDetachedWorkerKind,
+        InsightDispatchRequest, InsightRetrievalRequest, InsightRetrievalResult,
+        InsightStatusResult,
     },
     mind_contracts::{
         build_compaction_t0_slice, canonical_lineage_attrs, text_contains_unredacted_secret,
@@ -51,12 +49,13 @@ use aoc_mind::{
     execute_manual_compaction_rebuild, execute_manual_t3_requeue_from_manifest, ingest_raw_event,
     mind_handoff_resume_conversation_missing, mind_handshake_rebuild_failed,
     mind_store_path_with_override, persist_handshake_rebuild_snapshot,
-    prepare_handoff_resume_command, prepare_handshake_rebuild, prepare_session_finalize_plan,
-    project_scope_key, reflector_dispatch_lock_path, reflector_lock_path_with_override,
-    t3_dispatch_lock_path, t3_lock_path_with_override, HandshakeProjectSnapshot,
-    HandshakeTaskCounts, HandshakeTaskSummary, HandshakeWorkstreamSummary, MindCommandResultPolicy,
-    MindRuntimeConfig, MindRuntimeCore, MindServiceHealthSnapshot, SessionExportManifest,
-    SessionFinalizeHostPlan, SessionFinalizeMessageSet, SessionFinalizePlanOutcome, T0IngestConfig,
+    prepare_handoff_resume_command, prepare_handshake_rebuild,
+    prepare_session_finalize_execution, project_scope_key, reflector_dispatch_lock_path,
+    reflector_lock_path_with_override, t3_dispatch_lock_path, t3_lock_path_with_override,
+    HandshakeProjectSnapshot, HandshakeTaskCounts, HandshakeTaskSummary,
+    HandshakeWorkstreamSummary, MindCommandResultPolicy, MindRuntimeConfig, MindRuntimeCore,
+    MindServiceHealthSnapshot, SessionFinalizeHostPlan, SessionFinalizeMessageSet,
+    SessionFinalizePreparationOutcome, T0IngestConfig,
 };
 use aoc_storage::{ArtifactFileLink, CompactionCheckpoint, MindStore};
 use chrono::{TimeZone, Utc};
@@ -94,6 +93,10 @@ use tokio::{
     signal::unix::{signal, SignalKind},
 };
 use tokio_tungstenite::connect_async;
+#[cfg(test)]
+use aoc_core::insight_contracts::{InsightRetrievalMode, InsightRetrievalScope};
+#[cfg(test)]
+use aoc_mind::SessionExportManifest;
 use tracing::{error, info, warn};
 use tracing_subscriber::{fmt::writer::BoxMakeWriter, EnvFilter};
 use url::Url;
@@ -241,14 +244,6 @@ fn resolve_detached_mind_worker_kind() -> Option<InsightDetachedWorkerKind> {
         "t3" => Some(InsightDetachedWorkerKind::T3),
         "t2" | "reflector" => Some(InsightDetachedWorkerKind::T2),
         _ => None,
-    }
-}
-
-fn detached_mind_worker_label(kind: InsightDetachedWorkerKind) -> &'static str {
-    match kind {
-        InsightDetachedWorkerKind::T2 => "mind-t2-reflector",
-        InsightDetachedWorkerKind::T3 => "mind-t3-runtime",
-        _ => "mind-runtime",
     }
 }
 
@@ -1580,6 +1575,10 @@ fn mind_context_pack_mode_for_trigger(trigger: MindInjectionTriggerKind) -> Mind
     aoc_mind::mind_context_pack_mode_for_trigger(trigger)
 }
 
+fn parse_mind_context_pack_request(args: &serde_json::Value) -> MindContextPackRequest {
+    aoc_mind::parse_mind_context_pack_request(args)
+}
+
 fn compile_mind_context_pack(
     cfg: &ClientConfig,
     runtime: Option<&MindRuntime>,
@@ -1594,669 +1593,11 @@ fn compile_mind_context_pack(
     )
 }
 
-fn extract_nonempty_lines(text: &str, max_lines: usize) -> (Vec<String>, bool) {
-    let cleaned = text
-        .lines()
-        .map(str::trim)
-        .filter(|line| !line.is_empty())
-        .filter(|line| *line != "(none)" && *line != "(empty)")
-        .filter(|line| !line.starts_with("generated_at:") && !line.starts_with("_generated_at:"))
-        .map(|line| line.to_string())
-        .collect::<Vec<_>>();
-    let truncated = cleaned.len() > max_lines;
-    (cleaned.into_iter().take(max_lines).collect(), truncated)
-}
-
-fn export_matches_active_tag(export_tag: Option<&str>, requested_tag: Option<&str>) -> bool {
-    match (
-        export_tag.map(str::trim).filter(|value| !value.is_empty()),
-        requested_tag
-            .map(str::trim)
-            .filter(|value| !value.is_empty()),
-    ) {
-        (_, None) => true,
-        (Some(export_tag), Some(requested_tag)) => export_tag == requested_tag,
-        (None, Some(_)) => false,
-    }
-}
-
 fn compile_insight_retrieval(
     project_root: &str,
     request: InsightRetrievalRequest,
 ) -> InsightRetrievalResult {
-    let active_tag = request
-        .active_tag
-        .as_deref()
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .map(|value| value.to_string());
-    let resolved_scope = match request.scope {
-        InsightRetrievalScope::Session => InsightRetrievalScope::Session,
-        InsightRetrievalScope::Project => InsightRetrievalScope::Project,
-        InsightRetrievalScope::Auto => {
-            if load_session_export_manifests(
-                project_root,
-                INSIGHT_RETRIEVAL_SESSION_EXPORT_SCAN_LIMIT,
-            )
-            .ok()
-            .map(|manifests| {
-                manifests.into_iter().any(|manifest| {
-                    export_matches_active_tag(manifest.active_tag.as_deref(), active_tag.as_deref())
-                })
-            })
-            .unwrap_or(false)
-            {
-                InsightRetrievalScope::Auto
-            } else {
-                InsightRetrievalScope::Project
-            }
-        }
-    };
-
-    let max_results = request
-        .max_results
-        .unwrap_or(INSIGHT_RETRIEVAL_MAX_RESULTS_DEFAULT)
-        .clamp(1, INSIGHT_RETRIEVAL_MAX_RESULTS_CAP);
-    let sources =
-        collect_insight_retrieval_sources(project_root, resolved_scope, active_tag.as_deref());
-    let mut hits = sources
-        .into_iter()
-        .filter_map(|source| {
-            rank_insight_retrieval_source(&request.query, &request.mode, max_results, source)
-        })
-        .collect::<Vec<_>>();
-    hits.sort_by(|a, b| b.score.cmp(&a.score).then_with(|| a.label.cmp(&b.label)));
-    if hits.len() > max_results {
-        hits.truncate(max_results);
-    }
-
-    let citations = hits
-        .iter()
-        .flat_map(|hit| hit.citations.iter().cloned())
-        .collect::<Vec<_>>();
-
-    let fallback_used = hits.is_empty();
-    let status = if fallback_used { "fallback" } else { "ok" }.to_string();
-    let summary_lines = if fallback_used {
-        vec![format!(
-            "no retrieval hits for query '{}' in {:?} scope",
-            request.query, resolved_scope
-        )]
-    } else {
-        match request.mode {
-            InsightRetrievalMode::Brief => hits
-                .iter()
-                .map(|hit| format!("{} [{}]", hit.label, hit.reference))
-                .collect(),
-            InsightRetrievalMode::Refs => hits
-                .iter()
-                .map(|hit| {
-                    let drilldown = hit
-                        .drilldown_refs
-                        .iter()
-                        .map(|item| format!("{}:{}", item.kind, item.reference))
-                        .collect::<Vec<_>>()
-                        .join(", ");
-                    if drilldown.is_empty() {
-                        format!("{} -> {}", hit.label, hit.reference)
-                    } else {
-                        format!("{} -> {} ({})", hit.label, hit.reference, drilldown)
-                    }
-                })
-                .collect(),
-            InsightRetrievalMode::Snips => hits
-                .iter()
-                .map(|hit| {
-                    let preview = hit.lines.first().cloned().unwrap_or_default();
-                    format!("{} -> {}", hit.label, preview)
-                })
-                .collect(),
-        }
-    };
-    let line_budget_per_hit = insight_retrieval_line_budget(&request.mode, max_results);
-
-    InsightRetrievalResult {
-        query: request.query,
-        scope: request.scope,
-        resolved_scope,
-        mode: request.mode,
-        status,
-        summary_lines,
-        hits,
-        citations,
-        fallback_used,
-        hit_budget: max_results,
-        line_budget_per_hit,
-    }
-}
-
-fn collect_insight_retrieval_sources(
-    project_root: &str,
-    scope: InsightRetrievalScope,
-    active_tag: Option<&str>,
-) -> Vec<InsightRetrievalSource> {
-    let mut sources = Vec::new();
-
-    if matches!(
-        scope,
-        InsightRetrievalScope::Project | InsightRetrievalScope::Auto
-    ) {
-        if let Some(text) = read_optional_text(
-            &PathBuf::from(project_root)
-                .join(".aoc")
-                .join("mind")
-                .join("t3")
-                .join("project_mind.md"),
-        ) {
-            sources.extend(parse_project_mind_retrieval_sources(&text, active_tag));
-        }
-    }
-
-    if matches!(
-        scope,
-        InsightRetrievalScope::Session | InsightRetrievalScope::Auto
-    ) {
-        if let Ok(manifests) =
-            load_session_export_manifests(project_root, INSIGHT_RETRIEVAL_SESSION_EXPORT_SCAN_LIMIT)
-        {
-            for (index, manifest) in manifests.into_iter().enumerate() {
-                if !export_matches_active_tag(manifest.active_tag.as_deref(), active_tag) {
-                    continue;
-                }
-                let export_dir = PathBuf::from(&manifest.export_dir);
-                let recency_bias =
-                    (INSIGHT_RETRIEVAL_SESSION_EXPORT_SCAN_LIMIT.saturating_sub(index)) as i64;
-                if let Some(text) = read_optional_text(&export_dir.join("t2.md")) {
-                    sources.extend(parse_session_export_retrieval_sources(
-                        &text,
-                        "t2",
-                        &manifest,
-                        &format!("{}/t2.md", manifest.export_dir),
-                        recency_bias,
-                    ));
-                }
-                if let Some(text) = read_optional_text(&export_dir.join("t1.md")) {
-                    sources.extend(parse_session_export_retrieval_sources(
-                        &text,
-                        "t1",
-                        &manifest,
-                        &format!("{}/t1.md", manifest.export_dir),
-                        recency_bias,
-                    ));
-                }
-            }
-        }
-    }
-
-    sources
-}
-
-fn load_session_export_manifests(
-    project_root: &str,
-    limit: usize,
-) -> Result<Vec<SessionExportManifest>, String> {
-    let insight_root = PathBuf::from(project_root)
-        .join(".aoc")
-        .join("mind")
-        .join("insight");
-    let entries = std::fs::read_dir(&insight_root)
-        .map_err(|err| format!("read insight export dir failed: {err}"))?;
-
-    let mut manifests = entries
-        .filter_map(|entry| entry.ok().map(|entry| entry.path()))
-        .filter(|path| path.is_dir())
-        .filter_map(|dir| {
-            let manifest_path = dir.join("manifest.json");
-            let payload = std::fs::read_to_string(&manifest_path).ok()?;
-            let manifest = serde_json::from_str::<SessionExportManifest>(&payload).ok()?;
-            Some((dir, manifest))
-        })
-        .collect::<Vec<_>>();
-
-    manifests.sort_by(|left, right| {
-        right
-            .1
-            .exported_at
-            .cmp(&left.1.exported_at)
-            .then_with(|| right.0.cmp(&left.0))
-    });
-
-    Ok(manifests
-        .into_iter()
-        .take(limit.max(1))
-        .map(|(_, manifest)| manifest)
-        .collect())
-}
-
-fn parse_project_mind_retrieval_sources(
-    text: &str,
-    active_tag: Option<&str>,
-) -> Vec<InsightRetrievalSource> {
-    let requested = active_tag
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .map(|value| value.to_ascii_lowercase());
-    let mut sources = Vec::new();
-    let mut state = "active";
-    let mut heading: Option<String> = None;
-    let mut topic: Option<String> = None;
-    let mut evidence_refs: Vec<String> = Vec::new();
-    let mut body_lines: Vec<String> = Vec::new();
-
-    let flush =
-        |sources: &mut Vec<InsightRetrievalSource>,
-         heading: &mut Option<String>,
-         topic: &mut Option<String>,
-         evidence_refs: &mut Vec<String>,
-         body_lines: &mut Vec<String>,
-         state: &str,
-         requested: Option<&String>| {
-            let Some(entry_heading) = heading.take() else {
-                topic.take();
-                evidence_refs.clear();
-                body_lines.clear();
-                return;
-            };
-            let topic_value = topic.take();
-            let include = match (requested, topic_value.as_deref()) {
-                (None, _) => true,
-                (Some(requested), Some(topic)) => {
-                    let topic = topic.trim().to_ascii_lowercase();
-                    topic == *requested || topic == "global"
-                }
-                (Some(_), None) => false,
-            };
-            if !include {
-                evidence_refs.clear();
-                body_lines.clear();
-                return;
-            }
-
-            let mut lines = vec![entry_heading.clone()];
-            if let Some(topic) = topic_value.as_deref() {
-                lines.push(format!("- topic: {topic}"));
-            }
-            lines.extend(body_lines.iter().cloned());
-            let lines = lines
-                .into_iter()
-                .map(|line| line.trim().to_string())
-                .filter(|line| !line.is_empty())
-                .collect::<Vec<_>>();
-            if lines.is_empty() {
-                evidence_refs.clear();
-                body_lines.clear();
-                return;
-            }
-
-            let entry_id = entry_heading
-                .trim_start_matches("### ")
-                .split_whitespace()
-                .next()
-                .unwrap_or("canon-entry")
-                .to_string();
-            let reference = format!(".aoc/mind/t3/project_mind.md#{entry_id}");
-            let mut citations = vec![InsightRetrievalCitation {
-                source_id: format!("t3_canon:{entry_id}"),
-                label: format!("Canon entry {entry_id}"),
-                reference: reference.clone(),
-                score: 0,
-            }];
-            citations.extend(
-                evidence_refs
-                    .iter()
-                    .map(|evidence| InsightRetrievalCitation {
-                        source_id: evidence.clone(),
-                        label: format!("Evidence {evidence}"),
-                        reference: evidence.clone(),
-                        score: 0,
-                    }),
-            );
-
-            let mut drilldown_refs = vec![InsightRetrievalDrilldownRef {
-                kind: "canon_entry".to_string(),
-                label: format!("Canon entry {entry_id}"),
-                reference: reference.clone(),
-            }];
-            drilldown_refs.extend(evidence_refs.iter().map(|evidence| {
-                InsightRetrievalDrilldownRef {
-                    kind: "evidence_ref".to_string(),
-                    label: format!("Evidence {evidence}"),
-                    reference: evidence.clone(),
-                }
-            }));
-
-            sources.push(InsightRetrievalSource {
-                source_id: format!("t3_canon:{entry_id}"),
-                scope: InsightRetrievalScope::Project,
-                label: format!("Project canon {entry_id} ({state})"),
-                reference,
-                lines,
-                citations,
-                drilldown_refs,
-                score_bias: if state == "active" { 20 } else { -10 },
-            });
-            evidence_refs.clear();
-            body_lines.clear();
-        };
-
-    for raw in text.lines() {
-        let line = raw.trim();
-        if line.starts_with("## Active canon") {
-            flush(
-                &mut sources,
-                &mut heading,
-                &mut topic,
-                &mut evidence_refs,
-                &mut body_lines,
-                state,
-                requested.as_ref(),
-            );
-            state = "active";
-            continue;
-        }
-        if line.starts_with("## Stale canon") {
-            flush(
-                &mut sources,
-                &mut heading,
-                &mut topic,
-                &mut evidence_refs,
-                &mut body_lines,
-                state,
-                requested.as_ref(),
-            );
-            state = "stale";
-            continue;
-        }
-        if line.starts_with("### ") {
-            flush(
-                &mut sources,
-                &mut heading,
-                &mut topic,
-                &mut evidence_refs,
-                &mut body_lines,
-                state,
-                requested.as_ref(),
-            );
-            heading = Some(line.to_string());
-            continue;
-        }
-        if heading.is_none() || line.is_empty() || line == "(none)" {
-            continue;
-        }
-        if let Some(value) = line.strip_prefix("- topic:") {
-            topic = Some(value.trim().to_string());
-            continue;
-        }
-        if let Some(value) = line.strip_prefix("- evidence_refs:") {
-            evidence_refs = value
-                .split(',')
-                .map(str::trim)
-                .filter(|value| !value.is_empty())
-                .map(|value| value.to_string())
-                .collect();
-            continue;
-        }
-        if line.starts_with("-") {
-            body_lines.push(line.to_string());
-            continue;
-        }
-        body_lines.push(line.to_string());
-    }
-
-    flush(
-        &mut sources,
-        &mut heading,
-        &mut topic,
-        &mut evidence_refs,
-        &mut body_lines,
-        state,
-        requested.as_ref(),
-    );
-    sources
-}
-
-fn parse_session_export_retrieval_sources(
-    text: &str,
-    kind: &str,
-    manifest: &SessionExportManifest,
-    reference: &str,
-    recency_bias: i64,
-) -> Vec<InsightRetrievalSource> {
-    let mut sources = Vec::new();
-    let mut heading: Option<String> = None;
-    let mut body_lines = Vec::new();
-
-    let flush = |sources: &mut Vec<InsightRetrievalSource>,
-                 heading: &mut Option<String>,
-                 body_lines: &mut Vec<String>| {
-        let title = heading.take();
-        let lines = body_lines
-            .iter()
-            .map(|line| line.trim().to_string())
-            .filter(|line| !line.is_empty() && line != "(empty)")
-            .collect::<Vec<_>>();
-        body_lines.clear();
-        if lines.is_empty() {
-            return;
-        }
-
-        let label = match title.as_deref() {
-            Some(value) => format!(
-                "Session {} {}",
-                kind.to_uppercase(),
-                value.trim_start_matches("## ")
-            ),
-            None => format!("Session {} export", kind.to_uppercase()),
-        };
-        let source_id = match title.as_deref() {
-            Some(value) => {
-                let artifact_id = value
-                    .trim_start_matches("## ")
-                    .split_whitespace()
-                    .next()
-                    .unwrap_or(kind);
-                format!("session_{}:{}", kind, artifact_id)
-            }
-            None => format!("session_{}:{}", kind, manifest.session_id),
-        };
-        let mut citations = vec![InsightRetrievalCitation {
-            source_id: source_id.clone(),
-            label: label.clone(),
-            reference: reference.to_string(),
-            score: 0,
-        }];
-        citations.push(InsightRetrievalCitation {
-            source_id: format!("session:{}", manifest.session_id),
-            label: format!("Session {}", manifest.session_id),
-            reference: manifest.export_dir.clone(),
-            score: 0,
-        });
-        let drilldown_refs = vec![
-            InsightRetrievalDrilldownRef {
-                kind: "export_file".to_string(),
-                label: format!("{} export file", kind.to_uppercase()),
-                reference: reference.to_string(),
-            },
-            InsightRetrievalDrilldownRef {
-                kind: "session_export".to_string(),
-                label: format!("Session {} export dir", manifest.session_id),
-                reference: manifest.export_dir.clone(),
-            },
-        ];
-        sources.push(InsightRetrievalSource {
-            source_id,
-            scope: InsightRetrievalScope::Session,
-            label,
-            reference: reference.to_string(),
-            lines,
-            citations,
-            drilldown_refs,
-            score_bias: if kind == "t2" {
-                8 + recency_bias
-            } else {
-                4 + recency_bias
-            },
-        });
-    };
-
-    for raw in text.lines() {
-        let line = raw.trim();
-        if line.starts_with("# ") {
-            continue;
-        }
-        if line.starts_with("## ") {
-            flush(&mut sources, &mut heading, &mut body_lines);
-            heading = Some(line.to_string());
-            continue;
-        }
-        if line.is_empty() {
-            flush(&mut sources, &mut heading, &mut body_lines);
-            continue;
-        }
-        body_lines.push(line.to_string());
-    }
-    flush(&mut sources, &mut heading, &mut body_lines);
-
-    if sources.is_empty() {
-        let (lines, _) = extract_nonempty_lines(text, 48);
-        if !lines.is_empty() {
-            sources.push(InsightRetrievalSource {
-                source_id: format!("session_{}:{}", kind, manifest.session_id),
-                scope: InsightRetrievalScope::Session,
-                label: format!("Session {} export", kind.to_uppercase()),
-                reference: reference.to_string(),
-                lines,
-                citations: vec![InsightRetrievalCitation {
-                    source_id: format!("session:{}", manifest.session_id),
-                    label: format!("Session {}", manifest.session_id),
-                    reference: manifest.export_dir.clone(),
-                    score: 0,
-                }],
-                drilldown_refs: vec![
-                    InsightRetrievalDrilldownRef {
-                        kind: "export_file".to_string(),
-                        label: format!("{} export file", kind.to_uppercase()),
-                        reference: reference.to_string(),
-                    },
-                    InsightRetrievalDrilldownRef {
-                        kind: "session_export".to_string(),
-                        label: format!("Session {} export dir", manifest.session_id),
-                        reference: manifest.export_dir.clone(),
-                    },
-                ],
-                score_bias: if kind == "t2" {
-                    8 + recency_bias
-                } else {
-                    4 + recency_bias
-                },
-            });
-        }
-    }
-
-    sources
-}
-
-fn insight_retrieval_line_budget(mode: &InsightRetrievalMode, max_results: usize) -> usize {
-    match mode {
-        InsightRetrievalMode::Brief => INSIGHT_RETRIEVAL_BRIEF_LINE_BUDGET,
-        InsightRetrievalMode::Refs => INSIGHT_RETRIEVAL_REFS_LINE_BUDGET,
-        InsightRetrievalMode::Snips => INSIGHT_RETRIEVAL_SNIPS_LINE_BUDGET,
-    }
-    .min(
-        max_results
-            .saturating_mul(INSIGHT_RETRIEVAL_SNIPS_LINE_BUDGET)
-            .max(1),
-    )
-}
-
-fn rank_insight_retrieval_source(
-    query: &str,
-    mode: &InsightRetrievalMode,
-    max_results: usize,
-    source: InsightRetrievalSource,
-) -> Option<InsightRetrievalHit> {
-    let terms = query
-        .split_whitespace()
-        .map(|term| term.trim().to_ascii_lowercase())
-        .filter(|term| !term.is_empty())
-        .collect::<Vec<_>>();
-    let score_line = |line: &str| {
-        let normalized = line.to_ascii_lowercase();
-        let term_hits = terms
-            .iter()
-            .map(|term| {
-                if normalized.contains(term) {
-                    10 + term.len() as i64
-                } else {
-                    0
-                }
-            })
-            .sum::<i64>();
-        let heading_bonus = if normalized.starts_with("### ") || normalized.starts_with("## ") {
-            6
-        } else {
-            0
-        };
-        term_hits + heading_bonus
-    };
-
-    let mut matched = source
-        .lines
-        .iter()
-        .filter_map(|line| {
-            let score = if terms.is_empty() {
-                1
-            } else {
-                score_line(line)
-            };
-            if score > 0 {
-                Some((line.clone(), score))
-            } else {
-                None
-            }
-        })
-        .collect::<Vec<_>>();
-    if matched.is_empty() {
-        return None;
-    }
-    matched.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
-
-    let line_budget = insight_retrieval_line_budget(mode, max_results);
-
-    let lines = match mode {
-        InsightRetrievalMode::Refs => Vec::new(),
-        _ => matched
-            .iter()
-            .take(line_budget)
-            .map(|(line, _)| line.clone())
-            .collect(),
-    };
-    let lines_truncated =
-        matched.len() > line_budget && !matches!(mode, InsightRetrievalMode::Refs);
-    let score = source.score_bias
-        + matched
-            .iter()
-            .take(line_budget.max(1))
-            .map(|(_, score)| *score)
-            .sum::<i64>();
-    let citations = source
-        .citations
-        .into_iter()
-        .map(|citation| InsightRetrievalCitation { score, ..citation })
-        .collect();
-
-    Some(InsightRetrievalHit {
-        source_id: source.source_id,
-        scope: source.scope,
-        label: source.label,
-        reference: source.reference,
-        score,
-        lines,
-        citations,
-        drilldown_refs: source.drilldown_refs,
-        line_budget,
-        lines_truncated,
-    })
+    aoc_mind::compile_insight_retrieval(project_root, request)
 }
 
 #[allow(dead_code)]
@@ -2272,13 +1613,6 @@ fn compile_mind_provenance_export(
     request: MindProvenanceQueryRequest,
 ) -> Result<MindProvenanceExport, String> {
     aoc_mind::compile_mind_provenance_export(store, request)
-}
-
-fn read_optional_text(path: &Path) -> Option<String> {
-    std::fs::read_to_string(path)
-        .ok()
-        .map(|value| value.trim().to_string())
-        .filter(|value| !value.is_empty())
 }
 
 fn build_mind_injection_payload(
@@ -2918,25 +2252,6 @@ type MindContextPack = aoc_mind::MindContextPack;
 type MindContextPackRequest = aoc_mind::MindContextPackRequest;
 type MindContextPackSourceOverrides = aoc_mind::MindContextPackSourceOverrides;
 
-#[derive(Debug, Clone)]
-struct InsightRetrievalSource {
-    source_id: String,
-    scope: InsightRetrievalScope,
-    label: String,
-    reference: String,
-    lines: Vec<String>,
-    citations: Vec<InsightRetrievalCitation>,
-    drilldown_refs: Vec<InsightRetrievalDrilldownRef>,
-    score_bias: i64,
-}
-
-const INSIGHT_RETRIEVAL_MAX_RESULTS_DEFAULT: usize = 4;
-const INSIGHT_RETRIEVAL_MAX_RESULTS_CAP: usize = 8;
-const INSIGHT_RETRIEVAL_SESSION_EXPORT_SCAN_LIMIT: usize = 6;
-const INSIGHT_RETRIEVAL_BRIEF_LINE_BUDGET: usize = 2;
-const INSIGHT_RETRIEVAL_REFS_LINE_BUDGET: usize = 0;
-const INSIGHT_RETRIEVAL_SNIPS_LINE_BUDGET: usize = 5;
-
 #[derive(Debug, Clone, Default)]
 struct CompactionTrailFile {
     path: String,
@@ -3428,45 +2743,25 @@ impl MindRuntime {
         let deadline = Utc::now() + chrono::Duration::milliseconds(timeout_ms.max(0));
         let mut updates = self.drain_pending_runtime(cfg, finalize_trigger, deadline);
 
-        let scope_key = self.core.session_watermark_scope_key();
-        let plan = match prepare_session_finalize_plan(
+        let prepared = match prepare_session_finalize_execution(
             self.core.store(),
+            &cfg.project_root,
             self.core.session_id(),
             self.core.pane_id(),
             self.core.latest_conversation_id(),
-            &scope_key,
+            &finalize_reason,
+            Utc::now(),
         ) {
-            Ok(SessionFinalizePlanOutcome::Skip {
-                observer_reason,
-                outcome_reason_suffix,
-            }) => {
-                updates.push(PulseUpdate::MindObserverEvent(mind_observer_event(
-                    MindObserverFeedStatus::Success,
-                    finalize_trigger,
-                    Some(observer_reason.to_string()),
-                )));
-                return SessionFinalizeOutcome {
-                    status: "ok",
-                    reason: format!("{}: {}", finalize_reason, outcome_reason_suffix),
-                    updates,
-                };
+            Ok(SessionFinalizePreparationOutcome::Skip(message)) => {
+                return self.finalize_session_from_messages(updates, finalize_trigger, message);
             }
-            Ok(SessionFinalizePlanOutcome::Ready(plan)) => plan,
-            Err(err) => {
-                return self.finalize_session_error(updates, finalize_trigger, "planning", err);
+            Ok(SessionFinalizePreparationOutcome::Ready(prepared)) => prepared,
+            Err(message) => {
+                return self.finalize_session_from_messages(updates, finalize_trigger, message);
             }
         };
 
-        let active_tag = plan.active_tag.clone();
-        let slice_start_id = plan.slice_start_id.clone();
-        let slice_end_id = plan.slice_end_id.clone();
-        let artifact_ids = plan.artifact_ids.clone();
-        let export_location = aoc_mind::prepare_session_finalize_export_location(
-            &cfg.project_root,
-            self.core.session_id(),
-            &plan,
-        );
-        let export_dir = PathBuf::from(&export_location.export_dir);
+        let export_dir = PathBuf::from(&prepared.export_dir);
 
         if let Err(err) = std::fs::create_dir_all(&export_dir) {
             updates.push(PulseUpdate::MindObserverEvent(mind_observer_event(
@@ -3481,47 +2776,10 @@ impl MindRuntime {
             };
         }
 
-        let (t3_job_id, t3_job_inserted) = match self.core.store().enqueue_t3_backlog_job(
-            &cfg.project_root,
-            self.core.session_id(),
-            self.core.pane_id(),
-            active_tag.as_deref(),
-            Some(&slice_start_id),
-            Some(&slice_end_id),
-            &artifact_ids,
-            Utc::now(),
-        ) {
-            Ok(result) => result,
-            Err(err) => {
-                return self.finalize_session_error(updates, finalize_trigger, "t3_enqueue", err);
-            }
-        };
-
-        let host_plan = match aoc_mind::prepare_session_finalize_host_plan(
-            &plan,
-            self.core.session_id(),
-            self.core.pane_id(),
-            &cfg.project_root,
-            &export_location.export_dir,
-            &t3_job_id,
-            t3_job_inserted,
-            &finalize_reason,
-        ) {
-            Ok(host_plan) => host_plan,
-            Err(err) => {
-                return self.finalize_session_error(
-                    updates,
-                    finalize_trigger,
-                    "export_bundle",
-                    err,
-                );
-            }
-        };
-
         self.execute_finalize_host_plan(
-            &scope_key,
+            &prepared.scope_key,
             &export_dir,
-            host_plan,
+            prepared.host_plan,
             updates,
             finalize_trigger,
         )
@@ -3769,8 +3027,7 @@ impl MindRuntime {
         &mut self,
         now: chrono::DateTime<chrono::Utc>,
     ) -> Result<aoc_mind::ReflectorTickReport, String> {
-        self.insight_health.reflector_ticks = self.insight_health.reflector_ticks.saturating_add(1);
-        self.insight_health.last_tick_ms = Some(now.timestamp_millis());
+        self.core.begin_reflector_tick(&mut self.insight_health, now);
         self.core.run_reflector_tick(now)
     }
 
@@ -3780,59 +3037,15 @@ impl MindRuntime {
         report: &aoc_mind::ReflectorTickReport,
         updates: &mut Vec<PulseUpdate>,
     ) {
-        if report.lock_conflict {
-            self.insight_health.reflector_lock_conflicts = self
-                .insight_health
-                .reflector_lock_conflicts
-                .saturating_add(1);
-        }
-        self.insight_health.reflector_jobs_completed = self
-            .insight_health
-            .reflector_jobs_completed
-            .saturating_add(report.jobs_completed as u64);
-        self.insight_health.reflector_jobs_failed = self
-            .insight_health
-            .reflector_jobs_failed
-            .saturating_add(report.jobs_failed as u64);
-
-        if report.jobs_failed == 0 {
-            self.insight_health.last_error = None;
-        }
-        if report.jobs_completed > 0 {
-            updates.push(PulseUpdate::MindObserverEvent(MindObserverFeedEvent {
-                status: MindObserverFeedStatus::Success,
-                trigger: MindObserverFeedTriggerKind::TaskCompleted,
-                conversation_id: self.core.latest_conversation_id().map(str::to_string),
-                runtime: Some("t2_reflector".to_string()),
-                attempt_count: Some(1),
-                latency_ms: None,
-                reason: Some(format!(
-                    "t2 reflector processed {} job(s)",
-                    report.jobs_completed
-                )),
-                failure_kind: None,
-                enqueued_at: None,
-                started_at: None,
-                completed_at: Some(now.to_rfc3339()),
-                progress: None,
-            }));
-        }
-        if report.jobs_failed > 0 {
-            updates.push(PulseUpdate::MindObserverEvent(MindObserverFeedEvent {
-                status: MindObserverFeedStatus::Error,
-                trigger: MindObserverFeedTriggerKind::TaskCompleted,
-                conversation_id: self.core.latest_conversation_id().map(str::to_string),
-                runtime: Some("t2_reflector".to_string()),
-                attempt_count: Some(1),
-                latency_ms: None,
-                reason: Some(format!("t2 reflector failed {} job(s)", report.jobs_failed)),
-                failure_kind: Some("runtime_error".to_string()),
-                enqueued_at: None,
-                started_at: None,
-                completed_at: Some(now.to_rfc3339()),
-                progress: None,
-            }));
-        }
+        let effects = self
+            .core
+            .apply_reflector_tick_effects(&mut self.insight_health, report, now);
+        updates.extend(
+            effects
+                .observer_events
+                .into_iter()
+                .map(PulseUpdate::MindObserverEvent),
+        );
     }
 
     fn t2_detached_status(&self, limit: usize) -> InsightDetachedStatusResult {
@@ -3846,77 +3059,24 @@ impl MindRuntime {
     }
 
     fn reconcile_stale_mind_t2_jobs(&mut self, now: chrono::DateTime<chrono::Utc>) -> usize {
-        let project_root = self.core.project_root().to_string_lossy().to_string();
-        let scope_id = reflector_scope_id_for_project_root(&project_root);
-        let lease_active = self
-            .core
-            .store()
-            .reflector_lease(&scope_id)
-            .ok()
-            .flatten()
-            .map(|lease| lease.expires_at >= now)
-            .unwrap_or(false);
-        if lease_active {
-            return 0;
-        }
-
-        let stale_before = now.timestamp_millis() - MIND_T2_DISPATCH_STALE_AFTER_MS;
-        let mut changed = 0usize;
-        for mut job in self.t2_detached_status(24).jobs {
-            if !matches!(
-                job.status,
-                InsightDetachedJobStatus::Queued | InsightDetachedJobStatus::Running
-            ) || job.created_at_ms > stale_before
-            {
-                continue;
-            }
-            job.status = InsightDetachedJobStatus::Stale;
-            job.finished_at_ms = Some(now.timestamp_millis());
-            job.error.get_or_insert_with(|| {
-                "Mind T2 worker lease expired before detached completion was observed".to_string()
-            });
-            if job.output_excerpt.is_none() {
-                job.output_excerpt =
-                    Some("mind t2 worker marked stale after lease expiry".to_string());
-            }
+        let jobs = self.t2_detached_status(24).jobs;
+        let stale_jobs = self.core.reconcile_stale_detached_jobs(
+            InsightDetachedWorkerKind::T2,
+            jobs,
+            self.core.reflector_lease_active_at(now),
+            now,
+            MIND_T2_DISPATCH_STALE_AFTER_MS,
+        );
+        let changed = stale_jobs.len();
+        for job in stale_jobs {
             self.persist_mind_detached_job(&job);
-            changed = changed.saturating_add(1);
         }
         changed
     }
 
-    fn has_active_mind_t2_job(&self) -> bool {
-        self.t2_detached_status(8).jobs.iter().any(|job| {
-            matches!(
-                job.status,
-                InsightDetachedJobStatus::Queued | InsightDetachedJobStatus::Running
-            )
-        })
-    }
-
     fn new_mind_t2_job(&self, job_id: String, created_at_ms: i64) -> InsightDetachedJob {
-        InsightDetachedJob {
-            job_id,
-            parent_job_id: None,
-            owner_plane: InsightDetachedOwnerPlane::Mind,
-            worker_kind: Some(InsightDetachedWorkerKind::T2),
-            mode: InsightDetachedMode::Dispatch,
-            status: InsightDetachedJobStatus::Queued,
-            agent: Some(detached_mind_worker_label(InsightDetachedWorkerKind::T2).to_string()),
-            team: None,
-            chain: None,
-            created_at_ms,
-            started_at_ms: None,
-            finished_at_ms: None,
-            current_step_index: Some(0),
-            step_count: Some(1),
-            output_excerpt: Some("mind t2 worker queued".to_string()),
-            stdout_excerpt: None,
-            stderr_excerpt: None,
-            error: None,
-            fallback_used: false,
-            step_results: Vec::new(),
-        }
+        self.core
+            .new_detached_job(InsightDetachedWorkerKind::T2, job_id, created_at_ms)
     }
 
     fn detached_mind_job_cancelled(&self, job_id: &str) -> bool {
@@ -3924,17 +3084,14 @@ impl MindRuntime {
     }
 
     fn update_mind_t2_job_running(&self, job_id: &str, note: Option<String>) {
-        let mut job = self
+        let started_at_ms = Utc::now().timestamp_millis();
+        let job = self
             .t2_detached_status(24)
             .jobs
             .into_iter()
             .find(|job| job.job_id == job_id)
-            .unwrap_or_else(|| {
-                self.new_mind_t2_job(job_id.to_string(), Utc::now().timestamp_millis())
-            });
-        job.status = InsightDetachedJobStatus::Running;
-        job.started_at_ms = Some(Utc::now().timestamp_millis());
-        job.output_excerpt = note.or_else(|| Some("mind t2 worker running".to_string()));
+            .unwrap_or_else(|| self.new_mind_t2_job(job_id.to_string(), started_at_ms));
+        let job = self.core.mark_detached_job_running(job, started_at_ms, note);
         self.persist_mind_detached_job(&job);
     }
 
@@ -3947,59 +3104,20 @@ impl MindRuntime {
         fallback_used: bool,
     ) {
         let finished_at_ms = Utc::now().timestamp_millis();
-        let mut job = self
+        let job = self
             .t2_detached_status(24)
             .jobs
             .into_iter()
             .find(|job| job.job_id == job_id)
             .unwrap_or_else(|| self.new_mind_t2_job(job_id.to_string(), finished_at_ms));
-        if job.status == InsightDetachedJobStatus::Cancelled {
-            job.finished_at_ms.get_or_insert(finished_at_ms);
-            if job.output_excerpt.is_none() {
-                job.output_excerpt = Some(truncate_chars(summary, 320));
-            }
-            if job.stderr_excerpt.is_none() {
-                job.stderr_excerpt = error
-                    .as_ref()
-                    .map(|value| truncate_chars(value.clone(), 240));
-            }
-            if job.error.is_none() {
-                job.error = error;
-            }
-            self.persist_mind_detached_job(&job);
-            return;
-        }
-        let step_status = match status {
-            InsightDetachedJobStatus::Success => "success",
-            InsightDetachedJobStatus::Cancelled => "cancelled",
-            InsightDetachedJobStatus::Error => "error",
-            InsightDetachedJobStatus::Fallback => "fallback",
-            InsightDetachedJobStatus::Stale => "error",
-            InsightDetachedJobStatus::Queued | InsightDetachedJobStatus::Running => "success",
-        }
-        .to_string();
-        job.status = status;
-        job.started_at_ms.get_or_insert(finished_at_ms);
-        job.finished_at_ms = Some(finished_at_ms);
-        job.current_step_index = Some(1);
-        job.step_count = Some(1);
-        job.output_excerpt = Some(truncate_chars(summary.clone(), 320));
-        job.stdout_excerpt = job.output_excerpt.clone();
-        job.stderr_excerpt = error
-            .as_ref()
-            .map(|value| truncate_chars(value.clone(), 240));
-        job.error = error.clone();
-        job.fallback_used = fallback_used;
-        job.step_results = vec![InsightDispatchStepResult {
-            agent: detached_mind_worker_label(InsightDetachedWorkerKind::T2).to_string(),
-            status: step_status,
-            output_excerpt: Some(truncate_chars(summary, 320)),
-            stdout_excerpt: None,
-            stderr_excerpt: error
-                .as_ref()
-                .map(|value| truncate_chars(value.clone(), 240)),
+        let job = self.core.finalize_detached_job(
+            job,
+            status,
+            summary,
             error,
-        }];
+            fallback_used,
+            finished_at_ms,
+        );
         self.persist_mind_detached_job(&job);
     }
 
@@ -4013,9 +3131,6 @@ impl MindRuntime {
     {
         let now = Utc::now();
         self.refresh_mind_queue_depths();
-        if self.insight_health.queue_depth <= 0 {
-            return Vec::new();
-        }
 
         let lock_path = resolve_reflector_dispatch_lock_path(cfg);
         let Ok(_guard) = AdvisorySpawnLock::try_acquire(&lock_path) else {
@@ -4025,20 +3140,28 @@ impl MindRuntime {
             return Vec::new();
         };
 
-        let stale_marked = self.reconcile_stale_mind_t2_jobs(now);
-        if self.has_active_mind_t2_job() {
+        let decision = self.core.detached_dispatch_decision(
+            InsightDetachedWorkerKind::T2,
+            self.insight_health.queue_depth,
+            self.t2_detached_status(24).jobs,
+            self.core.reflector_lease_active_at(now),
+            now,
+            MIND_T2_DISPATCH_STALE_AFTER_MS,
+        );
+        for job in decision.stale_jobs {
+            self.persist_mind_detached_job(&job);
+        }
+        if !decision.should_dispatch {
             let mut updates = Vec::new();
-            if stale_marked > 0 {
+            if decision.emit_status_update {
                 updates.push(self.detached_status_update());
             }
             return updates;
         }
 
-        let job_id = format!(
-            "mind-t2-{}-{}",
-            now.timestamp_millis().max(0),
-            std::process::id()
-        );
+        let job_id = decision
+            .job_id
+            .unwrap_or_else(|| self.core.next_detached_job_id(InsightDetachedWorkerKind::T2, now));
         let mut job = self.new_mind_t2_job(job_id.clone(), now.timestamp_millis());
         self.persist_mind_detached_job(&job);
 
@@ -4046,55 +3169,51 @@ impl MindRuntime {
         match launcher(cfg, &job_id) {
             Ok(pid) => {
                 self.insight_detached.register_running_pid(&job_id, pid);
-                job.output_excerpt = Some(format!("mind t2 worker queued (pid {pid})"));
+                job.output_excerpt = Some(
+                    self.core
+                        .detached_spawned_pid_note(InsightDetachedWorkerKind::T2, pid),
+                );
                 self.persist_mind_detached_job(&job);
                 updates.push(self.detached_status_update());
             }
             Err(err) => {
                 self.update_mind_t2_job_running(
                     &job_id,
-                    Some(format!(
-                        "mind t2 worker fallback inline after spawn failure: {err}"
-                    )),
+                    Some(
+                        self.core
+                            .detached_spawn_fallback_note(InsightDetachedWorkerKind::T2, &err),
+                    ),
                 );
                 match self.run_reflector_runtime_once(now) {
                     Ok(report) => {
                         self.apply_reflector_tick_report(now, &report, &mut updates);
-                        let status = if report.jobs_failed > 0 {
-                            InsightDetachedJobStatus::Fallback
-                        } else {
-                            InsightDetachedJobStatus::Success
-                        };
-                        let summary = format!(
-                            "mind t2 inline fallback processed claimed={} completed={} failed={}",
-                            report.jobs_claimed, report.jobs_completed, report.jobs_failed
+                        let outcome = self.core.reflector_completion_outcome(&report, true);
+                        self.finalize_mind_t2_job(
+                            &job_id,
+                            outcome.status,
+                            outcome.summary,
+                            Some(err),
+                            true,
                         );
-                        self.finalize_mind_t2_job(&job_id, status, summary, Some(err), true);
                     }
                     Err(runtime_err) => {
-                        self.insight_health.last_error =
-                            Some(format!("reflector tick failed: {runtime_err}"));
-                        updates.push(PulseUpdate::MindObserverEvent(MindObserverFeedEvent {
-                            status: MindObserverFeedStatus::Error,
-                            trigger: MindObserverFeedTriggerKind::TaskCompleted,
-                            conversation_id: self.core.latest_conversation_id().map(str::to_string),
-                            runtime: Some("t2_reflector".to_string()),
-                            attempt_count: Some(1),
-                            latency_ms: None,
-                            reason: Some("reflector tick failed".to_string()),
-                            failure_kind: Some("runtime_error".to_string()),
-                            enqueued_at: None,
-                            started_at: None,
-                            completed_at: Some(now.to_rfc3339()),
-                            progress: None,
-                        }));
+                        let effects = self.core.apply_reflector_runtime_failure(
+                            &mut self.insight_health,
+                            &runtime_err,
+                            now,
+                        );
+                        updates.extend(
+                            effects
+                                .observer_events
+                                .into_iter()
+                                .map(PulseUpdate::MindObserverEvent),
+                        );
                         self.finalize_mind_t2_job(
                             &job_id,
                             InsightDetachedJobStatus::Error,
-                            "mind t2 inline fallback failed".to_string(),
-                            Some(format!(
-                                "spawn failed: {err}; runtime failed: {runtime_err}"
-                            )),
+                            self.core
+                                .runtime_failure_job_summary(InsightDetachedWorkerKind::T2, true),
+                            Some(self.core.compose_runtime_failure_error(Some(&err), &runtime_err)),
                             true,
                         );
                     }
@@ -4140,8 +3259,7 @@ impl MindRuntime {
     }
 
     fn refresh_mind_queue_depths(&mut self) {
-        self.insight_health.queue_depth = self.core.pending_reflector_jobs();
-        self.insight_health.t3_queue_depth = self.core.pending_t3_backlog_jobs();
+        self.core.refresh_queue_depths(&mut self.insight_health);
         self.heartbeat_mind_service();
     }
 
@@ -4149,8 +3267,7 @@ impl MindRuntime {
         &mut self,
         now: chrono::DateTime<chrono::Utc>,
     ) -> Result<aoc_mind::T3TickReport, String> {
-        self.insight_health.t3_ticks = self.insight_health.t3_ticks.saturating_add(1);
-        self.insight_health.last_tick_ms = Some(now.timestamp_millis());
+        self.core.begin_t3_tick(&mut self.insight_health, now);
         self.core
             .run_t3_tick(now, |store, project_root, active_tag, now| {
                 write_project_mind_export(store, project_root, now)?;
@@ -4165,69 +3282,15 @@ impl MindRuntime {
         report: &aoc_mind::T3TickReport,
         updates: &mut Vec<PulseUpdate>,
     ) {
-        if report.lock_conflict {
-            self.insight_health.t3_lock_conflicts =
-                self.insight_health.t3_lock_conflicts.saturating_add(1);
-        }
-        self.insight_health.t3_jobs_completed = self
-            .insight_health
-            .t3_jobs_completed
-            .saturating_add(report.jobs_completed as u64);
-        self.insight_health.t3_jobs_failed = self
-            .insight_health
-            .t3_jobs_failed
-            .saturating_add(report.jobs_failed as u64);
-        self.insight_health.t3_jobs_requeued = self
-            .insight_health
-            .t3_jobs_requeued
-            .saturating_add(report.jobs_requeued as u64);
-        self.insight_health.t3_jobs_dead_lettered = self
-            .insight_health
-            .t3_jobs_dead_lettered
-            .saturating_add(report.jobs_dead_lettered as u64);
-
-        if report.jobs_failed == 0 {
-            self.insight_health.last_error = None;
-        }
-
-        if report.jobs_completed > 0 {
-            updates.push(PulseUpdate::MindObserverEvent(MindObserverFeedEvent {
-                status: MindObserverFeedStatus::Success,
-                trigger: MindObserverFeedTriggerKind::TaskCompleted,
-                conversation_id: self.core.latest_conversation_id().map(str::to_string),
-                runtime: Some("t3_backlog".to_string()),
-                attempt_count: Some(1),
-                latency_ms: None,
-                reason: Some(format!(
-                    "t3 backlog processed {} job(s)",
-                    report.jobs_completed
-                )),
-                failure_kind: None,
-                enqueued_at: None,
-                started_at: None,
-                completed_at: Some(now.to_rfc3339()),
-                progress: None,
-            }));
-        }
-        if report.jobs_failed > 0 {
-            updates.push(PulseUpdate::MindObserverEvent(MindObserverFeedEvent {
-                status: MindObserverFeedStatus::Error,
-                trigger: MindObserverFeedTriggerKind::TaskCompleted,
-                conversation_id: self.core.latest_conversation_id().map(str::to_string),
-                runtime: Some("t3_backlog".to_string()),
-                attempt_count: Some(1),
-                latency_ms: None,
-                reason: Some(format!(
-                    "t3 backlog failed {} job(s), requeued {}, dead-lettered {}",
-                    report.jobs_failed, report.jobs_requeued, report.jobs_dead_lettered
-                )),
-                failure_kind: Some("runtime_error".to_string()),
-                enqueued_at: None,
-                started_at: None,
-                completed_at: Some(now.to_rfc3339()),
-                progress: None,
-            }));
-        }
+        let effects = self
+            .core
+            .apply_t3_tick_effects(&mut self.insight_health, report, now);
+        updates.extend(
+            effects
+                .observer_events
+                .into_iter()
+                .map(PulseUpdate::MindObserverEvent),
+        );
     }
 
     fn persist_mind_detached_job(&self, job: &InsightDetachedJob) {
@@ -4249,91 +3312,35 @@ impl MindRuntime {
     }
 
     fn reconcile_stale_mind_t3_jobs(&mut self, now: chrono::DateTime<chrono::Utc>) -> usize {
-        let project_root = self.core.project_root().to_string_lossy().to_string();
-        let scope_id = t3_scope_id_for_project_root(&project_root);
-        let lease_active = self
-            .core
-            .store()
-            .t3_runtime_lease(&scope_id)
-            .ok()
-            .flatten()
-            .map(|lease| lease.expires_at >= now)
-            .unwrap_or(false);
-        if lease_active {
-            return 0;
-        }
-
-        let stale_before = now.timestamp_millis() - MIND_T3_DISPATCH_STALE_AFTER_MS;
-        let mut changed = 0usize;
-        for mut job in self.t3_detached_status(24).jobs {
-            if !matches!(
-                job.status,
-                InsightDetachedJobStatus::Queued | InsightDetachedJobStatus::Running
-            ) || job.created_at_ms > stale_before
-            {
-                continue;
-            }
-            job.status = InsightDetachedJobStatus::Stale;
-            job.finished_at_ms = Some(now.timestamp_millis());
-            job.error.get_or_insert_with(|| {
-                "Mind T3 worker lease expired before detached completion was observed".to_string()
-            });
-            if job.output_excerpt.is_none() {
-                job.output_excerpt =
-                    Some("mind t3 worker marked stale after lease expiry".to_string());
-            }
+        let jobs = self.t3_detached_status(24).jobs;
+        let stale_jobs = self.core.reconcile_stale_detached_jobs(
+            InsightDetachedWorkerKind::T3,
+            jobs,
+            self.core.t3_runtime_lease_active_at(now),
+            now,
+            MIND_T3_DISPATCH_STALE_AFTER_MS,
+        );
+        let changed = stale_jobs.len();
+        for job in stale_jobs {
             self.persist_mind_detached_job(&job);
-            changed = changed.saturating_add(1);
         }
         changed
     }
 
-    fn has_active_mind_t3_job(&self) -> bool {
-        self.t3_detached_status(8).jobs.iter().any(|job| {
-            matches!(
-                job.status,
-                InsightDetachedJobStatus::Queued | InsightDetachedJobStatus::Running
-            )
-        })
-    }
-
     fn new_mind_t3_job(&self, job_id: String, created_at_ms: i64) -> InsightDetachedJob {
-        InsightDetachedJob {
-            job_id,
-            parent_job_id: None,
-            owner_plane: InsightDetachedOwnerPlane::Mind,
-            worker_kind: Some(InsightDetachedWorkerKind::T3),
-            mode: InsightDetachedMode::Dispatch,
-            status: InsightDetachedJobStatus::Queued,
-            agent: Some(detached_mind_worker_label(InsightDetachedWorkerKind::T3).to_string()),
-            team: None,
-            chain: None,
-            created_at_ms,
-            started_at_ms: None,
-            finished_at_ms: None,
-            current_step_index: Some(0),
-            step_count: Some(1),
-            output_excerpt: Some("mind t3 worker queued".to_string()),
-            stdout_excerpt: None,
-            stderr_excerpt: None,
-            error: None,
-            fallback_used: false,
-            step_results: Vec::new(),
-        }
+        self.core
+            .new_detached_job(InsightDetachedWorkerKind::T3, job_id, created_at_ms)
     }
 
     fn update_mind_t3_job_running(&self, job_id: &str, note: Option<String>) {
-        let mut job = self
+        let started_at_ms = Utc::now().timestamp_millis();
+        let job = self
             .t3_detached_status(24)
             .jobs
             .into_iter()
             .find(|job| job.job_id == job_id)
-            .unwrap_or_else(|| {
-                self.new_mind_t3_job(job_id.to_string(), Utc::now().timestamp_millis())
-            });
-        job.status = InsightDetachedJobStatus::Running;
-        job.started_at_ms = Some(Utc::now().timestamp_millis());
-        job.output_excerpt = note.or_else(|| Some("mind t3 worker running".to_string()));
+            .unwrap_or_else(|| self.new_mind_t3_job(job_id.to_string(), started_at_ms));
+        let job = self.core.mark_detached_job_running(job, started_at_ms, note);
         self.persist_mind_detached_job(&job);
     }
 
@@ -4346,59 +3353,20 @@ impl MindRuntime {
         fallback_used: bool,
     ) {
         let finished_at_ms = Utc::now().timestamp_millis();
-        let mut job = self
+        let job = self
             .t3_detached_status(24)
             .jobs
             .into_iter()
             .find(|job| job.job_id == job_id)
             .unwrap_or_else(|| self.new_mind_t3_job(job_id.to_string(), finished_at_ms));
-        if job.status == InsightDetachedJobStatus::Cancelled {
-            job.finished_at_ms.get_or_insert(finished_at_ms);
-            if job.output_excerpt.is_none() {
-                job.output_excerpt = Some(truncate_chars(summary, 320));
-            }
-            if job.stderr_excerpt.is_none() {
-                job.stderr_excerpt = error
-                    .as_ref()
-                    .map(|value| truncate_chars(value.clone(), 240));
-            }
-            if job.error.is_none() {
-                job.error = error;
-            }
-            self.persist_mind_detached_job(&job);
-            return;
-        }
-        let step_status = match status {
-            InsightDetachedJobStatus::Success => "success",
-            InsightDetachedJobStatus::Cancelled => "cancelled",
-            InsightDetachedJobStatus::Error => "error",
-            InsightDetachedJobStatus::Fallback => "fallback",
-            InsightDetachedJobStatus::Stale => "error",
-            InsightDetachedJobStatus::Queued | InsightDetachedJobStatus::Running => "success",
-        }
-        .to_string();
-        job.status = status;
-        job.started_at_ms.get_or_insert(finished_at_ms);
-        job.finished_at_ms = Some(finished_at_ms);
-        job.current_step_index = Some(1);
-        job.step_count = Some(1);
-        job.output_excerpt = Some(truncate_chars(summary.clone(), 320));
-        job.stdout_excerpt = job.output_excerpt.clone();
-        job.stderr_excerpt = error
-            .as_ref()
-            .map(|value| truncate_chars(value.clone(), 240));
-        job.error = error.clone();
-        job.fallback_used = fallback_used;
-        job.step_results = vec![InsightDispatchStepResult {
-            agent: detached_mind_worker_label(InsightDetachedWorkerKind::T3).to_string(),
-            status: step_status,
-            output_excerpt: Some(truncate_chars(summary, 320)),
-            stdout_excerpt: None,
-            stderr_excerpt: error
-                .as_ref()
-                .map(|value| truncate_chars(value.clone(), 240)),
+        let job = self.core.finalize_detached_job(
+            job,
+            status,
+            summary,
             error,
-        }];
+            fallback_used,
+            finished_at_ms,
+        );
         self.persist_mind_detached_job(&job);
     }
 
@@ -4412,9 +3380,6 @@ impl MindRuntime {
     {
         let now = Utc::now();
         self.refresh_mind_queue_depths();
-        if self.insight_health.t3_queue_depth <= 0 {
-            return Vec::new();
-        }
 
         let lock_path = resolve_t3_dispatch_lock_path(cfg);
         let Ok(_guard) = AdvisorySpawnLock::try_acquire(&lock_path) else {
@@ -4424,20 +3389,28 @@ impl MindRuntime {
             return Vec::new();
         };
 
-        let stale_marked = self.reconcile_stale_mind_t3_jobs(now);
-        if self.has_active_mind_t3_job() {
+        let decision = self.core.detached_dispatch_decision(
+            InsightDetachedWorkerKind::T3,
+            self.insight_health.t3_queue_depth,
+            self.t3_detached_status(24).jobs,
+            self.core.t3_runtime_lease_active_at(now),
+            now,
+            MIND_T3_DISPATCH_STALE_AFTER_MS,
+        );
+        for job in decision.stale_jobs {
+            self.persist_mind_detached_job(&job);
+        }
+        if !decision.should_dispatch {
             let mut updates = Vec::new();
-            if stale_marked > 0 {
+            if decision.emit_status_update {
                 updates.push(self.detached_status_update());
             }
             return updates;
         }
 
-        let job_id = format!(
-            "mind-t3-{}-{}",
-            now.timestamp_millis().max(0),
-            std::process::id()
-        );
+        let job_id = decision
+            .job_id
+            .unwrap_or_else(|| self.core.next_detached_job_id(InsightDetachedWorkerKind::T3, now));
         let mut job = self.new_mind_t3_job(job_id.clone(), now.timestamp_millis());
         self.persist_mind_detached_job(&job);
 
@@ -4445,59 +3418,49 @@ impl MindRuntime {
         match launcher(cfg, &job_id) {
             Ok(pid) => {
                 self.insight_detached.register_running_pid(&job_id, pid);
-                job.output_excerpt = Some(format!("mind t3 worker queued (pid {pid})"));
+                job.output_excerpt = Some(
+                    self.core
+                        .detached_spawned_pid_note(InsightDetachedWorkerKind::T3, pid),
+                );
                 self.persist_mind_detached_job(&job);
                 updates.push(self.detached_status_update());
             }
             Err(err) => {
                 self.update_mind_t3_job_running(
                     &job_id,
-                    Some(format!(
-                        "mind t3 worker fallback inline after spawn failure: {err}"
-                    )),
+                    Some(
+                        self.core
+                            .detached_spawn_fallback_note(InsightDetachedWorkerKind::T3, &err),
+                    ),
                 );
                 match self.run_t3_runtime_once(now) {
                     Ok(report) => {
                         self.apply_t3_tick_report(now, &report, &mut updates);
-                        let status = if report.jobs_failed > 0 {
-                            InsightDetachedJobStatus::Fallback
-                        } else {
-                            InsightDetachedJobStatus::Success
-                        };
-                        let summary = format!(
-                            "mind t3 inline fallback processed claimed={} completed={} failed={} requeued={} dead_lettered={}",
-                            report.jobs_claimed,
-                            report.jobs_completed,
-                            report.jobs_failed,
-                            report.jobs_requeued,
-                            report.jobs_dead_lettered
+                        let outcome = self.core.t3_completion_outcome(&report, true);
+                        self.finalize_mind_t3_job(
+                            &job_id,
+                            outcome.status,
+                            outcome.summary,
+                            Some(err),
+                            true,
                         );
-                        self.finalize_mind_t3_job(&job_id, status, summary, Some(err), true);
                     }
                     Err(runtime_err) => {
-                        self.insight_health.last_error =
-                            Some(format!("t3 backlog tick failed: {runtime_err}"));
-                        updates.push(PulseUpdate::MindObserverEvent(MindObserverFeedEvent {
-                            status: MindObserverFeedStatus::Error,
-                            trigger: MindObserverFeedTriggerKind::TaskCompleted,
-                            conversation_id: self.core.latest_conversation_id().map(str::to_string),
-                            runtime: Some("t3_backlog".to_string()),
-                            attempt_count: Some(1),
-                            latency_ms: None,
-                            reason: Some("t3 backlog tick failed".to_string()),
-                            failure_kind: Some("runtime_error".to_string()),
-                            enqueued_at: None,
-                            started_at: None,
-                            completed_at: Some(now.to_rfc3339()),
-                            progress: None,
-                        }));
+                        let effects = self
+                            .core
+                            .apply_t3_runtime_failure(&mut self.insight_health, &runtime_err, now);
+                        updates.extend(
+                            effects
+                                .observer_events
+                                .into_iter()
+                                .map(PulseUpdate::MindObserverEvent),
+                        );
                         self.finalize_mind_t3_job(
                             &job_id,
                             InsightDetachedJobStatus::Error,
-                            "mind t3 inline fallback failed".to_string(),
-                            Some(format!(
-                                "spawn failed: {err}; runtime failed: {runtime_err}"
-                            )),
+                            self.core
+                                .runtime_failure_job_summary(InsightDetachedWorkerKind::T3, true),
+                            Some(self.core.compose_runtime_failure_error(Some(&err), &runtime_err)),
                             true,
                         );
                     }
@@ -4562,26 +3525,22 @@ impl MindRuntime {
                         if self.detached_mind_job_cancelled(job_id) {
                             return Ok(0);
                         }
-                        let status = if report.jobs_failed > 0 {
-                            InsightDetachedJobStatus::Error
-                        } else {
-                            InsightDetachedJobStatus::Success
-                        };
-                        let summary = format!(
-                            "mind t2 detached worker processed claimed={} completed={} failed={}",
-                            report.jobs_claimed, report.jobs_completed, report.jobs_failed
-                        );
-                        self.finalize_mind_t2_job(job_id, status, summary, None, false);
-                        Ok(if report.jobs_failed > 0 { 1 } else { 0 })
+                        let outcome = self.core.reflector_completion_outcome(&report, false);
+                        self.finalize_mind_t2_job(job_id, outcome.status, outcome.summary, None, false);
+                        Ok(outcome.exit_code)
                     }
                     Err(err) => {
-                        self.insight_health.last_error =
-                            Some(format!("reflector tick failed: {err}"));
+                        let _ = self.core.apply_reflector_runtime_failure(
+                            &mut self.insight_health,
+                            &err,
+                            now,
+                        );
                         self.finalize_mind_t2_job(
                             job_id,
                             InsightDetachedJobStatus::Error,
-                            "mind t2 detached worker failed".to_string(),
-                            Some(err.clone()),
+                            self.core
+                                .runtime_failure_job_summary(InsightDetachedWorkerKind::T2, false),
+                            Some(self.core.compose_runtime_failure_error(None, &err)),
                             false,
                         );
                         Err(err)
@@ -4604,30 +3563,22 @@ impl MindRuntime {
                         if self.detached_mind_job_cancelled(job_id) {
                             return Ok(0);
                         }
-                        let status = if report.jobs_failed > 0 {
-                            InsightDetachedJobStatus::Error
-                        } else {
-                            InsightDetachedJobStatus::Success
-                        };
-                        let summary = format!(
-                            "mind t3 detached worker processed claimed={} completed={} failed={} requeued={} dead_lettered={}",
-                            report.jobs_claimed,
-                            report.jobs_completed,
-                            report.jobs_failed,
-                            report.jobs_requeued,
-                            report.jobs_dead_lettered
-                        );
-                        self.finalize_mind_t3_job(job_id, status, summary, None, false);
-                        Ok(if report.jobs_failed > 0 { 1 } else { 0 })
+                        let outcome = self.core.t3_completion_outcome(&report, false);
+                        self.finalize_mind_t3_job(job_id, outcome.status, outcome.summary, None, false);
+                        Ok(outcome.exit_code)
                     }
                     Err(err) => {
-                        self.insight_health.last_error =
-                            Some(format!("t3 backlog tick failed: {err}"));
+                        let _ = self.core.apply_t3_runtime_failure(
+                            &mut self.insight_health,
+                            &err,
+                            now,
+                        );
                         self.finalize_mind_t3_job(
                             job_id,
                             InsightDetachedJobStatus::Error,
-                            "mind t3 detached worker failed".to_string(),
-                            Some(err.clone()),
+                            self.core
+                                .runtime_failure_job_summary(InsightDetachedWorkerKind::T3, false),
+                            Some(self.core.compose_runtime_failure_error(None, &err)),
                             false,
                         );
                         Err(err)
@@ -4998,10 +3949,6 @@ fn normalized_handshake_tag(active_tag: Option<&str>) -> Option<String> {
         .map(str::trim)
         .filter(|value| !value.is_empty())
         .map(|value| value.to_string())
-}
-
-fn reflector_scope_id_for_project_root(project_root: &str) -> String {
-    project_scope_key(Path::new(project_root))
 }
 
 fn t3_scope_id_for_project_root(project_root: &str) -> String {
@@ -6119,66 +5066,10 @@ fn build_pulse_command_response(
                 ));
             }
 
-            let mode = payload
-                .args
-                .as_object()
-                .and_then(|args| args.get("mode"))
-                .and_then(serde_json::Value::as_str)
-                .map(|value| match value.trim().to_ascii_lowercase().as_str() {
-                    "startup" => MindContextPackMode::Startup,
-                    "tag_switch" | "tag-switch" => MindContextPackMode::TagSwitch,
-                    "resume" => MindContextPackMode::Resume,
-                    "handoff" => MindContextPackMode::Handoff,
-                    "dispatch" => MindContextPackMode::Dispatch,
-                    _ => MindContextPackMode::Handoff,
-                })
-                .unwrap_or(MindContextPackMode::Handoff);
-            let profile = if payload
-                .args
-                .as_object()
-                .and_then(|args| args.get("detail"))
-                .and_then(serde_json::Value::as_bool)
-                .unwrap_or(false)
-            {
-                MindContextPackProfile::Expanded
-            } else {
-                MindContextPackProfile::Compact
-            };
-            let active_tag = payload
-                .args
-                .as_object()
-                .and_then(|args| args.get("active_tag"))
-                .and_then(serde_json::Value::as_str)
-                .map(str::trim)
-                .filter(|value| !value.is_empty())
-                .map(|value| value.to_string());
-            let role = payload
-                .args
-                .as_object()
-                .and_then(|args| args.get("role"))
-                .and_then(serde_json::Value::as_str)
-                .map(str::trim)
-                .filter(|value| !value.is_empty())
-                .map(|value| value.to_string());
-            let reason = payload
-                .args
-                .as_object()
-                .and_then(|args| args.get("reason"))
-                .and_then(serde_json::Value::as_str)
-                .map(str::trim)
-                .filter(|value| !value.is_empty())
-                .map(|value| value.to_string());
-
             match compile_mind_context_pack(
                 cfg,
                 mind_runtime.as_deref(),
-                MindContextPackRequest {
-                    mode,
-                    profile,
-                    active_tag,
-                    reason,
-                    role,
-                },
+                parse_mind_context_pack_request(&payload.args),
                 None,
             ) {
                 Ok(pack) => Some(command_result(
@@ -11885,7 +10776,9 @@ mod tests {
         assert!(job.fallback_used);
         assert_eq!(
             job.agent.as_deref(),
-            Some(detached_mind_worker_label(InsightDetachedWorkerKind::T2))
+            Some(aoc_mind::detached_worker_kind_label(Some(
+                InsightDetachedWorkerKind::T2,
+            )))
         );
         assert_eq!(
             runtime
@@ -12121,7 +11014,7 @@ mod tests {
             - chrono::Duration::milliseconds(MIND_T3_DISPATCH_STALE_AFTER_MS + 1_000))
         .timestamp_millis();
 
-        let t2_scope = reflector_scope_id_for_project_root(&cfg.project_root);
+        let t2_scope = runtime.core.reflector_scope_key();
         let t3_scope = t3_scope_id_for_project_root(&cfg.project_root);
         assert!(runtime
             .core
@@ -12279,7 +11172,9 @@ mod tests {
         assert!(job.fallback_used);
         assert_eq!(
             job.agent.as_deref(),
-            Some(detached_mind_worker_label(InsightDetachedWorkerKind::T3))
+            Some(aoc_mind::detached_worker_kind_label(Some(
+                InsightDetachedWorkerKind::T3,
+            )))
         );
         assert_eq!(
             runtime

@@ -75,6 +75,8 @@ pub struct MindServiceLease {
     pub expires_at: DateTime<Utc>,
 }
 
+pub const DEFAULT_MIND_SERVICE_STALE_AFTER_MS: i64 = 90_000;
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
 pub struct MindServiceHealthSnapshot {
     #[serde(default)]
@@ -127,6 +129,98 @@ pub struct MindServiceHealthSnapshot {
     pub last_heartbeat_ms: Option<i64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub lease_expires_at_ms: Option<i64>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct MindServiceStatusSummary {
+    pub state: String,
+    pub stale: bool,
+    pub lease_active: bool,
+    pub heartbeat_fresh: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub blocker: Option<String>,
+}
+
+pub fn summarize_mind_service_status(
+    lease: Option<&MindServiceLease>,
+    health: Option<&MindServiceHealthSnapshot>,
+    now_ms: i64,
+) -> MindServiceStatusSummary {
+    let lease_expiry_ms = lease
+        .map(|lease| lease.expires_at.timestamp_millis())
+        .or_else(|| health.and_then(|snapshot| snapshot.lease_expires_at_ms));
+    let lease_active = lease_expiry_ms.map(|value| value >= now_ms).unwrap_or(false);
+    let heartbeat_fresh = health
+        .and_then(|snapshot| snapshot.last_heartbeat_ms)
+        .map(|value| now_ms.saturating_sub(value) <= DEFAULT_MIND_SERVICE_STALE_AFTER_MS)
+        .unwrap_or(false);
+    let lifecycle = health
+        .map(|snapshot| snapshot.lifecycle.trim())
+        .filter(|value| !value.is_empty())
+        .unwrap_or("");
+    let last_error = health
+        .and_then(|snapshot| snapshot.last_error.as_deref())
+        .map(str::trim)
+        .filter(|value| !value.is_empty());
+
+    if lease_expiry_ms.map(|value| value < now_ms).unwrap_or(false) {
+        return MindServiceStatusSummary {
+            state: "stale".to_string(),
+            stale: true,
+            lease_active: false,
+            heartbeat_fresh,
+            blocker: Some("service lease expired".to_string()),
+        };
+    }
+
+    if health.is_some() && !heartbeat_fresh {
+        return MindServiceStatusSummary {
+            state: "stale".to_string(),
+            stale: true,
+            lease_active,
+            heartbeat_fresh: false,
+            blocker: Some("service heartbeat stale".to_string()),
+        };
+    }
+
+    if lease_active {
+        if matches!(lifecycle, "error" | "needs-input" | "blocked") || last_error.is_some() {
+            return MindServiceStatusSummary {
+                state: "degraded".to_string(),
+                stale: false,
+                lease_active: true,
+                heartbeat_fresh,
+                blocker: last_error
+                    .map(|value| value.to_string())
+                    .or_else(|| Some(format!("service lifecycle {lifecycle}"))),
+            };
+        }
+        return MindServiceStatusSummary {
+            state: "running".to_string(),
+            stale: false,
+            lease_active: true,
+            heartbeat_fresh,
+            blocker: None,
+        };
+    }
+
+    if health.is_some() || lease.is_some() {
+        return MindServiceStatusSummary {
+            state: if lifecycle == "idle" { "idle" } else { "inactive" }.to_string(),
+            stale: false,
+            lease_active: false,
+            heartbeat_fresh,
+            blocker: last_error.map(|value| value.to_string()),
+        };
+    }
+
+    MindServiceStatusSummary {
+        state: "cold".to_string(),
+        stale: false,
+        lease_active: false,
+        heartbeat_fresh: false,
+        blocker: None,
+    }
 }
 
 pub struct MindServiceLeaseGuard {
@@ -470,7 +564,7 @@ fn sanitize_runtime_component(input: &str) -> String {
 mod tests {
     use super::*;
     use std::sync::{Mutex, OnceLock};
-    use std::time::Duration;
+    use std::time::Duration as StdDuration;
 
     fn env_lock() -> &'static Mutex<()> {
         static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
@@ -516,7 +610,7 @@ mod tests {
         let older = nested.join("older.jsonl");
         let newer = nested.join("newer.jsonl");
         fs::write(&older, b"{}\n").expect("older");
-        std::thread::sleep(Duration::from_millis(10));
+        std::thread::sleep(StdDuration::from_millis(10));
         fs::write(&newer, b"{}\n").expect("newer");
         assert_eq!(
             latest_pi_session_file(&dir).as_deref(),
@@ -665,6 +759,46 @@ mod tests {
                 .join("locks")
                 .join("t3-dispatch.lock")
         );
+    }
+
+    #[test]
+    fn summarize_mind_service_status_reports_running_and_stale_states() {
+        let now_ms = Utc::now().timestamp_millis();
+        let running_lease = MindServiceLease {
+            owner_id: "agent-test".to_string(),
+            owner_pid: Some(7),
+            session_id: "session-test".to_string(),
+            pane_id: "pane-test".to_string(),
+            acquired_at: Utc::now(),
+            expires_at: Utc::now() + Duration::milliseconds(30_000),
+        };
+        let running_health = MindServiceHealthSnapshot {
+            lifecycle: "running".to_string(),
+            last_heartbeat_ms: Some(now_ms),
+            lease_expires_at_ms: Some(running_lease.expires_at.timestamp_millis()),
+            ..MindServiceHealthSnapshot::default()
+        };
+        let running = summarize_mind_service_status(
+            Some(&running_lease),
+            Some(&running_health),
+            now_ms,
+        );
+        assert_eq!(running.state, "running");
+        assert!(!running.stale);
+        assert!(running.lease_active);
+        assert!(running.heartbeat_fresh);
+        assert!(running.blocker.is_none());
+
+        let stale_health = MindServiceHealthSnapshot {
+            lifecycle: "running".to_string(),
+            last_heartbeat_ms: Some(now_ms - (DEFAULT_MIND_SERVICE_STALE_AFTER_MS + 1_000)),
+            lease_expires_at_ms: Some(now_ms + 30_000),
+            ..MindServiceHealthSnapshot::default()
+        };
+        let stale = summarize_mind_service_status(None, Some(&stale_health), now_ms);
+        assert_eq!(stale.state, "stale");
+        assert!(stale.stale);
+        assert_eq!(stale.blocker.as_deref(), Some("service heartbeat stale"));
     }
 
     #[test]
