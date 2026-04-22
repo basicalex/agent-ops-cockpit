@@ -1,5 +1,10 @@
 {
   "extensions": [],
+  "skills": [
+    "!skills/design-*",
+    "!skills/motion-director",
+    "!skills/animejs-*"
+  ],
   "packages": [
     "./packages/pi-multi-auth-aoc"
   ],

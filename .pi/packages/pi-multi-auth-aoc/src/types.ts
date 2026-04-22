@@ -14,7 +14,6 @@ export const LEGACY_SUPPORTED_PROVIDERS = [
 	"openai-codex",
 	"opencode",
 	"openrouter",
-	"kimi-coding",
 ] as const;
 
 /** Provider IDs handled by pi-multi-auth. */
