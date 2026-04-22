@@ -1,0 +1,10 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+export AOC_MISSION_CONTROL_MODE="${AOC_MISSION_CONTROL_MODE:-mission-control}"
+export AOC_MISSION_CONTROL_START_VIEW="${AOC_MISSION_CONTROL_START_VIEW:-fleet}"
+export AOC_MISSION_CONTROL_FLEET_PLANE="${AOC_MISSION_CONTROL_FLEET_PLANE:-delegated}"
+
+exec "$script_dir/aoc-mission-control" "$@"

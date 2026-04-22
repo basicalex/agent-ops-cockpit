@@ -24,6 +24,13 @@ Guiding principle:
 <PRD>
 # Technical Architecture
 
+## Pi 0.62 Alignment Delta
+
+Task 129 should now explicitly align role dispatch policy with Pi-native provenance and rendering support:
+- use `sourceInfo` to classify whether a role-invoked tool/action came from Pi built-ins, project-local runtime extensions, or other extension surfaces
+- use that provenance to drive trust tiers, allowlists, approval gates, and escalation rules
+- treat `renderCall` / `renderResult` as compact operator UX improvements for role status/result surfaces, not as a replacement for the underlying response contract
+
 ## Capabilities
 
 1) Active Role Dispatch
@@ -38,6 +45,7 @@ Guiding principle:
 - Per-role tool allowlists.
 - Approval gate for writes/destructive actions/escalations.
 - Budget/time limits per invocation.
+- Provenance-aware trust policy using Pi `sourceInfo` to distinguish built-in, project-local, and extension-provided capabilities.
 
 4) Context Integration
 - Role invocation receives deterministic context pack slices from task/tag scope.
@@ -77,6 +85,8 @@ Each role response must include:
 4) Context pack slices are attached to invocations with deterministic bounds.
 5) Operator telemetry (status/timing/usage) is visible during runs.
 6) Role outputs satisfy response contract with citations.
+7) Provenance-aware policy decisions can distinguish Pi built-ins from project-local/extension tools using `sourceInfo`.
+8) Compact role status/result surfaces may use `renderCall` / `renderResult` without weakening the structured output contract.
 
 # Test Strategy
 

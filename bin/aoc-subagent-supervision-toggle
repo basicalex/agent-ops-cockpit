@@ -1,0 +1,13 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+export AOC_MISSION_CONTROL_PANE_NAME="${AOC_SUBAGENT_SUPERVISION_PANE_NAME:-Subagent Supervision}"
+export AOC_MISSION_CONTROL_WIDTH="${AOC_SUBAGENT_SUPERVISION_WIDTH:-76%}"
+export AOC_MISSION_CONTROL_HEIGHT="${AOC_SUBAGENT_SUPERVISION_HEIGHT:-76%}"
+export AOC_MISSION_CONTROL_X="${AOC_SUBAGENT_SUPERVISION_X:-12%}"
+export AOC_MISSION_CONTROL_Y="${AOC_SUBAGENT_SUPERVISION_Y:-12%}"
+export AOC_MISSION_CONTROL_CMD="${AOC_SUBAGENT_SUPERVISION_CMD:-$script_dir/aoc-subagent-supervision}"
+
+exec "$script_dir/aoc-mission-control-toggle" "$@"
