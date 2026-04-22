@@ -1,15 +1,17 @@
 use aoc_core::{
     mind_contracts::text_contains_unredacted_secret,
     mind_observer_feed::MindObserverFeedTriggerKind,
+    provenance_contracts::MindProvenanceQueryRequest,
 };
 use aoc_mind::{
-    compile_mind_context_pack, discover_latest_pi_session_file,
-    mind_progress_for_conversation, open_project_store, prepare_session_finalize_export_location,
-    prepare_session_finalize_host_plan, prepare_session_finalize_plan,
-    read_mind_service_health_snapshot, read_mind_service_lease,
-    sync_latest_pi_session_into_project_store, sync_session_file_into_project_store,
-    DistillationConfig, MindContextPackMode, MindContextPackProfile, MindContextPackRequest,
-    MindProjectPaths, MindRuntimeConfig, MindRuntimeCore, SessionFinalizePlanOutcome,
+    compile_mind_context_pack, compile_mind_provenance_export, discover_latest_pi_session_file,
+    mind_progress_for_conversation, open_project_store, parse_mind_context_pack_mode,
+    prepare_session_finalize_execution, read_mind_service_health_snapshot,
+    read_mind_service_lease, summarize_mind_service_status,
+    sync_latest_pi_session_into_project_store,
+    sync_session_file_into_project_store, DistillationConfig, MindContextPackProfile,
+    MindContextPackRequest, MindProjectPaths, MindRuntimeConfig, MindRuntimeCore,
+    SessionFinalizePreparationOutcome,
 };
 use clap::{Parser, Subcommand};
 use serde_json::json;
@@ -94,6 +96,35 @@ enum Command {
         #[arg(long)]
         json: bool,
     },
+    /// Compile a project-scoped Mind provenance export without Pulse/wrapper transport.
+    ProvenanceQuery {
+        #[arg(long)]
+        project_root: PathBuf,
+        #[arg(long)]
+        session_id: Option<String>,
+        #[arg(long)]
+        conversation_id: Option<String>,
+        #[arg(long)]
+        artifact_id: Option<String>,
+        #[arg(long)]
+        checkpoint_id: Option<String>,
+        #[arg(long)]
+        canon_entry_id: Option<String>,
+        #[arg(long)]
+        task_id: Option<String>,
+        #[arg(long)]
+        file_path: Option<String>,
+        #[arg(long)]
+        active_tag: Option<String>,
+        #[arg(long, default_value_t = false)]
+        include_stale_canon: bool,
+        #[arg(long, default_value_t = 64)]
+        max_nodes: usize,
+        #[arg(long, default_value_t = 128)]
+        max_edges: usize,
+        #[arg(long)]
+        json: bool,
+    },
     /// Finalize the current project-scoped Mind session slice without Pulse/wrapper transport.
     FinalizeSession {
         #[arg(long)]
@@ -160,6 +191,38 @@ fn main() {
             reason,
             json,
         ),
+        Command::ProvenanceQuery {
+            project_root,
+            session_id,
+            conversation_id,
+            artifact_id,
+            checkpoint_id,
+            canon_entry_id,
+            task_id,
+            file_path,
+            active_tag,
+            include_stale_canon,
+            max_nodes,
+            max_edges,
+            json,
+        } => run_provenance_query(
+            &project_root,
+            MindProvenanceQueryRequest {
+                project_root: Some(project_root.display().to_string()),
+                session_id,
+                conversation_id,
+                artifact_id,
+                checkpoint_id,
+                canon_entry_id,
+                task_id,
+                file_path,
+                active_tag,
+                include_stale_canon,
+                max_nodes,
+                max_edges,
+            },
+            json,
+        ),
         Command::FinalizeSession {
             project_root,
             session_id,
@@ -186,6 +249,11 @@ fn run_status(project_root: &PathBuf, as_json: bool) -> i32 {
     let health = read_mind_service_health_snapshot(project_root)
         .ok()
         .flatten();
+    let service_status = summarize_mind_service_status(
+        lease.as_ref(),
+        health.as_ref(),
+        chrono::Utc::now().timestamp_millis(),
+    );
     if as_json {
         println!(
             "{}",
@@ -205,6 +273,7 @@ fn run_status(project_root: &PathBuf, as_json: bool) -> i32 {
                 "latest_pi_session_file": discovered,
                 "service_lease": lease,
                 "health_snapshot": health,
+                "service_status": service_status,
             }))
             .expect("status json")
         );
@@ -240,6 +309,11 @@ fn run_status(project_root: &PathBuf, as_json: bool) -> i32 {
                 .filter(|value| !value.is_empty())
                 .unwrap_or("<none>")
         );
+        println!("service_state: {}", service_status.state);
+        println!("service_stale: {}", if service_status.stale { "yes" } else { "no" });
+        if let Some(blocker) = service_status.blocker.as_deref() {
+            println!("service_blocker: {}", blocker);
+        }
     }
     0
 }
@@ -335,21 +409,6 @@ fn run_sync_pi(
     }
 }
 
-fn parse_context_pack_mode(value: Option<&str>) -> MindContextPackMode {
-    match value
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .map(|value| value.to_ascii_lowercase())
-        .as_deref()
-    {
-        Some("startup") => MindContextPackMode::Startup,
-        Some("tag_switch") | Some("tag-switch") => MindContextPackMode::TagSwitch,
-        Some("resume") => MindContextPackMode::Resume,
-        Some("dispatch") => MindContextPackMode::Dispatch,
-        _ => MindContextPackMode::Handoff,
-    }
-}
-
 fn print_json(value: serde_json::Value) {
     println!("{}", serde_json::to_string_pretty(&value).expect("json output"));
 }
@@ -367,7 +426,7 @@ fn run_context_pack(
         .ok()
         .map(|opened| opened.store);
     let request = MindContextPackRequest {
-        mode: parse_context_pack_mode(mode),
+        mode: parse_mind_context_pack_mode(mode),
         profile: if detail {
             MindContextPackProfile::Expanded
         } else {
@@ -481,6 +540,43 @@ fn run_observer_run(
     }
 }
 
+fn run_provenance_query(
+    project_root: &PathBuf,
+    request: MindProvenanceQueryRequest,
+    as_json: bool,
+) -> i32 {
+    let store = match open_project_store(project_root, "standalone", "service", None) {
+        Ok(opened) => opened.store,
+        Err(err) => {
+            if as_json {
+                print_json(json!({ "ok": false, "error": format!("mind store open failed: {err}") }));
+            } else {
+                eprintln!("provenance query failed: mind store open failed: {err}");
+            }
+            return 1;
+        }
+    };
+
+    match compile_mind_provenance_export(&store, request) {
+        Ok(export) => {
+            if as_json {
+                print_json(json!({ "ok": true, "export": export }));
+            } else {
+                println!("{}", serde_json::to_string_pretty(&export).expect("json output"));
+            }
+            0
+        }
+        Err(err) => {
+            if as_json {
+                print_json(json!({ "ok": false, "error": err }));
+            } else {
+                eprintln!("provenance query failed: {err}");
+            }
+            1
+        }
+    }
+}
+
 fn ensure_safe_export_text(payload: &str, label: &str) -> Result<(), String> {
     if text_contains_unredacted_secret(payload) {
         return Err(format!("{label} contains unredacted secret-bearing content"));
@@ -508,42 +604,36 @@ fn run_finalize_session(
         }
     };
     let finalize_reason = reason.unwrap_or_else(|| "pi command".to_string());
-    let scope_key = format!("session:{}:pane:{}", session_id, pane_id);
     let latest_conversation_id = conversation_id.map(str::trim).filter(|value| !value.is_empty());
-    let plan = match prepare_session_finalize_plan(
+    let prepared = match prepare_session_finalize_execution(
         &opened.store,
+        &project_root.display().to_string(),
         session_id,
         pane_id,
         latest_conversation_id,
-        &scope_key,
+        &finalize_reason,
+        chrono::Utc::now(),
     ) {
-        Ok(SessionFinalizePlanOutcome::Skip { outcome_reason_suffix, .. }) => {
-            let message = format!("{}: {}", finalize_reason, outcome_reason_suffix);
+        Ok(SessionFinalizePreparationOutcome::Skip(message)) => {
             if as_json {
-                print_json(json!({ "ok": true, "message": message, "skipped": true }));
+                print_json(json!({ "ok": true, "message": message.reason, "skipped": true }));
             } else {
-                println!("{message}");
+                println!("{}", message.reason);
             }
             return 0;
         }
-        Ok(SessionFinalizePlanOutcome::Ready(plan)) => plan,
-        Err(err) => {
-            let message = format!("{}", aoc_mind::session_finalize_error("planning", err).reason);
+        Ok(SessionFinalizePreparationOutcome::Ready(prepared)) => prepared,
+        Err(message) => {
             if as_json {
-                print_json(json!({ "ok": false, "error": message }));
+                print_json(json!({ "ok": false, "error": message.reason }));
             } else {
-                eprintln!("{message}");
+                eprintln!("{}", message.reason);
             }
             return 1;
         }
     };
 
-    let export_location = prepare_session_finalize_export_location(
-        &project_root.display().to_string(),
-        session_id,
-        &plan,
-    );
-    let export_dir = PathBuf::from(&export_location.export_dir);
+    let export_dir = PathBuf::from(&prepared.export_dir);
     if let Err(err) = std::fs::create_dir_all(&export_dir) {
         let message = aoc_mind::session_finalize_error("manifest_write", err).reason;
         if as_json {
@@ -554,51 +644,7 @@ fn run_finalize_session(
         return 1;
     }
 
-    let (t3_job_id, t3_job_inserted) = match opened.store.enqueue_t3_backlog_job(
-        &project_root.display().to_string(),
-        session_id,
-        pane_id,
-        plan.active_tag.as_deref(),
-        Some(&plan.slice_start_id),
-        Some(&plan.slice_end_id),
-        &plan.artifact_ids,
-        chrono::Utc::now(),
-    ) {
-        Ok(result) => result,
-        Err(err) => {
-            let message = aoc_mind::session_finalize_error("t3_enqueue", err).reason;
-            if as_json {
-                print_json(json!({ "ok": false, "error": message }));
-            } else {
-                eprintln!("{message}");
-            }
-            return 1;
-        }
-    };
-
-    let host_plan = match prepare_session_finalize_host_plan(
-        &plan,
-        session_id,
-        pane_id,
-        &project_root.display().to_string(),
-        &export_location.export_dir,
-        &t3_job_id,
-        t3_job_inserted,
-        &finalize_reason,
-    ) {
-        Ok(host_plan) => host_plan,
-        Err(err) => {
-            let message = aoc_mind::session_finalize_error("export_bundle", err).reason;
-            if as_json {
-                print_json(json!({ "ok": false, "error": message }));
-            } else {
-                eprintln!("{message}");
-            }
-            return 1;
-        }
-    };
-
-    for file in &host_plan.export_files {
+    for file in &prepared.host_plan.export_files {
         if let Err(err) = ensure_safe_export_text(&file.contents, file.safety_label) {
             if as_json {
                 print_json(json!({ "ok": false, "error": format!("finalize failed: {err}") }));
@@ -619,9 +665,9 @@ fn run_finalize_session(
     }
 
     if let Err(err) = opened.store.advance_project_watermark(
-        &scope_key,
-        Some(host_plan.watermark_ts),
-        Some(&host_plan.watermark_artifact_id),
+        &prepared.scope_key,
+        Some(prepared.host_plan.watermark_ts),
+        Some(&prepared.host_plan.watermark_artifact_id),
         chrono::Utc::now(),
     ) {
         let message = aoc_mind::session_finalize_error("watermark_write", err).reason;
@@ -636,13 +682,13 @@ fn run_finalize_session(
     if as_json {
         print_json(json!({
             "ok": true,
-            "message": host_plan.success.reason,
-            "manifest": host_plan.manifest,
-            "export_dir": export_location.export_dir,
-            "t3_job_inserted": t3_job_inserted,
+            "message": prepared.host_plan.success.reason,
+            "manifest": prepared.host_plan.manifest,
+            "export_dir": prepared.export_dir,
+            "t3_job_inserted": prepared.t3_job_inserted,
         }));
     } else {
-        println!("{}", host_plan.success.reason);
+        println!("{}", prepared.host_plan.success.reason);
     }
     0
 }

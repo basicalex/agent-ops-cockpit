@@ -3,6 +3,7 @@ mod ingest;
 mod observer_runtime;
 mod query;
 mod reflector_runtime;
+mod retrieval;
 pub mod render;
 mod runtime;
 mod standalone;
@@ -19,7 +20,8 @@ pub use t1::{evaluate_t1_token_threshold, T1ThresholdDecision, T1ThresholdError}
 // Runtime exports
 pub use compatibility_queries::{
     compile_mind_context_pack, compile_mind_provenance_export, compile_mind_provenance_graph,
-    mind_context_pack_mode_for_trigger, MindContextPack, MindContextPackCitation,
+    mind_context_pack_mode_for_trigger, parse_mind_context_pack_mode,
+    parse_mind_context_pack_request, MindContextPack, MindContextPackCitation,
     MindContextPackMode, MindContextPackProfile, MindContextPackRequest, MindContextPackSection,
     MindContextPackSourceOverrides,
 };
@@ -30,7 +32,10 @@ pub use observer_runtime::{
 pub use reflector_runtime::{
     DetachedReflectorWorker, ReflectorRuntimeConfig, ReflectorRuntimeError, ReflectorTickReport,
 };
-pub use runtime::{MindFinalizeDrainOutcome, MindRuntimeConfig, MindRuntimeCore};
+pub use runtime::{
+    MindDetachedDispatchDecision, MindDetachedJobOutcome, MindFinalizeDrainOutcome,
+    MindRuntimeConfig, MindRuntimeCore, MindTickEffects,
+};
 pub use t3_runtime::{DetachedT3Worker, T3RuntimeConfig, T3RuntimeError, T3TickReport};
 
 // Query exports
@@ -40,15 +45,17 @@ pub use query::{
     parse_project_canon_entries, project_scope_key, MindArtifactDrilldown, MindCanonEntry,
     MindHandshakeEntry, MindSearchHit, MindSessionExportManifest,
 };
+pub use retrieval::compile_insight_retrieval;
 pub use standalone::{
     default_pi_session_root, discover_latest_pi_session_file, latest_pi_session_file,
     legacy_mind_store_path, mind_runtime_root, mind_store_path_with_override, open_project_store,
     read_mind_service_health_snapshot, read_mind_service_lease, reflector_dispatch_lock_path,
-    reflector_lock_path_with_override, sync_latest_pi_session_into_project_store,
-    sync_session_file_into_project_store, t3_dispatch_lock_path, t3_lock_path_with_override,
-    write_mind_service_health_snapshot, MindProjectPaths, MindServiceHealthSnapshot,
-    MindServiceLease, MindServiceLeaseGuard, OpenedMindProjectStore, StandaloneMindError,
-    StandalonePiSyncReport,
+    reflector_lock_path_with_override, summarize_mind_service_status,
+    sync_latest_pi_session_into_project_store, sync_session_file_into_project_store,
+    t3_dispatch_lock_path, t3_lock_path_with_override, write_mind_service_health_snapshot,
+    MindProjectPaths, MindServiceHealthSnapshot, MindServiceLease, MindServiceLeaseGuard,
+    MindServiceStatusSummary, OpenedMindProjectStore, StandaloneMindError,
+    StandalonePiSyncReport, DEFAULT_MIND_SERVICE_STALE_AFTER_MS,
 };
 
 pub fn canonical_mind_command_name(command: &str) -> Option<&'static str> {
@@ -472,6 +479,20 @@ pub struct SessionFinalizeHostPlan {
 pub struct SessionFinalizeExportLocation {
     pub export_dir_name: String,
     pub export_dir: String,
+}
+
+#[derive(Debug, Clone)]
+pub struct PreparedSessionFinalizeExecution {
+    pub scope_key: String,
+    pub export_dir: String,
+    pub host_plan: SessionFinalizeHostPlan,
+    pub t3_job_inserted: bool,
+}
+
+#[derive(Debug, Clone)]
+pub enum SessionFinalizePreparationOutcome {
+    Skip(SessionFinalizeMessageSet),
+    Ready(PreparedSessionFinalizeExecution),
 }
 
 #[derive(Debug, Error)]
@@ -1244,6 +1265,76 @@ pub fn prepare_session_finalize_plan(
         }
         FinalizeArtifactSelection::Ready(plan) => Ok(SessionFinalizePlanOutcome::Ready(plan)),
     }
+}
+
+pub fn prepare_session_finalize_execution(
+    store: &MindStore,
+    project_root: &str,
+    session_id: &str,
+    pane_id: &str,
+    latest_conversation_id: Option<&str>,
+    finalize_reason: &str,
+    now: chrono::DateTime<chrono::Utc>,
+) -> Result<SessionFinalizePreparationOutcome, SessionFinalizeMessageSet> {
+    let scope_key = format!("session:{}:pane:{}", session_id, pane_id);
+    let plan = match prepare_session_finalize_plan(
+        store,
+        session_id,
+        pane_id,
+        latest_conversation_id,
+        &scope_key,
+    ) {
+        Ok(SessionFinalizePlanOutcome::Skip {
+            observer_reason,
+            outcome_reason_suffix,
+        }) => {
+            return Ok(SessionFinalizePreparationOutcome::Skip(SessionFinalizeMessageSet {
+                status: "ok",
+                reason: format!("{}: {}", finalize_reason, outcome_reason_suffix),
+                observer_reason: observer_reason.to_string(),
+            }));
+        }
+        Ok(SessionFinalizePlanOutcome::Ready(plan)) => plan,
+        Err(err) => return Err(session_finalize_error("planning", err)),
+    };
+
+    let export_location = prepare_session_finalize_export_location(project_root, session_id, &plan);
+    let (t3_job_id, t3_job_inserted) = match store.enqueue_t3_backlog_job(
+        project_root,
+        session_id,
+        pane_id,
+        plan.active_tag.as_deref(),
+        Some(&plan.slice_start_id),
+        Some(&plan.slice_end_id),
+        &plan.artifact_ids,
+        now,
+    ) {
+        Ok(result) => result,
+        Err(err) => return Err(session_finalize_error("t3_enqueue", err)),
+    };
+
+    let host_plan = match prepare_session_finalize_host_plan(
+        &plan,
+        session_id,
+        pane_id,
+        project_root,
+        &export_location.export_dir,
+        &t3_job_id,
+        t3_job_inserted,
+        finalize_reason,
+    ) {
+        Ok(host_plan) => host_plan,
+        Err(err) => return Err(session_finalize_error("export_bundle", err)),
+    };
+
+    Ok(SessionFinalizePreparationOutcome::Ready(
+        PreparedSessionFinalizeExecution {
+            scope_key,
+            export_dir: export_location.export_dir,
+            host_plan,
+            t3_job_inserted,
+        },
+    ))
 }
 
 pub fn build_project_mind_export(

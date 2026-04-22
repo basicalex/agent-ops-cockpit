@@ -10,6 +10,7 @@ use aoc_core::{
 use aoc_storage::{CanonRevisionState, CompactionCheckpoint, MindStore, StoredArtifact};
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 use std::{
     collections::HashSet,
     path::{Path, PathBuf},
@@ -94,6 +95,66 @@ pub struct MindContextPackSourceOverrides {
     pub latest_export_manifest: Option<SessionExportManifest>,
     pub latest_t1_markdown: Option<String>,
     pub latest_t2_markdown: Option<String>,
+}
+
+pub fn parse_mind_context_pack_mode(value: Option<&str>) -> MindContextPackMode {
+    match value
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(|value| value.to_ascii_lowercase())
+        .as_deref()
+    {
+        Some("startup") => MindContextPackMode::Startup,
+        Some("tag_switch") | Some("tag-switch") => MindContextPackMode::TagSwitch,
+        Some("resume") => MindContextPackMode::Resume,
+        Some("dispatch") => MindContextPackMode::Dispatch,
+        _ => MindContextPackMode::Handoff,
+    }
+}
+
+pub fn parse_mind_context_pack_request(args: &Value) -> MindContextPackRequest {
+    let mode = args
+        .as_object()
+        .and_then(|value| value.get("mode"))
+        .and_then(Value::as_str);
+    let detail = args
+        .as_object()
+        .and_then(|value| value.get("detail"))
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
+    let active_tag = args
+        .as_object()
+        .and_then(|value| value.get("active_tag"))
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(|value| value.to_string());
+    let role = args
+        .as_object()
+        .and_then(|value| value.get("role"))
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(|value| value.to_string());
+    let reason = args
+        .as_object()
+        .and_then(|value| value.get("reason"))
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(|value| value.to_string());
+
+    MindContextPackRequest {
+        mode: parse_mind_context_pack_mode(mode),
+        profile: if detail {
+            MindContextPackProfile::Expanded
+        } else {
+            MindContextPackProfile::Compact
+        },
+        active_tag,
+        reason,
+        role,
+    }
 }
 
 pub fn mind_context_pack_mode_for_trigger(

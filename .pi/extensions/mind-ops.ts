@@ -17,6 +17,10 @@ async function notifyMindStatus(ctx: any): Promise<void> {
 	if (typeof standalone?.latest_pi_session_file === "string" && standalone.latest_pi_session_file.trim()) {
 		lines.push(`latest_pi_session_file: ${standalone.latest_pi_session_file}`);
 	}
+	const serviceStatus = standalone?.service_status;
+	if (serviceStatus?.state) lines.push(`service_state: ${serviceStatus.state}`);
+	if (typeof serviceStatus?.stale === "boolean") lines.push(`service_stale: ${serviceStatus.stale ? "yes" : "no"}`);
+	if (serviceStatus?.blocker) lines.push(`service_blocker: ${serviceStatus.blocker}`);
 	const lease = standalone?.service_lease;
 	if (lease?.owner_id) lines.push(`service_lease_owner: ${lease.owner_id}`);
 	const health = standalone?.health_snapshot;

@@ -27,7 +27,7 @@ bash scripts/pi/validate-mind-runtime-hardening.sh
 1. starts a fresh temp project root
 2. starts `bin/aoc-hub`
 3. starts a fresh wrapped Pi session via `bin/aoc-agent-wrap`
-4. verifies standalone/runtime state is discoverable for the project
+4. verifies standalone/runtime state is discoverable for the project, including derived service-state honesty (`running` / `degraded` / `stale` / `inactive` / `cold`)
 5. exercises live Mind command surfaces across the current runtime split:
    - standalone ingest / sync into `.aoc/mind/project.sqlite`
    - standalone `observer-run`
@@ -36,6 +36,7 @@ bash scripts/pi/validate-mind-runtime-hardening.sh
    - compatibility/detached status queries where still runtime-owned elsewhere
 6. verifies:
    - standalone/runtime state exists
+- `aoc-mind-service status --json` returns a canonical `service_status` summary with explicit stale/degraded detection
    - `.aoc/mind/project.sqlite` exists
    - an insight export bundle exists with `t1.md`, `t2.md`, and `manifest.json`
    - provenance export returns `graph.status = ok`
