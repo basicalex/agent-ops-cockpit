@@ -2,6 +2,21 @@
 
 > Umbrella alignment note: this PRD defines the delegated specialist/runtime slice of the broader detached system. For cross-plane ownership, Mission Control fleet boundaries, project-scoped Mind dispatcher policy, and shared detached control-plane rules spanning tasks 169, 149, and 178, see `.taskmaster/docs/prds/aoc_detached_orchestration_prd_rpg.md`.
 
+## Pi 0.62 / Zellij 0.44 Update Changes (Exact Delta)
+
+This PRD is not being turned into a new platform rewrite, but two upstream changes matter directly here:
+- **Pi 0.62 provenance**: detached specialist runs should preserve Pi-native `sourceInfo` so AOC can enforce trust/policy across built-in tools, project-local tools, and extension-provided tools.
+- **Pi 0.62 tool rendering**: `renderCall` / `renderResult` should be used to improve compact detached inspector/handoff UX, especially for queued/running/completed specialist jobs.
+
+Zellij 0.44 materially improves detached subagent inspector UX:
+- inspector panes should use explicit tab/pane IDs rather than layout-string inference where possible
+- floating inspector visibility should prefer `show-floating-panes --tab-id` / `hide-floating-panes --tab-id` over heuristic toggle behavior
+- transient inspectors can now lean on borderless / close-on-exit pane behavior for lower-noise drilldown
+- bounded pane evidence capture (`dump-screen --pane-id`) and optional live follow (`subscribe --pane-id`) are now viable for explicit detached-job drilldown
+- Pulse/durable registry remain the primary detached status substrate; Zellij capture is an on-demand inspector aid
+
+Source alignment note: see `docs/research/zellij-0.44-aoc-alignment.md`.
+
 ## Problem Statement
 AOC already has seeded specialist definitions under `.pi/agents/*`, team/chain manifests, Mission Control orchestration entry points, and wrapper-side `insight_dispatch` scaffolding. But detached agent execution is not yet a first-class, repo-controlled runtime substrate.
 
