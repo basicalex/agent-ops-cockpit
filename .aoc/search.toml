@@ -1,0 +1,24 @@
+version = 1
+
+[search]
+enabled = true
+provider = "searxng"
+managed = true
+auto_start = true
+
+[search.runtime]
+base_url = "http://127.0.0.1:8888"
+healthcheck_url = "http://127.0.0.1:8888/search?q=aoc+health&format=json"
+compose_file = ".aoc/services/searxng/docker-compose.yml"
+service_name = "searxng"
+
+[search.query_defaults]
+format = "json"
+language = "en"
+categories = "general"
+safe_search = 0
+
+[search.agent_policy]
+allow_auto_start = true
+prompt_when_missing = true
+prompt_when_unhealthy = true

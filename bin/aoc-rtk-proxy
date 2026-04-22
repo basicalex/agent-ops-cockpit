@@ -31,7 +31,7 @@ resolve_passthrough_bin() {
   IFS=':' read -r -a parts <<<"$PATH"
   for part in "${parts[@]}"; do
     [[ -n "$part" ]] || continue
-    if [[ -n "${AOC_RTK_SHIM_DIR:-}" && "$part" == "$AOC_RTK_SHIM_DIR" ]]; then
+    if [[ ( -n "${AOC_RTK_SHIM_DIR:-}" && "$part" == "$AOC_RTK_SHIM_DIR" ) || "$part" == */aoc/rtk-shims/* ]]; then
       continue
     fi
     candidate="$part/$cmd"
@@ -63,7 +63,7 @@ unshimmed_path() {
   IFS=':' read -r -a parts <<<"$original_path"
   for part in "${parts[@]}"; do
     [[ -n "$part" ]] || continue
-    if [[ -n "${AOC_RTK_SHIM_DIR:-}" && "$part" == "$AOC_RTK_SHIM_DIR" ]]; then
+    if [[ ( -n "${AOC_RTK_SHIM_DIR:-}" && "$part" == "$AOC_RTK_SHIM_DIR" ) || "$part" == */aoc/rtk-shims/* ]]; then
       continue
     fi
     filtered+=("$part")

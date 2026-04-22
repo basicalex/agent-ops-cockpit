@@ -1,0 +1,63 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck disable=SC1091
+source "$script_dir/aoc-zellij.sh"
+
+usage() {
+  cat <<'EOF'
+Usage: aoc-pane-evidence --pane-id ID [--session NAME] [--follow] [--scrollback N]
+
+Operator drilldown for a specific Zellij pane.
+- default: one-shot full pane capture via dump-screen --full --ansi
+- --follow: live NDJSON stream via zellij subscribe --pane-id
+EOF
+}
+
+pane_id=""
+session_id="${ZELLIJ_SESSION_NAME:-${AOC_SESSION_ID:-}}"
+follow="0"
+scrollback="200"
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --pane-id)
+      shift
+      pane_id="${1:-}"
+      ;;
+    --session)
+      shift
+      session_id="${1:-}"
+      ;;
+    --follow)
+      follow="1"
+      ;;
+    --scrollback)
+      shift
+      scrollback="${1:-200}"
+      ;;
+    -h|--help)
+      usage
+      exit 0
+      ;;
+    *)
+      echo "Unknown option: $1" >&2
+      usage >&2
+      exit 2
+      ;;
+  esac
+  shift || true
+done
+
+if [[ -z "$pane_id" ]]; then
+  echo "--pane-id is required" >&2
+  usage >&2
+  exit 2
+fi
+
+if [[ "$follow" == "1" ]]; then
+  exec aoc_zellij_subscribe_pane "$pane_id" "$session_id" "$scrollback"
+fi
+
+exec aoc_zellij_dump_screen "$pane_id" "$session_id"
