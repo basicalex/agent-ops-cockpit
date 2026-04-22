@@ -925,6 +925,7 @@ sync_aoc_theme_artifacts() {
   write_yazi_theme_from_profile
   write_pi_theme_from_profile
   sync_pi_settings_theme "$(aoc_pi_theme_name)"
+  broadcast_zjstatus_theme_update
 }
 
 write_theme_file() {

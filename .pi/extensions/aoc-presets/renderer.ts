@@ -8,10 +8,11 @@ function unique(items: string[]): string[] {
 }
 
 export function resolveComponentNames(record: PresetRecord, state: PresetRuntimeState): string[] {
+  const core = record.manifest.components?.core ?? [];
   const modes = record.manifest.components?.modes ?? {};
   const fallback = record.manifest.components?.default ?? [];
   const modeNames = state.mode ? modes[state.mode] : undefined;
-  return unique(modeNames ?? fallback);
+  return unique([...(core ?? []), ...((modeNames ?? fallback) ?? [])]);
 }
 
 export function renderPresetPrompt(record: PresetRecord, state: PresetRuntimeState): { text: string; warnings: string[] } {
@@ -27,6 +28,23 @@ export function renderPresetPrompt(record: PresetRecord, state: PresetRuntimeSta
     }
     const text = readFileSync(path, "utf8").trim();
     if (text) parts.push(text);
+  }
+
+  parts.push([
+    "## Preset runtime contract",
+    `Active preset: ${record.id}${state.mode ? `/${state.mode}` : ""}${state.submode ? `/${state.submode}` : ""}.`,
+    state.activeSkills?.length ? `Treat these skills as active now: ${state.activeSkills.join(", ")}.` : "No preset-specific skills are active.",
+    state.recommendedSkills?.length ? `Only recommend or route toward these preset skills when the task actually matches: ${state.recommendedSkills.join(", ")}.` : "Do not recommend preset-specific skills unless the user explicitly asks for them.",
+    "Keep installed-but-inactive skills dormant; do not bias toward them when the preset is off or when another preset/mode is active.",
+  ].filter(Boolean).join("\n"));
+
+  if (state.handoff?.summary) {
+    parts.push([
+      "## Preset handoff",
+      state.handoff.summary,
+      state.handoff.activeSkills?.length ? `Prior active skills: ${state.handoff.activeSkills.join(", ")}.` : "",
+      state.handoff.recommendedSkills?.length ? `Prior recommended skills: ${state.handoff.recommendedSkills.join(", ")}.` : "",
+    ].filter(Boolean).join("\n"));
   }
 
   if (state.mode === "motion") {

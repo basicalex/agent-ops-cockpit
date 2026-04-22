@@ -26,7 +26,17 @@ export interface PresetManifest {
     disable?: string[];
   };
   skills?: {
+    active?: string[];
     recommended?: string[];
+    activeByMode?: Record<string, string[]>;
+    recommendedByMode?: Record<string, string[]>;
+    activeBySubmode?: Record<string, string[]>;
+    recommendedBySubmode?: Record<string, string[]>;
+  };
+  handoff?: {
+    enabled?: boolean;
+    modeNotes?: Record<string, string>;
+    submodeNotes?: Record<string, string>;
   };
   integrations?: {
     mind?: {
