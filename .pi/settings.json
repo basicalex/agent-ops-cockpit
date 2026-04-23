@@ -12,6 +12,7 @@
   "defaultModel": "gpt-5.4",
   "defaultThinkingLevel": "medium",
   "enabledModels": [
+    "openai-codex/gpt-5.5",
     "openai-codex/gpt-5.4",
     "opencode/glm-5",
     "opencode/gemini-3-flash",
