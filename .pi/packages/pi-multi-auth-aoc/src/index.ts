@@ -1,4 +1,7 @@
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
+import { getModels } from "@mariozechner/pi-ai";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { dirname, resolve } from "node:path";
 import { AccountManager } from "./account-manager.js";
 import {
 	registerGlobalKeyDistributor,
@@ -15,6 +18,10 @@ import {
 
 const STARTUP_WARMUP_DELAY_MS = 0;
 const STARTUP_REFINEMENT_DELAY_MS = 1_500;
+const PREFERRED_OPENAI_CODEX_MODEL = "gpt-5.5";
+const FALLBACK_OPENAI_CODEX_MODEL = "gpt-5.4";
+const PREFERRED_OPENAI_CODEX_MODEL_REF = `openai-codex/${PREFERRED_OPENAI_CODEX_MODEL}`;
+const FALLBACK_OPENAI_CODEX_MODEL_REF = `openai-codex/${FALLBACK_OPENAI_CODEX_MODEL}`;
 
 const ENV_API_KEY_PROVIDERS = [
 	{ provider: "openrouter", envVar: "OPENROUTER_API_KEY" },
@@ -26,6 +33,75 @@ function getErrorMessage(error: unknown): string {
 		return error.message;
 	}
 	return String(error);
+}
+
+type ProjectSettings = {
+	defaultProvider?: string;
+	defaultModel?: string;
+	enabledModels?: string[];
+};
+
+function getProjectSettingsPath(): string {
+	return resolve(process.cwd(), ".pi", "settings.json");
+}
+
+function readProjectSettings(): ProjectSettings | null {
+	try {
+		return JSON.parse(readFileSync(getProjectSettingsPath(), "utf8")) as ProjectSettings;
+	} catch {
+		return null;
+	}
+}
+
+function writeProjectSettings(settings: ProjectSettings): void {
+	const path = getProjectSettingsPath();
+	mkdirSync(dirname(path), { recursive: true });
+	writeFileSync(path, `${JSON.stringify(settings, null, 2)}\n`, "utf8");
+}
+
+function shouldManageOpenAiCodexDefault(settings: ProjectSettings): boolean {
+	const enabled = Array.isArray(settings.enabledModels) ? settings.enabledModels : [];
+	return settings.defaultProvider === "openai-codex"
+		&& (
+			settings.defaultModel === PREFERRED_OPENAI_CODEX_MODEL
+			|| settings.defaultModel === FALLBACK_OPENAI_CODEX_MODEL
+			|| enabled.includes(PREFERRED_OPENAI_CODEX_MODEL_REF)
+			|| enabled.includes(FALLBACK_OPENAI_CODEX_MODEL_REF)
+		);
+}
+
+function reconcileOpenAiCodexProjectDefaults(): { changed: boolean; effectiveModel?: string } {
+	const settings = readProjectSettings();
+	if (!settings || !shouldManageOpenAiCodexDefault(settings)) {
+		return { changed: false };
+	}
+
+	const availableModels = new Set(getModels("openai-codex").map((model) => model.id.trim()));
+	const preferredAvailable = availableModels.has(PREFERRED_OPENAI_CODEX_MODEL);
+	const effectiveModel = preferredAvailable
+		? PREFERRED_OPENAI_CODEX_MODEL
+		: FALLBACK_OPENAI_CODEX_MODEL;
+
+	const enabledModels = Array.isArray(settings.enabledModels) ? [...settings.enabledModels] : [];
+	for (const ref of [PREFERRED_OPENAI_CODEX_MODEL_REF, FALLBACK_OPENAI_CODEX_MODEL_REF]) {
+		if (!enabledModels.includes(ref)) {
+			enabledModels.unshift(ref);
+		}
+	}
+
+	const changed = settings.defaultModel !== effectiveModel
+		|| enabledModels.length !== (settings.enabledModels ?? []).length
+		|| enabledModels.some((model, index) => model !== (settings.enabledModels ?? [])[index]);
+	if (!changed) {
+		return { changed: false, effectiveModel };
+	}
+
+	writeProjectSettings({
+		...settings,
+		defaultModel: effectiveModel,
+		enabledModels,
+	});
+	return { changed: true, effectiveModel };
 }
 
 async function bootstrapEnvApiKeys(accountManager: AccountManager): Promise<void> {
@@ -209,6 +285,18 @@ export default async function multiAuthExtension(pi: ExtensionAPI): Promise<void
 		flushStartupWarnings((message) => {
 			ctx.ui.notify(`multi-auth startup warning: ${message}`, "warning");
 		});
+		try {
+			const modelReconcile = reconcileOpenAiCodexProjectDefaults();
+			if (modelReconcile.changed) {
+				ctx.modelRegistry.refresh();
+				ctx.ui.notify(
+					`AOC model default synced to ${modelReconcile.effectiveModel} (${PREFERRED_OPENAI_CODEX_MODEL} ${modelReconcile.effectiveModel === PREFERRED_OPENAI_CODEX_MODEL ? "available" : "not available yet"}).`,
+					"info",
+				);
+			}
+		} catch (error) {
+			ctx.ui.notify(`multi-auth model sync warning: ${getErrorMessage(error)}`, "warning");
+		}
 		if (!isSubagentRuntime) {
 			scheduleStartupWork((message) => {
 				ctx.ui.notify(`multi-auth initialization warning: ${message}`, "warning");

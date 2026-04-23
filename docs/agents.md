@@ -65,9 +65,10 @@ This prints the current project AOC version, whether the init state exists, the 
 This repo now seeds project-local PI defaults as follows:
 
 - `defaultProvider: "openai-codex"`
-- `defaultModel: "gpt-5.4"`
+- `defaultModel: "gpt-5.4"` (auto-upgrades to `gpt-5.5` when Pi exposes it)
 - `defaultThinkingLevel: "medium"`
 - seeded `enabledModels` filter:
+  - `openai-codex/gpt-5.5`
   - `openai-codex/gpt-5.4`
   - `opencode/glm-5`
   - `opencode/gemini-3-flash`

@@ -1273,6 +1273,7 @@ pi_defaults = {
     "defaultThinkingLevel": "medium",
 }
 seeded_enabled_models = [
+    "openai-codex/gpt-5.5",
     "openai-codex/gpt-5.4",
     "opencode/glm-5",
     "opencode/gemini-3-flash",
@@ -1285,19 +1286,37 @@ seeded_enabled_models = [
     "kimi-coding/kimi-for-coding",
 ]
 previous_seeded_enabled_models = [
-    "openai-codex/gpt-5.4",
+    "openai-codex/gpt-5.5",
     "opencode/glm-5",
     "opencode/gemini-3-flash",
     "opencode/gemini-3.1-pro",
     "openrouter/alibaba/qwen3.6-plus",
 ]
 older_previous_seeded_enabled_models = [
-    "openai-codex/gpt-5.4",
+    "openai-codex/gpt-5.5",
     "opencode/glm-5",
     "opencode/gemini-3-flash",
     "opencode/gemini-3.1-pro",
     "alibaba/qwen3.6-plus",
 ]
+legacy_seeded_enabled_models_with_gpt55 = [
+    "openai-codex/gpt-5.5",
+    "openai-codex/gpt-5.4",
+    "opencode/glm-5",
+    "opencode/gemini-3-flash",
+    "opencode/gemini-3.1-pro",
+    "openrouter/anthropic/claude-sonnet-4",
+    "openrouter/openai/gpt-5.1-codex",
+    "openrouter/google/gemini-2.5-pro",
+    "openrouter/google/gemini-2.5-flash",
+    "openrouter/qwen/qwen3.6-plus",
+    "kimi-coding/kimi-for-coding",
+]
+previous_pi_defaults = {
+    "defaultProvider": "openai-codex",
+    "defaultModel": "gpt-5.5",
+    "defaultThinkingLevel": "medium",
+}
 legacy_seeded_defaults = {
     "defaultProvider": "opencode",
     "defaultModel": "gpt-5.3-codex",
@@ -1396,8 +1415,20 @@ elif all(data.get(key) == value for key, value in pi_defaults.items()):
     if "enabledModels" not in data:
         data["enabledModels"] = seeded_enabled_models
         changed = True
+elif all(data.get(key) == value for key, value in previous_pi_defaults.items()):
+    for key, value in pi_defaults.items():
+        if data.get(key) != value:
+            data[key] = value
+            changed = True
+    if data.get("enabledModels") != seeded_enabled_models:
+        data["enabledModels"] = seeded_enabled_models
+        changed = True
 
 if data.get("enabledModels") == legacy_seeded_enabled_models:
+    data["enabledModels"] = seeded_enabled_models
+    changed = True
+
+if data.get("enabledModels") == legacy_seeded_enabled_models_with_gpt55:
     data["enabledModels"] = seeded_enabled_models
     changed = True
 
