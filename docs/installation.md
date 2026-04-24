@@ -110,6 +110,8 @@ After install (or manual `aoc-init`), a PI-first project should include:
 - `.pi/extensions/mind-focus.ts`
 - `.pi/extensions/lib/mind.ts`
 - `.pi/extensions/themeMap.ts`
+- `.aoc/mind-service.json` (project-local Mind launcher config seeded from install/global config when available)
+- `~/.config/aoc/mind-service.json` (global Mind launcher config written by `./install.sh`)
 - `.pi/extensions/aoc-models.ts`
 - `~/.config/zellij/plugins/zjstatus-aoc.wasm`
 - `.aoc/context.md`
@@ -126,11 +128,17 @@ test -f .pi/extensions/mind-context.ts
 test -f .pi/extensions/mind-focus.ts
 test -f .pi/extensions/lib/mind.ts
 test -f .pi/extensions/themeMap.ts
+test -f .aoc/mind-service.json
 test -f .pi/extensions/aoc-models.ts
 test -f .pi/prompts/tm-cc.md
 test -f .pi/settings.json
 test -f ~/.config/zellij/plugins/zjstatus-aoc.wasm
+aoc-handshake --json >/tmp/aoc-handshake.json
 ```
+
+`./install.sh` now also installs `aoc-mind-service` into `~/.local/bin` when Rust build/install succeeds and writes a global launcher contract at `~/.config/aoc/mind-service.json`. `aoc-init` copies the resolved Mind launcher metadata into `.aoc/mind-service.json` so downstream repos can launch Mind without needing a local Rust workspace.
+
+`aoc-handshake --json` is the agent startup handshake. It is intentionally metadata-only: it reports AOC/Taskmaster/Mind availability, policy, and focused retrieval commands, but it does not inject broad Mind memories or context packs. Use `aoc-handshake --sync --json` only when startup should also attempt safe Mind ingestion without exposing recalled content.
 
 `aoc-init` also installs the managed AOC top-bar plugin from the bundled cache/source snapshot, so the AOC layouts do not depend on a separately downloaded personal `zjstatus` build.
 
@@ -462,3 +470,5 @@ On Ubuntu, the binary is named `batcat` instead of `bat`. AOC's `aoc-doctor` acc
 - Read about [Configuration](configuration.md)
 - Learn about [Layouts](layouts.md)
 - Learn about the [Managed Zellij Top Bar](zellij-top-bar.md)
+
+- **HyperFrames** — `aoc-hyperframes` setup, skill sync, and doctor flows

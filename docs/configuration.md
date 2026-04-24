@@ -206,12 +206,12 @@ Safety model:
 
 What it guarantees:
 - Seeds/repairs canonical PI runtime paths under `.pi/**` (`settings.json`, prompts, skills, extensions).
-- Seeds default PI extensions when missing: `.pi/extensions/minimal.ts`, `.pi/extensions/themeMap.ts`, `.pi/extensions/mind-ingest.ts`, `.pi/extensions/mind-ops.ts`, `.pi/extensions/mind-context.ts`, `.pi/extensions/mind-focus.ts`, `.pi/extensions/aoc-models.ts`, `.pi/extensions/lib/mind.ts`, plus the preset runtime family under `.pi/extensions/aoc-presets/`.
+- Seeds default PI extensions when missing: `.pi/extensions/minimal.ts`, `.pi/extensions/themeMap.ts`, `.pi/extensions/mind-ingest.ts`, `.pi/extensions/mind-ops.ts`, `.pi/extensions/mind-context.ts`, `.pi/extensions/mind-focus.ts`, `.pi/extensions/aoc-models.ts`, `.pi/extensions/lib/mind.ts`, `.pi/extensions/lib/caveman.ts`, plus the preset runtime family under `.pi/extensions/aoc-presets/`.
 - Seeds vendored local PI package `.pi/packages/pi-multi-auth-aoc`, wires `.pi/settings.json` to load it by path, and removes legacy global npm `pi-multi-auth` package entries to avoid duplicate extension loading.
-- Keeps AOC control-plane state under `.aoc/**`.
+- Keeps AOC control-plane state under `.aoc/**`, including `.aoc/mind-service.json` for project-local standalone Mind launcher metadata.
 - Migrates missing project-local legacy assets from `.aoc/prompts/pi/` and `.aoc/skills/` into `.pi/**` without overwriting existing canonical files.
 - Seeds reusable preset/layout assets when missing: `.aoc/presets/design/**` and `.aoc/layouts/design.kdl`.
-- Preserves existing `.pi/extensions/*` files (non-destructive).
+- Refreshes managed built-in PI runtime extensions in existing repos when canonical templates change: `.pi/extensions/minimal.ts`, `.pi/extensions/themeMap.ts`, `.pi/extensions/mind-ingest.ts`, `.pi/extensions/mind-ops.ts`, `.pi/extensions/mind-context.ts`, `.pi/extensions/mind-focus.ts`, `.pi/extensions/aoc-models.ts`, `.pi/extensions/lib/mind.ts`, `.pi/extensions/lib/caveman.ts`, plus the preset runtime family under `.pi/extensions/aoc-presets/`.
 - Cleans safe prompt alias duplicates (`.pi/prompts/tmcc.md` -> `.pi/prompts/tm-cc.md`) and warns when manual merge is required.
 - Does not auto-sync non-PI skill targets (`.codex/.claude/.opencode/.agents`) in PI-first mode.
 
@@ -220,7 +220,10 @@ Validation commands:
 ```bash
 bash scripts/pi/test-aoc-init-pi-first.sh
 bash scripts/pi/test-pi-only-agent-surface.sh
+aoc-handshake --json >/tmp/aoc-handshake.json
 ```
+
+`aoc-handshake` is metadata-only by design: it advertises Mind health/policy and focused retrieval commands without injecting broad Mind memories into agent startup context.
 
 **Preview Pane Placement:**
 
@@ -281,6 +284,7 @@ AOC control exposes nested tools actions for:
 - PI compaction
 - Agent Browser + Search
 - Vercel CLI
+- HyperFrames
 - MoreMotion
 
 For most users, Alt+C is the preferred control plane over manual configuration edits. See [Control Pane Guide](control-pane.md).
@@ -311,6 +315,8 @@ The control pane also warns when the current repo has a `.pi/settings.json` comp
 | `AOC_DEV_ROOT` | Override inferred local dev root used for MoreMotion source lookup |
 | `AOC_MOREMOTION_REPO_URL` | Optional clone URL used when ensuring local MoreMotion source repo |
 | `AOC_MOMO_SOURCE` | Preferred local MoreMotion source path passed to `aoc-momo` |
+| `AOC_HYPERFRAMES_DIR` | Workspace directory used by `aoc-hyperframes` (default `hyperframes`) |
+| `AOC_HYPERFRAMES_TRACK_WORKSPACE` | Set to `1` to avoid adding the HyperFrames workspace to `.gitignore` |
 
 ### Managed Local Search (Alt+C -> Settings -> Tools -> Agent Browser + Search)
 

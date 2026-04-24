@@ -5,6 +5,7 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 BIN_DIR="$HOME/.local/bin"
 AOC_CONFIG_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/aoc"
 INSTALL_MIND_EXPLICIT=0
+AOC_MIND_SERVICE_CONFIG_FILE="$AOC_CONFIG_DIR/mind-service.json"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -18,7 +19,7 @@ Usage: ./install.sh [--mind]
 
 Options:
   --mind   Explicitly refresh Mind runtime dependencies and binaries
-           (PI agent, aoc-hub-rs, aoc-agent-wrap-rs).
+           (PI agent, aoc-mind-service, aoc-hub-rs, aoc-agent-wrap-rs).
   -h, --help
 EOF
       exit 0
@@ -397,17 +398,60 @@ cargo_with_retry() {
   done
 }
 
+install_rust_package_binary() {
+  local cargo_bin="$1"
+  local package="$2"
+  local binary="$3"
+  local dest_name="${4:-$3}"
+
+  log "Building $binary..."
+  cargo_with_retry "$cargo_bin" install --path "$ROOT_DIR/crates/$package" --bin "$binary" --root "$HOME/.local" --force || {
+    log "Cargo install failed for $binary, trying build --release..."
+    (cd "$ROOT_DIR/crates" && "$cargo_bin" build --release -p "$package" --bin "$binary")
+    install -m 0755 "$ROOT_DIR/crates/target/release/$binary" "$BIN_DIR/$dest_name"
+  }
+}
+
 install_rust_binary() {
   local cargo_bin="$1"
   local package="$2"
   local dest_name="${3:-$2}"
+  install_rust_package_binary "$cargo_bin" "$package" "$package" "$dest_name"
+}
 
-  log "Building $package..."
-  cargo_with_retry "$cargo_bin" install --path "$ROOT_DIR/crates/$package" --root "$HOME/.local" --force || {
-    log "Cargo install failed for $package, trying build --release..."
-    (cd "$ROOT_DIR/crates" && "$cargo_bin" build --release -p "$package")
-    install -m 0755 "$ROOT_DIR/crates/target/release/$package" "$BIN_DIR/$dest_name"
-  }
+write_global_mind_service_config() {
+  local service_bin=""
+  local cargo_manifest="$ROOT_DIR/crates/Cargo.toml"
+
+  if [[ -x "$BIN_DIR/aoc-mind-service" ]]; then
+    service_bin="$BIN_DIR/aoc-mind-service"
+  elif have aoc-mind-service; then
+    service_bin="$(command -v aoc-mind-service)"
+  fi
+
+  python3 - "$AOC_MIND_SERVICE_CONFIG_FILE" "$service_bin" "$cargo_manifest" "$ROOT_DIR" <<'PY'
+import json
+import sys
+from datetime import datetime, timezone
+from pathlib import Path
+
+config_path = Path(sys.argv[1])
+service_bin = sys.argv[2].strip()
+cargo_manifest = sys.argv[3].strip()
+source_root = sys.argv[4].strip()
+
+payload = {
+    "schemaVersion": 1,
+    "updatedAt": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+    "serviceBin": service_bin or None,
+    "cargoManifest": cargo_manifest or None,
+    "sourceRoot": source_root or None,
+}
+config_path.parent.mkdir(parents=True, exist_ok=True)
+config_path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+PY
+
+  log "Updated global Mind service config: $AOC_MIND_SERVICE_CONFIG_FILE"
 }
 
 detect_pm() {
@@ -693,6 +737,7 @@ required_bin_scripts=(
   aoc-agent-wrap
   aoc-utils.sh
   aoc-init
+  aoc-handshake
   aoc-zellij-plugin
   aoc-tab-metadata
   aoc-doctor
@@ -802,6 +847,10 @@ if cargo_bin="$(cargo_cmd)"; then
 
   # Build aoc-cli
   install_rust_binary "$cargo_bin" aoc-cli
+
+  # Build standalone Mind service for cross-project Pi extension use.
+  install_rust_package_binary "$cargo_bin" aoc-mind aoc-mind-service
+  write_global_mind_service_config
 
   if (( INSTALL_MIND_EXPLICIT == 1 )); then
     log "Refreshing Mind runtime binaries explicitly (--mind)..."
@@ -1170,7 +1219,7 @@ log "Install finished. Initialize each repo explicitly with: aoc-init /path/to/r
 
 log "AOC Installed Successfully!"
 if (( INSTALL_MIND_EXPLICIT == 1 )); then
-  log "Mind runtime refreshed: PI agent, aoc-hub-rs, and aoc-agent-wrap-rs should now be current in $BIN_DIR."
+  log "Mind runtime refreshed: aoc-mind-service, PI agent, aoc-hub-rs, and aoc-agent-wrap-rs should now be current in $BIN_DIR."
   log "Start a fresh AOC/Zellij session to pick up the refreshed Mind runtime binaries."
 fi
 log "Run 'aoc-init /path/to/repo' next, then 'aoc' inside that repo."

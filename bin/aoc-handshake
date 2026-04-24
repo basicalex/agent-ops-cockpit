@@ -1,0 +1,244 @@
+#!/usr/bin/env python3
+"""AOC startup handshake: metadata-only project/runtime orientation for agents.
+
+The handshake intentionally does not inject broad Mind memories. It reports
+availability, freshness/policy, and safe next-step commands so agents can ask
+for focused Mind context only after user intent is known.
+"""
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import subprocess
+import sys
+from pathlib import Path
+from typing import Any
+
+
+def truthy(value: str | None) -> bool:
+    return (value or "").strip().lower() in {"1", "true", "yes", "on"}
+
+
+def find_project_root(start: Path) -> Path:
+    current = start.resolve()
+    for candidate in [current, *current.parents]:
+        if (candidate / ".aoc").exists() or (candidate / "AGENTS.md").exists() or (candidate / ".git").exists():
+            return candidate
+    return current
+
+
+def read_json(path: Path) -> dict[str, Any]:
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def run(cmd: list[str], cwd: Path, timeout: float = 5.0) -> dict[str, Any]:
+    try:
+        proc = subprocess.run(cmd, cwd=str(cwd), text=True, capture_output=True, timeout=timeout)
+        return {
+            "ok": proc.returncode == 0,
+            "exitCode": proc.returncode,
+            "stdout": proc.stdout.strip(),
+            "stderr": proc.stderr.strip(),
+        }
+    except FileNotFoundError as exc:
+        return {"ok": False, "error": f"missing command: {exc.filename}"}
+    except subprocess.TimeoutExpired:
+        return {"ok": False, "error": f"timeout after {timeout}s"}
+    except Exception as exc:
+        return {"ok": False, "error": str(exc)}
+
+
+def runnable(candidate: str | None) -> str | None:
+    if not candidate:
+        return None
+    candidate = candidate.strip()
+    if not candidate:
+        return None
+    if "/" in candidate or "\\" in candidate:
+        return candidate if Path(candidate).exists() else None
+    return candidate
+
+
+def resolve_mind_launcher(project_root: Path) -> dict[str, Any]:
+    xdg_config = Path(os.environ.get("XDG_CONFIG_HOME", str(Path.home() / ".config")))
+    project_cfg_path = project_root / ".aoc" / "mind-service.json"
+    global_cfg_path = xdg_config / "aoc" / "mind-service.json"
+    project_cfg = read_json(project_cfg_path)
+    global_cfg = read_json(global_cfg_path)
+
+    env_bin = runnable(os.environ.get("AOC_MIND_SERVICE_BIN"))
+    env_manifest = os.environ.get("AOC_MIND_CARGO_MANIFEST")
+    env_source = os.environ.get("AOC_MIND_SOURCE_ROOT")
+
+    service_bin = next(
+        (value for value in [env_bin, runnable(str(project_cfg.get("serviceBin") or "")), runnable(str(global_cfg.get("serviceBin") or "")), "aoc-mind-service"] if value),
+        None,
+    )
+    manifest_candidates = [
+        env_manifest,
+        str(Path(env_source) / "crates" / "Cargo.toml") if env_source else None,
+        str(project_cfg.get("cargoManifest") or "") or None,
+        str(Path(str(project_cfg.get("sourceRoot"))) / "crates" / "Cargo.toml") if project_cfg.get("sourceRoot") else None,
+        str(global_cfg.get("cargoManifest") or "") or None,
+        str(Path(str(global_cfg.get("sourceRoot"))) / "crates" / "Cargo.toml") if global_cfg.get("sourceRoot") else None,
+        str(project_root / "crates" / "Cargo.toml"),
+    ]
+    cargo_manifest = next((m for m in manifest_candidates if m and Path(m).exists()), None)
+    return {
+        "projectConfigPath": str(project_cfg_path),
+        "projectConfigPresent": project_cfg_path.exists(),
+        "globalConfigPath": str(global_cfg_path),
+        "globalConfigPresent": global_cfg_path.exists(),
+        "serviceBin": service_bin,
+        "cargoManifest": cargo_manifest,
+        "source": "env" if (env_bin or env_manifest or env_source) else ("project" if project_cfg_path.exists() else ("global" if global_cfg_path.exists() else "path-or-local")),
+    }
+
+
+def mind_status(project_root: Path, launcher: dict[str, Any]) -> dict[str, Any]:
+    cmd = [str(launcher.get("serviceBin") or "aoc-mind-service"), "status", "--project-root", str(project_root), "--json"]
+    result = run(cmd, project_root, timeout=8.0)
+    if result.get("ok") and result.get("stdout"):
+        try:
+            parsed = json.loads(str(result["stdout"]))
+        except Exception:
+            parsed = None
+        return {"available": True, "commandOk": True, "raw": parsed if isinstance(parsed, dict) else None}
+
+    # Cargo fallback mirrors extension behavior when an installed binary is absent.
+    manifest = launcher.get("cargoManifest")
+    if manifest:
+        cargo_cmd = ["cargo", "run", "--quiet", "--manifest-path", str(manifest), "--bin", "aoc-mind-service", "--", "status", "--project-root", str(project_root), "--json"]
+        result = run(cargo_cmd, project_root, timeout=20.0)
+        if result.get("ok") and result.get("stdout"):
+            try:
+                parsed = json.loads(str(result["stdout"]))
+            except Exception:
+                parsed = None
+            return {"available": True, "commandOk": True, "via": "cargo", "raw": parsed if isinstance(parsed, dict) else None}
+
+    return {
+        "available": False,
+        "commandOk": False,
+        "error": result.get("error") or result.get("stderr") or result.get("stdout") or "mind status unavailable",
+    }
+
+
+def mind_sync(project_root: Path, launcher: dict[str, Any]) -> dict[str, Any]:
+    cmd = [str(launcher.get("serviceBin") or "aoc-mind-service"), "sync-pi", "--project-root", str(project_root), "--agent-id", os.environ.get("AOC_AGENT_ID", "aoc-handshake"), "--json"]
+    session_file = os.environ.get("AOC_PI_SESSION_FILE")
+    if session_file:
+        cmd.extend(["--session-file", session_file])
+    result = run(cmd, project_root, timeout=10.0)
+    if result.get("ok") and result.get("stdout"):
+        try:
+            parsed = json.loads(str(result["stdout"]))
+        except Exception:
+            parsed = None
+        return {"attempted": True, "ok": True, "raw": parsed if isinstance(parsed, dict) else None}
+    return {"attempted": True, "ok": False, "error": result.get("error") or result.get("stderr") or result.get("stdout") or "mind sync unavailable"}
+
+
+def build_packet(project_root: Path, do_sync: bool) -> dict[str, Any]:
+    aoc_dir = project_root / ".aoc"
+    launcher = resolve_mind_launcher(project_root)
+    status = mind_status(project_root, launcher)
+    active_tag_result = run(["tm", "tag", "current"], project_root, timeout=3.0)
+    rtk_result = run(["aoc-rtk", "status"], project_root, timeout=3.0)
+
+    packet: dict[str, Any] = {
+        "schemaVersion": 1,
+        "kind": "aoc.startup.handshake",
+        "projectRoot": str(project_root),
+        "mode": "metadata-only",
+        "aoc": {
+            "initialized": aoc_dir.exists(),
+            "contextPath": ".aoc/context.md",
+            "contextPresent": (aoc_dir / "context.md").exists(),
+            "agentsContractPresent": (project_root / "AGENTS.md").exists(),
+            "stmPresent": (aoc_dir / "stm").exists(),
+            "memoryPresent": (aoc_dir / "memory.md").exists(),
+            "rtkStatusAvailable": bool(rtk_result.get("ok")),
+        },
+        "taskmaster": {
+            "available": bool(active_tag_result.get("ok")),
+            "activeTag": active_tag_result.get("stdout") if active_tag_result.get("ok") else None,
+        },
+        "mind": {
+            "available": bool(status.get("available")),
+            "configured": bool(launcher.get("projectConfigPresent") or launcher.get("globalConfigPresent") or launcher.get("serviceBin") or launcher.get("cargoManifest")),
+            "launcher": launcher,
+            "status": status,
+            "contextPolicy": {
+                "startupInjection": "metadata-only",
+                "defaultContextMode": "none",
+                "ingestPolicy": "safe to sync/ingest at startup; do not inject broad memories",
+                "retrievalPolicy": "request focused Mind context only after user intent is known",
+            },
+            "recommendedTriggers": [
+                "user asks to resume or continue prior work",
+                "user asks about previous decisions or provenance",
+                "task/PRD grounding is needed",
+                "debugging needs prior attempts",
+                "targeted local inspection is insufficient",
+            ],
+            "focusedCommands": {
+                "status": "aoc-mind-service status --project-root <root> --json",
+                "sync": "aoc-mind-service sync-pi --project-root <root> --json",
+                "contextPack": "aoc-mind-service context-pack --project-root <root> --mode focused --reason <explicit-reason> --json",
+                "resume": "aoc-mind-service context-pack --project-root <root> --mode resume --reason <explicit-resume-request> --json",
+                "provenance": "aoc-mind-service provenance-query --project-root <root> --json",
+            },
+        },
+        "agentGuidance": [
+            "Use .aoc/context.md and AGENTS.md for startup orientation.",
+            "Do not load broad Mind memories during startup.",
+            "Use Mind as a focused recall/provenance tool after task intent is clear.",
+            "Prefer narrow searches, focused context packs, and concise summaries.",
+        ],
+        "warnings": [],
+    }
+    if do_sync:
+        packet["mind"]["sync"] = mind_sync(project_root, launcher)
+    if not packet["aoc"]["contextPresent"]:
+        packet["warnings"].append("missing .aoc/context.md; run aoc-init")
+    if not packet["mind"]["available"]:
+        packet["warnings"].append("Mind unavailable; install aoc-mind-service or run aoc-init after ./install.sh")
+    return packet
+
+
+def print_text(packet: dict[str, Any]) -> None:
+    print(f"AOC handshake: {packet['projectRoot']}")
+    print(f"  mode: {packet['mode']}")
+    print(f"  context: {'present' if packet['aoc']['contextPresent'] else 'missing'}")
+    print(f"  taskmaster: {'available' if packet['taskmaster']['available'] else 'unavailable'}")
+    if packet['taskmaster'].get('activeTag'):
+        print(f"  active_tag: {packet['taskmaster']['activeTag']}")
+    print(f"  mind: {'available' if packet['mind']['available'] else 'unavailable'}")
+    print("  mind_policy: metadata-only startup; retrieve focused context after intent is known")
+    for warning in packet.get("warnings", []):
+        print(f"  warning: {warning}")
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description="Print metadata-only AOC startup handshake for agents")
+    parser.add_argument("path", nargs="?", default=os.getcwd())
+    parser.add_argument("--json", action="store_true", help="print JSON packet")
+    parser.add_argument("--sync", action="store_true", help="attempt Mind sync-pi but still do not inject memories")
+    args = parser.parse_args()
+    project_root = find_project_root(Path(args.path))
+    packet = build_packet(project_root, args.sync or truthy(os.environ.get("AOC_HANDSHAKE_SYNC")))
+    if args.json:
+        print(json.dumps(packet, indent=2))
+    else:
+        print_text(packet)
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

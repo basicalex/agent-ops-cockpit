@@ -217,6 +217,14 @@ get_canonical_pi_multi_auth_package_dir() {
   printf '%s\n' "$script_dir/../.pi/packages/pi-multi-auth-aoc"
 }
 
+get_project_mind_service_config_path() {
+  printf '%s\n' "$aoc_dir/mind-service.json"
+}
+
+get_global_mind_service_config_path() {
+  printf '%s\n' "$aoc_config_dir/mind-service.json"
+}
+
 sync_cached_pi_multi_auth_package() {
   local canonical_dir
   local cache_dir
@@ -521,6 +529,13 @@ This file defines the always-on rules for agents in this repo. Procedural playbo
 - RTK routing is default-on for new AOC projects (`.aoc/rtk.toml` mode=`on`); existing explicit mode=`off` is preserved.
 - RTK exists to improve context health: allowlisted noisy commands are condensed for better signal density, with fail-open native fallback.
 
+## Startup handshake
+- `aoc-handshake --json` is the metadata-only startup packet for agents: AOC status, Taskmaster tag, Mind availability, and usage policy.
+- Startup must not load broad Mind memories or context packs by default; use the handshake to discover Mind, not to prime direction.
+- Mind may sync/ingest in the background, but retrieval should be lazy and intent-bound.
+- Request focused Mind context only after user intent is known, for resume/continuation, prior decisions, task/PRD grounding, debugging previous attempts, provenance/audit, or when targeted local inspection is insufficient.
+- Always pass an explicit reason when requesting Mind context; prefer focused/provenance/resume modes over broad recall.
+
 ## Low-Token Default Mode
 - Keep responses concise by default; do not print full files or raw logs unless explicitly requested.
 - Start with the smallest viable step; use narrow, path-scoped searches before broad scans.
@@ -560,6 +575,7 @@ These commands are in PATH and work without loading any skill:
 
 **Other:**
 - `aoc-init` - initialize/repair AOC files
+- `aoc-handshake --json` - print metadata-only startup state and Mind usage policy; does not inject Mind memories
 - `aoc-mem search "query"` - search memory
 - `aoc-rtk status` - check RTK routing status
 - `aoc-rtk enable|disable` - toggle RTK routing mode
@@ -569,6 +585,7 @@ These commands are in PATH and work without loading any skill:
 ## Core files
 - `.aoc/context.md`: auto-generated project snapshot.
 - `.aoc/rtk.toml`: project-local RTK routing policy and install contract.
+- `.aoc/mind-service.json`: project-local launcher metadata for the standalone Mind service.
 - `.aoc/layouts/`: project-shared Zellij layouts for AOC (`*.kdl`).
 - `.taskmaster/docs/prds/`: PRD documents linked to tags and tasks.
 - Tag PRD defaults are linked via tag `aocPrd`; resolve with `aoc-task tag prd show --tag <tag>`.
@@ -662,6 +679,7 @@ Use the AOC tools for context, memory, and tasks in this repo.
 - **Tasks:** use `tm` or `aoc-task` via Bash tool (do not edit `.taskmaster/tasks/tasks.json` directly)
 - **Task PRDs:** tag-level defaults + task-level overrides via `aocPrd` (resolve with `aoc-task tag prd show --tag <tag>` and `aoc-task prd show <id> --tag <tag>`)
 - **RTK routing (default-on for new AOC repos):** allowlisted commands route via RTK in AOC panes; manage with `aoc-rtk status|enable|disable|doctor|install --auto` and `.aoc/rtk.toml`
+- **Startup handshake:** use `aoc-handshake --json` for metadata-only AOC/Mind availability. Do not load broad Mind memories at startup; request focused Mind context only after task intent is clear.
 
 If AOC files are missing or stale, run `aoc-init` at the repo root.
 EOF
@@ -1242,6 +1260,125 @@ description: Initialize or repair AOC context, memory, and tasks safely.
 EOF
     log "Updated aoc-init-ops skill with STM seeding guidance."
   fi
+}
+
+setup_project_mind_service_config() {
+  local target_config
+  local global_config
+  local installed_bin=""
+  local local_manifest="$project_root/crates/Cargo.toml"
+  local source_root=""
+  local config_status=""
+
+  target_config="$(get_project_mind_service_config_path)"
+  global_config="$(get_global_mind_service_config_path)"
+
+  if command -v aoc-mind-service >/dev/null 2>&1; then
+    installed_bin="$(command -v aoc-mind-service)"
+  elif [[ -x "$HOME/.local/bin/aoc-mind-service" ]]; then
+    installed_bin="$HOME/.local/bin/aoc-mind-service"
+  fi
+
+  if [[ -f "$local_manifest" ]]; then
+    source_root="$project_root"
+  fi
+
+  config_status="$(python3 - "$target_config" "$global_config" "$installed_bin" "$local_manifest" "$source_root" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+
+def read_json(path: Path):
+    if not path.exists():
+        return {}
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def as_path(value):
+    if not isinstance(value, str):
+        return None
+    value = value.strip()
+    return value or None
+
+
+target_path = Path(sys.argv[1])
+global_path = Path(sys.argv[2])
+installed_bin = as_path(sys.argv[3])
+local_manifest = Path(sys.argv[4])
+local_source_root = as_path(sys.argv[5])
+global_data = read_json(global_path)
+existing_data = read_json(target_path)
+
+service_bin = installed_bin or as_path(global_data.get("serviceBin"))
+cargo_manifest = str(local_manifest) if local_manifest.is_file() else as_path(global_data.get("cargoManifest"))
+source_root = local_source_root or as_path(global_data.get("sourceRoot"))
+
+if cargo_manifest and not Path(cargo_manifest).is_file():
+    cargo_manifest = None
+if service_bin and not Path(service_bin).exists():
+    service_bin = None
+if source_root and not Path(source_root).exists():
+    source_root = None
+
+if local_manifest.is_file():
+    source = "project-local-workspace"
+elif global_path.exists() and (service_bin or cargo_manifest or source_root):
+    source = "global-install"
+elif service_bin:
+    source = "path"
+else:
+    source = None
+
+payload = {
+    "schemaVersion": 1,
+    "serviceBin": service_bin,
+    "cargoManifest": cargo_manifest,
+    "sourceRoot": source_root,
+    "source": source,
+}
+
+if not any(payload.get(key) for key in ("serviceBin", "cargoManifest", "sourceRoot")):
+    if target_path.exists():
+        print("preserved-unresolved")
+    else:
+        print("unavailable")
+    raise SystemExit(0)
+
+if existing_data == payload:
+    print("unchanged")
+    raise SystemExit(0)
+
+target_path.parent.mkdir(parents=True, exist_ok=True)
+target_path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+print("updated" if existing_data else "seeded")
+PY
+)"
+
+  case "$config_status" in
+    seeded)
+      log "Seeded project Mind service config: .aoc/mind-service.json"
+      ;;
+    updated)
+      log "Updated project Mind service config: .aoc/mind-service.json"
+      ;;
+    unchanged)
+      log "Project Mind service config already current (.aoc/mind-service.json)."
+      ;;
+    preserved-unresolved)
+      log "Project Mind service config exists but no newer resolved source was found. Preserving."
+      ;;
+    unavailable)
+      warn "Mind service is not globally installed/configured yet; project Mind config was not seeded. Run ./install.sh to install aoc-mind-service."
+      ;;
+    *)
+      warn "Unexpected project Mind service config status '$config_status'"
+      ;;
+  esac
 }
 
 # 1c. Setup PI settings + baseline directories (.pi/)
@@ -2494,6 +2631,7 @@ main() {
   setup_memory
   prepare_project_aoc_state
   apply_project_version_migrations
+  setup_project_mind_service_config
   setup_pi_packages
   setup_pi_settings
   cleanup_global_pi_multi_auth
