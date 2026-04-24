@@ -6,16 +6,8 @@ This file defines the always-on rules for agents in this repo. Procedural playbo
 - Use `.aoc/context.md` for orientation; run `aoc-init` if it is missing or stale.
 - **DO NOT manually read these files** - use the Bash tool to run CLI commands instead (see below).
 - Run AOC commands via Bash tool - do NOT use Read tool for `.aoc/memory.md`, `.aoc/stm/current.md`, or `.taskmaster/tasks/tasks.json`.
-- In Codex sessions, use the `aoc-codex-compat` skill as the default compatibility layer for AOC workflows; it maps PI-first behavior onto Codex-safe CLI usage.
 - RTK routing is default-on for new AOC projects (`.aoc/rtk.toml` mode=`on`); existing explicit mode=`off` is preserved.
 - RTK exists to improve context health: allowlisted noisy commands are condensed for better signal density, with fail-open native fallback.
-
-## Startup handshake
-- `aoc-handshake --json` is the metadata-only startup packet for agents: AOC status, Taskmaster tag, Mind availability, and usage policy.
-- Startup must not load broad Mind memories or context packs by default; use the handshake to discover Mind, not to prime direction.
-- Mind may sync/ingest in the background, but retrieval should be lazy and intent-bound.
-- Request focused Mind context only after user intent is known, for resume/continuation, prior decisions, task/PRD grounding, debugging previous attempts, provenance/audit, or when targeted local inspection is insufficient.
-- Always pass an explicit reason when requesting Mind context; prefer focused/provenance/resume modes over broad recall.
 
 ## Low-Token Default Mode
 - Keep responses concise by default; do not print full files or raw logs unless explicitly requested.
@@ -56,7 +48,6 @@ These commands are in PATH and work without loading any skill:
 
 **Other:**
 - `aoc-init` - initialize/repair AOC files
-- `aoc-handshake --json` - print metadata-only startup state and Mind usage policy; does not inject Mind memories
 - `aoc-mem search "query"` - search memory
 - `aoc-rtk status` - check RTK routing status
 - `aoc-rtk enable|disable` - toggle RTK routing mode
@@ -66,7 +57,6 @@ These commands are in PATH and work without loading any skill:
 ## Core files
 - `.aoc/context.md`: auto-generated project snapshot.
 - `.aoc/rtk.toml`: project-local RTK routing policy and install contract.
-- `.aoc/mind-service.json`: project-local launcher metadata for the standalone Mind service.
 - `.aoc/layouts/`: project-shared Zellij layouts for AOC (`*.kdl`).
 - `.taskmaster/docs/prds/`: PRD documents linked to tags and tasks.
 - Tag PRD defaults are linked via tag `aocPrd`; resolve with `aoc-task tag prd show --tag <tag>`.
@@ -80,7 +70,6 @@ These commands are in PATH and work without loading any skill:
 - Record major decisions and constraints in memory (`aoc-mem add "..."`).
 
 ## Skills (load when needed)
-- `aoc-codex-compat`: default Codex compatibility layer for AOC CLI, Taskmaster, STM, memory, Mind, and low-token workflow.
 - `aoc-workflow`: standard project workflow.
 - `teach-workflow`: guided teach-mode scans, dives, and local insight logging.
 - `rlm-analysis`: large codebase analysis flow.
