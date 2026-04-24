@@ -55,7 +55,7 @@ ok_log="$tmp_root/doctor-ok.log"
   cd "$project_ok"
   bash "$aoc_doctor_bin" >"$ok_log" 2>&1
 )
-assert_contains 'Project AOC version: 1' "$ok_log"
+assert_contains 'Project AOC version: 2' "$ok_log"
 assert_contains '[ok] PI runtime package wiring' "$ok_log"
 
 project_broken="$tmp_root/project-broken"
@@ -63,7 +63,7 @@ mkdir -p "$project_broken/.git" "$project_broken/.aoc" "$project_broken/.pi"
 cat > "$project_broken/.aoc/init-state.json" <<'EOF'
 {
   "schemaVersion": 1,
-  "projectAocVersion": 1
+  "projectAocVersion": 2
 }
 EOF
 cat > "$project_broken/.pi/settings.json" <<'EOF'
@@ -82,7 +82,7 @@ set +e
 status=$?
 set -e
 [[ "$status" -eq 1 ]] || fail "Expected aoc-doctor to fail for broken project runtime, got $status"
-assert_contains 'Project AOC version: 1' "$broken_log"
+assert_contains 'Project AOC version: 2' "$broken_log"
 assert_contains '.pi/settings.json references ./packages/pi-multi-auth-aoc but the package directory is missing' "$broken_log"
 assert_contains "Run 'aoc-init' to repair PI runtime package seeding and .pi/settings.json wiring." "$broken_log"
 assert_contains "Inspect project state with 'aoc-init --status'." "$broken_log"

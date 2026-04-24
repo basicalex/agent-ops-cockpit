@@ -29,7 +29,9 @@
 │   ├── aoc-control
 │   ├── aoc-control-toggle
 │   ├── aoc-doctor
+│   ├── aoc-handshake
 │   ├── aoc-hub
+│   ├── aoc-hyperframes
 │   ├── aoc-init
 │   ├── aoc-insight
 │   ├── aoc-launch
@@ -40,7 +42,6 @@
 │   ├── aoc-mission-control
 │   ├── aoc-mission-control-tab
 │   ├── aoc-mission-control-toggle
-│   ├── aoc-momo
 │   ├── aoc-new-tab
 │   ├── aoc-open-explorer
 │   ├── aoc-open-file
@@ -114,6 +115,7 @@
 │   ├── control-pane.md
 │   ├── deprecations.md
 │   ├── feature-upgrade-collection-key.md
+│   ├── hyperframes.md
 │   ├── implementation-status-checklist.md
 │   ├── insight-compaction-ingest.md
 │   ├── insight-subagent-orchestration.md
@@ -125,7 +127,6 @@
 │   ├── mind-v2-architecture-cutover-checklist.md
 │   ├── mission-control.md
 │   ├── mission-control-ops.md
-│   ├── moremotion.md
 │   ├── omo-regression-checklist.md
 │   ├── phase2-module-plan.md
 │   ├── pi-only-rollout-checklist.md
@@ -177,7 +178,7 @@
     ├── layouts
     └── plugins
 
-40 directories, 124 files
+40 directories, 125 files
 ```
 
 ## README Headings
