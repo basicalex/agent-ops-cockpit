@@ -84,7 +84,7 @@ Design assets live in:
   components/
 ```
 
-`aoc-init` seeds these assets, plus `.aoc/layouts/design.kdl` and `.pi/extensions/aoc-presets/`, into other projects when they are missing.
+`aoc-init` seeds these assets, plus `.aoc/layouts/design.kdl` and `.pi/extensions/aoc-presets/`, into other projects. Managed preset/runtime/design assets are now refreshed in existing repos too.
 
 ## Commands
 
@@ -110,6 +110,7 @@ Design:
 - `/design-director tokens`
 - `/design-director brand`
 - `/design-director motion`
+- `/design-director premium`
 - `/design-off`
 
 Motion:
@@ -134,6 +135,7 @@ Current design manifest behavior:
   - diff -> `design-diff`
   - handoff -> `design-handoff`
   - tokens -> `design-tokens`
+  - premium -> `design-premium-ui`, `design-redesign`
 - recommended by motion submode:
   - react -> `animejs-react-integration`, `animejs-core-api`, `animejs-performance-a11y`
   - scroll -> `animejs-scroll-interaction`, `animejs-core-api`, `animejs-performance-a11y`
@@ -167,7 +169,7 @@ Inside the navigator:
 
 This is the main exploration UI when you want to browse preset, mode, and submode choices without remembering commands.
 
-Changing a preset/mode/submode updates `.pi/settings.json` skill filters and then triggers a runtime reload so the visible Pi skill inventory matches the selected preset.
+Changing a preset/mode/submode updates `.pi/settings.json` skill filters. After changing preset state, run `/reload` manually so the visible Pi skill inventory matches the selected preset.
 
 ## Operator mental model
 
