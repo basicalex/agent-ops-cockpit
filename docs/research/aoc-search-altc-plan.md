@@ -14,7 +14,6 @@ Today `Alt+C -> Settings -> Tools` exposes:
 - PI compaction
 - Agent Browser tool/skill
 - Vercel CLI + PI skill
-- MoreMotion + /momo
 
 Agent Browser currently has two actions:
 - install/update tool

@@ -68,6 +68,9 @@ aoc-skill validate
 `zellij-theme-ops` pairs with the `aoc-theme` CLI for global theme workflows (`~/.config/zellij/themes`), including `aoc-theme tui` for interactive selection.
 
 ## Optional skills
-Use `aoc-momo init` to add:
+Use `aoc-hyperframes init` to add the HyperFrames video skill stack:
 
-- `moremotion` (Remotion integration for React projects)
+- `hyperframes`
+- `hyperframes-cli`
+- `website-to-hyperframes`
+- `gsap`

@@ -159,7 +159,7 @@ AOC is easiest to understand as four core pieces:
 3. **AOC memory/context** for project continuity
 4. **Alt+C** for operator controls and integrations
 
-Optional integrations like web research, Vercel, and MoreMotion layer on top of that core.
+Optional integrations like web research, Vercel, and HyperFrames layer on top of that core.
 
 ## 🎯 Key Features
 
@@ -272,17 +272,14 @@ PI (project prompt templates seeded by `aoc-init`):
 
 Teach mode is read-first by default, explains implementation with file references, and stores optional local continuity notes under `.aoc/insight/`.
 
-**Optional MoreMotion (React projects):**
+**Optional HyperFrames video workflow:**
 
 ```bash
-aoc-momo init
+aoc-hyperframes init
 ```
 
-Then use:
+Then use `Alt+X -> HyperFrames` for video authoring. Start the web preview with `Alt+C -> Settings -> Tools -> HyperFrames -> Start preview pane`.
 
-```text
-PI: /momo
-```
 
 ### 5. Yazi File Manager Integration
 
@@ -312,7 +309,7 @@ Use it for:
 - PI compaction presets
 - Agent Browser + Search setup
 - Vercel CLI setup
-- MoreMotion setup flows
+- HyperFrames video setup flows
 
 The right-hand detail pane explains the currently selected action, and long-running setup flows now run asynchronously where appropriate.
 
@@ -358,7 +355,7 @@ If `aoc-search` is healthy but `bin/aoc-web-smoke` fails, search is up but brows
 | Agent Browser | Opens and automates real web pages | `Alt+C -> Settings -> Tools -> Agent Browser + Search` | `agent-browser` install flow |
 | Managed Local Search | Local SearXNG for search-first web research | `Alt+C -> Settings -> Tools -> Agent Browser + Search` | Docker + Docker Compose |
 | Vercel CLI | Deploy/inspect Vercel projects from AOC workflows | `Alt+C -> Settings -> Tools -> Vercel CLI` | `vercel` CLI |
-| MoreMotion | Optional Remotion workflow helpers for React/video projects | `Alt+C -> Settings -> Tools -> MoreMotion` | local repo or supported source flow |
+| HyperFrames | Agent-native HTML/GSAP video creation | `Alt+C -> Settings -> Tools -> HyperFrames`; `Alt+X -> HyperFrames` | Node.js >= 22 + FFmpeg |
 
 See also: [Installation Guide](./docs/installation.md), [Configuration Guide](./docs/configuration.md), and [Control Pane Guide](./docs/control-pane.md).
 
@@ -530,7 +527,7 @@ aoc-theme set-default --name review-mode
 aoc-theme sync
 ```
 
-From `Alt+C` (`aoc-control`), open **Settings -> Tools** for nested controls (RTK, PI installer, PI compaction presets with selectable context-window math, Agent Browser + Search, Vercel CLI tool/skill sync, MoreMotion flows). See [Installation Guide](./docs/installation.md) for setup steps and [Configuration Guide](./docs/configuration.md) for path/env details.
+From `Alt+C` (`aoc-control`), open **Settings -> Tools** for nested controls (RTK, PI installer, PI compaction presets with selectable context-window math, Agent Browser + Search, Vercel CLI tool/skill sync, HyperFrames video flows). See [Installation Guide](./docs/installation.md) for setup steps and [Configuration Guide](./docs/configuration.md) for path/env details.
 
 ### Environment Variables
 
@@ -599,7 +596,7 @@ cargo build --workspace
 | [Deprecations and removals](./docs/deprecations.md) | PI-only transition summary and legacy-path behavior |
 | [Agent Skills](./docs/skills.md) | Skill format and sync workflow |
 | [Agent Extensibility](./docs/agent-extensibility.md) | Bring-your-own agent CLI wrappers with PI-first core |
-| [MoreMotion](./docs/moremotion.md) | Optional Remotion integration |
+| [HyperFrames](./docs/hyperframes.md) | Optional agent-native video integration |
 | [Custom Layouts](./docs/layouts.md) | Creating "AOC Modes" |
 | [Mission Control](./docs/mission-control.md) | Architecture and event schema |
 | [Implementation Status Checklist](./docs/implementation-status-checklist.md) | Current shipped/partial/deferred overview across AOC surfaces |

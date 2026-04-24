@@ -1125,7 +1125,7 @@ if [[ -f "$ROOT_DIR/.aoc/layouts/design.kdl" ]]; then
   cp "$ROOT_DIR/.aoc/layouts/design.kdl" "${XDG_CONFIG_HOME:-$HOME/.config}/aoc/layouts/design.kdl"
 fi
 
-# Optional skills and PI prompts (MoreMotion)
+# Optional skills and PI prompts
 if [[ -d "$ROOT_DIR/.aoc/skills-optional" ]]; then
   for d in "$ROOT_DIR/.aoc/skills-optional"/*; do
     [[ -d "$d" ]] || continue

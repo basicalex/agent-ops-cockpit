@@ -25,5 +25,5 @@ description: Initialize or repair AOC context, memory, and tasks safely.
 - Removes legacy global npm `pi-multi-auth` package entries from `~/.pi/agent/settings.json` to avoid duplicate extension loading
 - Installs the managed AOC Zellij top-bar plugin to `~/.config/zellij/plugins/zjstatus-aoc.wasm`
 - Migrates missing legacy project-local PI prompts/skills from `.aoc/prompts/pi/` and `.aoc/skills/` into `.pi/**` (non-destructive), and cleans safe `tmcc` prompt alias duplicates
-- Optional MoreMotion prompt `/momo` is seeded by `aoc-momo init`
+- Optional HyperFrames prompt `/hyperframes` and video skills are seeded by `aoc-hyperframes init`
 - Ensures `.pi/skills` baseline (PI-first canonical)

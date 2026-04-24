@@ -65,7 +65,7 @@ enum SettingsSection {
     ToolsPiCompaction,
     ToolsAgentBrowser,
     ToolsVercel,
-    ToolsMoremotion,
+    ToolsHyperframes,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -83,7 +83,6 @@ enum Mode {
     RtkActions,
     AgentInstallActions,
     PiCompactionActions,
-    ConfirmMoremotionSourceClone,
     Help,
 }
 
@@ -297,7 +296,7 @@ struct App {
     settings_tools_pi_compaction_state: ListState,
     settings_tools_agent_browser_state: ListState,
     settings_tools_vercel_state: ListState,
-    settings_tools_moremotion_state: ListState,
+    settings_tools_hyperframes_state: ListState,
     projects_state: ListState,
     sessions_state: ListState,
     layout_picker_state: ListState,
@@ -353,8 +352,6 @@ struct App {
     rtk_loaded: bool,
     agent_install_entries_loaded: bool,
     pi_compaction_status_loaded: bool,
-    pending_moremotion_clone_source: Option<PathBuf>,
-    pending_moremotion_clone_url: Option<String>,
     in_zellij: bool,
     floating_active: bool,
     close_on_exit: bool,
@@ -389,7 +386,7 @@ impl App {
             settings_tools_pi_compaction_state: ListState::default(),
             settings_tools_agent_browser_state: ListState::default(),
             settings_tools_vercel_state: ListState::default(),
-            settings_tools_moremotion_state: ListState::default(),
+            settings_tools_hyperframes_state: ListState::default(),
             projects_state: ListState::default(),
             sessions_state: ListState::default(),
             layout_picker_state: ListState::default(),
@@ -454,8 +451,6 @@ impl App {
             rtk_loaded: false,
             agent_install_entries_loaded: false,
             pi_compaction_status_loaded: false,
-            pending_moremotion_clone_source: None,
-            pending_moremotion_clone_url: None,
             in_zellij: in_zellij(),
             floating_active: is_floating_active(),
             close_on_exit: false,
@@ -540,10 +535,6 @@ impl App {
         ensure_selection(
             &mut self.settings_tools_vercel_state,
             settings_tools_vercel_options().len(),
-        );
-        ensure_selection(
-            &mut self.settings_tools_moremotion_state,
-            settings_tools_moremotion_options().len(),
         );
         ensure_selection(&mut self.projects_state, self.filtered_projects.len());
         ensure_selection(&mut self.sessions_state, 4);
@@ -634,9 +625,9 @@ impl App {
                 &mut self.settings_tools_vercel_state,
                 settings_tools_vercel_options().len(),
             ),
-            SettingsSection::ToolsMoremotion => ensure_selection(
-                &mut self.settings_tools_moremotion_state,
-                settings_tools_moremotion_options().len(),
+            SettingsSection::ToolsHyperframes => ensure_selection(
+                &mut self.settings_tools_hyperframes_state,
+                settings_tools_hyperframes_options().len(),
             ),
         }
     }
@@ -656,7 +647,7 @@ impl App {
             SettingsSection::ToolsPiCompaction
             | SettingsSection::ToolsAgentBrowser
             | SettingsSection::ToolsVercel
-            | SettingsSection::ToolsMoremotion => SettingsSection::Tools,
+            | SettingsSection::ToolsHyperframes => SettingsSection::Tools,
         };
         self.set_settings_section(target);
     }
@@ -679,8 +670,8 @@ impl App {
             SettingsSection::ToolsVercel => {
                 self.settings_tools_vercel_state.selected().unwrap_or(0)
             }
-            SettingsSection::ToolsMoremotion => {
-                self.settings_tools_moremotion_state.selected().unwrap_or(0)
+            SettingsSection::ToolsHyperframes => {
+                self.settings_tools_hyperframes_state.selected().unwrap_or(0)
             }
         }
     }
@@ -1594,81 +1585,31 @@ impl App {
         }
     }
 
-    fn run_moremotion_init_action(&mut self) {
-        match run_moremotion_command(&["init"]) {
+    fn run_hyperframes_init_action(&mut self) {
+        match run_hyperframes_command(&["init"]) {
             Ok(message) => self.set_status(message),
-            Err(err) => self.set_status(format!("aoc-momo init failed: {err}")),
+            Err(err) => self.set_status(format!("aoc-hyperframes init failed: {err}")),
         }
     }
 
-    fn run_moremotion_update_action(&mut self) {
-        match run_moremotion_command(&["init", "--update"]) {
+    fn run_hyperframes_sync_skills_action(&mut self) {
+        match run_hyperframes_command(&["sync-skills"]) {
             Ok(message) => self.set_status(message),
-            Err(err) => self.set_status(format!("aoc-momo init --update failed: {err}")),
+            Err(err) => self.set_status(format!("aoc-hyperframes sync-skills failed: {err}")),
         }
     }
 
-    fn run_moremotion_init_from_local_source_action(&mut self) {
-        let source = preferred_moremotion_source_path();
-        if !source.exists() {
-            self.set_status(format!(
-                "Local MoreMotion source missing at {}. Run 'Ensure local source repo' first.",
-                source.to_string_lossy()
-            ));
-            return;
-        }
-
-        match run_moremotion_init_with_source(&source, false) {
+    fn run_hyperframes_doctor_action(&mut self) {
+        match run_hyperframes_command(&["doctor"]) {
             Ok(message) => self.set_status(message),
-            Err(err) => self.set_status(format!("aoc-momo init --source failed: {err}")),
+            Err(err) => self.set_status(format!("aoc-hyperframes doctor failed: {err}")),
         }
     }
 
-    fn ensure_moremotion_source_action(&mut self) {
-        let source = preferred_moremotion_source_path();
-        if source.exists() {
-            match update_moremotion_source_repo(&source) {
-                Ok(message) => self.set_status(message),
-                Err(err) => self.set_status(format!("MoreMotion source ensure failed: {err}")),
-            }
-            return;
-        }
-
-        let Some(url) = moremotion_repo_url() else {
-            self.set_status(format!(
-                "Local source missing at {}. Set AOC_MOREMOTION_REPO_URL to enable clone.",
-                source.to_string_lossy()
-            ));
-            return;
-        };
-
-        self.pending_moremotion_clone_source = Some(source);
-        self.pending_moremotion_clone_url = Some(url);
-        self.mode = Mode::ConfirmMoremotionSourceClone;
-    }
-
-    fn cancel_moremotion_source_clone(&mut self) {
-        self.pending_moremotion_clone_source = None;
-        self.pending_moremotion_clone_url = None;
-        self.mode = Mode::Normal;
-        self.set_status("MoreMotion source clone cancelled");
-    }
-
-    fn confirm_moremotion_source_clone(&mut self) {
-        let source = self.pending_moremotion_clone_source.clone();
-        let url = self.pending_moremotion_clone_url.clone();
-        self.pending_moremotion_clone_source = None;
-        self.pending_moremotion_clone_url = None;
-        self.mode = Mode::Normal;
-
-        let (Some(source), Some(url)) = (source, url) else {
-            self.set_status("MoreMotion clone prompt expired; retry ensure action");
-            return;
-        };
-
-        match clone_moremotion_source_repo(&source, &url) {
+    fn run_hyperframes_preview_action(&mut self) {
+        match open_hyperframes_preview_pane() {
             Ok(message) => self.set_status(message),
-            Err(err) => self.set_status(format!("MoreMotion source clone failed: {err}")),
+            Err(err) => self.set_status(format!("HyperFrames preview failed: {err}")),
         }
     }
 
@@ -1899,7 +1840,6 @@ fn handle_key(app: &mut App, key: KeyEvent) {
         Mode::RtkActions => handle_key_rtk_actions(app, key),
         Mode::AgentInstallActions => handle_key_agent_install_actions(app, key),
         Mode::PiCompactionActions => handle_key_pi_compaction_actions(app, key),
-        Mode::ConfirmMoremotionSourceClone => handle_key_moremotion_clone_confirm(app, key),
         Mode::Help => handle_key_help(app, key),
     }
 }
@@ -2317,14 +2257,6 @@ fn handle_key_pi_compaction_actions(app: &mut App, key: KeyEvent) {
     }
 }
 
-fn handle_key_moremotion_clone_confirm(app: &mut App, key: KeyEvent) {
-    match key.code {
-        KeyCode::Enter | KeyCode::Char('y') => app.confirm_moremotion_source_clone(),
-        KeyCode::Esc | KeyCode::Char('n') => app.cancel_moremotion_source_clone(),
-        _ => {}
-    }
-}
-
 fn handle_key_help(app: &mut App, key: KeyEvent) {
     match key.code {
         KeyCode::Esc | KeyCode::Char('?') => app.mode = Mode::Normal,
@@ -2388,9 +2320,9 @@ fn list_next(app: &mut App) {
                 &mut app.settings_tools_vercel_state,
                 settings_tools_vercel_options().len(),
             ),
-            SettingsSection::ToolsMoremotion => list_next_state(
-                &mut app.settings_tools_moremotion_state,
-                settings_tools_moremotion_options().len(),
+            SettingsSection::ToolsHyperframes => list_next_state(
+                &mut app.settings_tools_hyperframes_state,
+                settings_tools_hyperframes_options().len(),
             ),
         },
         Tab::Projects => list_next_state(&mut app.projects_state, app.filtered_projects.len()),
@@ -2432,9 +2364,9 @@ fn list_prev(app: &mut App) {
                 &mut app.settings_tools_vercel_state,
                 settings_tools_vercel_options().len(),
             ),
-            SettingsSection::ToolsMoremotion => list_prev_state(
-                &mut app.settings_tools_moremotion_state,
-                settings_tools_moremotion_options().len(),
+            SettingsSection::ToolsHyperframes => list_prev_state(
+                &mut app.settings_tools_hyperframes_state,
+                settings_tools_hyperframes_options().len(),
             ),
         },
         Tab::Projects => list_prev_state(&mut app.projects_state, app.filtered_projects.len()),
@@ -2490,7 +2422,7 @@ fn activate_selection(app: &mut App) {
                 3 => app.set_settings_section(SettingsSection::ToolsAgentBrowser),
                 4 => app.run_aoc_map_init_action(),
                 5 => app.set_settings_section(SettingsSection::ToolsVercel),
-                6 => app.set_settings_section(SettingsSection::ToolsMoremotion),
+                6 => app.set_settings_section(SettingsSection::ToolsHyperframes),
                 7 => app.set_settings_section(SettingsSection::Root),
                 _ => {}
             },
@@ -2532,12 +2464,12 @@ fn activate_selection(app: &mut App) {
                     _ => {}
                 }
             }
-            SettingsSection::ToolsMoremotion => {
-                match app.settings_tools_moremotion_state.selected().unwrap_or(0) {
-                    0 => app.run_moremotion_init_action(),
-                    1 => app.run_moremotion_init_from_local_source_action(),
-                    2 => app.run_moremotion_update_action(),
-                    3 => app.ensure_moremotion_source_action(),
+            SettingsSection::ToolsHyperframes => {
+                match app.settings_tools_hyperframes_state.selected().unwrap_or(0) {
+                    0 => app.run_hyperframes_init_action(),
+                    1 => app.run_hyperframes_sync_skills_action(),
+                    2 => app.run_hyperframes_doctor_action(),
+                    3 => app.run_hyperframes_preview_action(),
                     4 => app.set_settings_section(SettingsSection::Tools),
                     _ => {}
                 }
@@ -2733,7 +2665,7 @@ fn draw_defaults(frame: &mut ratatui::Frame, area: Rect, app: &mut App, focused:
                 )),
                 ListItem::new(format!("AOC Map microsite · {}", aoc_map_summary())),
                 ListItem::new(format!("Vercel CLI + PI skill · {}", vercel_summary())),
-                ListItem::new(format!("MoreMotion + /momo · {}", moremotion_summary())),
+                ListItem::new(format!("HyperFrames video · {}", hyperframes_summary())),
                 ListItem::new("Back"),
             ];
             ("Settings · Tools", items)
@@ -2834,22 +2766,15 @@ fn draw_defaults(frame: &mut ratatui::Frame, area: Rect, app: &mut App, focused:
             ];
             ("Settings · Tools · Vercel", items)
         }
-        SettingsSection::ToolsMoremotion => {
-            let source_path = preferred_moremotion_source_path();
+        SettingsSection::ToolsHyperframes => {
             let items = vec![
-                ListItem::new("Init nested workspace in this repo"),
-                ListItem::new(format!(
-                    "Init from local source · {}",
-                    source_path.to_string_lossy()
-                )),
-                ListItem::new("Update nested workspace (--update)"),
-                ListItem::new(format!(
-                    "Ensure local source repo · {}",
-                    source_path.to_string_lossy()
-                )),
+                ListItem::new("Init workspace + sync PI skills"),
+                ListItem::new("Sync HyperFrames PI skills only"),
+                ListItem::new("Run HyperFrames doctor"),
+                ListItem::new("Start preview pane"),
                 ListItem::new("Back"),
             ];
-            ("Settings · Tools · MoreMotion", items)
+            ("Settings · Tools · HyperFrames", items)
         }
     };
 
@@ -2887,8 +2812,8 @@ fn draw_defaults(frame: &mut ratatui::Frame, area: Rect, app: &mut App, focused:
         SettingsSection::ToolsVercel => {
             frame.render_stateful_widget(list, columns[0], &mut app.settings_tools_vercel_state)
         }
-        SettingsSection::ToolsMoremotion => {
-            frame.render_stateful_widget(list, columns[0], &mut app.settings_tools_moremotion_state)
+        SettingsSection::ToolsHyperframes => {
+            frame.render_stateful_widget(list, columns[0], &mut app.settings_tools_hyperframes_state)
         }
     }
 
@@ -3145,7 +3070,6 @@ fn draw_modal(frame: &mut ratatui::Frame, app: &mut App) {
                 .highlight_symbol("> ");
             frame.render_stateful_widget(list, area, &mut app.pi_compaction_actions_state);
         }
-        Mode::ConfirmMoremotionSourceClone => draw_confirm_moremotion_clone_modal(frame, area, app),
         Mode::Help => draw_help_modal(frame, area),
         Mode::Normal => {}
     }
@@ -3156,38 +3080,6 @@ fn draw_input_modal(frame: &mut ratatui::Frame, area: Rect, title: &str, input: 
     let paragraph = Paragraph::new(input)
         .block(block)
         .alignment(Alignment::Left);
-    frame.render_widget(paragraph, area);
-}
-
-fn draw_confirm_moremotion_clone_modal(frame: &mut ratatui::Frame, area: Rect, app: &App) {
-    let source = app
-        .pending_moremotion_clone_source
-        .as_ref()
-        .map(|path| path.to_string_lossy().to_string())
-        .unwrap_or_else(|| "(unknown)".to_string());
-    let url = app
-        .pending_moremotion_clone_url
-        .clone()
-        .unwrap_or_else(|| "(missing AOC_MOREMOTION_REPO_URL)".to_string());
-
-    let lines = vec![
-        Line::from("Clone local MoreMotion source repo?"),
-        Line::from(""),
-        Line::from(format!("Destination: {source}")),
-        Line::from(format!("Remote URL:  {url}")),
-        Line::from(""),
-        Line::from("Enter / y = clone now"),
-        Line::from("Esc / n   = cancel"),
-    ];
-
-    let paragraph = Paragraph::new(lines)
-        .block(
-            Block::default()
-                .borders(Borders::ALL)
-                .title("Confirm MoreMotion clone"),
-        )
-        .alignment(Alignment::Left)
-        .wrap(Wrap { trim: false });
     frame.render_widget(paragraph, area);
 }
 
@@ -3207,7 +3099,7 @@ fn draw_help_modal(frame: &mut ratatui::Frame, area: Rect) {
         Line::from("  Enter  open section/action"),
         Line::from("  Esc    back one settings level"),
         Line::from("  t      jump to Theme section"),
-        Line::from("  Tools includes RTK, agent installers, PI compaction, Agent Browser, AOC Map, Vercel CLI, MoreMotion"),
+        Line::from("  Tools includes RTK, agent installers, PI compaction, Agent Browser, AOC Map, Vercel CLI, HyperFrames"),
         Line::from("  Right pane shows details for selected settings item"),
         Line::from("  Agent Browser/search jobs: PgUp/PgDn scroll, x cancel, Shift+O open log"),
         Line::from("  Theme manager: j/k preview, Enter activate+persist, n/i/r actions"),
@@ -3326,12 +3218,6 @@ fn footer_lines(app: &App) -> Vec<Line<'_>> {
             Span::raw(" refresh  "),
             keycap("Esc"),
             Span::raw(" close"),
-        ],
-        Mode::ConfirmMoremotionSourceClone => vec![
-            keycap("Enter"),
-            Span::raw(" clone  "),
-            keycap("Esc"),
-            Span::raw(" cancel"),
         ],
         Mode::Normal => match app.active_tab {
             Tab::Defaults if app.settings_section == SettingsSection::ThemeManager => vec![
@@ -3537,7 +3423,7 @@ fn settings_tools_options() -> Vec<String> {
         "Agent Browser + Search".to_string(),
         "AOC Map microsite".to_string(),
         "Vercel CLI + PI skill".to_string(),
-        "MoreMotion + /momo".to_string(),
+        "HyperFrames video".to_string(),
         "Back".to_string(),
     ]
 }
@@ -3572,12 +3458,12 @@ fn settings_tools_vercel_options() -> Vec<String> {
     ]
 }
 
-fn settings_tools_moremotion_options() -> Vec<String> {
+fn settings_tools_hyperframes_options() -> Vec<String> {
     vec![
-        "Init nested workspace".to_string(),
-        "Init from local source".to_string(),
-        "Update nested workspace".to_string(),
-        "Ensure local source repo".to_string(),
+        "Init workspace + sync skills".to_string(),
+        "Sync HyperFrames skills".to_string(),
+        "Run doctor".to_string(),
+        "Start preview pane".to_string(),
         "Back".to_string(),
     ]
 }
@@ -3714,7 +3600,7 @@ fn settings_detail_lines(app: &App) -> Vec<Line<'static>> {
                 lines.push(Line::from(""));
                 lines.push(Line::from("Manage optional tooling and installers."));
                 lines.push(Line::from(
-                    "Includes RTK, PI compaction, Agent Browser, Vercel CLI, and MoreMotion setup.",
+                    "Includes RTK, PI compaction, Agent Browser, Vercel CLI, HyperFrames setup.",
                 ));
                 lines.push(Line::from("Enter to open Tools settings."));
             }
@@ -3907,9 +3793,7 @@ fn settings_detail_lines(app: &App) -> Vec<Line<'static>> {
                 ));
             }
             6 => {
-                lines.push(Line::from("MoreMotion + /momo"));
                 lines.push(Line::from(""));
-                lines.push(Line::from(format!("Status: {}", moremotion_summary())));
                 lines.push(Line::from(
                     "Enter opens nested actions (host init, local source, update).",
                 ));
@@ -4187,46 +4071,29 @@ fn settings_detail_lines(app: &App) -> Vec<Line<'static>> {
                 lines.push(Line::from("Return to Tools menu."));
             }
         },
-        SettingsSection::ToolsMoremotion => match selected {
+        SettingsSection::ToolsHyperframes => match selected {
             0 => {
-                lines.push(Line::from("Init nested workspace in this repo"));
+                lines.push(Line::from("Init HyperFrames workspace + skills"));
                 lines.push(Line::from(""));
-                lines.push(Line::from(format!(
-                    "Current status: {}",
-                    moremotion_summary()
-                )));
-                lines.push(Line::from(
-                    "Enter runs `aoc-momo init` (host repo workflow).",
-                ));
+                lines.push(Line::from(format!("Current status: {}", hyperframes_summary())));
+                lines.push(Line::from("Enter runs `aoc-hyperframes init`."));
+                lines.push(Line::from("Then use Alt+X -> HyperFrames for video authoring."));
             }
             1 => {
-                let source_path = preferred_moremotion_source_path();
-                lines.push(Line::from("Init from local source"));
+                lines.push(Line::from("Sync HyperFrames PI skills"));
                 lines.push(Line::from(""));
-                lines.push(Line::from(format!(
-                    "Source path: {}",
-                    source_path.to_string_lossy()
-                )));
-                lines.push(Line::from("Enter runs `aoc-momo init --source <path>`."));
+                lines.push(Line::from("Enter runs `aoc-hyperframes sync-skills`."));
             }
             2 => {
-                lines.push(Line::from("Update nested workspace"));
+                lines.push(Line::from("Run HyperFrames doctor"));
                 lines.push(Line::from(""));
-                lines.push(Line::from(
-                    "Enter runs `aoc-momo init --update` for existing embed.",
-                ));
+                lines.push(Line::from("Checks Node.js >= 22, FFmpeg, and HyperFrames environment."));
             }
             3 => {
-                let source_path = preferred_moremotion_source_path();
-                lines.push(Line::from("Ensure local source repo"));
+                lines.push(Line::from("Start preview pane"));
                 lines.push(Line::from(""));
-                lines.push(Line::from(format!(
-                    "Target path: {}",
-                    source_path.to_string_lossy()
-                )));
-                lines.push(Line::from(
-                    "If repo exists: git pull --ff-only. If missing: prompts before clone (URL via AOC_MOREMOTION_REPO_URL).",
-                ));
+                lines.push(Line::from("Opens a Zellij pane below and runs `npx hyperframes preview` in the `hyperframes/` workspace."));
+                lines.push(Line::from("Preview usually serves at http://localhost:3002."));
             }
             _ => {
                 lines.push(Line::from("Back"));
@@ -5011,145 +4878,6 @@ fn project_relative_is_dir(relative: &str) -> bool {
         .map(|root| root.join(relative))
         .map(|path| path.is_dir())
         .unwrap_or(false)
-}
-
-fn resolve_dev_root_dir() -> PathBuf {
-    if let Ok(value) = env::var("AOC_DEV_ROOT") {
-        if !value.trim().is_empty() {
-            return PathBuf::from(value);
-        }
-    }
-
-    if let Ok(cwd) = env::current_dir() {
-        let mut cursor = Some(cwd.as_path());
-        while let Some(path) = cursor {
-            if path
-                .file_name()
-                .and_then(|name| name.to_str())
-                .map(|name| name.eq_ignore_ascii_case("dev"))
-                .unwrap_or(false)
-            {
-                return path.to_path_buf();
-            }
-            cursor = path.parent();
-        }
-
-        if let Some(parent) = cwd.parent() {
-            return parent.to_path_buf();
-        }
-    }
-
-    if let Ok(home) = env::var("HOME") {
-        return PathBuf::from(home).join("dev");
-    }
-
-    PathBuf::from(".")
-}
-
-fn preferred_moremotion_source_path() -> PathBuf {
-    if let Ok(value) = env::var("AOC_MOMO_SOURCE") {
-        if !value.trim().is_empty() {
-            return PathBuf::from(value);
-        }
-    }
-
-    let dev_root = resolve_dev_root_dir();
-    let upper = dev_root.join("MoreMotion");
-    if upper.exists() {
-        return upper;
-    }
-    let lower = dev_root.join("moremotion");
-    if lower.exists() {
-        return lower;
-    }
-    upper
-}
-
-fn moremotion_repo_url() -> Option<String> {
-    env::var("AOC_MOREMOTION_REPO_URL")
-        .ok()
-        .filter(|value| !value.trim().is_empty())
-}
-
-fn update_moremotion_source_repo(source: &Path) -> io::Result<String> {
-    if !source.join(".git").exists() {
-        return Err(io::Error::new(
-            io::ErrorKind::Other,
-            format!(
-                "source path exists but is not a git repo: {}",
-                source.to_string_lossy()
-            ),
-        ));
-    }
-
-    let output = Command::new("git")
-        .args(["-C", &source.to_string_lossy(), "pull", "--ff-only"])
-        .output()?;
-    if !output.status.success() {
-        return Err(command_failure(
-            &format!("git -C {} pull --ff-only", source.to_string_lossy()),
-            &output,
-        ));
-    }
-
-    Ok(format!(
-        "Updated local MoreMotion source ({})",
-        source.to_string_lossy()
-    ))
-}
-
-fn clone_moremotion_source_repo(source: &Path, url: &str) -> io::Result<String> {
-    if let Some(parent) = source.parent() {
-        fs::create_dir_all(parent)?;
-    }
-
-    let output = Command::new("git")
-        .args(["clone", url, &source.to_string_lossy()])
-        .output()?;
-    if !output.status.success() {
-        return Err(command_failure(
-            &format!("git clone {url} {}", source.to_string_lossy()),
-            &output,
-        ));
-    }
-
-    Ok(format!(
-        "Cloned local MoreMotion source to {}",
-        source.to_string_lossy()
-    ))
-}
-
-fn run_moremotion_init_with_source(source: &Path, update: bool) -> io::Result<String> {
-    let mut command = Command::new("aoc-momo");
-    command.arg("init").arg("--source").arg(source);
-    if update {
-        command.arg("--update");
-    }
-    let output = command.output()?;
-    if !output.status.success() {
-        let rendered = if update {
-            format!(
-                "aoc-momo init --source {} --update",
-                source.to_string_lossy()
-            )
-        } else {
-            format!("aoc-momo init --source {}", source.to_string_lossy())
-        };
-        return Err(command_failure(&rendered, &output));
-    }
-
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    let stderr = String::from_utf8_lossy(&output.stderr);
-    let first_line = stdout
-        .lines()
-        .find(|line| !line.trim().is_empty())
-        .or_else(|| stderr.lines().find(|line| !line.trim().is_empty()))
-        .unwrap_or("MoreMotion integration updated")
-        .trim()
-        .to_string();
-
-    let status = moremotion_summary();
-    Ok(format!("{first_line} ({status})"))
 }
 
 fn agent_browser_bin_name() -> String {
@@ -6055,23 +5783,23 @@ fn seed_aoc_map() -> io::Result<String> {
     Ok(format!("{skill_message}; {init_message}"))
 }
 
-fn moremotion_summary() -> String {
-    let nested = if project_relative_is_dir("moremotion") {
-        "nested present"
+fn hyperframes_summary() -> String {
+    let nested = if project_relative_is_dir("hyperframes") {
+        "workspace present"
     } else {
-        "nested missing"
+        "workspace missing"
     };
-    let prompt = if project_relative_exists(".pi/prompts/momo.md") {
+    let prompt = if project_relative_exists(".pi/prompts/hyperframes.md") {
         "prompt present"
     } else {
         "prompt missing"
     };
-    let source = if preferred_moremotion_source_path().exists() {
-        "source present"
+    let skills = if project_relative_is_dir(".pi/skills/hyperframes") {
+        "skills present"
     } else {
-        "source missing"
+        "skills missing"
     };
-    format!("{nested}, {prompt}, {source}")
+    format!("{nested}, {prompt}, {skills}")
 }
 
 fn default_agent_browser_install_cmd() -> String {
@@ -6319,29 +6047,63 @@ fn open_log_in_pager(path: &Path) -> io::Result<()> {
     }
 }
 
-fn run_moremotion_command(args: &[&str]) -> io::Result<String> {
-    let output = Command::new("aoc-momo").args(args).output()?;
-    if !output.status.success() {
-        let rendered = if args.is_empty() {
-            "aoc-momo".to_string()
-        } else {
-            format!("aoc-momo {}", args.join(" "))
-        };
-        return Err(command_failure(&rendered, &output));
+fn open_hyperframes_preview_pane() -> io::Result<String> {
+    let root = project_root_path().unwrap_or_else(|| PathBuf::from("."));
+    let workspace = root.join("hyperframes");
+    if !workspace.is_dir() {
+        return Err(io::Error::new(
+            io::ErrorKind::NotFound,
+            "HyperFrames workspace missing; run aoc-hyperframes init first",
+        ));
     }
 
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    let stderr = String::from_utf8_lossy(&output.stderr);
-    let first_line = stdout
-        .lines()
-        .find(|line| !line.trim().is_empty())
-        .or_else(|| stderr.lines().find(|line| !line.trim().is_empty()))
-        .unwrap_or("MoreMotion integration updated")
-        .trim()
-        .to_string();
+    let command = "printf '\033]2;HyperFrames Preview\007'; echo 'HyperFrames preview: http://localhost:3002'; npx hyperframes preview; exec bash";
+    if in_zellij() {
+        let status = Command::new("zellij")
+            .args(["action", "new-pane", "--direction", "down", "--cwd"])
+            .arg(&workspace)
+            .args(["--", "bash", "-lc", command])
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status()?;
+        if status.success() {
+            return Ok("Started HyperFrames preview in a new pane below (usually http://localhost:3002)".to_string());
+        }
+        return Err(io::Error::new(io::ErrorKind::Other, "zellij new-pane failed"));
+    }
 
-    let status = moremotion_summary();
-    Ok(format!("{first_line} ({status})"))
+    Err(io::Error::new(
+        io::ErrorKind::Other,
+        format!(
+            "not running inside Zellij; run manually: cd {} && npx hyperframes preview",
+            workspace.to_string_lossy()
+        ),
+    ))
+}
+
+fn run_hyperframes_command(args: &[&str]) -> io::Result<String> {
+    let output = Command::new("aoc-hyperframes").args(args).output()?;
+    let command_label = if args.is_empty() {
+        "aoc-hyperframes".to_string()
+    } else {
+        format!("aoc-hyperframes {}", args.join(" "))
+    };
+    if !output.status.success() {
+        return Err(command_failure(&command_label, &output));
+    }
+    let text = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    let base = if text.is_empty() {
+        "HyperFrames integration updated".to_string()
+    } else {
+text.lines()
+            .rev()
+            .find(|line| !line.trim().is_empty())
+            .unwrap_or("HyperFrames integration updated")
+            .trim()
+            .to_string()
+    };
+    let status = hyperframes_summary();
+    Ok(format!("{base} ({status})"))
 }
 
 fn load_rtk_status() -> io::Result<RtkStatus> {

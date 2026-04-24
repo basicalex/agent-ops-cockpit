@@ -285,7 +285,6 @@ AOC control exposes nested tools actions for:
 - Agent Browser + Search
 - Vercel CLI
 - HyperFrames
-- MoreMotion
 
 For most users, Alt+C is the preferred control plane over manual configuration edits. See [Control Pane Guide](control-pane.md).
 
@@ -312,9 +311,6 @@ The control pane also warns when the current repo has a `.pi/settings.json` comp
 | `AOC_AGENT_BROWSER_SKILL_URL` | Source URL for syncing `.pi/skills/agent-browser/SKILL.md` |
 | `AOC_VERCEL_BIN` | Vercel CLI binary name/path check (default `vercel`) |
 | `AOC_VERCEL_INSTALL_CMD` / `AOC_VERCEL_UPDATE_CMD` | Vercel CLI install/update commands |
-| `AOC_DEV_ROOT` | Override inferred local dev root used for MoreMotion source lookup |
-| `AOC_MOREMOTION_REPO_URL` | Optional clone URL used when ensuring local MoreMotion source repo |
-| `AOC_MOMO_SOURCE` | Preferred local MoreMotion source path passed to `aoc-momo` |
 | `AOC_HYPERFRAMES_DIR` | Workspace directory used by `aoc-hyperframes` (default `hyperframes`) |
 | `AOC_HYPERFRAMES_TRACK_WORKSPACE` | Set to `1` to avoid adding the HyperFrames workspace to `.gitignore` |
 
