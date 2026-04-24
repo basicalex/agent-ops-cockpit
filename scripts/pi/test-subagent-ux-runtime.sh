@@ -8,8 +8,12 @@ artifacts="$repo_root/.pi/extensions/subagent/artifacts.ts"
 manifests="$repo_root/.pi/extensions/subagent/manifests.ts"
 registry="$repo_root/.pi/extensions/subagent/registry.ts"
 shared="$repo_root/.pi/extensions/subagent/shared.ts"
+mission="$repo_root/crates/aoc-mission-control/src/main.rs"
+mission_app="$repo_root/crates/aoc-mission-control/src/app.rs"
+mission_config="$repo_root/crates/aoc-mission-control/src/config.rs"
+mission_tests="$repo_root/crates/aoc-mission-control/src/tests.rs"
 
-python3 - "$extension" "$artifacts" "$manifests" "$registry" "$shared" <<'PY'
+python3 - "$extension" "$artifacts" "$manifests" "$registry" "$shared" "$mission" "$mission_app" "$mission_config" "$mission_tests" <<'PY'
 import re
 import sys
 from pathlib import Path
@@ -19,7 +23,11 @@ artifacts_src = Path(sys.argv[2]).read_text(encoding='utf-8')
 manifests_src = Path(sys.argv[3]).read_text(encoding='utf-8')
 registry_src = Path(sys.argv[4]).read_text(encoding='utf-8')
 shared_src = Path(sys.argv[5]).read_text(encoding='utf-8')
-mission_src = Path('crates/aoc-mission-control/src/main.rs').read_text(encoding='utf-8')
+mission_src = Path(sys.argv[6]).read_text(encoding='utf-8')
+mission_app_src = Path(sys.argv[7]).read_text(encoding='utf-8')
+mission_config_src = Path(sys.argv[8]).read_text(encoding='utf-8')
+mission_tests_src = Path(sys.argv[9]).read_text(encoding='utf-8')
+mission_contract_src = "\n".join([mission_src, mission_app_src, mission_config_src, mission_tests_src])
 
 
 def block(src: str, name: str) -> str:
@@ -289,14 +297,14 @@ for needle in [
     '"fleet" | "detached" | "subagents" => Some(Mode::Fleet),',
     'fn parse_fleet_plane_filter(value: &str) -> Option<FleetPlaneFilter> {',
     '"delegated" | "specialist" | "subagents" => Some(FleetPlaneFilter::Delegated),',
-    'fn resolve_start_view(runtime_mode: RuntimeMode) -> Option<Mode> {',
+    'fn resolve_start_view() -> Option<Mode> {',
     'std::env::var("AOC_MISSION_CONTROL_START_VIEW")',
     'fn resolve_fleet_plane_filter() -> FleetPlaneFilter {',
     'std::env::var("AOC_MISSION_CONTROL_FLEET_PLANE")',
     'cfg.start_view = Some(Mode::Fleet);',
     'cfg.fleet_plane_filter = FleetPlaneFilter::Delegated;',
 ]:
-    if needle not in mission_src:
+    if needle not in mission_contract_src:
         raise SystemExit(f'mission-control integration missing: {needle}')
 
 print('Subagent UX runtime checks passed.')
