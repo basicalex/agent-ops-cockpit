@@ -9,8 +9,8 @@
     "./packages/pi-multi-auth-aoc"
   ],
   "defaultProvider": "openai-codex",
-  "defaultModel": "gpt-5.4",
-  "defaultThinkingLevel": "medium",
+  "defaultModel": "gpt-5.5",
+  "defaultThinkingLevel": "low",
   "enabledModels": [
     "openai-codex/gpt-5.5",
     "openai-codex/gpt-5.4",

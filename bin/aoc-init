@@ -1269,8 +1269,8 @@ local_multi_auth_package = sys.argv[3]
 include_local_multi_auth_package = local_package_dir.is_dir()
 pi_defaults = {
     "defaultProvider": "openai-codex",
-    "defaultModel": "gpt-5.4",
-    "defaultThinkingLevel": "medium",
+    "defaultModel": "gpt-5.5",
+    "defaultThinkingLevel": "low",
 }
 seeded_enabled_models = [
     "openai-codex/gpt-5.5",
@@ -1315,6 +1315,11 @@ legacy_seeded_enabled_models_with_gpt55 = [
 previous_pi_defaults = {
     "defaultProvider": "openai-codex",
     "defaultModel": "gpt-5.5",
+    "defaultThinkingLevel": "medium",
+}
+older_pi_defaults = {
+    "defaultProvider": "openai-codex",
+    "defaultModel": "gpt-5.4",
     "defaultThinkingLevel": "medium",
 }
 legacy_seeded_defaults = {
@@ -1416,6 +1421,14 @@ elif all(data.get(key) == value for key, value in pi_defaults.items()):
         data["enabledModels"] = seeded_enabled_models
         changed = True
 elif all(data.get(key) == value for key, value in previous_pi_defaults.items()):
+    for key, value in pi_defaults.items():
+        if data.get(key) != value:
+            data[key] = value
+            changed = True
+    if data.get("enabledModels") != seeded_enabled_models:
+        data["enabledModels"] = seeded_enabled_models
+        changed = True
+elif all(data.get(key) == value for key, value in older_pi_defaults.items()):
     for key, value in pi_defaults.items():
         if data.get(key) != value:
             data[key] = value

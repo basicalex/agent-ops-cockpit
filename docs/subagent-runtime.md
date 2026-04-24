@@ -85,6 +85,18 @@ That means:
 - `.pi/extensions/subagent.ts` is the canonical Pi-side delegated runtime surface.
 - the durable detached registry and Pulse-backed status flow remain the lifecycle source of truth when available.
 
+### Provider-qualified model pins
+
+Agent frontmatter may include an explicit Pi model pin:
+
+```yaml
+model: openai-codex/gpt-5.4-mini
+```
+
+Pinned delegated agents pass that value to detached Pi subprocesses via Pi's native `--model` CLI flag. Pins are intentionally durable across future sessions and do not inherit or mutate `.pi/settings.json` defaults. Use provider-qualified pins only (`provider/model`, optionally `provider/model:thinking`) because bare model names can resolve through the wrong provider in non-interactive detached runs.
+
+Agents without a `model:` field inherit the project/global Pi default model and thinking level.
+
 ---
 
 ## 4. Current operator surfaces

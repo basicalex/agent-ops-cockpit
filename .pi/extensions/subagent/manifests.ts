@@ -137,7 +137,7 @@ function scoutAvailability(root: string): AgentAvailability {
 	return reasons.length === 0 ? { available: true } : { available: false, reason: reasons.join("; ") };
 }
 
-function agentAvailability(root: string, agent: AgentConfig): AgentAvailability {
+export function agentAvailability(root: string, agent: AgentConfig): AgentAvailability {
 	switch (agent.name) {
 		case "scout-web-agent":
 			return scoutAvailability(root);

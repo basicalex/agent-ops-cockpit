@@ -7,7 +7,7 @@ import { StringEnum } from "@mariozechner/pi-ai";
 import { Editor, type EditorTheme, Key, Text, matchesKey, truncateToWidth, visibleWidth } from "@mariozechner/pi-tui";
 import { Type } from "@sinclair/typebox";
 import { persistArtifactBundle as persistArtifactBundleImpl, type ArtifactPersistenceOptions } from "./subagent/artifacts.ts";
-import { availableAgents, availableChains, availableTeams, assertAgentAvailable, assertChainAvailable, assertTeamAvailable, loadManifestBundle } from "./subagent/manifests.ts";
+import { agentAvailability, availableAgents, availableChains, availableTeams, assertAgentAvailable, assertChainAvailable, assertTeamAvailable, loadManifestBundle } from "./subagent/manifests.ts";
 import {
 	detachedRegistryAvailability,
 	type DurableDetachedCancelResult,
