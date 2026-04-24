@@ -3,7 +3,11 @@
   "skills": [
     "!skills/design-*",
     "!skills/motion-director",
-    "!skills/animejs-*"
+    "!skills/animejs-*",
+    "!skills/hyperframes",
+    "!skills/hyperframes-cli",
+    "!skills/website-to-hyperframes",
+    "!skills/gsap"
   ],
   "packages": [
     "./packages/pi-multi-auth-aoc"

@@ -3,6 +3,7 @@ import { Box, matchesKey, truncateToWidth, visibleWidth, wrapTextWithAnsi } from
 import type { PresetRecord } from "./manifest.ts";
 import { applyPresetSkillFilters } from "./skill-filters.ts";
 import { applyStatus, describeState, formatHandoff, formatHistory, materializeState, normalizeMode, persistState, type PresetRuntimeState } from "./state.ts";
+import { CAVEMAN_EVENT_SET_LEVEL, CAVEMAN_LEVELS, type CavemanLevel } from "../lib/caveman.ts";
 
 export interface CommandBindings {
   registry: Map<string, PresetRecord>;
@@ -24,23 +25,14 @@ function commitState(pi: ExtensionAPI, ctx: ExtensionContext, bindings: CommandB
   if (notice) notify(ctx, notice, next.preset ? "success" : "info");
 }
 
-async function requestRuntimeReload(pi: ExtensionAPI, ctx: ExtensionContext, message: string): Promise<void> {
-  notify(ctx, message, "info");
-  if (typeof (ctx as any).reload === "function") {
-    await (ctx as any).reload();
-    return;
-  }
-  pi.sendUserMessage("/preset-runtime-reload", { deliverAs: "followUp" });
-}
-
-async function syncSkillFiltersAndReload(pi: ExtensionAPI, ctx: ExtensionContext, next: PresetRuntimeState): Promise<void> {
+async function syncSkillFiltersAndNotifyReload(_pi: ExtensionAPI, ctx: ExtensionContext, next: PresetRuntimeState): Promise<void> {
   const result = applyPresetSkillFilters(process.cwd(), next);
   if (!result.changed) return;
   const label = next.preset
     ? `${next.preset}/${next.mode || "default"}${next.submode ? `/${next.submode}` : ""}`
     : "preset off";
   const loaded = result.visibleManagedSkills.length ? result.visibleManagedSkills.join(", ") : "base AOC only";
-  await requestRuntimeReload(pi, ctx, `Reloading skill inventory for ${label}: ${loaded}`);
+  notify(ctx, `Preset skill inventory updated for ${label}: ${loaded}. Run /reload to refresh visible skills.`, "info");
 }
 
 async function activatePreset(pi: ExtensionAPI, ctx: ExtensionContext, bindings: CommandBindings, presetId: string, mode?: string, submode?: string, source = "command") {
@@ -55,7 +47,7 @@ async function activatePreset(pi: ExtensionAPI, ctx: ExtensionContext, bindings:
   const summary = `${presetId}:${next.mode}${next.submode ? `/${next.submode}` : ""}`;
   commitState(pi, ctx, bindings, next, `preset active: ${summary}`);
   if (record.warnings.length > 0) notify(ctx, `preset warnings: ${record.warnings.join("; ")}`, "warning");
-  await syncSkillFiltersAndReload(pi, ctx, next);
+  await syncSkillFiltersAndNotifyReload(pi, ctx, next);
 }
 
 async function disablePreset(pi: ExtensionAPI, ctx: ExtensionContext, bindings: CommandBindings) {
@@ -70,7 +62,41 @@ async function disablePreset(pi: ExtensionAPI, ctx: ExtensionContext, bindings: 
     recommendedSkills: [],
   });
   commitState(pi, ctx, bindings, next, "preset: off");
-  await syncSkillFiltersAndReload(pi, ctx, next);
+  await syncSkillFiltersAndNotifyReload(pi, ctx, next);
+}
+
+function readCurrentCavemanLevel(ctx: ExtensionContext): CavemanLevel {
+  for (const entry of [...ctx.sessionManager.getBranch()].reverse()) {
+    if ((entry as any).type !== "custom" || (entry as any).customType !== "caveman-level-v1") continue;
+    const data = (entry as any).data;
+    const restored = data?.cavemanLevel ?? data?.level;
+    if (restored && CAVEMAN_LEVELS.includes(restored)) return restored;
+  }
+  return "off";
+}
+
+function samePresetTarget(current: PresetRuntimeState, action?: MenuAction): boolean {
+  if (!action) return false;
+  if (action.off) return !current.preset;
+  return action.preset === current.preset
+    && (action.mode || undefined) === (current.mode || undefined)
+    && (action.submode || undefined) === (current.submode || undefined);
+}
+
+async function applyMenuCommit(pi: ExtensionAPI, ctx: ExtensionContext, bindings: CommandBindings, selected: MenuCommit | null): Promise<void> {
+  if (!selected) return;
+  const preset = selected.presetAction;
+  const current = bindings.getState();
+  if (preset && !samePresetTarget(current, preset)) {
+    if (preset.off) {
+      await disablePreset(pi, ctx, bindings);
+    } else if (preset.preset) {
+      await activatePreset(pi, ctx, bindings, preset.preset, preset.mode, preset.submode, "menu");
+    }
+  }
+  if (selected.cavemanLevel !== readCurrentCavemanLevel(ctx)) {
+    pi.events.emit(CAVEMAN_EVENT_SET_LEVEL, { level: selected.cavemanLevel });
+  }
 }
 
 function clearHandoff(pi: ExtensionAPI, ctx: ExtensionContext, bindings: CommandBindings) {
@@ -157,12 +183,18 @@ function buildMenuTree(registry: Map<string, PresetRecord>): MenuNode[] {
 
 type MenuAction = NonNullable<MenuNode["action"]>;
 
-function openPresetMenu(_pi: ExtensionAPI, ctx: ExtensionContext, bindings: CommandBindings) {
+interface MenuCommit {
+  presetAction?: MenuAction;
+  cavemanLevel: CavemanLevel;
+}
+
+function openPresetMenu(pi: ExtensionAPI, ctx: ExtensionContext, bindings: CommandBindings) {
   const tree = buildMenuTree(bindings.registry);
   const current = bindings.getState();
 
-  return ctx.ui.custom<MenuAction | null>((tui, theme, _kb, done) => {
+  return ctx.ui.custom<MenuCommit | null>((tui, theme, _kb, done) => {
     const stack: Array<{ title: string; nodes: MenuNode[]; index: number }> = [{ title: "Presets", nodes: tree, index: 0 }];
+    let pendingCaveman: CavemanLevel = readCurrentCavemanLevel(ctx);
     if (current.preset) {
       const presetIndex = tree.findIndex(node => node.id === current.preset);
       if (presetIndex >= 0) stack[0]!.index = presetIndex;
@@ -193,6 +225,12 @@ function openPresetMenu(_pi: ExtensionAPI, ctx: ExtensionContext, bindings: Comm
       tui.requestRender();
     }
 
+    function rotateCaveman() {
+      const idx = CAVEMAN_LEVELS.indexOf(pendingCaveman);
+      pendingCaveman = CAVEMAN_LEVELS[(idx + 1) % CAVEMAN_LEVELS.length];
+      tui.requestRender();
+    }
+
     function activateSelected() {
       const selected = currentNode();
       if (!selected) return;
@@ -201,9 +239,7 @@ function openPresetMenu(_pi: ExtensionAPI, ctx: ExtensionContext, bindings: Comm
         tui.requestRender();
         return;
       }
-      if (selected.action) {
-        done(selected.action);
-      }
+      done({ presetAction: selected.action, cavemanLevel: pendingCaveman });
     }
 
     function goBack() {
@@ -241,11 +277,11 @@ function openPresetMenu(_pi: ExtensionAPI, ctx: ExtensionContext, bindings: Comm
       const state = bindings.getState();
       const level = currentLevel();
       const selected = currentNode();
-      const innerWidth = Math.max(54, width - 2);
-      const navWidth = Math.max(18, Math.min(26, Math.floor((innerWidth - 6) * 0.3)));
-      const gap = 3;
-      const detailWidth = Math.max(24, innerWidth - navWidth - gap - 4);
-      const bodyHeight = Math.max(9, Math.min(11, level.nodes.length + 1));
+      const innerWidth = Math.max(58, width - 2);
+      const gap = 1;
+      const navWidth = Math.max(20, Math.min(28, Math.floor((innerWidth - 3) * 0.28)));
+      const detailWidth = Math.max(26, innerWidth - navWidth - gap - 3);
+      const bodyHeight = Math.max(10, Math.min(12, level.nodes.length + 2));
       const record = selected?.action?.preset ? bindings.registry.get(selected.action.preset) : undefined;
       const selectedState = selected?.action?.preset
         ? materializeState(bindings.registry, state, {
@@ -258,6 +294,7 @@ function openPresetMenu(_pi: ExtensionAPI, ctx: ExtensionContext, bindings: Comm
         : undefined;
 
       const lines: string[] = [];
+      const currentCaveman = readCurrentCavemanLevel(ctx);
       const dim = (text: string) => theme.fg("dim", text);
       const muted = (text: string) => theme.fg("muted", text);
       const accent = (text: string) => theme.fg("accent", text);
@@ -272,10 +309,20 @@ function openPresetMenu(_pi: ExtensionAPI, ctx: ExtensionContext, bindings: Comm
         const spacer = " ".repeat(Math.max(1, innerWidth - leftWidth - rightWidth));
         return `│${left}${spacer}${right}│`;
       };
+      const pushWrapped = (target: string[], label: string, value: string) => {
+        target.push(dim(label));
+        target.push(...wrapTextWithAnsi(value, detailWidth));
+      };
+      const makeDetailRow = (left: string, right = "") => {
+        const leftWidth = visibleWidth(left);
+        const rightWidth = visibleWidth(right);
+        const spacer = " ".repeat(Math.max(1, detailWidth - leftWidth - rightWidth));
+        return `${left}${spacer}${right}`;
+      };
 
       lines.push(strongBorder(`╭${"─".repeat(innerWidth)}╮`));
-      lines.push(makeRow(`${accent(theme.bold("AOC Presets"))} ${muted("Mode Switcher")}`, badge(formatStateLabel(state), "accent")));
-      lines.push(makeRow(dim(`Path ${stack.map(item => item.title).join(" / ")}`), dim("Alt+X opens this")));
+      lines.push(makeRow(`${accent(theme.bold("AOC Presets"))}`, accent(theme.bold(formatStateLabel(state)))));
+      lines.push(makeRow(dim(`Presets / ${stack.map(item => item.title).join(" / ")}`), muted("Alt+X reopens")));
       lines.push(border(`├${"─".repeat(innerWidth)}┤`));
 
       const startIndex = Math.max(0, Math.min(level.index - Math.floor((bodyHeight - 1) / 2), Math.max(0, level.nodes.length - (bodyHeight - 1))));
@@ -287,9 +334,11 @@ function openPresetMenu(_pi: ExtensionAPI, ctx: ExtensionContext, bindings: Comm
         const absoluteIndex = startIndex + i;
         const selectedRow = absoluteIndex === level.index;
         const currentTarget = isCurrentTarget(node, state);
-        const chevron = node.children?.length ? muted(" ›") : "";
-        const activeMark = currentTarget ? accent(" ●") : "";
-        const rowText = `${selectedRow ? accent("▸ ") : "  "}${node.label}${chevron}${activeMark}`;
+        const hasChildren = !!node.children?.length;
+        const stateLabel = currentTarget ? muted(" active") : selectedRow && !hasChildren ? muted(" target") : "";
+        const chevron = hasChildren ? muted("  ›") : "";
+        const prefix = selectedRow ? accent("▸ ") : "  ";
+        const rowText = `${prefix}${node.label}${stateLabel}${chevron}`;
         const padded = padRight(rowText, navWidth);
         navLines.push(selectedRow ? theme.bg("selectedBg", padded) : padded);
       }
@@ -299,32 +348,27 @@ function openPresetMenu(_pi: ExtensionAPI, ctx: ExtensionContext, bindings: Comm
       }
 
       const detailLines: string[] = [dim(theme.bold("DETAILS"))];
+      detailLines.push(makeDetailRow(`${accent(theme.bold("Caveman"))}`, pendingCaveman === currentCaveman ? badge(`current ${pendingCaveman}`, "accent") : badge(`pending ${pendingCaveman}`)));
+      detailLines.push(muted(`Rotate with x. Enter applies preset + caveman together.`));
+      detailLines.push("");
       if (selected) {
-        detailLines.push(`${accent(theme.bold(selected.label))}${selected.children?.length ? muted("  folder") : ""}`);
-        detailLines.push(muted(`Target ${buildTargetLabel(selected)}`));
-        if (selected.children?.length) {
-          detailLines.push(badge(`${selected.children.length} choices`));
-        } else if (isCurrentTarget(selected, state)) {
-          detailLines.push(badge("currently active", "accent"));
-        } else {
-          detailLines.push(badge("press enter to apply"));
-        }
-        detailLines.push("");
+        const statusBadge = selected.children?.length
+          ? badge(`${selected.children.length} choices`)
+          : isCurrentTarget(selected, state)
+            ? badge("current", "accent")
+            : badge("enter to apply");
+        detailLines.push(makeDetailRow(`${accent(theme.bold(selected.label))}`, statusBadge));
+        detailLines.push(muted(`Target: ${buildTargetLabel(selected)}`));
         const description = selected.description || "No extra guidance for this selection.";
         detailLines.push(...wrapTextWithAnsi(description, detailWidth));
         if (selectedState?.activeSkills?.length) {
-          detailLines.push("");
-          detailLines.push(dim("Active skills"));
-          detailLines.push(...wrapTextWithAnsi(selectedState.activeSkills.join(", "), detailWidth));
+          pushWrapped(detailLines, "Active skills", selectedState.activeSkills.join(", "));
         }
         if (selectedState?.recommendedSkills?.length) {
-          detailLines.push(dim("Recommended"));
-          detailLines.push(...wrapTextWithAnsi(selectedState.recommendedSkills.join(", "), detailWidth));
+          pushWrapped(detailLines, "Recommended", selectedState.recommendedSkills.join(", "));
         }
         if (record?.manifest.handoff?.modeNotes?.[selected.action?.mode || ""]) {
-          detailLines.push("");
-          detailLines.push(dim("Carry forward"));
-          detailLines.push(...wrapTextWithAnsi(record.manifest.handoff.modeNotes[selected.action!.mode!]!, detailWidth));
+          pushWrapped(detailLines, "Carry forward", record.manifest.handoff.modeNotes[selected.action!.mode!]!);
         }
       }
       while (detailLines.length < bodyHeight) detailLines.push("");
@@ -333,11 +377,11 @@ function openPresetMenu(_pi: ExtensionAPI, ctx: ExtensionContext, bindings: Comm
         const left = padRight(navLines[row] || "", navWidth);
         const right = padRight(detailLines[row] || "", detailWidth);
         const divider = row === 0 ? strongBorder("│") : border("│");
-        lines.push(`│ ${left} ${divider} ${right} │`);
+        lines.push(`│ ${left}${" ".repeat(gap)}${divider}${" ".repeat(gap)}${right} │`);
       }
 
       lines.push(border(`├${"─".repeat(innerWidth)}┤`));
-      lines.push(makeRow(dim("[j/k] move  [enter/l] open/select  [h/esc] back  [q] close"), dim("active ● current target")));
+      lines.push(makeRow(dim("[j/k] move  [x] caveman  [enter/l] apply  [h/esc] back  [q] close"), muted("selected ▸  active current")));
       lines.push(strongBorder(`╰${"─".repeat(innerWidth)}╯`));
       return lines;
     }
@@ -363,6 +407,10 @@ function openPresetMenu(_pi: ExtensionAPI, ctx: ExtensionContext, bindings: Comm
           move(-1);
           return;
         }
+        if (data === "x") {
+          rotateCaveman();
+          return;
+        }
         if (data === "l" || matchesKey(data, "right") || matchesKey(data, "return")) {
           activateSelected();
           return;
@@ -379,8 +427,8 @@ function openPresetMenu(_pi: ExtensionAPI, ctx: ExtensionContext, bindings: Comm
   }, {
     overlay: true,
     overlayOptions: {
-      width: "56%",
-      minWidth: 56,
+      width: "62%",
+      minWidth: 64,
       maxHeight: "70%",
       anchor: "center",
       margin: 1,
@@ -389,15 +437,6 @@ function openPresetMenu(_pi: ExtensionAPI, ctx: ExtensionContext, bindings: Comm
 }
 
 export function registerPresetCommands(pi: ExtensionAPI, bindings: CommandBindings): void {
-  pi.registerCommand("preset-runtime-reload", {
-    description: "Reload extensions, skills, prompts, and themes for preset-managed skill visibility",
-    handler: async (_args, ctx) => {
-      if (typeof (ctx as any).reload === "function") {
-        await (ctx as any).reload();
-      }
-    },
-  });
-
   pi.registerCommand("preset", {
     description: "Show or change the active AOC preset and inspect runtime routing state",
     handler: async (args, ctx) => {
@@ -415,14 +454,7 @@ export function registerPresetCommands(pi: ExtensionAPI, bindings: CommandBindin
         return;
       }
       if (raw === "menu" || raw === "select") {
-        const selected = await openPresetMenu(pi, ctx, bindings);
-        if (selected?.off) {
-          await disablePreset(pi, ctx, bindings);
-          return;
-        }
-        if (selected?.preset) {
-          await activatePreset(pi, ctx, bindings, selected.preset, selected.mode, selected.submode, "menu");
-        }
+        await applyMenuCommit(pi, ctx, bindings, await openPresetMenu(pi, ctx, bindings));
         return;
       }
       if (raw === "handoff") {
@@ -445,14 +477,7 @@ export function registerPresetCommands(pi: ExtensionAPI, bindings: CommandBindin
   pi.registerCommand("preset-menu", {
     description: "Open an interactive preset navigator",
     handler: async (_args, ctx) => {
-      const selected = await openPresetMenu(pi, ctx, bindings);
-      if (selected?.off) {
-        await disablePreset(pi, ctx, bindings);
-        return;
-      }
-      if (selected?.preset) {
-        await activatePreset(pi, ctx, bindings, selected.preset, selected.mode, selected.submode, "menu");
-      }
+      await applyMenuCommit(pi, ctx, bindings, await openPresetMenu(pi, ctx, bindings));
     },
   });
 
@@ -460,7 +485,7 @@ export function registerPresetCommands(pi: ExtensionAPI, bindings: CommandBindin
     description: "Open AOC preset mode switcher",
     handler: async (ctx) => {
       notify(ctx, "Opening preset menu…", "info");
-      pi.sendUserMessage("/preset-menu");
+      await applyMenuCommit(pi, ctx, bindings, await openPresetMenu(pi, ctx, bindings));
     },
   });
 

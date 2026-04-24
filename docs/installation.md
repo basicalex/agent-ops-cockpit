@@ -165,7 +165,6 @@ Common actions:
 - **PI agent installer** — check runtime status and run install/update actions for `pi`
 - **Agent Browser + Search** — browser tool sync, web-research skill seeding, managed SearXNG enable/start, end-to-end verification
 - **Vercel CLI** — tool + PI skill sync + verify
-- **MoreMotion** — `aoc-momo` host/local-source flows
 
 See also: [Control Pane Guide](control-pane.md).
 

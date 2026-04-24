@@ -6,6 +6,8 @@ const MANAGED_SKILL_NAMES = [
   "design-diff",
   "design-director",
   "design-handoff",
+  "design-premium-ui",
+  "design-redesign",
   "design-review",
   "design-spec",
   "design-tokens",

@@ -1,7 +1,7 @@
 # AOC Walkthrough - Screen Recording Script
 
 **Project:** AOC (Agent Ops Cockpit) Walkthrough Video
-**Format:** Screen recording + Remotion overlays
+**Format:** Screen recording + HyperFrames overlays
 **Target Duration:** 4-5 minutes
 **Resolution:** 1920x1080 (Full HD)
 **Frame Rate:** 30fps
@@ -10,11 +10,11 @@
 
 ## Overview
 
-This walkthrough is built from real screen recordings of AOC in use. Remotion overlays (labels, arrows, callouts, and timing highlights) are added on top of the footage. No simulated UI or mockups are required.
+This walkthrough is built from real screen recordings of AOC in use. HyperFrames overlays (labels, arrows, callouts, and timing highlights) are added on top of the footage. No simulated UI or mockups are required.
 
 Recording sources:
 - AOC repo session (`agent-ops-cockpit`)
-- MoreMotion repo session (Remotion project)
+- HyperFrames workspace session
 
 ---
 
@@ -25,7 +25,7 @@ Each scene follows this format:
 - **Duration:** Estimated seconds
 - **Recording:** What to capture on screen
 - **Narration:** Voiceover script
-- **On-Screen Text:** Overlay text for Remotion
+- **On-Screen Text:** Overlay text for HyperFrames
 - **Actions:** User interactions in the recording
 - **Technical Notes:** Implementation notes for overlays
 
@@ -312,34 +312,34 @@ aoc-rlm chunk --pattern "src/**/*.rs"
 
 ---
 
-## ACT IV: MoreMotion Integration (3:15-4:05)
+## ACT IV: HyperFrames Integration (3:15-4:05)
 
-### Scene 13: MoreMotion Intro (3:15-3:25)
+### Scene 13: HyperFrames Intro (3:15-3:25)
 **Duration:** 10 seconds
 
 **Recording:**
-- Switch to a Remotion repo terminal
+- Switch to a HyperFrames workspace terminal
 
-**Narration:** *"MoreMotion plugs into AOC to accelerate animation workflows."*
+**Narration:** *"HyperFrames plugs into AOC to let agents author videos directly with HTML, CSS, and GSAP."*
 
 **On-Screen Text:**
-- "MoreMotion: AOC + Remotion"
+- "HyperFrames: AOC + agent video"
 
 ---
 
-### Scene 14: MoreMotion Init + Prompt (3:25-3:55)
+### Scene 14: HyperFrames Init + Preset (3:25-3:55)
 **Duration:** 30 seconds
 
 **Recording:**
-- Run `aoc-momo init`
-- Show `.pi/prompts/momo.md`
-- Use `/momo` with a short prompt
+- Run `aoc-hyperframes init`
+- Show `.pi/prompts/hyperframes.md` and `.pi/skills/hyperframes/`
+- Use `Alt+X -> HyperFrames -> compose` with a short prompt
 
-**Narration:** *"Initialize MoreMotion, then use the PI momo prompt for animation guidance."*
+**Narration:** *"Initialize HyperFrames, start the preview pane, then use the HyperFrames preset for video authoring."*
 
 **On-Screen Text:**
 ```
-/momo
+Alt+X -> HyperFrames -> compose
 ```
 
 **Actions:**
@@ -360,13 +360,13 @@ aoc-rlm chunk --pattern "src/**/*.rs"
 - Return to the AOC full layout
 - Hold on a clean shot
 
-**Narration:** *"AOC unifies context, memory, tasks, and tools. MoreMotion extends the workflow into animation. Launch it, use it, and keep momentum."*
+**Narration:** *"AOC unifies context, memory, tasks, and tools. HyperFrames extends the workflow into agent-authored video. Launch it, use it, and keep momentum."*
 
 **On-Screen Text:**
 ```
 Context + Memory + Tasks
 Multi-agent workflow
-MoreMotion for animation
+HyperFrames for video
 ```
 
 **Actions:**
@@ -382,7 +382,7 @@ MoreMotion for animation
 - Pause after key actions to allow overlay readability
 - Avoid fast scrolling
 
-### Remotion Overlay Guidelines
+### HyperFrames Overlay Guidelines
 - Labels and keybind callouts should appear for 1.5-2s
 - Use the AOC palette for callouts (blue, green, orange, purple)
 - Prefer light overlays over the recording; avoid blocking key UI
@@ -397,18 +397,18 @@ MoreMotion for animation
 
 ### Recordings
 - AOC session recording (agent-ops-cockpit repo)
-- MoreMotion session recording (Remotion repo)
+- HyperFrames session recording (HyperFrames workspace)
 
 ### Overlays
 - Pane labels
 - Keybind callouts
-- MoreMotion callouts
+- HyperFrames callouts
 
 ---
 
 ## Version History
 
-- **v2.0** (2026-02-04) - Shift to real screen recording and add MoreMotion integration
+- **v2.0** (2026-02-04) - Shift to real screen recording and add HyperFrames integration
 
 ---
 

@@ -197,17 +197,6 @@ Run `aoc-hyperframes init` in a host repo to seed:
 
 Use `Alt+X -> HyperFrames` for agent video authoring. Keep GSAP scoped to HyperFrames video work; Anime.js remains for frontend/site motion.
 
-## MoreMotion (legacy optional)
-
-Run `aoc-momo init` in a host repo to seed:
-
-```
-.pi/skills/moremotion/
-.pi/prompts/momo.md
-```
-
-Use `/momo` for Remotion animation work.
-
 ## PI-only release operations
 
 Use `docs/pi-only-rollout-checklist.md` for release closeout and post-release checks.

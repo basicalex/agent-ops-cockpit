@@ -16,7 +16,7 @@ Main areas currently exposed through the control pane include:
 - Agent Browser + Search
 - AOC Map microsite
 - Vercel CLI
-- MoreMotion
+- HyperFrames
 
 ## Navigation model
 

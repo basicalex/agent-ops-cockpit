@@ -1,0 +1,219 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+usage() {
+  cat <<'EOF'
+Usage: aoc-hyperframes <command> [options]
+
+Commands:
+  init          Initialize HyperFrames integration in a repo
+  sync-skills   Seed/sync HyperFrames PI skills and prompt only
+  doctor        Check Node/FFmpeg and run HyperFrames doctor when possible
+
+Init options:
+  --root PATH       Project root (defaults to nearest .aoc or .git)
+  --dir NAME        Target HyperFrames workspace directory (default: hyperframes)
+  --tracked         Do not add the workspace directory to .gitignore
+  --update          Re-run skill/prompt sync and skip init if workspace exists
+  --quiet           Suppress non-error output
+  -h, --help        Show this help
+EOF
+}
+
+command="${1:-init}"
+if [[ "$command" == -* ]]; then
+  command="init"
+else
+  shift || true
+fi
+
+root=""
+target_dir="${AOC_HYPERFRAMES_DIR:-hyperframes}"
+tracked="${AOC_HYPERFRAMES_TRACK_WORKSPACE:-0}"
+update=0
+quiet=0
+
+log() { [[ "$quiet" == "1" ]] || echo ">> $1"; }
+warn() { echo "!! $1" >&2; }
+
+find_root() {
+  if [[ -n "$root" ]]; then
+    [[ -d "$root" ]] && (cd "$root" && pwd -P) && return 0
+    return 1
+  fi
+  local probe="$PWD"
+  while [[ -n "$probe" && "$probe" != "/" ]]; do
+    if [[ -d "$probe/.aoc" || -d "$probe/.git" ]]; then
+      (cd "$probe" && pwd -P)
+      return 0
+    fi
+    probe="$(dirname "$probe")"
+  done
+  pwd -P
+}
+
+ensure_aoc() {
+  if [[ -d "$root/.aoc" ]]; then return 0; fi
+  local script_dir
+  script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+  if [[ -x "$script_dir/aoc-init" ]]; then
+    log "Running aoc-init..."
+    (cd "$root" && "$script_dir/aoc-init")
+  elif command -v aoc-init >/dev/null 2>&1; then
+    log "Running aoc-init..."
+    (cd "$root" && aoc-init)
+  else
+    warn "aoc-init not found. Please run it before aoc-hyperframes."
+    exit 1
+  fi
+}
+
+node_major() {
+  command -v node >/dev/null 2>&1 || return 1
+  node -p 'process.versions.node.split(".")[0]' 2>/dev/null
+}
+
+check_toolchain() {
+  local major=""
+  major="$(node_major || true)"
+  if [[ -z "$major" ]]; then
+    warn "Node.js not found; HyperFrames requires Node.js >= 22."
+    return 1
+  fi
+  if (( major < 22 )); then
+    warn "Node.js >= 22 required; found $(node -v)."
+    return 1
+  fi
+  if ! command -v ffmpeg >/dev/null 2>&1; then
+    warn "FFmpeg not found; HyperFrames rendering requires ffmpeg."
+    return 1
+  fi
+  return 0
+}
+
+copy_optional_dir() {
+  local name="$1"
+  local dest="$root/.pi/skills/$name"
+  local script_dir config_dir source_dir
+  script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+  config_dir="${XDG_CONFIG_HOME:-$HOME/.config}/aoc"
+  source_dir=""
+  if [[ -d "$config_dir/skills-optional/$name" ]]; then
+    source_dir="$config_dir/skills-optional/$name"
+  elif [[ -d "$script_dir/../.aoc/skills-optional/$name" ]]; then
+    source_dir="$script_dir/../.aoc/skills-optional/$name"
+  fi
+  if [[ -z "$source_dir" ]]; then
+    warn "No HyperFrames skill template found for $name."
+    return 0
+  fi
+  rm -rf "$dest"
+  mkdir -p "$root/.pi/skills"
+  cp -R "$source_dir" "$dest"
+  log "Synced PI skill: $name"
+}
+
+seed_skills() {
+  copy_optional_dir hyperframes
+  copy_optional_dir hyperframes-cli
+  copy_optional_dir website-to-hyperframes
+  copy_optional_dir gsap
+}
+
+seed_prompt() {
+  local dest_dir="$root/.pi/prompts"
+  local dest="$dest_dir/hyperframes.md"
+  local script_dir config_dir source_file
+  script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+  config_dir="${XDG_CONFIG_HOME:-$HOME/.config}/aoc"
+  source_file=""
+  if [[ -f "$config_dir/prompts-optional/pi/hyperframes.md" ]]; then
+    source_file="$config_dir/prompts-optional/pi/hyperframes.md"
+  elif [[ -f "$script_dir/../.aoc/prompts-optional/pi/hyperframes.md" ]]; then
+    source_file="$script_dir/../.aoc/prompts-optional/pi/hyperframes.md"
+  fi
+  if [[ -z "$source_file" ]]; then
+    warn "No PI hyperframes prompt template found."
+    return 0
+  fi
+  mkdir -p "$dest_dir"
+  cp "$source_file" "$dest"
+  log "Synced PI prompt: /hyperframes"
+}
+
+sync_skills() {
+  local script_dir
+  script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+  if [[ -x "$script_dir/aoc-skill" ]]; then
+    (cd "$root" && "$script_dir/aoc-skill" validate --root "$root" || true)
+    (cd "$root" && "$script_dir/aoc-skill" sync --active --root "$root" || true)
+  elif command -v aoc-skill >/dev/null 2>&1; then
+    (cd "$root" && aoc-skill validate --root "$root" || true)
+    (cd "$root" && aoc-skill sync --active --root "$root" || true)
+  fi
+}
+
+ensure_gitignore() {
+  [[ "$tracked" == "1" ]] && return 0
+  local ignore_file="$root/.gitignore" entry="$target_dir/"
+  if [[ -f "$ignore_file" ]] && grep -Fqx "$entry" "$ignore_file"; then return 0; fi
+  printf '%s\n' "$entry" >> "$ignore_file"
+  log "Added $entry to .gitignore"
+}
+
+init_workspace() {
+  local dest="$root/$target_dir"
+  if [[ -d "$dest" ]]; then
+    log "HyperFrames workspace already exists: $target_dir"
+    return 0
+  fi
+  check_toolchain || warn "Continuing after toolchain warning; install requirements before rendering."
+  log "Initializing HyperFrames workspace in $target_dir"
+  (cd "$root" && npx hyperframes init "$target_dir" --non-interactive)
+}
+
+run_doctor() {
+  check_toolchain || true
+  if [[ -d "$root/$target_dir" ]]; then
+    (cd "$root/$target_dir" && npx hyperframes doctor) || true
+  else
+    (cd "$root" && npx hyperframes doctor) || true
+  fi
+}
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --root) shift; root="$1" ;;
+    --dir) shift; target_dir="$1" ;;
+    --tracked) tracked=1 ;;
+    --update) update=1 ;;
+    --quiet) quiet=1 ;;
+    -h|--help) usage; exit 0 ;;
+    *) warn "Unknown option: $1"; usage; exit 1 ;;
+  esac
+  shift || true
+done
+
+root="$(find_root)"
+ensure_aoc
+
+case "$command" in
+  init)
+    init_workspace
+    ensure_gitignore
+    seed_skills
+    seed_prompt
+    sync_skills
+    log "HyperFrames integration ready. Use Alt+X -> HyperFrames."
+    ;;
+  sync-skills)
+    seed_skills
+    seed_prompt
+    sync_skills
+    log "HyperFrames skills synced."
+    ;;
+  doctor)
+    run_doctor
+    ;;
+  *) usage; exit 1 ;;
+esac

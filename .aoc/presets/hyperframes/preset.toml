@@ -1,0 +1,52 @@
+id = "hyperframes"
+label = "HyperFrames"
+layout = "design"
+defaultMode = "compose"
+version = 1
+
+[runtime]
+controller = "aoc-presets"
+statusBadge = "VIDEO"
+persistSessionState = true
+
+[activation]
+envPreset = "hyperframes"
+envMode = "compose"
+
+[components]
+core = ["core"]
+default = ["core", "mode-compose"]
+
+[components.modes]
+compose = ["core", "mode-compose"]
+site = ["core", "mode-site"]
+cli = ["core", "mode-cli"]
+review = ["core", "mode-review"]
+
+[commands]
+enable = ["hyperframes-director"]
+disable = ["hyperframes-off"]
+
+[skills]
+active = ["hyperframes"]
+recommended = []
+
+[skills.recommendedByMode]
+compose = ["hyperframes", "gsap"]
+site = ["website-to-hyperframes", "hyperframes", "hyperframes-cli", "gsap"]
+cli = ["hyperframes-cli"]
+review = ["hyperframes", "hyperframes-cli", "gsap"]
+
+[handoff]
+enabled = true
+
+[handoff.modeNotes]
+compose = "Preserve video intent, composition structure, timing, aspect ratio, media dependencies, caption/TTS requirements, transition plan, and render constraints."
+site = "Preserve captured site summary, brand/design cues, assets, script, storyboard, timing, and validation status."
+cli = "Preserve exact workspace path, CLI commands run, lint/doctor output, preview URL, render settings, and errors."
+review = "Preserve composition IDs, lint findings, visual issues, timing conflicts, media dependencies, and recommended fixes."
+
+[integrations.mind]
+policy = "separate"
+available = true
+default = "off"
