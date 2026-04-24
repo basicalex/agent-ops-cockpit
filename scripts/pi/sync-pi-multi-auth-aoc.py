@@ -6,7 +6,8 @@ import sys
 
 SOURCE = Path.home() / ".local/share/mise/installs/node/24.11.0/lib/node_modules/pi-multi-auth"
 TARGET = Path(__file__).resolve().parents[2] / ".pi/packages/pi-multi-auth-aoc"
-COPY_NAMES = ["index.ts", "package.json", "README.md", "CHANGELOG.md", "LICENSE", "config.json", "src"]
+COPY_NAMES = ["index.ts", "package.json", "README.md", "CHANGELOG.md", "LICENSE", "config.json", "src", "scripts"]
+MUTABLE_DIR_NAMES = ["debug"]
 
 
 def patch_package_json(path: Path) -> None:
@@ -54,6 +55,8 @@ def main() -> int:
 
     patch_package_json(TARGET / "package.json")
     patch_readme(TARGET / "README.md")
+    for name in MUTABLE_DIR_NAMES:
+        shutil.rmtree(TARGET / name, ignore_errors=True)
     (TARGET / ".aoc-managed").write_text("AOC managed package seed. aoc-init may refresh this directory.\n")
     print(f"synced {TARGET}")
     return 0
