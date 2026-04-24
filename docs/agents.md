@@ -48,6 +48,8 @@ AOC now guarantees the baseline PI extensions are present after `aoc-init`:
 
 PI auto-discovers `.pi/extensions/*.ts`, so seeded defaults are active after session start (`/reload` if already running).
 
+`aoc-handshake --json` is the canonical metadata-only startup packet for agents. It reports AOC/Taskmaster/Mind availability and Mind usage policy, but intentionally does **not** include broad Mind memories. Agents should use Mind context commands only after intent is known: resume/continuation, prior decisions, task/PRD grounding, previous debug attempts, provenance/audit, or insufficient local inspection. Ingestion can happen eagerly; retrieval stays lazy and focused.
+
 `aoc-init` seeds a vendored local PI package at `.pi/packages/pi-multi-auth-aoc` and wires `.pi/settings.json` to load it by path only when the package is actually available, so Codex/OpenRouter multi-auth rotation is part of the baseline AOC environment without relying on a global npm package. Pi now owns the native OpenRouter provider/catalog surface, while the vendored multi-auth package wraps `openrouter` for credential storage, TUI account management, and rotation/failover. The `aoc-models.ts` shim only migrates legacy AOC-managed OpenRouter bridge state out of `~/.pi/agent/models.json` when detected.
 
 `aoc-init` also writes `.aoc/init-state.json` with the current AOC project version and applies version-specific migrations when an older repo is repaired. This is the canonical place to inspect the last initialized AOC project version and migration history.
@@ -181,7 +183,21 @@ bash scripts/pi/test-aoc-init-pi-first.sh
 bash scripts/pi/test-pi-only-agent-surface.sh
 ```
 
-## MoreMotion (optional)
+## HyperFrames (optional video)
+
+Run `aoc-hyperframes init` in a host repo to seed:
+
+```
+.pi/skills/hyperframes/
+.pi/skills/hyperframes-cli/
+.pi/skills/website-to-hyperframes/
+.pi/skills/gsap/
+.pi/prompts/hyperframes.md
+```
+
+Use `Alt+X -> HyperFrames` for agent video authoring. Keep GSAP scoped to HyperFrames video work; Anime.js remains for frontend/site motion.
+
+## MoreMotion (legacy optional)
 
 Run `aoc-momo init` in a host repo to seed:
 
