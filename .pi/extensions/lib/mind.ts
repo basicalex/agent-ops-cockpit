@@ -1,7 +1,6 @@
 import type { ExtensionContext } from "@mariozechner/pi-coding-agent";
 import * as fs from "node:fs";
 import { spawnSync } from "node:child_process";
-import { homedir } from "node:os";
 import { basename, join } from "node:path";
 
 export type MindStatus = "idle" | "queued" | "running" | "success" | "fallback" | "error";
@@ -206,66 +205,20 @@ function applyStandaloneSyncSuccess(command: string, note: string, progress?: Mi
 	clearError();
 }
 
-type MindServiceLaunchSpec = {
-	serviceBin?: string;
-	cargoManifest?: string;
-	sourceRoot?: string;
-};
-
-function readMindServiceLaunchConfig(path: string): MindServiceLaunchSpec | undefined {
-	if (!path || !fs.existsSync(path)) return undefined;
-	try {
-		const parsed = JSON.parse(fs.readFileSync(path, "utf8")) as Record<string, unknown>;
-		const serviceBin = typeof parsed.serviceBin === "string" ? parsed.serviceBin.trim() : "";
-		const cargoManifest = typeof parsed.cargoManifest === "string" ? parsed.cargoManifest.trim() : "";
-		const sourceRoot = typeof parsed.sourceRoot === "string" ? parsed.sourceRoot.trim() : "";
-		return { serviceBin: serviceBin || undefined, cargoManifest: cargoManifest || undefined, sourceRoot: sourceRoot || undefined };
-	} catch {
-		return undefined;
-	}
-}
-
-function isRunnableCommand(candidate: string | undefined): boolean {
-	if (!candidate) return false;
-	if (candidate.includes("/") || candidate.includes("\\")) return fs.existsSync(candidate);
-	return true;
-}
-
-function resolveMindServiceLaunchSpec(projectRoot: string): MindServiceLaunchSpec {
-	const projectConfig = readMindServiceLaunchConfig(join(projectRoot, ".aoc", "mind-service.json"));
-	const globalConfig = readMindServiceLaunchConfig(join(homedir(), ".config", "aoc", "mind-service.json"));
-	const envServiceBin = process.env.AOC_MIND_SERVICE_BIN?.trim() || undefined;
-	const envCargoManifest = process.env.AOC_MIND_CARGO_MANIFEST?.trim() || undefined;
-	const envSourceRoot = process.env.AOC_MIND_SOURCE_ROOT?.trim() || undefined;
-	const cargoManifest = [
-		envCargoManifest,
-		envSourceRoot ? join(envSourceRoot, "crates", "Cargo.toml") : undefined,
-		projectConfig?.cargoManifest,
-		projectConfig?.sourceRoot ? join(projectConfig.sourceRoot, "crates", "Cargo.toml") : undefined,
-		globalConfig?.cargoManifest,
-		globalConfig?.sourceRoot ? join(globalConfig.sourceRoot, "crates", "Cargo.toml") : undefined,
-		join(projectRoot, "crates", "Cargo.toml"),
-	].find((candidate) => !!candidate && fs.existsSync(candidate));
-	const serviceBin = [envServiceBin, projectConfig?.serviceBin, globalConfig?.serviceBin].find((candidate) => isRunnableCommand(candidate));
-	return { serviceBin, cargoManifest, sourceRoot: envSourceRoot || projectConfig?.sourceRoot || globalConfig?.sourceRoot };
-}
-
 function runMindServiceJson(
 	ctx: ExtensionContext,
 	args: string[],
 	timeoutMs: number,
 ): { ok: boolean; parsed?: any; error?: string } {
 	const projectRoot = resolveProjectRoot(ctx);
-	const launchSpec = resolveMindServiceLaunchSpec(projectRoot);
-	const cargoManifest = launchSpec.cargoManifest;
-	const tryInstalled = spawnSync(launchSpec.serviceBin || "aoc-mind-service", args, {
+	const cargoManifest = join(projectRoot, "crates", "Cargo.toml");
+	const tryInstalled = spawnSync("aoc-mind-service", args, {
 		encoding: "utf8",
 		env: process.env,
 		timeout: timeoutMs,
 	});
-	let result = tryInstalled;
-	if (tryInstalled.error && cargoManifest) {
-		result = spawnSync("cargo", [
+	const result = tryInstalled.error && fs.existsSync(cargoManifest)
+		? spawnSync("cargo", [
 			"run",
 			"--quiet",
 			"--manifest-path",
@@ -280,12 +233,9 @@ function runMindServiceJson(
 			encoding: "utf8",
 			env: process.env,
 			timeout: Math.max(timeoutMs, STANDALONE_SYNC_CARGO_TIMEOUT_MS),
-		});
-	}
+		})
+		: tryInstalled;
 	if (result.error) {
-		if ((result.error as NodeJS.ErrnoException).code === "ENOENT" && !cargoManifest) {
-			return { ok: false, error: "mind service unavailable: install aoc-mind-service or set AOC_MIND_SERVICE_BIN / AOC_MIND_CARGO_MANIFEST" };
-		}
 		return { ok: false, error: `mind service failed: ${result.error.message}` };
 	}
 	const stdout = String(result.stdout || "").trim();
