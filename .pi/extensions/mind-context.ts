@@ -16,25 +16,23 @@ async function showPack(ctx: any, mode: string, detail: boolean, role = "operato
 
 export default function (pi: ExtensionAPI) {
 	pi.registerCommand("mind-pack", {
-		description: "Render a focused/intent-bound Mind context pack; do not use as startup priming",
+		description: "Render a compact Mind context pack for the current project/session",
 		handler: async (args, ctx) => {
 			const mode = args?.[0] || "handoff";
-			const reason = args?.slice(1).join(" ").trim() || `pi /mind-pack ${String(mode)}`;
-			await showPack(ctx, String(mode), false, "operator", reason);
+			await showPack(ctx, String(mode), false, "operator", `pi /mind-pack ${String(mode)}`);
 		},
 	});
 
 	pi.registerCommand("mind-pack-expanded", {
-		description: "Render expanded Mind context only for explicit resume/audit/debug intent",
+		description: "Render an expanded Mind context pack for the current project/session",
 		handler: async (args, ctx) => {
 			const mode = args?.[0] || "handoff";
-			const reason = args?.slice(1).join(" ").trim() || `pi /mind-pack-expanded ${String(mode)}`;
-			await showPack(ctx, String(mode), true, "operator", reason);
+			await showPack(ctx, String(mode), true, "operator", `pi /mind-pack-expanded ${String(mode)}`);
 		},
 	});
 
 	pi.registerCommand("mind-resume", {
-		description: "Load compact resume context after explicit continuation/resume intent",
+		description: "Load the compact resume context pack for the current project/session",
 		handler: async (_args, ctx) => {
 			await showPack(ctx, "resume", false, "operator", "pi /mind-resume");
 		},

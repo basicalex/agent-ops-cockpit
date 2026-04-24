@@ -129,6 +129,7 @@ Defined across the native Pi Mind extension stack:
 - `.pi/extensions/mind-context.ts`
   - `/mind-pack`
   - `/mind-pack-expanded`
+  - `/mind-resume`
 - `.pi/extensions/mind-focus.ts`
   - `/mind-focus`
 - notification strings include:
