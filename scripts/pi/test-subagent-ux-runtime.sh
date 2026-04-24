@@ -50,6 +50,9 @@ for needle in [
         raise SystemExit(f'artifact report step-results support missing: {needle}')
 
 manifest_block = block(manifests_src, 'loadManifestBundle')
+if 'export function agentAvailability(root: string, agent: AgentConfig): AgentAvailability {' not in manifests_src:
+    raise SystemExit('agentAvailability must be exported for subagent extension runtime use')
+
 for needle in [
     'const key = manifestCacheKey(root);',
     'const cached = manifestCache.get(root);',
@@ -76,6 +79,7 @@ for needle in [
 
 spawn_block = block(extension_src, 'spawnDetachedStep')
 for needle in [
+    'if (agent.model) args.push("--model", agent.model);',
     'const enriched = persistArtifactBundle(root, currentBeforeSpawn, { prompt: task, agent });',
     'AOC_SUBAGENT_PARENT_JOB_ID: currentDelegatedParentJobId() ?? "",',
     'AOC_SUBAGENT_DEPTH: String(currentSubagentNestingDepth() + 1),',

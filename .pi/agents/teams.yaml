@@ -1,10 +1,12 @@
 insight-core:
   - insight-t1-observer
   - insight-t2-reflector
+  - insight-t3-aligner
 
 insight-bootstrap:
   - insight-t1-observer
   - insight-t2-reflector
+  - insight-t3-aligner
 
 specialist-core:
   - explorer-agent

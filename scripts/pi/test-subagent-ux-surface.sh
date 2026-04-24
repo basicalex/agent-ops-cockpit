@@ -45,7 +45,7 @@ do
 done
 
 assert_contains "$extension" 'import { persistArtifactBundle as persistArtifactBundleImpl'
-assert_contains "$extension" 'import { availableAgents, availableChains, availableTeams, assertAgentAvailable, assertChainAvailable, assertTeamAvailable, loadManifestBundle }'
+assert_contains "$extension" 'import { agentAvailability, availableAgents, availableChains, availableTeams, assertAgentAvailable, assertChainAvailable, assertTeamAvailable, loadManifestBundle }'
 assert_contains "$extension" 'import {'
 assert_contains "$extension" 'from "./subagent/registry.ts";'
 assert_contains "$extension" 'async function launchAgentJob('
@@ -125,6 +125,7 @@ assert_contains "$artifacts" 'job: helpers.snapshotJob(enriched),'
 assert_contains "$artifacts" 'fail open: artifact persistence should not break detached execution or recovery'
 
 assert_contains "$manifests" 'const manifestCache = new Map<string, { key: string; bundle: ManifestBundle }>();'
+assert_contains "$manifests" 'export function agentAvailability(root: string, agent: AgentConfig): AgentAvailability {'
 assert_contains "$manifests" 'function manifestCacheKey(root: string): string {'
 assert_contains "$manifests" 'if (cached && cached.key === key) return cached.bundle;'
 assert_contains "$manifests" 'manifestCache.set(root, { key, bundle });'
@@ -160,6 +161,8 @@ assert_contains "$doc" 'delegated launches only support a fresh detached session
 assert_contains "$doc" 'nested delegated dispatch from inside an already-detached delegated run is blocked'
 assert_contains "$doc" 'supports `f` in the recent tab to jump directly to the latest attention-needed run'
 assert_contains "$doc" 'delegated plane preselected'
+assert_contains "$doc" 'Provider-qualified model pins'
+assert_contains "$doc" 'model: openai-codex/gpt-5.4-mini'
 assert_contains "$mission_doc" 'aoc-subagent-supervision-toggle'
 assert_contains "$mission_ops_doc" 'Delegated subagent supervision fast path'
 assert_contains "$mission_ops_doc" 'Subagent Supervision'

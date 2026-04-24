@@ -14,6 +14,16 @@ insight-bootstrap-gap-analysis:
     - agent: insight-t2-reflector
       prompt: "Generate reflection, Taskmaster projection, and T2 seeds from this gap evidence: $INPUT"
 
+insight-project-alignment:
+  description: "T1 observation, T2 synthesis, then T3 project-level alignment"
+  steps:
+    - agent: insight-t1-observer
+      prompt: "Run T1 observation for this project alignment scope with evidence: $INPUT"
+    - agent: insight-t2-reflector
+      prompt: "Synthesize T2 reflection from this T1 output and identify strategic signals: $INPUT"
+    - agent: insight-t3-aligner
+      prompt: "Produce a T3 project alignment report from this T2 reflection and the original scope: $INPUT"
+
 specialist-recon-review:
   description: "Explore the relevant code surface first, then perform a bounded code review on the discovered hotspots"
   steps:
