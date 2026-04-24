@@ -100,6 +100,15 @@ function parseChainsYaml(contents: string): Record<string, ChainDefinition> {
 	return chains;
 }
 
+function validateModelPin(agent: AgentConfig): string | undefined {
+	if (!agent.model) return undefined;
+	const model = agent.model.trim();
+	if (!model.includes("/")) {
+		return `agent ${agent.name} has unqualified model pin ${model}; use provider/model for detached reliability`;
+	}
+	return undefined;
+}
+
 function commandAvailable(command: string, args: string[]): boolean {
 	try {
 		const result = spawnSync(command, args, {
@@ -186,6 +195,11 @@ export function loadManifestBundle(root: string): ManifestBundle {
 	const teams = fs.existsSync(teamsFile) ? parseTeamsYaml(fs.readFileSync(teamsFile, "utf8")) : {};
 	const chains = fs.existsSync(chainFile) ? parseChainsYaml(fs.readFileSync(chainFile, "utf8")) : {};
 	const agentNames = new Set(agents.map((agent) => agent.name));
+
+	for (const agent of agents) {
+		const modelPinError = validateModelPin(agent);
+		if (modelPinError) validationErrors.push(modelPinError);
+	}
 
 	for (const [team, members] of Object.entries(teams)) {
 		for (const member of members) {

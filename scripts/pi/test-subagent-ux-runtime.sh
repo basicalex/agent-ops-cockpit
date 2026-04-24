@@ -62,6 +62,14 @@ if 'export function agentAvailability(root: string, agent: AgentConfig): AgentAv
     raise SystemExit('agentAvailability must be exported for subagent extension runtime use')
 
 for needle in [
+    'function validateModelPin(agent: AgentConfig): string | undefined {',
+    'has unqualified model pin',
+    'use provider/model for detached reliability',
+]:
+    if needle not in manifests_src:
+        raise SystemExit(f'manifest model-pin validation missing: {needle}')
+
+for needle in [
     'const key = manifestCacheKey(root);',
     'const cached = manifestCache.get(root);',
     'if (cached && cached.key === key) return cached.bundle;',
