@@ -128,7 +128,7 @@ assert_exists "$project_fresh/.aoc/context.md"
 assert_exists "$project_fresh/.aoc/memory.md"
 assert_exists "$project_fresh/.aoc/stm/current.md"
 assert_exists "$project_fresh/.aoc/init-state.json"
-assert_contains '"projectAocVersion": 1' "$project_fresh/.aoc/init-state.json"
+assert_contains '"projectAocVersion": 2' "$project_fresh/.aoc/init-state.json"
 assert_exists "$project_fresh/.pi/settings.json"
 assert_exists "$project_fresh/.pi/packages/pi-multi-auth-aoc/package.json"
 assert_exists "$project_fresh/.pi/packages/pi-multi-auth-aoc/.aoc-managed"
@@ -159,6 +159,7 @@ assert_exists "$project_fresh/.pi/extensions/mind-context.ts"
 assert_exists "$project_fresh/.pi/extensions/mind-focus.ts"
 assert_exists "$project_fresh/.pi/extensions/aoc-models.ts"
 assert_exists "$project_fresh/.pi/extensions/lib/mind.ts"
+assert_exists "$project_fresh/.pi/extensions/lib/caveman.ts"
 assert_not_exists "$project_fresh/.pi/extensions/alibaba-model-studio.ts"
 assert_exists "$HOME/.config/zellij/plugins/zjstatus-aoc.wasm"
 
@@ -177,9 +178,14 @@ assert_exists "$HOME/.config/zellij/plugins/zjstatus-aoc.wasm"
 install_count="$(grep -c 'pi-multi-auth' "$AOC_PI_TEST_INSTALL_LOG" 2>/dev/null || true)"
 [[ "$install_count" -eq 0 ]] || fail "Expected no global pi-multi-auth install attempts, got $install_count"
 
-# --- Managed extension refresh flow (stale global/project template upgraded) ---
+# --- Managed extension/preset/skill refresh flow (stale project copies upgraded) ---
 project_refresh="$tmp_root/refresh"
-mkdir -p "$project_refresh/.git" "$project_refresh/.pi/extensions"
+mkdir -p "$project_refresh/.git" \
+  "$project_refresh/.pi/extensions/aoc-presets" \
+  "$project_refresh/.pi/extensions/lib" \
+  "$project_refresh/.pi/skills/design-director" \
+  "$project_refresh/.aoc/presets/design/components" \
+  "$project_refresh/.aoc/layouts"
 mkdir -p "$XDG_CONFIG_HOME/aoc/pi/extensions"
 
 cat > "$XDG_CONFIG_HOME/aoc/pi/extensions/minimal.ts" <<'EOF'
@@ -190,10 +196,45 @@ cat > "$project_refresh/.pi/extensions/minimal.ts" <<'EOF'
 // stale minimal template
 export default {};
 EOF
+cat > "$project_refresh/.pi/extensions/aoc-presets/commands.ts" <<'EOF'
+// stale preset runtime
+export default {};
+EOF
+cat > "$project_refresh/.pi/extensions/lib/caveman.ts" <<'EOF'
+// stale caveman shared runtime
+export const stale = true;
+EOF
+cat > "$project_refresh/.pi/skills/design-director/SKILL.md" <<'EOF'
+---
+name: design-director
+description: stale design skill
+---
+EOF
+cat > "$project_refresh/.aoc/presets/design/preset.toml" <<'EOF'
+id = "design"
+label = "Stale Design"
+EOF
+cat > "$project_refresh/.aoc/presets/design/components/mode-critique.md" <<'EOF'
+stale preset component
+EOF
+cat > "$project_refresh/.aoc/layouts/design.kdl" <<'EOF'
+layout {
+  pane
+}
+EOF
 
 refresh_log="$tmp_root/refresh-init.log"
 run_init "$project_refresh" "$refresh_log"
 assert_same_file "$repo_root/.pi/extensions/minimal.ts" "$project_refresh/.pi/extensions/minimal.ts"
+assert_same_file "$repo_root/.pi/extensions/aoc-presets/commands.ts" "$project_refresh/.pi/extensions/aoc-presets/commands.ts"
+assert_same_file "$repo_root/.pi/extensions/lib/caveman.ts" "$project_refresh/.pi/extensions/lib/caveman.ts"
+assert_same_file "$repo_root/.pi/skills/design-director/SKILL.md" "$project_refresh/.pi/skills/design-director/SKILL.md"
+assert_same_file "$repo_root/.aoc/presets/design/preset.toml" "$project_refresh/.aoc/presets/design/preset.toml"
+assert_same_file "$repo_root/.aoc/presets/design/components/mode-critique.md" "$project_refresh/.aoc/presets/design/components/mode-critique.md"
+assert_same_file "$repo_root/.aoc/layouts/design.kdl" "$project_refresh/.aoc/layouts/design.kdl"
+assert_contains "Refreshed managed PI extension family: aoc-presets" "$refresh_log"
+assert_contains "Refreshed managed AOC preset assets: design" "$refresh_log"
+assert_contains "Refreshed managed AOC layout: design" "$refresh_log"
 
 # --- Existing PI settings remain authoritative when already customized ---
 project_settings="$tmp_root/settings-preserve"
@@ -342,7 +383,7 @@ EOF
 versioned_log_1="$tmp_root/versioned-init-1.log"
 run_installed_init "$installed_aoc_init" "$project_versioned" "$versioned_log_1"
 assert_exists "$project_versioned/.pi/packages/pi-multi-auth-aoc/package.json"
-assert_contains '"projectAocVersion": 1' "$project_versioned/.aoc/init-state.json"
+assert_contains '"projectAocVersion": 2' "$project_versioned/.aoc/init-state.json"
 assert_contains '"available": true' "$project_versioned/.aoc/init-state.json"
 assert_contains "Applying AOC project migration v1: initialize versioned state and repair PI runtime package wiring." "$versioned_log_1"
 
@@ -355,7 +396,7 @@ fi
 status_log="$tmp_root/status.log"
 bash "$aoc_init_bin" --status "$project_versioned" >"$status_log" 2>&1
 assert_contains 'AOC Init Status' "$status_log"
-assert_contains 'project_aoc_version: 1' "$status_log"
+assert_contains 'project_aoc_version: 2' "$status_log"
 assert_contains 'pi_runtime_status: ok' "$status_log"
 assert_contains 'pi_multi_auth_package: present' "$status_log"
 
