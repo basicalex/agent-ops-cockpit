@@ -1,13 +1,13 @@
 {
   "extensions": [],
   "skills": [
-    "!skills/design-*",
-    "!skills/motion-director",
-    "!skills/animejs-*",
     "!skills/hyperframes",
     "!skills/hyperframes-cli",
     "!skills/website-to-hyperframes",
-    "!skills/gsap"
+    "!skills/gsap",
+    "!skills/design-*",
+    "!skills/motion-director",
+    "!skills/animejs-*"
   ],
   "packages": [
     "./packages/pi-multi-auth-aoc"
