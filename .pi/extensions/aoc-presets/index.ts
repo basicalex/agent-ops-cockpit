@@ -53,14 +53,21 @@ export default function (pi: ExtensionAPI) {
   function renderWidget(ctx: any): void {
     lastCtx = ctx;
     const caveman = formatCavemanBadge(readCurrentCavemanLevel(ctx));
+    const presetLabel = activeState.preset
+      ? `${activeState.preset}${activeState.mode ? `/${activeState.mode}` : ""}${activeState.submode ? `/${activeState.submode}` : ""}`
+      : "off";
+    const activeSkills = activeState.activeSkills?.length ? activeState.activeSkills.join(",") : "none";
+    const recommendedSkills = activeState.recommendedSkills?.filter((skill) => !(activeState.activeSkills ?? []).includes(skill)) ?? [];
+    const recommended = recommendedSkills.length ? ` · +${recommendedSkills.join(",")}` : "";
     const primary = activeState.preset
-      ? `Preset ${activeState.preset}${activeState.mode ? `/${activeState.mode}` : ""}${activeState.submode ? `/${activeState.submode}` : ""}`
-      : "Preset off";
-    const detailLines = activeState.preset ? [
-      `Active skills: ${activeState.activeSkills?.join(", ") || "none"}`,
-      `Recommended skills: ${activeState.recommendedSkills?.join(", ") || "none"}`,
+      ? `◆ ${presetLabel} · skills ${activeSkills}${recommended}`
+      : "◆ preset off";
+    const verbose = String(process.env.AOC_PRESET_WIDGET_VERBOSE || "").trim() === "1";
+    const detailLines = verbose && activeState.preset ? [
+      `Active: ${activeState.activeSkills?.join(", ") || "none"}`,
+      `Recommended: ${activeState.recommendedSkills?.join(", ") || "none"}`,
       activeState.handoff?.summary ? `Handoff: ${activeState.handoff.summary}` : "",
-      activeState.transitionHistory?.length ? `Recent switch: ${activeState.transitionHistory[activeState.transitionHistory.length - 1]}` : "",
+      activeState.transitionHistory?.length ? `Recent: ${activeState.transitionHistory[activeState.transitionHistory.length - 1]}` : "",
     ].filter(Boolean) : [];
     ctx.ui?.setWidget?.(PRESET_WIDGET_ID, (_tui: any, _theme: any) => ({
       invalidate() {},
