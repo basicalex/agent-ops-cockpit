@@ -221,7 +221,7 @@ bootstrap_asset_system() {
 
   local dirs=(
     compositions/components compositions/brand compositions/campaigns compositions/ads compositions/social compositions/landing
-    assets/brand assets/screens assets/photo assets/ui assets/audio assets/captions assets/copy
+    assets/brand assets/screens assets/photo assets/maps assets/ui assets/audio assets/captions assets/copy
     renders/brand renders/ads renders/social renders/landing renders/exports
     docs/shotlists docs/retrospectives
   )
@@ -231,6 +231,7 @@ bootstrap_asset_system() {
   done
   log "Ensured canonical HyperFrames asset folders in $target_dir"
 
+  seed_doc_template DESIGN.md docs/DESIGN.md
   seed_doc_template asset-inventory.md docs/asset-inventory.md
   seed_doc_template brand-motion-brief.md docs/brand-motion-brief.md
   seed_doc_template campaign-message-matrix.md docs/campaign-message-matrix.md
@@ -241,7 +242,8 @@ bootstrap_asset_system() {
   existing_comps="$(find "$dest/compositions" -type f 2>/dev/null | wc -l | tr -d ' ')"
   existing_renders="$(find "$dest/renders" -type f 2>/dev/null | wc -l | tr -d ' ')"
   log "Summary: assets=$existing_assets compositions=$existing_comps renders=$existing_renders"
-  log "Next: use Alt+X -> AOC HyperFrames to audit assets or create a campaign pack."
+  log "Next: fill $target_dir/docs/DESIGN.md, update asset inventory, then build reusable components before final comps."
+  log "Then use Alt+X -> AOC HyperFrames to audit assets or create a campaign pack."
 }
 
 run_doctor() {

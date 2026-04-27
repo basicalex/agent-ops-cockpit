@@ -50,6 +50,7 @@ hyperframes/
     brand/
     screens/
     photo/
+    maps/
     ui/
     audio/
     captions/
@@ -61,6 +62,7 @@ hyperframes/
     landing/
     exports/
   docs/
+    DESIGN.md
     asset-inventory.md
     brand-motion-brief.md
     campaign-message-matrix.md
@@ -71,8 +73,9 @@ hyperframes/
 
 ## Source-of-truth rules
 
+- Visual identity gate: `hyperframes/docs/DESIGN.md` must exist and be reviewed before final composition authoring.
 - Source compositions: `hyperframes/index.html`, `hyperframes/compositions/**`.
-- Reusable assets: `hyperframes/assets/brand/**`, `hyperframes/compositions/components/**`.
+- Reusable assets: `hyperframes/assets/brand/**`, `hyperframes/assets/maps/**`, `hyperframes/compositions/components/**`.
 - Campaign-specific source: `hyperframes/compositions/campaigns/**`, `ads/**`, `social/**`, `landing/**`, `assets/copy/**`, docs shotlists.
 - Generated outputs: `hyperframes/renders/**`.
 - Do not treat preview server output as a durable artifact.
@@ -92,6 +95,7 @@ Record major decisions with `aoc-mem add` when they affect reusable production r
 
 Good artifacts for Mind/project intelligence:
 
+- `hyperframes/docs/DESIGN.md`
 - `hyperframes/docs/asset-inventory.md`
 - `hyperframes/docs/brand-motion-brief.md`
 - `hyperframes/docs/campaign-message-matrix.md`
@@ -104,6 +108,7 @@ Good artifacts for Mind/project intelligence:
 
 Use templates from `templates/` when creating missing docs:
 
+- `DESIGN.md`
 - `asset-inventory.md`
 - `brand-motion-brief.md`
 - `campaign-message-matrix.md`
