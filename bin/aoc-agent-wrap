@@ -146,9 +146,9 @@ is_wrapper() {
   if [[ ! -f "$candidate" ]]; then
     return 1
   fi
-  if LC_ALL=C head -n 1 "$candidate" 2>/dev/null | grep -Fxq "#!/usr/bin/env bash"; then
+  if LC_ALL=C head -n 1 "$candidate" 2>/dev/null | /usr/bin/grep -Fxq "#!/usr/bin/env bash"; then
     # Heuristic: if it mentions "aoc-" or "tmux -L aoc-" it's likely a wrapper
-    if grep -E -q "aoc-|tmux -L aoc-" "$candidate" 2>/dev/null; then
+    if /usr/bin/grep -E -q "aoc-|tmux -L aoc-" "$candidate" 2>/dev/null; then
       return 0
     fi
   fi
@@ -622,7 +622,7 @@ print_memory_briefing() {
     return 1
   fi
   echo "🧠 RECENT MEMORY SIGNALS:"
-  grep '^-' "$aoc_dir/memory.md" | tail -n 6
+  /usr/bin/grep '^-' "$aoc_dir/memory.md" | tail -n 6
 }
 
 print_context_briefing() {
@@ -631,9 +631,9 @@ print_context_briefing() {
   local repo_line=""
   local root_line=""
   local branch_line=""
-  repo_line="$(grep -m 1 '^- Name:' "$context_file" 2>/dev/null || true)"
-  root_line="$(grep -m 1 '^- Root:' "$context_file" 2>/dev/null || true)"
-  branch_line="$(grep -m 1 '^- Git branch:' "$context_file" 2>/dev/null || true)"
+  repo_line="$(/usr/bin/grep -m 1 '^- Name:' "$context_file" 2>/dev/null || true)"
+  root_line="$(/usr/bin/grep -m 1 '^- Root:' "$context_file" 2>/dev/null || true)"
+  branch_line="$(/usr/bin/grep -m 1 '^- Git branch:' "$context_file" 2>/dev/null || true)"
   echo "📂 PROJECT BRIEF:"
   [[ -n "$repo_line" ]] && echo "$repo_line"
   [[ -n "$root_line" ]] && echo "$root_line"
@@ -653,7 +653,7 @@ construct_handshake() {
   if [[ -d "$aoc_dir/stm/archive" ]]; then
     stm_latest="$(ls -1t "$aoc_dir/stm/archive"/*.md 2>/dev/null | head -n 1 || true)"
   fi
-  if [[ -f "$stm_current" ]] && grep -q '[^[:space:]]' "$stm_current"; then
+  if [[ -f "$stm_current" ]] && /usr/bin/grep -q '[^[:space:]]' "$stm_current"; then
     stm_current_has_content=1
   fi
 
