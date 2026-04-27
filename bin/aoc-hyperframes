@@ -231,6 +231,12 @@ bootstrap_asset_system() {
   done
   log "Ensured canonical HyperFrames asset folders in $target_dir"
 
+  if [[ -f "$root/DESIGN.md" ]]; then
+    log "Root DESIGN.md found; HyperFrames design docs should extend it."
+  else
+    warn "Root DESIGN.md missing; run aoc-init to seed the project-wide design contract before final composition authoring."
+  fi
+
   seed_doc_template DESIGN.md docs/DESIGN.md
   seed_doc_template asset-inventory.md docs/asset-inventory.md
   seed_doc_template brand-motion-brief.md docs/brand-motion-brief.md
@@ -242,7 +248,7 @@ bootstrap_asset_system() {
   existing_comps="$(find "$dest/compositions" -type f 2>/dev/null | wc -l | tr -d ' ')"
   existing_renders="$(find "$dest/renders" -type f 2>/dev/null | wc -l | tr -d ' ')"
   log "Summary: assets=$existing_assets compositions=$existing_comps renders=$existing_renders"
-  log "Next: fill $target_dir/docs/DESIGN.md, update asset inventory, then build reusable components before final comps."
+  log "Next: fill root DESIGN.md and $target_dir/docs/DESIGN.md, update asset inventory, then build reusable components before final comps."
   log "Then use Alt+X -> AOC HyperFrames to audit assets or create a campaign pack."
 }
 

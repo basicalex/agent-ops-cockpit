@@ -503,6 +503,7 @@ PY
   printf '%s\n' "  aoc_memory: $has_memory"
   printf '%s\n' "  aoc_stm: $has_stm"
   printf '%s\n' "  aoc_rtk: $has_rtk"
+  printf '%s\n' "  design_contract: $([[ -f "$project_root/DESIGN.md" ]] && echo present || echo missing)"
   printf '%s\n' "  pi_settings: $([[ -f "$settings_path" ]] && echo present || echo missing)"
   printf '%s\n' "  pi_multi_auth_package: $package_ref_status"
   printf '%s\n' "  pi_runtime_status: $runtime_status"
@@ -524,6 +525,7 @@ This file defines the always-on rules for agents in this repo. Procedural playbo
 
 ## Always-on rules
 - Use `.aoc/context.md` for orientation; run `aoc-init` if it is missing or stale.
+- Use root `DESIGN.md` as the visual/product design contract before UI, docs-site, marketing, HyperFrames, or other product-facing work.
 - **DO NOT manually read these files** - use the Bash tool to run CLI commands instead (see below).
 - Run AOC commands via Bash tool - do NOT use Read tool for `.aoc/memory.md`, `.aoc/stm/current.md`, or `.taskmaster/tasks/tasks.json`.
 - RTK routing is default-on for new AOC projects (`.aoc/rtk.toml` mode=`on`); existing explicit mode=`off` is preserved.
@@ -587,6 +589,7 @@ These commands are in PATH and work without loading any skill:
 - `.aoc/rtk.toml`: project-local RTK routing policy and install contract.
 - `.aoc/mind-service.json`: project-local launcher metadata for the standalone Mind service.
 - `.aoc/layouts/`: project-shared Zellij layouts for AOC (`*.kdl`).
+- `DESIGN.md`: project-wide visual/product design contract; subsystem design docs extend it.
 - `.taskmaster/docs/prds/`: PRD documents linked to tags and tasks.
 - Tag PRD defaults are linked via tag `aocPrd`; resolve with `aoc-task tag prd show --tag <tag>`.
 - Task PRD overrides are linked via task `aocPrd`; resolve with `aoc-task prd show <id> --tag <tag>`.
@@ -614,6 +617,142 @@ These commands are in PATH and work without loading any skill:
 - `tm-cc`: cross-project Taskmaster control with explicit tm root targeting.
 
 Note: `aoc-mem`, `aoc-stm`, and `tm` are basic CLI commands (see above) - no skill needed.
+EOF
+}
+
+write_root_design_contract() {
+  local target_file="$1"
+  cat <<'EOF' > "$target_file"
+# DESIGN.md
+
+This is the project-wide visual and product design contract for agents and humans. Treat it as the source of truth before making product-facing UI, website, documentation, marketing, or media changes.
+
+> AOC note: this template is AOC-owned and compatible with emerging DESIGN.md conventions. Keep it concise, concrete, and updated when intentional design-system changes are made.
+
+## Product experience
+
+- Product/project:
+- Primary audience:
+- Primary promise:
+- Desired emotional impression:
+- Trust/energy level:
+
+## Brand personality
+
+- Voice:
+- Mood:
+- Keywords:
+- Avoid:
+
+## Visual principles
+
+1.
+2.
+3.
+
+## Layout system
+
+- Density:
+- Grid/container rules:
+- Spacing scale:
+- Responsive behavior:
+- Empty/loading/error-state layout rules:
+
+## Color system
+
+| Token | Value | Usage | Notes |
+| --- | --- | --- | --- |
+| `--color-bg` |  | Page/background |  |
+| `--color-surface` |  | Cards/panels |  |
+| `--color-primary` |  | Primary CTA/key action |  |
+| `--color-accent` |  | Highlights/attention |  |
+| `--color-text` |  | Main text |  |
+| `--color-muted` |  | Secondary text |  |
+| `--color-success` |  | Positive state |  |
+| `--color-warning` |  | Attention state |  |
+| `--color-danger` |  | Destructive/error state |  |
+
+## Typography
+
+- Primary font:
+- Secondary/fallback font:
+- Heading style:
+- Body style:
+- Numeric/metric style:
+- Line-height/measure notes:
+
+## Component rules
+
+- Buttons:
+- Cards/panels:
+- Forms/inputs:
+- Navigation:
+- Tables/lists:
+- Modals/dialogs:
+- Notifications/toasts:
+- Icons:
+
+## Motion and interaction
+
+- Motion personality:
+- Duration range:
+- Easing:
+- What should animate:
+- What should not animate:
+- Reduced-motion expectations:
+
+## Imagery and media
+
+- Image style:
+- Illustration style:
+- Iconography style:
+- Screenshot/product-frame treatment:
+- Video/animation treatment:
+
+## Content design
+
+- Tone:
+- CTA style:
+- Terminology:
+- Error message style:
+- Things to avoid:
+
+## Accessibility requirements
+
+- Contrast:
+- Keyboard/focus behavior:
+- Reduced motion:
+- Captions/alt text:
+- Minimum readable sizes:
+
+## Design do / don't
+
+### Do
+
+-
+
+### Don't
+
+-
+
+## Subsystem design extensions
+
+Subsystem-specific design files may extend this document, but should not contradict it.
+
+- HyperFrames/media: `hyperframes/docs/DESIGN.md`
+- Web/app-specific extensions:
+- Docs/marketing-specific extensions:
+
+## Agent instructions
+
+When changing UI, visual assets, product copy, documentation presentation, marketing pages, or media:
+
+1. Read this file first.
+2. Reuse existing components, tokens, and patterns before inventing new ones.
+3. Preserve visual consistency unless the user explicitly requests a design-system change.
+4. Update this file when making intentional design-system changes.
+5. If a subsystem has its own `DESIGN.md`, treat this root file as the upstream contract and the subsystem file as a specialization.
+6. Mention design-impacting changes in task notes, PRs, commits, or handoffs.
 EOF
 }
 
@@ -674,6 +813,7 @@ ensure_agents_contract() {
 Use the AOC tools for context, memory, and tasks in this repo.
 
 - **Context:** `.aoc/context.md` (auto-generated project map)
+- **Design:** `DESIGN.md` at the project root is the visual/product design contract. Read it before UI, docs-site, marketing, HyperFrames, or other product-facing changes.
 - **Memory:** use `aoc-mem read/search/add` via Bash tool (do not edit `.aoc/memory.md` directly)
 - **Short-term memory:** use `aoc-stm` (draft), `aoc-stm handoff` (seal), and `aoc-stm resume`/`aoc-stm read` (resume) via Bash tool (do not read `.aoc/stm/current.md` directly)
 - **Tasks:** use `tm` or `aoc-task` via Bash tool (do not edit `.taskmaster/tasks/tasks.json` directly)
@@ -913,6 +1053,15 @@ EOF
   local agents_file="$project_root/AGENTS.md"
   ensure_agents_contract "$agents_file"
 
+  # DESIGN.md (project-level visual/product design contract)
+  local design_file="$project_root/DESIGN.md"
+  if [[ ! -f "$design_file" ]]; then
+    log "Seeding root design contract (DESIGN.md)..."
+    write_root_design_contract "$design_file"
+  else
+    log "Root design contract exists (DESIGN.md). Preserving."
+  fi
+
   ensure_rtk_config
 
   # PI default prompt contract
@@ -982,6 +1131,7 @@ EOF
     local key_file
     for key_file in \
       "README.md" \
+      "DESIGN.md" \
       "Makefile" \
       "justfile" \
       "package.json" \
@@ -1023,6 +1173,15 @@ EOF
       echo
       echo "## README Headings"
       printf '%s\n' "$readme_headings"
+    fi
+
+    echo
+    echo "## Design Contract"
+    if [[ -f "$project_root/DESIGN.md" ]]; then
+      echo "- Root DESIGN.md: present"
+      echo "- Use as visual/product design source before product-facing UI, docs-site, marketing, or media changes."
+    else
+      echo "- Root DESIGN.md: missing (run aoc-init to seed)"
     fi
 
     echo
