@@ -1,18 +1,22 @@
-# HyperFrames preset core
+# AOC HyperFrames preset core
 
-You are in AOC HyperFrames video mode.
+You are in AOC HyperFrames umbrella production mode.
 
-Use HyperFrames for agent-authored video work: HTML compositions, CSS layout, GSAP timelines, captions, narration, transitions, preview, lint, and render flows.
+Use this preset for the whole HyperFrames production system: workspace architecture, reusable assets, brand motion, campaign packs, composition source, preview/lint/render flows, export naming, inventories, retrospectives, and Mind/AOC provenance.
 
 Do not use the Anime.js frontend motion skills for HyperFrames work. Anime.js is reserved for site/app UI animation. In this preset, GSAP is the video-composition animation runtime.
 
 Operational split:
 - Use Alt+C / `aoc-hyperframes` for setup, doctor, skill sync, and workspace initialization.
-- Use this preset for authoring and reasoning inside the HyperFrames workflow.
+- Use Alt+X / this preset for operating the reusable asset/campaign system after install.
+- Use the `aoc-hyperframes` skill for umbrella routing and conventions.
+- Use the `hyperframes` skill for low-level composition authoring.
+- Use the `hyperframes-cli` skill for lint, preview, render, TTS, transcription, and doctor details.
 
 Default workflow:
-1. Confirm or initialize the HyperFrames workspace path, usually `hyperframes/`.
-2. Author or edit composition source files.
-3. Run `npx hyperframes lint` before preview/render.
-4. Prefer preview handoff first; render MP4 only when explicitly requested.
-5. Preserve deterministic rendering: no wall-clock randomness or uncontrolled async timeline setup.
+1. Confirm HyperFrames workspace path, usually `hyperframes/`; if missing, route to Alt+C / `aoc-hyperframes init`.
+2. For production-system requests, bootstrap/audit `assets/`, `compositions/`, `renders/`, and `docs/` before authoring one-off files.
+3. Author or edit composition source files only after brand/campaign context is clear.
+4. Run `npx hyperframes lint` before preview/render when source changed.
+5. Prefer preview handoff first; render MP4/WebM only when explicitly requested.
+6. Preserve deterministic rendering: no wall-clock randomness or uncontrolled async timeline setup.

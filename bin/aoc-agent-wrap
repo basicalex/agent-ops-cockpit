@@ -183,40 +183,6 @@ resolve_bin() {
     fi
   done
 
-  if [[ "$name" == "opencode" || "$name" == "open-code" ]]; then
-    local pnpm_home="${PNPM_HOME:-$HOME/.local/share/pnpm}"
-    local pinned_version="${AOC_OC_VERSION:-}"
-    local candidates=()
-    local base=""
-    for base in "$pnpm_home"/global/*/.pnpm; do
-      [[ -d "$base" ]] || continue
-      if [[ -n "$pinned_version" ]]; then
-        for candidate in "$base"/opencode-ai@"$pinned_version"/node_modules/opencode-ai/bin/opencode; do
-          [[ -x "$candidate" ]] || continue
-          echo "$candidate"
-          return
-        done
-        for candidate in "$base"/opencode@"$pinned_version"/node_modules/opencode/bin/opencode; do
-          [[ -x "$candidate" ]] || continue
-          echo "$candidate"
-          return
-        done
-      fi
-      for candidate in "$base"/opencode-ai@*/node_modules/opencode-ai/bin/opencode; do
-        [[ -x "$candidate" ]] || continue
-        candidates+=("$candidate")
-      done
-      for candidate in "$base"/opencode@*/node_modules/opencode/bin/opencode; do
-        [[ -x "$candidate" ]] || continue
-        candidates+=("$candidate")
-      done
-    done
-    if ((${#candidates[@]} > 0)); then
-      printf '%s\n' "${candidates[@]}" | sort -V | tail -n 1
-      return
-    fi
-  fi
-  
   echo "$name"
 }
 

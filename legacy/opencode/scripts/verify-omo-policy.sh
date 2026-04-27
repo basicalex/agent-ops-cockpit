@@ -2,7 +2,7 @@
 set -euo pipefail
 
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-repo_root="$(cd "$script_dir/../.." && pwd)"
+repo_root="$(cd "$script_dir/../../.." && pwd)"
 
 usage() {
   cat <<'EOF'
@@ -11,11 +11,11 @@ Usage: verify-omo-policy.sh [policy-path]
 Validate OmO control policy invariants and basic config compatibility.
 
 Defaults:
-  policy-path = config/opencode/oh-my-opencode.policy.jsonc
+  policy-path = legacy/opencode/config/oh-my-opencode.policy.jsonc
 EOF
 }
 
-policy_path="${1:-$repo_root/config/opencode/oh-my-opencode.policy.jsonc}"
+policy_path="${1:-$repo_root/legacy/opencode/config/oh-my-opencode.policy.jsonc}"
 
 if [[ "${policy_path:-}" == "-h" || "${policy_path:-}" == "--help" ]]; then
   usage

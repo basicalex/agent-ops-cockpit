@@ -6,9 +6,10 @@ usage() {
 Usage: aoc-hyperframes <command> [options]
 
 Commands:
-  init          Initialize HyperFrames integration in a repo
-  sync-skills   Seed/sync HyperFrames PI skills and prompt only
-  doctor        Check Node/FFmpeg and run HyperFrames doctor when possible
+  init                    Initialize HyperFrames integration in a repo
+  bootstrap-asset-system  Create/repair AOC HyperFrames asset system folders/docs
+  sync-skills             Seed/sync HyperFrames PI skills and prompt only
+  doctor                  Check Node/FFmpeg and run HyperFrames doctor when possible
 
 Init options:
   --root PATH       Project root (defaults to nearest .aoc or .git)
@@ -17,6 +18,11 @@ Init options:
   --update          Re-run skill/prompt sync and skip init if workspace exists
   --quiet           Suppress non-error output
   -h, --help        Show this help
+
+Bootstrap behavior:
+  Creates canonical compositions/, assets/, renders/, and docs/ folders under
+  the HyperFrames workspace and seeds missing docs from aoc-hyperframes
+  templates. Existing files are never overwritten.
 EOF
 }
 
@@ -114,6 +120,7 @@ copy_optional_dir() {
 }
 
 seed_skills() {
+  copy_optional_dir aoc-hyperframes
   copy_optional_dir hyperframes
   copy_optional_dir hyperframes-cli
   copy_optional_dir website-to-hyperframes
@@ -172,6 +179,71 @@ init_workspace() {
   (cd "$root" && npx hyperframes init "$target_dir" --non-interactive)
 }
 
+template_source_dir() {
+  local script_dir config_dir
+  script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+  config_dir="${XDG_CONFIG_HOME:-$HOME/.config}/aoc"
+  if [[ -d "$root/.pi/skills/aoc-hyperframes/templates" ]]; then
+    printf '%s\n' "$root/.pi/skills/aoc-hyperframes/templates"
+  elif [[ -d "$root/.aoc/skills-optional/aoc-hyperframes/templates" ]]; then
+    printf '%s\n' "$root/.aoc/skills-optional/aoc-hyperframes/templates"
+  elif [[ -d "$config_dir/skills-optional/aoc-hyperframes/templates" ]]; then
+    printf '%s\n' "$config_dir/skills-optional/aoc-hyperframes/templates"
+  elif [[ -d "$script_dir/../.aoc/skills-optional/aoc-hyperframes/templates" ]]; then
+    printf '%s\n' "$script_dir/../.aoc/skills-optional/aoc-hyperframes/templates"
+  fi
+}
+
+seed_doc_template() {
+  local template_name="$1" dest_rel="$2" src_dir src dest
+  src_dir="$(template_source_dir || true)"
+  dest="$root/$target_dir/$dest_rel"
+  if [[ -f "$dest" ]]; then
+    log "Kept existing $target_dir/$dest_rel"
+    return 0
+  fi
+  mkdir -p "$(dirname "$dest")"
+  if [[ -n "$src_dir" && -f "$src_dir/$template_name" ]]; then
+    cp "$src_dir/$template_name" "$dest"
+  else
+    printf '# %s\n\n' "${dest_rel##*/}" > "$dest"
+  fi
+  log "Created $target_dir/$dest_rel"
+}
+
+bootstrap_asset_system() {
+  local dest="$root/$target_dir"
+  if [[ ! -d "$dest" ]]; then
+    warn "HyperFrames workspace not found: $target_dir"
+    warn "Run: aoc-hyperframes init --root '$root' --dir '$target_dir'"
+    exit 1
+  fi
+
+  local dirs=(
+    compositions/components compositions/brand compositions/campaigns compositions/ads compositions/social compositions/landing
+    assets/brand assets/screens assets/photo assets/ui assets/audio assets/captions assets/copy
+    renders/brand renders/ads renders/social renders/landing renders/exports
+    docs/shotlists docs/retrospectives
+  )
+  local d
+  for d in "${dirs[@]}"; do
+    mkdir -p "$dest/$d"
+  done
+  log "Ensured canonical HyperFrames asset folders in $target_dir"
+
+  seed_doc_template asset-inventory.md docs/asset-inventory.md
+  seed_doc_template brand-motion-brief.md docs/brand-motion-brief.md
+  seed_doc_template campaign-message-matrix.md docs/campaign-message-matrix.md
+  seed_doc_template export-naming.md docs/export-naming.md
+
+  local existing_assets existing_comps existing_renders
+  existing_assets="$(find "$dest/assets" -type f 2>/dev/null | wc -l | tr -d ' ')"
+  existing_comps="$(find "$dest/compositions" -type f 2>/dev/null | wc -l | tr -d ' ')"
+  existing_renders="$(find "$dest/renders" -type f 2>/dev/null | wc -l | tr -d ' ')"
+  log "Summary: assets=$existing_assets compositions=$existing_comps renders=$existing_renders"
+  log "Next: use Alt+X -> AOC HyperFrames to audit assets or create a campaign pack."
+}
+
 run_doctor() {
   check_toolchain || true
   if [[ -d "$root/$target_dir" ]]; then
@@ -204,7 +276,10 @@ case "$command" in
     seed_skills
     seed_prompt
     sync_skills
-    log "HyperFrames integration ready. Use Alt+X -> HyperFrames."
+    log "HyperFrames integration ready. Use Alt+X -> AOC HyperFrames."
+    ;;
+  bootstrap-asset-system|bootstrap)
+    bootstrap_asset_system
     ;;
   sync-skills)
     seed_skills

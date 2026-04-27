@@ -1569,6 +1569,7 @@ elif local_multi_auth_package in package_sources:
 
 has_provider = "defaultProvider" in data
 has_model = "defaultModel" in data
+has_thinking = "defaultThinkingLevel" in data
 
 if not has_provider and not has_model:
     for key, value in defaults.items():
@@ -1584,6 +1585,16 @@ elif all(data.get(key) == value for key, value in legacy_seeded_defaults.items()
         data["enabledModels"] = seeded_enabled_models
         changed = True
 elif all(data.get(key) == value for key, value in pi_defaults.items()):
+    if "enabledModels" not in data:
+        data["enabledModels"] = seeded_enabled_models
+        changed = True
+elif (
+    data.get("defaultProvider") == pi_defaults["defaultProvider"]
+    and data.get("defaultModel") == pi_defaults["defaultModel"]
+    and not has_thinking
+):
+    data["defaultThinkingLevel"] = pi_defaults["defaultThinkingLevel"]
+    changed = True
     if "enabledModels" not in data:
         data["enabledModels"] = seeded_enabled_models
         changed = True
@@ -1633,7 +1644,7 @@ PY
       log "Seeded PI settings: $pi_settings"
       ;;
     updated)
-      log "Updated PI settings with OpenCode Zen defaults: $pi_settings"
+      log "Updated PI settings with GPT-5.5 low reasoning defaults: $pi_settings"
       ;;
     unchanged)
       log "PI settings exist ($pi_settings). Preserving."
@@ -2113,7 +2124,6 @@ setup_aoc_preset_assets() {
   local layouts_dir="$project_root/.aoc/layouts"
   local global_presets_dir="$aoc_config_dir/presets"
   local global_layouts_dir="$aoc_config_dir/layouts"
-  local preset_name="design"
   local canonical_preset_seed_dirs=(
     "$script_dir/../.aoc/presets"
     "$global_presets_dir"
@@ -2123,9 +2133,6 @@ setup_aoc_preset_assets() {
     "$global_layouts_dir"
   )
   local candidate=""
-  local preset_seed_dir=""
-  local target_preset_dir="$presets_dir/$preset_name"
-  local cache_preset_dir="$global_presets_dir/$preset_name"
   local layout_name="design.kdl"
   local layout_seed_file=""
   local target_layout_file="$layouts_dir/$layout_name"
@@ -2133,28 +2140,47 @@ setup_aoc_preset_assets() {
 
   mkdir -p "$presets_dir" "$layouts_dir" "$global_presets_dir" "$global_layouts_dir"
 
-  for candidate in "${canonical_preset_seed_dirs[@]}"; do
-    if [[ -d "$candidate/$preset_name" ]]; then
-      preset_seed_dir="$candidate/$preset_name"
-      break
-    fi
-  done
+  seed_aoc_preset_asset() {
+    local preset_name="$1"
+    local preset_seed_dir=""
+    local target_preset_dir="$presets_dir/$preset_name"
+    local cache_preset_dir="$global_presets_dir/$preset_name"
 
-  if [[ -n "$preset_seed_dir" ]]; then
-    if [[ ! -d "$target_preset_dir" ]]; then
-      copy_tree_force "$preset_seed_dir" "$target_preset_dir"
-      log "Seeded AOC preset assets: $preset_name"
+    for candidate in "${canonical_preset_seed_dirs[@]}"; do
+      if [[ -d "$candidate/$preset_name" ]]; then
+        preset_seed_dir="$candidate/$preset_name"
+        break
+      fi
+    done
+
+    if [[ -n "$preset_seed_dir" ]]; then
+      if [[ ! -d "$target_preset_dir" ]]; then
+        copy_tree_force "$preset_seed_dir" "$target_preset_dir"
+        log "Seeded AOC preset assets: $preset_name"
+      else
+        copy_tree_force "$preset_seed_dir" "$target_preset_dir"
+        log "Refreshed managed AOC preset assets: $preset_name"
+      fi
+
+      if [[ ! -d "$cache_preset_dir" ]] || ! directories_match "$preset_seed_dir" "$cache_preset_dir"; then
+        copy_tree_force "$preset_seed_dir" "$cache_preset_dir"
+        log "Refreshed global AOC preset template: $preset_name"
+      fi
     else
-      copy_tree_force "$preset_seed_dir" "$target_preset_dir"
-      log "Refreshed managed AOC preset assets: $preset_name"
+      warn "Missing AOC preset template: $preset_name"
     fi
+  }
 
-    if [[ ! -d "$cache_preset_dir" ]] || ! directories_match "$preset_seed_dir" "$cache_preset_dir"; then
-      copy_tree_force "$preset_seed_dir" "$cache_preset_dir"
-      log "Refreshed global AOC preset template: $preset_name"
-    fi
-  else
-    warn "Missing AOC preset template: $preset_name"
+  seed_aoc_preset_asset "design"
+
+  # HyperFrames is optional. If a repo already has any HyperFrames integration
+  # marker, make sure the Alt+X preset runtime is present too. Older
+  # aoc-hyperframes installs only seeded PI skills/prompts, so /reload could not
+  # discover the HyperFrames preset menu entry until this asset was copied.
+  if [[ -d "$project_root/${AOC_HYPERFRAMES_DIR:-hyperframes}" \
+    || -d "$project_root/.pi/skills/hyperframes" \
+    || -f "$project_root/.pi/prompts/hyperframes.md" ]]; then
+    seed_aoc_preset_asset "hyperframes"
   fi
 
   for candidate in "${canonical_layout_seed_dirs[@]}"; do

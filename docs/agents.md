@@ -62,9 +62,11 @@ aoc-init --status
 
 This prints the current project AOC version, whether the init state exists, the PI local multi-auth package presence/wiring status, and any applied migrations.
 
-## OpenCode Zen + PI model defaults
+## Pi model defaults, including the `opencode` provider
 
-This repo now seeds project-local PI defaults as follows:
+AOC is Pi-first. The `opencode/...` model IDs below are Pi provider/model entries, not activation of the legacy OpenCode agent runtime.
+
+This repo seeds project-local PI defaults as follows:
 
 - `defaultProvider: "openai-codex"`
 - `defaultModel: "gpt-5.5"`
@@ -82,7 +84,7 @@ This repo now seeds project-local PI defaults as follows:
   - `openrouter/qwen/qwen3.6-plus`
   - `kimi-coding/kimi-for-coding`
 
-This keeps OpenCode Zen available while also exposing a small curated OpenRouter slice for low-noise model cycling.
+This keeps Pi's `opencode` provider models available while also exposing a small curated OpenRouter slice for low-noise model cycling.
 
 Credential handling stays out of the repo:
 
@@ -91,7 +93,7 @@ Credential handling stays out of the repo:
 
 When the vendored multi-auth package is active, AOC now bootstraps `OPENCODE_API_KEY`, `OPENROUTER_API_KEY`, and `KIMI_API_KEY` from the environment into PI auth storage on startup, deduplicates matching keys, and lets multi-auth own rotation state in `~/.pi/agent/multi-auth.json`.
 
-Do **not** commit API keys into `.pi/settings.json`. PI already ships native OpenCode Zen support, so AOC only seeds project defaults and model visibility.
+Do **not** commit API keys into `.pi/settings.json`. AOC only seeds Pi project defaults and model visibility; legacy OpenCode runtime support is archived outside the active runtime surface.
 
 AOC delegated subagent manifests may pin their own model with frontmatter `model: ...`. Those pins are intentionally durable across future sessions and are passed to detached Pi subprocesses via `--model`; they do not inherit or mutate the project default. Current Insight pins include `insight-t1-observer`, `insight-t2-reflector`, and `insight-t3-aligner` on `openai-codex/gpt-5.4-mini`.
 

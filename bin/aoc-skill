@@ -343,11 +343,11 @@ validate_skills() {
     fi
 
     local key
-    local allowed=" name description license compatibility metadata "
+    local allowed=" name description license compatibility metadata allowed-tools "
     while IFS= read -r key; do
       if [[ -n "$key" ]]; then
         if [[ "$allowed" != *" $key "* ]]; then
-          warn "Unknown frontmatter key '$key' (ignored by OpenCode): $skill_file"
+          warn "Unknown frontmatter key '$key' for current skill schema; ignored by runtimes that do not support it: $skill_file"
           warnings=$((warnings + 1))
         fi
       fi

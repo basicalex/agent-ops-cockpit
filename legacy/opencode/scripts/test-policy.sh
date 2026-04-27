@@ -2,9 +2,9 @@
 set -euo pipefail
 
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-repo_root="$(cd "$script_dir/../.." && pwd)"
-verify_script="$repo_root/scripts/opencode/verify-omo-policy.sh"
-policy_file="$repo_root/config/opencode/oh-my-opencode.policy.jsonc"
+repo_root="$(cd "$script_dir/../../.." && pwd)"
+verify_script="$repo_root/legacy/opencode/scripts/verify-omo-policy.sh"
+policy_file="$repo_root/legacy/opencode/config/oh-my-opencode.policy.jsonc"
 
 fail() {
   echo "FAIL: $*" >&2

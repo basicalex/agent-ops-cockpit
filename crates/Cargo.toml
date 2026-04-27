@@ -4,7 +4,6 @@ members = [
     "aoc-cli",
     "aoc-core",
     "aoc-storage",
-    "aoc-opencode-adapter",
     "aoc-pi-adapter",
     "aoc-task-attribution",
     "aoc-segment-routing",
@@ -15,5 +14,8 @@ members = [
     "aoc-mission-control",
     "aoc-taskmaster",
     "aoc-yazi-mermaid",
+]
+exclude = [
+    "aoc-opencode-adapter",
 ]
 resolver = "2"
