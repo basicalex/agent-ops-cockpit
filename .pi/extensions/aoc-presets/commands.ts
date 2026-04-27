@@ -300,9 +300,10 @@ function openPresetMenu(pi: ExtensionAPI, ctx: ExtensionContext, bindings: Comma
       const accent = (text: string) => theme.fg("accent", text);
       const border = (text: string) => theme.fg("borderMuted", text);
       const strongBorder = (text: string) => theme.fg("borderAccent", text);
+      const selectedBg = (text: string) => theme.bg("toolPendingBg", theme.fg("text", text));
       const badge = (text: string, tone: "accent" | "muted" = "muted") => tone === "accent"
-        ? theme.bg("selectedBg", theme.fg("accent", ` ${text} `))
-        : theme.bg("selectedBg", theme.fg("muted", ` ${text} `));
+        ? theme.bg("toolPendingBg", theme.fg("accent", ` ${text} `))
+        : theme.bg("toolPendingBg", theme.fg("muted", ` ${text} `));
       const makeRow = (left: string, right = "") => {
         const leftWidth = visibleWidth(left);
         const rightWidth = visibleWidth(right);
@@ -340,7 +341,7 @@ function openPresetMenu(pi: ExtensionAPI, ctx: ExtensionContext, bindings: Comma
         const prefix = selectedRow ? accent("▸ ") : "  ";
         const rowText = `${prefix}${node.label}${stateLabel}${chevron}`;
         const padded = padRight(rowText, navWidth);
-        navLines.push(selectedRow ? theme.bg("selectedBg", padded) : padded);
+        navLines.push(selectedRow ? selectedBg(padded) : padded);
       }
       while (navLines.length < bodyHeight) navLines.push(" ".repeat(navWidth));
       if (level.nodes.length > visibleNodes.length) {
@@ -383,12 +384,12 @@ function openPresetMenu(pi: ExtensionAPI, ctx: ExtensionContext, bindings: Comma
       lines.push(border(`├${"─".repeat(innerWidth)}┤`));
       lines.push(makeRow(dim("[j/k] move  [x] caveman  [enter/l] apply  [h/esc] back  [q] close"), muted("selected ▸  active current")));
       lines.push(strongBorder(`╰${"─".repeat(innerWidth)}╯`));
-      return lines;
+      return lines.map((line) => padRight(line, width));
     }
 
     return {
       render(width: number) {
-        const box = new Box(1, 1, (text) => theme.bg("selectedBg", text));
+        const box = new Box(1, 1, (text) => theme.bg("customMessageBg", text));
         box.addChild({
           render(innerWidth: number) {
             return renderPanel(innerWidth);
