@@ -5646,7 +5646,7 @@ fn current_pty_size() -> PtySize {
 }
 
 #[cfg(unix)]
-fn spawn_pty_resize_forwarder(master: Arc<StdMutex<Box<dyn MasterPty + Send>>>) {
+fn spawn_pty_resize_forwarder(master: Arc<StdMutex<Box<dyn MasterPty + Send>>>) -> tokio::task::JoinHandle<()> {
     tokio::spawn(async move {
         let Ok(mut sigwinch) = signal(SignalKind::window_change()) else {
             return;
@@ -5657,11 +5657,13 @@ fn spawn_pty_resize_forwarder(master: Arc<StdMutex<Box<dyn MasterPty + Send>>>) 
                 let _ = master.resize(size);
             }
         }
-    });
+    })
 }
 
 #[cfg(not(unix))]
-fn spawn_pty_resize_forwarder(_master: Arc<StdMutex<Box<dyn MasterPty + Send>>>) {}
+fn spawn_pty_resize_forwarder(_master: Arc<StdMutex<Box<dyn MasterPty + Send>>>) -> tokio::task::JoinHandle<()> {
+    tokio::spawn(async {})
+}
 
 async fn tap_state_reporter_loop(
     cfg: ClientConfig,
@@ -6101,7 +6103,7 @@ async fn run_child_pty(
             io::Error::new(io::ErrorKind::Other, err.to_string())
         })?));
     let master = Arc::new(StdMutex::new(master));
-    spawn_pty_resize_forwarder(master.clone());
+    let resize_task = spawn_pty_resize_forwarder(master.clone());
 
     let _raw_mode_guard = RawModeGuard::acquire();
 
@@ -6194,7 +6196,21 @@ async fn run_child_pty(
         }
     };
 
-    let _ = stdout_task.await;
+    // Once the wrapped agent has exited (or has been escalated after Ctrl-C/stop),
+    // do not wait forever on PTY copier tasks. Some agent UIs leave helper
+    // descendants holding the PTY open after the main process dies, which kept the
+    // wrapper in raw mode and made Esc/Ctrl-C appear to "glitch" into a stuck UI.
+    // Drop our PTY handles, stop resize forwarding, then give stdout a brief drain
+    // window before letting RawModeGuard restore the terminal.
+    resize_task.abort();
+    drop(writer);
+    drop(master);
+    if tokio::time::timeout(Duration::from_millis(250), stdout_task)
+        .await
+        .is_err()
+    {
+        warn!("pty_stdout_drain_timeout_after_child_exit");
+    }
     stdin_task.abort();
 
     Ok(exit_code)
