@@ -2282,6 +2282,60 @@
         },
         "updatedAt": "2026-04-27T11:46:53.937Z",
         "activeAgent": false
+      },
+      {
+        "id": "200",
+        "title": "Add root DESIGN.md design contract seeding to aoc-init",
+        "description": "",
+        "details": "",
+        "testStrategy": "",
+        "status": "done",
+        "dependencies": [],
+        "priority": "medium",
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "Write AOC-wide root DESIGN.md PRD/spec",
+            "description": "",
+            "status": "done",
+            "dependencies": []
+          },
+          {
+            "id": 2,
+            "title": "Add non-destructive root DESIGN.md template seeding in aoc-init",
+            "description": "",
+            "status": "done",
+            "dependencies": []
+          },
+          {
+            "id": 3,
+            "title": "Update agent contracts/docs to require DESIGN.md before product-facing UI/media work",
+            "description": "",
+            "status": "done",
+            "dependencies": []
+          },
+          {
+            "id": 4,
+            "title": "Teach HyperFrames bootstrap to reference root DESIGN.md as upstream visual contract",
+            "description": "",
+            "status": "done",
+            "dependencies": []
+          },
+          {
+            "id": 5,
+            "title": "Validate idempotency and existing DESIGN.md preservation",
+            "description": "",
+            "status": "done",
+            "dependencies": []
+          }
+        ],
+        "aocPrd": {
+          "path": ".taskmaster/docs/prds/aoc-root-design-contract.md",
+          "updatedAt": "2026-04-27T12:03:04.152Z",
+          "version": 1
+        },
+        "updatedAt": "2026-04-27T12:09:30.196Z",
+        "activeAgent": false
       }
     ],
     "aocPrd": {

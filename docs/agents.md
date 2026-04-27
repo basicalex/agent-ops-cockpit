@@ -4,7 +4,7 @@ AOC runs in **PI-only mode** and standardizes on a single project-local runtime 
 
 ## AOC PI runtime contract (seeded by `aoc-init`)
 
-`aoc-init` is the canonical setup/repair command and is idempotent (existing files are preserved).
+`aoc-init` is the canonical setup/repair command and is idempotent (existing files are preserved). It also seeds a root `DESIGN.md` when missing so agents have a project-wide visual/product design contract before product-facing UI, docs-site, marketing, HyperFrames, or media work.
 
 Expected project-local runtime paths:
 
@@ -31,7 +31,7 @@ Expected project-local runtime paths:
 - Optional orchestration assets:
   - `.pi/agents/` (specialists, teams, chain manifests)
 
-Control-plane state remains under `.aoc/**` (`context.md`, `memory.md`, `stm/`, `rtk.toml`, `init-state.json`).
+Control-plane state remains under `.aoc/**` (`context.md`, `memory.md`, `stm/`, `rtk.toml`, `init-state.json`). The root `DESIGN.md` is project source, not hidden control-plane state; subsystem design docs should extend it rather than replace it.
 
 ## Default extensions and theme behavior
 
@@ -60,7 +60,7 @@ Quick inspection:
 aoc-init --status
 ```
 
-This prints the current project AOC version, whether the init state exists, the PI local multi-auth package presence/wiring status, and any applied migrations.
+This prints the current project AOC version, whether the init state exists, whether the root design contract is present, the PI local multi-auth package presence/wiring status, and any applied migrations.
 
 ## Pi model defaults, including the `opencode` provider
 

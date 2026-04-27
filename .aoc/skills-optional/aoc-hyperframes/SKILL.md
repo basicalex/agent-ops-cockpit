@@ -73,7 +73,8 @@ hyperframes/
 
 ## Source-of-truth rules
 
-- Visual identity gate: `hyperframes/docs/DESIGN.md` must exist and be reviewed before final composition authoring.
+- Root design contract: project `DESIGN.md` is the upstream visual/product source of truth when present.
+- Visual identity gate: `hyperframes/docs/DESIGN.md` must exist and be reviewed before final composition authoring; it extends the root `DESIGN.md` for media/campaign work.
 - Source compositions: `hyperframes/index.html`, `hyperframes/compositions/**`.
 - Reusable assets: `hyperframes/assets/brand/**`, `hyperframes/assets/maps/**`, `hyperframes/compositions/components/**`.
 - Campaign-specific source: `hyperframes/compositions/campaigns/**`, `ads/**`, `social/**`, `landing/**`, `assets/copy/**`, docs shotlists.

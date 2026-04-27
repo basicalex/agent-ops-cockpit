@@ -1,6 +1,13 @@
 # HyperFrames Design System
 
-Use this as the visual identity source of truth before authoring final HyperFrames compositions. Keep it concise, concrete, and asset-backed.
+Use this as the media/campaign visual identity source of truth before authoring final HyperFrames compositions. Keep it concise, concrete, and asset-backed.
+
+## Upstream design contract
+
+- Root project design contract: `../../DESIGN.md`
+- This file extends the root project design contract for HyperFrames media, campaign, render, and motion work.
+- If root `DESIGN.md` is missing, run `aoc-init` at the project root before final composition authoring.
+- Do not contradict the root design contract unless the user explicitly requests a design-system change and the root `DESIGN.md` is updated.
 
 ## Brand identity
 
