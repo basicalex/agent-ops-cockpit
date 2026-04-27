@@ -2336,6 +2336,35 @@
         },
         "updatedAt": "2026-04-27T12:09:30.196Z",
         "activeAgent": false
+      },
+      {
+        "id": "201",
+        "title": "Compact AOC preset Pi widget display",
+        "description": "",
+        "details": "",
+        "testStrategy": "",
+        "status": "done",
+        "dependencies": [],
+        "priority": "medium",
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "Make preset widget one-line by default with optional verbose mode",
+            "description": "",
+            "status": "done",
+            "dependencies": []
+          },
+          {
+            "id": 2,
+            "title": "Install/seed compact widget into Voyager and validate extension syntax",
+            "description": "",
+            "status": "done",
+            "dependencies": []
+          }
+        ],
+        "aocPrd": null,
+        "updatedAt": "2026-04-27T15:01:45.610Z",
+        "activeAgent": false
       }
     ],
     "aocPrd": {
