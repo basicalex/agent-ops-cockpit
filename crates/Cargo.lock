@@ -224,19 +224,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "aoc-opencode-adapter"
-version = "0.1.0"
-dependencies = [
- "aoc-core",
- "aoc-storage",
- "chrono",
- "serde_json",
- "sha2",
- "tempfile",
- "thiserror 1.0.69",
-]
-
-[[package]]
 name = "aoc-pi-adapter"
 version = "0.1.0"
 dependencies = [

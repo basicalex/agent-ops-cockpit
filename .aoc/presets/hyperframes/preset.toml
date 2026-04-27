@@ -1,5 +1,5 @@
-id = "hyperframes"
-label = "HyperFrames"
+id = "aoc-hyperframes"
+label = "AOC HyperFrames"
 layout = "design"
 defaultMode = "compose"
 version = 1
@@ -28,14 +28,14 @@ enable = ["hyperframes-director"]
 disable = ["hyperframes-off"]
 
 [skills]
-active = ["hyperframes"]
-recommended = []
+active = ["aoc-hyperframes"]
+recommended = ["hyperframes", "hyperframes-cli"]
 
 [skills.recommendedByMode]
-compose = ["hyperframes", "gsap"]
+compose = ["aoc-hyperframes", "hyperframes", "gsap"]
 site = ["website-to-hyperframes", "hyperframes", "hyperframes-cli", "gsap"]
-cli = ["hyperframes-cli"]
-review = ["hyperframes", "hyperframes-cli", "gsap"]
+cli = ["aoc-hyperframes", "hyperframes-cli"]
+review = ["aoc-hyperframes", "hyperframes", "hyperframes-cli", "gsap"]
 
 [handoff]
 enabled = true

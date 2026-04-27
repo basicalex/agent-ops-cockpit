@@ -1,14 +1,17 @@
-# OmO Regression Checklist
+# Legacy OmO/OpenCode Regression Checklist
 
-Use this checklist before cutting or deploying an OmO+AOC integration update.
+> Legacy note: AOC is Pi-first. The OmO/OpenCode integration is archived under
+> `legacy/opencode/` and is not part of the active runtime surface. Use this
+> checklist only when intentionally maintaining or importing legacy OpenCode
+> artifacts.
 
 ## 1) Fast local regression
 
 Run from repo root:
 
 ```bash
-bash scripts/opencode/verify-omo.sh regression \
-  --policy config/opencode/oh-my-opencode.policy.jsonc \
+bash legacy/opencode/scripts/verify-omo.sh regression \
+  --policy legacy/opencode/config/oh-my-opencode.policy.jsonc \
   --project-root "$PWD" \
   --profile sandbox \
   --max-chars 4096
@@ -24,7 +27,7 @@ Expected:
 Optional stricter run:
 
 ```bash
-bash scripts/opencode/verify-omo.sh regression --run-lint --rust-check
+bash legacy/opencode/scripts/verify-omo.sh regression --run-lint --rust-check
 ```
 
 ## 2) Full smoke
@@ -35,7 +38,8 @@ AOC_SMOKE_TEST=1 bash scripts/smoke.sh
 
 Expected:
 - Core shell smoke checks pass.
-- OmO regression checks pass via `verify-omo.sh regression`.
+- Active Pi-first checks pass.
+- Legacy OmO checks are only expected when explicitly wired for a legacy maintenance pass.
 
 ## 3) Clean profile install/init rehearsal
 
@@ -64,6 +68,7 @@ Expected:
 ## 4) Profile switch and rollback rehearsal
 
 ```bash
+# Legacy-only; `aoc-opencode-profile` is no longer part of the active shipped bin surface.
 aoc-opencode-profile init sandbox
 aoc-opencode-profile promote sandbox main --yes
 aoc-opencode-profile list-backups main

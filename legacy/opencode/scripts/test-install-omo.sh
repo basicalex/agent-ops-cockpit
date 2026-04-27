@@ -2,8 +2,8 @@
 set -euo pipefail
 
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-repo_root="$(cd "$script_dir/../.." && pwd)"
-install_script="$repo_root/scripts/opencode/install-omo.sh"
+repo_root="$(cd "$script_dir/../../.." && pwd)"
+install_script="$repo_root/legacy/opencode/scripts/install-omo.sh"
 profile_bin="$repo_root/bin/aoc-opencode-profile"
 
 fail() {

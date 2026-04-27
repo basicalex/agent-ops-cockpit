@@ -2,7 +2,7 @@
 set -euo pipefail
 
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-repo_root="$(cd "$script_dir/../.." && pwd)"
+repo_root="$(cd "$script_dir/../../.." && pwd)"
 
 usage() {
   cat <<'EOF'
@@ -18,7 +18,7 @@ Commands:
   help                Show this help
 
 Options:
-  --policy <path>       Policy file path (default: config/opencode/oh-my-opencode.policy.jsonc)
+  --policy <path>       Policy file path (default: legacy/opencode/config/oh-my-opencode.policy.jsonc)
   --project-root <path> Project root for task authority checks (default: cwd)
   --profile <name>      Profile for isolation check (default: sandbox)
   --max-chars <n>       Max chars for context-pack verify (default: 12000)
@@ -37,7 +37,7 @@ warn() {
 }
 
 default_policy_path() {
-  printf '%s' "$repo_root/config/opencode/oh-my-opencode.policy.jsonc"
+  printf '%s' "$repo_root/legacy/opencode/config/oh-my-opencode.policy.jsonc"
 }
 
 profile_tool_path() {
@@ -234,7 +234,7 @@ check_profile_isolation() {
 check_context_pack() {
   local project_root="$1"
   local max_chars="$2"
-  local context_pack_script="$repo_root/scripts/opencode/context-pack.sh"
+  local context_pack_script="$repo_root/legacy/opencode/scripts/context-pack.sh"
 
   [[ -f "$context_pack_script" ]] || die "context-pack script not found: $context_pack_script"
   [[ "$max_chars" =~ ^[0-9]+$ ]] || die "--max-chars must be numeric"
@@ -283,7 +283,7 @@ check_shell_syntax() {
   files+=("$repo_root/scripts/smoke.sh")
 
   shopt -s nullglob
-  for file in "$repo_root/scripts/opencode/"*.sh; do
+  for file in "$repo_root/legacy/opencode/scripts/"*.sh; do
     files+=("$file")
   done
   shopt -u nullglob

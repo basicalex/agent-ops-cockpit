@@ -10,7 +10,7 @@ files=(
   bin/*
   install.sh
   install/bootstrap.sh
-  scripts/opencode/*.sh
+  legacy/opencode/scripts/*.sh
 )
 
 # Filter out non-files or directories just in case
