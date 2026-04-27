@@ -119,6 +119,14 @@ struct SearchJob {
     child: Child,
 }
 
+#[derive(Debug)]
+struct HyperframesJob {
+    action: String,
+    success_message: String,
+    log_path: PathBuf,
+    child: Child,
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum ThemeSource {
     Preset,
@@ -345,6 +353,9 @@ struct App {
     search_job: Option<SearchJob>,
     search_log_tail: Vec<String>,
     search_log_scroll: usize,
+    hyperframes_job: Option<HyperframesJob>,
+    hyperframes_log_tail: Vec<String>,
+    hyperframes_log_scroll: usize,
     search_start_last_status: String,
     search_verify_last_status: String,
     search_status_checked: bool,
@@ -444,6 +455,9 @@ impl App {
             search_job: None,
             search_log_tail: Vec::new(),
             search_log_scroll: 0,
+            hyperframes_job: None,
+            hyperframes_log_tail: Vec::new(),
+            hyperframes_log_scroll: 0,
             search_start_last_status: "idle".to_string(),
             search_verify_last_status: "idle".to_string(),
             search_status_checked: false,
@@ -670,9 +684,10 @@ impl App {
             SettingsSection::ToolsVercel => {
                 self.settings_tools_vercel_state.selected().unwrap_or(0)
             }
-            SettingsSection::ToolsHyperframes => {
-                self.settings_tools_hyperframes_state.selected().unwrap_or(0)
-            }
+            SettingsSection::ToolsHyperframes => self
+                .settings_tools_hyperframes_state
+                .selected()
+                .unwrap_or(0),
         }
     }
 
@@ -1510,6 +1525,21 @@ impl App {
         self.search_log_scroll = next.min(max_scroll);
     }
 
+    fn scroll_hyperframes_log(&mut self, delta: isize) {
+        if self.hyperframes_log_tail.is_empty() {
+            self.hyperframes_log_scroll = 0;
+            return;
+        }
+        let max_scroll = self.hyperframes_log_tail.len().saturating_sub(1);
+        let next = if delta.is_negative() {
+            self.hyperframes_log_scroll
+                .saturating_sub(delta.unsigned_abs())
+        } else {
+            self.hyperframes_log_scroll.saturating_add(delta as usize)
+        };
+        self.hyperframes_log_scroll = next.min(max_scroll);
+    }
+
     fn cancel_agent_browser_job(&mut self) {
         let Some(mut job) = self.agent_browser_job.take() else {
             self.set_status("No Agent Browser action is running");
@@ -1585,25 +1615,78 @@ impl App {
         }
     }
 
-    fn run_hyperframes_init_action(&mut self) {
-        match run_hyperframes_command(&["init"]) {
-            Ok(message) => self.set_status(message),
-            Err(err) => self.set_status(format!("aoc-hyperframes init failed: {err}")),
+    fn cancel_hyperframes_job(&mut self) {
+        let Some(mut job) = self.hyperframes_job.take() else {
+            self.set_status("No HyperFrames action is running");
+            return;
+        };
+
+        let _ = job.child.kill();
+        let _ = job.child.wait();
+        if let Ok(lines) = tail_file_lines(&job.log_path, 200, 32 * 1024) {
+            self.hyperframes_log_tail = lines;
         }
+        self.set_status(format!(
+            "Cancelled HyperFrames {} (log: {})",
+            job.action,
+            job.log_path.to_string_lossy()
+        ));
+    }
+
+    fn open_hyperframes_log(&mut self) {
+        let log_path = self
+            .hyperframes_job
+            .as_ref()
+            .map(|job| job.log_path.clone())
+            .or_else(|| latest_hyperframes_log_path());
+
+        let Some(log_path) = log_path else {
+            self.set_status("No HyperFrames log available yet");
+            return;
+        };
+
+        match open_log_in_pager(&log_path) {
+            Ok(()) => self.set_status(format!("Viewed log {}", log_path.to_string_lossy())),
+            Err(err) => self.set_status(format!("Open log failed: {err}")),
+        }
+    }
+
+    fn start_hyperframes_action(&mut self, action: &str, args: &[&str], success_message: &str) {
+        if self.hyperframes_job.is_some() {
+            self.set_status("HyperFrames action already running");
+            return;
+        }
+
+        match spawn_hyperframes_command(action, success_message, args) {
+            Ok(job) => {
+                let log_path = job.log_path.to_string_lossy().to_string();
+                self.hyperframes_log_tail.clear();
+                self.hyperframes_log_scroll = 0;
+                self.hyperframes_job = Some(job);
+                self.set_status(format!("HyperFrames {action} started (logs: {log_path})"));
+            }
+            Err(err) => self.set_status(format!("aoc-hyperframes {action} failed to start: {err}")),
+        }
+    }
+
+    fn run_hyperframes_init_action(&mut self) {
+        self.start_hyperframes_action(
+            "init",
+            &["init"],
+            "HyperFrames workspace, skills, and production bootstrap completed",
+        );
     }
 
     fn run_hyperframes_sync_skills_action(&mut self) {
-        match run_hyperframes_command(&["sync-skills"]) {
-            Ok(message) => self.set_status(message),
-            Err(err) => self.set_status(format!("aoc-hyperframes sync-skills failed: {err}")),
-        }
+        self.start_hyperframes_action(
+            "sync-skills",
+            &["sync-skills"],
+            "HyperFrames PI skills synced",
+        );
     }
 
     fn run_hyperframes_doctor_action(&mut self) {
-        match run_hyperframes_command(&["doctor"]) {
-            Ok(message) => self.set_status(message),
-            Err(err) => self.set_status(format!("aoc-hyperframes doctor failed: {err}")),
-        }
+        self.start_hyperframes_action("doctor", &["doctor"], "HyperFrames doctor completed");
     }
 
     fn run_hyperframes_preview_action(&mut self) {
@@ -1733,6 +1816,57 @@ impl App {
         }
     }
 
+    fn poll_hyperframes_job(&mut self) {
+        let mut completed: Option<(String, String, ExitStatus, PathBuf)> = None;
+
+        if let Some(job) = self.hyperframes_job.as_mut() {
+            if let Ok(lines) = tail_file_lines(&job.log_path, 200, 32 * 1024) {
+                self.hyperframes_log_tail = lines;
+                let max_scroll = self.hyperframes_log_tail.len().saturating_sub(1);
+                self.hyperframes_log_scroll = self.hyperframes_log_scroll.min(max_scroll);
+            }
+
+            match job.child.try_wait() {
+                Ok(Some(status)) => {
+                    completed = Some((
+                        job.action.clone(),
+                        job.success_message.clone(),
+                        status,
+                        job.log_path.clone(),
+                    ));
+                }
+                Ok(None) => {}
+                Err(err) => {
+                    self.hyperframes_job = None;
+                    self.set_status(format!("HyperFrames job poll failed: {err}"));
+                    return;
+                }
+            }
+        }
+
+        if let Some((action, success_message, status, log_path)) = completed {
+            self.hyperframes_job = None;
+            if let Ok(lines) = tail_file_lines(&log_path, 200, 32 * 1024) {
+                self.hyperframes_log_tail = lines;
+                let max_scroll = self.hyperframes_log_tail.len().saturating_sub(1);
+                self.hyperframes_log_scroll = self.hyperframes_log_scroll.min(max_scroll);
+            }
+
+            if status.success() {
+                self.set_status(format!(
+                    "{success_message} ({}) (log: {})",
+                    hyperframes_summary(),
+                    log_path.to_string_lossy()
+                ));
+            } else {
+                self.set_status(format!(
+                    "HyperFrames {action} failed with status {status} (log: {})",
+                    log_path.to_string_lossy()
+                ));
+            }
+        }
+    }
+
     fn run_selected_rtk_action(&mut self) {
         match self.rtk_actions_state.selected().unwrap_or(0) {
             0 => self.refresh_rtk_status(),
@@ -1774,6 +1908,7 @@ impl App {
         self.flush_pending_theme_preview();
         self.poll_agent_browser_job();
         self.poll_search_job();
+        self.poll_hyperframes_job();
 
         if self.pane_rename_remaining == 0 {
             return;
@@ -2042,6 +2177,13 @@ fn handle_key_normal(app: &mut App, key: KeyEvent) {
         {
             app.scroll_search_log(8);
         }
+        KeyCode::PageDown
+            if app.active_tab == Tab::Defaults
+                && app.focus == Focus::Detail
+                && app.settings_section == SettingsSection::ToolsHyperframes =>
+        {
+            app.scroll_hyperframes_log(8);
+        }
         KeyCode::PageUp
             if app.active_tab == Tab::Defaults
                 && app.focus == Focus::Detail
@@ -2057,6 +2199,13 @@ fn handle_key_normal(app: &mut App, key: KeyEvent) {
                 && matches!(app.selected_settings_index(), 4 | 5) =>
         {
             app.scroll_search_log(-8);
+        }
+        KeyCode::PageUp
+            if app.active_tab == Tab::Defaults
+                && app.focus == Focus::Detail
+                && app.settings_section == SettingsSection::ToolsHyperframes =>
+        {
+            app.scroll_hyperframes_log(-8);
         }
         KeyCode::Char('x')
             if app.active_tab == Tab::Defaults
@@ -2074,6 +2223,13 @@ fn handle_key_normal(app: &mut App, key: KeyEvent) {
         {
             app.cancel_search_job();
         }
+        KeyCode::Char('x')
+            if app.active_tab == Tab::Defaults
+                && app.focus == Focus::Detail
+                && app.settings_section == SettingsSection::ToolsHyperframes =>
+        {
+            app.cancel_hyperframes_job();
+        }
         KeyCode::Char('O')
             if app.active_tab == Tab::Defaults
                 && app.focus == Focus::Detail
@@ -2089,6 +2245,13 @@ fn handle_key_normal(app: &mut App, key: KeyEvent) {
                 && matches!(app.selected_settings_index(), 4 | 5) =>
         {
             app.open_search_log();
+        }
+        KeyCode::Char('O')
+            if app.active_tab == Tab::Defaults
+                && app.focus == Focus::Detail
+                && app.settings_section == SettingsSection::ToolsHyperframes =>
+        {
+            app.open_hyperframes_log();
         }
         KeyCode::Char('?') => {
             app.mode = Mode::Help;
@@ -2768,7 +2931,7 @@ fn draw_defaults(frame: &mut ratatui::Frame, area: Rect, app: &mut App, focused:
         }
         SettingsSection::ToolsHyperframes => {
             let items = vec![
-                ListItem::new("Init workspace + sync PI skills"),
+                ListItem::new("Init workspace + production bootstrap"),
                 ListItem::new("Sync HyperFrames PI skills only"),
                 ListItem::new("Run HyperFrames doctor"),
                 ListItem::new("Start preview pane"),
@@ -2812,9 +2975,11 @@ fn draw_defaults(frame: &mut ratatui::Frame, area: Rect, app: &mut App, focused:
         SettingsSection::ToolsVercel => {
             frame.render_stateful_widget(list, columns[0], &mut app.settings_tools_vercel_state)
         }
-        SettingsSection::ToolsHyperframes => {
-            frame.render_stateful_widget(list, columns[0], &mut app.settings_tools_hyperframes_state)
-        }
+        SettingsSection::ToolsHyperframes => frame.render_stateful_widget(
+            list,
+            columns[0],
+            &mut app.settings_tools_hyperframes_state,
+        ),
     }
 
     app.theme_preview_area = if app.settings_section == SettingsSection::ThemeManager {
@@ -3101,7 +3266,7 @@ fn draw_help_modal(frame: &mut ratatui::Frame, area: Rect) {
         Line::from("  t      jump to Theme section"),
         Line::from("  Tools includes RTK, agent installers, PI compaction, Agent Browser, AOC Map, Vercel CLI, HyperFrames"),
         Line::from("  Right pane shows details for selected settings item"),
-        Line::from("  Agent Browser/search jobs: PgUp/PgDn scroll, x cancel, Shift+O open log"),
+        Line::from("  Agent Browser/search/HyperFrames jobs: PgUp/PgDn scroll, x cancel, Shift+O open log"),
         Line::from("  Theme manager: j/k preview, Enter activate+persist, n/i/r actions"),
         Line::from("  Layout section can create/edit custom layouts through your $EDITOR"),
         Line::from(""),
@@ -3460,7 +3625,7 @@ fn settings_tools_vercel_options() -> Vec<String> {
 
 fn settings_tools_hyperframes_options() -> Vec<String> {
     vec![
-        "Init workspace + sync skills".to_string(),
+        "Init workspace + production bootstrap".to_string(),
         "Sync HyperFrames skills".to_string(),
         "Run doctor".to_string(),
         "Start preview pane".to_string(),
@@ -4071,36 +4236,57 @@ fn settings_detail_lines(app: &App) -> Vec<Line<'static>> {
                 lines.push(Line::from("Return to Tools menu."));
             }
         },
-        SettingsSection::ToolsHyperframes => match selected {
-            0 => {
-                lines.push(Line::from("Init HyperFrames workspace + skills"));
-                lines.push(Line::from(""));
-                lines.push(Line::from(format!("Current status: {}", hyperframes_summary())));
-                lines.push(Line::from("Enter runs `aoc-hyperframes init`."));
-                lines.push(Line::from("Then use Alt+X -> HyperFrames for video authoring."));
+        SettingsSection::ToolsHyperframes => {
+            match selected {
+                0 => {
+                    lines.push(Line::from(
+                        "Init HyperFrames workspace + production bootstrap",
+                    ));
+                    lines.push(Line::from(""));
+                    lines.push(Line::from(format!(
+                        "Current status: {}",
+                        hyperframes_summary()
+                    )));
+                    lines.push(Line::from(
+                        "Enter runs `aoc-hyperframes init` in the background.",
+                    ));
+                    lines.push(Line::from(
+                        "This seeds skills, prompt, canonical folders, and docs/DESIGN.md.",
+                    ));
+                    lines.push(Line::from(
+                        "Then use Alt+X -> AOC HyperFrames for production work.",
+                    ));
+                }
+                1 => {
+                    lines.push(Line::from("Sync HyperFrames PI skills"));
+                    lines.push(Line::from(""));
+                    lines.push(Line::from(
+                        "Enter runs `aoc-hyperframes sync-skills` in the background.",
+                    ));
+                }
+                2 => {
+                    lines.push(Line::from("Run HyperFrames doctor"));
+                    lines.push(Line::from(""));
+                    lines.push(Line::from(
+                        "Checks Node.js >= 22, FFmpeg, and HyperFrames environment in the background.",
+                    ));
+                }
+                3 => {
+                    lines.push(Line::from("Start preview pane"));
+                    lines.push(Line::from(""));
+                    lines.push(Line::from("Opens a Zellij pane below and runs `npx hyperframes preview` in the `hyperframes/` workspace."));
+                    lines.push(Line::from(
+                        "Preview usually serves at http://localhost:3002.",
+                    ));
+                }
+                _ => {
+                    lines.push(Line::from("Back"));
+                    lines.push(Line::from(""));
+                    lines.push(Line::from("Return to Tools menu."));
+                }
             }
-            1 => {
-                lines.push(Line::from("Sync HyperFrames PI skills"));
-                lines.push(Line::from(""));
-                lines.push(Line::from("Enter runs `aoc-hyperframes sync-skills`."));
-            }
-            2 => {
-                lines.push(Line::from("Run HyperFrames doctor"));
-                lines.push(Line::from(""));
-                lines.push(Line::from("Checks Node.js >= 22, FFmpeg, and HyperFrames environment."));
-            }
-            3 => {
-                lines.push(Line::from("Start preview pane"));
-                lines.push(Line::from(""));
-                lines.push(Line::from("Opens a Zellij pane below and runs `npx hyperframes preview` in the `hyperframes/` workspace."));
-                lines.push(Line::from("Preview usually serves at http://localhost:3002."));
-            }
-            _ => {
-                lines.push(Line::from("Back"));
-                lines.push(Line::from(""));
-                lines.push(Line::from("Return to Tools menu."));
-            }
-        },
+            push_hyperframes_job_detail(&mut lines, app);
+        }
     }
 
     lines
@@ -5352,6 +5538,44 @@ fn push_search_job_detail(lines: &mut Vec<Line<'static>>, app: &App, action: &st
     }
 }
 
+fn push_hyperframes_job_detail(lines: &mut Vec<Line<'static>>, app: &App) {
+    if let Some(job) = app.hyperframes_job.as_ref() {
+        lines.push(Line::from(""));
+        lines.push(Line::from(format!("Running: {}", job.action)));
+        lines.push(Line::from(format!(
+            "Log: {}",
+            job.log_path.to_string_lossy()
+        )));
+        lines.push(Line::from(
+            "PgUp/PgDn scroll · x cancel · Shift+O open full log",
+        ));
+        if app.hyperframes_log_tail.is_empty() {
+            lines.push(Line::from("(waiting for log output...)"));
+        } else {
+            let visible = 12usize;
+            let max_start = app.hyperframes_log_tail.len().saturating_sub(visible);
+            let start = app.hyperframes_log_scroll.min(max_start);
+            let end = (start + visible).min(app.hyperframes_log_tail.len());
+            lines.push(Line::from(format!(
+                "Recent output: lines {}-{} of {}",
+                start + 1,
+                end,
+                app.hyperframes_log_tail.len()
+            )));
+            for line in &app.hyperframes_log_tail[start..end] {
+                lines.push(Line::from(format!("  {line}")));
+            }
+        }
+    } else if let Some(log_path) = latest_hyperframes_log_path() {
+        lines.push(Line::from(""));
+        lines.push(Line::from(format!(
+            "Latest log: {}",
+            log_path.to_string_lossy()
+        )));
+        lines.push(Line::from("Shift+O opens the full log in pager."));
+    }
+}
+
 fn agent_browser_search_summary(
     runtime_checked: bool,
     runtime_ready: bool,
@@ -5934,6 +6158,17 @@ fn search_log_path(action: &str) -> PathBuf {
     ))
 }
 
+fn hyperframes_log_path(action: &str) -> PathBuf {
+    let stamp = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_millis())
+        .unwrap_or(0);
+    env::temp_dir().join(format!(
+        "aoc-control-hyperframes-{action}-{}-{stamp}.log",
+        std::process::id()
+    ))
+}
+
 fn spawn_agent_browser_command(action: &str) -> io::Result<AgentBrowserJob> {
     let cmd = resolve_agent_browser_cmd(action);
     let log_path = agent_browser_log_path(action);
@@ -6013,6 +6248,10 @@ fn latest_search_log_path() -> Option<PathBuf> {
     latest_log_path_with_prefix("aoc-control-search-")
 }
 
+fn latest_hyperframes_log_path() -> Option<PathBuf> {
+    latest_log_path_with_prefix("aoc-control-hyperframes-")
+}
+
 fn latest_log_path_with_prefix(prefix: &str) -> Option<PathBuf> {
     let mut entries: Vec<(SystemTime, PathBuf)> = fs::read_dir(env::temp_dir())
         .ok()?
@@ -6047,6 +6286,30 @@ fn open_log_in_pager(path: &Path) -> io::Result<()> {
     }
 }
 
+fn spawn_hyperframes_command(
+    action: &str,
+    success_message: &str,
+    args: &[&str],
+) -> io::Result<HyperframesJob> {
+    let log_path = hyperframes_log_path(action);
+    let log_file = fs::File::create(&log_path)?;
+    let log_file_err = log_file.try_clone()?;
+
+    let child = Command::new("aoc-hyperframes")
+        .args(args)
+        .stdin(Stdio::null())
+        .stdout(Stdio::from(log_file))
+        .stderr(Stdio::from(log_file_err))
+        .spawn()?;
+
+    Ok(HyperframesJob {
+        action: action.to_string(),
+        success_message: success_message.to_string(),
+        log_path,
+        child,
+    })
+}
+
 fn open_hyperframes_preview_pane() -> io::Result<String> {
     let root = project_root_path().unwrap_or_else(|| PathBuf::from("."));
     let workspace = root.join("hyperframes");
@@ -6067,9 +6330,15 @@ fn open_hyperframes_preview_pane() -> io::Result<String> {
             .stderr(Stdio::null())
             .status()?;
         if status.success() {
-            return Ok("Started HyperFrames preview in a new pane below (usually http://localhost:3002)".to_string());
+            return Ok(
+                "Started HyperFrames preview in a new pane below (usually http://localhost:3002)"
+                    .to_string(),
+            );
         }
-        return Err(io::Error::new(io::ErrorKind::Other, "zellij new-pane failed"));
+        return Err(io::Error::new(
+            io::ErrorKind::Other,
+            "zellij new-pane failed",
+        ));
     }
 
     Err(io::Error::new(
@@ -6079,31 +6348,6 @@ fn open_hyperframes_preview_pane() -> io::Result<String> {
             workspace.to_string_lossy()
         ),
     ))
-}
-
-fn run_hyperframes_command(args: &[&str]) -> io::Result<String> {
-    let output = Command::new("aoc-hyperframes").args(args).output()?;
-    let command_label = if args.is_empty() {
-        "aoc-hyperframes".to_string()
-    } else {
-        format!("aoc-hyperframes {}", args.join(" "))
-    };
-    if !output.status.success() {
-        return Err(command_failure(&command_label, &output));
-    }
-    let text = String::from_utf8_lossy(&output.stdout).trim().to_string();
-    let base = if text.is_empty() {
-        "HyperFrames integration updated".to_string()
-    } else {
-text.lines()
-            .rev()
-            .find(|line| !line.trim().is_empty())
-            .unwrap_or("HyperFrames integration updated")
-            .trim()
-            .to_string()
-    };
-    let status = hyperframes_summary();
-    Ok(format!("{base} ({status})"))
 }
 
 fn load_rtk_status() -> io::Result<RtkStatus> {

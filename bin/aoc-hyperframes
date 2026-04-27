@@ -6,7 +6,7 @@ usage() {
 Usage: aoc-hyperframes <command> [options]
 
 Commands:
-  init                    Initialize HyperFrames integration in a repo
+  init                    Initialize HyperFrames integration and production bootstrap
   bootstrap-asset-system  Create/repair AOC HyperFrames asset system folders/docs
   sync-skills             Seed/sync HyperFrames PI skills and prompt only
   doctor                  Check Node/FFmpeg and run HyperFrames doctor when possible
@@ -278,6 +278,7 @@ case "$command" in
     seed_skills
     seed_prompt
     sync_skills
+    bootstrap_asset_system
     log "HyperFrames integration ready. Use Alt+X -> AOC HyperFrames."
     ;;
   bootstrap-asset-system|bootstrap)
