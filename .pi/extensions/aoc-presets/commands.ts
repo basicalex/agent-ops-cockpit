@@ -1,5 +1,5 @@
 import type { ExtensionAPI, ExtensionContext } from "@mariozechner/pi-coding-agent";
-import { Box, matchesKey, truncateToWidth, visibleWidth, wrapTextWithAnsi } from "@mariozechner/pi-tui";
+import { matchesKey, truncateToWidth, visibleWidth, wrapTextWithAnsi } from "@mariozechner/pi-tui";
 import type { PresetRecord } from "./manifest.ts";
 import { applyPresetSkillFilters } from "./skill-filters.ts";
 import { applyStatus, describeState, formatHandoff, formatHistory, materializeState, normalizeMode, persistState, type PresetRuntimeState } from "./state.ts";
@@ -300,10 +300,10 @@ function openPresetMenu(pi: ExtensionAPI, ctx: ExtensionContext, bindings: Comma
       const accent = (text: string) => theme.fg("accent", text);
       const border = (text: string) => theme.fg("borderMuted", text);
       const strongBorder = (text: string) => theme.fg("borderAccent", text);
-      const selectedBg = (text: string) => theme.bg("toolPendingBg", theme.fg("text", text));
+      const selectedBg = (text: string) => `\x1b[48;2;42;68;112m\x1b[38;2;232;240;255m${text}\x1b[0m`;
       const badge = (text: string, tone: "accent" | "muted" = "muted") => tone === "accent"
-        ? theme.bg("toolPendingBg", theme.fg("accent", ` ${text} `))
-        : theme.bg("toolPendingBg", theme.fg("muted", ` ${text} `));
+        ? `\x1b[48;2;42;68;112m\x1b[38;2;190;220;255m ${text} \x1b[0m`
+        : `\x1b[48;2;34;48;78m\x1b[38;2;188;198;220m ${text} \x1b[0m`;
       const makeRow = (left: string, right = "") => {
         const leftWidth = visibleWidth(left);
         const rightWidth = visibleWidth(right);
@@ -384,19 +384,18 @@ function openPresetMenu(pi: ExtensionAPI, ctx: ExtensionContext, bindings: Comma
       lines.push(border(`├${"─".repeat(innerWidth)}┤`));
       lines.push(makeRow(dim("[j/k] move  [x] caveman  [enter/l] apply  [h/esc] back  [q] close"), muted("selected ▸  active current")));
       lines.push(strongBorder(`╰${"─".repeat(innerWidth)}╯`));
-      return lines.map((line) => padRight(line, width));
+      return lines;
     }
 
     return {
       render(width: number) {
-        const box = new Box(1, 1, (text) => theme.bg("customMessageBg", text));
-        box.addChild({
-          render(innerWidth: number) {
-            return renderPanel(innerWidth);
-          },
-          invalidate() {},
-        });
-        return box.render(width);
+        const panelWidth = Math.max(64, width - 2);
+        const blank = theme.bg("customMessageBg", " ".repeat(width));
+        return [
+          blank,
+          ...renderPanel(panelWidth).map((line) => theme.bg("customMessageBg", padRight(` ${line}`, width))),
+          blank,
+        ];
       },
       invalidate() {},
       handleInput(data: string) {
