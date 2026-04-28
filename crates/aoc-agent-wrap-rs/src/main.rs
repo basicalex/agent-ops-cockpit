@@ -8689,14 +8689,21 @@ mod tests {
         let with_key = sanitize_activity_line("api_key=sk-verysecretvalue0000");
         assert_eq!(with_key, format!("api_key={REDACTED_SECRET}"));
 
-        let with_auth =
-            sanitize_activity_line("Authorization: Bearer REDACTED_TOKEN");
+        let bearer = format!(
+            "Authorization: Bearer {}",
+            ["abcdefghijklm", "nopqrstuvwxyz123456"].concat()
+        );
+        let with_auth = sanitize_activity_line(&bearer);
         assert_eq!(
             with_auth,
             format!("Authorization: Bearer {REDACTED_SECRET}")
         );
 
-        let inline = sanitize_activity_line("publishing token REDACTED_GITHUB_TOKEN");
+        let github_token = format!(
+            "publishing token {}",
+            ["ghp_", "abcdEFGH", "ijklMNOP", "qrstUVWX"].concat()
+        );
+        let inline = sanitize_activity_line(&github_token);
         assert_eq!(inline, format!("publishing token {REDACTED_SECRET}"));
     }
 
