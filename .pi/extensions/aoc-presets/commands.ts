@@ -280,7 +280,7 @@ function openPresetMenu(pi: ExtensionAPI, ctx: ExtensionContext, bindings: Comma
       const innerWidth = Math.max(58, width - 2);
       const gap = 1;
       const navWidth = Math.max(20, Math.min(28, Math.floor((innerWidth - 3) * 0.28)));
-      const detailWidth = Math.max(26, innerWidth - navWidth - gap - 3);
+      const detailWidth = Math.max(26, innerWidth - navWidth - (gap * 2) - 3);
       const bodyHeight = Math.max(10, Math.min(12, level.nodes.length + 2));
       const record = selected?.action?.preset ? bindings.registry.get(selected.action.preset) : undefined;
       const selectedState = selected?.action?.preset
@@ -300,10 +300,10 @@ function openPresetMenu(pi: ExtensionAPI, ctx: ExtensionContext, bindings: Comma
       const accent = (text: string) => theme.fg("accent", text);
       const border = (text: string) => theme.fg("borderMuted", text);
       const strongBorder = (text: string) => theme.fg("borderAccent", text);
-      const selectedBg = (text: string) => `\x1b[48;2;42;68;112m\x1b[38;2;232;240;255m${text}\x1b[0m`;
+      const selectedText = (text: string) => theme.fg("accent", theme.bold(text));
       const badge = (text: string, tone: "accent" | "muted" = "muted") => tone === "accent"
-        ? `\x1b[48;2;42;68;112m\x1b[38;2;190;220;255m ${text} \x1b[0m`
-        : `\x1b[48;2;34;48;78m\x1b[38;2;188;198;220m ${text} \x1b[0m`;
+        ? theme.fg("accent", `[${text}]`)
+        : theme.fg("muted", `[${text}]`);
       const makeRow = (left: string, right = "") => {
         const leftWidth = visibleWidth(left);
         const rightWidth = visibleWidth(right);
@@ -341,7 +341,7 @@ function openPresetMenu(pi: ExtensionAPI, ctx: ExtensionContext, bindings: Comma
         const prefix = selectedRow ? accent("▸ ") : "  ";
         const rowText = `${prefix}${node.label}${stateLabel}${chevron}`;
         const padded = padRight(rowText, navWidth);
-        navLines.push(selectedRow ? selectedBg(padded) : padded);
+        navLines.push(selectedRow ? selectedText(padded) : padded);
       }
       while (navLines.length < bodyHeight) navLines.push(" ".repeat(navWidth));
       if (level.nodes.length > visibleNodes.length) {
