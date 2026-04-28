@@ -61,7 +61,7 @@ In AOC, press `Alt+C`:
 Settings -> Tools -> Agent Browser + Search
 ```
 
-Run the install/verify actions top to bottom.
+Run the install/verify actions top to bottom. See [Web research](web-research.md).
 
 ## Optional: HyperFrames
 

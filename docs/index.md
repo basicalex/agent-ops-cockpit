@@ -19,6 +19,7 @@ This is the human entrypoint. Start here before opening architecture or maintain
 | Use `Alt+C` | [Control pane](control-pane.md) |
 | Switch modes with `Alt+X` | [Presets](presets.md) |
 | Track tasks and decisions | [Tasks and memory](tasks-memory.md) |
+| Research the web | [Web research](web-research.md) |
 | Create video/campaign assets | [HyperFrames](hyperframes.md) |
 | Configure agents/skills | [Agents](agents.md), [Skills](skills.md) |
 | Customize layouts | [Layouts](layouts.md) |
@@ -36,7 +37,12 @@ Use these when you need exact contracts or paths:
 - [Configuration](configuration.md)
 - [Project contract](reference/project-contract.md)
 - [Architecture](reference/architecture.md)
+- [AOC Mind architecture](reference/aoc-mind-architecture.md)
+- [RTK routing](reference/rtk-routing.md)
+- [Session lifecycle](reference/session-lifecycle.md)
 - [Pulse IPC protocol](reference/pulse-ipc-protocol.md)
+- [Managed assets](managed-assets.md)
+- [Commit intelligence](commit-intelligence.md)
 - [Agent extensibility](agent-extensibility.md)
 
 ## Maintainer docs

@@ -62,6 +62,12 @@ Use STM when:
 
 Promote durable decisions from STM into `aoc-mem`.
 
+## Commit intelligence
+
+Commits are durable engineering checkpoints. Use them to record why work changed, which tasks/PRDs it belongs to, and how it was validated.
+
+See [commit-intelligence.md](commit-intelligence.md).
+
 ## Agent startup
 
 Agents should use:
@@ -71,3 +77,15 @@ aoc-handshake --json
 ```
 
 This gives project status without dumping broad memory. Retrieve memory only when needed for the current task.
+
+## AOC Mind
+
+AOC Mind is the deeper project-memory and provenance system behind focused context packs, session-derived knowledge, and operator views. It is intentionally lazy: agents request Mind context only for a specific reason, not at every startup.
+
+Use:
+
+```bash
+aoc-mind-service context-pack --project-root "$PWD" --mode focused --reason "resume task 123" --json
+```
+
+Architecture details: [reference/aoc-mind-architecture.md](reference/aoc-mind-architecture.md).

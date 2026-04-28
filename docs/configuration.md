@@ -19,6 +19,8 @@ Project-local config lives in:
 
 See [Project contract](reference/project-contract.md).
 
+Managed AOC assets use marker files and safe refresh rules. See [Managed assets](managed-assets.md).
+
 ## Control pane
 
 Press `Alt+C` inside AOC for:
@@ -60,6 +62,17 @@ aoc-skill validate --root .
 ```
 
 See [Skills](skills.md).
+
+## RTK routing
+
+RTK routing condenses noisy allowlisted command output while preserving native fallback for safe commands.
+
+```bash
+aoc-rtk status
+aoc-rtk doctor
+```
+
+See [RTK routing](reference/rtk-routing.md).
 
 ## Detailed reference
 

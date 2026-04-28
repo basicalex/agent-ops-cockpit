@@ -72,7 +72,7 @@ Prefer project scope for shared repo workflows and global scope for personal mac
 
 ## Agent Browser + Search
 
-This is the main web research integration surface.
+This is the main web research integration surface. See [Web research](web-research.md).
 
 Path:
 

@@ -117,6 +117,8 @@ Common fixes:
 
 ## Web research fails
 
+See [Web research](web-research.md).
+
 Use:
 
 ```text
