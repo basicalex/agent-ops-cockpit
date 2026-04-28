@@ -176,9 +176,9 @@ AOC adopts the useful orchestration primitives while adding stricter contract ty
 
 ## Related docs
 
-- `docs/subagent-runtime.md` — delegated specialist operator/runtime reference for Pi session launch, status, handoff, recovery, and trust semantics
-- `docs/insight-t3-alignment.md` — planned T3 alignment layer and manual/on-demand trigger workflow
-- `docs/insight-compaction-ingest.md` — planned Pi compaction -> Mind checkpoint integration
+- `docs/reference/subagent-runtime.md` — delegated specialist operator/runtime reference for Pi session launch, status, handoff, recovery, and trust semantics
+- `docs/reference/insight-t3-alignment.md` — planned T3 alignment layer and manual/on-demand trigger workflow
+- `docs/reference/insight-compaction-ingest.md` — planned Pi compaction -> Mind checkpoint integration
 
 ## Related PRD
 

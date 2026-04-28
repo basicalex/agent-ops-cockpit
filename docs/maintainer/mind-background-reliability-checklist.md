@@ -46,7 +46,7 @@ Short exit criteria for calling project-scoped `aoc-mind` a dependable backgroun
 ### 7. Validation bar
 - Focused crate tests cover the canonical ownership seams in `aoc-mind`.
 - Existing wrapper compatibility tests remain green.
-- `docs/mind-runtime-validation.md` commands still pass for live smoke + hardening coverage.
+- `docs/maintainer/mind-runtime-validation.md` commands still pass for live smoke + hardening coverage.
 
 ## Current hardening focus
 

@@ -10,13 +10,26 @@ Use when creating a reusable campaign package.
 - CTA and landing destination
 
 ## Create
+
+Prefer CLI scaffold:
+
+```bash
+aoc-hyperframes campaign create <campaign> \
+  --audience <audience> \
+  --channels meta,reel \
+  --durations 15s,6s \
+  --concept <concept>
+```
+
+Expected source layout:
+
 ```txt
-hyperframes/compositions/campaigns/<campaign>/
-hyperframes/compositions/ads/<campaign>/
-hyperframes/compositions/social/<campaign>/
-hyperframes/compositions/landing/<campaign>/
+hyperframes/compositions/_playgrounds/<campaign>-board.html
+hyperframes/compositions/ads/<audience>/<channel>-<duration>-<concept>-v1.html
+hyperframes/compositions/social/<audience>/<channel>-<duration>-<concept>-v1.html
+hyperframes/compositions/landing/<audience>/<concept>-v1.html
 hyperframes/assets/copy/<campaign>/
-hyperframes/docs/shotlists/<campaign>.md
+hyperframes/docs/shotlists/<composition-name>.md
 hyperframes/docs/retrospectives/
 ```
 
@@ -28,6 +41,11 @@ hyperframes/docs/retrospectives/
 - Measurement/retrospective fields
 
 ## Rules
-- Keep brand-level components in `compositions/components/`.
-- Keep campaign-specific variants under campaign folders.
+- Read root `DESIGN.md` and `hyperframes/docs/DESIGN.md` before writing HTML.
+- Keep brand-level components in `compositions/components/` and previewable.
+- Keep campaign boards in `_playgrounds/`.
+- Keep channel variants under `ads/<audience>/`, `social/<audience>/`, and `landing/<audience>/`.
+- Update `docs/composition-catalog.md` with `aoc-hyperframes catalog --write`.
+- Create/maintain shotlists for ads/social/landing comps.
+- Run `aoc-hyperframes check` before handoff.
 - Do not render unless requested.

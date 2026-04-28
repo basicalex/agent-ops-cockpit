@@ -6,23 +6,39 @@ usage() {
 Usage: aoc-hyperframes <command> [options]
 
 Commands:
-  init                    Initialize HyperFrames integration and production bootstrap
-  bootstrap-asset-system  Create/repair AOC HyperFrames asset system folders/docs
-  sync-skills             Seed/sync HyperFrames PI skills and prompt only
-  doctor                  Check Node/FFmpeg and run HyperFrames doctor when possible
+  init                         Initialize HyperFrames integration and campaign factory
+  bootstrap-asset-system       Create/repair AOC HyperFrames campaign factory folders/docs
+  sync-skills                  Seed/sync HyperFrames Pi skills and prompt only
+  doctor                       Check Node/FFmpeg and run HyperFrames doctor when possible
+  check                        Validate AOC HyperFrames factory contract
+  catalog [--write]            List/update composition catalog
+  workbench set <composition>  Point index.html workbench at a composition
+  campaign create <slug>       Create campaign compositions, board, shotlists, catalog
+  seed-assets [--dry-run]      Scan/copy/symlink app assets into HyperFrames assets
+  render <composition>         Render selected composition with AOC export naming
 
-Init options:
+Global options:
   --root PATH       Project root (defaults to nearest .aoc or .git)
   --dir NAME        Target HyperFrames workspace directory (default: hyperframes)
-  --tracked         Do not add the workspace directory to .gitignore
+  --tracked         Skip .gitignore policy management
   --update          Re-run skill/prompt sync and skip init if workspace exists
   --quiet           Suppress non-error output
   -h, --help        Show this help
 
-Bootstrap behavior:
-  Creates canonical compositions/, assets/, renders/, and docs/ folders under
-  the HyperFrames workspace and seeds missing docs from aoc-hyperframes
-  templates. Existing files are never overwritten.
+Campaign options:
+  --audience NAME   Audience folder/id (default: general)
+  --channels LIST   Comma list, e.g. meta,reel (default: meta,reel)
+  --durations LIST  Comma list matched by index, e.g. 15s,6s (default: 15s,6s)
+  --concept NAME    Concept slug (default: demo)
+
+Seed asset options:
+  --dry-run         Print proposed copies only (default)
+  --copy            Copy discovered assets
+  --symlink         Symlink discovered assets
+  --max-size BYTES  Max source file size (default: 2097152)
+
+Render options:
+  --format mp4|webm --quality draft|standard|high --fps N --version vN --skip-check
 EOF
 }
 
@@ -38,9 +54,55 @@ target_dir="${AOC_HYPERFRAMES_DIR:-hyperframes}"
 tracked="${AOC_HYPERFRAMES_TRACK_WORKSPACE:-0}"
 update=0
 quiet=0
+args=()
 
 log() { [[ "$quiet" == "1" ]] || echo ">> $1"; }
 warn() { echo "!! $1" >&2; }
+fail() { warn "$1"; exit 1; }
+
+write_aoc_managed_marker() {
+  local target_path="$1"
+  local asset_id="$2"
+  local marker_path="$target_path/.aoc-managed"
+  mkdir -p "$target_path"
+  cat > "$marker_path" <<EOF
+aoc-managed: true
+asset: $asset_id
+asset-version: 3
+source: agent-ops-cockpit
+updated-at: $(date -u +%Y-%m-%dT%H:%M:%SZ)
+EOF
+}
+
+is_aoc_managed_dir() {
+  local target_path="$1"
+  [[ -f "$target_path/.aoc-managed" ]]
+}
+
+backup_unmarked_skill_dir() {
+  local target_path="$1" name="$2"
+  [[ -d "$target_path" ]] || return 0
+  if is_aoc_managed_dir "$target_path"; then return 0; fi
+  local backup_root
+  backup_root="$(dirname "$target_path")/.aoc-backups"
+  mkdir -p "$backup_root"
+  local backup_path="$backup_root/$name.aoc-unmanaged-backup.$(date -u +%Y%m%dT%H%M%SZ)"
+  mv "$target_path" "$backup_path"
+  warn "Backed up unmarked HyperFrames skill before managed refresh ($name): $backup_path"
+}
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --root) shift; root="${1:-}" ;;
+    --dir) shift; target_dir="${1:-}" ;;
+    --tracked) tracked=1 ;;
+    --update) update=1 ;;
+    --quiet) quiet=1 ;;
+    -h|--help) usage; exit 0 ;;
+    *) args+=("$1") ;;
+  esac
+  shift || true
+done
 
 find_root() {
   if [[ -n "$root" ]]; then
@@ -69,8 +131,7 @@ ensure_aoc() {
     log "Running aoc-init..."
     (cd "$root" && aoc-init)
   else
-    warn "aoc-init not found. Please run it before aoc-hyperframes."
-    exit 1
+    fail "aoc-init not found. Run it before aoc-hyperframes."
   fi
 }
 
@@ -113,10 +174,12 @@ copy_optional_dir() {
     warn "No HyperFrames skill template found for $name."
     return 0
   fi
+  backup_unmarked_skill_dir "$dest" "$name"
   rm -rf "$dest"
   mkdir -p "$root/.pi/skills"
   cp -R "$source_dir" "$dest"
-  log "Synced PI skill: $name"
+  write_aoc_managed_marker "$dest" "skill/$name"
+  log "Synced Pi skill: $name"
 }
 
 seed_skills() {
@@ -140,12 +203,12 @@ seed_prompt() {
     source_file="$script_dir/../.aoc/prompts-optional/pi/hyperframes.md"
   fi
   if [[ -z "$source_file" ]]; then
-    warn "No PI hyperframes prompt template found."
+    warn "No Pi hyperframes prompt template found."
     return 0
   fi
   mkdir -p "$dest_dir"
   cp "$source_file" "$dest"
-  log "Synced PI prompt: /hyperframes"
+  log "Synced Pi prompt: /hyperframes"
 }
 
 sync_skills() {
@@ -160,12 +223,27 @@ sync_skills() {
   fi
 }
 
-ensure_gitignore() {
+ensure_hyperframes_git_policy() {
   [[ "$tracked" == "1" ]] && return 0
-  local ignore_file="$root/.gitignore" entry="$target_dir/"
-  if [[ -f "$ignore_file" ]] && grep -Fqx "$entry" "$ignore_file"; then return 0; fi
-  printf '%s\n' "$entry" >> "$ignore_file"
-  log "Added $entry to .gitignore"
+  local ignore_file="$root/.gitignore" marker="# AOC HyperFrames: track source/docs/seed assets; ignore generated/heavy outputs"
+  touch "$ignore_file"
+  local tmp
+  tmp="$(mktemp)"
+  grep -vxF "$target_dir/" "$ignore_file" | grep -vxF "/$target_dir/" > "$tmp" || true
+  mv "$tmp" "$ignore_file"
+  if ! grep -Fqx "$marker" "$ignore_file"; then
+    cat >> "$ignore_file" <<EOF
+
+$marker
+!/$target_dir/
+!/$target_dir/**
+/$target_dir/renders/**
+/$target_dir/.hyperframes/**
+/$target_dir/.cache/**
+/$target_dir/node_modules/**
+EOF
+    log "Updated .gitignore HyperFrames source/output policy"
+  fi
 }
 
 init_workspace() {
@@ -187,15 +265,15 @@ template_source_dir() {
     printf '%s\n' "$root/.pi/skills/aoc-hyperframes/templates"
   elif [[ -d "$root/.aoc/skills-optional/aoc-hyperframes/templates" ]]; then
     printf '%s\n' "$root/.aoc/skills-optional/aoc-hyperframes/templates"
-  elif [[ -d "$config_dir/skills-optional/aoc-hyperframes/templates" ]]; then
-    printf '%s\n' "$config_dir/skills-optional/aoc-hyperframes/templates"
   elif [[ -d "$script_dir/../.aoc/skills-optional/aoc-hyperframes/templates" ]]; then
     printf '%s\n' "$script_dir/../.aoc/skills-optional/aoc-hyperframes/templates"
+  elif [[ -d "$config_dir/skills-optional/aoc-hyperframes/templates" ]]; then
+    printf '%s\n' "$config_dir/skills-optional/aoc-hyperframes/templates"
   fi
 }
 
 seed_doc_template() {
-  local template_name="$1" dest_rel="$2" src_dir src dest
+  local template_name="$1" dest_rel="$2" src_dir dest
   src_dir="$(template_source_dir || true)"
   dest="$root/$target_dir/$dest_rel"
   if [[ -f "$dest" ]]; then
@@ -211,25 +289,148 @@ seed_doc_template() {
   log "Created $target_dir/$dest_rel"
 }
 
+seed_asset_readme() {
+  local dest="$root/$target_dir/assets/README.md"
+  [[ -f "$dest" ]] && { log "Kept existing $target_dir/assets/README.md"; return 0; }
+  mkdir -p "$(dirname "$dest")"
+  cat > "$dest" <<'EOF'
+# HyperFrames Assets
+
+Track lightweight source/seed assets used by compositions. Keep provenance in `docs/asset-inventory.md`.
+
+Recommended policy:
+
+- Track SVG logos/icons, screenshots, UI/map assets, copy/caption files, and small audio placeholders.
+- Do not commit raw footage, large stock media, render batches, or cache output by default.
+- Put large/raw media in external storage or Git LFS with explicit project approval.
+EOF
+  log "Created $target_dir/assets/README.md"
+}
+
+write_component_stub() {
+  local rel="$1" comp_id="$2" title="$3" duration="${4:-4}" width="${5:-1920}" height="${6:-1080}"
+  local dest="$root/$target_dir/$rel"
+  [[ -f "$dest" ]] && { log "Kept existing $target_dir/$rel"; return 0; }
+  mkdir -p "$(dirname "$dest")"
+  cat > "$dest" <<EOF
+<template id="$comp_id-template">
+  <div data-composition-id="$comp_id" data-width="$width" data-height="$height" data-duration="$duration">
+    <div class="hf-component-stage">
+      <div class="hf-orb"></div>
+      <div class="hf-label">$title</div>
+    </div>
+    <style>
+      [data-composition-id="$comp_id"] { width: 100%; height: 100%; background: #07111f; color: #e8f3ff; font-family: Inter, ui-sans-serif, system-ui, sans-serif; overflow: hidden; }
+      [data-composition-id="$comp_id"] .hf-component-stage { width: 100%; height: 100%; display: grid; place-items: center; gap: 28px; }
+      [data-composition-id="$comp_id"] .hf-orb { width: 180px; height: 180px; border-radius: 999px; border: 2px solid #83f7e5; box-shadow: 0 0 70px rgba(131,247,229,.32); }
+      [data-composition-id="$comp_id"] .hf-label { font-size: 56px; font-weight: 800; letter-spacing: -.04em; }
+    </style>
+    <script src="https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js"></script>
+    <script>
+      window.__timelines = window.__timelines || {};
+      const tl = gsap.timeline({ paused: true });
+      tl.from('[data-composition-id="$comp_id"] .hf-orb', { scale: 0.72, opacity: 0, duration: 0.7, ease: 'power3.out' }, 0.2);
+      tl.from('[data-composition-id="$comp_id"] .hf-label', { y: 32, opacity: 0, duration: 0.6, ease: 'power2.out' }, 0.35);
+      tl.to('[data-composition-id="$comp_id"] .hf-orb', { scale: 1.08, duration: 1.2, repeat: 1, yoyo: true, ease: 'sine.inOut' }, 1.0);
+      window.__timelines["$comp_id"] = tl;
+    </script>
+  </div>
+</template>
+EOF
+  log "Created $target_dir/$rel"
+}
+
+write_system_board() {
+  local rel="compositions/_playgrounds/system-board.html" comp_id="system-board" dest
+  dest="$root/$target_dir/$rel"
+  [[ -f "$dest" ]] && { log "Kept existing $target_dir/$rel"; return 0; }
+  mkdir -p "$(dirname "$dest")"
+  cat > "$dest" <<'EOF'
+<template id="system-board-template">
+  <div data-composition-id="system-board" data-width="1920" data-height="1080" data-duration="8">
+    <section class="board">
+      <p class="eyebrow">AOC HyperFrames</p>
+      <h1>Campaign Factory</h1>
+      <div class="grid">
+        <article>Design contracts</article>
+        <article>Asset inventory</article>
+        <article>Reusable motion components</article>
+        <article>Campaign compositions</article>
+      </div>
+    </section>
+    <style>
+      [data-composition-id="system-board"] { width: 100%; height: 100%; background: #07111f; color: #e8f3ff; font-family: Inter, ui-sans-serif, system-ui, sans-serif; overflow: hidden; }
+      [data-composition-id="system-board"] .board { width: 100%; height: 100%; box-sizing: border-box; padding: 120px 150px; display: flex; flex-direction: column; justify-content: center; gap: 36px; }
+      [data-composition-id="system-board"] .eyebrow { color: #83f7e5; text-transform: uppercase; letter-spacing: .18em; font-weight: 800; margin: 0; }
+      [data-composition-id="system-board"] h1 { font-size: 132px; line-height: .9; letter-spacing: -.07em; margin: 0; max-width: 1100px; }
+      [data-composition-id="system-board"] .grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 18px; margin-top: 24px; }
+      [data-composition-id="system-board"] article { min-height: 170px; border: 1px solid rgba(131,247,229,.36); border-radius: 28px; padding: 28px; font-size: 30px; font-weight: 750; background: rgba(255,255,255,.045); }
+    </style>
+    <script src="https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js"></script>
+    <script>
+      window.__timelines = window.__timelines || {};
+      const tl = gsap.timeline({ paused: true });
+      tl.from('[data-composition-id="system-board"] .eyebrow', { y: 26, opacity: 0, duration: 0.5, ease: 'power2.out' }, 0.2);
+      tl.from('[data-composition-id="system-board"] h1', { y: 60, opacity: 0, duration: 0.8, ease: 'power3.out' }, 0.35);
+      tl.from('[data-composition-id="system-board"] article', { y: 46, opacity: 0, stagger: 0.08, duration: 0.55, ease: 'back.out(1.3)' }, 0.75);
+      window.__timelines["system-board"] = tl;
+    </script>
+  </div>
+</template>
+EOF
+  log "Created $target_dir/$rel"
+}
+
+write_workbench() {
+  local comp_rel="${1:-compositions/_playgrounds/system-board.html}" dest="$root/$target_dir/index.html" comp_id="active-workbench"
+  local comp_path="$root/$target_dir/$comp_rel"
+  [[ -f "$comp_path" ]] || return 0
+  if [[ -f "$dest" ]] && ! grep -q 'AOC-HYPERFRAMES-WORKBENCH' "$dest"; then
+    log "Kept existing $target_dir/index.html (custom/non-managed)"
+    return 0
+  fi
+  cat > "$dest" <<EOF
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>AOC HyperFrames Workbench</title>
+</head>
+<body>
+  <!-- AOC-HYPERFRAMES-WORKBENCH:START -->
+  <div data-composition-id="$comp_id" data-start="0" data-width="1920" data-height="1080" data-duration="8">
+    <div id="active-composition" data-composition-id="system-board" data-composition-src="$comp_rel" data-start="0" data-duration="8" data-track-index="1"></div>
+    <script src="https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js"></script>
+    <script>
+      window.__timelines = window.__timelines || {};
+      window.__timelines["$comp_id"] = gsap.timeline({ paused: true });
+    </script>
+  </div>
+  <!-- AOC-HYPERFRAMES-WORKBENCH:END -->
+</body>
+</html>
+EOF
+  log "Created/updated $target_dir/index.html workbench -> $comp_rel"
+}
+
 bootstrap_asset_system() {
   local dest="$root/$target_dir"
   if [[ ! -d "$dest" ]]; then
-    warn "HyperFrames workspace not found: $target_dir"
-    warn "Run: aoc-hyperframes init --root '$root' --dir '$target_dir'"
-    exit 1
+    fail "HyperFrames workspace not found: $target_dir. Run: aoc-hyperframes init --root '$root' --dir '$target_dir'"
   fi
 
   local dirs=(
-    compositions/components compositions/brand compositions/campaigns compositions/ads compositions/social compositions/landing
+    compositions/_playgrounds compositions/components compositions/brand compositions/campaigns compositions/ads compositions/social compositions/landing
     assets/brand assets/screens assets/photo assets/maps assets/ui assets/audio assets/captions assets/copy
     renders/brand renders/ads renders/social renders/landing renders/exports
     docs/shotlists docs/retrospectives
   )
   local d
-  for d in "${dirs[@]}"; do
-    mkdir -p "$dest/$d"
-  done
-  log "Ensured canonical HyperFrames asset folders in $target_dir"
+  for d in "${dirs[@]}"; do mkdir -p "$dest/$d"; done
+  log "Ensured AOC HyperFrames campaign factory folders in $target_dir"
+
+  ensure_hyperframes_git_policy
 
   if [[ -f "$root/DESIGN.md" ]]; then
     log "Root DESIGN.md found; HyperFrames design docs should extend it."
@@ -242,14 +443,412 @@ bootstrap_asset_system() {
   seed_doc_template brand-motion-brief.md docs/brand-motion-brief.md
   seed_doc_template campaign-message-matrix.md docs/campaign-message-matrix.md
   seed_doc_template export-naming.md docs/export-naming.md
+  seed_doc_template composition-catalog.md docs/composition-catalog.md
+  seed_asset_readme
+  write_system_board
+  write_component_stub compositions/components/signal-pulse.html signal-pulse "Signal Pulse"
+  write_component_stub compositions/components/route-draw.html route-draw "Route Draw"
+  write_component_stub compositions/components/marker-activate.html marker-activate "Marker Activate"
+  write_component_stub compositions/components/qr-scan-resolve.html qr-scan-resolve "QR Scan Resolve"
+  write_component_stub compositions/components/cta-end-card.html cta-end-card "CTA End Card"
+  write_workbench compositions/_playgrounds/system-board.html
+  ensure_existing_shotlists
+
+  catalog_write >/dev/null || true
 
   local existing_assets existing_comps existing_renders
   existing_assets="$(find "$dest/assets" -type f 2>/dev/null | wc -l | tr -d ' ')"
   existing_comps="$(find "$dest/compositions" -type f 2>/dev/null | wc -l | tr -d ' ')"
   existing_renders="$(find "$dest/renders" -type f 2>/dev/null | wc -l | tr -d ' ')"
   log "Summary: assets=$existing_assets compositions=$existing_comps renders=$existing_renders"
-  log "Next: fill root DESIGN.md and $target_dir/docs/DESIGN.md, update asset inventory, then build reusable components before final comps."
-  log "Then use Alt+X -> AOC HyperFrames to audit assets or create a campaign pack."
+  log "Next: fill root DESIGN.md and $target_dir/docs/DESIGN.md, update asset inventory, then build campaign components before final comps."
+  log "Run: aoc-hyperframes check --dir '$target_dir'"
+}
+
+composition_id_for_file() {
+  grep -Eo 'data-composition-id="[^"]+"' "$1" 2>/dev/null | head -n1 | sed 's/data-composition-id="//;s/"$//' || true
+}
+
+composition_has_timeline() {
+  local file="$1" id="$2"
+  [[ -n "$id" ]] || return 1
+  grep -Eq "window\.__timelines\[[\"']$id[\"']\]|window\.__timelines\.$id|__timelines" "$file"
+}
+
+catalog_content() {
+  local dest="$root/$target_dir"
+  echo "<!-- AOC-HYPERFRAMES-CATALOG:START -->"
+  echo ""
+  echo "Generated by \`aoc-hyperframes catalog --write\`."
+  echo ""
+  echo "| Path | Composition ID | Type | Timeline | Shotlist |"
+  echo "| --- | --- | --- | --- | --- |"
+  local file rel id type timeline shot base
+  while IFS= read -r file; do
+    rel="${file#$dest/}"
+    id="$(composition_id_for_file "$file")"
+    type="${rel#compositions/}"; type="${type%%/*}"
+    [[ "$rel" == "$type" ]] && type="root"
+    if composition_has_timeline "$file" "$id"; then timeline="yes"; else timeline="missing"; fi
+    base="$(basename "$file" .html)"
+    shot="docs/shotlists/$base.md"
+    [[ -f "$dest/$shot" ]] && shot="$shot" || shot="-"
+    printf '| `%s` | `%s` | `%s` | %s | %s |\n' "$rel" "${id:-missing}" "$type" "$timeline" "$shot"
+  done < <(find "$dest/compositions" -type f -name '*.html' | sort)
+  echo ""
+  echo "<!-- AOC-HYPERFRAMES-CATALOG:END -->"
+}
+
+catalog_write() {
+  local dest="$root/$target_dir" file tmp block
+  file="$dest/docs/composition-catalog.md"
+  mkdir -p "$(dirname "$file")"
+  block="$(catalog_content)"
+  if [[ ! -f "$file" ]]; then
+    printf '# Composition Catalog\n\n%s\n' "$block" > "$file"
+    log "Created $target_dir/docs/composition-catalog.md"
+    return 0
+  fi
+  tmp="$(mktemp)"
+  AOC_CATALOG_BLOCK="$block" python3 - "$file" "$tmp" <<'PY'
+from pathlib import Path
+import sys, os
+src = Path(sys.argv[1])
+dst = Path(sys.argv[2])
+text = src.read_text()
+block = os.environ["AOC_CATALOG_BLOCK"]
+start = "<!-- AOC-HYPERFRAMES-CATALOG:START -->"
+end = "<!-- AOC-HYPERFRAMES-CATALOG:END -->"
+if start in text and end in text:
+    before = text.split(start, 1)[0]
+    after = text.split(end, 1)[1]
+    dst.write_text(before.rstrip() + "\n\n" + block + after)
+else:
+    dst.write_text(text.rstrip() + "\n\n" + block + "\n")
+PY
+  mv "$tmp" "$file"
+  log "Updated $target_dir/docs/composition-catalog.md"
+}
+
+run_catalog() {
+  local write=0 a
+  for a in "${args[@]}"; do [[ "$a" == "--write" ]] && write=1; done
+  if [[ "$write" == "1" ]]; then
+    AOC_CATALOG_BLOCK="$(catalog_content)" catalog_write
+  else
+    catalog_content
+  fi
+}
+
+resolve_composition() {
+  local input="$1" dest="$root/$target_dir" cand
+  for cand in \
+    "$dest/$input" \
+    "$dest/compositions/$input" \
+    "$dest/compositions/$input.html"; do
+    [[ -f "$cand" ]] && { printf '%s\n' "$cand"; return 0; }
+  done
+  return 1
+}
+
+set_workbench_target() {
+  local input="$1" dest="$root/$target_dir" file rel id duration width height idx
+  file="$(resolve_composition "$input")" || fail "Composition not found: $input"
+  rel="${file#$dest/}"
+  id="$(composition_id_for_file "$file")"
+  [[ -n "$id" ]] || fail "Composition missing data-composition-id: $rel"
+  duration="$(grep -Eo 'data-duration="[^"]+"' "$file" | head -n1 | sed 's/data-duration="//;s/"$//' || true)"
+  width="$(grep -Eo 'data-width="[^"]+"' "$file" | head -n1 | sed 's/data-width="//;s/"$//' || true)"
+  height="$(grep -Eo 'data-height="[^"]+"' "$file" | head -n1 | sed 's/data-height="//;s/"$//' || true)"
+  duration="${duration:-8}"; width="${width:-1920}"; height="${height:-1080}"
+  idx="$dest/index.html"
+  if [[ -f "$idx" ]] && ! grep -q 'AOC-HYPERFRAMES-WORKBENCH' "$idx"; then
+    fail "$target_dir/index.html exists and is not AOC-managed; move it or add AOC workbench markers before updating."
+  fi
+  cat > "$idx" <<EOF
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>AOC HyperFrames Workbench - $id</title>
+</head>
+<body>
+  <!-- AOC-HYPERFRAMES-WORKBENCH:START -->
+  <div data-composition-id="active-workbench" data-start="0" data-width="$width" data-height="$height" data-duration="$duration">
+    <div id="active-composition" data-composition-id="$id" data-composition-src="$rel" data-start="0" data-duration="$duration" data-track-index="1"></div>
+    <script src="https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js"></script>
+    <script>
+      window.__timelines = window.__timelines || {};
+      window.__timelines["active-workbench"] = gsap.timeline({ paused: true });
+    </script>
+  </div>
+  <!-- AOC-HYPERFRAMES-WORKBENCH:END -->
+</body>
+</html>
+EOF
+  log "Workbench target set: $rel"
+}
+
+run_workbench() {
+  [[ "${args[0]:-}" == "set" ]] || fail "Usage: aoc-hyperframes workbench set <composition>"
+  [[ -n "${args[1]:-}" ]] || fail "Missing composition path"
+  set_workbench_target "${args[1]}"
+}
+
+write_shotlist() {
+  local dest="$root/$target_dir" comp_rel="$1" comp_id="$2" campaign="$3" audience="$4"
+  local base shot
+  base="$(basename "$comp_rel" .html)"
+  shot="$dest/docs/shotlists/$base.md"
+  [[ -f "$shot" ]] && { log "Kept existing $target_dir/docs/shotlists/$base.md"; return 0; }
+  mkdir -p "$(dirname "$shot")"
+  cat > "$shot" <<EOF
+# Shotlist: $base
+
+## Campaign
+
+- Campaign: $campaign
+- Audience: $audience
+- Composition: $comp_rel
+- Composition ID: $comp_id
+- Status: draft
+
+## Timeline
+
+| Time | Beat | Visual | Copy/audio | Assets needed |
+| --- | --- | --- | --- | --- |
+| 0-2s | Hook | Brand/product problem frame | Primary hook | screenshot/brand |
+| 2-6s | Demonstration | UI/map/motion primitive | Value proof | screen/map |
+| 6-12s | Benefit | Outcome frame | Audience-specific benefit | UI/photo |
+| 12-15s | CTA | CTA/end card | URL/QR/contact | QR/logo |
+
+## Launch checklist
+
+- [ ] Root DESIGN.md reviewed
+- [ ] hyperframes/docs/DESIGN.md reviewed
+- [ ] Asset inventory updated
+- [ ] Composition lint passes
+- [ ] Copy/legal/CTA approved
+- [ ] Render reviewed before paid launch
+EOF
+  log "Created $target_dir/docs/shotlists/$base.md"
+}
+
+ensure_existing_shotlists() {
+  local dest="$root/$target_dir" file rel type id audience
+  while IFS= read -r file; do
+    rel="${file#$dest/}"
+    type="${rel#compositions/}"; type="${type%%/*}"
+    [[ "$type" == "ads" || "$type" == "social" || "$type" == "landing" ]] || continue
+    id="$(composition_id_for_file "$file")"
+    audience="${rel#compositions/$type/}"; audience="${audience%%/*}"
+    [[ "$audience" == "$rel" || -z "$audience" ]] && audience="general"
+    write_shotlist "$rel" "${id:-$(basename "$file" .html)}" "existing" "$audience"
+  done < <(find "$dest/compositions" -type f -name '*.html' 2>/dev/null | sort)
+}
+
+write_campaign_comp() {
+  local rel="$1" comp_id="$2" title="$3" audience="$4" duration_value="$5"
+  local dest="$root/$target_dir/$rel"
+  [[ -f "$dest" ]] && { log "Kept existing $target_dir/$rel"; return 0; }
+  mkdir -p "$(dirname "$dest")"
+  cat > "$dest" <<EOF
+<template id="$comp_id-template">
+  <div data-composition-id="$comp_id" data-width="1920" data-height="1080" data-duration="${duration_value%s}">
+    <main class="scene">
+      <p class="eyebrow">$audience campaign</p>
+      <h1>$title</h1>
+      <p class="subcopy">Replace this draft copy with campaign-message-matrix approved messaging.</p>
+      <div class="cta">CTA resolve</div>
+    </main>
+    <style>
+      [data-composition-id="$comp_id"] { width: 100%; height: 100%; background: #07111f; color: #e8f3ff; font-family: Inter, ui-sans-serif, system-ui, sans-serif; overflow: hidden; }
+      [data-composition-id="$comp_id"] .scene { width: 100%; height: 100%; box-sizing: border-box; padding: 120px 150px; display: flex; flex-direction: column; justify-content: center; gap: 28px; }
+      [data-composition-id="$comp_id"] .eyebrow { color: #83f7e5; text-transform: uppercase; letter-spacing: .18em; font-weight: 800; margin: 0; }
+      [data-composition-id="$comp_id"] h1 { font-size: 112px; line-height: .92; letter-spacing: -.065em; margin: 0; max-width: 1150px; }
+      [data-composition-id="$comp_id"] .subcopy { font-size: 34px; line-height: 1.18; max-width: 820px; margin: 0; color: rgba(232,243,255,.78); }
+      [data-composition-id="$comp_id"] .cta { margin-top: 20px; align-self: flex-start; border: 1px solid rgba(131,247,229,.55); border-radius: 999px; padding: 20px 32px; font-size: 30px; font-weight: 800; }
+    </style>
+    <script src="https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js"></script>
+    <script>
+      window.__timelines = window.__timelines || {};
+      const tl = gsap.timeline({ paused: true });
+      tl.from('[data-composition-id="$comp_id"] .eyebrow', { y: 24, opacity: 0, duration: 0.45, ease: 'power2.out' }, 0.2);
+      tl.from('[data-composition-id="$comp_id"] h1', { y: 58, opacity: 0, duration: 0.7, ease: 'power3.out' }, 0.35);
+      tl.from('[data-composition-id="$comp_id"] .subcopy', { y: 34, opacity: 0, duration: 0.55, ease: 'expo.out' }, 0.65);
+      tl.from('[data-composition-id="$comp_id"] .cta', { scale: 0.88, opacity: 0, duration: 0.48, ease: 'back.out(1.4)' }, 0.95);
+      window.__timelines["$comp_id"] = tl;
+    </script>
+  </div>
+</template>
+EOF
+  log "Created $target_dir/$rel"
+}
+
+run_campaign() {
+  [[ "${args[0]:-}" == "create" ]] || fail "Usage: aoc-hyperframes campaign create <slug> [--audience NAME --channels LIST --durations LIST --concept NAME]"
+  local slug="${args[1]:-}" audience="general" channels="meta,reel" durations="15s,6s" concept="demo" i a
+  [[ -n "$slug" ]] || fail "Missing campaign slug"
+  i=2
+  while (( i < ${#args[@]} )); do
+    a="${args[$i]}"
+    case "$a" in
+      --audience) i=$((i + 1)); audience="${args[$i]:-general}" ;;
+      --channels) i=$((i + 1)); channels="${args[$i]:-meta,reel}" ;;
+      --durations) i=$((i + 1)); durations="${args[$i]:-15s,6s}" ;;
+      --concept) i=$((i + 1)); concept="${args[$i]:-demo}" ;;
+      *) fail "Unknown campaign option: $a" ;;
+    esac
+    i=$((i + 1))
+  done
+  IFS=',' read -r -a channel_arr <<< "$channels"
+  IFS=',' read -r -a duration_arr <<< "$durations"
+  local idx=0 ch dur type rel comp_id title
+  for ch in "${channel_arr[@]}"; do
+    dur="${duration_arr[$idx]:-${duration_arr[0]}}"
+    case "$ch" in reel|story|stories|tiktok|short|shorts) type="social" ;; *) type="ads" ;; esac
+    rel="compositions/$type/$audience/$ch-$dur-$concept-v1.html"
+    comp_id="$audience-$ch-$dur-$concept-v1"
+    title="$audience $ch $dur $concept"
+    write_campaign_comp "$rel" "$comp_id" "$title" "$audience" "$dur"
+    write_shotlist "$rel" "$comp_id" "$slug" "$audience"
+    idx=$((idx + 1))
+  done
+  write_campaign_comp "compositions/_playgrounds/$slug-board.html" "$slug-board" "$slug campaign board" "$audience" "8s"
+  catalog_write >/dev/null || true
+  log "Campaign created: $slug"
+}
+
+append_inventory_row() {
+  local src="$1" dest_rel="$2" kind="$3" inv="$root/$target_dir/docs/asset-inventory.md"
+  mkdir -p "$(dirname "$inv")"
+  [[ -f "$inv" ]] || printf '# Asset Inventory\n\n' > "$inv"
+  grep -Fq "$src" "$inv" && return 0
+  if ! grep -Fq '## AOC seeded assets' "$inv"; then
+    cat >> "$inv" <<'EOF'
+
+## AOC seeded assets
+
+| Status | Kind | Source | Workspace path | Notes |
+| --- | --- | --- | --- | --- |
+EOF
+  fi
+  printf '| seeded | %s | `%s` | `%s` | copied/symlinked by `aoc-hyperframes seed-assets` |\n' "$kind" "$src" "$dest_rel" >> "$inv"
+}
+
+classify_asset() {
+  local file="$1" lower
+  lower="$(basename "$file" | tr '[:upper:]' '[:lower:]')"
+  case "$lower" in
+    *logo*|*icon*|*glyph*|*brand*|*compass*) echo brand ;;
+    *map*|*route*|*atlas*) echo maps ;;
+    *screen*|*screenshot*|*.webp|*.png) echo screens ;;
+    *.mp3|*.wav|*.m4a|*.aac) echo audio ;;
+    *.txt|*.md|*.json|*.csv) echo copy ;;
+    *.jpg|*.jpeg) echo photo ;;
+    *.svg) echo ui ;;
+    *) echo ui ;;
+  esac
+}
+
+run_seed_assets() {
+  local mode="dry-run" max_size=2097152 i=0 a
+  while (( i < ${#args[@]} )); do
+    a="${args[$i]}"
+    case "$a" in
+      --dry-run) mode="dry-run" ;;
+      --copy) mode="copy" ;;
+      --symlink) mode="symlink" ;;
+      --max-size) i=$((i + 1)); max_size="${args[$i]:-2097152}" ;;
+      *) fail "Unknown seed-assets option: $a" ;;
+    esac
+    i=$((i + 1))
+  done
+  local roots=(public assets src/assets)
+  while IFS= read -r app_public; do roots+=("${app_public#$root/}"); done < <(find "$root/apps" -maxdepth 3 -type d -name public 2>/dev/null || true)
+  local r file size kind dest_dir dest dest_rel count=0
+  for r in "${roots[@]}"; do
+    [[ -d "$root/$r" ]] || continue
+    while IFS= read -r file; do
+      size="$(wc -c < "$file" | tr -d ' ')"
+      (( size <= max_size )) || continue
+      kind="$(classify_asset "$file")"
+      dest_dir="$root/$target_dir/assets/$kind"
+      dest="$dest_dir/$(basename "$file")"
+      dest_rel="assets/$kind/$(basename "$file")"
+      if [[ "$mode" == "dry-run" ]]; then
+        printf '%s -> %s\n' "${file#$root/}" "$target_dir/$dest_rel"
+      else
+        mkdir -p "$dest_dir"
+        if [[ -e "$dest" ]]; then
+          warn "Skip existing: $target_dir/$dest_rel"
+          continue
+        fi
+        if [[ "$mode" == "copy" ]]; then cp "$file" "$dest"; else ln -s "$(realpath --relative-to="$dest_dir" "$file")" "$dest"; fi
+        append_inventory_row "${file#$root/}" "$target_dir/$dest_rel" "$kind"
+        log "Seeded asset: $target_dir/$dest_rel"
+      fi
+      count=$((count + 1))
+    done < <(find "$root/$r" -type f \( -iname '*.svg' -o -iname '*.png' -o -iname '*.jpg' -o -iname '*.jpeg' -o -iname '*.webp' -o -iname '*.mp3' -o -iname '*.wav' -o -iname '*.m4a' -o -iname '*.txt' -o -iname '*.md' -o -iname '*.json' -o -iname '*.csv' \) 2>/dev/null)
+  done
+  [[ "$mode" == "dry-run" ]] && log "Dry-run complete: $count candidate asset(s). Re-run with --copy or --symlink to apply."
+}
+
+run_check() {
+  local dest="$root/$target_dir" errors=0 warnings=0
+  [[ -d "$dest" ]] || { warn "Missing workspace: $target_dir"; return 1; }
+  check_err() { warn "$1"; errors=$((errors + 1)); }
+  check_warn() { warn "$1"; warnings=$((warnings + 1)); }
+
+  [[ -f "$root/DESIGN.md" ]] || check_err "Missing root DESIGN.md"
+  [[ -f "$dest/docs/DESIGN.md" ]] || check_err "Missing $target_dir/docs/DESIGN.md"
+  if [[ -f "$dest/docs/DESIGN.md" ]] && ! grep -Eq '\.\./\.\./DESIGN\.md|root .*DESIGN\.md|Root .*DESIGN\.md' "$dest/docs/DESIGN.md"; then
+    check_warn "$target_dir/docs/DESIGN.md should reference ../../DESIGN.md"
+  fi
+  local req_dirs=(compositions/_playgrounds compositions/components assets/brand assets/maps docs/shotlists renders/exports)
+  local req_docs=(docs/asset-inventory.md docs/brand-motion-brief.md docs/campaign-message-matrix.md docs/export-naming.md docs/composition-catalog.md)
+  local item
+  for item in "${req_dirs[@]}"; do [[ -d "$dest/$item" ]] || check_err "Missing dir: $target_dir/$item"; done
+  for item in "${req_docs[@]}"; do [[ -f "$dest/$item" ]] || check_err "Missing doc: $target_dir/$item"; done
+
+  if [[ -f "$root/.gitignore" ]]; then
+    if grep -Fqx "$target_dir/" "$root/.gitignore" && ! grep -Fqx "!/$target_dir/" "$root/.gitignore"; then
+      check_err ".gitignore ignores $target_dir/ without AOC source unignore policy"
+    fi
+    grep -Fqx "/$target_dir/renders/**" "$root/.gitignore" || check_warn ".gitignore should ignore /$target_dir/renders/**"
+  fi
+
+  if [[ -f "$dest/index.html" ]] && grep -q 'AOC-HYPERFRAMES-WORKBENCH' "$dest/index.html"; then
+    local src
+    src="$(grep -Eo 'data-composition-src="[^"]+"' "$dest/index.html" | head -n1 | sed 's/data-composition-src="//;s/"$//' || true)"
+    [[ -z "$src" || -f "$dest/$src" ]] || check_err "Workbench target missing: $target_dir/$src"
+  fi
+
+  local file rel id type base
+  while IFS= read -r file; do
+    rel="${file#$dest/}"
+    id="$(composition_id_for_file "$file")"
+    [[ -n "$id" ]] || check_err "Missing data-composition-id: $target_dir/$rel"
+    composition_has_timeline "$file" "$id" || check_err "Missing timeline registration: $target_dir/$rel"
+    type="${rel#compositions/}"; type="${type%%/*}"
+    if [[ "$type" == "ads" || "$type" == "social" || "$type" == "landing" ]]; then
+      base="$(basename "$file" .html)"
+      [[ -f "$dest/docs/shotlists/$base.md" ]] || check_warn "Missing shotlist for $target_dir/$rel"
+    fi
+  done < <(find "$dest/compositions" -type f -name '*.html' 2>/dev/null | sort)
+
+  if command -v node >/dev/null 2>&1; then
+    (cd "$dest" && npx hyperframes lint) || errors=$((errors + 1))
+  else
+    check_warn "Skipped npx hyperframes lint; node not found"
+  fi
+
+  if (( errors > 0 )); then
+    warn "AOC HyperFrames check failed: errors=$errors warnings=$warnings"
+    return 1
+  fi
+  log "AOC HyperFrames check passed: warnings=$warnings"
 }
 
 run_doctor() {
@@ -261,18 +860,40 @@ run_doctor() {
   fi
 }
 
-while [[ $# -gt 0 ]]; do
-  case "$1" in
-    --root) shift; root="$1" ;;
-    --dir) shift; target_dir="$1" ;;
-    --tracked) tracked=1 ;;
-    --update) update=1 ;;
-    --quiet) quiet=1 ;;
-    -h|--help) usage; exit 0 ;;
-    *) warn "Unknown option: $1"; usage; exit 1 ;;
-  esac
-  shift || true
-done
+project_slug() { basename "$root" | tr '[:upper:]' '[:lower:]' | tr -cs 'a-z0-9' '-' | sed 's/^-//;s/-$//'; }
+
+run_render() {
+  local input="${args[0]:-}" fmt="mp4" quality="standard" fps="" version="" skip_check=0 i=1 a
+  [[ -n "$input" ]] || fail "Usage: aoc-hyperframes render <composition> [--format mp4|webm --quality draft|standard|high --fps N --version vN --skip-check]"
+  while (( i < ${#args[@]} )); do
+    a="${args[$i]}"
+    case "$a" in
+      --format) i=$((i + 1)); fmt="${args[$i]:-mp4}" ;;
+      --quality) i=$((i + 1)); quality="${args[$i]:-standard}" ;;
+      --fps) i=$((i + 1)); fps="${args[$i]:-}" ;;
+      --version) i=$((i + 1)); version="${args[$i]:-}" ;;
+      --skip-check) skip_check=1 ;;
+      *) fail "Unknown render option: $a" ;;
+    esac
+    i=$((i + 1))
+  done
+  (( skip_check == 1 )) || run_check
+  local file dest rel type base name output
+  file="$(resolve_composition "$input")" || fail "Composition not found: $input"
+  dest="$root/$target_dir"
+  rel="${file#$dest/}"
+  type="${rel#compositions/}"; type="${type%%/*}"
+  base="$(basename "$file" .html)"
+  [[ -n "$version" ]] && base="$(echo "$base" | sed -E "s/-v[0-9]+$/-$version/")"
+  name="$(project_slug)-$base.$fmt"
+  mkdir -p "$dest/renders/$type"
+  output="$dest/renders/$type/$name"
+  set_workbench_target "$rel"
+  local cmd=(npx hyperframes render --output "$output" --quality "$quality" --format "$fmt")
+  [[ -n "$fps" ]] && cmd+=(--fps "$fps")
+  log "Rendering $rel -> $target_dir/renders/$type/$name"
+  (cd "$dest" && "${cmd[@]}")
+}
 
 root="$(find_root)"
 ensure_aoc
@@ -280,12 +901,13 @@ ensure_aoc
 case "$command" in
   init)
     init_workspace
-    ensure_gitignore
+    ensure_hyperframes_git_policy
     seed_skills
     seed_prompt
     sync_skills
     bootstrap_asset_system
-    log "HyperFrames integration ready. Use Alt+X -> AOC HyperFrames."
+    run_check || true
+    log "HyperFrames campaign factory ready. Use Alt+X -> AOC HyperFrames."
     ;;
   bootstrap-asset-system|bootstrap)
     bootstrap_asset_system
@@ -298,6 +920,24 @@ case "$command" in
     ;;
   doctor)
     run_doctor
+    ;;
+  check)
+    run_check
+    ;;
+  catalog)
+    run_catalog
+    ;;
+  workbench)
+    run_workbench
+    ;;
+  campaign)
+    run_campaign
+    ;;
+  seed-assets)
+    run_seed_assets
+    ;;
+  render)
+    run_render
     ;;
   *) usage; exit 1 ;;
 esac

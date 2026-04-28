@@ -1,512 +1,66 @@
-# Configuration Guide
+# Configuration
 
-Advanced configuration options for Agent Ops Cockpit (AOC).
+Most configuration should happen through AOC commands or `Alt+C`, not manual file edits.
 
-## Most users only need
-
-- `aoc-doctor` to verify install health
-- `Alt+C` for interactive runtime/tool setup
-- `Settings -> Tools -> PI agent installer` for PI runtime actions
-- `Settings -> Tools -> Agent Browser + Search` for optional web research
-- this document mainly as a reference for paths, env vars, and advanced tuning
-
-## Table of Contents
-
-- [Environment Variables](#environment-variables)
-  - [Command Overrides](#command-overrides)
-  - [Clock Configuration](#clock-configuration)
-  - [Layout and Display](#layout-and-display)
-  - [RTK Routing](#rtk-routing)
-  - [Agent Installers (Alt+C)](#agent-installers-altc)
-  - [Agent Configuration](#agent-configuration)
-- [Custom Layouts](#custom-layouts)
-- [Theme Management](#theme-management)
-- [Per-Project Configuration](#per-project-configuration)
-
-## Environment Variables
-
-### Command Overrides
-
-Override default commands used in AOC layouts:
-
-| Variable | Description | Default |
-|----------|-------------|---------|
-| `AOC_AGENT_CMD` | Command to run in agent pane | Auto-detected |
-| `AOC_TASKMASTER_CMD` | Taskmaster TUI command | `aoc-taskmaster` |
-| `AOC_TASKMASTER_ROOT` | Override Taskmaster project root for `tm`/`aoc-task`/`aoc-taskmaster` | Current working directory |
-| `AOC_FILETREE_CMD` | File manager command | `yazi` |
-| `AOC_CLOCK_CMD` | Clock command | Auto-detected |
-| `AOC_SYS_CMD` | System stats command | `aoc-sys` |
-| `AOC_TERMINAL_CMD` | Terminal shell | `$SHELL` |
-
-For low-pain custom agent integration, point `AOC_AGENT_CMD` at your own wrapper script (recommended):
+## Project setup
 
 ```bash
-AOC_AGENT_CMD=~/.local/bin/aoc-agent-acme aoc
+aoc-init
+aoc-init --status
 ```
 
-Use `aoc-agent-wrap` inside that script to keep hub/session wiring intact. See [Agent Extensibility](agent-extensibility.md).
+Project-local config lives in:
 
-### Clock Configuration
+```text
+.aoc/
+.pi/
+.taskmaster/
+```
 
-Fine-tune the clock widget appearance:
+See [Project contract](reference/project-contract.md).
 
-| Variable | Description | Default |
-|----------|-------------|---------|
-| `AOC_CLOCK_INTERVAL` | Refresh interval in seconds | `1` |
-| `AOC_CLOCK_TIME_FORMAT` | Time format (date format string) | `%H:%M` |
-| `AOC_CLOCK_DATE_FORMAT` | Date format (date format string) | `%A, %B %d` |
-| `AOC_CLOCK_FONT` | Figlet font name | `small` |
-| `AOC_CLOCK_BACKEND` | Backend selection | `auto` |
-| `AOC_CLOCK_TTY_FLAGS` | Flags for tty-clock | None |
-| `AOC_CLOCK_SPAWN` | Spawn new pane when running in Zellij | `1` |
-| `AOC_CLOCK_PANE_NAME` | Name for clock pane | `Clock` |
-| `AOC_CLOCK_PANE_DIRECTION` | Split direction for clock pane | `up` |
+## Control pane
 
-**Backend Priority (when `AOC_CLOCK_BACKEND=auto`):**
-1. tty-clock (if installed)
-2. Figlet fallback
+Press `Alt+C` inside AOC for:
 
-**Persist Clock Settings:**
+- tool setup
+- optional integrations
+- health checks
+- logs
+- HyperFrames setup
+- Agent Browser/Search setup
+
+See [Control pane](control-pane.md).
+
+## Common environment variables
+
+| Variable | Purpose |
+|---|---|
+| `AOC_PROJECT_ROOT` | Force project root for AOC commands |
+| `AOC_AGENT` | Override selected agent for a launch |
+| `AOC_LAYOUT` | Select layout for a launch |
+| `AOC_INIT_SKIP_BUILD=1` | Skip build-heavy init steps |
+| `AOC_PRESET_WIDGET_VERBOSE=1` | Show verbose preset widget details |
+| `AOC_HYPERFRAMES_DIR` | Override HyperFrames workspace dir |
+
+## Layouts
 
 ```bash
-aoc-clock-set
+aoc-layout list
+aoc-layout set <name>
 ```
 
-### Layout and Display
+See [Layouts](layouts.md).
 
-Control layout behavior and appearance:
-
-| Variable | Description | Default |
-|----------|-------------|---------|
-| `AOC_ZELLIJ_CONFIG` | Custom Zellij config file | `~/.config/zellij/aoc.config.kdl` |
-| `AOC_SESSION_ID` | Explicit Zellij/AOC session name override | stable per-project `aoc-<repo-name>` |
-| `AOC_FULLSCREEN` | Auto-fullscreen on launch | `1` (Linux X11 only) |
-| `AOC_CONTROL_FLOATING` | Open aoc-control as floating pane | `1` |
-| `AOC_CONTROL_TOGGLE_OPEN_MODE` | `aoc-control-toggle` open behavior (`inplace` or `new-pane`) | `inplace` |
-| `AOC_CLEANUP` | Run cleanup on launch | `1` |
-| `AOC_CLEANUP_SESSIONS` | Limit cleanup to sessions (`current` or comma list) | All sessions |
-| `AOC_CLEANUP_PANE_STRICT` | Allow cleanup within sessions based on pane layout | `0` |
-| `AOC_CLEANUP_INTERACTIVE` | Prompt for cleanup mode when interactive | `1` |
-| `AOC_CLEANUP_REQUIRE_ACTIVE_SIGNALS` | Skip kill pass unless active pane signals are detected | `0` |
-| `AOC_CLEANUP_SKIP_IF_NO_SESSIONS` | Skip cleanup when no Zellij sessions are active | `0` |
-| `AOC_CLEANUP_MIN_PROCESS_AGE_SECS` | Skip killing agents younger than this age (seconds) | `0` |
-| `AOC_CLEANUP_LAUNCH_DELAY_SECS` | Delay auto-cleanup started by `aoc-launch`/`aoc-new-tab` | `6` |
-| `AOC_CLEANUP_LAUNCH_MIN_AGE_SECS` | Minimum process age for auto-cleanup from launch wrappers | `45` |
-
-Cleanup note:
-
-- Auto-cleanup launched by `aoc-launch` and `aoc-new-tab` is guarded by default (`AOC_CLEANUP_SESSIONS=current`, `AOC_CLEANUP_REQUIRE_ACTIVE_SIGNALS=1`, `AOC_CLEANUP_SKIP_IF_NO_SESSIONS=1`, plus age delay filters).
-- AOC now prefers a stable per-project Zellij session name (`aoc-<repo-name>`) so session attach/resurrection can work naturally across terminal restarts. Set `AOC_SESSION_ID` to override that naming rule.
-
-### Pulse transport and Mission Control
-
-Control Pulse transport and Mission Control Overview mode:
-
-| Variable | Description | Default |
-|----------|-------------|---------|
-| `AOC_PULSE_VNEXT_ENABLED` | Enable Pulse UDS hub/subscriber paths | `1` |
-| `AOC_PULSE_OVERVIEW_ENABLED` | Enable Mission Control Overview mode and related polling/display paths | `1` |
-| `AOC_MISSION_CONTROL_THEME` | Mission Control palette mode (`terminal`, `auto`, `dark`, `light`) | `terminal` |
-| `AOC_TAB_SCOPE` | Shared logical tab identity for panes in the same tab | Layout-derived tab name |
-| `AOC_PULSE_LAYOUT_WATCH_ENABLED` | Enable hub session topology watcher (native Zellij snapshot polling) | `0` |
-| `AOC_PULSE_LAYOUT_WATCH_MS` | Hub layout poll interval when layout watcher is active | `3000` |
-| `AOC_PULSE_LAYOUT_IDLE_WATCH_MS` | Hub layout poll interval with no layout subscribers | `max(4x active, 12000)` |
-| `AOC_MISSION_CONTROL_LAYOUT_REFRESH_MS` | Mission Control local layout refresh interval (local mode only) | `3000` |
-| `AOC_PULSE_THEME` | Legacy alias for `AOC_MISSION_CONTROL_THEME` | — |
-
-Notes:
-
-- With `AOC_PULSE_OVERVIEW_ENABLED=1` (default), Mission Control starts in Overview mode.
-- Set `AOC_PULSE_OVERVIEW_ENABLED=0` to run only Work/Diff/Health.
-- With `AOC_PULSE_LAYOUT_WATCH_ENABLED=0` (default), hub background layout polling is disabled.
-- On Zellij `>= 0.44.0`, AOC uses native pane/tab JSON inventory for local operator flows, and hub topology polling also uses native session snapshots.
-- `AOC_MISSION_CONTROL_THEME=terminal` (default) keeps Mission Control integrated with your terminal/system theme.
-
-### RTK Routing
-
-RTK routing is optional, per-project, and fail-open by default. It only activates inside AOC-managed agent sessions (`aoc-agent-wrap`) when routing mode is enabled.
-
-Primary benefit: route noisy shell output through RTK so agents keep higher signal density in-context (less output bloat, lower token pressure, faster coding loops).
-
-You can manage RTK from `Alt+C` (`aoc-control`) via **Settings -> RTK routing**.
-
-| Variable | Description | Default |
-|----------|-------------|---------|
-| `AOC_RTK_BYPASS` | Disable RTK routing for the current process/session | `0` |
-| `AOC_RTK_MODE` | Force mode override (`off` to bypass) | From `.aoc/rtk.toml` |
-| `AOC_RTK_CONFIG` | Override RTK config file location | `<project>/.aoc/rtk.toml` |
-| `AOC_RTK_BINARY` | Override RTK binary name/path | `rtk` |
-| `AOC_RTK_GAIN_MODE` | RTK invocation mode (`double-dash` or `positional`) | `double-dash` |
-| `AOC_RTK_FAIL_OPEN` | Fallback to native command on RTK execution error | `1` |
-| `AOC_RTK_ULTRA_COMPACT` | Pass `-u` to RTK commands for tighter output | `0` |
-| `AOC_RTK_ROUTE_NON_TTY_STDIN` | Allow RTK routing when stdin is non-tty and not piped/file redirected | `0` |
-| `AOC_RTK_INSTALL_URL` | Pinned installer artifact URL for `aoc-rtk install` | None |
-| `AOC_RTK_INSTALL_SHA256` | SHA256 for pinned installer artifact | None |
-| `AOC_RTK_INSTALL_DIR` | Install target directory for `aoc-rtk install` | `~/.local/bin` |
-| `AOC_RTK_RELEASE_REPO` | Upstream repo used by `aoc-rtk install --auto` | `rtk-ai/rtk` |
-| `AOC_RTK_RELEASE_TAG` | Override release tag for `aoc-rtk install --auto` | latest |
-
-Runtime/debug variables (usually set by `aoc-agent-wrap`):
-
-| Variable | Description |
-|----------|-------------|
-| `AOC_RTK_ACTIVE` | `1` when RTK shims are active in the current agent session |
-| `AOC_RTK_SHIM_DIR` | Session-local shim directory prepended to PATH |
-| `AOC_PI_USE_WRAP_RS` | Pi launch mode for `aoc-agent-wrap` (`auto`/unset = prefer Rust wrapper when available, `1` = force wrapper, `0` = legacy direct exec) |
-
-Project config file: `.aoc/rtk.toml` (seeded by `aoc-init`).
-
-By default, new `aoc-init` runs seed RTK with `mode = "on"` for context health. Existing projects with `mode = "off"` are preserved as-is.
-
-```toml
-mode = "on"
-fail_open = true
-gain_mode = "double-dash"
-binary = "rtk"
-allowlist = ["git status", "git diff", "rg", "pytest"]
-denylist = ["git push", "git reset --hard", "rm -rf"]
-install_url = ""
-install_sha256 = ""
-```
-
-Operator commands:
+## Skills
 
 ```bash
-aoc-rtk status
-aoc-rtk enable
-aoc-rtk disable
-aoc-rtk doctor
-aoc-rtk install
-aoc-rtk install --auto
-# Manual routing test (shorthand)
-aoc-rtk git status
-# Manual routing test (explicit)
-aoc-rtk run rg "TODO"
+aoc-skill sync --root .
+aoc-skill validate --root .
 ```
 
-Recommended rollout order:
+See [Skills](skills.md).
 
-1. Run `aoc-rtk install --auto` (or use Alt+C -> Settings -> RTK routing -> Install RTK (auto-fetch)).
-2. Optionally review pinned `install_url` + `install_sha256` in `.aoc/rtk.toml`.
-3. Validate with `aoc-rtk doctor`.
-4. If needed, disable quickly with `aoc-rtk disable`.
-5. If needed, bypass immediately with `AOC_RTK_BYPASS=1`.
+## Detailed reference
 
-Safety model:
-
-- Allowlist-first routing through `aoc-rtk-proxy` command shims.
-- Session-local PATH wiring (no global command hijack).
-- Explicit bypass via `AOC_RTK_BYPASS=1`.
-- Fail-open fallback to native execution when RTK is unavailable.
-
-### PI-first init migration behavior
-
-`aoc-init` is the one-command repair path for PI-first repos.
-
-What it guarantees:
-- Seeds/repairs canonical PI runtime paths under `.pi/**` (`settings.json`, prompts, skills, extensions).
-- Seeds default PI extensions when missing: `.pi/extensions/minimal.ts`, `.pi/extensions/themeMap.ts`, `.pi/extensions/mind-ingest.ts`, `.pi/extensions/mind-ops.ts`, `.pi/extensions/mind-context.ts`, `.pi/extensions/mind-focus.ts`, `.pi/extensions/aoc-models.ts`, `.pi/extensions/lib/mind.ts`, `.pi/extensions/lib/caveman.ts`, plus the preset runtime family under `.pi/extensions/aoc-presets/`.
-- Seeds vendored local PI package `.pi/packages/pi-multi-auth-aoc`, wires `.pi/settings.json` to load it by path, and removes legacy global npm `pi-multi-auth` package entries to avoid duplicate extension loading.
-- Keeps AOC control-plane state under `.aoc/**`, including `.aoc/mind-service.json` for project-local standalone Mind launcher metadata.
-- Migrates missing project-local legacy assets from `.aoc/prompts/pi/` and `.aoc/skills/` into `.pi/**` without overwriting existing canonical files.
-- Seeds reusable preset/layout assets when missing: `.aoc/presets/design/**` and `.aoc/layouts/design.kdl`.
-- Refreshes managed built-in PI runtime extensions in existing repos when canonical templates change: `.pi/extensions/minimal.ts`, `.pi/extensions/themeMap.ts`, `.pi/extensions/mind-ingest.ts`, `.pi/extensions/mind-ops.ts`, `.pi/extensions/mind-context.ts`, `.pi/extensions/mind-focus.ts`, `.pi/extensions/aoc-models.ts`, `.pi/extensions/lib/mind.ts`, `.pi/extensions/lib/caveman.ts`, plus the preset runtime family under `.pi/extensions/aoc-presets/`.
-- Cleans safe prompt alias duplicates (`.pi/prompts/tmcc.md` -> `.pi/prompts/tm-cc.md`) and warns when manual merge is required.
-- Does not auto-sync non-PI skill targets (`.codex/.claude/.opencode/.agents`) in PI-first mode.
-
-Validation commands:
-
-```bash
-bash scripts/pi/test-aoc-init-pi-first.sh
-bash scripts/pi/test-pi-only-agent-surface.sh
-aoc-handshake --json >/tmp/aoc-handshake.json
-```
-
-`aoc-handshake` is metadata-only by design: it advertises Mind health/policy and focused retrieval commands without injecting broad Mind memories into agent startup context.
-
-**Preview Pane Placement:**
-
-| Variable | Description | Default |
-|----------|-------------|---------|
-| `AOC_PREVIEW_WIDTH` | Floating preview width | Percentage |
-| `AOC_PREVIEW_HEIGHT` | Floating preview height | Percentage |
-| `AOC_PREVIEW_X` | X position | Percentage |
-| `AOC_PREVIEW_Y` | Y position | Percentage |
-| `AOC_PREVIEW_PINED` | Keep pinned | Boolean |
-| `AOC_PREVIEW_PANE_NAME` | Pane name | `Preview` |
-
-### Zellij Shortcuts (AOC Defaults)
-
-AOC ships a custom Zellij keybind layer in `~/.config/zellij/aoc.config.kdl` (or `AOC_ZELLIJ_CONFIG`). These are the most used Alt bindings; Zellij defaults still apply.
-
-| Key | Action |
-|----------|-------------|
-| `Alt c` | Open AOC control (no-op if already open) |
-| `Alt s` | Next swap layout |
-| `Alt f` | Toggle floating panes |
-| `Alt n` | New pane |
-| `Alt i` | Previous tab |
-| `Alt o` | Next tab |
-| `Alt u` | Move tab left |
-| `Alt p` | Move tab right |
-| `Alt [` | Toggle pane grouping |
-| `Alt ]` | Next tab (alias) |
-| `Alt h/j/k/l` | Move focus |
-| `Alt =/-` | Resize |
-
-Theme management now lives inside `aoc-control` under Settings -> Theme -> Theme manager.
-
-### Agent Installers (Alt+C)
-
-`aoc-control` includes **Settings -> Tools -> PI agent installer** for PI runtimes only. It shows install status (`installed` or `missing`) and runs:
-
-- `install` for missing runtimes
-- `update` for installed runtimes
-
-Back-end command used by the TUI: `aoc-agent-install <status|install|update> <agent>`.
-
-Default command overrides:
-
-| Variable | Description |
-|----------|-------------|
-| `AOC_PI_INSTALL_CMD` / `AOC_PI_UPDATE_CMD` | PI (npm) install/update command |
-
-PI installer behavior:
-
-- By default, `pi` installs from npm (`pnpm add -g @mariozechner/pi-coding-agent`).
-- AOC does not bundle PI artifacts; it only executes installer commands.
-
-### Tools Integrations (Alt+C -> Settings -> Tools)
-
-AOC control exposes nested tools actions for:
-
-- PI compaction
-- Agent Browser + Search
-- Vercel CLI
-- HyperFrames
-
-For most users, Alt+C is the preferred control plane over manual configuration edits. See [Control Pane Guide](control-pane.md).
-
-### PI Compaction Presets (Alt+C -> Settings -> Tools -> PI compaction)
-
-`aoc-control` can write global PI auto-compaction settings to `~/.pi/agent/settings.json` using preset profiles. This updates PI's `compaction.enabled`, `compaction.reserveTokens`, and `compaction.keepRecentTokens` values without manual JSON edits.
-
-Current built-in presets:
-
-- `PI default (~window-dependent)`
-- `Parallel balanced (~60%)`
-- `Parallel aggressive (~45%)`
-- `Max throughput (~40%)`
-- `Disable auto-compaction`
-
-The PI compaction section also includes a context-window selector used for preset math. Use `h/l` on the `Context window` row to cycle between `75k`, `125k`, `250k`, and `1m` so the reserve-token values match the model/window you intend to use.
-
-The control pane also warns when the current repo has a `.pi/settings.json` compaction override, since project settings take precedence over the global preset.
-
-| Variable | Description |
-|----------|-------------|
-| `AOC_AGENT_BROWSER_BIN` | Agent Browser binary name/path check (default `agent-browser`) |
-| `AOC_AGENT_BROWSER_INSTALL_CMD` / `AOC_AGENT_BROWSER_UPDATE_CMD` | Agent Browser install/update commands |
-| `AOC_AGENT_BROWSER_SKILL_URL` | Source URL for syncing `.pi/skills/agent-browser/SKILL.md` |
-| `AOC_VERCEL_BIN` | Vercel CLI binary name/path check (default `vercel`) |
-| `AOC_VERCEL_INSTALL_CMD` / `AOC_VERCEL_UPDATE_CMD` | Vercel CLI install/update commands |
-| `AOC_HYPERFRAMES_DIR` | Workspace directory used by `aoc-hyperframes` (default `hyperframes`) |
-| `AOC_HYPERFRAMES_TRACK_WORKSPACE` | Set to `1` to avoid adding the HyperFrames workspace to `.gitignore` |
-
-### Managed Local Search (Alt+C -> Settings -> Tools -> Agent Browser + Search)
-
-Phase 1 search is project-local and opt-in.
-
-Alt+C can:
-
-- write `.aoc/search.toml`
-- write `.aoc/services/searxng/docker-compose.yml`
-- write `.aoc/services/searxng/settings.yml`
-- start/verify the managed SearXNG container
-- sync `.pi/skills/agent-browser/SKILL.md`
-- seed `.pi/skills/web-research/SKILL.md`
-
-When you enable managed local search from Alt+C, AOC now also ensures both PI skills are seeded so the repo gets the full browser + search workflow guidance.
-
-Canonical phase-1 paths:
-
-- `.aoc/search.toml`
-- `.aoc/services/searxng/docker-compose.yml`
-- `.aoc/services/searxng/settings.yml`
-- `bin/aoc-search`
-- `.pi/skills/web-research/SKILL.md`
-
-Use `aoc-search` as the stable interface for agents and operators:
-
-```bash
-aoc-search status
-aoc-search start --wait
-aoc-search health
-aoc-search query --limit 5 "rust clap subcommands"
-bin/aoc-web-smoke
-```
-
-`aoc-search query` is intended to be search-first. Use `agent-browser` after you have candidate URLs or need rendered-page interaction.
-
-### Agent Configuration
-
-| Variable | Description | Default |
-|----------|-------------|---------|
-| `AOC_AGENT_ID` | Override default agent for session | From `aoc-agent` |
-| `AOC_PI_BIN` | PI Agent (npm) binary path | `pi` |
-| `AOC_PI_LOW_TOKEN_MODE` | Enable default PI low-token prompt append (`1`/`0`) | `1` |
-| `AOC_PI_LOW_TOKEN_PROMPT` | Override PI low-token prompt file path | `<project>/.aoc/prompts/pi-low-token.md` |
-| `AOC_PI_APPEND_SYSTEM_PROMPT` | Extra `--append-system-prompt` text/path passed to PI | None |
-| `AOC_PI_HANDSHAKE_MODE` | PI handshake verbosity (`compact`, `full`, `off`) | `compact` |
-| `AOC_HANDSHAKE_MODE` | Global handshake verbosity override (`compact`, `full`, `off`) | Agent default |
-| `AOC_PI_USE_WRAP_RS` | PI launch mode (`auto`, `1`, `0`) | `auto` |
-| `AOC_PI_USE_PTY` | Preferred PTY mode for PI children | managed pane=`1`, manual=`0` |
-| `AOC_AGENT_PTY` | Explicit PTY override for the wrapped child | Auto |
-| `AOC_PI_USE_BOOTLOADER` | Pre-PI shell handshake/bootloader (`auto`, `1`, `0`) | managed pane=`0`, manual=`1` |
-| `AOC_PI_USE_TMUX` | Nested tmux use for PI (`auto`, `1`, `0`) | managed pane=`0`, manual=`allowlist` |
-| `AOC_AGENT_PATTERN` | Additional agent names for cleanup | None |
-| `AOC_AGENT_TMUX_CONF` | Custom tmux config for tmux-enabled agents | Default |
-| `AOC_TMUX_AGENT_ALLOWLIST` | Comma-separated agent IDs that should run inside tmux when tmux is enabled/auto | `pi` |
-
-Valid `AOC_AGENT_ID` value is `pi`.
-
-- `pi` launches the npm PI Agent CLI.
-- `pi` auto-appends `.aoc/prompts/pi-low-token.md` unless disabled by `AOC_PI_LOW_TOKEN_MODE=0` or overridden by explicit PI prompt flags.
-- `pi` defaults to compact handshake output; set `AOC_PI_HANDSHAKE_MODE=full` for the richer focus-first briefing.
-- Full handshake mode now favors: focus provenance, high-value open work, workstream health, recent developments, and open fronts before lower-value inventory.
-- When canon or task state is missing, the briefing degrades explicitly with fallback status notes instead of silently pretending a stronger focus signal exists.
-- `pi` enables RTK ultra-compact output and non-tty routing by default (`AOC_RTK_ULTRA_COMPACT=1`, `AOC_RTK_ROUTE_NON_TTY_STDIN=1`) unless you override them.
-- In managed AOC Zellij panes, `pi` now defaults to the thin startup path: `aoc-agent-wrap -> aoc-agent-wrap-rs -> pi` with wrapper on, PTY on, bootloader off, and nested tmux off.
-
-## Custom Layouts
-
-AOC supports custom "AOC Modes" - see [Custom Layouts Guide](layouts.md) for details.
-
-**Quick Reference:**
-
-```bash
-# Use the official managed layout
-aoc-layout --set aoc
-
-# Open a custom layout
-aoc-new-tab --layout review
-
-# Create/edit custom layouts
-aoc-layout --create review --scope project
-aoc-layout --edit review
-
-# Create shared team layouts in .aoc/layouts/
-# Create personal layouts in ~/.config/zellij/layouts/
-```
-
-**Layout Placeholders:**
-
-When creating custom layouts, AOC automatically replaces these tokens:
-
-- `__AOC_TAB_NAME__` → Tab name
-- `__AOC_PROJECT_ROOT__` → Absolute project path
-- `__AOC_AGENT_ID__` → Unique agent/project ID
-- `__AOC_SESSION_ID__` → Session identifier
-- `__AOC_HUB_ADDR__` → Session hub host:port
-- `__AOC_HUB_URL__` → Session hub websocket URL
-
-Layout name resolution order:
-1. `.aoc/layouts/<name>.kdl`
-2. `~/.config/zellij/layouts/<name>.kdl`
-
-`aoc` is the only official managed general-purpose layout. Older managed names such as `unstat`, `minimal`, `aoc-zjstatus-single`, `aoc-zjstatus-test`, and `aoc.hybrid` are legacy artifacts that AOC prunes or normalizes away.
-
-You can also create/edit custom layouts from `Alt+C -> Settings -> Layout`.
-
-## Theme Management
-
-AOC provides `aoc-theme` to manage global Zellij themes.
-
-```bash
-# Interactive selector (preset + custom sections)
-aoc-theme tui
-
-# Install curated mainstream preset themes
-aoc-theme presets install --all
-
-# Create a global theme template
-aoc-theme init --name ocean-slate
-
-# Live apply in an active Zellij pane
-aoc-theme apply --name ocean-slate
-
-# Persist theme selection in your active Zellij config
-aoc-theme set-default --name ocean-slate
-
-# Re-sync AOC-wide theme artifacts from current config theme
-aoc-theme sync
-```
-
-Theme paths:
-
-- Global source: `~/.config/zellij/themes/<name>.kdl`
-
-Scope compatibility:
-
-- `--scope global` is the supported mode.
-- Legacy `--scope auto`/`--scope all` are treated as global with a warning.
-- `--scope project` is rejected.
-
-`aoc-theme apply` uses `zellij options --theme ...`, so it works as a real-time switch while attached to a session.
-
-`aoc-theme` also writes shared AOC theme artifacts used by:
-
-- `zjstatus` colors in shipped AOC layouts
-- `aoc-mission-control` (Pulse) via exported `AOC_THEME_*` env vars
-- `yazi` via generated `~/.config/yazi/theme.toml`
-
-Curated preset themes include:
-
-- `catppuccin`, `dracula`, `everforest`, `gruvbox`, `kanagawa`, `monokai`
-- `nord`, `onedark`, `rose-pine`, `solarized-dark`, `solarized-light`, `tokyo-night`
-
-## Per-Project Configuration
-
-AOC uses a **Distributed Cognitive Architecture** with four layers:
-
-### 1. Project Context (`.aoc/context.md`)
-
-- **Purpose:** Auto-generated project map
-- **Content:** Project-specific snapshot (repo facts, key files, structure tree, README headings, workstream tags, task PRD location)
-- **Refresh:** `aoc-init` (manual) or `aoc-watcher` (auto)
-
-### 2. Long-Term Memory (`.aoc/memory.md`)
-
-- **Purpose:** Persistent architectural decisions
-- **Access:** `aoc-mem read` (start of task), `aoc-mem add` (decisions)
-
-### 3. Task State (`.taskmaster/tasks/tasks.json`)
-
-- **Purpose:** Active work queue
-- **Management:** `aoc-task` commands
-
-### 4. RTK Routing Policy (`.aoc/rtk.toml`)
-
-- **Purpose:** Project-local routing mode, allowlist/denylist, and pinned install contract
-- **Management:** `aoc-rtk status|enable|disable|doctor|install --auto`
-
-### 5. Search Configuration (`.aoc/search.toml`)
-
-- **Purpose:** Project-local opt-in managed search contract
-- **Management:** `Alt+C -> Settings -> Tools -> Agent Browser + Search` or `bin/aoc-search`
-- **Related paths:** `.aoc/services/searxng/**`, `.pi/skills/web-research/SKILL.md`
-
-### Global Configuration
-
-User defaults are stored in:
-
-- `~/.config/aoc/config.toml` - AOC settings
-- `~/.taskmaster/config.json` - Taskmaster preferences
-
----
-
-**See Also:**
-- [Installation Guide](installation.md)
-- [Custom Layouts](layouts.md)
-- [Main README](../README.md)
+Older exhaustive config notes are preserved at [reference/configuration-details.md](reference/configuration-details.md).

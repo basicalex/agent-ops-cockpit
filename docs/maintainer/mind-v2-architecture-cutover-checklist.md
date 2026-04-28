@@ -5,7 +5,7 @@ This note captures the concrete outputs for Taskmaster task **134**: finalize th
 ## Source documents
 - `.taskmaster/docs/prds/aoc_mind_memory_pipeline_prd_rpg.md`
 - `.taskmaster/docs/prds/aoc-mind-v2_t3-project-canon_prd_rpg.md`
-- `docs/insight-t3-alignment.md`
+- `docs/reference/insight-t3-alignment.md`
 
 ## Architecture contracts and invariants
 

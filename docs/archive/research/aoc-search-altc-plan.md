@@ -93,7 +93,7 @@ Behavior:
 6. Persist default managed search metadata
 7. Refresh summary/status in the UI
 
-Default config written should correspond to the contract in `docs/research/aoc-search-contract.md`.
+Default config written should correspond to the contract in `docs/archive/research/aoc-search-contract.md`.
 
 If Docker or Compose is unavailable:
 - do not write partial broken state
