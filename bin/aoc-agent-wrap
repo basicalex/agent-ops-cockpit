@@ -1083,7 +1083,7 @@ if ! command -v tmux >/dev/null 2>&1; then
 fi
 
 conf="${AOC_AGENT_TMUX_CONF:-${XDG_CONFIG_HOME:-$HOME/.config}/aoc/codex-tmux.conf}"
-tmux_identity="${AOC_SESSION_ID:-unknown}:${AOC_PANE_ID:-${ZELLIJ_PANE_ID:-$$}}:${AOC_PANE_INSTANCE_ID:-$$}:${agent_id}"
+tmux_identity="${AOC_AGENT_TMUX_ID:-${AOC_SESSION_ID:-unknown}:${AOC_PANE_ID:-${ZELLIJ_PANE_ID:-$$}}:${AOC_PANE_INSTANCE_ID:-$$}:${agent_id}}"
 tmux_key="$(printf '%s' "$tmux_identity" | cksum | awk '{print $1}')"
 socket="aoc-${agent_id}-${tmux_key}"
 session="$agent_id"

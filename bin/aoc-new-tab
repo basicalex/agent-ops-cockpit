@@ -392,11 +392,16 @@ if [[ -z "$pulse_cmd" ]]; then
   fi
 fi
 
+zellij_cmd=(zellij)
+if [[ -n "${AOC_TARGET_SESSION:-}" ]]; then
+  zellij_cmd+=(--session "$AOC_TARGET_SESSION")
+fi
+
 AOC_PROJECT_ROOT="$project_root" \
   AOC_SESSION_ID="$session_id" \
   AOC_HUB_ADDR="$hub_addr" \
   AOC_HUB_URL="$hub_url" \
   AOC_PULSE_CMD="$pulse_cmd" \
   ZELLIJ_PROJECT_ROOT="$project_root" \
-  zellij action new-tab --layout "$layout_arg" "${args[@]}"
+  "${zellij_cmd[@]}" action new-tab --layout "$layout_arg" "${args[@]}"
 aoc_focus_agent_after_new_tab "$layout_choice"

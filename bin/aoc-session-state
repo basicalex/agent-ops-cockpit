@@ -1,0 +1,61 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+state_root="${XDG_STATE_HOME:-$HOME/.local/state}/aoc/session-state"
+cmd="${1:-}"; shift || true
+
+sanitize() { printf '%s' "$1" | sed -E 's/[^A-Za-z0-9._-]+/-/g; s/^-+|-+$//g'; }
+manifest_for() { mkdir -p "$state_root"; printf '%s/%s.tsv' "$state_root" "$(sanitize "$1")"; }
+
+case "$cmd" in
+  record-tab)
+    session="${AOC_SESSION_ID:-${ZELLIJ_SESSION_NAME:-}}"
+    tab="${AOC_TAB_SCOPE:-${ZELLIJ_TAB_NAME:-}}"
+    layout="${AOC_LAYOUT:-aoc}"
+    root="${AOC_PROJECT_ROOT:-$PWD}"
+    [[ -n "$session" && -n "$tab" ]] || exit 0
+    file="$(manifest_for "$session")"
+    tmp="$file.tmp"
+    touch "$file"
+    awk -F '\t' -v tab="$tab" '$2 != tab { print }' "$file" > "$tmp" || true
+    printf '%s\t%s\t%s\t%s\t%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$tab" "$layout" "$root" "${AOC_YAZI_CWD:-}" >> "$tmp"
+    mv "$tmp" "$file"
+    ;;
+  manifest)
+    session="${1:-${AOC_SESSION_ID:-${ZELLIJ_SESSION_NAME:-}}}"
+    [[ -n "$session" ]] || { echo "usage: aoc-session-state manifest SESSION" >&2; exit 2; }
+    file="$(manifest_for "$session")"
+    [[ -f "$file" ]] && cat "$file"
+    ;;
+  initial-env)
+    session="${1:-${AOC_SESSION_ID:-${ZELLIJ_SESSION_NAME:-}}}"
+    [[ -n "$session" ]] || { echo "usage: aoc-session-state initial-env SESSION" >&2; exit 2; }
+    file="$(manifest_for "$session")"
+    [[ -f "$file" ]] || exit 0
+    IFS=$'\t' read -r _ts tab layout root _yazi < "$file" || exit 0
+    [[ -n "${tab:-}" && -n "${layout:-}" && -n "${root:-}" ]] || exit 0
+    printf 'AOC_RESTORE_TAB_NAME=%q\n' "$tab"
+    printf 'AOC_RESTORE_LAYOUT=%q\n' "$layout"
+    printf 'AOC_RESTORE_PROJECT_ROOT=%q\n' "$root"
+    ;;
+  restore-script)
+    session="${1:-${AOC_SESSION_ID:-${ZELLIJ_SESSION_NAME:-}}}"
+    [[ -n "$session" ]] || { echo "usage: aoc-session-state restore-script SESSION" >&2; exit 2; }
+    file="$(manifest_for "$session")"
+    [[ -f "$file" ]] || exit 0
+    awk -F '\t' -v session="$session" '
+      BEGIN { q="\047" }
+      NR==1 { next }
+      NF>=4 {
+        gsub(q, q "\\" q q, $2); gsub(q, q "\\" q q, $3); gsub(q, q "\\" q q, $4)
+        print "AOC_TARGET_SESSION=" q session q " AOC_FORCE_SESSION_ID=" q session q " AOC_LAYOUT=" q $3 q " ZELLIJ_PROJECT_ROOT=" q $4 q " AOC_PROJECT_ROOT=" q $4 q " aoc-new-tab --name " q $2 q
+      }
+    ' "$file"
+    ;;
+  *)
+    cat >&2 <<'EOF'
+Usage: aoc-session-state record-tab | manifest SESSION | initial-env SESSION | restore-script SESSION
+EOF
+    exit 2
+    ;;
+esac

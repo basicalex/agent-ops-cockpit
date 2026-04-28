@@ -56,8 +56,42 @@ else
   layout="aoc"
 fi
 
+project_session_key() {
+  local project_root="${1:-$PWD}"
+  if command -v python3 >/dev/null 2>&1; then
+    python3 - <<'PY' "$project_root"
+import hashlib, os, sys
+root = os.path.realpath(sys.argv[1])
+print(hashlib.sha1(root.encode()).hexdigest()[:16])
+PY
+    return
+  fi
+  sanitize_name "$project_root"
+}
+
+persist_project_session_id() {
+  local project_root="${1:-$PWD}"
+  local session_id="$2"
+  local session_dir="$state_dir/project-sessions"
+  local session_file="$session_dir/$(project_session_key "$project_root")"
+  mkdir -p "$session_dir"
+  printf '%s\n' "$session_id" > "$session_file"
+}
+
+is_deprecated_project_prefixed_session_id() {
+  local project_root="${1:-$PWD}"
+  local session_id="$2"
+  local project_slug
+  project_slug="$(sanitize_name "$(basename "$project_root")")"
+  [[ -n "$project_slug" && "$project_slug" != "tab" && "$session_id" == "aoc-${project_slug}-"* ]]
+}
+
 resolve_session_id() {
   local project_root="${1:-$PWD}"
+  local session_dir="$state_dir/project-sessions"
+  local session_file="$session_dir/$(project_session_key "$project_root")"
+  local saved_session=""
+
   if [[ -n "${ZELLIJ_SESSION_NAME:-}" ]]; then
     printf '%s' "$ZELLIJ_SESSION_NAME"
     return
@@ -67,10 +101,28 @@ resolve_session_id() {
     return
   fi
   if [[ -n "${AOC_FORCE_SESSION_ID:-}" ]]; then
+    persist_project_session_id "$project_root" "$AOC_FORCE_SESSION_ID"
     printf '%s' "$AOC_FORCE_SESSION_ID"
     return
   fi
-  generate_unique_session_id "$project_root"
+
+  # Reuse the whimsical session allocated to this project until the operator
+  # explicitly asks for a new engineering session. This preserves active Zellij
+  # process/TUI state across detach/reattach while keeping human-friendly names.
+  if [[ "${AOC_NEW_SESSION:-0}" != "1" && -f "$session_file" ]]; then
+    saved_session="$(head -n 1 "$session_file" 2>/dev/null || true)"
+    if [[ -n "$saved_session" ]] \
+      && ! is_deprecated_project_prefixed_session_id "$project_root" "$saved_session" \
+      && session_name_exists "$saved_session"; then
+      printf '%s' "$saved_session"
+      return
+    fi
+  fi
+
+  local new_session
+  new_session="$(generate_unique_session_id "$project_root")"
+  persist_project_session_id "$project_root" "$new_session"
+  printf '%s' "$new_session"
 }
 
 cleanup_state() {
@@ -184,6 +236,14 @@ cleanup_state "$state_dir"
 load_aoc_theme_values
 
 session_id="$(resolve_session_id "$project_root")"
+if ! session_name_exists "$session_id" && command -v aoc-session-state >/dev/null 2>&1; then
+  restore_env="$(aoc-session-state initial-env "$session_id" 2>/dev/null || true)"
+  if [[ -n "$restore_env" ]]; then
+    eval "$restore_env"
+    layout="${AOC_RESTORE_LAYOUT:-$layout}"
+    project_root="${AOC_RESTORE_PROJECT_ROOT:-$project_root}"
+  fi
+fi
 hub_addr="$(resolve_hub_addr "$session_id")"
 hub_url="$(resolve_hub_url "$hub_addr")"
 background_task ensure_hub_running "$session_id" "$hub_addr" "$state_dir"
@@ -192,7 +252,7 @@ background_task sync_aoc_theme_profile
 # Default to a short plain tab label. Operators can opt into grouping later by
 # renaming tabs to a numeric-prefix form like "2 Review".
 raw_name="$(basename "$project_root")"
-tab_name="$(aoc_build_tab_name "$project_root" "$(aoc_default_tab_label "$project_root")")"
+tab_name="${AOC_RESTORE_TAB_NAME:-$(aoc_build_tab_name "$project_root" "$(aoc_default_tab_label "$project_root")")}"
 
 # Agent ID is the raw repo name used for launch metadata and session context.
 agent_id="$raw_name"
@@ -302,7 +362,10 @@ attach_env=(
 )
 
 if session_name_exists "$session_id"; then
-  env "${attach_env[@]}" zellij "${config_arg[@]}" attach "$session_id"
+  # -f/--force-run-commands makes Zellij re-run layout commands when attaching
+  # to a serialized dead session, avoiding resurrected panes that only show
+  # "dead terminal" for yazi, PI agent, Taskmaster, etc.
+  env "${attach_env[@]}" zellij "${config_arg[@]}" attach --force-run-commands "$session_id"
   exit 0
 fi
 

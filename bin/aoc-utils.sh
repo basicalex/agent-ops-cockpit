@@ -28,11 +28,7 @@ generate_unique_session_id() {
 
   while (( attempt < 32 )); do
     suffix="$(generate_whimsical_session_id)"
-    if [[ -n "$raw_name" && "$raw_name" != "tab" ]]; then
-      candidate="aoc-${raw_name}-${suffix}"
-    else
-      candidate="aoc-${suffix}"
-    fi
+    candidate="aoc-${suffix}"
     if ! session_name_exists "$candidate"; then
       printf '%s' "$candidate"
       return
@@ -40,7 +36,7 @@ generate_unique_session_id() {
     attempt=$((attempt + 1))
   done
 
-  printf 'aoc-%s-%s' "${raw_name:-workspace}" "$(date +%s)"
+  printf 'aoc-%s-%s' "$(generate_whimsical_session_id)" "$(date +%s)"
 }
 
 session_name_exists() {

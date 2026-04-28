@@ -233,6 +233,9 @@ run_sync() {
   fi
 
   broadcast_metadata "$root" "$key" "$tab_name" "$tab_position"
+  if command -v aoc-session-state >/dev/null 2>&1; then
+    AOC_PROJECT_ROOT="$root" AOC_TAB_SCOPE="${tab_name:-${AOC_TAB_SCOPE:-}}" aoc-session-state record-tab >/dev/null 2>&1 || true
+  fi
 }
 
 case "$command_name" in

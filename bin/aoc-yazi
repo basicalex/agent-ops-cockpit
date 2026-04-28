@@ -6,19 +6,47 @@ if ! command -v yazi >/dev/null 2>&1; then
 	exit 1
 fi
 
+sanitize() { printf '%s' "$1" | sed -E 's/[^A-Za-z0-9._-]+/-/g; s/^-+|-+$//g'; }
+
+state_root="${XDG_STATE_HOME:-$HOME/.local/state}/aoc/yazi-cwd"
+session="${AOC_SESSION_ID:-${ZELLIJ_SESSION_NAME:-adhoc}}"
+tab="${AOC_TAB_SCOPE:-${ZELLIJ_TAB_NAME:-default}}"
+project_root="${AOC_PROJECT_ROOT:-$PWD}"
+state_dir="$state_root/$(sanitize "$session")"
+cwd_file="$state_dir/$(sanitize "$tab").cwd"
+mkdir -p "$state_dir"
+
+args=("$@")
+if [[ ${#args[@]} -eq 0 || "${args[0]}" == "." ]]; then
+	if [[ -f "$cwd_file" ]]; then
+		saved_cwd="$(head -n 1 "$cwd_file" 2>/dev/null || true)"
+		if [[ -n "$saved_cwd" && -d "$saved_cwd" ]]; then
+			args=("$saved_cwd" "${args[@]:1}")
+		else
+			args=("$project_root" "${args[@]:1}")
+		fi
+	else
+		args=("$project_root" "${args[@]:1}")
+	fi
+fi
+
 force_kitty_in_zellij="${AOC_YAZI_FORCE_KITTY_IN_ZELLIJ:-1}"
 in_zellij=0
 [[ -n "${ZELLIJ:-}" || -n "${ZELLIJ_SESSION_NAME:-}" ]] && in_zellij=1
 in_kitty=0
 [[ -n "${KITTY_PID:-}" || -n "${KITTY_WINDOW_ID:-}" || "${TERM:-}" == xterm-kitty || "${TERM_PROGRAM:-}" == kitty ]] && in_kitty=1
 
+run_yazi() {
+	yazi --cwd-file "$cwd_file" "${args[@]}"
+}
+
 if [[ "$force_kitty_in_zellij" != "0" && $in_zellij -eq 1 && $in_kitty -eq 1 ]]; then
 	env \
 		-u ZELLIJ \
 		-u ZELLIJ_SESSION_NAME \
 		TERM_PROGRAM="${TERM_PROGRAM:-kitty}" \
-		yazi "$@"
+		yazi --cwd-file "$cwd_file" "${args[@]}"
 	exit $?
 fi
 
-exec yazi "$@"
+exec yazi --cwd-file "$cwd_file" "${args[@]}"
