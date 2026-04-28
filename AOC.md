@@ -1,115 +1,23 @@
 # Agent Ops Cockpit (AOC)
 
-## Project Overview
+AOC is a Pi-first terminal workspace for AI-assisted development.
 
-**Agent Ops Cockpit (AOC)** is a highly specialized, terminal-first workspace configuration designed to optimize coding sessions with AI agents. It leverages **Zellij** as the terminal multiplexer to create a "cockpit" layout that integrates:
+Core pieces:
 
-*   **File Management:** `yazi` (left pane)
-*   **AI Agent Interaction:** A dedicated pane for agents like `codex`, `gemini`, `claude`, `opencode`, and `pi` (center top).
-*   **Task Management:** A custom "Taskmaster" tool (center bottom).
-*   **Widgets:** Calendar, clock, media, and system stats (right column).
-*   **Project Terminal:** A standard shell pane rooted in the project directory (right bottom).
+- **Zellij workspace**: persistent panes for files, Pi, tasks, and shell work.
+- **Pi runtime**: canonical agent runtime for AOC projects.
+- **Taskmaster**: project task tracking through `tm` / `aoc-task`.
+- **AOC context + memory**: `.aoc/context.md`, `aoc-mem`, and `aoc-stm` keep project continuity.
+- **Alt+C control pane**: installs tools, starts checks, opens logs, manages integrations.
+- **Alt+X presets**: switches the agent into focused modes such as HyperFrames.
 
-The project is polyglot, consisting primarily of:
-*   **Shell Scripts (`bin/`):** The core logic for launching the environment, managing agents, and wrapping tools.
-*   **Zellij Layouts (`zellij/`):** KDL files defining pane structure and command wiring.
-*   **Rust (`crates/aoc-taskmaster`):** Native Taskmaster TUI for task management.
-
-## Key Components
-
-### 1. The Core Scripts (`bin/`)
-These scripts are installed to `~/.local/bin` and drive the entire experience.
-*   `aoc`: The main entry point. Launches a new AOC tab or session.
-*   `aoc-launch`: Boots the full Zellij layout.
-*   `aoc-agent`: Manages which AI agent is active (Codex, Gemini, Claude, etc.).
-*   `aoc-agent-run`: The "runner" script that executes the selected agent in the center pane.
-*   `aoc-agent-wrap`: Wraps agent CLIs (often in `tmux`) to provide scrollback and better integration.
-*   `aoc-watcher` (optional): A background daemon that monitors the project filesystem and automatically regenerates `context.md` when files change.
-*   `aoc-align`: Automatically re-aligns the current terminal pane to the project root (used when switching tabs or re-anchoring).
-
-### 2. Zellij Configuration (`zellij/`)
-*   `layouts/aoc.kdl`: The primary layout definition. It uses `bash` commands to launch the specific `aoc-*` scripts in each pane.
-*   `aoc.config.kdl`: The base Zellij configuration used by AOC.
-
-### 3. Taskmaster (Native TUI)
-A Rust-based Ratatui TUI that provides an interactive task list.
-*   **Source:** `crates/aoc-taskmaster/src/main.rs`
-*   **Binary:** `aoc-taskmaster`
-
-### 4. RLM Skill (`aoc-rlm`)
-Rust-based Recursive Language Model tooling for large codebase analysis.
-*   **Commands:** `aoc-rlm scan`, `aoc-rlm peek`, `aoc-rlm chunk`.
-*   **Default usage:** prefer RLM for large repos to avoid context overflows.
-
-## System Architecture: Per-Tab Isolation
-
-AOC uses a **Distributed Cognitive Architecture** with strict per-tab isolation.
-
-### 1. Layout Injection
-To solve Zellij's environment variable limitations, AOC uses "Layout Injection."
-*   **Placeholders:** Layout templates use tokens like `__AOC_PROJECT_ROOT__` and `__AOC_ROOT_TAG__`.
-*   **Just-In-Time Generation:** `aoc-launch` and `aoc-new-tab` replace these tokens with absolute paths and unique IDs, creating a temporary KDL file for each tab.
-*   **Anchoring:** The Agent pane name includes the per-tab agent id (`Agent [<root_tag>]`), and layout injection writes `project_root.<root_tag>` files used to seed each pane's working directory. Yazi pane names are not used for root discovery.
-
-### 2. Reactive Context (optional)
-If `aoc-watcher` is installed, it provides "Live Context":
-*   **Discovery:** It scans the active Zellij session for Agent panes and uses their injected root files/working directory to identify active project roots.
-*   **Monitoring:** It spawns efficient `notify` (inotify) watchers for each root.
-*   **Atomic Updates:** When a file is saved, it regenerates `.aoc/context.md` atomically, ensuring AI agents always have an up-to-date map of the project.
-If it is not installed, use `aoc-init` to refresh context manually.
-
-### 3. Memory System (`.aoc/memory.md`)
-A lightweight, markdown-based long-term memory for agents, stored directly in the project.
-*   **Location:** `.aoc/memory.md` (project-local).
-*   **Tool:** `bin/aoc-mem` manages this file.
-*   **Agent Instruction:**
-    *   **READ** this memory at the start of a task to understand past decisions and user preferences.
-    *   **WRITE** to this memory (via `aoc-mem add`) when making significant architectural choices or learning a new user preference.
-*   **Commands:**
-    *   `aoc-mem add "fact"`: Record a new decision/fact.
-    *   `aoc-mem read`: Dump full context.
-    *   `aoc-mem search "query"`: Find specific info.
-
-## Building and Installation
-
-This project does not have a single "build" step in the traditional sense, but rather an **installation** process.
-
-### Installation
-Run the installer to deploy scripts and configs to your user directories (`~/.local/bin`, `~/.config/zellij`, etc.).
+Start with:
 
 ```bash
-./install.sh
+aoc-init
+aoc
 ```
 
-### Building the Taskmaster TUI
-To build the native TUI:
+Human docs start at [docs/index.md](docs/index.md).
 
-```bash
-cargo build -p aoc-taskmaster
-```
-
-### Dependencies
-The system relies on several external tools being present in your `$PATH`:
-*   `zellij` (>= 0.43.1)
-*   `yazi`
-*   `fzf`
-*   `tmux` (optional, for some agents)
-*   `chafa`, `ffmpeg` (for media widgets)
-
-Run the doctor script to verify:
-```bash
-aoc-doctor
-```
-
-## Development Conventions
-
-*   **Shell Scripts:** All scripts in `bin/` should use `#!/usr/bin/env bash` and `set -euo pipefail` for safety.
-*   **Naming:** Scripts are prefixed with `aoc-` to avoid namespace collisions.
-*   **Wrappers:** Agents are typically wrapped (via `aoc-agent-wrap`) to ensure consistent behavior (scrollback, signal handling) within the Zellij panes.
-*   **State:** The system uses `~/.local/state/aoc` to persist state like the current project root or the active default agent.
-
-### 5. Custom Layouts
-AOC supports user-defined layouts with context injection.
-*   **Documentation:** See [docs/layouts.md](docs/layouts.md) for a full guide on creating custom "AOC Modes".
-*   **Tool:** `aoc-layout` allows selecting and persisting a default layout from project `.aoc/layouts/` (team-shared) and `~/.config/zellij/layouts/` (personal).
-*   **Placeholders:** `__AOC_TAB_NAME__`, `__AOC_AGENT_ID__`, `__AOC_PROJECT_ROOT__`.
+Older multi-runtime/OpenCode notes are archived under `legacy/` and `docs/archive/` where still useful for maintenance history.

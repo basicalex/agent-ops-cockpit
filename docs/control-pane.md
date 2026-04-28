@@ -169,6 +169,6 @@ bin/aoc-web-smoke
 - [Installation Guide](./installation.md)
 - [Configuration Guide](./configuration.md)
 - [Layouts](./layouts.md)
-- [Managed Zellij Top Bar](./zellij-top-bar.md)
+- [Managed Zellij Top Bar](reference/zellij-top-bar.md)
 - [Custom Layout Skill](../.pi/skills/custom-layout-ops/SKILL.md)
 - [Agents](./agents.md)

@@ -601,7 +601,7 @@ For deeper detached orchestration and fleet validation, continue to rely on:
 ## 15. Related docs
 
 - `docs/agents.md`
-- `docs/insight-subagent-orchestration.md`
+- `docs/reference/insight-subagent-orchestration.md`
 - `.taskmaster/docs/prds/task-169_aoc_detached_pi_subagent_runtime_prd_rpg.md`
 - `.taskmaster/docs/prds/task-129_pi-specialist-role-interface_prd.md`
 - `.taskmaster/docs/prds/aoc_detached_orchestration_prd_rpg.md`

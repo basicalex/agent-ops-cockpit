@@ -1,82 +1,127 @@
 # HyperFrames
 
-HyperFrames is AOC's preferred optional video-authoring workflow for agent-created videos.
+HyperFrames is AOC's optional video and campaign factory workflow.
 
-Use HyperFrames for rendered video work: HTML compositions, CSS layout, GSAP timelines, captions, narration, transitions, preview, lint, and render flows.
+Use it for:
+
+- HTML/CSS/GSAP video compositions
+- reusable brand motion components
+- campaign packs for ads, social, landing pages, and product demos
+- asset inventories, shotlists, catalogs, previews, linting, and renders
 
 ## Setup
 
-From a repo with AOC initialized:
+From an AOC project:
 
 ```bash
 aoc-hyperframes init
 ```
 
-By default this:
+Or in AOC:
 
-- initializes a generated HyperFrames workspace in `hyperframes/` using `npx hyperframes init hyperframes --non-interactive`
-- adds `hyperframes/` to `.gitignore`
-- seeds HyperFrames PI skills into `.pi/skills/`
-- seeds the PI prompt `.pi/prompts/hyperframes.md`
-- runs AOC skill validation/sync when available
+```text
+Alt+C -> Settings -> Tools -> HyperFrames -> Init workspace + campaign factory
+```
 
-## Control surface
+This seeds the full production workspace:
 
-Use `Alt+C -> Settings -> Tools -> HyperFrames` for setup and maintenance:
+- `hyperframes/` workspace
+- Pi HyperFrames skills and prompt
+- source-tracking `.gitignore` policy
+- `hyperframes/docs/DESIGN.md`
+- asset inventory and brand/campaign docs
+- composition catalog
+- reusable component stubs
+- `_playgrounds/system-board.html`
+- shotlists for existing campaign compositions
 
-- initialize workspace + sync skills
-- sync skills only
-- run doctor
-- start preview pane (`cd hyperframes && npx hyperframes preview`)
+## Git policy
 
-## Preview UI
+AOC tracks HyperFrames source/docs/seed assets and ignores generated/heavy outputs.
 
-After initialization, use:
+Expected policy:
+
+```gitignore
+# AOC HyperFrames: track source/docs/seed assets; ignore generated/heavy outputs
+!/hyperframes/
+!/hyperframes/**
+/hyperframes/renders/**
+/hyperframes/.hyperframes/**
+/hyperframes/.cache/**
+/hyperframes/node_modules/**
+```
+
+Do not ignore `hyperframes/` wholesale.
+
+## Daily commands
+
+```bash
+aoc-hyperframes check --dir hyperframes
+aoc-hyperframes catalog --dir hyperframes --write
+aoc-hyperframes workbench set compositions/_playgrounds/system-board.html
+aoc-hyperframes seed-assets --dir hyperframes --dry-run
+```
+
+## Create campaign compositions
+
+```bash
+aoc-hyperframes campaign create business-first \
+  --audience business \
+  --channels meta,reel \
+  --durations 15s,6s \
+  --concept qr-demo
+```
+
+This creates campaign compositions, shotlists, and catalog entries without overwriting existing files.
+
+## Preview
+
+Inside AOC:
 
 ```text
 Alt+C -> Settings -> Tools -> HyperFrames -> Start preview pane
 ```
 
-Inside Zellij this opens a pane below and runs:
+Manual:
 
 ```bash
 cd hyperframes
 npx hyperframes preview
 ```
 
-The preview UI usually serves at `http://localhost:3002`; use the URL printed by the command if different.
+## Render
+
+```bash
+aoc-hyperframes render compositions/ads/business/meta-15s-qr-demo-v1.html
+```
+
+The wrapper runs checks, sets the workbench target, and writes output under `hyperframes/renders/`.
+
+Do not commit render batches by default. Promote selected exports only when explicitly needed.
 
 ## Preset surface
 
-Use `Alt+X -> HyperFrames` to switch the agent into video mode.
+Use:
 
-Modes:
+```text
+Alt+X -> AOC HyperFrames
+```
 
-- `compose` — create/edit HyperFrames videos
-- `site` — website-to-video workflow
-- `cli` — setup/lint/preview/render/doctor
-- `review` — audit/fix an existing HyperFrames project
-
-## Skill separation
-
-HyperFrames video mode uses:
-
-- `hyperframes`
-- `hyperframes-cli`
-- `website-to-hyperframes`
-- `gsap`
-
-Anime.js skills remain for frontend/site UI animation and should not be mixed into HyperFrames video work unless the user explicitly asks for non-video frontend animation.
+Use this after setup when asking the Pi agent to build, review, or render campaign compositions.
 
 ## Requirements
 
-- Node.js >= 22
+- Node.js `>= 22`
 - FFmpeg
 
-Run:
+Check environment:
 
 ```bash
 aoc-hyperframes doctor
 ```
 
-for local checks.
+Check project readiness:
+
+```bash
+aoc-hyperframes check --dir hyperframes
+```

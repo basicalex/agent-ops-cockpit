@@ -1673,7 +1673,7 @@ impl App {
         self.start_hyperframes_action(
             "init",
             &["init"],
-            "HyperFrames workspace, skills, and production bootstrap completed",
+            "HyperFrames workspace, skills, and campaign factory bootstrap completed",
         );
     }
 
@@ -2931,7 +2931,7 @@ fn draw_defaults(frame: &mut ratatui::Frame, area: Rect, app: &mut App, focused:
         }
         SettingsSection::ToolsHyperframes => {
             let items = vec![
-                ListItem::new("Init workspace + production bootstrap"),
+                ListItem::new("Init workspace + campaign factory"),
                 ListItem::new("Sync HyperFrames PI skills only"),
                 ListItem::new("Run HyperFrames doctor"),
                 ListItem::new("Start preview pane"),
@@ -3625,7 +3625,7 @@ fn settings_tools_vercel_options() -> Vec<String> {
 
 fn settings_tools_hyperframes_options() -> Vec<String> {
     vec![
-        "Init workspace + production bootstrap".to_string(),
+        "Init workspace + campaign factory".to_string(),
         "Sync HyperFrames skills".to_string(),
         "Run doctor".to_string(),
         "Start preview pane".to_string(),
@@ -4239,9 +4239,7 @@ fn settings_detail_lines(app: &App) -> Vec<Line<'static>> {
         SettingsSection::ToolsHyperframes => {
             match selected {
                 0 => {
-                    lines.push(Line::from(
-                        "Init HyperFrames workspace + production bootstrap",
-                    ));
+                    lines.push(Line::from("Init HyperFrames workspace + campaign factory"));
                     lines.push(Line::from(""));
                     lines.push(Line::from(format!(
                         "Current status: {}",
@@ -4251,7 +4249,7 @@ fn settings_detail_lines(app: &App) -> Vec<Line<'static>> {
                         "Enter runs `aoc-hyperframes init` in the background.",
                     ));
                     lines.push(Line::from(
-                        "This seeds skills, prompt, canonical folders, and docs/DESIGN.md.",
+                        "This seeds skills, prompt, source-tracking git policy, docs, catalog, workbench, playgrounds, components, and shotlists.",
                     ));
                     lines.push(Line::from(
                         "Then use Alt+X -> AOC HyperFrames for production work.",

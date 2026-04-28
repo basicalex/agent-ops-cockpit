@@ -534,7 +534,7 @@ diff_summary:
     },
     "files": [
       {
-        "path": "docs/mission-control.md",
+        "path": "docs/reference/mission-control-architecture.md",
         "status": "modified",
         "additions": 8,
         "deletions": 1,
@@ -566,7 +566,7 @@ diff_patch_request:
   "request_id": "req-001",
   "payload": {
     "agent_id": "agent-1",
-    "path": "docs/mission-control.md",
+    "path": "docs/reference/mission-control-architecture.md",
     "context_lines": 3,
     "include_untracked": true,
     "request_id": "req-001"
@@ -586,7 +586,7 @@ diff_patch_response:
   "request_id": "req-001",
   "payload": {
     "agent_id": "agent-1",
-    "path": "docs/mission-control.md",
+    "path": "docs/reference/mission-control-architecture.md",
     "status": "modified",
     "is_binary": false,
     "patch": "@@ -1,3 +1,4 @@\n-Old line\n+New line\n"

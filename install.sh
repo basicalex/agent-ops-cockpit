@@ -1130,9 +1130,7 @@ if [[ -d "$ROOT_DIR/.aoc/skills-optional" ]]; then
   for d in "$ROOT_DIR/.aoc/skills-optional"/*; do
     [[ -d "$d" ]] || continue
     dest="${XDG_CONFIG_HOME:-$HOME/.config}/aoc/skills-optional/$(basename "$d")"
-    if [[ -e "$dest" ]]; then
-      continue
-    fi
+    rm -rf "$dest"
     cp -R "$d" "$dest"
   done
 fi
@@ -1140,9 +1138,6 @@ if [[ -d "$ROOT_DIR/.aoc/prompts-optional/pi" ]]; then
   for f in "$ROOT_DIR/.aoc/prompts-optional/pi"/*.md; do
     [[ -f "$f" ]] || continue
     dest="${XDG_CONFIG_HOME:-$HOME/.config}/aoc/prompts-optional/pi/$(basename "$f")"
-    if [[ -f "$dest" ]]; then
-      continue
-    fi
     cp "$f" "$dest"
   done
 fi

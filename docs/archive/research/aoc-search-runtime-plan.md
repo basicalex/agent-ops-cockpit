@@ -9,7 +9,7 @@ This document defines the runtime and lifecycle behavior for managed SearXNG aft
 - Distinguish clearly between unconfigured, stopped, healthy, and unhealthy states
 
 ## Inputs
-Runtime helpers should rely on the phase-1 contract in `docs/research/aoc-search-contract.md`:
+Runtime helpers should rely on the phase-1 contract in `docs/archive/research/aoc-search-contract.md`:
 - `.aoc/search.toml`
 - `.aoc/services/searxng/docker-compose.yml`
 - optional `.aoc/services/searxng/settings.yml`

@@ -36,7 +36,7 @@ It summarizes what is implemented, what is partially implemented, what is intent
 | Feature | Status | Evidence / entrypoint |
 |---|---|---|
 | PI-first runtime contract | Shipped | `docs/agents.md` |
-| Wrapped Pi session preferred by default | Shipped | `docs/mind-runtime-validation.md` launch-mode section |
+| Wrapped Pi session preferred by default | Shipped | `docs/maintainer/mind-runtime-validation.md` launch-mode section |
 | Pulse/Mind integration through wrapper path | Shipped | live validator + Mission Control surfaces |
 | Legacy direct-exec fallback still possible | Partial | Explicit fallback path exists, but wrapper is the intended primary route |
 
@@ -50,7 +50,7 @@ Checklist:
 
 | Feature | Status | Evidence / entrypoint |
 |---|---|---|
-| Detached dispatch/status/cancel | Shipped | `.pi/extensions/subagent.ts`, `docs/subagent-runtime.md` |
+| Detached dispatch/status/cancel | Shipped | `.pi/extensions/subagent.ts`, `docs/reference/subagent-runtime.md` |
 | Team fanout surface | Shipped | `dispatch_team`, `/subagent-team`, `/subagent-team-detail` |
 | Manager-lite Teams tab | Shipped | Pi manager overlay |
 | Per-member step/result visibility | Shipped | inspect/handoff/report flows and artifact output |
@@ -102,9 +102,9 @@ Checklist:
 - [ ] In-pane editing/curation exists
 
 Primary docs:
-- `docs/mission-control.md`
-- `docs/mission-control-ops.md`
-- `docs/mind-runtime-validation.md`
+- `docs/reference/mission-control-architecture.md`
+- `docs/operator/mission-control-ops.md`
+- `docs/maintainer/mind-runtime-validation.md`
 
 ## 5) Handshake, retrieval, and provenance
 
@@ -126,7 +126,7 @@ Checklist:
 
 Primary docs / commands:
 - `docs/configuration.md`
-- `docs/mind-v2-architecture-cutover-checklist.md`
+- `docs/maintainer/mind-v2-architecture-cutover-checklist.md`
 - `aoc insight retrieve ...`
 - `aoc insight provenance ...`
 - `aoc insight status`
@@ -185,18 +185,18 @@ AOC_VALIDATE_MIND_RUNTIME_USE_CARGO=1 bash scripts/pi/validate-mind-runtime-hard
    ```bash
    AOC_VALIDATE_MIND_RUNTIME_USE_CARGO=1 bash scripts/pi/validate-mind-runtime-hardening.sh
    ```
-3. Use `docs/pi-only-rollout-checklist.md` for broader release closeout.
+3. Use `docs/maintainer/pi-only-rollout-checklist.md` for broader release closeout.
 
 ## 9) Source-of-truth docs
 
 Use these first when evaluating current setup status:
 
-- `docs/implementation-status-checklist.md` — this overview
-- `docs/mind-v2-architecture-cutover-checklist.md` — architecture and cutover gate
-- `docs/mind-runtime-validation.md` — runtime validation and hardening commands
-- `docs/mission-control.md` — operator surface model
-- `docs/mission-control-ops.md` — practical operator runbook
-- `docs/subagent-runtime.md` — detached subagent UX/runtime contract
+- `docs/maintainer/implementation-status-checklist.md` — this overview
+- `docs/maintainer/mind-v2-architecture-cutover-checklist.md` — architecture and cutover gate
+- `docs/maintainer/mind-runtime-validation.md` — runtime validation and hardening commands
+- `docs/reference/mission-control-architecture.md` — operator surface model
+- `docs/operator/mission-control-ops.md` — practical operator runbook
+- `docs/reference/subagent-runtime.md` — detached subagent UX/runtime contract
 - `docs/agents.md` — PI-first runtime contract and release framing
 
 ## 10) Current ship/no-ship call
