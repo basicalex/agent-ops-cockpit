@@ -9,17 +9,19 @@ set -euo pipefail
 
 usage() {
   cat <<'EOF'
-Usage: aoc-init [--force] [--status] [path]
+Usage: aoc-init [--force] [--status] [--check-managed] [path]
 
 Options:
-  --force   Refresh canonical AOC Map seed files and pass --force to aoc-map init
-  --status  Print AOC init/version/runtime status for the target project and exit
-  -h, --help  Show this help text
+  --force          Refresh canonical AOC Map seed files and pass --force to aoc-map init
+  --status         Print AOC init/version/runtime status for the target project and exit
+  --check-managed  Refresh managed asset manifest/status and exit
+  -h, --help       Show this help text
 EOF
 }
 
 aoc_init_force=0
 aoc_init_status_only=0
+aoc_init_check_managed_only=0
 project_root="$PWD"
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -29,6 +31,10 @@ while [[ $# -gt 0 ]]; do
       ;;
     --status)
       aoc_init_status_only=1
+      shift
+      ;;
+    --check-managed)
+      aoc_init_check_managed_only=1
       shift
       ;;
     -h|--help)
@@ -68,8 +74,9 @@ global_task_conf="$HOME/.taskmaster/config.json"
 aoc_config_dir="${XDG_CONFIG_HOME:-$HOME/.config}/aoc"
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 aoc_init_state_file="$aoc_dir/init-state.json"
+aoc_managed_assets_file="$aoc_dir/managed-assets.json"
 
-AOC_PROJECT_LAYOUT_VERSION=2
+AOC_PROJECT_LAYOUT_VERSION=3
 AOC_INIT_STATE_SCHEMA_VERSION=1
 AOC_LOCAL_MULTI_AUTH_PACKAGE="./packages/pi-multi-auth-aoc"
 
@@ -116,6 +123,183 @@ if dst.exists():
 dst.parent.mkdir(parents=True, exist_ok=True)
 shutil.copytree(src, dst, dirs_exist_ok=True)
 PY
+}
+
+managed_path_sha256() {
+  local target_path="$1"
+  python3 - "$target_path" <<'PY'
+import hashlib
+import sys
+from pathlib import Path
+
+path = Path(sys.argv[1])
+if not path.exists():
+    print("")
+    raise SystemExit(0)
+
+ignored = {".aoc-managed"}
+
+def digest_file(p: Path) -> str:
+    h = hashlib.sha256()
+    with p.open("rb") as f:
+        for chunk in iter(lambda: f.read(1024 * 1024), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+if path.is_file():
+    print(digest_file(path))
+    raise SystemExit(0)
+
+h = hashlib.sha256()
+for item in sorted(p for p in path.rglob("*") if p.is_file()):
+    rel = item.relative_to(path).as_posix()
+    if rel in ignored or rel.endswith(".aoc-managed") or "/.aoc-backups/" in f"/{rel}/":
+        continue
+    h.update(rel.encode("utf-8"))
+    h.update(b"\0")
+    h.update(digest_file(item).encode("ascii"))
+    h.update(b"\n")
+print(h.hexdigest())
+PY
+}
+
+rel_to_project_root() {
+  local target_path="$1"
+  python3 - "$project_root" "$target_path" <<'PY'
+import os
+import sys
+from pathlib import Path
+root = Path(sys.argv[1]).resolve()
+path = Path(sys.argv[2]).resolve()
+try:
+    print(path.relative_to(root).as_posix())
+except ValueError:
+    print(os.path.relpath(path, root).replace(os.sep, "/"))
+PY
+}
+
+rel_to_source_root() {
+  local target_path="$1"
+  python3 - "$script_dir/.." "$target_path" <<'PY'
+import os
+import sys
+from pathlib import Path
+root = Path(sys.argv[1]).resolve()
+path = Path(sys.argv[2]).resolve()
+try:
+    print(path.relative_to(root).as_posix())
+except ValueError:
+    print(os.path.relpath(path, root).replace(os.sep, "/"))
+PY
+}
+
+write_aoc_managed_marker() {
+  local target_path="$1"
+  local asset_id="$2"
+  local source_path="${3:-}"
+  local checksum="${4:-}"
+  local marker_path="$target_path/.aoc-managed"
+  local source_label="agent-ops-cockpit"
+  if [[ -n "$source_path" ]]; then
+    source_label="$(rel_to_source_root "$source_path")"
+  fi
+  if [[ -z "$checksum" && -e "$target_path" ]]; then
+    checksum="$(managed_path_sha256 "$target_path")"
+  fi
+  if [[ ! -d "$target_path" ]]; then
+    marker_path="$target_path.aoc-managed"
+    mkdir -p "$(dirname "$target_path")"
+  fi
+  cat > "$marker_path" <<EOF
+aoc-managed: true
+asset: $asset_id
+asset-version: $AOC_PROJECT_LAYOUT_VERSION
+source: $source_label
+sha256: $checksum
+updated-at: $(date -u +%Y-%m-%dT%H:%M:%SZ)
+EOF
+}
+
+is_aoc_managed_target() {
+  local target_path="$1"
+  [[ -f "$target_path/.aoc-managed" || -f "$target_path.aoc-managed" ]]
+}
+
+backup_unmarked_aoc_target() {
+  local target_path="$1"
+  local reason="$2"
+  [[ -e "$target_path" ]] || return 0
+  if is_aoc_managed_target "$target_path"; then return 0; fi
+  local backup_root
+  backup_root="$(dirname "$target_path")/.aoc-backups"
+  mkdir -p "$backup_root"
+  local backup_path="$backup_root/$(basename "$target_path").aoc-unmanaged-backup.$(date -u +%Y%m%dT%H%M%SZ)"
+  mv "$target_path" "$backup_path"
+  warn "Backed up unmarked AOC target before managed refresh ($reason): $backup_path"
+}
+
+manifest_sha_for_target() {
+  local target_path="$1"
+  [[ -f "$aoc_managed_assets_file" ]] || return 0
+  local rel
+  rel="$(rel_to_project_root "$target_path")"
+  python3 - "$aoc_managed_assets_file" "$rel" <<'PY'
+import json
+import sys
+from pathlib import Path
+path = Path(sys.argv[1])
+rel = sys.argv[2]
+try:
+    data = json.loads(path.read_text(encoding="utf-8"))
+except Exception:
+    raise SystemExit(0)
+entry = data.get("assets", {}).get(rel, {})
+sha = entry.get("expectedSha256") or entry.get("sha256")
+if isinstance(sha, str):
+    print(sha)
+PY
+}
+
+backup_dirty_managed_target() {
+  local target_path="$1"
+  local asset_id="$2"
+  [[ -e "$target_path" ]] || return 0
+  local backup_root
+  backup_root="$(dirname "$target_path")/.aoc-backups"
+  mkdir -p "$backup_root"
+  local backup_path="$backup_root/$(basename "$target_path").aoc-dirty-backup.$(date -u +%Y%m%dT%H%M%SZ)"
+  mv "$target_path" "$backup_path"
+  warn "Backed up locally modified managed AOC target before refresh ($asset_id): $backup_path"
+}
+
+copy_tree_force_managed() {
+  local source_dir="$1"
+  local target_dir="$2"
+  local asset_id="$3"
+  local source_sha=""
+  local target_sha=""
+  local previous_sha=""
+
+  source_sha="$(managed_path_sha256 "$source_dir")"
+
+  if [[ -e "$target_dir" ]]; then
+    if ! is_aoc_managed_target "$target_dir"; then
+      backup_unmarked_aoc_target "$target_dir" "$asset_id"
+    else
+      target_sha="$(managed_path_sha256 "$target_dir")"
+      previous_sha="$(manifest_sha_for_target "$target_dir" || true)"
+      if [[ "$target_sha" == "$source_sha" ]]; then
+        write_aoc_managed_marker "$target_dir" "$asset_id" "$source_dir" "$source_sha"
+        return 0
+      fi
+      if [[ -z "$previous_sha" || "$target_sha" != "$previous_sha" ]]; then
+        backup_dirty_managed_target "$target_dir" "$asset_id"
+      fi
+    fi
+  fi
+
+  copy_tree_force "$source_dir" "$target_dir"
+  write_aoc_managed_marker "$target_dir" "$asset_id" "$source_dir" "$source_sha"
 }
 
 remove_pi_multi_auth_mutable_dirs() {
@@ -184,7 +368,7 @@ PY
 managed_pi_skill_name() {
   local skill_name="$1"
   case "$skill_name" in
-    aoc-init-ops|design-diff|design-director|design-handoff|design-premium-ui|design-redesign|design-review|design-spec|design-tokens|motion-director)
+    aoc-commit|aoc-hyperframes|aoc-init-ops|aoc-map|custom-layout-ops|design-diff|design-director|design-handoff|design-premium-ui|design-redesign|design-review|design-spec|design-tokens|motion-director|prd-rpg-authoring|rlm-analysis|teach-workflow|tm-cc|vercel-cli|web-research|zellij-theme-ops)
       return 0
       ;;
     *)
@@ -320,6 +504,12 @@ apply_project_version_migrations() {
       "v2-presets-and-design-layout-seeding" \
       "Applying AOC project migration v2: seed reusable preset runtime, design preset assets, and design layout templates."
   fi
+
+  if (( aoc_project_version_before < 3 )); then
+    note_project_migration \
+      "v3-managed-asset-version-markers" \
+      "Applying AOC project migration v3: mark managed skills, presets, layouts, and extension families for safe updates."
+  fi
 }
 
 write_project_aoc_state() {
@@ -453,6 +643,134 @@ validate_project_pi_runtime_contract() {
   esac
 }
 
+refresh_aoc_managed_manifest() {
+  mkdir -p "$aoc_dir"
+  python3 - "$project_root" "$aoc_managed_assets_file" "$AOC_PROJECT_LAYOUT_VERSION" <<'PY'
+import hashlib
+import json
+import sys
+from datetime import datetime, timezone
+from pathlib import Path
+
+root = Path(sys.argv[1]).resolve()
+manifest_path = Path(sys.argv[2])
+asset_version = int(sys.argv[3])
+
+
+def parse_marker(path: Path) -> dict:
+    data = {}
+    try:
+        lines = path.read_text(encoding="utf-8").splitlines()
+    except Exception:
+        return data
+    for line in lines:
+        if ":" not in line:
+            continue
+        key, value = line.split(":", 1)
+        data[key.strip()] = value.strip()
+    return data
+
+
+def file_sha(path: Path) -> str:
+    h = hashlib.sha256()
+    with path.open("rb") as f:
+        for chunk in iter(lambda: f.read(1024 * 1024), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+
+def path_sha(path: Path) -> str:
+    if not path.exists():
+        return ""
+    if path.is_file():
+        return file_sha(path)
+    h = hashlib.sha256()
+    for item in sorted(p for p in path.rglob("*") if p.is_file()):
+        rel = item.relative_to(path).as_posix()
+        if rel == ".aoc-managed" or rel.endswith(".aoc-managed") or "/.aoc-backups/" in f"/{rel}/":
+            continue
+        h.update(rel.encode("utf-8"))
+        h.update(b"\0")
+        h.update(file_sha(item).encode("ascii"))
+        h.update(b"\n")
+    return h.hexdigest()
+
+assets = {}
+for marker in sorted(root.rglob(".aoc-managed")):
+    target = marker.parent
+    if "/.aoc-backups/" in f"/{marker.relative_to(root).as_posix()}/":
+        continue
+    info = parse_marker(marker)
+    rel = target.relative_to(root).as_posix()
+    expected = info.get("sha256", "")
+    actual = path_sha(target)
+    status = "current" if expected and actual == expected else ("dirty" if expected else "unknown")
+    assets[rel] = {
+        "asset": info.get("asset", rel),
+        "assetVersion": int(info.get("asset-version", asset_version) or asset_version),
+        "source": info.get("source", "agent-ops-cockpit"),
+        "sha256": actual,
+        "expectedSha256": expected,
+        "status": status,
+        "marker": marker.relative_to(root).as_posix(),
+    }
+
+for marker in sorted(root.rglob("*.aoc-managed")):
+    if marker.name == ".aoc-managed" or "/.aoc-backups/" in f"/{marker.relative_to(root).as_posix()}/":
+        continue
+    target = marker.with_name(marker.name[: -len(".aoc-managed")])
+    if not target.exists():
+        continue
+    info = parse_marker(marker)
+    rel = target.relative_to(root).as_posix()
+    expected = info.get("sha256", "")
+    actual = path_sha(target)
+    status = "current" if expected and actual == expected else ("dirty" if expected else "unknown")
+    assets[rel] = {
+        "asset": info.get("asset", rel),
+        "assetVersion": int(info.get("asset-version", asset_version) or asset_version),
+        "source": info.get("source", "agent-ops-cockpit"),
+        "sha256": actual,
+        "expectedSha256": expected,
+        "status": status,
+        "marker": marker.relative_to(root).as_posix(),
+    }
+
+counts = {"current": 0, "dirty": 0, "unknown": 0, "stale": 0}
+for entry in assets.values():
+    counts[entry["status"]] = counts.get(entry["status"], 0) + 1
+
+payload = {
+    "schemaVersion": 1,
+    "aocAssetVersion": asset_version,
+    "updatedAt": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+    "counts": counts,
+    "assets": assets,
+}
+manifest_path.parent.mkdir(parents=True, exist_ok=True)
+manifest_path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+PY
+}
+
+managed_manifest_summary() {
+  [[ -f "$aoc_managed_assets_file" ]] || return 0
+  python3 - "$aoc_managed_assets_file" <<'PY'
+import json
+import sys
+from pathlib import Path
+path = Path(sys.argv[1])
+try:
+    data = json.loads(path.read_text(encoding="utf-8"))
+except Exception:
+    raise SystemExit(0)
+counts = data.get("counts", {})
+print(f"  managed_assets_manifest: present")
+print(f"  managed_assets_current: {counts.get('current', 0)}")
+print(f"  managed_assets_dirty: {counts.get('dirty', 0)}")
+print(f"  managed_assets_unknown: {counts.get('unknown', 0)}")
+PY
+}
+
 print_project_aoc_status() {
   local current_version="0"
   local runtime_status=""
@@ -507,6 +825,7 @@ PY
   printf '%s\n' "  pi_settings: $([[ -f "$settings_path" ]] && echo present || echo missing)"
   printf '%s\n' "  pi_multi_auth_package: $package_ref_status"
   printf '%s\n' "  pi_runtime_status: $runtime_status"
+  managed_manifest_summary
   if [[ -n "$migration_lines" ]]; then
     printf '%s\n' "  migrations_applied:"
     while IFS= read -r line; do
@@ -1834,8 +2153,9 @@ setup_pi_packages() {
       return 0
     fi
 
-    copy_tree_force "$seed_package_dir" "$target_package_dir"
+    copy_tree_force_managed "$seed_package_dir" "$target_package_dir" "pi-package/pi-multi-auth-aoc"
     remove_pi_multi_auth_mutable_dirs "$target_package_dir"
+    write_aoc_managed_marker "$target_package_dir" "pi-package/pi-multi-auth-aoc" "$seed_package_dir" "$(managed_path_sha256 "$target_package_dir")"
     aoc_local_multi_auth_available=1
     aoc_local_multi_auth_seed_source="$seed_package_dir"
     log "Seeded PI package: .pi/packages/pi-multi-auth-aoc"
@@ -1857,8 +2177,9 @@ setup_pi_packages() {
   fi
 
   if [[ -f "$target_package_dir/.aoc-managed" ]]; then
-    copy_tree_force "$seed_package_dir" "$target_package_dir"
+    copy_tree_force_managed "$seed_package_dir" "$target_package_dir" "pi-package/pi-multi-auth-aoc"
     remove_pi_multi_auth_mutable_dirs "$target_package_dir"
+    write_aoc_managed_marker "$target_package_dir" "pi-package/pi-multi-auth-aoc" "$seed_package_dir" "$(managed_path_sha256 "$target_package_dir")"
     aoc_local_multi_auth_seed_source="$seed_package_dir"
     log "Refreshed managed PI package: .pi/packages/pi-multi-auth-aoc"
     return 0
@@ -2258,11 +2579,11 @@ setup_pi_extension_families() {
     cache_dir="$global_template_dir/$family_name"
 
     if [[ ! -d "$target_dir" ]]; then
-      copy_tree_force "$seed_dir" "$target_dir"
+      copy_tree_force_managed "$seed_dir" "$target_dir" "pi-extension-family/$family_name"
       log "Seeded PI extension family: $family_name"
       seeded_any=1
     else
-      copy_tree_force "$seed_dir" "$target_dir"
+      copy_tree_force_managed "$seed_dir" "$target_dir" "pi-extension-family/$family_name"
       log "Refreshed managed PI extension family: $family_name"
       seeded_any=1
     fi
@@ -2314,10 +2635,10 @@ setup_aoc_preset_assets() {
 
     if [[ -n "$preset_seed_dir" ]]; then
       if [[ ! -d "$target_preset_dir" ]]; then
-        copy_tree_force "$preset_seed_dir" "$target_preset_dir"
+        copy_tree_force_managed "$preset_seed_dir" "$target_preset_dir" "preset/$preset_name"
         log "Seeded AOC preset assets: $preset_name"
       else
-        copy_tree_force "$preset_seed_dir" "$target_preset_dir"
+        copy_tree_force_managed "$preset_seed_dir" "$target_preset_dir" "preset/$preset_name"
         log "Refreshed managed AOC preset assets: $preset_name"
       fi
 
@@ -2352,9 +2673,11 @@ setup_aoc_preset_assets() {
   if [[ -n "$layout_seed_file" ]]; then
     if [[ ! -f "$target_layout_file" ]]; then
       cp "$layout_seed_file" "$target_layout_file"
+      write_aoc_managed_marker "$target_layout_file" "layout/${layout_name%.kdl}" "$layout_seed_file" "$(managed_path_sha256 "$target_layout_file")"
       log "Seeded AOC layout: ${layout_name%.kdl}"
     else
       cp "$layout_seed_file" "$target_layout_file"
+      write_aoc_managed_marker "$target_layout_file" "layout/${layout_name%.kdl}" "$layout_seed_file" "$(managed_path_sha256 "$target_layout_file")"
       log "Refreshed managed AOC layout: ${layout_name%.kdl}"
     fi
 
@@ -2544,13 +2867,13 @@ setup_pi_skills() {
     skill_name="$(basename "$seed_skill_dir")"
     target_skill_dir="$pi_skills_dir/$skill_name"
     if [[ ! -e "$target_skill_dir" ]]; then
-      copy_tree_force "$seed_skill_dir" "$target_skill_dir"
+      copy_tree_force_managed "$seed_skill_dir" "$target_skill_dir" "skill/$skill_name"
       copied_any=1
       continue
     fi
 
     if managed_pi_skill_name "$skill_name"; then
-      copy_tree_force "$seed_skill_dir" "$target_skill_dir"
+      copy_tree_force_managed "$seed_skill_dir" "$target_skill_dir" "skill/$skill_name"
       copied_any=1
       continue
     fi
@@ -2837,6 +3160,12 @@ setup_binaries() {
 }
 
 main() {
+  if [[ "$aoc_init_check_managed_only" == "1" ]]; then
+    refresh_aoc_managed_manifest
+    print_project_aoc_status
+    return 0
+  fi
+
   if [[ "$aoc_init_status_only" == "1" ]]; then
     print_project_aoc_status
     return 0
@@ -2863,6 +3192,7 @@ main() {
   setup_env
   setup_managed_zellij_plugin
   setup_binaries
+  refresh_aoc_managed_manifest
   write_project_aoc_state
   if ! validate_project_pi_runtime_contract; then
     warn "AOC initialization finished with PI runtime validation errors."

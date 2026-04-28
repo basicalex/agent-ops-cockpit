@@ -1,0 +1,6 @@
+aoc-managed: true
+asset: skill/aoc-hyperframes
+asset-version: 3
+source: ../.config/aoc/pi/skills/aoc-hyperframes
+sha256: 69c2d4c7005c50d8218dd27e48d4ddc6689174d55672408cb0c8e1db6a5b65ca
+updated-at: 2026-04-28T17:32:29Z

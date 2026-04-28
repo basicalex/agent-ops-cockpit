@@ -1,8 +1,8 @@
 {
   "schemaVersion": 1,
-  "projectAocVersion": 2,
-  "previousProjectAocVersion": 2,
-  "lastInitializedAt": "2026-04-24T16:13:44.671657Z",
+  "projectAocVersion": 3,
+  "previousProjectAocVersion": 3,
+  "lastInitializedAt": "2026-04-28T17:32:34.222713Z",
   "lastInitScriptDir": "/home/ceii/.local/bin",
   "pi": {
     "localMultiAuthPackage": {

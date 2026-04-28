@@ -1,0 +1,6 @@
+aoc-managed: true
+asset: skill/web-research
+asset-version: 3
+source: ../.config/aoc/pi/skills/web-research
+sha256: ea787fd29f7bf2df4184b43cc0517389ef31a7fd8f9721fb5e1aced138ed9d79
+updated-at: 2026-04-28T17:32:32Z

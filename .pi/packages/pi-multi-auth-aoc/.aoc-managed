@@ -1,1 +1,6 @@
-AOC managed package seed. aoc-init may refresh this directory.
+aoc-managed: true
+asset: pi-package/pi-multi-auth-aoc
+asset-version: 3
+source: ../.config/aoc/pi/packages/pi-multi-auth-aoc
+sha256: d2dde14d408d339c4e285079c7f6b921f18a0f5226f048034d366b581114edab
+updated-at: 2026-04-28T17:32:28Z

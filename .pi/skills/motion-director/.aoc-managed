@@ -1,0 +1,6 @@
+aoc-managed: true
+asset: skill/motion-director
+asset-version: 3
+source: ../.config/aoc/pi/skills/motion-director
+sha256: 1bdd885db96bbbd768049dcc2671aa8b3b583698bb2125aae6b256ad127f1ab8
+updated-at: 2026-04-28T17:32:31Z

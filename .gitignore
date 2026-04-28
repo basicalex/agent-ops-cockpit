@@ -153,3 +153,6 @@ __pycache__/
 
 # Local pi-multi-auth runtime debug history
 .pi/packages/pi-multi-auth-aoc/debug/
+
+# AOC managed asset safety backups
+**/.aoc-backups/

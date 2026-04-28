@@ -60,16 +60,47 @@ log() { [[ "$quiet" == "1" ]] || echo ">> $1"; }
 warn() { echo "!! $1" >&2; }
 fail() { warn "$1"; exit 1; }
 
+managed_path_sha256() {
+  local target_path="$1"
+  python3 - "$target_path" <<'PY'
+import hashlib
+import sys
+from pathlib import Path
+path = Path(sys.argv[1])
+if not path.exists():
+    print("")
+    raise SystemExit(0)
+def file_sha(p):
+    h = hashlib.sha256()
+    with p.open("rb") as f:
+        for chunk in iter(lambda: f.read(1024 * 1024), b""):
+            h.update(chunk)
+    return h.hexdigest()
+if path.is_file():
+    print(file_sha(path))
+else:
+    h = hashlib.sha256()
+    for item in sorted(p for p in path.rglob("*") if p.is_file()):
+        rel = item.relative_to(path).as_posix()
+        if rel == ".aoc-managed" or rel.endswith(".aoc-managed") or "/.aoc-backups/" in f"/{rel}/":
+            continue
+        h.update(rel.encode("utf-8")); h.update(b"\0"); h.update(file_sha(item).encode("ascii")); h.update(b"\n")
+    print(h.hexdigest())
+PY
+}
+
 write_aoc_managed_marker() {
   local target_path="$1"
   local asset_id="$2"
   local marker_path="$target_path/.aoc-managed"
+  local checksum="$(managed_path_sha256 "$target_path")"
   mkdir -p "$target_path"
   cat > "$marker_path" <<EOF
 aoc-managed: true
 asset: $asset_id
 asset-version: 3
 source: agent-ops-cockpit
+sha256: $checksum
 updated-at: $(date -u +%Y-%m-%dT%H:%M:%SZ)
 EOF
 }

@@ -1,0 +1,247 @@
+{
+  "aocAssetVersion": 3,
+  "assets": {
+    ".aoc/layouts/design.kdl": {
+      "asset": "layout/design",
+      "assetVersion": 3,
+      "expectedSha256": "aeb199dbcc67c66ba085f9473dfd062911af91e03505af4cd1dc54e2e2390d5a",
+      "marker": ".aoc/layouts/design.kdl.aoc-managed",
+      "sha256": "aeb199dbcc67c66ba085f9473dfd062911af91e03505af4cd1dc54e2e2390d5a",
+      "source": "../.config/aoc/layouts/design.kdl",
+      "status": "current"
+    },
+    ".aoc/presets/design": {
+      "asset": "preset/design",
+      "assetVersion": 3,
+      "expectedSha256": "42f370eca324aca19adde0a305b057d5296f584d81519f89afa32ee7089a3d96",
+      "marker": ".aoc/presets/design/.aoc-managed",
+      "sha256": "42f370eca324aca19adde0a305b057d5296f584d81519f89afa32ee7089a3d96",
+      "source": "../.config/aoc/presets/design",
+      "status": "current"
+    },
+    ".aoc/presets/hyperframes": {
+      "asset": "preset/hyperframes",
+      "assetVersion": 3,
+      "expectedSha256": "f24e52d66888682039ddbf29d740d83f49e10e72b62fbe05cb76a1ad6df34548",
+      "marker": ".aoc/presets/hyperframes/.aoc-managed",
+      "sha256": "f24e52d66888682039ddbf29d740d83f49e10e72b62fbe05cb76a1ad6df34548",
+      "source": "../.config/aoc/presets/hyperframes",
+      "status": "current"
+    },
+    ".pi/extensions/aoc-presets": {
+      "asset": "pi-extension-family/aoc-presets",
+      "assetVersion": 3,
+      "expectedSha256": "3a2a871d039a8d3bb78a988887cedfd1aef61c638a738ff20d72e37ff08ee0c7",
+      "marker": ".pi/extensions/aoc-presets/.aoc-managed",
+      "sha256": "3a2a871d039a8d3bb78a988887cedfd1aef61c638a738ff20d72e37ff08ee0c7",
+      "source": "../.config/aoc/pi/extensions/aoc-presets",
+      "status": "current"
+    },
+    ".pi/packages/pi-multi-auth-aoc": {
+      "asset": "pi-package/pi-multi-auth-aoc",
+      "assetVersion": 3,
+      "expectedSha256": "d2dde14d408d339c4e285079c7f6b921f18a0f5226f048034d366b581114edab",
+      "marker": ".pi/packages/pi-multi-auth-aoc/.aoc-managed",
+      "sha256": "d2dde14d408d339c4e285079c7f6b921f18a0f5226f048034d366b581114edab",
+      "source": "../.config/aoc/pi/packages/pi-multi-auth-aoc",
+      "status": "current"
+    },
+    ".pi/skills/aoc-commit": {
+      "asset": "skill/aoc-commit",
+      "assetVersion": 3,
+      "expectedSha256": "f2cde6bef8528a58314622c22d7b0d0fdbca52f3b7983253e1ad392ef9026f6b",
+      "marker": ".pi/skills/aoc-commit/.aoc-managed",
+      "sha256": "f2cde6bef8528a58314622c22d7b0d0fdbca52f3b7983253e1ad392ef9026f6b",
+      "source": "../.config/aoc/pi/skills/aoc-commit",
+      "status": "current"
+    },
+    ".pi/skills/aoc-hyperframes": {
+      "asset": "skill/aoc-hyperframes",
+      "assetVersion": 3,
+      "expectedSha256": "69c2d4c7005c50d8218dd27e48d4ddc6689174d55672408cb0c8e1db6a5b65ca",
+      "marker": ".pi/skills/aoc-hyperframes/.aoc-managed",
+      "sha256": "69c2d4c7005c50d8218dd27e48d4ddc6689174d55672408cb0c8e1db6a5b65ca",
+      "source": "../.config/aoc/pi/skills/aoc-hyperframes",
+      "status": "current"
+    },
+    ".pi/skills/aoc-init-ops": {
+      "asset": "skill/aoc-init-ops",
+      "assetVersion": 3,
+      "expectedSha256": "635ba3b24709d9ecb2899901badbd0718576add6eaa56072a8aa28e1c22b6a46",
+      "marker": ".pi/skills/aoc-init-ops/.aoc-managed",
+      "sha256": "635ba3b24709d9ecb2899901badbd0718576add6eaa56072a8aa28e1c22b6a46",
+      "source": "../.config/aoc/pi/skills/aoc-init-ops",
+      "status": "current"
+    },
+    ".pi/skills/aoc-map": {
+      "asset": "skill/aoc-map",
+      "assetVersion": 3,
+      "expectedSha256": "000954162e01e3d47617e0d9b4f754dfc3585ded0c5e747b6c443d20732e8863",
+      "marker": ".pi/skills/aoc-map/.aoc-managed",
+      "sha256": "000954162e01e3d47617e0d9b4f754dfc3585ded0c5e747b6c443d20732e8863",
+      "source": "../.config/aoc/pi/skills/aoc-map",
+      "status": "current"
+    },
+    ".pi/skills/custom-layout-ops": {
+      "asset": "skill/custom-layout-ops",
+      "assetVersion": 3,
+      "expectedSha256": "9dff3c1fb99e43f5541c0fe2fcfd54613ff355ee89a8eb58f300054b89b25116",
+      "marker": ".pi/skills/custom-layout-ops/.aoc-managed",
+      "sha256": "9dff3c1fb99e43f5541c0fe2fcfd54613ff355ee89a8eb58f300054b89b25116",
+      "source": "../.config/aoc/pi/skills/custom-layout-ops",
+      "status": "current"
+    },
+    ".pi/skills/design-diff": {
+      "asset": "skill/design-diff",
+      "assetVersion": 3,
+      "expectedSha256": "cd5b9cff85a25d1a8c8568d5f28179b410cd35a13f856f61baf4004cc4e9184c",
+      "marker": ".pi/skills/design-diff/.aoc-managed",
+      "sha256": "cd5b9cff85a25d1a8c8568d5f28179b410cd35a13f856f61baf4004cc4e9184c",
+      "source": "../.config/aoc/pi/skills/design-diff",
+      "status": "current"
+    },
+    ".pi/skills/design-director": {
+      "asset": "skill/design-director",
+      "assetVersion": 3,
+      "expectedSha256": "5cd46e26172d065b560234e4f443b62d3b90bda79e0508123738a23cedca7a48",
+      "marker": ".pi/skills/design-director/.aoc-managed",
+      "sha256": "5cd46e26172d065b560234e4f443b62d3b90bda79e0508123738a23cedca7a48",
+      "source": "../.config/aoc/pi/skills/design-director",
+      "status": "current"
+    },
+    ".pi/skills/design-handoff": {
+      "asset": "skill/design-handoff",
+      "assetVersion": 3,
+      "expectedSha256": "42279c934b9542ea3337492726ef1220b28950241ecb265743b1d6b87c9051f0",
+      "marker": ".pi/skills/design-handoff/.aoc-managed",
+      "sha256": "42279c934b9542ea3337492726ef1220b28950241ecb265743b1d6b87c9051f0",
+      "source": "../.config/aoc/pi/skills/design-handoff",
+      "status": "current"
+    },
+    ".pi/skills/design-premium-ui": {
+      "asset": "skill/design-premium-ui",
+      "assetVersion": 3,
+      "expectedSha256": "891f8c842d35260899f76e3445007f0303c7d90a87a7f21580c621174f3c93af",
+      "marker": ".pi/skills/design-premium-ui/.aoc-managed",
+      "sha256": "891f8c842d35260899f76e3445007f0303c7d90a87a7f21580c621174f3c93af",
+      "source": "../.config/aoc/pi/skills/design-premium-ui",
+      "status": "current"
+    },
+    ".pi/skills/design-redesign": {
+      "asset": "skill/design-redesign",
+      "assetVersion": 3,
+      "expectedSha256": "fd9240d92d567bf72ada0737f3cad991ba577867f8ddc8411536684f19832a7d",
+      "marker": ".pi/skills/design-redesign/.aoc-managed",
+      "sha256": "fd9240d92d567bf72ada0737f3cad991ba577867f8ddc8411536684f19832a7d",
+      "source": "../.config/aoc/pi/skills/design-redesign",
+      "status": "current"
+    },
+    ".pi/skills/design-review": {
+      "asset": "skill/design-review",
+      "assetVersion": 3,
+      "expectedSha256": "d58e9eda56973436149c6293acbd2d2c2cd209e4760e548c662bf1bcf8174240",
+      "marker": ".pi/skills/design-review/.aoc-managed",
+      "sha256": "d58e9eda56973436149c6293acbd2d2c2cd209e4760e548c662bf1bcf8174240",
+      "source": "../.config/aoc/pi/skills/design-review",
+      "status": "current"
+    },
+    ".pi/skills/design-spec": {
+      "asset": "skill/design-spec",
+      "assetVersion": 3,
+      "expectedSha256": "e76f1be8c09b7e5bb36cc96be4e7faad1a0557fd94a2b23d0166ec5650ab9751",
+      "marker": ".pi/skills/design-spec/.aoc-managed",
+      "sha256": "e76f1be8c09b7e5bb36cc96be4e7faad1a0557fd94a2b23d0166ec5650ab9751",
+      "source": "../.config/aoc/pi/skills/design-spec",
+      "status": "current"
+    },
+    ".pi/skills/design-tokens": {
+      "asset": "skill/design-tokens",
+      "assetVersion": 3,
+      "expectedSha256": "657037f25880f8410dd0400aa5cf6ffe5202e767f534bbcc8554c9eac92953ea",
+      "marker": ".pi/skills/design-tokens/.aoc-managed",
+      "sha256": "657037f25880f8410dd0400aa5cf6ffe5202e767f534bbcc8554c9eac92953ea",
+      "source": "../.config/aoc/pi/skills/design-tokens",
+      "status": "current"
+    },
+    ".pi/skills/motion-director": {
+      "asset": "skill/motion-director",
+      "assetVersion": 3,
+      "expectedSha256": "1bdd885db96bbbd768049dcc2671aa8b3b583698bb2125aae6b256ad127f1ab8",
+      "marker": ".pi/skills/motion-director/.aoc-managed",
+      "sha256": "1bdd885db96bbbd768049dcc2671aa8b3b583698bb2125aae6b256ad127f1ab8",
+      "source": "../.config/aoc/pi/skills/motion-director",
+      "status": "current"
+    },
+    ".pi/skills/prd-rpg-authoring": {
+      "asset": "skill/prd-rpg-authoring",
+      "assetVersion": 3,
+      "expectedSha256": "ce78a2a721e453814e1307be957f8469624f62afd837ef1145606f765f030304",
+      "marker": ".pi/skills/prd-rpg-authoring/.aoc-managed",
+      "sha256": "ce78a2a721e453814e1307be957f8469624f62afd837ef1145606f765f030304",
+      "source": "../.config/aoc/pi/skills/prd-rpg-authoring",
+      "status": "current"
+    },
+    ".pi/skills/rlm-analysis": {
+      "asset": "skill/rlm-analysis",
+      "assetVersion": 3,
+      "expectedSha256": "7844902bf081428c2a3f4586a69209e0ac30e0ee8e6fe7873c51ff79ba8d6f39",
+      "marker": ".pi/skills/rlm-analysis/.aoc-managed",
+      "sha256": "7844902bf081428c2a3f4586a69209e0ac30e0ee8e6fe7873c51ff79ba8d6f39",
+      "source": "../.config/aoc/pi/skills/rlm-analysis",
+      "status": "current"
+    },
+    ".pi/skills/teach-workflow": {
+      "asset": "skill/teach-workflow",
+      "assetVersion": 3,
+      "expectedSha256": "bd0d2e9bdb9f5628f3385eb2420c1420c704d7759072f97940a42787fb8c15db",
+      "marker": ".pi/skills/teach-workflow/.aoc-managed",
+      "sha256": "bd0d2e9bdb9f5628f3385eb2420c1420c704d7759072f97940a42787fb8c15db",
+      "source": "../.config/aoc/pi/skills/teach-workflow",
+      "status": "current"
+    },
+    ".pi/skills/tm-cc": {
+      "asset": "skill/tm-cc",
+      "assetVersion": 3,
+      "expectedSha256": "ee3c1e6d015393d4e5ce65fd319f4abb71a60622677f9547d68a7a7532de65fe",
+      "marker": ".pi/skills/tm-cc/.aoc-managed",
+      "sha256": "ee3c1e6d015393d4e5ce65fd319f4abb71a60622677f9547d68a7a7532de65fe",
+      "source": "../.config/aoc/pi/skills/tm-cc",
+      "status": "current"
+    },
+    ".pi/skills/vercel-cli": {
+      "asset": "skill/vercel-cli",
+      "assetVersion": 3,
+      "expectedSha256": "a07cc0ba54921796bc25de741cbc8b5b19db3d32be5849cff96cf5e321cc37bd",
+      "marker": ".pi/skills/vercel-cli/.aoc-managed",
+      "sha256": "a07cc0ba54921796bc25de741cbc8b5b19db3d32be5849cff96cf5e321cc37bd",
+      "source": "../.config/aoc/pi/skills/vercel-cli",
+      "status": "current"
+    },
+    ".pi/skills/web-research": {
+      "asset": "skill/web-research",
+      "assetVersion": 3,
+      "expectedSha256": "ea787fd29f7bf2df4184b43cc0517389ef31a7fd8f9721fb5e1aced138ed9d79",
+      "marker": ".pi/skills/web-research/.aoc-managed",
+      "sha256": "ea787fd29f7bf2df4184b43cc0517389ef31a7fd8f9721fb5e1aced138ed9d79",
+      "source": "../.config/aoc/pi/skills/web-research",
+      "status": "current"
+    },
+    ".pi/skills/zellij-theme-ops": {
+      "asset": "skill/zellij-theme-ops",
+      "assetVersion": 3,
+      "expectedSha256": "ac76958f7b7a1cd77f694ece848641f9861ff8e33077741bbdea8f36ea396166",
+      "marker": ".pi/skills/zellij-theme-ops/.aoc-managed",
+      "sha256": "ac76958f7b7a1cd77f694ece848641f9861ff8e33077741bbdea8f36ea396166",
+      "source": "../.config/aoc/pi/skills/zellij-theme-ops",
+      "status": "current"
+    }
+  },
+  "counts": {
+    "current": 26,
+    "dirty": 0,
+    "stale": 0,
+    "unknown": 0
+  },
+  "schemaVersion": 1,
+  "updatedAt": "2026-04-28T17:32:34.190937Z"
+}

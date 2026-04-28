@@ -343,7 +343,7 @@ validate_skills() {
     fi
 
     local key
-    local allowed=" name description license compatibility metadata allowed-tools "
+    local allowed=" name description license compatibility metadata allowed-tools aocManaged aocAsset aocVersion aocAssetVersion aocSource aocChecksum "
     while IFS= read -r key; do
       if [[ -n "$key" ]]; then
         if [[ "$allowed" != *" $key "* ]]; then
