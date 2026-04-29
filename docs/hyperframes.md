@@ -28,7 +28,7 @@ This seeds the full production workspace:
 - `hyperframes/` workspace
 - Pi HyperFrames skills and prompt
 - source-tracking `.gitignore` policy
-- `hyperframes/package.json` with `hyperframes@0.4.33` and `packageManager: pnpm@10.33.2`
+- `hyperframes/package.json` with `hyperframes@0.4.33` and `packageManager: bun@1.3.9`
 - `hyperframes/docs/DESIGN.md`
 - asset inventory and brand/campaign docs
 - composition catalog
@@ -99,23 +99,23 @@ aoc-hf -- --port 3001
 
 ```bash
 cd hyperframes
-pnpm install
+bun install
 ```
 
 Manual equivalent:
 
 ```bash
 cd hyperframes
-pnpm install
-pnpm exec hyperframes preview
+bun install
+bunx hyperframes preview
 ```
 
-Bun is also supported if preferred:
+pnpm is also supported if preferred:
 
 ```bash
 cd hyperframes
-bun install
-bunx hyperframes preview
+pnpm install
+pnpm exec hyperframes preview
 ```
 
 ## Update local HyperFrames CLI
@@ -132,7 +132,7 @@ Pinned version:
 aoc-hf-u 0.4.36
 ```
 
-Package manager detection prefers `packageManager`, then lockfiles, then pnpm default. After install/update it runs:
+Package manager detection prefers `packageManager`, then lockfiles, then bun default. After install/update it runs:
 
 ```bash
 aoc-hyperframes check
@@ -162,20 +162,20 @@ Use this after setup when asking the Pi agent to build, review, or render campai
 
 - Node.js `>= 22`
 - FFmpeg
-- pnpm preferred for workspace install; bun is supported
+- bun preferred for workspace install; pnpm is supported
 
 AOC setup confirms `hyperframes/package.json` during `aoc-hyperframes init`, `aoc-hyperframes bootstrap-asset-system`, and `aoc-init`. Install dependencies before lint/render:
 
 ```bash
 cd hyperframes
-pnpm install
+bun install
 ```
 
-If you prefer bun:
+If you prefer pnpm:
 
 ```bash
 cd hyperframes
-bun install
+pnpm install
 ```
 
 Check environment:

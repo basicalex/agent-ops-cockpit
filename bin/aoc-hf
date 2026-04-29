@@ -56,7 +56,7 @@ workspace="$root/$target_dir"
 
 hf_bin="$workspace/node_modules/.bin/hyperframes"
 if [[ ! -x "$hf_bin" ]]; then
-  fail "Local HyperFrames CLI missing. Run: cd $target_dir && pnpm install"
+  fail "Local HyperFrames CLI missing. Run: cd $target_dir && bun install"
 fi
 
 cd "$workspace"

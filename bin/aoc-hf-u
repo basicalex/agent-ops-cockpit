@@ -42,7 +42,7 @@ PY
   if [[ -f "$workspace/pnpm-lock.yaml" ]]; then echo pnpm; return 0; fi
   if [[ -f "$workspace/bun.lock" || -f "$workspace/bun.lockb" ]]; then echo bun; return 0; fi
   if [[ -f "$workspace/package-lock.json" ]]; then echo npm; return 0; fi
-  echo pnpm
+  echo bun
 }
 
 target_dir="${AOC_HYPERFRAMES_DIR:-hyperframes}"
