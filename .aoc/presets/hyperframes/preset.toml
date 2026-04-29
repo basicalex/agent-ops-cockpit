@@ -29,13 +29,13 @@ disable = ["hyperframes-off"]
 
 [skills]
 active = ["aoc-hyperframes"]
-recommended = ["hyperframes", "hyperframes-cli"]
+recommended = []
 
 [skills.recommendedByMode]
-compose = ["aoc-hyperframes", "hyperframes", "gsap"]
-site = ["website-to-hyperframes", "hyperframes", "hyperframes-cli", "gsap"]
-cli = ["aoc-hyperframes", "hyperframes-cli"]
-review = ["aoc-hyperframes", "hyperframes", "hyperframes-cli", "gsap"]
+compose = ["aoc-hyperframes"]
+site = ["aoc-hyperframes"]
+cli = ["aoc-hyperframes"]
+review = ["aoc-hyperframes"]
 
 [handoff]
 enabled = true

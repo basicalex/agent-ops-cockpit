@@ -21,6 +21,11 @@ const MANAGED_SKILL_NAMES = [
   "animejs-svg-motion",
   "animejs-text-splitting",
   "animejs-timelines",
+  "aoc-hyperframes",
+  "hyperframes",
+  "hyperframes-cli",
+  "website-to-hyperframes",
+  "gsap",
 ] as const;
 
 const MANAGED_SKILL_SET = new Set<string>(MANAGED_SKILL_NAMES);
@@ -28,6 +33,10 @@ const BASE_EXCLUDES = [
   "!skills/design-*",
   "!skills/motion-director",
   "!skills/animejs-*",
+  "!skills/hyperframes",
+  "!skills/hyperframes-cli",
+  "!skills/website-to-hyperframes",
+  "!skills/gsap",
 ] as const;
 const MANAGED_PLUS_ENTRIES = new Set(MANAGED_SKILL_NAMES.map((name) => `+skills/${name}`));
 const MANAGED_ENTRIES = new Set<string>([

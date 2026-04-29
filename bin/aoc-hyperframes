@@ -25,6 +25,10 @@ Global options:
   --quiet           Suppress non-error output
   -h, --help        Show this help
 
+Check options:
+  --no-lint         Skip HyperFrames lint
+  --allow-npx       Allow npx fallback if local HyperFrames CLI is missing
+
 Campaign options:
   --audience NAME   Audience folder/id (default: general)
   --channels LIST   Comma list, e.g. meta,reel (default: meta,reel)
@@ -59,6 +63,46 @@ args=()
 log() { [[ "$quiet" == "1" ]] || echo ">> $1"; }
 warn() { echo "!! $1" >&2; }
 fail() { warn "$1"; exit 1; }
+
+is_safe_slug() {
+  [[ "${1:-}" =~ ^[a-z0-9][a-z0-9-]*$ ]]
+}
+
+require_safe_slug() {
+  local label="$1" value="$2"
+  is_safe_slug "$value" || fail "Invalid $label '$value'. Use ^[a-z0-9][a-z0-9-]*$ only."
+}
+
+require_safe_slug_list() {
+  local label="$1" list="$2" item
+  IFS=',' read -r -a _aoc_slug_items <<< "$list"
+  for item in "${_aoc_slug_items[@]}"; do
+    require_safe_slug "$label" "$item"
+  done
+}
+
+path_contains() {
+  local parent="$1" child="$2"
+  python3 - "$parent" "$child" <<'PY'
+import sys
+from pathlib import Path
+parent = Path(sys.argv[1]).resolve()
+child = Path(sys.argv[2]).resolve()
+try:
+    child.relative_to(parent)
+except ValueError:
+    raise SystemExit(1)
+PY
+}
+
+hyperframes_local_bin() {
+  local dest="$root/$target_dir"
+  if [[ -x "$dest/node_modules/.bin/hyperframes" ]]; then
+    printf '%s\n' "$dest/node_modules/.bin/hyperframes"
+    return 0
+  fi
+  return 1
+}
 
 managed_path_sha256() {
   local target_path="$1"
@@ -110,6 +154,23 @@ is_aoc_managed_dir() {
   [[ -f "$target_path/.aoc-managed" ]]
 }
 
+marker_sha_for_dir() {
+  local target_path="$1"
+  [[ -f "$target_path/.aoc-managed" ]] || return 0
+  awk -F': ' '$1 == "sha256" { print $2; exit }' "$target_path/.aoc-managed"
+}
+
+backup_dirty_skill_dir() {
+  local target_path="$1" name="$2"
+  [[ -d "$target_path" ]] || return 0
+  local backup_root
+  backup_root="$(dirname "$target_path")/.aoc-backups"
+  mkdir -p "$backup_root"
+  local backup_path="$backup_root/$name.aoc-dirty-backup.$(date -u +%Y%m%dT%H%M%SZ)"
+  mv "$target_path" "$backup_path"
+  warn "Backed up dirty managed HyperFrames skill before refresh ($name): $backup_path"
+}
+
 backup_unmarked_skill_dir() {
   local target_path="$1" name="$2"
   [[ -d "$target_path" ]] || return 0
@@ -134,6 +195,8 @@ while [[ $# -gt 0 ]]; do
   esac
   shift || true
 done
+
+[[ "$target_dir" =~ ^[A-Za-z0-9._-]+$ ]] || fail "Invalid --dir '$target_dir'. Use a simple workspace directory name, not a path."
 
 find_root() {
   if [[ -n "$root" ]]; then
@@ -205,7 +268,24 @@ copy_optional_dir() {
     warn "No HyperFrames skill template found for $name."
     return 0
   fi
-  backup_unmarked_skill_dir "$dest" "$name"
+  local source_sha target_sha expected_sha
+  source_sha="$(managed_path_sha256 "$source_dir")"
+  if [[ -d "$dest" ]]; then
+    if ! is_aoc_managed_dir "$dest"; then
+      backup_unmarked_skill_dir "$dest" "$name"
+    else
+      target_sha="$(managed_path_sha256 "$dest")"
+      expected_sha="$(marker_sha_for_dir "$dest" || true)"
+      if [[ "$target_sha" == "$source_sha" ]]; then
+        write_aoc_managed_marker "$dest" "skill/$name"
+        log "Pi skill current: $name"
+        return 0
+      fi
+      if [[ -n "$expected_sha" && "$target_sha" != "$expected_sha" ]]; then
+        backup_dirty_skill_dir "$dest" "$name"
+      fi
+    fi
+  fi
   rm -rf "$dest"
   mkdir -p "$root/.pi/skills"
   cp -R "$source_dir" "$dest"
@@ -263,18 +343,46 @@ ensure_hyperframes_git_policy() {
   grep -vxF "$target_dir/" "$ignore_file" | grep -vxF "/$target_dir/" > "$tmp" || true
   mv "$tmp" "$ignore_file"
   if ! grep -Fqx "$marker" "$ignore_file"; then
-    cat >> "$ignore_file" <<EOF
-
-$marker
-!/$target_dir/
-!/$target_dir/**
-/$target_dir/renders/**
-/$target_dir/.hyperframes/**
-/$target_dir/.cache/**
-/$target_dir/node_modules/**
-EOF
-    log "Updated .gitignore HyperFrames source/output policy"
+    printf '\n%s\n' "$marker" >> "$ignore_file"
   fi
+  local line changed=0
+  for line in \
+    "!/$target_dir/" \
+    "!/$target_dir/**" \
+    "/$target_dir/renders/**" \
+    "/$target_dir/.hyperframes/**" \
+    "/$target_dir/.cache/**" \
+    "/$target_dir/node_modules/**" \
+    "/$target_dir/.aoc/**" \
+    "/$target_dir/.pi/**" \
+    "/$target_dir/.taskmaster/**" \
+    "/$target_dir/.thumbnails/**"; do
+    if ! grep -Fqx "$line" "$ignore_file"; then
+      printf '%s\n' "$line" >> "$ignore_file"
+      changed=1
+    fi
+  done
+  [[ "$changed" == "1" ]] && log "Updated .gitignore HyperFrames source/output policy"
+}
+
+ensure_workspace_package() {
+  local dest="$root/$target_dir" pkg="$dest/package.json"
+  [[ -f "$pkg" ]] && return 0
+  mkdir -p "$dest"
+  cat > "$pkg" <<'EOF'
+{
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "hf:lint": "hyperframes lint",
+    "hf:doctor": "hyperframes doctor"
+  },
+  "devDependencies": {
+    "hyperframes": "0.4.33"
+  }
+}
+EOF
+  log "Created $target_dir/package.json with pinned HyperFrames CLI dependency. Run npm install inside $target_dir before lint/render."
 }
 
 init_workspace() {
@@ -286,6 +394,7 @@ init_workspace() {
   check_toolchain || warn "Continuing after toolchain warning; install requirements before rendering."
   log "Initializing HyperFrames workspace in $target_dir"
   (cd "$root" && npx hyperframes init "$target_dir" --non-interactive)
+  ensure_workspace_package
 }
 
 template_source_dir() {
@@ -462,6 +571,7 @@ bootstrap_asset_system() {
   log "Ensured AOC HyperFrames campaign factory folders in $target_dir"
 
   ensure_hyperframes_git_policy
+  ensure_workspace_package
 
   if [[ -f "$root/DESIGN.md" ]]; then
     log "Root DESIGN.md found; HyperFrames design docs should extend it."
@@ -572,12 +682,19 @@ run_catalog() {
 }
 
 resolve_composition() {
-  local input="$1" dest="$root/$target_dir" cand
+  local input="$1" dest="$root/$target_dir" comp_root="$root/$target_dir/compositions" cand resolved
+  [[ -n "$input" ]] || return 1
+  [[ "$input" != /* ]] || return 1
+  [[ "$input" != *".."* ]] || return 1
   for cand in \
     "$dest/$input" \
     "$dest/compositions/$input" \
     "$dest/compositions/$input.html"; do
-    [[ -f "$cand" ]] && { printf '%s\n' "$cand"; return 0; }
+    [[ -f "$cand" ]] || continue
+    resolved="$(realpath -m "$cand")"
+    path_contains "$comp_root" "$resolved" || return 1
+    printf '%s\n' "$resolved"
+    return 0
   done
   return 1
 }
@@ -596,15 +713,9 @@ set_workbench_target() {
   if [[ -f "$idx" ]] && ! grep -q 'AOC-HYPERFRAMES-WORKBENCH' "$idx"; then
     fail "$target_dir/index.html exists and is not AOC-managed; move it or add AOC workbench markers before updating."
   fi
-  cat > "$idx" <<EOF
-<!doctype html>
-<html lang="en">
-<head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>AOC HyperFrames Workbench - $id</title>
-</head>
-<body>
+  local block_file
+  block_file="$(mktemp)"
+  cat > "$block_file" <<EOF
   <!-- AOC-HYPERFRAMES-WORKBENCH:START -->
   <div data-composition-id="active-workbench" data-start="0" data-width="$width" data-height="$height" data-duration="$duration">
     <div id="active-composition" data-composition-id="$id" data-composition-src="$rel" data-start="0" data-duration="$duration" data-track-index="1"></div>
@@ -615,9 +726,40 @@ set_workbench_target() {
     </script>
   </div>
   <!-- AOC-HYPERFRAMES-WORKBENCH:END -->
+EOF
+  if [[ -f "$idx" ]]; then
+    python3 - "$idx" "$block_file" <<'PY'
+import sys
+from pathlib import Path
+idx = Path(sys.argv[1])
+block = Path(sys.argv[2]).read_text(encoding="utf-8").rstrip() + "\n"
+text = idx.read_text(encoding="utf-8")
+start_token = "<!-- AOC-HYPERFRAMES-WORKBENCH:START -->"
+end_token = "<!-- AOC-HYPERFRAMES-WORKBENCH:END -->"
+a_token = text.index(start_token)
+a = text.rfind("\n", 0, a_token) + 1
+b_token = text.index(end_token, a_token) + len(end_token)
+b = text.find("\n", b_token)
+if b == -1:
+    b = b_token
+idx.write_text(text[:a] + block.rstrip() + text[b:], encoding="utf-8")
+PY
+  else
+    cat > "$idx" <<EOF
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>AOC HyperFrames Workbench - $id</title>
+</head>
+<body>
+$(cat "$block_file")
 </body>
 </html>
 EOF
+  fi
+  rm -f "$block_file"
   log "Workbench target set: $rel"
 }
 
@@ -733,6 +875,11 @@ run_campaign() {
     esac
     i=$((i + 1))
   done
+  require_safe_slug "campaign slug" "$slug"
+  require_safe_slug "audience" "$audience"
+  require_safe_slug "concept" "$concept"
+  require_safe_slug_list "channel" "$channels"
+  require_safe_slug_list "duration" "$durations"
   IFS=',' read -r -a channel_arr <<< "$channels"
   IFS=',' read -r -a duration_arr <<< "$durations"
   local idx=0 ch dur type rel comp_id title
@@ -827,7 +974,13 @@ run_seed_assets() {
 }
 
 run_check() {
-  local dest="$root/$target_dir" errors=0 warnings=0
+  local dest="$root/$target_dir" errors=0 warnings=0 no_lint=0 allow_npx=0 a hf_bin=""
+  for a in "${args[@]}"; do
+    case "$a" in
+      --no-lint) no_lint=1 ;;
+      --allow-npx) allow_npx=1 ;;
+    esac
+  done
   [[ -d "$dest" ]] || { warn "Missing workspace: $target_dir"; return 1; }
   check_err() { warn "$1"; errors=$((errors + 1)); }
   check_warn() { warn "$1"; warnings=$((warnings + 1)); }
@@ -869,10 +1022,19 @@ run_check() {
     fi
   done < <(find "$dest/compositions" -type f -name '*.html' 2>/dev/null | sort)
 
-  if command -v node >/dev/null 2>&1; then
-    (cd "$dest" && npx hyperframes lint) || errors=$((errors + 1))
+  if (( no_lint == 1 )); then
+    check_warn "Skipped HyperFrames lint (--no-lint)"
+  elif command -v node >/dev/null 2>&1; then
+    if hf_bin="$(hyperframes_local_bin || true)" && [[ -n "$hf_bin" ]]; then
+      (cd "$dest" && "$hf_bin" lint) || errors=$((errors + 1))
+    elif (( allow_npx == 1 )); then
+      warn "Using npx fallback for HyperFrames lint because --allow-npx was provided. This may install packages."
+      (cd "$dest" && npx hyperframes lint) || errors=$((errors + 1))
+    else
+      check_warn "Skipped HyperFrames lint; local CLI missing. Run npm install in $target_dir or use --allow-npx."
+    fi
   else
-    check_warn "Skipped npx hyperframes lint; node not found"
+    check_warn "Skipped HyperFrames lint; node not found"
   fi
 
   if (( errors > 0 )); then
@@ -884,10 +1046,11 @@ run_check() {
 
 run_doctor() {
   check_toolchain || true
-  if [[ -d "$root/$target_dir" ]]; then
-    (cd "$root/$target_dir" && npx hyperframes doctor) || true
+  local dest="$root/$target_dir" hf_bin=""
+  if hf_bin="$(hyperframes_local_bin || true)" && [[ -n "$hf_bin" ]]; then
+    (cd "$dest" && "$hf_bin" doctor) || true
   else
-    (cd "$root" && npx hyperframes doctor) || true
+    warn "Skipped HyperFrames doctor; local CLI missing. Run npm install in $target_dir."
   fi
 }
 
@@ -908,8 +1071,12 @@ run_render() {
     esac
     i=$((i + 1))
   done
+  [[ "$fmt" == "mp4" || "$fmt" == "webm" ]] || fail "Invalid render format: $fmt"
+  [[ "$quality" == "draft" || "$quality" == "standard" || "$quality" == "high" ]] || fail "Invalid render quality: $quality"
+  [[ -z "$fps" || "$fps" =~ ^[0-9]+$ ]] || fail "Invalid fps: $fps"
+  [[ -z "$version" || "$version" =~ ^v[0-9]+$ ]] || fail "Invalid version: $version"
   (( skip_check == 1 )) || run_check
-  local file dest rel type base name output
+  local file dest rel type base name output hf_bin
   file="$(resolve_composition "$input")" || fail "Composition not found: $input"
   dest="$root/$target_dir"
   rel="${file#$dest/}"
@@ -920,7 +1087,9 @@ run_render() {
   mkdir -p "$dest/renders/$type"
   output="$dest/renders/$type/$name"
   set_workbench_target "$rel"
-  local cmd=(npx hyperframes render --output "$output" --quality "$quality" --format "$fmt")
+  hf_bin="$(hyperframes_local_bin || true)"
+  [[ -n "$hf_bin" ]] || fail "Local HyperFrames CLI missing. Run npm install in $target_dir before render."
+  local cmd=("$hf_bin" render --output "$output" --quality "$quality" --format "$fmt")
   [[ -n "$fps" ]] && cmd+=(--fps "$fps")
   log "Rendering $rel -> $target_dir/renders/$type/$name"
   (cd "$dest" && "${cmd[@]}")
