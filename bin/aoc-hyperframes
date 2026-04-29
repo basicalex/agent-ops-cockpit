@@ -362,7 +362,9 @@ ensure_hyperframes_git_policy() {
       changed=1
     fi
   done
-  [[ "$changed" == "1" ]] && log "Updated .gitignore HyperFrames source/output policy"
+  if [[ "$changed" == "1" ]]; then
+    log "Updated .gitignore HyperFrames source/output policy"
+  fi
 }
 
 ensure_workspace_package() {
