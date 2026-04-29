@@ -2675,6 +2675,7 @@ setup_aoc_preset_assets() {
     || -d "$project_root/.pi/skills/hyperframes" \
     || -f "$project_root/.pi/prompts/hyperframes.md" ]]; then
     seed_aoc_preset_asset "hyperframes"
+    ensure_hyperframes_workspace_package
   fi
 
   for candidate in "${canonical_layout_seed_dirs[@]}"; do
@@ -2702,6 +2703,54 @@ setup_aoc_preset_assets() {
   else
     warn "Missing AOC layout template: $layout_name"
   fi
+}
+
+ensure_hyperframes_workspace_package() {
+  local hf_dir="${AOC_HYPERFRAMES_DIR:-hyperframes}"
+  local hf_root="$project_root/$hf_dir"
+  local pkg="$hf_root/package.json"
+  [[ -d "$hf_root" ]] || return 0
+  mkdir -p "$hf_root"
+  python3 - "$pkg" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+pkg = Path(sys.argv[1])
+changed = False
+if pkg.exists():
+    try:
+        data = json.loads(pkg.read_text())
+    except Exception:
+        raise SystemExit(f"Refusing to edit invalid HyperFrames package.json: {pkg}")
+else:
+    data = {"private": True, "type": "module"}
+    changed = True
+
+if data.get("private") is not True:
+    data["private"] = True
+    changed = True
+if data.get("type") != "module":
+    data["type"] = "module"
+    changed = True
+if data.get("packageManager") != "pnpm@10.33.2":
+    data["packageManager"] = "pnpm@10.33.2"
+    changed = True
+scripts = data.setdefault("scripts", {})
+for key, value in {"hf:lint": "hyperframes lint", "hf:doctor": "hyperframes doctor"}.items():
+    if scripts.get(key) != value:
+        scripts[key] = value
+        changed = True
+
+dev = data.setdefault("devDependencies", {})
+if dev.get("hyperframes") != "0.4.33":
+    dev["hyperframes"] = "0.4.33"
+    changed = True
+
+if changed:
+    pkg.write_text(json.dumps(data, indent=2, ensure_ascii=False) + "\n")
+PY
+  log "Confirmed $hf_dir/package.json pins HyperFrames CLI for pnpm install (bun install also supported)."
 }
 
 # 1d. Migrate legacy PI runtime assets from project-local .aoc paths

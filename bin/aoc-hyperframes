@@ -375,6 +375,7 @@ ensure_workspace_package() {
 {
   "private": true,
   "type": "module",
+  "packageManager": "pnpm@10.33.2",
   "scripts": {
     "hf:lint": "hyperframes lint",
     "hf:doctor": "hyperframes doctor"
@@ -384,7 +385,7 @@ ensure_workspace_package() {
   }
 }
 EOF
-  log "Created $target_dir/package.json with pinned HyperFrames CLI dependency. Run npm install inside $target_dir before lint/render."
+  log "Created $target_dir/package.json with pinned HyperFrames CLI dependency. Run pnpm install inside $target_dir before lint/render. Bun also works if preferred."
 }
 
 init_workspace() {
@@ -1033,7 +1034,7 @@ run_check() {
       warn "Using npx fallback for HyperFrames lint because --allow-npx was provided. This may install packages."
       (cd "$dest" && npx hyperframes lint) || errors=$((errors + 1))
     else
-      check_warn "Skipped HyperFrames lint; local CLI missing. Run npm install in $target_dir or use --allow-npx."
+      check_warn "Skipped HyperFrames lint; local CLI missing. Run pnpm install in $target_dir (or bun install) or use --allow-npx."
     fi
   else
     check_warn "Skipped HyperFrames lint; node not found"
@@ -1052,7 +1053,7 @@ run_doctor() {
   if hf_bin="$(hyperframes_local_bin || true)" && [[ -n "$hf_bin" ]]; then
     (cd "$dest" && "$hf_bin" doctor) || true
   else
-    warn "Skipped HyperFrames doctor; local CLI missing. Run npm install in $target_dir."
+    warn "Skipped HyperFrames doctor; local CLI missing. Run pnpm install in $target_dir (or bun install)."
   fi
 }
 
@@ -1090,7 +1091,7 @@ run_render() {
   output="$dest/renders/$type/$name"
   set_workbench_target "$rel"
   hf_bin="$(hyperframes_local_bin || true)"
-  [[ -n "$hf_bin" ]] || fail "Local HyperFrames CLI missing. Run npm install in $target_dir before render."
+  [[ -n "$hf_bin" ]] || fail "Local HyperFrames CLI missing. Run pnpm install in $target_dir (or bun install) before render."
   local cmd=("$hf_bin" render --output "$output" --quality "$quality" --format "$fmt")
   [[ -n "$fps" ]] && cmd+=(--fps "$fps")
   log "Rendering $rel -> $target_dir/renders/$type/$name"
