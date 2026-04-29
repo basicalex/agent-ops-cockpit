@@ -1,5 +1,5 @@
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import type { PresetRuntimeState } from "./state.ts";
 
 const MANAGED_SKILL_NAMES = [
@@ -82,8 +82,20 @@ function parseSettings(path: string): SettingsShape {
   return JSON.parse(raw) as SettingsShape;
 }
 
+function resolveProjectRoot(cwd: string): string {
+  const envRoot = String(process.env.AOC_PROJECT_ROOT || "").trim();
+  if (envRoot && existsSync(envRoot)) return resolve(envRoot);
+  let dir = resolve(cwd || ".");
+  while (dir !== dirname(dir)) {
+    if (existsSync(join(dir, ".aoc")) || existsSync(join(dir, ".git"))) return dir;
+    dir = dirname(dir);
+  }
+  return resolve(cwd || ".");
+}
+
 export function applyPresetSkillFilters(cwd: string, state: PresetRuntimeState): SkillFilterApplyResult {
-  const path = join(cwd, ".pi", "settings.json");
+  const root = resolveProjectRoot(cwd);
+  const path = join(root, ".pi", "settings.json");
   const settings = parseSettings(path);
   const currentSkills = Array.isArray(settings.skills)
     ? settings.skills.filter((value): value is string => typeof value === "string")

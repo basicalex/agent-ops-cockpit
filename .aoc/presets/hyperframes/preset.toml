@@ -1,4 +1,4 @@
-id = "aoc-hyperframes"
+id = "hyperframes"
 label = "AOC HyperFrames"
 layout = "design"
 defaultMode = "compose"

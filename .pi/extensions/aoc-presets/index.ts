@@ -24,8 +24,12 @@ function formatCavemanBadge(level: "off" | "lite" | "full" | "ultra"): string {
   return `🪨${glyph}${level !== "off" ? level : ""}`;
 }
 
+function projectRoot(): string {
+  return String(process.env.AOC_PROJECT_ROOT || "").trim() || process.cwd();
+}
+
 export default function (pi: ExtensionAPI) {
-  const registry = loadPresetRegistry(process.cwd());
+  const registry = loadPresetRegistry(projectRoot());
   let activeState: PresetRuntimeState = {};
   let lastCtx: any;
 

@@ -929,11 +929,20 @@ managed_names = [
     "animejs-svg-motion",
     "animejs-text-splitting",
     "animejs-timelines",
+    "aoc-hyperframes",
+    "hyperframes",
+    "hyperframes-cli",
+    "website-to-hyperframes",
+    "gsap",
 ]
 base_excludes = [
     "!skills/design-*",
     "!skills/motion-director",
     "!skills/animejs-*",
+    "!skills/hyperframes",
+    "!skills/hyperframes-cli",
+    "!skills/website-to-hyperframes",
+    "!skills/gsap",
 ]
 managed_entries = set(base_excludes) | {f"+skills/{name}" for name in managed_names}
 
@@ -942,6 +951,9 @@ mode = (os.environ.get("AOC_PRESET_MODE") or "").strip().lower() or "critique"
 submode = (os.environ.get("AOC_PRESET_SUBMODE") or "").strip().lower() or "plan"
 
 visible = []
+if preset == "hyperframes":
+    visible.append("aoc-hyperframes")
+
 if preset == "design":
     visible.append("design-director")
     by_mode = {
