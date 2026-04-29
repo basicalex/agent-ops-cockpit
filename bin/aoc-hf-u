@@ -1,0 +1,105 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+usage() {
+  cat <<'EOF'
+Usage: aoc-hf-u [version] [--dir NAME]
+
+Install/update the project-local HyperFrames dependency, then run aoc-hyperframes check.
+Defaults to latest. Example: aoc-hf-u 0.4.36
+EOF
+}
+
+fail() { echo "!! $*" >&2; exit 1; }
+log() { echo ">> $*"; }
+
+resolve_root() {
+  local dir="$PWD"
+  while [[ "$dir" != "/" ]]; do
+    if [[ -d "$dir/.aoc" || -d "$dir/.git" ]]; then
+      printf '%s\n' "$dir"
+      return 0
+    fi
+    dir="$(dirname "$dir")"
+  done
+  return 1
+}
+
+choose_pm() {
+  local workspace="$1" pm=""
+  if [[ -f "$workspace/package.json" ]]; then
+    pm="$(python3 - "$workspace/package.json" <<'PY'
+import json,sys
+try:
+    value=json.load(open(sys.argv[1])).get('packageManager','')
+except Exception:
+    value=''
+print(value.split('@',1)[0] if value else '')
+PY
+)"
+  fi
+  if [[ -n "$pm" ]]; then printf '%s\n' "$pm"; return 0; fi
+  if [[ -f "$workspace/pnpm-lock.yaml" ]]; then echo pnpm; return 0; fi
+  if [[ -f "$workspace/bun.lock" || -f "$workspace/bun.lockb" ]]; then echo bun; return 0; fi
+  if [[ -f "$workspace/package-lock.json" ]]; then echo npm; return 0; fi
+  echo pnpm
+}
+
+target_dir="${AOC_HYPERFRAMES_DIR:-hyperframes}"
+version="latest"
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --dir)
+      [[ $# -ge 2 ]] || fail "--dir requires a value"
+      target_dir="$2"
+      shift 2
+      ;;
+    --help|-h)
+      usage
+      exit 0
+      ;;
+    --*)
+      fail "Unknown option: $1"
+      ;;
+    *)
+      version="$1"
+      shift
+      ;;
+  esac
+done
+
+[[ "$target_dir" =~ ^[a-zA-Z0-9._-]+$ ]] || fail "Unsafe HyperFrames workspace dir: $target_dir"
+[[ "$version" =~ ^[A-Za-z0-9._~^@:+-]+$ ]] || fail "Unsafe HyperFrames version: $version"
+root="$(resolve_root)" || fail "No AOC/git project root found. Run from inside a project."
+workspace="$root/$target_dir"
+[[ -d "$workspace" ]] || fail "HyperFrames workspace missing. Run: aoc-hyperframes init"
+
+if [[ ! -f "$workspace/package.json" ]]; then
+  log "HyperFrames package.json missing; repairing workspace package metadata."
+  (cd "$root" && aoc-hyperframes bootstrap-asset-system --dir "$target_dir")
+fi
+[[ -f "$workspace/package.json" ]] || fail "HyperFrames package.json still missing after repair."
+
+pm="$(choose_pm "$workspace")"
+case "$pm" in
+  pnpm)
+    command -v pnpm >/dev/null 2>&1 || fail "pnpm missing. Install pnpm or set packageManager to bun/npm in $target_dir/package.json."
+    log "Installing hyperframes@$version with pnpm"
+    (cd "$workspace" && pnpm add -D "hyperframes@$version")
+    ;;
+  bun)
+    command -v bun >/dev/null 2>&1 || fail "bun missing. Install bun or use pnpm."
+    log "Installing hyperframes@$version with bun"
+    (cd "$workspace" && bun add -d "hyperframes@$version")
+    ;;
+  npm)
+    command -v npm >/dev/null 2>&1 || fail "npm missing. Install npm or use pnpm."
+    log "Installing hyperframes@$version with npm"
+    (cd "$workspace" && npm install "hyperframes@$version" --save-dev)
+    ;;
+  *)
+    fail "Unsupported package manager in $target_dir/package.json: $pm"
+    ;;
+esac
+
+(cd "$root" && aoc-hyperframes check --dir "$target_dir")

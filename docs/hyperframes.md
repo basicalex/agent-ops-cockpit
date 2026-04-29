@@ -83,7 +83,26 @@ Inside AOC:
 Alt+C -> Settings -> Tools -> HyperFrames -> Start preview pane
 ```
 
-Manual:
+Convenience alias from anywhere inside the project:
+
+```bash
+aoc-hf
+```
+
+Pass preview args after `--`:
+
+```bash
+aoc-hf -- --port 3001
+```
+
+`aoc-hf` uses the project-local `hyperframes/node_modules/.bin/hyperframes` binary. It never installs dependencies. If missing, run:
+
+```bash
+cd hyperframes
+pnpm install
+```
+
+Manual equivalent:
 
 ```bash
 cd hyperframes
@@ -97,6 +116,26 @@ Bun is also supported if preferred:
 cd hyperframes
 bun install
 bunx hyperframes preview
+```
+
+## Update local HyperFrames CLI
+
+Use explicit local updates so dependency changes are visible in `hyperframes/package.json` and lockfiles:
+
+```bash
+aoc-hf-u
+```
+
+Pinned version:
+
+```bash
+aoc-hf-u 0.4.36
+```
+
+Package manager detection prefers `packageManager`, then lockfiles, then pnpm default. After install/update it runs:
+
+```bash
+aoc-hyperframes check
 ```
 
 ## Render

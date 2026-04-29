@@ -2751,6 +2751,11 @@ if changed:
     pkg.write_text(json.dumps(data, indent=2, ensure_ascii=False) + "\n")
 PY
   log "Confirmed $hf_dir/package.json pins HyperFrames CLI for pnpm install (bun install also supported)."
+  if command -v aoc-hf >/dev/null 2>&1 && command -v aoc-hf-u >/dev/null 2>&1; then
+    log "Confirmed HyperFrames convenience aliases: aoc-hf, aoc-hf-u"
+  else
+    warn "HyperFrames convenience aliases missing from PATH. Run AOC install.sh to install aoc-hf and aoc-hf-u."
+  fi
 }
 
 # 1d. Migrate legacy PI runtime assets from project-local .aoc paths

@@ -1,0 +1,63 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+usage() {
+  cat <<'EOF'
+Usage: aoc-hf [--dir NAME] [-- <hyperframes preview args>]
+
+Run the project-local HyperFrames preview from the nearest AOC/git project root.
+No dependencies are installed by this command.
+EOF
+}
+
+fail() { echo "!! $*" >&2; exit 1; }
+
+resolve_root() {
+  local dir="$PWD"
+  while [[ "$dir" != "/" ]]; do
+    if [[ -d "$dir/.aoc" || -d "$dir/.git" ]]; then
+      printf '%s\n' "$dir"
+      return 0
+    fi
+    dir="$(dirname "$dir")"
+  done
+  return 1
+}
+
+target_dir="${AOC_HYPERFRAMES_DIR:-hyperframes}"
+preview_args=()
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --dir)
+      [[ $# -ge 2 ]] || fail "--dir requires a value"
+      target_dir="$2"
+      shift 2
+      ;;
+    --help|-h)
+      usage
+      exit 0
+      ;;
+    --)
+      shift
+      preview_args=("$@")
+      break
+      ;;
+    *)
+      fail "Unknown argument: $1. Use -- before HyperFrames preview args."
+      ;;
+  esac
+done
+
+[[ "$target_dir" =~ ^[a-zA-Z0-9._-]+$ ]] || fail "Unsafe HyperFrames workspace dir: $target_dir"
+root="$(resolve_root)" || fail "No AOC/git project root found. Run from inside a project."
+workspace="$root/$target_dir"
+[[ -d "$workspace" ]] || fail "HyperFrames workspace missing. Run: aoc-hyperframes init"
+[[ -f "$workspace/package.json" ]] || fail "HyperFrames package.json missing. Run: aoc-hyperframes bootstrap-asset-system --dir '$target_dir'"
+
+hf_bin="$workspace/node_modules/.bin/hyperframes"
+if [[ ! -x "$hf_bin" ]]; then
+  fail "Local HyperFrames CLI missing. Run: cd $target_dir && pnpm install"
+fi
+
+cd "$workspace"
+exec "$hf_bin" preview "${preview_args[@]}"
