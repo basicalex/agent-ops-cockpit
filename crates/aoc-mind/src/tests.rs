@@ -645,6 +645,36 @@ fn over_budget_chunks_with_deterministic_order_and_traceability() {
 }
 
 #[test]
+fn planner_uses_hard_cap_when_target_exceeds_hard_cap() {
+    let events = vec![
+        StoredCompactEvent {
+            compact_id: "t0:a".to_string(),
+            conversation_id: "conv-a".to_string(),
+            ts: ts(13, 0, 0),
+            role: Some(ConversationRole::User),
+            text: Some("aaaaaaaaaaaaaaaa".to_string()),
+            tool_meta: None,
+            source_event_ids: vec!["e1".to_string()],
+            policy_version: "t0.v1".to_string(),
+        },
+        StoredCompactEvent {
+            compact_id: "t0:b".to_string(),
+            conversation_id: "conv-a".to_string(),
+            ts: ts(13, 0, 1),
+            role: Some(ConversationRole::User),
+            text: Some("bbbbbbbbbbbbbbbb".to_string()),
+            tool_meta: None,
+            source_event_ids: vec!["e2".to_string()],
+            policy_version: "t0.v1".to_string(),
+        },
+    ];
+
+    let batches = plan_t1_batches(&events, 100, 6).expect("plan batches");
+    assert_eq!(batches.len(), 2);
+    assert!(batches.iter().all(|batch| batch.estimated_tokens <= 6));
+}
+
+#[test]
 fn planner_rejects_cross_conversation_mixing() {
     let events = vec![
         StoredCompactEvent {

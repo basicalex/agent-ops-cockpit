@@ -1539,7 +1539,7 @@ pub fn default_pi_observer_profile() -> SemanticModelProfile {
         provider_name: DEFAULT_PI_OBSERVER_PROVIDER.to_string(),
         model_id: DEFAULT_PI_OBSERVER_MODEL.to_string(),
         prompt_version: DEFAULT_PI_OBSERVER_PROMPT_VERSION.to_string(),
-        max_input_tokens: 4_096,
+        max_input_tokens: 32_000,
         max_output_tokens: 768,
     }
 }
@@ -2761,6 +2761,7 @@ fn plan_t1_batches(
         return Ok(Vec::new());
     }
 
+    let effective_target_tokens = target_tokens.min(hard_cap_tokens);
     let first_conversation = t0_events[0].conversation_id.clone();
     let mut total_tokens = 0_u32;
     let mut compact_ids = Vec::with_capacity(t0_events.len());
@@ -2778,7 +2779,7 @@ fn plan_t1_batches(
         total_tokens = total_tokens.saturating_add(event_tokens);
         compact_ids.push(event.compact_id.clone());
     }
-    if total_tokens <= target_tokens {
+    if total_tokens <= effective_target_tokens {
         let batch = T1Batch {
             conversation_id: first_conversation,
             compact_event_ids: compact_ids,
@@ -2803,7 +2804,9 @@ fn plan_t1_batches(
             ));
         }
 
-        if !current_ids.is_empty() && current_tokens.saturating_add(event_tokens) > target_tokens {
+        if !current_ids.is_empty()
+            && current_tokens.saturating_add(event_tokens) > effective_target_tokens
+        {
             batches.push(T1Batch {
                 conversation_id: event.conversation_id.clone(),
                 compact_event_ids: current_ids,
