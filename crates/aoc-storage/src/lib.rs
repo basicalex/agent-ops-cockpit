@@ -17,7 +17,7 @@ use std::collections::BTreeSet;
 use std::path::Path;
 use thiserror::Error;
 
-pub const MIND_SCHEMA_VERSION: i64 = 11;
+pub const MIND_SCHEMA_VERSION: i64 = 12;
 
 fn record_schema_migration(conn: &Connection, version: i64) -> Result<(), StorageError> {
     conn.execute(
@@ -455,6 +455,16 @@ impl MindStore {
             record_schema_migration(&self.conn, 11)?;
             self.conn
                 .execute("PRAGMA user_version = 11", [])
+                .map(|_| ())?;
+            current = 11;
+        }
+
+        if current < 12 {
+            let sql = include_str!("../migrations/0012_compaction_checkpoint_entry_scope.sql");
+            self.conn.execute_batch(sql)?;
+            record_schema_migration(&self.conn, 12)?;
+            self.conn
+                .execute("PRAGMA user_version = 12", [])
                 .map(|_| ())?;
         }
 
@@ -5039,6 +5049,55 @@ mod tests {
             .expect("list checkpoints");
         assert_eq!(rows.len(), 1, "checkpoint upsert should not duplicate rows");
         assert_eq!(rows[0].reason.as_deref(), Some("pi compaction retry"));
+    }
+
+    #[test]
+    fn compaction_checkpoint_entry_id_is_scoped_to_conversation() {
+        let db = MindStore::open_in_memory().expect("open db");
+        let now = ts();
+        let first = CompactionCheckpoint {
+            checkpoint_id: "cmpchk:conv-1:compact-shared".to_string(),
+            conversation_id: "conv-1".to_string(),
+            session_id: "session-1".to_string(),
+            ts: now,
+            trigger_source: "pi_compact".to_string(),
+            reason: Some("pi compaction".to_string()),
+            summary: Some("First conversation".to_string()),
+            tokens_before: Some(100),
+            first_kept_entry_id: Some("entry-1".to_string()),
+            compaction_entry_id: Some("compact-shared".to_string()),
+            from_extension: false,
+            marker_event_id: Some("evt-1".to_string()),
+            schema_version: 1,
+            created_at: now,
+            updated_at: now,
+        };
+        let second = CompactionCheckpoint {
+            checkpoint_id: "cmpchk:conv-2:compact-shared".to_string(),
+            conversation_id: "conv-2".to_string(),
+            session_id: "session-2".to_string(),
+            marker_event_id: Some("evt-2".to_string()),
+            summary: Some("Second conversation".to_string()),
+            ..first.clone()
+        };
+
+        db.upsert_compaction_checkpoint(&first)
+            .expect("insert first checkpoint");
+        db.upsert_compaction_checkpoint(&second)
+            .expect("same compaction entry id in another conversation should not conflict");
+
+        assert_eq!(
+            db.compaction_checkpoints_for_conversation("conv-1")
+                .expect("conv-1 rows")
+                .len(),
+            1
+        );
+        assert_eq!(
+            db.compaction_checkpoints_for_conversation("conv-2")
+                .expect("conv-2 rows")
+                .len(),
+            1
+        );
     }
 
     #[test]
