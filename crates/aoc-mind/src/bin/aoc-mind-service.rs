@@ -4,14 +4,13 @@ use aoc_core::{
     provenance_contracts::MindProvenanceQueryRequest,
 };
 use aoc_mind::{
-    compile_mind_context_pack, compile_mind_provenance_export, discover_latest_pi_session_file,
-    mind_progress_for_conversation, open_project_store, parse_mind_context_pack_mode,
-    prepare_session_finalize_execution, read_mind_service_health_snapshot,
-    read_mind_service_lease, summarize_mind_service_status,
-    sync_latest_pi_session_into_project_store,
-    sync_session_file_into_project_store, DistillationConfig, MindContextPackProfile,
-    MindContextPackRequest, MindProjectPaths, MindRuntimeConfig, MindRuntimeCore,
-    SessionFinalizePreparationOutcome,
+    compile_mind_context_pack, compile_mind_provenance_export, default_pi_session_root,
+    discover_latest_pi_session_file, mind_progress_for_conversation, open_project_store,
+    parse_mind_context_pack_mode, prepare_session_finalize_execution,
+    read_mind_service_health_snapshot, read_mind_service_lease, summarize_mind_service_status,
+    sync_latest_pi_session_into_project_store, sync_session_file_into_project_store,
+    DistillationConfig, MindContextPackProfile, MindContextPackRequest, MindProjectPaths,
+    MindRuntimeConfig, MindRuntimeCore, SessionFinalizePreparationOutcome,
 };
 use clap::{Parser, Subcommand};
 use serde_json::json;
@@ -46,6 +45,41 @@ enum Command {
         session_file: Option<PathBuf>,
         #[arg(long, default_value = DEFAULT_AGENT_ID)]
         agent_id: String,
+        #[arg(long)]
+        all: bool,
+        #[arg(long)]
+        json: bool,
+    },
+    /// Run one detached T2 reflector worker tick.
+    ReflectorRun {
+        #[arg(long)]
+        project_root: PathBuf,
+        #[arg(long, default_value = "standalone")]
+        session_id: String,
+        #[arg(long, default_value = "service")]
+        pane_id: String,
+        #[arg(long, default_value = DEFAULT_AGENT_ID)]
+        agent_id: String,
+        #[arg(long)]
+        json: bool,
+    },
+    /// Run one detached T3 canon worker tick.
+    T3Run {
+        #[arg(long)]
+        project_root: PathBuf,
+        #[arg(long, default_value = "standalone")]
+        session_id: String,
+        #[arg(long, default_value = "service")]
+        pane_id: String,
+        #[arg(long, default_value = DEFAULT_AGENT_ID)]
+        agent_id: String,
+        #[arg(long)]
+        json: bool,
+    },
+    /// Audit Mind store, Pi session sync, service, and pipeline health.
+    Doctor {
+        #[arg(long)]
+        project_root: PathBuf,
         #[arg(long)]
         json: bool,
     },
@@ -150,8 +184,24 @@ fn main() {
             project_root,
             session_file,
             agent_id,
+            all,
             json,
-        } => run_sync_pi(&project_root, session_file.as_deref(), &agent_id, json),
+        } => run_sync_pi(&project_root, session_file.as_deref(), &agent_id, all, json),
+        Command::ReflectorRun {
+            project_root,
+            session_id,
+            pane_id,
+            agent_id,
+            json,
+        } => run_reflector_run(&project_root, &session_id, &pane_id, &agent_id, json),
+        Command::T3Run {
+            project_root,
+            session_id,
+            pane_id,
+            agent_id,
+            json,
+        } => run_t3_run(&project_root, &session_id, &pane_id, &agent_id, json),
+        Command::Doctor { project_root, json } => run_doctor(&project_root, json),
         Command::WatchPi {
             project_root,
             session_file,
@@ -322,8 +372,13 @@ fn run_sync_pi(
     project_root: &PathBuf,
     session_file: Option<&std::path::Path>,
     agent_id: &str,
+    all: bool,
     as_json: bool,
 ) -> i32 {
+    if all {
+        return run_sync_pi_all(project_root, agent_id, as_json);
+    }
+
     let result = if let Some(session_file) = session_file {
         sync_session_file_into_project_store(project_root, agent_id, session_file).map(Some)
     } else {
@@ -407,6 +462,117 @@ fn run_sync_pi(
             1
         }
     }
+}
+
+fn discover_pi_session_files(project_root: &PathBuf) -> Vec<PathBuf> {
+    let Some(root) = default_pi_session_root(project_root) else {
+        return Vec::new();
+    };
+    let Ok(read_dir) = std::fs::read_dir(root) else {
+        return Vec::new();
+    };
+    let mut files = read_dir
+        .filter_map(Result::ok)
+        .map(|entry| entry.path())
+        .filter(|path| path.extension().and_then(|value| value.to_str()) == Some("jsonl"))
+        .collect::<Vec<_>>();
+    files.sort();
+    files
+}
+
+fn conversation_id_from_session_file(path: &std::path::Path) -> Option<String> {
+    let stem = path.file_stem()?.to_str()?;
+    let id = stem.rsplit_once('_').map(|(_, id)| id).unwrap_or(stem);
+    if id.len() == 36 && id.chars().all(|ch| ch.is_ascii_hexdigit() || ch == '-') {
+        Some(format!("pi:{id}"))
+    } else {
+        None
+    }
+}
+
+fn session_sync_audit(project_root: &PathBuf) -> serde_json::Value {
+    let files = discover_pi_session_files(project_root);
+    let checkpoints = open_project_store(project_root, "standalone", "service", None)
+        .ok()
+        .and_then(|opened| {
+            files.iter().try_fold(
+                (0_u64, 0_u64),
+                |(missing, partial), path| -> Result<(u64, u64), ()> {
+                    let Some(conversation_id) = conversation_id_from_session_file(path) else {
+                        return Ok((missing + 1, partial));
+                    };
+                    let size = path.metadata().map(|meta| meta.len()).unwrap_or(0);
+                    let checkpoint = opened
+                        .store
+                        .checkpoint(&conversation_id)
+                        .map_err(|_| ())?;
+                    match checkpoint {
+                        None => Ok((missing + 1, partial)),
+                        Some(checkpoint) if checkpoint.raw_cursor < size => Ok((missing, partial + 1)),
+                        Some(_) => Ok((missing, partial)),
+                    }
+                },
+            )
+            .ok()
+        });
+    let (missing, partial) = checkpoints.unwrap_or((files.len() as u64, 0));
+    json!({
+        "session_files": files.len(),
+        "missing": missing,
+        "partial": partial,
+    })
+}
+
+fn run_sync_pi_all(project_root: &PathBuf, agent_id: &str, as_json: bool) -> i32 {
+    let files = discover_pi_session_files(project_root);
+    let mut files_synced = 0_u64;
+    let mut files_failed = 0_u64;
+    let mut processed_raw_events = 0_u64;
+    let mut produced_t0_events = 0_u64;
+    let mut persisted_compaction_checkpoints = 0_u64;
+    let mut errors = Vec::new();
+
+    for path in &files {
+        match sync_session_file_into_project_store(project_root, agent_id, path) {
+            Ok(sync) => {
+                files_synced += 1;
+                processed_raw_events += sync.report.processed_raw_events as u64;
+                produced_t0_events += sync.report.produced_t0_events as u64;
+                persisted_compaction_checkpoints +=
+                    sync.report.persisted_compaction_checkpoints as u64;
+            }
+            Err(err) => {
+                files_failed += 1;
+                errors.push(json!({
+                    "session_file": path,
+                    "error": err.to_string(),
+                }));
+            }
+        }
+    }
+
+    let audit = session_sync_audit(project_root);
+    let ok = files_failed == 0;
+    if as_json {
+        print_json(json!({
+            "ok": ok,
+            "files_seen": files.len(),
+            "files_synced": files_synced,
+            "files_failed": files_failed,
+            "processed_raw_events": processed_raw_events,
+            "produced_t0_events": produced_t0_events,
+            "persisted_compaction_checkpoints": persisted_compaction_checkpoints,
+            "sync_audit": audit,
+            "errors": errors,
+        }));
+    } else {
+        println!("files_seen: {}", files.len());
+        println!("files_synced: {files_synced}");
+        println!("files_failed: {files_failed}");
+        println!("processed_raw_events: {processed_raw_events}");
+        println!("sync_audit: {audit}");
+    }
+    if ok { 0 } else { 1 }
 }
 
 fn print_json(value: serde_json::Value) {
@@ -538,6 +704,191 @@ fn run_observer_run(
         }
         0
     }
+}
+
+fn tick_report_json_reflector(report: &aoc_mind::ReflectorTickReport) -> serde_json::Value {
+    json!({
+        "file_lock_acquired": report.file_lock_acquired,
+        "lease_acquired": report.lease_acquired,
+        "lock_conflict": report.lock_conflict,
+        "jobs_claimed": report.jobs_claimed,
+        "jobs_completed": report.jobs_completed,
+        "jobs_failed": report.jobs_failed,
+    })
+}
+
+fn tick_report_json_t3(report: &aoc_mind::T3TickReport) -> serde_json::Value {
+    json!({
+        "file_lock_acquired": report.file_lock_acquired,
+        "lease_acquired": report.lease_acquired,
+        "lock_conflict": report.lock_conflict,
+        "jobs_claimed": report.jobs_claimed,
+        "jobs_completed": report.jobs_completed,
+        "jobs_failed": report.jobs_failed,
+        "jobs_requeued": report.jobs_requeued,
+        "jobs_dead_lettered": report.jobs_dead_lettered,
+    })
+}
+
+fn run_reflector_run(
+    project_root: &PathBuf,
+    session_id: &str,
+    pane_id: &str,
+    agent_id: &str,
+    as_json: bool,
+) -> i32 {
+    let mut runtime = match build_runtime(project_root, session_id, pane_id, agent_id) {
+        Ok(runtime) => runtime,
+        Err(err) => {
+            if as_json { print_json(json!({ "ok": false, "error": err })); } else { eprintln!("reflector run failed: {err}"); }
+            return 1;
+        }
+    };
+    match runtime.run_reflector_tick(chrono::Utc::now()) {
+        Ok(report) => {
+            if as_json { print_json(json!({ "ok": true, "report": tick_report_json_reflector(&report) })); }
+            else { println!("reflector jobs: claimed={} completed={} failed={}", report.jobs_claimed, report.jobs_completed, report.jobs_failed); }
+            0
+        }
+        Err(err) => {
+            if as_json { print_json(json!({ "ok": false, "error": err })); } else { eprintln!("reflector run failed: {err}"); }
+            1
+        }
+    }
+}
+
+fn run_t3_run(
+    project_root: &PathBuf,
+    session_id: &str,
+    pane_id: &str,
+    agent_id: &str,
+    as_json: bool,
+) -> i32 {
+    let mut runtime = match build_runtime(project_root, session_id, pane_id, agent_id) {
+        Ok(runtime) => runtime,
+        Err(err) => {
+            if as_json { print_json(json!({ "ok": false, "error": err })); } else { eprintln!("t3 run failed: {err}"); }
+            return 1;
+        }
+    };
+    match runtime.run_t3_tick(chrono::Utc::now(), |_store, _project_root, _active_tag, _now| Ok(())) {
+        Ok(report) => {
+            if as_json { print_json(json!({ "ok": true, "report": tick_report_json_t3(&report) })); }
+            else { println!("t3 jobs: claimed={} completed={} failed={}", report.jobs_claimed, report.jobs_completed, report.jobs_failed); }
+            0
+        }
+        Err(err) => {
+            if as_json { print_json(json!({ "ok": false, "error": err })); } else { eprintln!("t3 run failed: {err}"); }
+            1
+        }
+    }
+}
+
+fn table_counts_json(project_root: &PathBuf) -> serde_json::Value {
+    let tables = [
+        "raw_events",
+        "compact_events_t0",
+        "compaction_checkpoints",
+        "compaction_slices_t0",
+        "observations_t1",
+        "reflections_t2",
+        "project_canon_revisions",
+        "ingestion_checkpoints",
+        "reflector_jobs_t2",
+        "t3_backlog_jobs",
+        "detached_insight_jobs",
+        "handshake_snapshots",
+    ];
+    let Ok(opened) = open_project_store(project_root, "standalone", "service", None) else {
+        return json!({});
+    };
+    let mut map = serde_json::Map::new();
+    for table in tables {
+        map.insert(table.to_string(), json!(opened.store.table_count(table).unwrap_or(0)));
+    }
+    json!(map)
+}
+
+fn memory_scope_json(project_root: &PathBuf) -> serde_json::Value {
+    let path = std::process::Command::new("aoc-mem")
+        .arg("path")
+        .current_dir(project_root)
+        .output()
+        .ok()
+        .and_then(|out| String::from_utf8(out.stdout).ok())
+        .map(|text| text.trim().to_string())
+        .unwrap_or_default();
+    let head = std::process::Command::new("aoc-mem")
+        .arg("read")
+        .current_dir(project_root)
+        .output()
+        .ok()
+        .and_then(|out| String::from_utf8(out.stdout).ok())
+        .map(|text| text.lines().take(3).collect::<Vec<_>>().join("\n"))
+        .unwrap_or_default();
+    let expected_prefix = project_root.join(".aoc").display().to_string();
+    let path_ok = path.starts_with(&expected_prefix);
+    let header_mismatch = head.contains("Project: agent-ops-cockpit")
+        && project_root.file_name().and_then(|v| v.to_str()) != Some("agent-ops-cockpit");
+    json!({
+        "path": path,
+        "path_ok": path_ok,
+        "header_mismatch": header_mismatch,
+        "head": head,
+    })
+}
+
+fn run_doctor(project_root: &PathBuf, as_json: bool) -> i32 {
+    let paths = MindProjectPaths::for_project_root(project_root);
+    let counts = table_counts_json(project_root);
+    let sync_audit = session_sync_audit(project_root);
+    let memory = memory_scope_json(project_root);
+    let lease = read_mind_service_lease(project_root).ok().flatten();
+    let health = read_mind_service_health_snapshot(project_root).ok().flatten();
+    let service_status = summarize_mind_service_status(
+        lease.as_ref(),
+        health.as_ref(),
+        chrono::Utc::now().timestamp_millis(),
+    );
+    let counts_obj = counts.as_object();
+    let t1 = counts_obj.and_then(|m| m.get("observations_t1")).and_then(|v| v.as_i64()).unwrap_or(0);
+    let t2 = counts_obj.and_then(|m| m.get("reflections_t2")).and_then(|v| v.as_i64()).unwrap_or(0);
+    let t3 = counts_obj.and_then(|m| m.get("project_canon_revisions")).and_then(|v| v.as_i64()).unwrap_or(0);
+    let missing = sync_audit.get("missing").and_then(|v| v.as_u64()).unwrap_or(0);
+    let partial = sync_audit.get("partial").and_then(|v| v.as_u64()).unwrap_or(0);
+    let memory_bad = memory.get("path_ok").and_then(|v| v.as_bool()) == Some(false)
+        || memory.get("header_mismatch").and_then(|v| v.as_bool()) == Some(true);
+    let degraded = missing > 0 || partial > 0 || t1 == 0 || t2 == 0 || t3 == 0 || memory_bad;
+    let status = if degraded { "degraded" } else { "healthy" };
+    let payload = json!({
+        "ok": !degraded,
+        "status": status,
+        "project_root": project_root,
+        "store_path": paths.store_path,
+        "store_exists": paths.store_path.exists(),
+        "service_status": service_status,
+        "sync": sync_audit,
+        "counts": counts,
+        "memory": memory,
+        "checks": {
+            "ingestion": if missing == 0 && partial == 0 { "ok" } else { "degraded" },
+            "t1": if t1 > 0 { "ok" } else { "missing" },
+            "t2": if t2 > 0 { "ok" } else { "missing" },
+            "t3": if t3 > 0 { "ok" } else { "missing" },
+            "memory": if memory_bad { "degraded" } else { "ok" },
+            "service": service_status.state,
+        }
+    });
+    if as_json {
+        print_json(payload);
+    } else {
+        println!("Mind: {status}");
+        println!("store: {}", paths.store_path.display());
+        println!("sync: {sync_audit}");
+        println!("counts: {counts}");
+        println!("memory: {memory}");
+    }
+    if degraded { 1 } else { 0 }
 }
 
 fn run_provenance_query(
@@ -701,7 +1052,7 @@ fn run_watch_pi(
     as_json: bool,
 ) -> i32 {
     loop {
-        let code = run_sync_pi(project_root, session_file, agent_id, as_json);
+        let code = run_sync_pi(project_root, session_file, agent_id, false, as_json);
         if code != 0 {
             return code;
         }

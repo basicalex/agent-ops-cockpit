@@ -116,7 +116,7 @@ use thiserror::Error;
 
 const DEFAULT_T1_OUTPUT_MAX_CHARS: usize = 1_200;
 const DEFAULT_T2_OUTPUT_MAX_CHARS: usize = 1_400;
-const DEFAULT_T2_TRIGGER_TOKENS: u32 = 2_400;
+const DEFAULT_T2_TRIGGER_TOKENS: u32 = 300;
 const DEFAULT_PI_OBSERVER_PROVIDER: &str = "pi";
 const DEFAULT_PI_OBSERVER_MODEL: &str = "gpt-5.4-mini";
 const DEFAULT_PI_OBSERVER_PROMPT_VERSION: &str = "pi.observer.v1";

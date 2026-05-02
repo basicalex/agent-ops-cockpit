@@ -3079,6 +3079,32 @@ impl MindStore {
             .map_err(StorageError::from)
     }
 
+    pub fn table_count(&self, table: &str) -> Result<i64, StorageError> {
+        const ALLOWED: &[&str] = &[
+            "raw_events",
+            "compact_events_t0",
+            "compaction_checkpoints",
+            "compaction_slices_t0",
+            "observations_t1",
+            "reflections_t2",
+            "project_canon_revisions",
+            "ingestion_checkpoints",
+            "reflector_jobs_t2",
+            "t3_backlog_jobs",
+            "detached_insight_jobs",
+            "handshake_snapshots",
+        ];
+        if !ALLOWED.contains(&table) {
+            return Err(StorageError::Serialization(format!(
+                "unsupported table count target: {table}"
+            )));
+        }
+        let count = self
+            .conn
+            .query_row(&format!("SELECT COUNT(*) FROM {table}"), [], |row| row.get(0))?;
+        Ok(count)
+    }
+
     pub fn raw_event_count(&self, conversation_id: &str) -> Result<i64, StorageError> {
         let count = self.conn.query_row(
             "SELECT COUNT(*) FROM raw_events WHERE conversation_id = ?1",

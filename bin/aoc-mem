@@ -1,9 +1,12 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Get the correct project root from aoc-align (respects focused tab)
+# Prefer the current repo when it is AOC-initialized. Fall back to aoc-align
+# only when running from a non-project helper pane.
 project_root=""
-if command -v aoc-align >/dev/null 2>&1; then
+if [[ -d "$PWD/.aoc" || -d "$PWD/.git" ]]; then
+  project_root="$PWD"
+elif command -v aoc-align >/dev/null 2>&1; then
   project_root="$(aoc-align --print-root 2>/dev/null || true)"
 fi
 if [[ -z "$project_root" ]]; then
