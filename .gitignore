@@ -156,3 +156,7 @@ __pycache__/
 
 # AOC managed asset safety backups
 **/.aoc-backups/
+
+# Project-local downloaded tool binaries (reinstall with bin/aoc-obscura-install)
+.aoc/tools/obscura/obscura
+

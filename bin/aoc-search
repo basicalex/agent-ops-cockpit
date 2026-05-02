@@ -123,7 +123,7 @@ def normalized_config(raw: dict | None, root: Path) -> dict:
             "autoStart": False,
             "allowAutoStart": False,
             "baseUrl": "http://127.0.0.1:8888",
-            "healthcheckUrl": "http://127.0.0.1:8888/search?q=aoc+health&format=json",
+            "healthcheckUrl": "http://127.0.0.1:8888/search?q=python+documentation&format=json",
             "composeFile": str(root / ".aoc/services/searxng/docker-compose.yml"),
             "serviceName": "searxng",
             "defaults": {"format": "json", "language": "en", "categories": "general", "safe_search": 0},
@@ -143,7 +143,7 @@ def normalized_config(raw: dict | None, root: Path) -> dict:
         "healthcheckUrl": str_at(
             raw,
             ("search", "runtime", "healthcheck_url"),
-            "http://127.0.0.1:8888/search?q=aoc+health&format=json",
+            "http://127.0.0.1:8888/search?q=python+documentation&format=json",
         ),
         "composeFile": str(compose_path),
         "serviceName": str_at(raw, ("search", "runtime", "service_name"), "searxng"),
@@ -166,12 +166,34 @@ def request_json(url: str, timeout: int = 10):
         raise ValueError(INVALID_JSON_MESSAGE) from exc
 
 
+def extract_provider_warnings(payload: dict, result_count: int = 0) -> list[str]:
+    warnings: list[str] = []
+    if result_count == 0:
+        warnings.append("no_results")
+    unresponsive = payload.get("unresponsive_engines")
+    if isinstance(unresponsive, list) and unresponsive:
+        names = []
+        for item in unresponsive:
+            if isinstance(item, (list, tuple)) and item:
+                names.append(str(item[0]))
+            elif isinstance(item, dict):
+                names.append(str(item.get("name") or item.get("engine") or "unknown"))
+            else:
+                names.append(str(item))
+        warnings.append("unresponsive_engines:" + ",".join(sorted(set(names))[:8]))
+    return warnings
+
+
 def health_ok(cfg: dict) -> bool:
     try:
         payload = request_json(cfg["healthcheckUrl"], timeout=8)
     except Exception:
         return False
-    return isinstance(payload, dict)
+    if not isinstance(payload, dict):
+        return False
+    rows = payload.get("results")
+    # Health must prove the provider can return usable results, not merely JSON.
+    return isinstance(rows, list) and any(isinstance(row, dict) and row.get("url") for row in rows)
 
 
 def container_running(cfg: dict) -> bool:
@@ -327,9 +349,19 @@ def stop_managed_search(cfg: dict) -> dict:
     }
 
 
+def mode_query(query: str, mode: str) -> str:
+    if mode == "docs":
+        return f"{query} official documentation docs"
+    if mode == "error":
+        return f"{query} Stack Overflow GitHub issue"
+    if mode == "package":
+        return f"{query} npm pypi crates package registry GitHub"
+    return query
+
+
 def query_url(cfg: dict, query: str, mode: str, limit: int) -> str:
     params = {
-        "q": query,
+        "q": mode_query(query, mode),
         "format": "json",
         "language": cfg["defaults"].get("language", "en"),
         "categories": cfg["defaults"].get("categories", "general"),
@@ -337,12 +369,6 @@ def query_url(cfg: dict, query: str, mode: str, limit: int) -> str:
     }
     if limit > 0:
         params["count"] = str(limit)
-    if mode == "docs":
-        params["q"] = query
-    elif mode == "error":
-        params["q"] = query
-    elif mode == "package":
-        params["q"] = query
     base = cfg["baseUrl"].rstrip("/") + "/search"
     return base + "?" + urllib.parse.urlencode(params)
 
@@ -481,7 +507,100 @@ def cmd_health(args):
     return 0 if status["healthy"] else EXIT_RUNTIME
 
 
+def package_search(query: str, limit: int) -> dict:
+    results = []
+    warnings = []
+    terms = query.split()
+    package = terms[0] if terms else query
+    providers = [
+        ("npm", f"https://registry.npmjs.org/{urllib.parse.quote(package)}"),
+        ("pypi", f"https://pypi.org/pypi/{urllib.parse.quote(package)}/json"),
+        ("crates", f"https://crates.io/api/v1/crates/{urllib.parse.quote(package)}"),
+    ]
+    for source, url in providers:
+        if limit > 0 and len(results) >= limit:
+            break
+        try:
+            req = urllib.request.Request(url, headers={"User-Agent": "aoc-search/0.1"})
+            with urllib.request.urlopen(req, timeout=10) as response:
+                payload = json.loads(response.read().decode("utf-8", errors="replace"))
+        except Exception:
+            continue
+        if source == "npm":
+            title = payload.get("name") or package
+            snippet = payload.get("description") or ""
+            link = (payload.get("homepage") or payload.get("repository", {}).get("url") or f"https://www.npmjs.com/package/{package}")
+            if isinstance(link, str) and link.startswith("git+"):
+                link = link[4:]
+            results.append({"title": f"npm: {title}", "url": str(link), "snippet": snippet, "source": source, "rank": len(results) + 1})
+        elif source == "pypi":
+            info = payload.get("info", {})
+            title = info.get("name") or package
+            link = info.get("project_url") or info.get("home_page") or f"https://pypi.org/project/{package}/"
+            results.append({"title": f"PyPI: {title}", "url": str(link), "snippet": info.get("summary") or "", "source": source, "rank": len(results) + 1})
+        elif source == "crates":
+            crate = payload.get("crate", {})
+            title = crate.get("name") or package
+            link = crate.get("repository") or crate.get("homepage") or f"https://crates.io/crates/{package}"
+            results.append({"title": f"crates.io: {title}", "url": str(link), "snippet": crate.get("description") or "", "source": source, "rank": len(results) + 1})
+    if not results:
+        warnings.append("no_registry_results")
+    return {"query": query, "provider": "package-registries", "status": "ok", "mode": "package", "results": results, "warnings": warnings}
+
+
+def github_search(query: str, limit: int) -> dict:
+    headers = {"User-Agent": "aoc-search/0.1", "Accept": "application/vnd.github+json"}
+    results = []
+    repo_match = None
+    for token in query.replace("https://github.com/", " ").split():
+        if token.count("/") == 1:
+            owner, repo = token.strip("/").split("/", 1)
+            if owner and repo:
+                repo_match = f"{owner}/{repo}"
+                break
+    if repo_match:
+        url = "https://api.github.com/repos/" + repo_match
+        req = urllib.request.Request(url, headers=headers)
+        with urllib.request.urlopen(req, timeout=15) as response:
+            row = json.loads(response.read().decode("utf-8", errors="replace"))
+        results.append({"title": row.get("full_name") or repo_match, "url": row.get("html_url"), "snippet": row.get("description") or "", "source": "github", "rank": 1})
+    else:
+        variants = [query, " ".join(f"{part} in:name,description" for part in query.split()[:2])]
+        for q in variants:
+            params = urllib.parse.urlencode({"q": q, "per_page": str(max(1, min(limit or 5, 20)))})
+            url = "https://api.github.com/search/repositories?" + params
+            req = urllib.request.Request(url, headers=headers)
+            with urllib.request.urlopen(req, timeout=15) as response:
+                payload = json.loads(response.read().decode("utf-8", errors="replace"))
+            for row in payload.get("items", []):
+                if not row.get("html_url"):
+                    continue
+                results.append({"title": row.get("full_name") or row.get("html_url"), "url": row.get("html_url"), "snippet": row.get("description") or "", "source": "github", "rank": len(results) + 1})
+                if limit > 0 and len(results) >= limit:
+                    break
+            if results:
+                break
+    warnings = [] if results else ["no_results"]
+    return {"query": query, "provider": "github", "status": "ok", "mode": "github", "results": results, "warnings": warnings}
+
+
 def cmd_query(args):
+    if args.mode == "package" and args.direct:
+        response = package_search(args.query, args.limit)
+        if args.json:
+            print(json.dumps(response, indent=2))
+        else:
+            for item in response["results"]:
+                print(f"{item['rank']}. {item['title']}\n   {item['url']}\n   {item['snippet']}\n")
+        return 0
+    if args.mode == "github":
+        response = github_search(args.query, args.limit)
+        if args.json:
+            print(json.dumps(response, indent=2))
+        else:
+            for item in response["results"]:
+                print(f"{item['rank']}. {item['title']}\n   {item['url']}\n   {item['snippet']}\n")
+        return 0
     root = locate_project_root()
     cfg, _ = ensure_queryable(root, args.no_auto_start)
     url = query_url(cfg, args.query, args.mode, args.limit)
@@ -498,7 +617,7 @@ def cmd_query(args):
         "status": "ok",
         "mode": args.mode,
         "results": results,
-        "warnings": [],
+        "warnings": extract_provider_warnings(payload, len(results)),
     }
     if args.json:
         print(json.dumps(response, indent=2))
@@ -535,9 +654,10 @@ def build_parser():
 
     p = sub.add_parser("query")
     p.add_argument("--json", action="store_true")
-    p.add_argument("--mode", choices=["general", "docs", "error", "package"], default="general")
+    p.add_argument("--mode", choices=["general", "docs", "error", "package", "github"], default="general")
     p.add_argument("--limit", type=int, default=5)
     p.add_argument("--no-auto-start", action="store_true")
+    p.add_argument("--direct", action="store_true", help="use direct provider APIs where supported, e.g. package registries")
     p.add_argument("query")
     p.set_defaults(func=cmd_query)
 

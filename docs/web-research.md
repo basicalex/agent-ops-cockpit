@@ -1,6 +1,6 @@
 # Web research
 
-AOC web research combines a search-first workflow with optional browser automation.
+AOC web research combines search-first discovery, cheap static fetching, optional lightweight rendering, and optional browser automation.
 
 Use it when an agent needs current external sources, documentation, error investigation, website inspection, screenshots, scraping, or web-app testing.
 
@@ -9,8 +9,9 @@ Use it when an agent needs current external sources, documentation, error invest
 ```text
 question or investigation
   -> search first through managed local search
-  -> read/compare sources
-  -> open browser only when interaction or page inspection is needed
+  -> fetch/extract candidate pages cheaply with aoc-fetch
+  -> render with aoc-render/Obscura when static fetch misses JS content
+  -> open browser only when interaction, screenshots, auth, or full Chromium behavior is needed
   -> cite findings in the task/commit/handoff
 ```
 
@@ -22,7 +23,9 @@ Search first prevents blind browsing and keeps context smaller.
 |---|---|
 | `aoc-search` | AOC CLI for managed local search |
 | SearXNG | Local metasearch service, usually bound to `127.0.0.1:8888` |
-| `web-research` skill | Agent workflow for search, source comparison, citation, and synthesis |
+| `aoc-fetch` | Lightweight static HTTP fetch + text/markdown/JSON extraction before render/browser escalation |
+| `aoc-render` | Optional Obscura-backed one-shot rendered extraction for JS pages without a persistent browser server |
+| `web-research` skill | Agent workflow for search, fetch, render, source comparison, citation, and synthesis |
 | `agent-browser` skill | Browser automation for navigation, forms, screenshots, scraping, and web-app testing |
 | Alt+C | Setup, start/verify, skill sync, and web smoke checks |
 
@@ -50,6 +53,13 @@ aoc-search status
 aoc-search start --wait
 aoc-search health
 aoc-search query --limit 3 "rust clap subcommands"
+aoc-search query --mode github --limit 3 "h4ckf0r0day/obscura"
+aoc-search query --mode package --direct --limit 3 "requests"
+aoc-fetch https://example.com --format markdown
+aoc-render status
+# optional managed install if Obscura is missing:
+aoc-obscura-install --json
+aoc-render https://example.com --format text
 bin/aoc-web-smoke
 ```
 
@@ -57,7 +67,11 @@ bin/aoc-web-smoke
 
 Use `web-research` when the task needs external facts or source comparison.
 
-Use `agent-browser` when the task requires:
+Use `aoc-fetch <url> --format markdown` after search for cheap static extraction.
+
+Use `aoc-render <url> --format text` when static fetch is insufficient and Obscura is available. `aoc-render` is one-shot by default and does not require a persistent server. If explicitly needed, `--fallback agent-browser` can escalate to the full browser layer.
+
+Use `agent-browser` only when the task requires:
 
 - opening a site
 - clicking/filling forms

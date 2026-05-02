@@ -1,0 +1,167 @@
+#!/usr/bin/env python3
+import argparse
+import json
+import os
+import shutil
+import subprocess
+import sys
+import time
+
+OBSCURA_REPO = "https://github.com/h4ckf0r0day/obscura"
+OBSCURA_RELEASES = OBSCURA_REPO + "/releases/latest"
+
+
+def find_obscura() -> str | None:
+    configured = os.environ.get("AOC_OBSCURA_BIN")
+    if configured:
+        return configured if os.path.exists(configured) else shutil.which(configured)
+    path = shutil.which("obscura")
+    if path:
+        return path
+    cursor = os.getcwd()
+    while True:
+        candidate = os.path.join(cursor, ".aoc", "tools", "obscura", "obscura")
+        if os.path.exists(candidate) and os.access(candidate, os.X_OK):
+            return candidate
+        parent = os.path.dirname(cursor)
+        if parent == cursor:
+            return None
+        cursor = parent
+
+
+def install_message() -> str:
+    return (
+        "Obscura is not installed. Install the latest binary from "
+        f"{OBSCURA_RELEASES} or set AOC_OBSCURA_BIN=/path/to/obscura."
+    )
+
+
+def status_payload() -> dict:
+    path = find_obscura()
+    payload = {
+        "backend": "obscura",
+        "available": bool(path),
+        "path": path,
+        "mode": "one-shot",
+        "serverRequired": False,
+    }
+    if path:
+        try:
+            result = subprocess.run([path, "--help"], capture_output=True, text=True, timeout=5, check=False)
+            first = (result.stdout or result.stderr).strip().splitlines()[0]
+            payload["version"] = first
+        except Exception as exc:
+            payload["versionError"] = str(exc)
+    else:
+        payload["message"] = install_message()
+    return payload
+
+
+def run_obscura(args: list[str], timeout: int) -> tuple[int, str, str, float]:
+    path = find_obscura()
+    if not path:
+        raise RuntimeError(install_message())
+    start = time.time()
+    result = subprocess.run([path] + args, capture_output=True, text=True, timeout=timeout, check=False)
+    return result.returncode, result.stdout, result.stderr, (time.time() - start) * 1000
+
+
+def render_with_agent_browser(url: str, fmt: str, timeout: int) -> dict:
+    if not shutil.which("agent-browser"):
+        raise RuntimeError("agent-browser fallback requested but agent-browser is not available")
+    start = time.time()
+    command = f"agent-browser open {shlex_quote(url)} && agent-browser wait --load networkidle && agent-browser get text body"
+    result = subprocess.run(command, shell=True, capture_output=True, text=True, timeout=timeout, check=False)
+    if result.returncode != 0:
+        raise RuntimeError((result.stderr or result.stdout or f"agent-browser exited with {result.returncode}").strip())
+    text = result.stdout.strip()
+    return {"url": url, "backend": "agent-browser", "format": fmt, "latencyMs": round((time.time() - start) * 1000, 2), "content": text, "contentLength": len(text), "warnings": ["fallback:agent-browser"]}
+
+
+def shlex_quote(value: str) -> str:
+    return "'" + value.replace("'", "'\\''") + "'"
+
+
+def render(url: str, fmt: str, timeout: int, wait_until: str | None, eval_expr: str | None) -> dict:
+    cmd = ["fetch", url]
+    if wait_until:
+        cmd += ["--wait-until", wait_until]
+    if eval_expr:
+        cmd += ["--eval", eval_expr]
+    elif fmt == "html":
+        cmd += ["--dump", "html"]
+    elif fmt in {"text", "json"}:
+        cmd += ["--dump", "text"]
+
+    code, out, err, ms = run_obscura(cmd, timeout)
+    if code != 0:
+        raise RuntimeError((err or out or f"obscura exited with {code}").strip())
+    text = out.strip()
+    return {
+        "url": url,
+        "backend": "obscura",
+        "format": fmt,
+        "latencyMs": round(ms, 2),
+        "content": text,
+        "contentLength": len(text),
+        "warnings": [],
+    }
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(prog="aoc-render", description="Lightweight rendered-page extraction via Obscura before escalating to full agent-browser.")
+    sub = parser.add_subparsers(dest="command")
+
+    p = sub.add_parser("status")
+    p.add_argument("--json", action="store_true")
+
+    p = sub.add_parser("render")
+    p.add_argument("url")
+    p.add_argument("--format", choices=["text", "html", "json"], default="text")
+    p.add_argument("--eval", dest="eval_expr")
+    p.add_argument("--wait-until", choices=["load", "domcontentloaded", "networkidle0", "networkidle2"], default=None)
+    p.add_argument("--timeout", type=int, default=20)
+    p.add_argument("--max-chars", type=int, default=12000)
+    p.add_argument("--fallback", choices=["none", "agent-browser"], default="none")
+
+    # Convenience: `aoc-render URL` means `aoc-render render URL`.
+    if len(sys.argv) > 1 and sys.argv[1] not in {"status", "render", "-h", "--help"}:
+        sys.argv.insert(1, "render")
+
+    args = parser.parse_args()
+    if args.command == "status" or args.command is None:
+        payload = status_payload()
+        if getattr(args, "json", False):
+            print(json.dumps(payload, indent=2))
+        else:
+            if payload["available"]:
+                print(f"obscura available: {payload['path']} ({payload.get('version', 'version unknown')})")
+            else:
+                print(payload["message"])
+        return 0 if payload["available"] else 3
+
+    try:
+        payload = render(args.url, args.format, args.timeout, args.wait_until, args.eval_expr)
+    except Exception as exc:
+        if args.fallback == "agent-browser" and not args.eval_expr and args.format in {"text", "json"}:
+            try:
+                payload = render_with_agent_browser(args.url, args.format, args.timeout)
+            except Exception as fallback_exc:
+                print(f"{exc}; fallback failed: {fallback_exc}", file=sys.stderr)
+                return 3
+        else:
+            print(str(exc), file=sys.stderr)
+            return 3
+
+    if args.max_chars > 0 and len(payload["content"]) > args.max_chars:
+        payload["content"] = payload["content"][: args.max_chars].rstrip()
+        payload["warnings"].append("truncated")
+    if args.format == "json":
+        print(json.dumps(payload, indent=2))
+    else:
+        print(payload["content"])
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
