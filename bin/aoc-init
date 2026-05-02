@@ -382,7 +382,7 @@ PY
 managed_pi_skill_name() {
   local skill_name="$1"
   case "$skill_name" in
-    aoc-commit|aoc-hyperframes|aoc-init-ops|aoc-map|custom-layout-ops|design-diff|design-director|design-handoff|design-premium-ui|design-redesign|design-review|design-spec|design-tokens|motion-director|spec-rpg-authoring|prd-rpg-authoring|rlm-analysis|teach-workflow|tm-cc|vercel-cli|web-research|zellij-theme-ops)
+    aoc-hyperframes|aoc-init-ops|aoc-map|custom-layout-ops|design-diff|design-director|design-handoff|design-premium-ui|design-redesign|design-review|design-spec|design-tokens|motion-director|spec-rpg-authoring|prd-rpg-authoring|rlm-analysis|teach-workflow|tm-cc|vercel-cli|web-research|zellij-theme-ops)
       return 0
       ;;
     *)
@@ -1769,7 +1769,7 @@ description: Initialize or repair AOC context, memory, and tasks safely.
 - Seeds `.aoc/stm/current.md` and `.aoc/stm/archive/` without overwriting existing STM files
 - Ensures spec directory `.taskmaster/docs/specs/` is available for tag/task links
 - Seeds `.pi/settings.json` when missing
-- Seeds PI prompt templates in `.pi/prompts/` (`/aoc-ops`, `/teach`, `/teach-full`, `/teach-dive`, `/teach-ask`, `/tm-cc`) when missing
+- Seeds PI prompt templates in `.pi/prompts/` (`/aoc-ops`, `/teach`, `/teach-full`, `/teach-dive`, `/teach-ask`, `/tm-cc`, `/implement`, `/commit`) when missing
 - Seeds PI default extensions in `.pi/extensions/` (`minimal.ts`, `themeMap.ts`, `mind-ingest.ts`, `mind-ops.ts`, `mind-context.ts`, `mind-focus.ts`, `aoc-models.ts`, plus `lib/mind.ts` and `lib/caveman.ts`) when missing
 - Seeds the preset runtime family in `.pi/extensions/aoc-presets/` when missing
 - Seeds reusable design preset assets in `.aoc/presets/design/` and `.aoc/layouts/design.kdl` when missing
@@ -2786,6 +2786,20 @@ PY
 }
 
 # 1d. Migrate legacy PI runtime assets from project-local .aoc paths
+cleanup_deprecated_pi_skills() {
+  local pi_skills_dir="$project_root/.pi/skills"
+  local deprecated_skill_dir="$pi_skills_dir/aoc-commit"
+
+  if [[ -d "$deprecated_skill_dir" ]]; then
+    if [[ -f "$deprecated_skill_dir/.aoc-managed" ]]; then
+      rm -rf "$deprecated_skill_dir"
+      log "Removed deprecated managed PI skill: .pi/skills/aoc-commit (use /commit prompt)."
+    else
+      warn "Deprecated PI skill .pi/skills/aoc-commit is unmanaged; preserving for manual review. Use /commit instead."
+    fi
+  fi
+}
+
 migrate_legacy_pi_assets() {
   local pi_prompts_dir="$project_root/.pi/prompts"
   local pi_skills_dir="$project_root/.pi/skills"
@@ -2874,6 +2888,8 @@ setup_pi_prompts() {
     "teach-dive"
     "teach-ask"
     "tm-cc"
+    "implement"
+    "commit"
   )
 
   if [[ ! -d "$pi_prompts_dir" ]]; then
@@ -3276,6 +3292,7 @@ main() {
   setup_pi_packages
   setup_pi_settings
   cleanup_global_pi_multi_auth
+  cleanup_deprecated_pi_skills
   setup_pi_extensions
   setup_pi_extension_families
   migrate_legacy_pi_assets

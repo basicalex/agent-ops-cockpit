@@ -27,19 +27,19 @@ This helps future operators and agents answer:
 
 Implemented immediately:
 
-- `.pi/skills/aoc-commit/SKILL.md`
+- `.pi/prompts/commit.md` (`/commit`)
 - Commit message and trailer contract
 - Approval-gated agent workflow
 - Human-readable docs and examples
 
 Planned later under Taskmaster task `193`:
 
-- `aoc-commit plan/message/create/ingest` CLI support
+- Optional commit provenance ingestion support
 - Mind commit source artifacts
 - Provenance graph commit nodes/edges
 - `aoc insight provenance` and context-pack commit citations
 
-## Commit workflow
+## `/commit` workflow
 
 ### 1. Inspect read-only state
 
@@ -124,7 +124,7 @@ Recommended types:
 Examples:
 
 ```text
-feat(commit): add AOC commit workflow skill
+feat(commit): add AOC commit prompt workflow
 docs(commit): define AOC trailer contract
 fix(mind): preserve focused context retrieval policy
 test(mission-control): cover provenance drilldown toggle
@@ -167,16 +167,16 @@ Minimal useful trailers:
 
 ```text
 AOC-Task: 193
-Tests: not run; docs/skill only
+Tests: not run; docs/prompt only
 Risk: low; documentation-only workflow layer
 ```
 
-## Example: skill/docs commit
+## Example: prompt/docs commit
 
 ```text
 feat(commit): add AOC commit intelligence workflow
 
-Add the first-layer commit intelligence workflow so agents can prepare atomic,
+Add the first-layer `/commit` prompt workflow so agents can prepare atomic,
 approval-gated commits with structured AOC trailers. This establishes the
 message contract that future Mind ingestion can parse without requiring an
 immediate Mind schema refactor.
@@ -185,7 +185,7 @@ AOC-Task: 193
 AOC-Subtask: 193.1
 AOC-PRD: .taskmaster/docs/prds/aoc_commit_history_intelligence_prd_rpg.md
 AOC-Intent: establish commit history as durable AOC engineering intelligence
-Tests: not run; documentation and skill only
+Tests: not run; documentation and prompt only
 Risk: low; no runtime behavior changed
 ```
 

@@ -1,6 +1,0 @@
-aoc-managed: true
-asset: skill/aoc-commit
-asset-version: 3
-source: ../.config/aoc/pi/skills/aoc-commit
-sha256: f2cde6bef8528a58314622c22d7b0d0fdbca52f3b7983253e1ad392ef9026f6b
-updated-at: 2026-04-28T17:32:29Z
