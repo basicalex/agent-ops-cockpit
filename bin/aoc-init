@@ -1903,6 +1903,33 @@ PY
   esac
 }
 
+setup_project_mind_runtime() {
+  if ! command -v aoc-mind-service >/dev/null 2>&1; then
+    warn "Mind runtime not available; skipping project Mind store setup. Run ./install.sh first."
+    return 0
+  fi
+
+  local status_file
+  status_file="$(mktemp)"
+  if aoc-mind-service status --project-root "$project_root" --json >"$status_file" 2>/dev/null; then
+    log "Initialized project Mind store/status for this repo."
+  else
+    warn "Mind status check failed during init; continuing. Run: aoc-mind-service doctor --project-root \"$project_root\" --json"
+  fi
+  rm -f "$status_file"
+
+  if [[ "${AOC_INIT_MIND_BACKFILL:-0}" == "1" ]]; then
+    log "AOC_INIT_MIND_BACKFILL=1; backfilling Pi sessions into project Mind store..."
+    if aoc-mind-service sync-pi --project-root "$project_root" --all --json >/dev/null 2>&1; then
+      log "Mind Pi session backfill complete."
+    else
+      warn "Mind Pi session backfill reported errors. Run: aoc-mind-service doctor --project-root \"$project_root\" --json"
+    fi
+  else
+    log "Mind Pi session backfill skipped by default. Set AOC_INIT_MIND_BACKFILL=1 to backfill during init."
+  fi
+}
+
 # 1c. Setup PI settings + baseline directories (.pi/)
 setup_pi_settings() {
   local pi_dir="$project_root/.pi"
@@ -3245,6 +3272,7 @@ main() {
   prepare_project_aoc_state
   apply_project_version_migrations
   setup_project_mind_service_config
+  setup_project_mind_runtime
   setup_pi_packages
   setup_pi_settings
   cleanup_global_pi_multi_auth
