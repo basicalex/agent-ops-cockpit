@@ -2976,6 +2976,9 @@ setup_pi_skills() {
     [[ -d "$seed_skill_dir" ]] || continue
     [[ -f "$seed_skill_dir/SKILL.md" ]] || continue
     skill_name="$(basename "$seed_skill_dir")"
+    if [[ "$skill_name" == "aoc-commit" ]]; then
+      continue
+    fi
     target_skill_dir="$pi_skills_dir/$skill_name"
     if [[ ! -e "$target_skill_dir" ]]; then
       copy_tree_force_managed "$seed_skill_dir" "$target_skill_dir" "skill/$skill_name"
