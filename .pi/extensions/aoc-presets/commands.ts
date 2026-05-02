@@ -13,6 +13,7 @@ export interface CommandBindings {
 
 const DESIGN_MODES = ["critique", "spec", "diff", "handoff", "tokens", "brand", "motion"] as const;
 const MOTION_SUBMODES = ["plan", "timeline", "scroll", "svg", "text", "react", "audit"] as const;
+const HYPERFRAMES_MODES = ["compose", "site", "cli", "review"] as const;
 
 function notify(ctx: ExtensionContext, message: string, level: "info" | "success" | "warning" = "info") {
   ctx.ui?.notify?.(message, level);
@@ -25,14 +26,17 @@ function commitState(pi: ExtensionAPI, ctx: ExtensionContext, bindings: CommandB
   if (notice) notify(ctx, notice, next.preset ? "success" : "info");
 }
 
+function stateLabel(state: PresetRuntimeState): string {
+  return state.preset
+    ? `${state.preset}/${state.mode || "default"}${state.submode ? `/${state.submode}` : ""}`
+    : "preset off";
+}
+
 async function syncSkillFiltersAndNotifyReload(_pi: ExtensionAPI, ctx: ExtensionContext, next: PresetRuntimeState): Promise<void> {
   const result = applyPresetSkillFilters(process.cwd(), next);
   if (!result.changed) return;
-  const label = next.preset
-    ? `${next.preset}/${next.mode || "default"}${next.submode ? `/${next.submode}` : ""}`
-    : "preset off";
   const loaded = result.visibleManagedSkills.length ? result.visibleManagedSkills.join(", ") : "base AOC only";
-  notify(ctx, `Preset skill inventory updated for ${label}: ${loaded}. Run /reload to refresh visible skills.`, "info");
+  notify(ctx, `Preset ${stateLabel(next)} active now; prompt routing is live. Skill inventory queued: ${loaded}. Run /reload only to refresh visible skill list.`, "info");
 }
 
 async function activatePreset(pi: ExtensionAPI, ctx: ExtensionContext, bindings: CommandBindings, presetId: string, mode?: string, submode?: string, source = "command") {
@@ -113,10 +117,20 @@ function validMotionSubmode(mode: string): mode is (typeof MOTION_SUBMODES)[numb
   return (MOTION_SUBMODES as readonly string[]).includes(mode);
 }
 
+function validHyperFramesMode(mode: string): mode is (typeof HYPERFRAMES_MODES)[number] {
+  return (HYPERFRAMES_MODES as readonly string[]).includes(mode);
+}
+
 function showSkills(ctx: ExtensionContext, state: PresetRuntimeState) {
+  const result = applyPresetSkillFilters(process.cwd(), state);
   notify(ctx, [
+    `preset: ${stateLabel(state)}`,
+    "prompt routing: live now on next agent turn",
+    `visible skill inventory: ${result.changed ? "updated; /reload refreshes Pi skill list" : "current"}`,
+    `settings: ${result.path}`,
     `active skills: ${state.activeSkills?.join(", ") || "none"}`,
     `recommended skills: ${state.recommendedSkills?.join(", ") || "none"}`,
+    `managed visible skills: ${result.visibleManagedSkills.join(", ") || "base AOC only"}`,
   ].join("\n"), "info");
 }
 
@@ -524,6 +538,25 @@ export function registerPresetCommands(pi: ExtensionAPI, bindings: CommandBindin
     description: "Leave motion mode and return to design critique mode",
     handler: async (_args, ctx) => {
       await activatePreset(pi, ctx, bindings, "design", "critique", undefined, "command");
+    },
+  });
+
+  pi.registerCommand("hyperframes-director", {
+    description: "Activate or switch the HyperFrames preset mode",
+    handler: async (args, ctx) => {
+      const requested = String(args || "").trim().toLowerCase() || "compose";
+      if (!validHyperFramesMode(requested)) {
+        notify(ctx, `Unknown HyperFrames mode '${requested}'. Valid: ${HYPERFRAMES_MODES.join(", ")}`, "warning");
+        return;
+      }
+      await activatePreset(pi, ctx, bindings, "hyperframes", requested, undefined, "command");
+    },
+  });
+
+  pi.registerCommand("hyperframes-off", {
+    description: "Disable the active HyperFrames preset",
+    handler: async (_args, ctx) => {
+      await disablePreset(pi, ctx, bindings);
     },
   });
 }

@@ -109,7 +109,7 @@ export default function (pi: ExtensionAPI) {
         ? `${activeState.preset}/${activeState.mode || "default"}${activeState.submode ? `/${activeState.submode}` : ""}`
         : "preset off";
       const loaded = filterSync.visibleManagedSkills.length ? filterSync.visibleManagedSkills.join(", ") : "base AOC only";
-      ctx.ui?.notify?.(`Preset skill filters drifted for ${label}: ${loaded}. Run /reload to refresh visible skills.`, "info");
+      ctx.ui?.notify?.(`Preset ${label} prompt routing is live. Skill inventory drift fixed: ${loaded}. Run /reload only to refresh visible skill list.`, "info");
       return;
     }
   });
