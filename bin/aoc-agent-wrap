@@ -473,7 +473,12 @@ print_task_briefing() {
   local tm_json=""
   local py_script=""
   python_bin="$(find_python_bin)" || return 1
-  tm_json="$(tm list --all-tags --json 2>/dev/null)"
+  local task_scope="${AOC_HANDSHAKE_TASK_SCOPE:-active}"
+  if [[ "$task_scope" == "all" ]]; then
+    tm_json="$(tm list --all-tags --json 2>/dev/null)"
+  else
+    tm_json="$(tm list --json 2>/dev/null | FOCUS_TAG="$focus_tag" "$python_bin" -c 'import json, os, sys; raw=sys.stdin.read(); data=json.loads(raw) if raw.strip() else {}; tag=os.environ.get("FOCUS_TAG") or os.environ.get("AOC_TAG") or "active"; print(json.dumps({tag: {"tasks": data.get("tasks", []), "aocPrd": data.get("aocPrd")}}))' 2>/dev/null)"
+  fi
   py_script="$(cat <<'PY'
 import json, os, sys
 from datetime import datetime, timezone, timedelta
@@ -584,11 +589,11 @@ PY
 
 print_memory_briefing() {
   local aoc_dir="$1"
-  if [[ ! -f "$aoc_dir/memory.md" ]]; then
+  if ! command -v aoc-mem >/dev/null 2>&1; then
     return 1
   fi
   echo "🧠 RECENT MEMORY SIGNALS:"
-  /usr/bin/grep '^-' "$aoc_dir/memory.md" | tail -n 6
+  AOC_PROJECT_ROOT="${AOC_PROJECT_ROOT:-$(dirname "$aoc_dir")}" aoc-mem read 2>/dev/null | /usr/bin/grep '^-' | tail -n 6
 }
 
 print_context_briefing() {
@@ -604,6 +609,132 @@ print_context_briefing() {
   [[ -n "$repo_line" ]] && echo "$repo_line"
   [[ -n "$root_line" ]] && echo "$root_line"
   [[ -n "$branch_line" ]] && echo "$branch_line"
+}
+
+arg_present() {
+  local needle="$1"
+  shift || true
+  local arg=""
+  for arg in "$@"; do
+    if [[ "$arg" == "$needle" ]]; then
+      return 0
+    fi
+  done
+  return 1
+}
+
+build_pi_context_kernel_prompt() {
+  local root="$1"
+  local contract_file="$2"
+  local context_file="$root/.aoc/context.md"
+  local context_tool="$script_dir/aoc-context"
+  local python_bin=""
+  python_bin="$(find_python_bin)" || return 1
+  AOC_PROJECT_ROOT="$root" "$python_bin" - "$contract_file" "$context_file" "$context_tool" <<'PY'
+from __future__ import annotations
+import json
+import os
+import subprocess
+import sys
+from pathlib import Path
+
+contract_file = Path(sys.argv[1])
+context_file = Path(sys.argv[2])
+context_tool = Path(sys.argv[3])
+root = os.environ.get("AOC_PROJECT_ROOT", "")
+
+def read_text(path: Path, limit: int) -> str:
+    if not path.exists():
+        return ""
+    data = path.read_bytes()
+    suffix = ""
+    if len(data) > limit:
+        data = data[:limit]
+        suffix = "\n\n[truncated to startup kernel budget]\n"
+    return data.decode("utf-8", errors="replace").rstrip() + suffix
+
+def run(cmd: list[str], limit: int) -> str:
+    try:
+        out = subprocess.check_output(cmd, cwd=root or None, stderr=subprocess.DEVNULL, text=True, timeout=5)
+    except Exception:
+        return ""
+    if len(out.encode()) > limit:
+        return out.encode()[:limit].decode("utf-8", errors="replace").rstrip() + "\n[truncated to startup kernel budget]"
+    return out.rstrip()
+
+contract = read_text(contract_file, 4096)
+project = read_text(context_file, 6144)
+router = run([str(context_tool), "explain-startup"], 2048) if context_tool.exists() else ""
+handshake = run(["aoc-handshake", "--json"], 3072)
+
+print("# AOC Context Kernel")
+print()
+print("This generated startup kernel replaces raw AGENTS.md context file injection for normal AOC Pi launches. Raw AGENTS.md files remain source of truth and are available through aoc-context diagnostics.")
+if contract:
+    print("\n## Effective Agent Contract\n")
+    print(contract)
+if project:
+    print("\n## Project Snapshot\n")
+    print(project)
+if router:
+    print("\n## Context Router Startup Explanation\n")
+    print(router)
+if handshake:
+    print("\n## Handshake Metadata\n")
+    print(handshake)
+PY
+}
+
+pi_context_kernel_args=()
+prepare_pi_context_kernel_args() {
+  pi_context_kernel_args=("$@")
+  if [[ "$is_pi_family_agent" != "1" || -z "${AOC_PROJECT_ROOT:-}" || ! -d "$AOC_PROJECT_ROOT" ]]; then
+    return 0
+  fi
+
+  local kernel_mode="${AOC_PI_CONTEXT_KERNEL:-${AOC_CONTEXT_KERNEL:-on}}"
+  kernel_mode="$(printf '%s' "$kernel_mode" | tr '[:upper:]' '[:lower:]')"
+  case "$kernel_mode" in
+    0|false|no|off|raw)
+      export AOC_CONTEXT_KERNEL_ACTIVE=0
+      return 0
+      ;;
+    1|true|yes|on|auto|kernel) ;;
+    *) kernel_mode="on" ;;
+  esac
+
+  local context_tool="$script_dir/aoc-context"
+  if [[ ! -x "$context_tool" ]]; then
+    context_tool="$(command -v aoc-context 2>/dev/null || true)"
+  fi
+  if [[ -z "$context_tool" ]]; then
+    echo "aoc-pi: aoc-context not found; falling back to Pi raw context file loading." >&2
+    export AOC_CONTEXT_KERNEL_ACTIVE=0
+    return 0
+  fi
+
+  local contract_file="$AOC_PROJECT_ROOT/.aoc/effective-agent-contract.md"
+  if ! AOC_PROJECT_ROOT="$AOC_PROJECT_ROOT" "$context_tool" stale >/dev/null 2>&1; then
+    AOC_PROJECT_ROOT="$AOC_PROJECT_ROOT" "$context_tool" agents --write >/dev/null 2>&1 || true
+  fi
+  if [[ ! -s "$contract_file" ]]; then
+    echo "aoc-pi: missing effective agent contract; falling back to Pi raw context file loading." >&2
+    export AOC_CONTEXT_KERNEL_ACTIVE=0
+    return 0
+  fi
+
+  local kernel_prompt=""
+  if ! kernel_prompt="$(build_pi_context_kernel_prompt "$AOC_PROJECT_ROOT" "$contract_file")" || [[ -z "$kernel_prompt" ]]; then
+    echo "aoc-pi: failed to build context kernel prompt; falling back to Pi raw context file loading." >&2
+    export AOC_CONTEXT_KERNEL_ACTIVE=0
+    return 0
+  fi
+
+  if ! arg_present "--no-context-files" "${pi_context_kernel_args[@]}" && ! arg_present "-nc" "${pi_context_kernel_args[@]}"; then
+    pi_context_kernel_args=(--no-context-files "${pi_context_kernel_args[@]}")
+  fi
+  pi_context_kernel_args+=(--append-system-prompt "$kernel_prompt")
+  export AOC_CONTEXT_KERNEL_ACTIVE=1
 }
 
 construct_handshake() {
@@ -628,13 +759,13 @@ construct_handshake() {
     if [[ "${AOC_AGENT_ID:-}" == "pi" ]]; then
       handshake_mode="${AOC_PI_HANDSHAKE_MODE:-compact}"
     else
-      handshake_mode="full"
+      handshake_mode="compact"
     fi
   fi
   handshake_mode="$(printf '%s' "$handshake_mode" | tr '[:upper:]' '[:lower:]')"
   case "$handshake_mode" in
     full|compact|off) ;;
-    *) handshake_mode="full" ;;
+    *) handshake_mode="compact" ;;
   esac
 
   if [[ "$handshake_mode" == "off" ]]; then
@@ -663,7 +794,7 @@ construct_handshake() {
     echo "- Tasks: use tm list / aoc-task list on demand"
 
     echo
-    print_task_briefing "$aoc_dir" "$focus_tag" | sed -n '1,10p'
+    AOC_HANDSHAKE_TASK_SCOPE="${AOC_HANDSHAKE_TASK_SCOPE:-active}" print_task_briefing "$aoc_dir" "$focus_tag" | sed -n '1,10p'
 
     echo
     echo "🧪 RTK ROUTING:"
@@ -695,7 +826,7 @@ construct_handshake() {
   print_context_briefing "$aoc_dir"
 
   echo
-  print_task_briefing "$aoc_dir" "$focus_tag" || echo "📋 OPEN WORK: unavailable (tm list --all-tags --json failed)"
+  AOC_HANDSHAKE_TASK_SCOPE="${AOC_HANDSHAKE_TASK_SCOPE:-active}" print_task_briefing "$aoc_dir" "$focus_tag" || echo "📋 OPEN WORK: unavailable (tm list --json failed)"
 
   echo
   print_memory_briefing "$aoc_dir" || true
@@ -817,6 +948,10 @@ elif [[ "$is_pi_family_agent" == "1" ]]; then
   } > "$bootloader"
 fi
 
+agent_args=("$@")
+prepare_pi_context_kernel_args "${agent_args[@]}"
+agent_args=("${pi_context_kernel_args[@]}")
+
 resolve_wrap_rs_cmd
 wrapped_cmd=()
 if ((${#wrap_rs_cmd[@]} > 0)); then
@@ -847,15 +982,15 @@ if ((${#wrap_rs_cmd[@]} > 0)); then
   fi
   wrapped_cmd+=(--)
   if [[ -n "$bootloader" ]]; then
-    wrapped_cmd+=("$bootloader" "$@")
+    wrapped_cmd+=("$bootloader" "${agent_args[@]}")
   else
-    wrapped_cmd+=("$real_bin" "$@")
+    wrapped_cmd+=("$real_bin" "${agent_args[@]}")
   fi
 else
   if [[ -n "$bootloader" ]]; then
-    wrapped_cmd=("$bootloader" "$@")
+    wrapped_cmd=("$bootloader" "${agent_args[@]}")
   else
-    wrapped_cmd=("$real_bin" "$@")
+    wrapped_cmd=("$real_bin" "${agent_args[@]}")
   fi
 fi
 
@@ -1082,7 +1217,7 @@ if [[ "$is_pi_family_agent" == "1" ]]; then
 fi
 
 if [[ "$pi_use_direct_exec" == "1" ]]; then
-  run_pi_direct_exec "$@"
+  run_pi_direct_exec "${agent_args[@]}"
 fi
 
 if [[ "$use_tmux" != "1" ]]; then

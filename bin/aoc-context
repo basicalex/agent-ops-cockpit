@@ -1,0 +1,604 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+usage() {
+  cat <<'EOF'
+Usage: aoc-context <command> [args]
+
+Commands:
+  doctor|explain|budget       Print startup context loading diagnostics
+  agents                      Print a compact effective AGENTS.md contract
+  agents --write              Write .aoc/effective-agent-contract.md
+  registry                    Print context source registry
+  registry --json             Print context source registry as JSON
+  explain-startup             Explain the default startup kernel
+  stale                       Check generated context artifacts for staleness
+  why <source-id>             Explain one context source record
+EOF
+}
+
+find_root() {
+  if [[ -n "${AOC_PROJECT_ROOT:-}" && -d "${AOC_PROJECT_ROOT:-}" ]]; then
+    printf '%s\n' "$AOC_PROJECT_ROOT"
+    return 0
+  fi
+  local dir="$PWD"
+  while [[ "$dir" != "/" ]]; do
+    if [[ -d "$dir/.aoc" || -d "$dir/.pi" || -f "$dir/AGENTS.md" ]]; then
+      printf '%s\n' "$dir"
+      return 0
+    fi
+    dir="$(dirname "$dir")"
+  done
+  printf '%s\n' "$PWD"
+}
+
+count_files() {
+  local dir="$1"
+  [[ -d "$dir" ]] || { printf '0'; return; }
+  find "$dir" -maxdepth 2 -type f | wc -l | tr -d ' '
+}
+
+sum_bytes() {
+  local path="$1"
+  [[ -e "$path" ]] || { printf '0'; return; }
+  if [[ -d "$path" ]]; then
+    find "$path" -maxdepth 2 -type f -print0 | xargs -0r wc -c | awk 'END {print $1+0}'
+  else
+    wc -c < "$path" | tr -d ' '
+  fi
+}
+
+render_agents_contract() {
+  local root="$1"
+  local write_mode="${2:-0}"
+  python3 - "$root" "$write_mode" <<'PY'
+from __future__ import annotations
+import hashlib
+import re
+import sys
+from pathlib import Path
+
+root = Path(sys.argv[1]).resolve()
+write_mode = sys.argv[2] == "1"
+home = Path.home()
+source_specs = [("global", home / "AGENTS.md"), ("workspace", home / "dev" / "AGENTS.md"), ("project", root / "AGENTS.md")]
+sources = [(label, p) for label, p in source_specs if p.exists()]
+
+raw_bytes = sum(p.stat().st_size for _, p in sources)
+source_hash = hashlib.sha256()
+for _, p in sources:
+    source_hash.update(str(p).encode())
+    source_hash.update(b"\0")
+    source_hash.update(p.read_bytes())
+short_hash = source_hash.hexdigest()[:16]
+
+bullet_re = re.compile(r"^\s*[-*]\s+(.+?)\s*$")
+
+def norm(s: str) -> str:
+    return re.sub(r"\s+", " ", s.strip().lower().replace("**", "").replace("`", ""))
+
+all_bullets: list[str] = []
+project_bullets: list[str] = []
+project_path = root / "AGENTS.md"
+for _, p in sources:
+    text = p.read_text(encoding="utf-8", errors="replace")
+    for line in text.splitlines():
+        m = bullet_re.match(line)
+        if not m:
+            continue
+        item = m.group(1).strip()
+        all_bullets.append(item)
+        if p == project_path:
+            project_bullets.append(item)
+
+def uniq(items):
+    seen = set()
+    out=[]
+    for item in items:
+        key=norm(item)
+        if key and key not in seen:
+            seen.add(key); out.append(item)
+    return out
+
+project_overrides=[]
+for b in project_bullets:
+    low=b.lower()
+    if ("design.md" in low or "spec" in low or "prd" in low or ".taskmaster/docs/specs" in low or "tm tag spec" in low) and norm(b) not in {norm(x) for x in project_overrides}:
+        project_overrides.append(b)
+
+hard_rules = [
+    "Use `.aoc/context.md` for orientation; run `aoc-init` if it is missing or stale.",
+    "Do not read `.aoc/memory.md`, `.aoc/stm/current.md`, or `.taskmaster/tasks/tasks.json` directly; use AOC CLI commands.",
+    "Use root `DESIGN.md` before UI, docs-site, marketing, HyperFrames, or product-facing work when present.",
+]
+startup = [
+    "Use `aoc-handshake --json` as the metadata-only startup packet.",
+    "Do not load broad Mind memories during startup.",
+    "Request focused Mind context only after user intent is known and include an explicit reason.",
+]
+response = [
+    "Keep responses concise by default.",
+    "Use narrow, path-scoped searches before broad scans.",
+    "Run targeted checks/tests first; escalate only when required.",
+]
+commands_block = [
+    "Memory: `aoc-mem read`, `aoc-mem add`, `aoc-mem search`.",
+    "STM: `aoc-stm`, `aoc-stm resume`, `aoc-stm handoff`, `aoc-stm add`.",
+    "Tasks/specs: `tm list`, `tm show <id>`, `tm add`, `tm sub ...`, `tm tag current`, `tm tag spec show`.",
+    "AOC health: `aoc-init`, `aoc-handshake --json`, `aoc-rtk status`, `aoc-rtk doctor`.",
+]
+lazy = [
+    "Skills are index-only until user intent matches; load a `SKILL.md` only when needed.",
+    "Prompts are registered until invoked; do not inject prompt bodies by default.",
+    "Extension source and themes are not startup context unless the task is about them.",
+    "Task/spec details are loaded on demand; default startup should use active-tag summaries only.",
+]
+sections = [
+    ("Hard rules", uniq(hard_rules)),
+    ("Startup and Mind policy", uniq(startup)),
+    ("Project overrides", uniq(project_overrides[:8])),
+    ("Task, memory, and STM commands", commands_block),
+    ("Lazy-load policy", uniq(lazy)),
+    ("Response defaults", uniq(response)),
+]
+
+lines=[]
+lines.append("# Effective AOC Agent Contract")
+lines.append("")
+lines.append("Generated from layered AGENTS.md policy. Do not edit this generated output directly; edit source AGENTS.md files instead.")
+lines.append("")
+lines.append("## Sources")
+for label, p in sources:
+    try: display = "~/" + str(p.relative_to(home))
+    except ValueError: display = str(p)
+    lines.append(f"- {label}: `{display}` ({p.stat().st_size} bytes)")
+lines.append("- precedence: project > workspace > global")
+lines.append(f"- source hash: `{short_hash}`")
+lines.append(f"- raw AGENTS bytes: {raw_bytes}")
+lines.append("")
+for title, items in sections:
+    if not items: continue
+    lines.append(f"## {title}")
+    for item in items:
+        lines.append(f"- {item}")
+    lines.append("")
+contract = "\n".join(lines).rstrip()+"\n"
+
+if write_mode:
+    out = root / ".aoc" / "effective-agent-contract.md"
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text(contract, encoding="utf-8")
+    print(f"Wrote {out} ({len(contract.encode())} bytes; raw sources {raw_bytes} bytes; hash {short_hash})")
+else:
+    print(contract, end="")
+    print(f"\n# Budget: effective contract {len(contract.encode())} bytes vs raw AGENTS {raw_bytes} bytes", file=sys.stderr)
+PY
+}
+
+context_registry() {
+  local root="$1"
+  local mode="${2:-text}"
+  local only_id="${3:-}"
+  python3 - "$root" "$mode" "$only_id" <<'PY'
+from __future__ import annotations
+import hashlib
+import json
+import re
+import sys
+from pathlib import Path
+
+root = Path(sys.argv[1]).resolve()
+mode = sys.argv[2]
+only_id = sys.argv[3]
+home = Path.home()
+
+def rel(p: Path) -> str:
+    try:
+        return str(p.relative_to(root))
+    except ValueError:
+        try:
+            return "~/" + str(p.relative_to(home))
+        except ValueError:
+            return str(p)
+
+def path_bytes(p: Path, max_depth: int = 2) -> int:
+    if not p.exists():
+        return 0
+    if p.is_file():
+        return p.stat().st_size
+    total = 0
+    base_depth = len(p.parts)
+    for child in p.rglob("*"):
+        if child.is_file() and len(child.parts) - base_depth <= max_depth:
+            total += child.stat().st_size
+    return total
+
+def file_count(p: Path, max_depth: int = 2) -> int:
+    if not p.exists():
+        return 0
+    if p.is_file():
+        return 1
+    base_depth = len(p.parts)
+    return sum(1 for child in p.rglob("*") if child.is_file() and len(child.parts) - base_depth <= max_depth)
+
+def agents_hash() -> tuple[str, int, list[Path]]:
+    sources = [home / "AGENTS.md", home / "dev" / "AGENTS.md", root / "AGENTS.md"]
+    sources = [p for p in sources if p.exists()]
+    h = hashlib.sha256()
+    for p in sources:
+        h.update(str(p).encode()); h.update(b"\0"); h.update(p.read_bytes())
+    return h.hexdigest()[:16], sum(p.stat().st_size for p in sources), sources
+
+def contract_hash() -> str | None:
+    p = root / ".aoc" / "effective-agent-contract.md"
+    if not p.exists():
+        return None
+    m = re.search(r"source hash: `([^`]+)`", p.read_text(encoding="utf-8", errors="replace"))
+    return m.group(1) if m else None
+
+current_hash, raw_agents_bytes, agent_sources = agents_hash()
+stored_hash = contract_hash()
+contract = root / ".aoc" / "effective-agent-contract.md"
+contract_status = "missing" if stored_hash is None else ("fresh" if stored_hash == current_hash else "stale")
+
+records = [
+    {
+        "id": "policy.effective-agent-contract",
+        "kind": "policy",
+        "source": {"path": ".aoc/effective-agent-contract.md", "generator": "aoc-context agents --write"},
+        "loadingClass": "always",
+        "trigger": "startup policy kernel",
+        "budgetBytes": 4096,
+        "staleCheck": "agents-source-hash",
+        "staleStatus": contract_status,
+        "provenance": "generated from layered AGENTS.md files",
+        "notes": "Preferred startup policy artifact; raw AGENTS chain is fallback/debug only.",
+    },
+    {
+        "id": "policy.raw-agents-chain",
+        "kind": "policy",
+        "source": {"paths": [rel(p) for p in agent_sources]},
+        "loadingClass": "manual-only",
+        "trigger": "policy merge debugging or fallback when generated contract is unavailable",
+        "budgetBytes": None,
+        "staleCheck": None,
+        "provenance": "global/workspace/project AGENTS.md chain",
+        "notes": "Do not inject raw chain during normal startup.",
+    },
+    {
+        "id": "project.context-snapshot",
+        "kind": "project_snapshot",
+        "source": {"path": ".aoc/context.md"},
+        "loadingClass": "always",
+        "trigger": "startup orientation",
+        "budgetBytes": 6144,
+        "staleCheck": "aoc-init status/context freshness",
+        "provenance": "aoc-init generated project snapshot",
+        "notes": "Use compact snapshot; regenerate if missing/stale.",
+    },
+    {
+        "id": "startup.handshake-metadata",
+        "kind": "handshake",
+        "source": {"command": "aoc-handshake --json"},
+        "loadingClass": "always",
+        "trigger": "startup metadata packet",
+        "budgetBytes": 3072,
+        "staleCheck": None,
+        "provenance": "AOC CLI metadata-only handshake",
+        "notes": "Discovers AOC/Taskmaster/Mind status without broad memories.",
+    },
+    {
+        "id": "task.active-tag",
+        "kind": "task_index",
+        "source": {"command": "tm tag current"},
+        "loadingClass": "always",
+        "trigger": "startup active workstream metadata",
+        "budgetBytes": 256,
+        "provenance": "Taskmaster active tag",
+        "notes": "Tag only; not full task JSON.",
+    },
+    {
+        "id": "task.active-index",
+        "kind": "task_index",
+        "source": {"command": "tm list"},
+        "loadingClass": "index-only",
+        "trigger": "task-aware work or compact startup summary",
+        "budgetBytes": 2048,
+        "provenance": "Taskmaster active-tag summary",
+        "notes": "Avoid --all-tags by default.",
+    },
+    {
+        "id": "task.detail",
+        "kind": "task_detail",
+        "source": {"command": "tm show <id>"},
+        "loadingClass": "intent-triggered",
+        "trigger": "task id supplied or implementation requires task grounding",
+        "budgetBytes": 4096,
+        "provenance": "Taskmaster task detail command",
+        "notes": "Load one task at a time.",
+    },
+    {
+        "id": "spec.current",
+        "kind": "spec",
+        "source": {"command": "tm tag spec show / tm spec show <id>"},
+        "loadingClass": "intent-triggered",
+        "trigger": "spec/PRD grounding required",
+        "budgetBytes": 8192,
+        "provenance": "Taskmaster spec/legacy PRD linkage",
+        "notes": "Task override beats tag default.",
+    },
+    {
+        "id": "memory.aoc-mem",
+        "kind": "memory",
+        "source": {"command": "aoc-mem search/read"},
+        "loadingClass": "intent-triggered",
+        "trigger": "prior decisions, architecture provenance, or targeted local inspection insufficient",
+        "budgetBytes": 4096,
+        "provenance": "AOC durable memory CLI",
+        "notes": "Do not read .aoc/memory.md directly.",
+    },
+    {
+        "id": "stm.resume",
+        "kind": "stm",
+        "source": {"command": "aoc-stm resume/read"},
+        "loadingClass": "intent-triggered",
+        "trigger": "explicit resume/handoff/continuation need",
+        "budgetBytes": 4096,
+        "provenance": "AOC STM CLI",
+        "notes": "Do not read .aoc/stm/current.md directly.",
+    },
+    {
+        "id": "mind.context-pack",
+        "kind": "mind",
+        "source": {"command": "aoc-mind-service context-pack --mode focused --reason <reason> --json"},
+        "loadingClass": "intent-triggered",
+        "trigger": "focused Mind reason after user intent is known",
+        "budgetBytes": 8192,
+        "provenance": "AOC Mind service focused retrieval",
+        "notes": "Default startup budget is zero.",
+    },
+    {
+        "id": "pi.skills",
+        "kind": "skill",
+        "source": {"path": ".pi/skills"},
+        "loadingClass": "index-only",
+        "trigger": "skill intent match",
+        "budgetBytes": 0,
+        "provenance": "Pi skill registry",
+        "notes": "Names/descriptions only by default; bodies lazy.",
+    },
+    {
+        "id": "pi.prompts",
+        "kind": "prompt",
+        "source": {"path": ".pi/prompts"},
+        "loadingClass": "index-only",
+        "trigger": "slash prompt invoked",
+        "budgetBytes": 0,
+        "provenance": "Pi prompt registry",
+        "notes": "Prompt bodies are not startup context.",
+    },
+    {
+        "id": "pi.extensions",
+        "kind": "extension",
+        "source": {"path": ".pi/extensions"},
+        "loadingClass": "never-inject-source",
+        "trigger": "editing/debugging extension implementation",
+        "budgetBytes": 0,
+        "provenance": "Pi extension registry",
+        "notes": "Expose capabilities, not source, by default.",
+    },
+    {
+        "id": "aoc.presets",
+        "kind": "preset",
+        "source": {"path": ".aoc/presets"},
+        "loadingClass": "active-preset",
+        "trigger": "active preset/mode/submode",
+        "budgetBytes": 4096,
+        "provenance": "AOC preset manifests/components",
+        "notes": "Only active preset components should inject.",
+    },
+    {
+        "id": "design.root-contract",
+        "kind": "design_contract",
+        "source": {"path": "DESIGN.md"},
+        "loadingClass": "intent-triggered",
+        "trigger": "UI/product/docs-site/marketing/HyperFrames work",
+        "budgetBytes": 8192,
+        "provenance": "root visual/product design contract",
+        "notes": "Not needed for generic backend/ops tasks.",
+    },
+    {
+        "id": "ui.themes",
+        "kind": "theme",
+        "source": {"path": ".pi/themes"},
+        "loadingClass": "index-only",
+        "trigger": "theme/UI work",
+        "budgetBytes": 0,
+        "provenance": "Pi theme registry",
+        "notes": "Theme files are not startup context.",
+    },
+    {
+        "id": "aoc.layouts",
+        "kind": "theme",
+        "source": {"path": ".aoc/layouts"},
+        "loadingClass": "index-only",
+        "trigger": "layout/Zellij work",
+        "budgetBytes": 0,
+        "provenance": "AOC layout registry",
+        "notes": "Names/metadata only by default.",
+    },
+    {
+        "id": "pi.subagents",
+        "kind": "subagent",
+        "source": {"path": ".pi/agents"},
+        "loadingClass": "index-only",
+        "trigger": "explicit subagent dispatch/listing",
+        "budgetBytes": 0,
+        "provenance": "Pi/AOC subagent manifests",
+        "notes": "Do not dispatch/load specialist prompts without explicit user control.",
+    },
+]
+
+for rec in records:
+    src = rec.get("source", {})
+    p = src.get("path")
+    if p:
+        path = root / p
+        rec["exists"] = path.exists()
+        rec["bytesOnDisk"] = path_bytes(path)
+        rec["fileCount"] = file_count(path)
+    elif src.get("paths"):
+        paths = [Path(str(x).replace("~/", str(home) + "/")) if str(x).startswith("~/") else root / str(x) for x in src["paths"]]
+        rec["exists"] = all(p.exists() for p in paths)
+        rec["bytesOnDisk"] = sum(path_bytes(p) for p in paths)
+        rec["fileCount"] = sum(file_count(p) for p in paths)
+    else:
+        rec["exists"] = True
+        rec["bytesOnDisk"] = None
+        rec["fileCount"] = None
+    budget = rec.get("budgetBytes")
+    size = rec.get("bytesOnDisk")
+    rec["budgetStatus"] = "n/a"
+    if rec.get("loadingClass") != "always":
+        rec["budgetStatus"] = "deferred"
+    elif isinstance(budget, int) and budget > 0 and isinstance(size, int) and size > budget:
+        rec["budgetStatus"] = "over"
+    elif isinstance(budget, int):
+        rec["budgetStatus"] = "ok"
+
+if only_id:
+    records = [r for r in records if r["id"] == only_id]
+    if not records:
+        print(f"unknown context source: {only_id}", file=sys.stderr)
+        raise SystemExit(2)
+
+if mode == "json":
+    print(json.dumps({
+        "schemaVersion": 1,
+        "kind": "aoc.context.registry",
+        "projectRoot": str(root),
+        "agents": {"currentHash": current_hash, "storedHash": stored_hash, "status": contract_status, "rawBytes": raw_agents_bytes},
+        "records": records,
+    }, indent=2))
+else:
+    print(f"AOC context registry: {root}")
+    print(f"AGENTS contract: {contract_status} (current={current_hash}, stored={stored_hash or 'none'}, raw={raw_agents_bytes} bytes)")
+    print("")
+    for rec in records:
+        size = rec.get("bytesOnDisk")
+        size_text = "command" if size is None else f"{size} bytes"
+        budget = rec.get("budgetBytes")
+        budget_text = "none" if budget is None else str(budget)
+        print(f"- {rec['id']} [{rec['loadingClass']}/{rec['kind']}] {size_text}; budget={budget_text}; status={rec.get('budgetStatus')}")
+        print(f"  trigger: {rec.get('trigger','')}")
+        print(f"  source: {rec.get('source')}")
+        if rec.get("staleStatus"):
+            print(f"  stale: {rec['staleStatus']}")
+        print(f"  notes: {rec.get('notes','')}")
+PY
+}
+
+cmd="${1:-doctor}"
+case "$cmd" in
+  doctor|explain|budget|agents|registry|explain-startup|stale|why) ;;
+  -h|--help|help) usage; exit 0 ;;
+  *) usage >&2; exit 2 ;;
+esac
+
+root="$(find_root)"
+aoc_dir="$root/.aoc"
+pi_dir="$root/.pi"
+
+case "$cmd" in
+  agents)
+    write_mode=0
+    if [[ "${2:-}" == "--write" ]]; then
+      write_mode=1
+    elif [[ -n "${2:-}" ]]; then
+      usage >&2; exit 2
+    fi
+    render_agents_contract "$root" "$write_mode"
+    exit 0
+    ;;
+  registry)
+    if [[ "${2:-}" == "--json" ]]; then
+      context_registry "$root" json
+    elif [[ -n "${2:-}" ]]; then
+      usage >&2; exit 2
+    else
+      context_registry "$root" text
+    fi
+    exit 0
+    ;;
+  why)
+    [[ -n "${2:-}" ]] || { usage >&2; exit 2; }
+    context_registry "$root" text "$2"
+    exit 0
+    ;;
+  stale)
+    if context_registry "$root" json | python3 -c 'import json,sys; data=json.load(sys.stdin); a=data["agents"]; print("AGENTS contract: {} (current={}, stored={}, raw={} bytes)".format(a["status"], a["currentHash"], a["storedHash"] or "none", a["rawBytes"])); raise SystemExit(0 if a["status"] == "fresh" else 1)'; then
+      exit 0
+    else
+      exit 1
+    fi
+    ;;
+  explain-startup)
+    context_registry "$root" json | python3 -c 'import json,sys; data=json.load(sys.stdin); print("AOC startup kernel");
+for r in data["records"]:
+    if r["loadingClass"] == "always":
+        print(f"- {r["id"]}: {r["trigger"]} ({r.get("bytesOnDisk") or r.get("budgetBytes") or "command"} bytes/budget)")
+print("\nEverything else is index-only, active-preset, intent-triggered, manual-only, or never-inject-source.")'
+    exit 0
+    ;;
+esac
+
+agents_bytes=0
+contract_bytes=0
+for file in "$HOME/AGENTS.md" "$HOME/dev/AGENTS.md" "$root/AGENTS.md"; do
+  [[ -f "$file" ]] && agents_bytes=$((agents_bytes + $(sum_bytes "$file")))
+done
+[[ -f "$aoc_dir/effective-agent-contract.md" ]] && contract_bytes="$(sum_bytes "$aoc_dir/effective-agent-contract.md")"
+registry_json="$(context_registry "$root" json)"
+agents_status="$(printf '%s' "$registry_json" | python3 -c 'import json,sys; print(json.load(sys.stdin)["agents"]["status"])')"
+always_budget="$(printf '%s' "$registry_json" | python3 -c 'import json,sys; data=json.load(sys.stdin); total=0
+for r in data["records"]:
+    if r["loadingClass"] == "always":
+        total += r.get("bytesOnDisk") if isinstance(r.get("bytesOnDisk"), int) else (r.get("budgetBytes") or 0)
+print(total)')"
+
+cat <<EOF
+AOC context $cmd
+root: $root
+
+Startup kernel:
+- Effective agent rules: .aoc/effective-agent-contract.md (${contract_bytes} bytes; raw AGENTS chain ${agents_bytes} bytes; status=${agents_status})
+- Project snapshot: .aoc/context.md ($(sum_bytes "$aoc_dir/context.md") bytes)
+- Startup handshake metadata: aoc-handshake --json
+- Active tag metadata: tm tag current
+- Estimated always-load budget footprint: ${always_budget} bytes
+
+Indexed, not injected by default:
+- Skills: $(find "$pi_dir/skills" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | wc -l | tr -d ' ') dirs ($(sum_bytes "$pi_dir/skills") bytes on disk)
+- Prompts: $(count_files "$pi_dir/prompts") files ($(sum_bytes "$pi_dir/prompts") bytes on disk)
+- Extensions: $(count_files "$pi_dir/extensions") files ($(sum_bytes "$pi_dir/extensions") bytes on disk)
+- Presets: $(find "$aoc_dir/presets" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | wc -l | tr -d ' ') dirs ($(sum_bytes "$aoc_dir/presets") bytes on disk)
+- Themes: $(count_files "$pi_dir/themes") files ($(sum_bytes "$pi_dir/themes") bytes on disk)
+- Subagents: $(count_files "$pi_dir/agents") files ($(sum_bytes "$pi_dir/agents") bytes on disk)
+
+Lazy-load only when intent/preset requires:
+- Mind context packs and provenance
+- Full SKILL.md bodies
+- Prompt bodies
+- Extension source files
+- DESIGN.md and product/design docs
+- Task/spec details beyond active-tag summaries
+- STM and durable memory contents
+
+Policy checks:
+- AOC_HANDSHAKE_MODE default: compact
+- AOC_HANDSHAKE_TASK_SCOPE default: active
+- AGENTS contract refresh: aoc-context agents --write
+- Registry JSON: aoc-context registry --json
+- Full/broad startup requires explicit opt-in: AOC_HANDSHAKE_MODE=full and/or AOC_HANDSHAKE_TASK_SCOPE=all
+EOF

@@ -54,6 +54,23 @@ aoc-layout set <name>
 
 See [Layouts](layouts.md).
 
+## Startup context diagnostics
+
+```bash
+aoc-context doctor
+aoc-context registry
+aoc-context registry --json
+aoc-context explain-startup
+aoc-context stale
+aoc-context why <source-id>
+aoc-context agents
+aoc-context agents --write
+```
+
+`aoc-context agents --write` generates `.aoc/effective-agent-contract.md`, a compact deduplicated AGENTS.md contract for startup use. Source AGENTS.md files remain authoritative. `aoc-context registry --json` is the modular source registry for loaded, indexed, preset-active, intent-triggered, manual-only, and never-inject-source context blocks.
+
+Managed Pi launches default to `AOC_PI_CONTEXT_KERNEL=on`: `aoc-agent-wrap` refreshes the generated contract when stale, starts Pi with `--no-context-files`, and appends a compact AOC context kernel containing the effective contract, project snapshot, router explanation, and metadata-only handshake. Set `AOC_PI_CONTEXT_KERNEL=off` to fall back to Pi's raw context-file discovery.
+
 ## Skills
 
 ```bash

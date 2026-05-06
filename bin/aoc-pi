@@ -7,7 +7,7 @@ agent_label="PI Agent (npm)"
 
 if [[ "${AOC_AGENT_RUN:-0}" == "1" ]]; then
   if [[ -z "${AOC_HANDSHAKE_MODE:-}" ]]; then
-    export AOC_HANDSHAKE_MODE="full"
+    export AOC_HANDSHAKE_MODE="compact"
   fi
   exec aoc-agent-wrap "$agent_id" "$agent_bin" "$agent_label" "$@"
 fi
