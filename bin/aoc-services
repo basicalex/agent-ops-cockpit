@@ -1,0 +1,152 @@
+#!/usr/bin/env python3
+import argparse
+import json
+import os
+import shutil
+import subprocess
+import sys
+import time
+from pathlib import Path
+
+ROOT = Path.cwd()
+
+
+def run(cmd, timeout=12):
+    if isinstance(cmd, str):
+        result = subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=timeout, check=False)
+    else:
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout, check=False)
+    return result.returncode, result.stdout.strip(), result.stderr.strip()
+
+
+def json_cmd(cmd, timeout=12):
+    code, out, err = run(cmd, timeout)
+    payload = None
+    if out:
+        try:
+            payload = json.loads(out)
+        except Exception:
+            payload = None
+    return code, payload, out, err
+
+
+def search_status():
+    if not shutil.which("aoc-search") and not Path("bin/aoc-search").exists():
+        return {"name": "search", "kind": "server", "state": "missing", "healthy": False, "message": "aoc-search not found"}
+    cmd = "aoc-search health --json" if shutil.which("aoc-search") else "bin/aoc-search health --json"
+    code, payload, out, err = json_cmd(cmd, timeout=20)
+    healthy = code == 0 and isinstance(payload, dict) and bool(payload.get("healthy"))
+    return {"name": "search", "kind": "server", "state": "healthy" if healthy else "down", "healthy": healthy, "requiredFor": ["aoc-search"], "details": payload or {"stdout": out, "stderr": err}}
+
+
+def render_status():
+    cmd = "aoc-render status --json" if shutil.which("aoc-render") else "bin/aoc-render status --json"
+    if not shutil.which("aoc-render") and not Path("bin/aoc-render").exists():
+        return {"name": "render", "kind": "oneshot", "state": "missing", "healthy": False, "serverRequired": False, "message": "aoc-render not found"}
+    code, payload, out, err = json_cmd(cmd, timeout=8)
+    available = code == 0 and isinstance(payload, dict) and bool(payload.get("available"))
+    return {"name": "render", "kind": "oneshot", "state": "available" if available else "unavailable", "healthy": available, "serverRequired": False, "requiredFor": ["aoc-render"], "details": payload or {"stdout": out, "stderr": err}}
+
+
+def browser_status():
+    if not shutil.which("agent-browser"):
+        return {"name": "browser", "kind": "daemon", "state": "missing", "healthy": False, "requiredFor": ["agent-browser"], "message": "agent-browser not found"}
+    code, out, err = run("agent-browser get url", timeout=6)
+    ready = code == 0
+    return {"name": "browser", "kind": "daemon", "state": "ready" if ready else "cold", "healthy": ready, "requiredFor": ["agent-browser"], "details": {"stdout": out, "stderr": err}}
+
+
+def mind_status():
+    if not shutil.which("aoc-mind-service"):
+        return {"name": "mind", "kind": "daemon-or-cold", "state": "missing", "healthy": False, "requiredFor": ["mind", "context-pack"], "message": "aoc-mind-service not found"}
+    code, payload, out, err = json_cmd(f"aoc-mind-service status --project-root {quote(str(ROOT))} --json", timeout=10)
+    state = "healthy" if code == 0 else "cold"
+    raw_state = (((payload or {}).get("service_status") or {}).get("state")) if isinstance(payload, dict) else None
+    if raw_state:
+        state = raw_state
+    return {"name": "mind", "kind": "daemon-or-cold", "state": state, "healthy": code == 0, "requiredFor": ["mind", "context-pack", "provenance"], "details": payload or {"stdout": out, "stderr": err}}
+
+
+def quote(value):
+    return "'" + value.replace("'", "'\\''") + "'"
+
+
+def all_status():
+    services = [search_status(), render_status(), browser_status(), mind_status()]
+    return {"schemaVersion": 1, "projectRoot": str(ROOT), "services": services, "healthy": all(s.get("healthy") or s.get("kind") in {"oneshot", "daemon-or-cold"} for s in services)}
+
+
+def print_status(payload, as_json=False):
+    if as_json:
+        print(json.dumps(payload, indent=2))
+        return
+    print(f"AOC services: {payload['projectRoot']}")
+    for svc in payload["services"]:
+        marker = "✓" if svc.get("healthy") else ("·" if svc.get("kind") in {"oneshot", "daemon-or-cold"} else "✗")
+        extra = " no-server" if svc.get("serverRequired") is False else ""
+        print(f" {marker} {svc['name']:<8} {svc['state']:<12} {svc['kind']}{extra}")
+
+
+def start_service(name):
+    if name == "search":
+        cmd = "aoc-search start --wait" if shutil.which("aoc-search") else "bin/aoc-search start --wait"
+        return run(cmd, timeout=90)
+    if name == "render":
+        return 0, "render is one-shot; no server to start", ""
+    if name == "browser":
+        return 0, "browser starts lazily via agent-browser open; no default page launched", ""
+    if name == "mind":
+        return 0, "mind service is cold/lazy by default; use aoc-mind-service commands for warm mode", ""
+    raise SystemExit(f"unknown service: {name}")
+
+
+def stop_service(name):
+    if name == "search":
+        cmd = "aoc-search stop" if shutil.which("aoc-search") else "bin/aoc-search stop"
+        return run(cmd, timeout=60)
+    if name in {"render", "browser", "mind"}:
+        return 0, f"{name} has no managed default stop action", ""
+    raise SystemExit(f"unknown service: {name}")
+
+
+def main():
+    parser = argparse.ArgumentParser(prog="aoc-services", description="Centralized AOC project service supervisor for Mission Control.")
+    sub = parser.add_subparsers(dest="command", required=True)
+    p = sub.add_parser("status"); p.add_argument("--json", action="store_true"); p.add_argument("--watch", action="store_true"); p.add_argument("--interval", type=float, default=5.0)
+    p = sub.add_parser("up"); p.add_argument("--watch", action="store_true"); p.add_argument("--interval", type=float, default=5.0); p.add_argument("--no-search", action="store_true")
+    p = sub.add_parser("start"); p.add_argument("service", choices=["search", "render", "browser", "mind"])
+    p = sub.add_parser("stop"); p.add_argument("service", choices=["search", "render", "browser", "mind"])
+    p = sub.add_parser("doctor"); p.add_argument("--json", action="store_true")
+    args = parser.parse_args()
+
+    if args.command == "status":
+        while True:
+            if args.watch and not args.json:
+                print("\033[2J\033[H", end="")
+            print_status(all_status(), args.json)
+            if not args.watch: break
+            time.sleep(args.interval)
+        return 0
+    if args.command == "up":
+        if not args.no_search:
+            code, out, err = start_service("search")
+            if code != 0:
+                print(err or out, file=sys.stderr)
+        if args.watch:
+            args.command = "status"; args.json = False
+            while True:
+                print("\033[2J\033[H", end="")
+                print_status(all_status(), False)
+                time.sleep(args.interval)
+        return 0
+    if args.command in {"start", "stop"}:
+        code, out, err = (start_service if args.command == "start" else stop_service)(args.service)
+        if out: print(out)
+        if err: print(err, file=sys.stderr)
+        return code
+    if args.command == "doctor":
+        payload = all_status(); print_status(payload, args.json); return 0 if payload["healthy"] else 2
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

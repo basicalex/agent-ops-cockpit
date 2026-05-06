@@ -161,6 +161,32 @@ resolve_layout_path() {
   printf '%s' "$HOME/.config/zellij/layouts/${layout_name}.kdl"
 }
 
+resolve_workspace_root() {
+  local project_root="${1:-$PWD}"
+  if [[ -n "${AOC_WORKSPACE_ROOT:-}" ]]; then
+    realpath "$AOC_WORKSPACE_ROOT" 2>/dev/null || printf '%s' "$AOC_WORKSPACE_ROOT"
+    return
+  fi
+  local real_project parent base grand
+  real_project="$(realpath "$project_root" 2>/dev/null || printf '%s' "$project_root")"
+  parent="$(dirname "$real_project")"
+  base="$(basename "$parent")"
+  case "$base" in
+    dev|code|projects|workspaces|src)
+      printf '%s' "$parent"
+      return
+      ;;
+  esac
+  grand="$(dirname "$parent")"
+  case "$(basename "$grand")" in
+    dev|code|projects|workspaces|src)
+      printf '%s' "$grand"
+      return
+      ;;
+  esac
+  printf '%s' "$parent"
+}
+
 sync_aoc_theme_profile() {
   local script_dir theme_env preferred_name=()
   script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -223,6 +249,7 @@ elif [[ -f "$aoc_config" ]]; then
 fi
 
 project_root="${ZELLIJ_PROJECT_ROOT:-$PWD}"
+workspace_root="$(resolve_workspace_root "$project_root")"
 launch_agent="${AOC_LAUNCH_AGENT_ID:-${AOC_AGENT_ID:-}}"
 
 background_task() {
@@ -235,7 +262,11 @@ mkdir -p "$state_dir"
 cleanup_state "$state_dir"
 load_aoc_theme_values
 
-session_id="$(resolve_session_id "$project_root")"
+session_root="$project_root"
+if [[ -z "${ZELLIJ:-}" && "${AOC_MC_FIRST:-1}" != "0" ]]; then
+  session_root="$workspace_root"
+fi
+session_id="$(resolve_session_id "$session_root")"
 if ! session_name_exists "$session_id" && command -v aoc-session-state >/dev/null 2>&1; then
   restore_env="$(aoc-session-state initial-env "$session_id" 2>/dev/null || true)"
   if [[ -n "$restore_env" ]]; then
@@ -370,4 +401,80 @@ if session_name_exists "$session_id"; then
 fi
 
 session_arg=(--session "$session_id")
+
+if [[ "${AOC_MC_FIRST:-1}" != "0" && "$layout" != "mission-control" ]]; then
+  mc_layout_path="$(resolve_layout_path "mission-control" "$project_root")"
+  if [[ -f "$mc_layout_path" && -f "$layout_arg" ]]; then
+    mc_agent_id="$(basename "$workspace_root")"
+    mc_tmp="$state_dir/aoc-layout-mission-control-${mc_agent_id}.kdl"
+    awk -v tab_name="Mission Control" \
+        -v agent_id="$mc_agent_id" \
+        -v launch_agent="" \
+        -v proj_root="$workspace_root" \
+        -v session_id="$session_id" \
+        -v hub_addr="$hub_addr" \
+        -v hub_url="$hub_url" \
+        -v theme_blue="$AOC_THEME_BLUE" \
+        -v theme_green="$AOC_THEME_GREEN" \
+        -v theme_red="$AOC_THEME_RED" \
+        -v theme_orange="$AOC_THEME_ORANGE" \
+        -v theme_yellow="$AOC_THEME_YELLOW" \
+        -v theme_cyan="$AOC_THEME_CYAN" \
+        -v theme_magenta="$AOC_THEME_MAGENTA" \
+        -v theme_black="$AOC_THEME_BLACK" \
+        -v theme_white="$AOC_THEME_WHITE" \
+        -v theme_ui_primary="$AOC_THEME_UI_PRIMARY" \
+        -v theme_ui_muted="$AOC_THEME_UI_MUTED" \
+        -v theme_ui_accent="$AOC_THEME_UI_ACCENT" \
+        -v theme_bg_base="$AOC_THEME_BG_BASE" \
+        -v theme_bg_elevated="$AOC_THEME_BG_ELEVATED" \
+        -v theme_bg_subtle="$AOC_THEME_BG_SUBTLE" \
+        -v theme_bg_accent="$AOC_THEME_BG_ACCENT" \
+        -v home_dir="$HOME" '
+    {
+      gsub(/\{\{HOME\}\}/, home_dir)
+      gsub(/__AOC_TAB_NAME__/, tab_name)
+      gsub(/__AOC_AGENT_ID__/, agent_id)
+      gsub(/__AOC_PROJECT_ROOT__/, proj_root)
+      gsub(/__AOC_SESSION_ID__/, session_id)
+      gsub(/__AOC_HUB_ADDR__/, hub_addr)
+      gsub(/__AOC_HUB_URL__/, hub_url)
+      gsub(/__AOC_THEME_BLUE__/, theme_blue)
+      gsub(/__AOC_THEME_GREEN__/, theme_green)
+      gsub(/__AOC_THEME_RED__/, theme_red)
+      gsub(/__AOC_THEME_ORANGE__/, theme_orange)
+      gsub(/__AOC_THEME_YELLOW__/, theme_yellow)
+      gsub(/__AOC_THEME_CYAN__/, theme_cyan)
+      gsub(/__AOC_THEME_MAGENTA__/, theme_magenta)
+      gsub(/__AOC_THEME_BLACK__/, theme_black)
+      gsub(/__AOC_THEME_WHITE__/, theme_white)
+      gsub(/__AOC_THEME_UI_PRIMARY__/, theme_ui_primary)
+      gsub(/__AOC_THEME_UI_MUTED__/, theme_ui_muted)
+      gsub(/__AOC_THEME_UI_ACCENT__/, theme_ui_accent)
+      gsub(/__AOC_THEME_BG_BASE__/, theme_bg_base)
+      gsub(/__AOC_THEME_BG_ELEVATED__/, theme_bg_elevated)
+      gsub(/__AOC_THEME_BG_SUBTLE__/, theme_bg_subtle)
+      gsub(/__AOC_THEME_BG_ACCENT__/, theme_bg_accent)
+      print
+    }
+' "$mc_layout_path" > "$mc_tmp"
+    bootstrap_tmp="$state_dir/aoc-layout-bootstrap-${agent_id}.kdl"
+    python3 - <<'PY' "$mc_tmp" "$layout_arg" "$bootstrap_tmp"
+import sys
+
+def body(path):
+    text=open(path).read()
+    start=text.find('{')
+    end=text.rfind('}')
+    if start == -1 or end == -1 or end <= start:
+        raise SystemExit(f'invalid layout: {path}')
+    return text[start+1:end].strip()
+
+mc, project, out = sys.argv[1:]
+open(out, 'w').write('layout {\n' + body(mc) + '\n\n' + body(project) + '\n}\n')
+PY
+    layout_arg="$bootstrap_tmp"
+  fi
+fi
+
 env "${attach_env[@]}" zellij "${config_arg[@]}" "${session_arg[@]}" --new-session-with-layout "$layout_arg"

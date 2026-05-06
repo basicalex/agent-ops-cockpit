@@ -1,7 +1,7 @@
 ---
 name: web-research
 description: Search-first web research workflow for AI agents. Use when the task needs finding sources, comparing documentation, investigating errors, gathering external references, or doing general web research before opening pages in the browser.
-allowed-tools: Bash(aoc-search:*), Bash(aoc-fetch:*), Bash(aoc-render:*), Bash(aoc-obscura-install:*), Bash(agent-browser:*), Bash(curl:*), Bash(wget:*)
+allowed-tools: Bash(aoc-services:*), Bash(aoc-search:*), Bash(aoc-fetch:*), Bash(aoc-render:*), Bash(aoc-obscura-install:*), Bash(agent-browser:*), Bash(curl:*), Bash(wget:*)
 ---
 
 # Web Research with `aoc-search` + `aoc-fetch` + `aoc-render` + `agent-browser`
@@ -10,6 +10,7 @@ allowed-tools: Bash(aoc-search:*), Bash(aoc-fetch:*), Bash(aoc-render:*), Bash(a
 
 Use a **search -> fetch -> render -> browser** workflow:
 
+0. **Check shared services** with `aoc-services status --json` when service availability matters; Mission Control should own shared backends.
 1. **Search first** with `aoc-search query ...`
 2. **Fetch second** with `aoc-fetch <url>` for cheap static extraction
 3. **Render third** with `aoc-render <url>` when static fetch misses JS-rendered content and Obscura is available
@@ -138,7 +139,7 @@ agent-browser snapshot -i
 - Prefer `aoc-render` before `agent-browser` for JS-rendered read-only pages
 - Keep queries specific; refine instead of opening many weak results
 - If one fetched page is enough, stop early
-- If search is unhealthy, report that clearly instead of pretending browsing is equivalent
+- If search is unhealthy, use `aoc-services start search` when discovery is required, or report the service issue clearly instead of pretending browsing is equivalent
 
 ## Failure guidance
 

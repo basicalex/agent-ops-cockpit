@@ -10,5 +10,6 @@ Most users should start with:
 Advanced operator runbooks:
 
 - [Mission Control ops](mission-control-ops.md)
+- [AOC services](aoc-services.md)
 
 Reference contracts live in [../reference/](../reference/README.md).

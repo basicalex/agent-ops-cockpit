@@ -269,7 +269,16 @@ aoc-mission-control-tab
 aoc-new-tab --mission-control
 ```
 
-Outside Zellij, bootstrap directly into the dedicated layout with:
+When `aoc` is launched outside an existing Zellij/AOC session, AOC now uses
+Mission Control as the first session tab by default and then opens the requested
+project tab. The Mission Control tab is rooted at the resolved workspace root
+(`AOC_WORKSPACE_ROOT`, common workspace parent such as `~/dev`, then fallback to
+the project parent), while the regular project tab remains rooted at the command
+cwd/project root. Running `aoc` from inside an existing pane keeps the lightweight
+new-tab behavior and does not create another Mission Control tab.
+
+Outside Zellij, operators can still bootstrap directly into only the dedicated
+layout with:
 
 ```bash
 AOC_LAYOUT=mission-control aoc-launch
@@ -278,8 +287,14 @@ AOC_LAYOUT=mission-control aoc-launch
 The dedicated layout lives at `.aoc/layouts/mission-control.kdl` and currently
 starts:
 - Mission Control
+- AOC Services (`aoc-services up --watch --interval 5`)
 - Taskmaster
 - an operator shell
+
+The Services pane is the centralized owner/overview for project-local backend
+runtimes used by agents. It starts shared search by default, reports browser and
+Mind readiness, and shows render availability without turning one-shot tools into
+persistent servers. See `docs/operator/aoc-services.md`.
 
 ## 9) Logs
 
