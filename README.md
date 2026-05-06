@@ -8,7 +8,8 @@ Use AOC when you want:
 - project context and decisions stored in the repo
 - Taskmaster tasks beside the agent
 - `Alt+C` for setup, tools, logs, and health checks
-- `Alt+X` for focused modes like HyperFrames
+- `Alt+X` for focused modes like Design and HyperFrames
+- optional Open Design GUI studio bridge for higher-quality visual design iteration
 
 ## Install
 
@@ -50,6 +51,7 @@ Common setup paths:
 | Switch mode/preset | `Alt+X` |
 | Tasks | `tm list`, Taskmaster pane |
 | Memory | `aoc-mem`, `aoc-stm` |
+| Open Design GUI studio | `aoc-od install`, then `aoc-od start --open` |
 | HyperFrames video/campaign work | `Alt+C -> HyperFrames -> Init workspace + campaign factory` |
 | Web research | `Alt+C -> Agent Browser + Search` |
 
@@ -62,6 +64,7 @@ Start here:
 - [Installation](./docs/installation.md)
 - [Control pane](./docs/control-pane.md)
 - [Tasks and memory](./docs/tasks-memory.md)
+- [Open Design studio](./docs/open-design.md)
 - [HyperFrames](./docs/hyperframes.md)
 - [Troubleshooting](./docs/troubleshooting.md)
 

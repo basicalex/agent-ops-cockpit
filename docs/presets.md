@@ -169,7 +169,28 @@ Inside the navigator:
 
 This is the main exploration UI when you want to browse preset, mode, and submode choices without remembering commands.
 
-Changing a preset/mode/submode updates `.pi/settings.json` skill filters. After changing preset state, run `/reload` manually so the visible Pi skill inventory matches the selected preset.
+Changing a preset/mode/submode updates runtime routing immediately: the next agent turn receives the active preset prompt context. It also updates `.pi/settings.json` skill filters. Run `/reload` only when you want Pi's visible skill inventory/list to match the selected preset.
+
+## Relationship to Open Design
+
+The Design preset is a terminal/session design-routing layer. It is useful for critique, specs, implementation handoff, tokens, brand guidance, and motion-aware review.
+
+Open Design is the GUI studio layer. Use it when you need visual iteration, live preview, design-system selection, decks, templates, or polished prototype artifacts:
+
+```bash
+aoc-od start --open
+# iterate in OD GUI
+aoc-od import latest
+```
+
+Then return to AOC presets for implementation and campaign handoff:
+
+```text
+OD GUI exploration -> imported artifact -> Alt+X Design critique/spec/handoff -> implementation
+OD GUI direction -> imported artifact -> Alt+X HyperFrames -> campaign/render factory
+```
+
+See [Open Design studio](open-design.md).
 
 ## Operator mental model
 

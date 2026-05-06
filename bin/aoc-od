@@ -1,0 +1,288 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+OD_REPO_URL="${AOC_OD_REPO_URL:-https://github.com/nexu-io/open-design.git}"
+OD_REF="${AOC_OD_REF:-main}"
+OD_HOME="${AOC_OD_HOME:-$HOME/.local/share/aoc/tools/open-design}"
+OD_SOURCE="${AOC_OD_SOURCE:-$OD_HOME/source}"
+OD_URL="${AOC_OD_URL:-http://localhost:7456}"
+
+usage() {
+  cat <<'EOF'
+Usage: aoc-od <command> [options]
+
+Open Design bridge for AOC projects.
+
+Commands:
+  install              Clone/update global Open Design checkout and install deps
+  status               Show install/link/runtime status (read-only)
+  doctor               Check local prerequisites and OD install health (read-only)
+  start [--open]       Start OD managed runtime in background and link current project
+  run [--open]         Run OD web runtime in foreground and link current project
+  stop                 Stop OD managed runtime
+  open                 Open configured OD URL in browser
+  link                 Write .aoc/open-design/link.json for current project
+  import latest        Copy latest .od/artifacts/* into design-artifacts/od/*
+  import PATH          Copy a specific OD artifact dir into design-artifacts/od/*
+
+Options:
+  --root PATH          Project root (default: nearest .aoc/.git)
+  --url URL            OD URL for link/open metadata (default: AOC_OD_URL or http://localhost:7456)
+  --home PATH          Global OD tool home (default: ~/.local/share/aoc/tools/open-design)
+  --source PATH        Global OD source checkout path
+  --ref REF            Git ref for install/update (default: main)
+  --repo URL           Git repo URL for install/update
+  --open               Open browser after start/run
+  -h, --help           Show this help
+
+Notes:
+  install/start are explicit because OD runs a local daemon that can spawn agent CLIs.
+  OAuth/OpenAI account reuse is not configured automatically in v1.
+EOF
+}
+
+log() { echo ">> $*"; }
+warn() { echo "!! $*" >&2; }
+fail() { warn "$*"; exit 1; }
+
+resolve_root() {
+  local dir="${1:-$PWD}"
+  dir="$(cd "$dir" 2>/dev/null && pwd)" || return 1
+  while [[ "$dir" != "/" ]]; do
+    if [[ -d "$dir/.aoc" || -d "$dir/.git" ]]; then
+      printf '%s\n' "$dir"
+      return 0
+    fi
+    dir="$(dirname "$dir")"
+  done
+  return 1
+}
+
+open_url() {
+  local url="$1"
+  if command -v xdg-open >/dev/null 2>&1; then
+    xdg-open "$url" >/dev/null 2>&1 || warn "Could not open $url"
+  elif command -v open >/dev/null 2>&1; then
+    open "$url" >/dev/null 2>&1 || warn "Could not open $url"
+  else
+    log "Open: $url"
+  fi
+}
+
+require_source() {
+  [[ -d "$OD_SOURCE/.git" ]] || fail "Open Design not installed at $OD_SOURCE. Run: aoc-od install"
+}
+
+run_pnpm_tools_dev() {
+  require_source
+  command -v pnpm >/dev/null 2>&1 || fail "pnpm missing. Install pnpm/corepack before running OD."
+  (cd "$OD_SOURCE" && pnpm tools-dev "$@")
+}
+
+write_link() {
+  local root="$1"
+  mkdir -p "$root/.aoc/open-design"
+  python3 - "$root" "$OD_SOURCE" "$OD_URL" "$OD_REF" <<'PY'
+import json, os, sys
+from datetime import datetime, timezone
+from pathlib import Path
+root = Path(sys.argv[1]).resolve()
+source = Path(sys.argv[2]).expanduser().resolve()
+url = sys.argv[3]
+ref = sys.argv[4]
+link = {
+  "schemaVersion": 1,
+  "kind": "aoc.open-design.link",
+  "projectRoot": str(root),
+  "openDesignSource": str(source),
+  "openDesignUrl": url,
+  "openDesignRef": ref,
+  "designContract": "DESIGN.md" if (root / "DESIGN.md").exists() else None,
+  "odArtifactsDir": ".od/artifacts",
+  "aocImportDir": "design-artifacts/od",
+  "hyperframesDesignContract": "hyperframes/docs/DESIGN.md",
+  "notes": [
+    "OD is the GUI design studio; AOC imports polished artifacts for implementation/provenance/campaign scale-out.",
+    "Auth/provider secrets are not managed by this link file."
+  ],
+  "updatedAt": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+}
+out = root / ".aoc" / "open-design" / "link.json"
+out.write_text(json.dumps(link, indent=2) + "\n", encoding="utf-8")
+print(out)
+PY
+}
+
+latest_artifact_dir() {
+  local root="$1"
+  [[ -d "$root/.od/artifacts" ]] || return 1
+  find "$root/.od/artifacts" -mindepth 1 -maxdepth 1 -type d -printf '%T@ %p\n' 2>/dev/null | sort -nr | awk 'NR==1 { sub(/^[^ ]+ /, ""); print; exit }'
+}
+
+safe_basename() {
+  python3 - "$1" <<'PY'
+import re, sys
+name = sys.argv[1].strip().strip('/').split('/')[-1]
+name = re.sub(r'[^A-Za-z0-9._-]+', '-', name).strip('-._')
+print(name or 'artifact')
+PY
+}
+
+import_artifact() {
+  local root="$1" src="$2"
+  [[ -d "$src" ]] || fail "OD artifact dir missing: $src"
+  mkdir -p "$root/design-artifacts/od" "$root/.aoc/open-design"
+  local base dest stamp
+  base="$(safe_basename "$src")"
+  stamp="$(date -u +%Y%m%dT%H%M%SZ)"
+  dest="$root/design-artifacts/od/$base"
+  if [[ -e "$dest" ]]; then
+    dest="$root/design-artifacts/od/$base-$stamp"
+  fi
+  cp -a "$src" "$dest"
+  python3 - "$root" "$src" "$dest" <<'PY'
+import json, sys
+from datetime import datetime, timezone
+from pathlib import Path
+root = Path(sys.argv[1]).resolve()
+src = Path(sys.argv[2]).resolve()
+dest = Path(sys.argv[3]).resolve()
+rel_dest = dest.relative_to(root).as_posix()
+record = {
+  "source": str(src),
+  "importedPath": rel_dest,
+  "importedAt": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+  "files": sorted(p.relative_to(dest).as_posix() for p in dest.rglob("*") if p.is_file()),
+}
+artifact_meta = dest / "aoc-open-design-artifact.json"
+artifact_meta.write_text(json.dumps({"schemaVersion": 1, "kind": "aoc.open-design.artifact", **record}, indent=2) + "\n", encoding="utf-8")
+index_path = root / ".aoc" / "open-design" / "artifacts.json"
+if index_path.exists():
+    try:
+        index = json.loads(index_path.read_text(encoding="utf-8"))
+    except Exception:
+        index = {}
+else:
+    index = {}
+items = index.get("artifacts") if isinstance(index.get("artifacts"), list) else []
+items.append(record)
+index = {"schemaVersion": 1, "kind": "aoc.open-design.artifacts", "artifacts": items, "updatedAt": record["importedAt"]}
+index_path.write_text(json.dumps(index, indent=2) + "\n", encoding="utf-8")
+print(rel_dest)
+PY
+}
+
+root=""
+open_after=0
+command=""
+args=()
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --root) [[ $# -ge 2 ]] || fail "--root requires a value"; root="$2"; shift 2 ;;
+    --url) [[ $# -ge 2 ]] || fail "--url requires a value"; OD_URL="$2"; shift 2 ;;
+    --home) [[ $# -ge 2 ]] || fail "--home requires a value"; OD_HOME="$2"; OD_SOURCE="${AOC_OD_SOURCE:-$OD_HOME/source}"; shift 2 ;;
+    --source) [[ $# -ge 2 ]] || fail "--source requires a value"; OD_SOURCE="$2"; shift 2 ;;
+    --ref) [[ $# -ge 2 ]] || fail "--ref requires a value"; OD_REF="$2"; shift 2 ;;
+    --repo) [[ $# -ge 2 ]] || fail "--repo requires a value"; OD_REPO_URL="$2"; shift 2 ;;
+    --open) open_after=1; shift ;;
+    --help|-h) usage; exit 0 ;;
+    *)
+      if [[ -z "$command" ]]; then
+        command="$1"
+      else
+        args+=("$1")
+      fi
+      shift
+      ;;
+  esac
+done
+command="${command:-status}"
+
+case "$command" in
+  install)
+    command -v git >/dev/null 2>&1 || fail "git missing"
+    command -v node >/dev/null 2>&1 || fail "node missing; Open Design requires Node 24.x"
+    command -v corepack >/dev/null 2>&1 || warn "corepack missing; pnpm 10.33.x may need manual install"
+    mkdir -p "$OD_HOME"
+    if [[ -d "$OD_SOURCE/.git" ]]; then
+      log "Updating Open Design at $OD_SOURCE"
+      (cd "$OD_SOURCE" && git fetch --tags origin && git checkout "$OD_REF" && git pull --ff-only || true)
+    else
+      log "Cloning Open Design $OD_REF into $OD_SOURCE"
+      git clone --branch "$OD_REF" "$OD_REPO_URL" "$OD_SOURCE"
+    fi
+    if command -v corepack >/dev/null 2>&1; then corepack enable || true; fi
+    command -v pnpm >/dev/null 2>&1 || fail "pnpm missing after corepack. Install pnpm 10.33.x."
+    (cd "$OD_SOURCE" && pnpm install && pnpm --filter @open-design/daemon build)
+    log "Open Design installed. Start from a project with: aoc-od start --open"
+    ;;
+  status)
+    echo "openDesignSource: $OD_SOURCE"
+    echo "openDesignInstalled: $([[ -d "$OD_SOURCE/.git" ]] && echo true || echo false)"
+    echo "openDesignUrl: $OD_URL"
+    if [[ -n "$root" ]] || root="$(resolve_root "$PWD" 2>/dev/null || true)"; then
+      if [[ -n "$root" ]]; then
+        echo "projectRoot: $root"
+        echo "linked: $([[ -f "$root/.aoc/open-design/link.json" ]] && echo true || echo false)"
+        echo "odArtifactsDir: $root/.od/artifacts"
+        echo "aocImportDir: $root/design-artifacts/od"
+      fi
+    fi
+    if [[ -d "$OD_SOURCE/.git" ]] && command -v pnpm >/dev/null 2>&1; then
+      (cd "$OD_SOURCE" && pnpm tools-dev status) || true
+    fi
+    ;;
+  doctor)
+    echo "git: $(command -v git || true)"
+    echo "node: $(node --version 2>/dev/null || echo missing)"
+    echo "pnpm: $(pnpm --version 2>/dev/null || echo missing)"
+    echo "corepack: $(command -v corepack || true)"
+    echo "source: $OD_SOURCE"
+    [[ -d "$OD_SOURCE/.git" ]] && echo "installed: true" || echo "installed: false"
+    if [[ -d "$OD_SOURCE/.git" ]]; then
+      [[ -f "$OD_SOURCE/package.json" ]] && echo "package: present" || echo "package: missing"
+      [[ -f "$OD_SOURCE/apps/daemon/dist/cli.js" ]] && echo "odCliBuild: present" || echo "odCliBuild: missing"
+    fi
+    ;;
+  start)
+    root="${root:-$(resolve_root "$PWD")}" || fail "No AOC/git project root found"
+    write_link "$root" >/dev/null
+    log "Linked project for OD: $root"
+    run_pnpm_tools_dev start web
+    [[ "$open_after" == "1" ]] && open_url "$OD_URL"
+    ;;
+  run)
+    root="${root:-$(resolve_root "$PWD")}" || fail "No AOC/git project root found"
+    write_link "$root" >/dev/null
+    log "Linked project for OD: $root"
+    [[ "$open_after" == "1" ]] && open_url "$OD_URL"
+    run_pnpm_tools_dev run web
+    ;;
+  stop)
+    run_pnpm_tools_dev stop
+    ;;
+  open)
+    open_url "$OD_URL"
+    ;;
+  link)
+    root="${root:-$(resolve_root "$PWD")}" || fail "No AOC/git project root found"
+    out="$(write_link "$root")"
+    log "Wrote $out"
+    ;;
+  import)
+    root="${root:-$(resolve_root "$PWD")}" || fail "No AOC/git project root found"
+    selector="${args[0]:-latest}"
+    if [[ "$selector" == "latest" ]]; then
+      src="$(latest_artifact_dir "$root")" || fail "No OD artifacts found under $root/.od/artifacts"
+    else
+      src="$selector"
+      [[ "$src" = /* ]] || src="$root/$src"
+    fi
+    imported="$(import_artifact "$root" "$src")"
+    log "Imported OD artifact: $imported"
+    ;;
+  *)
+    usage >&2
+    fail "Unknown command: $command"
+    ;;
+esac
