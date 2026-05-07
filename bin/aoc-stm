@@ -48,6 +48,8 @@ Commands:
   handoff               Archive current draft and print handoff snapshot.
   resume [archive]      Print archived handoff snapshot (latest by default).
   current               Alias of read-current.
+  status                Show current draft freshness, size, and latest archive.
+  template              Print a structured agent handoff template.
   add "note"            Append a timestamped note to current STM draft.
   edit                  Open current STM draft in your editor.
   archive               Archive current STM draft and clear current file.
@@ -199,6 +201,72 @@ read_resume() {
   read_archive "${1:-}"
 }
 
+print_template() {
+  cat <<'EOF'
+# AOC Agent Handoff
+
+## Intent
+- Task/subtask:
+- Goal:
+- Suggested next agent/session:
+
+## Current Status
+- State: done | partial | blocked
+- Summary:
+
+## Touched Areas
+- `path/to/file` — why it matters
+
+## Changes Made
+- 
+
+## Validation
+- Command: `...`
+- Result:
+
+## Open Risks / Coordination Warnings
+- 
+
+## Next Safe Actions
+1. 
+2. 
+3. 
+
+## Do Not Repeat
+- Already tried/done:
+- Dead ends:
+EOF
+}
+
+print_status() {
+  setup
+  local latest current_has_content="no" current_lines="0" current_bytes="0" current_mtime="n/a"
+  latest="$(latest_archive)"
+  if has_current_content; then
+    current_has_content="yes"
+    current_lines="$(wc -l < "$current_file" | tr -d '[:space:]')"
+    current_bytes="$(wc -c < "$current_file" | tr -d '[:space:]')"
+    current_mtime="$(date -r "$current_file" '+%Y-%m-%d %H:%M:%S %z' 2>/dev/null || date -u -r "$current_file" '+%Y-%m-%d %H:%M:%SZ' 2>/dev/null || printf 'unknown')"
+  fi
+
+  echo "AOC STM Handoff Status"
+  echo "  project_root: $project_root"
+  echo "  current: $current_file"
+  echo "  current_has_content: $current_has_content"
+  echo "  current_lines: $current_lines"
+  echo "  current_bytes: $current_bytes"
+  echo "  current_modified: $current_mtime"
+  echo "  latest_archive: ${latest:-none}"
+
+  if [[ -n "$latest" ]] && current_newer_than_archive "$latest"; then
+    echo "  warning: current draft is newer than latest archive; run 'aoc-stm handoff' when ready to seal a deliberate handoff."
+  fi
+  if [[ "$current_lines" =~ ^[0-9]+$ ]] && (( current_lines > 120 )); then
+    echo "  warning: current draft is large; compact it to a focused handoff before archiving."
+  fi
+  echo "  guidance: STM is for deliberate in-progress agent/session handoffs only; durable decisions belong in aoc-mem."
+}
+
 list_history() {
   setup
   local limit="${1:-20}"
@@ -260,6 +328,12 @@ case "$cmd" in
     ;;
   read-current|current)
     read_current
+    ;;
+  status)
+    print_status
+    ;;
+  template)
+    print_template
     ;;
   handoff)
     shift || true

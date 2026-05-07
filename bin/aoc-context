@@ -124,7 +124,7 @@ response = [
 ]
 commands_block = [
     "Memory: `aoc-mem read`, `aoc-mem add`, `aoc-mem search`.",
-    "STM: `aoc-stm`, `aoc-stm resume`, `aoc-stm handoff`, `aoc-stm add`.",
+    "STM handoff layer: `aoc-stm status`, `aoc-stm template`, `aoc-stm resume`, `aoc-stm handoff`, `aoc-stm add` (handoffs only; durable decisions use `aoc-mem`).",
     "Tasks/specs: `tm list`, `tm show <id>`, `tm add`, `tm sub ...`, `tm tag current`, `tm tag spec show`.",
     "AOC health: `aoc-init`, `aoc-handshake --json`, `aoc-rtk status`, `aoc-rtk doctor`.",
 ]

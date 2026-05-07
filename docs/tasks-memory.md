@@ -43,24 +43,35 @@ Bad memory entries:
 - guesses
 - long pasted files
 
-## Short-term memory
+## STM handoff layer
 
-Use STM for session notes and handoffs:
+Use STM only for deliberate in-progress handoff packets between agents or sessions. It is not durable memory and not a generic work log.
 
 ```bash
-aoc-stm add "Implemented parser; tests still needed."
-aoc-stm
+aoc-stm status
+aoc-stm template
+aoc-stm add "Task 217 partial: updated bin/aoc-stm; docs/tests still needed."
 aoc-stm handoff
 aoc-stm resume
 ```
 
 Use STM when:
 
-- pausing mid-task
-- handing work to another session
-- recording next actions after a large change
+- another agent/session needs to continue in-progress work
+- multiple agents may touch nearby files and need coordination context
+- context window is getting tight while work is incomplete
+- switching from builder to reviewer/tester/documenter
 
-Promote durable decisions from STM into `aoc-mem`.
+A good STM handoff includes:
+
+- intent and task/subtask IDs
+- current status: done / partial / blocked
+- touched files/areas and changes made
+- validation commands and results
+- coordination warnings and next safe actions
+- do-not-repeat notes for dead ends or completed work
+
+Do not use STM for durable decisions, raw logs, every minor task, or information already captured in tasks/specs/commits. Promote durable decisions into `aoc-mem`.
 
 ## Commit intelligence
 

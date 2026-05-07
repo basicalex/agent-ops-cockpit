@@ -890,14 +890,18 @@ These commands are in PATH and work without loading any skill:
 - `aoc-mem read` - read persistent memory
 - `aoc-mem add "decision"` - record architectural decision
 
-**Short-Term Memory (STM):**
-- `aoc-stm` - print current draft (shortcut for `aoc-stm read-current`)
-- `aoc-stm handoff` - archive current draft and print handoff snapshot
+**STM handoff layer (not durable memory):**
+- Use STM only for deliberate in-progress agent/session handoffs: continuation, coordination, context-window pressure, or avoiding overlapping edits.
+- Do not use STM for durable decisions (`aoc-mem add`), generic logs, raw command output, or every minor task.
+- `aoc-stm status` - inspect draft freshness/size/latest archive before relying on it
+- `aoc-stm template` - print the structured handoff packet format
+- `aoc-stm` - print current handoff draft (shortcut for `aoc-stm read-current`)
+- `aoc-stm handoff` - archive current handoff draft and print sealed snapshot
 - `aoc-stm resume` - print archived handoff snapshot (latest by default)
 - `aoc-stm read` - read latest archived snapshot
 - `aoc-stm archive` - archive current draft
-- `aoc-stm add "note"` - add to current draft
-- `aoc-stm edit` - edit current draft in editor
+- `aoc-stm add "note"` - add a concise handoff note
+- `aoc-stm edit` - edit current handoff draft in editor
 
 **Tasks:**
 - `tm list` - list tasks (alias for `aoc-task`)
@@ -1148,7 +1152,7 @@ Use the AOC tools for context, memory, and tasks in this repo.
 - **Context:** `.aoc/context.md` (auto-generated project map)
 - **Design:** `DESIGN.md` at the project root is the visual/product design contract. Read it before UI, docs-site, marketing, HyperFrames, or other product-facing changes.
 - **Memory:** use `aoc-mem read/search/add` via Bash tool (do not edit `.aoc/memory.md` directly)
-- **Short-term memory:** use `aoc-stm` (draft), `aoc-stm handoff` (seal), and `aoc-stm resume`/`aoc-stm read` (resume) via Bash tool (do not read `.aoc/stm/current.md` directly)
+- **STM handoff layer:** use `aoc-stm status`, `aoc-stm template`, `aoc-stm` (draft), `aoc-stm handoff` (seal), and `aoc-stm resume`/`aoc-stm read` (resume) via Bash tool for deliberate in-progress handoffs only; durable decisions belong in `aoc-mem` (do not read `.aoc/stm/current.md` directly)
 - **Tasks:** use `tm` or `aoc-task` via Bash tool (do not edit `.taskmaster/tasks/tasks.json` directly)
 - **Task specs:** tag-level defaults + task-level overrides via `aocPrd` (resolve with `aoc-task tag spec show --tag <tag>` and `aoc-task spec show <id> --tag <tag>`)
 - **RTK routing (default-on for new AOC repos):** allowlisted commands route via RTK in AOC panes; manage with `aoc-rtk status|enable|disable|doctor|install --auto` and `.aoc/rtk.toml`
@@ -1630,19 +1634,28 @@ upgrade_stm_skill_guidance() {
     cat <<'EOF' > "$stm_skill"
 ---
 name: stm-ops
-description: Capture and read short-term diary context with aoc-stm.
+description: Capture deliberate in-progress agent/session handoff packets with aoc-stm.
 ---
 
 ## When to use
-- Context window is getting tight and you need to summarize current execution state.
-- You need to load current draft STM context into the terminal transcript.
+- Another agent/session needs to continue in-progress work.
+- Multiple agents may touch nearby files and need coordination context.
+- Context window is getting tight and work is incomplete.
+- Switching from builder to reviewer/tester/documenter.
+
+## Do not use STM for
+- Durable decisions or project conventions; use `aoc-mem add`.
+- Generic progress logs, raw command output, or every minor task.
+- Information already captured cleanly in Taskmaster, specs, commits, or Mind.
 
 ## Commands
+- `aoc-stm status`
+- `aoc-stm template`
 - `aoc-stm add "<note>"`
 - `aoc-stm edit`
-- `aoc-stm` (default read current draft)
+- `aoc-stm` (default read current handoff draft)
 - `aoc-stm read-current`
-- `aoc-stm handoff` (archive current draft and print handoff snapshot)
+- `aoc-stm handoff` (archive current handoff draft and print sealed snapshot)
 - `aoc-stm resume` (read archived handoff snapshot; latest by default)
 - `aoc-stm archive`
 - `aoc-stm read` (read latest archive)
@@ -1650,14 +1663,17 @@ description: Capture and read short-term diary context with aoc-stm.
 - `aoc-stm read <archive>`
 
 ## Handoff format (recommended)
-- Objective and task/subtask IDs
-- Done / in-progress / blocked
-- Files touched and key command outcomes
-- Open decisions + assumptions
-- Next 3-5 concrete steps
+Use `aoc-stm template` and keep packets concise:
+- Intent and task/subtask IDs
+- Current status: done / partial / blocked
+- Touched areas and changes made
+- Validation commands and results
+- Open risks / coordination warnings
+- Next safe actions
+- Do-not-repeat notes for dead ends or completed work
 
 ## Guardrails
-- Keep STM as a project diary: write/edit in current draft via `aoc-stm`, then seal clean checkpoints with `aoc-stm handoff`.
+- Keep STM as a short-lived handoff draft, then seal clean checkpoints with `aoc-stm handoff`.
 - Promote durable decisions to `aoc-mem add`, not STM.
 - Do not edit `tasks.json` directly while preparing handoff state.
 EOF
@@ -1678,9 +1694,11 @@ description: Use aoc-mem to read, search, and record project decisions.
 - `aoc-mem read`
 - `aoc-mem search "<term>"`
 - `aoc-mem add "<decision>"`
+- `aoc-stm status`
+- `aoc-stm template`
 - `aoc-stm add "<handoff note>"`
 - `aoc-stm edit`
-- `aoc-stm` (read current draft)
+- `aoc-stm` (read current handoff draft)
 - `aoc-stm handoff` (archive current draft and print handoff snapshot)
 - `aoc-stm resume` (read archived handoff snapshot; latest by default)
 - `aoc-stm archive`
@@ -1694,7 +1712,7 @@ description: Use aoc-mem to read, search, and record project decisions.
 
 ## Guardrail
 - Never edit `.aoc/memory.md` directly.
-- Keep `.aoc/stm/current.md` as an in-progress draft and archive it often so STM becomes a durable project diary.
+- Keep `.aoc/stm/current.md` as a short-lived in-progress handoff draft only; archive deliberate handoff packets with `aoc-stm handoff` and promote durable decisions to `aoc-mem`.
 EOF
     log "Updated memory-ops skill with STM command guidance."
   fi
