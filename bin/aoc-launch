@@ -161,10 +161,51 @@ resolve_layout_path() {
   printf '%s' "$HOME/.config/zellij/layouts/${layout_name}.kdl"
 }
 
+aoc_config_workspace_root() {
+  local config_file="${AOC_CONFIG_FILE:-${XDG_CONFIG_HOME:-$HOME/.config}/aoc/config.toml}"
+  [[ -f "$config_file" ]] || return 1
+  python3 - <<'PY' "$config_file" 2>/dev/null
+import re, sys
+text=open(sys.argv[1], encoding='utf-8').read()
+match=re.search(r'(?m)^\s*workspace_root\s*=\s*["\']([^"\']+)["\']\s*$', text)
+if not match:
+    raise SystemExit(1)
+print(match.group(1))
+PY
+}
+
+resolve_mission_control_layout_path() {
+  local project_root="${1:-$PWD}"
+  local workspace_root="${2:-}"
+  local script_dir
+  script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
+  local candidates=(
+    "$project_root/.aoc/layouts/mission-control.kdl"
+    "$PWD/.aoc/layouts/mission-control.kdl"
+    "$workspace_root/agent-ops-cockpit/.aoc/layouts/mission-control.kdl"
+    "$script_dir/../.aoc/layouts/mission-control.kdl"
+    "$HOME/.config/zellij/layouts/mission-control.kdl"
+  )
+  local candidate
+  for candidate in "${candidates[@]}"; do
+    if [[ -f "$candidate" ]]; then
+      realpath "$candidate" 2>/dev/null || printf '%s' "$candidate"
+      return 0
+    fi
+  done
+  return 1
+}
+
 resolve_workspace_root() {
   local project_root="${1:-$PWD}"
   if [[ -n "${AOC_WORKSPACE_ROOT:-}" ]]; then
     realpath "$AOC_WORKSPACE_ROOT" 2>/dev/null || printf '%s' "$AOC_WORKSPACE_ROOT"
+    return
+  fi
+  local configured_root
+  configured_root="$(aoc_config_workspace_root || true)"
+  if [[ -n "$configured_root" ]]; then
+    realpath "$configured_root" 2>/dev/null || printf '%s' "$configured_root"
     return
   fi
   local real_project parent base grand
@@ -185,6 +226,57 @@ resolve_workspace_root() {
       ;;
   esac
   printf '%s' "$parent"
+}
+
+session_has_mission_control_tab() {
+  local session_id="$1"
+  command -v zellij >/dev/null 2>&1 || return 1
+  local tabs_json
+  tabs_json="$(zellij --session "$session_id" action list-tabs --json 2>/dev/null || true)"
+  [[ -n "$tabs_json" ]] || return 1
+  python3 - "$tabs_json" <<'PY'
+import json, sys
+try:
+    payload=json.loads(sys.argv[1])
+except Exception:
+    raise SystemExit(1)
+items = payload if isinstance(payload, list) else payload.get('tabs') or payload.get('data') or payload.get('items') or []
+for tab in items:
+    if not isinstance(tab, dict):
+        continue
+    name = tab.get('name') or tab.get('tab_name') or tab.get('title') or ''
+    if str(name).strip().lower() == 'mission control':
+        raise SystemExit(0)
+raise SystemExit(1)
+PY
+}
+
+open_project_tab_in_session() {
+  local session_id="$1"
+  local project_root="$2"
+  [[ "${AOC_OPEN_PROJECT_TAB_ON_ATTACH:-1}" != "0" ]] || return 0
+  if command -v aoc-new-tab >/dev/null 2>&1; then
+    AOC_TARGET_SESSION="$session_id" \
+    AOC_LAYOUT="$layout" \
+    ZELLIJ_PROJECT_ROOT="$project_root" \
+    AOC_PROJECT_ROOT="$project_root" \
+    aoc-new-tab --cwd "$project_root" >/dev/null 2>&1 || true
+  fi
+}
+
+ensure_mission_control_tab() {
+  local session_id="$1"
+  local workspace_root="$2"
+  local mc_layout_path="$3"
+  [[ "${AOC_MC_REPAIR:-1}" != "0" ]] || return 0
+  [[ "${AOC_MC_FIRST:-1}" != "0" ]] || return 0
+  session_has_mission_control_tab "$session_id" && return 0
+  if command -v aoc-new-tab >/dev/null 2>&1 && [[ -f "$mc_layout_path" ]]; then
+    AOC_TARGET_SESSION="$session_id" \
+    ZELLIJ_PROJECT_ROOT="$workspace_root" \
+    AOC_PROJECT_ROOT="$workspace_root" \
+    aoc-new-tab --layout "$mc_layout_path" --name "Mission Control" --cwd "$workspace_root" >/dev/null 2>&1 || true
+  fi
 }
 
 sync_aoc_theme_profile() {
@@ -393,6 +485,11 @@ attach_env=(
 )
 
 if session_name_exists "$session_id"; then
+  if [[ -z "${ZELLIJ:-}" && "$layout" != "mission-control" ]]; then
+    mc_layout_path="$(resolve_mission_control_layout_path "$project_root" "$workspace_root" || true)"
+    ensure_mission_control_tab "$session_id" "$workspace_root" "$mc_layout_path"
+    open_project_tab_in_session "$session_id" "$project_root"
+  fi
   # -f/--force-run-commands makes Zellij re-run layout commands when attaching
   # to a serialized dead session, avoiding resurrected panes that only show
   # "dead terminal" for yazi, PI agent, Taskmaster, etc.
@@ -403,7 +500,7 @@ fi
 session_arg=(--session "$session_id")
 
 if [[ "${AOC_MC_FIRST:-1}" != "0" && "$layout" != "mission-control" ]]; then
-  mc_layout_path="$(resolve_layout_path "mission-control" "$project_root")"
+  mc_layout_path="$(resolve_mission_control_layout_path "$project_root" "$workspace_root" || true)"
   if [[ -f "$mc_layout_path" && -f "$layout_arg" ]]; then
     mc_agent_id="$(basename "$workspace_root")"
     mc_tmp="$state_dir/aoc-layout-mission-control-${mc_agent_id}.kdl"
@@ -460,6 +557,7 @@ if [[ "${AOC_MC_FIRST:-1}" != "0" && "$layout" != "mission-control" ]]; then
 ' "$mc_layout_path" > "$mc_tmp"
     bootstrap_tmp="$state_dir/aoc-layout-bootstrap-${agent_id}.kdl"
     python3 - <<'PY' "$mc_tmp" "$layout_arg" "$bootstrap_tmp"
+import re
 import sys
 
 def body(path):
@@ -470,8 +568,13 @@ def body(path):
         raise SystemExit(f'invalid layout: {path}')
     return text[start+1:end].strip()
 
+def defocus_tabs(kdl):
+    # Zellij allows only one focused tab in a layout. Keep Mission Control focused
+    # and defocus all tabs from the appended project layout.
+    return re.sub(r'(\btab\b[^{}\n]*?)\s+focus=true(\s*\{)', r'\1\2', kdl)
+
 mc, project, out = sys.argv[1:]
-open(out, 'w').write('layout {\n' + body(mc) + '\n\n' + body(project) + '\n}\n')
+open(out, 'w').write('layout {\n' + body(mc) + '\n\n' + defocus_tabs(body(project)) + '\n}\n')
 PY
     layout_arg="$bootstrap_tmp"
   fi

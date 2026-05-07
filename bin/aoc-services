@@ -11,16 +11,45 @@ from pathlib import Path
 ROOT = Path.cwd()
 
 
-def run(cmd, timeout=12):
-    if isinstance(cmd, str):
-        result = subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=timeout, check=False)
-    else:
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout, check=False)
-    return result.returncode, result.stdout.strip(), result.stderr.strip()
+def resolve_service_root():
+    env_root = os.environ.get("AOC_SERVICES_ROOT") or os.environ.get("AOC_CONTROL_ROOT")
+    candidates = []
+    if env_root:
+        candidates.append(Path(env_root))
+    candidates.append(ROOT)
+    candidates.append(ROOT / "agent-ops-cockpit")
+    try:
+        candidates.extend(sorted(p for p in ROOT.iterdir() if p.is_dir()))
+    except Exception:
+        pass
+    for candidate in candidates:
+        try:
+            resolved = candidate.expanduser().resolve()
+        except Exception:
+            resolved = candidate
+        if (resolved / ".aoc/search.toml").exists() or (resolved / "bin/aoc-search").exists():
+            return resolved
+    return ROOT
 
 
-def json_cmd(cmd, timeout=12):
-    code, out, err = run(cmd, timeout)
+SERVICE_ROOT = resolve_service_root()
+
+
+def run(cmd, timeout=12, cwd=None):
+    try:
+        if isinstance(cmd, str):
+            result = subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=timeout, check=False, cwd=cwd)
+        else:
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout, check=False, cwd=cwd)
+        return result.returncode, result.stdout.strip(), result.stderr.strip()
+    except subprocess.TimeoutExpired as exc:
+        stdout = exc.stdout.decode(errors="replace") if isinstance(exc.stdout, bytes) else (exc.stdout or "")
+        stderr = exc.stderr.decode(errors="replace") if isinstance(exc.stderr, bytes) else (exc.stderr or "")
+        return 124, stdout.strip(), (stderr.strip() or f"timed out after {timeout}s")
+
+
+def json_cmd(cmd, timeout=12, cwd=None):
+    code, out, err = run(cmd, timeout, cwd=cwd)
     payload = None
     if out:
         try:
@@ -34,7 +63,7 @@ def search_status():
     if not shutil.which("aoc-search") and not Path("bin/aoc-search").exists():
         return {"name": "search", "kind": "server", "state": "missing", "healthy": False, "message": "aoc-search not found"}
     cmd = "aoc-search health --json" if shutil.which("aoc-search") else "bin/aoc-search health --json"
-    code, payload, out, err = json_cmd(cmd, timeout=20)
+    code, payload, out, err = json_cmd(cmd, timeout=20, cwd=SERVICE_ROOT)
     healthy = code == 0 and isinstance(payload, dict) and bool(payload.get("healthy"))
     return {"name": "search", "kind": "server", "state": "healthy" if healthy else "down", "healthy": healthy, "requiredFor": ["aoc-search"], "details": payload or {"stdout": out, "stderr": err}}
 
@@ -43,7 +72,7 @@ def render_status():
     cmd = "aoc-render status --json" if shutil.which("aoc-render") else "bin/aoc-render status --json"
     if not shutil.which("aoc-render") and not Path("bin/aoc-render").exists():
         return {"name": "render", "kind": "oneshot", "state": "missing", "healthy": False, "serverRequired": False, "message": "aoc-render not found"}
-    code, payload, out, err = json_cmd(cmd, timeout=8)
+    code, payload, out, err = json_cmd(cmd, timeout=8, cwd=SERVICE_ROOT)
     available = code == 0 and isinstance(payload, dict) and bool(payload.get("available"))
     return {"name": "render", "kind": "oneshot", "state": "available" if available else "unavailable", "healthy": available, "serverRequired": False, "requiredFor": ["aoc-render"], "details": payload or {"stdout": out, "stderr": err}}
 
@@ -51,7 +80,7 @@ def render_status():
 def browser_status():
     if not shutil.which("agent-browser"):
         return {"name": "browser", "kind": "daemon", "state": "missing", "healthy": False, "requiredFor": ["agent-browser"], "message": "agent-browser not found"}
-    code, out, err = run("agent-browser get url", timeout=6)
+    code, out, err = run("agent-browser get url", timeout=3, cwd=SERVICE_ROOT)
     ready = code == 0
     return {"name": "browser", "kind": "daemon", "state": "ready" if ready else "cold", "healthy": ready, "requiredFor": ["agent-browser"], "details": {"stdout": out, "stderr": err}}
 
@@ -59,7 +88,7 @@ def browser_status():
 def mind_status():
     if not shutil.which("aoc-mind-service"):
         return {"name": "mind", "kind": "daemon-or-cold", "state": "missing", "healthy": False, "requiredFor": ["mind", "context-pack"], "message": "aoc-mind-service not found"}
-    code, payload, out, err = json_cmd(f"aoc-mind-service status --project-root {quote(str(ROOT))} --json", timeout=10)
+    code, payload, out, err = json_cmd(f"aoc-mind-service status --project-root {quote(str(SERVICE_ROOT))} --json", timeout=10, cwd=SERVICE_ROOT)
     state = "healthy" if code == 0 else "cold"
     raw_state = (((payload or {}).get("service_status") or {}).get("state")) if isinstance(payload, dict) else None
     if raw_state:
@@ -73,7 +102,7 @@ def quote(value):
 
 def all_status():
     services = [search_status(), render_status(), browser_status(), mind_status()]
-    return {"schemaVersion": 1, "projectRoot": str(ROOT), "services": services, "healthy": all(s.get("healthy") or s.get("kind") in {"oneshot", "daemon-or-cold"} for s in services)}
+    return {"schemaVersion": 1, "projectRoot": str(ROOT), "serviceRoot": str(SERVICE_ROOT), "services": services, "healthy": all(s.get("healthy") or s.get("kind") in {"oneshot", "daemon-or-cold"} for s in services)}
 
 
 def print_status(payload, as_json=False):
@@ -81,6 +110,8 @@ def print_status(payload, as_json=False):
         print(json.dumps(payload, indent=2))
         return
     print(f"AOC services: {payload['projectRoot']}")
+    if payload.get("serviceRoot") and payload.get("serviceRoot") != payload.get("projectRoot"):
+        print(f" service root: {payload['serviceRoot']}")
     for svc in payload["services"]:
         marker = "✓" if svc.get("healthy") else ("·" if svc.get("kind") in {"oneshot", "daemon-or-cold"} else "✗")
         extra = " no-server" if svc.get("serverRequired") is False else ""
@@ -90,7 +121,7 @@ def print_status(payload, as_json=False):
 def start_service(name):
     if name == "search":
         cmd = "aoc-search start --wait" if shutil.which("aoc-search") else "bin/aoc-search start --wait"
-        return run(cmd, timeout=90)
+        return run(cmd, timeout=90, cwd=SERVICE_ROOT)
     if name == "render":
         return 0, "render is one-shot; no server to start", ""
     if name == "browser":
@@ -103,7 +134,7 @@ def start_service(name):
 def stop_service(name):
     if name == "search":
         cmd = "aoc-search stop" if shutil.which("aoc-search") else "bin/aoc-search stop"
-        return run(cmd, timeout=60)
+        return run(cmd, timeout=60, cwd=SERVICE_ROOT)
     if name in {"render", "browser", "mind"}:
         return 0, f"{name} has no managed default stop action", ""
     raise SystemExit(f"unknown service: {name}")

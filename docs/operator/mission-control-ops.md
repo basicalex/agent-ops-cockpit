@@ -271,11 +271,21 @@ aoc-new-tab --mission-control
 
 When `aoc` is launched outside an existing Zellij/AOC session, AOC now uses
 Mission Control as the first session tab by default and then opens the requested
-project tab. The Mission Control tab is rooted at the resolved workspace root
-(`AOC_WORKSPACE_ROOT`, common workspace parent such as `~/dev`, then fallback to
-the project parent), while the regular project tab remains rooted at the command
-cwd/project root. Running `aoc` from inside an existing pane keeps the lightweight
-new-tab behavior and does not create another Mission Control tab.
+project tab. The Mission Control tab is rooted at the resolved workspace root,
+while the regular project tab remains rooted at the command cwd/project root.
+Running `aoc` from inside an existing pane keeps the lightweight new-tab behavior
+and does not create another Mission Control tab.
+
+Workspace root precedence:
+1. `AOC_WORKSPACE_ROOT`
+2. `workspace_root = "/path"` in `${AOC_CONFIG_FILE:-~/.config/aoc/config.toml}`
+3. common workspace parent such as `~/dev`, `~/code`, `~/projects`, `~/workspaces`, or `~/src`
+4. project parent fallback
+
+Controls:
+- `AOC_MC_FIRST=0` disables first-tab Mission Control bootstrap.
+- `AOC_MC_REPAIR=0` disables adding a missing Mission Control tab when attaching to an existing session from outside Zellij.
+- `AOC_OPEN_PROJECT_TAB_ON_ATTACH=0` disables opening the requested project tab when an outside launch attaches to an existing session.
 
 Outside Zellij, operators can still bootstrap directly into only the dedicated
 layout with:
