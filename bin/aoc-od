@@ -14,16 +14,17 @@ Usage: aoc-od <command> [options]
 Open Design bridge for AOC projects.
 
 Commands:
-  install              Clone/update global Open Design checkout and install deps
+  install              Clone/update global Open Design checkout, apply AOC patches, install deps
   status               Show install/link/runtime status (read-only)
   doctor               Check local prerequisites and OD install health (read-only)
-  start [--open]       Start OD managed runtime in background and link current project
-  run [--open]         Run OD web runtime in foreground and link current project
+  start [--open]       Start OD managed runtime in background and grant current project root
+  run [--open]         Run OD web runtime in foreground and grant current project root
   stop                 Stop OD managed runtime
   open                 Open configured OD URL in browser
   link                 Write .aoc/open-design/link.json for current project
   import latest        Copy latest .od/artifacts/* into design-artifacts/od/*
   import PATH          Copy a specific OD artifact dir into design-artifacts/od/*
+  patch                Apply AOC compatibility patches to installed OD checkout
 
 Options:
   --root PATH          Project root (default: nearest .aoc/.git)
@@ -37,6 +38,9 @@ Options:
 
 Notes:
   install/start are explicit because OD runs a local daemon that can spawn agent CLIs.
+  start/run grant Codex access to the resolved project root via OD_LINKED_DIRS.
+  Default Codex sandbox is danger-full-access because Codex/bwrap fails in OD on some Linux hosts; set AOC_OD_CODEX_SANDBOX=workspace-write to re-enable sandboxing.
+  Codex OAuth image generation is enabled for prototype projects by default; set AOC_OD_CODEX_IMAGEGEN_IN_PROTOTYPES=0 to disable.
   OAuth/OpenAI account reuse is not configured automatically in v1.
 EOF
 }
@@ -69,6 +73,21 @@ open_url() {
   fi
 }
 
+current_web_url() {
+  require_source
+  command -v pnpm >/dev/null 2>&1 || return 1
+  (cd "$OD_SOURCE" && pnpm tools-dev status 2>/dev/null || true) \
+    | awk '/^- web: running/ { for (i=1; i<=NF; i++) if ($i ~ /^http:\/\//) { print $i; exit } }'
+}
+
+open_current_or_default() {
+  local url
+  url="$(current_web_url || true)"
+  [[ -n "$url" ]] || url="$OD_URL"
+  log "Opening OD: $url"
+  open_url "$url"
+}
+
 require_source() {
   [[ -d "$OD_SOURCE/.git" ]] || fail "Open Design not installed at $OD_SOURCE. Run: aoc-od install"
 }
@@ -77,6 +96,66 @@ run_pnpm_tools_dev() {
   require_source
   command -v pnpm >/dev/null 2>&1 || fail "pnpm missing. Install pnpm/corepack before running OD."
   (cd "$OD_SOURCE" && pnpm tools-dev "$@")
+}
+
+run_pnpm_tools_dev_for_project() {
+  local project_root="$1"
+  shift
+  require_source
+  command -v pnpm >/dev/null 2>&1 || fail "pnpm missing. Install pnpm/corepack before running OD."
+  mkdir -p "$project_root/.od"
+  (cd "$OD_SOURCE" && OD_DATA_DIR="$project_root/.od" OD_LINKED_DIRS="$project_root" OD_CODEX_SANDBOX="${AOC_OD_CODEX_SANDBOX:-danger-full-access}" OD_CODEX_IMAGEGEN_IN_PROTOTYPES="${AOC_OD_CODEX_IMAGEGEN_IN_PROTOTYPES:-1}" pnpm tools-dev "$@")
+}
+
+apply_aoc_od_patches() {
+  require_source
+  python3 - "$OD_SOURCE" <<'PY'
+from pathlib import Path
+import shutil, sys
+root = Path(sys.argv[1])
+
+def replace(rel, old, new):
+    path = root / rel
+    text = path.read_text(encoding='utf-8')
+    if new in text:
+        return False
+    if old not in text:
+        raise SystemExit(f"patch context missing: {rel}")
+    path.write_text(text.replace(old, new), encoding='utf-8')
+    return True
+
+changed = []
+if replace('apps/daemon/src/agents.ts', """      { id: 'gpt-5-codex', label: 'gpt-5-codex' },\n      { id: 'gpt-5', label: 'gpt-5' },\n""", """      { id: 'gpt-5.5', label: 'gpt-5.5' },\n      { id: 'gpt-5.4', label: 'gpt-5.4' },\n      { id: 'gpt-5-codex', label: 'gpt-5-codex' },\n      { id: 'gpt-5', label: 'gpt-5' },\n"""):
+    changed.append('agents-models')
+if replace('apps/daemon/src/agents.ts', """      const args = [\n        'exec',\n        '--json',\n        '--skip-git-repo-check',\n        '--sandbox',\n        'workspace-write',\n        '-c',\n        'sandbox_workspace_write.network_access=true',\n      ];\n""", """      const sandboxMode = process.env.OD_CODEX_SANDBOX === 'danger-full-access'\n        ? 'danger-full-access'\n        : 'workspace-write';\n      const args = [\n        'exec',\n        '--json',\n        '--skip-git-repo-check',\n        '--sandbox',\n        sandboxMode,\n      ];\n      if (sandboxMode === 'workspace-write') {\n        args.push('-c', 'sandbox_workspace_write.network_access=true');\n      }\n"""):
+    changed.append('agents-sandbox')
+if replace('apps/daemon/src/prompts/system.ts', """  return (\n    normalizedAgentId === 'codex' &&\n    metadata?.kind === 'image' &&\n    resolveCodexImagegenModelId(metadata).length > 0\n  );\n}\n""", """  const allowPrototypeImagegen =\n    process.env.OD_CODEX_IMAGEGEN_IN_PROTOTYPES === '1';\n  return (\n    normalizedAgentId === 'codex' &&\n    (metadata?.kind === 'image' ||\n      (allowPrototypeImagegen && metadata?.kind === 'prototype')) &&\n    resolveCodexImagegenModelId(metadata).length > 0\n  );\n}\n"""):
+    changed.append('prototype-imagegen')
+if replace('apps/daemon/src/server.ts', """  const candidates = isCodex\n    ? [codexGeneratedImagesDir]\n    : [\n        skillsDir,\n        designSystemsDir,\n        ...(Array.isArray(linkedDirs) ? linkedDirs : []),\n      ];\n""", """  const envLinkedDirs = String(process.env.OD_LINKED_DIRS || '')\n    .split(path.delimiter)\n    .map((d) => d.trim())\n    .filter(Boolean);\n  const allLinkedDirs = [\n    ...(Array.isArray(linkedDirs) ? linkedDirs : []),\n    ...envLinkedDirs,\n  ];\n  const candidates = isCodex\n    ? [codexGeneratedImagesDir, ...allLinkedDirs]\n    : [\n        skillsDir,\n        designSystemsDir,\n        ...allLinkedDirs,\n      ];\n"""):
+    changed.append('linked-dirs-allowlist')
+if replace('apps/daemon/src/server.ts', """    const linkedDirs = (() => {\n      if (!Array.isArray(projectRecord?.metadata?.linkedDirs)) return [];\n      const v = validateLinkedDirs(projectRecord.metadata.linkedDirs);\n      return v.dirs ?? [];\n    })();\n""", """    const linkedDirs = (() => {\n      const fromRecord = Array.isArray(projectRecord?.metadata?.linkedDirs)\n        ? projectRecord.metadata.linkedDirs\n        : [];\n      const fromEnv = String(process.env.OD_LINKED_DIRS || '')\n        .split(path.delimiter)\n        .map((d) => d.trim())\n        .filter(Boolean);\n      const v = validateLinkedDirs([...fromRecord, ...fromEnv]);\n      return v.dirs ?? [];\n    })();\n"""):
+    changed.append('linked-dirs-prompt')
+
+old_dir = root / 'apps/web/app/[[...slug]]'
+client = old_dir / 'client-app.tsx'
+if client.exists():
+    text = client.read_text(encoding='utf-8').replace("import('../../src/App')", "import('../src/App')")
+    (root / 'apps/web/app/client-app.tsx').write_text(text, encoding='utf-8')
+    shutil.rmtree(old_dir)
+    changed.append('web-route-client')
+(root / 'apps/web/app/[...slug]').mkdir(parents=True, exist_ok=True)
+page = root / 'apps/web/app/page.tsx'
+page_text = """import { ClientApp } from './client-app';\n\nexport default function Page() {\n  return <ClientApp />;\n}\n"""
+if not page.exists() or page.read_text(encoding='utf-8') != page_text:
+    page.write_text(page_text, encoding='utf-8')
+    changed.append('web-root-page')
+slug_page = root / 'apps/web/app/[...slug]/page.tsx'
+slug_text = """import { ClientApp } from '../client-app';\n\nexport const dynamic = 'force-dynamic';\nexport const dynamicParams = true;\n\nexport default function Page() {\n  return <ClientApp />;\n}\n"""
+if not slug_page.exists() or slug_page.read_text(encoding='utf-8') != slug_text:
+    slug_page.write_text(slug_text, encoding='utf-8')
+    changed.append('web-slug-page')
+print('patched: ' + (', '.join(changed) if changed else 'already current'))
+PY
 }
 
 write_link() {
@@ -212,9 +291,15 @@ case "$command" in
       git clone --branch "$OD_REF" "$OD_REPO_URL" "$OD_SOURCE"
     fi
     if command -v corepack >/dev/null 2>&1; then corepack enable || true; fi
+    apply_aoc_od_patches
     command -v pnpm >/dev/null 2>&1 || fail "pnpm missing after corepack. Install pnpm 10.33.x."
     (cd "$OD_SOURCE" && pnpm install && pnpm --filter @open-design/daemon build)
-    log "Open Design installed. Start from a project with: aoc-od start --open"
+    log "Open Design installed and AOC-patched. Start from a project with: aoc-od start --open"
+    ;;
+  patch)
+    apply_aoc_od_patches
+    (cd "$OD_SOURCE" && pnpm --filter @open-design/daemon build)
+    log "AOC Open Design patches applied. Restart OD with: aoc-od stop && aoc-od start --open"
     ;;
   status)
     echo "openDesignSource: $OD_SOURCE"
@@ -248,21 +333,25 @@ case "$command" in
     root="${root:-$(resolve_root "$PWD")}" || fail "No AOC/git project root found"
     write_link "$root" >/dev/null
     log "Linked project for OD: $root"
-    run_pnpm_tools_dev start web
-    [[ "$open_after" == "1" ]] && open_url "$OD_URL"
+    warn "Granting OD/Codex access to project root: $root"
+    warn "AOC_OD_CODEX_SANDBOX=${AOC_OD_CODEX_SANDBOX:-danger-full-access}; OD agent may read/write this repo. Review git diff before keeping changes."
+    run_pnpm_tools_dev_for_project "$root" start web
+    [[ "$open_after" == "1" ]] && open_current_or_default
     ;;
   run)
     root="${root:-$(resolve_root "$PWD")}" || fail "No AOC/git project root found"
     write_link "$root" >/dev/null
     log "Linked project for OD: $root"
-    [[ "$open_after" == "1" ]] && open_url "$OD_URL"
-    run_pnpm_tools_dev run web
+    warn "Granting OD/Codex access to project root: $root"
+    warn "AOC_OD_CODEX_SANDBOX=${AOC_OD_CODEX_SANDBOX:-danger-full-access}; OD agent may read/write this repo. Review git diff before keeping changes."
+    [[ "$open_after" == "1" ]] && open_current_or_default
+    run_pnpm_tools_dev_for_project "$root" run web
     ;;
   stop)
     run_pnpm_tools_dev stop
     ;;
   open)
-    open_url "$OD_URL"
+    open_current_or_default
     ;;
   link)
     root="${root:-$(resolve_root "$PWD")}" || fail "No AOC/git project root found"

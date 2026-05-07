@@ -72,11 +72,21 @@ cd <project>
 aoc-od start --open
 ```
 
-This starts OD's managed web runtime and writes:
+This starts OD's managed web runtime with `OD_DATA_DIR=<project>/.od` and writes:
 
 ```text
 .aoc/open-design/link.json
 ```
+
+OD still creates its per-chat agent workspaces under:
+
+```text
+<project>/.od/projects/<id>/
+```
+
+AOC applies compatibility patches during `aoc-od install`/`aoc-od patch` so OD can use the project root as a linked Codex directory, detect the live web port, expose current GPT model IDs, and use Codex OAuth image generation from prototype projects.
+
+By default AOC starts OD with `OD_CODEX_SANDBOX=danger-full-access` because Codex/bwrap sandboxing can fail inside OD on some Linux hosts. This allows OD/Codex to read and write the linked repo. Review `git status` and `git diff` before keeping OD-generated changes. Set `AOC_OD_CODEX_SANDBOX=workspace-write` to retry sandboxed mode.
 
 The link file tells AOC/agents where OD fits in the current project:
 
