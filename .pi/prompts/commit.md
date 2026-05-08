@@ -1,5 +1,5 @@
 ---
-description: Run the safe AOC commit workflow after implementation/polish
+description: Run the automated AOC commit workflow after implementation/polish
 argument-hint: "[instructions]"
 ---
 
@@ -7,7 +7,7 @@ Run the AOC commit workflow for:
 
 $ARGUMENTS
 
-Use this after implementation and any polish passes. The goal is a clean, atomic, provenance-rich Git commit. Do not stage, commit, or push until the user explicitly approves the exact plan.
+Use this after implementation and any polish passes. The goal is a clean, atomic, provenance-rich Git commit. The user's `/commit` invocation is approval to run the full commit flow directly: inspect, select a safe atomic file set, stage exact paths, commit, and report the result. Never push unless explicitly requested.
 
 Workflow:
 
@@ -44,19 +44,11 @@ AOC-Intent: <durable intent>
 Tests: <commands run/results>
 Risk: low|medium|high; <reason>
 
-5. Ask for approval
-Before staging/committing, show:
-- exact files to stage
-- commit subject/body/trailers
-- tests run
-- excluded unrelated files
-- risk level
-
-Ask a direct approval question.
-
-6. Commit only after approval
-- Stage only approved explicit paths.
-- Commit only approved message.
+5. Validate and commit directly
+- Run targeted validation appropriate to the selected files when practical.
+- Stage only explicit approved-by-workflow paths with `git add -- path ...`; never stage broad paths like `.`.
+- Commit with the drafted provenance-rich message.
+- If there are mixed/unrelated changes and no safe atomic file set can be inferred, stop and ask a concise clarification instead of committing.
 - Never push unless explicitly requested.
 
 Final response after commit:
@@ -67,6 +59,9 @@ Final response after commit:
 - remaining unrelated changes, if any
 
 Safety:
+- Treat `/commit` as approval to stage and commit the safe atomic file set inferred by this workflow.
 - Never commit secrets/tokens/private logs.
-- Never stage/commit/push without explicit approval of the exact file set and exact commit message.
+- Never stage broad paths or unrelated/pre-existing changes.
+- If the atomic set or message is ambiguous, ask before staging/committing.
+- Never push without explicit push approval.
 - Do not include raw chain-of-thought or huge diffs in commit messages.

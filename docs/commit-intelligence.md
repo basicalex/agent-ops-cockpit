@@ -90,16 +90,18 @@ Use Mind context only when it is needed and with an explicit reason:
 aoc-mind-service context-pack --project-root "$PWD" --mode focused --reason "prepare AOC commit provenance" --json
 ```
 
-### 4. Ask before committing
+### 4. Commit directly from `/commit`
 
-Agents should show:
+The user's `/commit` invocation is approval for the agent to complete the safe commit flow directly:
 
-- files to stage
-- commit subject/body/trailers
-- tests run or not run
-- risk level
+- select a coherent atomic file set
+- exclude unrelated/pre-existing changes
+- run targeted validation when practical
+- stage only explicit paths, never broad paths like `.`
+- commit with AOC provenance trailers
+- report the resulting SHA and remaining unrelated changes
 
-Then ask for approval before `git add`/`git commit`. Never push unless explicitly requested.
+If the file set or commit intent is ambiguous, the agent should stop and ask for clarification before staging. Never push unless explicitly requested.
 
 ## Message format
 
