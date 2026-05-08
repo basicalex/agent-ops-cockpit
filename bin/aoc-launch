@@ -106,10 +106,10 @@ resolve_session_id() {
     return
   fi
 
-  # Reuse the whimsical session allocated to this project until the operator
-  # explicitly asks for a new engineering session. This preserves active Zellij
-  # process/TUI state across detach/reattach while keeping human-friendly names.
-  if [[ "${AOC_NEW_SESSION:-0}" != "1" && -f "$session_file" ]]; then
+  # Outside Zellij, default to a fresh engineering session. Reattaching old
+  # sessions resurrects stale tabs/process state too often; operators can opt in
+  # to legacy attach/reuse behavior with AOC_ATTACH_EXISTING=1.
+  if [[ "${AOC_ATTACH_EXISTING:-0}" == "1" && "${AOC_NEW_SESSION:-0}" != "1" && -f "$session_file" ]]; then
     saved_session="$(head -n 1 "$session_file" 2>/dev/null || true)"
     if [[ -n "$saved_session" ]] \
       && ! is_deprecated_project_prefixed_session_id "$project_root" "$saved_session" \

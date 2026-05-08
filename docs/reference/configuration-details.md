@@ -97,7 +97,7 @@ Control layout behavior and appearance:
 Cleanup note:
 
 - Auto-cleanup launched by `aoc-launch` and `aoc-new-tab` is guarded by default (`AOC_CLEANUP_SESSIONS=current`, `AOC_CLEANUP_REQUIRE_ACTIVE_SIGNALS=1`, `AOC_CLEANUP_SKIP_IF_NO_SESSIONS=1`, plus age delay filters).
-- AOC allocates one whimsical unique Zellij session name per engineering session (for example `aoc-otter-debugs`, without repo/path text). Running `aoc` inside Zellij opens a tab in the current multiplexer session; running it outside Zellij reuses the saved session when present, or creates a new whimsical session when no saved/live session exists. Set `AOC_NEW_SESSION=1` to intentionally start a fresh engineering session, or `AOC_FORCE_SESSION_ID` to pin a specific name.
+- AOC allocates one whimsical unique Zellij session name per engineering session (for example `aoc-otter-debugs`, without repo/path text). Running `aoc` inside Zellij opens a tab in the current multiplexer session; running it outside Zellij starts a fresh session by default so stale tabs/processes are not resurrected. Set `AOC_ATTACH_EXISTING=1` to intentionally reattach/reuse the saved session, `AOC_NEW_SESSION=1` to force fresh behavior, or `AOC_FORCE_SESSION_ID` to pin a specific name.
 
 ### Pulse transport and Mission Control
 
