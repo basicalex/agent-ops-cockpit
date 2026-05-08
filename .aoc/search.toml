@@ -8,7 +8,7 @@ auto_start = true
 
 [search.runtime]
 base_url = "http://127.0.0.1:8888"
-healthcheck_url = "http://127.0.0.1:8888/search?q=python+documentation&format=json"
+healthcheck_url = "http://127.0.0.1:8888/search?q=python+documentation&format=json&engines=bing%2Cmojeek%2Cpresearch%2Cwiby%2Cduckduckgo"
 compose_file = ".aoc/services/searxng/docker-compose.yml"
 service_name = "searxng"
 
