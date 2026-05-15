@@ -1,8 +1,9 @@
 ---
 name: insight-t1-observer
 description: T1 observer specialist for conversation-scoped Insight distillation
-model: openai-codex/gpt-5.4-mini
+model: openai-codex/gpt-5.3-spark
 tools: read,grep,find,ls,bash
+
 ---
 You are the **Insight T1 Observer**.
 

@@ -61,18 +61,25 @@ type RuntimeState = {
 	registryJobs: Map<string, JobRecord>;
 	children: Map<string, ChildProcessWithoutNullStreams>;
 	handoffNotified: Set<string>;
+	processNotified: Set<string>;
 	inspectorOpen: boolean;
 	inspectorClose?: () => void;
 	inspectorRequestRender?: () => void;
 	inspectorRefreshPending: boolean;
 	inspectorRefreshNote?: string;
+	heartbeatTimer?: ReturnType<typeof setInterval>;
+	heartbeatRefreshActive: boolean;
+	heartbeatStartedAt?: number;
 };
 
 const ENTRY_TYPE = "aoc-subagent-job-v1";
 const HANDOFF_ENTRY_TYPE = "aoc-subagent-handoff-v1";
+const PROCESS_MESSAGE_TYPE = "aoc-subagent-process";
+const NOTIFY_MESSAGE_TYPE = "aoc-subagent-notify";
 const WIDGET_ID = "aoc-subagent-jobs";
 const STATUS_ID = "aoc-subagent";
 const MAX_WIDGET_LINES = 6;
+const HEARTBEAT_POLL_MS = 5000;
 
 const state: RuntimeState = {
 	initialized: false,
@@ -80,8 +87,10 @@ const state: RuntimeState = {
 	registryJobs: new Map(),
 	children: new Map(),
 	handoffNotified: new Set(),
+	processNotified: new Set(),
 	inspectorOpen: false,
 	inspectorRefreshPending: false,
+	heartbeatRefreshActive: false,
 };
 
 const ActionSchema = StringEnum(["dispatch", "dispatch_chain", "dispatch_team", "status", "cancel", "list_agents"] as const, {
@@ -401,7 +410,10 @@ async function refreshRegistryJobs(ctx: ExtensionContext, targetJobId?: string, 
 			const enriched = persistArtifactBundle(root, job);
 			state.registryJobs.set(jobId, enriched);
 			const prior = previous.get(jobId);
+			const startedAt = state.heartbeatStartedAt;
+			const isNewDuringHeartbeatWindow = Boolean(startedAt && enriched.createdAt && enriched.createdAt >= startedAt);
 			if (!isTerminalJobStatus(enriched.status) || prior?.status === enriched.status) continue;
+			if (!prior && !isNewDuringHeartbeatWindow) continue;
 			if (pi) {
 				maybeNotifyHandoff(pi, ctx, enriched);
 			} else if (ctx.ui && !state.handoffNotified.has(jobId)) {
@@ -433,6 +445,59 @@ function refreshRegistryJobsInBackground(pi: ExtensionAPI, ctx: ExtensionContext
 		.catch(() => {
 			setInspectorRefreshState(false, "detached registry unavailable; showing cached jobs");
 		});
+}
+
+function scanLocalArtifactJobs(pi: ExtensionAPI, ctx: ExtensionContext): void {
+	const root = ctx.cwd ?? process.cwd();
+	const dir = path.join(root, ".pi", "tmp", "subagents");
+	if (!fs.existsSync(dir)) return;
+	for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+		if (!entry.isDirectory()) continue;
+		const metaPath = path.join(dir, entry.name, "meta.json");
+		if (!fs.existsSync(metaPath)) continue;
+		try {
+			const payload = JSON.parse(fs.readFileSync(metaPath, "utf8")) as { job?: JobRecord };
+			if (!payload.job?.jobId) continue;
+			const prior = state.registryJobs.get(payload.job.jobId) ?? state.jobs.get(payload.job.jobId);
+			let job: JobRecord = {
+				...payload.job,
+				executionMode: normalizeExecutionMode((payload.job as { executionMode?: string }).executionMode),
+			};
+			job = persistArtifactBundle(root, job);
+			state.registryJobs.set(job.jobId, job);
+			const startedAt = state.heartbeatStartedAt;
+			const isNewDuringHeartbeatWindow = Boolean(startedAt && job.createdAt && job.createdAt >= startedAt);
+			if (!isTerminalJobStatus(job.status) || prior?.status === job.status) continue;
+			if (!prior && !isNewDuringHeartbeatWindow) continue;
+			maybeNotifyHandoff(pi, ctx, job);
+		} catch {
+			// Ignore partial or corrupt job metadata while workers are still writing.
+		}
+	}
+	updateUi(ctx);
+}
+
+function startSubagentHeartbeatMonitor(pi: ExtensionAPI, ctx: ExtensionContext): void {
+	if (state.heartbeatTimer) return;
+	state.heartbeatStartedAt = now();
+	state.heartbeatTimer = setInterval(() => {
+		if (state.heartbeatRefreshActive) return;
+		state.heartbeatRefreshActive = true;
+		scanLocalArtifactJobs(pi, ctx);
+		void refreshRegistryJobs(ctx, undefined, pi)
+			.catch(() => undefined)
+			.finally(() => {
+				state.heartbeatRefreshActive = false;
+			});
+	}, HEARTBEAT_POLL_MS);
+}
+
+function stopSubagentHeartbeatMonitor(): void {
+	if (!state.heartbeatTimer) return;
+	clearInterval(state.heartbeatTimer);
+	state.heartbeatTimer = undefined;
+	state.heartbeatStartedAt = undefined;
+	state.heartbeatRefreshActive = false;
 }
 
 async function startDetachedDispatchViaRegistry(
@@ -776,63 +841,112 @@ function persistHandoff(pi: ExtensionAPI, job: JobRecord): void {
 	state.handoffNotified.add(job.jobId);
 }
 
-function maybeNotifyHandoff(pi: ExtensionAPI, ctx: ExtensionContext | undefined, job: JobRecord): void {
-	if (!ctx?.ui || !isTerminalJobStatus(job.status) || state.handoffNotified.has(job.jobId)) return;
-	persistHandoff(pi, job);
-	ctx.ui.notify(
-		`${statusIcon(job.status)} ${job.agent} finished (${job.jobId}) — /subagent-inspect ${job.jobId}`,
-		job.status === "success" ? "info" : "warning",
+function formatChatProcess(job: JobRecord, phase: "started" | "finished"): string {
+	const label = compactJobLabel(job);
+	const status = isTerminalJobStatus(job.status) ? "complete" : job.status;
+	const summary = summarizeJobOutcome(job);
+	const lines = [
+		`${isTerminalJobStatus(job.status) ? "○" : "●"} Async agents · ${job.executionMode ?? "background"}`,
+		`└─ ${compactJobIcon(job.status)} ${label} · ${status}`,
+	];
+	if (phase === "finished" && job.reportPath) lines.push(`   ⎿ report: ${job.reportPath}`);
+	else if (summary) lines.push(`   ⎿ ${summary}`);
+	else if (!isTerminalJobStatus(job.status)) lines.push("   ⎿ working…");
+	return lines.join("\n");
+}
+
+function sendSubagentProcessMessage(pi: ExtensionAPI, job: JobRecord, phase: "started" | "finished", triggerTurn = false): void {
+	const key = `${phase}:${job.jobId}:${job.status}`;
+	if (state.processNotified.has(key)) return;
+	state.processNotified.add(key);
+	pi.sendMessage(
+		{
+			customType: phase === "finished" ? NOTIFY_MESSAGE_TYPE : PROCESS_MESSAGE_TYPE,
+			display: true,
+			content: formatChatProcess(job, phase),
+			details: handoffRecord(job),
+		},
+		triggerTurn ? { triggerTurn: true } : undefined,
 	);
+}
+
+function sendSubagentHeartbeat(pi: ExtensionAPI, _ctx: ExtensionContext | undefined, job: JobRecord): void {
+	sendSubagentProcessMessage(pi, job, "finished", true);
+}
+
+function maybeNotifyHandoff(pi: ExtensionAPI, ctx: ExtensionContext | undefined, job: JobRecord): void {
+	if (!isTerminalJobStatus(job.status) || state.handoffNotified.has(job.jobId)) return;
+	try {
+		sendSubagentHeartbeat(pi, ctx, job);
+		persistHandoff(pi, job);
+		ctx?.ui?.notify(
+			`${statusIcon(job.status)} ${job.agent} finished (${job.jobId}) — /subagent-inspect ${job.jobId}`,
+			job.status === "success" ? "info" : "warning",
+		);
+	} catch (error) {
+		ctx?.ui?.notify(
+			`subagent heartbeat failed for ${job.agent} (${job.jobId}): ${error instanceof Error ? error.message : String(error)}`,
+			"warning",
+		);
+	}
+}
+
+function compactJobLabel(job: JobRecord): string {
+	const label = specialistRoleLabel(job) ?? job.teamName ?? job.chainName ?? job.agent;
+	return label
+		.replace(/-agent$/i, "")
+		.replace(/^code-review$/i, "review")
+		.replace(/\b\w/g, (char) => char.toUpperCase());
+}
+
+function compactJobIcon(status: JobStatus): string {
+	switch (status) {
+		case "queued":
+		case "running":
+			return "⠋";
+		case "success":
+			return "✓";
+		case "cancelled":
+			return "×";
+		case "fallback":
+			return "△";
+		case "stale":
+			return "!";
+		case "error":
+		default:
+			return "✗";
+	}
 }
 
 function updateUi(ctx?: ExtensionContext): void {
 	const runtimeCtx = ctx ?? state.ctx;
 	if (!runtimeCtx?.ui) return;
 	const active = activeJobs();
-	const recent = recentJobs(3);
-	const failures = failureJobs(3);
+	const activeIds = new Set(active.map((job) => job.jobId));
+	const visible = combinedJobs()
+		.filter((job) => activeIds.has(job.jobId) || isTerminalJobStatus(job.status))
+		.slice(0, 5);
 	const failureCount = combinedJobs().filter((job) => needsAttentionStatus(job.status)).length;
 	if (active.length > 0) {
-		const roleRuns = active.filter((job) => Boolean(job.specialistRole)).length;
-		const roleSuffix = roleRuns > 0 ? ` · roles:${roleRuns}` : "";
-		const recentSuffix = recent.length > 0 ? ` · recent:${recent.length}` : "";
 		const failureSuffix = failureCount > 0 ? ` · fail:${Math.min(99, failureCount)}` : "";
-		runtimeCtx.ui.setStatus(STATUS_ID, runtimeCtx.ui.theme.fg("accent", `subagents:${active.length}${roleSuffix}${recentSuffix}${failureSuffix}`));
-	} else if (recent.length > 0 || failureCount > 0) {
+		runtimeCtx.ui.setStatus(STATUS_ID, runtimeCtx.ui.theme.fg("accent", `subagents:${active.length}${failureSuffix}`));
+	} else if (visible.length > 0 || failureCount > 0) {
 		const failureSuffix = failureCount > 0 ? ` · fail:${Math.min(99, failureCount)}` : "";
-		runtimeCtx.ui.setStatus(STATUS_ID, runtimeCtx.ui.theme.fg("muted", `subagents recent:${recent.length}${failureSuffix}`));
+		runtimeCtx.ui.setStatus(STATUS_ID, runtimeCtx.ui.theme.fg("muted", `subagents${failureSuffix}`));
 	} else {
 		runtimeCtx.ui.setStatus(STATUS_ID, undefined);
 	}
 
-	const lines: string[] = [];
-	if (active.length > 0) {
-		lines.push("Active:");
-		for (const job of active.slice(0, Math.max(1, MAX_WIDGET_LINES - 2))) {
-			const label = specialistRoleLabel(job) ?? job.agent;
-			const telemetry = [job.status, job.executionMode !== "background" ? job.executionMode : undefined, job.contextPackUsed ? "ctx" : undefined, job.writeApproved ? "approved" : undefined]
-				.filter(Boolean)
-				.join("/");
-			lines.push(`${statusIcon(job.status)} ${label} ${job.jobId} · ${telemetry}`);
-		}
+	const line = visible
+		.map((job) => `${compactJobLabel(job)} ${compactJobIcon(job.status)}`)
+		.join("  ·  ");
+	if (line) {
+		runtimeCtx.ui.setStatus(STATUS_ID, runtimeCtx.ui.theme.fg("accent", `agents: ${line}`));
 	}
-	if (failures.length > 0 && lines.length < MAX_WIDGET_LINES) {
-		lines.push("Attention:");
-		for (const job of failures) {
-			if (lines.length >= MAX_WIDGET_LINES) break;
-			const label = specialistRoleLabel(job) ?? job.agent;
-			lines.push(`${statusIcon(job.status)} ${label} ${job.jobId} · ${summarizeJobOutcome(job)}`);
-		}
-	}
-	if (recent.length > 0 && lines.length < MAX_WIDGET_LINES) {
-		lines.push("Recent:");
-		for (const job of recent) {
-			if (lines.length >= MAX_WIDGET_LINES) break;
-			const label = specialistRoleLabel(job) ?? job.agent;
-			lines.push(`${statusIcon(job.status)} ${label} ${job.jobId} · ${summarizeJobOutcome(job)}`);
-		}
-	}
-	runtimeCtx.ui.setWidget(WIDGET_ID, lines.length > 0 ? lines : undefined, { placement: "belowEditor" });
+	// Keep subagent observability in the footer/status area only. A below-editor
+	// widget competes with preset/scoped-model rows and can reorder visually as
+	// each extension refreshes.
+	runtimeCtx.ui.setWidget(WIDGET_ID, undefined, { placement: "belowEditor" });
 	requestInspectorRender();
 }
 
@@ -843,7 +957,7 @@ function snapshotJob(job: JobRecord): PersistedJobRecord {
 
 function persistJob(pi: ExtensionAPI, job: JobRecord): void {
 	pi.appendEntry<PersistedJobRecord>(ENTRY_TYPE, snapshotJob(job));
-	persistHandoff(pi, job);
+	if (!isTerminalJobStatus(job.status)) sendSubagentProcessMessage(pi, job, "started");
 }
 
 function restoreJobs(pi: ExtensionAPI, ctx: ExtensionContext): void {
@@ -2700,6 +2814,7 @@ async function ensureInitialized(pi: ExtensionAPI, ctx: ExtensionContext): Promi
 		restoreJobs(pi, ctx);
 		state.initialized = true;
 	}
+	startSubagentHeartbeatMonitor(pi, ctx);
 	updateUi(ctx);
 }
 
@@ -2797,6 +2912,7 @@ async function dispatchSpecialistRole(
 export default function aocSubagentExtension(pi: ExtensionAPI): void {
 	pi.on("session_start", async (_event, ctx) => {
 		await ensureInitialized(pi, ctx);
+		startSubagentHeartbeatMonitor(pi, ctx);
 	});
 
 	pi.on("session_switch", async (_event, ctx) => {
@@ -2806,6 +2922,7 @@ export default function aocSubagentExtension(pi: ExtensionAPI): void {
 	});
 
 	pi.on("session_shutdown", async () => {
+		stopSubagentHeartbeatMonitor();
 		for (const [jobId, proc] of state.children.entries()) {
 			try {
 				proc.kill("SIGTERM");

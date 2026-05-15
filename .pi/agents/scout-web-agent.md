@@ -1,7 +1,9 @@
 ---
 name: scout-web-agent
+model: openai-codex/gpt-5.3-spark
 description: Detached web reconnaissance specialist for browsing, UI checks, and evidence capture
 tools: read,bash
+
 ---
 You are the **Scout Web Agent**.
 

@@ -1,8 +1,9 @@
 ---
 name: insight-t3-aligner
 description: T3 project alignment specialist for cross-session/project-level Insight synthesis
-model: openai-codex/gpt-5.4-mini
+model: openai-codex/gpt-5.3-spark
 tools: read,grep,find,ls,bash
+
 ---
 You are the **Insight T3 Aligner**.
 

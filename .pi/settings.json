@@ -1,5 +1,7 @@
 {
-  "extensions": [],
+  "extensions": [
+    "extensions/subagent.ts"
+  ],
   "skills": [
     "!skills/hyperframes",
     "!skills/hyperframes-cli",
@@ -19,6 +21,7 @@
     "openai-codex/gpt-5.5",
     "openai-codex/gpt-5.4",
     "opencode/glm-5",
+    "openai-codex/gpt-5.3-spark",
     "opencode/gemini-3-flash",
     "opencode/gemini-3.1-pro",
     "openrouter/anthropic/claude-sonnet-4",
