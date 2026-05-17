@@ -6026,13 +6026,22 @@ fn hyperframes_summary() -> String {
 
 fn default_agent_browser_install_cmd() -> String {
     r#"set -e
+ensure_pnpm_global_bin() {
+  export PNPM_HOME="${PNPM_HOME:-$HOME/.local/bin}"
+  case ":$PATH:" in *":$PNPM_HOME:"*) ;; *) export PATH="$PNPM_HOME:$PATH" ;; esac
+  mkdir -p "$PNPM_HOME"
+  pnpm config set global-bin-dir "$PNPM_HOME" >/dev/null 2>&1 || true
+}
+
 if command -v pnpm >/dev/null 2>&1; then
+  ensure_pnpm_global_bin
   pnpm add -g agent-browser
 elif command -v npm >/dev/null 2>&1; then
   npm install -g --prefix "${AOC_NPM_GLOBAL_PREFIX:-$HOME/.local}" agent-browser
 elif command -v corepack >/dev/null 2>&1; then
   corepack enable
   corepack prepare pnpm@latest --activate
+  ensure_pnpm_global_bin
   pnpm add -g agent-browser
 else
   echo 'pnpm/npm/corepack not found' >&2
@@ -6059,6 +6068,7 @@ if [ -z "$pw_version" ]; then
 fi
 
 if command -v pnpm >/dev/null 2>&1; then
+  ensure_pnpm_global_bin
   pnpm add -g "playwright@$pw_version"
 else
   npm install -g --prefix "${AOC_NPM_GLOBAL_PREFIX:-$HOME/.local}" "playwright@$pw_version"
@@ -6072,13 +6082,22 @@ agent-browser close >/dev/null 2>&1 || true"#
 
 fn default_agent_browser_update_cmd() -> String {
     r#"set -e
+ensure_pnpm_global_bin() {
+  export PNPM_HOME="${PNPM_HOME:-$HOME/.local/bin}"
+  case ":$PATH:" in *":$PNPM_HOME:"*) ;; *) export PATH="$PNPM_HOME:$PATH" ;; esac
+  mkdir -p "$PNPM_HOME"
+  pnpm config set global-bin-dir "$PNPM_HOME" >/dev/null 2>&1 || true
+}
+
 if command -v pnpm >/dev/null 2>&1; then
+  ensure_pnpm_global_bin
   pnpm add -g agent-browser@latest
 elif command -v npm >/dev/null 2>&1; then
   npm install -g --prefix "${AOC_NPM_GLOBAL_PREFIX:-$HOME/.local}" agent-browser@latest
 elif command -v corepack >/dev/null 2>&1; then
   corepack enable
   corepack prepare pnpm@latest --activate
+  ensure_pnpm_global_bin
   pnpm add -g agent-browser@latest
 else
   echo 'pnpm/npm/corepack not found' >&2
@@ -6105,6 +6124,7 @@ if [ -z "$pw_version" ]; then
 fi
 
 if command -v pnpm >/dev/null 2>&1; then
+  ensure_pnpm_global_bin
   pnpm add -g "playwright@$pw_version"
 else
   npm install -g --prefix "${AOC_NPM_GLOBAL_PREFIX:-$HOME/.local}" "playwright@$pw_version"
