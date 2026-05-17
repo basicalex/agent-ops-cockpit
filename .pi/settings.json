@@ -43,7 +43,6 @@
     "openrouter/openai/gpt-5.1-codex",
     "openrouter/google/gemini-2.5-pro",
     "openrouter/google/gemini-2.5-flash",
-    "openrouter/qwen/qwen3.6-plus",
-    "kimi-coding/kimi-for-coding"
+    "openrouter/qwen/qwen3.6-plus"
   ]
 }

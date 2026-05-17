@@ -148,7 +148,9 @@ assert_contains '"openrouter/openai/gpt-5.1-codex"' "$project_fresh/.pi/settings
 assert_contains '"openrouter/google/gemini-2.5-pro"' "$project_fresh/.pi/settings.json"
 assert_contains '"openrouter/google/gemini-2.5-flash"' "$project_fresh/.pi/settings.json"
 assert_contains '"openrouter/qwen/qwen3.6-plus"' "$project_fresh/.pi/settings.json"
-assert_contains '"kimi-coding/kimi-for-coding"' "$project_fresh/.pi/settings.json"
+if grep -Fq '"kimi-coding/kimi-for-coding"' "$project_fresh/.pi/settings.json"; then
+  fail "Did not expect retired Kimi coding model in fresh PI settings"
+fi
 assert_exists "$project_fresh/.pi/prompts/tm-cc.md"
 assert_exists "$project_fresh/.pi/skills/aoc-init-ops/SKILL.md"
 assert_exists "$project_fresh/.pi/extensions/minimal.ts"
@@ -289,7 +291,9 @@ assert_contains '"openrouter/openai/gpt-5.1-codex"' "$project_legacy_enabled/.pi
 assert_contains '"openrouter/google/gemini-2.5-pro"' "$project_legacy_enabled/.pi/settings.json"
 assert_contains '"openrouter/google/gemini-2.5-flash"' "$project_legacy_enabled/.pi/settings.json"
 assert_contains '"openrouter/qwen/qwen3.6-plus"' "$project_legacy_enabled/.pi/settings.json"
-assert_contains '"kimi-coding/kimi-for-coding"' "$project_legacy_enabled/.pi/settings.json"
+if grep -Fq '"kimi-coding/kimi-for-coding"' "$project_legacy_enabled/.pi/settings.json"; then
+  fail "Did not expect retired Kimi coding model after legacy PI settings migration"
+fi
 
 # --- Deprecated Alibaba provider extension is removed/archived on repair ---
 project_deprecated_alibaba="$tmp_root/deprecated-alibaba"

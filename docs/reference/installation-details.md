@@ -95,7 +95,7 @@ AOC_INSTALL_RUST=0 ./install.sh
 After install (or manual `aoc-init`), a PI-first project should include:
 
 - Pi-native OpenRouter catalog/model handling, with `.pi/extensions/aoc-models.ts` retained only as a legacy migration/status shim
-- Project-local seeded `enabledModels` still includes curated OpenRouter entries such as `openrouter/qwen/qwen3.6-plus` plus `kimi-coding/kimi-for-coding`
+- Project-local seeded `enabledModels` includes curated OpenRouter entries such as `openrouter/qwen/qwen3.6-plus`; the retired `kimi-coding/kimi-for-coding` entry is intentionally not seeded
 - `/model` and `/scoped-models` for native model scope, plus `/multi-auth` for OpenRouter and Kimi Code credential rotation
 - `OPENROUTER_API_KEY` and `KIMI_API_KEY` available in the environment or PI auth storage when you want to use those models
 
