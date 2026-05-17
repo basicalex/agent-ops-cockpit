@@ -1,0 +1,44 @@
+id = "research"
+label = "AOC Research"
+defaultMode = "web"
+version = 1
+
+[runtime]
+controller = "aoc-presets"
+statusBadge = "RESEARCH"
+persistSessionState = true
+
+[activation]
+envPreset = "research"
+envMode = "web"
+
+[components]
+core = ["hook", "core"]
+default = ["hook", "core", "mode-web"]
+
+[components.modes]
+web = ["hook", "core", "mode-web"]
+repo = ["hook", "core", "mode-repo"]
+sources = ["hook", "core", "mode-sources"]
+
+[skills]
+active = ["web-research"]
+recommended = []
+
+[skills.recommendedByMode]
+web = ["web-research", "agent-browser"]
+repo = ["rlm-analysis"]
+sources = ["web-research"]
+
+[handoff]
+enabled = true
+
+[handoff.modeNotes]
+web = "Preserve queries, sources, retrieved facts, uncertainty, and next source to verify."
+repo = "Preserve searched paths, symbols, findings, and confidence gaps."
+sources = "Preserve source list, citation labels, claims supported, and claims unresolved."
+
+[integrations.mind]
+policy = "focused"
+available = true
+default = "off"

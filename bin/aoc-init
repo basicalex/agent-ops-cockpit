@@ -382,7 +382,7 @@ PY
 managed_pi_skill_name() {
   local skill_name="$1"
   case "$skill_name" in
-    aoc-hyperframes|aoc-init-ops|aoc-map|custom-layout-ops|design-diff|design-director|design-handoff|design-premium-ui|design-redesign|design-review|design-spec|design-tokens|motion-director|spec-rpg-authoring|prd-rpg-authoring|rlm-analysis|teach-workflow|tm-cc|vercel-cli|web-research|zellij-theme-ops)
+    aoc-hyperframes|aoc-init-ops|aoc-map|architecture-design|custom-layout-ops|design-diff|design-director|design-handoff|design-premium-ui|design-redesign|design-review|design-spec|design-tokens|frontend-design|funnel-design|safe-gamification|motion-director|spec-rpg-authoring|prd-rpg-authoring|rlm-analysis|teach-workflow|tm-cc|vercel-cli|web-research|zellij-theme-ops)
       return 0
       ;;
     *)
@@ -394,7 +394,7 @@ managed_pi_skill_name() {
 managed_pi_extension_name() {
   local extension_name="$1"
   case "$extension_name" in
-    minimal.ts|themeMap.ts|mind-ingest.ts|mind-ops.ts|mind-context.ts|mind-focus.ts|aoc-models.ts|lib/mind.ts|lib/caveman.ts)
+    minimal.ts|themeMap.ts|mind-ingest.ts|mind-ops.ts|mind-context.ts|mind-focus.ts|aoc-models.ts|subagent.ts|lib/mind.ts|lib/caveman.ts)
       return 0
       ;;
     *)
@@ -885,41 +885,13 @@ This file defines the always-on rules for agents in this repo. Procedural playbo
 
 ## AOC CLI Commands (run via Bash tool - NOT Read tool)
 These commands are in PATH and work without loading any skill:
+- Startup/repair: `aoc-handshake --json`, `aoc-init`
+- Memory: `aoc-mem read`, `aoc-mem search "query"`, `aoc-mem add "decision"`
+- STM handoff only: `aoc-stm status`, `aoc-stm`, `aoc-stm add "note"`, `aoc-stm handoff`, `aoc-stm resume`
+- Tasks: `tm tag current`, `tm tag spec show`, `aoc-task tag spec show --tag <tag>`, `aoc-task spec show <id> --tag <tag>`
+- RTK: `aoc-rtk status`, `aoc-rtk doctor`, `aoc-rtk install --auto`, `aoc-rtk enable|disable`
 
-**Memory:**
-- `aoc-mem read` - read persistent memory
-- `aoc-mem add "decision"` - record architectural decision
-
-**STM handoff layer (not durable memory):**
-- Use STM only for deliberate in-progress agent/session handoffs: continuation, coordination, context-window pressure, or avoiding overlapping edits.
-- Do not use STM for durable decisions (`aoc-mem add`), generic logs, raw command output, or every minor task.
-- `aoc-stm status` - inspect draft freshness/size/latest archive before relying on it
-- `aoc-stm template` - print the structured handoff packet format
-- `aoc-stm` - print current handoff draft (shortcut for `aoc-stm read-current`)
-- `aoc-stm handoff` - archive current handoff draft and print sealed snapshot
-- `aoc-stm resume` - print archived handoff snapshot (latest by default)
-- `aoc-stm read` - read latest archived snapshot
-- `aoc-stm archive` - archive current draft
-- `aoc-stm add "note"` - add a concise handoff note
-- `aoc-stm edit` - edit current handoff draft in editor
-
-**Tasks:**
-- `tm list` - list tasks (alias for `aoc-task`)
-- `tm add "Task name"` - add new task
-- `tm tag current` - print effective active tag
-- `tm tag spec show` - show spec linked to active tag (`prd` remains a legacy alias)
-- `aoc-task tag spec show --tag <tag>` - show spec linked to a specific tag (`prd` remains a legacy alias)
-- `tm --tm-root <path> ...` - run Taskmaster commands against another project
-- `tm` - open Taskmaster TUI
-
-**Other:**
-- `aoc-init` - initialize/repair AOC files
-- `aoc-handshake --json` - print metadata-only startup state and Mind usage policy; does not inject Mind memories
-- `aoc-mem search "query"` - search memory
-- `aoc-rtk status` - check RTK routing status
-- `aoc-rtk enable|disable` - toggle RTK routing mode
-- `aoc-rtk doctor` - run RTK diagnostics
-- `aoc-rtk install --auto` - auto-fetch and install pinned RTK binary
+STM is for deliberate in-progress handoffs only; do not use it for durable decisions, generic logs, raw command output, or every minor task.
 
 ## Core files
 - `.aoc/context.md`: auto-generated project snapshot.
@@ -932,26 +904,14 @@ These commands are in PATH and work without loading any skill:
 - Task spec overrides are currently stored via legacy key `aocPrd`; resolve with `aoc-task spec show <id> --tag <tag>`.
 - Effective precedence is task spec override -> tag default spec.
 - Keep task specs in git: `.taskmaster/docs/specs/**` and legacy `.taskmaster/docs/prds/**` should always be tracked.
-- Keep AOC/task state in git: `.aoc/**`, `.taskmaster/**`, and `.pi/**` should not be ignored.
+- Keep AOC/task/config state in git: `.aoc/**`, `.taskmaster/**`, and `.pi/**` should not be ignored except explicit high-churn runtime artifacts such as logs, locks, and `.aoc/mind/project.sqlite`.
 
 ## Task Management
 - `.taskmaster/tasks/tasks.json` is task state; use the Taskmaster TUI, `aoc-task`, or `tm` (alias for `aoc-task`). Do not edit the file directly.
 - Record major decisions and constraints in memory (`aoc-mem add "..."`).
 
 ## Skills (load when needed)
-- `aoc-workflow`: standard project workflow.
-- `teach-workflow`: guided teach-mode scans, dives, and local insight logging.
-- `rlm-analysis`: large codebase analysis flow.
-- `spec-dev`/`prd-dev`: draft the Taskmaster spec (PRD legacy subtype).
-- `spec-intake`/`prd-intake`: parse a project spec into initial task sets.
-- `spec-align`/`prd-align`: align tasks with the linked spec.
-- `tag-align`: normalize task tags and dependencies.
-- `task-breakdown`: expand a task into clear subtasks.
-- `task-checker`: verify implementation vs. testStrategy.
-- `release-notes`: draft changelog and release notes.
-- `skill-creator`: create or update AOC skills.
-- `zellij-theme-ops`: create and manage global Zellij themes.
-- `tm-cc`: cross-project Taskmaster control with explicit tm root targeting.
+Load a skill only when its description matches the user request. Keep always-on guidance here minimal; procedural playbooks belong in skill files.
 
 Note: `aoc-mem`, `aoc-stm`, and `tm` are basic CLI commands (see above) - no skill needed.
 EOF
@@ -960,11 +920,92 @@ EOF
 write_root_design_contract() {
   local target_file="$1"
   cat <<'EOF' > "$target_file"
+---
+version: "alpha"
+name: "Project design system"
+description: "Project-level visual and product design contract for coding agents."
+colors:
+  bg: "#0B0F14"
+  surface: "#121923"
+  primary: "#38BDF8"
+  accent: "#A78BFA"
+  text: "#E5E7EB"
+  muted: "#9CA3AF"
+  success: "#22C55E"
+  warning: "#F59E0B"
+  danger: "#EF4444"
+  on-primary: "#071018"
+  on-danger: "#0B0F14"
+typography:
+  body-md:
+    fontFamily: "terminal-default monospace"
+    fontSize: "1rem"
+    fontWeight: "400"
+    lineHeight: "1.5"
+  heading-sm:
+    fontFamily: "terminal-default monospace"
+    fontSize: "1.125rem"
+    fontWeight: "700"
+    lineHeight: "1.3"
+  label:
+    fontFamily: "terminal-default monospace"
+    fontSize: "0.875rem"
+    fontWeight: "600"
+    lineHeight: "1.4"
+rounded:
+  sm: "4px"
+  md: "8px"
+spacing:
+  xs: "4px"
+  sm: "8px"
+  md: "16px"
+  lg: "24px"
+components:
+  action-primary:
+    backgroundColor: "{colors.primary}"
+    textColor: "{colors.on-primary}"
+    typography: "{typography.label}"
+    rounded: "{rounded.sm}"
+    padding: "8px"
+  action-danger:
+    backgroundColor: "{colors.danger}"
+    textColor: "{colors.on-danger}"
+    typography: "{typography.label}"
+    rounded: "{rounded.sm}"
+    padding: "8px"
+  app-background:
+    backgroundColor: "{colors.bg}"
+    textColor: "{colors.text}"
+    typography: "{typography.body-md}"
+  panel:
+    backgroundColor: "{colors.surface}"
+    textColor: "{colors.text}"
+    typography: "{typography.body-md}"
+    rounded: "{rounded.md}"
+    padding: "16px"
+  caption:
+    backgroundColor: "{colors.surface}"
+    textColor: "{colors.muted}"
+    typography: "{typography.body-md}"
+  status-success:
+    backgroundColor: "{colors.success}"
+    textColor: "{colors.bg}"
+    typography: "{typography.label}"
+  status-warning:
+    backgroundColor: "{colors.warning}"
+    textColor: "{colors.bg}"
+    typography: "{typography.label}"
+  status-accent:
+    backgroundColor: "{colors.accent}"
+    textColor: "{colors.bg}"
+    typography: "{typography.label}"
+---
+
 # DESIGN.md
 
 This is the project-wide visual and product design contract for agents and humans. Treat it as the source of truth before making product-facing UI, website, documentation, marketing, or media changes.
 
-> AOC note: this template is AOC-owned and compatible with emerging DESIGN.md conventions. Keep it concise, concrete, and updated when intentional design-system changes are made.
+> AOC note: this template is AOC-owned and compatible with the Google Labs `design.md` format. Keep the YAML token front matter valid, concise, concrete, and updated when intentional design-system changes are made.
 
 ## Product experience
 
@@ -1433,7 +1474,7 @@ EOF
   context_tmp="$(mktemp)"
   context_line_budget="$(positive_int_or_default "${AOC_CONTEXT_LINE_BUDGET:-320}" 320)"
   context_tree_depth="$(positive_int_or_default "${AOC_CONTEXT_TREE_DEPTH:-2}" 2)"
-  context_tree_line_budget="$(positive_int_or_default "${AOC_CONTEXT_TREE_LINE_BUDGET:-180}" 180)"
+  context_tree_line_budget="$(positive_int_or_default "${AOC_CONTEXT_TREE_LINE_BUDGET:-40}" 40)"
   readme_heading_limit="$(positive_int_or_default "${AOC_CONTEXT_README_HEADING_LIMIT:-40}" 40)"
 
   if command -v git >/dev/null 2>&1 && git -C "$project_root" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
@@ -1445,8 +1486,10 @@ EOF
 
   if command -v tree >/dev/null 2>&1; then
     tree_output="$(tree -L "$context_tree_depth" --gitignore -I '.git|.taskmaster|.aoc|.gemini|node_modules|target|dist|archive|deprecated|.venv|venv|__pycache__' "$project_root" 2>/dev/null || true)"
-    tree_lines="$(printf '%s\n' "$tree_output" | wc -l | tr -d ' ')"
+  else
+    tree_output="$(cd "$project_root" && find . -maxdepth "$context_tree_depth" \( -path './.git' -o -path './.taskmaster' -o -path './.aoc' -o -path './.gemini' -o -path './node_modules' -o -path './target' -o -path './dist' -o -path './archive' -o -path './deprecated' -o -path './.venv' -o -path './venv' -o -path './__pycache__' \) -prune -o -print 2>/dev/null | sort || true)"
   fi
+  tree_lines="$(printf '%s\n' "$tree_output" | wc -l | tr -d ' ')"
 
   if [[ -f "$project_root/README.md" ]]; then
     readme_headings="$(grep -E '^#{1,6} ' "$project_root/README.md" | head -n "$readme_heading_limit" || true)"
@@ -1502,7 +1545,7 @@ EOF
         printf '%s\n' "$tree_output"
       fi
     else
-      echo "tree command not found"
+      echo "No project structure entries detected."
     fi
     echo '```'
 
@@ -1787,10 +1830,11 @@ description: Initialize or repair AOC context, memory, and tasks safely.
 - Seeds `.aoc/stm/current.md` and `.aoc/stm/archive/` without overwriting existing STM files
 - Ensures spec directory `.taskmaster/docs/specs/` is available for tag/task links
 - Seeds `.pi/settings.json` when missing
-- Seeds PI prompt templates in `.pi/prompts/` (`/aoc-ops`, `/teach`, `/teach-full`, `/teach-dive`, `/teach-ask`, `/tm-cc`, `/implement`, `/commit`) when missing
-- Seeds PI default extensions in `.pi/extensions/` (`minimal.ts`, `themeMap.ts`, `mind-ingest.ts`, `mind-ops.ts`, `mind-context.ts`, `mind-focus.ts`, `aoc-models.ts`, plus `lib/mind.ts` and `lib/caveman.ts`) when missing
+- Seeds core PI prompt templates in `.pi/prompts/` (`/aoc-ops`, `/tm-cc`, `/implement`, `/commit`) when missing
+- Keeps optional teaching/video prompts in `.pi/prompts-optional/production-hidden/`
+- Seeds PI default extensions in `.pi/extensions/` (`minimal.ts`, `themeMap.ts`, `mind-ingest.ts`, `mind-ops.ts`, `mind-context.ts`, `mind-focus.ts`, `aoc-models.ts`, `subagent.ts`, plus `lib/mind.ts` and `lib/caveman.ts`) when missing
 - Seeds the preset runtime family in `.pi/extensions/aoc-presets/` when missing
-- Seeds reusable design preset assets in `.aoc/presets/design/` and `.aoc/layouts/design.kdl` when missing
+- Seeds reusable preset assets in `.aoc/presets/{design,hyperframes,ops,research}/` and `.aoc/layouts/design.kdl` when missing
 - Seeds `.aoc/init-state.json` with the current AOC project version and applies version-specific migrations on older repos
 - Seeds the vendored local PI multi-auth package at `.pi/packages/pi-multi-auth-aoc` and wires `.pi/settings.json` to load it only when the package is available
 - Removes legacy global npm `pi-multi-auth` package entries from `~/.pi/agent/settings.json` to avoid duplicate extension loading
@@ -2037,8 +2081,36 @@ legacy_seeded_enabled_models = [
     "opencode/gemini-3.1-pro:medium",
     "opencode/kimi-k2.5:medium",
 ]
+default_extensions = [
+    "extensions/minimal.ts",
+    "extensions/mind-ingest.ts",
+    "extensions/mind-ops.ts",
+    "extensions/mind-context.ts",
+    "extensions/mind-focus.ts",
+    "extensions/aoc-models.ts",
+    "extensions/aoc-presets/index.ts",
+    "extensions/subagent.ts",
+]
+default_skill_filters = [
+    "!skills/prd-rpg-authoring",
+    "!skills/tmcc",
+    "!skills/teach-workflow",
+    "!skills/architecture-design",
+    "!skills/design-*",
+    "!skills/frontend-design",
+    "!skills/funnel-design",
+    "!skills/motion-director",
+    "!skills/safe-gamification",
+    "!skills/animejs-*",
+    "!skills/aoc-hyperframes",
+    "!skills/hyperframes",
+    "!skills/hyperframes-cli",
+    "!skills/website-to-hyperframes",
+    "!skills/gsap",
+]
 defaults = {
-    "extensions": [],
+    "extensions": default_extensions,
+    "skills": default_skill_filters,
     "packages": ([local_multi_auth_package] if include_local_multi_auth_package else []),
     **pi_defaults,
     "enabledModels": seeded_enabled_models,
@@ -2078,9 +2150,21 @@ if not isinstance(data, dict):
     raise SystemExit(0)
 
 changed = False
-if "extensions" not in data:
+if not isinstance(data.get("extensions"), list):
     data["extensions"] = []
     changed = True
+for extension in default_extensions:
+    if extension not in data["extensions"]:
+        data["extensions"].append(extension)
+        changed = True
+
+if not isinstance(data.get("skills"), list):
+    data["skills"] = []
+    changed = True
+for skill_filter in default_skill_filters:
+    if skill_filter not in data["skills"]:
+        data["skills"].append(skill_filter)
+        changed = True
 
 packages = data.get("packages")
 if not isinstance(packages, list):
@@ -2496,6 +2580,7 @@ setup_pi_extensions() {
     "mind-context.ts"
     "mind-focus.ts"
     "aoc-models.ts"
+    "subagent.ts"
     "lib/mind.ts"
     "lib/caveman.ts"
   )
@@ -2710,16 +2795,14 @@ setup_aoc_preset_assets() {
     fi
   }
 
+  # Seed the compact production preset surface used by Alt+X. Presets are
+  # cognitive positioning layers; mode-specific skills remain lazy/filtered.
   seed_aoc_preset_asset "design"
+  seed_aoc_preset_asset "hyperframes"
+  seed_aoc_preset_asset "ops"
+  seed_aoc_preset_asset "research"
 
-  # HyperFrames is optional. If a repo already has any HyperFrames integration
-  # marker, make sure the Alt+X preset runtime is present too. Older
-  # aoc-hyperframes installs only seeded PI skills/prompts, so /reload could not
-  # discover the HyperFrames preset menu entry until this asset was copied.
-  if [[ -d "$project_root/${AOC_HYPERFRAMES_DIR:-hyperframes}" \
-    || -d "$project_root/.pi/skills/hyperframes" \
-    || -f "$project_root/.pi/prompts/hyperframes.md" ]]; then
-    seed_aoc_preset_asset "hyperframes"
+  if [[ -d "$project_root/${AOC_HYPERFRAMES_DIR:-hyperframes}" ]]; then
     ensure_hyperframes_workspace_package
   fi
 
@@ -2901,10 +2984,6 @@ setup_pi_prompts() {
   )
   local required_prompts=(
     "aoc-ops"
-    "teach"
-    "teach-full"
-    "teach-dive"
-    "teach-ask"
     "tm-cc"
     "implement"
     "commit"
@@ -2946,6 +3025,35 @@ setup_pi_prompts() {
   if [[ "$seeded_any" != "1" ]]; then
     warn "No PI prompt templates found; skipping PI prompt seeding."
   fi
+
+  local optional_hidden_dir="$project_root/.pi/prompts-optional/production-hidden"
+  local optional_seed_dirs=(
+    "$aoc_config_dir/pi/prompts-optional/production-hidden"
+    "$script_dir/../.pi/prompts-optional/production-hidden"
+  )
+  local optional_prompt=""
+  local optional_seed_file=""
+  mkdir -p "$optional_hidden_dir"
+  for optional_prompt in "hyperframes" "teach" "teach-full" "teach-dive" "teach-ask"; do
+    optional_seed_file=""
+    for candidate in "${optional_seed_dirs[@]}"; do
+      if [[ -f "$candidate/${optional_prompt}.md" ]]; then
+        optional_seed_file="$candidate/${optional_prompt}.md"
+        break
+      fi
+    done
+    if [[ -n "$optional_seed_file" && ! -f "$optional_hidden_dir/${optional_prompt}.md" ]]; then
+      cp "$optional_seed_file" "$optional_hidden_dir/${optional_prompt}.md"
+      log "Seeded optional hidden PI prompt: /$optional_prompt"
+    fi
+  done
+
+  for optional_prompt in "hyperframes" "teach" "teach-full" "teach-dive" "teach-ask"; do
+    if [[ -f "$pi_prompts_dir/${optional_prompt}.md" && ! -f "$optional_hidden_dir/${optional_prompt}.md" ]]; then
+      mv "$pi_prompts_dir/${optional_prompt}.md" "$optional_hidden_dir/${optional_prompt}.md"
+      log "Moved optional PI prompt out of production surface: /$optional_prompt"
+    fi
+  done
 
   if [[ -f "$pi_prompts_dir/tmcc.md" ]]; then
     log "Legacy PI prompt alias /tmcc detected; preserving file but alias is no longer seeded."

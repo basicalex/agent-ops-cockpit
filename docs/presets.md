@@ -68,18 +68,22 @@ With `preset: off`:
 - no preset-specific active skills
 
 With `preset: design`:
-- `design-director` becomes active
-- mode-specific design skills become recommended
-- motion submodes bias toward the relevant Anime.js specialist skills
+- `frontend-design`, `architecture-design`, and `design-director` become active
+- mode-specific design skills become recommended only when relevant
+- `DESIGN.md` remains the durable handoff/source-of-truth contract
 
-## First preset: design
+Shipped presets:
+- `design`: product/design critique, specs, tokens, brand, motion-aware review
+- `hyperframes`: video/campaign production and render workflow
+- `ops`: production operations, health, deploys, repo mapping, tasks
+- `research`: evidence gathering across web, repo, and source sets
 
-The first shipped preset is `design`.
+## Preset assets
 
-Design assets live in:
+Preset assets live in:
 
 ```text
-.aoc/presets/design/
+.aoc/presets/<id>/
   preset.toml
   components/
 ```
@@ -95,6 +99,9 @@ Generic:
 - `/preset select`
 - `/preset-menu`
 - `/preset design`
+- `/preset hyperframes`
+- `/preset ops`
+- `/preset research`
 - `/preset off`
 - `/preset skills`
 - `/preset handoff`
@@ -124,25 +131,15 @@ Motion:
 - `/motion-director audit`
 - `/motion-off`
 
-## Design preset skill routing
+## Preset skill routing
 
-Current design manifest behavior:
-- active by default: `design-director`
-- active in motion mode: `motion-director`
-- recommended by mode:
-  - critique -> `design-review`
-  - spec -> `design-spec`
-  - diff -> `design-diff`
-  - handoff -> `design-handoff`
-  - tokens -> `design-tokens`
-  - premium -> `design-premium-ui`, `design-redesign`
-- recommended by motion submode:
-  - react -> `animejs-react-integration`, `animejs-core-api`, `animejs-performance-a11y`
-  - scroll -> `animejs-scroll-interaction`, `animejs-core-api`, `animejs-performance-a11y`
-  - svg -> `animejs-svg-motion`, `animejs-core-api`, `animejs-performance-a11y`
-  - text -> `animejs-text-splitting`, `animejs-core-api`, `animejs-performance-a11y`
-  - timeline -> `animejs-timelines`, `animejs-core-api`, `animejs-performance-a11y`
-  - audit -> `animejs-reviewer`, `animejs-performance-a11y`
+Current manifest behavior:
+- design active: `frontend-design`, `architecture-design`, `design-director`
+- design recommended by mode: critique/spec/diff/tokens/brand/premium/funnel/motion specialists only when that mode is selected
+- hyperframes active: `aoc-hyperframes`
+- hyperframes recommended by mode: `hyperframes`, `website-to-hyperframes`, `hyperframes-cli`, `gsap`
+- ops active: none by default; mode recommends `aoc-init-ops`, `vercel-cli`, `rlm-analysis`, `aoc-map`, or `tm-cc`
+- research active: `web-research`; mode recommends `agent-browser` or `rlm-analysis` when useful
 
 ## Handoff behavior
 
@@ -160,16 +157,23 @@ The runtime also keeps a short transition trail, inspectable with `/preset histo
 
 Use `/preset menu`, `/preset select`, `/preset-menu`, or `Alt+X` to open the mode switcher overlay.
 
+`Alt+X` intentionally shows only umbrella modes:
+- Design
+- HyperFrames
+- Ops
+- Research
+- Preset off
+
 Inside the navigator:
 - `j` / `k` or arrow keys move
-- `l` / `enter` opens a nested level or applies the selection
-- `h` / `esc` goes back
-- `q` closes
+- `enter` applies the selected umbrella mode
+- `q` / `esc` closes
+- `x` rotates Caveman level
 - `Alt+X` is the global shortcut to reopen the mode switcher
 
-This is the main exploration UI when you want to browse preset, mode, and submode choices without remembering commands.
+Focused lenses remain available through slash commands, not nested `Alt+X` menus. Examples: `/design-director spec`, `/hyperframes-director review`, `/preset ops deploy`, `/preset research repo`.
 
-Changing a preset/mode/submode updates runtime routing immediately: the next agent turn receives the active preset prompt context. It also updates `.pi/settings.json` skill filters. Run `/reload` only when you want Pi's visible skill inventory/list to match the selected preset.
+Changing a preset/mode updates runtime routing immediately: the next agent turn receives the active preset prompt context. It also updates `.pi/settings.json` skill filters. Run `/reload` only when you want Pi's visible skill inventory/list to match the selected preset.
 
 ## Relationship to Open Design
 

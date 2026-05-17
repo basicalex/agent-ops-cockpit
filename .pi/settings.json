@@ -1,15 +1,30 @@
 {
   "extensions": [
+    "extensions/minimal.ts",
+    "extensions/mind-ingest.ts",
+    "extensions/mind-ops.ts",
+    "extensions/mind-context.ts",
+    "extensions/mind-focus.ts",
+    "extensions/aoc-models.ts",
+    "extensions/aoc-presets/index.ts",
     "extensions/subagent.ts"
   ],
   "skills": [
+    "!skills/prd-rpg-authoring",
+    "!skills/tmcc",
+    "!skills/teach-workflow",
+    "!skills/architecture-design",
+    "!skills/design-*",
+    "!skills/frontend-design",
+    "!skills/funnel-design",
+    "!skills/motion-director",
+    "!skills/safe-gamification",
+    "!skills/animejs-*",
+    "!skills/aoc-hyperframes",
     "!skills/hyperframes",
     "!skills/hyperframes-cli",
     "!skills/website-to-hyperframes",
-    "!skills/gsap",
-    "!skills/design-*",
-    "!skills/motion-director",
-    "!skills/animejs-*"
+    "!skills/gsap"
   ],
   "packages": [
     "./packages/pi-multi-auth-aoc"
@@ -18,10 +33,10 @@
   "defaultModel": "gpt-5.5",
   "defaultThinkingLevel": "low",
   "enabledModels": [
+    "openai-codex/gpt-5.3-codex-spark",
     "openai-codex/gpt-5.5",
     "openai-codex/gpt-5.4",
     "opencode/glm-5",
-    "openai-codex/gpt-5.3-spark",
     "opencode/gemini-3-flash",
     "opencode/gemini-3.1-pro",
     "openrouter/anthropic/claude-sonnet-4",

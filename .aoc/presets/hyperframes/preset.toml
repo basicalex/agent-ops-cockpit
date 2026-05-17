@@ -14,14 +14,14 @@ envPreset = "hyperframes"
 envMode = "compose"
 
 [components]
-core = ["core"]
-default = ["core", "mode-compose"]
+core = ["hook", "core"]
+default = ["hook", "core", "mode-compose"]
 
 [components.modes]
-compose = ["core", "mode-compose"]
-site = ["core", "mode-site"]
-cli = ["core", "mode-cli"]
-review = ["core", "mode-review"]
+compose = ["hook", "core", "mode-compose"]
+site = ["hook", "core", "mode-site"]
+cli = ["hook", "core", "mode-cli"]
+review = ["hook", "core", "mode-review"]
 
 [commands]
 enable = ["hyperframes-director"]
@@ -32,10 +32,10 @@ active = ["aoc-hyperframes"]
 recommended = []
 
 [skills.recommendedByMode]
-compose = ["aoc-hyperframes"]
-site = ["aoc-hyperframes"]
-cli = ["aoc-hyperframes"]
-review = ["aoc-hyperframes"]
+compose = ["hyperframes", "gsap"]
+site = ["website-to-hyperframes", "hyperframes"]
+cli = ["hyperframes-cli"]
+review = ["hyperframes", "hyperframes-cli"]
 
 [handoff]
 enabled = true

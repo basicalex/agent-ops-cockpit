@@ -43,6 +43,8 @@ aoc
 - Shell pane: manual commands
 - `Alt+C`: tools, setup, logs, health checks
 - `Alt+X`: presets/modes
+- `Alt+M`: Mind/memory overlay
+- `Alt+A`: subagent/delegation overlay
 
 ## 6. Basic commands
 

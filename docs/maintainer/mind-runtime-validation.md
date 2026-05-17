@@ -121,7 +121,7 @@ Defined across the native Pi Mind extension stack:
     - `fallback`
     - `error`
 - `.pi/extensions/mind-ops.ts`
-  - `Alt+M` / `/mind` toggles the project Mind floating UI
+  - `Alt+M` and `/mind` open the instant Pi-native Mind action overlay
   - `/mind-observer-run` queues a manual observer run
   - `/mind-status` shows ingest/runtime health
   - `/aoc-status` shows managed launch/runtime health

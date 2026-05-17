@@ -18,6 +18,7 @@ This is the human entrypoint. Start here before opening architecture or maintain
 | Run first project | [Quickstart](quickstart.md) |
 | Use `Alt+C` | [Control pane](control-pane.md) |
 | Switch modes with `Alt+X` | [Presets](presets.md) |
+| Use Mind/memory overlay with `Alt+M` | [Tasks and memory](tasks-memory.md) |
 | Track tasks and decisions | [Tasks and memory](tasks-memory.md) |
 | Research the web | [Web research](web-research.md) |
 | Iterate visual designs in a GUI studio | [Open Design studio](open-design.md) |

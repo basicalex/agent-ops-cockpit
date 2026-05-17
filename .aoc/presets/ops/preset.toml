@@ -1,0 +1,47 @@
+id = "ops"
+label = "AOC Ops"
+defaultMode = "health"
+version = 1
+
+[runtime]
+controller = "aoc-presets"
+statusBadge = "OPS"
+persistSessionState = true
+
+[activation]
+envPreset = "ops"
+envMode = "health"
+
+[components]
+core = ["hook", "core"]
+default = ["hook", "core", "mode-health"]
+
+[components.modes]
+health = ["hook", "core", "mode-health"]
+deploy = ["hook", "core", "mode-deploy"]
+repo-map = ["hook", "core", "mode-repo-map"]
+tasks = ["hook", "core", "mode-tasks"]
+
+[skills]
+active = []
+recommended = []
+
+[skills.recommendedByMode]
+health = ["aoc-init-ops"]
+deploy = ["vercel-cli"]
+repo-map = ["rlm-analysis", "aoc-map"]
+tasks = ["tm-cc"]
+
+[handoff]
+enabled = true
+
+[handoff.modeNotes]
+health = "Preserve command, scope, exact failing check, logs path, and next safe verification step."
+deploy = "Preserve environment, target project, branch/commit, preview/prod distinction, rollback option, and verification URL."
+repo-map = "Preserve map scope, findings, code paths, and confidence gaps."
+tasks = "Preserve tag, task IDs, spec links, blockers, and next atomic action."
+
+[integrations.mind]
+policy = "focused"
+available = true
+default = "off"

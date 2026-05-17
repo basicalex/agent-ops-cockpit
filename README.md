@@ -9,6 +9,8 @@ Use AOC when you want:
 - Taskmaster tasks beside the agent
 - `Alt+C` for setup, tools, logs, and health checks
 - `Alt+X` for focused modes like Design and HyperFrames
+- `Alt+M` for Pi-native Mind/memory actions
+- `Alt+A` for Pi-native subagent/delegation management
 - optional Open Design GUI studio bridge for higher-quality visual design iteration
 
 ## Install
@@ -40,6 +42,8 @@ Inside AOC:
 2. Use Taskmaster for tasks.
 3. Press `Alt+C` for setup, integrations, logs, and health checks.
 4. Press `Alt+X` to switch project modes/presets.
+5. Press `Alt+M` for Mind/memory actions.
+6. Press `Alt+A` for subagent/delegation management.
 
 Common setup paths:
 
@@ -49,8 +53,10 @@ Common setup paths:
 | Health check | `aoc-doctor` |
 | Tool/install UI | `Alt+C -> Settings -> Tools` |
 | Switch mode/preset | `Alt+X` |
+| Mind/memory overlay | `Alt+M`, `/mind` |
+| Subagent manager | `Alt+A`, `/subagent-manager` |
 | Tasks | `tm list`, Taskmaster pane |
-| Memory | `aoc-mem`, `aoc-stm` |
+| Memory CLI | `aoc-mem`, `aoc-stm` |
 | Open Design GUI studio | `aoc-od install`, then `aoc-od start --open` |
 | HyperFrames video/campaign work | `Alt+C -> HyperFrames -> Init workspace + campaign factory` |
 | Web research | `Alt+C -> Agent Browser + Search` |

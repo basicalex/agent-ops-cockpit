@@ -86,7 +86,7 @@ Primary validation:
 
 | Feature | Status | Evidence / entrypoint |
 |---|---|---|
-| Floating project-scoped Mind UI | Shipped | `Alt+M`, `/mind`, `bin/aoc-mind-toggle` |
+| Mind Pi overlay | Shipped | `Alt+M`, `/mind` Pi-native overlay |
 | One named floating pane per tab | Shipped | toggle/reuse semantics documented |
 | Project-local filtering | Shipped | Mind view filters by `AOC_PROJECT_ROOT` |
 | Read-only overview surface | Shipped | canon, handshake, exports, detached rollup |
@@ -175,7 +175,7 @@ AOC_VALIDATE_MIND_RUNTIME_USE_CARGO=1 bash scripts/pi/validate-mind-runtime-hard
 
 ### Daily operator path
 1. Use the normal wrapped Pi session flow.
-2. Open project Mind with `Alt+M` or `/mind`.
+2. Open Mind overlay with `Alt+M` or `/mind`.
 3. Use Mission Control Fleet/Overview for detached-runtime supervision.
 4. Use `aoc insight ...` for direct retrieval/provenance/status checks.
 

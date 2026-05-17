@@ -185,7 +185,7 @@ tm tag prd show
 
 | Surface | Purpose |
 |---|---|
-| `Alt+M` / `/mind` | project-local Mind overview, search, lanes, artifact drilldown |
+| `Alt+M` / `/mind` | instant Pi-native Mind overlay for status, focused/resume context, observer, finalize, store, and debug actions |
 | Mission Control Mind mode | richer operator view over Mind artifacts and status |
 | Mission Control Fleet mode | detached job groups, cancellation, stale/error recovery |
 | `aoc-mind-service status --json` | machine-readable service health and stale/degraded status |
