@@ -1043,7 +1043,9 @@ sed \
 install -m 0644 "$ROOT_DIR/yazi/yazi.toml" "$HOME/.config/yazi/yazi.toml"
 rm -f "$HOME/.config/yazi/preview.sh"
 install -m 0644 "$ROOT_DIR/yazi/keymap.toml" "$HOME/.config/yazi/keymap.toml"
-install -m 0644 "$ROOT_DIR/yazi/theme.toml" "$HOME/.config/yazi/theme.toml"
+# Do not install an AOC Yazi theme by default. Yazi should inherit the active
+# terminal/Omarchy palette unless the operator explicitly creates a theme file.
+rm -f "$HOME/.config/yazi/theme.toml"
 install -m 0644 "$ROOT_DIR/yazi/init.lua" "$HOME/.config/yazi/init.lua"
 install -m 0644 "$ROOT_DIR/micro/bindings.json" "${MICRO_CONFIG_HOME:-${XDG_CONFIG_HOME:-$HOME/.config}/micro}/bindings.json"
 install -m 0644 "$ROOT_DIR/config/codex-tmux.conf" "${XDG_CONFIG_HOME:-$HOME/.config}/aoc/codex-tmux.conf"

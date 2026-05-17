@@ -1,6 +1,9 @@
 default_mode "normal"
 simplified_ui false
 session_serialization true
+mouse_mode true
+focus_follows_mouse true
+mouse_click_through false
 theme "catppuccin-mocha"
 
 plugins {

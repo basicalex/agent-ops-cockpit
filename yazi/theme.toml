@@ -39,37 +39,37 @@ unset_alt   = { fg = "#6C7086", bg = "#313244" }
 [filetype]
 rules = [
   # Directories
-  { name = "*/", fg = "#89B4FA" },
+  { url = "*/", fg = "#89B4FA" },
   
   # Code files
-  { name = "*.rs", fg = "#FAB387" },
-  { name = "*.lua", fg = "#89B4FA" },
-  { name = "*.py", fg = "#F9E2AF" },
-  { name = "*.js", fg = "#F9E2AF" },
-  { name = "*.ts", fg = "#89B4FA" },
-  { name = "*.tsx", fg = "#89B4FA" },
-  { name = "*.jsx", fg = "#F9E2AF" },
-  { name = "*.go", fg = "#94E2D5" },
-  { name = "*.sh", fg = "#A6E3A1" },
-  { name = "*.bash", fg = "#A6E3A1" },
-  { name = "*.zsh", fg = "#A6E3A1" },
+  { url = "*.rs", fg = "#FAB387" },
+  { url = "*.lua", fg = "#89B4FA" },
+  { url = "*.py", fg = "#F9E2AF" },
+  { url = "*.js", fg = "#F9E2AF" },
+  { url = "*.ts", fg = "#89B4FA" },
+  { url = "*.tsx", fg = "#89B4FA" },
+  { url = "*.jsx", fg = "#F9E2AF" },
+  { url = "*.go", fg = "#94E2D5" },
+  { url = "*.sh", fg = "#A6E3A1" },
+  { url = "*.bash", fg = "#A6E3A1" },
+  { url = "*.zsh", fg = "#A6E3A1" },
   
   # Config files
-  { name = "*.toml", fg = "#FAB387" },
-  { name = "*.yaml", fg = "#F38BA8" },
-  { name = "*.yml", fg = "#F38BA8" },
-  { name = "*.json", fg = "#F9E2AF" },
-  { name = "*.kdl", fg = "#CBA6F7" },
+  { url = "*.toml", fg = "#FAB387" },
+  { url = "*.yaml", fg = "#F38BA8" },
+  { url = "*.yml", fg = "#F38BA8" },
+  { url = "*.json", fg = "#F9E2AF" },
+  { url = "*.kdl", fg = "#CBA6F7" },
   
   # Docs
-  { name = "*.md", fg = "#CBA6F7" },
-  { name = "*.txt", fg = "#CDD6F4" },
+  { url = "*.md", fg = "#CBA6F7" },
+  { url = "*.txt", fg = "#CDD6F4" },
   
   # Media
-  { name = "*.png", fg = "#F5C2E7" },
-  { name = "*.jpg", fg = "#F5C2E7" },
-  { name = "*.jpeg", fg = "#F5C2E7" },
-  { name = "*.gif", fg = "#F5C2E7" },
-  { name = "*.svg", fg = "#F5C2E7" },
-  { name = "*.webp", fg = "#F5C2E7" },
+  { url = "*.png", fg = "#F5C2E7" },
+  { url = "*.jpg", fg = "#F5C2E7" },
+  { url = "*.jpeg", fg = "#F5C2E7" },
+  { url = "*.gif", fg = "#F5C2E7" },
+  { url = "*.svg", fg = "#F5C2E7" },
+  { url = "*.webp", fg = "#F5C2E7" },
 ]

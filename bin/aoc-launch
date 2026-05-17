@@ -284,6 +284,10 @@ sync_aoc_theme_profile() {
   script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
   theme_env="${XDG_CONFIG_HOME:-$HOME/.config}/aoc/theme.env"
 
+  if [[ -f "${XDG_CONFIG_HOME:-$HOME/.config}/omarchy/current/theme/colors.toml" ]]; then
+    return 0
+  fi
+
   if [[ -f "$theme_env" ]]; then
     local from_profile
     from_profile="$(awk -F '"' '/^[[:space:]]*export[[:space:]]+AOC_THEME_NAME=/{print $2; exit}' "$theme_env")"
@@ -324,6 +328,40 @@ load_aoc_theme_values() {
   if [[ -f "$theme_env" ]]; then
     # shellcheck disable=SC1090
     source "$theme_env"
+  fi
+
+  # Prefer Omarchy's active system theme when present. This keeps the
+  # Zellij/zjstatus top bar aligned with the terminal, Pi, and desktop palette.
+  local omarchy_colors="${XDG_CONFIG_HOME:-$HOME/.config}/omarchy/current/theme/colors.toml"
+  if [[ -f "$omarchy_colors" ]]; then
+    local get_color
+    get_color() {
+      awk -F '=' -v key="$1" '$1 ~ "^[[:space:]]*" key "[[:space:]]*$" { gsub(/[ "'"'"']/, "", $2); print $2; exit }' "$omarchy_colors"
+    }
+
+    local om_bg om_fg om_accent om_selection om_muted
+    om_bg="$(get_color background)"
+    om_fg="$(get_color foreground)"
+    om_accent="$(get_color accent)"
+    om_selection="$(get_color selection_background)"
+    om_muted="$(get_color color8)"
+
+    AOC_THEME_BG_BASE="${om_bg:-$AOC_THEME_BG_BASE}"
+    AOC_THEME_BG_ELEVATED="${om_muted:-$AOC_THEME_BG_ELEVATED}"
+    AOC_THEME_BG_SUBTLE="${om_muted:-$AOC_THEME_BG_SUBTLE}"
+    AOC_THEME_BG_ACCENT="${om_accent:-$AOC_THEME_BG_ACCENT}"
+    AOC_THEME_WHITE="${om_fg:-$AOC_THEME_WHITE}"
+    AOC_THEME_BLACK="${om_muted:-$AOC_THEME_BLACK}"
+    AOC_THEME_BLUE="$(get_color color4 || true)"; AOC_THEME_BLUE="${AOC_THEME_BLUE:-${om_accent:-#89B4FA}}"
+    AOC_THEME_GREEN="$(get_color color2 || true)"; AOC_THEME_GREEN="${AOC_THEME_GREEN:-#A6E3A1}"
+    AOC_THEME_RED="$(get_color color1 || true)"; AOC_THEME_RED="${AOC_THEME_RED:-#F38BA8}"
+    AOC_THEME_ORANGE="$(get_color color3 || true)"; AOC_THEME_ORANGE="${AOC_THEME_ORANGE:-${om_accent:-#FAB387}}"
+    AOC_THEME_YELLOW="$(get_color color12 || true)"; AOC_THEME_YELLOW="${AOC_THEME_YELLOW:-${om_selection:-#F9E2AF}}"
+    AOC_THEME_CYAN="$(get_color color6 || true)"; AOC_THEME_CYAN="${AOC_THEME_CYAN:-#94E2D5}"
+    AOC_THEME_MAGENTA="$(get_color color5 || true)"; AOC_THEME_MAGENTA="${AOC_THEME_MAGENTA:-#CBA6F7}"
+    AOC_THEME_UI_PRIMARY="$AOC_THEME_WHITE"
+    AOC_THEME_UI_MUTED="$AOC_THEME_BLACK"
+    AOC_THEME_UI_ACCENT="${om_accent:-$AOC_THEME_BLUE}"
   fi
 }
 

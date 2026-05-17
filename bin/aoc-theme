@@ -660,75 +660,11 @@ EOF
 }
 
 write_yazi_theme_from_profile() {
-  local profile_path
-  profile_path="$(aoc_theme_profile_path)"
-  [[ -f "$profile_path" ]] || return 0
-  # shellcheck disable=SC1090
-  source "$profile_path"
-
-  local bg_base bg_elevated bg_subtle bg_accent
-  local ui_primary ui_muted ui_accent ui_success ui_warning ui_danger ui_info
-  bg_base="${AOC_THEME_BG_BASE:-$AOC_THEME_BG}"
-  bg_elevated="${AOC_THEME_BG_ELEVATED:-$AOC_THEME_BLACK}"
-  bg_subtle="${AOC_THEME_BG_SUBTLE:-$AOC_THEME_BLACK}"
-  bg_accent="${AOC_THEME_BG_ACCENT:-$AOC_THEME_BLUE}"
-  ui_primary="${AOC_THEME_UI_PRIMARY:-$AOC_THEME_FG}"
-  ui_muted="${AOC_THEME_UI_MUTED:-$AOC_THEME_WHITE}"
-  ui_accent="${AOC_THEME_UI_ACCENT:-$AOC_THEME_BLUE}"
-  ui_success="${AOC_THEME_UI_SUCCESS:-$AOC_THEME_GREEN}"
-  ui_warning="${AOC_THEME_UI_WARNING:-$AOC_THEME_YELLOW}"
-  ui_danger="${AOC_THEME_UI_DANGER:-$AOC_THEME_RED}"
-  ui_info="${AOC_THEME_UI_INFO:-$AOC_THEME_CYAN}"
-
-  local yazi_theme
-  yazi_theme="$(aoc_yazi_theme_path)"
-  mkdir -p "$(dirname "$yazi_theme")"
-
-  cat <<EOF > "$yazi_theme"
-[mgr]
-cwd = { fg = "$ui_info" }
-hovered = { fg = "$bg_base", bg = "$bg_accent", bold = true }
-preview_hovered = { underline = true }
-file = { fg = "$ui_primary" }
-directory = { fg = "$ui_accent", bold = true }
-symlink = { fg = "$ui_info" }
-border_symbol = "│"
-border_style = { fg = "$ui_muted" }
-
-[status]
-separator_open = ""
-separator_close = ""
-separator_style = { fg = "$ui_muted" }
-mode_normal = { fg = "$ui_accent", bg = "$bg_base", bold = true }
-mode_select = { fg = "$ui_danger", bg = "$bg_base", bold = true }
-mode_unset = { fg = "$ui_muted", bg = "$bg_base" }
-
-[mode]
-normal_main = { fg = "$bg_base", bg = "$ui_accent", bold = true }
-normal_alt = { fg = "$ui_accent", bg = "$bg_elevated" }
-select_main = { fg = "$bg_base", bg = "$ui_danger", bold = true }
-select_alt = { fg = "$ui_danger", bg = "$bg_elevated" }
-unset_main = { fg = "$bg_base", bg = "$bg_subtle", bold = true }
-unset_alt = { fg = "$ui_muted", bg = "$bg_base" }
-
-[filetype]
-rules = [
-  { name = "*/", fg = "$AOC_THEME_BLUE" },
-  { name = "*.rs", fg = "$AOC_THEME_ORANGE" },
-  { name = "*.py", fg = "$AOC_THEME_YELLOW" },
-  { name = "*.js", fg = "$AOC_THEME_YELLOW" },
-  { name = "*.ts", fg = "$AOC_THEME_BLUE" },
-  { name = "*.tsx", fg = "$AOC_THEME_BLUE" },
-  { name = "*.sh", fg = "$AOC_THEME_GREEN" },
-  { name = "*.toml", fg = "$AOC_THEME_ORANGE" },
-  { name = "*.yaml", fg = "$AOC_THEME_RED" },
-  { name = "*.yml", fg = "$AOC_THEME_RED" },
-  { name = "*.json", fg = "$AOC_THEME_YELLOW" },
-  { name = "*.kdl", fg = "$AOC_THEME_MAGENTA" },
-  { name = "*.md", fg = "$AOC_THEME_MAGENTA" },
-  { name = "*.txt", fg = "$AOC_THEME_FG" },
-]
-EOF
+  # Intentionally leave Yazi unthemed. Yazi's defaults inherit the active
+  # terminal/Omarchy palette more naturally than a generated AOC theme file.
+  # Remove stale generated AOC themes on theme sync.
+  rm -f "$(aoc_yazi_theme_path)"
+  return 0
 }
 
 write_pi_theme_from_profile() {
