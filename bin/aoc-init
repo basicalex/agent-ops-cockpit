@@ -1617,17 +1617,6 @@ EOF
     mv "$context_tmp" "$context_file"
   fi
 
-  # Setup .cursorrules symlink for universal agent awareness
-  local cursor_rules="$project_root/.cursorrules"
-  if [[ ! -e "$cursor_rules" ]]; then
-    log "Creating .cursorrules symlink..."
-    ln -s ".aoc/context.md" "$cursor_rules"
-  elif [[ -L "$cursor_rules" ]]; then
-    log "Existing .cursorrules symlink found. Skipping."
-  else
-    log "Existing .cursorrules file found. Skipping."
-  fi
-
 }
 
 # 1b. Setup skill sync (PI-first)
@@ -2023,14 +2012,6 @@ pi_defaults = {
 seeded_enabled_models = [
     "openai-codex/gpt-5.5",
     "openai-codex/gpt-5.4",
-    "opencode/glm-5",
-    "opencode/gemini-3-flash",
-    "opencode/gemini-3.1-pro",
-    "openrouter/anthropic/claude-sonnet-4",
-    "openrouter/openai/gpt-5.1-codex",
-    "openrouter/google/gemini-2.5-pro",
-    "openrouter/google/gemini-2.5-flash",
-    "openrouter/qwen/qwen3.6-plus",
 ]
 previous_seeded_enabled_models = [
     "openai-codex/gpt-5.5",
@@ -2046,7 +2027,7 @@ older_previous_seeded_enabled_models = [
     "opencode/gemini-3.1-pro",
     "alibaba/qwen3.6-plus",
 ]
-legacy_seeded_enabled_models_with_gpt55 = [
+previous_seeded_enabled_models_with_openrouter = [
     "openai-codex/gpt-5.5",
     "openai-codex/gpt-5.4",
     "opencode/glm-5",
@@ -2057,6 +2038,9 @@ legacy_seeded_enabled_models_with_gpt55 = [
     "openrouter/google/gemini-2.5-pro",
     "openrouter/google/gemini-2.5-flash",
     "openrouter/qwen/qwen3.6-plus",
+]
+legacy_seeded_enabled_models_with_gpt55 = [
+    *previous_seeded_enabled_models_with_openrouter,
     "kimi-coding/kimi-for-coding",
 ]
 previous_pi_defaults = {
@@ -2240,6 +2224,10 @@ if data.get("enabledModels") == legacy_seeded_enabled_models:
     changed = True
 
 if data.get("enabledModels") == legacy_seeded_enabled_models_with_gpt55:
+    data["enabledModels"] = seeded_enabled_models
+    changed = True
+
+if data.get("enabledModels") == previous_seeded_enabled_models_with_openrouter:
     data["enabledModels"] = seeded_enabled_models
     changed = True
 
@@ -2693,6 +2681,7 @@ setup_pi_extension_families() {
   )
   local required_families=(
     "aoc-presets"
+    "subagent"
   )
 
   mkdir -p "$pi_extensions_dir" "$global_template_dir"
