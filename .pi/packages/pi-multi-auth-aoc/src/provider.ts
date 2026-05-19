@@ -433,6 +433,14 @@ function createErrorAssistantMessage(model: Model<Api>, message: string): Assist
 	};
 }
 
+function finishStreamWithCallerAbort(stream: AssistantMessageEventStream, model: Model<Api>): void {
+	stream.push({
+		type: "error",
+		reason: "error",
+		error: createErrorAssistantMessage(model, "Operation aborted"),
+	});
+}
+
 function resolveCredentialProviderId(
 	model: Model<Api>,
 	fallbackProvider: SupportedProviderId,
@@ -687,7 +695,7 @@ export function createRotatingStreamWrapper(
 					} catch (error: unknown) {
 						watchdog.dispose();
 						if (watchdog.isCallerAbort(error)) {
-							stream.end();
+							finishStreamWithCallerAbort(stream, activeModel);
 							return;
 						}
 						const retryError = resolveAttemptFailureError(watchdog, error);
@@ -725,7 +733,7 @@ export function createRotatingStreamWrapper(
 									if (
 										watchdog.isCallerAbortMessage(getAssistantErrorMessage(event.error))
 									) {
-										stream.end();
+										finishStreamWithCallerAbort(stream, activeModel);
 										return;
 									}
 									const message = resolveAttemptFailureMessage(
@@ -772,7 +780,7 @@ export function createRotatingStreamWrapper(
 						}
 					} catch (error: unknown) {
 						if (watchdog.isCallerAbort(error)) {
-							stream.end();
+							finishStreamWithCallerAbort(stream, activeModel);
 							return;
 						}
 						const retryError = resolveAttemptFailureError(watchdog, error);
@@ -803,7 +811,7 @@ export function createRotatingStreamWrapper(
 
 					if (!sawDoneEvent) {
 						if (options?.signal?.aborted && !watchdog.getTimeoutError()) {
-							stream.end();
+							finishStreamWithCallerAbort(stream, activeModel);
 							return;
 						}
 						const message = resolveAttemptFailureMessage(

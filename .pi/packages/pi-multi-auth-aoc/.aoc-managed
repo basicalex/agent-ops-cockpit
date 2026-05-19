@@ -1,6 +1,6 @@
 aoc-managed: true
 asset: pi-package/pi-multi-auth-aoc
 asset-version: 3
-source: ../.config/aoc/pi/packages/pi-multi-auth-aoc
-sha256: d2dde14d408d339c4e285079c7f6b921f18a0f5226f048034d366b581114edab
-updated-at: 2026-04-28T17:32:28Z
+source: agent-ops-cockpit
+sha256: 0a7dd045fb4d2846ad42d5996b9271d4fe2bec31bdbb06fa6da7a2ee014e7ab9
+updated-at: 2026-05-19T08:58:00Z

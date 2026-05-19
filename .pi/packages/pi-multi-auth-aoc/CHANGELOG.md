@@ -2,6 +2,11 @@
 
 All notable changes to this project will be documented in this file.
 
+## 0.1.2-aoc.2 - 2026-05-19
+
+### Fixed
+- Resolve caller-initiated Pi aborts by emitting a terminal `Operation aborted` error event instead of silently ending the wrapped stream. This lets Pi settle the active turn and stop the `Working...` loader after pressing Escape.
+
 ## 0.1.2 - 2026-04-01
 
 ### Changed

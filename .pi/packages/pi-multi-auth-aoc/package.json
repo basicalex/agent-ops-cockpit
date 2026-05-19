@@ -1,6 +1,6 @@
 {
   "name": "pi-multi-auth-aoc",
-  "version": "0.1.2-aoc.1",
+  "version": "0.1.2-aoc.2",
   "private": true,
   "description": "AOC-vendored pi-multi-auth package with OpenRouter-aware multi-auth support.",
   "type": "module",
