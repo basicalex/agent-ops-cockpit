@@ -113,6 +113,11 @@ install_pi_agent_if_enabled() {
   local refresh_pi="${AOC_INSTALL_PI_REFRESH:-0}"
   if have "$pi_bin" && ! is_truthy "$refresh_pi"; then
     log "PI agent already installed ($pi_bin)."
+    if have aoc-agent-install; then
+      AOC_PI_INSTALL_CMD=":" aoc-agent-install install pi >/dev/null 2>&1 || true
+    elif [[ -x "$ROOT_DIR/bin/aoc-agent-install" ]]; then
+      AOC_PI_INSTALL_CMD=":" "$ROOT_DIR/bin/aoc-agent-install" install pi >/dev/null 2>&1 || true
+    fi
     return 0
   fi
 

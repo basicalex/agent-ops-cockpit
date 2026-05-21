@@ -36,7 +36,7 @@ have() {
 
 status_agent() {
   local bin_name="${AOC_PI_BIN:-pi}"
-  if have "$bin_name"; then
+  if have "$bin_name" || have pi-raw; then
     printf '%s\n' "installed"
   else
     printf '%s\n' "missing"
@@ -69,6 +69,85 @@ resolve_action_cmd() {
   fi
 }
 
+install_aoc_pi_shim() {
+  local bin_dir="${AOC_BIN_DIR:-$HOME/.local/bin}"
+  local pi_path=""
+  mkdir -p "$bin_dir"
+
+  pi_path="$(command -v pi 2>/dev/null || true)"
+  if [[ -n "$pi_path" && -x "$pi_path" ]]; then
+    if [[ "$pi_path" != "$bin_dir/pi" ]]; then
+      cp -p "$pi_path" "$bin_dir/pi-raw"
+    elif ! grep -q "AOC-aware Pi shim" "$pi_path" 2>/dev/null; then
+      cp -p "$pi_path" "$bin_dir/pi-raw"
+    fi
+  fi
+
+  if [[ ! -x "$bin_dir/pi-raw" ]]; then
+    echo "Could not install AOC pi shim: raw Pi binary not found. Set AOC_PI_BIN or install Pi first." >&2
+    return 1
+  fi
+
+  cat > "$bin_dir/pi" <<'SHIM'
+#!/usr/bin/env bash
+set -euo pipefail
+
+# AOC-aware Pi shim.
+# - Inside an AOC-initialized project, route through aoc-pi so AOC presets,
+#   layout/session metadata, Mind/project extensions, and wrapper defaults apply.
+# - Outside AOC projects, preserve normal upstream Pi behavior via pi-raw.
+# - Escape hatch: PI_NO_AOC_WRAPPER=1 pi ...
+
+raw_pi="${AOC_RAW_PI_BIN:-pi-raw}"
+aoc_pi="${AOC_PI_WRAPPER_BIN:-aoc-pi}"
+
+find_aoc_root() {
+  local dir="${PWD:-.}"
+  dir="$(cd "$dir" 2>/dev/null && pwd -P)" || return 1
+
+  while [[ "$dir" != "/" ]]; do
+    if [[ -d "$dir/.aoc" && -f "$dir/.aoc/context.md" ]]; then
+      printf '%s\n' "$dir"
+      return 0
+    fi
+    dir="$(dirname "$dir")"
+  done
+
+  return 1
+}
+
+if [[ "${PI_NO_AOC_WRAPPER:-0}" != "1" ]]; then
+  if aoc_root="$(find_aoc_root)"; then
+    if [[ "${PI_AOC_WRAPPER_DRY_RUN:-0}" == "1" ]]; then
+      printf 'aoc-pi --project-root %q' "$aoc_root"
+      printf ' %q' "$@"
+      printf '\n'
+      exit 0
+    fi
+
+    # Manual `pi` should bind to the AOC project detected from the current
+    # working directory, even if this pane inherited AOC_PROJECT_ROOT from a
+    # different AOC tab/project.
+    export AOC_PROJECT_ROOT="$aoc_root"
+    export AOC_PI_BIN="${AOC_PI_BIN:-$raw_pi}"
+    # Run the AOC wrapper in the current terminal. Without this, aoc-pi's
+    # interactive launcher opens a new Zellij tab when already inside Zellij.
+    export AOC_AGENT_RUN=1
+    # Manual `pi` in an AOC project should visibly run the AOC startup
+    # handshake. aoc-agent-wrap normally suppresses the bootloader for managed
+    # panes, so force it on for this inline shim path unless overridden.
+    export AOC_PI_USE_BOOTLOADER="${AOC_PI_USE_BOOTLOADER:-1}"
+    export AOC_HANDSHAKE_MODE="${AOC_HANDSHAKE_MODE:-compact}"
+    exec "$aoc_pi" "$@"
+  fi
+fi
+
+exec "$raw_pi" "$@"
+SHIM
+  chmod +x "$bin_dir/pi"
+  chmod +x "$bin_dir/pi-raw"
+}
+
 run_action() {
   local action="$1"
   local cmd=""
@@ -94,6 +173,7 @@ run_action() {
     if [[ -n "$output" ]]; then
       printf '%s\n' "$output"
     fi
+    install_aoc_pi_shim
     return 0
   fi
 

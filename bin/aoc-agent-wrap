@@ -35,6 +35,15 @@ agent_env_component="${agent_id^^}"
 agent_env_component="${agent_env_component//[^A-Z0-9]/_}"
 env_hint="AOC_${agent_env_component}_BIN"
 
+# Existing AOC layouts call `aoc-agent-wrap pi pi ...`. The user-facing `pi`
+# command may itself be an AOC-aware shim, so resolve managed Pi panes to the
+# preserved raw launcher unless the operator explicitly set AOC_PI_BIN.
+if [[ "$agent_id" == "pi" && "$agent_bin" == "pi" && -z "${AOC_PI_BIN:-}" ]]; then
+  if command -v pi-raw >/dev/null 2>&1; then
+    agent_bin="pi-raw"
+  fi
+fi
+
 # --- Resolution Logic ---
 
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

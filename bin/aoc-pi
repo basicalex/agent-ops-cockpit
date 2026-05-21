@@ -2,7 +2,7 @@
 set -euo pipefail
 
 agent_id="pi"
-agent_bin="${AOC_PI_BIN:-pi}"
+agent_bin="${AOC_PI_BIN:-pi-raw}"
 agent_label="PI Agent (npm)"
 
 if [[ "${AOC_AGENT_RUN:-0}" == "1" ]]; then
