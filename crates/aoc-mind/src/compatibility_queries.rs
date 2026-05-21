@@ -28,6 +28,7 @@ const MIND_CONTEXT_PACK_EXPANDED_SOURCE_MAX_LINES: usize = 10;
 pub enum MindContextPackMode {
     Startup,
     TagSwitch,
+    Focused,
     Resume,
     Handoff,
     Dispatch,
@@ -97,19 +98,30 @@ pub struct MindContextPackSourceOverrides {
     pub latest_t2_markdown: Option<String>,
 }
 
-pub fn parse_mind_context_pack_mode(value: Option<&str>) -> MindContextPackMode {
+pub fn try_parse_mind_context_pack_mode(
+    value: Option<&str>,
+) -> Result<MindContextPackMode, String> {
     match value
         .map(str::trim)
         .filter(|value| !value.is_empty())
         .map(|value| value.to_ascii_lowercase())
         .as_deref()
     {
-        Some("startup") => MindContextPackMode::Startup,
-        Some("tag_switch") | Some("tag-switch") => MindContextPackMode::TagSwitch,
-        Some("resume") => MindContextPackMode::Resume,
-        Some("dispatch") => MindContextPackMode::Dispatch,
-        _ => MindContextPackMode::Handoff,
+        None => Ok(MindContextPackMode::Handoff),
+        Some("startup") => Ok(MindContextPackMode::Startup),
+        Some("tag_switch") | Some("tag-switch") => Ok(MindContextPackMode::TagSwitch),
+        Some("focused") | Some("focus") => Ok(MindContextPackMode::Focused),
+        Some("resume") => Ok(MindContextPackMode::Resume),
+        Some("handoff") => Ok(MindContextPackMode::Handoff),
+        Some("dispatch") => Ok(MindContextPackMode::Dispatch),
+        Some(other) => Err(format!(
+            "unsupported context-pack mode '{other}' (expected startup, tag-switch, focused, resume, handoff, or dispatch)"
+        )),
     }
+}
+
+pub fn parse_mind_context_pack_mode(value: Option<&str>) -> MindContextPackMode {
+    try_parse_mind_context_pack_mode(value).unwrap_or(MindContextPackMode::Handoff)
 }
 
 pub fn parse_mind_context_pack_request(args: &Value) -> MindContextPackRequest {
@@ -226,6 +238,7 @@ pub fn compile_mind_context_pack(
             .or_else(|| load_context_cli_output(project_root, "aoc-stm", &["resume"]))
             .or_else(|| overrides.and_then(|value| value.aoc_stm_current.clone()))
             .or_else(|| load_context_cli_output(project_root, "aoc-stm", &[])),
+        MindContextPackMode::Focused if !focused_reason_wants_stm(reason.as_deref()) => None,
         _ => overrides
             .and_then(|value| value.aoc_stm_current.clone())
             .or_else(|| load_context_cli_output(project_root, "aoc-stm", &[])),
@@ -1330,6 +1343,23 @@ fn add_provenance_checkpoint_branch(
         }
     }
     Ok(())
+}
+
+fn focused_reason_wants_stm(reason: Option<&str>) -> bool {
+    let Some(reason) = reason else {
+        return false;
+    };
+    let normalized = reason.to_ascii_lowercase();
+    [
+        "resume",
+        "handoff",
+        "continue",
+        "continuation",
+        "stm",
+        "in-progress",
+    ]
+    .iter()
+    .any(|needle| normalized.contains(needle))
 }
 
 fn t3_scope_id_for_project_root(project_root: &str) -> String {

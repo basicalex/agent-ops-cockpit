@@ -89,6 +89,8 @@ aoc-mind-service context-pack \
   --json
 ```
 
+Supported context-pack modes are `startup`, `tag-switch`, `focused`, `resume`, `handoff`, and `dispatch`. Unknown modes are rejected instead of silently falling back. `focused` mode is reason-bound and does not include volatile STM by default unless the reason explicitly asks to resume, continue, inspect STM, or prepare/use a handoff.
+
 Use focused context for:
 
 - resuming prior work

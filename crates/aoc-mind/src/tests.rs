@@ -1,8 +1,7 @@
 use super::*;
+use aoc_core::mind_observer_feed::MindInjectionTriggerKind;
 use aoc_core::{
-    insight_contracts::{
-        InsightDetachedJob, InsightDetachedJobStatus, InsightDetachedWorkerKind,
-    },
+    insight_contracts::{InsightDetachedJob, InsightDetachedJobStatus, InsightDetachedWorkerKind},
     mind_contracts::{
         canonical_lineage_attrs, compact_raw_event_to_t0, ConversationLineageMetadata,
         ConversationRole, MessageEvent, ObserverAdapter, ObserverInput, ObserverOutput, RawEvent,
@@ -10,7 +9,6 @@ use aoc_core::{
         SemanticModelProfile, T0CompactionPolicy,
     },
 };
-use aoc_core::mind_observer_feed::MindInjectionTriggerKind;
 use aoc_storage::{
     MindStore, ReflectorJob, ReflectorJobStatus, StoredArtifact, T3BacklogJob, T3BacklogJobStatus,
 };
@@ -130,7 +128,11 @@ impl ObserverAdapter for SequenceObserverAdapter {
 #[test]
 fn retrieval_compiler_lives_in_aoc_mind() {
     let root = temp_project_root("retrieval-compiler");
-    let project_mind = root.join(".aoc").join("mind").join("t3").join("project_mind.md");
+    let project_mind = root
+        .join(".aoc")
+        .join("mind")
+        .join("t3")
+        .join("project_mind.md");
     std::fs::create_dir_all(project_mind.parent().expect("parent")).expect("create t3 dir");
     std::fs::write(
         &project_mind,
@@ -156,7 +158,10 @@ fn retrieval_compiler_lives_in_aoc_mind() {
     );
     assert!(!result.hits.is_empty());
     assert!(result.hits[0].reference.contains("project_mind.md#entry-1"));
-    assert!(result.summary_lines.iter().any(|line| line.contains("Project canon")));
+    assert!(result
+        .summary_lines
+        .iter()
+        .any(|line| line.contains("Project canon")));
 }
 
 #[test]
@@ -175,9 +180,71 @@ fn compatibility_queries_own_context_pack_request_parsing() {
     assert_eq!(request.reason.as_deref(), Some("sync now"));
     assert_eq!(request.role.as_deref(), Some("insight-t1-observer"));
 
+    let focused = parse_mind_context_pack_request(&serde_json::json!({
+        "mode": "focused",
+        "reason": "investigate context retrieval"
+    }));
+    assert_eq!(focused.mode, MindContextPackMode::Focused);
+
+    assert!(try_parse_mind_context_pack_mode(Some("surprise")).is_err());
+
     let fallback = parse_mind_context_pack_request(&serde_json::json!({}));
     assert_eq!(fallback.mode, MindContextPackMode::Handoff);
     assert_eq!(fallback.profile, MindContextPackProfile::Compact);
+}
+
+#[test]
+fn compatibility_queries_focused_context_skips_stm_unless_reason_requests_it() {
+    let root = temp_project_root("focused-context-pack");
+    let root_str = root.to_string_lossy();
+
+    let overrides = MindContextPackSourceOverrides {
+        aoc_mem: Some("Decision: durable memory belongs here".to_string()),
+        aoc_stm_current: Some("Noisy current STM handoff draft".to_string()),
+        ..Default::default()
+    };
+    let focused = compile_mind_context_pack(
+        &root_str,
+        None,
+        MindContextPackRequest {
+            mode: MindContextPackMode::Focused,
+            profile: MindContextPackProfile::Compact,
+            active_tag: None,
+            reason: Some("investigate retrieval quality".to_string()),
+            role: None,
+        },
+        Some(&overrides),
+    )
+    .expect("focused pack");
+
+    assert_eq!(focused.mode, MindContextPackMode::Focused);
+    assert!(focused
+        .sections
+        .iter()
+        .any(|section| section.source_id == "aoc_mem"));
+    assert!(!focused
+        .sections
+        .iter()
+        .any(|section| section.source_id == "aoc_stm"));
+
+    let resume_focused = compile_mind_context_pack(
+        &root_str,
+        None,
+        MindContextPackRequest {
+            mode: MindContextPackMode::Focused,
+            profile: MindContextPackProfile::Compact,
+            active_tag: None,
+            reason: Some("continue in-progress STM handoff".to_string()),
+            role: None,
+        },
+        Some(&overrides),
+    )
+    .expect("focused handoff pack");
+
+    assert!(resume_focused
+        .sections
+        .iter()
+        .any(|section| section.source_id == "aoc_stm"));
 }
 
 #[test]
@@ -185,16 +252,28 @@ fn runtime_owns_scope_and_lease_queries() {
     let runtime = runtime_for_test("lease-scope");
     let now = ts(11, 0, 0);
 
-    assert_eq!(runtime.session_watermark_scope_key(), "session:session-test:pane:7");
+    assert_eq!(
+        runtime.session_watermark_scope_key(),
+        "session:session-test:pane:7"
+    );
     assert!(runtime.reflector_scope_key().starts_with("project:"));
     assert_eq!(runtime.reflector_scope_key(), runtime.t3_scope_key());
-    assert_eq!(runtime.stale_detached_cutoff_ms(now, 45_000), now.timestamp_millis() - 45_000);
+    assert_eq!(
+        runtime.stale_detached_cutoff_ms(now, 45_000),
+        now.timestamp_millis() - 45_000
+    );
     assert!(!runtime.reflector_lease_active_at(now));
     assert!(!runtime.t3_runtime_lease_active_at(now));
 
     runtime
         .store()
-        .try_acquire_reflector_lease(&runtime.reflector_scope_key(), "owner", Some(1), now, 60_000)
+        .try_acquire_reflector_lease(
+            &runtime.reflector_scope_key(),
+            "owner",
+            Some(1),
+            now,
+            60_000,
+        )
         .expect("acquire reflector lease");
     runtime
         .store()
@@ -232,12 +311,19 @@ fn runtime_owns_detached_job_lifecycle_shaping() {
     );
     assert_eq!(running.status, InsightDetachedJobStatus::Running);
     assert_eq!(running.started_at_ms, Some(created_at_ms + 10));
-    assert_eq!(running.output_excerpt.as_deref(), Some("custom running note"));
+    assert_eq!(
+        running.output_excerpt.as_deref(),
+        Some("custom running note")
+    );
 
     let stale = runtime.mark_detached_job_stale(running.clone(), created_at_ms + 20);
     assert_eq!(stale.status, InsightDetachedJobStatus::Stale);
     assert_eq!(stale.finished_at_ms, Some(created_at_ms + 20));
-    assert!(stale.error.as_deref().unwrap_or_default().contains("lease expired"));
+    assert!(stale
+        .error
+        .as_deref()
+        .unwrap_or_default()
+        .contains("lease expired"));
 
     let finalized = runtime.finalize_detached_job(
         running,
@@ -275,7 +361,10 @@ fn runtime_owns_detached_job_lifecycle_shaping() {
         true,
         created_at_ms + 40,
     );
-    assert_eq!(cancelled_finalized.status, InsightDetachedJobStatus::Cancelled);
+    assert_eq!(
+        cancelled_finalized.status,
+        InsightDetachedJobStatus::Cancelled
+    );
     assert_eq!(cancelled_finalized.finished_at_ms, Some(created_at_ms + 40));
     assert_eq!(
         cancelled_finalized.output_excerpt.as_deref(),
@@ -317,10 +406,7 @@ fn runtime_owns_detached_dispatch_policy() {
     assert_eq!(stale_jobs[0].job_id, "mind-t2-stale");
     assert_eq!(stale_jobs[0].status, InsightDetachedJobStatus::Stale);
 
-    assert!(runtime.has_active_detached_job(
-        InsightDetachedWorkerKind::T2,
-        &[active_job.clone()]
-    ));
+    assert!(runtime.has_active_detached_job(InsightDetachedWorkerKind::T2, &[active_job.clone()]));
     assert!(!runtime.has_active_detached_job(InsightDetachedWorkerKind::T3, &[active_job]));
 
     let skip = runtime.detached_dispatch_decision(
@@ -357,7 +443,11 @@ fn runtime_owns_detached_dispatch_policy() {
     );
     assert!(launch.should_dispatch);
     assert!(launch.emit_status_update);
-    assert!(launch.job_id.as_deref().unwrap_or_default().starts_with("mind-t3-"));
+    assert!(launch
+        .job_id
+        .as_deref()
+        .unwrap_or_default()
+        .starts_with("mind-t3-"));
 
     assert_eq!(
         runtime.detached_spawned_pid_note(InsightDetachedWorkerKind::T2, 42),
@@ -389,7 +479,9 @@ fn runtime_owns_runtime_failure_and_completion_policy() {
     );
     assert_eq!(reflector_outcome.status, InsightDetachedJobStatus::Fallback);
     assert_eq!(reflector_outcome.exit_code, 1);
-    assert!(reflector_outcome.summary.contains("inline fallback processed"));
+    assert!(reflector_outcome
+        .summary
+        .contains("inline fallback processed"));
 
     let t3_outcome = runtime.t3_completion_outcome(
         &T3TickReport {
@@ -425,7 +517,10 @@ fn runtime_owns_runtime_failure_and_completion_policy() {
         Some("t3 backlog tick failed: kaput")
     );
     assert_eq!(t3_failure.observer_events.len(), 1);
-    assert_eq!(t3_failure.observer_events[0].runtime.as_deref(), Some("t3_backlog"));
+    assert_eq!(
+        t3_failure.observer_events[0].runtime.as_deref(),
+        Some("t3_backlog")
+    );
 
     assert_eq!(
         runtime.runtime_failure_job_summary(InsightDetachedWorkerKind::T2, true),
@@ -475,7 +570,9 @@ fn runtime_owns_tick_health_and_observer_effects() {
         Some("t2_reflector")
     );
     assert_eq!(
-        reflector_effects.observer_events[0].conversation_id.as_deref(),
+        reflector_effects.observer_events[0]
+            .conversation_id
+            .as_deref(),
         Some("conv-health")
     );
     assert!(reflector_effects.observer_events[0]
@@ -511,9 +608,18 @@ fn runtime_owns_tick_health_and_observer_effects() {
     assert_eq!(snapshot.t3_jobs_dead_lettered, 0);
     assert_eq!(snapshot.last_error, None);
     assert_eq!(t3_effects.observer_events.len(), 1);
-    assert_eq!(t3_effects.observer_events[0].runtime.as_deref(), Some("t3_backlog"));
+    assert_eq!(
+        t3_effects.observer_events[0].runtime.as_deref(),
+        Some("t3_backlog")
+    );
 
-    insert_t0(runtime.store(), "e1", "conv-health", now, "queue depth input");
+    insert_t0(
+        runtime.store(),
+        "e1",
+        "conv-health",
+        now,
+        "queue depth input",
+    );
     let observation_ids = vec!["t0:e1".to_string()];
     let conversation_ids = vec!["conv-health".to_string()];
     runtime
@@ -1828,7 +1934,10 @@ fn prepare_session_finalize_execution_skips_when_no_new_artifacts() {
                 message.reason,
                 "manual finalize: no new finalized artifacts"
             );
-            assert_eq!(message.observer_reason, "finalize skipped: no new artifacts");
+            assert_eq!(
+                message.observer_reason,
+                "finalize skipped: no new artifacts"
+            );
         }
         SessionFinalizePreparationOutcome::Ready(_) => panic!("expected skip outcome"),
     }
@@ -1923,13 +2032,7 @@ fn prepare_session_finalize_execution_builds_host_plan_and_enqueues_t3() {
     let store = MindStore::open_in_memory().expect("open");
     let now = ts(17, 6, 0);
     store
-        .insert_observation(
-            "obs-finalize",
-            "conv-finalize",
-            now,
-            "observer output",
-            &[],
-        )
+        .insert_observation("obs-finalize", "conv-finalize", now, "observer output", &[])
         .expect("insert t1");
     store
         .insert_reflection(
@@ -1963,7 +2066,10 @@ fn prepare_session_finalize_execution_builds_host_plan_and_enqueues_t3() {
     assert_eq!(prepared.host_plan.export_files.len(), 3);
     assert_eq!(prepared.host_plan.manifest.t1_count, 1);
     assert_eq!(prepared.host_plan.manifest.t2_count, 1);
-    assert_eq!(prepared.host_plan.manifest.t3_job_inserted, prepared.t3_job_inserted);
+    assert_eq!(
+        prepared.host_plan.manifest.t3_job_inserted,
+        prepared.t3_job_inserted
+    );
     assert_eq!(store.pending_t3_backlog_jobs().expect("pending t3"), 1);
 }
 

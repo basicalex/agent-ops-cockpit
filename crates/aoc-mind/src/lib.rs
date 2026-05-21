@@ -3,8 +3,8 @@ mod ingest;
 mod observer_runtime;
 mod query;
 mod reflector_runtime;
-mod retrieval;
 pub mod render;
+mod retrieval;
 mod runtime;
 mod standalone;
 mod t1;
@@ -21,9 +21,9 @@ pub use t1::{evaluate_t1_token_threshold, T1ThresholdDecision, T1ThresholdError}
 pub use compatibility_queries::{
     compile_mind_context_pack, compile_mind_provenance_export, compile_mind_provenance_graph,
     mind_context_pack_mode_for_trigger, parse_mind_context_pack_mode,
-    parse_mind_context_pack_request, MindContextPack, MindContextPackCitation,
-    MindContextPackMode, MindContextPackProfile, MindContextPackRequest, MindContextPackSection,
-    MindContextPackSourceOverrides,
+    parse_mind_context_pack_request, try_parse_mind_context_pack_mode, MindContextPack,
+    MindContextPackCitation, MindContextPackMode, MindContextPackProfile, MindContextPackRequest,
+    MindContextPackSection, MindContextPackSourceOverrides,
 };
 pub use observer_runtime::{
     ClaimedObserverRun, ObserverQueueConfig, ObserverTrigger, ObserverTriggerKind,
@@ -54,8 +54,8 @@ pub use standalone::{
     sync_latest_pi_session_into_project_store, sync_session_file_into_project_store,
     t3_dispatch_lock_path, t3_lock_path_with_override, write_mind_service_health_snapshot,
     MindProjectPaths, MindServiceHealthSnapshot, MindServiceLease, MindServiceLeaseGuard,
-    MindServiceStatusSummary, OpenedMindProjectStore, StandaloneMindError,
-    StandalonePiSyncReport, DEFAULT_MIND_SERVICE_STALE_AFTER_MS,
+    MindServiceStatusSummary, OpenedMindProjectStore, StandaloneMindError, StandalonePiSyncReport,
+    DEFAULT_MIND_SERVICE_STALE_AFTER_MS,
 };
 
 pub fn canonical_mind_command_name(command: &str) -> Option<&'static str> {
@@ -118,10 +118,10 @@ const DEFAULT_T1_OUTPUT_MAX_CHARS: usize = 1_200;
 const DEFAULT_T2_OUTPUT_MAX_CHARS: usize = 1_400;
 const DEFAULT_T2_TRIGGER_TOKENS: u32 = 300;
 const DEFAULT_PI_OBSERVER_PROVIDER: &str = "pi";
-const DEFAULT_PI_OBSERVER_MODEL: &str = "gpt-5.4-mini";
+const DEFAULT_PI_OBSERVER_MODEL: &str = "gpt-5.3-codex-spark";
 const DEFAULT_PI_OBSERVER_PROMPT_VERSION: &str = "pi.observer.v1";
 const DEFAULT_PI_REFLECTOR_PROVIDER: &str = "pi";
-const DEFAULT_PI_REFLECTOR_MODEL: &str = "gpt-5.4-mini";
+const DEFAULT_PI_REFLECTOR_MODEL: &str = "gpt-5.3-codex-spark";
 const DEFAULT_PI_REFLECTOR_PROMPT_VERSION: &str = "pi.reflector.v1";
 const DEFAULT_SEMANTIC_COST_MICROS_PER_TOKEN: u64 = 100;
 
@@ -1288,11 +1288,13 @@ pub fn prepare_session_finalize_execution(
             observer_reason,
             outcome_reason_suffix,
         }) => {
-            return Ok(SessionFinalizePreparationOutcome::Skip(SessionFinalizeMessageSet {
-                status: "ok",
-                reason: format!("{}: {}", finalize_reason, outcome_reason_suffix),
-                observer_reason: observer_reason.to_string(),
-            }));
+            return Ok(SessionFinalizePreparationOutcome::Skip(
+                SessionFinalizeMessageSet {
+                    status: "ok",
+                    reason: format!("{}: {}", finalize_reason, outcome_reason_suffix),
+                    observer_reason: observer_reason.to_string(),
+                },
+            ));
         }
         Ok(SessionFinalizePlanOutcome::Ready(plan)) => plan,
         Err(err) => return Err(session_finalize_error("planning", err)),

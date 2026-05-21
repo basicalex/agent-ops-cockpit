@@ -6,11 +6,11 @@ use aoc_core::{
 use aoc_mind::{
     compile_mind_context_pack, compile_mind_provenance_export, default_pi_session_root,
     discover_latest_pi_session_file, mind_progress_for_conversation, open_project_store,
-    parse_mind_context_pack_mode, prepare_session_finalize_execution,
-    read_mind_service_health_snapshot, read_mind_service_lease, summarize_mind_service_status,
-    sync_latest_pi_session_into_project_store, sync_session_file_into_project_store,
-    DistillationConfig, MindContextPackProfile, MindContextPackRequest, MindProjectPaths,
-    MindRuntimeConfig, MindRuntimeCore, SessionFinalizePreparationOutcome,
+    prepare_session_finalize_execution, read_mind_service_health_snapshot, read_mind_service_lease,
+    summarize_mind_service_status, sync_latest_pi_session_into_project_store,
+    sync_session_file_into_project_store, try_parse_mind_context_pack_mode, DistillationConfig,
+    MindContextPackProfile, MindContextPackRequest, MindProjectPaths, MindRuntimeConfig,
+    MindRuntimeCore, SessionFinalizePreparationOutcome,
 };
 use clap::{Parser, Subcommand};
 use serde_json::json;
@@ -223,7 +223,15 @@ fn main() {
             detail,
             active_tag,
             json,
-        } => run_context_pack(&project_root, mode.as_deref(), role, reason, detail, active_tag, json),
+        } => run_context_pack(
+            &project_root,
+            mode.as_deref(),
+            role,
+            reason,
+            detail,
+            active_tag,
+            json,
+        ),
         Command::ObserverRun {
             project_root,
             session_id,
@@ -360,7 +368,10 @@ fn run_status(project_root: &PathBuf, as_json: bool) -> i32 {
                 .unwrap_or("<none>")
         );
         println!("service_state: {}", service_status.state);
-        println!("service_stale: {}", if service_status.stale { "yes" } else { "no" });
+        println!(
+            "service_stale: {}",
+            if service_status.stale { "yes" } else { "no" }
+        );
         if let Some(blocker) = service_status.blocker.as_deref() {
             println!("service_blocker: {}", blocker);
         }
@@ -495,25 +506,27 @@ fn session_sync_audit(project_root: &PathBuf) -> serde_json::Value {
     let checkpoints = open_project_store(project_root, "standalone", "service", None)
         .ok()
         .and_then(|opened| {
-            files.iter().try_fold(
-                (0_u64, 0_u64),
-                |(missing, partial), path| -> Result<(u64, u64), ()> {
-                    let Some(conversation_id) = conversation_id_from_session_file(path) else {
-                        return Ok((missing + 1, partial));
-                    };
-                    let size = path.metadata().map(|meta| meta.len()).unwrap_or(0);
-                    let checkpoint = opened
-                        .store
-                        .checkpoint(&conversation_id)
-                        .map_err(|_| ())?;
-                    match checkpoint {
-                        None => Ok((missing + 1, partial)),
-                        Some(checkpoint) if checkpoint.raw_cursor < size => Ok((missing, partial + 1)),
-                        Some(_) => Ok((missing, partial)),
-                    }
-                },
-            )
-            .ok()
+            files
+                .iter()
+                .try_fold(
+                    (0_u64, 0_u64),
+                    |(missing, partial), path| -> Result<(u64, u64), ()> {
+                        let Some(conversation_id) = conversation_id_from_session_file(path) else {
+                            return Ok((missing + 1, partial));
+                        };
+                        let size = path.metadata().map(|meta| meta.len()).unwrap_or(0);
+                        let checkpoint =
+                            opened.store.checkpoint(&conversation_id).map_err(|_| ())?;
+                        match checkpoint {
+                            None => Ok((missing + 1, partial)),
+                            Some(checkpoint) if checkpoint.raw_cursor < size => {
+                                Ok((missing, partial + 1))
+                            }
+                            Some(_) => Ok((missing, partial)),
+                        }
+                    },
+                )
+                .ok()
         });
     let (missing, partial) = checkpoints.unwrap_or((files.len() as u64, 0));
     json!({
@@ -572,11 +585,18 @@ fn run_sync_pi_all(project_root: &PathBuf, agent_id: &str, as_json: bool) -> i32
         println!("processed_raw_events: {processed_raw_events}");
         println!("sync_audit: {audit}");
     }
-    if ok { 0 } else { 1 }
+    if ok {
+        0
+    } else {
+        1
+    }
 }
 
 fn print_json(value: serde_json::Value) {
-    println!("{}", serde_json::to_string_pretty(&value).expect("json output"));
+    println!(
+        "{}",
+        serde_json::to_string_pretty(&value).expect("json output")
+    );
 }
 
 fn run_context_pack(
@@ -588,11 +608,22 @@ fn run_context_pack(
     active_tag: Option<String>,
     as_json: bool,
 ) -> i32 {
+    let mode = match try_parse_mind_context_pack_mode(mode) {
+        Ok(mode) => mode,
+        Err(err) => {
+            if as_json {
+                print_json(json!({ "ok": false, "error": err }));
+            } else {
+                eprintln!("context pack failed: {err}");
+            }
+            return 2;
+        }
+    };
     let store = open_project_store(project_root, "standalone", "service", None)
         .ok()
         .map(|opened| opened.store);
     let request = MindContextPackRequest {
-        mode: parse_mind_context_pack_mode(mode),
+        mode,
         profile: if detail {
             MindContextPackProfile::Expanded
         } else {
@@ -671,7 +702,14 @@ fn run_observer_run(
         .map(str::trim)
         .filter(|value| !value.is_empty())
         .map(|value| value.to_string())
-        .or_else(|| runtime.store().conversation_ids_for_session(session_id).ok()?.into_iter().last());
+        .or_else(|| {
+            runtime
+                .store()
+                .conversation_ids_for_session(session_id)
+                .ok()?
+                .into_iter()
+                .last()
+        });
     let reason = reason.unwrap_or_else(|| "pi shortcut".to_string());
     if let Some(conversation_id) = conversation_id {
         runtime.set_latest_conversation_id(Some(conversation_id.clone()));
@@ -740,18 +778,32 @@ fn run_reflector_run(
     let mut runtime = match build_runtime(project_root, session_id, pane_id, agent_id) {
         Ok(runtime) => runtime,
         Err(err) => {
-            if as_json { print_json(json!({ "ok": false, "error": err })); } else { eprintln!("reflector run failed: {err}"); }
+            if as_json {
+                print_json(json!({ "ok": false, "error": err }));
+            } else {
+                eprintln!("reflector run failed: {err}");
+            }
             return 1;
         }
     };
     match runtime.run_reflector_tick(chrono::Utc::now()) {
         Ok(report) => {
-            if as_json { print_json(json!({ "ok": true, "report": tick_report_json_reflector(&report) })); }
-            else { println!("reflector jobs: claimed={} completed={} failed={}", report.jobs_claimed, report.jobs_completed, report.jobs_failed); }
+            if as_json {
+                print_json(json!({ "ok": true, "report": tick_report_json_reflector(&report) }));
+            } else {
+                println!(
+                    "reflector jobs: claimed={} completed={} failed={}",
+                    report.jobs_claimed, report.jobs_completed, report.jobs_failed
+                );
+            }
             0
         }
         Err(err) => {
-            if as_json { print_json(json!({ "ok": false, "error": err })); } else { eprintln!("reflector run failed: {err}"); }
+            if as_json {
+                print_json(json!({ "ok": false, "error": err }));
+            } else {
+                eprintln!("reflector run failed: {err}");
+            }
             1
         }
     }
@@ -767,18 +819,35 @@ fn run_t3_run(
     let mut runtime = match build_runtime(project_root, session_id, pane_id, agent_id) {
         Ok(runtime) => runtime,
         Err(err) => {
-            if as_json { print_json(json!({ "ok": false, "error": err })); } else { eprintln!("t3 run failed: {err}"); }
+            if as_json {
+                print_json(json!({ "ok": false, "error": err }));
+            } else {
+                eprintln!("t3 run failed: {err}");
+            }
             return 1;
         }
     };
-    match runtime.run_t3_tick(chrono::Utc::now(), |_store, _project_root, _active_tag, _now| Ok(())) {
+    match runtime.run_t3_tick(
+        chrono::Utc::now(),
+        |_store, _project_root, _active_tag, _now| Ok(()),
+    ) {
         Ok(report) => {
-            if as_json { print_json(json!({ "ok": true, "report": tick_report_json_t3(&report) })); }
-            else { println!("t3 jobs: claimed={} completed={} failed={}", report.jobs_claimed, report.jobs_completed, report.jobs_failed); }
+            if as_json {
+                print_json(json!({ "ok": true, "report": tick_report_json_t3(&report) }));
+            } else {
+                println!(
+                    "t3 jobs: claimed={} completed={} failed={}",
+                    report.jobs_claimed, report.jobs_completed, report.jobs_failed
+                );
+            }
             0
         }
         Err(err) => {
-            if as_json { print_json(json!({ "ok": false, "error": err })); } else { eprintln!("t3 run failed: {err}"); }
+            if as_json {
+                print_json(json!({ "ok": false, "error": err }));
+            } else {
+                eprintln!("t3 run failed: {err}");
+            }
             1
         }
     }
@@ -804,7 +873,10 @@ fn table_counts_json(project_root: &PathBuf) -> serde_json::Value {
     };
     let mut map = serde_json::Map::new();
     for table in tables {
-        map.insert(table.to_string(), json!(opened.store.table_count(table).unwrap_or(0)));
+        map.insert(
+            table.to_string(),
+            json!(opened.store.table_count(table).unwrap_or(0)),
+        );
     }
     json!(map)
 }
@@ -844,18 +916,35 @@ fn run_doctor(project_root: &PathBuf, as_json: bool) -> i32 {
     let sync_audit = session_sync_audit(project_root);
     let memory = memory_scope_json(project_root);
     let lease = read_mind_service_lease(project_root).ok().flatten();
-    let health = read_mind_service_health_snapshot(project_root).ok().flatten();
+    let health = read_mind_service_health_snapshot(project_root)
+        .ok()
+        .flatten();
     let service_status = summarize_mind_service_status(
         lease.as_ref(),
         health.as_ref(),
         chrono::Utc::now().timestamp_millis(),
     );
     let counts_obj = counts.as_object();
-    let t1 = counts_obj.and_then(|m| m.get("observations_t1")).and_then(|v| v.as_i64()).unwrap_or(0);
-    let t2 = counts_obj.and_then(|m| m.get("reflections_t2")).and_then(|v| v.as_i64()).unwrap_or(0);
-    let t3 = counts_obj.and_then(|m| m.get("project_canon_revisions")).and_then(|v| v.as_i64()).unwrap_or(0);
-    let missing = sync_audit.get("missing").and_then(|v| v.as_u64()).unwrap_or(0);
-    let partial = sync_audit.get("partial").and_then(|v| v.as_u64()).unwrap_or(0);
+    let t1 = counts_obj
+        .and_then(|m| m.get("observations_t1"))
+        .and_then(|v| v.as_i64())
+        .unwrap_or(0);
+    let t2 = counts_obj
+        .and_then(|m| m.get("reflections_t2"))
+        .and_then(|v| v.as_i64())
+        .unwrap_or(0);
+    let t3 = counts_obj
+        .and_then(|m| m.get("project_canon_revisions"))
+        .and_then(|v| v.as_i64())
+        .unwrap_or(0);
+    let missing = sync_audit
+        .get("missing")
+        .and_then(|v| v.as_u64())
+        .unwrap_or(0);
+    let partial = sync_audit
+        .get("partial")
+        .and_then(|v| v.as_u64())
+        .unwrap_or(0);
     let memory_bad = memory.get("path_ok").and_then(|v| v.as_bool()) == Some(false)
         || memory.get("header_mismatch").and_then(|v| v.as_bool()) == Some(true);
     let degraded = missing > 0 || partial > 0 || t1 == 0 || t2 == 0 || t3 == 0 || memory_bad;
@@ -888,7 +977,11 @@ fn run_doctor(project_root: &PathBuf, as_json: bool) -> i32 {
         println!("counts: {counts}");
         println!("memory: {memory}");
     }
-    if degraded { 1 } else { 0 }
+    if degraded {
+        1
+    } else {
+        0
+    }
 }
 
 fn run_provenance_query(
@@ -900,7 +993,9 @@ fn run_provenance_query(
         Ok(opened) => opened.store,
         Err(err) => {
             if as_json {
-                print_json(json!({ "ok": false, "error": format!("mind store open failed: {err}") }));
+                print_json(
+                    json!({ "ok": false, "error": format!("mind store open failed: {err}") }),
+                );
             } else {
                 eprintln!("provenance query failed: mind store open failed: {err}");
             }
@@ -913,7 +1008,10 @@ fn run_provenance_query(
             if as_json {
                 print_json(json!({ "ok": true, "export": export }));
             } else {
-                println!("{}", serde_json::to_string_pretty(&export).expect("json output"));
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&export).expect("json output")
+                );
             }
             0
         }
@@ -930,7 +1028,9 @@ fn run_provenance_query(
 
 fn ensure_safe_export_text(payload: &str, label: &str) -> Result<(), String> {
     if text_contains_unredacted_secret(payload) {
-        return Err(format!("{label} contains unredacted secret-bearing content"));
+        return Err(format!(
+            "{label} contains unredacted secret-bearing content"
+        ));
     }
     Ok(())
 }
@@ -947,7 +1047,9 @@ fn run_finalize_session(
         Ok(opened) => opened,
         Err(err) => {
             if as_json {
-                print_json(json!({ "ok": false, "error": format!("mind store open failed: {err}") }));
+                print_json(
+                    json!({ "ok": false, "error": format!("mind store open failed: {err}") }),
+                );
             } else {
                 eprintln!("finalize failed: mind store open failed: {err}");
             }
@@ -955,7 +1057,9 @@ fn run_finalize_session(
         }
     };
     let finalize_reason = reason.unwrap_or_else(|| "pi command".to_string());
-    let latest_conversation_id = conversation_id.map(str::trim).filter(|value| !value.is_empty());
+    let latest_conversation_id = conversation_id
+        .map(str::trim)
+        .filter(|value| !value.is_empty());
     let prepared = match prepare_session_finalize_execution(
         &opened.store,
         &project_root.display().to_string(),
