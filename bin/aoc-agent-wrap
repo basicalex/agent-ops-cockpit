@@ -957,9 +957,38 @@ elif [[ "$is_pi_family_agent" == "1" ]]; then
   } > "$bootloader"
 fi
 
+resolve_aoc_agent_presence_extension() {
+  local candidate=""
+  local config_home="${XDG_CONFIG_HOME:-$HOME/.config}"
+  local candidates=()
+  if [[ -n "${AOC_AGENT_PRESENCE_EXTENSION:-}" ]]; then
+    candidates+=("$AOC_AGENT_PRESENCE_EXTENSION")
+  fi
+  if [[ -n "${AOC_PROJECT_ROOT:-}" ]]; then
+    candidates+=("$AOC_PROJECT_ROOT/.pi/extensions/aoc-agent-presence.ts")
+  fi
+  candidates+=(
+    "$config_home/aoc/pi/extensions/aoc-agent-presence.ts"
+    "$script_dir/../.pi/extensions/aoc-agent-presence.ts"
+  )
+  for candidate in "${candidates[@]}"; do
+    if [[ -f "$candidate" ]]; then
+      printf '%s' "$candidate"
+      return 0
+    fi
+  done
+  return 1
+}
+
 agent_args=("$@")
 prepare_pi_context_kernel_args "${agent_args[@]}"
 agent_args=("${pi_context_kernel_args[@]}")
+if [[ "$is_pi_family_agent" == "1" && "${AOC_PI_AGENT_PRESENCE:-1}" != "0" ]]; then
+  presence_extension="$(resolve_aoc_agent_presence_extension || true)"
+  if [[ -n "$presence_extension" ]]; then
+    agent_args=(--extension "$presence_extension" "${agent_args[@]}")
+  fi
+fi
 
 resolve_wrap_rs_cmd
 wrapped_cmd=()

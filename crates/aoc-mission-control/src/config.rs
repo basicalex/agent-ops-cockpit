@@ -65,6 +65,13 @@ pub(crate) fn resolve_pulse_vnext_enabled() -> bool {
         .unwrap_or(true)
 }
 
+pub(crate) fn resolve_zellij_layout_polling_enabled() -> bool {
+    std::env::var("AOC_MISSION_CONTROL_ZELLIJ_POLLING")
+        .ok()
+        .and_then(|value| parse_bool_flag(&value))
+        .unwrap_or(false)
+}
+
 pub(crate) fn resolve_overview_enabled() -> bool {
     std::env::var("AOC_PULSE_OVERVIEW_ENABLED")
         .ok()

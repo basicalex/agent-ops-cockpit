@@ -78,6 +78,15 @@ done
 
 have() { command -v "$1" >/dev/null 2>&1; }
 
+run_zellij_bounded() {
+  local timeout_secs="${AOC_ZELLIJ_ACTION_TIMEOUT_SECS:-2}"
+  if have timeout; then
+    timeout --preserve-status "${timeout_secs}s" zellij "$@"
+  else
+    zellij "$@"
+  fi
+}
+
 in_zellij() {
   [[ -n "${ZELLIJ:-}" || -n "${ZELLIJ_SESSION_NAME:-}" ]]
 }
@@ -127,7 +136,7 @@ current_tab_info_field() {
   if ! in_zellij || ! have zellij; then
     return 1
   fi
-  zellij action current-tab-info --json 2>/dev/null | python -c '
+  run_zellij_bounded action current-tab-info --json 2>/dev/null | python -c '
 import json, sys
 field = sys.argv[1]
 try:
@@ -162,7 +171,7 @@ rename_active_tab() {
   local next_name="$1"
   [[ -n "$next_name" ]] || return 0
   in_zellij || return 1
-  zellij action rename-tab "$next_name" >/dev/null 2>&1
+  run_zellij_bounded action rename-tab "$next_name" >/dev/null 2>&1
 }
 
 broadcast_metadata() {
@@ -182,7 +191,7 @@ broadcast_metadata() {
     payload+="tab_position=$tab_position"$'\n'
   fi
 
-  zellij action pipe --name aoc_tab_metadata -- "$payload" >/dev/null 2>&1
+  run_zellij_bounded action pipe --name aoc_tab_metadata -- "$payload" >/dev/null 2>&1 || true
 }
 
 show_status() {

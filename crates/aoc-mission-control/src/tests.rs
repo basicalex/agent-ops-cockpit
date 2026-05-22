@@ -39,6 +39,132 @@ fn empty_local() -> LocalSnapshot {
     }
 }
 
+#[test]
+fn collect_presence_overview_reads_registry_without_zellij_layout() {
+    let root = std::env::temp_dir().join(format!(
+        "aoc-presence-registry-test-{}-{}",
+        std::process::id(),
+        Utc::now().timestamp_nanos_opt().unwrap_or_default()
+    ));
+    let project_root = root.join("project");
+    let registry_dir = root.join("agent-registry").join("project_key");
+    std::fs::create_dir_all(&registry_dir).expect("create registry dir");
+    std::fs::create_dir_all(&project_root).expect("create project dir");
+    let heartbeat = Utc::now().to_rfc3339();
+    std::fs::write(
+        registry_dir.join("agent.json"),
+        serde_json::json!({
+            "schema": 1,
+            "agent_id": "agent-123",
+            "session_id": "session-test",
+            "project_root": project_root.to_string_lossy(),
+            "tab_scope": "Agent",
+            "pid": 4242,
+            "model": "test-model",
+            "lifecycle": "tool",
+            "current_tool": "bash",
+            "chat_title": "Fix MC registry display",
+            "tool_count": 7,
+            "turn_count": 3,
+            "context_pct": 42,
+            "heartbeat_at": heartbeat,
+            "last_activity_at": heartbeat,
+        })
+        .to_string(),
+    )
+    .expect("write presence");
+
+    let mut config = test_config();
+    config.state_dir = root.clone();
+    config.project_root = project_root;
+    let rows = collect_presence_overview(&config, None);
+    assert_eq!(rows.len(), 1);
+    let row = &rows[0];
+    assert_eq!(row.identity_key, "presence::agent-123");
+    assert_eq!(row.label, "Fix MC registry display");
+    assert_eq!(row.chat_title.as_deref(), Some("Fix MC registry display"));
+    assert_eq!(row.lifecycle, "busy");
+    assert!(row.online);
+    assert_eq!(row.source, "presence");
+    assert_eq!(row.pane_id, "pid-4242");
+    assert!(row.snippet.as_deref().unwrap_or("").contains("ctx:42%"));
+    assert!(row.snippet.as_deref().unwrap_or("").contains("tool:bash"));
+    let _ = std::fs::remove_dir_all(root);
+}
+
+#[test]
+fn collect_presence_overview_marks_stale_entries_offline() {
+    let root = std::env::temp_dir().join(format!(
+        "aoc-presence-stale-test-{}-{}",
+        std::process::id(),
+        Utc::now().timestamp_nanos_opt().unwrap_or_default()
+    ));
+    let project_root = root.join("project");
+    let registry_dir = root.join("agent-registry").join("project_key");
+    std::fs::create_dir_all(&registry_dir).expect("create registry dir");
+    std::fs::create_dir_all(&project_root).expect("create project dir");
+    let heartbeat = (Utc::now() - chrono::Duration::seconds(300)).to_rfc3339();
+    std::fs::write(
+        registry_dir.join("agent.json"),
+        serde_json::json!({
+            "agent_id": "agent-stale",
+            "session_id": "session-test",
+            "project_root": project_root.to_string_lossy(),
+            "lifecycle": "idle",
+            "heartbeat_at": heartbeat,
+        })
+        .to_string(),
+    )
+    .expect("write presence");
+
+    let mut config = test_config();
+    config.state_dir = root.clone();
+    config.project_root = project_root;
+    let rows = collect_presence_overview(&config, None);
+    assert_eq!(rows.len(), 1);
+    assert!(!rows[0].online);
+    assert_eq!(rows[0].lifecycle, "offline");
+    let _ = std::fs::remove_dir_all(root);
+}
+
+#[test]
+fn collect_presence_overview_includes_other_projects_in_same_session() {
+    let root = std::env::temp_dir().join(format!(
+        "aoc-presence-cross-project-test-{}-{}",
+        std::process::id(),
+        Utc::now().timestamp_nanos_opt().unwrap_or_default()
+    ));
+    let mc_project_root = root.join("mc-project");
+    let other_project_root = root.join("other-project");
+    let registry_dir = root.join("agent-registry").join("other_key");
+    std::fs::create_dir_all(&registry_dir).expect("create registry dir");
+    std::fs::create_dir_all(&mc_project_root).expect("create mc project dir");
+    std::fs::create_dir_all(&other_project_root).expect("create other project dir");
+    let heartbeat = Utc::now().to_rfc3339();
+    std::fs::write(
+        registry_dir.join("agent.json"),
+        serde_json::json!({
+            "agent_id": "other-agent",
+            "session_id": "session-test",
+            "project_root": other_project_root.to_string_lossy(),
+            "tab_scope": "Other",
+            "lifecycle": "idle",
+            "heartbeat_at": heartbeat,
+        })
+        .to_string(),
+    )
+    .expect("write presence");
+
+    let mut config = test_config();
+    config.state_dir = root.clone();
+    config.project_root = mc_project_root;
+    let rows = collect_presence_overview(&config, None);
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0].identity_key, "presence::other-agent");
+    assert_eq!(rows[0].project_root, other_project_root.to_string_lossy());
+    let _ = std::fs::remove_dir_all(root);
+}
+
 fn fresh_test_mind_store(label: &str) -> (PathBuf, PathBuf) {
     let root = std::env::temp_dir().join(format!(
         "{label}-{}-{}",

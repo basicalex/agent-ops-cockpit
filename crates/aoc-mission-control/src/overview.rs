@@ -320,11 +320,20 @@ fn overview_row_presenter_with_budget(
     decorations: &OverviewDecorations,
     budget: PresenterBudgets,
 ) -> OverviewRowPresenter {
-    let identity = format!(
-        "{}::{}",
-        ellipsize(&row.label, budget.label.max(4)),
-        ellipsize(&row.pane_id, budget.pane.max(4))
-    );
+    let display_title = row
+        .chat_title
+        .as_deref()
+        .or(row.session_title.as_deref())
+        .filter(|value| !value.trim().is_empty());
+    let identity = if let Some(title) = display_title {
+        ellipsize(title, (budget.label + budget.pane + 2).max(8))
+    } else {
+        format!(
+            "{}::{}",
+            ellipsize(&row.label, budget.label.max(4)),
+            ellipsize(&row.pane_id, budget.pane.max(4))
+        )
+    };
     let lifecycle_chip = format!("[{:<5}]", lifecycle_chip_label(&row.lifecycle, row.online));
     let location_chip = overview_location_chip(row, budget.tab_name);
     let badge = OverviewBadge::Attention(decorations.attention_chip);

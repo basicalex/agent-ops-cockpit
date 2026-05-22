@@ -15,14 +15,22 @@ pub(crate) fn collect_local_with_options(
     include_health: bool,
     previous: Option<&LocalSnapshot>,
 ) -> LocalSnapshot {
-    let session_layout = collect_session_layout(&config.session_id);
+    let session_layout = if resolve_zellij_layout_polling_enabled() {
+        collect_session_layout(&config.session_id)
+    } else {
+        None
+    };
     let viewer_tab_index = collect_viewer_tab_index(config, session_layout.as_ref());
     let tab_roster = session_layout
         .as_ref()
         .map(|layout| layout.tabs.clone())
         .or_else(|| previous.map(|snapshot| snapshot.tab_roster.clone()))
         .unwrap_or_default();
-    let mut overview = collect_runtime_overview(config, session_layout.as_ref());
+    let mut overview = collect_presence_overview(config, session_layout.as_ref());
+    merge_overview_rows(
+        &mut overview,
+        collect_runtime_overview(config, session_layout.as_ref()),
+    );
     if overview.is_empty() {
         overview = collect_proc_overview(config, session_layout.as_ref());
     }
@@ -152,6 +160,168 @@ pub(crate) fn hub_layout_from_payload(payload: &LayoutStatePayload) -> HubLayout
         layout_seq: payload.layout_seq,
         pane_tabs,
         focused_tab_index,
+    }
+}
+
+#[derive(Deserialize)]
+struct AgentPresenceSnapshot {
+    agent_id: String,
+    session_id: String,
+    project_root: String,
+    #[serde(default)]
+    tab_scope: Option<String>,
+    #[serde(default)]
+    pid: Option<i32>,
+    #[serde(default)]
+    model: Option<String>,
+    #[serde(default)]
+    lifecycle: String,
+    #[serde(default)]
+    current_tool: Option<String>,
+    #[serde(default)]
+    chat_title: Option<String>,
+    #[serde(default)]
+    tool_count: Option<u64>,
+    #[serde(default)]
+    turn_count: Option<u64>,
+    #[serde(default)]
+    context_pct: Option<i64>,
+    #[serde(default)]
+    heartbeat_at: String,
+    #[serde(default)]
+    last_activity_at: Option<String>,
+}
+
+pub(crate) fn collect_presence_overview(
+    config: &Config,
+    session_layout: Option<&SessionLayout>,
+) -> Vec<OverviewRow> {
+    let registry_root = config.state_dir.join("agent-registry");
+    let entries = match fs::read_dir(registry_root) {
+        Ok(project_dirs) => project_dirs,
+        Err(_) => return Vec::new(),
+    };
+    let mut rows: BTreeMap<String, OverviewRow> = BTreeMap::new();
+    let viewer_scope = config.tab_scope.as_deref();
+    let project_tabs = session_layout.map(|layout| &layout.project_tabs);
+    let now = Utc::now();
+
+    for project_dir in entries.flatten() {
+        let Ok(file_type) = project_dir.file_type() else {
+            continue;
+        };
+        if !file_type.is_dir() {
+            continue;
+        }
+        let Ok(files) = fs::read_dir(project_dir.path()) else {
+            continue;
+        };
+        for entry in files.flatten() {
+            let path = entry.path();
+            if !path.is_file() || path.extension().and_then(|ext| ext.to_str()) != Some("json") {
+                continue;
+            }
+            let contents = match fs::read_to_string(&path) {
+                Ok(contents) => contents,
+                Err(_) => continue,
+            };
+            let snapshot: AgentPresenceSnapshot = match serde_json::from_str(&contents) {
+                Ok(snapshot) => snapshot,
+                Err(_) => continue,
+            };
+            if snapshot.session_id != config.session_id {
+                continue;
+            }
+            let heartbeat_age = DateTime::parse_from_rfc3339(&snapshot.heartbeat_at)
+                .ok()
+                .map(|dt| {
+                    now.signed_duration_since(dt.with_timezone(&Utc))
+                        .num_seconds()
+                        .max(0)
+                });
+            let online = heartbeat_age.map(|age| age <= 120).unwrap_or(false)
+                && !snapshot.lifecycle.eq_ignore_ascii_case("offline");
+            let lifecycle = if !online {
+                "offline".to_string()
+            } else if heartbeat_age.map(|age| age > 45).unwrap_or(false) {
+                "stale".to_string()
+            } else {
+                match snapshot.lifecycle.trim().to_ascii_lowercase().as_str() {
+                    "tool" | "thinking" | "starting" => "busy".to_string(),
+                    other => normalize_lifecycle(other),
+                }
+            };
+            let pane_id = snapshot
+                .pid
+                .map(|pid| format!("pid-{pid}"))
+                .unwrap_or_else(|| sanitize_component(&snapshot.agent_id));
+            let tab_meta = project_tabs.and_then(|tabs| tabs.get(&snapshot.project_root));
+            let tab_name = tab_meta
+                .map(|meta| meta.name.clone())
+                .or_else(|| snapshot.tab_scope.clone());
+            let tab_focused = tab_scope_matches(viewer_scope, snapshot.tab_scope.as_deref())
+                || tab_scope_matches(viewer_scope, tab_name.as_deref());
+            let mut snippet_parts = Vec::new();
+            if let Some(tool) = snapshot.current_tool.as_deref().filter(|tool| !tool.is_empty()) {
+                snippet_parts.push(format!("tool:{tool}"));
+            }
+            if let Some(context_pct) = snapshot.context_pct {
+                snippet_parts.push(format!("ctx:{context_pct}%"));
+            }
+            if let Some(tool_count) = snapshot.tool_count {
+                snippet_parts.push(format!("tools:{tool_count}"));
+            }
+            if let Some(turn_count) = snapshot.turn_count {
+                snippet_parts.push(format!("turns:{turn_count}"));
+            }
+            let snippet = if snippet_parts.is_empty() {
+                None
+            } else {
+                Some(snippet_parts.join(" "))
+            };
+            let label = snapshot
+                .chat_title
+                .as_deref()
+                .filter(|value| !value.trim().is_empty())
+                .or_else(|| {
+                    snapshot
+                        .tab_scope
+                        .as_deref()
+                        .filter(|value| !value.trim().is_empty())
+                })
+                .map(str::to_string)
+                .unwrap_or_else(|| snapshot.agent_id.clone());
+            let identity_key = format!("presence::{}", snapshot.agent_id);
+            rows.insert(
+                identity_key.clone(),
+                OverviewRow {
+                    identity_key,
+                    label,
+                    lifecycle,
+                    snippet,
+                    pane_id,
+                    tab_index: tab_meta.map(|meta| meta.index),
+                    tab_name,
+                    tab_focused,
+                    project_root: snapshot.project_root,
+                    online,
+                    age_secs: heartbeat_age,
+                    source: "presence".to_string(),
+                    session_title: snapshot.model,
+                    chat_title: snapshot.chat_title.or(snapshot.last_activity_at),
+                },
+            );
+        }
+    }
+    rows.into_values().collect()
+}
+
+pub(crate) fn merge_overview_rows(rows: &mut Vec<OverviewRow>, extra: Vec<OverviewRow>) {
+    let mut seen: HashSet<String> = rows.iter().map(|row| row.identity_key.clone()).collect();
+    for row in extra {
+        if seen.insert(row.identity_key.clone()) {
+            rows.push(row);
+        }
     }
 }
 

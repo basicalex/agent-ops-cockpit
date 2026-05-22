@@ -6,6 +6,7 @@
     "extensions/mind-context.ts",
     "extensions/mind-focus.ts",
     "extensions/aoc-models.ts",
+    "extensions/aoc-agent-presence.ts",
     "extensions/aoc-presets/index.ts",
     "extensions/subagent.ts"
   ],
