@@ -1100,6 +1100,11 @@ if [[ -d "$ROOT_DIR/.pi/prompts" ]]; then
   done
 fi
 
+legacy_resume_prompt="${XDG_CONFIG_HOME:-$HOME/.config}/aoc/pi/prompts/resume.md"
+if [[ -f "$legacy_resume_prompt" ]] && grep -Fq 'safe_to_resume_latest' "$legacy_resume_prompt" && grep -Fq 'Operator resume target or focus:' "$legacy_resume_prompt"; then
+  rm -f "$legacy_resume_prompt"
+fi
+
 required_pi_prompts=(
   aoc-ops
   tm-cc

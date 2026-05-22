@@ -2983,6 +2983,12 @@ setup_pi_prompts() {
     mkdir -p "$pi_prompts_dir"
   fi
 
+  local legacy_resume_prompt="$pi_prompts_dir/resume.md"
+  if [[ -f "$legacy_resume_prompt" ]] && grep -Fq 'safe_to_resume_latest' "$legacy_resume_prompt" && grep -Fq 'Operator resume target or focus:' "$legacy_resume_prompt"; then
+    rm -f "$legacy_resume_prompt"
+    log "Removed legacy AOC /resume prompt to avoid clashing with Pi native /resume; use /rresume."
+  fi
+
   local seeded_any=0
   local prompt_name=""
   local seed_file=""

@@ -3,7 +3,7 @@ description: Load a directed AOC STM handoff packet into the current agent conte
 argument-hint: "[archive-name|handoff focus]"
 ---
 
-Resume from an AOC STM handoff.
+Resume from an AOC STM handoff. This prompt is intentionally named `/rresume` to avoid clashing with Pi's native `/resume` command.
 
 Operator resume target or focus:
 $ARGUMENTS
