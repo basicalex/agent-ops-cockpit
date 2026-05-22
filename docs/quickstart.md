@@ -55,7 +55,7 @@ aoc-stm template --purpose continue   # purpose-specific handoff shape
 aoc-stm add "note"                   # short-term handoff draft note
 aoc-stm handoff --purpose continue --to builder --focus "next safe step"
 # In Pi: /handoff focusing on the next safe step
-# In Pi: /resume  # safely load latest sealed handoff when safe
+# In Pi: /rresume  # safely load latest sealed handoff when safe
 aoc-doctor              # health check
 ```
 

@@ -1105,7 +1105,7 @@ required_pi_prompts=(
   tm-cc
   implement
   handoff
-  resume
+  rresume
   commit
 )
 for prompt_name in "${required_pi_prompts[@]}"; do

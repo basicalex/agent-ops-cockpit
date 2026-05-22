@@ -103,7 +103,7 @@ After install (or manual `aoc-init`), a PI-first project should include:
 - `.pi/packages/pi-multi-auth-aoc/package.json`
 - `.pi/prompts/tm-cc.md`
 - `.pi/prompts/handoff.md`
-- `.pi/prompts/resume.md`
+- `.pi/prompts/rresume.md`
 - `.pi/skills/aoc-init-ops/SKILL.md` (plus other seeded skills)
 - `.pi/extensions/minimal.ts`
 - `.pi/extensions/mind-ingest.ts`

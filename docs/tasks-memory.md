@@ -49,7 +49,7 @@ Use STM only for deliberate in-progress handoff packets between agents or sessio
 
 In Pi, use `/handoff <focus>` to ask the agent to generate a clean directed packet for the current work, for example `/handoff focusing on the element refactor`. The slash command treats the text after the command as the operator focus and seals the packet with `aoc-stm handoff --from-file ...`, so stale current STM draft notes are not accidentally bundled.
 
-Use `/resume [archive-name]` to ask the agent to load a sealed STM handoff into context. With no archive argument, the agent first checks `aoc-stm status` and only uses latest when `safe_to_resume_latest: yes`; otherwise it should ask for the exact archive or permission to inspect the unsealed draft.
+Use `/rresume [archive-name]` to ask the agent to load a sealed STM handoff into context. With no archive argument, the agent first checks `aoc-stm status` and only uses latest when `safe_to_resume_latest: yes`; otherwise it should ask for the exact archive or permission to inspect the unsealed draft.
 
 ```bash
 aoc-stm status
