@@ -3,7 +3,7 @@
 ## Overview
 Skills are reusable workflow playbooks stored in `.pi/skills/<name>/SKILL.md` (PI-first canonical path).
 
-Task PRD workflows use task-level links (`aocPrd`) and PRD docs under `.taskmaster/docs/prds/`.
+Task spec workflows use task-level links (legacy key `aocPrd`) and new specs under `.taskmaster/docs/specs/`; `.taskmaster/docs/prds/` remains legacy-compatible.
 
 ## Sync behavior (PI-first)
 - `aoc-init` seeds default PI skills into `.pi/skills` (if missing) and syncs PI skills only.
@@ -48,22 +48,25 @@ aoc-skill validate
 
 ## Built-in skills
 - `aoc-workflow`
-- `teach-workflow`
+- `aoc-understand`
 - `aoc-init-ops`
 - `memory-ops`
 - `stm-ops`
 - `taskmaster-ops`
 - `tm-cc`
 - `rlm-analysis`
-- `prd-dev`
-- `prd-intake`
-- `prd-align`
+- `spec-dev` (`prd-dev` legacy alias)
+- `spec-intake` (`prd-intake` legacy alias)
+- `spec-align` (`prd-align` legacy alias)
+- `spec-rpg-authoring` (`prd-rpg-authoring` legacy alias)
 - `tag-align`
 - `task-breakdown`
 - `task-checker`
 - `release-notes`
 - `skill-creator`
 - `zellij-theme-ops`
+
+`aoc-understand` is the canonical repository-understanding/onboarding skill. Legacy `teach-workflow` is deprecated and hidden by default; use it only to inspect old `.aoc/insight/` notes when explicitly requested.
 
 `zellij-theme-ops` pairs with the `aoc-theme` CLI for global theme workflows (`~/.config/zellij/themes`), including `aoc-theme tui` for interactive selection.
 

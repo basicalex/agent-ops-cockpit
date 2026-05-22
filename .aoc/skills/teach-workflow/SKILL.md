@@ -1,61 +1,28 @@
 ---
 name: teach-workflow
-description: Run guided teach-mode scans, dives, and local insight logging.
+description: DEPRECATED legacy teach-mode scans and local insight logging. Prefer aoc-understand for repository understanding, onboarding, architecture questions, and graph/dashboard flows.
 ---
 
-## When to use
-- Onboard a developer to this repository.
-- Build a subsystem mental model before making changes.
-- Create a guided learning path with checkpoints.
+# Deprecated: teach-workflow
 
-## Core commands
-- `/teach-full` for broad architecture scan + pause checkpoint.
-- `/teach-dive <subsystem>` for targeted deep dives.
-- `/teach-ask <question>` for direct answer-only mentoring responses.
+This skill is deprecated.
 
-## Standard flow
-1. Ensure context is loaded from:
-   - `.aoc/context.md`
-   - `aoc-mem read`
-   - `aoc-stm resume` (fallback `aoc-stm read-current` when no archive exists)
-   - `aoc-task list`
-   - `.taskmaster/docs/prd.txt` (fallback `.taskmaster/docs/prd.md`)
-2. For full scan, explore subsystem tracks in parallel.
-3. Synthesize a teaching report with:
-   - system mental model
-   - subsystem map
-   - key files per subsystem
-   - current status (done vs fragile/missing)
-   - top risks
-4. End with numbered checkpoint options and wait for user choice.
-5. For deep dive, return:
-   - concept in plain English
-   - repo implementation with file refs
-   - tradeoffs and alternatives
-   - debugging checklist
-   - 2-3 hands-on exercises
+Use `aoc-understand` / Understand-Anything for new repository-understanding work:
 
-## Insight logging (local-only)
-Maintain a local insight workspace in `.aoc/insight/`:
-- `current.md`: active teaching state and pending choices
-- `insights.md`: append-only insight log
-- `index.md`: compact history index
-- `sessions/*.md`: timestamped full scan and deep-dive snapshots
+```bash
+aoc-understand status
+aoc-understand analyze --full
+aoc-understand dashboard --open
+aoc-understand chat "How does this subsystem work?"
+aoc-understand explain path/to/file
+```
 
-Do not change `.gitignore` for this workspace; keep it local-only.
+## Legacy scope
 
-## Insight entry format
-- timestamp (UTC)
-- subsystem
-- insight
-- evidence (file refs)
-- confidence (`high|medium|low`)
-- suggested action
-- promote to memory (`yes|no`)
+The old teach workflow used `/teach-full`, `/teach-dive`, and `/teach-ask` to produce local Markdown notes under `.aoc/insight/`. Those artifacts may still be inspected when explicitly requested, but they are no longer the canonical understanding system.
 
 ## Guardrails
-- Default to read-only exploration.
-- Do not edit code unless explicitly requested.
-- Never edit `.aoc/memory.md` directly.
-- Never edit `.taskmaster/tasks/tasks.json` directly.
-- Promote durable decisions with `aoc-mem add` only when asked.
+
+- Do not start new architecture/onboarding scans with teach unless the operator explicitly asks for legacy teach behavior.
+- Do not delete `.aoc/insight/`; it may contain historical local notes.
+- Do not edit `.aoc/memory.md` or `.taskmaster/tasks/tasks.json` directly.

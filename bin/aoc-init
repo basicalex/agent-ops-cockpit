@@ -382,7 +382,7 @@ PY
 managed_pi_skill_name() {
   local skill_name="$1"
   case "$skill_name" in
-    aoc-hyperframes|aoc-init-ops|aoc-map|architecture-design|custom-layout-ops|design-diff|design-director|design-handoff|design-premium-ui|design-redesign|design-review|design-spec|design-tokens|frontend-design|funnel-design|safe-gamification|motion-director|spec-rpg-authoring|prd-rpg-authoring|rlm-analysis|teach-workflow|tm-cc|vercel-cli|web-research|zellij-theme-ops)
+    aoc-hyperframes|aoc-init-ops|aoc-map|aoc-understand|architecture-design|custom-layout-ops|design-diff|design-director|design-handoff|design-premium-ui|design-redesign|design-review|design-spec|design-tokens|frontend-design|funnel-design|safe-gamification|motion-director|spec-rpg-authoring|prd-rpg-authoring|rlm-analysis|teach-workflow|tm-cc|vercel-cli|web-research|zellij-theme-ops)
       return 0
       ;;
     *)

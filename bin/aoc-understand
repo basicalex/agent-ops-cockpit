@@ -1,0 +1,307 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+UA_REPO_URL="${AOC_UNDERSTAND_REPO_URL:-https://github.com/Lum1104/Understand-Anything.git}"
+UA_REF="${AOC_UNDERSTAND_REF:-main}"
+UA_HOME="${AOC_UNDERSTAND_HOME:-$HOME/.local/share/aoc/tools/understand-anything}"
+UA_SOURCE="${AOC_UNDERSTAND_SOURCE:-$UA_HOME/source}"
+UA_PLUGIN_DIR="${AOC_UNDERSTAND_PLUGIN_DIR:-$UA_SOURCE/understand-anything-plugin}"
+
+usage() {
+  cat <<'EOF'
+Usage: aoc-understand <command> [options]
+
+AOC bridge for Understand-Anything: repo knowledge graph, dashboard, explain/chat/onboard flows.
+
+Commands:
+  install              Clone/update global Understand-Anything checkout and build packages
+  status               Show install and project graph status (read-only)
+  doctor               Check prerequisites and install health (read-only)
+  analyze [args...]    Print/dispatch guidance for UA /understand analysis
+  dashboard [--open]   Start the UA dashboard for this project's graph
+  chat QUERY           Print graph-aware /understand-chat guidance
+  explain TARGET       Print graph-aware /understand-explain guidance
+  onboard              Print graph-aware /understand-onboard guidance
+  domain [args...]     Print/dispatch guidance for UA /understand-domain
+  diff [args...]       Print/dispatch guidance for UA /understand-diff
+  map-sync             Create/update an AOC Map overview page from UA graph metadata
+  open                 Alias for dashboard --open
+
+Options:
+  --root PATH          Project root (default: nearest .aoc/.git)
+  --home PATH          Global tool home (default: ~/.local/share/aoc/tools/understand-anything)
+  --source PATH        Global Understand-Anything source checkout path
+  --ref REF            Git ref for install/update (default: main)
+  --repo URL           Git repo URL for install/update
+  --open               Open browser after dashboard start
+  -h, --help           Show this help
+
+Notes:
+  install is explicit; status/doctor never clone, install dependencies, or run analysis.
+  analyze/domain/diff are agent-skill powered by Understand-Anything; this wrapper makes the
+  correct project-root and slash-command flow explicit until UA exposes a stable noninteractive CLI.
+EOF
+}
+
+log() { echo ">> $*"; }
+warn() { echo "!! $*" >&2; }
+fail() { warn "$*"; exit 1; }
+
+resolve_root() {
+  local dir="${1:-$PWD}"
+  dir="$(cd "$dir" 2>/dev/null && pwd)" || return 1
+  while [[ "$dir" != "/" ]]; do
+    if [[ -d "$dir/.aoc" || -d "$dir/.git" ]]; then
+      printf '%s\n' "$dir"
+      return 0
+    fi
+    dir="$(dirname "$dir")"
+  done
+  return 1
+}
+
+open_url() {
+  local url="$1"
+  if command -v xdg-open >/dev/null 2>&1; then
+    xdg-open "$url" >/dev/null 2>&1 || warn "Could not open $url"
+  elif command -v open >/dev/null 2>&1; then
+    open "$url" >/dev/null 2>&1 || warn "Could not open $url"
+  else
+    log "Open: $url"
+  fi
+}
+
+require_plugin() {
+  [[ -f "$UA_PLUGIN_DIR/package.json" ]] || fail "Understand-Anything not installed at $UA_PLUGIN_DIR. Run: aoc-understand install"
+}
+
+project_graph_path() { printf '%s/.understand-anything/knowledge-graph.json\n' "$1"; }
+project_domain_graph_path() { printf '%s/.understand-anything/domain-graph.json\n' "$1"; }
+
+print_skill_command() {
+  local root="$1" slash="$2"
+  shift 2
+  echo "projectRoot: $root"
+  echo "understandAnythingInstalled: $([[ -f "$UA_PLUGIN_DIR/package.json" ]] && echo true || echo false)"
+  echo "Run in Pi from the project root:"
+  printf '  cd %q && %s' "$root" "$slash"
+  if [[ $# -gt 0 ]]; then
+    printf ' %s' "$*"
+  fi
+  printf '\n'
+}
+
+start_dashboard() {
+  local root="$1" open_after="$2"
+  require_plugin
+  local graph
+  graph="$(project_graph_path "$root")"
+  [[ -f "$graph" ]] || fail "No knowledge graph found at $graph. Run: /understand or aoc-understand analyze first."
+  command -v pnpm >/dev/null 2>&1 || fail "pnpm missing. Install Node.js/pnpm before launching the dashboard."
+  local dashboard_dir="$UA_PLUGIN_DIR/packages/dashboard"
+  [[ -d "$dashboard_dir" ]] || fail "Dashboard package missing: $dashboard_dir"
+  (cd "$UA_PLUGIN_DIR" && pnpm install --frozen-lockfile 2>/dev/null || pnpm install)
+  (cd "$UA_PLUGIN_DIR" && pnpm --filter @understand-anything/core build)
+  log "Starting Understand-Anything dashboard for $root"
+  if [[ "$open_after" == "1" ]]; then
+    (cd "$dashboard_dir" && GRAPH_DIR="$root" npx vite --host 127.0.0.1 --open)
+  else
+    (cd "$dashboard_dir" && GRAPH_DIR="$root" npx vite --host 127.0.0.1)
+  fi
+}
+
+map_sync() {
+  local root="$1"
+  local graph="$root/.understand-anything/knowledge-graph.json"
+  [[ -f "$graph" ]] || fail "No knowledge graph found at $graph. Run /understand first."
+  mkdir -p "$root/.aoc/map/pages" "$root/.aoc/map/diagrams"
+  python3 - "$root" "$graph" <<'PY'
+import json, sys
+from datetime import datetime, timezone
+from pathlib import Path
+root = Path(sys.argv[1])
+graph_path = Path(sys.argv[2])
+graph = json.loads(graph_path.read_text(encoding='utf-8'))
+project = graph.get('project', {})
+nodes = graph.get('nodes') or []
+edges = graph.get('edges') or []
+layers = graph.get('layers') or []
+tour = graph.get('tour') or []
+name = project.get('name') or root.name
+languages = ', '.join(project.get('languages') or []) or 'unknown'
+frameworks = ', '.join(project.get('frameworks') or []) or 'none detected'
+updated = datetime.now(timezone.utc).isoformat().replace('+00:00', 'Z')
+
+diagram = root / '.aoc/map/diagrams/understand-overview.mmd'
+layer_lines = ['flowchart LR', '  graph["Understand-Anything graph"]']
+for i, layer in enumerate(layers[:10], 1):
+    lid = f'L{i}'
+    title = str(layer.get('name') or layer.get('id') or f'Layer {i}').replace('"', "'")
+    count = len(layer.get('nodeIds') or [])
+    layer_lines.append(f'  graph --> {lid}["{title}<br/>{count} nodes"]')
+if not layers:
+    layer_lines.append('  graph --> nodes["Graph nodes"]')
+diagram.write_text('\n'.join(layer_lines) + '\n', encoding='utf-8')
+
+page = root / '.aoc/map/pages/understand-overview.html'
+layer_items = '\n'.join(
+    f'<li><strong>{(l.get("name") or l.get("id") or "Layer")}</strong>: {len(l.get("nodeIds") or [])} nodes — {(l.get("description") or "")}</li>'
+    for l in layers[:12]
+) or '<li>No layers recorded in the graph.</li>'
+tour_items = '\n'.join(
+    f'<li><strong>{t.get("order", i+1)}. {t.get("title", "Tour step")}</strong>: {t.get("description", "")}</li>'
+    for i, t in enumerate(tour[:8])
+) or '<li>No guided tour recorded in the graph.</li>'
+html = f'''<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Understand Overview</title>
+  <meta name="aoc-map:summary" content="Understand-Anything graph overview for {name}">
+  <meta name="aoc-map:section" content="architecture">
+  <meta name="aoc-map:kind" content="topology">
+  <meta name="aoc-map:status" content="active">
+  <meta name="aoc-map:diagram" content="diagrams/understand-overview.mmd">
+  <meta name="aoc-map:tags" content="understand,knowledge-graph,onboarding">
+  <script defer src="../assets/mermaid.min.js"></script>
+  <script defer src="../assets/render-mermaid.js"></script>
+  <style>body{{font-family:system-ui,sans-serif;margin:2rem;line-height:1.5}}.panel{{border:1px solid #ddd;border-radius:12px;padding:1rem;margin:1rem 0}}code{{background:#f4f4f4;padding:.1rem .25rem;border-radius:4px}}</style>
+</head>
+<body>
+  <h1>Understand Overview</h1>
+  <p>Generated from <code>.understand-anything/knowledge-graph.json</code> for <strong>{name}</strong>.</p>
+  <div class="panel">
+    <script type="text/plain" data-aoc-map-mermaid-src="../diagrams/understand-overview.mmd"></script>
+  </div>
+  <div class="panel">
+    <h2>Graph metrics</h2>
+    <ul>
+      <li>Nodes: {len(nodes)}</li>
+      <li>Edges: {len(edges)}</li>
+      <li>Layers: {len(layers)}</li>
+      <li>Tour steps: {len(tour)}</li>
+      <li>Languages: {languages}</li>
+      <li>Frameworks: {frameworks}</li>
+      <li>Synced: {updated}</li>
+    </ul>
+  </div>
+  <div class="panel"><h2>Layers</h2><ul>{layer_items}</ul></div>
+  <div class="panel"><h2>Guided tour</h2><ol>{tour_items}</ol></div>
+  <p>Run <code>aoc-understand dashboard --open</code> for the full interactive graph.</p>
+</body>
+</html>
+'''
+page.write_text(html, encoding='utf-8')
+print(page.relative_to(root).as_posix())
+PY
+  if command -v aoc-map >/dev/null 2>&1; then
+    (cd "$root" && aoc-map build >/dev/null) || warn "aoc-map build failed; page was still written."
+  fi
+}
+
+root=""
+open_after=0
+command=""
+args=()
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --root) [[ $# -ge 2 ]] || fail "--root requires a value"; root="$2"; shift 2 ;;
+    --home) [[ $# -ge 2 ]] || fail "--home requires a value"; UA_HOME="$2"; UA_SOURCE="${AOC_UNDERSTAND_SOURCE:-$UA_HOME/source}"; UA_PLUGIN_DIR="${AOC_UNDERSTAND_PLUGIN_DIR:-$UA_SOURCE/understand-anything-plugin}"; shift 2 ;;
+    --source) [[ $# -ge 2 ]] || fail "--source requires a value"; UA_SOURCE="$2"; UA_PLUGIN_DIR="${AOC_UNDERSTAND_PLUGIN_DIR:-$UA_SOURCE/understand-anything-plugin}"; shift 2 ;;
+    --ref) [[ $# -ge 2 ]] || fail "--ref requires a value"; UA_REF="$2"; shift 2 ;;
+    --repo) [[ $# -ge 2 ]] || fail "--repo requires a value"; UA_REPO_URL="$2"; shift 2 ;;
+    --open) open_after=1; shift ;;
+    --help|-h) usage; exit 0 ;;
+    *) if [[ -z "$command" ]]; then command="$1"; else args+=("$1"); fi; shift ;;
+  esac
+done
+command="${command:-status}"
+
+case "$command" in
+  install)
+    command -v git >/dev/null 2>&1 || fail "git missing"
+    command -v node >/dev/null 2>&1 || fail "node missing; Understand-Anything requires Node.js"
+    command -v corepack >/dev/null 2>&1 || warn "corepack missing; pnpm may need manual install"
+    mkdir -p "$UA_HOME"
+    if [[ -d "$UA_SOURCE/.git" ]]; then
+      log "Updating Understand-Anything at $UA_SOURCE"
+      (cd "$UA_SOURCE" && git fetch --tags origin && git checkout "$UA_REF" && git pull --ff-only || true)
+    else
+      log "Cloning Understand-Anything $UA_REF into $UA_SOURCE"
+      git clone --branch "$UA_REF" "$UA_REPO_URL" "$UA_SOURCE"
+    fi
+    if command -v corepack >/dev/null 2>&1; then corepack enable || true; fi
+    command -v pnpm >/dev/null 2>&1 || fail "pnpm missing after corepack. Install pnpm and rerun."
+    (cd "$UA_PLUGIN_DIR" && pnpm install && pnpm --filter @understand-anything/core build)
+    log "Understand-Anything installed. In Pi, use: /understand"
+    ;;
+  status)
+    root="${root:-$(resolve_root "$PWD" 2>/dev/null || true)}"
+    echo "understandSource: $UA_SOURCE"
+    echo "understandPluginDir: $UA_PLUGIN_DIR"
+    echo "understandInstalled: $([[ -f "$UA_PLUGIN_DIR/package.json" ]] && echo true || echo false)"
+    if [[ -n "$root" ]]; then
+      echo "projectRoot: $root"
+      echo "knowledgeGraph: $(project_graph_path "$root")"
+      echo "knowledgeGraphPresent: $([[ -f "$(project_graph_path "$root")" ]] && echo true || echo false)"
+      echo "domainGraphPresent: $([[ -f "$(project_domain_graph_path "$root")" ]] && echo true || echo false)"
+    else
+      echo "projectRoot: <not found>"
+    fi
+    ;;
+  doctor)
+    echo "git: $(command -v git || true)"
+    echo "node: $(node --version 2>/dev/null || echo missing)"
+    echo "pnpm: $(pnpm --version 2>/dev/null || echo missing)"
+    echo "corepack: $(command -v corepack || true)"
+    echo "source: $UA_SOURCE"
+    echo "pluginDir: $UA_PLUGIN_DIR"
+    [[ -f "$UA_PLUGIN_DIR/package.json" ]] && echo "installed: true" || echo "installed: false"
+    [[ -d "$UA_PLUGIN_DIR/packages/dashboard" ]] && echo "dashboard: present" || echo "dashboard: missing"
+    [[ -f "$UA_PLUGIN_DIR/packages/core/dist/index.js" ]] && echo "coreBuild: present" || echo "coreBuild: missing"
+    ;;
+  analyze)
+    root="${root:-$(resolve_root "$PWD")}" || fail "No AOC/git project root found"
+    print_skill_command "$root" "/understand" "${args[*]:-}"
+    ;;
+  domain)
+    root="${root:-$(resolve_root "$PWD")}" || fail "No AOC/git project root found"
+    print_skill_command "$root" "/understand-domain" "${args[*]:-}"
+    ;;
+  diff)
+    root="${root:-$(resolve_root "$PWD")}" || fail "No AOC/git project root found"
+    print_skill_command "$root" "/understand-diff" "${args[*]:-}"
+    ;;
+  chat)
+    root="${root:-$(resolve_root "$PWD")}" || fail "No AOC/git project root found"
+    [[ ${#args[@]} -gt 0 ]] || fail "chat requires a query"
+    print_skill_command "$root" "/understand-chat" "${args[*]}"
+    ;;
+  explain)
+    root="${root:-$(resolve_root "$PWD")}" || fail "No AOC/git project root found"
+    [[ ${#args[@]} -gt 0 ]] || fail "explain requires a target"
+    print_skill_command "$root" "/understand-explain" "${args[*]}"
+    ;;
+  onboard)
+    root="${root:-$(resolve_root "$PWD")}" || fail "No AOC/git project root found"
+    print_skill_command "$root" "/understand-onboard"
+    ;;
+  dashboard)
+    root="${root:-$(resolve_root "$PWD")}" || fail "No AOC/git project root found"
+    start_dashboard "$root" "$open_after"
+    ;;
+  open)
+    root="${root:-$(resolve_root "$PWD")}" || fail "No AOC/git project root found"
+    start_dashboard "$root" "1"
+    ;;
+  map-sync)
+    root="${root:-$(resolve_root "$PWD")}" || fail "No AOC/git project root found"
+    out="$(map_sync "$root")"
+    log "Synced Understand graph into AOC Map: $out"
+    ;;
+  *)
+    usage >&2
+    fail "Unknown command: $command"
+    ;;
+esac
