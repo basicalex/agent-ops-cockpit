@@ -61,7 +61,7 @@ while [[ $# -gt 0 ]]; do
     --aoc) layout_choice="aoc" ;;
     --plugin) layout_choice="aoc" ;;
     --default) layout_choice="default" ;;
-    --mission-control) layout_choice="mission-control" ; tab_name="Mission Control" ;;
+    --mission-control) layout_choice="mission-control" ; tab_name="mc" ;;
     --layout)
       shift
       layout_choice="${1:-}"
@@ -339,7 +339,7 @@ background_task sync_aoc_theme_profile
 raw_name="$(basename "$project_root")"
 computed_tab_label="$(aoc_default_tab_label "$project_root")"
 if [[ "$layout_choice" == "mission-control" ]]; then
-  tab_name_to_use="${tab_name:-Mission Control}"
+  tab_name_to_use="${tab_name:-mc}"
 else
   tab_name_to_use="$(aoc_build_tab_name "$project_root" "${tab_name:-$computed_tab_label}")"
 fi

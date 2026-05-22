@@ -1,5 +1,5 @@
 layout {
-  tab name="Mission Control" focus=true {
+  tab name="mc" focus=true {
     pane split_direction="horizontal" {
       pane size=1 borderless=true {
         plugin location="file:{{HOME}}/.config/zellij/plugins/zjstatus-aoc.wasm" {

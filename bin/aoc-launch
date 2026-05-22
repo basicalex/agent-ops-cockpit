@@ -245,7 +245,7 @@ for tab in items:
     if not isinstance(tab, dict):
         continue
     name = tab.get('name') or tab.get('tab_name') or tab.get('title') or ''
-    if str(name).strip().lower() == 'mission control':
+    if str(name).strip().lower() in {'mc', 'mission control'}:
         raise SystemExit(0)
 raise SystemExit(1)
 PY
@@ -275,7 +275,7 @@ ensure_mission_control_tab() {
     AOC_TARGET_SESSION="$session_id" \
     ZELLIJ_PROJECT_ROOT="$workspace_root" \
     AOC_PROJECT_ROOT="$workspace_root" \
-    aoc-new-tab --layout "$mc_layout_path" --name "Mission Control" --cwd "$workspace_root" >/dev/null 2>&1 || true
+    aoc-new-tab --layout "$mc_layout_path" --name "mc" --cwd "$workspace_root" >/dev/null 2>&1 || true
   fi
 }
 
@@ -542,7 +542,7 @@ if [[ "${AOC_MC_FIRST:-1}" != "0" && "$layout" != "mission-control" ]]; then
   if [[ -f "$mc_layout_path" && -f "$layout_arg" ]]; then
     mc_agent_id="$(basename "$workspace_root")"
     mc_tmp="$state_dir/aoc-layout-mission-control-${mc_agent_id}.kdl"
-    awk -v tab_name="Mission Control" \
+    awk -v tab_name="mc" \
         -v agent_id="$mc_agent_id" \
         -v launch_agent="" \
         -v proj_root="$workspace_root" \
