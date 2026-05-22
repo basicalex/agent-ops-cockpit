@@ -31,12 +31,14 @@ aoc_dir="$project_root/.aoc"
 stm_dir="$aoc_dir/stm"
 archive_dir="$stm_dir/archive"
 current_file="$stm_dir/current.md"
+lock_file="$stm_dir/.lock"
 
 usage() {
   cat <<EOF
 Usage: aoc-stm [command] [args...]
 
-Short-term memory (STM) manager for AOC.
+Short-term memory (STM) directed handoff manager for AOC.
+STM stores local handoff packets. It does not notify another agent by itself.
 
 Default behavior:
   aoc-stm
@@ -45,11 +47,11 @@ Default behavior:
 Commands:
   read [archive]        Print archived STM (latest by default).
   read-current          Print current STM draft file.
-  handoff               Archive current draft and print handoff snapshot.
+  handoff [options]     Archive current draft and print directed handoff snapshot.
   resume [archive]      Print archived handoff snapshot (latest by default).
   current               Alias of read-current.
-  status                Show current draft freshness, size, and latest archive.
-  template              Print a structured agent handoff template.
+  status                Show current draft freshness, size, and resume safety.
+  template [options]    Print a structured handoff template.
   add "note"            Append a timestamped note to current STM draft.
   edit                  Open current STM draft in your editor.
   archive               Archive current STM draft and clear current file.
@@ -59,6 +61,19 @@ Commands:
   path current          Print current STM draft path.
   clear                 Clear current STM draft file.
   help                  Show this message.
+
+Directed handoff options:
+  --purpose <kind>      continue | review | test | debug | docs | commit | general
+  --to <recipient>      Intended next agent/session/role.
+  --focus <focus>       Operator direction for what the next session should focus on.
+  --task <task>         Task/subtask/spec reference.
+  --from-file <path>    Seal a packet from a specific file without clearing current draft.
+
+Examples:
+  aoc-stm template --purpose review
+  aoc-stm handoff --purpose debug --to tester --focus "reproduce socket bootstrap failure"
+  aoc-stm handoff --from-file /tmp/handoff.md --purpose continue --focus "element refactor"
+  aoc-stm resume 20260522-171801Z-123456789-agent-project.md
 
 Legacy aliases (non-launching):
   last, latest, start, --last, --latest, --l
@@ -70,6 +85,18 @@ setup() {
   mkdir -p "$archive_dir"
   if [[ ! -f "$current_file" ]]; then
     : > "$current_file"
+  fi
+}
+
+with_stm_lock() {
+  setup
+  if command -v flock >/dev/null 2>&1; then
+    (
+      flock -x 9
+      "$@"
+    ) 9>"$lock_file"
+  else
+    "$@"
   fi
 }
 
@@ -151,6 +178,219 @@ resolve_archive() {
   return 1
 }
 
+normalize_purpose() {
+  local purpose="${1:-general}"
+  purpose="$(printf '%s' "$purpose" | tr '[:upper:]' '[:lower:]')"
+  case "$purpose" in
+    continue|builder|build|implementation) printf 'continue' ;;
+    review|reviewer|code-review|code_review) printf 'review' ;;
+    test|tester|testing|qa) printf 'test' ;;
+    debug|diagnose|diagnostic) printf 'debug' ;;
+    docs|doc|documenter|documentation) printf 'docs' ;;
+    commit|release) printf 'commit' ;;
+    *) printf 'general' ;;
+  esac
+}
+
+purpose_title() {
+  case "$(normalize_purpose "$1")" in
+    continue) printf 'Continuation Handoff' ;;
+    review) printf 'Review Handoff' ;;
+    test) printf 'Testing Handoff' ;;
+    debug) printf 'Debugging Handoff' ;;
+    docs) printf 'Documentation Handoff' ;;
+    commit) printf 'Commit/Release Handoff' ;;
+    *) printf 'General Handoff' ;;
+  esac
+}
+
+parse_template_args() {
+  TEMPLATE_PURPOSE="general"
+  while (($# > 0)); do
+    case "$1" in
+      --purpose|-p)
+        shift
+        TEMPLATE_PURPOSE="${1:-general}"
+        ;;
+      --purpose=*)
+        TEMPLATE_PURPOSE="${1#*=}"
+        ;;
+      --help|-h)
+        usage
+        exit 0
+        ;;
+      *)
+        TEMPLATE_PURPOSE="$1"
+        ;;
+    esac
+    shift || true
+  done
+  TEMPLATE_PURPOSE="$(normalize_purpose "$TEMPLATE_PURPOSE")"
+}
+
+print_template_for_purpose() {
+  local purpose="$1"
+  local title
+  title="$(purpose_title "$purpose")"
+
+  cat <<EOF
+# AOC Agent $title
+
+## Direction
+- Purpose: $purpose
+- Intended next agent/session:
+- Operator focus / success criteria:
+- Task/subtask/spec:
+
+EOF
+
+  case "$purpose" in
+    review)
+      cat <<'EOF'
+## Review Target
+- Files/areas to review:
+- Intended behavior:
+- Review questions:
+
+## Change Summary
+-
+
+## Validation Already Run
+- Command: `...`
+- Result:
+
+## Known Risks / Sharp Edges
+-
+
+## Reviewer Instructions
+1. Verify claims against the repo before approving.
+2. Focus on correctness, regressions, unsafe assumptions, and missing tests.
+3. Return actionable findings with file paths.
+EOF
+      ;;
+    test)
+      cat <<'EOF'
+## Behavior Under Test
+- Expected behavior:
+- Edge cases:
+- Environment/fixtures required:
+
+## Commands Already Run
+- Command: `...`
+- Result:
+
+## Suspected Gaps
+-
+
+## Tester Instructions
+1. Reproduce the target behavior first.
+2. Run the narrowest meaningful checks before broad suites.
+3. Report exact commands, pass/fail, and next diagnostic if blocked.
+EOF
+      ;;
+    debug)
+      cat <<'EOF'
+## Symptom
+- Observed failure:
+- Expected behavior:
+- Impact/scope:
+
+## Evidence Collected
+- Logs/commands:
+- Relevant files:
+
+## Hypotheses Tried
+- Tried:
+- Result:
+
+## Next Diagnostics
+1.
+2.
+3.
+
+## Do Not Repeat
+- Dead ends:
+EOF
+      ;;
+    docs)
+      cat <<'EOF'
+## User-Facing Behavior
+- What changed:
+- Who needs to know:
+
+## Docs Targets
+- Files/pages:
+- CLI/API examples:
+- Warnings/caveats:
+
+## Source Evidence
+- Code/spec/task references:
+
+## Documenter Instructions
+1. Prefer concise operator-facing language.
+2. Include examples that match current behavior.
+3. Do not invent behavior not verified in code/specs.
+EOF
+      ;;
+    commit)
+      cat <<'EOF'
+## Commit Scope
+- Files changed:
+- Rationale:
+- Task/spec refs:
+
+## Validation
+- Command: `...`
+- Result:
+
+## Commit Notes
+- Suggested summary:
+- Body bullets:
+- Risk/caveat:
+
+## Committer Instructions
+1. Inspect dirty state and avoid unrelated work.
+2. Verify tests/checks before committing.
+3. Do not stage, commit, or push unless explicitly authorized.
+EOF
+      ;;
+    continue|general|*)
+      cat <<'EOF'
+## Current Status
+- State: done | partial | blocked
+- Summary:
+
+## Touched Areas
+- `path/to/file` — why it matters
+
+## Changes Made
+-
+
+## Validation
+- Command: `...`
+- Result:
+
+## Open Risks / Coordination Warnings
+-
+
+## Next Safe Actions
+1.
+2.
+3.
+
+## Do Not Repeat
+- Already tried/done:
+- Dead ends:
+EOF
+      ;;
+  esac
+}
+
+print_template() {
+  parse_template_args "$@"
+  print_template_for_purpose "$TEMPLATE_PURPOSE"
+}
+
 read_archive() {
   local archive_file=""
   local spec="${1:-}"
@@ -158,8 +398,8 @@ read_archive() {
   if [[ -z "$archive_file" ]]; then
     if [[ -z "$spec" ]] && has_current_content; then
       echo "No STM archive available in $archive_dir." >&2
-      echo "Current STM draft has notes; run 'aoc-stm' to read draft notes." >&2
-      echo "Run 'aoc-stm handoff' to persist and print your first handoff snapshot." >&2
+      echo "Current STM draft has notes; run 'aoc-stm read-current' to inspect draft notes." >&2
+      echo "Run 'aoc-stm handoff --purpose <kind> --to <recipient> --focus <focus>' to seal your first directed handoff packet." >&2
       return 1
     fi
     echo "No STM archive available in $archive_dir." >&2
@@ -167,14 +407,15 @@ read_archive() {
       echo "Requested archive: $spec" >&2
       echo "Tip: run 'aoc-stm history' to list local archives, or pass an absolute archive path." >&2
     else
-      echo "Create STM notes with 'aoc-stm add <note>' then run 'aoc-stm archive'." >&2
+      echo "Create STM notes with 'aoc-stm add <note>' then run a directed 'aoc-stm handoff'." >&2
     fi
     return 1
   fi
 
   if [[ -z "$spec" ]] && current_newer_than_archive "$archive_file"; then
-    echo "Note: current STM draft is newer than the latest archive." >&2
-    echo "Run 'aoc-stm archive' to persist it, or 'aoc-stm read-current' to inspect draft notes." >&2
+    echo "WARNING: current STM draft is newer than the latest sealed archive." >&2
+    echo "You are reading the latest archive, not the newer draft." >&2
+    echo "If you need current work, inspect with 'aoc-stm read-current' or seal a directed handoff first." >&2
   fi
 
   cat "$archive_file"
@@ -185,68 +426,204 @@ read_current() {
   cat "$current_file"
 }
 
-read_handoff() {
+parse_handoff_args() {
+  HANDOFF_PURPOSE="continue"
+  HANDOFF_TO=""
+  HANDOFF_FOCUS=""
+  HANDOFF_TASK=""
+  HANDOFF_FILE=""
+  while (($# > 0)); do
+    case "$1" in
+      --purpose|-p)
+        shift
+        HANDOFF_PURPOSE="${1:-continue}"
+        ;;
+      --purpose=*)
+        HANDOFF_PURPOSE="${1#*=}"
+        ;;
+      --to)
+        shift
+        HANDOFF_TO="${1:-}"
+        ;;
+      --to=*)
+        HANDOFF_TO="${1#*=}"
+        ;;
+      --focus)
+        shift
+        HANDOFF_FOCUS="${1:-}"
+        ;;
+      --focus=*)
+        HANDOFF_FOCUS="${1#*=}"
+        ;;
+      --task)
+        shift
+        HANDOFF_TASK="${1:-}"
+        ;;
+      --task=*)
+        HANDOFF_TASK="${1#*=}"
+        ;;
+      --from-file|--file)
+        shift
+        HANDOFF_FILE="${1:-}"
+        ;;
+      --from-file=*|--file=*)
+        HANDOFF_FILE="${1#*=}"
+        ;;
+      --help|-h)
+        usage
+        exit 0
+        ;;
+      *)
+        echo "Unknown handoff option: $1" >&2
+        usage >&2
+        exit 1
+        ;;
+    esac
+    shift || true
+  done
+  HANDOFF_PURPOSE="$(normalize_purpose "$HANDOFF_PURPOSE")"
+}
+
+next_agent_brief() {
+  local archive_file="$1" purpose="$2" recipient="$3" focus="$4" task_ref="$5"
+  local archive_name
+  archive_name="$(basename "$archive_file")"
+  cat <<EOF
+You are receiving a directed AOC STM handoff.
+Purpose: $purpose
+Recipient: ${recipient:-unspecified}
+Task/spec: ${task_ref:-unspecified}
+Focus: ${focus:-continue from the sealed packet}
+
+Read this exact packet with:
+aoc-stm resume '$archive_name'
+
+Important: STM is a local packet store, not a mailbox or durable memory. Treat this as an operator-provided continuation brief, verify claims against repository state, and use aoc-mem for durable decisions.
+EOF
+}
+
+archive_current_locked() {
+  local purpose="${1:-continue}" recipient="${2:-}" focus="${3:-}" task_ref="${4:-}" source_file="${5:-}"
   setup
-  if has_current_content; then
-    local archived
-    archived="$(archive_current)"
-    echo "Archived STM to $archived" >&2
-    cat "$archived"
-    return 0
+
+  local packet_file="$current_file" clear_packet=1 source_note="current STM draft"
+  if [[ -n "$source_file" ]]; then
+    if [[ ! -f "$source_file" ]]; then
+      echo "Handoff source file not found: $source_file" >&2
+      return 1
+    fi
+    packet_file="$source_file"
+    clear_packet=0
+    source_note="external packet file: $source_file"
   fi
-  read_archive "${1:-}"
+
+  if ! grep -q '[^[:space:]]' "$packet_file"; then
+    return 1
+  fi
+
+  local ts nanos session_label project_label archive_file created session_source
+  ts="$(date -u '+%Y%m%d-%H%M%SZ')"
+  nanos="$(date -u '+%N' 2>/dev/null || printf '%s' "$$")"
+  [[ "$nanos" =~ ^[0-9]+$ ]] || nanos="$$"
+  session_label="$(sanitize_name "${ZELLIJ_SESSION_NAME:-${AOC_SESSION_ID:-adhoc}}")"
+  project_label="$(sanitize_name "$(basename "$project_root")")"
+  session_source="${ZELLIJ_SESSION_NAME:-${AOC_SESSION_ID:-adhoc}}"
+
+  archive_file="$archive_dir/${ts}-${nanos}-${session_label}-${project_label}.md"
+  while [[ -e "$archive_file" ]]; do
+    archive_file="$archive_dir/${ts}-${nanos}-$$-$RANDOM-${session_label}-${project_label}.md"
+  done
+
+  created="$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
+  {
+    echo "# AOC Directed STM Handoff"
+    echo
+    echo "<!-- aoc-stm: v2 -->"
+    echo
+    echo "## Metadata"
+    echo "- Created: $created"
+    echo "- Project: $project_root"
+    echo "- Task/spec: ${task_ref:-unspecified}"
+    echo "- Purpose: $purpose"
+    echo "- Intended next agent/session: ${recipient:-unspecified}"
+    echo "- Operator focus: ${focus:-unspecified}"
+    echo "- Source session: $session_source"
+    echo "- Packet source: $source_note"
+    echo "- Archive: $(basename "$archive_file")"
+    echo "- Delivery note: STM stores this packet locally; it does not notify another agent by itself. Pass the resume brief or exact archive to the next agent/session."
+    echo
+    echo "## Next-Agent Resume Brief"
+    echo '```text'
+    next_agent_brief "$archive_file" "$purpose" "$recipient" "$focus" "$task_ref"
+    echo '```'
+    echo
+    echo "## Handoff Packet"
+    echo
+    cat "$packet_file"
+  } > "$archive_file"
+
+  if [[ "$clear_packet" == "1" ]]; then
+    : > "$current_file"
+  fi
+  printf '%s' "$archive_file"
+}
+
+read_handoff_locked() {
+  local purpose="$1" recipient="$2" focus="$3" task_ref="$4" source_file="$5"
+  local archived
+  if ! archived="$(archive_current_locked "$purpose" "$recipient" "$focus" "$task_ref" "$source_file")"; then
+    echo "No current STM content to hand off." >&2
+    echo "Add a purpose-specific packet first, for example:" >&2
+    echo "  aoc-stm template --purpose ${purpose:-continue}" >&2
+    echo "  aoc-stm add \"<concise handoff note>\"" >&2
+    echo "Or generate a clean packet file and seal it without touching current draft:" >&2
+    echo "  aoc-stm handoff --from-file /tmp/handoff.md --purpose <kind> --to <recipient> --focus <focus>" >&2
+    return 1
+  fi
+  echo "Archived directed STM handoff to $archived" >&2
+  echo "Next-agent brief is embedded in the packet; pass the brief or exact archive name explicitly." >&2
+  cat "$archived"
+}
+
+read_handoff() {
+  parse_handoff_args "$@"
+  with_stm_lock read_handoff_locked "$HANDOFF_PURPOSE" "$HANDOFF_TO" "$HANDOFF_FOCUS" "$HANDOFF_TASK" "$HANDOFF_FILE"
 }
 
 read_resume() {
-  read_archive "${1:-}"
-}
-
-print_template() {
-  cat <<'EOF'
-# AOC Agent Handoff
-
-## Intent
-- Task/subtask:
-- Goal:
-- Suggested next agent/session:
-
-## Current Status
-- State: done | partial | blocked
-- Summary:
-
-## Touched Areas
-- `path/to/file` — why it matters
-
-## Changes Made
-- 
-
-## Validation
-- Command: `...`
-- Result:
-
-## Open Risks / Coordination Warnings
-- 
-
-## Next Safe Actions
-1. 
-2. 
-3. 
-
-## Do Not Repeat
-- Already tried/done:
-- Dead ends:
-EOF
+  local spec=""
+  while (($# > 0)); do
+    case "$1" in
+      --for|--role)
+        shift || true
+        ;;
+      --for=*|--role=*)
+        ;;
+      --help|-h)
+        usage
+        exit 0
+        ;;
+      *)
+        spec="$1"
+        ;;
+    esac
+    shift || true
+  done
+  read_archive "$spec"
 }
 
 print_status() {
   setup
-  local latest current_has_content="no" current_lines="0" current_bytes="0" current_mtime="n/a"
+  local latest current_has_content="no" current_lines="0" current_bytes="0" current_mtime="n/a" safe_latest="no"
   latest="$(latest_archive)"
   if has_current_content; then
     current_has_content="yes"
     current_lines="$(wc -l < "$current_file" | tr -d '[:space:]')"
     current_bytes="$(wc -c < "$current_file" | tr -d '[:space:]')"
     current_mtime="$(date -r "$current_file" '+%Y-%m-%d %H:%M:%S %z' 2>/dev/null || date -u -r "$current_file" '+%Y-%m-%d %H:%M:%SZ' 2>/dev/null || printf 'unknown')"
+  fi
+  if [[ -n "$latest" ]] && ! current_newer_than_archive "$latest"; then
+    safe_latest="yes"
   fi
 
   echo "AOC STM Handoff Status"
@@ -257,14 +634,18 @@ print_status() {
   echo "  current_bytes: $current_bytes"
   echo "  current_modified: $current_mtime"
   echo "  latest_archive: ${latest:-none}"
+  echo "  safe_to_resume_latest: $safe_latest"
 
   if [[ -n "$latest" ]] && current_newer_than_archive "$latest"; then
-    echo "  warning: current draft is newer than latest archive; run 'aoc-stm handoff' when ready to seal a deliberate handoff."
+    echo "  warning: current draft is newer than latest archive; seal a directed handoff before asking another agent to resume latest."
   fi
   if [[ "$current_lines" =~ ^[0-9]+$ ]] && (( current_lines > 120 )); then
-    echo "  warning: current draft is large; compact it to a focused handoff before archiving."
+    echo "  warning: current draft is large by line count; compact it to a focused handoff before archiving."
   fi
-  echo "  guidance: STM is for deliberate in-progress agent/session handoffs only; durable decisions belong in aoc-mem."
+  if [[ "$current_bytes" =~ ^[0-9]+$ ]] && (( current_bytes > 16000 )); then
+    echo "  warning: current draft is large by byte count; avoid raw logs and compact around next-agent purpose/focus."
+  fi
+  echo "  guidance: STM is for deliberate directed in-progress handoff packets only; it is not a mailbox, log, or durable memory. Use aoc-mem for durable decisions."
 }
 
 list_history() {
@@ -292,31 +673,34 @@ list_history() {
   done
 }
 
-archive_current() {
-  setup
-  if ! has_current_content; then
-    return 1
-  fi
-
-  local ts session_label project_label archive_file
-  ts="$(date -u '+%Y%m%d-%H%M%SZ')"
-  session_label="$(sanitize_name "${ZELLIJ_SESSION_NAME:-${AOC_SESSION_ID:-adhoc}}")"
-  project_label="$(sanitize_name "$(basename "$project_root")")"
-  archive_file="$archive_dir/${ts}-${session_label}-${project_label}.md"
-
-  cp "$current_file" "$archive_file"
-  : > "$current_file"
-  printf '%s' "$archive_file"
-}
-
-add_note() {
+add_note_locked() {
   local note="$1"
   local timestamp
   timestamp="$(date '+%Y-%m-%d %H:%M')"
   setup
   printf -- "- [%s] %s\n" "$timestamp" "$note" >> "$current_file"
   echo "STM note added to $current_file"
-  echo "Use 'aoc-stm' to read current draft or 'aoc-stm handoff' to persist and print a snapshot."
+  echo "Use 'aoc-stm template --purpose <kind>' for structure and 'aoc-stm handoff --purpose <kind> --to <recipient> --focus <focus>' to seal a directed packet."
+}
+
+add_note() {
+  local note="$1"
+  with_stm_lock add_note_locked "$note"
+}
+
+archive_command_locked() {
+  local archived
+  if archived="$(archive_current_locked "general" "" "manual archive" "")"; then
+    echo "Archived STM to $archived"
+  else
+    echo "No STM content to archive."
+  fi
+}
+
+clear_locked() {
+  setup
+  : > "$current_file"
+  echo "Cleared STM current file."
 }
 
 cmd="${1:-current}"
@@ -333,15 +717,16 @@ case "$cmd" in
     print_status
     ;;
   template)
-    print_template
+    shift || true
+    print_template "$@"
     ;;
   handoff)
     shift || true
-    read_handoff "${1:-}"
+    read_handoff "$@"
     ;;
   resume)
     shift || true
-    read_resume "${1:-}"
+    read_resume "$@"
     ;;
   add)
     shift
@@ -356,16 +741,10 @@ case "$cmd" in
     "${EDITOR:-micro}" "$current_file"
     ;;
   archive)
-    if archived="$(archive_current)"; then
-      echo "Archived STM to $archived"
-    else
-      echo "No STM content to archive."
-    fi
+    with_stm_lock archive_command_locked
     ;;
   clear)
-    setup
-    : > "$current_file"
-    echo "Cleared STM current file."
+    with_stm_lock clear_locked
     ;;
   history|--history|--h)
     shift || true

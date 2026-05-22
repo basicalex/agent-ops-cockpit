@@ -887,11 +887,11 @@ This file defines the always-on rules for agents in this repo. Procedural playbo
 These commands are in PATH and work without loading any skill:
 - Startup/repair: `aoc-handshake --json`, `aoc-init`
 - Memory: `aoc-mem read`, `aoc-mem search "query"`, `aoc-mem add "decision"`
-- STM handoff only: `aoc-stm status`, `aoc-stm`, `aoc-stm add "note"`, `aoc-stm handoff`, `aoc-stm resume`
+- STM directed handoff only: `aoc-stm status`, `aoc-stm template --purpose <kind>`, `aoc-stm`, `aoc-stm add "note"`, `aoc-stm handoff --purpose <kind> --to <recipient> --focus <focus>`, `aoc-stm resume <archive>`
 - Tasks: `tm tag current`, `tm tag spec show`, `aoc-task tag spec show --tag <tag>`, `aoc-task spec show <id> --tag <tag>`
 - RTK: `aoc-rtk status`, `aoc-rtk doctor`, `aoc-rtk install --auto`, `aoc-rtk enable|disable`
 
-STM is for deliberate in-progress handoffs only; do not use it for durable decisions, generic logs, raw command output, or every minor task.
+STM is for deliberate directed in-progress handoff packets only; it is not a mailbox and does not notify another agent by itself. Pass the printed next-agent brief or exact archive explicitly. In Pi, `/handoff <focus>` asks the agent to generate a clean purpose-matched packet for the current work; `/resume [archive]` asks the agent to load a sealed handoff into context safely. Do not use STM for durable decisions, generic logs, raw command output, or every minor task.
 
 ## Core files
 - `.aoc/context.md`: auto-generated project snapshot.
@@ -1193,7 +1193,7 @@ Use the AOC tools for context, memory, and tasks in this repo.
 - **Context:** `.aoc/context.md` (auto-generated project map)
 - **Design:** `DESIGN.md` at the project root is the visual/product design contract. Read it before UI, docs-site, marketing, HyperFrames, or other product-facing changes.
 - **Memory:** use `aoc-mem read/search/add` via Bash tool (do not edit `.aoc/memory.md` directly)
-- **STM handoff layer:** use `aoc-stm status`, `aoc-stm template`, `aoc-stm` (draft), `aoc-stm handoff` (seal), and `aoc-stm resume`/`aoc-stm read` (resume) via Bash tool for deliberate in-progress handoffs only; durable decisions belong in `aoc-mem` (do not read `.aoc/stm/current.md` directly)
+- **STM directed handoff layer:** use `aoc-stm status`, `aoc-stm template --purpose <kind>`, `aoc-stm` (draft), `aoc-stm handoff --purpose <kind> --to <recipient> --focus <focus>` (seal), and `aoc-stm resume <archive>`/`aoc-stm read <archive>` (resume) via Bash tool for deliberate in-progress handoffs only. STM is not a mailbox; pass the printed next-agent brief or exact archive explicitly. Durable decisions belong in `aoc-mem` (do not read `.aoc/stm/current.md` directly)
 - **Tasks:** use `tm` or `aoc-task` via Bash tool (do not edit `.taskmaster/tasks/tasks.json` directly)
 - **Task specs:** tag-level defaults + task-level overrides via `aocPrd` (resolve with `aoc-task tag spec show --tag <tag>` and `aoc-task spec show <id> --tag <tag>`)
 - **RTK routing (default-on for new AOC repos):** allowlisted commands route via RTK in AOC panes; manage with `aoc-rtk status|enable|disable|doctor|install --auto` and `.aoc/rtk.toml`
@@ -1661,7 +1661,7 @@ upgrade_stm_skill_guidance() {
     grep -Fq 'aoc-stm use <archive>' "$stm_skill" ||
     grep -Fq 'fresh tab/session' "$stm_skill" ||
     grep -Fq 'aoc-stm handoff` (read current draft, fallback to latest archive)' "$stm_skill" ||
-    ! grep -Fq 'aoc-stm resume' "$stm_skill"
+    ! grep -Fq 'template --purpose' "$stm_skill"
   ); then
     cat <<'EOF' > "$stm_skill"
 ---
@@ -1682,30 +1682,30 @@ description: Capture deliberate in-progress agent/session handoff packets with a
 
 ## Commands
 - `aoc-stm status`
-- `aoc-stm template`
+- `aoc-stm template --purpose <continue|review|test|debug|docs|commit>`
 - `aoc-stm add "<note>"`
 - `aoc-stm edit`
 - `aoc-stm` (default read current handoff draft)
 - `aoc-stm read-current`
-- `aoc-stm handoff` (archive current handoff draft and print sealed snapshot)
-- `aoc-stm resume` (read archived handoff snapshot; latest by default)
+- `aoc-stm handoff --purpose <kind> --to <recipient> --focus <focus>` (archive current draft and print directed packet)
+- `aoc-stm resume <archive>` (read a specific archived handoff packet)
 - `aoc-stm archive`
-- `aoc-stm read` (read latest archive)
-- `aoc-stm history`
 - `aoc-stm read <archive>`
+- `aoc-stm history`
 
 ## Handoff format (recommended)
-Use `aoc-stm template` and keep packets concise:
-- Intent and task/subtask IDs
-- Current status: done / partial / blocked
-- Touched areas and changes made
-- Validation commands and results
-- Open risks / coordination warnings
-- Next safe actions
-- Do-not-repeat notes for dead ends or completed work
+Use `aoc-stm template --purpose <kind>` and keep packets concise. Pick a purpose so the packet matches the next session:
+- `continue`: current status, touched areas, validation, next safe actions
+- `review`: review target, intended behavior, known risks, review questions
+- `test`: behavior under test, commands, fixtures, suspected gaps
+- `debug`: symptom, evidence, hypotheses tried, next diagnostics
+- `docs`: user-facing behavior, examples, caveats
+- `commit`: files changed, rationale, validation, task/spec refs
 
 ## Guardrails
-- Keep STM as a short-lived handoff draft, then seal clean checkpoints with `aoc-stm handoff`.
+- Keep STM as a short-lived handoff draft, then seal clean checkpoints with directed `aoc-stm handoff`.
+- STM is not a mailbox and does not notify another agent; pass the printed next-agent brief or exact archive explicitly.
+- Prefer a specific archive on resume; do not blindly trust latest if stale warnings appear.
 - Promote durable decisions to `aoc-mem add`, not STM.
 - Do not edit `tasks.json` directly while preparing handoff state.
 EOF
@@ -1714,7 +1714,7 @@ EOF
 
   if [[ -f "$memory_skill" ]] && (
     grep -Fq 'aoc-stm handoff` (read current draft, fallback to latest archive)' "$memory_skill" ||
-    ! grep -Fq 'aoc-stm resume' "$memory_skill"
+    ! grep -Fq 'template --purpose' "$memory_skill"
   ); then
     cat <<'EOF' > "$memory_skill"
 ---
@@ -1727,14 +1727,14 @@ description: Use aoc-mem to read, search, and record project decisions.
 - `aoc-mem search "<term>"`
 - `aoc-mem add "<decision>"`
 - `aoc-stm status`
-- `aoc-stm template`
+- `aoc-stm template --purpose <kind>`
 - `aoc-stm add "<handoff note>"`
 - `aoc-stm edit`
 - `aoc-stm` (read current handoff draft)
-- `aoc-stm handoff` (archive current draft and print handoff snapshot)
-- `aoc-stm resume` (read archived handoff snapshot; latest by default)
+- `aoc-stm handoff --purpose <kind> --to <recipient> --focus <focus>` (archive current draft and print directed packet)
+- `aoc-stm resume <archive>` (read a specific archived handoff packet)
 - `aoc-stm archive`
-- `aoc-stm read` (read latest archive)
+- `aoc-stm read <archive>`
 - `aoc-stm history`
 
 ## Recording guidelines
@@ -1744,7 +1744,7 @@ description: Use aoc-mem to read, search, and record project decisions.
 
 ## Guardrail
 - Never edit `.aoc/memory.md` directly.
-- Keep `.aoc/stm/current.md` as a short-lived in-progress handoff draft only; archive deliberate handoff packets with `aoc-stm handoff` and promote durable decisions to `aoc-mem`.
+- Keep `.aoc/stm/current.md` as a short-lived in-progress handoff draft only; archive deliberate directed handoff packets with `aoc-stm handoff --purpose <kind> --to <recipient> --focus <focus>`, pass the printed brief/archive explicitly, and promote durable decisions to `aoc-mem`.
 EOF
     log "Updated memory-ops skill with STM command guidance."
   fi
@@ -1775,7 +1775,7 @@ Use this when you start a new task or need to re-orient inside a project.
    - Task override: `aoc-task spec show <id> --tag <tag>`
 6. Plan: add or refine tasks with `aoc-task add "<task>"` and set status.
 7. Execute changes and run tests.
-8. If context gets tight, capture state (`aoc-stm add/edit`), seal a clean checkpoint with `aoc-stm handoff`, and use `aoc-stm resume` (or `aoc-stm read`) to load resumable archived context in a new session.
+8. If context gets tight or another agent/session needs to continue, capture state (`aoc-stm template --purpose <kind>`, `aoc-stm add/edit`), seal a directed checkpoint with `aoc-stm handoff --purpose <kind> --to <recipient> --focus <focus>`, and pass the printed next-agent brief or exact archive to the next session for `aoc-stm resume <archive>`.
 9. Update tasks and record decisions: `aoc-task status <id> done`, `aoc-mem add "<decision>"`.
 
 ## Guardrails
@@ -1819,7 +1819,7 @@ description: Initialize or repair AOC context, memory, and tasks safely.
 - Seeds `.aoc/stm/current.md` and `.aoc/stm/archive/` without overwriting existing STM files
 - Ensures spec directory `.taskmaster/docs/specs/` is available for tag/task links
 - Seeds `.pi/settings.json` when missing
-- Seeds core PI prompt templates in `.pi/prompts/` (`/aoc-ops`, `/tm-cc`, `/implement`, `/commit`) when missing
+- Seeds core PI prompt templates in `.pi/prompts/` (`/aoc-ops`, `/tm-cc`, `/implement`, `/handoff`, `/resume`, `/commit`) when missing
 - Keeps optional teaching/video prompts in `.pi/prompts-optional/production-hidden/`
 - Seeds PI default extensions in `.pi/extensions/` (`minimal.ts`, `themeMap.ts`, `mind-ingest.ts`, `mind-ops.ts`, `mind-context.ts`, `mind-focus.ts`, `aoc-models.ts`, `subagent.ts`, plus `lib/mind.ts` and `lib/caveman.ts`) when missing
 - Seeds the preset runtime family in `.pi/extensions/aoc-presets/` when missing
@@ -2974,6 +2974,8 @@ setup_pi_prompts() {
     "aoc-ops"
     "tm-cc"
     "implement"
+    "handoff"
+    "resume"
     "commit"
   )
 

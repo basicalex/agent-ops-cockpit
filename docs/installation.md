@@ -38,7 +38,7 @@ aoc
 
 ## What install does
 
-`install.sh` installs AOC binaries, scripts, Zellij/Yazi/Micro assets, Pi defaults, optional skill templates, and global config under user-local paths.
+`install.sh` installs AOC binaries, scripts, Zellij/Yazi/Micro assets, Pi defaults, optional skill templates, and global config under user-local paths. Core Pi prompts include `/handoff <focus>` for directed STM packet creation and `/resume [archive]` for safe handoff loading.
 
 It does **not** assume every repo should become an AOC repo. Use `aoc-init` for each project you want to use with AOC.
 

@@ -147,6 +147,10 @@ if grep -Fq '"kimi-coding/kimi-for-coding"' "$project_fresh/.pi/settings.json"; 
   fail "Did not expect retired Kimi coding model in fresh PI settings"
 fi
 assert_exists "$project_fresh/.pi/prompts/tm-cc.md"
+assert_exists "$project_fresh/.pi/prompts/handoff.md"
+assert_exists "$project_fresh/.pi/prompts/resume.md"
+assert_contains 'Operator handoff focus:' "$project_fresh/.pi/prompts/handoff.md"
+assert_contains 'safe_to_resume_latest' "$project_fresh/.pi/prompts/resume.md"
 assert_exists "$project_fresh/.pi/skills/aoc-init-ops/SKILL.md"
 assert_exists "$project_fresh/.pi/skills/spec-rpg-authoring/SKILL.md"
 assert_contains 'docs/specs' "$project_fresh/.pi/skills/spec-rpg-authoring/SKILL.md"

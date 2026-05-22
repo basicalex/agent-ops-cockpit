@@ -1100,6 +1100,26 @@ if [[ -d "$ROOT_DIR/.pi/prompts" ]]; then
   done
 fi
 
+required_pi_prompts=(
+  aoc-ops
+  tm-cc
+  implement
+  handoff
+  resume
+  commit
+)
+for prompt_name in "${required_pi_prompts[@]}"; do
+  source_prompt="$ROOT_DIR/.pi/prompts/${prompt_name}.md"
+  installed_prompt="${XDG_CONFIG_HOME:-$HOME/.config}/aoc/pi/prompts/${prompt_name}.md"
+  if [[ ! -f "$source_prompt" ]]; then
+    echo "Missing required AOC PI prompt template: $source_prompt" >&2
+    exit 1
+  fi
+  if [[ ! -f "$installed_prompt" ]]; then
+    cp "$source_prompt" "$installed_prompt"
+  fi
+done
+
 # AOC default PI extension templates
 if [[ -d "$ROOT_DIR/.pi/extensions" ]]; then
   mkdir -p "${XDG_CONFIG_HOME:-$HOME/.config}/aoc/pi/extensions"

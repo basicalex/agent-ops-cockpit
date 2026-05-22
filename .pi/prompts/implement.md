@@ -35,7 +35,7 @@ Workflow:
 - Inspect narrow files before editing.
 - Make minimal coherent changes.
 - Avoid unrelated files and pre-existing dirty work.
-- Record durable decisions with `aoc-stm add` when useful.
+- Record durable decisions with `aoc-mem add` when useful. Use `aoc-stm` only for deliberate directed handoff packets when another agent/session needs to continue incomplete work.
 
 4. Verify
 - Run targeted tests/checks for changed behavior first.

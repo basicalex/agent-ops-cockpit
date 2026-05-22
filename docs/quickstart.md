@@ -51,7 +51,11 @@ aoc
 ```bash
 tm list                 # tasks
 aoc-mem add "decision"  # durable project decision
-aoc-stm add "note"      # short-term handoff note
+aoc-stm template --purpose continue   # purpose-specific handoff shape
+aoc-stm add "note"                   # short-term handoff draft note
+aoc-stm handoff --purpose continue --to builder --focus "next safe step"
+# In Pi: /handoff focusing on the next safe step
+# In Pi: /resume  # safely load latest sealed handoff when safe
 aoc-doctor              # health check
 ```
 

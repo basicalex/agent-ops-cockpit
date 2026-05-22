@@ -22,7 +22,7 @@ Workflow:
 2. Refresh context sources relevant to the target subsystem:
    - `.aoc/context.md`
    - `aoc-mem read`
-   - `aoc-stm resume` (fallback `aoc-stm read-current` when no archive exists)
+   - `aoc-stm status`; if operator provided a specific handoff archive, `aoc-stm resume <archive>`; otherwise avoid treating latest STM as authoritative when stale warnings appear
    - `aoc-task list`
 3. Explore target subsystem deeply; use parallel sub-exploration when it improves coverage.
 4. Produce output with exactly these sections:

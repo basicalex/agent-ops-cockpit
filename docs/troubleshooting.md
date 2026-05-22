@@ -92,10 +92,11 @@ Use:
 
 ```bash
 aoc-mem search "topic"
-aoc-stm resume
+aoc-stm status
+aoc-stm resume <archive-name>  # prefer a specific operator-provided archive
 ```
 
-only when relevant to the current task.
+only when relevant to the current task. Do not treat latest STM as delivered/authoritative if stale warnings appear.
 
 ## HyperFrames check fails
 

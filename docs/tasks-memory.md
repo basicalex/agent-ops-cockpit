@@ -43,33 +43,54 @@ Bad memory entries:
 - guesses
 - long pasted files
 
-## STM handoff layer
+## STM directed handoff layer
 
-Use STM only for deliberate in-progress handoff packets between agents or sessions. It is not durable memory and not a generic work log.
+Use STM only for deliberate in-progress handoff packets between agents or sessions. It is not durable memory, not a generic work log, and not a mailbox: `aoc-stm handoff` creates a local packet and prints a next-agent brief, but the operator/orchestrator must explicitly pass that brief or archive name to the next agent.
+
+In Pi, use `/handoff <focus>` to ask the agent to generate a clean directed packet for the current work, for example `/handoff focusing on the element refactor`. The slash command treats the text after the command as the operator focus and seals the packet with `aoc-stm handoff --from-file ...`, so stale current STM draft notes are not accidentally bundled.
+
+Use `/resume [archive-name]` to ask the agent to load a sealed STM handoff into context. With no archive argument, the agent first checks `aoc-stm status` and only uses latest when `safe_to_resume_latest: yes`; otherwise it should ask for the exact archive or permission to inspect the unsealed draft.
 
 ```bash
 aoc-stm status
-aoc-stm template
-aoc-stm add "Task 217 partial: updated bin/aoc-stm; docs/tests still needed."
-aoc-stm handoff
-aoc-stm resume
+aoc-stm template --purpose review
+aoc-stm add "Task 226 partial: hardened bin/aoc-stm; docs/tests still needed."
+aoc-stm handoff --purpose review --to code-reviewer --focus "audit stale-resume and archive collision risks" --task "226.4"
+aoc-stm resume <archive-name>
 ```
 
 Use STM when:
 
 - another agent/session needs to continue in-progress work
+- the operator wants a directed handoff with a specific focus or recipient
 - multiple agents may touch nearby files and need coordination context
 - context window is getting tight while work is incomplete
 - switching from builder to reviewer/tester/documenter
 
+Choose the handoff purpose so the packet matches the next session:
+
+- `continue` — builder/session continuation with next safe actions
+- `review` — reviewer focus, changed areas, risks, and review questions
+- `test` — behavior under test, commands, fixtures, and suspected gaps
+- `debug` — symptom, evidence, hypotheses tried, and next diagnostics
+- `docs` — user-facing behavior, examples, and caveats
+- `commit` — commit scope, rationale, validation, and task/spec refs
+
 A good STM handoff includes:
 
 - intent and task/subtask IDs
+- intended recipient/session and operator focus
 - current status: done / partial / blocked
 - touched files/areas and changes made
 - validation commands and results
 - coordination warnings and next safe actions
 - do-not-repeat notes for dead ends or completed work
+
+Starting from STM:
+
+- prefer a specific archive or next-agent brief from the operator
+- do not blindly trust `aoc-stm resume` latest if stale warnings appear
+- verify claims against repository state before editing
 
 Do not use STM for durable decisions, raw logs, every minor task, or information already captured in tasks/specs/commits. Promote durable decisions into `aoc-mem`.
 
