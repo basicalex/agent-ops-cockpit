@@ -1,6 +1,7 @@
 use anyhow::{anyhow, bail, Context, Result};
 use aoc_core::{
-    ProjectData, Subtask, TagContext, Task, TaskPrd, TaskPriority, TaskStatus, TAG_PRD_KEY,
+    ProjectData, Subtask, TagContext, Task, TaskOutcome, TaskOutcomeArtifact, TaskOutcomeRefs,
+    TaskOutcomeVerification, TaskPrd, TaskPriority, TaskStatus, TAG_PRD_KEY,
 };
 use chrono::{SecondsFormat, Utc};
 use clap::{Args, Subcommand, ValueEnum};
@@ -29,6 +30,16 @@ pub enum TaskCommand {
     Search(TaskSearchArgs),
     Move(TaskMoveArgs),
     Agent(TaskAgentArgs),
+    Complete(TaskCompleteArgs),
+    Context(TaskContextArgs),
+    Outcome {
+        #[command(subcommand)]
+        action: OutcomeCommand,
+    },
+    Audit {
+        #[command(subcommand)]
+        action: AuditCommand,
+    },
     Sync(TaskSyncArgs),
     Tag {
         #[command(subcommand)]
@@ -89,6 +100,37 @@ pub enum PrdCommand {
     Init(PrdInitArgs),
 }
 
+#[derive(Subcommand, Debug)]
+#[command(rename_all = "kebab-case")]
+pub enum OutcomeCommand {
+    Show(TaskOutcomeShowArgs),
+}
+
+#[derive(Subcommand, Debug)]
+#[command(rename_all = "kebab-case")]
+pub enum AuditCommand {
+    Outcomes(TaskAuditOutcomesArgs),
+}
+
+#[derive(Debug, Clone, Copy, ValueEnum)]
+pub enum ContextMode {
+    Planning,
+    Coding,
+    Review,
+    Debug,
+}
+
+impl ContextMode {
+    fn label(self) -> &'static str {
+        match self {
+            ContextMode::Planning => "planning",
+            ContextMode::Coding => "coding",
+            ContextMode::Review => "review",
+            ContextMode::Debug => "debug",
+        }
+    }
+}
+
 #[derive(Args, Debug)]
 pub struct TaskListArgs {
     #[arg(long)]
@@ -101,6 +143,10 @@ pub struct TaskListArgs {
     pub json: bool,
     #[arg(long)]
     pub all_tags: bool,
+    #[arg(long)]
+    pub include_parked: bool,
+    #[arg(long)]
+    pub all_statuses: bool,
 }
 
 #[derive(Args, Debug)]
@@ -236,6 +282,63 @@ pub struct TaskAgentArgs {
     pub off: bool,
     #[arg(long)]
     pub toggle: bool,
+}
+
+#[derive(Args, Debug)]
+pub struct TaskCompleteArgs {
+    pub id: String,
+    #[arg(long)]
+    pub tag: Option<String>,
+    #[arg(long, default_value = "done")]
+    pub status: TaskStatus,
+    #[arg(long)]
+    pub summary: String,
+    #[arg(long = "artifact")]
+    pub artifacts: Vec<String>,
+    #[arg(long = "test", alias = "verification")]
+    pub tests: Vec<String>,
+    #[arg(long = "gap")]
+    pub gaps: Vec<String>,
+    #[arg(long = "commit")]
+    pub commits: Vec<String>,
+    #[arg(long)]
+    pub completed_by: Option<String>,
+    #[arg(long)]
+    pub cancel_reason: Option<String>,
+    #[arg(long)]
+    pub replacement: Option<String>,
+}
+
+#[derive(Args, Debug)]
+pub struct TaskContextArgs {
+    pub id: String,
+    #[arg(long)]
+    pub tag: Option<String>,
+    #[arg(long, value_enum, default_value = "coding")]
+    pub mode: ContextMode,
+    #[arg(long)]
+    pub json: bool,
+    #[arg(long)]
+    pub expand_completed: bool,
+}
+
+#[derive(Args, Debug)]
+pub struct TaskOutcomeShowArgs {
+    pub id: String,
+    #[arg(long)]
+    pub tag: Option<String>,
+    #[arg(long)]
+    pub json: bool,
+}
+
+#[derive(Args, Debug)]
+pub struct TaskAuditOutcomesArgs {
+    #[arg(long)]
+    pub tag: Option<String>,
+    #[arg(long)]
+    pub json: bool,
+    #[arg(long)]
+    pub all_tags: bool,
 }
 
 #[derive(Debug, Clone, Copy, ValueEnum)]
@@ -480,6 +583,14 @@ pub fn handle_task_command(command: TaskCommand) -> Result<()> {
         TaskCommand::Search(args) => search_tasks(&ctx, &args),
         TaskCommand::Move(args) => move_task(&ctx, &args),
         TaskCommand::Agent(args) => toggle_agent(&ctx, &args),
+        TaskCommand::Complete(args) => complete_task(&ctx, &args),
+        TaskCommand::Context(args) => show_task_context(&ctx, &args),
+        TaskCommand::Outcome { action } => match action {
+            OutcomeCommand::Show(args) => show_outcome(&ctx, &args),
+        },
+        TaskCommand::Audit { action } => match action {
+            AuditCommand::Outcomes(args) => audit_outcomes(&ctx, &args),
+        },
         TaskCommand::Sync(args) => sync_tasks(&ctx, &args),
         TaskCommand::Tag { action } => match action {
             TagCommand::List(args) => list_tags(&ctx, &args),
@@ -1004,7 +1115,8 @@ fn list_tasks(ctx: &TaskContext, args: &TaskListArgs) -> Result<()> {
 
     if args.all_tags {
         if args.json {
-            let payload = serde_json::to_string_pretty(&project)?;
+            let filtered = filter_project_for_list(&project, args);
+            let payload = serde_json::to_string_pretty(&filtered)?;
             println!("{}", payload);
             return Ok(());
         }
@@ -1014,7 +1126,12 @@ fn list_tasks(ctx: &TaskContext, args: &TaskListArgs) -> Result<()> {
         for tag in tags {
             if let Some(tag_ctx) = project.tags.get(&tag) {
                 println!("{tag} ({})", tag_ctx.tasks.len());
-                print_task_list(tag_ctx, args.status.clone(), args.search.as_deref());
+                print_task_list(
+                    tag_ctx,
+                    args.status.clone(),
+                    args.search.as_deref(),
+                    args.include_parked || args.all_statuses,
+                );
             }
         }
         return Ok(());
@@ -1030,28 +1147,78 @@ fn list_tasks(ctx: &TaskContext, args: &TaskListArgs) -> Result<()> {
     };
 
     if args.json {
-        let payload = serde_json::to_string_pretty(tag_ctx)?;
+        let filtered = filter_tag_for_list(tag_ctx, args);
+        let payload = serde_json::to_string_pretty(&filtered)?;
         println!("{}", payload);
         return Ok(());
     }
 
-    print_task_list(tag_ctx, args.status.clone(), args.search.as_deref());
+    print_task_list(
+        tag_ctx,
+        args.status.clone(),
+        args.search.as_deref(),
+        args.include_parked || args.all_statuses,
+    );
     Ok(())
 }
 
-fn print_task_list(tag_ctx: &TagContext, status: Option<TaskStatus>, search: Option<&str>) {
+fn filter_project_for_list(project: &ProjectData, args: &TaskListArgs) -> ProjectData {
+    let mut tags = HashMap::new();
+    for (name, tag_ctx) in &project.tags {
+        tags.insert(name.clone(), filter_tag_for_list(tag_ctx, args));
+    }
+    ProjectData { tags }
+}
+
+fn filter_tag_for_list(tag_ctx: &TagContext, args: &TaskListArgs) -> TagContext {
+    let include_parked = args.include_parked || args.all_statuses || args.status.is_some();
+    let query = args.search.as_ref().map(|q| q.to_lowercase());
+    let tasks = tag_ctx
+        .tasks
+        .iter()
+        .filter(|task| {
+            task_visible_in_list(task, args.status.as_ref(), query.as_deref(), include_parked)
+        })
+        .cloned()
+        .collect();
+    TagContext {
+        tasks,
+        extra: tag_ctx.extra.clone(),
+    }
+}
+
+fn task_visible_in_list(
+    task: &Task,
+    status: Option<&TaskStatus>,
+    query: Option<&str>,
+    include_parked: bool,
+) -> bool {
+    if let Some(status_filter) = status {
+        if &task.status != status_filter {
+            return false;
+        }
+    } else if !include_parked && task.status.is_parked() {
+        return false;
+    }
+    if let Some(query) = query {
+        if !task_matches(task, query) {
+            return false;
+        }
+    }
+    true
+}
+
+fn print_task_list(
+    tag_ctx: &TagContext,
+    status: Option<TaskStatus>,
+    search: Option<&str>,
+    include_parked: bool,
+) {
     let query = search.map(|q| q.to_lowercase());
     let status = status.as_ref();
     for task in &tag_ctx.tasks {
-        if let Some(status_filter) = status {
-            if &task.status != status_filter {
-                continue;
-            }
-        }
-        if let Some(query) = &query {
-            if !task_matches(task, query) {
-                continue;
-            }
+        if !task_visible_in_list(task, status, query.as_deref(), include_parked) {
+            continue;
         }
         println!(
             "- [{}] ({}/{}) {}",
@@ -1097,6 +1264,7 @@ fn add_task(ctx: &TaskContext, args: &TaskAddArgs) -> Result<()> {
         priority,
         subtasks: Vec::new(),
         aoc_prd: None,
+        aoc_outcome: None,
         updated_at: Some(now_timestamp()),
         active_agent: args.active_agent,
         extra: HashMap::new(),
@@ -1275,7 +1443,10 @@ fn next_task(ctx: &TaskContext, args: &TaskNextArgs) -> Result<()> {
         .tags
         .get(&tag)
         .ok_or_else(|| anyhow::anyhow!("No tag named '{tag}' found."))?;
-    let task = tag_ctx.tasks.iter().find(|task| !task.status.is_done());
+    let task = tag_ctx
+        .tasks
+        .iter()
+        .find(|task| !task.status.is_done() && !task.status.is_parked());
     match task {
         Some(task) => {
             if args.json {
@@ -1296,6 +1467,8 @@ fn search_tasks(ctx: &TaskContext, args: &TaskSearchArgs) -> Result<()> {
         search: Some(args.query.clone()),
         json: args.json,
         all_tags: false,
+        include_parked: true,
+        all_statuses: false,
     };
     list_tasks(ctx, &list_args)
 }
@@ -1352,6 +1525,337 @@ fn toggle_agent(ctx: &TaskContext, args: &TaskAgentArgs) -> Result<()> {
     save_project(&ctx.paths, &load.project)?;
     println!("Task [{}] active_agent: {}", args.id, active_agent);
     Ok(())
+}
+
+fn complete_task(ctx: &TaskContext, args: &TaskCompleteArgs) -> Result<()> {
+    if args.summary.trim().is_empty() {
+        bail!("Completion summary cannot be empty.");
+    }
+    if args.status == TaskStatus::Cancelled
+        && args
+            .cancel_reason
+            .as_deref()
+            .unwrap_or("")
+            .trim()
+            .is_empty()
+    {
+        bail!("Cancelled outcomes require --cancel-reason.");
+    }
+
+    let mut load = load_project(&ctx.paths)?;
+    let tag = ctx.resolve_tag(args.tag.as_deref());
+    let tag_ctx = load
+        .project
+        .tags
+        .get_mut(&tag)
+        .ok_or_else(|| anyhow::anyhow!("No tag named '{tag}' found."))?;
+    let task_idx = find_task_index(tag_ctx, &args.id)
+        .ok_or_else(|| anyhow::anyhow!("Task [{}] not found in tag '{tag}'.", args.id))?;
+
+    let artifacts = args
+        .artifacts
+        .iter()
+        .filter(|path| !path.trim().is_empty())
+        .map(|path| TaskOutcomeArtifact {
+            path: path.trim().to_string(),
+            kind: None,
+            change: None,
+        })
+        .collect();
+    let verification = args
+        .tests
+        .iter()
+        .filter(|command| !command.trim().is_empty())
+        .map(|command| TaskOutcomeVerification {
+            kind: Some("command".to_string()),
+            command: command.trim().to_string(),
+            result: "recorded".to_string(),
+        })
+        .collect();
+
+    let outcome = TaskOutcome {
+        version: 1,
+        status: args.status.clone(),
+        summary: args.summary.trim().to_string(),
+        completed_at: Some(now_timestamp()),
+        completed_by: args.completed_by.clone(),
+        artifacts,
+        verification,
+        gaps: args
+            .gaps
+            .iter()
+            .filter(|gap| !gap.trim().is_empty())
+            .map(|gap| gap.trim().to_string())
+            .collect(),
+        cancel_reason: args.cancel_reason.clone(),
+        replacement_task_id: args.replacement.clone(),
+        refs: TaskOutcomeRefs {
+            commits: args.commits.clone(),
+            stm: Vec::new(),
+            mind: Vec::new(),
+        },
+        extra: HashMap::new(),
+    };
+
+    let task = &mut tag_ctx.tasks[task_idx];
+    task.status = args.status.clone();
+    task.aoc_outcome = Some(outcome);
+    task.updated_at = Some(now_timestamp());
+    save_project(&ctx.paths, &load.project)?;
+    println!("Completed task [{}] with status {}.", args.id, args.status);
+    Ok(())
+}
+
+fn show_outcome(ctx: &TaskContext, args: &TaskOutcomeShowArgs) -> Result<()> {
+    let load = load_project(&ctx.paths)?;
+    let tag = ctx.resolve_tag(args.tag.as_deref());
+    let task = find_task_in_project(&load.project, &tag, &args.id)?;
+    if args.json {
+        println!("{}", serde_json::to_string_pretty(&task.aoc_outcome)?);
+        return Ok(());
+    }
+    if let Some(outcome) = &task.aoc_outcome {
+        print_outcome(task, outcome);
+    } else {
+        println!("Task [{}] has no recorded outcome.", task.id);
+    }
+    Ok(())
+}
+
+fn show_task_context(ctx: &TaskContext, args: &TaskContextArgs) -> Result<()> {
+    let load = load_project(&ctx.paths)?;
+    let tag = ctx.resolve_tag(args.tag.as_deref());
+    let tag_ctx = load
+        .project
+        .tags
+        .get(&tag)
+        .ok_or_else(|| anyhow::anyhow!("No tag named '{tag}' found."))?;
+    let task = tag_ctx
+        .tasks
+        .iter()
+        .find(|task| task.id == args.id)
+        .ok_or_else(|| anyhow::anyhow!("Task [{}] not found in tag '{tag}'.", args.id))?;
+
+    let effective_spec = task
+        .aoc_prd
+        .as_ref()
+        .map(|prd| prd.path.clone())
+        .or_else(|| tag_ctx.tag_prd().map(|prd| prd.path));
+    let deps: Vec<_> = task
+        .dependencies
+        .iter()
+        .map(|dep_id| dependency_context(&load.project, &tag, dep_id))
+        .collect();
+    let downstream: Vec<_> = tag_ctx
+        .tasks
+        .iter()
+        .filter(|candidate| candidate.dependencies.iter().any(|dep| dep == &task.id))
+        .map(|candidate| json!({"id": candidate.id, "title": candidate.title, "status": candidate.status}))
+        .collect();
+
+    if args.json {
+        let payload = json!({
+            "id": task.id,
+            "title": task.title,
+            "tag": tag,
+            "mode": args.mode.label(),
+            "status": task.status,
+            "priority": task.priority,
+            "spec": effective_spec.clone(),
+            "description": task.description,
+            "details": task.details,
+            "testStrategy": task.test_strategy,
+            "openSubtasks": task.subtasks.iter().filter(|sub| !sub.status.is_done()).collect::<Vec<_>>(),
+            "dependencies": deps,
+            "downstream": downstream,
+            "outcome": &task.aoc_outcome,
+            "suggestedNextStep": suggested_next_step(task),
+        });
+        println!("{}", serde_json::to_string_pretty(&payload)?);
+        return Ok(());
+    }
+
+    println!("Task Context: {} — {}", task.id, task.title);
+    println!("Tag: {tag}");
+    println!("Mode: {}", args.mode.label());
+    println!("Status: {} | Priority: {}", task.status, task.priority);
+    if let Some(spec) = &effective_spec {
+        println!("Spec: {}", spec);
+    }
+    println!("\nIntent\n------");
+    if !task.description.trim().is_empty() {
+        println!("{}", task.description.trim());
+    }
+    if !task.details.trim().is_empty() {
+        println!("\nDetails: {}", task.details.trim());
+    }
+    if !task.test_strategy.trim().is_empty() {
+        println!("\nTest Strategy: {}", task.test_strategy.trim());
+    }
+
+    println!("\nCurrent Work\n------------");
+    let mut any_open = false;
+    for sub in &task.subtasks {
+        if !sub.status.is_done() || args.expand_completed {
+            any_open = true;
+            println!("- [{}] {} ({})", sub.id, sub.title, sub.status);
+        }
+    }
+    if !any_open {
+        println!("No open subtasks recorded.");
+    }
+
+    println!("\nDependencies\n------------");
+    if deps.is_empty() {
+        println!("No dependencies recorded.");
+    } else {
+        for dep in deps {
+            println!("- {}", serde_json::to_string(&dep)?);
+        }
+    }
+
+    if !downstream.is_empty() {
+        println!("\nBlocks / Downstream\n-------------------");
+        for item in downstream {
+            println!("- {}", serde_json::to_string(&item)?);
+        }
+    }
+
+    println!("\nOutcome / Risks\n---------------");
+    if let Some(outcome) = &task.aoc_outcome {
+        print_outcome(task, outcome);
+    } else {
+        println!("No outcome recorded yet.");
+    }
+    println!("\nSuggested Next Step\n-------------------");
+    println!("{}", suggested_next_step(task));
+    Ok(())
+}
+
+fn audit_outcomes(ctx: &TaskContext, args: &TaskAuditOutcomesArgs) -> Result<()> {
+    let load = load_project(&ctx.paths)?;
+    let mut findings = Vec::new();
+    let tags: Vec<String> = if args.all_tags {
+        load.project.tags.keys().cloned().collect()
+    } else {
+        vec![ctx.resolve_tag(args.tag.as_deref())]
+    };
+
+    for tag in tags {
+        let Some(tag_ctx) = load.project.tags.get(&tag) else {
+            continue;
+        };
+        for task in &tag_ctx.tasks {
+            if matches!(
+                task.status,
+                TaskStatus::Done | TaskStatus::Review | TaskStatus::Cancelled
+            ) {
+                match &task.aoc_outcome {
+                    None => findings.push(json!({"tag": tag, "taskId": task.id, "severity": "warning", "message": "terminal/review task has no aocOutcome"})),
+                    Some(outcome) => {
+                        if outcome.summary.trim().is_empty() {
+                            findings.push(json!({"tag": tag, "taskId": task.id, "severity": "warning", "message": "aocOutcome summary is empty"}));
+                        }
+                        if task.status == TaskStatus::Done && outcome.verification.is_empty() {
+                            findings.push(json!({"tag": tag, "taskId": task.id, "severity": "warning", "message": "done task has no verification evidence"}));
+                        }
+                        if task.status == TaskStatus::Cancelled && outcome.cancel_reason.as_deref().unwrap_or("").trim().is_empty() {
+                            findings.push(json!({"tag": tag, "taskId": task.id, "severity": "warning", "message": "cancelled task has no cancelReason"}));
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    if args.json {
+        println!("{}", serde_json::to_string_pretty(&findings)?);
+    } else if findings.is_empty() {
+        println!("No outcome audit findings.");
+    } else {
+        for finding in findings {
+            println!("{}", serde_json::to_string(&finding)?);
+        }
+    }
+    Ok(())
+}
+
+fn find_task_in_project<'a>(project: &'a ProjectData, tag: &str, id: &str) -> Result<&'a Task> {
+    let tag_ctx = project
+        .tags
+        .get(tag)
+        .ok_or_else(|| anyhow::anyhow!("No tag named '{tag}' found."))?;
+    tag_ctx
+        .tasks
+        .iter()
+        .find(|task| task.id == id)
+        .ok_or_else(|| anyhow::anyhow!("Task [{}] not found in tag '{tag}'.", id))
+}
+
+fn dependency_context(project: &ProjectData, tag: &str, dep_id: &str) -> Value {
+    match find_task_in_project(project, tag, dep_id) {
+        Ok(task) => json!({
+            "id": task.id,
+            "title": task.title,
+            "status": task.status,
+            "fulfilled": task.status.is_fulfilled(),
+            "outcomeSummary": task.aoc_outcome.as_ref().map(|outcome| outcome.summary.clone()),
+            "gaps": task.aoc_outcome.as_ref().map(|outcome| outcome.gaps.clone()).unwrap_or_default(),
+        }),
+        Err(_) => json!({"id": dep_id, "missing": true}),
+    }
+}
+
+fn suggested_next_step(task: &Task) -> String {
+    if task.status == TaskStatus::Blocked {
+        return "Resolve or document the blocker before implementation.".to_string();
+    }
+    if task.status == TaskStatus::Review {
+        return "Run/review verification, then use tm complete --status done with evidence."
+            .to_string();
+    }
+    if task.status.is_parked() {
+        return "Promote this parked task to pending before active implementation.".to_string();
+    }
+    if task.aoc_outcome.is_none() && task.status.is_done() {
+        return "Backfill an outcome summary with tm complete before relying on this task as evidence.".to_string();
+    }
+    "Work the next open subtask, record evidence, then use tm complete at review/done.".to_string()
+}
+
+fn print_outcome(task: &Task, outcome: &TaskOutcome) {
+    println!("Task [{}] outcome ({})", task.id, outcome.status);
+    println!("Summary: {}", outcome.summary);
+    if let Some(completed_at) = &outcome.completed_at {
+        println!("Completed At: {}", completed_at);
+    }
+    if let Some(completed_by) = &outcome.completed_by {
+        println!("Completed By: {}", completed_by);
+    }
+    if !outcome.artifacts.is_empty() {
+        println!("Artifacts:");
+        for artifact in &outcome.artifacts {
+            println!("  - {}", artifact.path);
+        }
+    }
+    if !outcome.verification.is_empty() {
+        println!("Verification:");
+        for item in &outcome.verification {
+            println!("  - {} => {}", item.command, item.result);
+        }
+    }
+    if !outcome.gaps.is_empty() {
+        println!("Gaps:");
+        for gap in &outcome.gaps {
+            println!("  - {}", gap);
+        }
+    }
+    if let Some(reason) = &outcome.cancel_reason {
+        println!("Cancel Reason: {}", reason);
+    }
+    if let Some(replacement) = &outcome.replacement_task_id {
+        println!("Replacement Task: {}", replacement);
+    }
 }
 
 fn list_tags(ctx: &TaskContext, args: &TagListArgs) -> Result<()> {
@@ -2044,6 +2548,7 @@ fn sync_from_claude(ctx: &TaskContext, args: &TaskSyncArgs) -> Result<()> {
             priority: ctx.resolve_priority(None),
             subtasks: parsed.subtasks,
             aoc_prd: None,
+            aoc_outcome: None,
             updated_at: Some(now_timestamp()),
             active_agent: false,
             extra,

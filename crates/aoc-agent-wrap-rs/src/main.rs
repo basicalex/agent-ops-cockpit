@@ -3775,7 +3775,7 @@ fn task_status_rank(status: &TaskStatus) -> u8 {
         TaskStatus::Blocked => 1,
         TaskStatus::Review => 2,
         TaskStatus::Pending => 3,
-        TaskStatus::Deferred => 4,
+        TaskStatus::Deferred | TaskStatus::Backlog => 4,
         TaskStatus::Done | TaskStatus::Cancelled => 5,
     }
 }
@@ -3797,7 +3797,7 @@ fn open_task_counts(tasks: &[Task]) -> HandshakeTaskCounts {
             TaskStatus::InProgress => counts.in_progress += 1,
             TaskStatus::Blocked => counts.blocked += 1,
             TaskStatus::Review => {}
-            TaskStatus::Deferred => {}
+            TaskStatus::Deferred | TaskStatus::Backlog => {}
             TaskStatus::Done | TaskStatus::Cancelled => counts.done += 1,
         }
     }

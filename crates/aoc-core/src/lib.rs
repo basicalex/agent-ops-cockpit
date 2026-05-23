@@ -47,12 +47,70 @@ pub struct Task {
     pub subtasks: Vec<Subtask>,
     #[serde(default, rename = "aocPrd")]
     pub aoc_prd: Option<TaskPrd>,
+    #[serde(
+        default,
+        rename = "aocOutcome",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub aoc_outcome: Option<TaskOutcome>,
     #[serde(default, rename = "updatedAt")]
     pub updated_at: Option<String>,
     #[serde(default, rename = "activeAgent")]
     pub active_agent: bool,
     #[serde(default, flatten)]
     pub extra: HashMap<String, Value>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TaskOutcome {
+    pub version: u32,
+    pub status: TaskStatus,
+    pub summary: String,
+    #[serde(default, rename = "completedAt")]
+    pub completed_at: Option<String>,
+    #[serde(default, rename = "completedBy")]
+    pub completed_by: Option<String>,
+    #[serde(default)]
+    pub artifacts: Vec<TaskOutcomeArtifact>,
+    #[serde(default)]
+    pub verification: Vec<TaskOutcomeVerification>,
+    #[serde(default)]
+    pub gaps: Vec<String>,
+    #[serde(default, rename = "cancelReason")]
+    pub cancel_reason: Option<String>,
+    #[serde(default, rename = "replacementTaskId")]
+    pub replacement_task_id: Option<String>,
+    #[serde(default)]
+    pub refs: TaskOutcomeRefs,
+    #[serde(default, flatten)]
+    pub extra: HashMap<String, Value>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TaskOutcomeArtifact {
+    pub path: String,
+    #[serde(default)]
+    pub kind: Option<String>,
+    #[serde(default)]
+    pub change: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TaskOutcomeVerification {
+    #[serde(default)]
+    pub kind: Option<String>,
+    pub command: String,
+    pub result: String,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct TaskOutcomeRefs {
+    #[serde(default)]
+    pub commits: Vec<String>,
+    #[serde(default)]
+    pub stm: Vec<String>,
+    #[serde(default)]
+    pub mind: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -87,6 +145,7 @@ impl TagContext {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "kebab-case")]
 pub enum TaskStatus {
+    Backlog,
     Pending,
     InProgress,
     Done,
@@ -105,6 +164,7 @@ impl Default for TaskStatus {
 impl TaskStatus {
     pub fn as_str(&self) -> &'static str {
         match self {
+            TaskStatus::Backlog => "backlog",
             TaskStatus::Pending => "pending",
             TaskStatus::InProgress => "in-progress",
             TaskStatus::Done => "done",
@@ -117,6 +177,14 @@ impl TaskStatus {
 
     pub fn is_done(&self) -> bool {
         matches!(self, TaskStatus::Done | TaskStatus::Cancelled)
+    }
+
+    pub fn is_parked(&self) -> bool {
+        matches!(self, TaskStatus::Backlog | TaskStatus::Deferred)
+    }
+
+    pub fn is_fulfilled(&self) -> bool {
+        matches!(self, TaskStatus::Done)
     }
 }
 
@@ -132,6 +200,7 @@ impl FromStr for TaskStatus {
     fn from_str(input: &str) -> Result<Self, Self::Err> {
         let normalized = input.trim().to_lowercase();
         match normalized.as_str() {
+            "backlog" => Ok(TaskStatus::Backlog),
             "pending" => Ok(TaskStatus::Pending),
             "in-progress" | "in_progress" | "inprogress" => Ok(TaskStatus::InProgress),
             "done" => Ok(TaskStatus::Done),
