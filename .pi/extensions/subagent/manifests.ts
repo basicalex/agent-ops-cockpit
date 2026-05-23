@@ -4,6 +4,8 @@ import * as path from "node:path";
 import type { AgentAvailability, AgentConfig, ChainDefinition, ChainStep, ManifestBundle } from "./shared.ts";
 
 const manifestCache = new Map<string, { key: string; bundle: ManifestBundle }>();
+const availabilityCache = new Map<string, { at: number; availability: AgentAvailability }>();
+const AVAILABILITY_CACHE_MS = 30_000;
 
 function parseAgentFile(contents: string, sourcePath: string): AgentConfig {
 	const match = contents.match(/^---\n([\s\S]*?)\n---\n?([\s\S]*)$/);
@@ -147,12 +149,21 @@ function scoutAvailability(root: string): AgentAvailability {
 }
 
 export function agentAvailability(root: string, agent: AgentConfig): AgentAvailability {
+	const cacheKey = `${root}:${agent.name}`;
+	const cached = availabilityCache.get(cacheKey);
+	if (cached && Date.now() - cached.at < AVAILABILITY_CACHE_MS) return cached.availability;
+
+	let availability: AgentAvailability;
 	switch (agent.name) {
 		case "scout-web-agent":
-			return scoutAvailability(root);
+			availability = scoutAvailability(root);
+			break;
 		default:
-			return { available: true };
+			availability = { available: true };
+			break;
 	}
+	availabilityCache.set(cacheKey, { at: Date.now(), availability });
+	return availability;
 }
 
 function manifestCacheKey(root: string): string {

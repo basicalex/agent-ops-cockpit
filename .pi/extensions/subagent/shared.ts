@@ -94,6 +94,7 @@ export type JobRecord = {
 	chainName?: string;
 	chainStepIndex?: number;
 	chainStepCount?: number;
+	ownerAgentId?: string;
 	artifactDir?: string;
 	reportPath?: string;
 	metaPath?: string;

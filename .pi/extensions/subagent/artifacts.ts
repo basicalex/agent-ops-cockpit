@@ -29,6 +29,71 @@ export type ArtifactPersistenceHelpers = {
 	summarizeToolPolicies: (toolPolicies: ToolPolicyRecord[] | undefined) => string | undefined;
 };
 
+const REPORT_FULL_OUTPUT_SCAN_MAX_BYTES = 2_000_000;
+
+function isTerminalArtifactStatus(status: JobRecord["status"]): boolean {
+	return status === "success" || status === "fallback" || status === "error" || status === "cancelled" || status === "stale";
+}
+
+function extractAssistantText(message: any): string {
+	const content = Array.isArray(message?.content) ? message.content : [];
+	return content
+		.filter((part: any) => part?.type === "text" && typeof part?.text === "string")
+		.map((part: any) => part.text)
+		.join("\n")
+		.trim();
+}
+
+function readTail(file: string, maxBytes: number): string | undefined {
+	try {
+		const stat = fs.statSync(file);
+		const start = Math.max(0, stat.size - maxBytes);
+		const length = stat.size - start;
+		const fd = fs.openSync(file, "r");
+		try {
+			const buffer = Buffer.alloc(length);
+			fs.readSync(fd, buffer, 0, length, start);
+			let text = buffer.toString("utf8");
+			if (start > 0) text = text.slice(text.indexOf("\n") + 1);
+			return text;
+		} finally {
+			fs.closeSync(fd);
+		}
+	} catch {
+		return undefined;
+	}
+}
+
+function finalAssistantOutputFromEvents(root: string, eventsPath: string | undefined): string | undefined {
+	const resolved = resolveArtifactPath(root, eventsPath);
+	if (!resolved) return undefined;
+	const text = readTail(resolved, REPORT_FULL_OUTPUT_SCAN_MAX_BYTES);
+	if (!text) return undefined;
+	let latest = "";
+	for (const line of text.split("\n")) {
+		if (!line.trim()) continue;
+		let event: any;
+		try {
+			event = JSON.parse(line);
+		} catch {
+			continue;
+		}
+		if (event?.type === "message_update" && event?.assistantMessageEvent?.type === "text_end") {
+			const content = event.assistantMessageEvent.content;
+			if (typeof content === "string" && content.trim()) latest = content.trim();
+		}
+		if (event?.type === "message_end" && event?.message?.role === "assistant") {
+			const content = extractAssistantText(event.message);
+			if (content) latest = content;
+		}
+		if (event?.type === "turn_end" && event?.message?.role === "assistant") {
+			const content = extractAssistantText(event.message);
+			if (content) latest = content;
+		}
+	}
+	return latest || undefined;
+}
+
 export function artifactRefs(root: string, jobId: string): Pick<JobRecord, "artifactDir" | "reportPath" | "metaPath" | "eventsPath" | "promptPath" | "stderrPath"> {
 	const dir = path.join(root, ARTIFACTS_DIR, sanitizeSlug(jobId));
 	return {
@@ -154,12 +219,17 @@ export function persistArtifactBundle(root: string, job: JobRecord, helpers: Art
 		if (options?.appendStderr) {
 			appendArtifactFile(root, enriched.stderrPath, options.appendStderr);
 		}
-		writeArtifactFile(root, enriched.reportPath, renderReportArtifact(enriched, options?.fullOutput, helpers.summarizeToolPolicies));
+		const fullOutput = typeof options?.fullOutput === "string" && options.fullOutput.trim()
+			? options.fullOutput
+			: isTerminalArtifactStatus(enriched.status)
+				? finalAssistantOutputFromEvents(root, enriched.eventsPath)
+				: undefined;
+		writeArtifactFile(root, enriched.reportPath, renderReportArtifact(enriched, fullOutput, helpers.summarizeToolPolicies));
 		writeArtifactFile(root, enriched.metaPath, JSON.stringify({
 			version: 1,
 			updatedAt: new Date().toISOString(),
 			job: helpers.snapshotJob(enriched),
-			fullOutputChars: options?.fullOutput?.length ?? undefined,
+			fullOutputChars: fullOutput?.length ?? undefined,
 		}, null, 2) + "\n");
 	} catch {
 		// fail open: artifact persistence should not break detached execution or recovery

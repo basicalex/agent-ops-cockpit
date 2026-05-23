@@ -4,15 +4,16 @@ import * as os from "node:os";
 import * as path from "node:path";
 import type { ExtensionAPI, ExtensionContext, Theme } from "@mariozechner/pi-coding-agent";
 import { StringEnum } from "@mariozechner/pi-ai";
-import { Editor, type EditorTheme, Key, Text, matchesKey, truncateToWidth, visibleWidth } from "@mariozechner/pi-tui";
+import { Container, Editor, type EditorTheme, Key, Text, matchesKey, truncateToWidth, visibleWidth, type Component } from "@mariozechner/pi-tui";
 import { Type } from "@sinclair/typebox";
-import { persistArtifactBundle as persistArtifactBundleImpl, type ArtifactPersistenceOptions } from "./subagent/artifacts.ts";
+import { persistArtifactBundle as persistArtifactBundleImpl, resolveArtifactPath, withArtifactRefs, type ArtifactPersistenceOptions } from "./subagent/artifacts.ts";
 import { agentAvailability, availableAgents, availableChains, availableTeams, assertAgentAvailable, assertChainAvailable, assertTeamAvailable, loadManifestBundle } from "./subagent/manifests.ts";
 import {
 	detachedRegistryAvailability,
 	type DurableDetachedCancelResult,
 	type DurableDetachedDispatchResult,
 	type DurableDetachedStatusResult,
+	currentAgentKey,
 	fetchMindContextPack,
 	mapDurableJob,
 	type MindContextPackPayload,
@@ -62,6 +63,7 @@ type RuntimeState = {
 	children: Map<string, ChildProcessWithoutNullStreams>;
 	handoffNotified: Set<string>;
 	processNotified: Set<string>;
+	eventOffsets: Map<string, number>;
 	inspectorOpen: boolean;
 	inspectorClose?: () => void;
 	inspectorRequestRender?: () => void;
@@ -70,6 +72,7 @@ type RuntimeState = {
 	heartbeatTimer?: ReturnType<typeof setInterval>;
 	heartbeatRefreshActive: boolean;
 	heartbeatStartedAt?: number;
+	lastWidgetRenderKey?: string;
 };
 
 const ENTRY_TYPE = "aoc-subagent-job-v1";
@@ -78,8 +81,10 @@ const PROCESS_MESSAGE_TYPE = "aoc-subagent-process";
 const NOTIFY_MESSAGE_TYPE = "aoc-subagent-notify";
 const WIDGET_ID = "aoc-subagent-jobs";
 const STATUS_ID = "aoc-subagent";
-const MAX_WIDGET_LINES = 6;
+const MAX_WIDGET_LINES = 10;
 const HEARTBEAT_POLL_MS = 5000;
+const LOCAL_ARTIFACT_SCAN_LIMIT = 24;
+const LOCAL_EVENT_SCAN_MAX_BYTES = 256_000;
 
 const state: RuntimeState = {
 	initialized: false,
@@ -88,6 +93,7 @@ const state: RuntimeState = {
 	children: new Map(),
 	handoffNotified: new Set(),
 	processNotified: new Set(),
+	eventOffsets: new Map(),
 	inspectorOpen: false,
 	inspectorRefreshPending: false,
 	heartbeatRefreshActive: false,
@@ -366,6 +372,14 @@ function setInspectorRefreshState(pending: boolean, note?: string): void {
 	requestInspectorRender();
 }
 
+function markJobOwner(job: JobRecord): JobRecord {
+	return { ...job, ownerAgentId: job.ownerAgentId ?? currentAgentKey() };
+}
+
+function isOwnedByCurrentAgent(job: JobRecord): boolean {
+	return Boolean(job.ownerAgentId && job.ownerAgentId === currentAgentKey());
+}
+
 async function refreshRegistryJobs(ctx: ExtensionContext, targetJobId?: string, pi?: ExtensionAPI): Promise<boolean> {
 	const root = ctx.cwd ?? process.cwd();
 	try {
@@ -388,6 +402,7 @@ async function refreshRegistryJobs(ctx: ExtensionContext, targetJobId?: string, 
 			if (prior?.tools?.length && mapped.tools.length === 0) mapped.tools = prior.tools;
 			if (prior?.specialistRole && !mapped.specialistRole) mapped.specialistRole = prior.specialistRole;
 			if (prior?.executionMode) mapped.executionMode = prior.executionMode;
+			if (prior?.ownerAgentId && !mapped.ownerAgentId) mapped.ownerAgentId = prior.ownerAgentId;
 			if (typeof prior?.writeApproved === "boolean" && typeof mapped.writeApproved !== "boolean") mapped.writeApproved = prior.writeApproved;
 			if (typeof prior?.contextPackUsed === "boolean" && typeof mapped.contextPackUsed !== "boolean") mapped.contextPackUsed = prior.contextPackUsed;
 			if (prior?.artifactDir && !mapped.artifactDir) mapped.artifactDir = prior.artifactDir;
@@ -407,19 +422,21 @@ async function refreshRegistryJobs(ctx: ExtensionContext, targetJobId?: string, 
 			state.registryJobs = next;
 		}
 		for (const [jobId, job] of state.registryJobs.entries()) {
-			const enriched = persistArtifactBundle(root, job);
+			const enriched = withArtifactRefs(root, job);
 			state.registryJobs.set(jobId, enriched);
 			const prior = previous.get(jobId);
 			const startedAt = state.heartbeatStartedAt;
 			const isNewDuringHeartbeatWindow = Boolean(startedAt && enriched.createdAt && enriched.createdAt >= startedAt);
 			if (!isTerminalJobStatus(enriched.status) || prior?.status === enriched.status) continue;
 			if (!prior && !isNewDuringHeartbeatWindow) continue;
+			const persisted = persistArtifactBundle(root, enriched);
+			state.registryJobs.set(jobId, persisted);
 			if (pi) {
-				maybeNotifyHandoff(pi, ctx, enriched);
+				maybeNotifyHandoff(pi, ctx, persisted);
 			} else if (ctx.ui && !state.handoffNotified.has(jobId)) {
 				ctx.ui.notify(
-					`${statusIcon(enriched.status)} ${enriched.agent} finished (${enriched.jobId}) — /subagent-inspect ${enriched.jobId}`,
-					enriched.status === "success" ? "info" : "warning",
+					`${statusIcon(persisted.status)} ${persisted.agent} finished (${persisted.jobId}) — /subagent-inspect ${persisted.jobId}`,
+					persisted.status === "success" ? "info" : "warning",
 				);
 			}
 		}
@@ -447,29 +464,72 @@ function refreshRegistryJobsInBackground(pi: ExtensionAPI, ctx: ExtensionContext
 		});
 }
 
+function scanArtifactEventLog(pi: ExtensionAPI, job: JobRecord, eventsPath: string): void {
+	let offset = state.eventOffsets.get(job.jobId) ?? 0;
+	let fd: number | undefined;
+	try {
+		const stats = fs.statSync(eventsPath);
+		if (offset > stats.size) offset = 0;
+		const start = Math.max(offset, stats.size - LOCAL_EVENT_SCAN_MAX_BYTES);
+		const length = stats.size - start;
+		if (length <= 0) return;
+		fd = fs.openSync(eventsPath, "r");
+		const buffer = Buffer.allocUnsafe(length);
+		fs.readSync(fd, buffer, 0, length, start);
+		state.eventOffsets.set(job.jobId, stats.size);
+		const chunk = buffer.toString("utf8");
+		for (const [index, line] of chunk.split("\n").entries()) {
+			if (!line.trim()) continue;
+			try {
+				sendSubagentWorkMessage(pi, job, JSON.parse(line), `artifact:${start + index}:${line.length}`);
+			} catch {
+				// Ignore partial JSONL writes while workers are still appending.
+			}
+		}
+	} catch {
+		return;
+	} finally {
+		if (typeof fd === "number") {
+			try { fs.closeSync(fd); } catch { /* ignore */ }
+		}
+	}
+}
+
 function scanLocalArtifactJobs(pi: ExtensionAPI, ctx: ExtensionContext): void {
 	const root = ctx.cwd ?? process.cwd();
 	const dir = path.join(root, ".pi", "tmp", "subagents");
 	if (!fs.existsSync(dir)) return;
-	for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
-		if (!entry.isDirectory()) continue;
-		const metaPath = path.join(dir, entry.name, "meta.json");
-		if (!fs.existsSync(metaPath)) continue;
+	const entries = fs.readdirSync(dir, { withFileTypes: true })
+		.filter((entry) => entry.isDirectory())
+		.map((entry) => {
+			const artifactDir = path.join(dir, entry.name);
+			const metaPath = path.join(artifactDir, "meta.json");
+			try {
+				return { artifactDir, metaPath, mtimeMs: fs.statSync(metaPath).mtimeMs };
+			} catch {
+				return undefined;
+			}
+		})
+		.filter((entry): entry is { artifactDir: string; metaPath: string; mtimeMs: number } => Boolean(entry))
+		.sort((a, b) => b.mtimeMs - a.mtimeMs)
+		.slice(0, LOCAL_ARTIFACT_SCAN_LIMIT);
+	for (const entry of entries) {
 		try {
-			const payload = JSON.parse(fs.readFileSync(metaPath, "utf8")) as { job?: JobRecord };
+			const payload = JSON.parse(fs.readFileSync(entry.metaPath, "utf8")) as { job?: JobRecord };
 			if (!payload.job?.jobId) continue;
 			const prior = state.registryJobs.get(payload.job.jobId) ?? state.jobs.get(payload.job.jobId);
-			let job: JobRecord = {
+			const job: JobRecord = withArtifactRefs(root, {
 				...payload.job,
 				executionMode: normalizeExecutionMode((payload.job as { executionMode?: string }).executionMode),
-			};
-			job = persistArtifactBundle(root, job);
+			});
 			state.registryJobs.set(job.jobId, job);
 			const startedAt = state.heartbeatStartedAt;
 			const isNewDuringHeartbeatWindow = Boolean(startedAt && job.createdAt && job.createdAt >= startedAt);
+			if (isNewDuringHeartbeatWindow && !isTerminalJobStatus(job.status)) scanArtifactEventLog(pi, job, path.join(entry.artifactDir, "events.jsonl"));
 			if (!isTerminalJobStatus(job.status) || prior?.status === job.status) continue;
 			if (!prior && !isNewDuringHeartbeatWindow) continue;
-			maybeNotifyHandoff(pi, ctx, job);
+			scanArtifactEventLog(pi, job, path.join(entry.artifactDir, "events.jsonl"));
+			if (isOwnedByCurrentAgent(job)) maybeNotifyHandoff(pi, ctx, job);
 		} catch {
 			// Ignore partial or corrupt job metadata while workers are still writing.
 		}
@@ -530,7 +590,7 @@ async function startDetachedDispatchViaRegistry(
 	if (result.status !== "ok" || !result.message) return undefined;
 	const payload = JSON.parse(result.message) as DurableDetachedDispatchResult;
 	if (!payload.job) return undefined;
-	let job = mapDurableJob(payload.job, root);
+	let job = markJobOwner(mapDurableJob(payload.job, root));
 	job.task = task;
 	job.cwd = cwd;
 	job.executionMode = executionMode;
@@ -586,7 +646,7 @@ async function startDetachedChainViaRegistry(
 	if (result.status !== "ok" || !result.message) return undefined;
 	const payload = JSON.parse(result.message) as DurableDetachedDispatchResult;
 	if (!payload.job) return undefined;
-	let job = mapDurableJob(payload.job, root);
+	let job = markJobOwner(mapDurableJob(payload.job, root));
 	job.task = task;
 	job.cwd = cwd;
 	job.executionMode = executionMode;
@@ -643,7 +703,7 @@ async function startDetachedTeamViaRegistry(
 	if (result.status !== "ok" || !result.message) return undefined;
 	const payload = JSON.parse(result.message) as DurableDetachedDispatchResult;
 	if (!payload.job) return undefined;
-	let job = mapDurableJob(payload.job, root);
+	let job = markJobOwner(mapDurableJob(payload.job, root));
 	job.task = task;
 	job.cwd = cwd;
 	job.executionMode = executionMode;
@@ -796,12 +856,18 @@ function summarizeStepResults(job: JobRecord): string | undefined {
 	return `members=${job.stepResults.length} success=${successCount} fallback=${fallbackCount} cancelled=${cancelledCount}`;
 }
 
+function emptyStatusDetail(status: JobStatus): string {
+	if (status === "queued") return "queued…";
+	if (status === "running") return "working…";
+	return "no excerpt recorded";
+}
+
 function formatStepResultLines(job: JobRecord, prefix = "  ", limit = 6): string[] {
 	if (!job.stepResults?.length) return [];
 	const lines = [
 		`${prefix}step_results: ${job.stepResults.length}`,
 		...job.stepResults.slice(0, limit).map((step, index) => {
-			const detail = truncate(step.outputExcerpt || step.error || step.stderrExcerpt || "no excerpt recorded", 120) || "no excerpt recorded";
+			const detail = truncate(step.outputExcerpt || step.error || step.stderrExcerpt || emptyStatusDetail(step.status), 120) || emptyStatusDetail(step.status);
 			return `${prefix}- ${index + 1}. ${step.agent} · ${step.status} · ${detail}`;
 		}),
 	];
@@ -812,8 +878,8 @@ function formatStepResultLines(job: JobRecord, prefix = "  ", limit = 6): string
 function summarizeJobOutcome(job: JobRecord): string {
 	const stepSummary = summarizeStepResults(job);
 	if (stepSummary) return stepSummary;
-	const detail = job.outputExcerpt || job.error || job.stderrExcerpt || "no excerpt recorded";
-	return truncate(detail, 160) || "no excerpt recorded";
+	const detail = job.outputExcerpt || job.error || job.stderrExcerpt || emptyStatusDetail(job.status);
+	return truncate(detail, 160) || emptyStatusDetail(job.status);
 }
 
 function handoffRecord(job: JobRecord): PersistedHandoffRecord {
@@ -856,6 +922,7 @@ function formatChatProcess(job: JobRecord, phase: "started" | "finished"): strin
 }
 
 function sendSubagentProcessMessage(pi: ExtensionAPI, job: JobRecord, phase: "started" | "finished", triggerTurn = false): void {
+	if (!isOwnedByCurrentAgent(job)) return;
 	const key = `${phase}:${job.jobId}:${job.status}`;
 	if (state.processNotified.has(key)) return;
 	state.processNotified.add(key);
@@ -870,11 +937,44 @@ function sendSubagentProcessMessage(pi: ExtensionAPI, job: JobRecord, phase: "st
 	);
 }
 
+function subagentEventStatusLine(event: any): string | undefined {
+	if (event?.type === "message_end" && event?.message?.role === "assistant") {
+		const text = extractAssistantText(event.message);
+		if (text) return truncate(text, 240);
+		if (event.message?.errorMessage) return truncate(String(event.message.errorMessage), 240);
+	}
+	if (event?.type === "tool_start" || event?.type === "tool_call") {
+		const name = event?.toolName ?? event?.name ?? event?.tool?.name ?? "tool";
+		return `using ${name}`;
+	}
+	if (event?.type === "tool_end" || event?.type === "tool_result") {
+		const name = event?.toolName ?? event?.name ?? event?.tool?.name ?? "tool";
+		return `${name} done`;
+	}
+	if (event?.type === "turn_end" && Array.isArray(event?.toolResults) && event.toolResults.length > 0) {
+		return `completed ${event.toolResults.length} tool result${event.toolResults.length === 1 ? "" : "s"}`;
+	}
+	return undefined;
+}
+
+function sendSubagentWorkMessage(_pi: ExtensionAPI, job: JobRecord, event: any, _sourceKey: string): void {
+	if (!isOwnedByCurrentAgent(job)) return;
+	const outputExcerpt = subagentEventStatusLine(event);
+	if (!outputExcerpt) return;
+	const current = state.jobs.get(job.jobId) ?? state.registryJobs.get(job.jobId) ?? job;
+	const updated = { ...current, outputExcerpt };
+	if (state.jobs.has(job.jobId)) state.jobs.set(job.jobId, updated);
+	else state.registryJobs.set(job.jobId, updated);
+	if (state.ctx) updateUi(state.ctx);
+	requestInspectorRender();
+}
+
 function sendSubagentHeartbeat(pi: ExtensionAPI, _ctx: ExtensionContext | undefined, job: JobRecord): void {
 	sendSubagentProcessMessage(pi, job, "finished", true);
 }
 
 function maybeNotifyHandoff(pi: ExtensionAPI, ctx: ExtensionContext | undefined, job: JobRecord): void {
+	if (!isOwnedByCurrentAgent(job)) return;
 	if (!isTerminalJobStatus(job.status) || state.handoffNotified.has(job.jobId)) return;
 	try {
 		sendSubagentHeartbeat(pi, ctx, job);
@@ -899,11 +999,19 @@ function compactJobLabel(job: JobRecord): string {
 		.replace(/\b\w/g, (char) => char.toUpperCase());
 }
 
-function compactJobIcon(status: JobStatus): string {
+const RUNNING_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
+
+function runningGlyph(job: JobRecord): string {
+	const seed = Math.floor((now() - (job.startedAt ?? job.createdAt)) / 1000) + job.jobId.length + (job.outputExcerpt?.length ?? 0);
+	return RUNNING_FRAMES[Math.abs(seed) % RUNNING_FRAMES.length] ?? "●";
+}
+
+function compactJobIcon(status: JobStatus, job?: JobRecord): string {
 	switch (status) {
 		case "queued":
+			return "◦";
 		case "running":
-			return "⠋";
+			return job ? runningGlyph(job) : "⠋";
 		case "success":
 			return "✓";
 		case "cancelled":
@@ -918,15 +1026,139 @@ function compactJobIcon(status: JobStatus): string {
 	}
 }
 
+function widgetColor(status: JobStatus): "accent" | "muted" | "success" | "warning" | "error" {
+	if (status === "running") return "accent";
+	if (status === "queued") return "muted";
+	if (status === "success") return "success";
+	if (status === "fallback" || status === "stale" || status === "cancelled") return "warning";
+	return "error";
+}
+
+function durationLabel(ms: number): string {
+	const safeMs = Math.max(0, ms);
+	if (safeMs < 1000) return "now";
+	if (safeMs < 60_000) return `${Math.floor(safeMs / 1000)}s`;
+	if (safeMs < 3_600_000) return `${Math.floor(safeMs / 60_000)}m`;
+	return `${Math.floor(safeMs / 3_600_000)}h`;
+}
+
+function ageLabel(ts?: number): string {
+	if (!ts) return "";
+	return durationLabel(now() - ts);
+}
+
+function widgetActivity(job: JobRecord): string {
+	const parts: string[] = [];
+	const age = ageLabel(job.startedAt ?? job.createdAt);
+	if (needsAttentionStatus(job.status)) parts.push(job.status === "stale" ? "needs attention" : "attention");
+	else if (job.status === "running") parts.push(age ? `active ${age}` : "active");
+	else if (job.status === "queued") parts.push("queued");
+	else parts.push("done");
+	if (job.outputExcerpt) parts.push(truncate(job.outputExcerpt.replace(/\s+/g, " "), 90));
+	else if (job.error) parts.push(truncate(job.error.replace(/\s+/g, " "), 90));
+	else if (job.reportPath && isTerminalJobStatus(job.status)) parts.push(`report ${path.basename(job.reportPath)}`);
+	return parts.filter(Boolean).join(" · ");
+}
+
+function widgetJobStats(job: JobRecord): string {
+	const parts: string[] = [];
+	if (job.chainName && job.chainStepCount) parts.push(`step ${Math.min((job.chainStepIndex ?? 0) + 1, job.chainStepCount)}/${job.chainStepCount}`);
+	if (job.stepResults?.length) {
+		const done = job.stepResults.filter((step) => step.status === "success").length;
+		parts.push(`${done}/${job.stepResults.length} done`);
+	}
+	const elapsedStart = job.startedAt ?? job.createdAt;
+	const elapsedEnd = job.finishedAt ?? now();
+	if (elapsedStart) parts.push(durationLabel(elapsedEnd - elapsedStart));
+	return parts.join(" · ");
+}
+
+function renderWidgetLines(jobs: JobRecord[], theme: Theme, width: number, expanded: boolean): string[] {
+	const active = jobs.filter((job) => job.status === "queued" || job.status === "running");
+	const attention = jobs.filter((job) => needsAttentionStatus(job.status));
+	const terminal = jobs.filter((job) => isTerminalJobStatus(job.status) && !needsAttentionStatus(job.status));
+	const ordered = [...attention, ...active.filter((job) => !needsAttentionStatus(job.status)), ...terminal].slice(0, expanded ? 8 : 4);
+	if (ordered.length === 0) return [];
+
+	const headerActive = active.length > 0;
+	const header = `${theme.fg(headerActive ? "accent" : "dim", headerActive ? runningGlyph(active[0]!) : "○")} ${theme.fg(headerActive ? "accent" : "dim", "Async agents")} ${theme.fg("dim", "· background")}`;
+	const lines = [header];
+	for (const [index, job] of ordered.entries()) {
+		const last = index === ordered.length - 1;
+		const branch = last ? "└─" : "├─";
+		const continuation = last ? "   " : "│  ";
+		const label = compactJobLabel(job);
+		const icon = theme.fg(widgetColor(job.status), compactJobIcon(job.status, job));
+		const stats = widgetJobStats(job);
+		const suffix = stats ? ` ${theme.fg("dim", "·")} ${theme.fg("dim", stats)}` : "";
+		lines.push(`${theme.fg("dim", branch)} ${icon} ${label}${suffix}`);
+		lines.push(`${theme.fg("dim", continuation)} ${theme.fg("dim", `⎿  ${widgetActivity(job)}`)}`);
+		if (expanded && job.stepResults?.length) {
+			for (const [stepIndex, step] of job.stepResults.slice(0, 4).entries()) {
+				const stepIcon = compactJobIcon(step.status);
+				const detail = truncate((step.outputExcerpt || step.error || step.stderrExcerpt || "").replace(/\s+/g, " "), Math.max(24, width - 34));
+				lines.push(`${theme.fg("dim", continuation)} ${theme.fg("dim", `${stepIndex + 1}. ${stepIcon} ${step.agent}${detail ? ` · ${detail}` : ""}`)}`);
+			}
+		}
+	}
+	const hidden = jobs.length - ordered.length;
+	if (hidden > 0) lines.push(theme.fg("dim", `+${hidden} more · Alt+A opens cockpit`));
+	else if (active.length > 0 && !expanded) lines.push(theme.fg("accent", "Ctrl+O live detail · Alt+A cockpit"));
+	return lines.map((line) => truncateToWidth(line, width, "…", true));
+}
+
+function widgetRenderKey(jobs: JobRecord[], expanded: boolean): string {
+	return JSON.stringify({
+		expanded,
+		jobs: jobs.slice(0, expanded ? 8 : 4).map((job) => ({
+			jobId: job.jobId,
+			status: job.status,
+			startedAt: job.startedAt,
+			finishedAt: job.finishedAt,
+			outputExcerpt: job.outputExcerpt,
+			error: job.error,
+			steps: job.stepResults?.map((step) => [step.agent, step.status, step.outputExcerpt, step.error]),
+		})),
+	});
+}
+
+function setJobsWidget(ctx: ExtensionContext, jobs: JobRecord[]): void {
+	const expanded = Boolean((ctx.ui as any).getToolsExpanded?.());
+	const visible = jobs
+		.filter((job) => job.status === "queued" || job.status === "running" || isTerminalJobStatus(job.status))
+		.slice(0, expanded ? 12 : 6);
+	const renderKey = visible.length > 0 ? widgetRenderKey(visible, expanded) : "empty";
+	if (state.lastWidgetRenderKey === renderKey) return;
+	state.lastWidgetRenderKey = renderKey;
+	if (visible.length === 0) {
+		ctx.ui.setWidget(WIDGET_ID, undefined, { placement: "belowEditor" });
+		return;
+	}
+	ctx.ui.setWidget(WIDGET_ID, (_tui: unknown, theme: Theme): Component => {
+		const container = new Container();
+		const width = process.stdout.columns || 120;
+		const budget = expanded
+			? Math.max(12, Math.min(24, Math.floor((process.stdout.rows || 30) * 0.55)))
+			: Math.max(6, Math.min(MAX_WIDGET_LINES, Math.floor((process.stdout.rows || 30) * 0.30)));
+		const lines = renderWidgetLines(visible, theme, width, expanded);
+		const shown = lines.length > budget
+			? [...lines.slice(0, Math.max(1, budget - 1)), theme.fg("dim", `… ${lines.length - budget + 1} lines hidden · Ctrl+O expands`)]
+			: lines;
+		for (const line of shown) container.addChild(new Text(line, 1, 0));
+		return container;
+	}, { placement: "belowEditor" });
+}
+
 function updateUi(ctx?: ExtensionContext): void {
 	const runtimeCtx = ctx ?? state.ctx;
 	if (!runtimeCtx?.ui) return;
-	const active = activeJobs();
+	const scopedJobs = combinedJobs().filter(isOwnedByCurrentAgent);
+	const active = scopedJobs.filter((job) => job.status === "queued" || job.status === "running");
 	const activeIds = new Set(active.map((job) => job.jobId));
-	const visible = combinedJobs()
+	const visible = scopedJobs
 		.filter((job) => activeIds.has(job.jobId) || isTerminalJobStatus(job.status))
 		.slice(0, 5);
-	const failureCount = combinedJobs().filter((job) => needsAttentionStatus(job.status)).length;
+	const failureCount = scopedJobs.filter((job) => needsAttentionStatus(job.status)).length;
 	if (active.length > 0) {
 		const failureSuffix = failureCount > 0 ? ` · fail:${Math.min(99, failureCount)}` : "";
 		runtimeCtx.ui.setStatus(STATUS_ID, runtimeCtx.ui.theme.fg("accent", `subagents:${active.length}${failureSuffix}`));
@@ -943,10 +1175,7 @@ function updateUi(ctx?: ExtensionContext): void {
 	if (line) {
 		runtimeCtx.ui.setStatus(STATUS_ID, runtimeCtx.ui.theme.fg("accent", `agents: ${line}`));
 	}
-	// Keep subagent observability in the footer/status area only. A below-editor
-	// widget competes with preset/scoped-model rows and can reorder visually as
-	// each extension refreshes.
-	runtimeCtx.ui.setWidget(WIDGET_ID, undefined, { placement: "belowEditor" });
+	setJobsWidget(runtimeCtx, scopedJobs);
 	requestInspectorRender();
 }
 
@@ -956,8 +1185,9 @@ function snapshotJob(job: JobRecord): PersistedJobRecord {
 }
 
 function persistJob(pi: ExtensionAPI, job: JobRecord): void {
-	pi.appendEntry<PersistedJobRecord>(ENTRY_TYPE, snapshotJob(job));
-	if (!isTerminalJobStatus(job.status)) sendSubagentProcessMessage(pi, job, "started");
+	const owned = markJobOwner(job);
+	pi.appendEntry<PersistedJobRecord>(ENTRY_TYPE, snapshotJob(owned));
+	if (!isTerminalJobStatus(owned.status)) sendSubagentProcessMessage(pi, owned, "started");
 }
 
 function restoreJobs(pi: ExtensionAPI, ctx: ExtensionContext): void {
@@ -1261,12 +1491,146 @@ function inspectorTime(job: JobRecord): string {
 	return new Date(at).toISOString().replace("T", " ").slice(0, 19);
 }
 
-function managerRecentJobs(limit = 12): JobRecord[] {
-	return combinedJobs().slice(0, limit);
+function inspectorAge(job: JobRecord): string {
+	const at = Date.parse(job.finishedAt ?? job.startedAt ?? job.createdAt);
+	if (!Number.isFinite(at)) return "?";
+	const seconds = Math.max(0, Math.floor((Date.now() - at) / 1000));
+	if (seconds < 60) return `${seconds}s`;
+	const minutes = Math.floor(seconds / 60);
+	if (minutes < 60) return `${minutes}m`;
+	const hours = Math.floor(minutes / 60);
+	if (hours < 48) return `${hours}h`;
+	return `${Math.floor(hours / 24)}d`;
 }
 
-function managerFailureJobs(limit = 4): JobRecord[] {
-	return managerRecentJobs(Math.max(limit, 12)).filter((job) => needsAttentionStatus(job.status)).slice(0, limit);
+function isDebugHeartbeatJob(job: JobRecord): boolean {
+	const haystack = `${job.task ?? ""}\n${job.outputExcerpt ?? ""}\n${job.error ?? ""}`.toLowerCase();
+	return haystack.includes("auto-wake heartbeat test") || haystack.includes("parent should auto-wake from subagent heartbeat");
+}
+
+function compactAgentLabel(job: JobRecord): string {
+	const label = specialistRoleLabel(job) ?? job.agent;
+	return label.replace(/-agent$/, "").replace(/-role$/, "");
+}
+
+function compactJobTitle(job: JobRecord): string {
+	const raw = (job.task || inspectorSummary(job) || job.jobId).replace(/\s+/g, " ").trim();
+	return raw.replace(/^AUTO-WAKE HEARTBEAT TEST:\s*/i, "Heartbeat Test");
+}
+
+function managerRecentJobs(limit = 12, options: { includeDebug?: boolean } = {}): JobRecord[] {
+	return combinedJobs().filter((job) => options.includeDebug || !isDebugHeartbeatJob(job)).slice(0, limit);
+}
+
+function managerFailureJobs(limit = 4, options: { includeDebug?: boolean } = {}): JobRecord[] {
+	const root = state.ctx?.cwd ?? process.cwd();
+	return managerRecentJobs(Math.max(limit, 12), options).filter((job) => managerNeedsAttention(root, job)).slice(0, limit);
+}
+
+function managerLiveJobs(limit = 6, options: { includeDebug?: boolean } = {}): JobRecord[] {
+	return combinedJobs()
+		.filter((job) => !isTerminalJobStatus(job.status))
+		.filter((job) => options.includeDebug || !isDebugHeartbeatJob(job))
+		.slice(0, limit);
+}
+
+function pathExists(root: string, filePath: string | undefined): boolean {
+	const resolved = resolveArtifactPath(root, filePath);
+	return Boolean(resolved && fs.existsSync(resolved));
+}
+
+function readArtifactTail(root: string, filePath: string | undefined, maxChars = 900): string | undefined {
+	const resolved = resolveArtifactPath(root, filePath);
+	if (!resolved) return undefined;
+	try {
+		const stat = fs.statSync(resolved);
+		const start = Math.max(0, stat.size - Math.max(maxChars * 3, 4096));
+		const fd = fs.openSync(resolved, "r");
+		try {
+			const buffer = Buffer.alloc(stat.size - start);
+			fs.readSync(fd, buffer, 0, buffer.length, start);
+			const text = buffer.toString("utf8").trim();
+			return truncate(text.slice(Math.max(0, text.length - maxChars)).replace(/\n{3,}/g, "\n\n"), maxChars);
+		} finally {
+			fs.closeSync(fd);
+		}
+	} catch {
+		return undefined;
+	}
+}
+
+function managerRuntimeLabel(job: JobRecord): string {
+	if (state.registryJobs.has(job.jobId)) return "durable registry";
+	if (state.jobs.has(job.jobId)) return typeof job.pid === "number" ? `local subprocess pid ${job.pid}` : "local session";
+	return "artifact cache";
+}
+
+function managerCapabilityBadges(root: string, job: JobRecord): string[] {
+	const active = !isTerminalJobStatus(job.status);
+	const reportReady = pathExists(root, job.reportPath);
+	const eventsReady = pathExists(root, job.eventsPath);
+	const promptReady = pathExists(root, job.promptPath);
+	return [
+		active ? "cancel" : undefined,
+		active ? "follow:live-tail" : "follow:replay",
+		"rerun",
+		reportReady ? "report:ready" : (isTerminalJobStatus(job.status) ? "report:missing" : "report:pending"),
+		eventsReady ? "events" : undefined,
+		promptReady ? "prompt" : undefined,
+		isOwnedByCurrentAgent(job) ? "owner:this" : "owner:other/legacy",
+	].filter(Boolean) as string[];
+}
+
+function managerAttentionReasons(root: string, job: JobRecord): string[] {
+	const reasons: string[] = [];
+	if (job.status === "error") reasons.push("error");
+	if (job.status === "fallback") reasons.push("fallback");
+	if (job.status === "cancelled") reasons.push("cancelled");
+	if (job.status === "stale") reasons.push("stale");
+	if (isTerminalJobStatus(job.status) && !pathExists(root, job.reportPath)) reasons.push("missing report");
+	if (isTerminalJobStatus(job.status) && !job.outputExcerpt && !job.error && !pathExists(root, job.reportPath)) reasons.push("no output");
+	return reasons;
+}
+
+function managerNeedsAttention(root: string, job: JobRecord): boolean {
+	return managerAttentionReasons(root, job).length > 0;
+}
+
+function managerTaskContext(job: JobRecord): string[] {
+	const text = `${job.task ?? ""}\n${job.outputExcerpt ?? ""}`;
+	const tagTask = text.match(/\b([a-z][a-z0-9/_-]{1,40})\s*\/\s*(\d{1,5})\b/i);
+	const taskOnly = text.match(/\b(?:task|tm(?:\s+show)?)\s*#?(\d{1,5})\b/i);
+	const lines: string[] = [];
+	if (tagTask) lines.push(`task: ${tagTask[1]} / ${tagTask[2]}`);
+	else if (taskOnly) lines.push(`task: ${taskOnly[1]}`);
+	else lines.push("task: not linked");
+	if (job.task?.toLowerCase().includes("spec") || job.task?.toLowerCase().includes("prd")) lines.push("spec: mentioned in task text");
+	return lines;
+}
+
+function managerTranscriptTail(root: string, job: JobRecord): string | undefined {
+	return readArtifactTail(root, job.reportPath, 700)
+		?? readArtifactTail(root, job.eventsPath, 700)
+		?? job.outputExcerpt
+		?? job.error
+		?? job.stderrExcerpt;
+}
+
+function managerArtifactActionPath(job: JobRecord, key: "o" | "p" | "e"): string | undefined {
+	if (key === "o") return job.reportPath;
+	if (key === "p") return job.promptPath;
+	return job.eventsPath;
+}
+
+function quickLaunchCandidates(agents: AgentConfig[]): Array<{ key: string; label: string; match: RegExp }> {
+	return [
+		{ key: "s", label: "scout", match: /^(explorer|scout)/i },
+		{ key: "p", label: "plan", match: /^planner/i },
+		{ key: "b", label: "build", match: /^builder/i },
+		{ key: "r", label: "review", match: /^(code-review|reviewer)/i },
+		{ key: "t", label: "test", match: /^testing/i },
+		{ key: "o", label: "oracle", match: /^(red-team|insight-t2|oracle)/i },
+	].filter((entry) => agents.some((agent) => entry.match.test(agent.name)));
 }
 
 function managerLaunchSnippetForAgent(agent: AgentConfig): string {
@@ -1836,6 +2200,8 @@ class SubagentInspector {
 		roles: 0,
 	};
 
+	private showDebugJobs = false;
+
 	constructor(
 		private pi: ExtensionAPI,
 		private ctx: ExtensionContext,
@@ -1865,7 +2231,7 @@ class SubagentInspector {
 		const snapshot = this.manifestSnapshot();
 		switch (section) {
 			case "recent":
-				return managerRecentJobs(12);
+				return managerRecentJobs(12, { includeDebug: this.showDebugJobs });
 			case "agents":
 				return snapshot.agents;
 			case "teams":
@@ -1907,9 +2273,23 @@ class SubagentInspector {
 		this.ctx.ui.notify(formatHandoff(job.jobId), "info");
 	}
 
+	private showSelectedArtifact(key: "o" | "p" | "e"): void {
+		const job = this.selectedItem("recent");
+		if (!job || Array.isArray(job) || !("jobId" in job)) return;
+		const target = managerArtifactActionPath(job, key);
+		const label = key === "o" ? "report" : key === "p" ? "prompt" : "events";
+		if (!target) {
+			this.ctx.ui.notify(`No ${label} artifact recorded for ${job.jobId}.`, "warning");
+			return;
+		}
+		const exists = pathExists(this.root(), target);
+		this.ctx.ui.notify(`${label}: ${target}${exists ? "" : "\nstatus: path not written yet"}\nopen: aoc-open-file ${target}`, exists ? "info" : "warning");
+	}
+
 	private selectLatestFailure(): void {
-		const recent = managerRecentJobs(12);
-		const index = recent.findIndex((job) => needsAttentionStatus(job.status));
+		const root = this.root();
+		const recent = managerRecentJobs(12, { includeDebug: this.showDebugJobs });
+		const index = recent.findIndex((job) => managerNeedsAttention(root, job));
 		if (index >= 0) {
 			this.selected.recent = index;
 			return;
@@ -1951,6 +2331,15 @@ class SubagentInspector {
 				}
 			})();
 		}, 0);
+	}
+
+	private quickLaunchAgent(key: string): void {
+		const { agents } = this.manifestSnapshot();
+		const candidate = quickLaunchCandidates(agents).find((entry) => entry.key === key);
+		if (!candidate) return;
+		const agent = agents.find((entry) => candidate.match.test(entry.name));
+		if (!agent) return;
+		this.openClarifyFlow({ kind: "agent", agent });
 	}
 
 	private async rerunSelectedJob(): Promise<void> {
@@ -2027,6 +2416,15 @@ class SubagentInspector {
 			this.sectionIndex = 4;
 			return;
 		}
+		if (section === "recent" && data === "a") {
+			this.showDebugJobs = !this.showDebugJobs;
+			this.selected.recent = 0;
+			return;
+		}
+		if (section === "recent" && ["s", "p", "b", "r", "t", "o"].includes(data)) {
+			this.quickLaunchAgent(data);
+			return;
+		}
 		if (matchesKey(data, "tab") || matchesKey(data, "right")) {
 			this.sectionIndex = (this.sectionIndex + 1) % MANAGER_SECTIONS.length;
 			return;
@@ -2053,6 +2451,10 @@ class SubagentInspector {
 		}
 		if (section === "recent" && data === "h") {
 			this.handoffSelectedJob();
+			return;
+		}
+		if (section === "recent" && (data === "o" || data === "p" || data === "e")) {
+			this.showSelectedArtifact(data);
 			return;
 		}
 		if (section === "recent" && data === "c") {
@@ -2127,15 +2529,17 @@ class SubagentInspector {
 			const clipped = truncateToWidth(s, innerW, "…", true);
 			return clipped + " ".repeat(Math.max(0, innerW - visibleWidth(clipped)));
 		};
-		const row = (content = "") => th.fg("border", "│") + pad(content) + th.fg("border", "│");
+		const row = (content = "") => th.fg("borderMuted", "│") + pad(content) + th.fg("borderMuted", "│");
 		const block = (lines: string[], text: string, maxLines: number) => {
 			for (const line of text.split("\n").slice(0, maxLines)) lines.push(row(` ${truncateToWidth(line, innerW - 1, "…", true)}`));
 		};
 		const lines: string[] = [];
 		const root = this.root();
 		const { bundle, agents, teams, chains, roles } = this.manifestSnapshot();
-		const recent = managerRecentJobs(12);
-		const failures = managerFailureJobs(3);
+		const recent = managerRecentJobs(12, { includeDebug: this.showDebugJobs });
+		const live = managerLiveJobs(6, { includeDebug: this.showDebugJobs });
+		const failures = managerFailureJobs(3, { includeDebug: this.showDebugJobs });
+		const launch = quickLaunchCandidates(agents);
 		const terminalCount = combinedJobs().filter((job) => isTerminalJobStatus(job.status)).length;
 		const section = this.currentSection();
 		this.clampSelection(section);
@@ -2148,13 +2552,15 @@ class SubagentInspector {
 			{ key: "5", section: "roles" as ManagerSection, label: `Roles ${roles.length}` },
 		].map((tab) => tab.section === section ? th.fg("accent", `[${tab.key}] ${tab.label}`) : th.fg("dim", `${tab.key}:${tab.label}`)).join("  ");
 
-		lines.push(th.fg("border", `╭${"─".repeat(innerW)}╮`));
-		lines.push(row(` ${th.fg("accent", "Subagent Manager")} ${th.fg("dim", "(Tab switch • ↑/↓ move • Enter open • Alt+A/Esc close)")}`));
+		const cacheMode = state.inspectorRefreshNote ? " cache" : "";
+		const debugMode = this.showDebugJobs ? " debug" : "";
+		lines.push(th.fg("borderMuted", `╭${"─".repeat(innerW)}╮`));
+		lines.push(row(` ${th.fg("accent", "Agents")} ${th.fg("dim", `${cacheMode}${debugMode}`.trim())}`));
 		lines.push(row(` ${truncateToWidth(tabs, innerW - 1, "…", true)}`));
 		if (state.inspectorRefreshPending) {
-			lines.push(row(` ${th.fg("muted", "refreshing detached status…")}`));
+			lines.push(row(` ${th.fg("muted", "refreshing…")}`));
 		} else if (state.inspectorRefreshNote) {
-			lines.push(row(` ${th.fg("dim", truncateToWidth(state.inspectorRefreshNote, Math.max(12, innerW - 2), "…", true))}`));
+			lines.push(row(` ${th.fg("dim", "cache mode · registry unavailable")}`));
 		} else {
 			lines.push(row());
 		}
@@ -2165,43 +2571,67 @@ class SubagentInspector {
 				lines.push(row(` ${th.fg("dim", "Launch with /subagent-explore, /subagent-run, /subagent-chain, or /specialist-run.")}`));
 			} else {
 				const job = current;
-				lines.push(row(` ${th.fg("title", "Recent jobs")}`));
-				for (const [index, item] of recent.slice(0, 8).entries()) {
-					const marker = index === this.selected.recent ? th.fg("accent", ">") : " ";
-					const label = specialistRoleLabel(item) ?? item.agent;
-					const attention = needsAttentionStatus(item.status) ? th.fg("warning", " !") : "";
-					lines.push(row(` ${marker} ${statusIcon(item.status)} ${shortJobId(item.jobId)} ${truncate(`${label} · ${item.status}`, Math.max(12, innerW - 24)) || ""}${attention}`));
-				}
-				lines.push(row());
-				lines.push(row(` history: ${terminalCount} terminal   attention: ${failures.length}`));
-				if (failures.length > 0) {
-					lines.push(row(` ${th.fg("title", "Needs attention")}`));
-					for (const failed of failures.slice(0, 2)) {
-						const label = specialistRoleLabel(failed) ?? failed.agent;
-						lines.push(row(` ${statusIcon(failed.status)} ${shortJobId(failed.jobId)} ${truncate(`${label} · ${failed.status}`, Math.max(12, innerW - 18)) || ""}`));
+				if (live.length > 0) {
+					lines.push(row(` ${th.fg("accent", "Now")}`));
+					for (const item of live.slice(0, 3)) {
+						const agent = truncateToWidth(compactAgentLabel(item), 10, "…", true).padEnd(10);
+						const title = truncateToWidth(compactJobTitle(item), Math.max(12, innerW - 31), "…", true);
+						lines.push(row(` ${statusIcon(item.status)} ${agent} ${title} ${inspectorAge(item)} · live`));
 					}
 					lines.push(row());
 				}
-				lines.push(row(` ${th.fg("accent", specialistRoleLabel(job) ?? job.agent)} ${th.fg("dim", `(${job.jobId})`)}`));
-				lines.push(row(` status: ${statusIcon(job.status)} ${job.status}   mode: ${job.mode}/${job.executionMode}   when: ${inspectorTime(job)}`));
+				if (launch.length > 0) {
+					const launchLine = launch.map((entry) => `${entry.key} ${entry.label}`).join("  ");
+					lines.push(row(` ${th.fg("accent", "Launch")}  ${th.fg("muted", truncateToWidth(launchLine, Math.max(12, innerW - 10), "…", true))}`));
+					lines.push(row());
+				}
+				if (failures.length > 0) {
+					lines.push(row(` ${th.fg("warning", `Attention ${failures.length}`)}`));
+					for (const failed of failures.slice(0, 2)) {
+						const reason = managerAttentionReasons(root, failed).join("/") || failed.status;
+						lines.push(row(` ! ${compactAgentLabel(failed)}  ${truncateToWidth(compactJobTitle(failed), Math.max(12, innerW - 27), "…", true)}  ${reason}`));
+					}
+					lines.push(row());
+				}
+				lines.push(row(` ${th.fg("accent", "Recent")}`));
+				for (const [index, item] of recent.slice(0, 8).entries()) {
+					const marker = index === this.selected.recent ? th.fg("accent", ">") : " ";
+					const attention = managerNeedsAttention(root, item) ? th.fg("warning", "!") : " ";
+					const agent = truncateToWidth(compactAgentLabel(item), 10, "…", true).padEnd(10);
+					const title = truncateToWidth(compactJobTitle(item), Math.max(12, innerW - 27), "…", true);
+					lines.push(row(` ${marker} ${statusIcon(item.status)} ${attention} ${agent} ${title} ${inspectorAge(item)}`));
+				}
+				lines.push(row());
+				lines.push(row(` ${th.fg("accent", "Selected")}`));
+				lines.push(row(` ${statusIcon(job.status)} ${compactAgentLabel(job)} · ${job.status} · ${inspectorAge(job)} ago`));
+				lines.push(row(` runtime: ${managerRuntimeLabel(job)} · exec: ${job.executionMode ?? "background"}`));
 				lines.push(row(` cwd: ${truncateToWidth(relative(root, job.cwd), Math.max(8, innerW - 7), "…", true)}`));
+				const capabilityBadges = managerCapabilityBadges(root, job);
+				lines.push(row(` caps: ${truncateToWidth(capabilityBadges.join(" · "), Math.max(8, innerW - 7), "…", true)}`));
+				const artifactBadges = [
+					job.reportPath ? `report:${pathExists(root, job.reportPath) ? "ready" : "missing"}` : "report:none",
+					job.eventsPath ? `events:${pathExists(root, job.eventsPath) ? "ready" : "missing"}` : undefined,
+					job.promptPath ? `prompt:${pathExists(root, job.promptPath) ? "ready" : "missing"}` : undefined,
+				].filter(Boolean).join(" · ");
+				lines.push(row(` artifacts: ${truncateToWidth(artifactBadges, Math.max(8, innerW - 12), "…", true)}`));
+				if (job.model || job.tools.length > 0) lines.push(row(` model/tools: ${truncateToWidth([job.model, job.tools.join(",")].filter(Boolean).join(" · "), Math.max(8, innerW - 14), "…", true)}`));
 				if (job.teamName) lines.push(row(` team: ${job.teamName}`));
 				if (job.chainName) lines.push(row(` chain: ${job.chainName}`));
-				if (job.specialistRole) lines.push(row(` role: ${job.specialistRole}   approval: ${job.writeApproved ? "approved" : "read-first"}`));
-				if (typeof job.contextPackUsed === "boolean") lines.push(row(` context: ${job.contextPackUsed ? "mind-v2 attached" : "unavailable"}`));
-				if (job.reportPath) lines.push(row(` report: ${truncateToWidth(job.reportPath, Math.max(12, innerW - 10), "…", true)}`));
-				if (job.artifactDir) lines.push(row(` artifacts: ${truncateToWidth(job.artifactDir, Math.max(12, innerW - 13), "…", true)}`));
+				const reasons = managerAttentionReasons(root, job);
+				if (reasons.length > 0) lines.push(row(` ${th.fg("warning", `attention: ${reasons.join(" · ")}`)}`));
 				lines.push(row());
-				lines.push(row(` ${th.fg("title", "Task")}`));
-				block(lines, String(job.task || "(none)"), 3);
+				lines.push(row(` ${th.fg("accent", "Task context")}`));
+				for (const line of managerTaskContext(job)) lines.push(row(` ${line}`));
+				block(lines, String(job.task || "(none)").replace(/^AUTO-WAKE HEARTBEAT TEST:\s*/i, "Heartbeat Test: "), 2);
 				lines.push(row());
-				lines.push(row(` ${th.fg("title", "Result")}`));
-				block(lines, inspectorSummary(job), 4);
+				lines.push(row(` ${th.fg("accent", "Transcript / report tail")}`));
+				block(lines, managerTranscriptTail(root, job) ?? inspectorSummary(job), 4);
 				lines.push(row());
-				lines.push(row(` ${th.fg("dim", "Enter/i inspect • h handoff • r rerun via clarify • f latest failure • c cancel")}`));
+				lines.push(row(` ${th.fg("dim", "enter inspect  o report  p prompt  e events  r rerun  h handoff")}`));
+				lines.push(row(` ${th.fg("dim", "f attention  c cancel  a all/debug  esc close")}`));
 			}
 		} else if (section === "agents") {
-			lines.push(row(` ${th.fg("title", "Available agents")}`));
+			lines.push(row(` ${th.fg("accent", "Available agents")}`));
 			for (const [index, agent] of agents.slice(0, 8).entries()) {
 				const marker = index === this.selected.agents ? th.fg("accent", ">") : " ";
 				lines.push(row(` ${marker} ${truncateToWidth(agent.name, Math.max(12, innerW - 4), "…", true)}`));
@@ -2223,7 +2653,7 @@ class SubagentInspector {
 				lines.push(row(` ${th.fg("dim", "Enter opens clarify-before-run • l shows the raw command")}`));
 			}
 		} else if (section === "teams") {
-			lines.push(row(` ${th.fg("title", "Available teams")}`));
+			lines.push(row(` ${th.fg("accent", "Available teams")}`));
 			for (const [index, entry] of teams.slice(0, 8).entries()) {
 				const marker = index === this.selected.teams ? th.fg("accent", ">") : " ";
 				lines.push(row(` ${marker} ${entry[0]} · ${entry[1].length} members`));
@@ -2251,7 +2681,7 @@ class SubagentInspector {
 				lines.push(row(` ${th.fg("dim", "Enter opens clarify-before-run • r reruns latest team via clarify • l shows the raw command")}`));
 			}
 		} else if (section === "chains") {
-			lines.push(row(` ${th.fg("title", "Available chains")}`));
+			lines.push(row(` ${th.fg("accent", "Available chains")}`));
 			for (const [index, entry] of chains.slice(0, 8).entries()) {
 				const marker = index === this.selected.chains ? th.fg("accent", ">") : " ";
 				lines.push(row(` ${marker} ${entry[0]} · ${entry[1].steps.length} steps`));
@@ -2281,7 +2711,7 @@ class SubagentInspector {
 				lines.push(row(` ${th.fg("dim", "Enter opens clarify-before-run • r reruns latest chain via clarify • l shows the raw command")}`));
 			}
 		} else {
-			lines.push(row(` ${th.fg("title", "Specialist roles")}`));
+			lines.push(row(` ${th.fg("accent", "Specialist roles")}`));
 			for (const [index, role] of roles.slice(0, 8).entries()) {
 				const marker = index === this.selected.roles ? th.fg("accent", ">") : " ";
 				const approval = role.requiresWriteApproval ? "write-approval" : "read-first";
@@ -2307,10 +2737,10 @@ class SubagentInspector {
 
 		if (bundle.validationErrors.length > 0) {
 			lines.push(row());
-			lines.push(row(` ${th.fg("title", "Manifest warnings")}`));
+			lines.push(row(` ${th.fg("accent", "Manifest warnings")}`));
 			for (const warning of bundle.validationErrors.slice(0, 2)) block(lines, `- ${warning}`, 1);
 		}
-		lines.push(th.fg("border", `╰${"─".repeat(innerW)}╯`));
+		lines.push(th.fg("borderMuted", `╰${"─".repeat(innerW)}╯`));
 		return lines;
 	}
 
@@ -2384,6 +2814,7 @@ function spawnDetachedStep(
 	let stdoutBuffer = "";
 	let stderrBuffer = "";
 	let latestAssistantText = "";
+	let latestAssistantError = "";
 	let cleanupDone = false;
 
 	const cleanup = () => {
@@ -2413,6 +2844,7 @@ function spawnDetachedStep(
 		} catch {
 			return;
 		}
+		if (current) sendSubagentWorkMessage(pi, current, event, `stdout:${line.length}:${line.slice(0, 80)}`);
 		if (event?.type === "message_end" && event?.message?.role === "assistant") {
 			const text = extractAssistantText(event.message);
 			if (text) {
@@ -2420,7 +2852,8 @@ function spawnDetachedStep(
 				finalizeJob(pi, ctx, jobId, { outputExcerpt: truncate(text) });
 			}
 			if (event.message?.errorMessage) {
-				finalizeJob(pi, ctx, jobId, { error: truncate(String(event.message.errorMessage), 320) });
+				latestAssistantError = truncate(String(event.message.errorMessage), 320);
+				finalizeJob(pi, ctx, jobId, { error: latestAssistantError });
 			}
 		}
 	};
@@ -2467,11 +2900,11 @@ function spawnDetachedStep(
 			return;
 		}
 		const stderrExcerpt = truncate(stderrBuffer, 320);
-		const ok = (code ?? 0) === 0;
+		const ok = (code ?? 0) === 0 && !latestAssistantError;
 		const status: JobStatus = ok ? "success" : "fallback";
 		const error = !ok
 			? truncate(
-					stderrExcerpt || (latestAssistantText ? `detached subagent exited with status ${code}` : `subagent produced no assistant output (status ${code})`),
+					latestAssistantError || stderrExcerpt || (latestAssistantText ? `detached subagent exited with status ${code}` : `subagent produced no assistant output (status ${code})`),
 					320,
 				)
 			: current.error;
@@ -2526,6 +2959,7 @@ function startDetachedDispatch(
 		task,
 		cwd,
 		createdAt: now(),
+		ownerAgentId: currentAgentKey(),
 		model: agent.model,
 		tools: agent.tools,
 		toolPolicies,
@@ -2575,6 +3009,7 @@ function startDetachedTeam(
 		task: input,
 		cwd,
 		createdAt: now(),
+		ownerAgentId: currentAgentKey(),
 		tools: Array.from(new Set(teamAgents.flatMap((agent) => agent.tools))),
 		toolPolicies: initialToolPolicies,
 		fallbackUsed: bundle.validationErrors.length > 0,
@@ -2696,6 +3131,7 @@ function startDetachedChain(
 		task: input,
 		cwd,
 		createdAt: now(),
+		ownerAgentId: currentAgentKey(),
 		model: firstAgent.model,
 		tools: firstAgent.tools,
 		toolPolicies: initialToolPolicies,
