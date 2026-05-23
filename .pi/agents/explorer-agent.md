@@ -1,6 +1,6 @@
 ---
 name: explorer-agent
-model: openai-codex/gpt-5.3-spark
+model: openai-codex/gpt-5.3-codex-spark
 description: Background repo reconnaissance specialist for fast architecture, file, and ownership discovery
 tools: read,bash
 

@@ -1,6 +1,6 @@
 ---
 name: red-team-agent
-model: openai-codex/gpt-5.3-spark
+model: openai-codex/gpt-5.3-codex-spark
 description: Detached adversarial review specialist for assumption-breaking analysis, abuse cases, and failure modes
 tools: read,bash
 

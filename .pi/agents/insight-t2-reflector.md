@@ -1,7 +1,7 @@
 ---
 name: insight-t2-reflector
 description: T2 reflector specialist for cross-observation synthesis and planning
-model: openai-codex/gpt-5.3-spark
+model: openai-codex/gpt-5.3-codex-spark
 tools: read,grep,find,ls,bash
 
 ---

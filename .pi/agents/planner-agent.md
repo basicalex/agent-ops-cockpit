@@ -1,6 +1,6 @@
 ---
 name: planner-agent
-model: openai-codex/gpt-5.3-spark
+model: openai-codex/gpt-5.3-codex-spark
 description: Detached planning specialist for implementation sequencing, rollout framing, and task decomposition
 tools: read,bash
 

@@ -1,6 +1,6 @@
 ---
 name: documenter-agent
-model: openai-codex/gpt-5.3-spark
+model: openai-codex/gpt-5.3-codex-spark
 description: Detached documentation specialist for repo-grounded summaries, operator notes, and rollout docs
 tools: read,bash
 

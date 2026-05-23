@@ -1,6 +1,6 @@
 ---
 name: builder-agent
-model: openai-codex/gpt-5.3-spark
+model: openai-codex/gpt-5.3-codex-spark
 description: Detached implementation specialist for patch planning, change-shape analysis, and bounded edit proposals
 tools: read,bash
 
