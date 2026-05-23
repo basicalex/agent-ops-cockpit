@@ -13,6 +13,7 @@ Commands:
   registry --json             Print context source registry as JSON
   explain-startup             Explain the default startup kernel
   stale                       Check generated context artifacts for staleness
+  capabilities [--json]       Print compact AOC coding tool capability capsule
   why <source-id>             Explain one context source record
 EOF
 }
@@ -499,9 +500,112 @@ else:
 PY
 }
 
+render_capabilities() {
+  local root="$1"
+  local mode="${2:-text}"
+  python3 - "$root" "$mode" <<'PY'
+from __future__ import annotations
+import json
+import os
+import shutil
+import subprocess
+import sys
+from pathlib import Path
+
+root = Path(sys.argv[1]).resolve()
+mode = sys.argv[2]
+
+def run(cmd: list[str], timeout: float = 4.0) -> dict:
+    try:
+        proc = subprocess.run(cmd, cwd=str(root), text=True, capture_output=True, timeout=timeout)
+        return {"ok": proc.returncode == 0, "code": proc.returncode, "stdout": proc.stdout.strip(), "stderr": proc.stderr.strip()}
+    except FileNotFoundError:
+        return {"ok": False, "code": 127, "stdout": "", "stderr": f"missing command: {cmd[0]}"}
+    except subprocess.TimeoutExpired:
+        return {"ok": False, "code": 124, "stdout": "", "stderr": f"timeout after {timeout}s"}
+
+active_tag_result = run(["tm", "tag", "current"])
+active_tag = active_tag_result["stdout"].split()[0] if active_tag_result["ok"] and active_tag_result["stdout"].strip() else None
+ready_result = run(["tm", "ready", "--tag", active_tag or "master", "--limit", "1"])
+context_help = run(["tm", "context", "--help"])
+outcome_help = run(["tm", "outcome", "--help"])
+audit_help = run(["tm", "audit", "--help"])
+complete_help = run(["tm", "complete", "--help"])
+handshake = run(["aoc-handshake", "--json"])
+rtk = run(["aoc-rtk", "status"])
+
+which_tm = shutil.which("tm")
+which_aoc_task = shutil.which("aoc-task")
+project_debug = root / "crates" / "target" / "debug" / "aoc-cli"
+project_release = root / "crates" / "target" / "release" / "aoc-cli"
+source = "project-debug" if project_debug.exists() else ("project-release" if project_release.exists() else (which_aoc_task or which_tm or "unknown"))
+
+packet = {
+    "schemaVersion": 1,
+    "kind": "aoc.capabilities",
+    "projectRoot": str(root),
+    "activeTag": active_tag,
+    "tools": {
+        "taskmaster": {
+            "available": bool(which_tm or which_aoc_task),
+            "source": source,
+            "commands": {
+                "ready": {"supported": ready_result["ok"], "command": "tm ready --explain"},
+                "context": {"supported": context_help["ok"], "command": "tm context <id> --mode coding"},
+                "complete": {"supported": complete_help["ok"], "command": "tm complete <id> --summary ..."},
+                "outcome": {"supported": outcome_help["ok"], "command": "tm outcome show <id>"},
+                "audit": {"supported": audit_help["ok"], "command": "tm audit outcomes"},
+                "spec": {"supported": True, "command": "tm spec show <id> / tm tag spec show"},
+            },
+            "readyPreview": ready_result["stdout"].splitlines()[:4] if ready_result["ok"] else [],
+            "warning": None if ready_result["ok"] else (ready_result["stderr"] or ready_result["stdout"] or "tm ready unavailable"),
+        },
+        "mind": {
+            "handshakeAvailable": handshake["ok"],
+            "contextPackCommand": "aoc-mind-service context-pack --project-root <root> --mode focused --reason <reason> --json",
+            "policy": "lazy, focused, reason-bound; no broad startup recall",
+        },
+        "memory": {"commands": ["aoc-mem search <query>", "aoc-mem add <decision>", "aoc-mem read"], "directReadProtected": True},
+        "stm": {"commands": ["aoc-stm status", "aoc-stm handoff", "aoc-stm resume <archive>"], "purpose": "directed handoff only"},
+        "rtk": {"available": rtk["ok"], "purpose": "condense noisy safe command output"},
+        "subagents": {"commands": ["/subagent-run", "/subagent-review", "/subagent-test", "/specialist-run"], "policy": "explicit dispatch only"},
+    },
+    "protectedDirectReads": [".aoc/memory.md", ".aoc/stm/current.md", ".taskmaster/tasks/tasks.json"],
+}
+
+if mode == "json":
+    print(json.dumps(packet, indent=2))
+else:
+    tm = packet["tools"]["taskmaster"]
+    print("AOC coding capability capsule")
+    print(f"root: {root}")
+    print(f"active_tag: {active_tag or 'unknown'}")
+    print(f"taskmaster_source: {tm['source']}")
+    print("")
+    print("Task cockpit commands:")
+    for name, meta in tm["commands"].items():
+        status = "ok" if meta["supported"] else "missing"
+        print(f"- {meta['command']} [{status}]")
+    if tm["readyPreview"]:
+        print("")
+        print("Ready preview:")
+        for line in tm["readyPreview"]:
+            print(f"  {line}")
+    if tm["warning"]:
+        print(f"warning: {tm['warning']}")
+    print("")
+    print("Focused context tools:")
+    print("- Mind: focused context packs only after explicit reason")
+    print("- Memory: aoc-mem search/add/read; never direct-read .aoc/memory.md")
+    print("- STM: directed handoff/resume only; never direct-read .aoc/stm/current.md")
+    print("- RTK: condenses noisy safe checks when available")
+    print("- Subagents: explicit dispatch only; attach task/spec context in prompt")
+PY
+}
+
 cmd="${1:-doctor}"
 case "$cmd" in
-  doctor|explain|budget|agents|registry|explain-startup|stale|why) ;;
+  doctor|explain|budget|agents|registry|explain-startup|stale|capabilities|why) ;;
   -h|--help|help) usage; exit 0 ;;
   *) usage >&2; exit 2 ;;
 esac
@@ -542,6 +646,16 @@ case "$cmd" in
     else
       exit 1
     fi
+    ;;
+  capabilities)
+    if [[ "${2:-}" == "--json" ]]; then
+      render_capabilities "$root" json
+    elif [[ -n "${2:-}" ]]; then
+      usage >&2; exit 2
+    else
+      render_capabilities "$root" text
+    fi
+    exit 0
     ;;
   explain-startup)
     context_registry "$root" json | python3 -c 'import json,sys; data=json.load(sys.stdin); print("AOC startup kernel");

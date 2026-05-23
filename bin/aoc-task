@@ -36,9 +36,18 @@ if [[ -n "$tm_root" ]]; then
   cd "$AOC_TASKMASTER_ROOT"
 fi
 
-if [[ -x "$script_dir/aoc-cli" ]]; then
-  exec "$script_dir/aoc-cli" task "${args[@]}"
-fi
+# Prefer checkout-local binaries before installed PATH copies so agents can use
+# freshly implemented Taskmaster commands without requiring a reinstall.
+for candidate in \
+  "$PWD/crates/target/debug/aoc-cli" \
+  "$PWD/crates/target/release/aoc-cli" \
+  "$script_dir/../crates/target/debug/aoc-cli" \
+  "$script_dir/../crates/target/release/aoc-cli" \
+  "$script_dir/aoc-cli"; do
+  if [[ -x "$candidate" ]]; then
+    exec "$candidate" task "${args[@]}"
+  fi
+done
 
 if command -v aoc-cli >/dev/null 2>&1; then
   exec aoc-cli task "${args[@]}"

@@ -34,13 +34,29 @@ if [[ -n "$tm_root" ]]; then
   cd "$AOC_TASKMASTER_ROOT"
 fi
 
-if command -v aoc-task >/dev/null 2>&1; then
-  exec aoc-task "${args[@]}"
-fi
-
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" >/dev/null 2>&1 && pwd)"
 if [[ -x "$script_dir/aoc-task" ]]; then
   exec "$script_dir/aoc-task" "${args[@]}"
+fi
+
+# Prefer the checkout-local wrapper/binary before installed PATH copies so new
+# Taskmaster cockpit commands work immediately after implementation.
+for candidate in \
+  "$PWD/bin/aoc-task" \
+  "$PWD/crates/target/debug/aoc-cli" \
+  "$PWD/crates/target/release/aoc-cli" \
+  "$script_dir/../crates/target/debug/aoc-cli" \
+  "$script_dir/../crates/target/release/aoc-cli"; do
+  if [[ -x "$candidate" ]]; then
+    case "$(basename "$candidate")" in
+      aoc-task) exec "$candidate" "${args[@]}" ;;
+      aoc-cli) exec "$candidate" task "${args[@]}" ;;
+    esac
+  fi
+done
+
+if command -v aoc-task >/dev/null 2>&1; then
+  exec aoc-task "${args[@]}"
 fi
 
 if command -v aoc-cli >/dev/null 2>&1; then
