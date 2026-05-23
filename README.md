@@ -58,10 +58,10 @@ Common setup paths:
 | Subagent manager | `Alt+A`, `/subagent-manager` |
 | Tasks | `tm list`, Taskmaster pane |
 | Memory CLI | `aoc-mem`, `aoc-stm` |
-| Repository knowledge graph | `aoc-understand status`, then `aoc-understand analyze --full` |
+| Repository knowledge graph | `Alt+C -> Settings -> Tools -> AOC Understand`, or `aoc-understand status` then `aoc-understand analyze --full` |
 | Open Design GUI studio | `aoc-od install`, then `aoc-od start --open` |
-| HyperFrames video/campaign work | `Alt+C -> HyperFrames -> Init workspace + campaign factory` |
-| Web research | `Alt+C -> Agent Browser + Search` |
+| HyperFrames video/campaign work | `Alt+C -> Settings -> Tools -> HyperFrames video -> Init workspace + campaign factory` |
+| Web research | `Alt+C -> Settings -> Tools -> Agent Browser + Search` |
 
 ## Human docs
 

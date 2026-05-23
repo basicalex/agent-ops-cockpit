@@ -33,8 +33,13 @@ keybinds {
     shared_except "locked" {
         unbind "Alt a";
         bind "Alt c" {
-            Run "bash" "-lc" "export PATH=\"$HOME/.local/bin:$HOME/.cargo/bin:$PATH\"; export AOC_CONTROL_NO_FLOAT=1; export AOC_CONTROL_FLOATING_ACTIVE=1; exec aoc-control" {
+            Run "bash" "-lc" "export PATH=\"$HOME/.local/bin:/usr/local/bin:$HOME/.cargo/bin:$PATH\"; export AOC_CONTROL_NO_FLOAT=1; export AOC_CONTROL_FLOATING_ACTIVE=1; exec aoc-control" {
                 floating true
+                name "Control"
+                width "86%"
+                height "84%"
+                x "7%"
+                y "8%"
                 close_on_exit true
             };
         }
