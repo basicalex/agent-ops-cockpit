@@ -15,6 +15,26 @@ It replaces legacy teach-mode workflows for new repository-understanding work.
 
 Priority now: integrate `aoc-understand` correctly. Advanced AOC Map convergence with Understand-Anything and Open Design is a later phase.
 
+## Alt+C setup path
+
+In any initialized AOC project:
+
+1. Press `Alt+C`
+2. Open **Settings**
+3. Open **Tools**
+4. Open **AOC Understand**
+
+Available actions mirror the CLI wrapper and run as background jobs with logs in the right-hand detail pane:
+
+- **Status** — `aoc-understand status`
+- **Run doctor** — `aoc-understand doctor`
+- **Install/update Understand-Anything** — `aoc-understand install`
+- **Analyze guidance** — `aoc-understand analyze --full`
+- **Open dashboard** — `aoc-understand dashboard --open`
+- **Sync graph to AOC Map** — `aoc-understand map-sync`
+
+Status, doctor, and analyze guidance do not install anything implicitly. The install/update action is the explicit network step.
+
 ## Commands
 
 ```bash
@@ -27,7 +47,7 @@ Project graph flow:
 
 ```bash
 aoc-understand analyze --full
-# run the printed /understand command in Pi when analysis is needed
+# run the printed /skill:understand command in Pi chat when analysis is needed
 
 aoc-understand dashboard --open
 aoc-understand chat "How does task routing work?"
@@ -35,6 +55,7 @@ aoc-understand explain crates/aoc-cli/src/map.rs
 aoc-understand onboard
 aoc-understand domain
 aoc-understand diff
+aoc-understand gaps mission-control observability
 ```
 
 Curated map bridge:
@@ -45,6 +66,25 @@ aoc-map serve --open
 ```
 
 `map-sync` reads `.understand-anything/knowledge-graph.json` and writes a compact AOC Map overview page. It does not replace the full Understand-Anything dashboard.
+
+## Gap audits
+
+Use the AOC gap skill to compare implemented code reality with Taskmaster tasks/specs, AOC memory/STM decisions, git state, and an optional operator direction:
+
+```text
+/skill:aoc-gaps
+/skill:aoc-gaps mission-control observability
+/skill:aoc-gaps voyager onboarding
+```
+
+The wrapper can print the same Pi command:
+
+```bash
+aoc-understand gaps
+aoc-understand gaps mission-control observability
+```
+
+Broad audits find repo-level conceptual and operational gaps. Directed audits focus graph/task/memory searches on the provided direction and return a concrete closure plan.
 
 ## Installation model
 

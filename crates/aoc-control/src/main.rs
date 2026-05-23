@@ -64,6 +64,7 @@ enum SettingsSection {
     Tools,
     ToolsPiCompaction,
     ToolsAgentBrowser,
+    ToolsUnderstand,
     ToolsVercel,
     ToolsHyperframes,
 }
@@ -121,6 +122,14 @@ struct SearchJob {
 
 #[derive(Debug)]
 struct HyperframesJob {
+    action: String,
+    success_message: String,
+    log_path: PathBuf,
+    child: Child,
+}
+
+#[derive(Debug)]
+struct UnderstandJob {
     action: String,
     success_message: String,
     log_path: PathBuf,
@@ -303,6 +312,7 @@ struct App {
     settings_tools_state: ListState,
     settings_tools_pi_compaction_state: ListState,
     settings_tools_agent_browser_state: ListState,
+    settings_tools_understand_state: ListState,
     settings_tools_vercel_state: ListState,
     settings_tools_hyperframes_state: ListState,
     projects_state: ListState,
@@ -356,6 +366,9 @@ struct App {
     hyperframes_job: Option<HyperframesJob>,
     hyperframes_log_tail: Vec<String>,
     hyperframes_log_scroll: usize,
+    understand_job: Option<UnderstandJob>,
+    understand_log_tail: Vec<String>,
+    understand_log_scroll: usize,
     search_start_last_status: String,
     search_verify_last_status: String,
     search_status_checked: bool,
@@ -396,6 +409,7 @@ impl App {
             settings_tools_state: ListState::default(),
             settings_tools_pi_compaction_state: ListState::default(),
             settings_tools_agent_browser_state: ListState::default(),
+            settings_tools_understand_state: ListState::default(),
             settings_tools_vercel_state: ListState::default(),
             settings_tools_hyperframes_state: ListState::default(),
             projects_state: ListState::default(),
@@ -458,6 +472,9 @@ impl App {
             hyperframes_job: None,
             hyperframes_log_tail: Vec::new(),
             hyperframes_log_scroll: 0,
+            understand_job: None,
+            understand_log_tail: Vec::new(),
+            understand_log_scroll: 0,
             search_start_last_status: "idle".to_string(),
             search_verify_last_status: "idle".to_string(),
             search_status_checked: false,
@@ -545,6 +562,10 @@ impl App {
         ensure_selection(
             &mut self.settings_tools_agent_browser_state,
             settings_tools_agent_browser_options().len(),
+        );
+        ensure_selection(
+            &mut self.settings_tools_understand_state,
+            settings_tools_understand_options().len(),
         );
         ensure_selection(
             &mut self.settings_tools_vercel_state,
@@ -635,6 +656,10 @@ impl App {
                 &mut self.settings_tools_agent_browser_state,
                 settings_tools_agent_browser_options().len(),
             ),
+            SettingsSection::ToolsUnderstand => ensure_selection(
+                &mut self.settings_tools_understand_state,
+                settings_tools_understand_options().len(),
+            ),
             SettingsSection::ToolsVercel => ensure_selection(
                 &mut self.settings_tools_vercel_state,
                 settings_tools_vercel_options().len(),
@@ -660,6 +685,7 @@ impl App {
             SettingsSection::ThemeManager => SettingsSection::Theme,
             SettingsSection::ToolsPiCompaction
             | SettingsSection::ToolsAgentBrowser
+            | SettingsSection::ToolsUnderstand
             | SettingsSection::ToolsVercel
             | SettingsSection::ToolsHyperframes => SettingsSection::Tools,
         };
@@ -681,6 +707,7 @@ impl App {
                 .settings_tools_agent_browser_state
                 .selected()
                 .unwrap_or(0),
+            SettingsSection::ToolsUnderstand => self.settings_tools_understand_state.selected().unwrap_or(0),
             SettingsSection::ToolsVercel => {
                 self.settings_tools_vercel_state.selected().unwrap_or(0)
             }
@@ -1342,6 +1369,72 @@ impl App {
         }
     }
 
+    fn start_aoc_understand_action(&mut self, action: &str, args: &[&str], success_message: &str) {
+        if self.understand_job.is_some() {
+            self.set_status("AOC Understand action already running");
+            return;
+        }
+
+        match spawn_aoc_understand_command(action, success_message, args) {
+            Ok(job) => {
+                let log_path = job.log_path.to_string_lossy().to_string();
+                self.understand_log_tail.clear();
+                self.understand_log_scroll = 0;
+                self.understand_job = Some(job);
+                self.set_status(format!("AOC Understand {action} started (logs: {log_path})"));
+            }
+            Err(err) => self.set_status(format!("AOC Understand {action} failed to start: {err}")),
+        }
+    }
+
+    fn run_aoc_understand_install_action(&mut self) {
+        self.start_aoc_understand_action(
+            "install",
+            &["install"],
+            "AOC Understand install/update completed",
+        );
+    }
+
+    fn run_aoc_understand_status_action(&mut self) {
+        self.start_aoc_understand_action("status", &["status"], "AOC Understand status completed");
+    }
+
+    fn run_aoc_understand_doctor_action(&mut self) {
+        self.start_aoc_understand_action("doctor", &["doctor"], "AOC Understand doctor completed");
+    }
+
+    fn run_aoc_understand_analyze_action(&mut self) {
+        self.start_aoc_understand_action(
+            "analyze",
+            &["analyze", "--full"],
+            "AOC Understand analyze guidance completed",
+        );
+    }
+
+    fn run_aoc_understand_dashboard_action(&mut self) {
+        self.start_aoc_understand_action(
+            "dashboard",
+            &["dashboard", "--open"],
+            "AOC Understand dashboard command completed",
+        );
+    }
+
+    fn run_aoc_understand_gaps_action(&mut self) {
+        self.start_aoc_understand_action(
+            "gaps",
+            &["gaps"],
+            "AOC Understand gap guidance completed",
+        );
+    }
+
+    fn run_aoc_understand_map_sync_action(&mut self) {
+        self.start_aoc_understand_action(
+            "map-sync",
+            &["map-sync"],
+            "AOC Understand map sync completed",
+        );
+    }
+
     fn run_search_enable_action(&mut self) {
         match enable_managed_search() {
             Ok(message) => {
@@ -1540,6 +1633,33 @@ impl App {
         self.hyperframes_log_scroll = next.min(max_scroll);
     }
 
+    fn scroll_understand_log(&mut self, delta: isize) {
+        if self.understand_log_tail.is_empty() {
+            self.understand_log_scroll = 0;
+            return;
+        }
+        let max_scroll = self.understand_log_tail.len().saturating_sub(1);
+        let next = if delta.is_negative() {
+            self.understand_log_scroll
+                .saturating_sub(delta.unsigned_abs())
+        } else {
+            self.understand_log_scroll.saturating_add(delta as usize)
+        };
+        self.understand_log_scroll = next.min(max_scroll);
+    }
+
+    fn scroll_active_job_log(&mut self, delta: isize) {
+        if self.agent_browser_job.is_some() {
+            self.scroll_agent_browser_log(delta);
+        } else if self.search_job.is_some() {
+            self.scroll_search_log(delta);
+        } else if self.hyperframes_job.is_some() {
+            self.scroll_hyperframes_log(delta);
+        } else if self.understand_job.is_some() {
+            self.scroll_understand_log(delta);
+        }
+    }
+
     fn cancel_agent_browser_job(&mut self) {
         let Some(mut job) = self.agent_browser_job.take() else {
             self.set_status("No Agent Browser action is running");
@@ -1648,6 +1768,70 @@ impl App {
         match open_log_in_pager(&log_path) {
             Ok(()) => self.set_status(format!("Viewed log {}", log_path.to_string_lossy())),
             Err(err) => self.set_status(format!("Open log failed: {err}")),
+        }
+    }
+
+    fn cancel_understand_job(&mut self) {
+        let Some(mut job) = self.understand_job.take() else {
+            self.set_status("No AOC Understand action is running");
+            return;
+        };
+
+        let _ = job.child.kill();
+        let _ = job.child.wait();
+        if let Ok(lines) = tail_file_lines(&job.log_path, 200, 32 * 1024) {
+            self.understand_log_tail = lines;
+        }
+        self.set_status(format!(
+            "Cancelled AOC Understand {} (log: {})",
+            job.action,
+            job.log_path.to_string_lossy()
+        ));
+    }
+
+    fn open_understand_log(&mut self) {
+        let log_path = self
+            .understand_job
+            .as_ref()
+            .map(|job| job.log_path.clone())
+            .or_else(|| latest_understand_log_path());
+
+        let Some(log_path) = log_path else {
+            self.set_status("No AOC Understand log available yet");
+            return;
+        };
+
+        match open_log_in_pager(&log_path) {
+            Ok(()) => self.set_status(format!("Viewed log {}", log_path.to_string_lossy())),
+            Err(err) => self.set_status(format!("Open log failed: {err}")),
+        }
+    }
+
+    fn cancel_active_job(&mut self) {
+        if self.agent_browser_job.is_some() {
+            self.cancel_agent_browser_job();
+        } else if self.search_job.is_some() {
+            self.cancel_search_job();
+        } else if self.hyperframes_job.is_some() {
+            self.cancel_hyperframes_job();
+        } else if self.understand_job.is_some() {
+            self.cancel_understand_job();
+        } else {
+            self.set_status("No background job is running");
+        }
+    }
+
+    fn open_active_job_log(&mut self) {
+        if self.agent_browser_job.is_some() {
+            self.open_agent_browser_log();
+        } else if self.search_job.is_some() {
+            self.open_search_log();
+        } else if self.hyperframes_job.is_some() {
+            self.open_hyperframes_log();
+        } else if self.understand_job.is_some() {
+            self.open_understand_log();
+        } else {
+            self.set_status("No background job log available yet");
         }
     }
 
@@ -1867,6 +2051,57 @@ impl App {
         }
     }
 
+    fn poll_understand_job(&mut self) {
+        let mut completed: Option<(String, String, ExitStatus, PathBuf)> = None;
+
+        if let Some(job) = self.understand_job.as_mut() {
+            if let Ok(lines) = tail_file_lines(&job.log_path, 200, 32 * 1024) {
+                self.understand_log_tail = lines;
+                let max_scroll = self.understand_log_tail.len().saturating_sub(1);
+                self.understand_log_scroll = self.understand_log_scroll.min(max_scroll);
+            }
+
+            match job.child.try_wait() {
+                Ok(Some(status)) => {
+                    completed = Some((
+                        job.action.clone(),
+                        job.success_message.clone(),
+                        status,
+                        job.log_path.clone(),
+                    ));
+                }
+                Ok(None) => {}
+                Err(err) => {
+                    self.understand_job = None;
+                    self.set_status(format!("AOC Understand job poll failed: {err}"));
+                    return;
+                }
+            }
+        }
+
+        if let Some((action, success_message, status, log_path)) = completed {
+            self.understand_job = None;
+            if let Ok(lines) = tail_file_lines(&log_path, 200, 32 * 1024) {
+                self.understand_log_tail = lines;
+                let max_scroll = self.understand_log_tail.len().saturating_sub(1);
+                self.understand_log_scroll = self.understand_log_scroll.min(max_scroll);
+            }
+
+            if status.success() {
+                self.set_status(format!(
+                    "{success_message} ({}) (log: {})",
+                    aoc_understand_summary(),
+                    log_path.to_string_lossy()
+                ));
+            } else {
+                self.set_status(format!(
+                    "AOC Understand {action} failed with status {status} (log: {})",
+                    log_path.to_string_lossy()
+                ));
+            }
+        }
+    }
+
     fn run_selected_rtk_action(&mut self) {
         match self.rtk_actions_state.selected().unwrap_or(0) {
             0 => self.refresh_rtk_status(),
@@ -1909,6 +2144,7 @@ impl App {
         self.poll_agent_browser_job();
         self.poll_search_job();
         self.poll_hyperframes_job();
+        self.poll_understand_job();
 
         if self.pane_rename_remaining == 0 {
             return;
@@ -2154,6 +2390,13 @@ fn handle_key_normal(app: &mut App, key: KeyEvent) {
         {
             app.scroll_theme_preview(3);
         }
+        KeyCode::PageDown
+            if app.active_tab == Tab::Defaults
+                && app.focus == Focus::Detail
+                && active_job_running(app) =>
+        {
+            app.scroll_active_job_log(8);
+        }
         KeyCode::PageUp | KeyCode::Char('K')
             if app.active_tab == Tab::Defaults
                 && app.focus == Focus::Detail
@@ -2187,6 +2430,13 @@ fn handle_key_normal(app: &mut App, key: KeyEvent) {
         KeyCode::PageUp
             if app.active_tab == Tab::Defaults
                 && app.focus == Focus::Detail
+                && active_job_running(app) =>
+        {
+            app.scroll_active_job_log(-8);
+        }
+        KeyCode::PageUp
+            if app.active_tab == Tab::Defaults
+                && app.focus == Focus::Detail
                 && app.settings_section == SettingsSection::ToolsAgentBrowser
                 && app.selected_settings_index() == 0 =>
         {
@@ -2210,6 +2460,13 @@ fn handle_key_normal(app: &mut App, key: KeyEvent) {
         KeyCode::Char('x')
             if app.active_tab == Tab::Defaults
                 && app.focus == Focus::Detail
+                && active_job_running(app) =>
+        {
+            app.cancel_active_job();
+        }
+        KeyCode::Char('x')
+            if app.active_tab == Tab::Defaults
+                && app.focus == Focus::Detail
                 && app.settings_section == SettingsSection::ToolsAgentBrowser
                 && app.selected_settings_index() == 0 =>
         {
@@ -2229,6 +2486,13 @@ fn handle_key_normal(app: &mut App, key: KeyEvent) {
                 && app.settings_section == SettingsSection::ToolsHyperframes =>
         {
             app.cancel_hyperframes_job();
+        }
+        KeyCode::Char('O')
+            if app.active_tab == Tab::Defaults
+                && app.focus == Focus::Detail
+                && active_job_running(app) =>
+        {
+            app.open_active_job_log();
         }
         KeyCode::Char('O')
             if app.active_tab == Tab::Defaults
@@ -2479,6 +2743,10 @@ fn list_next(app: &mut App) {
                 &mut app.settings_tools_agent_browser_state,
                 settings_tools_agent_browser_options().len(),
             ),
+            SettingsSection::ToolsUnderstand => list_next_state(
+                &mut app.settings_tools_understand_state,
+                settings_tools_understand_options().len(),
+            ),
             SettingsSection::ToolsVercel => list_next_state(
                 &mut app.settings_tools_vercel_state,
                 settings_tools_vercel_options().len(),
@@ -2522,6 +2790,10 @@ fn list_prev(app: &mut App) {
             SettingsSection::ToolsAgentBrowser => list_prev_state(
                 &mut app.settings_tools_agent_browser_state,
                 settings_tools_agent_browser_options().len(),
+            ),
+            SettingsSection::ToolsUnderstand => list_prev_state(
+                &mut app.settings_tools_understand_state,
+                settings_tools_understand_options().len(),
             ),
             SettingsSection::ToolsVercel => list_prev_state(
                 &mut app.settings_tools_vercel_state,
@@ -2583,10 +2855,11 @@ fn activate_selection(app: &mut App) {
                 1 => app.open_agent_install_actions(),
                 2 => app.set_settings_section(SettingsSection::ToolsPiCompaction),
                 3 => app.set_settings_section(SettingsSection::ToolsAgentBrowser),
-                4 => app.run_aoc_map_init_action(),
-                5 => app.set_settings_section(SettingsSection::ToolsVercel),
-                6 => app.set_settings_section(SettingsSection::ToolsHyperframes),
-                7 => app.set_settings_section(SettingsSection::Root),
+                4 => app.set_settings_section(SettingsSection::ToolsUnderstand),
+                5 => app.run_aoc_map_init_action(),
+                6 => app.set_settings_section(SettingsSection::ToolsVercel),
+                7 => app.set_settings_section(SettingsSection::ToolsHyperframes),
+                8 => app.set_settings_section(SettingsSection::Root),
                 _ => {}
             },
             SettingsSection::ToolsPiCompaction => {
@@ -2615,6 +2888,19 @@ fn activate_selection(app: &mut App) {
                     4 => app.run_search_start_or_verify_action(),
                     5 => app.run_web_research_verify_action(),
                     6 => app.set_settings_section(SettingsSection::Tools),
+                    _ => {}
+                }
+            }
+            SettingsSection::ToolsUnderstand => {
+                match app.settings_tools_understand_state.selected().unwrap_or(0) {
+                    0 => app.run_aoc_understand_status_action(),
+                    1 => app.run_aoc_understand_doctor_action(),
+                    2 => app.run_aoc_understand_install_action(),
+                    3 => app.run_aoc_understand_analyze_action(),
+                    4 => app.run_aoc_understand_dashboard_action(),
+                    5 => app.run_aoc_understand_gaps_action(),
+                    6 => app.run_aoc_understand_map_sync_action(),
+                    7 => app.set_settings_section(SettingsSection::Tools),
                     _ => {}
                 }
             }
@@ -2826,6 +3112,7 @@ fn draw_defaults(frame: &mut ratatui::Frame, area: Rect, app: &mut App, focused:
                         &app.search_status,
                     )
                 )),
+                ListItem::new(format!("AOC Understand · {}", aoc_understand_summary())),
                 ListItem::new(format!("AOC Map microsite · {}", aoc_map_summary())),
                 ListItem::new(format!("Vercel CLI + PI skill · {}", vercel_summary())),
                 ListItem::new(format!("HyperFrames video · {}", hyperframes_summary())),
@@ -2915,6 +3202,19 @@ fn draw_defaults(frame: &mut ratatui::Frame, area: Rect, app: &mut App, focused:
             ];
             ("Settings · Tools · Agent Browser + Search", items)
         }
+        SettingsSection::ToolsUnderstand => {
+            let items = vec![
+                ListItem::new(format!("Status · {}", aoc_understand_summary())),
+                ListItem::new("Run doctor"),
+                ListItem::new("Install/update Understand-Anything"),
+                ListItem::new("Analyze guidance"),
+                ListItem::new("Open dashboard"),
+                ListItem::new("Gap audit guidance"),
+                ListItem::new("Sync graph to AOC Map"),
+                ListItem::new("Back"),
+            ];
+            ("Settings · Tools · AOC Understand", items)
+        }
         SettingsSection::ToolsVercel => {
             let action = if vercel_installed() {
                 "Update tool"
@@ -2972,6 +3272,11 @@ fn draw_defaults(frame: &mut ratatui::Frame, area: Rect, app: &mut App, focused:
             columns[0],
             &mut app.settings_tools_agent_browser_state,
         ),
+        SettingsSection::ToolsUnderstand => frame.render_stateful_widget(
+            list,
+            columns[0],
+            &mut app.settings_tools_understand_state,
+        ),
         SettingsSection::ToolsVercel => {
             frame.render_stateful_widget(list, columns[0], &mut app.settings_tools_vercel_state)
         }
@@ -2998,14 +3303,96 @@ fn draw_defaults(frame: &mut ratatui::Frame, area: Rect, app: &mut App, focused:
     } else {
         settings_detail_lines(app)
     };
-    let mut details = Paragraph::new(detail_lines)
-        .block(Block::default().borders(Borders::ALL).title(detail_title))
-        .alignment(Alignment::Left)
-        .wrap(Wrap { trim: false });
-    if app.settings_section == SettingsSection::ThemeManager {
-        details = details.scroll((app.theme_preview_scroll, 0));
+    let render_area = columns[1];
+    if active_job_running(app) && app.settings_section != SettingsSection::ThemeManager {
+        let split = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([Constraint::Percentage(46), Constraint::Percentage(54)])
+            .split(render_area);
+        let details = Paragraph::new(detail_lines)
+            .block(Block::default().borders(Borders::ALL).title(detail_title))
+            .alignment(Alignment::Left)
+            .wrap(Wrap { trim: false });
+        frame.render_widget(details, split[0]);
+
+        let logs = Paragraph::new(active_job_log_lines(app))
+            .block(Block::default().borders(Borders::ALL).title(active_job_log_title(app)))
+            .alignment(Alignment::Left)
+            .wrap(Wrap { trim: false });
+        frame.render_widget(logs, split[1]);
+    } else {
+        let mut details = Paragraph::new(detail_lines)
+            .block(Block::default().borders(Borders::ALL).title(detail_title))
+            .alignment(Alignment::Left)
+            .wrap(Wrap { trim: false });
+        if app.settings_section == SettingsSection::ThemeManager {
+            details = details.scroll((app.theme_preview_scroll, 0));
+        }
+        frame.render_widget(details, render_area);
     }
-    frame.render_widget(details, columns[1]);
+}
+
+fn active_job_running(app: &App) -> bool {
+    app.agent_browser_job.is_some()
+        || app.search_job.is_some()
+        || app.hyperframes_job.is_some()
+        || app.understand_job.is_some()
+}
+
+fn active_job_log_title(app: &App) -> String {
+    if let Some(job) = app.agent_browser_job.as_ref() {
+        format!("Job Log · Agent Browser {}", job.action)
+    } else if let Some(job) = app.search_job.as_ref() {
+        format!("Job Log · Search {}", job.action)
+    } else if let Some(job) = app.hyperframes_job.as_ref() {
+        format!("Job Log · HyperFrames {}", job.action)
+    } else if let Some(job) = app.understand_job.as_ref() {
+        format!("Job Log · AOC Understand {}", job.action)
+    } else {
+        "Job Log".to_string()
+    }
+}
+
+fn active_job_log_lines(app: &App) -> Vec<Line<'static>> {
+    let (log_path, tail, scroll): (Option<&PathBuf>, &[String], usize) =
+        if let Some(job) = app.agent_browser_job.as_ref() {
+            (Some(&job.log_path), &app.agent_browser_log_tail, app.agent_browser_log_scroll)
+        } else if let Some(job) = app.search_job.as_ref() {
+            (Some(&job.log_path), &app.search_log_tail, app.search_log_scroll)
+        } else if let Some(job) = app.hyperframes_job.as_ref() {
+            (Some(&job.log_path), &app.hyperframes_log_tail, app.hyperframes_log_scroll)
+        } else if let Some(job) = app.understand_job.as_ref() {
+            (Some(&job.log_path), &app.understand_log_tail, app.understand_log_scroll)
+        } else {
+            (None, &[], 0)
+        };
+
+    let mut lines = Vec::new();
+    if let Some(path) = log_path {
+        lines.push(Line::from(format!("Log: {}", path.to_string_lossy())));
+        lines.push(Line::from("Controls: PgUp/PgDn scroll · x cancel · Shift+O open full log"));
+        lines.push(Line::from(""));
+    }
+
+    if tail.is_empty() {
+        lines.push(Line::from("(waiting for log output...)"));
+        return lines;
+    }
+
+    let visible = 16usize;
+    let max_start = tail.len().saturating_sub(visible);
+    let start = scroll.min(max_start);
+    let end = (start + visible).min(tail.len());
+    lines.push(Line::from(format!(
+        "Recent output: lines {}-{} of {}",
+        start + 1,
+        end,
+        tail.len()
+    )));
+    for line in &tail[start..end] {
+        lines.push(Line::from(line.clone()));
+    }
+    lines
 }
 
 fn draw_projects(frame: &mut ratatui::Frame, area: Rect, app: &mut App, focused: bool) {
@@ -3396,7 +3783,16 @@ fn footer_lines(app: &App) -> Vec<Line<'_>> {
                 Span::raw(" scroll"),
             ],
             Tab::Defaults => {
-                if app.settings_section == SettingsSection::ToolsAgentBrowser
+                if active_job_running(app) && app.focus == Focus::Detail {
+                    vec![
+                        keycap("PgUp/PgDn"),
+                        Span::raw(" job log  "),
+                        keycap("x"),
+                        Span::raw(" cancel job  "),
+                        keycap("Shift+O"),
+                        Span::raw(" open full log"),
+                    ]
+                } else if app.settings_section == SettingsSection::ToolsAgentBrowser
                     && app.selected_settings_index() == 0
                     && app.focus == Focus::Detail
                 {
@@ -3586,6 +3982,7 @@ fn settings_tools_options() -> Vec<String> {
         "PI agent installer".to_string(),
         "PI compaction".to_string(),
         "Agent Browser + Search".to_string(),
+        "AOC Understand".to_string(),
         "AOC Map microsite".to_string(),
         "Vercel CLI + PI skill".to_string(),
         "HyperFrames video".to_string(),
@@ -3610,6 +4007,19 @@ fn settings_tools_agent_browser_options() -> Vec<String> {
         "Enable managed local search (SearXNG)".to_string(),
         "Start/verify local search".to_string(),
         "Verify web research stack".to_string(),
+        "Back".to_string(),
+    ]
+}
+
+fn settings_tools_understand_options() -> Vec<String> {
+    vec![
+        "Status".to_string(),
+        "Run doctor".to_string(),
+        "Install/update Understand-Anything".to_string(),
+        "Analyze guidance".to_string(),
+        "Open dashboard".to_string(),
+        "Gap audit guidance".to_string(),
+        "Sync graph to AOC Map".to_string(),
         "Back".to_string(),
     ]
 }
@@ -3765,7 +4175,7 @@ fn settings_detail_lines(app: &App) -> Vec<Line<'static>> {
                 lines.push(Line::from(""));
                 lines.push(Line::from("Manage optional tooling and installers."));
                 lines.push(Line::from(
-                    "Includes RTK, PI compaction, Agent Browser, Vercel CLI, HyperFrames setup.",
+                    "Includes RTK, PI compaction, Agent Browser, AOC Understand, Vercel CLI, HyperFrames setup.",
                 ));
                 lines.push(Line::from("Enter to open Tools settings."));
             }
@@ -3939,6 +4349,17 @@ fn settings_detail_lines(app: &App) -> Vec<Line<'static>> {
                 ));
             }
             4 => {
+                lines.push(Line::from("AOC Understand"));
+                lines.push(Line::from(""));
+                lines.push(Line::from(format!("Status: {}", aoc_understand_summary())));
+                lines.push(Line::from(
+                    "Canonical Understand-Anything bridge for repo knowledge graphs, onboarding, dashboard, chat/explain guidance, and AOC Map sync.",
+                ));
+                lines.push(Line::from(
+                    "Enter opens safe wrapper-backed actions. Status/doctor/analyze do not install implicitly.",
+                ));
+            }
+            5 => {
                 lines.push(Line::from("AOC Map microsite"));
                 lines.push(Line::from(""));
                 lines.push(Line::from(format!("Status: {}", aoc_map_summary())));
@@ -3949,7 +4370,7 @@ fn settings_detail_lines(app: &App) -> Vec<Line<'static>> {
                     "Use this to ensure both the agent skill and the project-local visualization microsite shell exist.",
                 ));
             }
-            5 => {
+            6 => {
                 lines.push(Line::from("Vercel CLI + PI skill"));
                 lines.push(Line::from(""));
                 lines.push(Line::from(format!("Status: {}", vercel_summary())));
@@ -3957,8 +4378,10 @@ fn settings_detail_lines(app: &App) -> Vec<Line<'static>> {
                     "Enter opens nested actions (tool install/update, skill sync, verify).",
                 ));
             }
-            6 => {
+            7 => {
+                lines.push(Line::from("HyperFrames video"));
                 lines.push(Line::from(""));
+                lines.push(Line::from(format!("Status: {}", hyperframes_summary())));
                 lines.push(Line::from(
                     "Enter opens nested actions (host init, local source, update).",
                 ));
@@ -4177,6 +4600,58 @@ fn settings_detail_lines(app: &App) -> Vec<Line<'static>> {
                     "This confirms aoc-search can return results and agent-browser can open and inspect the top hit.",
                 ));
                 push_search_job_detail(&mut lines, app, "web-smoke");
+            }
+            _ => {
+                lines.push(Line::from("Back"));
+                lines.push(Line::from(""));
+                lines.push(Line::from("Return to Tools menu."));
+            }
+        },
+        SettingsSection::ToolsUnderstand => match selected {
+            0 => {
+                lines.push(Line::from("Status"));
+                lines.push(Line::from(""));
+                lines.push(Line::from(format!("Current status: {}", aoc_understand_summary())));
+                lines.push(Line::from("Enter runs `aoc-understand status`."));
+                lines.push(Line::from("Use this first in another AOC project after `aoc-init`."));
+            }
+            1 => {
+                lines.push(Line::from("Run doctor"));
+                lines.push(Line::from(""));
+                lines.push(Line::from("Enter runs `aoc-understand doctor`."));
+                lines.push(Line::from("This validates expected commands and workspace state without installing implicitly."));
+            }
+            2 => {
+                lines.push(Line::from("Install/update Understand-Anything"));
+                lines.push(Line::from(""));
+                lines.push(Line::from("Enter runs `aoc-understand install`."));
+                lines.push(Line::from("This is the explicit network/install step; status and doctor never clone automatically."));
+                lines.push(Line::from("Install target is managed under ~/.local/share/aoc/tools/understand-anything/source."));
+            }
+            3 => {
+                lines.push(Line::from("Analyze guidance"));
+                lines.push(Line::from(""));
+                lines.push(Line::from("Enter runs `aoc-understand analyze --full`."));
+                lines.push(Line::from("The wrapper prints the Pi /skill:understand flow to run in the current project."));
+            }
+            4 => {
+                lines.push(Line::from("Open dashboard"));
+                lines.push(Line::from(""));
+                lines.push(Line::from("Enter runs `aoc-understand dashboard --open`."));
+                lines.push(Line::from("Use after a `.understand-anything/` graph exists."));
+            }
+            5 => {
+                lines.push(Line::from("Gap audit guidance"));
+                lines.push(Line::from(""));
+                lines.push(Line::from("Enter runs `aoc-understand gaps`."));
+                lines.push(Line::from("The wrapper prints the Pi /skill:aoc-gaps flow for a broad code/task/spec/memory gap audit."));
+                lines.push(Line::from("For directed audits, run `aoc-understand gaps <direction>` in a shell or `/skill:aoc-gaps <direction>` in Pi chat."));
+            }
+            6 => {
+                lines.push(Line::from("Sync graph to AOC Map"));
+                lines.push(Line::from(""));
+                lines.push(Line::from("Enter runs `aoc-understand map-sync`."));
+                lines.push(Line::from("Reads `.understand-anything/knowledge-graph.json` and writes a compact AOC Map overview page/diagram."));
             }
             _ => {
                 lines.push(Line::from("Back"));
@@ -4900,6 +5375,34 @@ themes {
         let parsed = parse_theme_palette_from_kdl("catppuccin-mocha", input).expect("palette");
         assert_eq!(parsed.fg, Color::Rgb(205, 214, 244));
         assert_eq!(parsed.red, Color::Rgb(243, 139, 168));
+    }
+
+    #[test]
+    fn control_tools_include_aoc_understand_section() {
+        let tools = settings_tools_options();
+        assert!(tools.iter().any(|item| item == "AOC Understand"));
+
+        let understand = settings_tools_understand_options();
+        assert_eq!(understand[0], "Status");
+        assert!(understand
+            .iter()
+            .any(|item| item == "Install/update Understand-Anything"));
+        assert!(understand.iter().any(|item| item == "Gap audit guidance"));
+        assert!(understand.iter().any(|item| item == "Sync graph to AOC Map"));
+    }
+
+    #[test]
+    fn active_job_log_title_defaults_when_idle() {
+        let app = App::new().expect("app");
+        assert!(!active_job_running(&app));
+        assert_eq!(active_job_log_title(&app), "Job Log");
+    }
+
+    #[test]
+    fn aoc_understand_summary_reports_skill_and_graph_terms() {
+        let summary = aoc_understand_summary();
+        assert!(summary.contains("skill"));
+        assert!(summary.contains("graph"));
     }
 
     #[test]
@@ -6005,6 +6508,63 @@ fn seed_aoc_map() -> io::Result<String> {
     Ok(format!("{skill_message}; {init_message}"))
 }
 
+fn aoc_understand_installed() -> bool {
+    project_relative_exists(".understand-anything/knowledge-graph.json")
+        || home_dir()
+            .join(".local/share/aoc/tools/understand-anything/source")
+            .exists()
+}
+
+fn aoc_understand_skill_installed() -> bool {
+    project_relative_exists(".pi/skills/aoc-understand/SKILL.md")
+}
+
+fn aoc_understand_summary() -> String {
+    let tool = if aoc_understand_installed() {
+        "tool/source present"
+    } else {
+        "tool/source missing"
+    };
+    let skill = if aoc_understand_skill_installed() {
+        "skill present"
+    } else {
+        "skill missing"
+    };
+    let graph = if project_relative_exists(".understand-anything/knowledge-graph.json") {
+        "graph present"
+    } else {
+        "graph missing"
+    };
+    format!("{tool}, {skill}, {graph}")
+}
+
+fn spawn_aoc_understand_command(
+    action: &str,
+    success_message: &str,
+    args: &[&str],
+) -> io::Result<UnderstandJob> {
+    let project_root =
+        project_root_path().ok_or_else(|| io::Error::other("unable to resolve project root"))?;
+    let log_path = understand_log_path(action);
+    let log_file = fs::File::create(&log_path)?;
+    let log_file_err = log_file.try_clone()?;
+
+    let child = Command::new("aoc-understand")
+        .args(args)
+        .current_dir(project_root)
+        .stdin(Stdio::null())
+        .stdout(Stdio::from(log_file))
+        .stderr(Stdio::from(log_file_err))
+        .spawn()?;
+
+    Ok(UnderstandJob {
+        action: action.to_string(),
+        success_message: success_message.to_string(),
+        log_path,
+        child,
+    })
+}
+
 fn hyperframes_summary() -> String {
     let nested = if project_relative_is_dir("hyperframes") {
         "workspace present"
@@ -6187,6 +6747,17 @@ fn hyperframes_log_path(action: &str) -> PathBuf {
     ))
 }
 
+fn understand_log_path(action: &str) -> PathBuf {
+    let stamp = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_millis())
+        .unwrap_or(0);
+    env::temp_dir().join(format!(
+        "aoc-control-understand-{action}-{}-{stamp}.log",
+        std::process::id()
+    ))
+}
+
 fn spawn_agent_browser_command(action: &str) -> io::Result<AgentBrowserJob> {
     let cmd = resolve_agent_browser_cmd(action);
     let log_path = agent_browser_log_path(action);
@@ -6268,6 +6839,10 @@ fn latest_search_log_path() -> Option<PathBuf> {
 
 fn latest_hyperframes_log_path() -> Option<PathBuf> {
     latest_log_path_with_prefix("aoc-control-hyperframes-")
+}
+
+fn latest_understand_log_path() -> Option<PathBuf> {
+    latest_log_path_with_prefix("aoc-control-understand-")
 }
 
 fn latest_log_path_with_prefix(prefix: &str) -> Option<PathBuf> {

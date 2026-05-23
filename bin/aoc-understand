@@ -17,13 +17,14 @@ Commands:
   install              Clone/update global Understand-Anything checkout and build packages
   status               Show install and project graph status (read-only)
   doctor               Check prerequisites and install health (read-only)
-  analyze [args...]    Print/dispatch guidance for UA /understand analysis
+  analyze [args...]    Print Pi /skill:understand analysis guidance
   dashboard [--open]   Start the UA dashboard for this project's graph
-  chat QUERY           Print graph-aware /understand-chat guidance
-  explain TARGET       Print graph-aware /understand-explain guidance
-  onboard              Print graph-aware /understand-onboard guidance
-  domain [args...]     Print/dispatch guidance for UA /understand-domain
-  diff [args...]       Print/dispatch guidance for UA /understand-diff
+  chat QUERY           Print graph-aware /skill:understand-chat guidance
+  explain TARGET       Print graph-aware /skill:understand-explain guidance
+  onboard              Print graph-aware /skill:understand-onboard guidance
+  domain [args...]     Print Pi /skill:understand-domain guidance
+  diff [args...]       Print Pi /skill:understand-diff guidance
+  gaps [direction...]  Print Pi /skill:aoc-gaps gap-audit guidance
   map-sync             Create/update an AOC Map overview page from UA graph metadata
   open                 Alias for dashboard --open
 
@@ -38,8 +39,8 @@ Options:
 
 Notes:
   install is explicit; status/doctor never clone, install dependencies, or run analysis.
-  analyze/domain/diff are agent-skill powered by Understand-Anything; this wrapper makes the
-  correct project-root and slash-command flow explicit until UA exposes a stable noninteractive CLI.
+  analyze/domain/diff/gaps are agent-skill powered; this wrapper makes the correct
+  project-root and Pi /skill:<name> flow explicit until UA exposes stable noninteractive CLIs.
 EOF
 }
 
@@ -75,6 +76,37 @@ require_plugin() {
   [[ -f "$UA_PLUGIN_DIR/package.json" ]] || fail "Understand-Anything not installed at $UA_PLUGIN_DIR. Run: aoc-understand install"
 }
 
+sync_pi_understand_skills() {
+  require_plugin
+  local agents_skills="$HOME/.agents/skills"
+  mkdir -p "$agents_skills" "$HOME/.pi"
+  ln -sfn "$UA_SOURCE" "$HOME/.pi/understand-anything"
+  local skill_dir skill_name
+  for skill_dir in "$UA_PLUGIN_DIR"/skills/*; do
+    [[ -d "$skill_dir" && -f "$skill_dir/SKILL.md" ]] || continue
+    skill_name="$(basename "$skill_dir")"
+    ln -sfn "$skill_dir" "$agents_skills/$skill_name"
+  done
+}
+
+sync_aoc_gaps_skill() {
+  local script_dir source_dir candidate
+  script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
+  for candidate in \
+    "${AOC_GAPS_SKILL_SOURCE:-}" \
+    "$script_dir/../.pi/skills/aoc-gaps" \
+    "$PWD/.pi/skills/aoc-gaps" \
+    "$HOME/dev/agent-ops-cockpit/.pi/skills/aoc-gaps"; do
+    if [[ -n "$candidate" && -f "$candidate/SKILL.md" ]]; then
+      source_dir="$candidate"
+      break
+    fi
+  done
+  [[ -n "${source_dir:-}" ]] || return 0
+  mkdir -p "$HOME/.pi/agent/skills/aoc-gaps"
+  cp -f "$source_dir/SKILL.md" "$HOME/.pi/agent/skills/aoc-gaps/SKILL.md"
+}
+
 project_graph_path() { printf '%s/.understand-anything/knowledge-graph.json\n' "$1"; }
 project_domain_graph_path() { printf '%s/.understand-anything/domain-graph.json\n' "$1"; }
 
@@ -83,9 +115,9 @@ print_skill_command() {
   shift 2
   echo "projectRoot: $root"
   echo "understandAnythingInstalled: $([[ -f "$UA_PLUGIN_DIR/package.json" ]] && echo true || echo false)"
-  echo "Run in Pi from the project root:"
-  printf '  cd %q && %s' "$root" "$slash"
-  if [[ $# -gt 0 ]]; then
+  echo "Run in Pi chat from the project root (not in a shell):"
+  printf '  %s' "$slash"
+  if [[ $# -gt 0 && -n "${*// }" ]]; then
     printf ' %s' "$*"
   fi
   printf '\n'
@@ -96,7 +128,7 @@ start_dashboard() {
   require_plugin
   local graph
   graph="$(project_graph_path "$root")"
-  [[ -f "$graph" ]] || fail "No knowledge graph found at $graph. Run: /understand or aoc-understand analyze first."
+  [[ -f "$graph" ]] || fail "No knowledge graph found at $graph. Run /skill:understand --full in Pi, or aoc-understand analyze first."
   command -v pnpm >/dev/null 2>&1 || fail "pnpm missing. Install Node.js/pnpm before launching the dashboard."
   local dashboard_dir="$UA_PLUGIN_DIR/packages/dashboard"
   [[ -d "$dashboard_dir" ]] || fail "Dashboard package missing: $dashboard_dir"
@@ -113,7 +145,7 @@ start_dashboard() {
 map_sync() {
   local root="$1"
   local graph="$root/.understand-anything/knowledge-graph.json"
-  [[ -f "$graph" ]] || fail "No knowledge graph found at $graph. Run /understand first."
+  [[ -f "$graph" ]] || fail "No knowledge graph found at $graph. Run /skill:understand --full first."
   mkdir -p "$root/.aoc/map/pages" "$root/.aoc/map/diagrams"
   python3 - "$root" "$graph" <<'PY'
 import json, sys
@@ -234,7 +266,9 @@ case "$command" in
     if command -v corepack >/dev/null 2>&1; then corepack enable || true; fi
     command -v pnpm >/dev/null 2>&1 || fail "pnpm missing after corepack. Install pnpm and rerun."
     (cd "$UA_PLUGIN_DIR" && pnpm install && pnpm --filter @understand-anything/core build)
-    log "Understand-Anything installed. In Pi, use: /understand"
+    sync_pi_understand_skills
+    sync_aoc_gaps_skill
+    log "Understand-Anything installed. In Pi, use: /skill:understand"
     ;;
   status)
     root="${root:-$(resolve_root "$PWD" 2>/dev/null || true)}"
@@ -263,29 +297,41 @@ case "$command" in
     ;;
   analyze)
     root="${root:-$(resolve_root "$PWD")}" || fail "No AOC/git project root found"
-    print_skill_command "$root" "/understand" "${args[*]:-}"
+    sync_pi_understand_skills 2>/dev/null || true
+    print_skill_command "$root" "/skill:understand" "${args[*]:-}"
     ;;
   domain)
     root="${root:-$(resolve_root "$PWD")}" || fail "No AOC/git project root found"
-    print_skill_command "$root" "/understand-domain" "${args[*]:-}"
+    sync_pi_understand_skills 2>/dev/null || true
+    print_skill_command "$root" "/skill:understand-domain" "${args[*]:-}"
     ;;
   diff)
     root="${root:-$(resolve_root "$PWD")}" || fail "No AOC/git project root found"
-    print_skill_command "$root" "/understand-diff" "${args[*]:-}"
+    sync_pi_understand_skills 2>/dev/null || true
+    print_skill_command "$root" "/skill:understand-diff" "${args[*]:-}"
+    ;;
+  gaps)
+    root="${root:-$(resolve_root "$PWD")}" || fail "No AOC/git project root found"
+    sync_pi_understand_skills 2>/dev/null || true
+    sync_aoc_gaps_skill 2>/dev/null || true
+    print_skill_command "$root" "/skill:aoc-gaps" "${args[*]:-}"
     ;;
   chat)
     root="${root:-$(resolve_root "$PWD")}" || fail "No AOC/git project root found"
     [[ ${#args[@]} -gt 0 ]] || fail "chat requires a query"
-    print_skill_command "$root" "/understand-chat" "${args[*]}"
+    sync_pi_understand_skills 2>/dev/null || true
+    print_skill_command "$root" "/skill:understand-chat" "${args[*]}"
     ;;
   explain)
     root="${root:-$(resolve_root "$PWD")}" || fail "No AOC/git project root found"
     [[ ${#args[@]} -gt 0 ]] || fail "explain requires a target"
-    print_skill_command "$root" "/understand-explain" "${args[*]}"
+    sync_pi_understand_skills 2>/dev/null || true
+    print_skill_command "$root" "/skill:understand-explain" "${args[*]}"
     ;;
   onboard)
     root="${root:-$(resolve_root "$PWD")}" || fail "No AOC/git project root found"
-    print_skill_command "$root" "/understand-onboard"
+    sync_pi_understand_skills 2>/dev/null || true
+    print_skill_command "$root" "/skill:understand-onboard"
     ;;
   dashboard)
     root="${root:-$(resolve_root "$PWD")}" || fail "No AOC/git project root found"

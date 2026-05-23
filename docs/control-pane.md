@@ -14,6 +14,7 @@ Main areas currently exposed through the control pane include:
 - PI agent installer
 - PI compaction presets
 - Agent Browser + Search
+- AOC Understand
 - AOC Map microsite
 - Vercel CLI
 - HyperFrames
@@ -36,9 +37,9 @@ The detail pane explains:
 
 ## Background jobs and logs
 
-Long-running setup and verification flows may run asynchronously in the control pane.
+Long-running setup and verification flows run asynchronously in the control pane when supported. The default floating `Alt+C` pane is intentionally large so details and logs can be visible together.
 
-When a background job is active, the detail pane shows:
+When a background job is active, the right-hand area splits into details plus a dedicated log panel showing:
 - running state
 - log path
 - recent output
@@ -106,6 +107,23 @@ The strongest validation is:
 That confirms:
 - local search can return results
 - `agent-browser` can open and inspect the top result
+
+## AOC Understand
+
+Path:
+
+- `Alt+C -> Settings -> Tools -> AOC Understand`
+
+Use it to run background, logged actions for:
+- `aoc-understand status`
+- `aoc-understand doctor`
+- explicit install/update with `aoc-understand install`
+- analyze guidance for `/skill:understand --full`
+- opening the Understand-Anything dashboard after a graph exists
+- gap audit guidance for `/skill:aoc-gaps`
+- syncing `.understand-anything/knowledge-graph.json` into a compact AOC Map overview
+
+Status, doctor, and analyze guidance are non-installing. Use the install/update action only when you want the explicit network clone/update step.
 
 ## AOC Map microsite
 

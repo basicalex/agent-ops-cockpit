@@ -21,7 +21,7 @@ Use `aoc-understand` when the user wants to understand a repo, onboard, ask arch
 3. Build/update the graph through the UA agent skill flow:
    ```bash
    aoc-understand analyze --full
-   # then run the printed /understand command in Pi if needed
+   # then run the printed /skill:understand command in Pi chat if needed
    ```
 4. Explore:
    ```bash
@@ -31,6 +31,7 @@ Use `aoc-understand` when the user wants to understand a repo, onboard, ask arch
    aoc-understand onboard
    aoc-understand domain
    aoc-understand diff
+   aoc-understand gaps mission-control observability
    ```
 5. Optional curated AOC Map bridge:
    ```bash
@@ -42,6 +43,7 @@ Use `aoc-understand` when the user wants to understand a repo, onboard, ask arch
 
 - Understand-Anything owns the deep generated knowledge graph under `.understand-anything/`.
 - AOC owns safe install/status/doctor/project-root routing through `aoc-understand`.
+- AOC Gaps (`/skill:aoc-gaps`) compares graph/code reality with Taskmaster tasks/specs, AOC memory/STM decisions, git state, and optional operator direction.
 - AOC Map remains the curated offline visual microsite under `.aoc/map/`.
 - Open Design remains the GUI design studio bridge through `aoc-od`.
 
@@ -55,3 +57,4 @@ Do not start new work with `/teach`, `/teach-full`, `/teach-dive`, or `teach-wor
 - Do not load the full `.understand-anything/knowledge-graph.json` into context. Search/slice it first.
 - Do not delete `.aoc/insight/`; legacy teach notes may still be useful history.
 - Treat `aoc-understand map-sync` as a curated bridge, not a replacement for the full dashboard.
+- For gap audits, prefer `aoc-understand gaps <direction>` or `/skill:aoc-gaps <direction>` and keep graph reads sliced, not full-file context loads.
