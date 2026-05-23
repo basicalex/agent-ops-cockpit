@@ -27,6 +27,7 @@ pub enum TaskCommand {
     #[command(alias = "set-status")]
     Status(TaskStatusArgs),
     Next(TaskNextArgs),
+    Ready(TaskReadyArgs),
     Search(TaskSearchArgs),
     Move(TaskMoveArgs),
     Agent(TaskAgentArgs),
@@ -251,6 +252,18 @@ pub struct TaskNextArgs {
     pub tag: Option<String>,
     #[arg(long)]
     pub json: bool,
+}
+
+#[derive(Args, Debug)]
+pub struct TaskReadyArgs {
+    #[arg(long)]
+    pub tag: Option<String>,
+    #[arg(long)]
+    pub json: bool,
+    #[arg(long)]
+    pub explain: bool,
+    #[arg(long, default_value_t = 5)]
+    pub limit: usize,
 }
 
 #[derive(Args, Debug)]
@@ -580,6 +593,7 @@ pub fn handle_task_command(command: TaskCommand) -> Result<()> {
             set_task_status(&ctx, &target, args.status)
         }
         TaskCommand::Next(args) => next_task(&ctx, &args),
+        TaskCommand::Ready(args) => ready_tasks(&ctx, &args),
         TaskCommand::Search(args) => search_tasks(&ctx, &args),
         TaskCommand::Move(args) => move_task(&ctx, &args),
         TaskCommand::Agent(args) => toggle_agent(&ctx, &args),
@@ -1458,6 +1472,229 @@ fn next_task(ctx: &TaskContext, args: &TaskNextArgs) -> Result<()> {
         None => println!("No pending tasks in tag '{tag}'."),
     }
     Ok(())
+}
+
+#[derive(Debug)]
+struct ReadinessItem<'a> {
+    task: &'a Task,
+    reasons: Vec<String>,
+}
+
+fn ready_tasks(ctx: &TaskContext, args: &TaskReadyArgs) -> Result<()> {
+    let load = load_project(&ctx.paths)?;
+    let tag = ctx.resolve_tag(args.tag.as_deref());
+    let tag_ctx = load
+        .project
+        .tags
+        .get(&tag)
+        .ok_or_else(|| anyhow::anyhow!("No tag named '{tag}' found."))?;
+
+    let (ready, blocked, parked) = analyze_readiness(tag_ctx);
+    let limit = args.limit.max(1);
+    let ready_limited: Vec<_> = ready.iter().take(limit).collect();
+
+    if args.json {
+        let ready_json: Vec<_> = ready_limited
+            .iter()
+            .map(|item| readiness_item_json(item))
+            .collect();
+        let blocked_json: Vec<_> = if args.explain {
+            blocked.iter().map(readiness_item_json).collect()
+        } else {
+            Vec::new()
+        };
+        let parked_json: Vec<_> = if args.explain {
+            parked.iter().map(readiness_item_json).collect()
+        } else {
+            Vec::new()
+        };
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&json!({
+                "tag": tag,
+                "ready": ready_json,
+                "blocked": blocked_json,
+                "parked": parked_json,
+                "summary": {
+                    "ready": ready.len(),
+                    "blocked": blocked.len(),
+                    "parked": parked.len(),
+                    "limit": limit,
+                }
+            }))?
+        );
+        return Ok(());
+    }
+
+    println!("Ready tasks for tag '{tag}':");
+    if ready_limited.is_empty() {
+        println!("  none");
+    } else {
+        for item in ready_limited {
+            println!(
+                "  [{}] {} ({}, {}) — {}",
+                item.task.id,
+                item.task.title,
+                item.task.status,
+                item.task.priority,
+                item.reasons.join("; ")
+            );
+        }
+        if ready.len() > limit {
+            println!(
+                "  … {} more ready task(s); rerun with --limit {}",
+                ready.len() - limit,
+                ready.len()
+            );
+        }
+    }
+
+    if args.explain {
+        print_readiness_group("Blocked / not ready", &blocked);
+        print_readiness_group("Parked", &parked);
+    }
+
+    Ok(())
+}
+
+fn analyze_readiness(
+    tag_ctx: &TagContext,
+) -> (
+    Vec<ReadinessItem<'_>>,
+    Vec<ReadinessItem<'_>>,
+    Vec<ReadinessItem<'_>>,
+) {
+    let task_by_id: HashMap<&str, &Task> = tag_ctx
+        .tasks
+        .iter()
+        .map(|task| (task.id.as_str(), task))
+        .collect();
+    let mut ready = Vec::new();
+    let mut blocked = Vec::new();
+    let mut parked = Vec::new();
+
+    for task in &tag_ctx.tasks {
+        if task.status.is_done() {
+            continue;
+        }
+
+        let dependency_reasons = dependency_blockers(task, &task_by_id);
+        if task.status.is_parked() {
+            let mut reasons = vec![format!("status is {}", task.status)];
+            reasons.extend(dependency_reasons);
+            parked.push(ReadinessItem { task, reasons });
+            continue;
+        }
+        if task.status == TaskStatus::Blocked {
+            let mut reasons = vec!["status is blocked".to_string()];
+            reasons.extend(dependency_reasons);
+            blocked.push(ReadinessItem { task, reasons });
+            continue;
+        }
+        if !dependency_reasons.is_empty() {
+            blocked.push(ReadinessItem {
+                task,
+                reasons: dependency_reasons,
+            });
+            continue;
+        }
+
+        let mut reasons = Vec::new();
+        if task.active_agent {
+            reasons.push("active agent assigned".to_string());
+        }
+        if task.dependencies.is_empty() {
+            reasons.push("no dependencies".to_string());
+        } else {
+            reasons.push("dependencies fulfilled".to_string());
+        }
+        ready.push(ReadinessItem { task, reasons });
+    }
+
+    ready.sort_by(readiness_sort);
+    blocked.sort_by(readiness_sort);
+    parked.sort_by(readiness_sort);
+    (ready, blocked, parked)
+}
+
+fn dependency_blockers(task: &Task, task_by_id: &HashMap<&str, &Task>) -> Vec<String> {
+    task.dependencies
+        .iter()
+        .filter_map(|dep_id| {
+            let dep_id = dep_id.trim();
+            if dep_id.is_empty() {
+                return None;
+            }
+            match task_by_id.get(dep_id) {
+                Some(dep) if dep.status.is_fulfilled() => None,
+                Some(dep) if dep.status == TaskStatus::Cancelled => {
+                    Some(format!("dependency {dep_id} is cancelled, not fulfilled"))
+                }
+                Some(dep) => Some(format!("dependency {dep_id} is {}", dep.status)),
+                None => Some(format!("dependency {dep_id} is missing")),
+            }
+        })
+        .collect()
+}
+
+fn readiness_sort(left: &ReadinessItem<'_>, right: &ReadinessItem<'_>) -> std::cmp::Ordering {
+    readiness_rank(left.task)
+        .cmp(&readiness_rank(right.task))
+        .then_with(|| task_id_sort_key(&left.task.id).cmp(&task_id_sort_key(&right.task.id)))
+        .then_with(|| left.task.id.cmp(&right.task.id))
+}
+
+fn readiness_rank(task: &Task) -> (u8, u8, u8) {
+    let agent_rank = if task.active_agent { 0 } else { 1 };
+    let status_rank = match task.status {
+        TaskStatus::InProgress => 0,
+        TaskStatus::Review => 1,
+        TaskStatus::Pending => 2,
+        TaskStatus::Blocked => 3,
+        TaskStatus::Backlog | TaskStatus::Deferred => 4,
+        TaskStatus::Done | TaskStatus::Cancelled => 5,
+    };
+    let priority_rank = match task.priority {
+        TaskPriority::High => 0,
+        TaskPriority::Medium => 1,
+        TaskPriority::Low => 2,
+    };
+    (agent_rank, status_rank, priority_rank)
+}
+
+fn task_id_sort_key(id: &str) -> Vec<u32> {
+    id.split('.')
+        .map(|part| part.parse::<u32>().unwrap_or(u32::MAX))
+        .collect()
+}
+
+fn readiness_item_json(item: &ReadinessItem<'_>) -> Value {
+    json!({
+        "id": item.task.id,
+        "title": item.task.title,
+        "status": item.task.status,
+        "priority": item.task.priority,
+        "activeAgent": item.task.active_agent,
+        "dependencies": item.task.dependencies,
+        "reasons": item.reasons,
+    })
+}
+
+fn print_readiness_group(label: &str, items: &[ReadinessItem<'_>]) {
+    println!("\n{label}:");
+    if items.is_empty() {
+        println!("  none");
+        return;
+    }
+    for item in items {
+        println!(
+            "  [{}] {} ({}) — {}",
+            item.task.id,
+            item.task.title,
+            item.task.status,
+            item.reasons.join("; ")
+        );
+    }
 }
 
 fn search_tasks(ctx: &TaskContext, args: &TaskSearchArgs) -> Result<()> {
