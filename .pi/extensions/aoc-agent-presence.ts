@@ -91,7 +91,45 @@ function compactTitle(text: string): string | null {
   return first.length > 80 ? `${first.slice(0, 77)}…` : first;
 }
 
-function titleFromSession(ctx: ExtensionContext | undefined): string | null {
+function titleFromSessionName(ctx: ExtensionContext | undefined): string | null {
+  try {
+    const name = (ctx?.sessionManager as any)?.getSessionName?.();
+    return typeof name === "string" ? compactTitle(name) : null;
+  } catch {
+    return null;
+  }
+}
+
+function titleFromSessionInfoFile(ctx: ExtensionContext | undefined): string | null {
+  try {
+    const sessionFile = ctx?.sessionManager?.getSessionFile?.();
+    if (!sessionFile) return null;
+    const stat = fs.statSync(sessionFile);
+    const maxBytes = 8 * 1024 * 1024;
+    const start = Math.max(0, stat.size - maxBytes);
+    const fd = fs.openSync(sessionFile, "r");
+    try {
+      const buffer = Buffer.alloc(stat.size - start);
+      fs.readSync(fd, buffer, 0, buffer.length, start);
+      let text = buffer.toString("utf8");
+      if (start > 0) text = text.slice(text.indexOf("\n") + 1);
+      const lines = text.trim().split("\n").reverse();
+      for (const line of lines) {
+        if (!line.includes('"type":"session_info"') && !line.includes('"type": "session_info"')) continue;
+        const entry = JSON.parse(line);
+        const title = compactTitle(String(entry.name || ""));
+        if (title) return title;
+      }
+    } finally {
+      fs.closeSync(fd);
+    }
+  } catch {
+    // best-effort only
+  }
+  return null;
+}
+
+function titleFromFirstUserMessage(ctx: ExtensionContext | undefined): string | null {
   try {
     const branch = ctx?.sessionManager?.getBranch?.() || [];
     for (const entry of branch) {
@@ -107,6 +145,14 @@ function titleFromSession(ctx: ExtensionContext | undefined): string | null {
   return null;
 }
 
+function resolveChatTitle(ctx: ExtensionContext | undefined, fallback?: string | null): string | null {
+  return process.env.AOC_CHAT_TITLE
+    || titleFromSessionName(ctx)
+    || titleFromSessionInfoFile(ctx)
+    || fallback
+    || titleFromFirstUserMessage(ctx);
+}
+
 export default function aocAgentPresence(pi: ExtensionAPI) {
   let ctxCurrent: ExtensionContext | undefined;
   let timer: NodeJS.Timeout | undefined;
@@ -119,6 +165,7 @@ export default function aocAgentPresence(pi: ExtensionAPI) {
     state = {
       ...state,
       ...patch,
+      chat_title: resolveChatTitle(ctxCurrent, patch.chat_title ?? state.chat_title),
       model: modelId(ctxCurrent, state.model),
       context_pct: safeContextPct(ctxCurrent),
       heartbeat_at: now,
@@ -154,7 +201,7 @@ export default function aocAgentPresence(pi: ExtensionAPI) {
       model: modelId(ctx),
       lifecycle: "idle",
       current_tool: null,
-      chat_title: process.env.AOC_CHAT_TITLE || titleFromSession(ctx),
+      chat_title: resolveChatTitle(ctx),
       session_file: ctx.sessionManager?.getSessionFile?.() || null,
       tool_count: 0,
       turn_count: 0,
@@ -179,7 +226,7 @@ export default function aocAgentPresence(pi: ExtensionAPI) {
 
   pi.on("agent_start", async (_event, ctx) => {
     ctxCurrent = ctx;
-    publish({ lifecycle: "thinking", current_tool: null, chat_title: state?.chat_title || titleFromSession(ctx) });
+    publish({ lifecycle: "thinking", current_tool: null, chat_title: resolveChatTitle(ctx, state?.chat_title) });
   });
 
   pi.on("turn_start", async (_event, ctx) => {
