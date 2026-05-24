@@ -52,16 +52,16 @@ Common setup paths:
 |---|---|
 | Core project setup | `aoc-init` |
 | Health check | `aoc-doctor` |
-| Tool/install UI | `Alt+C -> Settings -> Tools` |
+| Tool/install UI | `Alt+C -> Tools` |
 | Switch mode/preset | `Alt+X` |
 | Mind/memory overlay | `Alt+M`, `/mind` |
 | Subagent manager | `Alt+A`, `/subagent-manager` |
 | Tasks | `tm list`, Taskmaster pane |
 | Memory CLI | `aoc-mem`, `aoc-stm` |
-| Repository knowledge graph | `Alt+C -> Settings -> Tools -> AOC Understand`, or `aoc-understand status` then `aoc-understand analyze --full` |
+| Repository knowledge graph | `Alt+C -> Tools -> AOC Understand`, or `aoc-understand status` then `aoc-understand analyze --full` |
 | Open Design GUI studio | `aoc-od install`, then `aoc-od start --open` |
-| HyperFrames video/campaign work | `Alt+C -> Settings -> Tools -> HyperFrames video -> Init workspace + campaign factory` |
-| Web research | `Alt+C -> Settings -> Tools -> Agent Browser + Search` |
+| HyperFrames video/campaign work | `Alt+C -> Tools -> HyperFrames video -> Init workspace + campaign factory` |
+| Web research | `Alt+C -> Tools -> Agent Browser + Search` |
 
 ## Human docs
 

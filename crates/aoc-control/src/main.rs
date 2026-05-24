@@ -40,6 +40,7 @@ enum Tab {
     Defaults,
     Projects,
     Sessions,
+    Advanced,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -402,7 +403,7 @@ impl App {
             status: String::new(),
             should_exit: false,
             pending_launch: None,
-            settings_section: SettingsSection::Root,
+            settings_section: SettingsSection::Tools,
             defaults_state: ListState::default(),
             settings_theme_state: ListState::default(),
             settings_layout_state: ListState::default(),
@@ -2220,7 +2221,7 @@ fn handle_mouse(app: &mut App, mouse: MouseEvent) {
         return;
     }
 
-    if app.active_tab != Tab::Defaults || app.settings_section != SettingsSection::ThemeManager {
+    if app.active_tab != Tab::Advanced || app.settings_section != SettingsSection::ThemeManager {
         return;
     }
 
@@ -2247,7 +2248,7 @@ fn handle_mouse(app: &mut App, mouse: MouseEvent) {
 fn handle_key_normal(app: &mut App, key: KeyEvent) {
     match key.code {
         KeyCode::Char('q') => {
-            if app.active_tab == Tab::Defaults
+            if app.active_tab == Tab::Advanced
                 && app.settings_section == SettingsSection::ThemeManager
             {
                 app.end_theme_preview();
@@ -2256,16 +2257,16 @@ fn handle_key_normal(app: &mut App, key: KeyEvent) {
         }
         KeyCode::Esc => {
             if app.focus == Focus::Detail {
-                if app.active_tab == Tab::Defaults
+                if matches!(app.active_tab, Tab::Defaults | Tab::Advanced)
                     && app.mode == Mode::Normal
-                    && app.settings_section != SettingsSection::Root
+                    && !matches!(app.settings_section, SettingsSection::Root | SettingsSection::Tools)
                 {
                     app.back_settings_section();
                 } else {
                     app.focus = Focus::Nav;
                 }
             } else {
-                if app.active_tab == Tab::Defaults
+                if app.active_tab == Tab::Advanced
                     && app.settings_section == SettingsSection::ThemeManager
                 {
                     app.end_theme_preview();
@@ -2352,7 +2353,7 @@ fn handle_key_normal(app: &mut App, key: KeyEvent) {
         KeyCode::Char('c') if app.active_tab == Tab::Sessions && app.focus == Focus::Detail => {
             app.clear_overrides()
         }
-        KeyCode::Char('t') if app.active_tab == Tab::Defaults && app.focus == Focus::Detail => {
+        KeyCode::Char('t') if app.active_tab == Tab::Advanced && app.focus == Focus::Detail => {
             if app.settings_section == SettingsSection::ThemeManager {
                 app.end_theme_preview();
                 app.theme_preview_scroll = 0;
@@ -2360,14 +2361,14 @@ fn handle_key_normal(app: &mut App, key: KeyEvent) {
             app.set_settings_section(SettingsSection::Theme)
         }
         KeyCode::Char('n')
-            if app.active_tab == Tab::Defaults
+            if app.active_tab == Tab::Advanced
                 && app.focus == Focus::Detail
                 && app.settings_section == SettingsSection::ThemeManager =>
         {
             app.start_input(Mode::NewTheme, String::new());
         }
         KeyCode::Char('i')
-            if app.active_tab == Tab::Defaults
+            if app.active_tab == Tab::Advanced
                 && app.focus == Focus::Detail
                 && app.settings_section == SettingsSection::ThemeManager =>
         {
@@ -2375,7 +2376,7 @@ fn handle_key_normal(app: &mut App, key: KeyEvent) {
             app.queue_preview_selected_theme();
         }
         KeyCode::Char('r')
-            if app.active_tab == Tab::Defaults
+            if app.active_tab == Tab::Advanced
                 && app.focus == Focus::Detail
                 && app.settings_section == SettingsSection::ThemeManager =>
         {
@@ -2384,7 +2385,7 @@ fn handle_key_normal(app: &mut App, key: KeyEvent) {
             app.set_status("Refreshed theme list");
         }
         KeyCode::PageDown | KeyCode::Char('J')
-            if app.active_tab == Tab::Defaults
+            if app.active_tab == Tab::Advanced
                 && app.focus == Focus::Detail
                 && app.settings_section == SettingsSection::ThemeManager =>
         {
@@ -2398,7 +2399,7 @@ fn handle_key_normal(app: &mut App, key: KeyEvent) {
             app.scroll_active_job_log(8);
         }
         KeyCode::PageUp | KeyCode::Char('K')
-            if app.active_tab == Tab::Defaults
+            if app.active_tab == Tab::Advanced
                 && app.focus == Focus::Detail
                 && app.settings_section == SettingsSection::ThemeManager =>
         {
@@ -2693,23 +2694,28 @@ fn handle_key_help(app: &mut App, key: KeyEvent) {
 
 fn cycle_tab(app: &mut App, forward: bool) {
     let was_theme_manager =
-        app.active_tab == Tab::Defaults && app.settings_section == SettingsSection::ThemeManager;
+        app.active_tab == Tab::Advanced && app.settings_section == SettingsSection::ThemeManager;
 
     app.active_tab = match (app.active_tab, forward) {
         (Tab::Defaults, true) => Tab::Projects,
         (Tab::Projects, true) => Tab::Sessions,
-        (Tab::Sessions, true) => Tab::Defaults,
-        (Tab::Defaults, false) => Tab::Sessions,
+        (Tab::Sessions, true) => Tab::Advanced,
+        (Tab::Advanced, true) => Tab::Defaults,
+        (Tab::Defaults, false) => Tab::Advanced,
         (Tab::Projects, false) => Tab::Defaults,
         (Tab::Sessions, false) => Tab::Projects,
+        (Tab::Advanced, false) => Tab::Sessions,
     };
 
-    if app.active_tab != Tab::Defaults {
-        if was_theme_manager {
-            app.end_theme_preview();
-            app.theme_preview_scroll = 0;
-        }
-        app.settings_section = SettingsSection::Root;
+    if was_theme_manager {
+        app.end_theme_preview();
+        app.theme_preview_scroll = 0;
+    }
+
+    match app.active_tab {
+        Tab::Defaults => app.settings_section = SettingsSection::Tools,
+        Tab::Advanced => app.settings_section = SettingsSection::Root,
+        Tab::Projects | Tab::Sessions => app.settings_section = SettingsSection::Root,
     }
 }
 
@@ -2758,6 +2764,24 @@ fn list_next(app: &mut App) {
         },
         Tab::Projects => list_next_state(&mut app.projects_state, app.filtered_projects.len()),
         Tab::Sessions => list_next_state(&mut app.sessions_state, 4),
+        Tab::Advanced => match app.settings_section {
+            SettingsSection::Root => {
+                list_next_state(&mut app.defaults_state, settings_root_options().len())
+            }
+            SettingsSection::Theme => list_next_state(
+                &mut app.settings_theme_state,
+                settings_theme_options().len(),
+            ),
+            SettingsSection::ThemeManager => {
+                list_next_state(&mut app.theme_manager_state, app.theme_entries.len());
+                app.queue_preview_selected_theme();
+            }
+            SettingsSection::Layout => list_next_state(
+                &mut app.settings_layout_state,
+                settings_layout_options().len(),
+            ),
+            _ => app.set_settings_section(SettingsSection::Root),
+        },
     }
 }
 
@@ -2806,6 +2830,24 @@ fn list_prev(app: &mut App) {
         },
         Tab::Projects => list_prev_state(&mut app.projects_state, app.filtered_projects.len()),
         Tab::Sessions => list_prev_state(&mut app.sessions_state, 4),
+        Tab::Advanced => match app.settings_section {
+            SettingsSection::Root => {
+                list_prev_state(&mut app.defaults_state, settings_root_options().len())
+            }
+            SettingsSection::Theme => list_prev_state(
+                &mut app.settings_theme_state,
+                settings_theme_options().len(),
+            ),
+            SettingsSection::ThemeManager => {
+                list_prev_state(&mut app.theme_manager_state, app.theme_entries.len());
+                app.queue_preview_selected_theme();
+            }
+            SettingsSection::Layout => list_prev_state(
+                &mut app.settings_layout_state,
+                settings_layout_options().len(),
+            ),
+            _ => app.set_settings_section(SettingsSection::Root),
+        },
     }
 }
 
@@ -2813,9 +2855,9 @@ fn activate_selection(app: &mut App) {
     match app.active_tab {
         Tab::Defaults => match app.settings_section {
             SettingsSection::Root => match app.defaults_state.selected().unwrap_or(0) {
-                0 => app.set_settings_section(SettingsSection::Theme),
-                1 => app.set_settings_section(SettingsSection::Layout),
-                2 => app.set_settings_section(SettingsSection::Tools),
+                0 => app.open_background_picker(),
+                1 => app.set_settings_section(SettingsSection::Theme),
+                2 => app.set_settings_section(SettingsSection::Layout),
                 _ => {}
             },
             SettingsSection::Theme => match app.settings_theme_state.selected().unwrap_or(0) {
@@ -2859,7 +2901,10 @@ fn activate_selection(app: &mut App) {
                 5 => app.run_aoc_map_init_action(),
                 6 => app.set_settings_section(SettingsSection::ToolsVercel),
                 7 => app.set_settings_section(SettingsSection::ToolsHyperframes),
-                8 => app.set_settings_section(SettingsSection::Root),
+                8 => {
+                    app.active_tab = Tab::Advanced;
+                    app.set_settings_section(SettingsSection::Root);
+                }
                 _ => {}
             },
             SettingsSection::ToolsPiCompaction => {
@@ -2924,6 +2969,47 @@ fn activate_selection(app: &mut App) {
                 }
             }
         },
+        Tab::Advanced => match app.settings_section {
+            SettingsSection::Root => match app.defaults_state.selected().unwrap_or(0) {
+                0 => app.open_background_picker(),
+                1 => app.set_settings_section(SettingsSection::Theme),
+                2 => app.set_settings_section(SettingsSection::Layout),
+                _ => {}
+            },
+            SettingsSection::Theme => match app.settings_theme_state.selected().unwrap_or(0) {
+                0 => app.open_theme_manager(),
+                1 => app.open_background_picker(),
+                2 => app.set_settings_section(SettingsSection::Root),
+                _ => {}
+            },
+            SettingsSection::ThemeManager => app.activate_selected_theme(),
+            SettingsSection::Layout => match app.settings_layout_state.selected().unwrap_or(0) {
+                0 => {
+                    let current = app.default_layout.clone();
+                    select_picker(&mut app.layout_picker_state, &layout_options(), &current);
+                    app.mode = Mode::PickLayout(PickTarget::Defaults);
+                }
+                1 => app.start_input(Mode::NewProjectLayout, String::new()),
+                2 => app.start_input(Mode::NewGlobalLayout, String::new()),
+                3 => {
+                    let options = custom_layout_options();
+                    if options.is_empty() {
+                        app.set_status("No custom layouts found yet");
+                    } else {
+                        let current = if options.iter().any(|value| value == &app.default_layout) {
+                            app.default_layout.clone()
+                        } else {
+                            options[0].clone()
+                        };
+                        select_picker(&mut app.layout_picker_state, &options, &current);
+                        app.mode = Mode::PickLayout(PickTarget::Edit);
+                    }
+                }
+                4 => app.set_settings_section(SettingsSection::Root),
+                _ => {}
+            },
+            _ => app.set_settings_section(SettingsSection::Root),
+        },
         Tab::Projects => {
             if let Some(project) = app.selected_project() {
                 app.open_project(project.path);
@@ -2982,15 +3068,17 @@ fn draw_ui(frame: &mut ratatui::Frame, app: &mut App) {
 
 fn draw_nav(frame: &mut ratatui::Frame, area: Rect, app: &mut App, focused: bool) {
     let items = vec![
-        ListItem::new("Settings"),
+        ListItem::new("Tools"),
         ListItem::new("Projects"),
         ListItem::new("Launch"),
+        ListItem::new("Advanced"),
     ];
     let mut state = ListState::default();
     state.select(Some(match app.active_tab {
         Tab::Defaults => 0,
         Tab::Projects => 1,
         Tab::Sessions => 2,
+        Tab::Advanced => 3,
     }));
     let list = List::new(items)
         .block(titled_block("AOC Control", focused))
@@ -3004,6 +3092,7 @@ fn draw_detail(frame: &mut ratatui::Frame, area: Rect, app: &mut App, focused: b
         Tab::Defaults => draw_defaults(frame, area, app, focused),
         Tab::Projects => draw_projects(frame, area, app, focused),
         Tab::Sessions => draw_sessions(frame, area, app, focused),
+        Tab::Advanced => draw_defaults(frame, area, app, focused),
     }
 }
 
@@ -3016,19 +3105,19 @@ fn draw_defaults(frame: &mut ratatui::Frame, area: Rect, app: &mut App, focused:
     let (title, items) = match app.settings_section {
         SettingsSection::Root => {
             let items = vec![
-                ListItem::new("Theme"),
-                ListItem::new(format!("Layout · {}", app.default_layout)),
-                ListItem::new("Tools"),
+                ListItem::new(format!("Background profile · {}", app.background_profile)),
+                ListItem::new("Theme utilities · deprecated (Omarchy-owned)"),
+                ListItem::new(format!("Legacy layout utilities · {}", app.default_layout)),
             ];
-            ("Settings", items)
+            ("Advanced", items)
         }
         SettingsSection::Theme => {
             let items = vec![
-                ListItem::new(format!("Theme manager · {}", app.theme_identity_label())),
+                ListItem::new(format!("Deprecated theme manager · {}", app.theme_identity_label())),
                 ListItem::new(format!("Background profile · {}", app.background_profile)),
                 ListItem::new("Back"),
             ];
-            ("Settings · Theme", items)
+            ("Advanced · Deprecated Theme Utilities", items)
         }
         SettingsSection::ThemeManager => {
             let items = if app.theme_entries.is_empty() {
@@ -3063,20 +3152,20 @@ fn draw_defaults(frame: &mut ratatui::Frame, area: Rect, app: &mut App, focused:
                     })
                     .collect()
             };
-            ("Settings · Theme Manager", items)
+            ("Advanced · Deprecated Theme Manager", items)
         }
         SettingsSection::Layout => {
             let items = vec![
                 ListItem::new(format!("Default layout · {}", app.default_layout)),
-                ListItem::new("Create project custom layout"),
-                ListItem::new("Create global custom layout"),
+                ListItem::new("Legacy: create project custom layout"),
+                ListItem::new("Legacy: create global custom layout"),
                 ListItem::new(format!(
-                    "Edit custom layout · {} available",
+                    "Legacy: edit custom layout · {} available",
                     custom_layout_options().len()
                 )),
                 ListItem::new("Back"),
             ];
-            ("Settings · Layout", items)
+            ("Advanced · Legacy Layout Utilities", items)
         }
         SettingsSection::Tools => {
             let items = vec![
@@ -3116,9 +3205,9 @@ fn draw_defaults(frame: &mut ratatui::Frame, area: Rect, app: &mut App, focused:
                 ListItem::new(format!("AOC Map microsite · {}", aoc_map_summary())),
                 ListItem::new(format!("Vercel CLI + PI skill · {}", vercel_summary())),
                 ListItem::new(format!("HyperFrames video · {}", hyperframes_summary())),
-                ListItem::new("Back"),
+                ListItem::new("Advanced / legacy settings"),
             ];
-            ("Settings · Tools", items)
+            ("Tools", items)
         }
         SettingsSection::ToolsPiCompaction => {
             let items = vec![
@@ -3137,7 +3226,7 @@ fn draw_defaults(frame: &mut ratatui::Frame, area: Rect, app: &mut App, focused:
                 ListItem::new("Refresh status"),
                 ListItem::new("Back"),
             ];
-            ("Settings · Tools · PI Compaction", items)
+            ("Tools · PI Compaction", items)
         }
         SettingsSection::ToolsAgentBrowser => {
             let action = if agent_browser_installed() {
@@ -3200,7 +3289,7 @@ fn draw_defaults(frame: &mut ratatui::Frame, area: Rect, app: &mut App, focused:
                 )),
                 ListItem::new("Back"),
             ];
-            ("Settings · Tools · Agent Browser + Search", items)
+            ("Tools · Agent Browser + Search", items)
         }
         SettingsSection::ToolsUnderstand => {
             let items = vec![
@@ -3213,7 +3302,7 @@ fn draw_defaults(frame: &mut ratatui::Frame, area: Rect, app: &mut App, focused:
                 ListItem::new("Sync graph to AOC Map"),
                 ListItem::new("Back"),
             ];
-            ("Settings · Tools · AOC Understand", items)
+            ("Tools · AOC Understand", items)
         }
         SettingsSection::ToolsVercel => {
             let action = if vercel_installed() {
@@ -3227,7 +3316,7 @@ fn draw_defaults(frame: &mut ratatui::Frame, area: Rect, app: &mut App, focused:
                 ListItem::new("Verify CLI"),
                 ListItem::new("Back"),
             ];
-            ("Settings · Tools · Vercel", items)
+            ("Tools · Vercel", items)
         }
         SettingsSection::ToolsHyperframes => {
             let items = vec![
@@ -3237,7 +3326,7 @@ fn draw_defaults(frame: &mut ratatui::Frame, area: Rect, app: &mut App, focused:
                 ListItem::new("Start preview pane"),
                 ListItem::new("Back"),
             ];
-            ("Settings · Tools · HyperFrames", items)
+            ("Tools · HyperFrames", items)
         }
     };
 
@@ -3654,7 +3743,7 @@ fn draw_help_modal(frame: &mut ratatui::Frame, area: Rect) {
         Line::from("  Tools includes RTK, agent installers, PI compaction, Agent Browser, AOC Map, Vercel CLI, HyperFrames"),
         Line::from("  Right pane shows details for selected settings item"),
         Line::from("  Agent Browser/search/HyperFrames jobs: PgUp/PgDn scroll, x cancel, Shift+O open log"),
-        Line::from("  Theme manager: j/k preview, Enter activate+persist, n/i/r actions"),
+        Line::from("  Deprecated theme manager: j/k preview, Enter activate+persist, n/i/r actions"),
         Line::from("  Layout section can create/edit custom layouts through your $EDITOR"),
         Line::from(""),
         Line::from("Projects:"),
@@ -3772,7 +3861,7 @@ fn footer_lines(app: &App) -> Vec<Line<'_>> {
             Span::raw(" close"),
         ],
         Mode::Normal => match app.active_tab {
-            Tab::Defaults if app.settings_section == SettingsSection::ThemeManager => vec![
+            Tab::Advanced if app.settings_section == SettingsSection::ThemeManager => vec![
                 keycap("j/k"),
                 Span::raw(" preview  "),
                 keycap("Enter"),
@@ -3824,8 +3913,8 @@ fn footer_lines(app: &App) -> Vec<Line<'_>> {
                         Span::raw(" open section/action  "),
                         keycap("Esc"),
                         Span::raw(" back section  "),
-                        keycap("t"),
-                        Span::raw(" theme section"),
+                        keycap("Tab"),
+                        Span::raw(" advanced"),
                     ]
                 }
             }
@@ -3846,6 +3935,14 @@ fn footer_lines(app: &App) -> Vec<Line<'_>> {
                 Span::raw(" launch  "),
                 keycap("c"),
                 Span::raw(" clear"),
+            ],
+            Tab::Advanced => vec![
+                keycap("Enter"),
+                Span::raw(" open legacy utility  "),
+                keycap("Esc"),
+                Span::raw(" back section  "),
+                keycap("t"),
+                Span::raw(" theme utilities"),
             ],
         },
     };
@@ -3952,15 +4049,15 @@ fn list_prev_state(state: &mut ListState, len: usize) {
 
 fn settings_root_options() -> Vec<String> {
     vec![
-        "Theme".to_string(),
-        "Layout".to_string(),
-        "Tools".to_string(),
+        "Background profile".to_string(),
+        "Theme utilities (deprecated)".to_string(),
+        "Legacy layout utilities".to_string(),
     ]
 }
 
 fn settings_theme_options() -> Vec<String> {
     vec![
-        "Theme manager".to_string(),
+        "Deprecated theme manager".to_string(),
         "Background profile".to_string(),
         "Back".to_string(),
     ]
@@ -3969,9 +4066,9 @@ fn settings_theme_options() -> Vec<String> {
 fn settings_layout_options() -> Vec<String> {
     vec![
         "Default layout".to_string(),
-        "Create project custom layout".to_string(),
-        "Create global custom layout".to_string(),
-        "Edit custom layout".to_string(),
+        "Legacy: create project custom layout".to_string(),
+        "Legacy: create global custom layout".to_string(),
+        "Legacy: edit custom layout".to_string(),
         "Back".to_string(),
     ]
 }
@@ -3986,7 +4083,7 @@ fn settings_tools_options() -> Vec<String> {
         "AOC Map microsite".to_string(),
         "Vercel CLI + PI skill".to_string(),
         "HyperFrames video".to_string(),
-        "Back".to_string(),
+        "Advanced / legacy settings".to_string(),
     ]
 }
 
@@ -4154,44 +4251,39 @@ fn settings_detail_lines(app: &App) -> Vec<Line<'static>> {
     match app.settings_section {
         SettingsSection::Root => match selected {
             0 => {
-                lines.push(Line::from("Theme"));
+                lines.push(Line::from("Background profile"));
                 lines.push(Line::from(""));
-                lines.push(Line::from("Manage visual styling and backgrounds."));
-                lines.push(Line::from("Contains Theme manager and Background profile."));
-                lines.push(Line::from("Enter to open Theme settings."));
+                lines.push(Line::from(format!("Current profile: {}", app.background_profile)));
+                lines.push(Line::from("Advanced runtime visual behavior; Omarchy owns the system theme."));
+                lines.push(Line::from("Enter opens profile picker."));
             }
             1 => {
-                lines.push(Line::from("Layout"));
+                lines.push(Line::from("Deprecated AOC theme utilities"));
                 lines.push(Line::from(""));
-                lines.push(Line::from(format!(
-                    "Current default layout: {}",
-                    app.default_layout
-                )));
-                lines.push(Line::from("Set how new AOC tabs are arranged by default."));
-                lines.push(Line::from("Enter to open Layout settings."));
+                lines.push(Line::from("AOC theme management is legacy because Omarchy now supplies system theming."));
+                lines.push(Line::from("Kept here only for old AOC-specific theme assets."));
+                lines.push(Line::from("Enter opens deprecated theme utilities."));
             }
             _ => {
-                lines.push(Line::from("Tools"));
+                lines.push(Line::from("Legacy layout utilities"));
                 lines.push(Line::from(""));
-                lines.push(Line::from("Manage optional tooling and installers."));
-                lines.push(Line::from(
-                    "Includes RTK, PI compaction, Agent Browser, AOC Understand, Vercel CLI, HyperFrames setup.",
-                ));
-                lines.push(Line::from("Enter to open Tools settings."));
+                lines.push(Line::from(format!("Current default layout: {}", app.default_layout)));
+                lines.push(Line::from("Custom layout creation/editing is legacy; prefer managed AOC/Zellij defaults."));
+                lines.push(Line::from("Enter opens legacy layout utilities."));
             }
         },
         SettingsSection::Theme => match selected {
             0 => {
-                lines.push(Line::from("Theme manager"));
+                lines.push(Line::from("Deprecated theme manager"));
                 lines.push(Line::from(""));
                 lines.push(Line::from(format!(
                     "Active/effective: {}",
                     app.theme_identity_label()
                 )));
                 lines.push(Line::from(
-                    "Open the integrated manager with live list + preview panel.",
+                    "Legacy AOC-only utility; Omarchy owns the normal system theme path.",
                 ));
-                lines.push(Line::from("Enter opens Theme manager in-place."));
+                lines.push(Line::from("Enter opens deprecated Theme manager in-place."));
             }
             1 => {
                 lines.push(Line::from("Background profile"));
@@ -4201,18 +4293,18 @@ fn settings_detail_lines(app: &App) -> Vec<Line<'static>> {
                     app.background_profile
                 )));
                 lines.push(Line::from(
-                    "Switch background behavior used by AOC theme tooling.",
+                    "Switch legacy AOC background behavior; Omarchy remains the primary theme source.",
                 ));
                 lines.push(Line::from("Enter opens profile picker."));
             }
             _ => {
                 lines.push(Line::from("Back"));
                 lines.push(Line::from(""));
-                lines.push(Line::from("Return to top-level Settings menu."));
+                lines.push(Line::from("Return to Advanced menu."));
             }
         },
         SettingsSection::ThemeManager => {
-            lines.push(Line::from("Theme manager"));
+            lines.push(Line::from("Deprecated theme manager"));
             lines.push(Line::from(""));
             lines.push(Line::from("Use the theme list on the left."));
             lines.push(Line::from(
@@ -4235,7 +4327,7 @@ fn settings_detail_lines(app: &App) -> Vec<Line<'static>> {
                 lines.push(Line::from("Enter opens layout picker."));
             }
             1 => {
-                lines.push(Line::from("Create project custom layout"));
+                lines.push(Line::from("Legacy: create project custom layout"));
                 lines.push(Line::from(""));
                 lines.push(Line::from(
                     "Creates .aoc/layouts/<name>.kdl inside the current project.",
@@ -4248,7 +4340,7 @@ fn settings_detail_lines(app: &App) -> Vec<Line<'static>> {
                 ));
             }
             2 => {
-                lines.push(Line::from("Create global custom layout"));
+                lines.push(Line::from("Legacy: create global custom layout"));
                 lines.push(Line::from(""));
                 lines.push(Line::from(
                     "Creates ~/.config/zellij/layouts/<name>.kdl for personal reuse across repos.",
@@ -4261,7 +4353,7 @@ fn settings_detail_lines(app: &App) -> Vec<Line<'static>> {
                 ));
             }
             3 => {
-                lines.push(Line::from("Edit custom layout"));
+                lines.push(Line::from("Legacy: edit custom layout"));
                 lines.push(Line::from(""));
                 lines.push(Line::from(format!(
                     "Available custom layouts: {}",
@@ -4277,7 +4369,7 @@ fn settings_detail_lines(app: &App) -> Vec<Line<'static>> {
             _ => {
                 lines.push(Line::from("Back"));
                 lines.push(Line::from(""));
-                lines.push(Line::from("Return to top-level Settings menu."));
+                lines.push(Line::from("Return to Advanced menu."));
             }
         },
         SettingsSection::Tools => match selected {
@@ -4387,9 +4479,9 @@ fn settings_detail_lines(app: &App) -> Vec<Line<'static>> {
                 ));
             }
             _ => {
-                lines.push(Line::from("Back"));
+                lines.push(Line::from("Advanced / legacy settings"));
                 lines.push(Line::from(""));
-                lines.push(Line::from("Return to top-level Settings menu."));
+                lines.push(Line::from("Open deprecated theme utilities, background profile, and legacy custom layout actions."));
             }
         },
         SettingsSection::ToolsPiCompaction => match selected {
@@ -5381,6 +5473,9 @@ themes {
     fn control_tools_include_aoc_understand_section() {
         let tools = settings_tools_options();
         assert!(tools.iter().any(|item| item == "AOC Understand"));
+        assert!(tools
+            .iter()
+            .any(|item| item == "Advanced / legacy settings"));
 
         let understand = settings_tools_understand_options();
         assert_eq!(understand[0], "Status");
@@ -5389,6 +5484,17 @@ themes {
             .any(|item| item == "Install/update Understand-Anything"));
         assert!(understand.iter().any(|item| item == "Gap audit guidance"));
         assert!(understand.iter().any(|item| item == "Sync graph to AOC Map"));
+    }
+
+    #[test]
+    fn control_defaults_to_tools_first_taxonomy() {
+        let app = App::new().expect("app");
+        assert_eq!(app.active_tab, Tab::Defaults);
+        assert_eq!(app.settings_section, SettingsSection::Tools);
+
+        let advanced = settings_root_options();
+        assert!(advanced.iter().any(|item| item.contains("deprecated")));
+        assert!(advanced.iter().any(|item| item.contains("Legacy layout")));
     }
 
     #[test]

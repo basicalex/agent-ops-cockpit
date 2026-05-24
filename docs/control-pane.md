@@ -2,38 +2,35 @@
 
 `Alt+C` opens `aoc-control`, the operator surface for Agent Ops Cockpit (AOC).
 
-Use it to inspect runtime state, configure integrations, and run setup/verification flows without manually editing config files.
+Use it to run the most common tools first, inspect runtime state, and launch setup/verification flows without manually editing config files.
 
 ## What it manages
 
-Main areas currently exposed through the control pane include:
+Primary areas exposed through the control pane include:
 
-- Theme management
-- Layout defaults and custom layout creation/editing
-- RTK routing
-- PI agent installer
-- PI compaction presets
-- Agent Browser + Search
-- AOC Understand
-- AOC Map microsite
-- Vercel CLI
-- HyperFrames
+- **Tools** — first/default surface for AOC Understand, Agent Browser + Search, AOC Map, HyperFrames, Vercel, PI compaction, PI agent installer, and RTK routing
+- **Projects** — open, create, search, and retarget project roots
+- **Launch** — start sessions with selected defaults/overrides
+- **Advanced** — background profile plus legacy/deprecated AOC-specific theme and custom layout utilities
+
+AOC theme management is deprecated as a primary utility because Omarchy owns the system theme. Custom layout creation/editing is also legacy; prefer managed AOC/Zellij defaults unless you intentionally need an old custom layout path.
 
 ## Navigation model
 
 Typical flow:
 
 1. Press `Alt+C`
-2. Open **Settings**
-3. Open **Tools**
-4. Choose a tool/integration section
-5. Read the right-hand detail pane before running the selected action
+2. Open **Tools** (first/default nav item)
+3. Choose a tool/integration section
+4. Read the right-hand detail pane before running the selected action
 
 The detail pane explains:
 - what the action does
 - required dependencies
 - current status
 - where logs/config files live
+
+Use **Advanced** only for low-frequency runtime/legacy utilities such as background profile, deprecated AOC theme utilities, or legacy custom layout actions.
 
 ## Background jobs and logs
 
@@ -50,26 +47,20 @@ Useful controls:
 - `x` — cancel the running job
 - `Shift+O` — open the full log in a pager
 
-## Layout creator/editor
+## Advanced legacy layout utilities
 
 Path:
 
-- `Alt+C -> Settings -> Layout`
+- `Alt+C -> Advanced -> Legacy layout utilities`
 
-Available actions include:
+Available legacy actions include:
 
 - set the default layout
 - create a project custom layout
 - create a global custom layout
 - edit an existing custom layout in `$EDITOR`
 
-The generated starter template preserves:
-
-- the managed `zjstatus-aoc` top bar
-- grouped tab metadata sync via `aoc-tab-metadata sync`
-- the standard AOC placeholder/env contract
-
-Prefer project scope for shared repo workflows and global scope for personal machine-local layouts.
+These actions are retained for compatibility. They are no longer a primary workflow now that managed AOC/Zellij defaults cover normal use.
 
 ## Agent Browser + Search
 
@@ -77,7 +68,7 @@ This is the main web research integration surface. See [Web research](web-resear
 
 Path:
 
-- `Alt+C -> Settings -> Tools -> Agent Browser + Search`
+- `Alt+C -> Tools -> Agent Browser + Search`
 
 Available actions include:
 
@@ -112,7 +103,7 @@ That confirms:
 
 Path:
 
-- `Alt+C -> Settings -> Tools -> AOC Understand`
+- `Alt+C -> Tools -> AOC Understand`
 
 Use it to run background, logged actions for:
 - `aoc-understand status`
@@ -129,7 +120,7 @@ Status, doctor, and analyze guidance are non-installing. Use the install/update 
 
 Path:
 
-- `Alt+C -> Settings -> Tools -> AOC Map microsite`
+- `Alt+C -> Tools -> AOC Map microsite`
 
 Use it to:
 - sync `.pi/skills/aoc-map/SKILL.md` for the current repo
@@ -142,7 +133,7 @@ Use it to:
 
 Path:
 
-- `Alt+C -> Settings -> Tools -> PI agent installer`
+- `Alt+C -> Tools -> PI agent installer`
 
 Use it to:
 - check PI install state
@@ -152,7 +143,7 @@ Use it to:
 
 Path:
 
-- `Alt+C -> Settings -> Tools -> PI compaction`
+- `Alt+C -> Tools -> PI compaction`
 
 Use it to:
 - choose a context window preset
@@ -188,5 +179,4 @@ bin/aoc-web-smoke
 - [Configuration Guide](./configuration.md)
 - [Layouts](./layouts.md)
 - [Managed Zellij Top Bar](reference/zellij-top-bar.md)
-- [Custom Layout Skill](../.pi/skills/custom-layout-ops/SKILL.md)
 - [Agents](./agents.md)
