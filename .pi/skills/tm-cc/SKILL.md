@@ -23,10 +23,10 @@ Examples:
 - `aoc-taskmaster --tm-root ~/dev/proj-d`
 
 ## Full CRUD quick map
-- Create: `add`, `sub add`, `tag add`, `prd init`
-- Read: `list`, `show`, `tag list`, `tag current`, `prd show`
-- Update: `edit`, `status`, `done/reopen`, `move`, `tag rename`, `prd set`
-- Delete: `remove`, `sub remove`, `tag remove`, `prd clear`
+- Create: `add`, `sub add`, `tag add`, `spec init` (`prd init` legacy)
+- Read: `list`, `show`, `tag list`, `tag current`, `spec show` (`prd show` legacy)
+- Update: `edit`, `status`, `done/reopen`, `move`, `tag rename`, `spec set` (`prd set` legacy)
+- Delete: `remove`, `sub remove`, `tag remove`, `spec clear` (`prd clear` legacy)
 
 ## Guardrails
 - Never edit `.taskmaster/tasks/tasks.json` directly.

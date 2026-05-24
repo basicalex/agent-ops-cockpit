@@ -115,6 +115,7 @@ After install (or manual `aoc-init`), a PI-first project should include:
 - `.aoc/mind-service.json` (project-local Mind launcher config seeded from install/global config when available)
 - `~/.config/aoc/mind-service.json` (global Mind launcher config written by `./install.sh`)
 - `.pi/extensions/aoc-models.ts`
+- `.pi/extensions/aoc-compaction.ts` (AOC-aware Pi compaction summaries that preserve the operating context capsule)
 - `~/.config/zellij/plugins/zjstatus-aoc.wasm`
 - `.aoc/context.md`
 - `.aoc/rtk.toml`

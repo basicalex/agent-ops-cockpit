@@ -6,6 +6,38 @@ steps="${2:-1}"
 border="${3:-right}"
 delay="${AOC_ZELLIJ_RESIZE_DELAY_SECS:-0}"
 
+resolve_zellij_bin() {
+	if [[ -n "${AOC_ZELLIJ_BIN:-}" && -x "${AOC_ZELLIJ_BIN:-}" ]]; then
+		printf '%s' "$AOC_ZELLIJ_BIN"
+		return 0
+	fi
+
+	local seen="" candidate version best_version="" best_bin=""
+	local candidates=()
+	while IFS= read -r candidate; do
+		candidates+=("$candidate")
+	done < <(type -P -a zellij 2>/dev/null || true)
+	candidates+=("/usr/local/bin/zellij" "/usr/bin/zellij" "/snap/bin/zellij" "$HOME/.cargo/bin/zellij")
+
+	for candidate in "${candidates[@]}"; do
+		[[ -x "$candidate" ]] || continue
+		case ":$seen:" in *":$candidate:"*) continue ;; esac
+		seen="$seen:$candidate"
+		version="$($candidate --version 2>/dev/null | awk '{print $2; exit}')"
+		[[ -n "$version" ]] || continue
+		if [[ -z "$best_version" || "$(printf '%s\n%s\n' "$best_version" "$version" | sort -V | tail -n 1)" == "$version" ]]; then
+			best_version="$version"
+			best_bin="$candidate"
+		fi
+	done
+
+	if [[ -n "$best_bin" ]]; then
+		printf '%s' "$best_bin"
+		return 0
+	fi
+	command -v zellij
+}
+
 if [[ -z "$direction" ]]; then
 	exit 0
 fi
@@ -18,8 +50,10 @@ if ! [[ "$delay" =~ ^[0-9]*\.?[0-9]+$ ]]; then
 	delay=0
 fi
 
+zellij_bin="$(resolve_zellij_bin)"
 socket="${ZELLIJ:-}"
-session="${ZELLIJ_SESSION_NAME:-}"
+session="${ZELLIJ_SESSION_NAME:-${AOC_ZELLIJ_SESSION_NAME:-}}"
+pane_id="${ZELLIJ_PANE_ID:-${AOC_ZELLIJ_PANE_ID:-}}"
 
 # In some zellij versions ZELLIJ can be "0" (marker, not socket path).
 # Treat non-socket values as unset and resolve by session.
@@ -47,12 +81,34 @@ if [[ -z "$socket" && -n "$session" ]]; then
 	done
 fi
 
-run_resize() {
+run_zellij() {
 	if [[ -n "$socket" ]]; then
-		ZELLIJ="$socket" zellij action resize "$direction" "$border" >/dev/null 2>&1
+		ZELLIJ="$socket" "$zellij_bin" "$@" >/dev/null 2>&1
 	else
-		zellij action resize "$direction" "$border" >/dev/null 2>&1
+		"$zellij_bin" "$@" >/dev/null 2>&1
 	fi
+}
+
+run_resize() {
+	local args=(action resize)
+	if [[ -n "$pane_id" ]]; then
+		args+=(--pane-id "$pane_id")
+	fi
+	args+=("$direction")
+	if [[ -n "$border" && "$border" != "auto" ]]; then
+		args+=("$border")
+	fi
+
+	# Prefer Zellij 0.44+'s explicit pane targeting. If a mismatched/older CLI
+	# rejects --pane-id, fall back to the historical focused-pane action.
+	if run_zellij "${args[@]}"; then
+		return 0
+	fi
+	args=(action resize "$direction")
+	if [[ -n "$border" && "$border" != "auto" ]]; then
+		args+=("$border")
+	fi
+	run_zellij "${args[@]}"
 }
 
 for ((i = 0; i < steps; i++)); do

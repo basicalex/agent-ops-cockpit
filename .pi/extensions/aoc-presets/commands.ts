@@ -11,7 +11,7 @@ export interface CommandBindings {
   setState: (state: PresetRuntimeState) => void;
 }
 
-const DESIGN_MODES = ["critique", "spec", "diff", "handoff", "tokens", "brand", "motion"] as const;
+const DESIGN_MODES = ["critique", "spec", "diff", "handoff", "tokens", "brand", "motion", "premium", "funnel", "dashboard"] as const;
 const MOTION_SUBMODES = ["plan", "timeline", "scroll", "svg", "text", "react", "audit"] as const;
 const HYPERFRAMES_MODES = ["compose", "site", "cli", "review"] as const;
 
@@ -147,31 +147,51 @@ interface MenuNode {
   children?: MenuNode[];
 }
 
-const PRESET_MENU_ORDER = ["design", "hyperframes", "ops", "research"] as const;
-
-function presetSortRank(id: string): number {
-  const index = (PRESET_MENU_ORDER as readonly string[]).indexOf(id);
-  return index >= 0 ? index : PRESET_MENU_ORDER.length;
+function deriveSubmodes(record: PresetRecord, mode: string): string[] {
+  if (mode !== "motion") return [];
+  const names = new Set<string>([
+    ...Object.keys(record.manifest.skills?.activeBySubmode ?? {}),
+    ...Object.keys(record.manifest.skills?.recommendedBySubmode ?? {}),
+    ...Object.keys(record.manifest.handoff?.submodeNotes ?? {}),
+  ]);
+  return [...names].sort();
 }
 
 function buildMenuTree(registry: Map<string, PresetRecord>): MenuNode[] {
-  const presets = [...registry.values()].sort((a, b) => {
-    const rank = presetSortRank(a.id) - presetSortRank(b.id);
-    return rank || a.id.localeCompare(b.id);
-  });
+  const presets = [...registry.values()].sort((a, b) => a.id.localeCompare(b.id));
   return [
-    ...presets.map((record) => ({
-      id: record.id,
-      label: record.manifest.label || record.id,
-      description: `Umbrella mode. Default lens: ${record.manifest.defaultMode}. Focused lenses stay in slash commands.`,
-      action: { preset: record.id, mode: record.manifest.defaultMode },
-    } satisfies MenuNode)),
     {
       id: "preset-off",
       label: "Preset off",
       description: "Return to neutral AOC routing",
       action: { off: true },
     },
+    ...presets.flatMap((record) => {
+      const modeNames = Object.keys(record.manifest.components?.modes ?? {});
+      const orderedModes = [record.manifest.defaultMode, ...modeNames.filter((name) => name !== record.manifest.defaultMode)].filter((name, index, items) => !!name && items.indexOf(name) === index);
+      const children = orderedModes.map((mode) => {
+        const submodes = deriveSubmodes(record, mode);
+        return {
+          id: `${record.id}:${mode}`,
+          label: mode,
+          description: record.manifest.handoff?.modeNotes?.[mode] || `Switch ${record.id} into ${mode}`,
+          action: { preset: record.id, mode },
+          children: submodes.length > 0 ? submodes.map((submode) => ({
+            id: `${record.id}:${mode}/${submode}`,
+            label: submode,
+            description: record.manifest.handoff?.submodeNotes?.[submode] || `Switch ${record.id}/${mode} into ${submode}`,
+            action: { preset: record.id, mode, submode },
+          })) : undefined,
+        } satisfies MenuNode;
+      });
+      const presetNode = {
+        id: record.id,
+        label: record.manifest.label || record.id,
+        description: `Enter selects ${record.manifest.label || record.id} with default mode: ${record.manifest.defaultMode}. Press l/→ to choose a specific mode.`,
+        action: { preset: record.id, mode: record.manifest.defaultMode },
+      } satisfies MenuNode;
+      return [{ ...presetNode, children } satisfies MenuNode];
+    }),
   ];
 }
 
@@ -257,6 +277,12 @@ function openPresetMenu(pi: ExtensionAPI, ctx: ExtensionContext, bindings: Comma
         && (!node.action.submode || node.action.submode === state.submode);
     }
 
+    function buildTargetLabel(node: MenuNode): string {
+      if (node.action?.off) return "neutral AOC";
+      if (!node.action?.preset) return node.label;
+      return `${node.action.preset}/${node.action.mode || "default"}${node.action.submode ? `/${node.action.submode}` : ""}`;
+    }
+
     function padRight(text: string, width: number): string {
       const truncated = truncateToWidth(text, width, "");
       return truncated + " ".repeat(Math.max(0, width - visibleWidth(truncated)));
@@ -271,6 +297,17 @@ function openPresetMenu(pi: ExtensionAPI, ctx: ExtensionContext, bindings: Comma
       const navWidth = Math.max(20, Math.min(28, Math.floor((innerWidth - 3) * 0.28)));
       const detailWidth = Math.max(26, innerWidth - navWidth - (gap * 2) - 3);
       const bodyHeight = Math.max(10, Math.min(12, level.nodes.length + 2));
+      const record = selected?.action?.preset ? bindings.registry.get(selected.action.preset) : undefined;
+      const selectedState = selected?.action?.preset
+        ? materializeState(bindings.registry, state, {
+            preset: selected.action.preset,
+            mode: selected.action.mode,
+            submode: selected.action.submode,
+            source: "preview",
+            updatedAt: state.updatedAt,
+          })
+        : undefined;
+
       const lines: string[] = [];
       const currentCaveman = readCurrentCavemanLevel(ctx);
       const dim = (text: string) => theme.fg("dim", text);
@@ -283,11 +320,14 @@ function openPresetMenu(pi: ExtensionAPI, ctx: ExtensionContext, bindings: Comma
         ? theme.fg("accent", `[${text}]`)
         : theme.fg("muted", `[${text}]`);
       const makeRow = (left: string, right = "") => {
+        const leftWidth = visibleWidth(left);
         const rightWidth = visibleWidth(right);
-        const leftMax = Math.max(1, innerWidth - rightWidth - 1);
-        const safeLeft = truncateToWidth(left, leftMax, "");
-        const spacer = " ".repeat(Math.max(1, innerWidth - visibleWidth(safeLeft) - rightWidth));
-        return `│${safeLeft}${spacer}${right}│`;
+        const spacer = " ".repeat(Math.max(1, innerWidth - leftWidth - rightWidth));
+        return `│${left}${spacer}${right}│`;
+      };
+      const pushWrapped = (target: string[], label: string, value: string) => {
+        target.push(dim(label));
+        target.push(...wrapTextWithAnsi(value, detailWidth));
       };
       const makeDetailRow = (left: string, right = "") => {
         const leftWidth = visibleWidth(left);
@@ -298,7 +338,7 @@ function openPresetMenu(pi: ExtensionAPI, ctx: ExtensionContext, bindings: Comma
 
       lines.push(strongBorder(`╭${"─".repeat(innerWidth)}╮`));
       lines.push(makeRow(`${accent(theme.bold("AOC Presets"))}`, accent(theme.bold(formatStateLabel(state)))));
-      lines.push(makeRow(dim("Umbrella modes. Focused lenses via slash commands."), muted("Alt+X")));
+      lines.push(makeRow(dim(`Presets / ${stack.map(item => item.title).join(" / ")}`), muted("Alt+X reopens")));
       lines.push(border(`├${"─".repeat(innerWidth)}┤`));
 
       const startIndex = Math.max(0, Math.min(level.index - Math.floor((bodyHeight - 1) / 2), Math.max(0, level.nodes.length - (bodyHeight - 1))));
@@ -310,9 +350,11 @@ function openPresetMenu(pi: ExtensionAPI, ctx: ExtensionContext, bindings: Comma
         const absoluteIndex = startIndex + i;
         const selectedRow = absoluteIndex === level.index;
         const currentTarget = isCurrentTarget(node, state);
-        const stateLabel = currentTarget ? muted(" active") : "";
+        const hasChildren = !!node.children?.length;
+        const stateLabel = currentTarget ? muted(" active") : selectedRow && !hasChildren ? muted(" target") : "";
+        const chevron = hasChildren ? muted("  ›") : "";
         const prefix = selectedRow ? accent("▸ ") : "  ";
-        const rowText = `${prefix}${node.label}${stateLabel}`;
+        const rowText = `${prefix}${node.label}${stateLabel}${chevron}`;
         const padded = padRight(rowText, navWidth);
         navLines.push(selectedRow ? selectedText(padded) : padded);
       }
@@ -323,13 +365,27 @@ function openPresetMenu(pi: ExtensionAPI, ctx: ExtensionContext, bindings: Comma
 
       const detailLines: string[] = [dim(theme.bold("DETAILS"))];
       detailLines.push(makeDetailRow(`${accent(theme.bold("Caveman"))}`, pendingCaveman === currentCaveman ? badge(`current ${pendingCaveman}`, "accent") : badge(`pending ${pendingCaveman}`)));
-      detailLines.push(muted(`x rotates Caveman. Enter applies.`));
+      detailLines.push(muted(`Rotate with x. Enter applies preset + caveman together.`));
       detailLines.push("");
       if (selected) {
-        const statusBadge = isCurrentTarget(selected, state) ? badge("current", "accent") : badge("enter");
+        const statusBadge = selected.children?.length
+          ? badge(`${selected.children.length} choices`)
+          : isCurrentTarget(selected, state)
+            ? badge("current", "accent")
+            : badge("enter to apply");
         detailLines.push(makeDetailRow(`${accent(theme.bold(selected.label))}`, statusBadge));
+        detailLines.push(muted(`Target: ${buildTargetLabel(selected)}`));
         const description = selected.description || "No extra guidance for this selection.";
         detailLines.push(...wrapTextWithAnsi(description, detailWidth));
+        if (selectedState?.activeSkills?.length) {
+          pushWrapped(detailLines, "Active skills", selectedState.activeSkills.join(", "));
+        }
+        if (selectedState?.recommendedSkills?.length) {
+          pushWrapped(detailLines, "Recommended", selectedState.recommendedSkills.join(", "));
+        }
+        if (record?.manifest.handoff?.modeNotes?.[selected.action?.mode || ""]) {
+          pushWrapped(detailLines, "Carry forward", record.manifest.handoff.modeNotes[selected.action!.mode!]!);
+        }
       }
       while (detailLines.length < bodyHeight) detailLines.push("");
 
@@ -341,7 +397,7 @@ function openPresetMenu(pi: ExtensionAPI, ctx: ExtensionContext, bindings: Comma
       }
 
       lines.push(border(`├${"─".repeat(innerWidth)}┤`));
-      lines.push(makeRow(dim("j/k move · enter apply · x caveman · esc/q close"), muted("▸ selected · active")));
+      lines.push(makeRow(dim("[j/k] move  [enter] apply  [l/→] submenu  [h/esc] back  [x] caveman  [q] close"), muted("selected ▸  active current")));
       lines.push(strongBorder(`╰${"─".repeat(innerWidth)}╯`));
       return lines;
     }
@@ -368,6 +424,10 @@ function openPresetMenu(pi: ExtensionAPI, ctx: ExtensionContext, bindings: Comma
         }
         if (data === "x") {
           rotateCaveman();
+          return;
+        }
+        if (data === "l" || matchesKey(data, "right")) {
+          activateSelected(true);
           return;
         }
         if (matchesKey(data, "return")) {

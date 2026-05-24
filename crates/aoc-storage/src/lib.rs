@@ -3101,7 +3101,9 @@ impl MindStore {
         }
         let count = self
             .conn
-            .query_row(&format!("SELECT COUNT(*) FROM {table}"), [], |row| row.get(0))?;
+            .query_row(&format!("SELECT COUNT(*) FROM {table}"), [], |row| {
+                row.get(0)
+            })?;
         Ok(count)
     }
 

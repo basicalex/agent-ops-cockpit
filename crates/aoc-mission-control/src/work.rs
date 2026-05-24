@@ -4,7 +4,11 @@
 
 use super::*;
 
-pub(crate) fn render_work_lines(app: &App, theme: MissionTheme, compact: bool) -> Vec<Line<'static>> {
+pub(crate) fn render_work_lines(
+    app: &App,
+    theme: MissionTheme,
+    compact: bool,
+) -> Vec<Line<'static>> {
     let projects = app.work_rows();
     if projects.is_empty() {
         return vec![Line::from(Span::styled(

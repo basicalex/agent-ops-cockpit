@@ -20,6 +20,16 @@ if [[ $# -gt 0 ]]; then
   esac
 fi
 
+aoc_zellij_bin() {
+  if [[ -n "${AOC_ZELLIJ_BIN:-}" && -x "${AOC_ZELLIJ_BIN:-}" ]]; then
+    printf '%s' "$AOC_ZELLIJ_BIN"
+  elif [[ -x /usr/local/bin/zellij ]]; then
+    printf '%s' /usr/local/bin/zellij
+  else
+    command -v zellij
+  fi
+}
+
 aoc_fullscreen() {
   if [[ "${AOC_FULLSCREEN:-1}" == "0" ]]; then
     return 0
@@ -50,7 +60,8 @@ if [[ -n "${ZELLIJ:-}" ]]; then
 fi
 
 if [[ -n "${ZELLIJ_SESSION_NAME:-}" ]]; then
-  if zellij action list-clients >/dev/null 2>&1; then
+  zellij_bin="$(aoc_zellij_bin)"
+  if "$zellij_bin" action list-clients >/dev/null 2>&1; then
     exec aoc-new-tab "$@"
   fi
 fi

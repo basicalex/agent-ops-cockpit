@@ -67,6 +67,24 @@ aoc-map serve --open
 
 `map-sync` reads `.understand-anything/knowledge-graph.json` and writes a compact AOC Map overview page. It does not replace the full Understand-Anything dashboard.
 
+## Post-commit graph refresh
+
+AOC can install an opt-in, project-local `post-commit` hook that enqueues a background graph refresh after each implementation commit:
+
+```bash
+aoc-understand hook install
+aoc-understand hook status
+aoc-understand hook uninstall
+```
+
+The hook writes only to the current project's `.git/hooks/post-commit` and logs to `.aoc/logs/understand-refresh.log`. It sets `AOC_UNDERSTAND_REFRESH=1` to avoid recursion, then runs:
+
+```bash
+aoc-understand --root "$PWD" refresh --source-commit <sha> --commit
+```
+
+`refresh` is intentionally constrained. It refuses to auto-commit when unrelated dirty files exist, stages only generated graph artifacts, and creates a follow-up commit such as `chore(graph): refresh repository knowledge graph`. By default it syncs an existing `.understand-anything/knowledge-graph.json` into AOC Map. If a stable noninteractive analyzer is available, configure it explicitly with `AOC_UNDERSTAND_REFRESH_CMD`; otherwise use `/skill:understand --full` for graph regeneration and let the hook keep map artifacts aligned.
+
 ## Gap audits
 
 Use the AOC gap skill to compare implemented code reality with Taskmaster tasks/specs, AOC memory/STM decisions, git state, and an optional operator direction:

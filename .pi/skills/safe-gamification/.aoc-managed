@@ -1,0 +1,6 @@
+aoc-managed: true
+asset: skill/safe-gamification
+asset-version: 3
+source: ../.config/aoc/pi/skills/safe-gamification
+sha256: 97243a0089be502e15c11873737eac9b39335e261834cdbb555365132fc25cc1
+updated-at: 2026-05-24T08:52:04Z

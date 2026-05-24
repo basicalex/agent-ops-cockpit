@@ -614,7 +614,11 @@ fn rank_insight_retrieval_source(
         .lines
         .iter()
         .filter_map(|line| {
-            let score = if terms.is_empty() { 1 } else { score_line(line) };
+            let score = if terms.is_empty() {
+                1
+            } else {
+                score_line(line)
+            };
             if score > 0 {
                 Some((line.clone(), score))
             } else {

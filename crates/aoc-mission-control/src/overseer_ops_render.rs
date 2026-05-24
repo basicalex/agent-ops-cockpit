@@ -120,7 +120,10 @@ pub(crate) fn render_overseer_timeline_line(
         .filter(|value| !value.trim().is_empty())
     {
         spans.push(Span::raw(" · "));
-        spans.push(Span::styled(summary.clone(), Style::default().fg(theme.text)));
+        spans.push(Span::styled(
+            summary.clone(),
+            Style::default().fg(theme.text),
+        ));
     }
     if let Some(reason) = entry
         .reason
@@ -128,7 +131,10 @@ pub(crate) fn render_overseer_timeline_line(
         .filter(|value| !value.trim().is_empty())
     {
         spans.push(Span::raw(" · "));
-        spans.push(Span::styled(reason.clone(), Style::default().fg(theme.muted)));
+        spans.push(Span::styled(
+            reason.clone(),
+            Style::default().fg(theme.muted),
+        ));
     }
     spans
 }

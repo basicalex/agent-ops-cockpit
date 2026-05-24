@@ -28,21 +28,31 @@ in_zellij() {
   [[ -n "${ZELLIJ:-}" || -n "${ZELLIJ_SESSION_NAME:-}" ]]
 }
 
-current_tab_name() {
+current_tab_info_field() {
+  local field="$1"
   if ! in_zellij || ! have zellij; then
     return 1
   fi
   zellij action current-tab-info --json 2>/dev/null | python -c '
 import json, sys
+field = sys.argv[1]
 try:
     data = json.load(sys.stdin)
 except Exception:
     raise SystemExit(1)
-name = data.get("name")
-if not isinstance(name, str):
+value = data.get(field)
+if value is None:
     raise SystemExit(1)
-print(name)
-'
+print(value)
+' "$field"
+}
+
+current_tab_name() {
+  current_tab_info_field name
+}
+
+current_tab_position() {
+  current_tab_info_field position
 }
 
 resolve_project_root() {
@@ -66,6 +76,23 @@ rename_active_tab() {
   local next_name="$1"
   [[ -n "$next_name" ]] || return 1
   zellij action rename-tab "$next_name" >/dev/null 2>&1
+}
+
+broadcast_tab_metadata() {
+  local next_name="$1"
+  local root key tab_position payload
+  [[ -n "$next_name" ]] || return 0
+  root="$(resolve_project_root)"
+  key="$(normalize_project_key "$(basename "$root")")"
+  tab_position="$(current_tab_position || true)"
+  payload="target=active"$'\n'
+  payload+="project_root=$root"$'\n'
+  payload+="project_key=$key"$'\n'
+  payload+="tab_name=$next_name"$'\n'
+  if [[ -n "$tab_position" ]]; then
+    payload+="tab_position=$tab_position"$'\n'
+  fi
+  zellij action pipe --name aoc_tab_metadata -- "$payload" >/dev/null 2>&1 || true
 }
 
 if ! in_zellij; then
@@ -104,7 +131,9 @@ case "$command_name" in
     if [[ -z "$label" ]]; then
       label="$(aoc_default_tab_label "$(resolve_project_root)")"
     fi
-    rename_active_tab "$group $label"
+    next_name="$group $label"
+    rename_active_tab "$next_name"
+    broadcast_tab_metadata "$next_name"
     ;;
   clear)
     raw_name="$(current_tab_name || true)"
@@ -113,6 +142,7 @@ case "$command_name" in
       label="$(aoc_default_tab_label "$(resolve_project_root)")"
     fi
     rename_active_tab "$label"
+    broadcast_tab_metadata "$label"
     ;;
   rename)
     if [[ $# -eq 0 ]]; then
@@ -124,10 +154,12 @@ case "$command_name" in
     label="$*"
     group="$(aoc_tab_group_from_name "$raw_name" || true)"
     if [[ -n "$group" ]] && normalized_group="$(aoc_normalize_numeric_tab_group "$group" 2>/dev/null || true)" && [[ -n "$normalized_group" ]]; then
-      rename_active_tab "$normalized_group $label"
+      next_name="$normalized_group $label"
     else
-      rename_active_tab "$label"
+      next_name="$label"
     fi
+    rename_active_tab "$next_name"
+    broadcast_tab_metadata "$next_name"
     ;;
   -h|--help|help)
     usage

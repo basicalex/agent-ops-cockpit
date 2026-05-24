@@ -77,6 +77,7 @@ Shipped presets:
 - `hyperframes`: video/campaign production and render workflow
 - `ops`: production operations, health, deploys, repo mapping, tasks
 - `research`: evidence gathering across web, repo, and source sets
+- `test`: implementation verification, browser QA, preview smoke checks, and regression testing
 
 ## Preset assets
 
@@ -102,6 +103,7 @@ Generic:
 - `/preset hyperframes`
 - `/preset ops`
 - `/preset research`
+- `/preset test`
 - `/preset off`
 - `/preset skills`
 - `/preset handoff`
@@ -118,6 +120,8 @@ Design:
 - `/design-director brand`
 - `/design-director motion`
 - `/design-director premium`
+- `/design-director funnel`
+- `/design-director dashboard`
 - `/design-off`
 
 Motion:
@@ -134,12 +138,13 @@ Motion:
 ## Preset skill routing
 
 Current manifest behavior:
-- design active: `frontend-design`, `architecture-design`, `design-director`
-- design recommended by mode: critique/spec/diff/tokens/brand/premium/funnel/motion specialists only when that mode is selected
+- design active: `frontend-design`, `architecture-design`, `design-director`; dashboard guardrails become active only in `dashboard` mode
+- design recommended by mode: critique/spec/diff/tokens/brand/premium/funnel/motion/dashboard specialists only when that mode is selected
 - hyperframes active: `aoc-hyperframes`
-- hyperframes recommended by mode: `hyperframes`, `website-to-hyperframes`, `hyperframes-cli`, `gsap`
+- hyperframes recommended by mode: `aoc-hyperframes`
 - ops active: none by default; mode recommends `aoc-init-ops`, `vercel-cli`, `rlm-analysis`, `aoc-map`, or `tm-cc`
 - research active: `web-research`; mode recommends `agent-browser` or `rlm-analysis` when useful
+- test active: `architecture-design`, `agent-browser`; modes recommend `rlm-analysis`, `design-review`, or `vercel-cli` when useful
 
 ## Handoff behavior
 
@@ -162,16 +167,18 @@ Use `/preset menu`, `/preset select`, `/preset-menu`, or `Alt+X` to open the mod
 - HyperFrames
 - Ops
 - Research
+- Test
 - Preset off
 
 Inside the navigator:
 - `j` / `k` or arrow keys move
-- `enter` applies the selected umbrella mode
-- `q` / `esc` closes
+- `enter` applies the currently selected item
+- On an umbrella preset with sub-options, `enter` selects the umbrella/default mode, while `l` / `→` opens specific modes
+- `h` / `←` / `esc` goes back from sub-options; `q` closes
 - `x` rotates Caveman level
 - `Alt+X` is the global shortcut to reopen the mode switcher
 
-Focused lenses remain available through slash commands, not nested `Alt+X` menus. Examples: `/design-director spec`, `/hyperframes-director review`, `/preset ops deploy`, `/preset research repo`.
+Focused lenses are available through either nested `Alt+X` sub-options or slash commands. Examples: `/design-director spec`, `/hyperframes-director review`, `/preset ops deploy`, `/preset research repo`.
 
 Changing a preset/mode updates runtime routing immediately: the next agent turn receives the active preset prompt context. It also updates `.pi/settings.json` skill filters. Run `/reload` only when you want Pi's visible skill inventory/list to match the selected preset.
 

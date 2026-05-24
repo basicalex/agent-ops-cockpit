@@ -347,7 +347,10 @@ impl MindRuntimeCore {
         worker_kind: InsightDetachedWorkerKind,
         pid: u32,
     ) -> String {
-        format!("{} queued (pid {pid})", detached_mind_worker_label(worker_kind))
+        format!(
+            "{} queued (pid {pid})",
+            detached_mind_worker_label(worker_kind)
+        )
     }
 
     pub fn detached_spawn_fallback_note(
@@ -382,7 +385,10 @@ impl MindRuntimeCore {
             finished_at_ms: None,
             current_step_index: Some(0),
             step_count: Some(1),
-            output_excerpt: Some(format!("{} queued", detached_mind_worker_label(worker_kind))),
+            output_excerpt: Some(format!(
+                "{} queued",
+                detached_mind_worker_label(worker_kind)
+            )),
             stdout_excerpt: None,
             stderr_excerpt: None,
             error: None,
@@ -401,7 +407,10 @@ impl MindRuntimeCore {
         job.status = InsightDetachedJobStatus::Running;
         job.started_at_ms = Some(started_at_ms);
         job.output_excerpt = note.or_else(|| {
-            Some(format!("{} running", detached_mind_worker_label(worker_kind)))
+            Some(format!(
+                "{} running",
+                detached_mind_worker_label(worker_kind)
+            ))
         });
         job
     }
@@ -779,7 +788,10 @@ impl MindRuntimeCore {
                 runtime: Some("t2_reflector".to_string()),
                 attempt_count: Some(1),
                 latency_ms: None,
-                reason: Some(format!("t2 reflector processed {} job(s)", report.jobs_completed)),
+                reason: Some(format!(
+                    "t2 reflector processed {} job(s)",
+                    report.jobs_completed
+                )),
                 failure_kind: None,
                 enqueued_at: None,
                 started_at: None,
@@ -819,7 +831,9 @@ impl MindRuntimeCore {
         snapshot.t3_jobs_completed = snapshot
             .t3_jobs_completed
             .saturating_add(report.jobs_completed as u64);
-        snapshot.t3_jobs_failed = snapshot.t3_jobs_failed.saturating_add(report.jobs_failed as u64);
+        snapshot.t3_jobs_failed = snapshot
+            .t3_jobs_failed
+            .saturating_add(report.jobs_failed as u64);
         snapshot.t3_jobs_requeued = snapshot
             .t3_jobs_requeued
             .saturating_add(report.jobs_requeued as u64);
@@ -841,7 +855,10 @@ impl MindRuntimeCore {
                 runtime: Some("t3_backlog".to_string()),
                 attempt_count: Some(1),
                 latency_ms: None,
-                reason: Some(format!("t3 backlog processed {} job(s)", report.jobs_completed)),
+                reason: Some(format!(
+                    "t3 backlog processed {} job(s)",
+                    report.jobs_completed
+                )),
                 failure_kind: None,
                 enqueued_at: None,
                 started_at: None,
@@ -987,7 +1004,10 @@ fn truncate_chars(text: String, max_chars: usize) -> String {
     if text.chars().count() <= max_chars {
         return text;
     }
-    let mut truncated = text.chars().take(max_chars.saturating_sub(1)).collect::<String>();
+    let mut truncated = text
+        .chars()
+        .take(max_chars.saturating_sub(1))
+        .collect::<String>();
     truncated.push('…');
     truncated
 }

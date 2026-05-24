@@ -1,0 +1,6 @@
+aoc-managed: true
+asset: pi-extension-family/subagent
+asset-version: 3
+source: ../.config/aoc/pi/extensions/subagent
+sha256: 106fee8f858d969d7e6d6174d32058708b9c469050fa2e299b0d83ed82e1e2af
+updated-at: 2026-05-24T08:52:00Z

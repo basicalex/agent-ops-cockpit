@@ -1,0 +1,7 @@
+{
+  "schemaVersion": 1,
+  "serviceBin": "/home/ceii/.local/bin/aoc-mind-service",
+  "cargoManifest": "/home/ceii/dev/agent-ops-cockpit/crates/Cargo.toml",
+  "sourceRoot": "/home/ceii/dev/agent-ops-cockpit",
+  "source": "project-local-workspace"
+}

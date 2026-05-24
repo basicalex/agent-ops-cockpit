@@ -364,8 +364,10 @@ fn normalize_message_entry(
                 ),
                 latency_ms: None,
                 exit_code: None,
-                output: optional_text(collect_text_content(message.get("content"))),
-                redacted: false,
+                // Never persist tool result output into Mind. Mind keeps tool-call
+                // metadata only; transcript text is limited to user/assistant messages.
+                output: None,
+                redacted: true,
             }))
         }
         "bashExecution" => {
@@ -407,11 +409,10 @@ fn normalize_message_entry(
                 status,
                 latency_ms: None,
                 exit_code,
-                output: message
-                    .get("output")
-                    .and_then(Value::as_str)
-                    .map(ToString::to_string),
-                redacted: false,
+                // Never persist bash output into Mind. Full output remains only in
+                // the Pi session/artifact source of truth, not the Mind store.
+                output: None,
+                redacted: true,
             }))
         }
         "custom" => {
@@ -804,15 +805,6 @@ fn collect_text_content(value: Option<&Value>) -> String {
 
 fn collect_text_blocks_only(value: Option<&Value>) -> String {
     collect_text_content(value)
-}
-
-fn optional_text(text: String) -> Option<String> {
-    let trimmed = text.trim();
-    if trimmed.is_empty() {
-        None
-    } else {
-        Some(trimmed.to_string())
-    }
 }
 
 fn parse_timestamp(value: &str) -> Option<DateTime<Utc>> {

@@ -2,5 +2,5 @@ aoc-managed: true
 asset: pi-extension-family/aoc-presets
 asset-version: 3
 source: ../.config/aoc/pi/extensions/aoc-presets
-sha256: 99c77fdf8f24a351f0164be303d5cfc1c9b24d2ae12ad8a0d272ab0f46d33027
-updated-at: 2026-04-29T08:47:48Z
+sha256: 4dc01fcd31cc248d34d5746b60f6159ec362e613399f57f56ebce50f92da1b5f
+updated-at: 2026-05-24T08:52:00Z

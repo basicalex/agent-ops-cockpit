@@ -3,6 +3,7 @@ import { dirname, join, resolve } from "node:path";
 import type { PresetRuntimeState } from "./state.ts";
 
 const MANAGED_SKILL_NAMES = [
+  "agent-browser",
   "architecture-design",
   "design-diff",
   "design-director",
@@ -12,10 +13,10 @@ const MANAGED_SKILL_NAMES = [
   "design-review",
   "design-spec",
   "design-tokens",
+  "enforce-dashboard-ux-guardrails",
   "frontend-design",
   "funnel-design",
   "motion-director",
-  "safe-gamification",
   "animejs-core-api",
   "animejs-performance-a11y",
   "animejs-react-integration",
@@ -34,12 +35,15 @@ const MANAGED_SKILL_NAMES = [
 
 const MANAGED_SKILL_SET = new Set<string>(MANAGED_SKILL_NAMES);
 const BASE_EXCLUDES = [
+  "!skills/agent-browser",
+  "!skills/custom-layout-ops",
+  "!skills/zellij-theme-ops",
   "!skills/architecture-design",
   "!skills/design-*",
+  "!skills/enforce-dashboard-ux-guardrails",
   "!skills/frontend-design",
   "!skills/funnel-design",
   "!skills/motion-director",
-  "!skills/safe-gamification",
   "!skills/animejs-*",
   "!skills/aoc-hyperframes",
   "!skills/hyperframes",

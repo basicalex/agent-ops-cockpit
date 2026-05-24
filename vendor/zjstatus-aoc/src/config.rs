@@ -706,7 +706,11 @@ mod test {
             ..TabInfo::default()
         }];
 
-        apply_pending_runtime_tab_metadata(&tabs, &mut metadata_by_position, &mut pending_by_tab_name);
+        apply_pending_runtime_tab_metadata(
+            &tabs,
+            &mut metadata_by_position,
+            &mut pending_by_tab_name,
+        );
 
         assert_eq!(
             metadata_by_position.get(&3),

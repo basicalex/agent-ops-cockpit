@@ -12,8 +12,7 @@ use crate::overseer_ops_render::{
     render_orchestrator_tool_line, render_overseer_timeline_line,
 };
 use crate::overseer_worker_render::{
-    render_overseer_mind_line, render_overseer_worker_line,
-    should_render_overseer_attention_reason,
+    render_overseer_mind_line, render_overseer_worker_line, should_render_overseer_attention_reason,
 };
 
 pub(crate) fn render_overseer_lines(
@@ -182,7 +181,6 @@ pub(crate) fn render_overseer_lines(
     lines
 }
 
-
 pub(crate) fn overseer_attention_rank(level: &AttentionLevel) -> usize {
     match level {
         AttentionLevel::Critical => 4,
@@ -200,4 +198,3 @@ pub(crate) fn overseer_drift_rank(risk: &DriftRisk) -> usize {
         DriftRisk::Unknown => 1,
     }
 }
-

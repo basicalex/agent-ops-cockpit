@@ -2,5 +2,5 @@ aoc-managed: true
 asset: layout/design
 asset-version: 3
 source: ../.config/aoc/layouts/design.kdl
-sha256: aeb199dbcc67c66ba085f9473dfd062911af91e03505af4cd1dc54e2e2390d5a
-updated-at: 2026-04-28T17:32:33Z
+sha256: 1c2b462502cd06eed67ef62e8f35ab3c2b63d1b63fdef3fb7840e9849fca4683
+updated-at: 2026-05-24T08:52:06Z

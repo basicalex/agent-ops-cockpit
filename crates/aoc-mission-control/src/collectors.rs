@@ -262,7 +262,11 @@ pub(crate) fn collect_presence_overview(
             let tab_focused = tab_scope_matches(viewer_scope, snapshot.tab_scope.as_deref())
                 || tab_scope_matches(viewer_scope, tab_name.as_deref());
             let mut snippet_parts = Vec::new();
-            if let Some(tool) = snapshot.current_tool.as_deref().filter(|tool| !tool.is_empty()) {
+            if let Some(tool) = snapshot
+                .current_tool
+                .as_deref()
+                .filter(|tool| !tool.is_empty())
+            {
                 snippet_parts.push(format!("tool:{tool}"));
             }
             if let Some(context_pct) = snapshot.context_pct {

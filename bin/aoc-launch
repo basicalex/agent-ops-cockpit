@@ -13,6 +13,43 @@ aoc_config="$HOME/.config/zellij/aoc.config.kdl"
 state_dir="${XDG_STATE_HOME:-$HOME/.local/state}/aoc"
 default_layout_file="${state_dir}/layout_default"
 
+resolve_zellij_bin() {
+  if [[ -n "${AOC_ZELLIJ_BIN:-}" && -x "${AOC_ZELLIJ_BIN:-}" ]]; then
+    printf '%s' "$AOC_ZELLIJ_BIN"
+    return 0
+  fi
+
+  local seen="" candidate version best_version="" best_bin=""
+  local candidates=()
+  while IFS= read -r candidate; do
+    candidates+=("$candidate")
+  done < <(type -P -a zellij 2>/dev/null || true)
+  candidates+=("/usr/local/bin/zellij" "/usr/bin/zellij" "/snap/bin/zellij" "$HOME/.cargo/bin/zellij")
+
+  for candidate in "${candidates[@]}"; do
+    [[ -x "$candidate" ]] || continue
+    case ":$seen:" in *":$candidate:"*) continue ;; esac
+    seen="$seen:$candidate"
+    version="$($candidate --version 2>/dev/null | awk '{print $2; exit}')"
+    [[ -n "$version" ]] || continue
+    if [[ -z "$best_version" || "$(printf '%s\n%s\n' "$best_version" "$version" | sort -V | tail -n 1)" == "$version" ]]; then
+      best_version="$version"
+      best_bin="$candidate"
+    fi
+  done
+
+  if [[ -n "$best_bin" ]]; then
+    printf '%s' "$best_bin"
+    return 0
+  fi
+  command -v zellij
+}
+
+zellij_bin="$(resolve_zellij_bin)"
+export AOC_ZELLIJ_BIN="$zellij_bin"
+PATH="$(dirname "$zellij_bin"):$PATH"
+export PATH
+
 if [[ "${AOC_CLEANUP:-1}" != "0" ]]; then
   if command -v aoc-cleanup >/dev/null 2>&1; then
     cleanup_log="$state_dir/cleanup.log"
@@ -230,9 +267,9 @@ resolve_workspace_root() {
 
 session_has_mission_control_tab() {
   local session_id="$1"
-  command -v zellij >/dev/null 2>&1 || return 1
+  [[ -x "$zellij_bin" ]] || return 1
   local tabs_json
-  tabs_json="$(zellij --session "$session_id" action list-tabs --json 2>/dev/null || true)"
+  tabs_json="$($zellij_bin --session "$session_id" action list-tabs --json 2>/dev/null || true)"
   [[ -n "$tabs_json" ]] || return 1
   python3 - "$tabs_json" <<'PY'
 import json, sys
@@ -503,7 +540,7 @@ if [[ -n "${ZELLIJ:-}" ]]; then
     AOC_HUB_URL="$hub_url" \
     AOC_PROJECT_ROOT="$project_root" \
     AOC_PULSE_CMD="$pulse_cmd" \
-    zellij action new-tab --layout "$layout_arg"
+    "$zellij_bin" action new-tab --layout "$layout_arg"
   aoc_focus_agent_after_new_tab "$layout"
   exit 0
 fi
@@ -531,7 +568,7 @@ if session_name_exists "$session_id"; then
   # -f/--force-run-commands makes Zellij re-run layout commands when attaching
   # to a serialized dead session, avoiding resurrected panes that only show
   # "dead terminal" for yazi, PI agent, Taskmaster, etc.
-  env "${attach_env[@]}" zellij "${config_arg[@]}" attach --force-run-commands "$session_id"
+  env "${attach_env[@]}" "$zellij_bin" "${config_arg[@]}" attach --force-run-commands "$session_id"
   exit 0
 fi
 
@@ -618,4 +655,4 @@ PY
   fi
 fi
 
-env "${attach_env[@]}" zellij "${config_arg[@]}" "${session_arg[@]}" --new-session-with-layout "$layout_arg"
+env "${attach_env[@]}" "$zellij_bin" "${config_arg[@]}" "${session_arg[@]}" --new-session-with-layout "$layout_arg"

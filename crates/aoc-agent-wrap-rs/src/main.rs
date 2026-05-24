@@ -1,5 +1,7 @@
 mod insight_orchestrator;
 
+#[cfg(test)]
+use aoc_core::insight_contracts::{InsightRetrievalMode, InsightRetrievalScope};
 use aoc_core::{
     consultation_contracts::{
         ConsultationBlocker, ConsultationConfidence, ConsultationEvidenceRef,
@@ -44,18 +46,19 @@ use aoc_core::{
     },
     ProjectData, Task, TaskStatus,
 };
+#[cfg(test)]
+use aoc_mind::SessionExportManifest;
 use aoc_mind::{
     build_handshake_export, build_project_mind_export, canonical_mind_command_name,
     execute_manual_compaction_rebuild, execute_manual_t3_requeue_from_manifest, ingest_raw_event,
     mind_handoff_resume_conversation_missing, mind_handshake_rebuild_failed,
     mind_store_path_with_override, persist_handshake_rebuild_snapshot,
-    prepare_handoff_resume_command, prepare_handshake_rebuild,
-    prepare_session_finalize_execution, project_scope_key, reflector_dispatch_lock_path,
-    reflector_lock_path_with_override, t3_dispatch_lock_path, t3_lock_path_with_override,
-    HandshakeProjectSnapshot, HandshakeTaskCounts, HandshakeTaskSummary,
-    HandshakeWorkstreamSummary, MindCommandResultPolicy, MindRuntimeConfig, MindRuntimeCore,
-    MindServiceHealthSnapshot, SessionFinalizeHostPlan, SessionFinalizeMessageSet,
-    SessionFinalizePreparationOutcome, T0IngestConfig,
+    prepare_handoff_resume_command, prepare_handshake_rebuild, prepare_session_finalize_execution,
+    project_scope_key, reflector_dispatch_lock_path, reflector_lock_path_with_override,
+    t3_dispatch_lock_path, t3_lock_path_with_override, HandshakeProjectSnapshot,
+    HandshakeTaskCounts, HandshakeTaskSummary, HandshakeWorkstreamSummary, MindCommandResultPolicy,
+    MindRuntimeConfig, MindRuntimeCore, MindServiceHealthSnapshot, SessionFinalizeHostPlan,
+    SessionFinalizeMessageSet, SessionFinalizePreparationOutcome, T0IngestConfig,
 };
 use aoc_storage::{ArtifactFileLink, CompactionCheckpoint, MindStore};
 use chrono::{TimeZone, Utc};
@@ -93,10 +96,6 @@ use tokio::{
     signal::unix::{signal, SignalKind},
 };
 use tokio_tungstenite::connect_async;
-#[cfg(test)]
-use aoc_core::insight_contracts::{InsightRetrievalMode, InsightRetrievalScope};
-#[cfg(test)]
-use aoc_mind::SessionExportManifest;
 use tracing::{error, info, warn};
 use tracing_subscriber::{fmt::writer::BoxMakeWriter, EnvFilter};
 use url::Url;
@@ -2366,8 +2365,10 @@ impl MindRuntime {
                 status: ToolExecutionStatus::from(!is_error),
                 latency_ms,
                 exit_code,
-                output,
-                redacted: redacted.unwrap_or(false),
+                // Never persist tool result output into Mind. Mind keeps tool-call
+                // metadata only; transcript text is limited to user/assistant messages.
+                output: None,
+                redacted: redacted.unwrap_or(false) || output.is_some(),
             }),
         };
 
@@ -3027,7 +3028,8 @@ impl MindRuntime {
         &mut self,
         now: chrono::DateTime<chrono::Utc>,
     ) -> Result<aoc_mind::ReflectorTickReport, String> {
-        self.core.begin_reflector_tick(&mut self.insight_health, now);
+        self.core
+            .begin_reflector_tick(&mut self.insight_health, now);
         self.core.run_reflector_tick(now)
     }
 
@@ -3091,7 +3093,9 @@ impl MindRuntime {
             .into_iter()
             .find(|job| job.job_id == job_id)
             .unwrap_or_else(|| self.new_mind_t2_job(job_id.to_string(), started_at_ms));
-        let job = self.core.mark_detached_job_running(job, started_at_ms, note);
+        let job = self
+            .core
+            .mark_detached_job_running(job, started_at_ms, note);
         self.persist_mind_detached_job(&job);
     }
 
@@ -3159,9 +3163,10 @@ impl MindRuntime {
             return updates;
         }
 
-        let job_id = decision
-            .job_id
-            .unwrap_or_else(|| self.core.next_detached_job_id(InsightDetachedWorkerKind::T2, now));
+        let job_id = decision.job_id.unwrap_or_else(|| {
+            self.core
+                .next_detached_job_id(InsightDetachedWorkerKind::T2, now)
+        });
         let mut job = self.new_mind_t2_job(job_id.clone(), now.timestamp_millis());
         self.persist_mind_detached_job(&job);
 
@@ -3213,7 +3218,10 @@ impl MindRuntime {
                             InsightDetachedJobStatus::Error,
                             self.core
                                 .runtime_failure_job_summary(InsightDetachedWorkerKind::T2, true),
-                            Some(self.core.compose_runtime_failure_error(Some(&err), &runtime_err)),
+                            Some(
+                                self.core
+                                    .compose_runtime_failure_error(Some(&err), &runtime_err),
+                            ),
                             true,
                         );
                     }
@@ -3340,7 +3348,9 @@ impl MindRuntime {
             .into_iter()
             .find(|job| job.job_id == job_id)
             .unwrap_or_else(|| self.new_mind_t3_job(job_id.to_string(), started_at_ms));
-        let job = self.core.mark_detached_job_running(job, started_at_ms, note);
+        let job = self
+            .core
+            .mark_detached_job_running(job, started_at_ms, note);
         self.persist_mind_detached_job(&job);
     }
 
@@ -3408,9 +3418,10 @@ impl MindRuntime {
             return updates;
         }
 
-        let job_id = decision
-            .job_id
-            .unwrap_or_else(|| self.core.next_detached_job_id(InsightDetachedWorkerKind::T3, now));
+        let job_id = decision.job_id.unwrap_or_else(|| {
+            self.core
+                .next_detached_job_id(InsightDetachedWorkerKind::T3, now)
+        });
         let mut job = self.new_mind_t3_job(job_id.clone(), now.timestamp_millis());
         self.persist_mind_detached_job(&job);
 
@@ -3446,9 +3457,11 @@ impl MindRuntime {
                         );
                     }
                     Err(runtime_err) => {
-                        let effects = self
-                            .core
-                            .apply_t3_runtime_failure(&mut self.insight_health, &runtime_err, now);
+                        let effects = self.core.apply_t3_runtime_failure(
+                            &mut self.insight_health,
+                            &runtime_err,
+                            now,
+                        );
                         updates.extend(
                             effects
                                 .observer_events
@@ -3460,7 +3473,10 @@ impl MindRuntime {
                             InsightDetachedJobStatus::Error,
                             self.core
                                 .runtime_failure_job_summary(InsightDetachedWorkerKind::T3, true),
-                            Some(self.core.compose_runtime_failure_error(Some(&err), &runtime_err)),
+                            Some(
+                                self.core
+                                    .compose_runtime_failure_error(Some(&err), &runtime_err),
+                            ),
                             true,
                         );
                     }
@@ -3526,7 +3542,13 @@ impl MindRuntime {
                             return Ok(0);
                         }
                         let outcome = self.core.reflector_completion_outcome(&report, false);
-                        self.finalize_mind_t2_job(job_id, outcome.status, outcome.summary, None, false);
+                        self.finalize_mind_t2_job(
+                            job_id,
+                            outcome.status,
+                            outcome.summary,
+                            None,
+                            false,
+                        );
                         Ok(outcome.exit_code)
                     }
                     Err(err) => {
@@ -3564,15 +3586,19 @@ impl MindRuntime {
                             return Ok(0);
                         }
                         let outcome = self.core.t3_completion_outcome(&report, false);
-                        self.finalize_mind_t3_job(job_id, outcome.status, outcome.summary, None, false);
+                        self.finalize_mind_t3_job(
+                            job_id,
+                            outcome.status,
+                            outcome.summary,
+                            None,
+                            false,
+                        );
                         Ok(outcome.exit_code)
                     }
                     Err(err) => {
-                        let _ = self.core.apply_t3_runtime_failure(
-                            &mut self.insight_health,
-                            &err,
-                            now,
-                        );
+                        let _ =
+                            self.core
+                                .apply_t3_runtime_failure(&mut self.insight_health, &err, now);
                         self.finalize_mind_t3_job(
                             job_id,
                             InsightDetachedJobStatus::Error,
@@ -5646,7 +5672,9 @@ fn current_pty_size() -> PtySize {
 }
 
 #[cfg(unix)]
-fn spawn_pty_resize_forwarder(master: Arc<StdMutex<Box<dyn MasterPty + Send>>>) -> tokio::task::JoinHandle<()> {
+fn spawn_pty_resize_forwarder(
+    master: Arc<StdMutex<Box<dyn MasterPty + Send>>>,
+) -> tokio::task::JoinHandle<()> {
     tokio::spawn(async move {
         let Ok(mut sigwinch) = signal(SignalKind::window_change()) else {
             return;
@@ -5661,7 +5689,9 @@ fn spawn_pty_resize_forwarder(master: Arc<StdMutex<Box<dyn MasterPty + Send>>>) 
 }
 
 #[cfg(not(unix))]
-fn spawn_pty_resize_forwarder(_master: Arc<StdMutex<Box<dyn MasterPty + Send>>>) -> tokio::task::JoinHandle<()> {
+fn spawn_pty_resize_forwarder(
+    _master: Arc<StdMutex<Box<dyn MasterPty + Send>>>,
+) -> tokio::task::JoinHandle<()> {
     tokio::spawn(async {})
 }
 

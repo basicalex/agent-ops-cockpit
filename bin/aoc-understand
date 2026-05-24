@@ -26,6 +26,10 @@ Commands:
   diff [args...]       Print Pi /skill:understand-diff guidance
   gaps [direction...]  Print Pi /skill:aoc-gaps gap-audit guidance
   map-sync             Create/update an AOC Map overview page from UA graph metadata
+  refresh              Refresh generated graph artifacts and optionally commit them
+  hook install         Install project-local post-commit graph refresh hook
+  hook uninstall       Remove the project-local post-commit graph refresh hook
+  hook status          Show project-local post-commit graph refresh hook status
   open                 Alias for dashboard --open
 
 Options:
@@ -41,6 +45,7 @@ Notes:
   install is explicit; status/doctor never clone, install dependencies, or run analysis.
   analyze/domain/diff/gaps are agent-skill powered; this wrapper makes the correct
   project-root and Pi /skill:<name> flow explicit until UA exposes stable noninteractive CLIs.
+  hook install is opt-in and project-local; it enqueues refresh in the background after commits.
 EOF
 }
 
@@ -128,6 +133,53 @@ sync_project_aoc_gaps_skill() {
 
 project_graph_path() { printf '%s/.understand-anything/knowledge-graph.json\n' "$1"; }
 project_domain_graph_path() { printf '%s/.understand-anything/domain-graph.json\n' "$1"; }
+project_hook_path() { printf '%s/.git/hooks/post-commit\n' "$1"; }
+project_refresh_log_path() { printf '%s/.aoc/logs/understand-refresh.log\n' "$1"; }
+
+is_allowed_refresh_artifact() {
+  case "$1" in
+    .understand-anything/*|.aoc/map/index.html|.aoc/map/manifest.json|.aoc/map/assets/*|.aoc/map/pages/understand-overview.html|.aoc/map/diagrams/understand-overview.mmd)
+      return 0
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+}
+
+repo_has_unrelated_dirty() {
+  local root="$1" path
+  while IFS= read -r path; do
+    [[ -n "$path" ]] || continue
+    if ! is_allowed_refresh_artifact "$path"; then
+      return 0
+    fi
+  done < <(git -C "$root" status --porcelain=v1 -uall | sed -E 's/^...//; s/^.* -> //')
+  return 1
+}
+
+refresh_artifacts_changed() {
+  local root="$1" path
+  while IFS= read -r path; do
+    [[ -n "$path" ]] || continue
+    if is_allowed_refresh_artifact "$path"; then
+      return 0
+    fi
+  done < <(git -C "$root" status --porcelain=v1 -uall | sed -E 's/^...//; s/^.* -> //')
+  return 1
+}
+
+stage_refresh_artifacts() {
+  local root="$1" path staged=0
+  while IFS= read -r path; do
+    [[ -n "$path" ]] || continue
+    if is_allowed_refresh_artifact "$path"; then
+      git -C "$root" add -- "$path"
+      staged=1
+    fi
+  done < <(git -C "$root" status --porcelain=v1 -uall | sed -E 's/^...//; s/^.* -> //')
+  [[ "$staged" == "1" ]]
+}
 
 print_skill_command() {
   local root="$1" slash="$2"
@@ -251,8 +303,126 @@ PY
   fi
 }
 
+install_refresh_hook() {
+  local root="$1" hook log_path
+  [[ -d "$root/.git" ]] || fail "Refresh hook install requires a normal .git directory: $root"
+  hook="$(project_hook_path "$root")"
+  log_path="$(project_refresh_log_path "$root")"
+  mkdir -p "$(dirname "$hook")" "$(dirname "$log_path")"
+  if [[ -f "$hook" ]] && ! grep -q 'AOC Understand graph refresh hook' "$hook" 2>/dev/null; then
+    fail "Refusing to overwrite non-AOC post-commit hook: $hook"
+  fi
+  cat >"$hook" <<'HOOK'
+#!/usr/bin/env bash
+# AOC Understand graph refresh hook
+set -euo pipefail
+
+[[ "${AOC_UNDERSTAND_REFRESH:-0}" == "1" ]] && exit 0
+root="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
+sha="$(git rev-parse --verify HEAD 2>/dev/null || true)"
+log="$root/.aoc/logs/understand-refresh.log"
+mkdir -p "$(dirname "$log")"
+{
+  printf '\n[%s] queued graph refresh for %s\n' "$(date -Iseconds)" "$sha"
+  if command -v aoc-understand >/dev/null 2>&1; then
+    nohup env AOC_UNDERSTAND_REFRESH=1 aoc-understand --root "$root" refresh --source-commit "$sha" --commit >>"$log" 2>&1 &
+  else
+    printf '[%s] aoc-understand not found; skipping\n' "$(date -Iseconds)"
+  fi
+} >>"$log" 2>&1
+HOOK
+  chmod +x "$hook"
+  log "Installed post-commit Understand refresh hook: $hook"
+  log "Refresh log: $log_path"
+}
+
+uninstall_refresh_hook() {
+  local root="$1" hook
+  hook="$(project_hook_path "$root")"
+  if [[ -f "$hook" ]] && grep -q 'AOC Understand graph refresh hook' "$hook" 2>/dev/null; then
+    rm -f "$hook"
+    log "Removed Understand refresh hook: $hook"
+  elif [[ -f "$hook" ]]; then
+    fail "Refusing to remove non-AOC post-commit hook: $hook"
+  else
+    log "No post-commit hook installed at $hook"
+  fi
+}
+
+status_refresh_hook() {
+  local root="$1" hook log_path
+  hook="$(project_hook_path "$root")"
+  log_path="$(project_refresh_log_path "$root")"
+  echo "projectRoot: $root"
+  echo "hookPath: $hook"
+  if [[ -f "$hook" ]] && grep -q 'AOC Understand graph refresh hook' "$hook" 2>/dev/null; then
+    echo "hookInstalled: true"
+  else
+    echo "hookInstalled: false"
+  fi
+  echo "logPath: $log_path"
+  echo "logPresent: $([[ -f "$log_path" ]] && echo true || echo false)"
+}
+
+refresh_generated_artifacts() {
+  local root="$1" source_commit="$2" do_commit="$3" lock_dir message
+  [[ -n "$source_commit" ]] || source_commit="$(git -C "$root" rev-parse --verify HEAD 2>/dev/null || true)"
+  lock_dir="$(git -C "$root" rev-parse --git-path aoc-understand-refresh.lock)"
+  if ! mkdir "$lock_dir" 2>/dev/null; then
+    log "Understand refresh already running; skipping."
+    return 0
+  fi
+  trap 'rm -rf "$lock_dir"' RETURN
+
+  if repo_has_unrelated_dirty "$root"; then
+    warn "Repo has unrelated dirty files; refusing automatic graph refresh commit."
+    warn "Run from a clean worktree or refresh manually with aoc-understand map-sync."
+    return 0
+  fi
+
+  if [[ -n "${AOC_UNDERSTAND_REFRESH_CMD:-}" ]]; then
+    log "Running configured graph refresh command."
+    (cd "$root" && eval "$AOC_UNDERSTAND_REFRESH_CMD")
+  else
+    log "No noninteractive Understand analyzer configured; syncing existing graph into AOC Map."
+  fi
+
+  if [[ -f "$(project_graph_path "$root")" ]]; then
+    map_sync "$root"
+  else
+    warn "No Understand graph found at $(project_graph_path "$root"); nothing to sync."
+    return 0
+  fi
+
+  if ! refresh_artifacts_changed "$root"; then
+    log "No generated graph artifact changes detected."
+    return 0
+  fi
+
+  if [[ "$do_commit" != "1" ]]; then
+    log "Generated graph artifacts changed; leaving them unstaged because --commit was not requested."
+    return 0
+  fi
+
+  stage_refresh_artifacts "$root" || return 0
+  if git -C "$root" diff --cached --quiet --; then
+    log "No staged graph artifact changes detected."
+    return 0
+  fi
+  message="chore(graph): refresh repository knowledge graph"
+  git -C "$root" -c user.useConfigOnly=false commit \
+    -m "$message" \
+    -m "Refresh generated graph artifacts after source commit ${source_commit:-unknown}." \
+    -m "AOC-Source-Commit: ${source_commit:-unknown}" \
+    -m "AOC-Intent: Keep project graph/map artifacts aligned with the committed repository state." \
+    -m "Tests: aoc-understand refresh --source-commit ${source_commit:-unknown} --commit" \
+    -m "Risk: low; stages only generated Understand/AOC Map graph artifacts."
+}
+
 root=""
 open_after=0
+do_commit=0
+source_commit=""
 command=""
 args=()
 while [[ $# -gt 0 ]]; do
@@ -262,6 +432,9 @@ while [[ $# -gt 0 ]]; do
     --source) [[ $# -ge 2 ]] || fail "--source requires a value"; UA_SOURCE="$2"; UA_PLUGIN_DIR="${AOC_UNDERSTAND_PLUGIN_DIR:-$UA_SOURCE/understand-anything-plugin}"; shift 2 ;;
     --ref) [[ $# -ge 2 ]] || fail "--ref requires a value"; UA_REF="$2"; shift 2 ;;
     --repo) [[ $# -ge 2 ]] || fail "--repo requires a value"; UA_REPO_URL="$2"; shift 2 ;;
+    --source-commit) [[ $# -ge 2 ]] || fail "--source-commit requires a value"; source_commit="$2"; shift 2 ;;
+    --commit) do_commit=1; shift ;;
+    --no-commit) do_commit=0; shift ;;
     --open) open_after=1; shift ;;
     --help|-h) usage; exit 0 ;;
     *) if [[ -z "$command" ]]; then command="$1"; else args+=("$1"); fi; shift ;;
@@ -369,6 +542,20 @@ case "$command" in
     root="${root:-$(resolve_root "$PWD")}" || fail "No AOC/git project root found"
     out="$(map_sync "$root")"
     log "Synced Understand graph into AOC Map: $out"
+    ;;
+  refresh)
+    root="${root:-$(resolve_root "$PWD")}" || fail "No AOC/git project root found"
+    refresh_generated_artifacts "$root" "$source_commit" "$do_commit"
+    ;;
+  hook)
+    root="${root:-$(resolve_root "$PWD")}" || fail "No AOC/git project root found"
+    subcommand="${args[0]:-status}"
+    case "$subcommand" in
+      install) install_refresh_hook "$root" ;;
+      uninstall) uninstall_refresh_hook "$root" ;;
+      status) status_refresh_hook "$root" ;;
+      *) fail "Unknown hook subcommand: $subcommand" ;;
+    esac
     ;;
   *)
     usage >&2

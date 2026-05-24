@@ -1,7 +1,7 @@
 use std::{borrow::Cow, cmp, collections::BTreeMap};
 
 use zellij_tile::{
-    prelude::{InputMode, ModeInfo, PaneInfo, PaneManifest, TabInfo},
+    prelude::{InputMode, ModeInfo, PaneInfo, PaneManifest, TabInfo, get_plugin_ids},
     shim::switch_tab_to,
 };
 
@@ -190,8 +190,10 @@ impl Widget for TabsWidget {
             }
         }
 
+        let owner_tab_position = self.owner_tab_position(state);
+
         for tab in &tabs {
-            let content = self.render_tab(tab, &state.panes, &state.mode);
+            let content = self.render_tab(tab, &state.panes, &state.mode, owner_tab_position);
             counter += 1;
 
             output = format!("{}{}", output, content);
@@ -254,10 +256,13 @@ impl Widget for TabsWidget {
             }
         }
 
+        let owner_tab_position = self.owner_tab_position(state);
+
         for tab in &tabs {
             counter += 1;
 
-            let mut rendered_content = self.render_tab(tab, &state.panes, &state.mode);
+            let mut rendered_content =
+                self.render_tab(tab, &state.panes, &state.mode, owner_tab_position);
 
             if counter < tabs.len()
                 && let Some(sep) = &self.separator
@@ -303,6 +308,7 @@ impl TabsWidget {
         let project_palette = self.effective_project_palette(state);
         let active_fg = self.effective_active_fg(state);
         let project_colors = self.project_color_map(state, &tabs, &project_palette);
+        let owner_tab_position = self.owner_tab_position(state);
 
         if truncated_start > 0 {
             for f in &self.tab_truncate_start_format {
@@ -328,6 +334,7 @@ impl TabsWidget {
                 active_fg.as_str(),
                 &state.panes,
                 &state.mode,
+                owner_tab_position,
             ));
         }
 
@@ -351,6 +358,7 @@ impl TabsWidget {
         let project_palette = self.effective_project_palette(state);
         let active_fg = self.effective_active_fg(state);
         let project_colors = self.project_color_map(state, &tabs, &project_palette);
+        let owner_tab_position = self.owner_tab_position(state);
 
         let active_pos = &state
             .tabs
@@ -389,6 +397,7 @@ impl TabsWidget {
                 active_fg.as_str(),
                 &state.panes,
                 &state.mode,
+                owner_tab_position,
             );
             let content_len = console::measure_text_width(&rendered_content);
 
@@ -416,20 +425,25 @@ impl TabsWidget {
         }
     }
 
-    fn select_format(&self, info: &TabInfo, mode: &ModeInfo) -> &Vec<FormattedPart> {
-        if info.active && mode.mode == InputMode::RenameTab {
+    fn select_format(
+        &self,
+        info: &TabInfo,
+        mode: &ModeInfo,
+        visually_active: bool,
+    ) -> &Vec<FormattedPart> {
+        if visually_active && mode.mode == InputMode::RenameTab {
             return &self.rename_tab_format;
         }
 
-        if info.active && info.is_fullscreen_active {
+        if visually_active && info.is_fullscreen_active {
             return &self.active_tab_fullscreen_format;
         }
 
-        if info.active && info.is_sync_panes_active {
+        if visually_active && info.is_sync_panes_active {
             return &self.active_tab_sync_format;
         }
 
-        if info.active {
+        if visually_active {
             return &self.active_tab_format;
         }
 
@@ -454,6 +468,7 @@ impl TabsWidget {
         active_fg: &str,
         panes: &PaneManifest,
         mode: &ModeInfo,
+        owner_tab_position: Option<usize>,
     ) -> String {
         let project_key = self.project_key(state, tab);
         let prev_same_project = prev
@@ -466,7 +481,7 @@ impl TabsWidget {
             .get(&project_key)
             .cloned()
             .unwrap_or_else(|| self.project_palette[0].clone());
-        let label = format!(" {} ", self.render_project_label(tab, panes, mode));
+        let label = format!(" {} ", self.render_project_label(state, tab, panes, mode));
 
         let mut output = String::new();
 
@@ -486,8 +501,13 @@ impl TabsWidget {
             .darken_hex_color(&project_color, 0.68)
             .unwrap_or_else(|| self.project_separator_fg.clone());
 
-        let text_effects: &[&str] = if tab.active { &["bold", "italic"] } else { &[] };
-        let text_color = if tab.active {
+        let visually_active = self.is_visual_tab_active(owner_tab_position, tab);
+        let text_effects: &[&str] = if visually_active {
+            &["bold", "italic"]
+        } else {
+            &[]
+        };
+        let text_color = if visually_active {
             active_fg
         } else {
             inactive_text_color.as_str()
@@ -522,8 +542,32 @@ impl TabsWidget {
         output
     }
 
-    fn render_project_label(&self, tab: &TabInfo, panes: &PaneManifest, mode: &ModeInfo) -> String {
-        let mut label = self.resolved_tab_name(tab, mode).into_owned();
+    fn owner_tab_position(&self, state: &ZellijState) -> Option<usize> {
+        let plugin_id = get_plugin_ids().plugin_id;
+        state.panes.panes.iter().find_map(|(tab_position, panes)| {
+            panes
+                .iter()
+                .any(|pane| pane.is_plugin && pane.id == plugin_id)
+                .then_some(*tab_position)
+        })
+    }
+
+    fn is_visual_tab_active(&self, owner_tab_position: Option<usize>, tab: &TabInfo) -> bool {
+        owner_tab_position
+            .map(|owner_position| tab.position == owner_position)
+            .unwrap_or(tab.active)
+    }
+
+    fn render_project_label(
+        &self,
+        state: &ZellijState,
+        tab: &TabInfo,
+        panes: &PaneManifest,
+        mode: &ModeInfo,
+    ) -> String {
+        let mut label = self
+            .resolved_runtime_tab_name(state, tab, mode)
+            .into_owned();
         let indicators = self.tab_indicator_suffix(tab, panes);
         if !indicators.is_empty() {
             label.push(' ');
@@ -566,12 +610,32 @@ impl TabsWidget {
     }
 
     fn resolved_tab_name<'a>(&self, tab: &'a TabInfo, mode: &ModeInfo) -> Cow<'a, str> {
+        self.resolved_name_from_raw(tab.name.as_str(), mode)
+    }
+
+    fn resolved_runtime_tab_name<'a>(
+        &self,
+        state: &'a ZellijState,
+        tab: &'a TabInfo,
+        mode: &ModeInfo,
+    ) -> Cow<'a, str> {
+        if mode.mode != InputMode::RenameTab
+            && let Some(metadata) = state.runtime_tab_metadata.get(&tab.position)
+            && !metadata.tab_name.trim().is_empty()
+        {
+            return self.resolved_name_from_raw(metadata.tab_name.as_str(), mode);
+        }
+
+        self.resolved_tab_name(tab, mode)
+    }
+
+    fn resolved_name_from_raw<'a>(&self, raw_name: &'a str, mode: &ModeInfo) -> Cow<'a, str> {
         match mode.mode {
-            InputMode::RenameTab => match tab.name.is_empty() {
+            InputMode::RenameTab => match raw_name.is_empty() {
                 true => Cow::Borrowed("Enter name..."),
-                false => Cow::Borrowed(tab.name.as_str()),
+                false => Cow::Borrowed(raw_name),
             },
-            _ => self.parse_grouped_tab_name(tab.name.as_str()).1,
+            _ => self.parse_grouped_tab_name(raw_name).1,
         }
     }
 
@@ -613,8 +677,14 @@ impl TabsWidget {
         indicators.join(" ")
     }
 
-    fn project_key(&self, _state: &ZellijState, tab: &TabInfo) -> String {
-        let (explicit_group, _) = self.parse_grouped_tab_name(tab.name.as_str());
+    fn project_key(&self, state: &ZellijState, tab: &TabInfo) -> String {
+        let raw_name = state
+            .runtime_tab_metadata
+            .get(&tab.position)
+            .map(|metadata| metadata.tab_name.as_str())
+            .filter(|name| !name.trim().is_empty())
+            .unwrap_or(tab.name.as_str());
+        let (explicit_group, _) = self.parse_grouped_tab_name(raw_name);
         if let Some(group) = explicit_group {
             let normalized = self.normalize_project_key(&group);
             if !normalized.is_empty() {
@@ -714,8 +784,18 @@ impl TabsWidget {
             .join("")
     }
 
-    fn render_tab(&self, tab: &TabInfo, panes: &PaneManifest, mode: &ModeInfo) -> String {
-        let formatters = self.select_format(tab, mode);
+    fn render_tab(
+        &self,
+        tab: &TabInfo,
+        panes: &PaneManifest,
+        mode: &ModeInfo,
+        owner_tab_position: Option<usize>,
+    ) -> String {
+        let formatters = self.select_format(
+            tab,
+            mode,
+            self.is_visual_tab_active(owner_tab_position, tab),
+        );
         let mut output = "".to_owned();
 
         for f in formatters.iter() {
@@ -1227,7 +1307,12 @@ mod test {
             ..TabInfo::default()
         };
 
-        assert_eq!(widget.resolved_tab_name(&tab, &ModeInfo::default()).as_ref(), "PI Agent");
+        assert_eq!(
+            widget
+                .resolved_tab_name(&tab, &ModeInfo::default())
+                .as_ref(),
+            "PI Agent"
+        );
         assert_eq!(
             widget
                 .resolved_tab_name(
@@ -1282,5 +1367,32 @@ mod test {
         );
 
         assert_eq!(widget.project_key(&state, &tab), "tab-4");
+    }
+
+    #[test]
+    fn runtime_metadata_overlays_stale_tab_name_before_tab_update() {
+        let widget = TabsWidget::new(&BTreeMap::new());
+        let tab = TabInfo {
+            position: 1,
+            name: "1 Old".to_string(),
+            ..TabInfo::default()
+        };
+        let mut state = ZellijState::default();
+        state.runtime_tab_metadata.insert(
+            1,
+            crate::config::RuntimeTabMetadata {
+                tab_name: "2 New".to_string(),
+                project_key: "agent-ops-cockpit".to_string(),
+                project_root: "/tmp/agent-ops-cockpit".to_string(),
+            },
+        );
+
+        assert_eq!(widget.project_key(&state, &tab), "2");
+        assert_eq!(
+            widget
+                .resolved_runtime_tab_name(&state, &tab, &ModeInfo::default())
+                .as_ref(),
+            "New"
+        );
     }
 }

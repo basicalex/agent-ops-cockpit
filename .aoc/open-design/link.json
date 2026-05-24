@@ -1,0 +1,17 @@
+{
+  "schemaVersion": 1,
+  "kind": "aoc.open-design.link",
+  "projectRoot": "/home/ceii/dev/agent-ops-cockpit",
+  "openDesignSource": "/home/ceii/.local/share/aoc/tools/open-design/source",
+  "openDesignUrl": "http://localhost:7456",
+  "openDesignRef": "main",
+  "designContract": "DESIGN.md",
+  "odArtifactsDir": ".od/artifacts",
+  "aocImportDir": "design-artifacts/od",
+  "hyperframesDesignContract": "hyperframes/docs/DESIGN.md",
+  "notes": [
+    "OD is the GUI design studio; AOC imports polished artifacts for implementation/provenance/campaign scale-out.",
+    "Auth/provider secrets are not managed by this link file."
+  ],
+  "updatedAt": "2026-05-06T12:32:50.735904Z"
+}

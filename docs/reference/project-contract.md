@@ -15,7 +15,7 @@ This page summarizes the project-local files AOC expects after `aoc-init`.
 .pi/prompts/                 # project Pi prompts
 .pi/skills/                  # project Pi skills
 .pi/extensions/              # project Pi extensions
-DESIGN.md                    # root product/design contract
+DESIGN.md                    # root product/design contract; Google Labs design.md-compatible YAML tokens + prose
 AGENTS.md                    # agent rules for the repo
 ```
 
@@ -42,6 +42,7 @@ aoc-init --status         # summarize project readiness
 aoc-handshake --json      # agent startup metadata
 aoc-skill validate --root .
 aoc-doctor
+pnpm design:lint          # validate root DESIGN.md against Google Labs design.md format
 ```
 
 ## HyperFrames add-on

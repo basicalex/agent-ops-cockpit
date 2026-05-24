@@ -1,9 +1,4 @@
-Use root `DESIGN.md` as the handoff contract.
-
-Do not switch into a separate handoff-skill posture by default. Convert design decisions into concise updates or implementation notes that preserve the project design system.
-
-Use these sections when useful:
-- DESIGN.md implications
+Use these sections:
 - What must stay exact
 - What can flex
 - Build notes
@@ -12,4 +7,4 @@ Use these sections when useful:
 - Accessibility
 - QA checklist
 
-Prefer durable design-system guidance over one-off aesthetic commentary.
+Prefer concrete developer-facing guidance over aesthetic commentary.

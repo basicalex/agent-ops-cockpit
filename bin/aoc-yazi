@@ -41,9 +41,13 @@ run_yazi() {
 }
 
 if [[ "$force_kitty_in_zellij" != "0" && $in_zellij -eq 1 && $in_kitty -eq 1 ]]; then
+	# Yazi/kitty image support historically needed ZELLIJ unset, but AOC plugins
+	# still need the real Zellij session/pane to drive Explorer resize actions.
 	env \
 		-u ZELLIJ \
 		-u ZELLIJ_SESSION_NAME \
+		AOC_ZELLIJ_SESSION_NAME="${ZELLIJ_SESSION_NAME:-}" \
+		AOC_ZELLIJ_PANE_ID="${ZELLIJ_PANE_ID:-}" \
 		TERM_PROGRAM="${TERM_PROGRAM:-kitty}" \
 		yazi --cwd-file "$cwd_file" "${args[@]}"
 	exit $?

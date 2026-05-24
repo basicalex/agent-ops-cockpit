@@ -2,7 +2,7 @@ id = "design"
 label = "Design"
 layout = "design"
 defaultMode = "critique"
-version = 4
+version = 5
 
 [runtime]
 controller = "aoc-presets"
@@ -14,19 +14,20 @@ envPreset = "design"
 envMode = "critique"
 
 [components]
-core = ["hook", "core"]
-default = ["hook", "core", "mode-critique"]
+core = ["core"]
+default = ["core", "mode-critique"]
 
 [components.modes]
-critique = ["hook", "core", "mode-critique"]
-spec = ["hook", "core", "mode-spec"]
-diff = ["hook", "core", "mode-diff"]
-handoff = ["hook", "core", "mode-handoff"]
-tokens = ["hook", "core", "mode-tokens"]
-brand = ["hook", "core", "mode-brand"]
-motion = ["hook", "core", "mode-motion"]
-premium = ["hook", "core", "mode-premium"]
-funnel = ["hook", "core", "mode-funnel"]
+critique = ["core", "mode-critique"]
+spec = ["core", "mode-spec"]
+diff = ["core", "mode-diff"]
+handoff = ["core", "mode-handoff"]
+tokens = ["core", "mode-tokens"]
+brand = ["core", "mode-brand"]
+motion = ["core", "mode-motion"]
+premium = ["core", "mode-premium"]
+funnel = ["core", "mode-funnel"]
+dashboard = ["core", "mode-dashboard"]
 
 [commands]
 enable = ["design-director"]
@@ -38,17 +39,19 @@ recommended = []
 
 [skills.activeByMode]
 motion = ["motion-director"]
+dashboard = ["enforce-dashboard-ux-guardrails"]
 
 [skills.recommendedByMode]
 critique = ["design-review"]
 spec = ["design-spec"]
 diff = ["design-diff"]
-handoff = []
+handoff = ["design-handoff"]
 tokens = ["design-tokens"]
 brand = ["design-director"]
 motion = ["motion-director"]
 premium = ["design-premium-ui", "design-redesign"]
 funnel = ["funnel-design"]
+dashboard = ["design-spec", "design-review"]
 
 [skills.recommendedBySubmode]
 plan = ["animejs-scene-planner", "animejs-core-api", "animejs-performance-a11y"]
@@ -72,6 +75,7 @@ brand = "Preserve the intended brand adjectives, supporting cues, and the strong
 motion = "Preserve motion intent, trigger, targets, reduced-motion rules, and performance constraints while staying aligned with the design goal."
 premium = "Preserve the visual direction, anti-generic layout decisions, required UI states, motion restraint, and implementation guardrails that make the build feel premium instead of generic."
 funnel = "Preserve funnel stage, primary conversion event, CTA destinations, proof requirements, analytics/privacy decisions, and post-conversion next steps."
+dashboard = "Preserve dashboard surface, sidebar domains, header actions, dense data regions, empty states, bulk actions, contextual layers, toast feedback, and optimistic UI expectations."
 
 [handoff.submodeNotes]
 plan = "Carry forward motion purpose, target elements, sequencing intent, and reduced-motion fallback expectations."

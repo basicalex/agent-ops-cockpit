@@ -94,6 +94,12 @@ Starting from STM:
 
 Do not use STM for durable decisions, raw logs, every minor task, or information already captured in tasks/specs/commits. Promote durable decisions into `aoc-mem`.
 
+## AOC compaction
+
+AOC seeds a Pi compaction extension at `.pi/extensions/aoc-compaction.ts`. It hooks native `/compact [focus]` and automatic Pi compaction to preserve a small **AOC Operational Context** section in the compaction summary. This keeps post-compaction agents aware of AOC tools and safety rules without loading broad memory, latest STM, full specs, or raw diffs.
+
+The extension may collect bounded metadata from safe commands such as `aoc-handshake --json`, `tm tag current`, `tm show <detected-task-id>`, and `git status --short`. It also includes Pi's recent kept context so newer live evidence can correct stale previous summaries. It should not read protected files directly (`.aoc/memory.md`, `.aoc/stm/current.md`, `.taskmaster/tasks/tasks.json`). Disable it for a run with `AOC_PI_COMPACTION=0` if native Pi compaction is needed.
+
 ## Commit intelligence
 
 Commits are durable engineering checkpoints. Use them to record why work changed, which tasks/PRDs it belongs to, and how it was validated.

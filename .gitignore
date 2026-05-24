@@ -35,7 +35,7 @@ __pycache__/
 
 # Task files
 # tasks.json
-# tasks/ 
+# tasks/
 
 # Task PRDs must stay tracked
 !.taskmaster/docs/prds/
@@ -159,4 +159,3 @@ __pycache__/
 
 # Project-local downloaded tool binaries (reinstall with bin/aoc-obscura-install)
 .aoc/tools/obscura/obscura
-

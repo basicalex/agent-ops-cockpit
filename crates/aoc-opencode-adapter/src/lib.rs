@@ -461,11 +461,6 @@ fn parse_tool_result_event(
         .or_else(|| object.get("code"))
         .and_then(Value::as_i64)
         .and_then(|value| i32::try_from(value).ok());
-    let output = object
-        .get("output")
-        .or_else(|| object.get("result"))
-        .and_then(Value::as_str)
-        .map(ToString::to_string);
     let redacted = object
         .get("redacted")
         .and_then(Value::as_bool)
@@ -476,8 +471,10 @@ fn parse_tool_result_event(
         status,
         latency_ms,
         exit_code,
-        output,
-        redacted,
+        // Never persist tool result output into Mind. Mind keeps tool-call
+        // metadata only; transcript text is limited to user/assistant messages.
+        output: None,
+        redacted: redacted || object.get("output").is_some() || object.get("result").is_some(),
     })
 }
 

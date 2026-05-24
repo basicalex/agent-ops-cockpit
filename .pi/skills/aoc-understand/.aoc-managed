@@ -1,0 +1,6 @@
+aoc-managed: true
+asset: skill/aoc-understand
+asset-version: 3
+source: ../.config/aoc/pi/skills/aoc-understand
+sha256: 45aa33d4a4b2d169147a048895b529aefc13ca322d8c021aa6e3c3fc09f461d4
+updated-at: 2026-05-24T08:52:01Z

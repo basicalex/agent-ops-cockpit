@@ -53,7 +53,8 @@ pub(crate) fn render_mind_lines(
         app.insight_runtime_rollup(),
     );
 
-    let mut lines = render_mind_summary_lines(app, &artifact_snapshot, &detached_jobs, theme, compact);
+    let mut lines =
+        render_mind_summary_lines(app, &artifact_snapshot, &detached_jobs, theme, compact);
 
     if let Some(line) = render_mind_injection_rollup_line(&injection_rows, theme, compact) {
         lines.push(line);

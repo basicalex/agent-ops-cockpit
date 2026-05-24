@@ -149,7 +149,9 @@ pub fn summarize_mind_service_status(
     let lease_expiry_ms = lease
         .map(|lease| lease.expires_at.timestamp_millis())
         .or_else(|| health.and_then(|snapshot| snapshot.lease_expires_at_ms));
-    let lease_active = lease_expiry_ms.map(|value| value >= now_ms).unwrap_or(false);
+    let lease_active = lease_expiry_ms
+        .map(|value| value >= now_ms)
+        .unwrap_or(false);
     let heartbeat_fresh = health
         .and_then(|snapshot| snapshot.last_heartbeat_ms)
         .map(|value| now_ms.saturating_sub(value) <= DEFAULT_MIND_SERVICE_STALE_AFTER_MS)
@@ -206,7 +208,12 @@ pub fn summarize_mind_service_status(
 
     if health.is_some() || lease.is_some() {
         return MindServiceStatusSummary {
-            state: if lifecycle == "idle" { "idle" } else { "inactive" }.to_string(),
+            state: if lifecycle == "idle" {
+                "idle"
+            } else {
+                "inactive"
+            }
+            .to_string(),
             stale: false,
             lease_active: false,
             heartbeat_fresh,
@@ -778,11 +785,8 @@ mod tests {
             lease_expires_at_ms: Some(running_lease.expires_at.timestamp_millis()),
             ..MindServiceHealthSnapshot::default()
         };
-        let running = summarize_mind_service_status(
-            Some(&running_lease),
-            Some(&running_health),
-            now_ms,
-        );
+        let running =
+            summarize_mind_service_status(Some(&running_lease), Some(&running_health), now_ms);
         assert_eq!(running.state, "running");
         assert!(!running.stale);
         assert!(running.lease_active);

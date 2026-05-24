@@ -382,7 +382,7 @@ PY
 managed_pi_skill_name() {
   local skill_name="$1"
   case "$skill_name" in
-    aoc-hyperframes|aoc-init-ops|aoc-map|aoc-understand|architecture-design|custom-layout-ops|design-diff|design-director|design-handoff|design-premium-ui|design-redesign|design-review|design-spec|design-tokens|frontend-design|funnel-design|safe-gamification|motion-director|spec-rpg-authoring|prd-rpg-authoring|rlm-analysis|teach-workflow|tm-cc|vercel-cli|web-research|zellij-theme-ops)
+    aoc-hyperframes|aoc-init-ops|aoc-map|aoc-understand|architecture-design|custom-layout-ops|design-diff|design-director|design-handoff|design-premium-ui|design-redesign|design-review|design-spec|design-tokens|enforce-dashboard-ux-guardrails|frontend-design|funnel-design|safe-gamification|motion-director|spec-rpg-authoring|prd-rpg-authoring|rlm-analysis|teach-workflow|tm-cc|vercel-cli|web-research|zellij-theme-ops)
       return 0
       ;;
     *)
@@ -394,7 +394,7 @@ managed_pi_skill_name() {
 managed_pi_extension_name() {
   local extension_name="$1"
   case "$extension_name" in
-    minimal.ts|themeMap.ts|mind-ingest.ts|mind-ops.ts|mind-context.ts|mind-focus.ts|aoc-models.ts|subagent.ts|lib/mind.ts|lib/caveman.ts)
+    minimal.ts|themeMap.ts|mind-ingest.ts|mind-ops.ts|mind-context.ts|mind-focus.ts|aoc-models.ts|aoc-agent-presence.ts|aoc-compaction.ts|subagent.ts|lib/mind.ts|lib/caveman.ts)
       return 0
       ;;
     *)
@@ -1821,9 +1821,9 @@ description: Initialize or repair AOC context, memory, and tasks safely.
 - Seeds `.pi/settings.json` when missing
 - Seeds core PI prompt templates in `.pi/prompts/` (`/aoc-ops`, `/tm-cc`, `/implement`, `/handoff`, `/rresume`, `/commit`) when missing
 - Keeps optional teaching/video prompts in `.pi/prompts-optional/production-hidden/`
-- Seeds PI default extensions in `.pi/extensions/` (`minimal.ts`, `themeMap.ts`, `mind-ingest.ts`, `mind-ops.ts`, `mind-context.ts`, `mind-focus.ts`, `aoc-models.ts`, `subagent.ts`, plus `lib/mind.ts` and `lib/caveman.ts`) when missing
+- Seeds PI default extensions in `.pi/extensions/` (`minimal.ts`, `themeMap.ts`, `mind-ingest.ts`, `mind-ops.ts`, `mind-context.ts`, `mind-focus.ts`, `aoc-models.ts`, `aoc-compaction.ts`, `subagent.ts`, plus `lib/mind.ts` and `lib/caveman.ts`) when missing
 - Seeds the preset runtime family in `.pi/extensions/aoc-presets/` when missing
-- Seeds reusable preset assets in `.aoc/presets/{design,hyperframes,ops,research}/` and `.aoc/layouts/design.kdl` when missing
+- Seeds reusable preset assets in `.aoc/presets/{design,hyperframes,ops,research,test}/` and `.aoc/layouts/design.kdl` when missing
 - Seeds `.aoc/init-state.json` with the current AOC project version and applies version-specific migrations on older repos
 - Seeds the vendored local PI multi-auth package at `.pi/packages/pi-multi-auth-aoc` and wires `.pi/settings.json` to load it only when the package is available
 - Removes legacy global npm `pi-multi-auth` package entries from `~/.pi/agent/settings.json` to avoid duplicate extension loading
@@ -2071,6 +2071,8 @@ default_extensions = [
     "extensions/mind-context.ts",
     "extensions/mind-focus.ts",
     "extensions/aoc-models.ts",
+    "extensions/aoc-agent-presence.ts",
+    "extensions/aoc-compaction.ts",
     "extensions/aoc-presets/index.ts",
     "extensions/subagent.ts",
 ]
@@ -2078,8 +2080,12 @@ default_skill_filters = [
     "!skills/prd-rpg-authoring",
     "!skills/tmcc",
     "!skills/teach-workflow",
+    "!skills/agent-browser",
+    "!skills/custom-layout-ops",
+    "!skills/zellij-theme-ops",
     "!skills/architecture-design",
     "!skills/design-*",
+    "!skills/enforce-dashboard-ux-guardrails",
     "!skills/frontend-design",
     "!skills/funnel-design",
     "!skills/motion-director",
@@ -2567,6 +2573,8 @@ setup_pi_extensions() {
     "mind-context.ts"
     "mind-focus.ts"
     "aoc-models.ts"
+    "aoc-agent-presence.ts"
+    "aoc-compaction.ts"
     "subagent.ts"
     "lib/mind.ts"
     "lib/caveman.ts"
@@ -2669,6 +2677,167 @@ setup_pi_extensions() {
 
   if [[ "$seeded_any" != "1" ]]; then
     log "PI default extensions already present in .pi/extensions. Preserving."
+  fi
+}
+
+setup_search_assets() {
+  local search_file="$project_root/.aoc/search.toml"
+  local searxng_dir="$project_root/.aoc/services/searxng"
+  local compose_file="$searxng_dir/docker-compose.yml"
+  local settings_file="$searxng_dir/settings.yml"
+  local global_search_dir="$aoc_config_dir/search"
+  local global_services_dir="$aoc_config_dir/services/searxng"
+
+  mkdir -p "$project_root/.aoc" "$searxng_dir" "$global_search_dir" "$global_services_dir"
+
+  if [[ ! -f "$search_file" ]]; then
+    cat > "$search_file" <<'EOF'
+version = 1
+
+[search]
+enabled = true
+provider = "searxng"
+managed = true
+auto_start = true
+
+[search.runtime]
+base_url = "http://127.0.0.1:8888"
+healthcheck_url = "http://127.0.0.1:8888/search?q=python+documentation&format=json&engines=bing%2Cmojeek%2Cpresearch%2Cwiby%2Cduckduckgo"
+compose_file = ".aoc/services/searxng/docker-compose.yml"
+service_name = "searxng"
+
+[search.query_defaults]
+format = "json"
+language = "en"
+categories = "general"
+safe_search = 0
+
+[search.agent_policy]
+allow_auto_start = true
+prompt_when_missing = true
+prompt_when_unhealthy = true
+EOF
+    log "Seeded AOC search config: .aoc/search.toml"
+  fi
+
+  if [[ ! -f "$compose_file" ]]; then
+    cat > "$compose_file" <<'EOF'
+services:
+  searxng:
+    image: docker.io/searxng/searxng:latest
+    container_name: aoc-searxng
+    ports:
+      - "127.0.0.1:8888:8080"
+    volumes:
+      - ./settings.yml:/etc/searxng/settings.yml
+    restart: unless-stopped
+EOF
+    log "Seeded AOC SearXNG compose file."
+  fi
+
+  if [[ ! -f "$settings_file" ]]; then
+    cat > "$settings_file" <<'EOF'
+use_default_settings: true
+server:
+  secret_key: "aoc-searxng-local-dev-key"
+  bind_address: "0.0.0.0"
+  port: 8080
+  limiter: false
+search:
+  safe_search: 0
+  autocomplete: ""
+  formats:
+    - html
+    - json
+    - csv
+    - rss
+engines:
+  - name: google
+    disabled: true
+  - name: duckduckgo
+    disabled: true
+  - name: brave
+    disabled: true
+  - name: ahmia
+    disabled: true
+  - name: torch
+    disabled: true
+EOF
+    log "Seeded AOC SearXNG settings."
+  fi
+
+  cp "$search_file" "$global_search_dir/search.toml" || true
+  cp "$compose_file" "$global_services_dir/docker-compose.yml" || true
+  cp "$settings_file" "$global_services_dir/settings.yml" || true
+}
+
+setup_pi_agents() {
+  local pi_agents_dir="$project_root/.pi/agents"
+  local global_agents_dir="$aoc_config_dir/pi/agents"
+  local canonical_seed_dirs=(
+    "$script_dir/../.pi/agents"
+    "$global_agents_dir"
+  )
+  local required_agent_files=(
+    "explorer-agent.md"
+    "planner-agent.md"
+    "builder-agent.md"
+    "code-review-agent.md"
+    "documenter-agent.md"
+    "red-team-agent.md"
+    "testing-agent.md"
+    "scout-web-agent.md"
+    "insight-t1-observer.md"
+    "insight-t2-reflector.md"
+    "insight-t3-aligner.md"
+    "teams.yaml"
+    "agent-chain.yaml"
+  )
+
+  mkdir -p "$pi_agents_dir" "$global_agents_dir"
+
+  local seeded_any=0
+  local agent_file=""
+  local candidate=""
+  local seed_file=""
+  local target_file=""
+  local cache_file=""
+
+  for agent_file in "${required_agent_files[@]}"; do
+    seed_file=""
+    for candidate in "${canonical_seed_dirs[@]}"; do
+      if [[ -f "$candidate/$agent_file" ]]; then
+        seed_file="$candidate/$agent_file"
+        break
+      fi
+    done
+
+    if [[ -z "$seed_file" ]]; then
+      warn "Missing PI agent template: $agent_file"
+      continue
+    fi
+
+    target_file="$pi_agents_dir/$agent_file"
+    cache_file="$global_agents_dir/$agent_file"
+
+    if [[ ! -f "$target_file" ]]; then
+      cp "$seed_file" "$target_file"
+      log "Seeded PI agent: $agent_file"
+      seeded_any=1
+    else
+      log "PI agent $agent_file already present. Preserving."
+    fi
+
+    if [[ "$seed_file" != "$cache_file" ]]; then
+      if [[ ! -f "$cache_file" ]] || ! cmp -s "$seed_file" "$cache_file"; then
+        cp "$seed_file" "$cache_file" || true
+        log "Refreshed global PI agent template: $agent_file"
+      fi
+    fi
+  done
+
+  if [[ "$seeded_any" != "1" ]]; then
+    log "PI default agents already present in .pi/agents. Preserving."
   fi
 }
 
@@ -2789,6 +2958,7 @@ setup_aoc_preset_assets() {
   seed_aoc_preset_asset "hyperframes"
   seed_aoc_preset_asset "ops"
   seed_aoc_preset_asset "research"
+  seed_aoc_preset_asset "test"
 
   if [[ -d "$project_root/${AOC_HYPERFRAMES_DIR:-hyperframes}" ]]; then
     ensure_hyperframes_workspace_package
@@ -3420,6 +3590,8 @@ main() {
   cleanup_deprecated_pi_skills
   setup_pi_extensions
   setup_pi_extension_families
+  setup_pi_agents
+  setup_search_assets
   migrate_legacy_pi_assets
   setup_pi_prompts
   setup_pi_skills

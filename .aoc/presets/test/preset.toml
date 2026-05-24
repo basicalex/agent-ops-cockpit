@@ -1,0 +1,47 @@
+id = "test"
+label = "AOC Test"
+defaultMode = "verify"
+version = 1
+
+[runtime]
+controller = "aoc-presets"
+statusBadge = "TEST"
+persistSessionState = true
+
+[activation]
+envPreset = "test"
+envMode = "verify"
+
+[components]
+core = ["hook", "core"]
+default = ["hook", "core", "mode-verify"]
+
+[components.modes]
+verify = ["hook", "core", "mode-verify"]
+browser = ["hook", "core", "mode-browser"]
+regression = ["hook", "core", "mode-regression"]
+preview = ["hook", "core", "mode-preview"]
+
+[skills]
+active = ["architecture-design", "agent-browser"]
+recommended = []
+
+[skills.recommendedByMode]
+verify = ["rlm-analysis"]
+browser = ["design-review"]
+regression = ["rlm-analysis"]
+preview = ["vercel-cli"]
+
+[handoff]
+enabled = true
+
+[handoff.modeNotes]
+verify = "Preserve changed surfaces, acceptance criteria, exact commands run, browser observations, failures, and remaining confidence gaps."
+browser = "Preserve target URL/route, viewport, user journey, screenshots or DOM evidence, console/network failures, and reproducible steps."
+regression = "Preserve baseline behavior, changed files, targeted test scope, failing/passing commands, and risks not covered."
+preview = "Preserve preview URL, deployment target, env/project, logs inspected, browser checks, and rollback/alias notes."
+
+[integrations.mind]
+policy = "focused"
+available = true
+default = "off"

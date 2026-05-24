@@ -56,6 +56,8 @@ aoc-stm add "note"                   # short-term handoff draft note
 aoc-stm handoff --purpose continue --to builder --focus "next safe step"
 # In Pi: /handoff focusing on the next safe step
 # In Pi: /rresume  # safely load latest sealed handoff when safe
+# In Pi: /compact focus on changed files and next safe actions
+# AOC's compaction extension preserves AOC tool/safety context across compactions.
 aoc-doctor              # health check
 ```
 

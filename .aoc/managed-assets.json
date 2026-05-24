@@ -4,55 +4,82 @@
     ".aoc/layouts/design.kdl": {
       "asset": "layout/design",
       "assetVersion": 3,
-      "expectedSha256": "aeb199dbcc67c66ba085f9473dfd062911af91e03505af4cd1dc54e2e2390d5a",
+      "expectedSha256": "1c2b462502cd06eed67ef62e8f35ab3c2b63d1b63fdef3fb7840e9849fca4683",
       "marker": ".aoc/layouts/design.kdl.aoc-managed",
-      "sha256": "aeb199dbcc67c66ba085f9473dfd062911af91e03505af4cd1dc54e2e2390d5a",
+      "sha256": "1c2b462502cd06eed67ef62e8f35ab3c2b63d1b63fdef3fb7840e9849fca4683",
       "source": "../.config/aoc/layouts/design.kdl",
       "status": "current"
     },
     ".aoc/presets/design": {
       "asset": "preset/design",
       "assetVersion": 3,
-      "expectedSha256": "42f370eca324aca19adde0a305b057d5296f584d81519f89afa32ee7089a3d96",
+      "expectedSha256": "66ee8af82f27bcce2f25dd6fa3714d3dfcb806dba2db669da25098109bd6189e",
       "marker": ".aoc/presets/design/.aoc-managed",
-      "sha256": "42f370eca324aca19adde0a305b057d5296f584d81519f89afa32ee7089a3d96",
+      "sha256": "66ee8af82f27bcce2f25dd6fa3714d3dfcb806dba2db669da25098109bd6189e",
       "source": "../.config/aoc/presets/design",
       "status": "current"
     },
     ".aoc/presets/hyperframes": {
       "asset": "preset/hyperframes",
       "assetVersion": 3,
-      "expectedSha256": "f24e52d66888682039ddbf29d740d83f49e10e72b62fbe05cb76a1ad6df34548",
+      "expectedSha256": "e0aaec535e95585b73839c5a9a4afb1aef5e17a83740b04dbfee1bbbfc436c4b",
       "marker": ".aoc/presets/hyperframes/.aoc-managed",
-      "sha256": "f24e52d66888682039ddbf29d740d83f49e10e72b62fbe05cb76a1ad6df34548",
+      "sha256": "e0aaec535e95585b73839c5a9a4afb1aef5e17a83740b04dbfee1bbbfc436c4b",
       "source": "../.config/aoc/presets/hyperframes",
+      "status": "current"
+    },
+    ".aoc/presets/ops": {
+      "asset": "preset/ops",
+      "assetVersion": 3,
+      "expectedSha256": "63142ff9ec383188d83ecf75505a2324c80118b9f517c292cff7e0f8f2f2617e",
+      "marker": ".aoc/presets/ops/.aoc-managed",
+      "sha256": "63142ff9ec383188d83ecf75505a2324c80118b9f517c292cff7e0f8f2f2617e",
+      "source": "../.config/aoc/presets/ops",
+      "status": "current"
+    },
+    ".aoc/presets/research": {
+      "asset": "preset/research",
+      "assetVersion": 3,
+      "expectedSha256": "db3a38c19330c414dd5b889dc12a6f6de6d4ae52230293b3047a473dc37f76aa",
+      "marker": ".aoc/presets/research/.aoc-managed",
+      "sha256": "db3a38c19330c414dd5b889dc12a6f6de6d4ae52230293b3047a473dc37f76aa",
+      "source": "../.config/aoc/presets/research",
+      "status": "current"
+    },
+    ".aoc/presets/test": {
+      "asset": "preset/test",
+      "assetVersion": 3,
+      "expectedSha256": "d06a9b32ac516c4e5c1d80ee1e77276289a79e7cee7cb634ba73cd86cd5fa4cc",
+      "marker": ".aoc/presets/test/.aoc-managed",
+      "sha256": "d06a9b32ac516c4e5c1d80ee1e77276289a79e7cee7cb634ba73cd86cd5fa4cc",
+      "source": "../.config/aoc/presets/test",
       "status": "current"
     },
     ".pi/extensions/aoc-presets": {
       "asset": "pi-extension-family/aoc-presets",
       "assetVersion": 3,
-      "expectedSha256": "3a2a871d039a8d3bb78a988887cedfd1aef61c638a738ff20d72e37ff08ee0c7",
+      "expectedSha256": "4dc01fcd31cc248d34d5746b60f6159ec362e613399f57f56ebce50f92da1b5f",
       "marker": ".pi/extensions/aoc-presets/.aoc-managed",
-      "sha256": "3a2a871d039a8d3bb78a988887cedfd1aef61c638a738ff20d72e37ff08ee0c7",
+      "sha256": "4dc01fcd31cc248d34d5746b60f6159ec362e613399f57f56ebce50f92da1b5f",
       "source": "../.config/aoc/pi/extensions/aoc-presets",
+      "status": "current"
+    },
+    ".pi/extensions/subagent": {
+      "asset": "pi-extension-family/subagent",
+      "assetVersion": 3,
+      "expectedSha256": "106fee8f858d969d7e6d6174d32058708b9c469050fa2e299b0d83ed82e1e2af",
+      "marker": ".pi/extensions/subagent/.aoc-managed",
+      "sha256": "106fee8f858d969d7e6d6174d32058708b9c469050fa2e299b0d83ed82e1e2af",
+      "source": "../.config/aoc/pi/extensions/subagent",
       "status": "current"
     },
     ".pi/packages/pi-multi-auth-aoc": {
       "asset": "pi-package/pi-multi-auth-aoc",
       "assetVersion": 3,
-      "expectedSha256": "d2dde14d408d339c4e285079c7f6b921f18a0f5226f048034d366b581114edab",
+      "expectedSha256": "95e3a384e38a6f75858bf111ff19ac0599482ce210dd5d7a64e7f4689103a303",
       "marker": ".pi/packages/pi-multi-auth-aoc/.aoc-managed",
-      "sha256": "d2dde14d408d339c4e285079c7f6b921f18a0f5226f048034d366b581114edab",
+      "sha256": "95e3a384e38a6f75858bf111ff19ac0599482ce210dd5d7a64e7f4689103a303",
       "source": "../.config/aoc/pi/packages/pi-multi-auth-aoc",
-      "status": "current"
-    },
-    ".pi/skills/aoc-commit": {
-      "asset": "skill/aoc-commit",
-      "assetVersion": 3,
-      "expectedSha256": "f2cde6bef8528a58314622c22d7b0d0fdbca52f3b7983253e1ad392ef9026f6b",
-      "marker": ".pi/skills/aoc-commit/.aoc-managed",
-      "sha256": "f2cde6bef8528a58314622c22d7b0d0fdbca52f3b7983253e1ad392ef9026f6b",
-      "source": "../.config/aoc/pi/skills/aoc-commit",
       "status": "current"
     },
     ".pi/skills/aoc-hyperframes": {
@@ -67,9 +94,9 @@
     ".pi/skills/aoc-init-ops": {
       "asset": "skill/aoc-init-ops",
       "assetVersion": 3,
-      "expectedSha256": "635ba3b24709d9ecb2899901badbd0718576add6eaa56072a8aa28e1c22b6a46",
+      "expectedSha256": "6baf13922be5fea6063ebe7564b85aa0a8bd1f93d5be53a3e940bb4fa66c235d",
       "marker": ".pi/skills/aoc-init-ops/.aoc-managed",
-      "sha256": "635ba3b24709d9ecb2899901badbd0718576add6eaa56072a8aa28e1c22b6a46",
+      "sha256": "6baf13922be5fea6063ebe7564b85aa0a8bd1f93d5be53a3e940bb4fa66c235d",
       "source": "../.config/aoc/pi/skills/aoc-init-ops",
       "status": "current"
     },
@@ -80,6 +107,24 @@
       "marker": ".pi/skills/aoc-map/.aoc-managed",
       "sha256": "000954162e01e3d47617e0d9b4f754dfc3585ded0c5e747b6c443d20732e8863",
       "source": "../.config/aoc/pi/skills/aoc-map",
+      "status": "current"
+    },
+    ".pi/skills/aoc-understand": {
+      "asset": "skill/aoc-understand",
+      "assetVersion": 3,
+      "expectedSha256": "45aa33d4a4b2d169147a048895b529aefc13ca322d8c021aa6e3c3fc09f461d4",
+      "marker": ".pi/skills/aoc-understand/.aoc-managed",
+      "sha256": "45aa33d4a4b2d169147a048895b529aefc13ca322d8c021aa6e3c3fc09f461d4",
+      "source": "../.config/aoc/pi/skills/aoc-understand",
+      "status": "current"
+    },
+    ".pi/skills/architecture-design": {
+      "asset": "skill/architecture-design",
+      "assetVersion": 3,
+      "expectedSha256": "28596583c13cfb0d6eaec3abc9e3296001ee194e978e21882cfa7522972423af",
+      "marker": ".pi/skills/architecture-design/.aoc-managed",
+      "sha256": "28596583c13cfb0d6eaec3abc9e3296001ee194e978e21882cfa7522972423af",
+      "source": "../.config/aoc/pi/skills/architecture-design",
       "status": "current"
     },
     ".pi/skills/custom-layout-ops": {
@@ -163,6 +208,33 @@
       "source": "../.config/aoc/pi/skills/design-tokens",
       "status": "current"
     },
+    ".pi/skills/enforce-dashboard-ux-guardrails": {
+      "asset": "skill/enforce-dashboard-ux-guardrails",
+      "assetVersion": 3,
+      "expectedSha256": "0867aa7e737e91bb544de8bb96329c29e795bdc17f5645b37caac1ab27d5dcee",
+      "marker": ".pi/skills/enforce-dashboard-ux-guardrails/.aoc-managed",
+      "sha256": "0867aa7e737e91bb544de8bb96329c29e795bdc17f5645b37caac1ab27d5dcee",
+      "source": "../.config/aoc/pi/skills/enforce-dashboard-ux-guardrails",
+      "status": "current"
+    },
+    ".pi/skills/frontend-design": {
+      "asset": "skill/frontend-design",
+      "assetVersion": 3,
+      "expectedSha256": "5302fb1270b962bac6aa443ee2b5aff6e857dbf3c0972a7a12a03ff22b29fa2f",
+      "marker": ".pi/skills/frontend-design/.aoc-managed",
+      "sha256": "5302fb1270b962bac6aa443ee2b5aff6e857dbf3c0972a7a12a03ff22b29fa2f",
+      "source": "../.config/aoc/pi/skills/frontend-design",
+      "status": "current"
+    },
+    ".pi/skills/funnel-design": {
+      "asset": "skill/funnel-design",
+      "assetVersion": 3,
+      "expectedSha256": "015c50a2ecd29e00457384aa8a3a17c0731200058685d7478bbdf56ddff54d10",
+      "marker": ".pi/skills/funnel-design/.aoc-managed",
+      "sha256": "015c50a2ecd29e00457384aa8a3a17c0731200058685d7478bbdf56ddff54d10",
+      "source": "../.config/aoc/pi/skills/funnel-design",
+      "status": "current"
+    },
     ".pi/skills/motion-director": {
       "asset": "skill/motion-director",
       "assetVersion": 3,
@@ -175,9 +247,9 @@
     ".pi/skills/prd-rpg-authoring": {
       "asset": "skill/prd-rpg-authoring",
       "assetVersion": 3,
-      "expectedSha256": "ce78a2a721e453814e1307be957f8469624f62afd837ef1145606f765f030304",
+      "expectedSha256": "afafc573d579a6a191a0ecfe7e550d65cdb95958dca51cdba151729666bbd724",
       "marker": ".pi/skills/prd-rpg-authoring/.aoc-managed",
-      "sha256": "ce78a2a721e453814e1307be957f8469624f62afd837ef1145606f765f030304",
+      "sha256": "afafc573d579a6a191a0ecfe7e550d65cdb95958dca51cdba151729666bbd724",
       "source": "../.config/aoc/pi/skills/prd-rpg-authoring",
       "status": "current"
     },
@@ -190,21 +262,39 @@
       "source": "../.config/aoc/pi/skills/rlm-analysis",
       "status": "current"
     },
+    ".pi/skills/safe-gamification": {
+      "asset": "skill/safe-gamification",
+      "assetVersion": 3,
+      "expectedSha256": "97243a0089be502e15c11873737eac9b39335e261834cdbb555365132fc25cc1",
+      "marker": ".pi/skills/safe-gamification/.aoc-managed",
+      "sha256": "97243a0089be502e15c11873737eac9b39335e261834cdbb555365132fc25cc1",
+      "source": "../.config/aoc/pi/skills/safe-gamification",
+      "status": "current"
+    },
+    ".pi/skills/spec-rpg-authoring": {
+      "asset": "skill/spec-rpg-authoring",
+      "assetVersion": 3,
+      "expectedSha256": "834f069461031316226821b6a7175210c1d48ea97e27855ae1280212a074f817",
+      "marker": ".pi/skills/spec-rpg-authoring/.aoc-managed",
+      "sha256": "834f069461031316226821b6a7175210c1d48ea97e27855ae1280212a074f817",
+      "source": "../.config/aoc/pi/skills/spec-rpg-authoring",
+      "status": "current"
+    },
     ".pi/skills/teach-workflow": {
       "asset": "skill/teach-workflow",
       "assetVersion": 3,
-      "expectedSha256": "bd0d2e9bdb9f5628f3385eb2420c1420c704d7759072f97940a42787fb8c15db",
+      "expectedSha256": "5e55b0e184599a7ffc05a4eb3a7bc30ec8f52730aebed22405bacc668e4c2d10",
       "marker": ".pi/skills/teach-workflow/.aoc-managed",
-      "sha256": "bd0d2e9bdb9f5628f3385eb2420c1420c704d7759072f97940a42787fb8c15db",
+      "sha256": "5e55b0e184599a7ffc05a4eb3a7bc30ec8f52730aebed22405bacc668e4c2d10",
       "source": "../.config/aoc/pi/skills/teach-workflow",
       "status": "current"
     },
     ".pi/skills/tm-cc": {
       "asset": "skill/tm-cc",
       "assetVersion": 3,
-      "expectedSha256": "ee3c1e6d015393d4e5ce65fd319f4abb71a60622677f9547d68a7a7532de65fe",
+      "expectedSha256": "bf18338a71c856dd9b23188e5dfecfbbe95bb66e2498602af294c1dd7e2482af",
       "marker": ".pi/skills/tm-cc/.aoc-managed",
-      "sha256": "ee3c1e6d015393d4e5ce65fd319f4abb71a60622677f9547d68a7a7532de65fe",
+      "sha256": "bf18338a71c856dd9b23188e5dfecfbbe95bb66e2498602af294c1dd7e2482af",
       "source": "../.config/aoc/pi/skills/tm-cc",
       "status": "current"
     },
@@ -220,9 +310,9 @@
     ".pi/skills/web-research": {
       "asset": "skill/web-research",
       "assetVersion": 3,
-      "expectedSha256": "ea787fd29f7bf2df4184b43cc0517389ef31a7fd8f9721fb5e1aced138ed9d79",
+      "expectedSha256": "222d73d4a2618639a9eccc821b451141dd86c8ee129f1587687dd940cbdd666e",
       "marker": ".pi/skills/web-research/.aoc-managed",
-      "sha256": "ea787fd29f7bf2df4184b43cc0517389ef31a7fd8f9721fb5e1aced138ed9d79",
+      "sha256": "222d73d4a2618639a9eccc821b451141dd86c8ee129f1587687dd940cbdd666e",
       "source": "../.config/aoc/pi/skills/web-research",
       "status": "current"
     },
@@ -237,11 +327,11 @@
     }
   },
   "counts": {
-    "current": 26,
+    "current": 36,
     "dirty": 0,
     "stale": 0,
     "unknown": 0
   },
   "schemaVersion": 1,
-  "updatedAt": "2026-04-28T17:32:34.190937Z"
+  "updatedAt": "2026-05-24T08:52:07.271203Z"
 }

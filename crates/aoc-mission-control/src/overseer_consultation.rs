@@ -83,8 +83,12 @@ pub(crate) fn derive_overseer_consultation_packet(
             )),
         },
         help_request: overseer_help_request(worker),
-        degraded_reason: (!degraded_inputs.is_empty())
-            .then(|| format!("packet derived with partial inputs: {}", degraded_inputs.join(", "))),
+        degraded_reason: (!degraded_inputs.is_empty()).then(|| {
+            format!(
+                "packet derived with partial inputs: {}",
+                degraded_inputs.join(", ")
+            )
+        }),
         ..Default::default()
     }
     .normalize()

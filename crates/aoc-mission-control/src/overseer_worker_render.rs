@@ -81,7 +81,10 @@ pub(crate) fn render_overseer_worker_line(
             .filter(|value| !value.trim().is_empty())
         {
             spans.push(Span::raw(" · "));
-            spans.push(Span::styled(branch.clone(), Style::default().fg(theme.muted)));
+            spans.push(Span::styled(
+                branch.clone(),
+                Style::default().fg(theme.muted),
+            ));
         }
     }
     spans

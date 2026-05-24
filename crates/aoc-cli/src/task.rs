@@ -51,7 +51,8 @@ pub enum TaskCommand {
         #[command(subcommand)]
         action: SubCommand,
     },
-    Prd {
+    #[command(alias = "prd")]
+    Spec {
         #[command(subcommand)]
         action: PrdCommand,
     },
@@ -66,7 +67,8 @@ pub enum TagCommand {
     Remove(TagRemoveArgs),
     Set(TagSetArgs),
     Current(TagCurrentArgs),
-    Prd {
+    #[command(alias = "prd")]
+    Spec {
         #[command(subcommand)]
         action: TagPrdCommand,
     },
@@ -613,7 +615,7 @@ pub fn handle_task_command(command: TaskCommand) -> Result<()> {
             TagCommand::Remove(args) => remove_tag(&ctx, &args),
             TagCommand::Set(args) => set_tag(&ctx, &args),
             TagCommand::Current(args) => current_tag(&ctx, &args),
-            TagCommand::Prd { action } => match action {
+            TagCommand::Spec { action } => match action {
                 TagPrdCommand::Show(args) => show_tag_prd(&ctx, &args),
                 TagPrdCommand::Set(args) => set_tag_prd(&ctx, &args),
                 TagPrdCommand::Clear(args) => clear_tag_prd(&ctx, &args),
@@ -628,7 +630,7 @@ pub fn handle_task_command(command: TaskCommand) -> Result<()> {
             SubCommand::Reopen(args) => set_subtask_status(&ctx, &args, TaskStatus::Pending),
             SubCommand::Status(args) => set_subtask_status_explicit(&ctx, &args),
         },
-        TaskCommand::Prd { action } => match action {
+        TaskCommand::Spec { action } => match action {
             PrdCommand::Show(args) => show_task_prd(&ctx, &args),
             PrdCommand::Set(args) => set_task_prd(&ctx, &args),
             PrdCommand::Clear(args) => clear_task_prd(&ctx, &args),
@@ -999,6 +1001,13 @@ fn init_task_storage(ctx: &TaskContext, args: &TaskInitArgs) -> Result<()> {
     })?;
     fs::create_dir_all(taskmaster_dir.join("docs"))
         .with_context(|| format!("Failed to create {}", taskmaster_dir.join("docs").display()))?;
+    fs::create_dir_all(taskmaster_dir.join("docs/specs")).with_context(|| {
+        format!(
+            "Failed to create {}",
+            taskmaster_dir.join("docs/specs").display()
+        )
+    })?;
+    // Legacy-compatible location for existing PRD links and older automation.
     fs::create_dir_all(taskmaster_dir.join("docs/prds")).with_context(|| {
         format!(
             "Failed to create {}",
@@ -1322,9 +1331,9 @@ fn show_task(ctx: &TaskContext, args: &TaskShowArgs) -> Result<()> {
         println!("Test Strategy: {}", task.test_strategy);
     }
     if let Some(prd) = &task.aoc_prd {
-        println!("PRD: {}", prd.path);
+        println!("Linked spec: {}", prd.path);
         if let Some(updated_at) = &prd.updated_at {
-            println!("PRD Updated: {}", updated_at);
+            println!("Spec Updated: {}", updated_at);
         }
     }
     if !task.dependencies.is_empty() {
@@ -2197,11 +2206,11 @@ fn show_tag_prd(ctx: &TaskContext, args: &TagPrdShowArgs) -> Result<()> {
 
     if let Some(prd) = prd {
         let resolved = resolve_user_path(&ctx.paths.root, &prd.path);
-        println!("Tag '{}' PRD: {}", tag, prd.path);
+        println!("Tag '{}' linked spec: {}", tag, prd.path);
         println!("Resolved: {}", resolved.display());
         println!("Exists: {}", if resolved.exists() { "yes" } else { "no" });
     } else {
-        println!("Tag '{}' has no PRD link.", tag);
+        println!("Tag '{}' has no linked spec.", tag);
     }
 
     Ok(())
@@ -2209,7 +2218,7 @@ fn show_tag_prd(ctx: &TaskContext, args: &TagPrdShowArgs) -> Result<()> {
 
 fn set_tag_prd(ctx: &TaskContext, args: &TagPrdSetArgs) -> Result<()> {
     if args.path.trim().is_empty() {
-        bail!("PRD path cannot be empty.");
+        bail!("Spec path cannot be empty.");
     }
 
     let mut load = load_project(&ctx.paths)?;
@@ -2230,7 +2239,7 @@ fn set_tag_prd(ctx: &TaskContext, args: &TagPrdSetArgs) -> Result<()> {
     });
 
     save_project(&ctx.paths, &load.project)?;
-    println!("Linked tag '{}' to PRD {}", tag, resolved.display());
+    println!("Linked tag '{}' to spec {}", tag, resolved.display());
     Ok(())
 }
 
@@ -2245,7 +2254,7 @@ fn clear_tag_prd(ctx: &TaskContext, args: &TagPrdClearArgs) -> Result<()> {
 
     tag_ctx.clear_tag_prd();
     save_project(&ctx.paths, &load.project)?;
-    println!("Cleared PRD link for tag '{}'.", tag);
+    println!("Cleared spec link for tag '{}'.", tag);
     Ok(())
 }
 
@@ -2266,7 +2275,7 @@ fn init_tag_prd(ctx: &TaskContext, args: &TagPrdInitArgs) -> Result<()> {
 
     if target_abs.exists() && !args.force {
         bail!(
-            "PRD already exists at {} (use --force to overwrite)",
+            "Spec already exists at {} (use --force to overwrite)",
             target_abs.display()
         );
     }
@@ -2288,7 +2297,7 @@ fn init_tag_prd(ctx: &TaskContext, args: &TagPrdInitArgs) -> Result<()> {
     });
     save_project(&ctx.paths, &load.project)?;
     println!(
-        "Initialized PRD for tag '{}' at {}",
+        "Initialized spec for tag '{}' at {}",
         tag,
         target_abs.display()
     );
@@ -2333,14 +2342,14 @@ fn show_task_prd(ctx: &TaskContext, args: &PrdShowArgs) -> Result<()> {
 
     if let Some(prd) = &task.aoc_prd {
         let resolved = resolve_user_path(&ctx.paths.root, &prd.path);
-        println!("Task [{}] PRD: {}", task.id, prd.path);
+        println!("Task [{}] linked spec: {}", task.id, prd.path);
         println!("Resolved: {}", resolved.display());
         println!("Exists: {}", if resolved.exists() { "yes" } else { "no" });
     } else {
-        println!("Task [{}] has no task-level PRD link.", task.id);
+        println!("Task [{}] has no task-level spec link.", task.id);
         if let Some(tag_prd) = read_tag_prd(tag_ctx, &tag)? {
             let resolved = resolve_user_path(&ctx.paths.root, &tag_prd.path);
-            println!("Tag fallback ({}): {}", tag, tag_prd.path);
+            println!("Tag spec fallback ({}): {}", tag, tag_prd.path);
             println!("Resolved: {}", resolved.display());
             println!("Exists: {}", if resolved.exists() { "yes" } else { "no" });
         }
@@ -2350,7 +2359,7 @@ fn show_task_prd(ctx: &TaskContext, args: &PrdShowArgs) -> Result<()> {
 
 fn set_task_prd(ctx: &TaskContext, args: &PrdSetArgs) -> Result<()> {
     if args.path.trim().is_empty() {
-        bail!("PRD path cannot be empty.");
+        bail!("Spec path cannot be empty.");
     }
 
     let mut load = load_project(&ctx.paths)?;
@@ -2377,7 +2386,7 @@ fn set_task_prd(ctx: &TaskContext, args: &PrdSetArgs) -> Result<()> {
         task.id.clone()
     };
     save_project(&ctx.paths, &load.project)?;
-    println!("Linked task [{}] to PRD {}", task_id, resolved.display());
+    println!("Linked task [{}] to spec {}", task_id, resolved.display());
     Ok(())
 }
 
@@ -2398,7 +2407,7 @@ fn clear_task_prd(ctx: &TaskContext, args: &PrdClearArgs) -> Result<()> {
         task.id.clone()
     };
     save_project(&ctx.paths, &load.project)?;
-    println!("Cleared PRD link for task [{}].", task_id);
+    println!("Cleared spec link for task [{}].", task_id);
     Ok(())
 }
 
@@ -2424,7 +2433,7 @@ fn init_task_prd(ctx: &TaskContext, args: &PrdInitArgs) -> Result<()> {
 
     if target_abs.exists() && !args.force {
         bail!(
-            "PRD already exists at {} (use --force to overwrite)",
+            "Spec already exists at {} (use --force to overwrite)",
             target_abs.display()
         );
     }
@@ -2454,7 +2463,7 @@ fn init_task_prd(ctx: &TaskContext, args: &PrdInitArgs) -> Result<()> {
     };
     save_project(&ctx.paths, &load.project)?;
     println!(
-        "Initialized PRD for task [{}] at {}",
+        "Initialized spec for task [{}] at {}",
         task_id,
         target_abs.display()
     );
@@ -2487,13 +2496,13 @@ fn normalize_prd_path(root: &Path, abs_path: &Path) -> String {
 fn default_tag_prd_path(root: &Path, tag: &str) -> PathBuf {
     let slug = slugify(tag);
     let file = if slug.is_empty() {
-        "tag-prd.md".to_string()
+        "tag-spec.md".to_string()
     } else {
-        format!("tag-{}-prd.md", slug)
+        format!("tag-{}-spec.md", slug)
     };
     root.join(".taskmaster")
         .join("docs")
-        .join("prds")
+        .join("specs")
         .join(file)
 }
 
@@ -2506,18 +2515,18 @@ fn default_prd_path(root: &Path, task: &Task) -> PathBuf {
     };
     root.join(".taskmaster")
         .join("docs")
-        .join("prds")
+        .join("specs")
         .join(file)
 }
 
 fn render_tag_prd_template(tag: &str, tasks: &[Task]) -> String {
     let mut out = String::new();
-    out.push_str(&format!("# Tag PRD: {}\n\n", tag));
+    out.push_str(&format!("# Tag Spec: {}\n\n", tag));
     out.push_str("## Metadata\n");
     out.push_str(&format!("- Tag: {}\n", tag));
     out.push_str(&format!("- Task Count: {}\n\n", tasks.len()));
     out.push_str("## Problem\n");
-    out.push_str("Describe the product/problem scope for this tag/workstream.\n\n");
+    out.push_str("Describe the planning scope for this tag/workstream.\n\n");
     out.push_str("## Goals\n- \n\n");
     out.push_str("## Non-Goals\n- \n\n");
     out.push_str("## Requirements\n- \n\n");
@@ -2536,7 +2545,7 @@ fn render_tag_prd_template(tag: &str, tasks: &[Task]) -> String {
 
 fn render_prd_template(task: &Task, tag: &str) -> String {
     let mut out = String::new();
-    out.push_str(&format!("# PRD: {}\n\n", task.title));
+    out.push_str(&format!("# Spec: {}\n\n", task.title));
     out.push_str("## Metadata\n");
     out.push_str(&format!("- Task ID: {}\n", task.id));
     out.push_str(&format!("- Tag: {}\n", tag));

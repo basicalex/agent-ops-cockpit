@@ -2279,8 +2279,14 @@ fn parse_mission_theme_mode_accepts_known_values() {
         parse_mission_theme_mode("AUTO"),
         Some(MissionThemeMode::Terminal)
     );
-    assert_eq!(parse_mission_theme_mode("dark"), Some(MissionThemeMode::Dark));
-    assert_eq!(parse_mission_theme_mode("light"), Some(MissionThemeMode::Light));
+    assert_eq!(
+        parse_mission_theme_mode("dark"),
+        Some(MissionThemeMode::Dark)
+    );
+    assert_eq!(
+        parse_mission_theme_mode("light"),
+        Some(MissionThemeMode::Light)
+    );
     assert_eq!(parse_mission_theme_mode("solarized"), None);
 }
 

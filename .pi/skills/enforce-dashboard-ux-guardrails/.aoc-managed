@@ -1,0 +1,6 @@
+aoc-managed: true
+asset: skill/enforce-dashboard-ux-guardrails
+asset-version: 3
+source: ../.config/aoc/pi/skills/enforce-dashboard-ux-guardrails
+sha256: 0867aa7e737e91bb544de8bb96329c29e795bdc17f5645b37caac1ab27d5dcee
+updated-at: 2026-05-24T08:52:03Z

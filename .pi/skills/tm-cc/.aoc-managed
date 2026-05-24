@@ -2,5 +2,5 @@ aoc-managed: true
 asset: skill/tm-cc
 asset-version: 3
 source: ../.config/aoc/pi/skills/tm-cc
-sha256: ee3c1e6d015393d4e5ce65fd319f4abb71a60622677f9547d68a7a7532de65fe
-updated-at: 2026-04-28T17:32:32Z
+sha256: bf18338a71c856dd9b23188e5dfecfbbe95bb66e2498602af294c1dd7e2482af
+updated-at: 2026-05-24T08:52:05Z
