@@ -5,6 +5,7 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 BIN_DIR="$HOME/.local/bin"
 AOC_CONFIG_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/aoc"
 INSTALL_MIND_EXPLICIT=0
+AOC_MIND_RUNTIME_INSTALLED=0
 AOC_MIND_SERVICE_CONFIG_FILE="$AOC_CONFIG_DIR/mind-service.json"
 
 while [[ $# -gt 0 ]]; do
@@ -18,8 +19,8 @@ while [[ $# -gt 0 ]]; do
 Usage: ./install.sh [--mind]
 
 Options:
-  --mind   Explicitly refresh Mind runtime dependencies and binaries
-           (PI agent, aoc-mind-service, aoc-hub-rs, aoc-agent-wrap-rs).
+  --mind   Force-refresh PI agent in addition to the default AOC/Mind
+           runtime binaries (aoc-mind-service, aoc-hub-rs, aoc-agent-wrap-rs).
   -h, --help
 EOF
       exit 0
@@ -857,11 +858,10 @@ if cargo_bin="$(cargo_cmd)"; then
   install_rust_package_binary "$cargo_bin" aoc-mind aoc-mind-service
   write_global_mind_service_config
 
-  if (( INSTALL_MIND_EXPLICIT == 1 )); then
-    log "Refreshing Mind runtime binaries explicitly (--mind)..."
-    install_rust_binary "$cargo_bin" aoc-hub-rs
-    install_rust_binary "$cargo_bin" aoc-agent-wrap-rs
-  fi
+  log "Installing AOC/Mind runtime binaries..."
+  install_rust_binary "$cargo_bin" aoc-hub-rs
+  install_rust_binary "$cargo_bin" aoc-agent-wrap-rs
+  AOC_MIND_RUNTIME_INSTALLED=1
 
   # Build aoc-taskmaster (native TUI)
   log "Building aoc-taskmaster..."
@@ -1230,7 +1230,7 @@ EOF
 fi
 
 if (( INSTALL_MIND_EXPLICIT == 1 )); then
-  log "Mind explicit mode enabled: refreshing PI agent and Mind runtime components."
+  log "Mind explicit mode enabled: force-refreshing PI agent."
   export AOC_INSTALL_PI_REFRESH=1
 fi
 
@@ -1245,8 +1245,10 @@ fi
 log "Install finished. Initialize each repo explicitly with: aoc-init /path/to/repo"
 
 log "AOC Installed Successfully!"
+if (( AOC_MIND_RUNTIME_INSTALLED == 1 )); then
+  log "AOC/Mind runtime refreshed: aoc-mind-service, aoc-hub-rs, and aoc-agent-wrap-rs should now be current in $BIN_DIR."
+fi
 if (( INSTALL_MIND_EXPLICIT == 1 )); then
-  log "Mind runtime refreshed: aoc-mind-service, PI agent, aoc-hub-rs, and aoc-agent-wrap-rs should now be current in $BIN_DIR."
-  log "Start a fresh AOC/Zellij session to pick up the refreshed Mind runtime binaries."
+  log "PI agent force-refresh requested (--mind). Start a fresh AOC/Zellij session to pick up refreshed runtime components."
 fi
 log "Run 'aoc-init /path/to/repo' next, then 'aoc' inside that repo."
