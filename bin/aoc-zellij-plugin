@@ -188,6 +188,20 @@ resolve_install_source() {
   return 1
 }
 
+reload_running_plugin_if_possible() {
+  [[ -n "${ZELLIJ:-}" || -n "${ZELLIJ_SESSION_NAME:-}" ]] || return 0
+  command -v zellij >/dev/null 2>&1 || return 0
+
+  if zellij action start-or-reload-plugin aoc-tab-bar >/dev/null 2>&1; then
+    log "Requested Zellij reload for managed AOC plugin alias: aoc-tab-bar"
+    return 0
+  fi
+
+  zellij action start-or-reload-plugin "file:$dest_wasm" >/dev/null 2>&1 \
+    && log "Requested Zellij reload for managed AOC plugin: file:$dest_wasm" \
+    || true
+}
+
 install_plugin() {
   refresh_cache_from_repo || true
 
@@ -212,6 +226,7 @@ install_plugin() {
 
   cp "$src_wasm" "$dest_wasm"
   log "Installed managed AOC plugin: $dest_wasm"
+  reload_running_plugin_if_possible
 }
 
 managed_reference_wasm() {
@@ -269,6 +284,9 @@ repo_src_dir=$repo_src_dir
 cache_wasm=$cache_wasm
 cache_src_dir=$cache_src_dir
 dest_wasm=$dest_wasm
+plugin_alias=aoc-tab-bar
+plugin_url=file:$dest_wasm
+plugin_manager_note=AOC top bar is layout/alias managed; use Zellij list-panes to inspect runtime plugin panes.
 reference_wasm=$ref_wasm
 repo_wasm_exists=$([[ -f "$repo_wasm" ]] && echo 1 || echo 0)
 repo_src_exists=$([[ -d "$repo_src_dir" ]] && echo 1 || echo 0)

@@ -5,6 +5,7 @@ AOC ships a managed `zjstatus`-based top bar plugin as:
 - repo source: `vendor/zjstatus-aoc/`
 - repo wasm: `zellij/plugins/zjstatus-aoc.wasm`
 - installed wasm: `~/.config/zellij/plugins/zjstatus-aoc.wasm`
+- Zellij alias: `aoc-tab-bar` -> `file:$HOME/.config/zellij/plugins/zjstatus-aoc.wasm`
 
 ## Repair / install
 
@@ -18,13 +19,18 @@ aoc-zellij-plugin install
 
 ```bash
 aoc-zellij-plugin status
+zellij action list-panes --all
 ```
+
+AOC uses Zellij's documented plugin alias path (`aoc-tab-bar`) in both `load_plugins` and the visible layout pane (`plugin location="aoc-tab-bar"`). The Plugin Manager can load/monitor that alias, while AOC still verifies the managed wasm itself so the top bar remains deterministic and repairable offline.
 
 Useful fields include:
 
 - `dest_wasm`
 - `cache_wasm`
 - `reference_wasm`
+- `plugin_alias`
+- `plugin_url`
 - `dest_matches_reference`
 - the SHA256 lines for each copy
 

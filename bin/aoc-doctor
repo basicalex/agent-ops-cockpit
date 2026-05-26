@@ -574,6 +574,8 @@ if [[ "$quiet" -eq 0 ]]; then
   if [[ -n "$managed_plugin_cache_sha" ]]; then
     echo "  Managed  SHA256: $managed_plugin_cache_sha"
   fi
+  echo "  Zellij alias: aoc-tab-bar -> file:$managed_plugin_dest"
+  echo "  Note: AOC top bar is layout/alias managed; Plugin Manager is not the install source of truth."
   if ((${#managed_runtime_issues[@]} > 0)); then
     local_issue="${managed_runtime_issues[0]}"
     echo "  [missing] ${local_issue}"

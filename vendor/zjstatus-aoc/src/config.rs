@@ -690,6 +690,46 @@ mod test {
     }
 
     #[test]
+    fn test_reconcile_runtime_tab_metadata_follows_moved_tab() {
+        let old_tabs = vec![
+            TabInfo {
+                position: 0,
+                name: "AOC".to_string(),
+                ..TabInfo::default()
+            },
+            TabInfo {
+                position: 1,
+                name: "Review".to_string(),
+                ..TabInfo::default()
+            },
+        ];
+        let new_tabs = vec![
+            TabInfo {
+                position: 0,
+                name: "Review".to_string(),
+                ..TabInfo::default()
+            },
+            TabInfo {
+                position: 1,
+                name: "AOC".to_string(),
+                ..TabInfo::default()
+            },
+        ];
+        let metadata = RuntimeTabMetadata {
+            tab_name: "AOC".to_string(),
+            project_key: "aoc".to_string(),
+            project_root: "/tmp/aoc".to_string(),
+        };
+        let metadata_by_position = BTreeMap::from([(0, metadata.clone())]);
+
+        let reconciled =
+            reconcile_runtime_tab_metadata(&old_tabs, &new_tabs, &metadata_by_position);
+
+        assert_eq!(reconciled.get(&1), Some(&metadata));
+        assert!(!reconciled.contains_key(&0));
+    }
+
+    #[test]
     fn test_apply_pending_runtime_tab_metadata_when_tab_appears() {
         let mut metadata_by_position = BTreeMap::new();
         let mut pending_by_tab_name = BTreeMap::from([(

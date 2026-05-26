@@ -385,7 +385,7 @@ layout {
   tab name="__AOC_TAB_NAME__" focus=true {
     pane split_direction="horizontal" {
       pane size=1 borderless=true {
-        plugin location="file:{{HOME}}/.config/zellij/plugins/zjstatus-aoc.wasm" {
+        plugin location="aoc-tab-bar" {
           format_left   "#[fg=__AOC_THEME_WHITE__] {session} "
           format_center "{tabs}"
           format_right  "#[fg=__AOC_THEME_WHITE__] __AOC_AGENT_ID__ "

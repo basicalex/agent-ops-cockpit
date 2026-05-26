@@ -3491,6 +3491,45 @@ setup_aoc_map() {
   fi
 }
 
+repair_managed_zellij_plugin_wiring() {
+  local zellij_config="${ZELLIJ_CONFIG_DIR:-$HOME/.config/zellij}/aoc.config.kdl"
+  local zellij_layout="${ZELLIJ_CONFIG_DIR:-$HOME/.config/zellij}/layouts/aoc.kdl"
+  local managed_wasm="${ZELLIJ_CONFIG_DIR:-$HOME/.config/zellij}/plugins/zjstatus-aoc.wasm"
+
+  python3 - "$zellij_config" "$zellij_layout" "$managed_wasm" <<'PY'
+import sys
+from pathlib import Path
+
+config = Path(sys.argv[1])
+layout = Path(sys.argv[2])
+managed_wasm = sys.argv[3]
+
+if config.exists():
+    text = config.read_text(encoding="utf-8")
+    changed = False
+    alias = f'    aoc-tab-bar location="file:{managed_wasm}"\n'
+    if "aoc-tab-bar location=" not in text and '    tab-bar location="zellij:tab-bar"\n' in text:
+        text = text.replace('    tab-bar location="zellij:tab-bar"\n', '    tab-bar location="zellij:tab-bar"\n' + alias, 1)
+        changed = True
+    if "load_plugins {" in text:
+        before, rest = text.split("load_plugins {", 1)
+        body, after = rest.split("}", 1)
+        if "aoc-tab-bar" not in body:
+            body = body.rstrip() + "\n    aoc-tab-bar\n"
+            text = before + "load_plugins {" + body + "}" + after
+            changed = True
+    if changed:
+        config.write_text(text, encoding="utf-8")
+
+if layout.exists():
+    text = layout.read_text(encoding="utf-8")
+    next_text = text.replace(f'plugin location="file:{managed_wasm}" {{', 'plugin location="aoc-tab-bar" {')
+    next_text = next_text.replace('plugin location="file:{{HOME}}/.config/zellij/plugins/zjstatus-aoc.wasm" {', 'plugin location="aoc-tab-bar" {')
+    if next_text != text:
+        layout.write_text(next_text, encoding="utf-8")
+PY
+}
+
 setup_managed_zellij_plugin() {
   local plugin_cmd=""
 
@@ -3506,6 +3545,7 @@ setup_managed_zellij_plugin() {
   fi
 
   if "$plugin_cmd" install; then
+    repair_managed_zellij_plugin_wiring || true
     log "Managed AOC Zellij plugin ready (~/.config/zellij/plugins/zjstatus-aoc.wasm)."
   else
     warn "Managed AOC Zellij plugin install failed."
