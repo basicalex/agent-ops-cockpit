@@ -1,4 +1,8 @@
-use std::{borrow::Cow, cmp, collections::BTreeMap};
+use std::{
+    borrow::Cow,
+    cmp,
+    collections::{BTreeMap, BTreeSet},
+};
 
 use zellij_tile::{
     prelude::{InputMode, ModeInfo, PaneInfo, PaneManifest, TabInfo, get_plugin_ids},
@@ -702,20 +706,152 @@ impl TabsWidget {
         project_palette: &[String],
     ) -> BTreeMap<String, String> {
         let mut project_colors = BTreeMap::new();
-        let mut next_index = 0usize;
+        let mut project_order = Vec::new();
+        let mut project_neighbors = BTreeMap::<String, BTreeSet<String>>::new();
+        let mut previous_key: Option<String> = None;
 
         for tab in tabs {
             let key = self.project_key(state, tab);
-            if project_colors.contains_key(&key) {
-                continue;
+            if !project_order.contains(&key) {
+                project_order.push(key.clone());
             }
 
-            let color = project_palette[next_index % project_palette.len()].clone();
+            if let Some(previous) = previous_key.as_ref()
+                && previous != &key
+            {
+                project_neighbors
+                    .entry(previous.clone())
+                    .or_default()
+                    .insert(key.clone());
+                project_neighbors
+                    .entry(key.clone())
+                    .or_default()
+                    .insert(previous.clone());
+            }
+
+            previous_key = Some(key);
+        }
+
+        let candidates = self.contrast_candidate_palette(project_palette);
+
+        for (next_index, key) in project_order.into_iter().enumerate() {
+            let preferred_color = project_palette[next_index % project_palette.len()].clone();
+            let neighbor_colors = project_neighbors
+                .get(&key)
+                .into_iter()
+                .flat_map(|neighbors| neighbors.iter())
+                .filter_map(|neighbor| project_colors.get(neighbor))
+                .collect::<Vec<&String>>();
+            let color = self.choose_contrasting_project_color(
+                &preferred_color,
+                &candidates,
+                &neighbor_colors,
+            );
             project_colors.insert(key, color);
-            next_index += 1;
         }
 
         project_colors
+    }
+
+    fn contrast_candidate_palette(&self, project_palette: &[String]) -> Vec<String> {
+        let fallback_accents = [
+            "#4A9EFF", "#CC6EFF", "#FF9C52", "#00E1FF", "#FFCE56", "#00F5A0", "#FF5C8A",
+            "#9BFF6E",
+        ];
+        let mut candidates = Vec::new();
+        for color in project_palette
+            .iter()
+            .cloned()
+            .chain(fallback_accents.into_iter().map(str::to_owned))
+        {
+            if !candidates.iter().any(|candidate| candidate == &color) {
+                candidates.push(color);
+            }
+        }
+        candidates
+    }
+
+    fn choose_contrasting_project_color(
+        &self,
+        preferred_color: &str,
+        candidates: &[String],
+        neighbor_colors: &[&String],
+    ) -> String {
+        const MIN_PROJECT_COLOR_DISTANCE: f32 = 0.12;
+
+        if neighbor_colors.is_empty() {
+            return preferred_color.to_owned();
+        }
+
+        let preferred_score = self.min_project_color_distance(preferred_color, neighbor_colors);
+        if preferred_score
+            .map(|score| score >= MIN_PROJECT_COLOR_DISTANCE)
+            .unwrap_or(false)
+        {
+            return preferred_color.to_owned();
+        }
+
+        candidates
+            .iter()
+            .filter_map(|candidate| {
+                self.min_project_color_distance(candidate, neighbor_colors)
+                    .map(|score| (candidate, score))
+            })
+            .max_by(|(_, left), (_, right)| left.total_cmp(right))
+            .map(|(candidate, _)| candidate.clone())
+            .unwrap_or_else(|| preferred_color.to_owned())
+    }
+
+    fn min_project_color_distance(&self, color: &str, neighbor_colors: &[&String]) -> Option<f32> {
+        neighbor_colors
+            .iter()
+            .filter_map(|neighbor| self.project_color_distance(color, neighbor))
+            .min_by(|left, right| left.total_cmp(right))
+    }
+
+    fn project_color_distance(&self, left: &str, right: &str) -> Option<f32> {
+        let left = self.hex_to_oklab(left)?;
+        let right = self.hex_to_oklab(right)?;
+        Some(
+            ((left.0 - right.0).powi(2)
+                + (left.1 - right.1).powi(2)
+                + (left.2 - right.2).powi(2))
+            .sqrt(),
+        )
+    }
+
+    fn hex_to_oklab(&self, color: &str) -> Option<(f32, f32, f32)> {
+        let hex = color.trim().strip_prefix('#').unwrap_or(color.trim());
+        if hex.len() != 6 {
+            return None;
+        }
+
+        let r = Self::srgb_channel_to_linear(u8::from_str_radix(&hex[0..2], 16).ok()?);
+        let g = Self::srgb_channel_to_linear(u8::from_str_radix(&hex[2..4], 16).ok()?);
+        let b = Self::srgb_channel_to_linear(u8::from_str_radix(&hex[4..6], 16).ok()?);
+
+        let l = 0.412_221_46 * r + 0.536_332_55 * g + 0.051_445_995 * b;
+        let m = 0.211_903_5 * r + 0.680_699_5 * g + 0.107_396_96 * b;
+        let s = 0.088_302_46 * r + 0.281_718_85 * g + 0.629_978_7 * b;
+
+        let l_ = l.cbrt();
+        let m_ = m.cbrt();
+        let s_ = s.cbrt();
+
+        Some((
+            0.210_454_26 * l_ + 0.793_617_8 * m_ - 0.004_072_047 * s_,
+            1.977_998_5 * l_ - 2.428_592_2 * m_ + 0.450_593_7 * s_,
+            0.025_904_037 * l_ + 0.782_771_77 * m_ - 0.808_675_77 * s_,
+        ))
+    }
+
+    fn srgb_channel_to_linear(channel: u8) -> f32 {
+        let value = channel as f32 / 255.0;
+        if value <= 0.04045 {
+            value / 12.92
+        } else {
+            ((value + 0.055) / 1.055).powf(2.4)
+        }
     }
 
     fn effective_project_palette(&self, state: &ZellijState) -> Vec<String> {
@@ -1393,6 +1529,40 @@ mod test {
                 .resolved_runtime_tab_name(&state, &tab, &ModeInfo::default())
                 .as_ref(),
             "New"
+        );
+    }
+
+    #[test]
+    fn adjacent_project_groups_skip_too_similar_theme_colors() {
+        let mut config = BTreeMap::new();
+        config.insert(
+            "tab_project_palette".to_string(),
+            "#2F8F46,#35994A,#C85AA0".to_string(),
+        );
+        let widget = TabsWidget::new(&config);
+        let state = ZellijState::default();
+        let tabs = vec![
+            TabInfo {
+                position: 0,
+                name: "1 scout".to_string(),
+                ..TabInfo::default()
+            },
+            TabInfo {
+                position: 1,
+                name: "2 prizm".to_string(),
+                ..TabInfo::default()
+            },
+        ];
+
+        let colors = widget.project_color_map(&state, &tabs, &widget.project_palette);
+
+        assert_eq!(colors.get("1"), Some(&"#2F8F46".to_string()));
+        assert_ne!(colors.get("2"), Some(&"#35994A".to_string()));
+        assert!(
+            widget
+                .project_color_distance(colors.get("1").unwrap(), colors.get("2").unwrap())
+                .unwrap()
+                >= 0.12
         );
     }
 }
