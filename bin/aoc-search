@@ -126,7 +126,13 @@ def normalized_config(raw: dict | None, root: Path) -> dict:
             "healthcheckUrl": "http://127.0.0.1:8888/search?q=python+documentation&format=json",
             "composeFile": str(root / ".aoc/services/searxng/docker-compose.yml"),
             "serviceName": "searxng",
-            "defaults": {"format": "json", "language": "en", "categories": "general", "safe_search": 0},
+            "defaults": {
+                "format": "json",
+                "language": "en",
+                "categories": "general",
+                "safe_search": 0,
+                "engines": "bing,google,brave,presearch,duckduckgo,startpage,mojeek,qwant,yahoo,wiby",
+            },
         }
     compose_file = str_at(raw, ("search", "runtime", "compose_file"), ".aoc/services/searxng/docker-compose.yml")
     compose_path = Path(compose_file)
@@ -152,6 +158,7 @@ def normalized_config(raw: dict | None, root: Path) -> dict:
             "language": str_at(raw, ("search", "query_defaults", "language"), "en"),
             "categories": str_at(raw, ("search", "query_defaults", "categories"), "general"),
             "safe_search": int_at(raw, ("search", "query_defaults", "safe_search"), 0),
+            "engines": str_at(raw, ("search", "query_defaults", "engines"), "bing,google,brave,presearch,duckduckgo,startpage,mojeek,qwant,yahoo,wiby"),
         },
     }
 
@@ -166,21 +173,27 @@ def request_json(url: str, timeout: int = 10):
         raise ValueError(INVALID_JSON_MESSAGE) from exc
 
 
-def extract_provider_warnings(payload: dict, result_count: int = 0) -> list[str]:
+def extract_provider_warnings(payload: dict, result_count: int = 0, engines: str = "") -> list[str]:
     warnings: list[str] = []
     if result_count == 0:
         warnings.append("no_results")
+    allowed = {name.strip() for name in engines.split(",") if name.strip()}
     unresponsive = payload.get("unresponsive_engines")
-    if isinstance(unresponsive, list) and unresponsive:
+    # If at least one configured engine answered, keep search output focused on
+    # usable answers and suppress noisy failures from engines that blocked/CAPTCHA'd.
+    if result_count == 0 and isinstance(unresponsive, list) and unresponsive:
         names = []
         for item in unresponsive:
             if isinstance(item, (list, tuple)) and item:
-                names.append(str(item[0]))
+                name = str(item[0])
             elif isinstance(item, dict):
-                names.append(str(item.get("name") or item.get("engine") or "unknown"))
+                name = str(item.get("name") or item.get("engine") or "unknown")
             else:
-                names.append(str(item))
-        warnings.append("unresponsive_engines:" + ",".join(sorted(set(names))[:8]))
+                name = str(item)
+            if not allowed or name in allowed:
+                names.append(name)
+        if names:
+            warnings.append("unresponsive_engines:" + ",".join(sorted(set(names))[:8]))
     return warnings
 
 
@@ -367,6 +380,9 @@ def query_url(cfg: dict, query: str, mode: str, limit: int) -> str:
         "categories": cfg["defaults"].get("categories", "general"),
         "safesearch": str(cfg["defaults"].get("safe_search", 0)),
     }
+    engines = str(cfg["defaults"].get("engines") or "").strip()
+    if engines:
+        params["engines"] = engines
     if limit > 0:
         params["count"] = str(limit)
     base = cfg["baseUrl"].rstrip("/") + "/search"
@@ -617,7 +633,7 @@ def cmd_query(args):
         "status": "ok",
         "mode": args.mode,
         "results": results,
-        "warnings": extract_provider_warnings(payload, len(results)),
+        "warnings": extract_provider_warnings(payload, len(results), str(cfg["defaults"].get("engines") or "")),
     }
     if args.json:
         print(json.dumps(response, indent=2))

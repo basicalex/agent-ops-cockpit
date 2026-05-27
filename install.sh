@@ -1089,6 +1089,8 @@ fi
 if [[ -d "$ROOT_DIR/.pi/prompts" ]]; then
   for f in "$ROOT_DIR/.pi/prompts"/*.md; do
     [[ -f "$f" ]] || continue
+    # Repo-local AOC maintainer workflow; do not distribute to other AOC projects.
+    [[ "$(basename "$f")" == "aoc-update.md" ]] && continue
     dest="${XDG_CONFIG_HOME:-$HOME/.config}/aoc/pi/prompts/$(basename "$f")"
     if [[ ! -f "$dest" ]]; then
       cp "$f" "$dest"

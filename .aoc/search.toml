@@ -8,7 +8,7 @@ auto_start = true
 
 [search.runtime]
 base_url = "http://127.0.0.1:8888"
-healthcheck_url = "http://127.0.0.1:8888/search?q=python+documentation&format=json&engines=bing%2Cmojeek%2Cpresearch%2Cwiby%2Cduckduckgo"
+healthcheck_url = "http://127.0.0.1:8888/search?q=python+documentation&format=json&engines=bing%2Cgoogle%2Cbrave%2Cpresearch%2Cduckduckgo%2Cstartpage%2Cmojeek%2Cqwant%2Cyahoo%2Cwiby"
 compose_file = ".aoc/services/searxng/docker-compose.yml"
 service_name = "searxng"
 
@@ -17,6 +17,7 @@ format = "json"
 language = "en"
 categories = "general"
 safe_search = 0
+engines = "bing,google,brave,presearch,duckduckgo,startpage,mojeek,qwant,yahoo,wiby"
 
 [search.agent_policy]
 allow_auto_start = true
