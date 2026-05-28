@@ -61,6 +61,14 @@ pub enum SortMode {
     Tag,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum ViewMode {
+    #[default]
+    Auto,
+    Wide,
+    Narrow,
+}
+
 #[derive(Debug, Clone, Default, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct TaskmasterState {
@@ -84,6 +92,7 @@ pub struct App {
     pub table_state: TableState,
     pub filter: FilterMode,
     pub sort_mode: SortMode,
+    pub view_mode: ViewMode,
     pub current_tag: String,
     pub search_query: String,
     pub input_mode: InputMode,
@@ -237,6 +246,24 @@ impl SortMode {
     }
 }
 
+impl ViewMode {
+    pub fn label(self) -> &'static str {
+        match self {
+            ViewMode::Auto => "auto",
+            ViewMode::Wide => "wide",
+            ViewMode::Narrow => "narrow",
+        }
+    }
+
+    pub fn next(self) -> Self {
+        match self {
+            ViewMode::Auto => ViewMode::Wide,
+            ViewMode::Wide => ViewMode::Narrow,
+            ViewMode::Narrow => ViewMode::Auto,
+        }
+    }
+}
+
 impl App {
     pub fn new(root: PathBuf) -> Self {
         let tasks_path = root.join(".taskmaster/tasks/tasks.json");
@@ -254,6 +281,7 @@ impl App {
             table_state: TableState::default(),
             filter: FilterMode::All,
             sort_mode: SortMode::TaskNumber,
+            view_mode: ViewMode::Auto,
             current_tag: String::new(),
             search_query: String::new(),
             input_mode: InputMode::Normal,
@@ -599,10 +627,14 @@ impl App {
                 return true;
             }
             KeyCode::Tab => {
-                self.focus = match self.focus {
-                    FocusMode::List => FocusMode::Tags,
-                    _ => FocusMode::List,
-                };
+                if self.list_area.is_some() {
+                    self.focus = match self.focus {
+                        FocusMode::List => FocusMode::Tags,
+                        _ => FocusMode::List,
+                    };
+                } else {
+                    self.focus = FocusMode::Tags;
+                }
                 return true;
             }
             KeyCode::Down | KeyCode::Char('j') => {
@@ -769,11 +801,15 @@ impl App {
                         FocusMode::Details => FocusMode::Tags,
                     };
                 } else if self.show_detail || self.show_help {
-                    self.focus = match self.focus {
-                        FocusMode::List => FocusMode::Details,
-                        FocusMode::Details => FocusMode::List,
-                        FocusMode::Tags => FocusMode::List,
-                    };
+                    if self.list_area.is_some() {
+                        self.focus = match self.focus {
+                            FocusMode::List => FocusMode::Details,
+                            FocusMode::Details => FocusMode::List,
+                            FocusMode::Tags => FocusMode::List,
+                        };
+                    } else {
+                        self.focus = FocusMode::Details;
+                    }
                 }
             }
             KeyCode::Char('x') => {
@@ -791,6 +827,9 @@ impl App {
             }
             KeyCode::Char('s') => {
                 self.cycle_sort_mode();
+            }
+            KeyCode::Char('v') => {
+                self.view_mode = self.view_mode.next();
             }
             KeyCode::Char('t') => {
                 self.cycle_tag();
@@ -846,8 +885,8 @@ impl App {
         self.maybe_update_pane_title();
     }
 
-    pub fn update_layout(&mut self, list_area: Rect, details_area: Option<Rect>) {
-        self.list_area = Some(list_area);
+    pub fn update_layout(&mut self, list_area: Option<Rect>, details_area: Option<Rect>) {
+        self.list_area = list_area;
         self.details_area = details_area;
         if details_area.is_none() {
             self.details_scroll = 0;
@@ -1179,13 +1218,13 @@ impl App {
             return None;
         }
 
-        let header_height = 2u16;
-        if area.height <= header_height + 1 {
+        let header_height = 1u16;
+        if area.height <= header_height {
             return None;
         }
 
         let data_start = area.y.saturating_add(header_height);
-        let data_end = area.y.saturating_add(area.height.saturating_sub(1));
+        let data_end = area.y.saturating_add(area.height);
         if row < data_start || row >= data_end {
             return None;
         }
@@ -1318,13 +1357,14 @@ impl App {
         let bar = format!("[{}{}]", "=".repeat(filled), " ".repeat(bar_width - filled));
 
         let mut title = format!(
-            "[{}] {} {}/{} | Filter: {} | Sort: {}",
+            "[{}] {} {}/{} | Filter: {} | Sort: {} | View: {}",
             tag,
             bar,
             done,
             total,
             self.filter.label(),
-            self.sort_mode.label()
+            self.sort_mode.label(),
+            self.view_mode.label()
         );
 
         if !self.search_query.trim().is_empty() {

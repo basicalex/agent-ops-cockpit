@@ -1,46 +1,84 @@
-use crate::state::{App, FocusMode, InputMode, ALL_TAG_VIEW};
+use crate::state::{App, FocusMode, InputMode, ViewMode, ALL_TAG_VIEW};
 use crate::theme::{self, icons};
 use ratatui::{
     layout::{Constraint, Direction, Layout, Rect},
     style::{Color, Modifier, Style},
     text::{Line, Span},
-    widgets::{Block, Borders, Cell, List, ListItem, Paragraph, Row, Table, Wrap},
+    widgets::{Cell, List, ListItem, Paragraph, Row, Table, Wrap},
     Frame,
 };
 use std::collections::HashMap;
 
-pub fn render(f: &mut Frame, app: &mut App) {
-    let area = f.size();
+const HORIZONTAL_MARGIN: u16 = 2;
+const BOTTOM_MARGIN: u16 = 1;
+const SPLIT_GAP: u16 = 2;
+const WIDE_SPLIT_MIN_WIDTH: u16 = 100;
 
-    if app.show_help || app.show_detail || app.show_tag_selector {
+pub fn render(f: &mut Frame, app: &mut App) {
+    let area = content_area(f.size());
+    let side_open = app.show_help || app.show_detail || app.show_tag_selector;
+
+    if side_open && use_wide_split(app, area.width) {
         let main = Layout::default()
             .direction(Direction::Horizontal)
-            .constraints([Constraint::Percentage(50), Constraint::Percentage(50)])
+            .constraints([
+                Constraint::Percentage(50),
+                Constraint::Length(SPLIT_GAP),
+                Constraint::Percentage(50),
+            ])
             .split(area);
 
-        app.update_layout(main[0], Some(main[1]));
+        app.update_layout(None, Some(main[2]));
         render_main(f, app, main[0]);
-
-        if app.show_tag_selector {
-            render_tag_selector(f, app, main[1]);
-        } else if app.show_help {
-            render_help(f, main[1]);
-        } else {
-            render_details(f, app, main[1]);
-        }
+        render_side(f, app, main[2]);
+    } else if side_open {
+        app.update_layout(None, Some(area));
+        render_side(f, app, area);
     } else {
-        app.update_layout(area, None);
+        app.update_layout(None, None);
         render_main(f, app, area);
     }
 }
 
-fn render_help(f: &mut Frame, area: Rect) {
-    let block = Block::default()
-        .borders(Borders::ALL)
-        .title("Help")
-        .border_style(Style::default().fg(Color::Yellow));
-    let inner_area = block.inner(area);
-    f.render_widget(block, area);
+fn content_area(area: Rect) -> Rect {
+    Rect {
+        x: area.x.saturating_add(HORIZONTAL_MARGIN),
+        y: area.y,
+        width: area
+            .width
+            .saturating_sub(HORIZONTAL_MARGIN.saturating_mul(2)),
+        height: area.height.saturating_sub(BOTTOM_MARGIN),
+    }
+}
+
+fn use_wide_split(app: &App, width: u16) -> bool {
+    match app.view_mode {
+        ViewMode::Auto => width >= WIDE_SPLIT_MIN_WIDTH,
+        ViewMode::Wide => width >= WIDE_SPLIT_MIN_WIDTH,
+        ViewMode::Narrow => false,
+    }
+}
+
+fn render_side(f: &mut Frame, app: &mut App, area: Rect) {
+    if app.show_tag_selector {
+        render_tag_selector(f, app, area);
+    } else if app.show_help {
+        render_help(f, app, area);
+    } else {
+        render_details(f, app, area);
+    }
+}
+
+fn render_help(f: &mut Frame, app: &mut App, area: Rect) {
+    let (title_area, body_area) = split_title(area);
+    let title = Line::from(Span::styled(
+        "Help",
+        Style::default()
+            .fg(Color::Yellow)
+            .add_modifier(Modifier::BOLD),
+    ));
+    f.render_widget(Paragraph::new(title), title_area);
+    app.update_layout(app.list_area, Some(body_area));
 
     let text = vec![
         Line::from(Span::styled(
@@ -105,6 +143,10 @@ fn render_help(f: &mut Frame, area: Rect) {
             Span::raw("          Cycle sort (task#/tag)"),
         ]),
         Line::from(vec![
+            Span::styled("v", Color::Cyan),
+            Span::raw("          Cycle view (auto/wide/narrow)"),
+        ]),
+        Line::from(vec![
             Span::styled("t", Color::Cyan),
             Span::raw("          Cycle tag (includes all)"),
         ]),
@@ -123,17 +165,33 @@ fn render_help(f: &mut Frame, area: Rect) {
     ];
 
     let p = Paragraph::new(text).wrap(Wrap { trim: true });
-    f.render_widget(p, inner_area);
+    f.render_widget(p, body_area);
 }
 
 fn render_main(f: &mut Frame, app: &mut App, area: Rect) {
-    if app.display_rows.is_empty() {
-        let border_style = if app.focus == FocusMode::List {
-            Style::default().fg(Color::Cyan)
-        } else {
-            Style::default()
-        };
+    let (title_area, table_area) = split_title(area);
+    app.update_layout(Some(table_area), app.details_area);
 
+    let title_style = if app.focus == FocusMode::List {
+        Style::default()
+            .fg(Color::Cyan)
+            .add_modifier(Modifier::BOLD)
+    } else {
+        Style::default().add_modifier(Modifier::BOLD)
+    };
+    let mut title = "Tasks".to_string();
+    if !app.search_query.trim().is_empty() {
+        title.push_str(&format!(" / {}", app.search_query));
+    }
+    if app.input_mode == InputMode::Search {
+        title.push_str(" [search]");
+    }
+    f.render_widget(
+        Paragraph::new(Line::from(Span::styled(title, title_style))),
+        title_area,
+    );
+
+    if app.display_rows.is_empty() {
         let message = if let Some(error) = &app.last_error {
             error.clone()
         } else if !app.search_query.trim().is_empty() {
@@ -141,13 +199,6 @@ fn render_main(f: &mut Frame, app: &mut App, area: Rect) {
         } else {
             "No tasks found".to_string()
         };
-
-        let block = Block::default()
-            .borders(Borders::ALL)
-            .title("Tasks")
-            .border_style(border_style);
-        let inner = block.inner(area);
-        f.render_widget(block, area);
 
         let text = vec![
             Line::from(Span::styled(&message, Color::Yellow)),
@@ -158,7 +209,7 @@ fn render_main(f: &mut Frame, app: &mut App, area: Rect) {
             Line::from("Press Esc to clear search/close panes, r to refresh."),
         ];
         let p = Paragraph::new(text).wrap(Wrap { trim: true });
-        f.render_widget(p, inner);
+        f.render_widget(p, table_area);
         return;
     }
 
@@ -290,45 +341,27 @@ fn render_main(f: &mut Frame, app: &mut App, area: Rect) {
         Constraint::Min(10),
     ];
 
-    let border_style = if app.focus == FocusMode::List {
-        Style::default().fg(Color::Cyan)
-    } else {
-        Style::default()
-    };
-
-    let mut title = "Tasks".to_string();
-    if !app.search_query.trim().is_empty() {
-        title.push_str(&format!(" / {}", app.search_query));
-    }
-    if app.input_mode == InputMode::Search {
-        title.push_str(" [search]");
-    }
-
     let table = Table::new(rows, widths)
         .header(Row::new(vec!["ID", "Tag", "S", "P", "Title"]).style(theme::HEADER_STYLE))
-        .block(
-            Block::default()
-                .borders(Borders::ALL)
-                .title(title)
-                .border_style(border_style),
-        )
         .highlight_style(theme::SELECTED_STYLE);
 
-    f.render_stateful_widget(table, area, &mut app.table_state);
+    f.render_stateful_widget(table, table_area, &mut app.table_state);
 }
 
 fn render_details(f: &mut Frame, app: &mut App, area: Rect) {
-    let border_style = if app.focus == FocusMode::Details {
-        Style::default().fg(Color::Cyan)
-    } else {
+    let (title_area, inner_area) = split_title(area);
+    let title_style = if app.focus == FocusMode::Details {
         Style::default()
+            .fg(Color::Cyan)
+            .add_modifier(Modifier::BOLD)
+    } else {
+        Style::default().add_modifier(Modifier::BOLD)
     };
-    let block = Block::default()
-        .borders(Borders::ALL)
-        .title("Details")
-        .border_style(border_style);
-    let inner_area = block.inner(area);
-    f.render_widget(block, area);
+    f.render_widget(
+        Paragraph::new(Line::from(Span::styled("Details", title_style))),
+        title_area,
+    );
+    app.update_layout(app.list_area, Some(inner_area));
 
     let idx = app.table_state.selected().unwrap_or(0);
     if idx >= app.display_rows.len() {
@@ -514,17 +547,19 @@ fn render_details(f: &mut Frame, app: &mut App, area: Rect) {
 }
 
 fn render_tag_selector(f: &mut Frame, app: &mut App, area: Rect) {
-    let border_style = if app.focus == FocusMode::Tags {
-        Style::default().fg(Color::Cyan)
-    } else {
+    let (title_area, inner_area) = split_title(area);
+    let title_style = if app.focus == FocusMode::Tags {
         Style::default()
+            .fg(Color::Cyan)
+            .add_modifier(Modifier::BOLD)
+    } else {
+        Style::default().add_modifier(Modifier::BOLD)
     };
-    let block = Block::default()
-        .borders(Borders::ALL)
-        .title("Tags")
-        .border_style(border_style);
-    let inner_area = block.inner(area);
-    f.render_widget(block, area);
+    f.render_widget(
+        Paragraph::new(Line::from(Span::styled("Tags", title_style))),
+        title_area,
+    );
+    app.update_layout(app.list_area, Some(inner_area));
 
     if app.tag_items.is_empty() {
         let p = Paragraph::new("No tags found").wrap(Wrap { trim: true });
@@ -553,6 +588,18 @@ fn render_tag_selector(f: &mut Frame, app: &mut App, area: Rect) {
         .highlight_style(theme::SELECTED_STYLE)
         .highlight_symbol("> ");
     f.render_stateful_widget(list, inner_area, &mut app.tag_list_state);
+}
+
+fn split_title(area: Rect) -> (Rect, Rect) {
+    if area.height == 0 {
+        return (area, area);
+    }
+
+    let chunks = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([Constraint::Length(1), Constraint::Min(0)])
+        .split(area);
+    (chunks[0], chunks[1])
 }
 
 fn wrapped_height(lines: &[Line<'_>], width: u16) -> u16 {
