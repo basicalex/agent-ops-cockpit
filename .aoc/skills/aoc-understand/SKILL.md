@@ -8,6 +8,8 @@ allowed-tools: Bash(aoc-understand:*), Bash(test:*), Bash(python3:*), Bash(rg:*)
 
 Use `aoc-understand` when the user wants to understand a repo, onboard, ask architecture questions, inspect graph relationships, explain a file/function, analyze code impact, or launch an interactive knowledge graph dashboard.
 
+This is the umbrella Understand-Anything skill. Do not expose or require the upstream granular skills (`understand`, `understand-chat`, `understand-dashboard`, `understand-diff`, `understand-domain`, `understand-explain`, `understand-knowledge`, `understand-onboard`) in normal AOC skill inventory; route those modes through this skill instead.
+
 ## Canonical flow
 
 1. Check status:
@@ -18,10 +20,10 @@ Use `aoc-understand` when the user wants to understand a repo, onboard, ask arch
    ```bash
    aoc-understand install
    ```
-3. Build/update the graph through the UA agent skill flow:
+3. Build/update the graph through the umbrella flow:
    ```bash
    aoc-understand analyze --full
-   # then run the printed /understand command in Pi if needed
+   # or invoke: /skill:aoc-understand analyze --full
    ```
 4. Explore:
    ```bash
@@ -37,6 +39,19 @@ Use `aoc-understand` when the user wants to understand a repo, onboard, ask arch
    aoc-understand map-sync
    aoc-map serve --open
    ```
+
+## Umbrella modes
+
+Use the operator's requested mode to select the appropriate flow inside this skill:
+
+- `analyze` / `full` / repo graph: run `aoc-understand status`, then `aoc-understand analyze --full`; follow the printed guidance.
+- `dashboard`: run `aoc-understand dashboard --open` after a graph exists.
+- `chat QUERY`: use `aoc-understand chat "QUERY"` and answer from graph slices/search results, not by loading the whole graph.
+- `explain TARGET`: use `aoc-understand explain TARGET` plus targeted file/graph inspection.
+- `onboard`: use `aoc-understand onboard` to produce a newcomer-oriented repo guide.
+- `domain`: use `aoc-understand domain` for business/domain flow extraction.
+- `diff`: use `aoc-understand diff` for change impact analysis.
+- `gaps`: use `aoc-understand gaps [focus]` or `/skill:aoc-gaps` for the broader AOC gap audit workflow.
 
 ## Mental model
 

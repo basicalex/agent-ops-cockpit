@@ -66,6 +66,7 @@ enum SettingsSection {
     ToolsPiCompaction,
     ToolsAgentBrowser,
     ToolsUnderstand,
+    ToolsCodeGraph,
     ToolsVercel,
     ToolsHyperframes,
 }
@@ -131,6 +132,14 @@ struct HyperframesJob {
 
 #[derive(Debug)]
 struct UnderstandJob {
+    action: String,
+    success_message: String,
+    log_path: PathBuf,
+    child: Child,
+}
+
+#[derive(Debug)]
+struct CodeGraphJob {
     action: String,
     success_message: String,
     log_path: PathBuf,
@@ -314,6 +323,7 @@ struct App {
     settings_tools_pi_compaction_state: ListState,
     settings_tools_agent_browser_state: ListState,
     settings_tools_understand_state: ListState,
+    settings_tools_codegraph_state: ListState,
     settings_tools_vercel_state: ListState,
     settings_tools_hyperframes_state: ListState,
     projects_state: ListState,
@@ -370,6 +380,9 @@ struct App {
     understand_job: Option<UnderstandJob>,
     understand_log_tail: Vec<String>,
     understand_log_scroll: usize,
+    codegraph_job: Option<CodeGraphJob>,
+    codegraph_log_tail: Vec<String>,
+    codegraph_log_scroll: usize,
     search_start_last_status: String,
     search_verify_last_status: String,
     search_status_checked: bool,
@@ -411,6 +424,7 @@ impl App {
             settings_tools_pi_compaction_state: ListState::default(),
             settings_tools_agent_browser_state: ListState::default(),
             settings_tools_understand_state: ListState::default(),
+            settings_tools_codegraph_state: ListState::default(),
             settings_tools_vercel_state: ListState::default(),
             settings_tools_hyperframes_state: ListState::default(),
             projects_state: ListState::default(),
@@ -476,6 +490,9 @@ impl App {
             understand_job: None,
             understand_log_tail: Vec::new(),
             understand_log_scroll: 0,
+            codegraph_job: None,
+            codegraph_log_tail: Vec::new(),
+            codegraph_log_scroll: 0,
             search_start_last_status: "idle".to_string(),
             search_verify_last_status: "idle".to_string(),
             search_status_checked: false,
@@ -661,6 +678,10 @@ impl App {
                 &mut self.settings_tools_understand_state,
                 settings_tools_understand_options().len(),
             ),
+            SettingsSection::ToolsCodeGraph => ensure_selection(
+                &mut self.settings_tools_codegraph_state,
+                settings_tools_codegraph_options().len(),
+            ),
             SettingsSection::ToolsVercel => ensure_selection(
                 &mut self.settings_tools_vercel_state,
                 settings_tools_vercel_options().len(),
@@ -687,6 +708,7 @@ impl App {
             SettingsSection::ToolsPiCompaction
             | SettingsSection::ToolsAgentBrowser
             | SettingsSection::ToolsUnderstand
+            | SettingsSection::ToolsCodeGraph
             | SettingsSection::ToolsVercel
             | SettingsSection::ToolsHyperframes => SettingsSection::Tools,
         };
@@ -708,7 +730,12 @@ impl App {
                 .settings_tools_agent_browser_state
                 .selected()
                 .unwrap_or(0),
-            SettingsSection::ToolsUnderstand => self.settings_tools_understand_state.selected().unwrap_or(0),
+            SettingsSection::ToolsUnderstand => {
+                self.settings_tools_understand_state.selected().unwrap_or(0)
+            }
+            SettingsSection::ToolsCodeGraph => {
+                self.settings_tools_codegraph_state.selected().unwrap_or(0)
+            }
             SettingsSection::ToolsVercel => {
                 self.settings_tools_vercel_state.selected().unwrap_or(0)
             }
@@ -1382,7 +1409,9 @@ impl App {
                 self.understand_log_tail.clear();
                 self.understand_log_scroll = 0;
                 self.understand_job = Some(job);
-                self.set_status(format!("AOC Understand {action} started (logs: {log_path})"));
+                self.set_status(format!(
+                    "AOC Understand {action} started (logs: {log_path})"
+                ));
             }
             Err(err) => self.set_status(format!("AOC Understand {action} failed to start: {err}")),
         }
@@ -1434,6 +1463,36 @@ impl App {
             &["map-sync"],
             "AOC Understand map sync completed",
         );
+    }
+
+    fn start_codegraph_action(&mut self, action: &str, success_message: &str, args: &[&str]) {
+        if self.codegraph_job.is_some() {
+            self.set_status("CodeGraph action already running");
+            return;
+        }
+
+        match spawn_codegraph_command(action, success_message, args) {
+            Ok(job) => {
+                let log_path = job.log_path.to_string_lossy().to_string();
+                self.codegraph_log_tail.clear();
+                self.codegraph_log_scroll = 0;
+                self.codegraph_job = Some(job);
+                self.set_status(format!("CodeGraph {action} started (logs: {log_path})"));
+            }
+            Err(err) => self.set_status(format!("CodeGraph {action} failed to start: {err}")),
+        }
+    }
+
+    fn run_codegraph_install_action(&mut self) {
+        self.start_codegraph_action(
+            "install",
+            "CodeGraph global pnpm install/update completed",
+            &["add", "-g", "@colbymchenry/codegraph"],
+        );
+    }
+
+    fn run_codegraph_status_action(&mut self) {
+        self.start_codegraph_action("status", "CodeGraph status completed", &["status"]);
     }
 
     fn run_search_enable_action(&mut self) {
@@ -1649,6 +1708,21 @@ impl App {
         self.understand_log_scroll = next.min(max_scroll);
     }
 
+    fn scroll_codegraph_log(&mut self, delta: isize) {
+        if self.codegraph_log_tail.is_empty() {
+            self.codegraph_log_scroll = 0;
+            return;
+        }
+        let max_scroll = self.codegraph_log_tail.len().saturating_sub(1);
+        let next = if delta.is_negative() {
+            self.codegraph_log_scroll
+                .saturating_sub(delta.unsigned_abs())
+        } else {
+            self.codegraph_log_scroll.saturating_add(delta as usize)
+        };
+        self.codegraph_log_scroll = next.min(max_scroll);
+    }
+
     fn scroll_active_job_log(&mut self, delta: isize) {
         if self.agent_browser_job.is_some() {
             self.scroll_agent_browser_log(delta);
@@ -1658,6 +1732,8 @@ impl App {
             self.scroll_hyperframes_log(delta);
         } else if self.understand_job.is_some() {
             self.scroll_understand_log(delta);
+        } else if self.codegraph_job.is_some() {
+            self.scroll_codegraph_log(delta);
         }
     }
 
@@ -1808,6 +1884,42 @@ impl App {
         }
     }
 
+    fn cancel_codegraph_job(&mut self) {
+        let Some(mut job) = self.codegraph_job.take() else {
+            self.set_status("No CodeGraph action is running");
+            return;
+        };
+
+        let _ = job.child.kill();
+        let _ = job.child.wait();
+        if let Ok(lines) = tail_file_lines(&job.log_path, 200, 32 * 1024) {
+            self.codegraph_log_tail = lines;
+        }
+        self.set_status(format!(
+            "Cancelled CodeGraph {} (log: {})",
+            job.action,
+            job.log_path.to_string_lossy()
+        ));
+    }
+
+    fn open_codegraph_log(&mut self) {
+        let log_path = self
+            .codegraph_job
+            .as_ref()
+            .map(|job| job.log_path.clone())
+            .or_else(|| latest_codegraph_log_path());
+
+        let Some(log_path) = log_path else {
+            self.set_status("No CodeGraph log available yet");
+            return;
+        };
+
+        match open_log_in_pager(&log_path) {
+            Ok(()) => self.set_status(format!("Viewed log {}", log_path.to_string_lossy())),
+            Err(err) => self.set_status(format!("Open log failed: {err}")),
+        }
+    }
+
     fn cancel_active_job(&mut self) {
         if self.agent_browser_job.is_some() {
             self.cancel_agent_browser_job();
@@ -1817,6 +1929,8 @@ impl App {
             self.cancel_hyperframes_job();
         } else if self.understand_job.is_some() {
             self.cancel_understand_job();
+        } else if self.codegraph_job.is_some() {
+            self.cancel_codegraph_job();
         } else {
             self.set_status("No background job is running");
         }
@@ -1831,6 +1945,8 @@ impl App {
             self.open_hyperframes_log();
         } else if self.understand_job.is_some() {
             self.open_understand_log();
+        } else if self.codegraph_job.is_some() {
+            self.open_codegraph_log();
         } else {
             self.set_status("No background job log available yet");
         }
@@ -2103,6 +2219,57 @@ impl App {
         }
     }
 
+    fn poll_codegraph_job(&mut self) {
+        let mut completed: Option<(String, String, ExitStatus, PathBuf)> = None;
+
+        if let Some(job) = self.codegraph_job.as_mut() {
+            if let Ok(lines) = tail_file_lines(&job.log_path, 200, 32 * 1024) {
+                self.codegraph_log_tail = lines;
+                let max_scroll = self.codegraph_log_tail.len().saturating_sub(1);
+                self.codegraph_log_scroll = self.codegraph_log_scroll.min(max_scroll);
+            }
+
+            match job.child.try_wait() {
+                Ok(Some(status)) => {
+                    completed = Some((
+                        job.action.clone(),
+                        job.success_message.clone(),
+                        status,
+                        job.log_path.clone(),
+                    ));
+                }
+                Ok(None) => {}
+                Err(err) => {
+                    self.codegraph_job = None;
+                    self.set_status(format!("CodeGraph job poll failed: {err}"));
+                    return;
+                }
+            }
+        }
+
+        if let Some((action, success_message, status, log_path)) = completed {
+            self.codegraph_job = None;
+            if let Ok(lines) = tail_file_lines(&log_path, 200, 32 * 1024) {
+                self.codegraph_log_tail = lines;
+                let max_scroll = self.codegraph_log_tail.len().saturating_sub(1);
+                self.codegraph_log_scroll = self.codegraph_log_scroll.min(max_scroll);
+            }
+
+            if status.success() {
+                self.set_status(format!(
+                    "{success_message} ({}) (log: {})",
+                    codegraph_summary(),
+                    log_path.to_string_lossy()
+                ));
+            } else {
+                self.set_status(format!(
+                    "CodeGraph {action} failed with status {status} (log: {})",
+                    log_path.to_string_lossy()
+                ));
+            }
+        }
+    }
+
     fn run_selected_rtk_action(&mut self) {
         match self.rtk_actions_state.selected().unwrap_or(0) {
             0 => self.refresh_rtk_status(),
@@ -2146,6 +2313,7 @@ impl App {
         self.poll_search_job();
         self.poll_hyperframes_job();
         self.poll_understand_job();
+        self.poll_codegraph_job();
 
         if self.pane_rename_remaining == 0 {
             return;
@@ -2259,7 +2427,10 @@ fn handle_key_normal(app: &mut App, key: KeyEvent) {
             if app.focus == Focus::Detail {
                 if matches!(app.active_tab, Tab::Defaults | Tab::Advanced)
                     && app.mode == Mode::Normal
-                    && !matches!(app.settings_section, SettingsSection::Root | SettingsSection::Tools)
+                    && !matches!(
+                        app.settings_section,
+                        SettingsSection::Root | SettingsSection::Tools
+                    )
                 {
                     app.back_settings_section();
                 } else {
@@ -2753,6 +2924,10 @@ fn list_next(app: &mut App) {
                 &mut app.settings_tools_understand_state,
                 settings_tools_understand_options().len(),
             ),
+            SettingsSection::ToolsCodeGraph => list_next_state(
+                &mut app.settings_tools_codegraph_state,
+                settings_tools_codegraph_options().len(),
+            ),
             SettingsSection::ToolsVercel => list_next_state(
                 &mut app.settings_tools_vercel_state,
                 settings_tools_vercel_options().len(),
@@ -2818,6 +2993,10 @@ fn list_prev(app: &mut App) {
             SettingsSection::ToolsUnderstand => list_prev_state(
                 &mut app.settings_tools_understand_state,
                 settings_tools_understand_options().len(),
+            ),
+            SettingsSection::ToolsCodeGraph => list_prev_state(
+                &mut app.settings_tools_codegraph_state,
+                settings_tools_codegraph_options().len(),
             ),
             SettingsSection::ToolsVercel => list_prev_state(
                 &mut app.settings_tools_vercel_state,
@@ -2899,9 +3078,10 @@ fn activate_selection(app: &mut App) {
                 3 => app.set_settings_section(SettingsSection::ToolsAgentBrowser),
                 4 => app.set_settings_section(SettingsSection::ToolsUnderstand),
                 5 => app.run_aoc_map_init_action(),
-                6 => app.set_settings_section(SettingsSection::ToolsVercel),
-                7 => app.set_settings_section(SettingsSection::ToolsHyperframes),
-                8 => {
+                6 => app.set_settings_section(SettingsSection::ToolsCodeGraph),
+                7 => app.set_settings_section(SettingsSection::ToolsVercel),
+                8 => app.set_settings_section(SettingsSection::ToolsHyperframes),
+                9 => {
                     app.active_tab = Tab::Advanced;
                     app.set_settings_section(SettingsSection::Root);
                 }
@@ -2946,6 +3126,14 @@ fn activate_selection(app: &mut App) {
                     5 => app.run_aoc_understand_gaps_action(),
                     6 => app.run_aoc_understand_map_sync_action(),
                     7 => app.set_settings_section(SettingsSection::Tools),
+                    _ => {}
+                }
+            }
+            SettingsSection::ToolsCodeGraph => {
+                match app.settings_tools_codegraph_state.selected().unwrap_or(0) {
+                    0 => app.run_codegraph_install_action(),
+                    1 => app.run_codegraph_status_action(),
+                    2 => app.set_settings_section(SettingsSection::Tools),
                     _ => {}
                 }
             }
@@ -3113,7 +3301,10 @@ fn draw_defaults(frame: &mut ratatui::Frame, area: Rect, app: &mut App, focused:
         }
         SettingsSection::Theme => {
             let items = vec![
-                ListItem::new(format!("Deprecated theme manager · {}", app.theme_identity_label())),
+                ListItem::new(format!(
+                    "Deprecated theme manager · {}",
+                    app.theme_identity_label()
+                )),
                 ListItem::new(format!("Background profile · {}", app.background_profile)),
                 ListItem::new("Back"),
             ];
@@ -3203,6 +3394,7 @@ fn draw_defaults(frame: &mut ratatui::Frame, area: Rect, app: &mut App, focused:
                 )),
                 ListItem::new(format!("AOC Understand · {}", aoc_understand_summary())),
                 ListItem::new(format!("AOC Map microsite · {}", aoc_map_summary())),
+                ListItem::new(format!("CodeGraph agent index · {}", codegraph_summary())),
                 ListItem::new(format!("Vercel CLI + PI skill · {}", vercel_summary())),
                 ListItem::new(format!("HyperFrames video · {}", hyperframes_summary())),
                 ListItem::new("Advanced / legacy settings"),
@@ -3304,6 +3496,27 @@ fn draw_defaults(frame: &mut ratatui::Frame, area: Rect, app: &mut App, focused:
             ];
             ("Tools · AOC Understand", items)
         }
+        SettingsSection::ToolsCodeGraph => {
+            let action = if codegraph_installed() {
+                "Update global CodeGraph"
+            } else {
+                "Install global CodeGraph"
+            };
+            let running = if app.codegraph_job.is_some() {
+                " · running"
+            } else {
+                ""
+            };
+            let items = vec![
+                ListItem::new(format!(
+                    "{action} via pnpm · {}{running}",
+                    codegraph_summary()
+                )),
+                ListItem::new("Verify CodeGraph status"),
+                ListItem::new("Back"),
+            ];
+            ("Tools · CodeGraph", items)
+        }
         SettingsSection::ToolsVercel => {
             let action = if vercel_installed() {
                 "Update tool"
@@ -3361,11 +3574,12 @@ fn draw_defaults(frame: &mut ratatui::Frame, area: Rect, app: &mut App, focused:
             columns[0],
             &mut app.settings_tools_agent_browser_state,
         ),
-        SettingsSection::ToolsUnderstand => frame.render_stateful_widget(
-            list,
-            columns[0],
-            &mut app.settings_tools_understand_state,
-        ),
+        SettingsSection::ToolsUnderstand => {
+            frame.render_stateful_widget(list, columns[0], &mut app.settings_tools_understand_state)
+        }
+        SettingsSection::ToolsCodeGraph => {
+            frame.render_stateful_widget(list, columns[0], &mut app.settings_tools_codegraph_state)
+        }
         SettingsSection::ToolsVercel => {
             frame.render_stateful_widget(list, columns[0], &mut app.settings_tools_vercel_state)
         }
@@ -3405,7 +3619,11 @@ fn draw_defaults(frame: &mut ratatui::Frame, area: Rect, app: &mut App, focused:
         frame.render_widget(details, split[0]);
 
         let logs = Paragraph::new(active_job_log_lines(app))
-            .block(Block::default().borders(Borders::ALL).title(active_job_log_title(app)))
+            .block(
+                Block::default()
+                    .borders(Borders::ALL)
+                    .title(active_job_log_title(app)),
+            )
             .alignment(Alignment::Left)
             .wrap(Wrap { trim: false });
         frame.render_widget(logs, split[1]);
@@ -3426,6 +3644,7 @@ fn active_job_running(app: &App) -> bool {
         || app.search_job.is_some()
         || app.hyperframes_job.is_some()
         || app.understand_job.is_some()
+        || app.codegraph_job.is_some()
 }
 
 fn active_job_log_title(app: &App) -> String {
@@ -3437,6 +3656,8 @@ fn active_job_log_title(app: &App) -> String {
         format!("Job Log · HyperFrames {}", job.action)
     } else if let Some(job) = app.understand_job.as_ref() {
         format!("Job Log · AOC Understand {}", job.action)
+    } else if let Some(job) = app.codegraph_job.as_ref() {
+        format!("Job Log · CodeGraph {}", job.action)
     } else {
         "Job Log".to_string()
     }
@@ -3445,13 +3666,35 @@ fn active_job_log_title(app: &App) -> String {
 fn active_job_log_lines(app: &App) -> Vec<Line<'static>> {
     let (log_path, tail, scroll): (Option<&PathBuf>, &[String], usize) =
         if let Some(job) = app.agent_browser_job.as_ref() {
-            (Some(&job.log_path), &app.agent_browser_log_tail, app.agent_browser_log_scroll)
+            (
+                Some(&job.log_path),
+                &app.agent_browser_log_tail,
+                app.agent_browser_log_scroll,
+            )
         } else if let Some(job) = app.search_job.as_ref() {
-            (Some(&job.log_path), &app.search_log_tail, app.search_log_scroll)
+            (
+                Some(&job.log_path),
+                &app.search_log_tail,
+                app.search_log_scroll,
+            )
         } else if let Some(job) = app.hyperframes_job.as_ref() {
-            (Some(&job.log_path), &app.hyperframes_log_tail, app.hyperframes_log_scroll)
+            (
+                Some(&job.log_path),
+                &app.hyperframes_log_tail,
+                app.hyperframes_log_scroll,
+            )
         } else if let Some(job) = app.understand_job.as_ref() {
-            (Some(&job.log_path), &app.understand_log_tail, app.understand_log_scroll)
+            (
+                Some(&job.log_path),
+                &app.understand_log_tail,
+                app.understand_log_scroll,
+            )
+        } else if let Some(job) = app.codegraph_job.as_ref() {
+            (
+                Some(&job.log_path),
+                &app.codegraph_log_tail,
+                app.codegraph_log_scroll,
+            )
         } else {
             (None, &[], 0)
         };
@@ -3459,7 +3702,9 @@ fn active_job_log_lines(app: &App) -> Vec<Line<'static>> {
     let mut lines = Vec::new();
     if let Some(path) = log_path {
         lines.push(Line::from(format!("Log: {}", path.to_string_lossy())));
-        lines.push(Line::from("Controls: PgUp/PgDn scroll · x cancel · Shift+O open full log"));
+        lines.push(Line::from(
+            "Controls: PgUp/PgDn scroll · x cancel · Shift+O open full log",
+        ));
         lines.push(Line::from(""));
     }
 
@@ -3740,7 +3985,7 @@ fn draw_help_modal(frame: &mut ratatui::Frame, area: Rect) {
         Line::from("  Enter  open section/action"),
         Line::from("  Esc    back one settings level"),
         Line::from("  t      jump to Theme section"),
-        Line::from("  Tools includes RTK, agent installers, PI compaction, Agent Browser, AOC Map, Vercel CLI, HyperFrames"),
+        Line::from("  Tools includes RTK, agent installers, PI compaction, Agent Browser, AOC Map, CodeGraph, Vercel CLI, HyperFrames"),
         Line::from("  Right pane shows details for selected settings item"),
         Line::from("  Agent Browser/search/HyperFrames jobs: PgUp/PgDn scroll, x cancel, Shift+O open log"),
         Line::from("  Deprecated theme manager: j/k preview, Enter activate+persist, n/i/r actions"),
@@ -4081,6 +4326,7 @@ fn settings_tools_options() -> Vec<String> {
         "Agent Browser + Search".to_string(),
         "AOC Understand".to_string(),
         "AOC Map microsite".to_string(),
+        "CodeGraph agent index".to_string(),
         "Vercel CLI + PI skill".to_string(),
         "HyperFrames video".to_string(),
         "Advanced / legacy settings".to_string(),
@@ -4117,6 +4363,14 @@ fn settings_tools_understand_options() -> Vec<String> {
         "Open dashboard".to_string(),
         "Gap audit guidance".to_string(),
         "Sync graph to AOC Map".to_string(),
+        "Back".to_string(),
+    ]
+}
+
+fn settings_tools_codegraph_options() -> Vec<String> {
+    vec![
+        "Install/update global CodeGraph".to_string(),
+        "Verify CodeGraph status".to_string(),
         "Back".to_string(),
     ]
 }
@@ -4249,29 +4503,41 @@ fn settings_detail_lines(app: &App) -> Vec<Line<'static>> {
     let mut lines: Vec<Line<'static>> = Vec::new();
 
     match app.settings_section {
-        SettingsSection::Root => match selected {
-            0 => {
-                lines.push(Line::from("Background profile"));
-                lines.push(Line::from(""));
-                lines.push(Line::from(format!("Current profile: {}", app.background_profile)));
-                lines.push(Line::from("Advanced runtime visual behavior; Omarchy owns the system theme."));
-                lines.push(Line::from("Enter opens profile picker."));
+        SettingsSection::Root => {
+            match selected {
+                0 => {
+                    lines.push(Line::from("Background profile"));
+                    lines.push(Line::from(""));
+                    lines.push(Line::from(format!(
+                        "Current profile: {}",
+                        app.background_profile
+                    )));
+                    lines.push(Line::from(
+                        "Advanced runtime visual behavior; Omarchy owns the system theme.",
+                    ));
+                    lines.push(Line::from("Enter opens profile picker."));
+                }
+                1 => {
+                    lines.push(Line::from("Deprecated AOC theme utilities"));
+                    lines.push(Line::from(""));
+                    lines.push(Line::from("AOC theme management is legacy because Omarchy now supplies system theming."));
+                    lines.push(Line::from(
+                        "Kept here only for old AOC-specific theme assets.",
+                    ));
+                    lines.push(Line::from("Enter opens deprecated theme utilities."));
+                }
+                _ => {
+                    lines.push(Line::from("Legacy layout utilities"));
+                    lines.push(Line::from(""));
+                    lines.push(Line::from(format!(
+                        "Current default layout: {}",
+                        app.default_layout
+                    )));
+                    lines.push(Line::from("Custom layout creation/editing is legacy; prefer managed AOC/Zellij defaults."));
+                    lines.push(Line::from("Enter opens legacy layout utilities."));
+                }
             }
-            1 => {
-                lines.push(Line::from("Deprecated AOC theme utilities"));
-                lines.push(Line::from(""));
-                lines.push(Line::from("AOC theme management is legacy because Omarchy now supplies system theming."));
-                lines.push(Line::from("Kept here only for old AOC-specific theme assets."));
-                lines.push(Line::from("Enter opens deprecated theme utilities."));
-            }
-            _ => {
-                lines.push(Line::from("Legacy layout utilities"));
-                lines.push(Line::from(""));
-                lines.push(Line::from(format!("Current default layout: {}", app.default_layout)));
-                lines.push(Line::from("Custom layout creation/editing is legacy; prefer managed AOC/Zellij defaults."));
-                lines.push(Line::from("Enter opens legacy layout utilities."));
-            }
-        },
+        }
         SettingsSection::Theme => match selected {
             0 => {
                 lines.push(Line::from("Deprecated theme manager"));
@@ -4463,6 +4729,14 @@ fn settings_detail_lines(app: &App) -> Vec<Line<'static>> {
                 ));
             }
             6 => {
+                lines.push(Line::from("CodeGraph agent index"));
+                lines.push(Line::from(""));
+                lines.push(Line::from(format!("Status: {}", codegraph_summary())));
+                lines.push(Line::from(
+                    "Enter opens global pnpm install/update plus project status verification.",
+                ));
+            }
+            7 => {
                 lines.push(Line::from("Vercel CLI + PI skill"));
                 lines.push(Line::from(""));
                 lines.push(Line::from(format!("Status: {}", vercel_summary())));
@@ -4470,7 +4744,7 @@ fn settings_detail_lines(app: &App) -> Vec<Line<'static>> {
                     "Enter opens nested actions (tool install/update, skill sync, verify).",
                 ));
             }
-            7 => {
+            8 => {
                 lines.push(Line::from("HyperFrames video"));
                 lines.push(Line::from(""));
                 lines.push(Line::from(format!("Status: {}", hyperframes_summary())));
@@ -4703,9 +4977,14 @@ fn settings_detail_lines(app: &App) -> Vec<Line<'static>> {
             0 => {
                 lines.push(Line::from("Status"));
                 lines.push(Line::from(""));
-                lines.push(Line::from(format!("Current status: {}", aoc_understand_summary())));
+                lines.push(Line::from(format!(
+                    "Current status: {}",
+                    aoc_understand_summary()
+                )));
                 lines.push(Line::from("Enter runs `aoc-understand status`."));
-                lines.push(Line::from("Use this first in another AOC project after `aoc-init`."));
+                lines.push(Line::from(
+                    "Use this first in another AOC project after `aoc-init`.",
+                ));
             }
             1 => {
                 lines.push(Line::from("Run doctor"));
@@ -4730,7 +5009,9 @@ fn settings_detail_lines(app: &App) -> Vec<Line<'static>> {
                 lines.push(Line::from("Open dashboard"));
                 lines.push(Line::from(""));
                 lines.push(Line::from("Enter runs `aoc-understand dashboard --open`."));
-                lines.push(Line::from("Use after a `.understand-anything/` graph exists."));
+                lines.push(Line::from(
+                    "Use after a `.understand-anything/` graph exists.",
+                ));
             }
             5 => {
                 lines.push(Line::from("Gap audit guidance"));
@@ -4744,6 +5025,38 @@ fn settings_detail_lines(app: &App) -> Vec<Line<'static>> {
                 lines.push(Line::from(""));
                 lines.push(Line::from("Enter runs `aoc-understand map-sync`."));
                 lines.push(Line::from("Reads `.understand-anything/knowledge-graph.json` and writes a compact AOC Map overview page/diagram."));
+            }
+            _ => {
+                lines.push(Line::from("Back"));
+                lines.push(Line::from(""));
+                lines.push(Line::from("Return to Tools menu."));
+            }
+        },
+        SettingsSection::ToolsCodeGraph => match selected {
+            0 => {
+                lines.push(Line::from("Install/update global CodeGraph"));
+                lines.push(Line::from(""));
+                lines.push(Line::from(format!(
+                    "Current status: {}",
+                    codegraph_summary()
+                )));
+                lines.push(Line::from(
+                    "Enter runs `pnpm add -g @colbymchenry/codegraph` in the background.",
+                ));
+                lines.push(Line::from("AOC installs CodeGraph globally with pnpm so `codegraph` is available to agents."));
+                lines.push(Line::from("Project indexing remains explicit: run `codegraph init -i` from the repo after install."));
+            }
+            1 => {
+                lines.push(Line::from("Verify CodeGraph status"));
+                lines.push(Line::from(""));
+                lines.push(Line::from(format!(
+                    "Current status: {}",
+                    codegraph_summary()
+                )));
+                lines.push(Line::from(
+                    "Enter runs `codegraph status` in the current project.",
+                ));
+                lines.push(Line::from("Use after installing CodeGraph and initializing this repo's `.codegraph/` index."));
             }
             _ => {
                 lines.push(Line::from("Back"));
@@ -4852,6 +5165,10 @@ fn settings_detail_lines(app: &App) -> Vec<Line<'static>> {
             }
             push_hyperframes_job_detail(&mut lines, app);
         }
+    }
+
+    if app.settings_section == SettingsSection::ToolsCodeGraph {
+        push_codegraph_job_detail(&mut lines, app);
     }
 
     lines
@@ -5470,9 +5787,10 @@ themes {
     }
 
     #[test]
-    fn control_tools_include_aoc_understand_section() {
+    fn control_tools_include_aoc_understand_and_codegraph_sections() {
         let tools = settings_tools_options();
         assert!(tools.iter().any(|item| item == "AOC Understand"));
+        assert!(tools.iter().any(|item| item == "CodeGraph agent index"));
         assert!(tools
             .iter()
             .any(|item| item == "Advanced / legacy settings"));
@@ -5483,7 +5801,15 @@ themes {
             .iter()
             .any(|item| item == "Install/update Understand-Anything"));
         assert!(understand.iter().any(|item| item == "Gap audit guidance"));
-        assert!(understand.iter().any(|item| item == "Sync graph to AOC Map"));
+        assert!(understand
+            .iter()
+            .any(|item| item == "Sync graph to AOC Map"));
+
+        let codegraph = settings_tools_codegraph_options();
+        assert_eq!(codegraph[0], "Install/update global CodeGraph");
+        assert!(codegraph
+            .iter()
+            .any(|item| item == "Verify CodeGraph status"));
     }
 
     #[test]
@@ -5509,6 +5835,13 @@ themes {
         let summary = aoc_understand_summary();
         assert!(summary.contains("skill"));
         assert!(summary.contains("graph"));
+    }
+
+    #[test]
+    fn codegraph_summary_reports_cli_and_index_terms() {
+        let summary = codegraph_summary();
+        assert!(summary.contains("cli"));
+        assert!(summary.contains("index"));
     }
 
     #[test]
@@ -6183,6 +6516,44 @@ fn push_hyperframes_job_detail(lines: &mut Vec<Line<'static>>, app: &App) {
     }
 }
 
+fn push_codegraph_job_detail(lines: &mut Vec<Line<'static>>, app: &App) {
+    if let Some(job) = app.codegraph_job.as_ref() {
+        lines.push(Line::from(""));
+        lines.push(Line::from(format!("Running: {}", job.action)));
+        lines.push(Line::from(format!(
+            "Log: {}",
+            job.log_path.to_string_lossy()
+        )));
+        lines.push(Line::from(
+            "PgUp/PgDn scroll · x cancel · Shift+O open full log",
+        ));
+        if app.codegraph_log_tail.is_empty() {
+            lines.push(Line::from("(waiting for log output...)"));
+        } else {
+            let visible = 12usize;
+            let max_start = app.codegraph_log_tail.len().saturating_sub(visible);
+            let start = app.codegraph_log_scroll.min(max_start);
+            let end = (start + visible).min(app.codegraph_log_tail.len());
+            lines.push(Line::from(format!(
+                "Recent output: lines {}-{} of {}",
+                start + 1,
+                end,
+                app.codegraph_log_tail.len()
+            )));
+            for line in &app.codegraph_log_tail[start..end] {
+                lines.push(Line::from(format!("  {line}")));
+            }
+        }
+    } else if let Some(log_path) = latest_codegraph_log_path() {
+        lines.push(Line::from(""));
+        lines.push(Line::from(format!(
+            "Latest log: {}",
+            log_path.to_string_lossy()
+        )));
+        lines.push(Line::from("Shift+O opens the full log in pager."));
+    }
+}
+
 fn agent_browser_search_summary(
     runtime_checked: bool,
     runtime_ready: bool,
@@ -6614,6 +6985,28 @@ fn seed_aoc_map() -> io::Result<String> {
     Ok(format!("{skill_message}; {init_message}"))
 }
 
+fn codegraph_installed() -> bool {
+    binary_in_path("codegraph")
+}
+
+fn codegraph_project_index_present() -> bool {
+    project_relative_exists(".codegraph/codegraph.db") || project_relative_is_dir(".codegraph")
+}
+
+fn codegraph_summary() -> String {
+    let tool = if codegraph_installed() {
+        "cli present"
+    } else {
+        "cli missing"
+    };
+    let index = if codegraph_project_index_present() {
+        "index present"
+    } else {
+        "index missing"
+    };
+    format!("{tool}, {index}")
+}
+
 fn aoc_understand_installed() -> bool {
     project_relative_exists(".understand-anything/knowledge-graph.json")
         || home_dir()
@@ -6864,6 +7257,17 @@ fn understand_log_path(action: &str) -> PathBuf {
     ))
 }
 
+fn codegraph_log_path(action: &str) -> PathBuf {
+    let stamp = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_millis())
+        .unwrap_or(0);
+    env::temp_dir().join(format!(
+        "aoc-control-codegraph-{action}-{}-{stamp}.log",
+        std::process::id()
+    ))
+}
+
 fn spawn_agent_browser_command(action: &str) -> io::Result<AgentBrowserJob> {
     let cmd = resolve_agent_browser_cmd(action);
     let log_path = agent_browser_log_path(action);
@@ -6951,6 +7355,10 @@ fn latest_understand_log_path() -> Option<PathBuf> {
     latest_log_path_with_prefix("aoc-control-understand-")
 }
 
+fn latest_codegraph_log_path() -> Option<PathBuf> {
+    latest_log_path_with_prefix("aoc-control-codegraph-")
+}
+
 fn latest_log_path_with_prefix(prefix: &str) -> Option<PathBuf> {
     let mut entries: Vec<(SystemTime, PathBuf)> = fs::read_dir(env::temp_dir())
         .ok()?
@@ -6983,6 +7391,42 @@ fn open_log_in_pager(path: &Path) -> io::Result<()> {
             path.to_string_lossy()
         )))
     }
+}
+
+fn spawn_codegraph_command(
+    action: &str,
+    success_message: &str,
+    args: &[&str],
+) -> io::Result<CodeGraphJob> {
+    let log_path = codegraph_log_path(action);
+    let log_file = fs::File::create(&log_path)?;
+    let log_file_err = log_file.try_clone()?;
+
+    let mut command = if action == "install" {
+        let mut cmd = Command::new("pnpm");
+        cmd.args(args);
+        cmd
+    } else {
+        let mut cmd = Command::new("codegraph");
+        cmd.args(args);
+        if let Some(root) = project_root_path() {
+            cmd.current_dir(root);
+        }
+        cmd
+    };
+
+    let child = command
+        .stdin(Stdio::null())
+        .stdout(Stdio::from(log_file))
+        .stderr(Stdio::from(log_file_err))
+        .spawn()?;
+
+    Ok(CodeGraphJob {
+        action: action.to_string(),
+        success_message: success_message.to_string(),
+        log_path,
+        child,
+    })
 }
 
 fn spawn_hyperframes_command(

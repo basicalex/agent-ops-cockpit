@@ -22,7 +22,9 @@ aoc-zellij-plugin status
 zellij action list-panes --all
 ```
 
-AOC uses Zellij's documented plugin alias path (`aoc-tab-bar`) in both `load_plugins` and the visible layout pane (`plugin location="aoc-tab-bar"`). The Plugin Manager can load/monitor that alias, while AOC still verifies the managed wasm itself so the top bar remains deterministic and repairable offline.
+AOC loads the top bar the same way `zjstatus` is normally used: as a visible, one-row layout plugin pane (`plugin location="aoc-tab-bar"`) in each managed tab. The alias keeps the layout stable while AOC verifies and repairs the installed wasm.
+
+The Zellij Plugin Manager is not the source of truth for these layout-embedded top bars. They may not appear there even though they are normal running plugin panes. Inspect runtime panes with `zellij action list-panes --json --all` and inspect the managed wasm with `aoc-zellij-plugin status`.
 
 Useful fields include:
 
@@ -31,6 +33,7 @@ Useful fields include:
 - `reference_wasm`
 - `plugin_alias`
 - `plugin_url`
+- `plugin_lifecycle`
 - `dest_matches_reference`
 - the SHA256 lines for each copy
 

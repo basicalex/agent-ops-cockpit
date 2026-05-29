@@ -298,7 +298,7 @@ AOC_LAYOUT=mission-control aoc-launch
 The dedicated layout lives at `.aoc/layouts/mission-control.kdl` and currently
 starts:
 - Mission Control
-- AOC Services (`aoc-services up --watch --interval 5`)
+- AOC Services (`aoc-services up --watch --interval 30`)
 - Taskmaster
 - an operator shell
 

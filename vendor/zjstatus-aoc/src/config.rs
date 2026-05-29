@@ -68,6 +68,7 @@ pub struct ZellijState {
     pub incoming_notification: Option<notification::Message>,
     pub cache_mask: u8,
     pub runtime_theme: RuntimeTheme,
+    pub visual_owner_tab_position: Option<usize>,
     pub runtime_tab_metadata: BTreeMap<usize, RuntimeTabMetadata>,
     pub pending_runtime_tab_metadata: BTreeMap<String, RuntimeTabMetadata>,
 }

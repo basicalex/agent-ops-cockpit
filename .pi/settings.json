@@ -7,6 +7,7 @@
     "extensions/mind-focus.ts",
     "extensions/aoc-models.ts",
     "extensions/aoc-agent-presence.ts",
+    "extensions/aoc-codegraph.ts",
     "extensions/aoc-compaction.ts",
     "extensions/aoc-presets/index.ts",
     "extensions/subagent.ts"
@@ -15,6 +16,8 @@
     "!skills/prd-rpg-authoring",
     "!skills/tmcc",
     "!skills/teach-workflow",
+    "!skills/understand",
+    "!skills/understand-*",
     "!skills/safe-gamification",
     "!skills/agent-browser",
     "!skills/custom-layout-ops",

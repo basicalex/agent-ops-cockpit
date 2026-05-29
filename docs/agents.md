@@ -67,7 +67,11 @@ Project Pi extensions live under:
 .pi/extensions/
 ```
 
-They provide AOC surfaces such as presets, Mind/context commands, models, subagents, and UI integration.
+They provide AOC surfaces such as presets, Mind/context commands, models, subagents, CodeGraph-assisted code discovery, and UI integration.
+
+### CodeGraph agent tool
+
+AOC includes a default project-local `aoc_codegraph` Pi tool (`.pi/extensions/aoc-codegraph.ts`) for the main AOC agent and selected specialists. It is read-only and shells out to an existing local `codegraph` CLI/index for fast symbol search, context building, call graph probes, impact analysis, file listing, and affected-test selection. Install/update the CLI from `Alt+C -> Tools -> CodeGraph agent index`; AOC installs it globally with `pnpm add -g @colbymchenry/codegraph`. The agent tool itself does not install CodeGraph or initialize/index projects; if CodeGraph is missing or uninitialized, agents should fall back to narrow built-in inspection and report the limitation.
 
 ## Subagents
 

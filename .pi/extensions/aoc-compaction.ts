@@ -133,6 +133,7 @@ function renderOperationalCapsule(meta: {
 - Startup metadata: \`aoc-handshake --json\`.
 - Active Taskmaster tag at compaction: ${meta.activeTag || "unknown"}.
 - Tasks/specs: use \`tm tag current\`, \`tm list\`, \`tm show <id>\`, \`aoc-task tag spec show --tag <tag>\`, and \`aoc-task spec show <id> --tag <tag>\`.
+- CodeGraph: when \`aoc_codegraph\` is available and \`.codegraph/\` exists, use it before broad grep/read scans for code discovery, architecture tracing, impact analysis, and affected-test selection. The tool is read-only; install/index/sync remain explicit operator actions.
 - Memory: use \`aoc-mem read\`, \`aoc-mem search\`, and \`aoc-mem add\`; do not read \`.aoc/memory.md\` directly.
 - STM: use \`aoc-stm status\`, \`/handoff <focus>\`, and \`/rresume [archive]\`; STM is directed handoff-only, not durable memory or a mailbox.
 - Protected direct reads: do not read \`.aoc/stm/current.md\`, \`.aoc/memory.md\`, or \`.taskmaster/tasks/tasks.json\` directly.
@@ -228,7 +229,7 @@ Produce exactly this markdown structure:
 - [Commands/results, or what was not run]
 
 ## AOC Operational Context
-- [Preserve the AOC operating context capsule in concise bullets: tools, active tag, safe commands, protected files, STM rules, design contract rule.]
+- [Preserve the AOC operating context capsule in concise bullets: tools including aoc_codegraph, active tag, safe commands, protected files, STM rules, design contract rule.]
 
 ## Next Safe Actions
 1. [Next step]

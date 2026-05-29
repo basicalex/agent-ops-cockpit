@@ -442,4 +442,19 @@ AOC_PROJECT_ROOT="$project_root" \
   AOC_PULSE_CMD="$pulse_cmd" \
   ZELLIJ_PROJECT_ROOT="$project_root" \
   "${zellij_cmd[@]}" action new-tab --layout "$layout_arg" "${args[@]}"
+
+# Zellij can briefly expose a just-created tab with inherited/nearby tab metadata
+# before the layout startup panes finish syncing. Reassert the intended cwd-derived
+# label on the newly focused tab so the visible tab bar never adopts a neighbor's
+# name/group as its long-lived identity.
+if [[ "${AOC_NEW_TAB_POST_RENAME:-1}" == "1" && -n "$tab_name_to_use" ]]; then
+  zellij action rename-tab "$tab_name_to_use" >/dev/null 2>&1 || true
+  if command -v aoc-tab-metadata >/dev/null 2>&1; then
+    AOC_PROJECT_ROOT="$project_root" \
+      AOC_AGENT_ID="$agent_id" \
+      AOC_TAB_SCOPE="$tab_name_to_use" \
+      aoc-tab-metadata set --project-root "$project_root" --project-key "$agent_id" --tab-name "$tab_name_to_use" >/dev/null 2>&1 || true
+  fi
+fi
+
 aoc_focus_agent_after_new_tab "$layout_choice"

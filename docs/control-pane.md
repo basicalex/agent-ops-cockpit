@@ -8,7 +8,7 @@ Use it to run the most common tools first, inspect runtime state, and launch set
 
 Primary areas exposed through the control pane include:
 
-- **Tools** — first/default surface for AOC Understand, Agent Browser + Search, AOC Map, HyperFrames, Vercel, PI compaction, PI agent installer, and RTK routing
+- **Tools** — first/default surface for AOC Understand, Agent Browser + Search, AOC Map, CodeGraph, HyperFrames, Vercel, PI compaction, PI agent installer, and RTK routing
 - **Projects** — open, create, search, and retarget project roots
 - **Launch** — start sessions with selected defaults/overrides
 - **Advanced** — background profile plus legacy/deprecated AOC-specific theme and custom layout utilities
@@ -128,6 +128,19 @@ Use it to:
 - seed or confirm `.aoc/map/`
 - migrate older AOC See workspaces when needed
 - quickly see whether the AOC Map workspace and skill are present
+
+## CodeGraph agent index
+
+Path:
+
+- `Alt+C -> Tools -> CodeGraph agent index`
+
+Use it to:
+- install/update CodeGraph globally with `pnpm add -g @colbymchenry/codegraph`
+- verify `codegraph status` in the current project
+- confirm whether the global CLI and project `.codegraph/` index are present
+
+AOC installs the CLI only. Project indexing remains explicit; after install, run `codegraph init -i` in the repo you want agents to query.
 
 ## PI installer
 

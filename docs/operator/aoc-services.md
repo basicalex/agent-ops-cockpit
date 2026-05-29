@@ -29,14 +29,14 @@ aoc-services stop search
 aoc-services doctor
 ```
 
-`aoc-services up --watch` starts the shared search service and then displays a live status board.
+`aoc-services up --watch` starts the shared search service and then displays a live status board. Watchers are singleton-scoped per service root; duplicate panes/sessions exit instead of polling Docker repeatedly.
 
 ## Mission Control integration
 
 The dedicated Mission Control layout includes an **AOC Services** pane running:
 
 ```bash
-aoc-services up --watch --interval 5
+aoc-services up --watch --interval 30
 ```
 
 This makes Mission Control the visible owner of project runtime health while agents consume services through normal commands:

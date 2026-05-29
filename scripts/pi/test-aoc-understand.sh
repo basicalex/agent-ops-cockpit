@@ -8,6 +8,14 @@ bash -n bin/aoc-understand
 bin/aoc-understand --help >/dev/null
 bin/aoc-understand status >/dev/null
 bin/aoc-understand doctor >/dev/null
+python3 - <<'PY'
+import json
+from pathlib import Path
+settings = json.loads(Path('.pi/settings.json').read_text())
+skills = settings.get('skills', [])
+assert '!skills/understand' in skills
+assert '!skills/understand-*' in skills
+PY
 
 project="$(mktemp -d)"
 trap 'rm -rf "$project"' EXIT
@@ -48,6 +56,9 @@ import pathlib, sys
 p = pathlib.Path(sys.argv[1])
 text = p.read_text()
 assert 'name: aoc-understand' in text
+assert 'umbrella Understand-Anything skill' in text
+assert 'understand-chat' in text
+assert '/skill:aoc-understand analyze' in text
 assert 'teach' in text.lower()
 PY
 

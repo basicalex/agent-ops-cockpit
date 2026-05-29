@@ -316,6 +316,41 @@ copy_tree_force_managed() {
   write_aoc_managed_marker "$target_dir" "$asset_id" "$source_dir" "$source_sha"
 }
 
+copy_file_force_managed() {
+  local source_file="$1"
+  local target_file="$2"
+  local asset_id="$3"
+  local source_sha=""
+  local target_sha=""
+  local previous_sha=""
+
+  source_sha="$(managed_path_sha256 "$source_file")"
+
+  if [[ -e "$target_file" ]]; then
+    if ! is_aoc_managed_target "$target_file"; then
+      if cmp -s "$source_file" "$target_file"; then
+        write_aoc_managed_marker "$target_file" "$asset_id" "$source_file" "$source_sha"
+        return 0
+      fi
+      backup_unmarked_aoc_target "$target_file" "$asset_id"
+    else
+      target_sha="$(managed_path_sha256 "$target_file")"
+      previous_sha="$(manifest_sha_for_target "$target_file" || true)"
+      if [[ "$target_sha" == "$source_sha" ]]; then
+        write_aoc_managed_marker "$target_file" "$asset_id" "$source_file" "$source_sha"
+        return 0
+      fi
+      if [[ -z "$previous_sha" || "$target_sha" != "$previous_sha" ]]; then
+        backup_dirty_managed_target "$target_file" "$asset_id"
+      fi
+    fi
+  fi
+
+  mkdir -p "$(dirname "$target_file")"
+  cp "$source_file" "$target_file"
+  write_aoc_managed_marker "$target_file" "$asset_id" "$source_file" "$source_sha"
+}
+
 remove_pi_multi_auth_mutable_dirs() {
   local package_dir="$1"
   local debug_dir="$package_dir/debug"
@@ -394,7 +429,7 @@ managed_pi_skill_name() {
 managed_pi_extension_name() {
   local extension_name="$1"
   case "$extension_name" in
-    minimal.ts|themeMap.ts|mind-ingest.ts|mind-ops.ts|mind-context.ts|mind-focus.ts|aoc-models.ts|aoc-agent-presence.ts|aoc-compaction.ts|subagent.ts|lib/mind.ts|lib/caveman.ts)
+    minimal.ts|themeMap.ts|mind-ingest.ts|mind-ops.ts|mind-context.ts|mind-focus.ts|aoc-models.ts|aoc-agent-presence.ts|aoc-codegraph.ts|aoc-compaction.ts|subagent.ts|lib/mind.ts|lib/caveman.ts)
       return 0
       ;;
     *)
@@ -1408,6 +1443,47 @@ EOF
     log "Memory file exists ($mem_file). Skipping."
   fi
 
+  # Project lexicon template
+  local lexicon_file="$aoc_dir/lexicon.md"
+  if [[ ! -f "$lexicon_file" ]]; then
+    log "Seeding project lexicon template ($lexicon_file)..."
+    cat <<EOF > "$lexicon_file"
+# Project Lexicon
+
+Canonical human-agent project language for this repository.
+
+Use this file as a semantic consistency layer, not a requirements source or memory dump. Keep entries concise. Add only grounded project-specific terms, aliases, conflicts, or relationships that improve future agent work.
+
+## Governance
+
+Agents may update this file only for high-confidence, low-risk terminology changes. Propose instead of editing when a term is ambiguous, broad, political, disruptive, or conflicts with existing usage.
+
+Authority order for implementation work:
+1. Explicit current user instruction.
+2. Active spec / PRD / task acceptance criteria.
+3. Current repo behavior.
+4. Existing project lexicon.
+5. Existing memory.
+6. Agent inference.
+
+## Entry format
+
+\`\`\`md
+### Canonical Term
+
+Definition: Concise definition.
+Aliases: accepted alternate terms, if any.
+Avoid: confusing or deprecated terms, if any.
+Relationships: related commands, artifacts, workflows, states, owners, or lifecycle notes.
+Evidence: path, command, task, spec, or implemented behavior that grounds the entry.
+\`\`\`
+
+## Core terms
+EOF
+  else
+    log "Project lexicon exists ($lexicon_file). Preserving."
+  fi
+
   # Short-term memory workspace
   local stm_dir="$aoc_dir/stm"
   local stm_current="$stm_dir/current.md"
@@ -1819,9 +1895,9 @@ description: Initialize or repair AOC context, memory, and tasks safely.
 - Seeds `.aoc/stm/current.md` and `.aoc/stm/archive/` without overwriting existing STM files
 - Ensures spec directory `.taskmaster/docs/specs/` is available for tag/task links
 - Seeds `.pi/settings.json` when missing
-- Seeds core PI prompt templates in `.pi/prompts/` (`/aoc-ops`, `/tm-cc`, `/implement`, `/handoff`, `/rresume`, `/commit`) when missing
-- Keeps optional teaching/video prompts in `.pi/prompts-optional/production-hidden/`
-- Seeds PI default extensions in `.pi/extensions/` (`minimal.ts`, `themeMap.ts`, `mind-ingest.ts`, `mind-ops.ts`, `mind-context.ts`, `mind-focus.ts`, `aoc-models.ts`, `aoc-compaction.ts`, `subagent.ts`, plus `lib/mind.ts` and `lib/caveman.ts`) when missing
+- Seeds and refreshes managed core PI prompt templates in `.pi/prompts/` (`/aoc-ops`, `/tm-cc`, `/implement`, `/lexicon`, `/handoff`, `/rresume`, `/commit`)
+- Keeps optional video prompts in `.pi/prompts-optional/production-hidden/`; legacy teach prompts are not seeded (use `aoc-understand`)
+- Seeds PI default extensions in `.pi/extensions/` (`minimal.ts`, `themeMap.ts`, `mind-ingest.ts`, `mind-ops.ts`, `mind-context.ts`, `mind-focus.ts`, `aoc-models.ts`, `aoc-agent-presence.ts`, `aoc-codegraph.ts`, `aoc-compaction.ts`, `subagent.ts`, plus `lib/mind.ts` and `lib/caveman.ts`) when missing
 - Seeds the preset runtime family in `.pi/extensions/aoc-presets/` when missing
 - Seeds reusable preset assets in `.aoc/presets/{design,hyperframes,ops,research,test}/` and `.aoc/layouts/design.kdl` when missing
 - Seeds `.aoc/init-state.json` with the current AOC project version and applies version-specific migrations on older repos
@@ -2072,6 +2148,7 @@ default_extensions = [
     "extensions/mind-focus.ts",
     "extensions/aoc-models.ts",
     "extensions/aoc-agent-presence.ts",
+    "extensions/aoc-codegraph.ts",
     "extensions/aoc-compaction.ts",
     "extensions/aoc-presets/index.ts",
     "extensions/subagent.ts",
@@ -2080,6 +2157,8 @@ default_skill_filters = [
     "!skills/prd-rpg-authoring",
     "!skills/tmcc",
     "!skills/teach-workflow",
+    "!skills/understand",
+    "!skills/understand-*",
     "!skills/agent-browser",
     "!skills/custom-layout-ops",
     "!skills/zellij-theme-ops",
@@ -2574,6 +2653,7 @@ setup_pi_extensions() {
     "mind-focus.ts"
     "aoc-models.ts"
     "aoc-agent-presence.ts"
+    "aoc-codegraph.ts"
     "aoc-compaction.ts"
     "subagent.ts"
     "lib/mind.ts"
@@ -3149,6 +3229,7 @@ setup_pi_prompts() {
     "aoc-ops"
     "tm-cc"
     "implement"
+    "lexicon"
     "handoff"
     "rresume"
     "commit"
@@ -3185,10 +3266,22 @@ setup_pi_prompts() {
 
     target_file="$pi_prompts_dir/${prompt_name}.md"
     if [[ ! -f "$target_file" ]]; then
-      cp "$seed_file" "$target_file"
+      copy_file_force_managed "$seed_file" "$target_file" "prompt/$prompt_name"
       log "Seeded PI prompt: /$prompt_name"
+    elif is_aoc_managed_target "$target_file"; then
+      if cmp -s "$seed_file" "$target_file"; then
+        copy_file_force_managed "$seed_file" "$target_file" "prompt/$prompt_name"
+        log "PI prompt /$prompt_name already current."
+      else
+        copy_file_force_managed "$seed_file" "$target_file" "prompt/$prompt_name"
+        log "Refreshed managed PI prompt: /$prompt_name"
+      fi
+    elif cmp -s "$seed_file" "$target_file"; then
+      copy_file_force_managed "$seed_file" "$target_file" "prompt/$prompt_name"
+      log "Adopted PI prompt as managed: /$prompt_name"
     else
-      log "PI prompt /$prompt_name already present. Preserving."
+      copy_file_force_managed "$seed_file" "$target_file" "prompt/$prompt_name"
+      log "Refreshed PI prompt from AOC seed: /$prompt_name"
     fi
     seeded_any=1
   done
@@ -3530,9 +3623,14 @@ if config.exists():
     if "load_plugins {" in text:
         before, rest = text.split("load_plugins {", 1)
         body, after = rest.split("}", 1)
-        if "aoc-tab-bar" not in body:
-            body = body.rstrip() + "\n    aoc-tab-bar\n"
-            text = before + "load_plugins {" + body + "}" + after
+        lines = [line for line in body.splitlines() if "aoc-tab-bar" not in line]
+        next_body = "\n".join(lines)
+        if next_body.strip():
+            next_text = before + "load_plugins {" + next_body + "\n}" + after
+        else:
+            next_text = before.rstrip() + "\n\n" + after.lstrip()
+        if next_text != text:
+            text = next_text
             changed = True
     if changed:
         config.write_text(text, encoding="utf-8")

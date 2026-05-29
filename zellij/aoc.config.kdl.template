@@ -24,10 +24,6 @@ plugins {
     }
 }
 
-load_plugins {
-    aoc-tab-bar
-}
-
 keybinds {
     shared_among "normal" "locked" {
         unbind "Alt s";

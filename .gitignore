@@ -159,3 +159,9 @@ __pycache__/
 
 # Project-local downloaded tool binaries (reinstall with bin/aoc-obscura-install)
 .aoc/tools/obscura/obscura
+
+# Local CodeGraph indexes (rebuild with codegraph init -i)
+.codegraph/
+
+# Local Pi subagent runtime artifacts
+.pi/tmp/

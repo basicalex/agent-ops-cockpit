@@ -547,12 +547,14 @@ impl TabsWidget {
     }
 
     fn owner_tab_position(&self, state: &ZellijState) -> Option<usize> {
-        let plugin_id = get_plugin_ids().plugin_id;
-        state.panes.panes.iter().find_map(|(tab_position, panes)| {
-            panes
-                .iter()
-                .any(|pane| pane.is_plugin && pane.id == plugin_id)
-                .then_some(*tab_position)
+        state.visual_owner_tab_position.or_else(|| {
+            let plugin_id = get_plugin_ids().plugin_id;
+            state.panes.panes.iter().find_map(|(tab_position, panes)| {
+                panes
+                    .iter()
+                    .any(|pane| pane.is_plugin && pane.id == plugin_id)
+                    .then_some(*tab_position)
+            })
         })
     }
 
@@ -625,12 +627,22 @@ impl TabsWidget {
     ) -> Cow<'a, str> {
         if mode.mode != InputMode::RenameTab
             && let Some(metadata) = state.runtime_tab_metadata.get(&tab.position)
-            && !metadata.tab_name.trim().is_empty()
+            && self.metadata_matches_visible_tab(tab.name.as_str(), metadata.tab_name.as_str())
         {
             return self.resolved_name_from_raw(metadata.tab_name.as_str(), mode);
         }
 
         self.resolved_tab_name(tab, mode)
+    }
+
+    fn metadata_matches_visible_tab(&self, raw_name: &str, metadata_name: &str) -> bool {
+        if metadata_name.trim().is_empty() {
+            return false;
+        }
+
+        let (_, raw_label) = self.parse_grouped_tab_name(raw_name);
+        let (_, metadata_label) = self.parse_grouped_tab_name(metadata_name);
+        raw_label.trim() == metadata_label.trim()
     }
 
     fn resolved_name_from_raw<'a>(&self, raw_name: &'a str, mode: &ModeInfo) -> Cow<'a, str> {
@@ -682,17 +694,23 @@ impl TabsWidget {
     }
 
     fn project_key(&self, state: &ZellijState, tab: &TabInfo) -> String {
-        let raw_name = state
-            .runtime_tab_metadata
-            .get(&tab.position)
-            .map(|metadata| metadata.tab_name.as_str())
-            .filter(|name| !name.trim().is_empty())
-            .unwrap_or(tab.name.as_str());
-        let (explicit_group, _) = self.parse_grouped_tab_name(raw_name);
+        let (explicit_group, _) = self.parse_grouped_tab_name(tab.name.as_str());
         if let Some(group) = explicit_group {
             let normalized = self.normalize_project_key(&group);
             if !normalized.is_empty() {
                 return normalized;
+            }
+        }
+
+        if let Some(metadata) = state.runtime_tab_metadata.get(&tab.position)
+            && self.metadata_matches_visible_tab(tab.name.as_str(), metadata.tab_name.as_str())
+        {
+            let (metadata_group, _) = self.parse_grouped_tab_name(metadata.tab_name.as_str());
+            if let Some(group) = metadata_group {
+                let normalized = self.normalize_project_key(&group);
+                if !normalized.is_empty() {
+                    return normalized;
+                }
             }
         }
 
@@ -1506,18 +1524,18 @@ mod test {
     }
 
     #[test]
-    fn runtime_metadata_overlays_stale_tab_name_before_tab_update() {
+    fn runtime_metadata_grouping_requires_matching_visible_label() {
         let widget = TabsWidget::new(&BTreeMap::new());
         let tab = TabInfo {
             position: 1,
-            name: "1 Old".to_string(),
+            name: "Review".to_string(),
             ..TabInfo::default()
         };
         let mut state = ZellijState::default();
         state.runtime_tab_metadata.insert(
             1,
             crate::config::RuntimeTabMetadata {
-                tab_name: "2 New".to_string(),
+                tab_name: "2 Review".to_string(),
                 project_key: "agent-ops-cockpit".to_string(),
                 project_root: "/tmp/agent-ops-cockpit".to_string(),
             },
@@ -1528,7 +1546,34 @@ mod test {
             widget
                 .resolved_runtime_tab_name(&state, &tab, &ModeInfo::default())
                 .as_ref(),
-            "New"
+            "Review"
+        );
+    }
+
+    #[test]
+    fn runtime_metadata_does_not_overlay_foreign_new_tab_name() {
+        let widget = TabsWidget::new(&BTreeMap::new());
+        let tab = TabInfo {
+            position: 1,
+            name: "Aoc".to_string(),
+            ..TabInfo::default()
+        };
+        let mut state = ZellijState::default();
+        state.runtime_tab_metadata.insert(
+            1,
+            crate::config::RuntimeTabMetadata {
+                tab_name: "2 Nearby".to_string(),
+                project_key: "nearby".to_string(),
+                project_root: "/tmp/nearby".to_string(),
+            },
+        );
+
+        assert_eq!(widget.project_key(&state, &tab), "tab-1");
+        assert_eq!(
+            widget
+                .resolved_runtime_tab_name(&state, &tab, &ModeInfo::default())
+                .as_ref(),
+            "Aoc"
         );
     }
 

@@ -4,10 +4,10 @@ Generated from layered AGENTS.md policy. Do not edit this generated output direc
 
 ## Sources
 - workspace: `~/dev/AGENTS.md` (4897 bytes)
-- project: `~/dev/agent-ops-cockpit/AGENTS.md` (5336 bytes)
+- project: `~/dev/agent-ops-cockpit/AGENTS.md` (6164 bytes)
 - precedence: project > workspace > global
-- source hash: `e2b3de78cb473fe4`
-- raw AGENTS bytes: 10233
+- source hash: `f3173af964dd966b`
+- raw AGENTS bytes: 11061
 
 ## Hard rules
 - Use `.aoc/context.md` for orientation; run `aoc-init` if it is missing or stale.
@@ -23,11 +23,11 @@ Generated from layered AGENTS.md policy. Do not edit this generated output direc
 - Use root `DESIGN.md` as the visual/product design contract before UI, docs-site, marketing, HyperFrames, or other product-facing work.
 - Request focused Mind context only after user intent is known, for resume/continuation, prior decisions, task/spec grounding, debugging previous attempts, provenance/audit, or when targeted local inspection is insufficient.
 - If targeted inspection fails, escalate scope gradually and state why.
+- If CodeGraph is missing, stale, or uninitialized, report the limitation and fall back to targeted `bash`/`read` inspection.
 - Tasks: `tm tag current`, `tm tag spec show`, `aoc-task tag spec show --tag <tag>`, `aoc-task spec show <id> --tag <tag>`
 - `DESIGN.md`: project-wide visual/product design contract; subsystem design docs extend it.
 - `.taskmaster/docs/specs/`: spec documents linked to tags and tasks; `.taskmaster/docs/prds/` remains legacy-compatible.
 - Tag default specs are currently stored via legacy key `aocPrd`; resolve with `aoc-task tag spec show --tag <tag>`.
-- Task spec overrides are currently stored via legacy key `aocPrd`; resolve with `aoc-task spec show <id> --tag <tag>`.
 
 ## Task, memory, and STM commands
 - Memory: `aoc-mem read`, `aoc-mem add`, `aoc-mem search`.

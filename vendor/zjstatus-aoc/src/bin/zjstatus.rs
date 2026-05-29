@@ -1,9 +1,11 @@
 use zellij_tile::prelude::*;
 
 use chrono::Local;
-use serde::{Deserialize, Serialize};
-use std::{collections::BTreeMap, fs, path::PathBuf, sync::Arc};
+use std::collections::BTreeMap;
+use std::sync::Arc;
 use uuid::Uuid;
+
+const TAB_ROSTER_SYNC_DEBOUNCE_SECONDS: f64 = 0.08;
 
 use zjstatus::{
     config::{self, ModuleConfig, UpdateEventMask, ZellijState},
@@ -21,75 +23,6 @@ use zjstatus::{
     },
 };
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-struct SharedTabSnapshot {
-    tabs: Vec<SharedTabInfo>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-struct SharedTabInfo {
-    position: usize,
-    name: String,
-    active: bool,
-    panes_to_hide: usize,
-    is_fullscreen_active: bool,
-    is_sync_panes_active: bool,
-    are_floating_panes_visible: bool,
-    active_swap_layout_name: Option<String>,
-    is_swap_layout_dirty: bool,
-    viewport_rows: usize,
-    viewport_columns: usize,
-    display_area_rows: usize,
-    display_area_columns: usize,
-    selectable_tiled_panes_count: usize,
-    selectable_floating_panes_count: usize,
-}
-
-impl From<&TabInfo> for SharedTabInfo {
-    fn from(tab: &TabInfo) -> Self {
-        Self {
-            position: tab.position,
-            name: tab.name.clone(),
-            active: tab.active,
-            panes_to_hide: tab.panes_to_hide,
-            is_fullscreen_active: tab.is_fullscreen_active,
-            is_sync_panes_active: tab.is_sync_panes_active,
-            are_floating_panes_visible: tab.are_floating_panes_visible,
-            active_swap_layout_name: tab.active_swap_layout_name.clone(),
-            is_swap_layout_dirty: tab.is_swap_layout_dirty,
-            viewport_rows: tab.viewport_rows,
-            viewport_columns: tab.viewport_columns,
-            display_area_rows: tab.display_area_rows,
-            display_area_columns: tab.display_area_columns,
-            selectable_tiled_panes_count: tab.selectable_tiled_panes_count,
-            selectable_floating_panes_count: tab.selectable_floating_panes_count,
-        }
-    }
-}
-
-impl From<SharedTabInfo> for TabInfo {
-    fn from(tab: SharedTabInfo) -> Self {
-        Self {
-            position: tab.position,
-            name: tab.name,
-            active: tab.active,
-            panes_to_hide: tab.panes_to_hide,
-            is_fullscreen_active: tab.is_fullscreen_active,
-            is_sync_panes_active: tab.is_sync_panes_active,
-            are_floating_panes_visible: tab.are_floating_panes_visible,
-            active_swap_layout_name: tab.active_swap_layout_name,
-            is_swap_layout_dirty: tab.is_swap_layout_dirty,
-            viewport_rows: tab.viewport_rows,
-            viewport_columns: tab.viewport_columns,
-            display_area_rows: tab.display_area_rows,
-            display_area_columns: tab.display_area_columns,
-            selectable_tiled_panes_count: tab.selectable_tiled_panes_count,
-            selectable_floating_panes_count: tab.selectable_floating_panes_count,
-            other_focused_clients: Vec::new(),
-        }
-    }
-}
-
 #[derive(Default)]
 struct State {
     pending_events: Vec<Event>,
@@ -99,6 +32,8 @@ struct State {
     module_config: config::ModuleConfig,
     widget_map: BTreeMap<String, Arc<dyn Widget>>,
     err: Option<anyhow::Error>,
+    pending_tab_roster_sync: Option<Vec<TabInfo>>,
+    tab_roster_sync_timer_armed: bool,
 }
 
 #[cfg(not(test))]
@@ -156,9 +91,6 @@ impl ZellijPlugin for State {
         }
         if needs_tabs {
             subscriptions.push(EventType::TabUpdate);
-            // Zellij's TabUpdate can lag tab reordering (MoveTab left/right) until a later
-            // tab lifecycle event. SessionUpdate carries the current session tab roster and
-            // arrives for reorders, so use it as the freshness path for the tab bar too.
             subscriptions.push(EventType::SessionUpdate);
         }
         if needs_frames {
@@ -190,9 +122,12 @@ impl ZellijPlugin for State {
             cache_mask: 0,
             incoming_notification: None,
             runtime_theme: Default::default(),
+            visual_owner_tab_position: None,
             runtime_tab_metadata: BTreeMap::new(),
             pending_runtime_tab_metadata: BTreeMap::new(),
         };
+        self.pending_tab_roster_sync = None;
+        self.tab_roster_sync_timer_armed = false;
     }
 
     fn pipe(&mut self, pipe_message: PipeMessage) -> bool {
@@ -234,7 +169,7 @@ impl ZellijPlugin for State {
             return;
         }
 
-        self.refresh_tabs_from_shared_snapshot();
+        self.refresh_visual_owner_tab_position();
         self.state.cols = cols;
 
         tracing::debug!("{:?}", self.state.mode.session_name);
@@ -249,10 +184,43 @@ impl ZellijPlugin for State {
 
 impl State {
     fn apply_tab_snapshot(&mut self, tab_info: Vec<TabInfo>) {
-        self.apply_tab_snapshot_inner(tab_info, true);
+        self.apply_tab_snapshot_inner(tab_info);
     }
 
-    fn apply_tab_snapshot_inner(&mut self, tab_info: Vec<TabInfo>, publish_shared: bool) {
+    fn refresh_visual_owner_tab_position(&mut self) {
+        let plugin_id = get_plugin_ids().plugin_id;
+        if let Some(tab_position) = self.state.panes.panes.iter().find_map(|(tab_position, panes)| {
+            panes
+                .iter()
+                .any(|pane| pane.is_plugin && pane.id == plugin_id)
+                .then_some(*tab_position)
+        }) {
+            self.state.visual_owner_tab_position = Some(tab_position);
+        }
+    }
+
+    fn schedule_tab_roster_sync(&mut self, tab_info: Vec<TabInfo>) {
+        self.pending_tab_roster_sync = Some(tab_info);
+        if !self.tab_roster_sync_timer_armed {
+            self.tab_roster_sync_timer_armed = true;
+            set_timeout(TAB_ROSTER_SYNC_DEBOUNCE_SECONDS);
+        }
+    }
+
+    fn apply_pending_tab_roster_sync(&mut self) -> bool {
+        self.tab_roster_sync_timer_armed = false;
+        let Some(tab_info) = self.pending_tab_roster_sync.take() else {
+            return false;
+        };
+        if tab_roster_matches(&self.state.tabs, &tab_info) {
+            return false;
+        }
+        self.state.cache_mask = UpdateEventMask::Tab as u8;
+        self.apply_tab_snapshot(tab_info);
+        true
+    }
+
+    fn apply_tab_snapshot_inner(&mut self, tab_info: Vec<TabInfo>) {
         self.state.runtime_tab_metadata = config::reconcile_runtime_tab_metadata(
             &self.state.tabs,
             &tab_info,
@@ -264,54 +232,6 @@ impl State {
             &mut self.state.pending_runtime_tab_metadata,
         );
         self.state.tabs = tab_info;
-        if publish_shared {
-            self.write_shared_tab_snapshot();
-        }
-    }
-
-    fn refresh_tabs_from_shared_snapshot(&mut self) {
-        let Some(path) = self.shared_tab_snapshot_path() else {
-            return;
-        };
-        let Ok(payload) = fs::read_to_string(path) else {
-            return;
-        };
-        let Ok(snapshot) = serde_json::from_str::<SharedTabSnapshot>(&payload) else {
-            return;
-        };
-        if snapshot.tabs.is_empty() {
-            return;
-        }
-        let tab_info = snapshot.tabs.into_iter().map(TabInfo::from).collect();
-        self.apply_tab_snapshot_inner(tab_info, false);
-        self.state.cache_mask |= UpdateEventMask::Tab as u8;
-    }
-
-    fn write_shared_tab_snapshot(&self) {
-        let Some(path) = self.shared_tab_snapshot_path() else {
-            return;
-        };
-        let snapshot = SharedTabSnapshot {
-            tabs: self.state.tabs.iter().map(SharedTabInfo::from).collect(),
-        };
-        let Ok(payload) = serde_json::to_string(&snapshot) else {
-            return;
-        };
-        let tmp_path = path.with_extension(format!("{}.tmp", self.state.plugin_uuid));
-        if fs::write(&tmp_path, payload).is_ok() {
-            let _ = fs::rename(tmp_path, path);
-        }
-    }
-
-    fn shared_tab_snapshot_path(&self) -> Option<PathBuf> {
-        let session_name = self.state.mode.session_name.as_deref()?.trim();
-        if session_name.is_empty() {
-            return None;
-        }
-        let session_key = sanitize_snapshot_key(session_name);
-        Some(PathBuf::from(format!(
-            "/host/tmp/aoc-zjstatus-tabs-{session_key}.json"
-        )))
     }
 
     fn handle_event(&mut self, event: Event) -> bool {
@@ -356,6 +276,7 @@ impl State {
                 );
 
                 self.state.panes = pane_info;
+                self.refresh_visual_owner_tab_position();
                 self.state.cache_mask = UpdateEventMask::Tab as u8;
 
                 should_render = true;
@@ -404,36 +325,45 @@ impl State {
                 let current_session = session_info.iter().find(|s| s.is_current_session);
 
                 if let Some(current_session) = current_session {
-                    frames::hide_frames_conditionally(
-                        &frames::FrameConfig::new(
-                            self.module_config.hide_frame_for_single_pane,
-                            self.module_config.hide_frame_except_for_search,
-                            self.module_config.hide_frame_except_for_fullscreen,
-                            self.module_config.hide_frame_except_for_scroll,
-                        ),
-                        &current_session.tabs,
-                        &current_session.panes,
-                        &self.state.mode,
-                        get_plugin_ids(),
-                        false,
-                    );
+                    if self.module_config.needs_frame_events() {
+                        frames::hide_frames_conditionally(
+                            &frames::FrameConfig::new(
+                                self.module_config.hide_frame_for_single_pane,
+                                self.module_config.hide_frame_except_for_search,
+                                self.module_config.hide_frame_except_for_fullscreen,
+                                self.module_config.hide_frame_except_for_scroll,
+                            ),
+                            &current_session.tabs,
+                            &current_session.panes,
+                            &self.state.mode,
+                            get_plugin_ids(),
+                            false,
+                        );
 
-                    self.apply_tab_snapshot(current_session.tabs.clone());
+                        self.state.panes = current_session.panes.clone();
+                        self.refresh_visual_owner_tab_position();
+                    }
+                    self.schedule_tab_roster_sync(current_session.tabs.clone());
                 }
 
                 self.state.sessions = session_info;
-                self.state.cache_mask = UpdateEventMask::Tab as u8 | UpdateEventMask::Session as u8;
-
-                should_render = true;
+                self.state.cache_mask = UpdateEventMask::Session as u8;
             }
             Event::TabUpdate(tab_info) => {
                 tracing::Span::current().record("event_type", "Event::TabUpdate");
                 tracing::debug!(tab_count = ?tab_info.len());
 
+                self.pending_tab_roster_sync = None;
                 self.state.cache_mask = UpdateEventMask::Tab as u8;
                 self.apply_tab_snapshot(tab_info);
 
                 should_render = true;
+            }
+            Event::Timer(seconds) => {
+                tracing::Span::current().record("event_type", "Event::Timer");
+                if (seconds - TAB_ROSTER_SYNC_DEBOUNCE_SECONDS).abs() < f64::EPSILON {
+                    should_render = self.apply_pending_tab_roster_sync();
+                }
             }
             _ => (),
         };
@@ -441,22 +371,25 @@ impl State {
     }
 }
 
-fn sanitize_snapshot_key(input: &str) -> String {
-    let sanitized: String = input
-        .chars()
-        .map(|ch| {
-            if ch.is_ascii_alphanumeric() || matches!(ch, '.' | '_' | '-') {
-                ch
-            } else {
-                '_'
-            }
+fn tab_roster_matches(current: &[TabInfo], next: &[TabInfo]) -> bool {
+    current.len() == next.len()
+        && current.iter().zip(next.iter()).all(|(current, next)| {
+            current.position == next.position
+                && current.name == next.name
+                && current.active == next.active
+                && current.panes_to_hide == next.panes_to_hide
+                && current.is_fullscreen_active == next.is_fullscreen_active
+                && current.is_sync_panes_active == next.is_sync_panes_active
+                && current.are_floating_panes_visible == next.are_floating_panes_visible
+                && current.active_swap_layout_name == next.active_swap_layout_name
+                && current.is_swap_layout_dirty == next.is_swap_layout_dirty
+                && current.viewport_rows == next.viewport_rows
+                && current.viewport_columns == next.viewport_columns
+                && current.display_area_rows == next.display_area_rows
+                && current.display_area_columns == next.display_area_columns
+                && current.selectable_tiled_panes_count == next.selectable_tiled_panes_count
+                && current.selectable_floating_panes_count == next.selectable_floating_panes_count
         })
-        .collect();
-    if sanitized.is_empty() {
-        "unknown".to_string()
-    } else {
-        sanitized
-    }
 }
 
 fn register_widgets(configuration: &BTreeMap<String, String>) -> BTreeMap<String, Arc<dyn Widget>> {

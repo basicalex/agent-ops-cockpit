@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
 import argparse
+import fcntl
+import hashlib
 import json
 import os
 import shutil
@@ -33,6 +35,59 @@ def resolve_service_root():
 
 
 SERVICE_ROOT = resolve_service_root()
+DEFAULT_WATCH_INTERVAL = float(os.environ.get("AOC_SERVICES_WATCH_INTERVAL", "30"))
+HEALTH_CACHE_TTL = float(os.environ.get("AOC_SERVICES_HEALTH_CACHE_TTL", "20"))
+
+
+def service_state_dir():
+    base = os.environ.get("XDG_STATE_HOME")
+    root = Path(base).expanduser() if base else Path.home() / ".local" / "state"
+    key = hashlib.sha256(str(SERVICE_ROOT).encode("utf-8")).hexdigest()[:16]
+    path = root / "aoc" / "services" / key
+    path.mkdir(parents=True, exist_ok=True)
+    return path
+
+
+def cache_path():
+    return service_state_dir() / "health.json"
+
+
+def lock_path():
+    return service_state_dir() / "watch.lock"
+
+
+def read_cached_status(max_age=None):
+    path = cache_path()
+    try:
+        payload = json.loads(path.read_text())
+    except Exception:
+        return None
+    if max_age is not None:
+        ts = float(payload.get("cachedAt", 0) or 0)
+        if time.time() - ts > max_age:
+            return None
+    return payload
+
+
+def write_cached_status(payload):
+    payload = dict(payload)
+    payload["cachedAt"] = time.time()
+    tmp = cache_path().with_suffix(".tmp")
+    tmp.write_text(json.dumps(payload, indent=2))
+    tmp.replace(cache_path())
+    return payload
+
+
+def acquire_watch_lock():
+    handle = lock_path().open("w")
+    try:
+        fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except BlockingIOError:
+        handle.close()
+        return None
+    handle.write(f"pid={os.getpid()}\nroot={SERVICE_ROOT}\n")
+    handle.flush()
+    return handle
 
 
 def run(cmd, timeout=12, cwd=None):
@@ -105,6 +160,16 @@ def all_status():
     return {"schemaVersion": 1, "projectRoot": str(ROOT), "serviceRoot": str(SERVICE_ROOT), "services": services, "healthy": all(s.get("healthy") or s.get("kind") in {"oneshot", "daemon-or-cold"} for s in services)}
 
 
+def all_status_cached(max_age=HEALTH_CACHE_TTL):
+    cached = read_cached_status(max_age=max_age)
+    if cached is not None:
+        cached["cacheHit"] = True
+        return cached
+    payload = all_status()
+    payload["cacheHit"] = False
+    return write_cached_status(payload)
+
+
 def print_status(payload, as_json=False):
     if as_json:
         print(json.dumps(payload, indent=2))
@@ -143,22 +208,37 @@ def stop_service(name):
 def main():
     parser = argparse.ArgumentParser(prog="aoc-services", description="Centralized AOC project service supervisor for Mission Control.")
     sub = parser.add_subparsers(dest="command", required=True)
-    p = sub.add_parser("status"); p.add_argument("--json", action="store_true"); p.add_argument("--watch", action="store_true"); p.add_argument("--interval", type=float, default=5.0)
-    p = sub.add_parser("up"); p.add_argument("--watch", action="store_true"); p.add_argument("--interval", type=float, default=5.0); p.add_argument("--no-search", action="store_true")
+    p = sub.add_parser("status"); p.add_argument("--json", action="store_true"); p.add_argument("--watch", action="store_true"); p.add_argument("--interval", type=float, default=DEFAULT_WATCH_INTERVAL)
+    p = sub.add_parser("up"); p.add_argument("--watch", action="store_true"); p.add_argument("--interval", type=float, default=DEFAULT_WATCH_INTERVAL); p.add_argument("--no-search", action="store_true")
     p = sub.add_parser("start"); p.add_argument("service", choices=["search", "render", "browser", "mind"])
     p = sub.add_parser("stop"); p.add_argument("service", choices=["search", "render", "browser", "mind"])
     p = sub.add_parser("doctor"); p.add_argument("--json", action="store_true")
     args = parser.parse_args()
 
     if args.command == "status":
+        lock_handle = acquire_watch_lock() if args.watch else None
+        if args.watch and lock_handle is None:
+            print(f"AOC services watcher already active for {SERVICE_ROOT}; not starting duplicate poller.")
+            cached = read_cached_status(max_age=None)
+            if cached:
+                print_status(cached, args.json)
+            return 0
         while True:
             if args.watch and not args.json:
                 print("\033[2J\033[H", end="")
-            print_status(all_status(), args.json)
+            payload = all_status_cached(max_age=max(1.0, min(args.interval, HEALTH_CACHE_TTL))) if args.watch else all_status()
+            print_status(payload, args.json)
             if not args.watch: break
-            time.sleep(args.interval)
+            time.sleep(max(1.0, args.interval))
         return 0
     if args.command == "up":
+        lock_handle = acquire_watch_lock() if args.watch else None
+        if args.watch and lock_handle is None:
+            print(f"AOC services watcher already active for {SERVICE_ROOT}; not starting duplicate poller.")
+            cached = read_cached_status(max_age=None)
+            if cached:
+                print_status(cached, False)
+            return 0
         if not args.no_search:
             code, out, err = start_service("search")
             if code != 0:
@@ -167,8 +247,9 @@ def main():
             args.command = "status"; args.json = False
             while True:
                 print("\033[2J\033[H", end="")
-                print_status(all_status(), False)
-                time.sleep(args.interval)
+                payload = all_status_cached(max_age=max(1.0, min(args.interval, HEALTH_CACHE_TTL)))
+                print_status(payload, False)
+                time.sleep(max(1.0, args.interval))
         return 0
     if args.command in {"start", "stop"}:
         code, out, err = (start_service if args.command == "start" else stop_service)(args.service)

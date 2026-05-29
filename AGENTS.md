@@ -20,6 +20,7 @@ This file defines the always-on rules for agents in this repo. Procedural playbo
 ## Low-Token Default Mode
 - Keep responses concise by default; do not print full files or raw logs unless explicitly requested.
 - Start with the smallest viable step; use narrow, path-scoped searches before broad scans.
+- Use `aoc_codegraph` before broad grep/read scans when `.codegraph/` exists and the task is code discovery, architecture tracing, impact analysis, or affected-test selection.
 - Read files in bounded chunks and avoid rereading unchanged large files.
 - Summarize command/tool output with actionable lines only (key errors, next actions).
 - Run targeted checks/tests first; run full-suite commands only when required.
@@ -28,6 +29,12 @@ This file defines the always-on rules for agents in this repo. Procedural playbo
 - For narrow diagnostics/Q&A, use at most 3 tool calls before first answer; ask before broader escalation.
 - Do not open/read image binaries unless the user explicitly asks to view/open one now.
 - Use one narrow diagnostic path first; avoid retry spray with variant commands unless first attempt fails.
+
+## CodeGraph agent tool
+- `aoc_codegraph` is a default read-only main-agent development tool when the project-local Pi extension is loaded.
+- Use it for repository intelligence before broad scans: `status`, `files`, `search`, `context`, `node`, `callers`, `callees`, `impact`, and `affected`.
+- It must not install CodeGraph, initialize indexes, or mutate project state. Operators install/update from `Alt+C -> Tools -> CodeGraph agent index` and explicitly create/update indexes with `codegraph init -i` / `codegraph sync`.
+- If CodeGraph is missing, stale, or uninitialized, report the limitation and fall back to targeted `bash`/`read` inspection.
 
 ## AOC CLI Commands (run via Bash tool - NOT Read tool)
 These commands are in PATH and work without loading any skill:

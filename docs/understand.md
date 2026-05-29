@@ -47,7 +47,7 @@ Project graph flow:
 
 ```bash
 aoc-understand analyze --full
-# run the printed /skill:understand command in Pi chat when analysis is needed
+# run the printed /skill:aoc-understand analyze command in Pi chat when analysis is needed
 
 aoc-understand dashboard --open
 aoc-understand chat "How does task routing work?"
@@ -83,7 +83,7 @@ The hook writes only to the current project's `.git/hooks/post-commit` and logs 
 aoc-understand --root "$PWD" refresh --source-commit <sha> --commit
 ```
 
-`refresh` is intentionally constrained. It refuses to auto-commit when unrelated dirty files exist, stages only generated graph artifacts, and creates a follow-up commit such as `chore(graph): refresh repository knowledge graph`. By default it syncs an existing `.understand-anything/knowledge-graph.json` into AOC Map. If a stable noninteractive analyzer is available, configure it explicitly with `AOC_UNDERSTAND_REFRESH_CMD`; otherwise use `/skill:understand --full` for graph regeneration and let the hook keep map artifacts aligned.
+`refresh` is intentionally constrained. It refuses to auto-commit when unrelated dirty files exist, stages only generated graph artifacts, and creates a follow-up commit such as `chore(graph): refresh repository knowledge graph`. By default it syncs an existing `.understand-anything/knowledge-graph.json` into AOC Map. If a stable noninteractive analyzer is available, configure it explicitly with `AOC_UNDERSTAND_REFRESH_CMD`; otherwise use `/skill:aoc-understand analyze --full` for graph regeneration and let the hook keep map artifacts aligned.
 
 ## Gap audits
 
