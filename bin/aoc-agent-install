@@ -116,8 +116,29 @@ find_aoc_root() {
   return 1
 }
 
+resolve_aoc_root() {
+  local root=""
+
+  # Prefer cwd so manual `cd other-aoc-project && pi` follows the directory.
+  if root="$(find_aoc_root)"; then
+    printf '%s\n' "$root"
+    return 0
+  fi
+
+  # In AOC-managed Zellij panes the cwd may be a sub-process/chosen directory,
+  # but AOC_PROJECT_ROOT/ZELLIJ_PROJECT_ROOT still identifies the pane project.
+  for root in "${AOC_PROJECT_ROOT:-}" "${ZELLIJ_PROJECT_ROOT:-}"; do
+    if [[ -n "$root" && -d "$root/.aoc" && -f "$root/.aoc/context.md" ]]; then
+      cd "$root" 2>/dev/null && pwd -P
+      return 0
+    fi
+  done
+
+  return 1
+}
+
 if [[ "${PI_NO_AOC_WRAPPER:-0}" != "1" ]]; then
-  if aoc_root="$(find_aoc_root)"; then
+  if aoc_root="$(resolve_aoc_root)"; then
     if [[ "${PI_AOC_WRAPPER_DRY_RUN:-0}" == "1" ]]; then
       printf 'aoc-pi --project-root %q' "$aoc_root"
       printf ' %q' "$@"

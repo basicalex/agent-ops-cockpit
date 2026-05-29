@@ -1,4 +1,5 @@
 import type { ExtensionAPI, ExtensionContext } from "@mariozechner/pi-coding-agent";
+import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -91,6 +92,32 @@ function compactTitle(text: string): string | null {
   return first.length > 80 ? `${first.slice(0, 77)}…` : first;
 }
 
+function paneTitleFromChatTitle(chatTitle: string | null | undefined): string {
+  const title = compactTitle(chatTitle || "");
+  return title ? `π  ───  ${title}` : "π";
+}
+
+function emitTerminalTitle(title: string): void {
+  try {
+    process.stdout.write(`\u001b]0;${title}\u0007\u001b]2;${title}\u0007`);
+  } catch {
+    // Title updates are best-effort only.
+  }
+}
+
+function renameZellijPane(title: string): void {
+  const paneId = process.env.ZELLIJ_PANE_ID || process.env.AOC_PANE_ID || "";
+  if (!paneId.trim()) return;
+  try {
+    spawnSync("zellij", ["action", "rename-pane", "--pane-id", paneId, title], {
+      stdio: "ignore",
+      timeout: 1_000,
+    });
+  } catch {
+    // Zellij may be unavailable outside managed panes; OSC title still helps.
+  }
+}
+
 function titleFromSessionName(ctx: ExtensionContext | undefined): string | null {
   try {
     const name = (ctx?.sessionManager as any)?.getSessionName?.();
@@ -158,6 +185,15 @@ export default function aocAgentPresence(pi: ExtensionAPI) {
   let timer: NodeJS.Timeout | undefined;
   let filePath: string | undefined;
   let state: PresenceState | undefined;
+  let lastPaneTitle: string | undefined;
+
+  function syncPaneTitle(chatTitle: string | null | undefined): void {
+    const paneTitle = paneTitleFromChatTitle(chatTitle);
+    if (paneTitle === lastPaneTitle) return;
+    lastPaneTitle = paneTitle;
+    emitTerminalTitle(paneTitle);
+    renameZellijPane(paneTitle);
+  }
 
   function publish(patch: Partial<PresenceState> = {}) {
     if (!state || !filePath) return;
@@ -171,6 +207,7 @@ export default function aocAgentPresence(pi: ExtensionAPI) {
       heartbeat_at: now,
       last_activity_at: patch.last_activity_at || now,
     };
+    syncPaneTitle(state.chat_title);
     try {
       atomicWriteJson(filePath, state);
     } catch {
