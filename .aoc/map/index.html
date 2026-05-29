@@ -164,11 +164,11 @@
       <div class="mini-grid">
         <div class="metric">
           <div class="metric-label">Pages</div>
-          <div class="metric-value">0</div>
+          <div class="metric-value">1</div>
         </div>
         <div class="metric">
           <div class="metric-label">Diagrams</div>
-          <div class="metric-value">0</div>
+          <div class="metric-value">1</div>
         </div>
       </div>
     </section>
@@ -176,7 +176,7 @@
     <section class="panel search-panel" id="filters">
       <div class="search-row">
         <h2>Search pages</h2>
-        <span class="badge"><span id="results-count">0</span> shown</span>
+        <span class="badge"><span id="results-count">1</span> shown</span>
       </div>
       <div class="search-box">
         <input id="search-input" type="search" placeholder="Search by title, summary, tag, section, or kind..." autocomplete="off">
@@ -188,21 +188,21 @@
             <div class="filter-group-label">Sections</div>
             <div class="chips" data-group="section">
               <button class="chip active" type="button" data-filter-group="section" data-filter-value="all">All</button>
-              <button class="chip" type="button" data-filter-group="section" data-filter-value="architecture">Architecture</button><button class="chip" type="button" data-filter-group="section" data-filter-value="agents">Agents</button><button class="chip" type="button" data-filter-group="section" data-filter-value="tasks">Tasks</button><button class="chip" type="button" data-filter-group="section" data-filter-value="mind">Mind</button><button class="chip" type="button" data-filter-group="section" data-filter-value="ops">Ops</button><button class="chip" type="button" data-filter-group="section" data-filter-value="dashboards">Dashboards</button><button class="chip" type="button" data-filter-group="section" data-filter-value="explainers">Explainers</button><button class="chip" type="button" data-filter-group="section" data-filter-value="research">Research</button><button class="chip" type="button" data-filter-group="section" data-filter-value="other">Other</button>
+              <button class="chip" type="button" data-filter-group="section" data-filter-value="architecture">Architecture</button>
             </div>
           </div>
           <div>
             <div class="filter-group-label">Kinds</div>
             <div class="chips" data-group="kind">
               <button class="chip active" type="button" data-filter-group="kind" data-filter-value="all">All</button>
-              
+              <button class="chip" type="button" data-filter-group="kind" data-filter-value="topology">Topology</button>
             </div>
           </div>
           <div>
             <div class="filter-group-label">Tags</div>
             <div class="chips" data-group="tag">
               <button class="chip active" type="button" data-filter-group="tag" data-filter-value="all">All</button>
-              
+              <button class="chip" type="button" data-filter-group="tag" data-filter-value="knowledge-graph">Knowledge Graph</button><button class="chip" type="button" data-filter-group="tag" data-filter-value="onboarding">Onboarding</button><button class="chip" type="button" data-filter-group="tag" data-filter-value="understand">Understand</button>
             </div>
           </div>
         </div>
@@ -211,7 +211,18 @@
 
     <div class="layout">
       <main>
-        <section class="panel section-block" id="pages"><div class="section-header"><h2>Pages</h2></div><div class="empty-site"><h2>No pages yet</h2><p>This repo already has AOC Map initialized. Add a page with <code>aoc-map new agent-topology --section agents --kind topology</code>, then rebuild or serve the site.</p></div></section>
+        <section class="panel section-block" id="pages"><div class="section-header"><h2>Pages</h2></div><div class="card-grid"><article class="card" data-card="1" data-section="architecture" data-kind="topology" data-tags="knowledge-graph onboarding understand" data-search="Understand Overview Understand-Anything graph overview for agent-ops-cockpit architecture topology active knowledge-graph onboarding understand">
+  <div class="card-head">
+    <div class="badge-row">
+      <span class="badge">Architecture</span>
+      <span class="badge kind">Topology</span>
+      <span class="badge status-active">Active</span>
+    </div>
+    <span class="badge">1 diagram</span>
+  </div>
+  <h3><a href="pages/understand-overview.html">Understand Overview</a></h3>
+  <p>Understand-Anything graph overview for agent-ops-cockpit</p>
+</article></div></section>
         <div id="no-results" class="empty-results hidden">
           <h2>No matching pages</h2>
           <p>Try clearing some filters or search terms.</p>
@@ -220,7 +231,7 @@
       <aside class="sidebar">
         <section class="panel sidebar-card" id="recent">
           <h2>Recent updates</h2>
-          <div class="list"><div class="list-item">No pages yet.</div></div>
+          <div class="list"><div class="list-item"><a href="pages/understand-overview.html">Understand Overview</a><span class="badge">1 diagram</span></div></div>
         </section>
       </aside>
     </div>

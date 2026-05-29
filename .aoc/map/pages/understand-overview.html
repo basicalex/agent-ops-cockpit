@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Understand Overview</title>
+  <meta name="aoc-map:summary" content="Understand-Anything graph overview for agent-ops-cockpit">
+  <meta name="aoc-map:section" content="architecture">
+  <meta name="aoc-map:kind" content="topology">
+  <meta name="aoc-map:status" content="active">
+  <meta name="aoc-map:diagram" content="diagrams/understand-overview.mmd">
+  <meta name="aoc-map:tags" content="understand,knowledge-graph,onboarding">
+  <script defer src="../assets/mermaid.min.js"></script>
+  <script defer src="../assets/render-mermaid.js"></script>
+  <style>body{font-family:system-ui,sans-serif;margin:2rem;line-height:1.5}.panel{border:1px solid #ddd;border-radius:12px;padding:1rem;margin:1rem 0}code{background:#f4f4f4;padding:.1rem .25rem;border-radius:4px}</style>
+</head>
+<body>
+  <h1>Understand Overview</h1>
+  <p>Generated from <code>.understand-anything/knowledge-graph.json</code> for <strong>agent-ops-cockpit</strong>.</p>
+  <div class="panel">
+    <script type="text/plain" data-aoc-map-mermaid-src="../diagrams/understand-overview.mmd"></script>
+  </div>
+  <div class="panel">
+    <h2>Graph metrics</h2>
+    <ul>
+      <li>Nodes: 709</li>
+      <li>Edges: 1508</li>
+      <li>Layers: 16</li>
+      <li>Tour steps: 6</li>
+      <li>Languages: config, html, javascript, json, markdown, python, rust, shell, text, toml, typescript, yaml</li>
+      <li>Frameworks: Cargo workspace, Pi coding agent, Taskmaster</li>
+      <li>Synced: 2026-05-29T14:55:39.681356Z</li>
+    </ul>
+  </div>
+  <div class="panel"><h2>Layers</h2><ul><li><strong>AOC Context and Configuration</strong>: 132 nodes — Project-local AOC context, configuration, and managed state descriptors.</li>
+<li><strong>GitHub Automation</strong>: 8 nodes — GitHub metadata and workflow automation.</li>
+<li><strong>Pi Agent Assets</strong>: 189 nodes — Project-local Pi skills, agents, prompts, and runtime settings.</li>
+<li><strong>Task and Spec Management</strong>: 51 nodes — Taskmaster configuration, workstream specs, and task metadata.</li>
+<li><strong>Command Line Interface</strong>: 74 nodes — User-facing and internal executable commands for AOC operations.</li>
+<li><strong>Bundled Configuration</strong>: 2 nodes — Packaged configuration files installed or referenced by AOC.</li>
+<li><strong>Rust Core Workspace</strong>: 104 nodes — Rust crates that implement native AOC services, TUI, and support tools.</li>
+<li><strong>Documentation</strong>: 61 nodes — Human-facing operator, maintainer, and reference documentation.</li>
+<li><strong>Installer</strong>: 1 nodes — Installation entry points and bootstrap logic.</li>
+<li><strong>Legacy Compatibility</strong>: 13 nodes — Legacy scripts and compatibility assets retained during migration.</li>
+<li><strong>Shared Library Helpers</strong>: 1 nodes — Shared shell or support libraries.</li>
+<li><strong>Micro Utilities</strong>: 1 nodes — Small standalone utilities.</li></ul></div>
+  <div class="panel"><h2>Guided tour</h2><ol><li><strong>1. Project Overview</strong>: Start with the README and design contract to understand AOC’s purpose and product constraints.</li>
+<li><strong>2. Installation and First Run</strong>: Follow install and doctor scripts to see how a workspace is bootstrapped.</li>
+<li><strong>3. Command Surface</strong>: Explore the terminal-first command suite exposed from bin/.</li>
+<li><strong>4. Native Rust Services</strong>: Inspect the Cargo workspace for native support services and TUI components.</li>
+<li><strong>5. Project Intelligence</strong>: Review AOC context, Pi skills/agents, and Taskmaster specs that ground agent operations.</li>
+<li><strong>6. Documentation System</strong>: Use the docs index and reference docs to understand user and maintainer workflows.</li></ol></div>
+  <p>Run <code>aoc-understand dashboard --open</code> for the full interactive graph.</p>
+</body>
+</html>
