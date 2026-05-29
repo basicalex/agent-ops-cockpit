@@ -3205,7 +3205,7 @@ setup_pi_prompts() {
   local optional_prompt=""
   local optional_seed_file=""
   mkdir -p "$optional_hidden_dir"
-  for optional_prompt in "hyperframes" "teach" "teach-full" "teach-dive" "teach-ask"; do
+  for optional_prompt in "hyperframes"; do
     optional_seed_file=""
     for candidate in "${optional_seed_dirs[@]}"; do
       if [[ -f "$candidate/${optional_prompt}.md" ]]; then
@@ -3219,10 +3219,21 @@ setup_pi_prompts() {
     fi
   done
 
-  for optional_prompt in "hyperframes" "teach" "teach-full" "teach-dive" "teach-ask"; do
+  for optional_prompt in "hyperframes"; do
     if [[ -f "$pi_prompts_dir/${optional_prompt}.md" && ! -f "$optional_hidden_dir/${optional_prompt}.md" ]]; then
       mv "$pi_prompts_dir/${optional_prompt}.md" "$optional_hidden_dir/${optional_prompt}.md"
       log "Moved optional PI prompt out of production surface: /$optional_prompt"
+    fi
+  done
+
+  for deprecated_prompt in "teach" "teach-full" "teach-dive" "teach-ask"; do
+    if [[ -f "$pi_prompts_dir/${deprecated_prompt}.md" ]]; then
+      rm -f "$pi_prompts_dir/${deprecated_prompt}.md"
+      log "Removed deprecated legacy teach PI prompt: /$deprecated_prompt (use aoc-understand)"
+    fi
+    if [[ -f "$optional_hidden_dir/${deprecated_prompt}.md" ]]; then
+      rm -f "$optional_hidden_dir/${deprecated_prompt}.md"
+      log "Removed deprecated hidden legacy teach PI prompt: /$deprecated_prompt (use aoc-understand)"
     fi
   done
 

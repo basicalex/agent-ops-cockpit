@@ -20,7 +20,7 @@ description: Initialize or repair AOC context, memory, and tasks safely.
 - Ensures spec directory `.taskmaster/docs/specs/` is available for tag/task links
 - Seeds `.pi/settings.json` when missing
 - Seeds core PI prompt templates in `.pi/prompts/` (`/aoc-ops`, `/tm-cc`, `/implement`, `/handoff`, `/rresume`, `/commit`) when missing
-- Keeps optional teaching/video prompts in `.pi/prompts-optional/production-hidden/`
+- Keeps optional video prompts in `.pi/prompts-optional/production-hidden/`; legacy teach prompts are not seeded (use `aoc-understand`).
 - Seeds PI default extensions in `.pi/extensions/` (`minimal.ts`, `themeMap.ts`, `mind-ingest.ts`, `mind-ops.ts`, `mind-context.ts`, `mind-focus.ts`, `aoc-models.ts`, `aoc-compaction.ts`, `subagent.ts`, plus `lib/mind.ts` and `lib/caveman.ts`) when missing
 - Seeds the preset runtime family in `.pi/extensions/aoc-presets/` when missing
 - Seeds reusable preset assets in `.aoc/presets/{design,hyperframes,ops,research,test}/` and `.aoc/layouts/design.kdl` when missing
