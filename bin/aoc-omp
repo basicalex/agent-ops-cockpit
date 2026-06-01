@@ -16,8 +16,20 @@ if [[ "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
   exit 0
 fi
 
-if ! command -v omp >/dev/null 2>&1; then
-  echo "aoc-omp: omp is not installed or not on PATH" >&2
+raw_omp="${AOC_RAW_OMP_BIN:-}"
+if [[ -z "$raw_omp" ]]; then
+  if command -v omp-raw >/dev/null 2>&1; then
+    raw_omp="omp-raw"
+  else
+    raw_omp="omp"
+  fi
+fi
+if ! command -v "$raw_omp" >/dev/null 2>&1; then
+  if [[ -n "${AOC_RAW_OMP_BIN:-}" ]]; then
+    echo "aoc-omp: raw OMP binary not found: $raw_omp" >&2
+  else
+    echo "aoc-omp: OMP is not installed or not on PATH" >&2
+  fi
   exit 1
 fi
 
@@ -26,4 +38,4 @@ mkdir -p "$runtime_dir"
 capsule="$(mktemp "$runtime_dir/aoc-omp-context.XXXXXX.md")"
 aoc-omp-context > "$capsule"
 
-exec omp --append-system-prompt "$capsule" "$@"
+exec "$raw_omp" --append-system-prompt "$capsule" "$@"

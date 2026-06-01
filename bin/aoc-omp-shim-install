@@ -1,0 +1,131 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+usage() {
+  cat <<'EOF'
+Usage: aoc-omp-shim-install [--status]
+
+Install an AOC-aware `omp` shim in AOC_BIN_DIR (default: ~/.local/bin).
+Inside an AOC-initialized project, plain `omp` routes through `aoc-omp`.
+Outside AOC projects, it preserves upstream OMP behavior via `omp-raw`.
+EOF
+}
+
+have() {
+  command -v "$1" >/dev/null 2>&1
+}
+
+bin_dir="${AOC_BIN_DIR:-$HOME/.local/bin}"
+status=0
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --status) status=1 ;;
+    -h|--help) usage; exit 0 ;;
+    *) echo "Unknown option: $1" >&2; usage; exit 2 ;;
+  esac
+  shift
+done
+
+if [[ "$status" == "1" ]]; then
+  if [[ -x "$bin_dir/omp" ]] && grep -q "AOC-aware OMP shim" "$bin_dir/omp" 2>/dev/null && [[ -x "$bin_dir/omp-raw" ]]; then
+    printf '%s\n' "installed"
+  elif have omp || [[ -x "$bin_dir/omp-raw" ]]; then
+    printf '%s\n' "available"
+  else
+    printf '%s\n' "missing"
+  fi
+  exit 0
+fi
+
+mkdir -p "$bin_dir"
+
+if [[ -n "${AOC_RAW_OMP_BIN:-}" ]]; then
+  if command -v "$AOC_RAW_OMP_BIN" >/dev/null 2>&1; then
+    omp_path="$(command -v "$AOC_RAW_OMP_BIN")"
+  elif [[ -x "$AOC_RAW_OMP_BIN" ]]; then
+    omp_path="$AOC_RAW_OMP_BIN"
+  else
+    omp_path=""
+  fi
+else
+  omp_path="$(command -v omp 2>/dev/null || true)"
+fi
+if [[ -n "$omp_path" && -x "$omp_path" ]]; then
+  if [[ "$omp_path" != "$bin_dir/omp" ]]; then
+    cp -p "$omp_path" "$bin_dir/omp-raw"
+  elif ! grep -q "AOC-aware OMP shim" "$omp_path" 2>/dev/null; then
+    cp -p "$omp_path" "$bin_dir/omp-raw"
+  fi
+fi
+
+if [[ ! -x "$bin_dir/omp-raw" ]]; then
+  echo "Could not install AOC omp shim: raw OMP binary not found. Install OMP first or set AOC_RAW_OMP_BIN." >&2
+  exit 1
+fi
+
+cat > "$bin_dir/omp" <<'SHIM'
+#!/usr/bin/env bash
+set -euo pipefail
+
+# AOC-aware OMP shim.
+# - Inside an AOC-initialized project, route plain `omp` through aoc-omp so
+#   the compact AOC startup capsule is appended automatically.
+# - Outside AOC projects, preserve normal upstream OMP behavior via omp-raw.
+# - Escape hatch: OMP_NO_AOC_WRAPPER=1 omp ...
+
+raw_omp="${AOC_RAW_OMP_BIN:-omp-raw}"
+aoc_omp="${AOC_OMP_WRAPPER_BIN:-aoc-omp}"
+
+find_aoc_root() {
+  local dir="${PWD:-.}"
+  dir="$(cd "$dir" 2>/dev/null && pwd -P)" || return 1
+
+  while [[ "$dir" != "/" ]]; do
+    if [[ -d "$dir/.aoc" && -f "$dir/.aoc/context.md" ]]; then
+      printf '%s\n' "$dir"
+      return 0
+    fi
+    dir="$(dirname "$dir")"
+  done
+
+  return 1
+}
+
+resolve_aoc_root() {
+  local root=""
+
+  if root="$(find_aoc_root)"; then
+    printf '%s\n' "$root"
+    return 0
+  fi
+
+  for root in "${AOC_PROJECT_ROOT:-}" "${ZELLIJ_PROJECT_ROOT:-}"; do
+    if [[ -n "$root" && -d "$root/.aoc" && -f "$root/.aoc/context.md" ]]; then
+      cd "$root" 2>/dev/null && pwd -P
+      return 0
+    fi
+  done
+
+  return 1
+}
+
+if [[ "${OMP_NO_AOC_WRAPPER:-0}" != "1" ]]; then
+  if aoc_root="$(resolve_aoc_root)"; then
+    if [[ "${OMP_AOC_WRAPPER_DRY_RUN:-0}" == "1" ]]; then
+      printf 'aoc-omp --project-root %q' "$aoc_root"
+      printf ' %q' "$@"
+      printf '\n'
+      exit 0
+    fi
+
+    export AOC_PROJECT_ROOT="$aoc_root"
+    export AOC_RAW_OMP_BIN="${AOC_RAW_OMP_BIN:-$raw_omp}"
+    exec "$aoc_omp" "$@"
+  fi
+fi
+
+exec "$raw_omp" "$@"
+SHIM
+
+chmod +x "$bin_dir/omp" "$bin_dir/omp-raw"
+echo "Installed AOC-aware OMP shim to $bin_dir/omp"

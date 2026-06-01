@@ -70,10 +70,10 @@ Important shortcuts:
 
 The Herdr-first path is implemented with:
 
-- `bin/aoc-herdr-install` — installs the lean Herdr config baseline, installs the Herdr OMP integration when `omp` is available, and installs AOC OMP extensions including CodeGraph and `/commit`
+- `bin/aoc-herdr-install` — installs the lean Herdr config baseline, installs the Herdr OMP integration when `omp` is available, installs the AOC-aware plain `omp` shim, and installs AOC OMP extensions including CodeGraph and `/commit`
 - `bin/aoc-herdr-launch` — launches/focuses Herdr for the current project root, reusing an existing workspace for the same root when possible
 - `bin/aoc-omp-context` — renders the compact metadata-only AOC startup capsule for OMP `--append-system-prompt`
-- `bin/aoc-omp` / `aoc omp` — launches OMP with that startup capsule already appended
+- `bin/aoc-omp` / `aoc omp` — launches upstream OMP with that startup capsule already appended
 - `bin/aoc` — delegates to Herdr by default
 - `install.sh` — defaults to Herdr/OMP assets and skips legacy Zellij cockpit assets unless `--legacy-zellij` is passed
 - `bin/aoc-init` — installs AOC OMP extensions, seeds the lean PI prompt/tool baseline, and skips legacy `.aoc/layouts`, Zellij plugin repair, subagent manager extension, AOC agent presence extension, Mission Control, and Control pane defaults
@@ -103,6 +103,8 @@ For direct use, prefer the wrapper:
 ```bash
 aoc omp
 ```
+
+After install, plain `omp` is also AOC-aware: in a directory initialized by `aoc-init`, the shim routes to `aoc-omp`; outside AOC projects, it delegates to upstream `omp-raw`. Use `OMP_NO_AOC_WRAPPER=1 omp ...` to bypass the shim.
 
 Launchers that need explicit control can write the capsule to a runtime file, then pass that file to OMP:
 

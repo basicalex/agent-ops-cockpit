@@ -765,6 +765,7 @@ required_bin_scripts=(
   aoc-herdr-install
   aoc-omp
   aoc-omp-context
+  aoc-omp-shim-install
   aoc-utils.sh
   aoc-init
   aoc-handshake

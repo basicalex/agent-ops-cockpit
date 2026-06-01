@@ -87,14 +87,24 @@ if herdr status server >/dev/null 2>&1; then
   echo "Reloaded running Herdr server"
 fi
 
-if command -v omp >/dev/null 2>&1; then
-  if herdr integration install omp >/dev/null 2>&1; then
+if command -v omp >/dev/null 2>&1 || command -v omp-raw >/dev/null 2>&1; then
+  if command -v herdr >/dev/null 2>&1 && herdr integration install omp >/dev/null 2>&1; then
     echo "Installed/updated Herdr OMP integration"
   else
     echo "Warning: Herdr OMP integration install failed; continuing" >&2
   fi
+
+  if command -v aoc-omp-shim-install >/dev/null 2>&1; then
+    if aoc-omp-shim-install >/dev/null; then
+      echo "Installed/updated AOC-aware OMP shim"
+    else
+      echo "Warning: AOC OMP shim install failed; continuing" >&2
+    fi
+  else
+    echo "Warning: aoc-omp-shim-install not on PATH; plain omp will not auto-load AOC context" >&2
+  fi
 else
-  echo "Warning: omp is not on PATH; skipping Herdr OMP integration" >&2
+  echo "Warning: omp is not on PATH; skipping Herdr OMP integration and AOC OMP shim" >&2
 fi
 
 for extension_name in "${omp_extensions[@]}"; do
@@ -112,6 +122,7 @@ done
 if command -v aoc-omp-context >/dev/null 2>&1 && command -v aoc-omp >/dev/null 2>&1; then
   echo "AOC OMP context capsule available via: aoc-omp-context"
   echo "AOC OMP launcher available via: aoc omp"
+  echo "Plain omp auto-loads AOC context in directories initialized with aoc-init"
 else
   echo "Warning: aoc-omp-context/aoc-omp not on PATH; ensure AOC bin directory is installed" >&2
 fi
