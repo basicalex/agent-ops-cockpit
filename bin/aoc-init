@@ -429,7 +429,7 @@ managed_pi_skill_name() {
 managed_pi_extension_name() {
   local extension_name="$1"
   case "$extension_name" in
-    minimal.ts|themeMap.ts|mind-ingest.ts|mind-ops.ts|mind-context.ts|mind-focus.ts|aoc-models.ts|aoc-agent-presence.ts|aoc-codegraph.ts|aoc-compaction.ts|subagent.ts|lib/mind.ts|lib/caveman.ts)
+    minimal.ts|themeMap.ts|mind-ingest.ts|mind-ops.ts|mind-context.ts|mind-focus.ts|aoc-models.ts|aoc-codegraph.ts|aoc-compaction.ts|lib/mind.ts|lib/caveman.ts)
       return 0
       ;;
     *)
@@ -550,14 +550,14 @@ apply_project_version_migrations() {
 
   if (( aoc_project_version_before < 2 )); then
     note_project_migration \
-      "v2-presets-and-design-layout-seeding" \
-      "Applying AOC project migration v2: seed reusable preset runtime, design preset assets, and design layout templates."
+      "v2-presets-runtime-seeding" \
+      "Applying AOC project migration v2: seed reusable preset runtime and design preset assets."
   fi
 
   if (( aoc_project_version_before < 3 )); then
     note_project_migration \
       "v3-managed-asset-version-markers" \
-      "Applying AOC project migration v3: mark managed skills, presets, layouts, and extension families for safe updates."
+      "Applying AOC project migration v3: mark managed skills, presets, and extension families for safe updates."
   fi
 }
 
@@ -931,8 +931,8 @@ STM is for deliberate directed in-progress handoff packets only; it is not a mai
 ## Core files
 - `.aoc/context.md`: auto-generated project snapshot.
 - `.aoc/rtk.toml`: project-local RTK routing policy and install contract.
-- `.aoc/mind-service.json`: project-local launcher metadata for the standalone Mind service.
-- `.aoc/layouts/`: project-shared Zellij layouts for AOC (`*.kdl`).
+- `.aoc/mind-service.json`: optional project-local launcher metadata for the standalone Mind service.
+- `.aoc/layouts/`: legacy-only Zellij layouts, created only when `AOC_INIT_LEGACY_ZELLIJ=1`.
 - `DESIGN.md`: project-wide visual/product design contract; subsystem design docs extend it.
 - `.taskmaster/docs/specs/`: spec documents linked to tags and tasks; `.taskmaster/docs/prds/` remains legacy-compatible.
 - Tag default specs are currently stored via legacy key `aocPrd`; resolve with `aoc-task tag spec show --tag <tag>`.
@@ -1496,12 +1496,6 @@ EOF
     log "Short-term memory exists ($stm_current). Preserving."
   fi
 
-  # Shared project layouts
-  local layouts_dir="$aoc_dir/layouts"
-  if [[ ! -d "$layouts_dir" ]]; then
-    log "Creating shared layouts directory ($layouts_dir)..."
-    mkdir -p "$layouts_dir"
-  fi
 
   # AGENTS.md (project-level agent contract)
   local agents_file="$project_root/AGENTS.md"
@@ -1895,15 +1889,14 @@ description: Initialize or repair AOC context, memory, and tasks safely.
 - Seeds `.aoc/stm/current.md` and `.aoc/stm/archive/` without overwriting existing STM files
 - Ensures spec directory `.taskmaster/docs/specs/` is available for tag/task links
 - Seeds `.pi/settings.json` when missing
-- Seeds and refreshes managed core PI prompt templates in `.pi/prompts/` (`/aoc-ops`, `/tm-cc`, `/implement`, `/lexicon`, `/handoff`, `/rresume`, `/commit`)
-- Keeps optional video prompts in `.pi/prompts-optional/production-hidden/`; legacy teach prompts are not seeded (use `aoc-understand`)
-- Seeds PI default extensions in `.pi/extensions/` (`minimal.ts`, `themeMap.ts`, `mind-ingest.ts`, `mind-ops.ts`, `mind-context.ts`, `mind-focus.ts`, `aoc-models.ts`, `aoc-agent-presence.ts`, `aoc-codegraph.ts`, `aoc-compaction.ts`, `subagent.ts`, plus `lib/mind.ts` and `lib/caveman.ts`) when missing
+- Seeds and refreshes managed core PI prompt templates in `.pi/prompts/` (`/aoc-ops`, `/tm-cc`, `/lexicon`, `/commit`); legacy `/implement`, `/handoff`, and `/rresume` prompts are not seeded for Herdr/OMP defaults
+- Installs AOC OMP extensions (`aoc-codegraph.ts`, `aoc-commit.ts`) into the configured OMP agent extension directory when available
+- Seeds PI default extensions in `.pi/extensions/` (`minimal.ts`, `themeMap.ts`, `mind-ingest.ts`, `mind-ops.ts`, `mind-context.ts`, `mind-focus.ts`, `aoc-models.ts`, `aoc-codegraph.ts`, `aoc-compaction.ts`, plus `lib/mind.ts` and `lib/caveman.ts`) when missing
 - Seeds the preset runtime family in `.pi/extensions/aoc-presets/` when missing
-- Seeds reusable preset assets in `.aoc/presets/{design,hyperframes,ops,research,test}/` and `.aoc/layouts/design.kdl` when missing
+- Seeds reusable preset assets in `.aoc/presets/{design,hyperframes,ops,research,test}/` when missing
 - Seeds `.aoc/init-state.json` with the current AOC project version and applies version-specific migrations on older repos
 - Seeds the vendored local PI multi-auth package at `.pi/packages/pi-multi-auth-aoc` and wires `.pi/settings.json` to load it only when the package is available
 - Removes legacy global npm `pi-multi-auth` package entries from `~/.pi/agent/settings.json` to avoid duplicate extension loading
-- Installs the managed AOC Zellij top-bar plugin to `~/.config/zellij/plugins/zjstatus-aoc.wasm`
 - Migrates missing legacy project-local PI prompts/skills from `.aoc/prompts/pi/` and `.aoc/skills/` into `.pi/**` (non-destructive), and cleans safe `tmcc` prompt alias duplicates
 - Ensures `.pi/skills` baseline (PI-first canonical)
 EOF
@@ -1912,6 +1905,10 @@ EOF
 }
 
 setup_project_mind_service_config() {
+  if ! is_truthy "${AOC_INIT_MIND_RUNTIME:-0}"; then
+    log "Skipping optional project Mind service config (set AOC_INIT_MIND_RUNTIME=1 to enable)."
+    return 0
+  fi
   local target_config
   local global_config
   local installed_bin=""
@@ -2031,6 +2028,10 @@ PY
 }
 
 setup_project_mind_runtime() {
+  if ! is_truthy "${AOC_INIT_MIND_RUNTIME:-0}"; then
+    log "Skipping optional project Mind runtime setup (set AOC_INIT_MIND_RUNTIME=1 to enable)."
+    return 0
+  fi
   if ! command -v aoc-mind-service >/dev/null 2>&1; then
     warn "Mind runtime not available; skipping project Mind store setup. Run ./install.sh first."
     return 0
@@ -2055,6 +2056,35 @@ setup_project_mind_runtime() {
   else
     log "Mind Pi session backfill skipped by default. Set AOC_INIT_MIND_BACKFILL=1 to backfill during init."
   fi
+}
+
+setup_omp_extensions() {
+  local omp_extension_seed_dir="$script_dir/../.omp/extensions"
+  local omp_extension_dir="${PI_CODING_AGENT_DIR:-$HOME/.omp/agent}/extensions"
+  local extension_name=""
+  local extension_src=""
+  local extension_dst=""
+  local required_extensions=(
+    "aoc-codegraph.ts"
+    "aoc-commit.ts"
+  )
+
+  if [[ ! -d "$omp_extension_seed_dir" ]]; then
+    warn "Missing AOC OMP extension seed directory: $omp_extension_seed_dir"
+    return 0
+  fi
+
+  mkdir -p "$omp_extension_dir"
+  for extension_name in "${required_extensions[@]}"; do
+    extension_src="$omp_extension_seed_dir/$extension_name"
+    extension_dst="$omp_extension_dir/$extension_name"
+    if [[ -f "$extension_src" ]]; then
+      cp "$extension_src" "$extension_dst"
+      log "Installed AOC OMP extension: $extension_dst"
+    else
+      warn "Missing AOC OMP extension seed: $extension_name"
+    fi
+  done
 }
 
 # 1c. Setup PI settings + baseline directories (.pi/)
@@ -2147,11 +2177,9 @@ default_extensions = [
     "extensions/mind-context.ts",
     "extensions/mind-focus.ts",
     "extensions/aoc-models.ts",
-    "extensions/aoc-agent-presence.ts",
     "extensions/aoc-codegraph.ts",
     "extensions/aoc-compaction.ts",
     "extensions/aoc-presets/index.ts",
-    "extensions/subagent.ts",
 ]
 default_skill_filters = [
     "!skills/prd-rpg-authoring",
@@ -2652,10 +2680,8 @@ setup_pi_extensions() {
     "mind-context.ts"
     "mind-focus.ts"
     "aoc-models.ts"
-    "aoc-agent-presence.ts"
     "aoc-codegraph.ts"
     "aoc-compaction.ts"
-    "subagent.ts"
     "lib/mind.ts"
     "lib/caveman.ts"
   )
@@ -2935,7 +2961,6 @@ setup_pi_extension_families() {
   )
   local required_families=(
     "aoc-presets"
-    "subagent"
   )
 
   mkdir -p "$pi_extensions_dir" "$global_template_dir"
@@ -2987,24 +3012,14 @@ setup_pi_extension_families() {
 
 setup_aoc_preset_assets() {
   local presets_dir="$project_root/.aoc/presets"
-  local layouts_dir="$project_root/.aoc/layouts"
   local global_presets_dir="$aoc_config_dir/presets"
-  local global_layouts_dir="$aoc_config_dir/layouts"
   local canonical_preset_seed_dirs=(
     "$script_dir/../.aoc/presets"
     "$global_presets_dir"
   )
-  local canonical_layout_seed_dirs=(
-    "$script_dir/../.aoc/layouts"
-    "$global_layouts_dir"
-  )
   local candidate=""
-  local layout_name="design.kdl"
-  local layout_seed_file=""
-  local target_layout_file="$layouts_dir/$layout_name"
-  local cache_layout_file="$global_layouts_dir/$layout_name"
 
-  mkdir -p "$presets_dir" "$layouts_dir" "$global_presets_dir" "$global_layouts_dir"
+  mkdir -p "$presets_dir" "$global_presets_dir"
 
   seed_aoc_preset_asset() {
     local preset_name="$1"
@@ -3037,8 +3052,8 @@ setup_aoc_preset_assets() {
     fi
   }
 
-  # Seed the compact production preset surface used by Alt+X. Presets are
-  # cognitive positioning layers; mode-specific skills remain lazy/filtered.
+  # Seed compact production preset assets. Presets are cognitive positioning
+  # layers; mode-specific skills remain lazy/filtered.
   seed_aoc_preset_asset "design"
   seed_aoc_preset_asset "hyperframes"
   seed_aoc_preset_asset "ops"
@@ -3049,31 +3064,6 @@ setup_aoc_preset_assets() {
     ensure_hyperframes_workspace_package
   fi
 
-  for candidate in "${canonical_layout_seed_dirs[@]}"; do
-    if [[ -f "$candidate/$layout_name" ]]; then
-      layout_seed_file="$candidate/$layout_name"
-      break
-    fi
-  done
-
-  if [[ -n "$layout_seed_file" ]]; then
-    if [[ ! -f "$target_layout_file" ]]; then
-      cp "$layout_seed_file" "$target_layout_file"
-      write_aoc_managed_marker "$target_layout_file" "layout/${layout_name%.kdl}" "$layout_seed_file" "$(managed_path_sha256 "$target_layout_file")"
-      log "Seeded AOC layout: ${layout_name%.kdl}"
-    else
-      cp "$layout_seed_file" "$target_layout_file"
-      write_aoc_managed_marker "$target_layout_file" "layout/${layout_name%.kdl}" "$layout_seed_file" "$(managed_path_sha256 "$target_layout_file")"
-      log "Refreshed managed AOC layout: ${layout_name%.kdl}"
-    fi
-
-    if [[ ! -f "$cache_layout_file" ]] || ! cmp -s "$layout_seed_file" "$cache_layout_file"; then
-      cp "$layout_seed_file" "$cache_layout_file"
-      log "Refreshed global AOC layout template: ${layout_name%.kdl}"
-    fi
-  else
-    warn "Missing AOC layout template: $layout_name"
-  fi
 }
 
 ensure_hyperframes_workspace_package() {
@@ -3228,10 +3218,7 @@ setup_pi_prompts() {
   local required_prompts=(
     "aoc-ops"
     "tm-cc"
-    "implement"
     "lexicon"
-    "handoff"
-    "rresume"
     "commit"
   )
 
@@ -3680,7 +3667,7 @@ setup_binaries() {
     manifest_path="$script_dir/../crates/Cargo.toml"
   fi
 
-  local required=(aoc-hub-rs aoc-agent-wrap-rs aoc-mission-control aoc-taskmaster aoc-control)
+  local required=(aoc-agent-wrap-rs aoc-taskmaster)
   local missing=()
   local bin=""
   local manifest_dir=""
@@ -3716,7 +3703,7 @@ setup_binaries() {
   fi
 
   log "Building AOC Rust binaries: ${required[*]}"
-  cargo build --manifest-path "$manifest_path" -p aoc-hub-rs -p aoc-agent-wrap-rs -p aoc-mission-control -p aoc-taskmaster -p aoc-control
+  cargo build --manifest-path "$manifest_path" -p aoc-agent-wrap-rs -p aoc-taskmaster
 }
 
 main() {
@@ -3738,6 +3725,7 @@ main() {
   apply_project_version_migrations
   setup_project_mind_service_config
   setup_project_mind_runtime
+  setup_omp_extensions
   setup_pi_packages
   setup_pi_settings
   cleanup_global_pi_multi_auth
@@ -3755,7 +3743,6 @@ main() {
   setup_tasks
   ensure_git_tracking_policy
   setup_env
-  setup_managed_zellij_plugin
   setup_binaries
   refresh_aoc_managed_manifest
   write_project_aoc_state

@@ -5,14 +5,21 @@ repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 config_src="$repo_root/herdr/config.toml"
 config_dir="${XDG_CONFIG_HOME:-$HOME/.config}/herdr"
 config_dst="$config_dir/config.toml"
+omp_extension_dir="${PI_CODING_AGENT_DIR:-$HOME/.omp/agent}/extensions"
+omp_extensions=(
+  aoc-codegraph.ts
+  aoc-commit.ts
+)
+
 
 usage() {
   cat <<'EOF'
 Usage: aoc-herdr-install [--force]
 
-Install the lean Herdr-first AOC workspace config.
+Install the lean Herdr-first AOC workspace config and OMP-native AOC tools.
 
-This installs only the Herdr config baseline. It does not install Zellij layouts,
+This installs the Herdr config baseline, Herdr OMP integration, and AOC OMP
+extensions such as CodeGraph and /commit. It does not install Zellij layouts,
 the AOC top bar, AOC Mind, or AOC subagent/Mission Control assets.
 EOF
 }
@@ -63,6 +70,25 @@ if command -v omp >/dev/null 2>&1; then
   fi
 else
   echo "Warning: omp is not on PATH; skipping Herdr OMP integration" >&2
+fi
+
+for extension_name in "${omp_extensions[@]}"; do
+  extension_src="$repo_root/.omp/extensions/$extension_name"
+  extension_dst="$omp_extension_dir/$extension_name"
+  if [[ -f "$extension_src" ]]; then
+    mkdir -p "$omp_extension_dir"
+    cp "$extension_src" "$extension_dst"
+    echo "Installed AOC OMP extension to $extension_dst"
+  else
+    echo "Warning: missing $extension_src; skipping AOC OMP extension" >&2
+  fi
+done
+
+if command -v aoc-omp-context >/dev/null 2>&1 && command -v aoc-omp >/dev/null 2>&1; then
+  echo "AOC OMP context capsule available via: aoc-omp-context"
+  echo "AOC OMP launcher available via: aoc omp"
+else
+  echo "Warning: aoc-omp-context/aoc-omp not on PATH; ensure AOC bin directory is installed" >&2
 fi
 
 cat <<'EOF'

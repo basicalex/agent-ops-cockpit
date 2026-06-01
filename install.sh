@@ -7,20 +7,36 @@ AOC_CONFIG_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/aoc"
 INSTALL_MIND_EXPLICIT=0
 AOC_MIND_RUNTIME_INSTALLED=0
 AOC_MIND_SERVICE_CONFIG_FILE="$AOC_CONFIG_DIR/mind-service.json"
+is_truthy() {
+  local value="${1:-}"
+  value="$(printf '%s' "$value" | tr '[:upper:]' '[:lower:]')"
+  case "$value" in
+    1|true|yes|on) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --mind)
       INSTALL_MIND_EXPLICIT=1
+      export AOC_INSTALL_MIND_RUNTIME=1
+      export AOC_INSTALL_PI_AGENT=1
+      export AOC_INSTALL_PI_REQUIRED=1
+      shift
+      ;;
+    --legacy-zellij)
+      export AOC_INSTALL_LEGACY_ZELLIJ=1
       shift
       ;;
     -h|--help)
       cat <<'EOF'
-Usage: ./install.sh [--mind]
+Usage: ./install.sh [--mind] [--legacy-zellij]
 
 Options:
-  --mind   Force-refresh PI agent in addition to the default AOC/Mind
-           runtime binaries (aoc-mind-service, aoc-hub-rs, aoc-agent-wrap-rs).
+  --mind           Install/refresh optional Mind/Pi runtime components.
+  --legacy-zellij  Install legacy AOC Zellij cockpit assets and binaries.
   -h, --help
 EOF
       exit 0
@@ -38,9 +54,11 @@ export PATH="$BIN_DIR:$PATH"
 
 # Ensure dirs exist
 mkdir -p "$BIN_DIR"
-mkdir -p "$HOME/.config/zellij/layouts"
-mkdir -p "$HOME/.config/zellij"
-mkdir -p "$HOME/.config/zellij/plugins"
+if is_truthy "${AOC_INSTALL_LEGACY_ZELLIJ:-0}"; then
+  mkdir -p "$HOME/.config/zellij/layouts"
+  mkdir -p "$HOME/.config/zellij"
+  mkdir -p "$HOME/.config/zellij/plugins"
+fi
 mkdir -p "$HOME/.config/yazi"
 mkdir -p "$HOME/.config/yazi/plugins"
 mkdir -p "${MICRO_CONFIG_HOME:-${XDG_CONFIG_HOME:-$HOME/.config}/micro}"
@@ -52,7 +70,7 @@ mkdir -p "$AOC_CONFIG_DIR/pi/extensions"
 mkdir -p "$AOC_CONFIG_DIR/taskmaster/templates"
 mkdir -p "$AOC_CONFIG_DIR/skills-optional"
 mkdir -p "$AOC_CONFIG_DIR/prompts-optional/pi"
-mkdir -p "$AOC_CONFIG_DIR/zellij/plugins"
+if is_truthy "${AOC_INSTALL_LEGACY_ZELLIJ:-0}"; then mkdir -p "$AOC_CONFIG_DIR/zellij/plugins"; fi
 mkdir -p "${XDG_STATE_HOME:-$HOME/.local/state}/aoc"
 DEFAULT_LAYOUT_FILE="${XDG_STATE_HOME:-$HOME/.local/state}/aoc/layout_default"
 
@@ -60,14 +78,6 @@ log() { echo ">> $1"; }
 warn() { echo "!! $1"; }
 have() { command -v "$1" >/dev/null 2>&1; }
 have_bat() { have bat || have batcat; }
-is_truthy() {
-  local value="${1:-}"
-  value="$(printf '%s' "$value" | tr '[:upper:]' '[:lower:]')"
-  case "$value" in
-    1|true|yes|on) return 0 ;;
-    *) return 1 ;;
-  esac
-}
 
 install_rust_toolchain_if_needed() {
   if cargo_cmd >/dev/null 2>&1; then
@@ -105,8 +115,8 @@ install_rust_toolchain_if_needed() {
 }
 
 install_pi_agent_if_enabled() {
-  if ! is_truthy "${AOC_INSTALL_PI_AGENT:-1}"; then
-    log "Skipping PI agent install (set AOC_INSTALL_PI_AGENT=1 to enable)."
+  if ! is_truthy "${AOC_INSTALL_PI_AGENT:-0}"; then
+    log "Skipping PI agent install (set AOC_INSTALL_PI_AGENT=1 or pass --mind to enable)."
     return 0
   fi
 
@@ -409,13 +419,26 @@ install_rust_package_binary() {
   local package="$2"
   local binary="$3"
   local dest_name="${4:-$3}"
+  local built_bin="$ROOT_DIR/crates/target/release/$binary"
+  local dest_bin="$BIN_DIR/$dest_name"
 
-  log "Building $binary..."
-  cargo_with_retry "$cargo_bin" install --path "$ROOT_DIR/crates/$package" --bin "$binary" --root "$HOME/.local" --force || {
-    log "Cargo install failed for $binary, trying build --release..."
-    (cd "$ROOT_DIR/crates" && "$cargo_bin" build --release -p "$package" --bin "$binary")
-    install -m 0755 "$ROOT_DIR/crates/target/release/$binary" "$BIN_DIR/$dest_name"
+  log "Ensuring $binary is up to date..."
+  cargo_with_retry "$cargo_bin" build --release --manifest-path "$ROOT_DIR/crates/Cargo.toml" -p "$package" --bin "$binary" || {
+    log "WARNING: Failed to build $binary."
+    return 1
   }
+
+  if [[ ! -f "$built_bin" ]]; then
+    log "WARNING: Build completed without expected binary: $built_bin"
+    return 1
+  fi
+
+  if [[ -f "$dest_bin" ]] && cmp -s "$built_bin" "$dest_bin"; then
+    log "$dest_name already up to date."
+    return 0
+  fi
+
+  install -m 0755 "$built_bin" "$dest_bin"
 }
 
 install_rust_binary() {
@@ -738,14 +761,13 @@ done
 
 required_bin_scripts=(
   aoc
-  aoc-launch
-  aoc-new-tab
-  aoc-agent-wrap
+  aoc-herdr-launch
+  aoc-herdr-install
+  aoc-omp
+  aoc-omp-context
   aoc-utils.sh
   aoc-init
   aoc-handshake
-  aoc-zellij-plugin
-  aoc-tab-metadata
   aoc-doctor
   tm
 )
@@ -854,54 +876,23 @@ if cargo_bin="$(cargo_cmd)"; then
   # Build aoc-cli
   install_rust_binary "$cargo_bin" aoc-cli
 
-  # Build standalone Mind service for cross-project Pi extension use.
-  install_rust_package_binary "$cargo_bin" aoc-mind aoc-mind-service
-  write_global_mind_service_config
-
-  log "Installing AOC/Mind runtime binaries..."
-  install_rust_binary "$cargo_bin" aoc-hub-rs
-  install_rust_binary "$cargo_bin" aoc-agent-wrap-rs
-  AOC_MIND_RUNTIME_INSTALLED=1
-
-  # Build aoc-taskmaster (native TUI)
-  log "Building aoc-taskmaster..."
-  if "$cargo_bin" build --release -p aoc-taskmaster --manifest-path "$ROOT_DIR/crates/Cargo.toml"; then
-    if [[ -f "$ROOT_DIR/crates/target/release/aoc-taskmaster" ]]; then
-      install -m 0755 "$ROOT_DIR/crates/target/release/aoc-taskmaster" "$BIN_DIR/aoc-taskmaster-native"
-    fi
+  if is_truthy "${AOC_INSTALL_MIND_RUNTIME:-0}"; then
+    log "Installing optional AOC/Mind runtime binaries..."
+    install_rust_package_binary "$cargo_bin" aoc-mind aoc-mind-service
+    write_global_mind_service_config
+    install_rust_binary "$cargo_bin" aoc-hub-rs
+    install_rust_binary "$cargo_bin" aoc-agent-wrap-rs
+    AOC_MIND_RUNTIME_INSTALLED=1
   else
-    log "WARNING: Failed to build aoc-taskmaster."
+    log "Skipping optional AOC/Mind runtime binaries (pass --mind to enable)."
   fi
-
-  # Build aoc-control (native TUI)
-  log "Building aoc-control..."
-  if "$cargo_bin" build --release -p aoc-control --manifest-path "$ROOT_DIR/crates/Cargo.toml"; then
-    if [[ -f "$ROOT_DIR/crates/target/release/aoc-control" ]]; then
-      install -m 0755 "$ROOT_DIR/crates/target/release/aoc-control" "$BIN_DIR/aoc-control-native"
-    fi
-  else
-    log "WARNING: Failed to build aoc-control."
+  # Build native helper binaries. Legacy control surfaces stay opt-in.
+  install_rust_package_binary "$cargo_bin" aoc-taskmaster aoc-taskmaster aoc-taskmaster-native || true
+  if is_truthy "${AOC_INSTALL_LEGACY_ZELLIJ:-0}" || is_truthy "${AOC_INSTALL_LEGACY_CONTROL:-0}"; then
+    install_rust_package_binary "$cargo_bin" aoc-control aoc-control aoc-control-native || true
+    install_rust_package_binary "$cargo_bin" aoc-mission-control aoc-mission-control aoc-mission-control-native || true
   fi
-
-  # Build aoc-mission-control (native TUI)
-  log "Building aoc-mission-control..."
-  if "$cargo_bin" build --release -p aoc-mission-control --manifest-path "$ROOT_DIR/crates/Cargo.toml"; then
-    if [[ -f "$ROOT_DIR/crates/target/release/aoc-mission-control" ]]; then
-      install -m 0755 "$ROOT_DIR/crates/target/release/aoc-mission-control" "$BIN_DIR/aoc-mission-control-native"
-    fi
-  else
-    log "WARNING: Failed to build aoc-mission-control."
-  fi
-
-  # Build aoc-yazi-mermaid (Yazi Mermaid preview helper)
-  log "Building aoc-yazi-mermaid..."
-  if "$cargo_bin" build --release -p aoc-yazi-mermaid --manifest-path "$ROOT_DIR/crates/Cargo.toml"; then
-    if [[ -f "$ROOT_DIR/crates/target/release/aoc-yazi-mermaid" ]]; then
-      install -m 0755 "$ROOT_DIR/crates/target/release/aoc-yazi-mermaid" "$BIN_DIR/aoc-yazi-mermaid-native"
-    fi
-  else
-    log "WARNING: Failed to build aoc-yazi-mermaid."
-  fi
+  install_rust_package_binary "$cargo_bin" aoc-yazi-mermaid aoc-yazi-mermaid aoc-yazi-mermaid-native || true
 else
   log "WARNING: cargo not found. Skipping Rust builds. You must install aoc-cli manually."
 fi
@@ -920,8 +911,10 @@ if ! have curl && ! have wget; then
   fi
 fi
 
-if ! ensure_tool zellij "zellij"; then
-  missing_required+=("zellij")
+if is_truthy "${AOC_INSTALL_LEGACY_ZELLIJ:-0}"; then
+  if ! ensure_tool zellij "zellij"; then
+    missing_required+=("zellij")
+  fi
 fi
 if ! ensure_tool yazi "yazi"; then
   missing_required+=("yazi")
@@ -993,56 +986,64 @@ fi
 # 4. Generate & Install Configs
 log "Generating configurations..."
 
-# Managed AOC Zellij plugin asset cache
-if [[ -f "$ROOT_DIR/zellij/plugins/zjstatus-aoc.wasm" ]]; then
-  install -m 0644 "$ROOT_DIR/zellij/plugins/zjstatus-aoc.wasm" "$AOC_CONFIG_DIR/zellij/plugins/zjstatus-aoc.wasm"
-fi
-if [[ -d "$ROOT_DIR/vendor/zjstatus-aoc" ]]; then
-  rm -rf "$AOC_CONFIG_DIR/zellij/plugins/zjstatus-aoc-src"
-  mkdir -p "$AOC_CONFIG_DIR/zellij/plugins"
-  cp -R "$ROOT_DIR/vendor/zjstatus-aoc" "$AOC_CONFIG_DIR/zellij/plugins/zjstatus-aoc-src"
-fi
-if [[ -x "$BIN_DIR/aoc-zellij-plugin" ]]; then
-  AOC_ZELLIJ_PLUGIN_QUIET=1 "$BIN_DIR/aoc-zellij-plugin" install || warn "Failed to install managed AOC Zellij plugin."
-elif have aoc-zellij-plugin; then
-  AOC_ZELLIJ_PLUGIN_QUIET=1 aoc-zellij-plugin install || warn "Failed to install managed AOC Zellij plugin."
+if is_truthy "${AOC_INSTALL_LEGACY_ZELLIJ:-0}"; then
+  # Managed AOC Zellij plugin asset cache
+  if [[ -f "$ROOT_DIR/zellij/plugins/zjstatus-aoc.wasm" ]]; then
+    install -m 0644 "$ROOT_DIR/zellij/plugins/zjstatus-aoc.wasm" "$AOC_CONFIG_DIR/zellij/plugins/zjstatus-aoc.wasm"
+  fi
+  if [[ -d "$ROOT_DIR/vendor/zjstatus-aoc" ]]; then
+    rm -rf "$AOC_CONFIG_DIR/zellij/plugins/zjstatus-aoc-src"
+    mkdir -p "$AOC_CONFIG_DIR/zellij/plugins"
+    cp -R "$ROOT_DIR/vendor/zjstatus-aoc" "$AOC_CONFIG_DIR/zellij/plugins/zjstatus-aoc-src"
+  fi
+  if [[ -x "$BIN_DIR/aoc-zellij-plugin" ]]; then
+    AOC_ZELLIJ_PLUGIN_QUIET=1 "$BIN_DIR/aoc-zellij-plugin" install || warn "Failed to install managed AOC Zellij plugin."
+  elif have aoc-zellij-plugin; then
+    AOC_ZELLIJ_PLUGIN_QUIET=1 aoc-zellij-plugin install || warn "Failed to install managed AOC Zellij plugin."
+  else
+    warn "aoc-zellij-plugin not found during install; managed top-bar plugin may be missing."
+  fi
+
+  # Zellij Layout
+  PROJECTS_BASE="$HOME/dev"
+  [[ ! -d "$PROJECTS_BASE" ]] && PROJECTS_BASE="$HOME"
+
+  sed \
+    -e "s|{{HOME}}|$HOME|g" \
+    -e "s|{{PROJECTS_BASE}}|$PROJECTS_BASE|g" \
+    "$ROOT_DIR/zellij/layouts/aoc.kdl.template" > "$HOME/.config/zellij/layouts/aoc.kdl"
+
+  legacy_managed_layouts=(
+    "$HOME/.config/zellij/layouts/unstat.kdl"
+    "$HOME/.config/zellij/layouts/minimal.kdl"
+    "$HOME/.config/zellij/layouts/aoc-zjstatus-single.kdl"
+    "$HOME/.config/zellij/layouts/aoc-zjstatus-test.kdl"
+    "$HOME/.config/zellij/layouts/aoc.hybrid.kdl"
+  )
+  for legacy_layout in "${legacy_managed_layouts[@]}"; do
+    rm -f "$legacy_layout"
+  done
+
+  current_default_layout="$(cat "$DEFAULT_LAYOUT_FILE" 2>/dev/null || true)"
+  case "$current_default_layout" in
+    ""|unstat|minimal|aoc-zjstatus-single|aoc-zjstatus-test|aoc.hybrid)
+      printf 'aoc\n' > "$DEFAULT_LAYOUT_FILE"
+      ;;
+  esac
+
+  log "Generated managed layout in $HOME/.config/zellij/layouts/aoc.kdl"
+
+  sed \
+    -e "s|{{HOME}}|$HOME|g" \
+    "$ROOT_DIR/zellij/aoc.config.kdl.template" > "$HOME/.config/zellij/aoc.config.kdl"
 else
-  warn "aoc-zellij-plugin not found during install; managed top-bar plugin may be missing."
+  log "Skipping legacy Zellij cockpit assets (pass --legacy-zellij to install)."
+  if [[ -x "$BIN_DIR/aoc-herdr-install" ]]; then
+    "$BIN_DIR/aoc-herdr-install"
+  elif [[ -x "$ROOT_DIR/bin/aoc-herdr-install" ]]; then
+    "$ROOT_DIR/bin/aoc-herdr-install"
+  fi
 fi
-
-# Zellij Layout
-# Replace placeholders in template
-PROJECTS_BASE="$HOME/dev"
-[[ ! -d "$PROJECTS_BASE" ]] && PROJECTS_BASE="$HOME"
-
-sed \
-  -e "s|{{HOME}}|$HOME|g" \
-  -e "s|{{PROJECTS_BASE}}|$PROJECTS_BASE|g" \
-  "$ROOT_DIR/zellij/layouts/aoc.kdl.template" > "$HOME/.config/zellij/layouts/aoc.kdl"
-
-legacy_managed_layouts=(
-  "$HOME/.config/zellij/layouts/unstat.kdl"
-  "$HOME/.config/zellij/layouts/minimal.kdl"
-  "$HOME/.config/zellij/layouts/aoc-zjstatus-single.kdl"
-  "$HOME/.config/zellij/layouts/aoc-zjstatus-test.kdl"
-  "$HOME/.config/zellij/layouts/aoc.hybrid.kdl"
-)
-for legacy_layout in "${legacy_managed_layouts[@]}"; do
-  rm -f "$legacy_layout"
-done
-
-current_default_layout="$(cat "$DEFAULT_LAYOUT_FILE" 2>/dev/null || true)"
-case "$current_default_layout" in
-  ""|unstat|minimal|aoc-zjstatus-single|aoc-zjstatus-test|aoc.hybrid)
-    printf 'aoc\n' > "$DEFAULT_LAYOUT_FILE"
-    ;;
-esac
-
-log "Generated managed layout in $HOME/.config/zellij/layouts/aoc.kdl"
-
-sed \
-  -e "s|{{HOME}}|$HOME|g" \
-  "$ROOT_DIR/zellij/aoc.config.kdl.template" > "$HOME/.config/zellij/aoc.config.kdl"
 
 # Copy other configs
 install -m 0644 "$ROOT_DIR/yazi/yazi.toml" "$HOME/.config/yazi/yazi.toml"
@@ -1237,11 +1238,11 @@ if (( INSTALL_MIND_EXPLICIT == 1 )); then
 fi
 
 if ! install_pi_agent_if_enabled; then
-  if is_truthy "${AOC_INSTALL_PI_REQUIRED:-1}"; then
+  if is_truthy "${AOC_INSTALL_PI_REQUIRED:-0}"; then
     warn "PI agent installation failed and is required (set AOC_INSTALL_PI_REQUIRED=0 to continue anyway)."
     exit 1
   fi
-  warn "PI agent installation failed; continuing because AOC_INSTALL_PI_REQUIRED=0."
+  warn "PI agent installation failed; continuing because PI agent installation is optional by default."
 fi
 
 log "Install finished. Initialize each repo explicitly with: aoc-init /path/to/repo"
@@ -1251,6 +1252,6 @@ if (( AOC_MIND_RUNTIME_INSTALLED == 1 )); then
   log "AOC/Mind runtime refreshed: aoc-mind-service, aoc-hub-rs, and aoc-agent-wrap-rs should now be current in $BIN_DIR."
 fi
 if (( INSTALL_MIND_EXPLICIT == 1 )); then
-  log "PI agent force-refresh requested (--mind). Start a fresh AOC/Zellij session to pick up refreshed runtime components."
+  log "PI agent force-refresh requested (--mind). Start a fresh Herdr/OMP session to pick up refreshed runtime components."
 fi
 log "Run 'aoc-init /path/to/repo' next, then 'aoc' inside that repo."

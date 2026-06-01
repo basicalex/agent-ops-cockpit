@@ -1,0 +1,7 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Render the compact AOC startup capsule consumed by OMP sessions.
+# This intentionally delegates to aoc-handshake so JSON and prompt modes share
+# one metadata-only contract.
+exec aoc-handshake --prompt "$@"

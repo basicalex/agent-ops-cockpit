@@ -1,0 +1,29 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+usage() {
+  cat <<'EOF'
+Usage: aoc-omp [OMP_ARGS...]
+
+Launch OMP with the compact AOC startup capsule appended to the system prompt.
+The capsule is metadata-only: it reports project/task/tool policy without broad
+Mind memory or raw task-state injection.
+EOF
+}
+
+if [[ "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
+  usage
+  exit 0
+fi
+
+if ! command -v omp >/dev/null 2>&1; then
+  echo "aoc-omp: omp is not installed or not on PATH" >&2
+  exit 1
+fi
+
+runtime_dir="${XDG_RUNTIME_DIR:-/tmp}"
+mkdir -p "$runtime_dir"
+capsule="$(mktemp "$runtime_dir/aoc-omp-context.XXXXXX.md")"
+aoc-omp-context > "$capsule"
+
+exec omp --append-system-prompt "$capsule" "$@"

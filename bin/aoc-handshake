@@ -225,16 +225,75 @@ def print_text(packet: dict[str, Any]) -> None:
         print(f"  warning: {warning}")
 
 
+
+def print_prompt(packet: dict[str, Any]) -> None:
+    aoc = packet.get("aoc", {})
+    taskmaster = packet.get("taskmaster", {})
+    mind = packet.get("mind", {})
+    warnings = packet.get("warnings", [])
+    print("# AOC Startup Context")
+    print()
+    print("This is a compact, metadata-only startup capsule. It orients the agent without loading broad memory or raw task state.")
+    print()
+    print("## Project")
+    print(f"- Root: `{packet.get('projectRoot')}`")
+    print(f"- AOC initialized: {'yes' if aoc.get('initialized') else 'no'}")
+    print(f"- Project context: `{aoc.get('contextPath', '.aoc/context.md')}` ({'present' if aoc.get('contextPresent') else 'missing'})")
+    print(f"- Agent contract: {'present' if aoc.get('agentsContractPresent') else 'missing'}")
+    print()
+    print("## Taskmaster")
+    print(f"- Available: {'yes' if taskmaster.get('available') else 'no'}")
+    active_tag = taskmaster.get("activeTag")
+    if active_tag:
+        print(f"- Active tag: `{active_tag}`")
+    print("- Use `tm tag current`, `tm list`, `tm show <id>`, and `aoc-task ...` commands for task/spec grounding.")
+    print("- Do not read `.taskmaster/tasks/tasks.json` directly.")
+    print()
+    print("## Mind / recall policy")
+    print(f"- Available: {'yes' if mind.get('available') else 'no'}")
+    print("- Startup injection: metadata-only.")
+    print("- Do not load broad Mind memories at startup.")
+    print("- Request focused Mind context only after user intent is known, with an explicit reason.")
+    print("- Good triggers: resume/continue, previous decisions, task/spec grounding, debugging prior attempts, provenance/audit, or targeted local inspection proving insufficient.")
+    focused = mind.get("focusedCommands") if isinstance(mind.get("focusedCommands"), dict) else {}
+    if focused:
+        print("- Focused commands:")
+        for name in ["status", "sync", "contextPack", "resume", "provenance"]:
+            command = focused.get(name)
+            if command:
+                print(f"  - {name}: `{command}`")
+    print()
+    print("## CodeGraph")
+    print("- If `.codegraph/` exists and the OMP `aoc_codegraph` tool is available, use it before broad text scans for code discovery, architecture tracing, impact analysis, and affected-test selection.")
+    print("- Treat CodeGraph as read-only inside the agent. Initialization, indexing, and sync are explicit operator actions.")
+    print()
+    print("## Slash commands")
+    print("- `/commit [scope]` is the AOC/OMP safe atomic commit workflow. Treat it as approval to inspect changes, run targeted validation, stage explicit intended paths, commit, and report the SHA. Never push without explicit approval.")
+    print()
+    print("## RTK")
+    print(f"- Status command available: {'yes' if aoc.get('rtkStatusAvailable') else 'no'}")
+    print("- RTK is for allowlisted noisy commands only; native fallback and raw output preservation remain required.")
+    print()
+    print("## Protected direct reads")
+    print("- Do not directly read `.aoc/memory.md`, `.aoc/stm/current.md`, or `.taskmaster/tasks/tasks.json`; use the AOC CLIs.")
+    if warnings:
+        print()
+        print("## Warnings")
+        for warning in warnings:
+            print(f"- {warning}")
 def main() -> int:
     parser = argparse.ArgumentParser(description="Print metadata-only AOC startup handshake for agents")
     parser.add_argument("path", nargs="?", default=os.getcwd())
     parser.add_argument("--json", action="store_true", help="print JSON packet")
+    parser.add_argument("--prompt", action="store_true", help="print compact markdown suitable for OMP --append-system-prompt")
     parser.add_argument("--sync", action="store_true", help="attempt Mind sync-pi but still do not inject memories")
     args = parser.parse_args()
     project_root = find_project_root(Path(args.path))
     packet = build_packet(project_root, args.sync or truthy(os.environ.get("AOC_HANDSHAKE_SYNC")))
     if args.json:
         print(json.dumps(packet, indent=2))
+    elif args.prompt:
+        print_prompt(packet)
     else:
         print_text(packet)
     return 0

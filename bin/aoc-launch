@@ -1,11 +1,18 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-source "$(dirname "$0")/aoc-utils.sh"
+script_dir="$(cd "$(dirname "$0")" && pwd)"
+source "$script_dir/aoc-utils.sh"
 
 if [[ "${AOC_SMOKE_TEST:-0}" == "1" ]]; then
   exit 0
 fi
+if [[ "${AOC_LEGACY_ZELLIJ:-0}" != "1" && "${AOC_ENABLE_ZELLIJ_COCKPIT:-0}" != "1" ]]; then
+  echo "aoc-launch is the retired legacy Zellij cockpit launcher." >&2
+  echo "Use 'aoc' for Herdr, 'aoc omp' for OMP, or set AOC_LEGACY_ZELLIJ=1 to run the legacy cockpit." >&2
+  exit 2
+fi
+
 
 layout=""
 local_layout="$HOME/.config/zellij/layouts/aoc.local.kdl"
@@ -445,6 +452,13 @@ fi
 hub_addr="$(resolve_hub_addr "$session_id")"
 hub_url="$(resolve_hub_url "$hub_addr")"
 background_task ensure_hub_running "$session_id" "$hub_addr" "$state_dir"
+if [[ "${AOC_TOPBAR_CONTROLLER_ENABLE:-0}" == "1" ]]; then
+  if command -v aoc-topbar-controller >/dev/null 2>&1; then
+    background_task aoc-topbar-controller start "$session_id"
+  elif [[ -x "$script_dir/aoc-topbar-controller" ]]; then
+    background_task "$script_dir/aoc-topbar-controller" start "$session_id"
+  fi
+fi
 background_task sync_aoc_theme_profile
 
 # Default to a short plain tab label. Operators can opt into grouping later by
