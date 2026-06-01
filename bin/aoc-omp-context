@@ -2,6 +2,23 @@
 set -euo pipefail
 
 # Render the compact AOC startup capsule consumed by OMP sessions.
-# This intentionally delegates to aoc-handshake so JSON and prompt modes share
-# one metadata-only contract.
-exec aoc-handshake --prompt "$@"
+# AOC_OMP_CONTEXT_LEVEL controls prompt size:
+#   min     handshake essentials only
+#   compact concise default policy/capability capsule
+#   full    verbose/debug capsule
+script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+handshake="$script_dir/aoc-handshake"
+if [[ ! -x "$handshake" ]]; then
+  handshake="aoc-handshake"
+fi
+
+level="${AOC_OMP_CONTEXT_LEVEL:-compact}"
+case "$level" in
+  min|compact|full) ;;
+  *)
+    echo "aoc-omp-context: invalid AOC_OMP_CONTEXT_LEVEL '$level' (expected min, compact, or full)" >&2
+    exit 2
+    ;;
+esac
+
+exec "$handshake" --prompt --prompt-level "$level" "$@"

@@ -226,14 +226,53 @@ def print_text(packet: dict[str, Any]) -> None:
 
 
 
-def print_prompt(packet: dict[str, Any]) -> None:
+def print_prompt_min(packet: dict[str, Any]) -> None:
+    aoc = packet.get("aoc", {})
+    taskmaster = packet.get("taskmaster", {})
+    mind = packet.get("mind", {})
+    warnings = packet.get("warnings", [])
+    parts = [
+        "# AOC Startup Context",
+        f"root={packet.get('projectRoot')}",
+        f"aoc={'yes' if aoc.get('initialized') else 'no'}",
+        f"context={'present' if aoc.get('contextPresent') else 'missing'}",
+        f"taskmaster={'yes' if taskmaster.get('available') else 'no'}",
+        f"active_tag={taskmaster.get('activeTag') or 'none'}",
+        f"mind={'yes' if mind.get('available') else 'no'}",
+        "policy=metadata-only; no broad Mind/task/raw AGENTS injection; load focused context only after user intent",
+    ]
+    if warnings:
+        parts.append("warnings=" + "; ".join(str(w) for w in warnings))
+    print("\n".join(parts))
+
+
+def print_prompt_compact(packet: dict[str, Any]) -> None:
     aoc = packet.get("aoc", {})
     taskmaster = packet.get("taskmaster", {})
     mind = packet.get("mind", {})
     warnings = packet.get("warnings", [])
     print("# AOC Startup Context")
     print()
-    print("This is a compact, metadata-only startup capsule. It orients the agent without loading broad memory or raw task state.")
+    print("- Mode: metadata-only startup capsule; do not inject broad Mind memories, raw task state, raw AGENTS chains, skills, prompts, extension source, or docs by default.")
+    print(f"- Root: `{packet.get('projectRoot')}`")
+    print(f"- AOC: {'initialized' if aoc.get('initialized') else 'not initialized'}; context `{aoc.get('contextPath', '.aoc/context.md')}` is {'present' if aoc.get('contextPresent') else 'missing'}; agent contract is {'present' if aoc.get('agentsContractPresent') else 'missing'}.")
+    active_tag = taskmaster.get("activeTag") or "none"
+    print(f"- Taskmaster: {'available' if taskmaster.get('available') else 'unavailable'}; active tag `{active_tag}`. Use CLI commands for task/spec details; do not read task JSON directly.")
+    print(f"- Mind: {'available' if mind.get('available') else 'unavailable'}. Retrieve focused context only after user intent is known and the reason is explicit.")
+    print(f"- RTK status command: {'available' if aoc.get('rtkStatusAvailable') else 'unavailable'}; CodeGraph/RTK/details are lazy capability lookups, not startup prose.")
+    print("- Protected direct reads: `.aoc/memory.md`, `.aoc/stm/current.md`, `.taskmaster/tasks/tasks.json`.")
+    if warnings:
+        print("- Warnings: " + "; ".join(str(w) for w in warnings))
+
+
+def print_prompt_full(packet: dict[str, Any]) -> None:
+    aoc = packet.get("aoc", {})
+    taskmaster = packet.get("taskmaster", {})
+    mind = packet.get("mind", {})
+    warnings = packet.get("warnings", [])
+    print("# AOC Startup Context")
+    print()
+    print("This is a metadata-only startup capsule. It orients the agent without loading broad memory or raw task state.")
     print()
     print("## Project")
     print(f"- Root: `{packet.get('projectRoot')}`")
@@ -281,11 +320,22 @@ def print_prompt(packet: dict[str, Any]) -> None:
         print("## Warnings")
         for warning in warnings:
             print(f"- {warning}")
+
+
+def print_prompt(packet: dict[str, Any], level: str = "compact") -> None:
+    if level == "min":
+        print_prompt_min(packet)
+    elif level == "full":
+        print_prompt_full(packet)
+    else:
+        print_prompt_compact(packet)
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Print metadata-only AOC startup handshake for agents")
     parser.add_argument("path", nargs="?", default=os.getcwd())
     parser.add_argument("--json", action="store_true", help="print JSON packet")
-    parser.add_argument("--prompt", action="store_true", help="print compact markdown suitable for OMP --append-system-prompt")
+    parser.add_argument("--prompt", action="store_true", help="print markdown suitable for OMP --append-system-prompt")
+    parser.add_argument("--prompt-level", choices=["min", "compact", "full"], default=os.environ.get("AOC_OMP_CONTEXT_LEVEL", "compact"), help="prompt verbosity for --prompt")
     parser.add_argument("--sync", action="store_true", help="attempt Mind sync-pi but still do not inject memories")
     args = parser.parse_args()
     project_root = find_project_root(Path(args.path))
@@ -293,7 +343,7 @@ def main() -> int:
     if args.json:
         print(json.dumps(packet, indent=2))
     elif args.prompt:
-        print_prompt(packet)
+        print_prompt(packet, args.prompt_level)
     else:
         print_text(packet)
     return 0

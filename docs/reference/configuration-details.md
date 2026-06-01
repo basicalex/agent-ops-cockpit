@@ -360,6 +360,7 @@ bin/aoc-web-smoke
 | `AOC_PI_APPEND_SYSTEM_PROMPT` | Extra `--append-system-prompt` text/path passed to PI | None |
 | `AOC_PI_HANDSHAKE_MODE` | PI handshake verbosity (`compact`, `full`, `off`) | `compact` |
 | `AOC_HANDSHAKE_MODE` | Global handshake verbosity override (`compact`, `full`, `off`) | Agent default |
+| `AOC_OMP_CONTEXT_LEVEL` | OMP startup capsule size (`min`, `compact`, `full`) | `compact` |
 | `AOC_PI_USE_WRAP_RS` | PI launch mode (`auto`, `1`, `0`) | `auto` |
 | `AOC_PI_USE_PTY` | Preferred PTY mode for PI children | managed pane=`1`, manual=`0` |
 | `AOC_AGENT_PTY` | Explicit PTY override for the wrapped child | Auto |
