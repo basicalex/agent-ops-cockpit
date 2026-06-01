@@ -55,16 +55,22 @@ aoc_fullscreen() {
   fi
 }
 
-if [[ -n "${ZELLIJ:-}" ]]; then
-  exec aoc-new-tab "$@"
-fi
-
-if [[ -n "${ZELLIJ_SESSION_NAME:-}" ]]; then
-  zellij_bin="$(aoc_zellij_bin)"
-  if "$zellij_bin" action list-clients >/dev/null 2>&1; then
+if [[ "${AOC_LEGACY_ZELLIJ:-0}" == "1" ]]; then
+  if [[ -n "${ZELLIJ:-}" ]]; then
     exec aoc-new-tab "$@"
   fi
+
+  if [[ -n "${ZELLIJ_SESSION_NAME:-}" ]]; then
+    zellij_bin="$(aoc_zellij_bin)"
+    if "$zellij_bin" action list-clients >/dev/null 2>&1; then
+      exec aoc-new-tab "$@"
+    fi
+  fi
+
+  aoc_fullscreen
+  exec env -u AOC_SESSION_ID -u AOC_HUB_ADDR -u AOC_HUB_URL -u AOC_PULSE_CMD -u ZELLIJ_SESSION_NAME aoc-launch
 fi
 
-aoc_fullscreen
-exec env -u AOC_SESSION_ID -u AOC_HUB_ADDR -u AOC_HUB_URL -u AOC_PULSE_CMD -u ZELLIJ_SESSION_NAME aoc-launch
+# Herdr-first launcher. The old Zellij cockpit remains available with:
+#   AOC_LEGACY_ZELLIJ=1 aoc
+exec aoc-herdr-launch "$@"

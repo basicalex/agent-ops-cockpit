@@ -1,0 +1,77 @@
+onboarding = false
+
+# AOC-derived Alt-key UX for Herdr.
+# Keep Herdr as the multiplexer/control surface; these only port the muscle memory.
+[keys]
+# Full direct Alt UX. Alt+W opens Herdr's workspace picker.
+prefix = "ctrl+b"
+help = "alt+?"
+settings = "alt+c"
+detach = "prefix+q"
+reload_config = "prefix+shift+r"
+open_notification_target = "prefix+o"
+
+# Workspaces/navigation.
+goto = "alt+x"
+workspace_picker = "alt+w"
+new_workspace = "alt+shift+n"
+new_worktree = "prefix+shift+g"
+rename_workspace = "prefix+shift+w"
+close_workspace = "prefix+shift+d"
+navigate_workspace_up = "k"
+navigate_workspace_down = "j"
+
+# AOC-style tab flow.
+new_tab = "alt+n"
+rename_tab = "prefix+shift+t"
+previous_tab = "alt+i"
+next_tab = "alt+o"
+switch_tab = "alt+1..9"
+close_tab = "alt+shift+x"
+
+# Direct pane navigation.
+focus_pane_left = "alt+h"
+focus_pane_down = "alt+j"
+focus_pane_up = "alt+k"
+focus_pane_right = "alt+l"
+navigate_pane_left = ""
+navigate_pane_down = ""
+navigate_pane_up = ""
+navigate_pane_right = ""
+cycle_pane_next = "alt+p"
+cycle_pane_previous = "prefix+shift+tab"
+last_pane = "alt+tab"
+rename_pane = "prefix+shift+p"
+close_pane = "alt+q"
+
+# Pane/layout actions.
+split_vertical = "alt+v"
+split_horizontal = "alt+minus"
+zoom = "alt+z"
+resize_mode = "alt+r"
+toggle_sidebar = "alt+b"
+edit_scrollback = "prefix+e"
+
+
+[ui]
+show_agent_labels_on_pane_borders = false
+# Make workspace/picker selection obvious; terminal theme defaults can be too dim.
+accent = "#89b4fa"
+
+agent_panel_scope = "all"
+[ui.toast]
+delivery = "system"
+
+[experimental]
+pane_history = false
+
+[ui.sound]
+enabled = true
+
+[theme]
+name = "catppuccin"
+
+[theme.custom]
+accent = "#89b4fa"
+green = "#a6e3a1"
+red = "#f38ba8"

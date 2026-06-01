@@ -1,0 +1,80 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+config_src="$repo_root/herdr/config.toml"
+config_dir="${XDG_CONFIG_HOME:-$HOME/.config}/herdr"
+config_dst="$config_dir/config.toml"
+
+usage() {
+  cat <<'EOF'
+Usage: aoc-herdr-install [--force]
+
+Install the lean Herdr-first AOC workspace config.
+
+This installs only the Herdr config baseline. It does not install Zellij layouts,
+the AOC top bar, AOC Mind, or AOC subagent/Mission Control assets.
+EOF
+}
+
+force=0
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --force) force=1 ;;
+    -h|--help) usage; exit 0 ;;
+    *) echo "Unknown option: $1" >&2; usage; exit 2 ;;
+  esac
+  shift
+done
+
+if ! command -v herdr >/dev/null 2>&1; then
+  cat >&2 <<'EOF'
+aoc-herdr-install: herdr is not installed or not on PATH.
+Install Herdr first, then rerun this command.
+EOF
+  exit 1
+fi
+
+if [[ ! -f "$config_src" ]]; then
+  echo "aoc-herdr-install: missing $config_src" >&2
+  exit 1
+fi
+
+mkdir -p "$config_dir"
+if [[ -f "$config_dst" && "$force" != "1" ]]; then
+  backup="$config_dst.bak.$(date +%Y%m%d%H%M%S)"
+  cp "$config_dst" "$backup"
+  echo "Backed up existing Herdr config to $backup"
+fi
+
+cp "$config_src" "$config_dst"
+echo "Installed Herdr config to $config_dst"
+
+if herdr status server >/dev/null 2>&1; then
+  herdr server reload-config >/dev/null || true
+  echo "Reloaded running Herdr server"
+fi
+
+if command -v omp >/dev/null 2>&1; then
+  if herdr integration install omp >/dev/null 2>&1; then
+    echo "Installed/updated Herdr OMP integration"
+  else
+    echo "Warning: Herdr OMP integration install failed; continuing" >&2
+  fi
+else
+  echo "Warning: omp is not on PATH; skipping Herdr OMP integration" >&2
+fi
+
+cat <<'EOF'
+
+Herdr-first AOC baseline installed.
+Key UX:
+  Alt+W        workspace picker
+  j/k          move in workspace picker
+  Alt+Shift+N  new workspace
+  Alt+N        new tab
+  Alt+Q        close pane
+  Alt+H/J/K/L  focus panes
+  Alt+I/O      previous/next tab
+  Alt+?        keybindings
+EOF

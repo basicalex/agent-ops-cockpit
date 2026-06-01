@@ -1,0 +1,69 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+usage() {
+  cat <<'EOF'
+Usage: aoc-herdr-launch [--cwd PATH] [--label NAME] [--session NAME]
+
+Launch/focus the Herdr-first AOC workspace.
+EOF
+}
+
+cwd="$PWD"
+label=""
+session="${AOC_HERDR_SESSION:-aoc}"
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --cwd) shift; cwd="${1:-}" ;;
+    --label) shift; label="${1:-}" ;;
+    --session) shift; session="${1:-}" ;;
+    -h|--help) usage; exit 0 ;;
+    *) echo "Unknown option: $1" >&2; usage; exit 2 ;;
+  esac
+  shift || true
+done
+
+if ! command -v herdr >/dev/null 2>&1; then
+  echo "aoc: herdr is not installed or not on PATH" >&2
+  echo "Run: aoc-herdr-install" >&2
+  exit 1
+fi
+
+if [[ -z "$cwd" || ! -d "$cwd" ]]; then
+  echo "aoc: invalid cwd: $cwd" >&2
+  exit 2
+fi
+
+cwd="$(cd "$cwd" && pwd -P)"
+if [[ -z "$label" ]]; then
+  label="$(basename "$cwd")"
+  [[ -n "$label" && "$label" != "/" ]] || label="workspace"
+fi
+
+focus_existing_workspace() {
+  command -v jq >/dev/null 2>&1 || return 1
+  local target="$1"
+  local workspace_id=""
+  workspace_id="$(herdr pane list 2>/dev/null | jq -r --arg cwd "$target" '
+    .result.panes
+    | map(select(.cwd == $cwd or .foreground_cwd == $cwd))
+    | sort_by(.focused | not)
+    | .[0].workspace_id // empty
+  ' 2>/dev/null || true)"
+  [[ -n "$workspace_id" ]] || return 1
+  herdr workspace focus "$workspace_id" >/dev/null 2>&1
+}
+
+# If a Herdr server is already running, focus an existing project workspace when
+# possible; otherwise create one. This keeps `cd project && aoc` idempotent.
+# If no server is running, launching Herdr from the desired cwd creates the
+# initial workspace there.
+if herdr status server >/dev/null 2>&1; then
+  if ! focus_existing_workspace "$cwd"; then
+    herdr workspace create --cwd "$cwd" --label "$label" --focus >/dev/null 2>&1 || true
+  fi
+fi
+
+cd "$cwd"
+exec herdr --session "$session"
