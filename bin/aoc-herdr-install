@@ -5,11 +5,35 @@ repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 config_src="$repo_root/herdr/config.toml"
 config_dir="${XDG_CONFIG_HOME:-$HOME/.config}/herdr"
 config_dst="$config_dir/config.toml"
+hypr_bindings="${XDG_CONFIG_HOME:-$HOME/.config}/hypr/bindings.lua"
 omp_extension_dir="${PI_CODING_AGENT_DIR:-$HOME/.omp/agent}/extensions"
 omp_extensions=(
   aoc-codegraph.ts
   aoc-commit.ts
 )
+
+install_hypr_empty_workspace_fallback() {
+  [[ -f "$hypr_bindings" ]] || return 0
+
+  local needle='Herdr new workspace'
+  if [[ "$( <"$hypr_bindings" )" == *"$needle"* ]]; then
+    return 0
+  fi
+
+  cat >>"$hypr_bindings" <<'EOF'
+
+-- Herdr empty-state fallback: when the AOC Herdr session has no workspace,
+-- Herdr does not receive its in-app Alt+Shift+N binding until the empty screen
+-- is clicked. Catch the same chord at Hyprland level so the first workspace
+-- opens with the same AOC shortcut.
+o.bind("ALT + SHIFT + N", "Herdr new workspace", "herdr --session aoc workspace create --cwd \"$HOME\" --focus")
+EOF
+  echo "Installed Herdr empty-workspace Hyprland fallback to $hypr_bindings"
+
+  if command -v hyprctl >/dev/null 2>&1; then
+    hyprctl reload >/dev/null 2>&1 || true
+  fi
+}
 
 
 usage() {
@@ -56,6 +80,7 @@ fi
 
 cp "$config_src" "$config_dst"
 echo "Installed Herdr config to $config_dst"
+install_hypr_empty_workspace_fallback
 
 if herdr status server >/dev/null 2>&1; then
   herdr server reload-config >/dev/null || true
@@ -97,7 +122,8 @@ Herdr-first AOC baseline installed.
 Key UX:
   Alt+W        workspace picker
   j/k          move in workspace picker
-  Alt+Shift+N  new workspace
+  Alt+Shift+N  new workspace (also works from Herdr's empty state on Hyprland)
+  Alt+Shift+Q  close workspace
   Alt+N        new tab
   Alt+Q        close pane
   Alt+H/J/K/L  focus panes

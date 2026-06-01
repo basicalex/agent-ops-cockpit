@@ -1,9 +1,8 @@
 onboarding = false
 
 # AOC-derived Alt-key UX for Herdr.
-# Keep Herdr as the multiplexer/control surface; these only port the muscle memory.
+# Keep Herdr as the multiplexer/control surface; these port the AOC muscle memory.
 [keys]
-# Full direct Alt UX. Alt+W opens Herdr's workspace picker.
 prefix = "ctrl+b"
 help = "alt+?"
 settings = "alt+c"
@@ -17,7 +16,7 @@ workspace_picker = "alt+w"
 new_workspace = "alt+shift+n"
 new_worktree = "prefix+shift+g"
 rename_workspace = "prefix+shift+w"
-close_workspace = "prefix+shift+d"
+close_workspace = "alt+shift+q"
 navigate_workspace_up = "k"
 navigate_workspace_down = "j"
 
