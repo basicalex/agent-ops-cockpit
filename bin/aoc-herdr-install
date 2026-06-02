@@ -135,9 +135,11 @@ Key UX:
   j/k          move in workspace picker
   Alt+Shift+N  new workspace (also works from Herdr's empty state on Hyprland)
   Alt+Shift+Q  close workspace
+  Alt+Shift+J/K  next/previous workspace
   Alt+N        new tab
   Alt+Q        close pane
   Alt+H/J/K/L  focus panes
+  Alt+U/P      reserved for tab move left/right when Herdr supports it
   Alt+I/O      previous/next tab
   Alt+?        keybindings
 EOF

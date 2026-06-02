@@ -17,6 +17,8 @@ new_workspace = "alt+shift+n"
 new_worktree = "prefix+shift+g"
 rename_workspace = "prefix+shift+w"
 close_workspace = "alt+shift+q"
+previous_workspace = "alt+shift+k"
+next_workspace = "alt+shift+j"
 navigate_workspace_up = "k"
 navigate_workspace_down = "j"
 
@@ -25,9 +27,12 @@ new_tab = "alt+n"
 rename_tab = "prefix+shift+t"
 previous_tab = "alt+i"
 next_tab = "alt+o"
+# Herdr 0.6.6 has internal mouse-drag tab moving, but no public key action yet.
+# When Herdr exposes it, bind:
+# move_tab_left = "alt+u"
+# move_tab_right = "alt+p"
 switch_tab = "alt+1..9"
 close_tab = "alt+shift+x"
-
 # Direct pane navigation.
 focus_pane_left = "alt+h"
 focus_pane_down = "alt+j"
