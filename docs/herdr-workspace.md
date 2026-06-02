@@ -61,7 +61,9 @@ Important shortcuts:
 - `j` / `k` inside workspace picker — move workspace selection
 - `Alt+Shift+N` — new workspace
 - `Alt+Shift+J/K` — next/previous workspace
+- `Alt+Shift+R` — rename workspace
 - `Alt+N` — new tab
+- `Alt+R` — rename tab
 - `Alt+Q` — close focused pane
 - `Alt+H/J/K/L` — move pane focus
 - `Alt+U/P` — reserved for moving the current tab left/right when Herdr exposes key-driven tab reordering
