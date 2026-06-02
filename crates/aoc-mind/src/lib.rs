@@ -19,11 +19,15 @@ pub use t1::{evaluate_t1_token_threshold, T1ThresholdDecision, T1ThresholdError}
 
 // Runtime exports
 pub use compatibility_queries::{
-    compile_mind_context_pack, compile_mind_provenance_export, compile_mind_provenance_graph,
+    compile_mind_context_pack, compile_mind_evidence_pack, compile_mind_provenance_export,
+    compile_mind_provenance_graph, compile_mnemopi_candidate_pack,
     mind_context_pack_mode_for_trigger, parse_mind_context_pack_mode,
-    parse_mind_context_pack_request, try_parse_mind_context_pack_mode, MindContextPack,
-    MindContextPackCitation, MindContextPackMode, MindContextPackProfile, MindContextPackRequest,
-    MindContextPackSection, MindContextPackSourceOverrides,
+    parse_mind_context_pack_request, try_parse_mind_context_pack_mode,
+    try_parse_mind_evidence_pack_mode, MindContextPack, MindContextPackCitation,
+    MindContextPackMode, MindContextPackProfile, MindContextPackRequest,
+    MindContextPackSection, MindContextPackSourceOverrides, MindEvidenceCitation,
+    MindEvidenceItem, MindEvidencePack, MindEvidencePackMode, MindEvidencePackRequest,
+    MindEvidenceQuery, MnemopiCandidateMemory, MnemopiCandidatePack,
 };
 pub use observer_runtime::{
     ClaimedObserverRun, ObserverQueueConfig, ObserverTrigger, ObserverTriggerKind,

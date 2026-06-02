@@ -4,13 +4,15 @@ use aoc_core::{
     provenance_contracts::MindProvenanceQueryRequest,
 };
 use aoc_mind::{
-    compile_mind_context_pack, compile_mind_provenance_export, default_pi_session_root,
-    discover_latest_pi_session_file, mind_progress_for_conversation, open_project_store,
-    prepare_session_finalize_execution, read_mind_service_health_snapshot, read_mind_service_lease,
-    summarize_mind_service_status, sync_latest_pi_session_into_project_store,
-    sync_session_file_into_project_store, try_parse_mind_context_pack_mode, DistillationConfig,
-    MindContextPackProfile, MindContextPackRequest, MindProjectPaths, MindRuntimeConfig,
-    MindRuntimeCore, SessionFinalizePreparationOutcome,
+    compile_mind_context_pack, compile_mind_evidence_pack, compile_mind_provenance_export,
+    compile_mnemopi_candidate_pack, default_pi_session_root, discover_latest_pi_session_file,
+    mind_progress_for_conversation, open_project_store, prepare_session_finalize_execution,
+    read_mind_service_health_snapshot, read_mind_service_lease, summarize_mind_service_status,
+    sync_latest_pi_session_into_project_store, sync_session_file_into_project_store,
+    try_parse_mind_context_pack_mode, try_parse_mind_evidence_pack_mode, DistillationConfig,
+    MindContextPackProfile, MindContextPackRequest, MindEvidencePackRequest, MindProjectPaths,
+    MindRuntimeConfig, MindRuntimeCore, MindServiceHealthSnapshot,
+    SessionFinalizePreparationOutcome,
 };
 use clap::{Parser, Subcommand};
 use serde_json::json;
@@ -96,6 +98,23 @@ enum Command {
         #[arg(long)]
         json: bool,
     },
+    /// Run the OMP/Herdr-era Mind service loop for project T0/T1/T2/T3 processing.
+    Serve {
+        #[arg(long)]
+        project_root: PathBuf,
+        #[arg(long, default_value = "standalone")]
+        session_id: String,
+        #[arg(long, default_value = "service")]
+        pane_id: String,
+        #[arg(long, default_value = DEFAULT_AGENT_ID)]
+        agent_id: String,
+        #[arg(long, default_value_t = 5000)]
+        interval_ms: u64,
+        #[arg(long)]
+        once: bool,
+        #[arg(long)]
+        json: bool,
+    },
     /// Compile a project-scoped Mind context pack without Pulse/wrapper transport.
     ContextPack {
         #[arg(long)]
@@ -110,6 +129,36 @@ enum Command {
         detail: bool,
         #[arg(long)]
         active_tag: Option<String>,
+        #[arg(long)]
+        json: bool,
+    },
+    /// Compile a cited, reason-scoped project evidence pack.
+    EvidencePack {
+        #[arg(long)]
+        project_root: PathBuf,
+        #[arg(long)]
+        reason: String,
+        #[arg(long)]
+        mode: Option<String>,
+        #[arg(long)]
+        active_tag: Option<String>,
+        #[arg(long, default_value_t = 12)]
+        max_items: usize,
+        #[arg(long)]
+        json: bool,
+    },
+    /// Generate dry-run Mnemopi candidate memories from cited AOC Mind evidence.
+    MnemopiCandidates {
+        #[arg(long)]
+        project_root: PathBuf,
+        #[arg(long)]
+        reason: String,
+        #[arg(long)]
+        mode: Option<String>,
+        #[arg(long)]
+        active_tag: Option<String>,
+        #[arg(long, default_value_t = 12)]
+        max_items: usize,
         #[arg(long)]
         json: bool,
     },
@@ -215,6 +264,23 @@ fn main() {
             interval_ms,
             json,
         ),
+        Command::Serve {
+            project_root,
+            session_id,
+            pane_id,
+            agent_id,
+            interval_ms,
+            once,
+            json,
+        } => run_serve(
+            &project_root,
+            &session_id,
+            &pane_id,
+            &agent_id,
+            interval_ms,
+            once,
+            json,
+        ),
         Command::ContextPack {
             project_root,
             mode,
@@ -230,6 +296,29 @@ fn main() {
             reason,
             detail,
             active_tag,
+            json,
+        ),
+        Command::EvidencePack {
+            project_root,
+            reason,
+            mode,
+            active_tag,
+            max_items,
+            json,
+        } => run_evidence_pack(&project_root, &reason, mode.as_deref(), active_tag, max_items, json),
+        Command::MnemopiCandidates {
+            project_root,
+            reason,
+            mode,
+            active_tag,
+            max_items,
+            json,
+        } => run_mnemopi_candidates(
+            &project_root,
+            &reason,
+            mode.as_deref(),
+            active_tag,
+            max_items,
             json,
         ),
         Command::ObserverRun {
@@ -599,6 +688,149 @@ fn print_json(value: serde_json::Value) {
     );
 }
 
+fn run_serve(
+    project_root: &PathBuf,
+    session_id: &str,
+    pane_id: &str,
+    agent_id: &str,
+    interval_ms: u64,
+    once: bool,
+    as_json: bool,
+) -> i32 {
+    let mut runtime = match build_runtime(project_root, session_id, pane_id, agent_id) {
+        Ok(runtime) => runtime,
+        Err(err) => {
+            if as_json {
+                print_json(json!({ "ok": false, "error": err }));
+            } else {
+                eprintln!("serve failed: {err}");
+            }
+            return 1;
+        }
+    };
+    let mut snapshot = read_mind_service_health_snapshot(project_root)
+        .ok()
+        .flatten()
+        .unwrap_or_default();
+    snapshot.lifecycle = "running".to_string();
+    snapshot.reflector_enabled = true;
+    snapshot.t3_enabled = true;
+
+    loop {
+        let report = run_serve_once(project_root, &mut runtime, &mut snapshot, agent_id);
+        if as_json {
+            print_json(report);
+        } else {
+            println!("mind service tick complete");
+        }
+        if once {
+            return 0;
+        }
+        thread::sleep(Duration::from_millis(interval_ms.max(250)));
+    }
+}
+
+fn run_serve_once(
+    project_root: &PathBuf,
+    runtime: &mut MindRuntimeCore,
+    snapshot: &mut MindServiceHealthSnapshot,
+    agent_id: &str,
+) -> serde_json::Value {
+    let now = chrono::Utc::now();
+    snapshot.supervisor_runs = snapshot.supervisor_runs.saturating_add(1);
+    let sync_result = sync_latest_pi_session_into_project_store(project_root, agent_id);
+    let conversation_ids = runtime
+        .store()
+        .conversation_ids_for_session(runtime.session_id())
+        .unwrap_or_default();
+    let latest_conversation_id = conversation_ids.last().cloned();
+    runtime.set_latest_conversation_id(latest_conversation_id.clone());
+
+    let mut observer_events = Vec::new();
+    if let Some(conversation_id) = latest_conversation_id.as_deref() {
+        observer_events.extend(runtime.maybe_run_token_threshold_events(conversation_id));
+    }
+
+    runtime.begin_reflector_tick(snapshot, now);
+    let reflector_report = runtime.run_reflector_tick(now);
+    match reflector_report.as_ref() {
+        Ok(report) => {
+            observer_events.extend(
+                runtime
+                    .apply_reflector_tick_effects(snapshot, report, now)
+                    .observer_events,
+            );
+        }
+        Err(err) => {
+            snapshot.supervisor_failures = snapshot.supervisor_failures.saturating_add(1);
+            snapshot.last_error = Some(err.clone());
+        }
+    }
+
+    runtime.begin_t3_tick(snapshot, now);
+    let t3_report = runtime.run_t3_tick(now, |_store, _project_root, _active_tag, _now| Ok(()));
+    match t3_report.as_ref() {
+        Ok(report) => {
+            observer_events.extend(
+                runtime
+                    .apply_t3_tick_effects(snapshot, report, now)
+                    .observer_events,
+            );
+        }
+        Err(err) => {
+            snapshot.supervisor_failures = snapshot.supervisor_failures.saturating_add(1);
+            snapshot.last_error = Some(err.clone());
+        }
+    }
+
+    runtime.refresh_queue_depths(snapshot);
+    if let Err(err) = runtime.heartbeat_service(snapshot) {
+        snapshot.supervisor_failures = snapshot.supervisor_failures.saturating_add(1);
+        snapshot.last_error = Some(err);
+    }
+
+    json!({
+        "ok": snapshot.last_error.is_none(),
+        "service": {
+            "lifecycle": snapshot.lifecycle,
+            "queue_depth": snapshot.queue_depth,
+            "t3_queue_depth": snapshot.t3_queue_depth,
+            "supervisor_runs": snapshot.supervisor_runs,
+            "supervisor_failures": snapshot.supervisor_failures,
+            "last_error": snapshot.last_error,
+        },
+        "sync": match sync_result {
+            Ok(Some(sync)) => json!({
+                "ok": true,
+                "session_file": sync.session_file,
+                "conversation_id": sync.report.conversation_id,
+                "processed_raw_events": sync.report.processed_raw_events,
+                "produced_t0_events": sync.report.produced_t0_events,
+                "persisted_compaction_checkpoints": sync.report.persisted_compaction_checkpoints,
+                "raw_cursor": sync.report.raw_cursor,
+                "t0_cursor": sync.report.t0_cursor,
+            }),
+            Ok(None) => json!({
+                "ok": true,
+                "session_file": null,
+                "message": "no Pi session file discovered",
+            }),
+            Err(err) => json!({
+                "ok": false,
+                "error": err.to_string(),
+            }),
+        },
+        "latest_conversation_id": latest_conversation_id,
+        "observer_events": observer_events,
+        "reflector": reflector_report
+            .map(|report| tick_report_json_reflector(&report))
+            .unwrap_or_else(|err| json!({ "error": err })),
+        "t3": t3_report
+            .map(|report| tick_report_json_t3(&report))
+            .unwrap_or_else(|err| json!({ "error": err })),
+    })
+}
+
 fn run_context_pack(
     project_root: &PathBuf,
     mode: Option<&str>,
@@ -622,6 +854,7 @@ fn run_context_pack(
     let store = open_project_store(project_root, "standalone", "service", None)
         .ok()
         .map(|opened| opened.store);
+
     let request = MindContextPackRequest {
         mode,
         profile: if detail {
@@ -652,6 +885,110 @@ fn run_context_pack(
                 print_json(json!({ "ok": false, "error": err }));
             } else {
                 eprintln!("context pack failed: {err}");
+            }
+            1
+        }
+    }
+}
+
+fn run_evidence_pack(
+    project_root: &PathBuf,
+    reason: &str,
+    mode: Option<&str>,
+    active_tag: Option<String>,
+    max_items: usize,
+    as_json: bool,
+) -> i32 {
+    let mode = match try_parse_mind_evidence_pack_mode(mode) {
+        Ok(mode) => mode,
+        Err(err) => {
+            if as_json {
+                print_json(json!({ "ok": false, "error": err }));
+            } else {
+                eprintln!("evidence-pack failed: {err}");
+            }
+            return 2;
+        }
+    };
+    let store = open_project_store(project_root, "standalone", "service", None)
+        .ok()
+        .map(|opened| opened.store);
+    let request = MindEvidencePackRequest {
+        mode,
+        reason: reason.to_string(),
+        active_tag,
+        max_items,
+    };
+    match compile_mind_evidence_pack(&project_root.display().to_string(), store.as_ref(), request) {
+        Ok(pack) => {
+            if as_json {
+                print_json(json!({ "ok": true, "pack": pack }));
+            } else {
+                for item in pack.items {
+                    println!("[{}] {} ({})", item.kind, item.summary, item.source_ref);
+                }
+            }
+            0
+        }
+        Err(err) => {
+            if as_json {
+                print_json(json!({ "ok": false, "error": err }));
+            } else {
+                eprintln!("evidence-pack failed: {err}");
+            }
+            1
+        }
+    }
+}
+
+fn run_mnemopi_candidates(
+    project_root: &PathBuf,
+    reason: &str,
+    mode: Option<&str>,
+    active_tag: Option<String>,
+    max_items: usize,
+    as_json: bool,
+) -> i32 {
+    let mode = match try_parse_mind_evidence_pack_mode(mode) {
+        Ok(mode) => mode,
+        Err(err) => {
+            if as_json {
+                print_json(json!({ "ok": false, "error": err }));
+            } else {
+                eprintln!("mnemopi-candidates failed: {err}");
+            }
+            return 2;
+        }
+    };
+    let store = open_project_store(project_root, "standalone", "service", None)
+        .ok()
+        .map(|opened| opened.store);
+    let request = MindEvidencePackRequest {
+        mode,
+        reason: reason.to_string(),
+        active_tag,
+        max_items,
+    };
+    match compile_mnemopi_candidate_pack(
+        &project_root.display().to_string(),
+        store.as_ref(),
+        request,
+    ) {
+        Ok(pack) => {
+            if as_json {
+                print_json(json!(pack));
+            } else {
+                for candidate in pack.candidates {
+                    println!("{} ({:.2})", candidate.content, candidate.importance);
+                }
+            }
+            0
+        }
+        Err(err) => {
+            if as_json {
+                print_json(json!({ "ok": false, "error": err }));
+            } else {
+                eprintln!("mnemopi-candidates failed: {err}");
             }
             1
         }

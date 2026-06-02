@@ -16,7 +16,7 @@ This inventory defines the Herdr/OMP cutover target. AOC should become a project
 | Understand | `bin/aoc-understand`, `docs/understand.md`, related skills | AOC tooling | Keep. |
 | Web research | `docs/web-research.md`, `scripts/test-web-research-stack.sh`, related skills/scripts | AOC tooling | Keep. |
 | RTK | `bin/aoc-rtk`, `bin/aoc-rtk-proxy`, `docs/reference/rtk-routing.md` | AOC tooling | Keep only for allowlisted noisy-command routing with raw-output preservation. |
-| Optional Mind recall | `bin/aoc-mem`, `bin/aoc-stm`, `crates/aoc-mind`, `crates/aoc-storage`, Mind extensions | AOC tooling | Lazy focused recall/provenance only; not startup injection or workspace dependency. |
+| AOC Mind evidence for Mnemopi | `.omp/extensions/aoc-mind.ts`, `crates/aoc-mind`, `crates/aoc-storage`, `aoc-mind-service serve/evidence-pack/mnemopi-candidates` | AOC + OMP/Mnemopi | Default project background T0/T1/T2/T3 processing plus lazy focused evidence/provenance; no startup injection or automatic Mnemopi writes. |
 | Selected skills/prompts/docs | `.pi/skills`, `.pi/prompts`, docs | AOC tooling | Keep only if they complement Herdr/OMP workflows. |
 
 ## Remove / retire from default AOC
@@ -48,6 +48,7 @@ Default install must become lean and must not install old cockpit assets.
 - AOC OMP context commands: `aoc-omp`, `aoc-omp-context`, `aoc-handshake`
 - Taskmaster commands: `tm`, `aoc-task`, `aoc-tm`
 - CodeGraph OMP extension: `.omp/extensions/aoc-codegraph.ts`
+- AOC Mind OMP extension: `.omp/extensions/aoc-mind.ts` for read-only status/evidence/provenance/candidate memory synthesis
 - Kept tooling: HyperFrames, OpenDesign, Understand, web research, RTK if selected
 
 ### Default install no longer does
@@ -60,7 +61,7 @@ Default install must become lean and must not install old cockpit assets.
 - building/installing Mission Control and Control pane binaries by default
 - seeding Zellij-specific `.aoc/layouts/*.kdl`
 - installing AOC subagent control surfaces as default agent infrastructure
-- installing Mind/Pi runtime by default; use `./install.sh --mind` for that optional layer
+- installing broad Mind prompt injection or automatic Mnemopi promotion by default
 
 ## Remaining removal order
 

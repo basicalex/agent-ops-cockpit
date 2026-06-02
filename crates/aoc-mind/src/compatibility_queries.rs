@@ -11,8 +11,9 @@ use aoc_storage::{CanonRevisionState, CompactionCheckpoint, MindStore, StoredArt
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use sha2::Digest;
 use std::{
-    collections::HashSet,
+    collections::{BTreeSet, HashSet},
     path::{Path, PathBuf},
     process::Command,
 };
@@ -96,6 +97,78 @@ pub struct MindContextPackSourceOverrides {
     pub latest_export_manifest: Option<SessionExportManifest>,
     pub latest_t1_markdown: Option<String>,
     pub latest_t2_markdown: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum MindEvidencePackMode {
+    Focused,
+    Resume,
+    Decision,
+    Debug,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct MindEvidenceQuery {
+    pub reason: String,
+    pub normalized_terms: Vec<String>,
+    pub mode: MindEvidencePackMode,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct MindEvidenceItem {
+    pub id: String,
+    pub kind: String,
+    pub summary: String,
+    pub source_ref: String,
+    pub timestamp: Option<String>,
+    pub active_tag: Option<String>,
+    pub confidence: f32,
+    pub freshness: f32,
+    pub provenance_seeds: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct MindEvidenceCitation {
+    pub source_ref: String,
+    pub label: String,
+    pub reference: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct MindEvidencePack {
+    pub schema_version: u16,
+    pub query: MindEvidenceQuery,
+    pub items: Vec<MindEvidenceItem>,
+    pub citations: Vec<MindEvidenceCitation>,
+    pub degraded: bool,
+    pub generated_at: String,
+}
+
+#[derive(Debug, Clone)]
+pub struct MindEvidencePackRequest {
+    pub mode: MindEvidencePackMode,
+    pub reason: String,
+    pub active_tag: Option<String>,
+    pub max_items: usize,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct MnemopiCandidateMemory {
+    pub id: String,
+    pub content: String,
+    pub importance: f32,
+    pub memory_type: String,
+    pub veracity: String,
+    pub source: String,
+    pub metadata: serde_json::Value,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct MnemopiCandidatePack {
+    pub ok: bool,
+    pub candidates: Vec<MnemopiCandidateMemory>,
+    pub evidence: MindEvidencePack,
 }
 
 pub fn try_parse_mind_context_pack_mode(
@@ -315,6 +388,7 @@ pub fn compile_mind_context_pack(
                 "Project mind canon",
                 ".aoc/mind/t3/project_mind.md",
                 extract_project_mind_lines(&text, active_tag.as_deref(), source_line_limit),
+
             );
         }
     }
@@ -385,6 +459,281 @@ pub fn compile_mind_context_pack(
         citations,
         generated_at: Utc::now().to_rfc3339(),
     })
+}
+pub fn try_parse_mind_evidence_pack_mode(
+    value: Option<&str>,
+) -> Result<MindEvidencePackMode, String> {
+    match value
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or("focused")
+    {
+        "focused" => Ok(MindEvidencePackMode::Focused),
+        "resume" => Ok(MindEvidencePackMode::Resume),
+        "decision" => Ok(MindEvidencePackMode::Decision),
+        "debug" => Ok(MindEvidencePackMode::Debug),
+        other => Err(format!(
+            "unsupported evidence-pack mode `{other}` (expected focused, resume, decision, or debug)"
+        )),
+    }
+}
+
+pub fn compile_mind_evidence_pack(
+    project_root: &str,
+    store: Option<&MindStore>,
+    request: MindEvidencePackRequest,
+) -> Result<MindEvidencePack, String> {
+    let reason = request.reason.trim();
+    if reason.is_empty() {
+        return Err("evidence-pack requires a non-empty --reason".to_string());
+    }
+
+    let normalized_terms = normalize_evidence_terms(reason);
+    let context_mode = match request.mode {
+        MindEvidencePackMode::Resume => MindContextPackMode::Resume,
+        MindEvidencePackMode::Decision
+        | MindEvidencePackMode::Debug
+        | MindEvidencePackMode::Focused => MindContextPackMode::Focused,
+    };
+    let context_pack = compile_mind_context_pack(
+        project_root,
+        store,
+        MindContextPackRequest {
+            mode: context_mode,
+            profile: MindContextPackProfile::Expanded,
+            active_tag: request.active_tag.clone(),
+            reason: Some(reason.to_string()),
+            role: None,
+        },
+        None,
+    )?;
+
+    let mut items = Vec::new();
+    let mut citations = Vec::new();
+    let mut seen_refs = BTreeSet::new();
+    let max_items = request.max_items.clamp(1, 32);
+
+    if let Some(store) = store {
+        for entry in store
+            .active_canon_entries(None)
+            .map_err(|err| format!("canon evidence query failed: {err}"))?
+            .into_iter()
+        {
+            let summary = entry.summary.trim();
+            if summary.is_empty() || !evidence_matches(summary, &normalized_terms, request.mode) {
+                continue;
+            }
+            let source_ref = format!("canon:{}#{}", entry.entry_id, entry.revision);
+            let evidence_refs = entry.evidence_refs.clone();
+            items.push(MindEvidenceItem {
+                id: source_ref.clone(),
+                kind: "t3_canon".to_string(),
+                summary: summary.to_string(),
+                source_ref: source_ref.clone(),
+                timestamp: Some(entry.created_at.to_rfc3339()),
+                active_tag: entry.topic.clone(),
+                confidence: (entry.confidence_bps as f32 / 10_000.0).clamp(0.0, 1.0),
+                freshness: (entry.freshness_score as f32 / 10_000.0).clamp(0.0, 1.0),
+                provenance_seeds: evidence_refs.clone(),
+            });
+            if seen_refs.insert(source_ref.clone()) {
+                citations.push(MindEvidenceCitation {
+                    source_ref,
+                    label: "Project canon".to_string(),
+                    reference: "project_canon_revisions".to_string(),
+                });
+            }
+            if items.len() >= max_items {
+                break;
+            }
+        }
+    }
+
+    for section in &context_pack.sections {
+        if items.len() >= max_items {
+            break;
+        }
+        let summary = section.lines.join("\n");
+        if summary.trim().is_empty() || !evidence_matches(&summary, &normalized_terms, request.mode)
+        {
+            continue;
+        }
+        let source_ref = section.citation.clone();
+        let kind = evidence_kind_for_section(section);
+        items.push(MindEvidenceItem {
+            id: format!("{}:{}", section.source_id, stable_evidence_suffix(&summary)),
+            kind,
+            summary: trim_evidence_summary(&summary),
+            source_ref: source_ref.clone(),
+            timestamp: None,
+            active_tag: request.active_tag.clone(),
+            confidence: evidence_confidence_for_section(section),
+            freshness: evidence_freshness_for_section(section),
+            provenance_seeds: vec![section.source_id.clone()],
+        });
+        if seen_refs.insert(source_ref.clone()) {
+            citations.push(MindEvidenceCitation {
+                source_ref,
+                label: section.title.clone(),
+                reference: section.citation.clone(),
+            });
+        }
+    }
+
+    Ok(MindEvidencePack {
+        schema_version: MIND_CONTEXT_PACK_SCHEMA_VERSION,
+        query: MindEvidenceQuery {
+            reason: reason.to_string(),
+            normalized_terms,
+            mode: request.mode,
+        },
+        items,
+        citations,
+        degraded: context_pack.truncated || store.is_none(),
+        generated_at: Utc::now().to_rfc3339(),
+    })
+}
+
+pub fn compile_mnemopi_candidate_pack(
+    project_root: &str,
+    store: Option<&MindStore>,
+    request: MindEvidencePackRequest,
+) -> Result<MnemopiCandidatePack, String> {
+    let evidence = compile_mind_evidence_pack(project_root, store, request)?;
+    let mut candidates = Vec::new();
+    for item in evidence.items.iter().take(12) {
+        if !evidence_item_is_promotable(item) {
+            continue;
+        }
+        candidates.push(MnemopiCandidateMemory {
+            id: format!("mnemopi:{}", item.id),
+            content: format!("Project memory from AOC Mind: {}", item.summary),
+            importance: ((item.confidence * 0.65) + (item.freshness * 0.25) + 0.10)
+                .clamp(0.1, 0.95),
+            memory_type: "fact".to_string(),
+            veracity: "derived".to_string(),
+            source: "aoc-mind".to_string(),
+            metadata: serde_json::json!({
+                "aoc_project_root": project_root,
+                "aoc_mind_source_refs": [item.source_ref.clone()],
+                "aoc_mind_provenance_seeds": item.provenance_seeds,
+                "aoc_mind_kind": item.kind,
+            }),
+        });
+    }
+
+    Ok(MnemopiCandidatePack {
+        ok: true,
+        candidates,
+        evidence,
+    })
+}
+
+
+fn normalize_evidence_terms(reason: &str) -> Vec<String> {
+    let mut terms = reason
+        .split(|ch: char| !ch.is_ascii_alphanumeric() && ch != '-' && ch != '_')
+        .map(str::trim)
+        .filter(|value| value.len() >= 3)
+        .map(str::to_ascii_lowercase)
+        .filter(|value| {
+            !matches!(
+                value.as_str(),
+                "the" | "and" | "for" | "with" | "from" | "that" | "this" | "into"
+            )
+        })
+        .collect::<Vec<_>>();
+    terms.sort();
+    terms.dedup();
+    terms
+}
+
+fn evidence_matches(text: &str, terms: &[String], mode: MindEvidencePackMode) -> bool {
+    if terms.is_empty() || matches!(mode, MindEvidencePackMode::Resume | MindEvidencePackMode::Debug) {
+        return true;
+    }
+    let lower = text.to_ascii_lowercase();
+    terms.iter().any(|term| lower.contains(term))
+}
+
+fn evidence_kind_for_section(section: &MindContextPackSection) -> String {
+    match section.source_id.as_str() {
+        "aoc_mem" => "aoc_mem",
+        "aoc_stm" => "stm",
+        "t3_handshake" | "t3_canon" => "t3_canon",
+        "session_t2" => "t2_reflection",
+        "session_t1" => "t1_observation",
+        _ => match section.layer {
+            ContextLayer::AocMem => "aoc_mem",
+            ContextLayer::AocStm => "stm",
+            ContextLayer::AocMind => "provenance_node",
+        },
+    }
+    .to_string()
+}
+
+fn evidence_confidence_for_section(section: &MindContextPackSection) -> f32 {
+    match section.source_id.as_str() {
+        "t3_handshake" | "t3_canon" => 0.84,
+        "session_t2" => 0.76,
+        "session_t1" => 0.62,
+        "aoc_mem" => 0.80,
+        "aoc_stm" => 0.58,
+        _ => 0.50,
+    }
+}
+
+fn evidence_freshness_for_section(section: &MindContextPackSection) -> f32 {
+    match section.source_id.as_str() {
+        "aoc_stm" | "session_t1" | "session_t2" => 0.82,
+        "t3_handshake" | "t3_canon" => 0.72,
+        "aoc_mem" => 0.65,
+        _ => 0.50,
+    }
+}
+
+fn stable_evidence_suffix(text: &str) -> String {
+    let digest = sha2::Sha256::digest(text.as_bytes());
+    format!("{:x}", digest)[..12].to_string()
+}
+
+fn trim_evidence_summary(summary: &str) -> String {
+    const MAX_CHARS: usize = 1_200;
+    let mut cleaned = summary
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+        .collect::<Vec<_>>()
+        .join("\n");
+    if cleaned.chars().count() > MAX_CHARS {
+        cleaned = cleaned.chars().take(MAX_CHARS).collect::<String>();
+        cleaned.push('…');
+    }
+    cleaned
+}
+
+fn evidence_item_is_promotable(item: &MindEvidenceItem) -> bool {
+    if item.confidence < 0.55 || item.summary.len() < 24 {
+        return false;
+    }
+    if matches!(item.kind.as_str(), "stm" | "t1_observation") && item.confidence < 0.70 {
+        return false;
+    }
+    let lower = item.summary.to_ascii_lowercase();
+    if lower.contains("todo")
+        || lower.contains("speculation")
+        || lower.contains("maybe ")
+        || lower.contains(" user:")
+        || lower.contains(" assistant:")
+        || lower.contains("tokens=")
+        || lower.contains("events=")
+    {
+        return false;
+    }
+    matches!(
+        item.kind.as_str(),
+        "t3_canon" | "t2_reflection" | "aoc_mem" | "provenance_node"
+    )
 }
 
 fn push_context_pack_section(
@@ -1360,6 +1709,52 @@ fn focused_reason_wants_stm(reason: Option<&str>) -> bool {
     ]
     .iter()
     .any(|needle| normalized.contains(needle))
+}
+
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn evidence_item(summary: &str, kind: &str, confidence: f32) -> MindEvidenceItem {
+        MindEvidenceItem {
+            id: "item:test".to_string(),
+            kind: kind.to_string(),
+            summary: summary.to_string(),
+            source_ref: "source:test".to_string(),
+            timestamp: None,
+            active_tag: None,
+            confidence,
+            freshness: 0.8,
+            provenance_seeds: vec!["seed:test".to_string()],
+        }
+    }
+
+    #[test]
+    fn evidence_mode_parser_rejects_unknown_modes() {
+        assert_eq!(
+            try_parse_mind_evidence_pack_mode(Some("decision")).unwrap(),
+            MindEvidencePackMode::Decision
+        );
+        assert!(try_parse_mind_evidence_pack_mode(Some("bulk")).is_err());
+    }
+
+    #[test]
+    fn mnemopi_candidates_reject_raw_transcript_summaries() {
+        let raw = evidence_item(
+            "T1 observation; tokens=42 events=7 user: please inspect this one-off transcript",
+            "t3_canon",
+            0.9,
+        );
+        assert!(!evidence_item_is_promotable(&raw));
+
+        let durable = evidence_item(
+            "Project decision: AOC Mind augments OMP Mnemopi with cited evidence packs.",
+            "t3_canon",
+            0.9,
+        );
+        assert!(evidence_item_is_promotable(&durable));
+    }
 }
 
 fn t3_scope_id_for_project_root(project_root: &str) -> String {

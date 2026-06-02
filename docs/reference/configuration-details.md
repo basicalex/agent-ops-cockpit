@@ -207,6 +207,7 @@ Safety model:
 What it guarantees:
 - Seeds/repairs canonical PI runtime paths under `.pi/**` (`settings.json`, prompts, skills, extensions).
 - Seeds default PI extensions when missing: `.pi/extensions/minimal.ts`, `.pi/extensions/themeMap.ts`, `.pi/extensions/mind-ingest.ts`, `.pi/extensions/mind-ops.ts`, `.pi/extensions/mind-context.ts`, `.pi/extensions/mind-focus.ts`, `.pi/extensions/aoc-models.ts`, `.pi/extensions/aoc-agent-presence.ts`, `.pi/extensions/aoc-codegraph.ts`, `.pi/extensions/aoc-compaction.ts`, `.pi/extensions/subagent.ts`, `.pi/extensions/lib/mind.ts`, `.pi/extensions/lib/caveman.ts`, plus the preset runtime family under `.pi/extensions/aoc-presets/`.
+- Installs AOC OMP extensions when available: `.omp/extensions/aoc-codegraph.ts`, `.omp/extensions/aoc-mind.ts`, and `.omp/extensions/aoc-commit.ts`.
 - Seeds vendored local PI package `.pi/packages/pi-multi-auth-aoc`, wires `.pi/settings.json` to load it by path, and removes legacy global npm `pi-multi-auth` package entries to avoid duplicate extension loading.
 - Keeps AOC control-plane state under `.aoc/**`, including `.aoc/mind-service.json` for project-local standalone Mind launcher metadata.
 - Migrates missing project-local legacy assets from `.aoc/prompts/pi/` and `.aoc/skills/` into `.pi/**` without overwriting existing canonical files.

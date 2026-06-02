@@ -178,7 +178,7 @@ def build_packet(project_root: Path, do_sync: bool) -> dict[str, Any]:
                 "startupInjection": "metadata-only",
                 "defaultContextMode": "none",
                 "ingestPolicy": "safe to sync/ingest at startup; do not inject broad memories",
-                "retrievalPolicy": "request focused Mind context only after user intent is known",
+                "retrievalPolicy": "request focused Mind evidence/provenance only after user intent is known",
             },
             "recommendedTriggers": [
                 "user asks to resume or continue prior work",
@@ -190,16 +190,19 @@ def build_packet(project_root: Path, do_sync: bool) -> dict[str, Any]:
             "focusedCommands": {
                 "status": "aoc-mind-service status --project-root <root> --json",
                 "sync": "aoc-mind-service sync-pi --project-root <root> --json",
+                "serveOnce": "aoc-mind-service serve --project-root <root> --agent-id <agent-id> --once --json",
+                "evidence": "aoc-mind-service evidence-pack --project-root <root> --mode focused --reason <explicit-reason> --json",
                 "contextPack": "aoc-mind-service context-pack --project-root <root> --mode focused --reason <explicit-reason> --json",
                 "resume": "aoc-mind-service context-pack --project-root <root> --mode resume --reason <explicit-resume-request> --json",
                 "provenance": "aoc-mind-service provenance-query --project-root <root> --json",
+                "mnemopiCandidates": "aoc-mind-service mnemopi-candidates --project-root <root> --reason <explicit-reason> --json",
             },
         },
         "agentGuidance": [
             "Use .aoc/context.md and AGENTS.md for startup orientation.",
             "Do not load broad Mind memories during startup.",
-            "Use Mind as a focused recall/provenance tool after task intent is clear.",
-            "Prefer narrow searches, focused context packs, and concise summaries.",
+            "Use Mind as focused evidence/provenance for OMP/Mnemopi after task intent is clear.",
+            "Prefer narrow searches, evidence packs, focused context packs, and concise summaries.",
         ],
         "warnings": [],
     }
@@ -292,12 +295,12 @@ def print_prompt_full(packet: dict[str, Any]) -> None:
     print(f"- Available: {'yes' if mind.get('available') else 'no'}")
     print("- Startup injection: metadata-only.")
     print("- Do not load broad Mind memories at startup.")
-    print("- Request focused Mind context only after user intent is known, with an explicit reason.")
+    print("- Request focused Mind evidence/provenance only after user intent is known, with an explicit reason.")
     print("- Good triggers: resume/continue, previous decisions, task/spec grounding, debugging prior attempts, provenance/audit, or targeted local inspection proving insufficient.")
     focused = mind.get("focusedCommands") if isinstance(mind.get("focusedCommands"), dict) else {}
     if focused:
         print("- Focused commands:")
-        for name in ["status", "sync", "contextPack", "resume", "provenance"]:
+        for name in ["status", "sync", "serveOnce", "evidence", "contextPack", "resume", "provenance", "mnemopiCandidates"]:
             command = focused.get(name)
             if command:
                 print(f"  - {name}: `{command}`")

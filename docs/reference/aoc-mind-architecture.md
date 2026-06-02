@@ -7,15 +7,15 @@ Mind is not a prompt dump. It is a staged memory pipeline with strict scope, red
 ## Mental model
 
 ```text
-Pi session + AOC tools
+OMP/Pi session + AOC tools
   -> T0 replayable session substrate
   -> T1 bounded session observations
   -> T2 session reflection/synthesis
   -> T3 project canon/alignment
-  -> handshake + context packs + operator views
+  -> evidence packs + Mnemopi candidate memories + handshake metadata
 ```
 
-Agents should start with `aoc-handshake --json`, then request focused Mind context only when intent justifies it.
+Agents should start with `aoc-handshake --json`, use OMP/Mnemopi as active memory, then request focused AOC Mind evidence only when intent justifies it.
 
 ## What Mind stores
 
@@ -47,14 +47,14 @@ T0 is reproducibility substrate. T3 is the durable project-memory layer used by 
 
 | Component | Responsibility |
 |---|---|
-| `aoc-agent-wrap-rs` | Pi wrapper path; emits/bridges live events, command surfaces, finalization, detached-worker dispatch/fallback |
+| `aoc-mind-service serve` | OMP/Herdr-era project service loop; ingests Pi sessions, heartbeats health, runs T1 threshold checks, and ticks T2/T3 queues without Zellij or wrapper ownership |
 | `aoc-pi-adapter` | Converts Pi-native session/import/compaction data into AOC Mind event/slice contracts |
 | `aoc-core` | Shared contracts for Mind events, semantic stages, provenance, graph/lineage primitives, and context payloads |
 | `aoc-storage` | Persistent store APIs for artifacts, checkpoints, provenance links, canon, and query surfaces |
-| `aoc-mind` | Pipeline logic: ingestion, redaction, T0/T1/T2/T3 processing, context-pack compilation, detached job policy, renderer helpers |
-| `aoc-mind-service` | Standalone project-local service/CLI surface for status, search, context packs, exports, and startup/service health |
-| `aoc-mission-control` | Operator UI host for Mind lanes, artifact drilldown, detached Mind worker rollups, and Fleet handoff |
-| Pi extensions | Human/agent entrypoints such as `/mind`, `Alt+M`, Mind status/context commands, and panel integration |
+| `aoc-mind` | Pipeline logic: ingestion, redaction, T0/T1/T2/T3 processing, evidence/context-pack compilation, detached job policy, renderer helpers |
+| `aoc-mind-service` | Project-local CLI/API surface for status, service loop, context packs, evidence packs, Mnemopi candidates, provenance, and health |
+| `.omp/extensions/aoc-mind.ts` | Read-only OMP tool exposing Mind status/evidence/provenance/dry-run candidates to agents |
+| `aoc-agent-wrap-rs` | Compatibility wrapper path only; no longer the target owner for default Mind background processing |
 
 ## Data flow
 
@@ -65,8 +65,8 @@ T0 is reproducibility substrate. T3 is the durable project-memory layer used by 
 4. T1 observes bounded session slices.
 5. T2 reflects over related T1/session evidence.
 6. T3 updates project canon from eligible T2 + memory + STM + Taskmaster + PRD/export evidence.
-7. Retrieval composes cited context packs for explicit agent reasons.
-8. Operator UIs show status, lanes, stale/degraded state, and detached worker health.
+7. Retrieval composes cited evidence/context packs for explicit agent reasons.
+8. OMP tools and CLI status expose stale/degraded state and detached worker health without broad prompt injection.
 ```
 
 ## Retrieval policy
@@ -79,14 +79,20 @@ Default startup path:
 aoc-handshake --json
 ```
 
-Focused context path:
+Focused evidence path:
 
 ```bash
-aoc-mind-service context-pack \
+aoc-mind-service evidence-pack \
   --project-root "$PWD" \
-  --mode focused \
   --reason "debug previous implementation attempt" \
+  --mode focused \
   --json
+```
+
+Context-pack compatibility path:
+
+```bash
+aoc-mind-service context-pack --project-root "$PWD" --mode focused --reason "..." --json
 ```
 
 Supported context-pack modes are `startup`, `tag-switch`, `focused`, `resume`, `handoff`, and `dispatch`. Unknown modes are rejected instead of silently falling back. `focused` mode is reason-bound and does not include volatile STM by default unless the reason explicitly asks to resume, continue, inspect STM, or prepare/use a handoff.
@@ -101,6 +107,19 @@ Use focused context for:
 - when targeted local inspection is insufficient
 
 Avoid broad recall by default.
+
+## Mnemopi integration boundary
+
+OMP/Mnemopi remains the active memory backend. AOC Mind augments it with cited historical evidence and dry-run candidate memories:
+
+```bash
+aoc-mind-service mnemopi-candidates \
+  --project-root "$PWD" \
+  --reason "promote durable project decisions about memory architecture" \
+  --json
+```
+
+Candidate output is conservative and derived: it includes source refs and provenance seeds, but it does not write to Mnemopi. Promotion must be an explicit reviewed action; startup, handshake, init, and normal launch must not auto-promote or bulk import memories.
 
 ## Storage and Git policy
 
@@ -135,18 +154,18 @@ scripts/verify-mind-runtime-safety.sh
 bash scripts/pi/validate-mind-runtime-hardening.sh
 ```
 
-## Detached Mind workers
+## Mind service workers
 
-Current detached substrate covers T2 and T3 work.
+The default OMP/Herdr path is `aoc-mind-service serve`:
 
-```text
-T2 reflector -> Mind-owned detached job -> result/fallback/lease state
-T3 backlog   -> Mind-owned detached job -> canon update/requeue/fallback state
+```bash
+aoc-mind-service serve --project-root "$PWD" --agent-id omp --json
 ```
 
-T1 remains inline/session-scoped in the current rollout.
+The service loop ingests the latest Pi session, runs T1 token-threshold checks, ticks the T2 reflector queue, ticks the T3 backlog queue, heartbeats the project health lease, and reports queue depths/stale state. Use `--once` for tests and bounded smoke checks.
 
-Operator surfaces show Mind-owned detached rows with:
+T1 remains session-scoped. T2 and T3 keep their lease/queue semantics and inline fallback behavior where available.
+Service/status surfaces report Mind-owned detached rows with:
 
 - owner plane: `Mind`
 - worker kind: T2/T3
@@ -154,7 +173,7 @@ Operator surfaces show Mind-owned detached rows with:
 - attention/recovery guidance
 - project/session grouping
 
-Use Mission Control Mind view for project knowledge. Use Fleet view for detached job drilldown/cancel/recovery.
+Use `aoc_mind` or `aoc-mind-service status/evidence/provenance` for default Herdr/OMP work. Legacy Mission Control views are compatibility-only.
 
 ## Command surfaces
 
@@ -162,7 +181,10 @@ Common commands:
 
 ```bash
 aoc-handshake --json
-aoc-mind-service status --json
+aoc-mind-service status --project-root "$PWD" --json
+aoc-mind-service serve --project-root "$PWD" --agent-id omp --once --json
+aoc-mind-service evidence-pack --project-root "$PWD" --mode focused --reason "..." --json
+aoc-mind-service mnemopi-candidates --project-root "$PWD" --reason "..." --json
 aoc-mind-service context-pack --project-root "$PWD" --mode focused --reason "..." --json
 aoc-mem read
 aoc-stm
@@ -208,16 +230,19 @@ Mind should fail safe:
 
 Shipped/current:
 
-- Pi-first wrapper/session model
+- OMP-era `aoc-mind-service serve` owner for default project T0/T1/T2/T3 background processing
 - T0 replay from Pi-native session/import/compaction data
-- T1 inline/session observation
-- T2/T3 detached substrate with fallback/cancel/stale handling
-- project-scoped Mind UI and Mission Control integration
-- focused context-pack command surface
+- T1 session observation via token-threshold/manual/finalization triggers
+- T2/T3 queue/lease substrate with fallback/stale handling
+- focused context-pack and evidence-pack command surfaces
+- dry-run Mnemopi candidate synthesis with citations/provenance metadata
+- read-only OMP `aoc_mind` tool surface
 - runtime hardening and secret-safety validation
 
 Still evolving:
 
+- reviewed non-dry-run promotion into Mnemopi
+- richer semantic ranking over T1/T2/T3 evidence
 - broader graph export/visualization
 - richer commit-history ingestion as Mind provenance
 - in-Mind curation/edit flows
