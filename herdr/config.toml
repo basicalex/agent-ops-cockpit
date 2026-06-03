@@ -7,7 +7,7 @@ prefix = "ctrl+b"
 help = "alt+?"
 settings = "alt+c"
 detach = "prefix+q"
-reload_config = "prefix+shift+r"
+reload_config = "prefix+r"
 open_notification_target = "prefix+o"
 
 # Workspaces/navigation.
@@ -15,7 +15,7 @@ goto = "alt+x"
 workspace_picker = "alt+w"
 new_workspace = "alt+shift+n"
 new_worktree = "prefix+shift+g"
-rename_workspace = "alt+shift+r"
+rename_workspace = "prefix+shift+r"
 close_workspace = "alt+shift+q"
 previous_workspace = "alt+shift+k"
 next_workspace = "alt+shift+j"
@@ -24,7 +24,7 @@ navigate_workspace_down = "j"
 
 # AOC-style tab flow.
 new_tab = "alt+n"
-rename_tab = "alt+r"
+rename_tab = "alt+shift+r"
 previous_tab = "alt+i"
 next_tab = "alt+o"
 # Herdr 0.6.6 has internal mouse-drag tab moving, but no public key action yet.
@@ -45,14 +45,14 @@ navigate_pane_right = ""
 cycle_pane_next = "alt+p"
 cycle_pane_previous = "prefix+shift+tab"
 last_pane = "alt+tab"
-rename_pane = "prefix+shift+p"
+rename_pane = "alt+r"
 close_pane = "alt+q"
 
 # Pane/layout actions.
 split_vertical = "alt+v"
 split_horizontal = "alt+minus"
 zoom = "alt+z"
-resize_mode = "prefix+r"
+resize_mode = "prefix+shift+z"
 toggle_sidebar = "alt+b"
 edit_scrollback = "prefix+e"
 
