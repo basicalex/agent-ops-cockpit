@@ -11,6 +11,80 @@ omp_extensions=(
   aoc-codegraph.ts
   aoc-commit.ts
 )
+install_omp_stt_defaults() {
+  local omp_dir="${PI_CODING_AGENT_DIR:-$HOME/.omp/agent}"
+  local config_file="$omp_dir/config.yml"
+  local keybindings_file="$omp_dir/keybindings.yml"
+  mkdir -p "$omp_dir"
+  python3 - "$config_file" <<'PY'
+from pathlib import Path
+import sys
+
+path = Path(sys.argv[1])
+lines = path.read_text(encoding="utf-8").splitlines() if path.exists() else []
+desired = {
+    "enabled": "true",
+    "provider": "openai",
+    "modelName": "base.en",
+    "openaiModelName": "gpt-4o-mini-transcribe",
+}
+
+start = next((i for i, line in enumerate(lines) if line.startswith("stt:")), None)
+if start is None:
+    if lines and lines[-1] != "":
+        lines.append("")
+    lines.append("stt:")
+    lines.extend(f"  {key}: {value}" for key, value in desired.items())
+else:
+    end = start + 1
+    while end < len(lines) and (lines[end].startswith(" ") or lines[end].startswith("\t") or lines[end] == ""):
+        end += 1
+    block = lines[start + 1:end]
+    present = set()
+    new_block = []
+    for line in block:
+        stripped = line.strip()
+        key = stripped.split(":", 1)[0] if ":" in stripped else ""
+        if key in desired:
+            new_block.append(f"  {key}: {desired[key]}")
+            present.add(key)
+        else:
+            new_block.append(line)
+    for key, value in desired.items():
+        if key not in present:
+            new_block.append(f"  {key}: {value}")
+    lines[start:end] = ["stt:", *new_block]
+
+path.write_text("\n".join(lines).rstrip() + "\n", encoding="utf-8")
+PY
+
+  python3 - "$keybindings_file" <<'PY'
+from pathlib import Path
+import sys
+
+path = Path(sys.argv[1])
+lines = path.read_text(encoding="utf-8").splitlines() if path.exists() else []
+desired_key = "app.stt.toggle"
+desired_line = f"{desired_key}: Alt+Shift+H"
+found = False
+for index, line in enumerate(lines):
+    stripped = line.strip()
+    if stripped.startswith(f"{desired_key}:"):
+        lines[index] = desired_line
+        found = True
+        break
+if not found:
+    if lines and lines[-1] != "":
+        lines.append("")
+    lines.append(desired_line)
+path.write_text("\n".join(lines).rstrip() + "\n", encoding="utf-8")
+PY
+
+  rm -f "$omp_dir/extensions/aoc-openai-stt.ts"
+
+  echo "Installed OMP native STT defaults to $config_file and $keybindings_file"
+}
+
 
 install_hypr_empty_workspace_fallback() {
   [[ -f "$hypr_bindings" ]] || return 0
@@ -118,6 +192,8 @@ for extension_name in "${omp_extensions[@]}"; do
     echo "Warning: missing $extension_src; skipping AOC OMP extension" >&2
   fi
 done
+
+install_omp_stt_defaults
 
 if command -v aoc-omp-context >/dev/null 2>&1 && command -v aoc-omp >/dev/null 2>&1; then
   echo "AOC OMP context capsule available via: aoc-omp-context"
