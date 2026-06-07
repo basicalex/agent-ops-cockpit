@@ -1,0 +1,259 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+command_name="${1:-status}"
+if [[ "$command_name" == "-h" || "$command_name" == "--help" ]]; then
+  command_name="help"
+fi
+
+tracked_paths=(
+  ".aoc"
+  ".taskmaster"
+  ".pi"
+  ".omp/extensions"
+  ".omp/agents"
+  "AGENTS.md"
+  "DESIGN.md"
+)
+
+ignored_roots=(
+  ".aoc/logs"
+  ".aoc/**/*.log"
+  ".aoc/**/*.lock"
+  ".aoc/mind"
+  ".taskmaster/logs"
+  ".taskmaster/**/*.log"
+  ".taskmaster/**/*.lock"
+  ".pi/tmp"
+  ".pi/packages/pi-multi-auth-aoc/debug"
+  "**/.aoc-backups"
+  ".codegraph"
+)
+
+usage() {
+  cat <<'EOF'
+Usage: aoc state status
+       aoc-state status
+
+Read-only audit of repo-owned AOC project state. It never commits or pushes.
+EOF
+}
+
+json_get() {
+  local expr="$1"
+  python3 -c 'import json,sys
+expr=sys.argv[1]
+try:
+    data=json.load(sys.stdin)
+except Exception:
+    sys.exit(1)
+cur=data
+for part in expr.split("."):
+    if not isinstance(cur, dict) or part not in cur:
+        sys.exit(1)
+    cur=cur[part]
+if isinstance(cur, bool):
+    print("true" if cur else "false")
+elif cur is None:
+    print("")
+else:
+    print(cur)
+' "$expr"
+}
+
+existing_tracked_paths() {
+  local path=""
+  for path in "${tracked_paths[@]}"; do
+    if [[ -e "$path" ]]; then
+      printf '%s\n' "$path"
+    fi
+  done
+}
+
+expected_runtime_path() {
+  local path="$1"
+  case "$path" in
+    .aoc/logs|.aoc/logs/*|.aoc/mind|.aoc/mind/*|.aoc/tools|.aoc/tools/*|.taskmaster/logs|.taskmaster/logs/*|.pi/tmp|.pi/tmp/*|.pi/packages/pi-multi-auth-aoc/debug|.pi/packages/pi-multi-auth-aoc/debug/*|.codegraph|.codegraph/*|*/.aoc-backups|*/.aoc-backups/*)
+      return 0
+      ;;
+    *.log|*.lock|*.db|*.sqlite|*.sqlite3|*.db-wal|*.db-shm|*.sqlite-wal|*.sqlite-shm)
+      return 0
+      ;;
+  esac
+  return 1
+}
+
+likely_unsafe_name() {
+  local path="$1"
+  local base="${path##*/}"
+  local lower="${base,,}"
+  case "$path" in
+    */.env|.env|*.env|*.pem|*.key|*.p12|*.pfx|*.db|*.sqlite|*.sqlite3|*.db-wal|*.db-shm|*.sqlite-wal|*.sqlite-shm|*.log|*.lock)
+      return 0
+      ;;
+  esac
+  case "$lower" in
+    api_key|api-key|apikey|*.api_key|*.api-key|*.apikey|*runtime*token*.log|*token*runtime*.log|*secret*.env|*credential*.env|*password*.env)
+      return 0
+      ;;
+  esac
+  return 1
+}
+
+list_files_under_tracked_roots() {
+  local path=""
+  for path in "${tracked_paths[@]}"; do
+    if [[ -f "$path" ]]; then
+      printf '%s\0' "$path"
+    elif [[ -d "$path" ]]; then
+      find "$path" -type f -print0
+    fi
+  done
+}
+
+print_section() {
+  printf '\n## %s\n' "$1"
+}
+
+run_checked() {
+  local label="$1"
+  shift
+  printf '\n$ %s\n' "$label"
+  if "$@"; then
+    return 0
+  fi
+  printf '(command failed: %s)\n' "$label"
+  return 0
+}
+
+state_status() {
+  local handshake=""
+  local vcs_kind="unknown"
+  local remote=""
+  local preferred=""
+
+  handshake="$(aoc-handshake --json 2>/dev/null || true)"
+  if [[ -n "$handshake" ]]; then
+    vcs_kind="$(printf '%s' "$handshake" | json_get vcs.kind 2>/dev/null || printf 'unknown')"
+    preferred="$(printf '%s' "$handshake" | json_get vcs.preferredTool 2>/dev/null || printf '')"
+  elif [[ -d .jj ]]; then
+    vcs_kind="jj"
+    preferred="jj"
+  elif [[ -d .git ]]; then
+    vcs_kind="git"
+    preferred="git"
+  fi
+
+  printf 'AOC project state audit\n'
+  printf 'VCS: %s' "$vcs_kind"
+  if [[ -n "$preferred" ]]; then
+    printf ' (preferred: %s)' "$preferred"
+  fi
+  printf '\n'
+
+  print_section "Tracked state roots"
+  printf '%s\n' "${tracked_paths[@]}"
+
+  print_section "Ignored runtime/churn roots"
+  printf '%s\n' "${ignored_roots[@]}"
+
+  print_section "Unsafe artifact scan"
+  local unsafe_count=0
+  local runtime_count=0
+  local path=""
+  while IFS= read -r -d '' path; do
+    if expected_runtime_path "$path"; then
+      runtime_count=$((runtime_count + 1))
+      continue
+    fi
+    if likely_unsafe_name "$path"; then
+      printf 'BLOCKED unsafe candidate: %s\n' "$path"
+      unsafe_count=$((unsafe_count + 1))
+    fi
+  done < <(list_files_under_tracked_roots)
+  printf 'Runtime/churn artifacts excluded by policy: %s\n' "$runtime_count"
+  if [[ "$unsafe_count" -eq 0 ]]; then
+    printf 'No unsafe state candidates found by name/pattern scan.\n'
+  else
+    printf 'Unsafe state candidates: %s\n' "$unsafe_count"
+  fi
+
+  print_section "Unexpected ignore audit"
+  local ignored_count=0
+  local sample_count=0
+  if command -v git >/dev/null 2>&1; then
+    while IFS= read -r -d '' path; do
+      if expected_runtime_path "$path"; then
+        continue
+      fi
+      if git check-ignore -q -- "$path" 2>/dev/null; then
+        if [[ "$sample_count" -lt 20 ]]; then
+          printf 'IGNORED unexpectedly: %s\n' "$path"
+          sample_count=$((sample_count + 1))
+        fi
+        ignored_count=$((ignored_count + 1))
+      fi
+    done < <(list_files_under_tracked_roots)
+    if [[ "$ignored_count" -eq 0 ]]; then
+      printf 'No unexpectedly ignored project-state files found.\n'
+    else
+      printf 'Unexpectedly ignored project-state files: %s\n' "$ignored_count"
+    fi
+  else
+    printf 'Git unavailable; cannot run git check-ignore audit.\n'
+  fi
+
+  mapfile -t existing_paths < <(existing_tracked_paths)
+  if [[ "${#existing_paths[@]}" -eq 0 ]]; then
+    print_section "VCS state"
+    printf 'No tracked state roots exist yet.\n'
+    return 0
+  fi
+
+  if [[ "$vcs_kind" == "jj" ]]; then
+    print_section "Jujutsu state"
+    run_checked "jj status" jj status
+    run_checked "jj diff --summary -- <state filesets>" jj diff --summary -- "${existing_paths[@]}"
+    run_checked "jj diff --stat -- <state filesets>" jj diff --stat -- "${existing_paths[@]}"
+
+    print_section "Remote-tracking state presence"
+    local remote_count=""
+    remote_count="$(jj file list -r 'latest(remote_bookmarks())' -- "${existing_paths[@]}" 2>/dev/null | python3 -c 'import sys; print(sum(1 for _ in sys.stdin))' || true)"
+    if [[ -n "$remote_count" ]]; then
+      printf 'Project-state files visible at latest remote bookmark: %s\n' "$remote_count"
+    else
+      printf 'No remote bookmark file listing available; verify bookmarks before push.\n'
+    fi
+
+    print_section "Mixed-work reminder"
+    printf 'Review jj status/diff above. If @ includes unrelated feature work, split it before committing project state.\n'
+  elif [[ "$vcs_kind" == "git" ]]; then
+    print_section "Git state"
+    run_checked "git status --short -- <state paths>" git status --short -- "${existing_paths[@]}"
+    run_checked "git diff --stat -- <state paths>" git diff --stat -- "${existing_paths[@]}"
+  else
+    print_section "VCS state"
+    printf 'Unknown VCS; audit limited to filesystem and ignore-policy checks.\n'
+  fi
+
+  if [[ "$unsafe_count" -gt 0 || "$ignored_count" -gt 0 ]]; then
+    printf '\nState audit result: blocked until unsafe or unexpectedly ignored files are resolved.\n'
+    return 1
+  fi
+  printf '\nState audit result: project state is clean or trackable. Commit/push still require explicit workflow invocation.\n'
+}
+
+case "$command_name" in
+  status)
+    shift || true
+    state_status "$@"
+    ;;
+  help)
+    usage
+    ;;
+  *)
+    printf 'Unknown aoc-state command: %s\n' "$command_name" >&2
+    usage >&2
+    exit 2
+    ;;
+esac

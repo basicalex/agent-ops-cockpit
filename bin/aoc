@@ -7,6 +7,41 @@ if [[ "${1:-}" == "omp" ]]; then
   exec aoc-omp "$@"
 fi
 
+if [[ "${1:-}" == "state" ]]; then
+  shift
+  DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" >/dev/null 2>&1 && pwd)"
+  if [[ -x "$DIR/aoc-state" ]]; then
+    exec "$DIR/aoc-state" "$@"
+  fi
+  exec aoc-state "$@"
+fi
+
+if [[ "${1:-}" == "services" ]]; then
+  shift
+  case "${1:-workspace}" in
+    workspace|focus)
+      shift || true
+      exec aoc-herdr-services focus "$@"
+      ;;
+    ensure)
+      shift
+      exec aoc-herdr-services ensure "$@"
+      ;;
+    status|up|start|stop|doctor)
+      exec aoc-services "$@"
+      ;;
+    -h|--help)
+      echo "Usage: aoc services [workspace|status|up|start|stop|doctor]"
+      exit 0
+      ;;
+    *)
+      echo "Unknown services command: $1" >&2
+      echo "Usage: aoc services [workspace|status|up|start|stop|doctor]" >&2
+      exit 2
+      ;;
+  esac
+fi
+
 if [[ $# -gt 0 ]]; then
   case "$1" in
     task|mem|rlm|insight|overseer|map|see|--help|-h)

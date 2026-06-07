@@ -1,10 +1,10 @@
 # Agents
 
-AOC is Pi-first. The canonical runtime is the Pi coding agent.
+AOC is Herdr/OMP-first. OMP is the active coding-agent runtime and owns subagent orchestration. AOC provides project context, prompts, extensions, agent templates, and compatibility assets.
 
 ## Runtime contract
 
-Project-local Pi files live under `.pi/`:
+Project-local compatibility/source files still live under `.pi/` because AOC reuses those skills, prompts, and extension sources as managed project content:
 
 ```text
 .pi/settings.json
@@ -14,6 +14,22 @@ Project-local Pi files live under `.pi/`:
 .pi/packages/
 ```
 
+Repo-owned OMP source surfaces live under `.omp/`:
+
+```text
+.omp/extensions/
+.omp/agents/
+```
+
+`aoc-init` and `aoc-herdr-install` sync those sources into the active OMP runtime directory:
+
+```text
+${PI_CODING_AGENT_DIR:-~/.omp/agent}/extensions/
+${PI_CODING_AGENT_DIR:-~/.omp/agent}/agents/
+```
+
+The environment variable name is legacy. The target is the OMP agent runtime directory. Treat `~/.omp/agent` as user/runtime state; do not commit it.
+
 Run:
 
 ```bash
@@ -21,17 +37,17 @@ aoc-init
 aoc-skill validate --root .
 ```
 
-to seed or repair project-local Pi assets.
+to seed or repair project-local AOC assets and sync OMP extensions/agent templates.
 
 ## Model/auth setup
 
-Use Pi's own model and auth surfaces for provider credentials and model selection. AOC seeds useful project defaults, but it does not want secrets committed to the repo.
+Use OMP's own model and auth surfaces for provider credentials and model selection. AOC seeds useful defaults and agent manifests, but it must not commit secrets.
 
-Never commit API keys into `.pi/settings.json` or any project file.
+Never commit API keys into `.pi/settings.json`, `.omp/**`, OMP runtime config files, `.aoc/**`, docs, prompts, or manifests.
 
-## Skills
+## Skills and prompts
 
-AOC skills are Pi skills under:
+AOC skills remain project source documentation under:
 
 ```text
 .pi/skills/<name>/SKILL.md
@@ -44,10 +60,6 @@ aoc-skill sync --root .
 aoc-skill validate --root .
 ```
 
-See [Skills](skills.md).
-
-## Prompts
-
 Project prompts live under:
 
 ```text
@@ -57,54 +69,83 @@ Project prompts live under:
 Examples:
 
 - `tm-cc.md` for cross-project Taskmaster control
-- `hyperframes.md` for HyperFrames work
+- `hyperframes.md` for HyperFrames compatibility/source prompts
 
-## Extensions
+See [Skills](skills.md).
 
-Project Pi extensions live under:
+## OMP extensions
+
+AOC OMP extensions are repo-tracked under `.omp/extensions/` and synced to the OMP runtime extension directory.
+
+Current OMP surfaces include:
+
+- `aoc-codegraph.ts` — read-only CodeGraph tool for indexed code discovery.
+- `aoc-mind.ts` — read-only AOC Mind evidence/provenance tool.
+- `aoc-commit.ts` — `/commit` safe atomic commit workflow for Git-only and Jujutsu repositories; it follows detected VCS metadata and never pushes without explicit approval.
+- `aoc-state.ts` — `/state-status`, `/state-commit`, and `/state-push` workflows for repo-owned AOC project state; commit and push are separate, explicit steps.
+- `aoc-jj-init.ts` — `/jj-init` explicit workflow for initializing colocated Jujutsu over an existing Git repo after dirty-work inspection.
+- `aoc-brand-content.ts` — `/brand-content` and `/hyperframes-director` HyperFrames branded-content modes.
+- `aoc-web-search.ts` — `aoc_web_search` wrapper around local `aoc-search`/SearXNG plus direct package/GitHub lookup modes for agents when built-in paid web-search providers fail.
+
+Project-local `.pi/extensions/` remains a compatibility/source surface. Do not base new operator workflows on legacy Pi subagent controls when an OMP extension exists.
+
+## OMP subagents
+
+AOC-managed OMP agent templates live in the repo under:
 
 ```text
-.pi/extensions/
+.omp/agents/
 ```
 
-They provide AOC surfaces such as presets, Mind/context commands, models, subagents, CodeGraph-assisted code discovery, and UI integration.
-
-### CodeGraph agent tool
-
-AOC includes a default project-local `aoc_codegraph` Pi tool (`.pi/extensions/aoc-codegraph.ts`) for the main AOC agent and selected specialists. It is read-only and shells out to an existing local `codegraph` CLI/index for fast symbol search, context building, call graph probes, impact analysis, file listing, and affected-test selection. Install/update the CLI from `Alt+C -> Tools -> CodeGraph agent index`; AOC installs it globally with `pnpm add -g @colbymchenry/codegraph`. The agent tool itself does not install CodeGraph or initialize/index projects; if CodeGraph is missing or uninitialized, agents should fall back to narrow built-in inspection and report the limitation.
-
-## Subagents
-
-Detached specialist agents live under:
+`aoc-init` and `aoc-herdr-install` copy them into:
 
 ```text
-.pi/agents/
+${PI_CODING_AGENT_DIR:-~/.omp/agent}/agents/
 ```
 
-Use them only through explicit Pi/AOC subagent controls. Reference details live in [reference/subagent-runtime.md](reference/subagent-runtime.md).
+The branded content pipeline provides:
 
-## HyperFrames
+- `brand-strategy` — brand soul, audience, voice, visual world, off-brand boundaries.
+- `brand-concept` — campaign directions and GPT Image 2 prompt packs.
+- `svg-asset` — clean SVG specs/code from approved image regions.
+- `hyperframes-content` — html-video/HyperFrames storyboard, composition, and shotlist specs.
+
+These specialists initially produce exact specs and target paths; the primary OMP agent/operator applies writes after approval.
+
+## CodeGraph agent tool
+
+AOC includes an OMP `aoc_codegraph` tool for read-only symbol search, context building, call graph probes, impact analysis, file listing, and affected-test selection. The tool shells out to an existing local `codegraph` CLI/index. It never installs CodeGraph or initializes/indexes projects.
+
+Operators run CodeGraph setup explicitly, for example:
+
+```bash
+codegraph sync /path/to/project
+```
+
+## HyperFrames and branded content
 
 Run:
 
 ```bash
 aoc-hyperframes init
+# or only the branded pipeline docs/assets
+aoc-hyperframes brand init --brand <brand-slug>
 ```
 
-or:
+Then use OMP commands:
 
 ```text
-Alt+C -> Settings -> Tools -> HyperFrames -> Init workspace + campaign factory
+/brand-content strategy
+/brand-content concepts
+/brand-content image
+/brand-content review
+/brand-content svg
+/brand-content campaign
+/hyperframes-director campaign
 ```
 
-Then use:
-
-```text
-Alt+X -> AOC HyperFrames
-```
-
-See [HyperFrames](hyperframes.md).
+See [HyperFrames](hyperframes.md) and [html-video](html-video.md).
 
 ## Legacy boundary
 
-Older non-Pi runtime paths are not the active AOC surface. Compatibility/history notes live in [Deprecations](deprecations.md) and [archive/](archive/README.md).
+Legacy Pi runtime assets remain for compatibility and source reuse. The active AOC operator path is Herdr + OMP, not the legacy Pi subagent manager or Zellij cockpit.

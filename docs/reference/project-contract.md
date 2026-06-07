@@ -10,18 +10,20 @@ This page summarizes the project-local files AOC expects after `aoc-init`.
 .aoc/stm/current.md          # short-term handoff draft, managed by aoc-stm
 .aoc/rtk.toml                # RTK routing policy
 .aoc/mind-service.json       # project Mind launcher metadata
-.taskmaster/                 # Taskmaster tasks, tags, PRDs
+.taskmaster/                 # Taskmaster tasks, tags, specs/PRDs
 .pi/settings.json            # project Pi settings
 .pi/prompts/                 # project Pi prompts
 .pi/skills/                  # project Pi skills
 .pi/extensions/              # project Pi extensions
+.omp/extensions/             # repo-owned AOC OMP extension sources
+.omp/agents/                 # repo-owned AOC OMP agent template sources
 DESIGN.md                    # root product/design contract; Google Labs design.md-compatible YAML tokens + prose
 AGENTS.md                    # agent rules for the repo
 ```
 
-## Git policy
+## Git/Jujutsu tracking policy
 
-AOC project state should be tracked:
+AOC project source/state should be tracked:
 
 ```gitignore
 !/.aoc/
@@ -30,9 +32,30 @@ AOC project state should be tracked:
 !/.taskmaster/**
 !/.pi/
 !/.pi/**
+!/.omp/
+!/.omp/extensions/
+!/.omp/extensions/**
+!/.omp/agents/
+!/.omp/agents/**
 ```
 
-Do not commit secrets.
+Keep runtime/churn state ignored:
+
+```gitignore
+/.aoc/logs/
+/.aoc/**/*.log
+/.aoc/**/*.lock
+/.aoc/mind/
+/.taskmaster/logs/
+/.taskmaster/**/*.log
+/.taskmaster/**/*.lock
+/.pi/tmp/
+/.pi/packages/pi-multi-auth-aoc/debug/
+**/.aoc-backups/
+.codegraph/
+```
+
+Do not commit secrets, tokens, private logs, live Mind databases, lock files, caches, or OMP runtime state from `~/.omp/agent`.
 
 ## Commands
 
@@ -40,6 +63,7 @@ Do not commit secrets.
 aoc-init                  # initialize/repair project contract
 aoc-init --status         # summarize project readiness
 aoc-handshake --json      # agent startup metadata
+aoc state status          # read-only audit of trackable project state
 aoc-skill validate --root .
 aoc-doctor
 pnpm design:lint          # validate root DESIGN.md against Google Labs design.md format

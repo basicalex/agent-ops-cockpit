@@ -1007,7 +1007,7 @@ STM is for deliberate directed in-progress handoff packets only; it is not a mai
 - Task spec overrides are currently stored via legacy key `aocPrd`; resolve with `aoc-task spec show <id> --tag <tag>`.
 - Effective precedence is task spec override -> tag default spec.
 - Keep task specs in git: `.taskmaster/docs/specs/**` and legacy `.taskmaster/docs/prds/**` should always be tracked.
-- Keep AOC/task/config state in git: `.aoc/**`, `.taskmaster/**`, and `.pi/**` should not be ignored except explicit high-churn runtime artifacts such as logs, locks, and `.aoc/mind/project.sqlite`.
+- Keep AOC/task/config/source state in git: `.aoc/**`, `.taskmaster/**`, `.pi/**`, `.omp/extensions/**`, `.omp/agents/**`, `AGENTS.md`, and `DESIGN.md` should not be ignored except explicit high-churn runtime artifacts such as logs, locks, caches, debug output, and live Mind databases.
 
 ## Task Management
 - `.taskmaster/tasks/tasks.json` is task state; use the Taskmaster TUI, `aoc-task`, or `tm` (alias for `aoc-task`). Do not edit the file directly.
@@ -1488,6 +1488,11 @@ ensure_git_tracking_policy() {
     "!/.taskmaster/**"
     "!/.pi/"
     "!/.pi/**"
+    "!/.omp/"
+    "!/.omp/extensions/"
+    "!/.omp/extensions/**"
+    "!/.omp/agents/"
+    "!/.omp/agents/**"
   )
 
   for line in "${rules[@]}"; do
@@ -1498,9 +1503,9 @@ ensure_git_tracking_policy() {
   done
 
   if [[ "$changed" == "1" ]]; then
-    log "Updated .gitignore to keep .aoc/, .taskmaster/, and .pi/ tracked."
+    log "Updated .gitignore to keep .aoc/, .taskmaster/, .pi/, and repo-owned .omp/ sources tracked."
   else
-    log ".gitignore already keeps .aoc/, .taskmaster/, and .pi/ tracked."
+    log ".gitignore already keeps .aoc/, .taskmaster/, .pi/, and repo-owned .omp/ sources tracked."
   fi
 }
 
@@ -1975,7 +1980,7 @@ description: Initialize or repair AOC context, memory, and tasks safely.
 - Ensures spec directory `.taskmaster/docs/specs/` is available for tag/task links
 - Seeds `.pi/settings.json` when missing
 - Seeds and refreshes managed core PI prompt templates in `.pi/prompts/` (`/aoc-ops`, `/tm-cc`, `/lexicon`, `/commit`); legacy `/implement`, `/handoff`, and `/rresume` prompts are not seeded for Herdr/OMP defaults
-- Installs AOC OMP extensions (`aoc-codegraph.ts`, `aoc-mind.ts`, `aoc-commit.ts`, `aoc-jj-init.ts`, `aoc-brand-content.ts`, `aoc-web-search.ts`) into the configured OMP agent extension directory when available
+- Installs AOC OMP extensions (`aoc-codegraph.ts`, `aoc-mind.ts`, `aoc-commit.ts`, `aoc-state.ts`, `aoc-jj-init.ts`, `aoc-brand-content.ts`, `aoc-web-search.ts`) into the configured OMP agent extension directory when available
 - Installs AOC OMP agent templates (`brand-strategy.md`, `brand-concept.md`, `svg-asset.md`, `hyperframes-content.md`) into the configured OMP agent directory when available
 - Seeds PI default extensions in `.pi/extensions/` (`minimal.ts`, `themeMap.ts`, `mind-ingest.ts`, `mind-ops.ts`, `mind-context.ts`, `mind-focus.ts`, `aoc-models.ts`, `aoc-codegraph.ts`, `aoc-compaction.ts`, plus `lib/mind.ts` and `lib/caveman.ts`) when missing
 - Seeds the preset runtime family in `.pi/extensions/aoc-presets/` when missing
@@ -2154,6 +2159,7 @@ setup_omp_extensions() {
     "aoc-codegraph.ts"
     "aoc-mind.ts"
     "aoc-commit.ts"
+    "aoc-state.ts"
     "aoc-jj-init.ts"
     "aoc-brand-content.ts"
     "aoc-web-search.ts"

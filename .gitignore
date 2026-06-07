@@ -52,6 +52,11 @@ __pycache__/
 !/.taskmaster/**
 !/.pi/
 !/.pi/**
+!/.omp/
+!/.omp/extensions/
+!/.omp/extensions/**
+!/.omp/agents/
+!/.omp/agents/**
 
 # Ignore high-churn runtime artifacts
 /.aoc/logs/
@@ -165,3 +170,14 @@ __pycache__/
 
 # Local Pi subagent runtime artifacts
 .pi/tmp/
+
+
+
+
+
+
+
+
+
+
+
