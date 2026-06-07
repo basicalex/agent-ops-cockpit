@@ -23,7 +23,7 @@ assert_not_exists() {
 assert_contains() {
   local needle="$1"
   local file="$2"
-  grep -Fq "$needle" "$file" || fail "Expected '$needle' in $file"
+  grep -Fq -- "$needle" "$file" || fail "Expected '$needle' in $file"
 }
 
 assert_same_file() {
@@ -128,15 +128,22 @@ run_init "$project_fresh" "$fresh_log_1"
 
 assert_exists "$omp_config"
 assert_exists "$omp_keybindings"
-assert_not_exists "$HOME/.omp/agent/extensions/aoc-openai-stt.ts"
+assert_exists "$HOME/.omp/agent/extensions/aoc-openai-stt.ts"
+assert_contains 'pi.registerShortcut("alt+space"' "$HOME/.omp/agent/extensions/aoc-openai-stt.ts"
 assert_contains 'stt:' "$omp_config"
 assert_contains '  enabled: true' "$omp_config"
 assert_contains '  provider: openai' "$omp_config"
 assert_contains '  modelName: base.en' "$omp_config"
 assert_contains '  openaiModelName: gpt-4o-mini-transcribe' "$omp_config"
-assert_contains 'app.stt.toggle: Alt+Shift+H' "$omp_keybindings"
+assert_contains 'app.stt.toggle: Ctrl+Alt+Shift+H' "$omp_keybindings"
 assert_exists "$project_fresh/.aoc/context.md"
 assert_exists "$project_fresh/.aoc/memory.md"
+assert_contains "- VCS: git" "$project_fresh/.aoc/context.md"
+assert_contains "- Git branch:" "$project_fresh/.aoc/context.md"
+assert_not_exists "$project_fresh/.jj"
+if grep -Fq ".jj" "$project_fresh/.aoc/context.md"; then
+  fail "Did not expect .jj to appear in fresh git-only context"
+fi
 assert_exists "$project_fresh/.aoc/stm/current.md"
 assert_exists "$project_fresh/.aoc/init-state.json"
 assert_contains '"projectAocVersion": 3' "$project_fresh/.aoc/init-state.json"
@@ -158,10 +165,10 @@ if grep -Fq '"kimi-coding/kimi-for-coding"' "$project_fresh/.pi/settings.json"; 
   fail "Did not expect retired Kimi coding model in fresh PI settings"
 fi
 assert_exists "$project_fresh/.pi/prompts/tm-cc.md"
-assert_exists "$project_fresh/.pi/prompts/handoff.md"
-assert_exists "$project_fresh/.pi/prompts/rresume.md"
-assert_contains 'Operator handoff focus:' "$project_fresh/.pi/prompts/handoff.md"
-assert_contains 'safe_to_resume_latest' "$project_fresh/.pi/prompts/rresume.md"
+assert_exists "$project_fresh/.pi/prompts/commit.md"
+assert_exists "$project_fresh/.pi/prompts/lexicon.md"
+assert_exists "$project_fresh/.pi/prompts/aoc-ops.md"
+assert_contains 'VCS-aware commit flow' "$project_fresh/.pi/prompts/commit.md"
 assert_exists "$project_fresh/.pi/skills/aoc-init-ops/SKILL.md"
 assert_exists "$project_fresh/.pi/skills/spec-rpg-authoring/SKILL.md"
 assert_contains 'docs/specs' "$project_fresh/.pi/skills/spec-rpg-authoring/SKILL.md"
@@ -174,15 +181,13 @@ assert_exists "$project_fresh/.pi/extensions/mind-ops.ts"
 assert_exists "$project_fresh/.pi/extensions/mind-context.ts"
 assert_exists "$project_fresh/.pi/extensions/mind-focus.ts"
 assert_exists "$project_fresh/.pi/extensions/aoc-models.ts"
-assert_exists "$project_fresh/.pi/extensions/subagent.ts"
-assert_exists "$project_fresh/.pi/extensions/subagent/artifacts.ts"
-assert_exists "$project_fresh/.pi/extensions/subagent/manifests.ts"
-assert_exists "$project_fresh/.pi/extensions/subagent/registry.ts"
-assert_exists "$project_fresh/.pi/extensions/subagent/shared.ts"
+assert_exists "$project_fresh/.pi/extensions/aoc-codegraph.ts"
+assert_exists "$project_fresh/.pi/extensions/aoc-compaction.ts"
+assert_not_exists "$project_fresh/.pi/extensions/subagent.ts"
+assert_not_exists "$project_fresh/.pi/extensions/subagent"
 assert_exists "$project_fresh/.pi/extensions/lib/mind.ts"
 assert_exists "$project_fresh/.pi/extensions/lib/caveman.ts"
 assert_not_exists "$project_fresh/.pi/extensions/alibaba-model-studio.ts"
-assert_exists "$HOME/.config/zellij/plugins/zjstatus-aoc.wasm"
 
 assert_not_exists "$project_fresh/.aoc/skills"
 assert_not_exists "$project_fresh/.codex/skills"
@@ -190,23 +195,34 @@ assert_not_exists "$project_fresh/.claude/skills"
 assert_not_exists "$project_fresh/.opencode/skills"
 assert_not_exists "$project_fresh/.agents/skills"
 
-printf 'custom teach marker\n' > "$project_fresh/.pi/prompts/teach.md"
-rm -f "$HOME/.config/zellij/plugins/zjstatus-aoc.wasm"
+printf 'deprecated teach marker\n' > "$project_fresh/.pi/prompts/teach.md"
 run_init "$project_fresh" "$fresh_log_2"
-assert_contains "custom teach marker" "$project_fresh/.pi/prompts/teach.md"
-assert_exists "$HOME/.config/zellij/plugins/zjstatus-aoc.wasm"
+assert_not_exists "$project_fresh/.pi/prompts/teach.md"
 
 install_count="$(grep -c 'pi-multi-auth' "$AOC_PI_TEST_INSTALL_LOG" 2>/dev/null || true)"
 [[ "$install_count" -eq 0 ]] || fail "Expected no global pi-multi-auth install attempts, got $install_count"
 
+
+# --- Jujutsu metadata is reported, never initialized ---
+project_jj="$tmp_root/jj-colocated"
+mkdir -p "$project_jj/.git" "$project_jj/.jj"
+jj_log="$tmp_root/jj-init.log"
+run_init "$project_jj" "$jj_log"
+assert_exists "$project_jj/.jj"
+assert_contains "- VCS: jj (colocated with git)" "$project_jj/.aoc/context.md"
+assert_contains "- Git branch:" "$project_jj/.aoc/context.md"
+assert_contains "- Jujutsu root: $project_jj" "$project_jj/.aoc/context.md"
+assert_contains "- Jujutsu colocation: yes" "$project_jj/.aoc/context.md"
+if grep -Fq ".jj" "$project_jj/.aoc/context.md"; then
+  fail "Did not expect .jj internals in generated project tree"
+fi
 # --- Managed extension/preset/skill refresh flow (stale project copies upgraded) ---
 project_refresh="$tmp_root/refresh"
 mkdir -p "$project_refresh/.git" \
   "$project_refresh/.pi/extensions/aoc-presets" \
   "$project_refresh/.pi/extensions/lib" \
   "$project_refresh/.pi/skills/design-director" \
-  "$project_refresh/.aoc/presets/design/components" \
-  "$project_refresh/.aoc/layouts"
+  "$project_refresh/.aoc/presets/design/components"
 mkdir -p "$XDG_CONFIG_HOME/aoc/pi/extensions"
 
 cat > "$XDG_CONFIG_HOME/aoc/pi/extensions/minimal.ts" <<'EOF'
@@ -238,11 +254,6 @@ EOF
 cat > "$project_refresh/.aoc/presets/design/components/mode-critique.md" <<'EOF'
 stale preset component
 EOF
-cat > "$project_refresh/.aoc/layouts/design.kdl" <<'EOF'
-layout {
-  pane
-}
-EOF
 
 refresh_log="$tmp_root/refresh-init.log"
 run_init "$project_refresh" "$refresh_log"
@@ -252,10 +263,8 @@ assert_same_file "$repo_root/.pi/extensions/lib/caveman.ts" "$project_refresh/.p
 assert_same_file "$repo_root/.pi/skills/design-director/SKILL.md" "$project_refresh/.pi/skills/design-director/SKILL.md"
 assert_same_file "$repo_root/.aoc/presets/design/preset.toml" "$project_refresh/.aoc/presets/design/preset.toml"
 assert_same_file "$repo_root/.aoc/presets/design/components/mode-critique.md" "$project_refresh/.aoc/presets/design/components/mode-critique.md"
-assert_same_file "$repo_root/.aoc/layouts/design.kdl" "$project_refresh/.aoc/layouts/design.kdl"
 assert_contains "Refreshed managed PI extension family: aoc-presets" "$refresh_log"
 assert_contains "Refreshed managed AOC preset assets: design" "$refresh_log"
-assert_contains "Refreshed managed AOC layout: design" "$refresh_log"
 
 # --- Existing PI settings remain authoritative when already customized ---
 project_settings="$tmp_root/settings-preserve"

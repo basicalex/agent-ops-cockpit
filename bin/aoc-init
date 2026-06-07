@@ -820,6 +820,70 @@ print(f"  managed_assets_unknown: {counts.get('unknown', 0)}")
 PY
 }
 
+aoc_vcs_status_line() {
+  python3 - "$project_root" <<'PY'
+import subprocess
+import sys
+from pathlib import Path
+
+root = Path(sys.argv[1])
+git_present = (root / ".git").exists()
+jj_present = (root / ".jj").exists()
+if jj_present:
+    suffix = " (colocated with git)" if git_present else ""
+    print(f"jj{suffix}")
+elif git_present:
+    print("git")
+else:
+    print("none")
+PY
+}
+
+aoc_vcs_context_lines() {
+  python3 - "$project_root" <<'PY'
+import subprocess
+import sys
+from pathlib import Path
+
+root = Path(sys.argv[1])
+git_present = (root / ".git").exists()
+jj_present = (root / ".jj").exists()
+
+def run(cmd):
+    try:
+        proc = subprocess.run(cmd, cwd=str(root), text=True, capture_output=True, timeout=3)
+    except Exception:
+        return None
+    if proc.returncode != 0:
+        return None
+    text = proc.stdout.strip()
+    return text.splitlines()[0] if text else None
+
+git_branch = None
+if git_present:
+    git_branch = run(["git", "branch", "--show-current"]) or run(["git", "rev-parse", "--short", "HEAD"]) or "unknown"
+
+jj_root = str(root) if jj_present else None
+if jj_present:
+    jj_root = run(["jj", "root"]) or jj_root
+
+if jj_present:
+    vcs = "jj (colocated with git)" if git_present else "jj"
+elif git_present:
+    vcs = "git"
+else:
+    vcs = "none"
+
+print(f"- VCS: {vcs}")
+if git_branch:
+    print(f"- Git branch: {git_branch}")
+if jj_present:
+    print(f"- Jujutsu root: {jj_root}")
+    print(f"- Jujutsu colocation: {'yes' if git_present else 'no'}")
+PY
+}
+
+
 print_project_aoc_status() {
   local current_version="0"
   local runtime_status=""
@@ -863,6 +927,7 @@ PY
 
   printf '%s\n' "AOC Init Status"
   printf '%s\n' "  project_root: $project_root"
+  printf '%s\n' "  vcs: $(aoc_vcs_status_line)"
   printf '%s\n' "  target_project_aoc_version: $AOC_PROJECT_LAYOUT_VERSION"
   printf '%s\n' "  project_aoc_version: $current_version"
   printf '%s\n' "  init_state: $([[ -f "$state_path" ]] && echo present || echo missing)"
@@ -900,11 +965,13 @@ This file defines the always-on rules for agents in this repo. Procedural playbo
 - RTK exists to improve context health: allowlisted noisy commands are condensed for better signal density, with fail-open native fallback.
 
 ## Startup handshake
-- `aoc-handshake --json` is the metadata-only startup packet for agents: AOC status, Taskmaster tag, Mind availability, and usage policy.
+- `aoc-handshake --json` is the metadata-only startup packet for agents: AOC status, Taskmaster tag, Mind availability, VCS mode/preferred command family, and usage policy.
 - Startup must not load broad Mind memories or context packs by default; use the handshake to discover Mind, not to prime direction.
 - Mind may sync/ingest in the background, but retrieval should be lazy and intent-bound.
 - Request focused Mind context only after user intent is known, for resume/continuation, prior decisions, task/spec grounding, debugging previous attempts, provenance/audit, or when targeted local inspection is insufficient.
 - Always pass an explicit reason when requesting Mind context; prefer focused/provenance/resume modes over broad recall.
+- Prefer `jj` commands when handshake VCS metadata reports Jujutsu, including colocated Jujutsu+Git repositories; prefer Git commands only in Git-only repositories.
+- Jujutsu setup/import/init/export is operator-controlled. AOC init reports existing `.jj` state but must not create or initialize Jujutsu; use explicit `/jj-init` or a direct shell command for setup.
 
 ## Low-Token Default Mode
 - Keep responses concise by default; do not print full files or raw logs unless explicitly requested.
@@ -925,6 +992,7 @@ These commands are in PATH and work without loading any skill:
 - STM directed handoff only: `aoc-stm status`, `aoc-stm template --purpose <kind>`, `aoc-stm`, `aoc-stm add "note"`, `aoc-stm handoff --purpose <kind> --to <recipient> --focus <focus>`, `aoc-stm resume <archive>`
 - Tasks: `tm tag current`, `tm tag spec show`, `aoc-task tag spec show --tag <tag>`, `aoc-task spec show <id> --tag <tag>`
 - RTK: `aoc-rtk status`, `aoc-rtk doctor`, `aoc-rtk install --auto`, `aoc-rtk enable|disable`
+- VCS: inspect detected mode with `aoc-handshake --json`; use `jj status`/`jj diff` in Jujutsu repos and `git status`/`git diff` in Git-only repos; use `/jj-init` only for explicit colocated Jujutsu setup.
 
 STM is for deliberate directed in-progress handoff packets only; it is not a mailbox and does not notify another agent by itself. Pass the printed next-agent brief or exact archive explicitly. In Pi, `/handoff <focus>` asks the agent to generate a clean purpose-matched packet for the current work; `/rresume [archive]` asks the agent to load a sealed handoff into context safely. Do not use STM for durable decisions, generic logs, raw command output, or every minor task.
 
@@ -1232,7 +1300,7 @@ Use the AOC tools for context, memory, and tasks in this repo.
 - **Tasks:** use `tm` or `aoc-task` via Bash tool (do not edit `.taskmaster/tasks/tasks.json` directly)
 - **Task specs:** tag-level defaults + task-level overrides via `aocPrd` (resolve with `aoc-task tag spec show --tag <tag>` and `aoc-task spec show <id> --tag <tag>`)
 - **RTK routing (default-on for new AOC repos):** allowlisted commands route via RTK in AOC panes; manage with `aoc-rtk status|enable|disable|doctor|install --auto` and `.aoc/rtk.toml`
-- **Startup handshake:** use `aoc-handshake --json` for metadata-only AOC/Mind availability. Do not load broad Mind memories at startup; request focused Mind context only after task intent is clear.
+- **Startup handshake:** use `aoc-handshake --json` for metadata-only AOC/Mind/VCS availability. Do not load broad Mind memories at startup; request focused Mind context only after task intent is clear. Prefer `jj` when the handshake reports Jujutsu, including colocated Jujutsu+Git repositories.
 
 If AOC files are missing or stale, run `aoc-init` at the repo root.
 EOF
@@ -1255,6 +1323,13 @@ allowlist = [
   "git show",
   "git branch",
   "git rev-parse",
+  "jj status",
+  "jj diff",
+  "jj log",
+  "jj show",
+  "jj root",
+  "jj git colocation status",
+  "jj operation log",
   "rg",
   "fd",
   "find",
@@ -1303,6 +1378,23 @@ denylist = [
   "git reset --hard",
   "git clean -fd",
   "git worktree remove",
+  "jj commit",
+  "jj describe",
+  "jj new",
+  "jj split",
+  "jj squash",
+  "jj abandon",
+  "jj rebase",
+  "jj restore",
+  "jj revert",
+  "jj undo",
+  "jj git push",
+  "jj git fetch",
+  "jj git import",
+  "jj git export",
+  "jj git init",
+  "jj git colocation enable",
+  "jj git colocation disable",
   "rm -rf",
   "sudo",
   "ssh",
@@ -1534,7 +1626,6 @@ EOF
   local context_tree_line_budget
   local readme_heading_limit
   local project_name
-  local current_branch="unknown"
   local tree_output=""
   local tree_lines=0
   local context_lines=0
@@ -1547,17 +1638,11 @@ EOF
   context_tree_line_budget="$(positive_int_or_default "${AOC_CONTEXT_TREE_LINE_BUDGET:-40}" 40)"
   readme_heading_limit="$(positive_int_or_default "${AOC_CONTEXT_README_HEADING_LIMIT:-40}" 40)"
 
-  if command -v git >/dev/null 2>&1 && git -C "$project_root" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
-    current_branch="$(git -C "$project_root" branch --show-current 2>/dev/null || true)"
-    if [[ -z "$current_branch" ]]; then
-      current_branch="$(git -C "$project_root" rev-parse --short HEAD 2>/dev/null || echo "detached")"
-    fi
-  fi
 
   if command -v tree >/dev/null 2>&1; then
-    tree_output="$(tree -L "$context_tree_depth" --gitignore -I '.git|.taskmaster|.aoc|.gemini|node_modules|target|dist|archive|deprecated|.venv|venv|__pycache__' "$project_root" 2>/dev/null || true)"
+    tree_output="$(tree -L "$context_tree_depth" --gitignore -I '.git|.jj|.taskmaster|.aoc|.gemini|node_modules|target|dist|archive|deprecated|.venv|venv|__pycache__' "$project_root" 2>/dev/null || true)"
   else
-    tree_output="$(cd "$project_root" && find . -maxdepth "$context_tree_depth" \( -path './.git' -o -path './.taskmaster' -o -path './.aoc' -o -path './.gemini' -o -path './node_modules' -o -path './target' -o -path './dist' -o -path './archive' -o -path './deprecated' -o -path './.venv' -o -path './venv' -o -path './__pycache__' \) -prune -o -print 2>/dev/null | sort || true)"
+    tree_output="$(cd "$project_root" && find . -maxdepth "$context_tree_depth" \( -path './.git' -o -path './.jj' -o -path './.taskmaster' -o -path './.aoc' -o -path './.gemini' -o -path './node_modules' -o -path './target' -o -path './dist' -o -path './archive' -o -path './deprecated' -o -path './.venv' -o -path './venv' -o -path './__pycache__' \) -prune -o -print 2>/dev/null | sort || true)"
   fi
   tree_lines="$(printf '%s\n' "$tree_output" | wc -l | tr -d ' ')"
 
@@ -1573,7 +1658,7 @@ EOF
     echo "## Repository"
     echo "- Name: $project_name"
     echo "- Root: $project_root"
-    echo "- Git branch: $current_branch"
+    aoc_vcs_context_lines
 
     echo
     echo "## Key Files"
@@ -1890,7 +1975,8 @@ description: Initialize or repair AOC context, memory, and tasks safely.
 - Ensures spec directory `.taskmaster/docs/specs/` is available for tag/task links
 - Seeds `.pi/settings.json` when missing
 - Seeds and refreshes managed core PI prompt templates in `.pi/prompts/` (`/aoc-ops`, `/tm-cc`, `/lexicon`, `/commit`); legacy `/implement`, `/handoff`, and `/rresume` prompts are not seeded for Herdr/OMP defaults
-- Installs AOC OMP extensions (`aoc-codegraph.ts`, `aoc-mind.ts`, `aoc-commit.ts`) into the configured OMP agent extension directory when available
+- Installs AOC OMP extensions (`aoc-codegraph.ts`, `aoc-mind.ts`, `aoc-commit.ts`, `aoc-jj-init.ts`, `aoc-brand-content.ts`, `aoc-web-search.ts`) into the configured OMP agent extension directory when available
+- Installs AOC OMP agent templates (`brand-strategy.md`, `brand-concept.md`, `svg-asset.md`, `hyperframes-content.md`) into the configured OMP agent directory when available
 - Seeds PI default extensions in `.pi/extensions/` (`minimal.ts`, `themeMap.ts`, `mind-ingest.ts`, `mind-ops.ts`, `mind-context.ts`, `mind-focus.ts`, `aoc-models.ts`, `aoc-codegraph.ts`, `aoc-compaction.ts`, plus `lib/mind.ts` and `lib/caveman.ts`) when missing
 - Seeds the preset runtime family in `.pi/extensions/aoc-presets/` when missing
 - Seeds reusable preset assets in `.aoc/presets/{design,hyperframes,ops,research,test}/` when missing
@@ -2068,6 +2154,10 @@ setup_omp_extensions() {
     "aoc-codegraph.ts"
     "aoc-mind.ts"
     "aoc-commit.ts"
+    "aoc-jj-init.ts"
+    "aoc-brand-content.ts"
+    "aoc-web-search.ts"
+    "aoc-openai-stt.ts"
   )
 
   if [[ ! -d "$omp_extension_seed_dir" ]]; then
@@ -2084,6 +2174,37 @@ setup_omp_extensions() {
       log "Installed AOC OMP extension: $extension_dst"
     else
       warn "Missing AOC OMP extension seed: $extension_name"
+    fi
+  done
+}
+
+setup_omp_agents() {
+  local omp_agent_seed_dir="$script_dir/../.omp/agents"
+  local omp_agent_dir="${PI_CODING_AGENT_DIR:-$HOME/.omp/agent}/agents"
+  local agent_name=""
+  local agent_src=""
+  local agent_dst=""
+  local required_agents=(
+    "brand-strategy.md"
+    "brand-concept.md"
+    "svg-asset.md"
+    "hyperframes-content.md"
+  )
+
+  if [[ ! -d "$omp_agent_seed_dir" ]]; then
+    warn "Missing AOC OMP agent seed directory: $omp_agent_seed_dir"
+    return 0
+  fi
+
+  mkdir -p "$omp_agent_dir"
+  for agent_name in "${required_agents[@]}"; do
+    agent_src="$omp_agent_seed_dir/$agent_name"
+    agent_dst="$omp_agent_dir/$agent_name"
+    if [[ -f "$agent_src" ]]; then
+      cp "$agent_src" "$agent_dst"
+      log "Installed AOC OMP agent template: $agent_dst"
+    else
+      warn "Missing AOC OMP agent seed: $agent_name"
     fi
   done
 }
@@ -2142,7 +2263,7 @@ import sys
 path = Path(sys.argv[1])
 lines = path.read_text(encoding="utf-8").splitlines() if path.exists() else []
 desired_key = "app.stt.toggle"
-desired_line = f"{desired_key}: Alt+Shift+H"
+desired_line = f"{desired_key}: Ctrl+Alt+Shift+H"
 found = False
 for index, line in enumerate(lines):
     stripped = line.strip()
@@ -2157,9 +2278,8 @@ if not found:
 path.write_text("\n".join(lines).rstrip() + "\n", encoding="utf-8")
 PY
 
-  rm -f "$omp_dir/extensions/aoc-openai-stt.ts"
 
-  log "Installed OMP native STT defaults: $config_file, $keybindings_file"
+  log "Installed OMP OpenAI STT defaults: $config_file, $keybindings_file"
 }
 
 
@@ -3288,8 +3408,8 @@ setup_pi_prompts() {
   local pi_prompts_dir="$project_root/.pi/prompts"
   local candidate=""
   local canonical_seed_dirs=(
-    "$aoc_config_dir/pi/prompts"
     "$script_dir/../.pi/prompts"
+    "$aoc_config_dir/pi/prompts"
   )
   local required_prompts=(
     "aoc-ops"
@@ -3663,71 +3783,6 @@ setup_aoc_map() {
   fi
 }
 
-repair_managed_zellij_plugin_wiring() {
-  local zellij_config="${ZELLIJ_CONFIG_DIR:-$HOME/.config/zellij}/aoc.config.kdl"
-  local zellij_layout="${ZELLIJ_CONFIG_DIR:-$HOME/.config/zellij}/layouts/aoc.kdl"
-  local managed_wasm="${ZELLIJ_CONFIG_DIR:-$HOME/.config/zellij}/plugins/zjstatus-aoc.wasm"
-
-  python3 - "$zellij_config" "$zellij_layout" "$managed_wasm" <<'PY'
-import sys
-from pathlib import Path
-
-config = Path(sys.argv[1])
-layout = Path(sys.argv[2])
-managed_wasm = sys.argv[3]
-
-if config.exists():
-    text = config.read_text(encoding="utf-8")
-    changed = False
-    alias = f'    aoc-tab-bar location="file:{managed_wasm}"\n'
-    if "aoc-tab-bar location=" not in text and '    tab-bar location="zellij:tab-bar"\n' in text:
-        text = text.replace('    tab-bar location="zellij:tab-bar"\n', '    tab-bar location="zellij:tab-bar"\n' + alias, 1)
-        changed = True
-    if "load_plugins {" in text:
-        before, rest = text.split("load_plugins {", 1)
-        body, after = rest.split("}", 1)
-        lines = [line for line in body.splitlines() if "aoc-tab-bar" not in line]
-        next_body = "\n".join(lines)
-        if next_body.strip():
-            next_text = before + "load_plugins {" + next_body + "\n}" + after
-        else:
-            next_text = before.rstrip() + "\n\n" + after.lstrip()
-        if next_text != text:
-            text = next_text
-            changed = True
-    if changed:
-        config.write_text(text, encoding="utf-8")
-
-if layout.exists():
-    text = layout.read_text(encoding="utf-8")
-    next_text = text.replace(f'plugin location="file:{managed_wasm}" {{', 'plugin location="aoc-tab-bar" {')
-    next_text = next_text.replace('plugin location="file:{{HOME}}/.config/zellij/plugins/zjstatus-aoc.wasm" {', 'plugin location="aoc-tab-bar" {')
-    if next_text != text:
-        layout.write_text(next_text, encoding="utf-8")
-PY
-}
-
-setup_managed_zellij_plugin() {
-  local plugin_cmd=""
-
-  if [[ -x "$script_dir/aoc-zellij-plugin" ]]; then
-    plugin_cmd="$script_dir/aoc-zellij-plugin"
-  elif command -v aoc-zellij-plugin >/dev/null 2>&1; then
-    plugin_cmd="$(command -v aoc-zellij-plugin)"
-  fi
-
-  if [[ -z "$plugin_cmd" ]]; then
-    warn "aoc-zellij-plugin not found; managed Zellij top-bar plugin may be missing."
-    return
-  fi
-
-  if "$plugin_cmd" install; then
-    repair_managed_zellij_plugin_wiring || true
-    log "Managed AOC Zellij plugin ready (~/.config/zellij/plugins/zjstatus-aoc.wasm)."
-  else
-    warn "Managed AOC Zellij plugin install failed."
-  fi
-}
 
 # 4. Ensure AOC Rust binaries are available
 setup_binaries() {
@@ -3802,6 +3857,7 @@ main() {
   setup_project_mind_service_config
   setup_project_mind_runtime
   setup_omp_extensions
+  setup_omp_agents
   setup_omp_stt_defaults
   setup_pi_packages
   setup_pi_settings
