@@ -59,8 +59,6 @@ edit_scrollback = "prefix+e"
 
 [ui]
 show_agent_labels_on_pane_borders = false
-# Make workspace/picker selection obvious; terminal theme defaults can be too dim.
-accent = "#89b4fa"
 
 agent_panel_scope = "all"
 [ui.toast]
@@ -73,9 +71,5 @@ pane_history = false
 enabled = true
 
 [theme]
-name = "catppuccin"
+name = "terminal"
 
-[theme.custom]
-accent = "#89b4fa"
-green = "#a6e3a1"
-red = "#f38ba8"

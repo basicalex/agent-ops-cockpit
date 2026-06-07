@@ -33,7 +33,8 @@
     "!skills/hyperframes",
     "!skills/hyperframes-cli",
     "!skills/website-to-hyperframes",
-    "!skills/gsap"
+    "!skills/gsap",
+    "+skills/omarchy-theme-ops"
   ],
   "packages": [
     "./packages/pi-multi-auth-aoc"
