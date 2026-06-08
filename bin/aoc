@@ -12,6 +12,11 @@ if [[ "${1:-}" == "omp-patch" ]]; then
   exec aoc-omp-patch "$@"
 fi
 
+if [[ "${1:-}" == "voxtype-setup" ]]; then
+  shift
+  exec aoc-voxtype-setup "$@"
+fi
+
 if [[ "${1:-}" == "state" ]]; then
   shift
   DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" >/dev/null 2>&1 && pwd)"

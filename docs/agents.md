@@ -41,6 +41,8 @@ to seed or repair project-local AOC assets and sync OMP extensions/agent templat
 
 AOC reapplies an OMP package footer patch during `aoc-init`, `aoc-herdr-install`, and `aoc omp` launch so jj repositories show `Δfiles +added -removed ⇢bookmarks` instead of Git detached branch state.
 
+AOC uses VoxType, not an OMP speech-to-text extension, for operator dictation. `aoc-init` and `aoc-herdr-install` install `voxtype-aoc-lexicon-filter`, seed `~/.config/aoc/voxtype-lexicon.md`, and wire VoxType post-processing so system and active-project `.aoc/lexicon.md` terms normalize after transcription.
+
 ## Model/auth setup
 
 Use OMP's own model and auth surfaces for provider credentials and model selection. AOC seeds useful defaults and agent manifests, but it must not commit secrets.

@@ -1,0 +1,430 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+quiet=0
+install_bin_dir="${AOC_VOXTYPE_BIN_DIR:-$HOME/.local/bin}"
+config_dir="${XDG_CONFIG_HOME:-$HOME/.config}/voxtype"
+aoc_config_dir="${XDG_CONFIG_HOME:-$HOME/.config}/aoc"
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --quiet)
+      quiet=1
+      shift
+      ;;
+    --bin-dir)
+      [[ $# -ge 2 ]] || { echo "aoc-voxtype-setup: --bin-dir requires a path" >&2; exit 2; }
+      install_bin_dir="$2"
+      shift 2
+      ;;
+    --config-dir)
+      [[ $# -ge 2 ]] || { echo "aoc-voxtype-setup: --config-dir requires a path" >&2; exit 2; }
+      config_dir="$2"
+      shift 2
+      ;;
+    --aoc-config-dir)
+      [[ $# -ge 2 ]] || { echo "aoc-voxtype-setup: --aoc-config-dir requires a path" >&2; exit 2; }
+      aoc_config_dir="$2"
+      shift 2
+      ;;
+    -h|--help)
+      cat <<'EOF'
+Usage: aoc-voxtype-setup [--quiet] [--bin-dir PATH] [--config-dir PATH] [--aoc-config-dir PATH]
+
+Install the AOC VoxType lexicon post-processor and seed the small system lexicon.
+EOF
+      exit 0
+      ;;
+    *)
+      echo "aoc-voxtype-setup: unknown option: $1" >&2
+      exit 2
+      ;;
+  esac
+done
+
+mkdir -p "$install_bin_dir" "$config_dir" "$aoc_config_dir"
+filter_path="$install_bin_dir/voxtype-aoc-lexicon-filter"
+system_lexicon="$aoc_config_dir/voxtype-lexicon.md"
+config_file="$config_dir/config.toml"
+
+cat > "$filter_path" <<'PY'
+#!/usr/bin/env python3
+"""Normalize VoxType transcripts with system and active-project AOC lexicons."""
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import re
+import subprocess
+import sys
+from pathlib import Path
+
+SYSTEM_LEXICON = Path(os.environ.get("AOC_VOXTYPE_SYSTEM_LEXICON", Path.home() / ".config" / "aoc" / "voxtype-lexicon.md"))
+FALLBACK_PROJECT_LEXICON = Path(os.environ.get("AOC_VOXTYPE_FALLBACK_LEXICON", "/home/ceii/dev/agent-ops-cockpit/.aoc/lexicon.md"))
+
+SAFE_SINGLE_TOKEN_ALIASES = {
+    "aoc", "od", "omp", "rtk", "stm", "prd", "pi", "pulse", "mind",
+    "hyperframes", "taskmaster", "zellij", "omarchy", "herdr", "voxtype",
+}
+
+MANUAL_REPLACEMENTS = {
+    r"\bA\s+O\s+C\b": "AOC",
+    r"\bA\.\s*O\.\s*C\.\b": "AOC",
+    r"\bO\s+M\s+P\b": "OMP",
+    r"\bO\.\s*M\.\s*P\.\b": "OMP",
+    r"\bR\s+T\s+K\b": "RTK",
+    r"\bR\.\s*T\.\s*K\.\b": "RTK",
+    r"\bS\s+T\s+M\b": "STM",
+    r"\bS\.\s*T\.\s*M\.\b": "STM",
+    r"\bP\s+R\s+D\b": "PRD",
+    r"\bP\.\s*R\.\s*D\.\b": "PRD",
+    r"\bagent ops cockpit\b": "Agent Ops Cockpit",
+    r"\btask master\b": "Taskmaster",
+    r"\bhyper frames\b": "HyperFrames",
+    r"\bhigh perf frames\b": "HyperFrames",
+    r"\boh marchy\b": "Omarchy",
+    r"\bomarchy\b": "Omarchy",
+    r"\bherder\b": "Herdr",
+    r"\bvoice type\b": "VoxType",
+    r"\bvox type\b": "VoxType",
+}
+
+
+def split_field(value: str) -> list[str]:
+    value = value.strip()
+    if not value or value.lower() in {"if any.", "none", "n/a"}:
+        return []
+    pieces = re.split(r"[,;]", value)
+    return [p.strip().strip("`* ") for p in pieces if p.strip().strip("`* ")]
+
+
+def safe_alias(alias: str) -> bool:
+    lowered = alias.lower()
+    if not lowered or lowered.startswith("when ") or lowered.startswith("as "):
+        return False
+    if " " in lowered or "-" in lowered or "/" in lowered:
+        return len(lowered) >= 4
+    return lowered in SAFE_SINGLE_TOKEN_ALIASES
+
+
+def load_replacements(lexicon: Path) -> dict[str, str]:
+    replacements: dict[str, str] = {}
+    if not lexicon.exists():
+        return replacements
+    current_term: str | None = None
+    for raw_line in lexicon.read_text(encoding="utf-8").splitlines():
+        line = raw_line.strip()
+        if line.startswith("### "):
+            current_term = line[4:].strip().strip("`*")
+            continue
+        if not current_term:
+            continue
+        if line.startswith("Aliases:"):
+            source = line.split(":", 1)[1]
+        elif line.startswith("Avoid:"):
+            source = line.split(":", 1)[1]
+        else:
+            continue
+        for alias in split_field(source):
+            if safe_alias(alias):
+                replacements[alias] = current_term
+    return replacements
+
+
+def proc_cwd(pid: int) -> Path | None:
+    try:
+        return Path(os.readlink(f"/proc/{pid}/cwd"))
+    except OSError:
+        return None
+
+
+def parent_pid(pid: int) -> int | None:
+    try:
+        stat = Path(f"/proc/{pid}/stat").read_text(encoding="utf-8")
+        return int(stat.rsplit(") ", 1)[1].split()[1])
+    except Exception:
+        return None
+
+
+def active_window_pid() -> int | None:
+    try:
+        out = subprocess.check_output(["hyprctl", "activewindow", "-j"], text=True, timeout=0.2)
+        data = json.loads(out)
+        pid = int(data.get("pid") or 0)
+        return pid or None
+    except Exception:
+        return None
+
+
+def active_herdr_session() -> str | None:
+    try:
+        out = subprocess.check_output(["hyprctl", "activewindow", "-j"], text=True, timeout=0.2)
+        data = json.loads(out)
+        title = str(data.get("title") or "")
+        cls = str(data.get("class") or "")
+    except Exception:
+        return os.environ.get("HERDR_SESSION") or None
+    if "herdr" not in title.lower() and "kitty" not in cls.lower():
+        return os.environ.get("HERDR_SESSION") or None
+    match = re.search(r":\s*([A-Za-z0-9_.-]+)\s+-\s*\1(?:\s|$)", title)
+    if match:
+        return match.group(1)
+    return os.environ.get("HERDR_SESSION") or "aoc"
+
+
+def herdr_focused_cwd() -> Path | None:
+    session = active_herdr_session()
+    command = ["herdr"]
+    if session:
+        command.extend(["--session", session])
+    command.extend(["pane", "list"])
+    try:
+        out = subprocess.check_output(command, text=True, timeout=0.5)
+        panes = json.loads(out).get("result", {}).get("panes", [])
+    except Exception:
+        return None
+    for pane in panes:
+        if pane.get("focused"):
+            cwd = pane.get("foreground_cwd") or pane.get("cwd")
+            if cwd:
+                return Path(cwd)
+    return None
+
+
+def nearest_project_lexicon(start: Path | None) -> Path | None:
+    if not start:
+        return None
+    try:
+        current = start if start.is_dir() else start.parent
+        for base in (current, *current.parents):
+            candidate = base / ".aoc" / "lexicon.md"
+            if candidate.exists():
+                return candidate
+    except Exception:
+        return None
+    return None
+
+
+def active_project_lexicon() -> Path | None:
+    forced_root = os.environ.get("AOC_VOXTYPE_PROJECT_ROOT")
+    if forced_root:
+        return nearest_project_lexicon(Path(forced_root))
+    herdr_lexicon = nearest_project_lexicon(herdr_focused_cwd())
+    if herdr_lexicon:
+        return herdr_lexicon
+    pid = active_window_pid()
+    seen = 0
+    while pid and pid > 1 and seen < 8:
+        lexicon = nearest_project_lexicon(proc_cwd(pid))
+        if lexicon:
+            return lexicon
+        pid = parent_pid(pid)
+        seen += 1
+    return None
+
+
+def resolve_lexicons(explicit: list[Path], no_active_project: bool) -> list[Path]:
+    lexicons: list[Path] = []
+    if SYSTEM_LEXICON.exists():
+        lexicons.append(SYSTEM_LEXICON)
+    if not no_active_project:
+        project = active_project_lexicon()
+        if project:
+            lexicons.append(project)
+    if explicit:
+        lexicons.extend(explicit)
+    elif not lexicons and FALLBACK_PROJECT_LEXICON.exists():
+        lexicons.append(FALLBACK_PROJECT_LEXICON)
+    deduped: list[Path] = []
+    seen: set[Path] = set()
+    for lexicon in lexicons:
+        resolved = lexicon.expanduser().resolve()
+        if resolved.exists() and resolved not in seen:
+            seen.add(resolved)
+            deduped.append(resolved)
+    return deduped
+
+
+def replace_phrase(text: str, phrase: str, replacement: str) -> str:
+    escaped = re.escape(phrase).replace(r"\ ", r"\s+")
+    pattern = re.compile(rf"(?<![\w-]){escaped}(?![\w-])", re.IGNORECASE)
+    return pattern.sub(replacement, text)
+
+
+def normalize(text: str, lexicons: list[Path]) -> str:
+    out = text
+    for pattern, replacement in MANUAL_REPLACEMENTS.items():
+        out = re.sub(pattern, replacement, out, flags=re.IGNORECASE)
+    replacements: dict[str, str] = {}
+    for lexicon in lexicons:
+        replacements.update(load_replacements(lexicon))
+    for phrase, replacement in sorted(replacements.items(), key=lambda item: len(item[0]), reverse=True):
+        if safe_alias(phrase):
+            out = replace_phrase(out, phrase, replacement)
+    return out
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--lexicon", type=Path, action="append", default=[])
+    parser.add_argument("--no-active-project", action="store_true")
+    parser.add_argument("--print-lexicons", action="store_true")
+    args = parser.parse_args()
+    lexicons = resolve_lexicons(args.lexicon, args.no_active_project)
+    if args.print_lexicons:
+        for lexicon in lexicons:
+            print(lexicon)
+        return 0
+    text = sys.stdin.read()
+    try:
+        sys.stdout.write(normalize(text, lexicons))
+    except Exception:
+        sys.stdout.write(text)
+    return 0
+
+if __name__ == "__main__":
+    raise SystemExit(main())
+PY
+chmod +x "$filter_path"
+
+if [[ ! -f "$system_lexicon" ]]; then
+  cat > "$system_lexicon" <<'EOF'
+# AOC VoxType System Lexicon
+
+Small cross-project speech normalization layer for VoxType. Keep this file limited to global product/runtime terms; project-specific terms belong in each repo's `.aoc/lexicon.md`.
+
+## Core terms
+
+### AOC
+
+Definition: Agent Ops Cockpit acronym.
+Aliases: a o c, A.O.C.
+Avoid: agent ops when referring to the acronym alone.
+Evidence: AOC project convention.
+
+### OMP
+
+Definition: OMP agent/runtime surface acronym.
+Aliases: o m p, O.M.P.
+Avoid: omp lowercase in user-facing prose.
+Evidence: AOC OMP integration.
+
+### RTK
+
+Definition: Routing/toolkit acronym used by AOC command routing.
+Aliases: r t k, R.T.K.
+Avoid: rtk lowercase in user-facing prose.
+Evidence: AOC RTK Routing.
+
+### STM
+
+Definition: Short-term memory/handoff acronym used by AOC.
+Aliases: s t m, S.T.M.
+Avoid: stm lowercase in user-facing prose.
+Evidence: AOC STM Directed Handoff Layer.
+
+### Taskmaster
+
+Definition: Project task tracking and execution ledger used by AOC.
+Aliases: task master
+Avoid: task-master.
+Evidence: AOC Taskmaster integration.
+
+### HyperFrames
+
+Definition: AOC video and campaign factory surface.
+Aliases: hyper frames, high perf frames
+Avoid: Hyper Frames.
+Evidence: AOC HyperFrames docs.
+
+### Omarchy
+
+Definition: User desktop environment/distribution context for this workstation.
+Aliases: oh marchy
+Avoid: omarchy lowercase in product names.
+Evidence: Workstation configuration.
+
+### Herdr
+
+Definition: Workspace/session shell used by the AOC environment.
+Aliases: herder
+Avoid: herd are.
+Evidence: AOC Herdr workspace integration.
+
+### VoxType
+
+Definition: Canonical desktop speech-to-text path for AOC operator dictation.
+Aliases: voice type, vox type
+Avoid: OMP STT when referring to current AOC dictation.
+Evidence: AOC VoxType integration.
+EOF
+fi
+
+python3 - "$config_file" "$filter_path" <<'PY'
+from pathlib import Path
+import sys
+
+path = Path(sys.argv[1])
+filter_path = sys.argv[2]
+lines = path.read_text(encoding="utf-8").splitlines() if path.exists() else []
+if not lines:
+    lines = [
+        'state_file = "auto"',
+        '',
+        '[hotkey]',
+        'enabled = false',
+        '',
+        '[output]',
+        'mode = "type"',
+        '',
+    ]
+
+section = None
+found_post = False
+found_command = False
+found_timeout = False
+out = []
+for line in lines:
+    stripped = line.strip()
+    if stripped.startswith('[') and stripped.endswith(']'):
+        if section == 'output.post_process':
+            if not found_command:
+                out.append(f'command = "{filter_path}"')
+            if not found_timeout:
+                out.append('timeout_ms = 1000')
+        section = stripped.strip('[]')
+        found_post = found_post or section == 'output.post_process'
+        found_command = False
+        found_timeout = False
+        out.append(line)
+        continue
+    if section == 'output.post_process' and stripped.startswith('command ='):
+        out.append(f'command = "{filter_path}"')
+        found_command = True
+        continue
+    if section == 'output.post_process' and stripped.startswith('timeout_ms ='):
+        out.append('timeout_ms = 1000')
+        found_timeout = True
+        continue
+    out.append(line)
+
+if section == 'output.post_process':
+    if not found_command:
+        out.append(f'command = "{filter_path}"')
+    if not found_timeout:
+        out.append('timeout_ms = 1000')
+
+if not found_post:
+    if out and out[-1] != '':
+        out.append('')
+    out.extend(['[output.post_process]', f'command = "{filter_path}"', 'timeout_ms = 1000'])
+
+path.write_text('\n'.join(out).rstrip() + '\n', encoding='utf-8')
+PY
+
+if [[ $quiet -eq 0 ]]; then
+  echo "Installed AOC VoxType lexicon filter: $filter_path"
+  echo "Ensured AOC VoxType system lexicon: $system_lexicon"
+  echo "Configured VoxType post-process command: $config_file"
+fi
