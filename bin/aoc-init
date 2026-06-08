@@ -417,7 +417,7 @@ PY
 managed_pi_skill_name() {
   local skill_name="$1"
   case "$skill_name" in
-    aoc-hyperframes|aoc-init-ops|aoc-map|aoc-understand|architecture-design|custom-layout-ops|design-diff|design-director|design-handoff|design-premium-ui|design-redesign|design-review|design-spec|design-tokens|enforce-dashboard-ux-guardrails|frontend-design|funnel-design|safe-gamification|motion-director|spec-rpg-authoring|prd-rpg-authoring|rlm-analysis|teach-workflow|tm-cc|vercel-cli|web-research|zellij-theme-ops)
+    aoc-hyperframes|aoc-init-ops|aoc-map|architecture-design|custom-layout-ops|design-diff|design-director|design-handoff|design-premium-ui|design-redesign|design-review|design-spec|design-tokens|enforce-dashboard-ux-guardrails|frontend-design|funnel-design|safe-gamification|motion-director|spec-rpg-authoring|prd-rpg-authoring|rlm-analysis|teach-workflow|tm-cc|vercel-cli|web-research|zellij-theme-ops)
       return 0
       ;;
     *)
@@ -976,6 +976,7 @@ This file defines the always-on rules for agents in this repo. Procedural playbo
 ## Low-Token Default Mode
 - Keep responses concise by default; do not print full files or raw logs unless explicitly requested.
 - Start with the smallest viable step; use narrow, path-scoped searches before broad scans.
+- When `.codegraph/` exists and the OMP `aoc_codegraph` tool is available, use it before broad text/file scans for code discovery, call-flow mapping, impact probes, and affected-test selection.
 - Read files in bounded chunks and avoid rereading unchanged large files.
 - Summarize command/tool output with actionable lines only (key errors, next actions).
 - Run targeted checks/tests first; run full-suite commands only when required.
@@ -2289,6 +2290,16 @@ PY
   log "Installed OMP STT fallback defaults: $config_file, $keybindings_file"
 }
 
+patch_omp_footer() {
+  local patch_bin="aoc-omp-patch"
+  if [[ -x "$script_dir/aoc-omp-patch" ]]; then
+    patch_bin="$script_dir/aoc-omp-patch"
+  fi
+  if ! "$patch_bin" --quiet; then
+    warn "aoc-omp-patch failed; continuing with unpatched OMP footer."
+  fi
+}
+
 
 # 1c. Setup PI settings + baseline directories (.pi/)
 setup_pi_settings() {
@@ -3512,11 +3523,11 @@ setup_pi_prompts() {
   for deprecated_prompt in "teach" "teach-full" "teach-dive" "teach-ask"; do
     if [[ -f "$pi_prompts_dir/${deprecated_prompt}.md" ]]; then
       rm -f "$pi_prompts_dir/${deprecated_prompt}.md"
-      log "Removed deprecated legacy teach PI prompt: /$deprecated_prompt (use aoc-understand)"
+      log "Removed deprecated legacy teach PI prompt: /$deprecated_prompt"
     fi
     if [[ -f "$optional_hidden_dir/${deprecated_prompt}.md" ]]; then
       rm -f "$optional_hidden_dir/${deprecated_prompt}.md"
-      log "Removed deprecated hidden legacy teach PI prompt: /$deprecated_prompt (use aoc-understand)"
+      log "Removed deprecated hidden legacy teach PI prompt: /$deprecated_prompt"
     fi
   done
 
@@ -3866,6 +3877,7 @@ main() {
   setup_omp_extensions
   setup_omp_agents
   setup_omp_stt_defaults
+  patch_omp_footer
   setup_pi_packages
   setup_pi_settings
   cleanup_global_pi_multi_auth

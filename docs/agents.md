@@ -39,6 +39,8 @@ aoc-skill validate --root .
 
 to seed or repair project-local AOC assets and sync OMP extensions/agent templates.
 
+AOC reapplies an OMP package footer patch during `aoc-init`, `aoc-herdr-install`, and `aoc omp` launch so jj repositories show `Δfiles +added -removed ⇢bookmarks` instead of Git detached branch state.
+
 ## Model/auth setup
 
 Use OMP's own model and auth surfaces for provider credentials and model selection. AOC seeds useful defaults and agent manifests, but it must not commit secrets.
@@ -115,6 +117,7 @@ These specialists initially produce exact specs and target paths; the primary OM
 ## CodeGraph agent tool
 
 AOC includes an OMP `aoc_codegraph` tool for read-only symbol search, context building, call graph probes, impact analysis, file listing, and affected-test selection. The tool shells out to an existing local `codegraph` CLI/index. It never installs CodeGraph or initializes/indexes projects.
+This is the replacement graph surface for agents; do not use AOC Understand / Understand-Anything for repository graph evidence.
 
 Operators run CodeGraph setup explicitly, for example:
 

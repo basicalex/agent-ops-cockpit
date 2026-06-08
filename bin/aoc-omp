@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
+script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" >/dev/null 2>&1 && pwd)"
+
 
 usage() {
   cat <<'EOF'
@@ -31,6 +33,15 @@ if ! command -v "$raw_omp" >/dev/null 2>&1; then
     echo "aoc-omp: OMP is not installed or not on PATH" >&2
   fi
   exit 1
+fi
+
+patch_bin="aoc-omp-patch"
+if [[ -x "$script_dir/aoc-omp-patch" ]]; then
+  patch_bin="$script_dir/aoc-omp-patch"
+fi
+# Launch repair path: aoc-omp-patch --quiet
+if ! "$patch_bin" --quiet; then
+  echo "Warning: aoc-omp-patch failed; continuing with unpatched OMP footer" >&2
 fi
 
 runtime_dir="${XDG_RUNTIME_DIR:-/tmp}"

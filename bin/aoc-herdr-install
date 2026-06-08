@@ -218,6 +218,14 @@ for agent_name in "${omp_agents[@]}"; do
   fi
 done
 install_omp_stt_defaults
+patch_bin="aoc-omp-patch"
+if [[ -x "$repo_root/bin/aoc-omp-patch" ]]; then
+  patch_bin="$repo_root/bin/aoc-omp-patch"
+fi
+if ! "$patch_bin" --quiet; then
+  echo "Warning: aoc-omp-patch failed; continuing with unpatched OMP footer" >&2
+fi
+
 
 
 if command -v aoc-omp-context >/dev/null 2>&1 && command -v aoc-omp >/dev/null 2>&1; then

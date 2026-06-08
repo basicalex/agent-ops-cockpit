@@ -55,6 +55,55 @@ seed_cached_pi_runtime() {
   cp -R "$repo_root/.pi/packages/pi-multi-auth-aoc" "$cache_root/packages/pi-multi-auth-aoc"
 }
 
+write_omp_footer_fixture() {
+  local footer="$1"
+  mkdir -p "$(dirname "$footer")"
+  cat > "$footer" <<'EOF'
+import * as fs from "node:fs";
+import React from "react";
+import { Text } from "ink";
+import { getProjectDir } from "../../utils/project";
+import * as git from "../../utils/git";
+
+export class FooterComponent extends React.Component {
+  #cachedBranch: string | null | undefined = undefined;
+  #gitWatcher: fs.FSWatcher | null = null;
+  #onBranchChange: (() => void) | null = null;
+
+  invalidate(): void {
+    this.#cachedBranch = undefined;
+  }
+
+  #getCurrentBranch(): string | null {
+    if (this.#cachedBranch !== undefined) {
+      return this.#cachedBranch;
+    }
+
+    const head = git.head.resolveSync(getProjectDir());
+    if (!head) {
+      this.#cachedBranch = null;
+    } else if (head.name) {
+      this.#cachedBranch = head.name;
+    } else {
+      this.#cachedBranch = "detached";
+    }
+
+    return this.#cachedBranch;
+  }
+
+  render() {
+    let pwd = getProjectDir();
+    const branch = this.#getCurrentBranch();
+    if (branch) {
+      pwd = `${pwd} (${branch})`;
+    }
+    return <Text>{pwd}</Text>;
+  }
+}
+EOF
+}
+
+
 tmp_root="$(mktemp -d "${TMPDIR:-/tmp}/aoc-init-pi-first-test.XXXXXX")"
 trap 'rm -rf "$tmp_root"' EXIT
 
@@ -114,6 +163,7 @@ PY
 EOF
 chmod +x "$fake_bin/pi"
 export PATH="$fake_bin:$PATH"
+ln -s "$repo_root/bin/aoc-omp-patch" "$fake_bin/aoc-omp-patch"
 export AOC_PI_TEST_INSTALL_LOG="$tmp_root/pi-install.log"
 
 # --- Fresh repo flow ---
@@ -124,6 +174,9 @@ fresh_log_1="$tmp_root/fresh-init-1.log"
 fresh_log_2="$tmp_root/fresh-init-2.log"
 omp_config="$HOME/.omp/agent/config.yml"
 omp_keybindings="$HOME/.omp/agent/keybindings.yml"
+omp_footer="$HOME/.cache/.bun/install/cache/@oh-my-pi/pi-coding-agent@15.10.8@@@1/src/modes/components/footer.ts"
+write_omp_footer_fixture "$omp_footer"
+
 run_init "$project_fresh" "$fresh_log_1"
 
 assert_exists "$omp_config"
@@ -137,6 +190,8 @@ assert_contains '  provider: openai' "$omp_config"
 assert_contains '  modelName: base.en' "$omp_config"
 assert_contains '  openaiModelName: gpt-4o-mini-transcribe' "$omp_config"
 assert_contains 'app.stt.toggle: Ctrl+Alt+Shift+H' "$omp_keybindings"
+assert_contains 'AOC-JJ-FOOTER-PATCH-BEGIN' "$omp_footer"
+assert_contains '#getCurrentVcsSummary' "$omp_footer"
 assert_exists "$project_fresh/.aoc/context.md"
 assert_exists "$project_fresh/.aoc/memory.md"
 assert_contains "- VCS: git" "$project_fresh/.aoc/context.md"
