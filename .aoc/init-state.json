@@ -2,14 +2,14 @@
   "schemaVersion": 1,
   "projectAocVersion": 3,
   "previousProjectAocVersion": 3,
-  "lastInitializedAt": "2026-05-24T08:52:07.314684Z",
-  "lastInitScriptDir": "/home/ceii/.local/bin",
+  "lastInitializedAt": "2026-06-08T10:04:04.550170Z",
+  "lastInitScriptDir": "/home/ceii/dev/agent-ops-cockpit/bin",
   "pi": {
     "localMultiAuthPackage": {
       "configuredPath": "./packages/pi-multi-auth-aoc",
-      "projectPath": "/home/ceii/dev/agent-ops-cockpit/.pi/packages/pi-multi-auth-aoc",
+      "projectPath": ".pi/packages/pi-multi-auth-aoc",
       "available": true,
-      "seedSource": "/home/ceii/.config/aoc/pi/packages/pi-multi-auth-aoc"
+      "seedSource": "/home/ceii/dev/agent-ops-cockpit/bin/../.pi/packages/pi-multi-auth-aoc"
     }
   },
   "migrationsApplied": []

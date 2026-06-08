@@ -988,22 +988,6 @@ fi
 log "Generating configurations..."
 
 if is_truthy "${AOC_INSTALL_LEGACY_ZELLIJ:-0}"; then
-  # Managed AOC Zellij plugin asset cache
-  if [[ -f "$ROOT_DIR/zellij/plugins/zjstatus-aoc.wasm" ]]; then
-    install -m 0644 "$ROOT_DIR/zellij/plugins/zjstatus-aoc.wasm" "$AOC_CONFIG_DIR/zellij/plugins/zjstatus-aoc.wasm"
-  fi
-  if [[ -d "$ROOT_DIR/vendor/zjstatus-aoc" ]]; then
-    rm -rf "$AOC_CONFIG_DIR/zellij/plugins/zjstatus-aoc-src"
-    mkdir -p "$AOC_CONFIG_DIR/zellij/plugins"
-    cp -R "$ROOT_DIR/vendor/zjstatus-aoc" "$AOC_CONFIG_DIR/zellij/plugins/zjstatus-aoc-src"
-  fi
-  if [[ -x "$BIN_DIR/aoc-zellij-plugin" ]]; then
-    AOC_ZELLIJ_PLUGIN_QUIET=1 "$BIN_DIR/aoc-zellij-plugin" install || warn "Failed to install managed AOC Zellij plugin."
-  elif have aoc-zellij-plugin; then
-    AOC_ZELLIJ_PLUGIN_QUIET=1 aoc-zellij-plugin install || warn "Failed to install managed AOC Zellij plugin."
-  else
-    warn "aoc-zellij-plugin not found during install; managed top-bar plugin may be missing."
-  fi
 
   # Zellij Layout
   PROJECTS_BASE="$HOME/dev"
@@ -1017,8 +1001,6 @@ if is_truthy "${AOC_INSTALL_LEGACY_ZELLIJ:-0}"; then
   legacy_managed_layouts=(
     "$HOME/.config/zellij/layouts/unstat.kdl"
     "$HOME/.config/zellij/layouts/minimal.kdl"
-    "$HOME/.config/zellij/layouts/aoc-zjstatus-single.kdl"
-    "$HOME/.config/zellij/layouts/aoc-zjstatus-test.kdl"
     "$HOME/.config/zellij/layouts/aoc.hybrid.kdl"
   )
   for legacy_layout in "${legacy_managed_layouts[@]}"; do
@@ -1027,7 +1009,7 @@ if is_truthy "${AOC_INSTALL_LEGACY_ZELLIJ:-0}"; then
 
   current_default_layout="$(cat "$DEFAULT_LAYOUT_FILE" 2>/dev/null || true)"
   case "$current_default_layout" in
-    ""|unstat|minimal|aoc-zjstatus-single|aoc-zjstatus-test|aoc.hybrid)
+    ""|unstat|minimal|aoc.hybrid)
       printf 'aoc\n' > "$DEFAULT_LAYOUT_FILE"
       ;;
   esac

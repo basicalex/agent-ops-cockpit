@@ -121,7 +121,7 @@ These are the changes AOC should make because of Zellij 0.44.
 ### 7) Add plugin compatibility / performance verification for 0.44
 
 **Current AOC surface:**
-- `zjstatus.wasm` in `zellij/aoc.config.kdl.template` and `zellij/layouts/aoc.kdl.template`
+- removed status plugin assets formerly referenced by `zellij/aoc.config.kdl.template` and `zellij/layouts/aoc.kdl.template`
 
 **Update change:**
 - explicitly verify plugin behavior after the runtime change from `wasmtime` to `wasmi`
@@ -167,7 +167,7 @@ These are the changes AOC should make because of Zellij 0.44.
 3. Add Mission Control / Overseer pane evidence capture and live drilldown.
 4. Re-scope `aoc-mux` / promoted-pane runtime around Zellij-native control.
 5. Add narrow runtime layout override modes.
-6. Validate `zjstatus.wasm` and related plugin behavior on 0.44.
+6. Validate removed status plugin behavior if resurrecting this archived path.
 
 ---
 

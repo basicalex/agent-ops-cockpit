@@ -4599,7 +4599,7 @@ fn settings_detail_lines(app: &App) -> Vec<Line<'static>> {
                     "Creates .aoc/layouts/<name>.kdl inside the current project.",
                 ));
                 lines.push(Line::from(
-                    "A starter template includes the managed zjstatus top bar and metadata sync.",
+                    "A starter template includes AOC metadata sync.",
                 ));
                 lines.push(Line::from(
                     "Enter prompts for a layout name, then opens $EDITOR.",
@@ -7938,9 +7938,7 @@ fn load_projects(base: &Path) -> io::Result<Vec<ProjectEntry>> {
 fn normalize_layout_name(layout: &str) -> String {
     match layout {
         "" => "aoc".to_string(),
-        "unstat" | "minimal" | "aoc-zjstatus-single" | "aoc-zjstatus-test" | "aoc.hybrid" => {
-            "aoc".to_string()
-        }
+        "unstat" | "minimal" | "aoc.hybrid" => "aoc".to_string(),
         _ => layout.to_string(),
     }
 }
@@ -7948,12 +7946,7 @@ fn normalize_layout_name(layout: &str) -> String {
 fn layout_is_hidden_internal(layout: &str) -> bool {
     matches!(
         layout,
-        "unstat"
-            | "minimal"
-            | "mission-control"
-            | "aoc-zjstatus-single"
-            | "aoc-zjstatus-test"
-            | "aoc.hybrid"
+        "unstat" | "minimal" | "mission-control" | "aoc.hybrid"
     )
 }
 

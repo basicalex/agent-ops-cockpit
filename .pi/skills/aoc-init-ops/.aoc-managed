@@ -1,6 +1,6 @@
 aoc-managed: true
 asset: skill/aoc-init-ops
 asset-version: 3
-source: ../.config/aoc/pi/skills/aoc-init-ops
-sha256: 6baf13922be5fea6063ebe7564b85aa0a8bd1f93d5be53a3e940bb4fa66c235d
-updated-at: 2026-05-24T08:52:01Z
+source: .pi/skills/aoc-init-ops
+sha256: 7ae05e45cbe3981c4d4771a9e2f9a6fc5452daf9811fb3ec87ca0e676afecb88
+updated-at: 2026-06-08T10:03:53Z

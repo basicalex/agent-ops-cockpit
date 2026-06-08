@@ -28,7 +28,7 @@
 # Funnel Implementation Summary
 
 ## What changed
--
+- 
 
 ## Funnel impact
 - Stage improved:
@@ -42,7 +42,7 @@
 - command -> result
 
 ## Risks / next steps
--
+- 
 ```
 
 ## Task breakdown starter

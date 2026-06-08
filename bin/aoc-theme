@@ -16,17 +16,17 @@ Usage:
   aoc-theme background set --profile <follow-theme|deeper|softer|high-contrast|low-glare> [--config <path>]
   aoc-theme tui
 
-Manage Zellij themes for global AOC workflows.
+Manage AOC theme artifacts for global workflows.
 
 Scopes:
-  global   Theme file in ~/.config/zellij/themes/<name>.kdl
+  global   Theme file in ~/.config/zellij/themes/<name>.kdl for legacy Zellij
 
 Notes:
   - Theme names must match: ^[a-z0-9]+(-[a-z0-9]+)*$
   - Project scope was removed; global themes are the only supported scope
   - TUI groups preset themes and custom user-defined themes
   - Preset catalog includes AOC core presets and Pi extension-mapped presets
-  - apply/set-default/activate/sync regenerate AOC theme artifacts for zjstatus, Pulse, Yazi, and Pi
+  - apply/set-default/activate/sync regenerate AOC theme artifacts for Yazi and Pi
 EOF
 }
 
@@ -818,28 +818,6 @@ path.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
 PY
 }
 
-broadcast_zjstatus_theme_update() {
-  local profile_path payload
-  profile_path="$(aoc_theme_profile_path)"
-  [[ -f "$profile_path" ]] || return 0
-
-  if ! command -v zellij >/dev/null 2>&1; then
-    return 0
-  fi
-
-  if [[ -z "${ZELLIJ_SESSION_NAME:-}" ]]; then
-    return 0
-  fi
-
-  if ! zellij action list-clients >/dev/null 2>&1; then
-    return 0
-  fi
-
-  payload="$(<"$profile_path")"
-  [[ -n "$payload" ]] || return 0
-
-  zellij action pipe --name aoc_theme -- "$payload" >/dev/null 2>&1 || true
-}
 
 sync_aoc_theme_artifacts() {
   local logical_theme_name="$1"
@@ -861,7 +839,6 @@ sync_aoc_theme_artifacts() {
   write_yazi_theme_from_profile
   write_pi_theme_from_profile
   sync_pi_settings_theme "$(aoc_pi_theme_name)"
-  broadcast_zjstatus_theme_update
 }
 
 write_theme_file() {

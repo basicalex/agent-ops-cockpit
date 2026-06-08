@@ -1,0 +1,464 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+usage() {
+  cat <<'EOF'
+Usage: aoc-html-video <command> [options]
+
+Commands:
+  status                                      Show configured html-video CLI/source status
+  doctor                                      Read-only prerequisite and html-video doctor check
+  studio [--open] [--port N]                  Launch html-video studio when CLI is available
+  project create --from FILE [--id SLUG]      Generate AOC html-video project manifest and call project-create when available
+  project add-assets <id> --from FILE         Generate asset import manifest and call project-add-asset when available
+  project preview <id>                        Run html-video project-preview
+  project render <id> [--output FILE]         Run html-video project-render
+
+Global options:
+  --root PATH       Project root (defaults to nearest .aoc or .git)
+  --dir NAME        HyperFrames workspace directory (default: hyperframes)
+  --quiet           Suppress non-error wrapper output
+  -h, --help        Show this help
+
+Configuration:
+  AOC_HTML_VIDEO_BIN=/path/to/html-video-or-bin.js
+  AOC_HTML_VIDEO_HOME=/path/to/html-video-checkout
+
+AOC never installs html-video dependencies implicitly.
+EOF
+}
+
+root=""
+target_dir="${AOC_HYPERFRAMES_DIR:-hyperframes}"
+quiet=0
+command=""
+args=()
+
+log() { [[ "$quiet" == "1" ]] || echo ">> $1"; }
+warn() { echo "!! $1" >&2; }
+fail() { warn "$1"; exit 1; }
+
+is_safe_slug() {
+  [[ "${1:-}" =~ ^[a-z0-9][a-z0-9-]*$ ]]
+}
+
+require_safe_slug() {
+  local label="$1" value="$2"
+  is_safe_slug "$value" || fail "Invalid $label '$value'. Use ^[a-z0-9][a-z0-9-]*$ only."
+}
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --root) shift; root="${1:-}" ;;
+    --dir) shift; target_dir="${1:-}" ;;
+    --quiet) quiet=1 ;;
+    -h|--help) usage; exit 0 ;;
+    *)
+      if [[ -z "$command" ]]; then
+        command="$1"
+      else
+        args+=("$1")
+      fi
+      ;;
+  esac
+  shift || true
+done
+
+command="${command:-status}"
+[[ "$target_dir" =~ ^[A-Za-z0-9._-]+$ ]] || fail "Invalid --dir '$target_dir'. Use a simple workspace directory name, not a path."
+
+find_root() {
+  if [[ -n "$root" ]]; then
+    [[ -d "$root" ]] && (cd "$root" && pwd -P) && return 0
+    return 1
+  fi
+  local probe="$PWD"
+  while [[ -n "$probe" && "$probe" != "/" ]]; do
+    if [[ -d "$probe/.aoc" || -d "$probe/.git" ]]; then
+      (cd "$probe" && pwd -P)
+      return 0
+    fi
+    probe="$(dirname "$probe")"
+  done
+  pwd -P
+}
+
+root="$(find_root)"
+
+HV_CMD=()
+HV_SOURCE=""
+HV_NOTE=""
+
+resolve_html_video() {
+  HV_CMD=()
+  HV_SOURCE=""
+  HV_NOTE=""
+
+  if [[ -n "${AOC_HTML_VIDEO_BIN:-}" ]]; then
+    if [[ -x "$AOC_HTML_VIDEO_BIN" ]]; then
+      HV_CMD=("$AOC_HTML_VIDEO_BIN")
+      HV_SOURCE="AOC_HTML_VIDEO_BIN=$AOC_HTML_VIDEO_BIN"
+      return 0
+    fi
+    if [[ -f "$AOC_HTML_VIDEO_BIN" ]] && command -v node >/dev/null 2>&1; then
+      HV_CMD=(node "$AOC_HTML_VIDEO_BIN")
+      HV_SOURCE="AOC_HTML_VIDEO_BIN=$AOC_HTML_VIDEO_BIN via node"
+      return 0
+    fi
+    HV_NOTE="AOC_HTML_VIDEO_BIN is set but not executable/readable with node: $AOC_HTML_VIDEO_BIN"
+    return 1
+  fi
+
+  if [[ -n "${AOC_HTML_VIDEO_HOME:-}" ]]; then
+    local dist="$AOC_HTML_VIDEO_HOME/packages/cli/dist/bin.js"
+    if [[ -f "$dist" ]] && command -v node >/dev/null 2>&1; then
+      HV_CMD=(node "$dist")
+      HV_SOURCE="AOC_HTML_VIDEO_HOME=$AOC_HTML_VIDEO_HOME"
+      return 0
+    fi
+    HV_NOTE="AOC_HTML_VIDEO_HOME is set but built CLI is missing: $dist. Build html-video explicitly; AOC will not install/build it."
+    return 1
+  fi
+
+  if command -v html-video >/dev/null 2>&1; then
+    HV_CMD=(html-video)
+    HV_SOURCE="PATH: $(command -v html-video)"
+    return 0
+  fi
+
+  HV_NOTE="html-video CLI not found. Set AOC_HTML_VIDEO_BIN or AOC_HTML_VIDEO_HOME after an explicit html-video install/build."
+  return 1
+}
+
+run_html_video() {
+  resolve_html_video || fail "$HV_NOTE"
+  "${HV_CMD[@]}" --cwd "$root" "$@"
+}
+
+status() {
+  echo "AOC html-video status"
+  echo "project_root=$root"
+  echo "hyperframes_dir=$target_dir"
+  if resolve_html_video; then
+    echo "available=yes"
+    echo "source=$HV_SOURCE"
+    echo "command=${HV_CMD[*]}"
+  else
+    echo "available=no"
+    echo "reason=$HV_NOTE"
+  fi
+  echo "install_policy=explicit-only"
+}
+
+run_doctor() {
+  status
+  command -v node >/dev/null 2>&1 || warn "Node.js not found; html-video requires Node.js."
+  command -v pnpm >/dev/null 2>&1 || warn "pnpm not found; required to build html-video from source."
+  command -v ffmpeg >/dev/null 2>&1 || warn "ffmpeg not found; html-video rendering requires ffmpeg."
+  if resolve_html_video; then
+    log "Running html-video doctor read-only"
+    "${HV_CMD[@]}" --cwd "$root" doctor || warn "html-video doctor reported issues."
+  else
+    warn "$HV_NOTE"
+  fi
+}
+
+
+infer_project_id() {
+  local from_file="$1"
+  python3 - "$root" "$from_file" <<'PY'
+import re
+import sys
+from pathlib import Path
+
+root = Path(sys.argv[1]).resolve()
+from_arg = Path(sys.argv[2])
+source = from_arg if from_arg.is_absolute() else root / from_arg
+text = source.read_text(encoding="utf-8", errors="replace") if source.is_file() else ""
+match = re.search(r"^## Campaign:\s*([A-Za-z0-9-]+)\s*$", text, re.MULTILINE)
+if match:
+    value = match.group(1)
+else:
+    match = re.search(r"^- Campaign slug:\s*(.+)$", text, re.MULTILINE)
+    value = match.group(1) if match else from_arg.stem
+value = re.sub(r"[^a-z0-9]+", "-", value.lower()).strip("-")
+print(value or "campaign")
+PY
+}
+
+make_project_manifest() {
+  local from_file="$1" project_id="$2"
+  [[ -n "$from_file" ]] || fail "project create requires --from FILE"
+  local output_dir="$root/$target_dir/generated/html-video/$project_id"
+  local output="$output_dir/project.json"
+  mkdir -p "$output_dir"
+  python3 - "$root" "$target_dir" "$from_file" "$output" "$project_id" <<'PY'
+import json
+import re
+import sys
+from datetime import datetime, timezone
+from pathlib import Path
+
+root = Path(sys.argv[1]).resolve()
+target_dir = sys.argv[2]
+from_arg = Path(sys.argv[3])
+source = from_arg if from_arg.is_absolute() else root / from_arg
+output = Path(sys.argv[4])
+project_id = sys.argv[5]
+if not source.is_file():
+    raise SystemExit(f"source campaign plan missing: {source}")
+text = source.read_text(encoding="utf-8", errors="replace")
+
+def first(pattern: str, default: str = "") -> str:
+    match = re.search(pattern, text, re.MULTILINE)
+    return match.group(1).strip() if match else default
+
+campaign = first(r"^## Campaign:\s*([A-Za-z0-9-]+)\s*$", project_id)
+audience = first(r"^- Audience:\s*(.+)$", "") or first(r"^audience:\s*([^\n]+)$", "")
+concept = first(r"^- Approved concept IDs:\s*(.+)$", "") or first(r"^concept:\s*([^\n]+)$", "")
+cta = first(r"^- CTA:\s*(.+)$", "")
+
+nodes = []
+edges = []
+in_storyboard = False
+for raw in text.splitlines():
+    line = raw.strip()
+    if line.startswith("## "):
+        in_storyboard = line.lower().startswith("## content graph")
+        continue
+    if not in_storyboard or not line.startswith("|") or "---" in line or "Node ID" in line:
+        continue
+    cells = [cell.strip().strip("`") for cell in line.strip("|").split("|")]
+    if len(cells) < 7 or not cells[0]:
+        continue
+    node_id, kind, beat, copy, assets, duration, edge_notes = cells[:7]
+    duration_sec = None
+    dur_match = re.search(r"(\d+(?:\.\d+)?)", duration)
+    if dur_match:
+        duration_sec = float(dur_match.group(1))
+    nodes.append({
+        "id": node_id,
+        "kind": kind or "text",
+        "beat": beat,
+        "copy": copy,
+        "assetRefs": [item.strip() for item in re.split(r",\s*", assets) if item.strip()],
+        "durationSec": duration_sec,
+    })
+    for edge_match in re.finditer(r"(sequence|contrast|dependency)\s*-?>\s*([A-Za-z0-9_-]+)", edge_notes):
+        edges.append({"from": node_id, "to": edge_match.group(2), "kind": edge_match.group(1)})
+
+payload = {
+    "schema": "aoc.html_video.project.v1",
+    "projectId": project_id,
+    "campaign": campaign,
+    "audience": audience,
+    "concept": concept,
+    "cta": cta,
+    "projectRoot": str(root),
+    "sourcePlan": source.relative_to(root).as_posix() if source.is_relative_to(root) else str(source),
+    "strategy": f"{target_dir}/docs/brand-strategy.md",
+    "imageReview": f"{target_dir}/docs/image-review-board.md",
+    "svgManifest": f"{target_dir}/docs/svg-asset-manifest.md",
+    "contentGraph": {
+        "schemaVersion": 1,
+        "intent": "promo",
+        "synopsis": first(r"^- Campaign slug:\s*(.+)$", campaign),
+        "nodes": nodes,
+        "edges": edges,
+    },
+    "htmlVideo": {
+        "preferredEngine": "hyperframes",
+        "generatedDir": f"{target_dir}/generated/html-video/{project_id}",
+        "exportsDir": f"{target_dir}/generated/html-video/{project_id}/exports",
+    },
+    "generatedAt": datetime.now(timezone.utc).replace(microsecond=0).isoformat(),
+}
+output.write_text(json.dumps(payload, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+print(output.relative_to(root).as_posix())
+PY
+}
+
+run_project_create() {
+  local from_file="" project_id="" name="" i=1 a
+  while (( i < ${#args[@]} )); do
+    a="${args[$i]}"
+    case "$a" in
+      --from) i=$((i + 1)); from_file="${args[$i]:-}" ;;
+      --id|--project-id) i=$((i + 1)); project_id="${args[$i]:-}" ;;
+      --name) i=$((i + 1)); name="${args[$i]:-}" ;;
+      *) fail "Unknown project create option: $a" ;;
+    esac
+    i=$((i + 1))
+  done
+  [[ -n "$from_file" ]] || fail "Usage: aoc-html-video project create --from FILE [--id SLUG]"
+  if [[ -z "$project_id" ]]; then
+    project_id="$(infer_project_id "$from_file")"
+  fi
+  require_safe_slug "project id" "$project_id"
+  local manifest_rel
+  manifest_rel="$(make_project_manifest "$from_file" "$project_id")"
+  log "Generated html-video project manifest: $manifest_rel"
+
+  if resolve_html_video; then
+    log "Creating html-video project via CLI"
+    "${HV_CMD[@]}" --cwd "$root" project-create --name "${name:-$project_id}" --intent "AOC branded content campaign from $manifest_rel" --aspect 9:16 --commercial || warn "html-video project-create reported issues."
+  else
+    warn "$HV_NOTE"
+    warn "Skipped html-video project-create; manifest is ready for later import."
+  fi
+}
+
+extract_svg_assets() {
+  local from_file="$1" project_id="$2" output_dir="$root/$target_dir/generated/html-video/$project_id" output="$output_dir/assets.json"
+  mkdir -p "$output_dir"
+  python3 - "$root" "$from_file" "$output" <<'PY'
+import json
+import re
+import sys
+from pathlib import Path
+
+root = Path(sys.argv[1]).resolve()
+from_arg = Path(sys.argv[2])
+source = from_arg if from_arg.is_absolute() else root / from_arg
+output = Path(sys.argv[3])
+if not source.is_file():
+    raise SystemExit(f"SVG manifest missing: {source}")
+text = source.read_text(encoding="utf-8", errors="replace")
+assets = []
+seen = set()
+for match in re.finditer(r"`([^`]+\.svg)`", text):
+    value = match.group(1).strip()
+    rel = value[len("hyperframes/"):] if value.startswith("hyperframes/") else value
+    full = root / rel if rel.startswith("hyperframes/") else root / value
+    if value in seen:
+        continue
+    seen.add(value)
+    assets.append({"path": value, "exists": full.is_file(), "caption": "AOC SVG asset"})
+output.write_text(json.dumps({"schema": "aoc.html_video.assets.v1", "source": str(source), "assets": assets}, indent=2) + "\n", encoding="utf-8")
+for asset in assets:
+    if asset["exists"]:
+        print(asset["path"])
+PY
+}
+
+run_project_add_assets() {
+  local project_id="${args[1]:-}" from_file="" i=2 a
+  [[ -n "$project_id" ]] || fail "Usage: aoc-html-video project add-assets <project-id> --from FILE"
+  require_safe_slug "project id" "$project_id"
+  while (( i < ${#args[@]} )); do
+    a="${args[$i]}"
+    case "$a" in
+      --from) i=$((i + 1)); from_file="${args[$i]:-}" ;;
+      *) fail "Unknown project add-assets option: $a" ;;
+    esac
+    i=$((i + 1))
+  done
+  [[ -n "$from_file" ]] || fail "project add-assets requires --from FILE"
+  local files=()
+  mapfile -t files < <(extract_svg_assets "$from_file" "$project_id")
+  log "Generated html-video asset manifest: $target_dir/generated/html-video/$project_id/assets.json"
+  if ! resolve_html_video; then
+    warn "$HV_NOTE"
+    warn "Skipped html-video project-add-asset; asset manifest is ready for later import."
+    return 0
+  fi
+  local file
+  for file in "${files[@]}"; do
+    "${HV_CMD[@]}" --cwd "$root" project-add-asset "$project_id" --file "$file" --caption "AOC approved SVG asset" || warn "html-video project-add-asset failed for $file"
+  done
+}
+
+record_render_output() {
+  local project_id="$1" output_path="$2" plan="$root/$target_dir/docs/content-campaign-plan.md"
+  [[ -f "$plan" ]] || return 0
+  if grep -Fq "$output_path" "$plan"; then
+    return 0
+  fi
+  {
+    printf '\n## html-video render: %s\n\n' "$project_id"
+    printf -- '- Render: `%s`\n' "$output_path"
+    printf -- '- Generated by: `aoc-html-video project render %s`\n' "$project_id"
+  } >> "$plan"
+}
+
+run_project_preview() {
+  local project_id="${args[1]:-}"
+  [[ -n "$project_id" ]] || fail "Usage: aoc-html-video project preview <project-id>"
+  require_safe_slug "project id" "$project_id"
+  run_html_video project-preview "$project_id"
+}
+
+run_project_render() {
+  local project_id="${args[1]:-}" output="" i=2 a
+  [[ -n "$project_id" ]] || fail "Usage: aoc-html-video project render <project-id> [--output FILE]"
+  require_safe_slug "project id" "$project_id"
+  while (( i < ${#args[@]} )); do
+    a="${args[$i]}"
+    case "$a" in
+      --output) i=$((i + 1)); output="${args[$i]:-}" ;;
+      *) fail "Unknown project render option: $a" ;;
+    esac
+    i=$((i + 1))
+  done
+  if [[ -z "$output" ]]; then
+    mkdir -p "$root/$target_dir/generated/html-video/$project_id/exports"
+    output="$target_dir/generated/html-video/$project_id/exports/$project_id.mp4"
+  fi
+  run_html_video project-render "$project_id" --output "$output"
+  record_render_output "$project_id" "$output"
+}
+
+run_studio() {
+  local port="3071" open=0 i=0 a
+  while (( i < ${#args[@]} )); do
+    a="${args[$i]}"
+    case "$a" in
+      --open) open=1 ;;
+      --port) i=$((i + 1)); port="${args[$i]:-3071}" ;;
+      *) fail "Unknown studio option: $a" ;;
+    esac
+    i=$((i + 1))
+  done
+  [[ "$port" =~ ^[0-9]+$ ]] || fail "Invalid studio port: $port"
+  (( open == 1 )) && warn "Passing through to html-video studio. Open http://127.0.0.1:$port if the CLI does not open it automatically."
+  run_html_video studio --port "$port"
+}
+
+run_project() {
+  case "${args[0]:-}" in
+    create)
+      run_project_create
+      ;;
+    add-assets)
+      run_project_add_assets
+      ;;
+    preview)
+      run_project_preview
+      ;;
+    render)
+      run_project_render
+      ;;
+    *)
+      fail "Usage: aoc-html-video project <create|add-assets|preview|render> [options]"
+      ;;
+  esac
+}
+
+case "$command" in
+  status)
+    status
+    ;;
+  doctor)
+    run_doctor
+    ;;
+  studio)
+    run_studio
+    ;;
+  project)
+    run_project
+    ;;
+  *)
+    usage
+    exit 1
+    ;;
+esac

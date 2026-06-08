@@ -333,8 +333,6 @@ stale_layout_paths=()
 zellij_ver="$(zellij_version || true)"
 zellij_recommended="0.44.0"
 zellij_native_inventory="unknown"
-managed_plugin_dest="${ZELLIJ_CONFIG_DIR:-$HOME/.config/zellij}/plugins/zjstatus-aoc.wasm"
-managed_plugin_cache="${XDG_CONFIG_HOME:-$HOME/.config}/aoc/zellij/plugins/zjstatus-aoc.wasm"
 default_layout_file="${XDG_STATE_HOME:-$HOME/.local/state}/aoc/layout_default"
 if [[ -n "$zellij_ver" ]]; then
   if version_ge "$zellij_ver" "$zellij_recommended"; then
@@ -364,15 +362,6 @@ for tool in "${optional[@]}"; do
   fi
 done
 
-managed_plugin_dest_sha="$(sha256_file "$managed_plugin_dest" || true)"
-managed_plugin_cache_sha="$(sha256_file "$managed_plugin_cache" || true)"
-if [[ ! -f "$managed_plugin_dest" ]]; then
-  managed_runtime_issues+=("managed plugin missing: $managed_plugin_dest")
-elif [[ -f "$managed_plugin_cache" ]]; then
-  if ! cmp -s "$managed_plugin_cache" "$managed_plugin_dest"; then
-    managed_runtime_issues+=("managed plugin stale/diverged: run 'aoc-zellij-plugin install' to restore $managed_plugin_dest")
-  fi
-fi
 
 project_aoc_version="$(read_project_aoc_version)"
 project_pi_runtime_status="$(compute_project_pi_runtime_contract_status)"
@@ -415,21 +404,18 @@ if [[ -d "$HOME/.config/zellij/layouts" ]]; then
   while IFS= read -r layout_path; do
     [[ -n "$layout_path" ]] || continue
     case "$(basename "$layout_path")" in
-      unstat.kdl|minimal.kdl|aoc-zjstatus-single.kdl|aoc-zjstatus-test.kdl|aoc.hybrid.kdl)
+      unstat.kdl|minimal.kdl|aoc.hybrid.kdl)
         stale_layout_paths+=("$layout_path")
         continue
         ;;
     esac
-    if grep -Eq 'zjstatus\.wasm|zjstatus-aoc\.wasm[^\n]*command_cwd_interval|aoc-zjstatus-single|aoc-zjstatus-test' "$layout_path" 2>/dev/null; then
-      stale_layout_paths+=("$layout_path")
-    fi
   done < <(find "$HOME/.config/zellij/layouts" -maxdepth 1 -type f -name '*.kdl' | sort)
 fi
 
 if [[ -f "$default_layout_file" ]]; then
   current_default_layout="$(cat "$default_layout_file" 2>/dev/null || true)"
   case "$current_default_layout" in
-    unstat|minimal|aoc-zjstatus-single|aoc-zjstatus-test|aoc.hybrid)
+    unstat|minimal|aoc.hybrid)
       managed_runtime_warnings+=("default layout '$current_default_layout' is deprecated; switch to 'aoc'")
       ;;
   esac
@@ -556,32 +542,8 @@ if [[ "$quiet" -eq 0 ]]; then
     fi
   fi
   echo
-  echo "Managed Zellij Top Bar:"
-  if [[ -f "$managed_plugin_dest" ]]; then
-    echo "  [ok] installed plugin: $managed_plugin_dest"
-  else
-    echo "  [missing] installed plugin: $managed_plugin_dest"
-    echo "    -> aoc-zellij-plugin install"
-  fi
-  if [[ -f "$managed_plugin_cache" ]]; then
-    echo "  [ok] managed cache: $managed_plugin_cache"
-  else
-    echo "  [warn] managed cache missing: $managed_plugin_cache"
-  fi
-  if [[ -n "$managed_plugin_dest_sha" ]]; then
-    echo "  Installed SHA256: $managed_plugin_dest_sha"
-  fi
-  if [[ -n "$managed_plugin_cache_sha" ]]; then
-    echo "  Managed  SHA256: $managed_plugin_cache_sha"
-  fi
-  echo "  Zellij alias: aoc-tab-bar -> file:$managed_plugin_dest"
-  echo "  Note: AOC top bar is layout/alias managed; Plugin Manager is not the install source of truth."
-  if ((${#managed_runtime_issues[@]} > 0)); then
-    local_issue="${managed_runtime_issues[0]}"
-    echo "  [missing] ${local_issue}"
-  elif [[ -f "$managed_plugin_dest" ]]; then
-    echo "  [ok] managed plugin matches bundled cache"
-  fi
+  echo "Legacy Zellij:"
+  echo "  [info] AOC no longer ships or installs Zellij top-bar assets."
   if ((${#stale_layout_paths[@]} > 0)); then
     echo "  [warn] stale global layouts detected:"
     for layout_path in "${stale_layout_paths[@]}"; do

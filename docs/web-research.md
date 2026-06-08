@@ -21,38 +21,40 @@ Search first prevents blind browsing and keeps context smaller.
 
 | Component | Purpose |
 |---|---|
-| `aoc-search` | AOC CLI for managed local search |
-| SearXNG | Local metasearch service, usually bound to `127.0.0.1:8888` |
+| `aoc-search` | Stable AOC CLI for managed local search; agents and OMP tools call this instead of SearXNG/Docker |
+| `aoc_web_search` | OMP tool backed by `aoc-search` |
+| SearXNG | Local metasearch service, usually bound to `127.0.0.1:8888`; required for general docs/web search unless a paid API is configured later |
+| Herdr AOC Services workspace | Visible runtime owner for starting/status-checking managed local search |
 | `aoc-fetch` | Lightweight static HTTP fetch + text/markdown/JSON extraction before render/browser escalation |
 | `aoc-render` | Optional Obscura-backed one-shot rendered extraction for JS pages without a persistent browser server |
 | `web-research` skill | Agent workflow for search, fetch, render, source comparison, citation, and synthesis |
 | `agent-browser` skill | Browser automation for navigation, forms, screenshots, scraping, and web-app testing |
-| Alt+C | Setup, start/verify, skill sync, and web smoke checks |
 
 ## Setup
 
-Open:
+Start from the Services workspace:
 
-```text
-Alt+C -> Settings -> Tools -> Agent Browser + Search
+```bash
+aoc services
+aoc services status
+aoc services start search
 ```
 
 Recommended flow:
 
-1. Install/update browser tooling.
-2. Install/update Pi browser skill.
-3. Install/update web research skill.
-4. Enable managed local search.
-5. Start/verify local search.
-6. Run web research smoke check.
-
+1. Open/focus the Herdr AOC Services workspace.
+2. Start or verify managed local search.
+3. Run package/GitHub direct-mode checks that do not need SearXNG.
+4. Run a general docs/web query when SearXNG is healthy.
+5. Use `aoc-fetch`, `aoc-render`, or browser automation only after search returns candidate URLs.
 CLI checks:
 
 ```bash
+aoc services status
+aoc services start search
 aoc-search status
-aoc-search start --wait
 aoc-search health
-aoc-search query --limit 3 "rust clap subcommands"
+aoc-search query --mode docs --limit 3 "rust clap subcommands"
 aoc-search query --mode github --limit 3 "h4ckf0r0day/obscura"
 aoc-search query --mode package --direct --limit 3 "requests"
 aoc-fetch https://example.com --format markdown
@@ -65,7 +67,7 @@ bin/aoc-web-smoke
 
 ## Agent usage
 
-Use `web-research` when the task needs external facts or source comparison.
+Use `aoc_web_search` / `aoc-search` when the task needs external facts or source comparison. General web/docs search depends on the managed local SearXNG runtime; package direct mode and GitHub mode can work without it.
 
 Use `aoc-fetch <url> --format markdown` after search for cheap static extraction.
 
@@ -103,22 +105,23 @@ Managed search writes project-local config under:
 .aoc/services/searxng/
 ```
 
-The service should bind locally. Do not expose local search publicly.
+The service should bind locally. Do not expose local search publicly. Current project defaults use fixed `127.0.0.1:8888`, so treat managed SearXNG as one active local runtime unless/until a later project-scoped port/container policy is added.
 
 ## Troubleshooting
 
-Search status:
+Service workspace and search status:
 
 ```bash
+aoc services status
 aoc-search status
 aoc-search health
 ```
 
-Restart search:
+Restart search centrally:
 
 ```bash
-aoc-search stop
-aoc-search start --wait
+aoc services start search
+aoc-services start search
 ```
 
 If search works but browser smoke fails:

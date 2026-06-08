@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
+script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 usage() {
   cat <<'EOF'
@@ -114,9 +115,10 @@ hard_rules = [
     "Use root `DESIGN.md` before UI, docs-site, marketing, HyperFrames, or product-facing work when present.",
 ]
 startup = [
-    "Use `aoc-handshake --json` as the metadata-only startup packet.",
+    "Use `aoc-handshake --json` as the metadata-only startup packet, including VCS mode and preferred command family.",
     "Do not load broad Mind memories during startup.",
     "Request focused Mind context only after user intent is known and include an explicit reason.",
+    "Prefer `jj` in Jujutsu repositories and Git only in Git-only repositories; initialize Jujutsu only through explicit `/jj-init` or direct operator action.",
 ]
 response = [
     "Keep responses concise by default.",
@@ -128,6 +130,7 @@ commands_block = [
     "STM handoff layer: `aoc-stm status`, `aoc-stm template`, `aoc-stm resume`, `aoc-stm handoff`, `aoc-stm add` (handoffs only; durable decisions use `aoc-mem`).",
     "Tasks/specs: `tm list`, `tm show <id>`, `tm add`, `tm sub ...`, `tm tag current`, `tm tag spec show`.",
     "AOC health: `aoc-init`, `aoc-handshake --json`, `aoc-rtk status`, `aoc-rtk doctor`.",
+    "VCS: inspect mode with `aoc-handshake --json`; use `jj status`/`jj diff` for Jujutsu, Git commands for Git-only repositories, and `/jj-init` only for explicit setup.",
 ]
 lazy = [
     "Skills are index-only until user intent matches; load a `SKILL.md` only when needed.",
@@ -287,7 +290,7 @@ records = [
         "budgetBytes": 3072,
         "staleCheck": None,
         "provenance": "AOC CLI metadata-only handshake",
-        "notes": "Discovers AOC/Taskmaster/Mind status without broad memories.",
+        "notes": "Discovers AOC/Taskmaster/Mind/VCS status without broad memories.",
     },
     {
         "id": "task.active-tag",
@@ -503,7 +506,7 @@ PY
 render_capabilities() {
   local root="$1"
   local mode="${2:-text}"
-  python3 - "$root" "$mode" <<'PY'
+  python3 - "$root" "$mode" "$script_dir" <<'PY'
 from __future__ import annotations
 import json
 import os
@@ -512,6 +515,7 @@ import subprocess
 import sys
 from pathlib import Path
 
+script_dir = Path(sys.argv[3]).resolve()
 root = Path(sys.argv[1]).resolve()
 mode = sys.argv[2]
 
@@ -529,10 +533,22 @@ active_tag = active_tag_result["stdout"].split()[0] if active_tag_result["ok"] a
 ready_result = run(["tm", "ready", "--tag", active_tag or "master", "--limit", "1"])
 context_help = run(["tm", "context", "--help"])
 outcome_help = run(["tm", "outcome", "--help"])
+handshake_bin = script_dir / "aoc-handshake"
+handshake_cmd = [str(handshake_bin), "--json"] if handshake_bin.exists() else ["aoc-handshake", "--json"]
 audit_help = run(["tm", "audit", "--help"])
 complete_help = run(["tm", "complete", "--help"])
-handshake = run(["aoc-handshake", "--json"])
+handshake = run(handshake_cmd)
 rtk = run(["aoc-rtk", "status"])
+handshake_packet = {}
+if handshake["ok"] and handshake["stdout"]:
+    try:
+        parsed = json.loads(handshake["stdout"])
+        if isinstance(parsed, dict):
+            handshake_packet = parsed
+    except Exception:
+        handshake_packet = {}
+vcs = handshake_packet.get("vcs") if isinstance(handshake_packet.get("vcs"), dict) else {}
+
 
 which_tm = shutil.which("tm")
 which_aoc_task = shutil.which("aoc-task")
@@ -568,6 +584,12 @@ packet = {
         "memory": {"commands": ["aoc-mem search <query>", "aoc-mem add <decision>", "aoc-mem read"], "directReadProtected": True},
         "stm": {"commands": ["aoc-stm status", "aoc-stm handoff", "aoc-stm resume <archive>"], "purpose": "directed handoff only"},
         "rtk": {"available": rtk["ok"], "purpose": "condense noisy safe command output"},
+        "vcs": {
+            "kind": vcs.get("kind", "unknown"),
+            "preferredTool": vcs.get("preferredTool", "none"),
+            "policy": (vcs.get("agentPolicy") or {}) if isinstance(vcs.get("agentPolicy"), dict) else {},
+            "source": "aoc-handshake --json",
+        },
         "subagents": {"commands": ["/subagent-run", "/subagent-review", "/subagent-test", "/specialist-run"], "policy": "explicit dispatch only"},
     },
     "protectedDirectReads": [".aoc/memory.md", ".aoc/stm/current.md", ".taskmaster/tasks/tasks.json"],
@@ -599,6 +621,8 @@ else:
     print("- Memory: aoc-mem search/add/read; never direct-read .aoc/memory.md")
     print("- STM: directed handoff/resume only; never direct-read .aoc/stm/current.md")
     print("- RTK: condenses noisy safe checks when available")
+    vcs_tool = packet["tools"]["vcs"]
+    print(f"- VCS: {vcs_tool['kind']} preferred={vcs_tool['preferredTool']}; inspect authoritative policy with aoc-handshake --json")
     print("- Subagents: explicit dispatch only; attach task/spec context in prompt")
 PY
 }
@@ -688,7 +712,7 @@ root: $root
 Startup kernel:
 - Effective agent rules: .aoc/effective-agent-contract.md (${contract_bytes} bytes; raw AGENTS chain ${agents_bytes} bytes; status=${agents_status})
 - Project snapshot: .aoc/context.md ($(sum_bytes "$aoc_dir/context.md") bytes)
-- Startup handshake metadata: aoc-handshake --json
+- Startup handshake metadata: aoc-handshake --json (includes VCS mode and preferred command family)
 - Active tag metadata: tm tag current
 - Estimated always-load budget footprint: ${always_budget} bytes
 
@@ -715,4 +739,5 @@ Policy checks:
 - AGENTS contract refresh: aoc-context agents --write
 - Registry JSON: aoc-context registry --json
 - Full/broad startup requires explicit opt-in: AOC_HANDSHAKE_MODE=full and/or AOC_HANDSHAKE_TASK_SCOPE=all
+- VCS policy source: aoc-handshake --json
 EOF

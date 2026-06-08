@@ -84,7 +84,7 @@ Reference/maintainer docs live under `docs/reference/`, `docs/maintainer/`, and 
 - Linux, macOS, or WSL
 - Zellij `>= 0.44.0` recommended
 - Pi coding agent CLI
-- Git
+- Git; optional Jujutsu (`jj`) is detected and supported when a repository already uses it, including colocated Git-backed workspaces. Use explicit `/jj-init` or `jj git init --colocate` to opt a Git repo into Jujutsu; AOC does not auto-initialize it.
 - Optional: Docker for managed local search
 - Optional: Node.js `>= 22` and FFmpeg for HyperFrames
 

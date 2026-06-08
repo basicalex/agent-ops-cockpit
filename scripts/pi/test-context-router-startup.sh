@@ -49,6 +49,19 @@ assert data["agents"]["status"] == "fresh"
 PY
 rm -f "$registry_json"
 
+capabilities_json="$(mktemp)"
+bin/aoc-context capabilities --json >"$capabilities_json"
+python3 - "$capabilities_json" <<'PY'
+import json
+import sys
+
+data = json.load(open(sys.argv[1]))
+vcs = data["tools"]["vcs"]
+assert vcs["kind"] in {"git", "jj", "none", "unknown"}, vcs
+assert vcs["source"] == "aoc-handshake --json", vcs
+PY
+rm -f "$capabilities_json"
+
 bin/aoc-context stale >/dev/null
 bin/aoc-context explain-startup | grep -q 'policy.effective-agent-contract'
 bin/aoc-context explain-startup | grep -q 'Everything else is index-only'
@@ -76,8 +89,8 @@ AOC_HANDSHAKE_MODE=off \
 bin/aoc-agent-wrap pi "$stub_dir/pi" "PI Agent" --version >"$out"
 
 grep -q 'AOC_CONTEXT_KERNEL_ACTIVE=1' "$out"
-grep -q 'ARG_01=--no-context-files' "$out"
-grep -q '^ARG_03=--append-system-prompt$' "$out"
+grep -Eq '^ARG_[0-9][0-9]=--no-context-files$' "$out"
+grep -Eq '^ARG_[0-9][0-9]=--append-system-prompt$' "$out"
 grep -q '# AOC Context Kernel' "$out"
 grep -q '## Effective Agent Contract' "$out"
 grep -q '## Project Snapshot' "$out"

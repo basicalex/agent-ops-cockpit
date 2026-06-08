@@ -23,7 +23,7 @@ def truthy(value: str | None) -> bool:
 def find_project_root(start: Path) -> Path:
     current = start.resolve()
     for candidate in [current, *current.parents]:
-        if (candidate / ".aoc").exists() or (candidate / "AGENTS.md").exists() or (candidate / ".git").exists():
+        if (candidate / ".aoc").exists() or (candidate / "AGENTS.md").exists() or (candidate / ".jj").exists() or (candidate / ".git").exists():
             return candidate
     return current
 
@@ -52,6 +52,91 @@ def run(cmd: list[str], cwd: Path, timeout: float = 5.0) -> dict[str, Any]:
     except Exception as exc:
         return {"ok": False, "error": str(exc)}
 
+
+def first_line(value: Any) -> str | None:
+    text = str(value or "").strip()
+    if not text:
+        return None
+    return text.splitlines()[0][:240]
+
+
+def detect_vcs(project_root: Path) -> dict[str, Any]:
+    git_marker = project_root / ".git"
+    jj_marker = project_root / ".jj"
+    git_present = git_marker.exists()
+    jj_present = jj_marker.exists()
+
+    git_root: str | None = None
+    git_branch: str | None = None
+    git_head: str | None = None
+    if git_present:
+        git_root_result = run(["git", "rev-parse", "--show-toplevel"], project_root, timeout=3.0)
+        if git_root_result.get("ok"):
+            git_root = first_line(git_root_result.get("stdout"))
+        branch_result = run(["git", "branch", "--show-current"], project_root, timeout=3.0)
+        if branch_result.get("ok"):
+            git_branch = first_line(branch_result.get("stdout"))
+        head_result = run(["git", "rev-parse", "--short", "HEAD"], project_root, timeout=3.0)
+        if head_result.get("ok"):
+            git_head = first_line(head_result.get("stdout"))
+
+    jj_root: str | None = None
+    jj_root_result = run(["jj", "root"], project_root, timeout=3.0)
+    if jj_root_result.get("ok"):
+        jj_present = True
+        jj_root = first_line(jj_root_result.get("stdout"))
+
+    colocation_status: str | None = None
+    if jj_present:
+        colocation_result = run(["jj", "git", "colocation", "status"], project_root, timeout=3.0)
+        if colocation_result.get("ok"):
+            colocation_status = first_line(colocation_result.get("stdout"))
+
+    colocated_git = bool(jj_present and (git_present or colocation_status))
+    kind = "jj" if jj_present else ("git" if git_present else "none")
+    preferred_tool = "jj" if kind == "jj" else ("git" if kind == "git" else "none")
+    root = jj_root if kind == "jj" and jj_root else git_root if kind == "git" and git_root else str(project_root)
+    git_label = git_branch or ("detached" if git_head else ("unknown" if git_present else None))
+
+    if kind == "jj":
+        policy = {
+            "inspect": ["jj status", "jj diff --summary", "jj diff --stat"],
+            "commit": "Use jj current-change workflow; do not use git add/staging semantics.",
+            "parallelism": "Keep one agent task in one jj change; split unrelated work before committing.",
+            "push": "Never push without explicit approval.",
+        }
+    elif kind == "git":
+        policy = {
+            "inspect": ["git status --short", "git diff --stat", "git diff --cached --stat"],
+            "commit": "Use explicit path staging for the intended atomic change.",
+            "parallelism": "Do not mix unrelated parallel-agent changes in one commit.",
+            "push": "Never push without explicit approval.",
+        }
+    else:
+        policy = {
+            "inspect": [],
+            "commit": "No VCS detected; do not commit unless the operator configures a repository.",
+            "parallelism": "Keep unrelated changes separated by task.",
+            "push": "Never push without explicit approval.",
+        }
+
+    return {
+        "kind": kind,
+        "preferredTool": preferred_tool,
+        "root": root,
+        "git": {
+            "present": bool(git_present),
+            "root": git_root,
+            "branch": git_label,
+        },
+        "jj": {
+            "present": bool(jj_present),
+            "root": jj_root or (str(project_root) if jj_present else None),
+            "colocatedGit": colocated_git,
+            "colocationStatus": colocation_status,
+        },
+        "agentPolicy": policy,
+    }
 
 def runnable(candidate: str | None) -> str | None:
     if not candidate:
@@ -143,9 +228,28 @@ def mind_sync(project_root: Path, launcher: dict[str, Any]) -> dict[str, Any]:
         return {"attempted": True, "ok": True, "raw": parsed if isinstance(parsed, dict) else None}
     return {"attempted": True, "ok": False, "error": result.get("error") or result.get("stderr") or result.get("stdout") or "mind sync unavailable"}
 
+def vcs_summary(vcs: dict[str, Any]) -> str:
+    kind = str(vcs.get("kind") or "unknown")
+    preferred = str(vcs.get("preferredTool") or "none")
+    jj = vcs.get("jj") if isinstance(vcs.get("jj"), dict) else {}
+    suffix = " (colocated with git)" if kind == "jj" and jj.get("colocatedGit") else ""
+    return f"{kind}{suffix}; preferred={preferred}"
+
+
+def vcs_policy_line(vcs: dict[str, Any]) -> str:
+    kind = str(vcs.get("kind") or "unknown")
+    if kind == "jj":
+        return "jj current-change workflow; no git staging; split mixed work before commit"
+    if kind == "git":
+        return "git explicit path staging; keep the commit atomic"
+    return "no VCS detected; do not commit until configured"
+
+
+
 
 def build_packet(project_root: Path, do_sync: bool) -> dict[str, Any]:
     aoc_dir = project_root / ".aoc"
+    vcs = detect_vcs(project_root)
     launcher = resolve_mind_launcher(project_root)
     status = mind_status(project_root, launcher)
     active_tag_result = run(["tm", "tag", "current"], project_root, timeout=3.0)
@@ -156,6 +260,7 @@ def build_packet(project_root: Path, do_sync: bool) -> dict[str, Any]:
         "kind": "aoc.startup.handshake",
         "projectRoot": str(project_root),
         "mode": "metadata-only",
+        "vcs": vcs,
         "aoc": {
             "initialized": aoc_dir.exists(),
             "contextPath": ".aoc/context.md",
@@ -218,6 +323,7 @@ def build_packet(project_root: Path, do_sync: bool) -> dict[str, Any]:
 def print_text(packet: dict[str, Any]) -> None:
     print(f"AOC handshake: {packet['projectRoot']}")
     print(f"  mode: {packet['mode']}")
+    print(f"  vcs: {vcs_summary(packet.get('vcs', {}))}")
     print(f"  context: {'present' if packet['aoc']['contextPresent'] else 'missing'}")
     print(f"  taskmaster: {'available' if packet['taskmaster']['available'] else 'unavailable'}")
     if packet['taskmaster'].get('activeTag'):
@@ -234,9 +340,11 @@ def print_prompt_min(packet: dict[str, Any]) -> None:
     taskmaster = packet.get("taskmaster", {})
     mind = packet.get("mind", {})
     warnings = packet.get("warnings", [])
+    vcs = packet.get("vcs", {})
     parts = [
         "# AOC Startup Context",
         f"root={packet.get('projectRoot')}",
+        f"vcs={vcs.get('kind', 'unknown')}; preferred={vcs.get('preferredTool', 'none')}; policy={vcs_policy_line(vcs)}",
         f"aoc={'yes' if aoc.get('initialized') else 'no'}",
         f"context={'present' if aoc.get('contextPresent') else 'missing'}",
         f"taskmaster={'yes' if taskmaster.get('available') else 'no'}",
@@ -254,11 +362,13 @@ def print_prompt_compact(packet: dict[str, Any]) -> None:
     taskmaster = packet.get("taskmaster", {})
     mind = packet.get("mind", {})
     warnings = packet.get("warnings", [])
+    vcs = packet.get("vcs", {})
     print("# AOC Startup Context")
     print()
     print("- Mode: metadata-only startup capsule; do not inject broad Mind memories, raw task state, raw AGENTS chains, skills, prompts, extension source, or docs by default.")
     print(f"- Root: `{packet.get('projectRoot')}`")
     print(f"- AOC: {'initialized' if aoc.get('initialized') else 'not initialized'}; context `{aoc.get('contextPath', '.aoc/context.md')}` is {'present' if aoc.get('contextPresent') else 'missing'}; agent contract is {'present' if aoc.get('agentsContractPresent') else 'missing'}.")
+    print(f"- VCS: {vcs_summary(vcs)}. Safety rule: {vcs_policy_line(vcs)}; never push without explicit approval.")
     active_tag = taskmaster.get("activeTag") or "none"
     print(f"- Taskmaster: {'available' if taskmaster.get('available') else 'unavailable'}; active tag `{active_tag}`. Use CLI commands for task/spec details; do not read task JSON directly.")
     print(f"- Mind: {'available' if mind.get('available') else 'unavailable'}. Retrieve focused context only after user intent is known and the reason is explicit.")
@@ -273,6 +383,7 @@ def print_prompt_full(packet: dict[str, Any]) -> None:
     taskmaster = packet.get("taskmaster", {})
     mind = packet.get("mind", {})
     warnings = packet.get("warnings", [])
+    vcs = packet.get("vcs", {})
     print("# AOC Startup Context")
     print()
     print("This is a metadata-only startup capsule. It orients the agent without loading broad memory or raw task state.")
@@ -282,6 +393,8 @@ def print_prompt_full(packet: dict[str, Any]) -> None:
     print(f"- AOC initialized: {'yes' if aoc.get('initialized') else 'no'}")
     print(f"- Project context: `{aoc.get('contextPath', '.aoc/context.md')}` ({'present' if aoc.get('contextPresent') else 'missing'})")
     print(f"- Agent contract: {'present' if aoc.get('agentsContractPresent') else 'missing'}")
+    print(f"- VCS: {vcs_summary(vcs)}")
+    print(f"- VCS root: `{vcs.get('root') or packet.get('projectRoot')}`")
     print()
     print("## Taskmaster")
     print(f"- Available: {'yes' if taskmaster.get('available') else 'no'}")
@@ -309,8 +422,17 @@ def print_prompt_full(packet: dict[str, Any]) -> None:
     print("- If `.codegraph/` exists and the OMP `aoc_codegraph` tool is available, use it before broad text scans for code discovery, architecture tracing, impact analysis, and affected-test selection.")
     print("- Treat CodeGraph as read-only inside the agent. Initialization, indexing, and sync are explicit operator actions.")
     print()
+    print("## VCS / Jujutsu policy")
+    print(f"- Detected: {vcs_summary(vcs)}")
+    print("- AOC reports existing Jujutsu repositories automatically. It initializes/colocates Jujutsu only through explicit operator action such as `/jj-init` or a direct shell command, never at ordinary startup/init.")
+    print("- Git-only repositories: use `git status --short`, targeted diffs, explicit path staging, `git commit`, and report the observed SHA.")
+    print("- Jujutsu repositories: use `jj status`, `jj diff --summary`, `jj diff --stat`, and targeted `jj diff -- <filesets>`; the working copy is the current mutable `@` change, not a Git staging area.")
+    print("- For Jujutsu commits, ensure `@` contains only the intended atomic work before `jj commit -m <message>` or use selected filesets/splitting (`jj commit <filesets>`, `jj split`, `jj squash -i`) to separate unrelated changes.")
+    print("- Keep one agent task in one Jujutsu change where practical; split mixed parallel-agent work before committing; never push through Git or Jujutsu without explicit approval.")
+    print()
     print("## Slash commands")
-    print("- `/commit [scope]` is the AOC/OMP safe atomic commit workflow. Treat it as approval to inspect changes, run targeted validation, stage explicit intended paths, commit, and report the SHA. Never push without explicit approval.")
+    print("- `/commit [scope]` is the AOC/OMP safe atomic commit workflow. Treat it as approval to inspect changes, run targeted validation, commit only the intended atomic work using the detected VCS workflow, and report the observed Git SHA or Jujutsu change/commit identity. Never push without explicit approval.")
+    print("- `/jj-init [scope]` is the explicit AOC/OMP workflow to analyze a Git repository and initialize colocated Jujutsu safely. It must inspect dirty work first, never push/fetch/import/export, and report remaining work in `@`.")
     print()
     print("## RTK")
     print(f"- Status command available: {'yes' if aoc.get('rtkStatusAvailable') else 'no'}")

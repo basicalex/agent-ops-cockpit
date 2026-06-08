@@ -1,0 +1,6 @@
+aoc-managed: true
+asset: prompt/commit
+asset-version: 3
+source: .pi/prompts/commit.md
+sha256: 8cdfd36dd6fd66d72003752464b6531db0d986efc4e1884a7adc517f5e686a88
+updated-at: 2026-06-08T10:03:52Z

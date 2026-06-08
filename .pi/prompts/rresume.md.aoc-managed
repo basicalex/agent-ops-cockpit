@@ -1,0 +1,6 @@
+aoc-managed: true
+asset: prompt/rresume
+asset-version: 3
+source: ../.config/aoc/pi/prompts/rresume.md
+sha256: 90b46fc5a2bdd1dbb498ec2899e709cec61bcec59eb531563bdeb76d02a9a94b
+updated-at: 2026-05-31T18:41:30Z

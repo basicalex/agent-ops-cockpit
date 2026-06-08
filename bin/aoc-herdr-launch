@@ -63,6 +63,24 @@ if herdr status server >/dev/null 2>&1; then
   if ! focus_existing_workspace "$cwd"; then
     herdr workspace create --cwd "$cwd" --label "$label" --focus >/dev/null 2>&1 || true
   fi
+
+  case "${AOC_HERDR_SERVICES:-auto}" in
+    auto)
+      if command -v aoc-herdr-services >/dev/null 2>&1; then
+        aoc-herdr-services ensure --cwd "$cwd" --no-focus >/dev/null 2>&1 || true
+      fi
+      ;;
+    focus)
+      if command -v aoc-herdr-services >/dev/null 2>&1; then
+        aoc-herdr-services focus --cwd "$cwd" >/dev/null 2>&1 || true
+      fi
+      ;;
+    off|"")
+      ;;
+    *)
+      echo "aoc: ignoring unknown AOC_HERDR_SERVICES=${AOC_HERDR_SERVICES}" >&2
+      ;;
+  esac
 fi
 
 cd "$cwd"

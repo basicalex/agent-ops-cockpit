@@ -1,0 +1,254 @@
+#!/usr/bin/env python3
+import argparse
+import hashlib
+import json
+import os
+import shlex
+import shutil
+import subprocess
+import sys
+from pathlib import Path
+
+
+def eprint(message: str) -> None:
+    print(message, file=sys.stderr)
+
+
+def run_herdr(args, *, timeout=12, check=False):
+    herdr = shutil.which("herdr")
+    if not herdr:
+        return subprocess.CompletedProcess(args, 127, "", "herdr not found")
+    result = subprocess.run([herdr, *args], capture_output=True, text=True, timeout=timeout, check=False)
+    if check and result.returncode != 0:
+        raise RuntimeError(result.stderr.strip() or result.stdout.strip() or f"herdr {' '.join(args)} failed")
+    return result
+
+
+def herdr_json(args, *, timeout=12):
+    result = run_herdr(args, timeout=timeout)
+    if result.returncode != 0:
+        raise RuntimeError(result.stderr.strip() or result.stdout.strip() or f"herdr {' '.join(args)} failed")
+    try:
+        return json.loads(result.stdout)
+    except json.JSONDecodeError as exc:
+        raise RuntimeError(f"herdr {' '.join(args)} returned non-JSON output: {exc}") from exc
+
+
+def herdr_available() -> bool:
+    if not shutil.which("herdr"):
+        return False
+    result = run_herdr(["status", "server"], timeout=5)
+    return result.returncode == 0
+
+
+def resolve_project_root(cwd: str | None) -> Path:
+    seed = cwd or os.environ.get("AOC_SERVICES_ROOT") or os.environ.get("AOC_PROJECT_ROOT") or os.getcwd()
+    root = Path(seed).expanduser().resolve()
+    if not root.is_dir():
+        raise ValueError(f"invalid cwd: {root}")
+    for candidate in [root, *root.parents]:
+        if (candidate / ".aoc" / "search.toml").exists() or (candidate / "bin" / "aoc").exists():
+            return candidate
+    return root
+
+
+def services_label(root: Path) -> str:
+    name = root.name or "workspace"
+    digest = hashlib.sha256(str(root).encode("utf-8")).hexdigest()[:8]
+    return f"AOC Services · {name} · {digest}"
+
+
+def result_items(payload, key: str):
+    result = payload.get("result") if isinstance(payload, dict) else None
+    items = result.get(key) if isinstance(result, dict) else None
+    return items if isinstance(items, list) else []
+
+
+def find_workspace(label: str):
+    payload = herdr_json(["workspace", "list"])
+    for workspace in result_items(payload, "workspaces"):
+        if workspace.get("label") == label:
+            return workspace
+    return None
+
+
+def ensure_workspace(root: Path, label: str, focus: bool):
+    workspace = find_workspace(label)
+    created = False
+    if workspace is None:
+        args = ["workspace", "create", "--cwd", str(root), "--label", label, "--focus" if focus else "--no-focus"]
+        run_herdr(args, timeout=12, check=True)
+        workspace = find_workspace(label)
+        if workspace is None:
+            raise RuntimeError(f"created Herdr workspace was not listed: {label}")
+        created = True
+    elif focus:
+        run_herdr(["workspace", "focus", workspace["workspace_id"]], timeout=8, check=True)
+    return workspace, created
+
+
+def list_tabs(workspace_id: str):
+    return result_items(herdr_json(["tab", "list", "--workspace", workspace_id]), "tabs")
+
+
+def list_panes(workspace_id: str):
+    return result_items(herdr_json(["pane", "list", "--workspace", workspace_id]), "panes")
+
+
+def find_tab(workspace_id: str, label: str):
+    for tab in list_tabs(workspace_id):
+        if tab.get("label") == label:
+            return tab
+    return None
+
+
+def first_pane_for_tab(workspace_id: str, tab_id: str):
+    for pane in list_panes(workspace_id):
+        if pane.get("tab_id") == tab_id:
+            return pane
+    return None
+
+
+def find_reusable_initial_tab(workspace_id: str):
+    panes = list_panes(workspace_id)
+    for tab in list_tabs(workspace_id):
+        if tab.get("label") not in {"1", "Untitled", ""}:
+            continue
+        tab_panes = [pane for pane in panes if pane.get("tab_id") == tab.get("tab_id")]
+        if len(tab_panes) == 1 and not tab_panes[0].get("label") and not tab_panes[0].get("command"):
+            return tab
+    return None
+
+
+def ensure_tab(workspace_id: str, root: Path, label: str, pane_label: str, command: str, *, reuse_initial: bool = False) -> bool:
+    tab = find_tab(workspace_id, label)
+    if tab is not None:
+        return False
+    if reuse_initial:
+        tab = find_reusable_initial_tab(workspace_id)
+        if tab is not None:
+            run_herdr(["tab", "rename", tab["tab_id"], label], timeout=8, check=True)
+            tab = find_tab(workspace_id, label)
+    if tab is None:
+        run_herdr(["tab", "create", "--workspace", workspace_id, "--cwd", str(root), "--label", label, "--no-focus"], timeout=12, check=True)
+        tab = find_tab(workspace_id, label)
+        if tab is None:
+            raise RuntimeError(f"created Herdr tab was not listed: {label}")
+    pane = first_pane_for_tab(workspace_id, tab["tab_id"])
+    if pane is None:
+        raise RuntimeError(f"created Herdr tab has no pane: {label}")
+    pane_id = pane["pane_id"]
+    run_herdr(["pane", "rename", pane_id, pane_label], timeout=8, check=True)
+    run_herdr(["pane", "run", pane_id, command], timeout=8, check=True)
+    return True
+
+
+def services_commands(root: Path):
+    quoted_root = shlex.quote(str(root))
+    overview_body = f"export AOC_SERVICES_ROOT={quoted_root}; exec aoc-services up --watch --interval 30"
+    overview = f"bash -lc {shlex.quote(overview_body)}"
+    search_body = (
+        f"cd {quoted_root} && "
+        f"export AOC_SERVICES_ROOT={quoted_root}; "
+        "aoc-search status; "
+        "printf '\\nNext commands:\\n  aoc services start search\\n  aoc-search health\\n  aoc-search query --mode docs --limit 3 <query>\\n'; "
+        "exec \"${SHELL:-bash}\""
+    )
+    search = f"bash -lc {shlex.quote(search_body)}"
+    return overview, search
+
+
+def ensure_layout(root: Path, workspace_id: str):
+    overview, search = services_commands(root)
+    created = []
+    if ensure_tab(workspace_id, root, "Overview", "AOC Services", overview, reuse_initial=True):
+        created.append("Overview")
+    if ensure_tab(workspace_id, root, "Search", "Managed Search", search):
+        created.append("Search")
+    return created
+
+
+def command_status(root: Path, as_json: bool) -> int:
+    label = services_label(root)
+    if not shutil.which("herdr"):
+        payload = {"available": False, "projectRoot": str(root), "label": label, "reason": "herdr not found"}
+    elif not herdr_available():
+        payload = {"available": False, "projectRoot": str(root), "label": label, "reason": "Herdr server is not running"}
+    else:
+        workspace = find_workspace(label)
+        payload = {"available": True, "projectRoot": str(root), "label": label, "workspace": workspace}
+    if as_json:
+        print(json.dumps(payload, indent=2))
+    else:
+        print(f"AOC Services workspace: {label}")
+        print(f" project root: {root}")
+        if payload.get("available") and payload.get("workspace"):
+            print(f" status: ready ({payload['workspace']['workspace_id']})")
+        elif payload.get("available"):
+            print(" status: missing")
+            print(" next: aoc-herdr-services ensure --no-focus")
+        else:
+            print(f" status: unavailable ({payload['reason']})")
+            print(" next: start Herdr with `aoc`, then run `aoc services`")
+    return 0 if payload.get("available") else 1
+
+
+def command_ensure(root: Path, focus: bool) -> int:
+    if not shutil.which("herdr"):
+        eprint("aoc-herdr-services: herdr is not installed or not on PATH")
+        eprint("Run: aoc-herdr-install")
+        return 1
+    if not herdr_available():
+        eprint("aoc-herdr-services: Herdr server is not running; not starting Herdr or services automatically")
+        eprint("Run: aoc")
+        eprint("Then: aoc services")
+        return 1
+    label = services_label(root)
+    workspace, created = ensure_workspace(root, label, focus)
+    created_tabs = ensure_layout(root, workspace["workspace_id"])
+    if focus and not created:
+        run_herdr(["workspace", "focus", workspace["workspace_id"]], timeout=8, check=True)
+    verb = "created" if created else "ready"
+    print(f"AOC Services workspace {verb}: {label}")
+    print(f" workspace: {workspace['workspace_id']}")
+    if created_tabs:
+        print(f" tabs: {', '.join(created_tabs)}")
+    else:
+        print(" tabs: reused existing Overview/Search")
+    return 0
+
+
+def build_parser():
+    parser = argparse.ArgumentParser(prog="aoc-herdr-services", description="Create or focus the Herdr AOC Services workspace for this project.")
+    sub = parser.add_subparsers(dest="command", required=True)
+    for name in ("ensure", "focus", "status"):
+        p = sub.add_parser(name)
+        p.add_argument("--cwd", dest="cwd")
+        if name == "ensure":
+            group = p.add_mutually_exclusive_group()
+            group.add_argument("--focus", action="store_true", dest="focus")
+            group.add_argument("--no-focus", action="store_false", dest="focus")
+            p.set_defaults(focus=False)
+        if name == "status":
+            p.add_argument("--json", action="store_true")
+    return parser
+
+
+def main(argv=None) -> int:
+    args = build_parser().parse_args(argv)
+    try:
+        root = resolve_project_root(getattr(args, "cwd", None))
+        if args.command == "status":
+            return command_status(root, args.json)
+        if args.command == "focus":
+            return command_ensure(root, True)
+        if args.command == "ensure":
+            return command_ensure(root, bool(args.focus))
+    except Exception as exc:
+        eprint(f"aoc-herdr-services: {exc}")
+        return 2
+    return 2
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

@@ -306,18 +306,10 @@ Avoid: current map terminology.
 Relationships: AOC Map; `aoc-map`; `aoc map`.
 Evidence: `docs/aoc-map.md`.
 
-### Managed Zellij Top Bar
+### Retired Zellij Top Bar
 
-Definition: AOC's managed `zjstatus`-based one-row top bar, loaded as a visible layout-embedded plugin pane in each managed Zellij tab.
-Aliases: AOC tab bar; top-bar plugin; `aoc-tab-bar`.
-Avoid: treating it as a background/global plugin or expecting Zellij Plugin Manager to be the source of truth for layout-embedded panes.
-Relationships: Zellij Workspace; `aoc-zellij-plugin`; `zellij/layouts/aoc.kdl.template`; `zellij/aoc.config.kdl.template`; `docs/reference/zellij-top-bar.md`.
-Evidence: Task 244; `docs/reference/zellij-top-bar.md`.
-
-### Tab Roster Sync
-
-Definition: Background convergence path for Managed Zellij Top Bar instances to learn tab order, names, creation, and closure without blocking local active-tab rendering.
-Aliases: roster sync; background roster sync; tab roster freshness.
-Avoid: using it for local active-state ownership or render-path filesystem synchronization.
-Relationships: Managed Zellij Top Bar; Zellij Workspace.
-Evidence: Task 246; `vendor/zjstatus-aoc/src/bin/zjstatus.rs`.
+Definition: Removed AOC status-bar experiment superseded by the Herdr/OMP-first workspace model.
+Aliases: old AOC tab bar; retired top-bar plugin.
+Avoid: reintroducing status-bar plugin assets or installer seeding.
+Relationships: Herdr Workspace; OMP.
+Evidence: Herdr/OMP cutover; `docs/herdr-workspace.md`; `docs/aoc-feature-inventory.md`.

@@ -1,10 +1,10 @@
 # AOC Services
 
-`aoc-services` is the project-local service supervisor intended for the dedicated Mission Control tab.
+`aoc-services` is the project-local service supervisor used by the Herdr **AOC Services** workspace and the `aoc services` command.
 
 ## Runtime model
 
-Mission Control owns shared long-lived services so individual agents do not scatter runtime startup across sessions.
+The Herdr AOC Services workspace owns shared long-lived services so individual agents do not scatter runtime startup across sessions.
 
 Default centralized services:
 
@@ -19,6 +19,20 @@ One-shot tools such as `aoc-fetch` and `aoc-render` should not become persistent
 
 ## Commands
 
+Preferred operator entrypoint:
+
+```bash
+aoc services              # open/focus the Herdr Services workspace
+aoc services workspace    # same as above
+aoc services status
+aoc services up --watch
+aoc services start search
+aoc services stop search
+aoc services doctor
+```
+
+Direct supervisor commands remain available:
+
 ```bash
 aoc-services status
 aoc-services status --json
@@ -31,15 +45,16 @@ aoc-services doctor
 
 `aoc-services up --watch` starts the shared search service and then displays a live status board. Watchers are singleton-scoped per service root; duplicate panes/sessions exit instead of polling Docker repeatedly.
 
-## Mission Control integration
+## Herdr integration
 
-The dedicated Mission Control layout includes an **AOC Services** pane running:
+`aoc services` creates or focuses a project-scoped Herdr workspace named `AOC Services · <project> · <hash>`. The workspace keeps the normal coding workspace uncluttered and creates:
 
-```bash
-aoc-services up --watch --interval 30
-```
+- `Overview` tab: `AOC_SERVICES_ROOT=<project> aoc-services up --watch --interval 30`
+- `Search` tab: managed-search status plus the next operator commands
 
-This makes Mission Control the visible owner of project runtime health while agents consume services through normal commands:
+`aoc` may best-effort ensure this workspace when a Herdr server is already running (`AOC_HERDR_SERVICES=auto`, the default), but it does not focus it. Use `AOC_HERDR_SERVICES=off` to disable that ensure step or `AOC_HERDR_SERVICES=focus` for explicit service-ops sessions.
+
+This makes Herdr the visible owner of project runtime health while agents consume services through normal commands:
 
 ```bash
 aoc-search query --mode docs "..."
@@ -50,14 +65,17 @@ agent-browser open https://example.com
 
 ## Agent guidance
 
-Agents should prefer checking shared state instead of starting ad-hoc services:
+Agents should use stable AOC surfaces:
+
+```bash
+aoc-search query --mode docs "..."
+```
+
+OMP agents should use the `aoc_web_search` tool, which delegates to `aoc-search`. Agents must not call Docker Compose or SearXNG directly.
+
+`aoc-search` query auto-start remains a safety fallback when project policy allows it. The primary operator UX is still the Herdr AOC Services workspace:
 
 ```bash
 aoc-services status --json
-```
-
-If search is down and web discovery is required, start it centrally:
-
-```bash
-aoc-services start search
+aoc services start search
 ```

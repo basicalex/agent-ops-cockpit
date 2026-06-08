@@ -1,9 +1,12 @@
 # Project Context Snapshot
 
 ## Repository
-- Name: agent-ops-cockpit
-- Root: /home/ceii/dev/agent-ops-cockpit
-- Git branch: main
+- Name: .
+- Root: .
+- VCS: jj (colocated with git)
+- Git branch: 255ec5f
+- Jujutsu root: /home/ceii/dev/agent-ops-cockpit
+- Jujutsu colocation: yes
 
 ## Key Files
 - README.md
@@ -35,8 +38,12 @@
 ./bin/aoc-doctor
 ./bin/aoc-fetch
 ./bin/aoc-handshake
+./bin/aoc-herdr-install
+./bin/aoc-herdr-launch
+./bin/aoc-herdr-services
 ./bin/aoc-hf
 ./bin/aoc-hf-u
+./bin/aoc-html-video
 ./bin/aoc-hub
 ./bin/aoc-hyperframes
 ./bin/aoc-init
@@ -49,10 +56,6 @@
 ./bin/aoc-mission-control
 ./bin/aoc-mission-control-tab
 ./bin/aoc-mission-control-toggle
-./bin/aoc-new-tab
-./bin/aoc-obscura-install
-./bin/aoc-od
-./bin/aoc-open-explorer
 ... [tree truncated to 40 lines]
 ```
 
@@ -81,7 +84,7 @@ aoc-presets (1)
 aoc/pi_cleanup (9)
 deprecation (10)
 detached-orchestration (3)
-env-protec (51)
+env-protec (56)
 master (46)
 mermaid (1)
 mind (51)
@@ -94,7 +97,7 @@ pulse-tab-overview (1)
 rtk (5)
 safety (9)
 session-overseer (0)
-sub-agents (6)
+sub-agents (7)
 subagent-ux (6)
 ```
 

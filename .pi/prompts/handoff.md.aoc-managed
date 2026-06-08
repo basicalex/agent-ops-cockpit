@@ -1,0 +1,6 @@
+aoc-managed: true
+asset: prompt/handoff
+asset-version: 3
+source: ../.config/aoc/pi/prompts/handoff.md
+sha256: 54b39db49155cfde7d2799c05c19c74a655a857155df339abcc56a8ffa7d460f
+updated-at: 2026-05-31T18:41:30Z

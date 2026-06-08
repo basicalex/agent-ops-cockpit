@@ -1,6 +1,6 @@
 aoc-managed: true
 asset: skill/teach-workflow
 asset-version: 3
-source: ../.config/aoc/pi/skills/teach-workflow
+source: .pi/skills/teach-workflow
 sha256: 5e55b0e184599a7ffc05a4eb3a7bc30ec8f52730aebed22405bacc668e4c2d10
-updated-at: 2026-05-24T08:52:04Z
+updated-at: 2026-06-08T10:04:00Z

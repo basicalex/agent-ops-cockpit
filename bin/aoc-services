@@ -114,28 +114,42 @@ def json_cmd(cmd, timeout=12, cwd=None):
     return code, payload, out, err
 
 
+
+def repo_cmd(name):
+    local = SERVICE_ROOT / "bin" / name
+    if local.exists():
+        return [str(local)]
+    if shutil.which(name):
+        return [name]
+    return None
+
+
+def missing_service(name, kind, required_for, message=None):
+    return {"name": name, "kind": kind, "state": "missing", "healthy": False, "requiredFor": required_for, "message": message or f"{name} not found"}
+
+
 def search_status():
-    if not shutil.which("aoc-search") and not Path("bin/aoc-search").exists():
-        return {"name": "search", "kind": "server", "state": "missing", "healthy": False, "message": "aoc-search not found"}
-    cmd = "aoc-search health --json" if shutil.which("aoc-search") else "bin/aoc-search health --json"
-    code, payload, out, err = json_cmd(cmd, timeout=20, cwd=SERVICE_ROOT)
+    cmd = repo_cmd("aoc-search")
+    if not cmd:
+        return missing_service("search", "server", ["aoc-search"], "aoc-search not found")
+    code, payload, out, err = json_cmd([*cmd, "health", "--json"], timeout=20, cwd=SERVICE_ROOT)
     healthy = code == 0 and isinstance(payload, dict) and bool(payload.get("healthy"))
-    return {"name": "search", "kind": "server", "state": "healthy" if healthy else "down", "healthy": healthy, "requiredFor": ["aoc-search"], "details": payload or {"stdout": out, "stderr": err}}
+    return {"name": "search", "kind": "server", "state": "healthy" if healthy else "down", "healthy": healthy, "requiredFor": ["aoc-search", "aoc_web_search"], "details": payload or {"stdout": out, "stderr": err}}
 
 
 def render_status():
-    cmd = "aoc-render status --json" if shutil.which("aoc-render") else "bin/aoc-render status --json"
-    if not shutil.which("aoc-render") and not Path("bin/aoc-render").exists():
-        return {"name": "render", "kind": "oneshot", "state": "missing", "healthy": False, "serverRequired": False, "message": "aoc-render not found"}
-    code, payload, out, err = json_cmd(cmd, timeout=8, cwd=SERVICE_ROOT)
+    cmd = repo_cmd("aoc-render")
+    if not cmd:
+        return {"name": "render", "kind": "oneshot", "state": "missing", "healthy": False, "serverRequired": False, "requiredFor": ["aoc-render"], "message": "aoc-render not found"}
+    code, payload, out, err = json_cmd([*cmd, "status", "--json"], timeout=8, cwd=SERVICE_ROOT)
     available = code == 0 and isinstance(payload, dict) and bool(payload.get("available"))
     return {"name": "render", "kind": "oneshot", "state": "available" if available else "unavailable", "healthy": available, "serverRequired": False, "requiredFor": ["aoc-render"], "details": payload or {"stdout": out, "stderr": err}}
 
 
 def browser_status():
     if not shutil.which("agent-browser"):
-        return {"name": "browser", "kind": "daemon", "state": "missing", "healthy": False, "requiredFor": ["agent-browser"], "message": "agent-browser not found"}
-    code, out, err = run("agent-browser get url", timeout=3, cwd=SERVICE_ROOT)
+        return missing_service("browser", "daemon", ["agent-browser"], "agent-browser not found")
+    code, out, err = run(["agent-browser", "get", "url"], timeout=3, cwd=SERVICE_ROOT)
     ready = code == 0
     return {"name": "browser", "kind": "daemon", "state": "ready" if ready else "cold", "healthy": ready, "requiredFor": ["agent-browser"], "details": {"stdout": out, "stderr": err}}
 
@@ -157,7 +171,7 @@ def quote(value):
 
 def all_status():
     services = [search_status(), render_status(), browser_status(), mind_status()]
-    return {"schemaVersion": 1, "projectRoot": str(ROOT), "serviceRoot": str(SERVICE_ROOT), "services": services, "healthy": all(s.get("healthy") or s.get("kind") in {"oneshot", "daemon-or-cold"} for s in services)}
+    return {"schemaVersion": 1, "projectRoot": str(SERVICE_ROOT), "launchCwd": str(ROOT), "serviceRoot": str(SERVICE_ROOT), "services": services, "healthy": all(s.get("healthy") or s.get("kind") in {"oneshot", "daemon-or-cold"} for s in services)}
 
 
 def all_status_cached(max_age=HEALTH_CACHE_TTL):
@@ -175,8 +189,8 @@ def print_status(payload, as_json=False):
         print(json.dumps(payload, indent=2))
         return
     print(f"AOC services: {payload['projectRoot']}")
-    if payload.get("serviceRoot") and payload.get("serviceRoot") != payload.get("projectRoot"):
-        print(f" service root: {payload['serviceRoot']}")
+    if payload.get("launchCwd") and payload.get("launchCwd") != payload.get("projectRoot"):
+        print(f" launch cwd: {payload['launchCwd']}")
     for svc in payload["services"]:
         marker = "✓" if svc.get("healthy") else ("·" if svc.get("kind") in {"oneshot", "daemon-or-cold"} else "✗")
         extra = " no-server" if svc.get("serverRequired") is False else ""
@@ -185,8 +199,10 @@ def print_status(payload, as_json=False):
 
 def start_service(name):
     if name == "search":
-        cmd = "aoc-search start --wait" if shutil.which("aoc-search") else "bin/aoc-search start --wait"
-        return run(cmd, timeout=90, cwd=SERVICE_ROOT)
+        cmd = repo_cmd("aoc-search")
+        if not cmd:
+            return 127, "", "aoc-search not found"
+        return run([*cmd, "start", "--wait"], timeout=90, cwd=SERVICE_ROOT)
     if name == "render":
         return 0, "render is one-shot; no server to start", ""
     if name == "browser":
@@ -198,15 +214,17 @@ def start_service(name):
 
 def stop_service(name):
     if name == "search":
-        cmd = "aoc-search stop" if shutil.which("aoc-search") else "bin/aoc-search stop"
-        return run(cmd, timeout=60, cwd=SERVICE_ROOT)
+        cmd = repo_cmd("aoc-search")
+        if not cmd:
+            return 127, "", "aoc-search not found"
+        return run([*cmd, "stop"], timeout=60, cwd=SERVICE_ROOT)
     if name in {"render", "browser", "mind"}:
         return 0, f"{name} has no managed default stop action", ""
     raise SystemExit(f"unknown service: {name}")
 
 
 def main():
-    parser = argparse.ArgumentParser(prog="aoc-services", description="Centralized AOC project service supervisor for Mission Control.")
+    parser = argparse.ArgumentParser(prog="aoc-services", description="Project-scoped AOC service supervisor for the Herdr Services workspace.")
     sub = parser.add_subparsers(dest="command", required=True)
     p = sub.add_parser("status"); p.add_argument("--json", action="store_true"); p.add_argument("--watch", action="store_true"); p.add_argument("--interval", type=float, default=DEFAULT_WATCH_INTERVAL)
     p = sub.add_parser("up"); p.add_argument("--watch", action="store_true"); p.add_argument("--interval", type=float, default=DEFAULT_WATCH_INTERVAL); p.add_argument("--no-search", action="store_true")

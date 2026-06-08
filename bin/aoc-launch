@@ -180,7 +180,7 @@ cleanup_state() {
 normalize_layout_name() {
   case "${1:-}" in
     "" ) printf 'aoc' ;;
-    unstat|minimal|aoc-zjstatus-single|aoc-zjstatus-test|aoc.hybrid) printf 'aoc' ;;
+    unstat|minimal|aoc.hybrid) printf 'aoc' ;;
     *) printf '%s' "$1" ;;
   esac
 }
@@ -374,8 +374,8 @@ load_aoc_theme_values() {
     source "$theme_env"
   fi
 
-  # Prefer Omarchy's active system theme when present. This keeps the
-  # Zellij/zjstatus top bar aligned with the terminal, Pi, and desktop palette.
+  # Prefer Omarchy's active system theme when present. This keeps legacy
+  # Zellij layouts aligned with the terminal, Pi, and desktop palette.
   local omarchy_colors="${XDG_CONFIG_HOME:-$HOME/.config}/omarchy/current/theme/colors.toml"
   if [[ -f "$omarchy_colors" ]]; then
     local get_color
@@ -452,13 +452,6 @@ fi
 hub_addr="$(resolve_hub_addr "$session_id")"
 hub_url="$(resolve_hub_url "$hub_addr")"
 background_task ensure_hub_running "$session_id" "$hub_addr" "$state_dir"
-if [[ "${AOC_TOPBAR_CONTROLLER_ENABLE:-0}" == "1" ]]; then
-  if command -v aoc-topbar-controller >/dev/null 2>&1; then
-    background_task aoc-topbar-controller start "$session_id"
-  elif [[ -x "$script_dir/aoc-topbar-controller" ]]; then
-    background_task "$script_dir/aoc-topbar-controller" start "$session_id"
-  fi
-fi
 background_task sync_aoc_theme_profile
 
 # Default to a short plain tab label. Operators can opt into grouping later by

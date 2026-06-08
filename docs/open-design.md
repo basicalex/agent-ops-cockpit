@@ -5,7 +5,7 @@ Open Design (OD) is AOC's optional GUI-first design studio bridge.
 AOC's design presets are good at **routing design intent**. OD is better at **seeing, iterating, previewing, and exporting design artifacts**. The intended polished workflow is:
 
 ```text
-OD creates/iterates visual artifacts → AOC imports them → AOC implements, tracks, proves, and scales them into HyperFrames campaigns
+OD creates/iterates visual artifacts → AOC imports them → AOC implements, tracks, proves, and scales them into HyperFrames campaigns or html-video storyboards
 ```
 
 ## Why this matters
@@ -34,13 +34,15 @@ AOC then adds what OD does not try to own:
 | **Open Design** | GUI design studio, prototypes, decks, templates, design systems, preview/export loop | AOC tasks, STM/Mind, project operating contract |
 | **AOC** | Project OS, context, tasks/specs, provenance, install/run/import bridge, implementation/campaign handoff | Rebuilding OD's GUI design studio |
 | **HyperFrames** | Durable project-local video/campaign factory, reusable media assets, renders, shotlists | Generic UI design iteration |
+| **html-video** | Motion/storyboard meta-layer, ContentGraph, template/studio flow, local MP4 export through HyperFrames | AOC approvals, provenance, or brand strategy source of truth |
 
 Short version:
 
 ```text
 OD = make it look good
 AOC = make it real, tracked, reusable, scalable
-HyperFrames = turn polished direction into campaign/media production
+HyperFrames = turn polished direction into campaign/media source
+html-video = turn campaign beats into short-form storyboard/video flow
 ```
 
 ## Install once
@@ -247,6 +249,15 @@ hyperframes/assets/brand/**
 hyperframes/compositions/campaigns/**
 ```
 
+When the approved direction should become a multi-frame short-form video, use html-video as the motion/storyboard counterpart:
+
+```bash
+aoc-html-video project create --from hyperframes/docs/content-campaign-plan.md
+aoc-html-video project preview <project-id>
+```
+
+Open Design remains the visual exploration surface; html-video handles storyboard/template/studio/render orchestration.
+
 Use AOC HyperFrames checks before final render:
 
 ```bash
@@ -294,7 +305,7 @@ aoc-od import PATH    # import specific artifact dir
 - OpenAI OAuth reuse is not wired automatically yet.
 - `aoc-od install` tracks `main` by default unless `AOC_OD_REF` is set.
 - Deep bidirectional sync is not implemented; v1 is install/run/link/import.
-- AOC does not yet auto-create HyperFrames campaigns from OD artifacts; operator/agent performs the handoff.
+- AOC does not yet auto-create HyperFrames campaigns from OD artifacts; operator/agent performs the handoff through `aoc-hyperframes` and, for storyboard videos, `aoc-html-video`.
 
 ## Future polish
 

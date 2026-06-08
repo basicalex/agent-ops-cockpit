@@ -7,9 +7,20 @@ config_dir="${XDG_CONFIG_HOME:-$HOME/.config}/herdr"
 config_dst="$config_dir/config.toml"
 hypr_bindings="${XDG_CONFIG_HOME:-$HOME/.config}/hypr/bindings.lua"
 omp_extension_dir="${PI_CODING_AGENT_DIR:-$HOME/.omp/agent}/extensions"
+omp_agent_dir="${PI_CODING_AGENT_DIR:-$HOME/.omp/agent}/agents"
 omp_extensions=(
   aoc-codegraph.ts
+  aoc-mind.ts
   aoc-commit.ts
+  aoc-jj-init.ts
+  aoc-brand-content.ts
+  aoc-web-search.ts
+)
+omp_agents=(
+  brand-strategy.md
+  brand-concept.md
+  svg-asset.md
+  hyperframes-content.md
 )
 install_omp_stt_defaults() {
   local omp_dir="${PI_CODING_AGENT_DIR:-$HOME/.omp/agent}"
@@ -65,7 +76,7 @@ import sys
 path = Path(sys.argv[1])
 lines = path.read_text(encoding="utf-8").splitlines() if path.exists() else []
 desired_key = "app.stt.toggle"
-desired_line = f"{desired_key}: Alt+Shift+H"
+desired_line = f"{desired_key}: Ctrl+Alt+Shift+H"
 found = False
 for index, line in enumerate(lines):
     stripped = line.strip()
@@ -80,9 +91,8 @@ if not found:
 path.write_text("\n".join(lines).rstrip() + "\n", encoding="utf-8")
 PY
 
-  rm -f "$omp_dir/extensions/aoc-openai-stt.ts"
 
-  echo "Installed OMP native STT defaults to $config_file and $keybindings_file"
+  echo "Installed OMP STT fallback defaults to $config_file and $keybindings_file"
 }
 
 
@@ -116,9 +126,10 @@ Usage: aoc-herdr-install [--force]
 
 Install the lean Herdr-first AOC workspace config and OMP-native AOC tools.
 
-This installs the Herdr config baseline, Herdr OMP integration, and AOC OMP
-extensions such as CodeGraph and /commit. It does not install Zellij layouts,
-the AOC top bar, AOC Mind, or AOC subagent/Mission Control assets.
+This installs the Herdr config baseline, Herdr OMP integration, AOC OMP
+extensions such as CodeGraph, /commit, /brand-content, and AOC OMP specialist
+agent templates. It does not install Zellij layouts, the AOC top bar, AOC Mind,
+or AOC subagent/Mission Control assets.
 EOF
 }
 
@@ -192,8 +203,22 @@ for extension_name in "${omp_extensions[@]}"; do
     echo "Warning: missing $extension_src; skipping AOC OMP extension" >&2
   fi
 done
+rm -f "$omp_extension_dir/aoc-openai-stt.ts"
 
+
+for agent_name in "${omp_agents[@]}"; do
+  agent_src="$repo_root/.omp/agents/$agent_name"
+  agent_dst="$omp_agent_dir/$agent_name"
+  if [[ -f "$agent_src" ]]; then
+    mkdir -p "$omp_agent_dir"
+    cp "$agent_src" "$agent_dst"
+    echo "Installed AOC OMP agent template to $agent_dst"
+  else
+    echo "Warning: missing $agent_src; skipping AOC OMP agent template" >&2
+  fi
+done
 install_omp_stt_defaults
+
 
 if command -v aoc-omp-context >/dev/null 2>&1 && command -v aoc-omp >/dev/null 2>&1; then
   echo "AOC OMP context capsule available via: aoc-omp-context"

@@ -29,14 +29,14 @@ mkdir -p "$state_dir"
 normalize_layout_name() {
   case "${1:-}" in
     "" ) printf 'aoc' ;;
-    unstat|minimal|aoc-zjstatus-single|aoc-zjstatus-test|aoc.hybrid) printf 'aoc' ;;
+    unstat|minimal|aoc.hybrid) printf 'aoc' ;;
     *) printf '%s' "$1" ;;
   esac
 }
 
 layout_is_hidden_internal() {
   case "${1:-}" in
-    unstat|minimal|mission-control|aoc-zjstatus-single|aoc-zjstatus-test|aoc.hybrid)
+    unstat|minimal|mission-control|aoc.hybrid)
       return 0
       ;;
     *)
@@ -47,7 +47,7 @@ layout_is_hidden_internal() {
 
 layout_is_reserved_managed() {
   case "${1:-}" in
-    aoc|mission-control|unstat|minimal|aoc-zjstatus-single|aoc-zjstatus-test|aoc.hybrid)
+    aoc|mission-control|unstat|minimal|aoc.hybrid)
       return 0
       ;;
     *)

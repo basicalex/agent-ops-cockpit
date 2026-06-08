@@ -1,0 +1,6 @@
+aoc-managed: true
+asset: prompt/implement
+asset-version: 3
+source: ../.config/aoc/pi/prompts/implement.md
+sha256: 1b5f828a8865fdd5b8f8f4d7812d3d31ae64755eab425cbb59589cb74316e4df
+updated-at: 2026-05-31T18:41:29Z

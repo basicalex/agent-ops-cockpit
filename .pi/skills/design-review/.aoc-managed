@@ -1,6 +1,6 @@
 aoc-managed: true
 asset: skill/design-review
 asset-version: 3
-source: ../.config/aoc/pi/skills/design-review
+source: .pi/skills/design-review
 sha256: d58e9eda56973436149c6293acbd2d2c2cd209e4760e548c662bf1bcf8174240
-updated-at: 2026-05-24T08:52:02Z
+updated-at: 2026-06-08T10:03:57Z

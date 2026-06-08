@@ -18,7 +18,6 @@ plugins {
     status-bar location="zellij:status-bar"
     strider location="zellij:strider"
     tab-bar location="zellij:tab-bar"
-    aoc-tab-bar location="file:{{HOME}}/.config/zellij/plugins/zjstatus-aoc.wasm"
     welcome-screen location="zellij:session-manager" {
         welcome_screen true
     }

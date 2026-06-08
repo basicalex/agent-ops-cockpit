@@ -116,7 +116,6 @@ After install (or manual `aoc-init`), a PI-first project should include:
 - `~/.config/aoc/mind-service.json` (global Mind launcher config written by `./install.sh`)
 - `.pi/extensions/aoc-models.ts`
 - `.pi/extensions/aoc-compaction.ts` (AOC-aware Pi compaction summaries that preserve the operating context capsule)
-- `~/.config/zellij/plugins/zjstatus-aoc.wasm`
 - `.aoc/context.md`
 - `.aoc/rtk.toml`
 
@@ -135,7 +134,6 @@ test -f .aoc/mind-service.json
 test -f .pi/extensions/aoc-models.ts
 test -f .pi/prompts/tm-cc.md
 test -f .pi/settings.json
-test -f ~/.config/zellij/plugins/zjstatus-aoc.wasm
 aoc-handshake --json >/tmp/aoc-handshake.json
 ```
 
@@ -143,15 +141,9 @@ aoc-handshake --json >/tmp/aoc-handshake.json
 
 `aoc-handshake --json` is the agent startup handshake. It is intentionally metadata-only: it reports AOC/Taskmaster/Mind availability, policy, and focused retrieval commands, but it does not inject broad Mind memories or context packs. Use `aoc-handshake --sync --json` only when startup should also attempt safe Mind ingestion without exposing recalled content.
 
-`aoc-init` also installs the managed AOC top-bar plugin from the bundled cache/source snapshot, so the AOC layouts do not depend on a separately downloaded personal `zjstatus` build.
-
-You can inspect or repair it with:
-
-```bash
-aoc-zellij-plugin status
-aoc-zellij-plugin install
-aoc-zellij-plugin verify
-```
+`aoc-init` no longer installs the old Zellij top-bar plugin. Herdr owns the
+default workspace/status UI; legacy Zellij layouts are retained only for explicit
+compatibility work and do not require AOC-managed top-bar assets.
 
 If anything is missing, run:
 
@@ -471,6 +463,5 @@ On Ubuntu, the binary is named `batcat` instead of `bat`. AOC's `aoc-doctor` acc
 - Return to [Main README](../../README.md)
 - Read about [Configuration](../configuration.md)
 - Learn about [Layouts](../layouts.md)
-- Learn about the [Managed Zellij Top Bar](zellij-top-bar.md)
 
 - **HyperFrames** — `aoc-hyperframes` setup, skill sync, and doctor flows

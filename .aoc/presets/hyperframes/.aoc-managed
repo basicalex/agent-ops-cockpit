@@ -1,6 +1,6 @@
 aoc-managed: true
 asset: preset/hyperframes
 asset-version: 3
-source: ../.config/aoc/presets/hyperframes
-sha256: e0aaec535e95585b73839c5a9a4afb1aef5e17a83740b04dbfee1bbbfc436c4b
-updated-at: 2026-05-24T08:52:06Z
+source: .aoc/presets/hyperframes
+sha256: e861f3597d22e564d10360d4452815938d96be52ce35747a99eae0b92c8051af
+updated-at: 2026-06-08T10:04:02Z

@@ -32,8 +32,6 @@ These older managed names are legacy artifacts from previous installs and should
 
 - `unstat`
 - `minimal`
-- `aoc-zjstatus-single`
-- `aoc-zjstatus-test`
 - `aoc.hybrid`
 
 AOC prunes the old managed layout files during install and normalizes stale defaults back to `aoc`.

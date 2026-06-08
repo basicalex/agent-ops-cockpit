@@ -2163,7 +2163,6 @@ setup_omp_extensions() {
     "aoc-jj-init.ts"
     "aoc-brand-content.ts"
     "aoc-web-search.ts"
-    "aoc-openai-stt.ts"
   )
 
   if [[ ! -d "$omp_extension_seed_dir" ]]; then
@@ -2182,6 +2181,8 @@ setup_omp_extensions() {
       warn "Missing AOC OMP extension seed: $extension_name"
     fi
   done
+
+  rm -f "$omp_extension_dir/aoc-openai-stt.ts"
 }
 
 setup_omp_agents() {
@@ -2285,7 +2286,7 @@ path.write_text("\n".join(lines).rstrip() + "\n", encoding="utf-8")
 PY
 
 
-  log "Installed OMP OpenAI STT defaults: $config_file, $keybindings_file"
+  log "Installed OMP STT fallback defaults: $config_file, $keybindings_file"
 }
 
 

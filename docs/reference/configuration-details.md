@@ -5,9 +5,9 @@ Advanced configuration options for Agent Ops Cockpit (AOC).
 ## Most users only need
 
 - `aoc-doctor` to verify install health
-- `Alt+C` for interactive runtime/tool setup
-- `Settings -> Tools -> PI agent installer` for PI runtime actions
-- `Settings -> Tools -> Agent Browser + Search` for optional web research
+- `aoc` to open/focus the Herdr project workspace
+- `aoc services` to open/focus the Herdr AOC Services workspace
+- `aoc services status` and `aoc-search health` for managed local search/runtime checks
 - this document mainly as a reference for paths, env vars, and advanced tuning
 
 ## Table of Contents
@@ -16,8 +16,10 @@ Advanced configuration options for Agent Ops Cockpit (AOC).
   - [Command Overrides](#command-overrides)
   - [Clock Configuration](#clock-configuration)
   - [Layout and Display](#layout-and-display)
+  - [Herdr Services](#herdr-services)
+  - [Legacy Pulse and Mission Control](#legacy-pulse-and-mission-control)
   - [RTK Routing](#rtk-routing)
-  - [Agent Installers (Alt+C)](#agent-installers-altc)
+  - [Agent Installers](#agent-installers)
   - [Agent Configuration](#agent-configuration)
 - [Custom Layouts](#custom-layouts)
 - [Theme Management](#theme-management)
@@ -99,9 +101,32 @@ Cleanup note:
 - Auto-cleanup launched by `aoc-launch` and `aoc-new-tab` is guarded by default (`AOC_CLEANUP_SESSIONS=current`, `AOC_CLEANUP_REQUIRE_ACTIVE_SIGNALS=1`, `AOC_CLEANUP_SKIP_IF_NO_SESSIONS=1`, plus age delay filters).
 - AOC allocates one whimsical unique Zellij session name per engineering session (for example `aoc-otter-debugs`, without repo/path text). Running `aoc` inside Zellij opens a tab in the current multiplexer session; running it outside Zellij starts a fresh session by default so stale tabs/processes are not resurrected. Set `AOC_ATTACH_EXISTING=1` to intentionally reattach/reuse the saved session, `AOC_NEW_SESSION=1` to force fresh behavior, or `AOC_FORCE_SESSION_ID` to pin a specific name.
 
-### Pulse transport and Mission Control
+### Herdr Services
 
-Control Pulse transport and Mission Control Overview mode:
+The default runtime owner is the project-scoped Herdr AOC Services workspace:
+
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `AOC_HERDR_SERVICES` | `auto` ensures the Services workspace when a Herdr server already exists; `off` disables launch-time ensure; `focus` opens Services for explicit ops sessions | `auto` |
+| `AOC_SERVICES_ROOT` | Override the service root used by `aoc-services` and the Services workspace panes | Resolved project root |
+| `AOC_SERVICES_WATCH_INTERVAL` | Default refresh interval for `aoc-services status --watch` / `up --watch` | `30` |
+| `AOC_SERVICES_HEALTH_CACHE_TTL` | Max cached service-health age for watch mode | `20` |
+
+Operator commands:
+
+```bash
+aoc services
+aoc services status
+aoc services start search
+```
+
+`aoc services` uses Herdr workspace/tab/pane commands. It does not start Herdr behind the operator's back; start Herdr with `aoc` first if no Herdr server is running.
+
+### Legacy Pulse and Mission Control
+
+These variables apply to the retained legacy/Zellij compatibility surfaces, not the default Herdr Services workspace.
+
+Control Pulse transport and legacy Mission Control Overview mode:
 
 | Variable | Description | Default |
 |----------|-------------|---------|
@@ -117,11 +142,11 @@ Control Pulse transport and Mission Control Overview mode:
 
 Notes:
 
-- With `AOC_PULSE_OVERVIEW_ENABLED=1` (default), Mission Control starts in Overview mode.
-- Set `AOC_PULSE_OVERVIEW_ENABLED=0` to run only Work/Diff/Health.
+- With `AOC_PULSE_OVERVIEW_ENABLED=1`, legacy Mission Control starts in Overview mode when that compatibility surface is launched.
+- Set `AOC_PULSE_OVERVIEW_ENABLED=0` to run only Work/Diff/Health in legacy Mission Control.
 - With `AOC_PULSE_LAYOUT_WATCH_ENABLED=0` (default), hub background layout polling is disabled.
-- On Zellij `>= 0.44.0`, AOC uses native pane/tab JSON inventory for local operator flows, and hub topology polling also uses native session snapshots.
-- `AOC_MISSION_CONTROL_THEME=terminal` (default) keeps Mission Control integrated with your terminal/system theme.
+- On Zellij `>= 0.44.0`, legacy AOC operator flows use native pane/tab JSON inventory, and hub topology polling also uses native session snapshots.
+- `AOC_MISSION_CONTROL_THEME=terminal` keeps legacy Mission Control integrated with your terminal/system theme.
 
 ### RTK Routing
 
@@ -164,11 +189,13 @@ mode = "on"
 fail_open = true
 gain_mode = "double-dash"
 binary = "rtk"
-allowlist = ["git status", "git diff", "rg", "pytest"]
-denylist = ["git push", "git reset --hard", "rm -rf"]
+allowlist = ["git status", "git diff", "jj status", "jj diff", "jj operation log", "rg", "pytest"]
+denylist = ["git push", "git reset --hard", "jj commit", "jj describe", "jj split", "jj git push", "rm -rf"]
 install_url = ""
 install_sha256 = ""
 ```
+
+The seeded allowlist includes read-only Jujutsu inspection (`jj status`, `jj diff`, `jj log`, `jj show`, `jj root`, `jj git colocation status`, `jj operation log`). Mutating Jujutsu operations (`jj commit`, `jj describe`, `jj new`, `jj split`, `jj squash`, `jj abandon`, `jj rebase`, `jj restore`, `jj revert`, `jj undo`, and `jj git ...` import/export/push/fetch/init/colocation changes) are denied in ambient routing so mutations only happen through explicit operator workflows.
 
 Operator commands:
 
@@ -207,7 +234,7 @@ Safety model:
 What it guarantees:
 - Seeds/repairs canonical PI runtime paths under `.pi/**` (`settings.json`, prompts, skills, extensions).
 - Seeds default PI extensions when missing: `.pi/extensions/minimal.ts`, `.pi/extensions/themeMap.ts`, `.pi/extensions/mind-ingest.ts`, `.pi/extensions/mind-ops.ts`, `.pi/extensions/mind-context.ts`, `.pi/extensions/mind-focus.ts`, `.pi/extensions/aoc-models.ts`, `.pi/extensions/aoc-agent-presence.ts`, `.pi/extensions/aoc-codegraph.ts`, `.pi/extensions/aoc-compaction.ts`, `.pi/extensions/subagent.ts`, `.pi/extensions/lib/mind.ts`, `.pi/extensions/lib/caveman.ts`, plus the preset runtime family under `.pi/extensions/aoc-presets/`.
-- Installs AOC OMP extensions when available: `.omp/extensions/aoc-codegraph.ts`, `.omp/extensions/aoc-mind.ts`, and `.omp/extensions/aoc-commit.ts`.
+- Installs AOC OMP extensions when available: `.omp/extensions/aoc-codegraph.ts`, `.omp/extensions/aoc-mind.ts`, `.omp/extensions/aoc-commit.ts`, `.omp/extensions/aoc-jj-init.ts`, `.omp/extensions/aoc-brand-content.ts`, and `.omp/extensions/aoc-web-search.ts`.
 - Seeds vendored local PI package `.pi/packages/pi-multi-auth-aoc`, wires `.pi/settings.json` to load it by path, and removes legacy global npm `pi-multi-auth` package entries to avoid duplicate extension loading.
 - Keeps AOC control-plane state under `.aoc/**`, including `.aoc/mind-service.json` for project-local standalone Mind launcher metadata.
 - Migrates missing project-local legacy assets from `.aoc/prompts/pi/` and `.aoc/skills/` into `.pi/**` without overwriting existing canonical files.
@@ -258,14 +285,13 @@ AOC ships a custom Zellij keybind layer in `~/.config/zellij/aoc.config.kdl` (or
 
 Theme management now lives inside `aoc-control` under Settings -> Theme -> Theme manager.
 
-### Agent Installers (Alt+C)
+### Agent Installers
 
-`aoc-control` includes **Settings -> Tools -> PI agent installer** for PI runtimes only. It shows install status (`installed` or `missing`) and runs:
+Use direct commands or retained control-pane compatibility when needed. PI runtime installer status/actions are backed by:
 
-- `install` for missing runtimes
-- `update` for installed runtimes
-
-Back-end command used by the TUI: `aoc-agent-install <status|install|update> <agent>`.
+- `aoc-agent-install status <agent>`
+- `aoc-agent-install install <agent>`
+- `aoc-agent-install update <agent>`
 
 Default command overrides:
 
@@ -278,16 +304,14 @@ PI installer behavior:
 - By default, `pi` installs from npm (`pnpm add -g @mariozechner/pi-coding-agent`).
 - AOC does not bundle PI artifacts; it only executes installer commands.
 
-### Tools Integrations (Alt+C -> Settings -> Tools)
+### Tools Integrations
 
-AOC control exposes nested tools actions for:
+Prefer direct Herdr/CLI surfaces for default work:
 
-- PI compaction
-- Agent Browser + Search
-- Vercel CLI
-- HyperFrames
-
-For most users, Alt+C is the preferred control plane over manual configuration edits. See [Control Pane Guide](../control-pane.md).
+- Managed search/service runtime: `aoc services`, `aoc-search`
+- HyperFrames: `aoc-hyperframes`
+- RTK: `aoc-rtk`
+- Vercel CLI: `vercel`
 
 ### PI Compaction Presets (Alt+C -> Settings -> Tools -> PI compaction)
 
@@ -315,20 +339,20 @@ The control pane also warns when the current repo has a `.pi/settings.json` comp
 | `AOC_HYPERFRAMES_DIR` | Workspace directory used by `aoc-hyperframes` (default `hyperframes`) |
 | `AOC_HYPERFRAMES_TRACK_WORKSPACE` | Set to `1` to avoid adding the HyperFrames workspace to `.gitignore` |
 
-### Managed Local Search (Alt+C -> Settings -> Tools -> Agent Browser + Search)
+### Managed Local Search
 
-Phase 1 search is project-local and opt-in.
+Managed local search is project-local. The Herdr AOC Services workspace is the visible runtime owner; `aoc-search` is the stable CLI/tool surface.
 
-Alt+C can:
+Services/search setup writes:
 
 - write `.aoc/search.toml`
 - write `.aoc/services/searxng/docker-compose.yml`
 - write `.aoc/services/searxng/settings.yml`
-- start/verify the managed SearXNG container
+- start/verify the managed SearXNG container through `aoc services start search` or `aoc-search start --wait`
 - sync `.pi/skills/agent-browser/SKILL.md`
 - seed `.pi/skills/web-research/SKILL.md`
 
-When you enable managed local search from Alt+C, AOC now also ensures both PI skills are seeded so the repo gets the full browser + search workflow guidance.
+When managed local search is enabled, AOC also ensures both PI skills are seeded so the repo gets the full browser + search workflow guidance.
 
 Canonical phase-1 paths:
 
@@ -338,17 +362,19 @@ Canonical phase-1 paths:
 - `bin/aoc-search`
 - `.pi/skills/web-research/SKILL.md`
 
-Use `aoc-search` as the stable interface for agents and operators:
+Use `aoc services` for operator-visible runtime ownership and `aoc-search` as the stable interface for agents and operators:
 
 ```bash
+aoc services
+aoc services status
+aoc services start search
 aoc-search status
-aoc-search start --wait
 aoc-search health
-aoc-search query --limit 5 "rust clap subcommands"
+aoc-search query --mode docs --limit 5 "rust clap subcommands"
 bin/aoc-web-smoke
 ```
 
-`aoc-search query` is intended to be search-first. Use `agent-browser` after you have candidate URLs or need rendered-page interaction.
+General docs/web search needs managed local SearXNG unless a separate paid search API is configured later. Direct package and GitHub modes can run without SearXNG. Use `agent-browser` after you have candidate URLs or need rendered-page interaction.
 
 ### Agent Configuration
 
@@ -417,7 +443,7 @@ Layout name resolution order:
 1. `.aoc/layouts/<name>.kdl`
 2. `~/.config/zellij/layouts/<name>.kdl`
 
-`aoc` is the only official managed general-purpose layout. Older managed names such as `unstat`, `minimal`, `aoc-zjstatus-single`, `aoc-zjstatus-test`, and `aoc.hybrid` are legacy artifacts that AOC prunes or normalizes away.
+`aoc` is the only official managed general-purpose layout. Older managed names such as `unstat`, `minimal`, and `aoc.hybrid` are legacy artifacts that AOC prunes or normalizes away.
 
 You can also create/edit custom layouts from `Alt+C -> Settings -> Layout`.
 
@@ -459,7 +485,6 @@ Scope compatibility:
 
 `aoc-theme` also writes shared AOC theme artifacts used by:
 
-- `zjstatus` colors in shipped AOC layouts
 - `aoc-mission-control` (Pulse) via exported `AOC_THEME_*` env vars
 - `yazi` via generated `~/.config/yazi/theme.toml`
 
@@ -475,7 +500,7 @@ AOC uses a **Distributed Cognitive Architecture** with four layers:
 ### 1. Project Context (`.aoc/context.md`)
 
 - **Purpose:** Auto-generated project map
-- **Content:** Project-specific snapshot (repo facts, key files, structure tree, README headings, workstream tags, task PRD location)
+- **Content:** Project-specific snapshot (repo facts, VCS mode, Git branch when present, Jujutsu root/colocation when present, key files, structure tree, README headings, workstream tags, task PRD location)
 - **Refresh:** `aoc-init` (manual) or `aoc-watcher` (auto)
 
 ### 2. Long-Term Memory (`.aoc/memory.md`)
@@ -495,8 +520,8 @@ AOC uses a **Distributed Cognitive Architecture** with four layers:
 
 ### 5. Search Configuration (`.aoc/search.toml`)
 
-- **Purpose:** Project-local opt-in managed search contract
-- **Management:** `Alt+C -> Settings -> Tools -> Agent Browser + Search` or `bin/aoc-search`
+- **Purpose:** Project-local managed search contract
+- **Management:** `aoc services`, `aoc-services`, or `bin/aoc-search`
 - **Related paths:** `.aoc/services/searxng/**`, `.pi/skills/web-research/SKILL.md`
 
 ### Global Configuration

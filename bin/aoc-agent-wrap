@@ -610,13 +610,16 @@ print_context_briefing() {
   local context_file="$aoc_dir/context.md"
   local repo_line=""
   local root_line=""
+  local vcs_line=""
   local branch_line=""
   repo_line="$(/usr/bin/grep -m 1 '^- Name:' "$context_file" 2>/dev/null || true)"
   root_line="$(/usr/bin/grep -m 1 '^- Root:' "$context_file" 2>/dev/null || true)"
+  vcs_line="$(/usr/bin/grep -m 1 '^- VCS:' "$context_file" 2>/dev/null || true)"
   branch_line="$(/usr/bin/grep -m 1 '^- Git branch:' "$context_file" 2>/dev/null || true)"
   echo "📂 PROJECT BRIEF:"
   [[ -n "$repo_line" ]] && echo "$repo_line"
   [[ -n "$root_line" ]] && echo "$root_line"
+  [[ -n "$vcs_line" ]] && echo "$vcs_line"
   [[ -n "$branch_line" ]] && echo "$branch_line"
 }
 

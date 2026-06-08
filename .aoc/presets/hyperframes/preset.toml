@@ -22,6 +22,12 @@ compose = ["core", "mode-compose"]
 site = ["core", "mode-site"]
 cli = ["core", "mode-cli"]
 review = ["core", "mode-review"]
+strategy = ["core", "mode-strategy"]
+concepts = ["core", "mode-concepts"]
+image = ["core", "mode-image"]
+image-review = ["core", "mode-image-review"]
+svg = ["core", "mode-svg"]
+campaign = ["core", "mode-campaign"]
 
 [commands]
 enable = ["hyperframes-director"]
@@ -36,6 +42,12 @@ compose = ["aoc-hyperframes"]
 site = ["aoc-hyperframes"]
 cli = ["aoc-hyperframes"]
 review = ["aoc-hyperframes"]
+strategy = ["aoc-hyperframes"]
+concepts = ["aoc-hyperframes"]
+image = ["aoc-hyperframes"]
+image-review = ["aoc-hyperframes"]
+svg = ["aoc-hyperframes"]
+campaign = ["aoc-hyperframes"]
 
 [handoff]
 enabled = true
@@ -45,6 +57,12 @@ compose = "Preserve video intent, composition structure, timing, aspect ratio, m
 site = "Preserve captured site summary, brand/design cues, assets, script, storyboard, timing, and validation status."
 cli = "Preserve exact workspace path, CLI commands run, lint/doctor output, preview URL, render settings, and errors."
 review = "Preserve composition IDs, lint findings, visual issues, timing conflicts, media dependencies, and recommended fixes."
+strategy = "Preserve brand soul, audience, promise, proof, voice, visual world, constraints, off-brand rules, and approval state."
+concepts = "Preserve 3-7 campaign directions, scoring, approved/rejected decisions, brand-fit rationale, and next prompt-pack targets."
+image = "Preserve GPT Image 2 prompt IDs, brand tokens, negative constraints, intended output paths, and operator prompt approval state."
+image-review = "Preserve image decisions, rejection reasons, approved source paths, extraction regions, normalized bounds, and SVG target paths."
+svg = "Preserve source image/region IDs, SVG quality contract, exact target paths, accessibility metadata, and operator approval boundary."
+campaign = "Preserve campaign beats, ContentGraph nodes/edges, copy/CTA approvals, HyperFrames composition paths, html-video project/export paths, and render policy."
 
 [integrations.mind]
 policy = "separate"

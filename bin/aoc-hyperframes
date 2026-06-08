@@ -14,6 +14,11 @@ Commands:
   catalog [--write]            List/update composition catalog
   workbench set <composition>  Point index.html workbench at a composition
   campaign create <slug>       Create campaign compositions, board, shotlists, catalog
+  brand init [--brand <slug>]  Seed branded content docs/assets without overwriting work
+  brand check [--no-lint]      Validate branded content pipeline docs/assets/links
+  brand board --write          Refresh branded campaign review board markdown/HTML
+  brand campaign <slug>        Create campaign pack linked to brand pipeline manifests
+  brand export [--output FILE] Export stable Prism creative manifest JSON
   seed-assets [--dry-run]      Scan/copy/symlink app assets into HyperFrames assets
   render <composition>         Render selected composition with AOC export naming
 
@@ -35,6 +40,10 @@ Campaign options:
   --durations LIST  Comma list matched by index, e.g. 15s,6s (default: 15s,6s)
   --concept NAME    Concept slug (default: demo)
 
+
+Brand options:
+  --brand NAME      Brand slug for brand init metadata/logging
+  --output FILE     Output path for brand export (default: hyperframes/generated/brand-content/manifest.json)
 Seed asset options:
   --dry-run         Print proposed copies only (default)
   --copy            Copy discovered assets
@@ -46,10 +55,20 @@ Render options:
 EOF
 }
 
-command="${1:-init}"
-if [[ "$command" == -* ]]; then
-  command="init"
-else
+is_hyperframes_command() {
+  case "${1:-}" in
+    init|bootstrap-asset-system|bootstrap|sync-skills|doctor|check|catalog|workbench|campaign|brand|seed-assets|render)
+      return 0
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+}
+
+command="init"
+if [[ $# -gt 0 && "${1:-}" != -* ]]; then
+  command="$1"
   shift || true
 fi
 
@@ -195,6 +214,11 @@ while [[ $# -gt 0 ]]; do
   esac
   shift || true
 done
+
+if [[ "$command" == "init" && ${#args[@]} -gt 0 ]] && is_hyperframes_command "${args[0]}"; then
+  command="${args[0]}"
+  args=("${args[@]:1}")
+fi
 
 [[ "$target_dir" =~ ^[A-Za-z0-9._-]+$ ]] || fail "Invalid --dir '$target_dir'. Use a simple workspace directory name, not a path."
 
@@ -350,6 +374,10 @@ ensure_hyperframes_git_policy() {
     "!/$target_dir/" \
     "!/$target_dir/**" \
     "/$target_dir/renders/**" \
+    "/$target_dir/assets/generated/concepts/**" \
+    "/$target_dir/assets/generated/approved/**" \
+    "/$target_dir/assets/generated/sections/**" \
+    "/$target_dir/generated/**" \
     "/$target_dir/.hyperframes/**" \
     "/$target_dir/.cache/**" \
     "/$target_dir/node_modules/**" \
@@ -443,9 +471,10 @@ Track lightweight source/seed assets used by compositions. Keep provenance in `d
 
 Recommended policy:
 
-- Track SVG logos/icons, screenshots, UI/map assets, copy/caption files, and small audio placeholders.
-- Do not commit raw footage, large stock media, render batches, or cache output by default.
+- Track SVG logos/icons, screenshots, UI/map assets, copy/caption files, small audio placeholders, and approved lightweight generated SVGs.
+- Do not commit raw footage, large stock media, render batches, cache output, generated concept images, or generated region crops by default.
 - Put large/raw media in external storage or Git LFS with explicit project approval.
+- Promote approved source images only when project policy allows it; keep provenance and approval state in `docs/image-review-board.md`.
 EOF
   log "Created $target_dir/assets/README.md"
 }
@@ -566,6 +595,7 @@ bootstrap_asset_system() {
   local dirs=(
     compositions/_playgrounds compositions/components compositions/brand compositions/campaigns compositions/ads compositions/social compositions/landing
     assets/brand assets/screens assets/photo assets/maps assets/ui assets/audio assets/captions assets/copy
+    assets/generated/concepts assets/generated/approved assets/generated/sections assets/generated/svg
     renders/brand renders/ads renders/social renders/landing renders/exports
     docs/shotlists docs/retrospectives
   )
@@ -588,6 +618,12 @@ bootstrap_asset_system() {
   seed_doc_template campaign-message-matrix.md docs/campaign-message-matrix.md
   seed_doc_template export-naming.md docs/export-naming.md
   seed_doc_template composition-catalog.md docs/composition-catalog.md
+  seed_doc_template brand-strategy.md docs/brand-strategy.md
+  seed_doc_template concept-directions.md docs/concept-directions.md
+  seed_doc_template image-generation-board.md docs/image-generation-board.md
+  seed_doc_template image-review-board.md docs/image-review-board.md
+  seed_doc_template svg-asset-manifest.md docs/svg-asset-manifest.md
+  seed_doc_template content-campaign-plan.md docs/content-campaign-plan.md
   seed_asset_readme
   write_system_board
   write_component_stub compositions/components/signal-pulse.html signal-pulse "Signal Pulse"
@@ -901,6 +937,647 @@ run_campaign() {
   log "Campaign created: $slug"
 }
 
+ensure_brand_content_system() {
+  local brand_slug="${1:-}" dest="$root/$target_dir"
+  mkdir -p "$dest"
+
+  local dirs=(
+    assets/generated/concepts
+    assets/generated/approved
+    assets/generated/sections
+    assets/generated/svg
+    docs
+    docs/shotlists
+    docs/retrospectives
+    compositions/_playgrounds
+    compositions/campaigns
+    compositions/social
+    compositions/ads
+    renders/exports
+  )
+  local d
+  for d in "${dirs[@]}"; do mkdir -p "$dest/$d"; done
+
+  ensure_hyperframes_git_policy
+  ensure_workspace_package
+  seed_asset_readme
+  seed_doc_template brand-strategy.md docs/brand-strategy.md
+  seed_doc_template concept-directions.md docs/concept-directions.md
+  seed_doc_template image-generation-board.md docs/image-generation-board.md
+  seed_doc_template image-review-board.md docs/image-review-board.md
+  seed_doc_template svg-asset-manifest.md docs/svg-asset-manifest.md
+  seed_doc_template content-campaign-plan.md docs/content-campaign-plan.md
+
+  if [[ -n "$brand_slug" ]]; then
+    log "Branded content pipeline ready for brand '$brand_slug' in $target_dir"
+  else
+    log "Branded content pipeline ready in $target_dir"
+  fi
+}
+
+check_brand_composition_links() {
+  local dest="$1" plan="$2"
+  [[ -f "$plan" ]] || return 0
+  python3 - "$dest" "$plan" <<'PY'
+import re
+import sys
+from pathlib import Path
+
+dest = Path(sys.argv[1]).resolve()
+plan = Path(sys.argv[2])
+text = plan.read_text(encoding="utf-8", errors="replace")
+seen = set()
+for match in re.finditer(r"`([^`]+)`", text):
+    value = match.group(1).strip()
+    if value.startswith("hyperframes/"):
+        rel = value[len("hyperframes/"):]
+    elif value.startswith("compositions/"):
+        rel = value
+    else:
+        continue
+    if not rel.startswith("compositions/"):
+        continue
+    if rel in seen:
+        continue
+    seen.add(rel)
+    if not (dest / rel).is_file():
+        print(rel)
+PY
+}
+
+run_brand_init() {
+  local brand_slug="" i=1 a
+  while (( i < ${#args[@]} )); do
+    a="${args[$i]}"
+    case "$a" in
+      --brand)
+        i=$((i + 1))
+        brand_slug="${args[$i]:-}"
+        ;;
+      *)
+        fail "Unknown brand init option: $a"
+        ;;
+    esac
+    i=$((i + 1))
+  done
+  [[ -z "$brand_slug" ]] || require_safe_slug "brand" "$brand_slug"
+  ensure_brand_content_system "$brand_slug"
+}
+
+run_brand_check() {
+  local dest="$root/$target_dir" errors=0 warnings=0 no_lint=0 a
+  for a in "${args[@]:1}"; do
+    case "$a" in
+      --no-lint) no_lint=1 ;;
+      *) fail "Unknown brand check option: $a" ;;
+    esac
+  done
+  [[ -d "$dest" ]] || { warn "Missing workspace: $target_dir"; return 1; }
+  check_err() { warn "$1"; errors=$((errors + 1)); }
+  check_warn() { warn "$1"; warnings=$((warnings + 1)); }
+
+  local req_dirs=(
+    assets/generated/concepts
+    assets/generated/approved
+    assets/generated/sections
+    assets/generated/svg
+  )
+  local req_docs=(
+    docs/brand-strategy.md
+    docs/concept-directions.md
+    docs/image-generation-board.md
+    docs/image-review-board.md
+    docs/svg-asset-manifest.md
+    docs/content-campaign-plan.md
+  )
+  local item missing approved_count svg_count
+  for item in "${req_dirs[@]}"; do [[ -d "$dest/$item" ]] || check_err "Missing dir: $target_dir/$item"; done
+  for item in "${req_docs[@]}"; do [[ -f "$dest/$item" ]] || check_err "Missing doc: $target_dir/$item"; done
+
+  approved_count="$(find "$dest/assets/generated/approved" -type f 2>/dev/null | wc -l | tr -d ' ')"
+  svg_count="$(find "$dest/assets/generated/svg" -type f -name '*.svg' 2>/dev/null | wc -l | tr -d ' ')"
+  (( approved_count > 0 )) || check_warn "No approved source images yet in $target_dir/assets/generated/approved"
+  (( svg_count > 0 )) || check_warn "No generated SVG assets yet in $target_dir/assets/generated/svg"
+
+  if [[ -f "$dest/docs/content-campaign-plan.md" ]] && grep -Eq '^## Campaign:' "$dest/docs/content-campaign-plan.md"; then
+    while IFS= read -r missing; do
+      [[ -n "$missing" ]] && check_err "Campaign plan references missing composition: $target_dir/$missing"
+    done < <(check_brand_composition_links "$dest" "$dest/docs/content-campaign-plan.md")
+  fi
+
+  (( no_lint == 1 )) && check_warn "Accepted --no-lint; brand check is read-only and does not run HyperFrames lint"
+  if (( errors > 0 )); then
+    warn "AOC HyperFrames brand check failed: errors=$errors warnings=$warnings"
+    return 1
+  fi
+  log "AOC HyperFrames brand check passed: warnings=$warnings"
+}
+
+write_brand_review_board() {
+  local dest="$root/$target_dir"
+  local board_md="$dest/docs/campaign-review-board.md"
+  local board_html="$dest/compositions/_playgrounds/brand-campaign-board.html"
+  local concepts approved svg generated_at
+  concepts="$(find "$dest/assets/generated/concepts" -type f 2>/dev/null | wc -l | tr -d ' ')"
+  approved="$(find "$dest/assets/generated/approved" -type f 2>/dev/null | wc -l | tr -d ' ')"
+  svg="$(find "$dest/assets/generated/svg" -type f -name '*.svg' 2>/dev/null | wc -l | tr -d ' ')"
+  generated_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+
+  mkdir -p "$(dirname "$board_md")" "$(dirname "$board_html")"
+  cat > "$board_md" <<EOF
+# Branded Campaign Review Board
+
+Generated: $generated_at
+
+## Pipeline state
+
+| Area | Source |
+| --- | --- |
+| Brand strategy | \`hyperframes/docs/brand-strategy.md\` |
+| Concept directions | \`hyperframes/docs/concept-directions.md\` |
+| GPT Image 2 prompt board | \`hyperframes/docs/image-generation-board.md\` |
+| Human image review | \`hyperframes/docs/image-review-board.md\` |
+| SVG manifest | \`hyperframes/docs/svg-asset-manifest.md\` |
+| Campaign plan | \`hyperframes/docs/content-campaign-plan.md\` |
+
+## Asset counts
+
+| Bucket | Count |
+| --- | ---: |
+| Concept images | $concepts |
+| Approved source images | $approved |
+| Generated SVG assets | $svg |
+
+## Operator gates
+
+- [ ] Brand strategy approved
+- [ ] Concept directions approved
+- [ ] Image prompts approved before generation
+- [ ] Generated images reviewed
+- [ ] SVG extraction specs approved
+- [ ] HyperFrames/html-video preview reviewed before render
+EOF
+
+  cat > "$board_html" <<EOF
+<template id="brand-campaign-board-template">
+  <div data-composition-id="brand-campaign-board" data-width="1920" data-height="1080" data-duration="8">
+    <main class="board">
+      <p class="eyebrow">AOC branded content</p>
+      <h1>Campaign review board</h1>
+      <section class="stats">
+        <article><strong>$concepts</strong><span>concept images</span></article>
+        <article><strong>$approved</strong><span>approved images</span></article>
+        <article><strong>$svg</strong><span>SVG assets</span></article>
+      </section>
+      <p class="note">Review strategy, prompts, image approvals, SVG manifest, and content-campaign-plan before render.</p>
+    </main>
+    <style>
+      [data-composition-id="brand-campaign-board"] { width: 100%; height: 100%; background: #07111f; color: #e8f3ff; font-family: Inter, ui-sans-serif, system-ui, sans-serif; overflow: hidden; }
+      [data-composition-id="brand-campaign-board"] .board { width: 100%; height: 100%; box-sizing: border-box; padding: 118px 150px; display: flex; flex-direction: column; justify-content: center; gap: 34px; }
+      [data-composition-id="brand-campaign-board"] .eyebrow { color: #83f7e5; text-transform: uppercase; letter-spacing: .18em; font-weight: 800; margin: 0; }
+      [data-composition-id="brand-campaign-board"] h1 { font-size: 118px; line-height: .92; letter-spacing: -.065em; margin: 0; max-width: 1180px; }
+      [data-composition-id="brand-campaign-board"] .stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 22px; margin-top: 20px; }
+      [data-composition-id="brand-campaign-board"] article { border: 1px solid rgba(131,247,229,.38); border-radius: 30px; padding: 30px; background: rgba(255,255,255,.05); }
+      [data-composition-id="brand-campaign-board"] strong { display: block; font-size: 88px; letter-spacing: -.06em; }
+      [data-composition-id="brand-campaign-board"] span { display: block; margin-top: 8px; color: rgba(232,243,255,.76); font-size: 28px; }
+      [data-composition-id="brand-campaign-board"] .note { max-width: 1120px; color: rgba(232,243,255,.78); font-size: 34px; line-height: 1.22; margin: 0; }
+    </style>
+    <script src="https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js"></script>
+    <script>
+      window.__timelines = window.__timelines || {};
+      const tl = gsap.timeline({ paused: true });
+      tl.from('[data-composition-id="brand-campaign-board"] .eyebrow', { y: 24, opacity: 0, duration: 0.45, ease: 'power2.out' }, 0.2);
+      tl.from('[data-composition-id="brand-campaign-board"] h1', { y: 58, opacity: 0, duration: 0.7, ease: 'power3.out' }, 0.35);
+      tl.from('[data-composition-id="brand-campaign-board"] article', { y: 34, opacity: 0, stagger: 0.08, duration: 0.55, ease: 'back.out(1.3)' }, 0.7);
+      tl.from('[data-composition-id="brand-campaign-board"] .note', { y: 24, opacity: 0, duration: 0.5, ease: 'power2.out' }, 1.05);
+      window.__timelines["brand-campaign-board"] = tl;
+    </script>
+  </div>
+</template>
+EOF
+  log "Refreshed $target_dir/docs/campaign-review-board.md"
+  log "Refreshed $target_dir/compositions/_playgrounds/brand-campaign-board.html"
+}
+
+run_brand_board() {
+  local write=0 a
+  for a in "${args[@]:1}"; do
+    case "$a" in
+      --write) write=1 ;;
+      *) fail "Unknown brand board option: $a" ;;
+    esac
+  done
+  ensure_brand_content_system ""
+  if (( write != 1 )); then
+    log "Brand board not written. Re-run with: aoc-hyperframes brand board --write"
+    return 0
+  fi
+  write_brand_review_board
+  catalog_write >/dev/null || true
+}
+
+append_brand_links_to_shotlist() {
+  local base="$1" campaign="$2" audience="$3" concept="$4" shot="$root/$target_dir/docs/shotlists/$base.md"
+  [[ -f "$shot" ]] || return 0
+  if grep -Fq '<!-- AOC-BRAND-CONTENT-LINKS -->' "$shot"; then
+    return 0
+  fi
+  cat >> "$shot" <<EOF
+
+<!-- AOC-BRAND-CONTENT-LINKS -->
+## Brand content pipeline links
+
+- Campaign plan: \`hyperframes/docs/content-campaign-plan.md\`
+- Image review board: \`hyperframes/docs/image-review-board.md\`
+- SVG asset manifest: \`hyperframes/docs/svg-asset-manifest.md\`
+- Campaign: $campaign
+- Audience: $audience
+- Concept: $concept
+EOF
+}
+
+record_brand_campaign() {
+  local slug="$1" audience="$2" concept="$3" channels="$4" durations="$5" plan="$root/$target_dir/docs/content-campaign-plan.md"
+  mkdir -p "$(dirname "$plan")"
+  [[ -f "$plan" ]] || seed_doc_template content-campaign-plan.md docs/content-campaign-plan.md
+  if grep -Fq "## Campaign: $slug" "$plan"; then
+    log "Campaign plan already records $slug"
+    return 0
+  fi
+  cat >> "$plan" <<EOF
+
+## Campaign: $slug
+
+Prism-compatible manifest seam:
+
+\`\`\`yaml
+campaign: $slug
+audience: $audience
+concept: $concept
+channels: [$channels]
+durations: [$durations]
+brand_strategy: hyperframes/docs/brand-strategy.md
+human_review: hyperframes/docs/image-review-board.md
+svg_manifest: hyperframes/docs/svg-asset-manifest.md
+hyperframes_catalog: hyperframes/docs/composition-catalog.md
+html_video_manifest: hyperframes/generated/html-video/$slug/project.json
+\`\`\`
+
+Operator gates:
+
+- [ ] Campaign beats approved
+- [ ] Approved concept IDs referenced in image review board
+- [ ] SVG assets linked from svg-asset-manifest
+- [ ] HyperFrames or html-video preview reviewed before render
+EOF
+  log "Linked campaign in $target_dir/docs/content-campaign-plan.md"
+}
+
+run_brand_campaign() {
+  local slug="${args[1]:-}" audience="general" channels="meta,reel" durations="15s,6s" concept="demo" i=2 a
+  [[ -n "$slug" ]] || fail "Usage: aoc-hyperframes brand campaign <slug> [--audience NAME --channels LIST --durations LIST --concept NAME]"
+  while (( i < ${#args[@]} )); do
+    a="${args[$i]}"
+    case "$a" in
+      --audience) i=$((i + 1)); audience="${args[$i]:-general}" ;;
+      --channels) i=$((i + 1)); channels="${args[$i]:-meta,reel}" ;;
+      --durations) i=$((i + 1)); durations="${args[$i]:-15s,6s}" ;;
+      --concept) i=$((i + 1)); concept="${args[$i]:-demo}" ;;
+      *) fail "Unknown brand campaign option: $a" ;;
+    esac
+    i=$((i + 1))
+  done
+  require_safe_slug "campaign slug" "$slug"
+  require_safe_slug "audience" "$audience"
+  require_safe_slug "concept" "$concept"
+  require_safe_slug_list "channel" "$channels"
+  require_safe_slug_list "duration" "$durations"
+
+  ensure_brand_content_system ""
+  local old_args=("${args[@]}")
+  args=("create" "$slug" "--audience" "$audience" "--channels" "$channels" "--durations" "$durations" "--concept" "$concept")
+  run_campaign
+  args=("${old_args[@]}")
+  record_brand_campaign "$slug" "$audience" "$concept" "$channels" "$durations"
+
+  IFS=',' read -r -a _aoc_brand_channels <<< "$channels"
+  IFS=',' read -r -a _aoc_brand_durations <<< "$durations"
+  local idx=0 ch dur base
+  for ch in "${_aoc_brand_channels[@]}"; do
+    dur="${_aoc_brand_durations[$idx]:-${_aoc_brand_durations[0]}}"
+    base="$ch-$dur-$concept-v1"
+    append_brand_links_to_shotlist "$base" "$slug" "$audience" "$concept"
+    idx=$((idx + 1))
+  done
+  write_brand_review_board
+  catalog_write >/dev/null || true
+  log "Brand campaign created: $slug"
+}
+
+run_brand_export() {
+  local output="$target_dir/generated/brand-content/manifest.json" i=1 a
+  while (( i < ${#args[@]} )); do
+    a="${args[$i]}"
+    case "$a" in
+      --output)
+        i=$((i + 1))
+        output="${args[$i]:-}"
+        ;;
+      *)
+        fail "Unknown brand export option: $a"
+        ;;
+    esac
+    i=$((i + 1))
+  done
+  [[ -n "$output" ]] || fail "brand export --output requires a path"
+  [[ "$output" != *".."* ]] || fail "Invalid brand export output path: parent traversal is not allowed"
+  local dest="$root/$target_dir" output_abs
+  [[ -d "$dest" ]] || fail "Missing branded content workspace: $target_dir. Run: aoc-hyperframes brand init"
+  if [[ "$output" = /* ]]; then
+    output_abs="$output"
+  else
+    output_abs="$root/$output"
+  fi
+  mkdir -p "$(dirname "$output_abs")"
+  python3 - "$root" "$target_dir" "$output_abs" <<'PY'
+import hashlib
+import json
+import re
+import sys
+from datetime import datetime, timezone
+from pathlib import Path
+
+root = Path(sys.argv[1]).resolve()
+target_dir = sys.argv[2]
+target = root / target_dir
+output = Path(sys.argv[3]).resolve()
+
+if not target.is_dir():
+    raise SystemExit(f"HyperFrames workspace missing: {target_dir}")
+
+def rel(path: Path) -> str:
+    try:
+        return path.resolve().relative_to(root).as_posix()
+    except ValueError:
+        return path.as_posix()
+
+def stable_id(prefix: str, *parts: str) -> str:
+    base = "|".join(part for part in parts if part)
+    digest = hashlib.sha1(base.encode("utf-8")).hexdigest()[:12]
+    safe = re.sub(r"[^a-z0-9]+", "-", "-".join(parts).lower()).strip("-")[:48]
+    return f"{prefix}-{safe}-{digest}" if safe else f"{prefix}-{digest}"
+
+def add_artifact(collection: list[dict], *, kind: str, engine: str, path: str, status: str, title: str = "", campaign_id: str = "", metadata: dict | None = None) -> dict:
+    artifact = {
+        "id": stable_id("artifact", kind, engine, path),
+        "type": kind,
+        "engine": engine,
+        "path": path,
+        "status": status,
+        "metadata": metadata or {},
+    }
+    if title:
+        artifact["title"] = title
+    if campaign_id:
+        artifact["campaignId"] = campaign_id
+    collection.append(artifact)
+    return artifact
+
+def read_text(path: Path) -> str:
+    return path.read_text(encoding="utf-8", errors="replace") if path.is_file() else ""
+
+def parse_table_rows(text: str) -> list[list[str]]:
+    rows: list[list[str]] = []
+    for raw in text.splitlines():
+        line = raw.strip()
+        if not line.startswith("|") or "---" in line:
+            continue
+        cells = [cell.strip().strip("`") for cell in line.strip("|").split("|")]
+        if cells:
+            rows.append(cells)
+    return rows
+
+def parse_campaigns(plan: Path) -> list[dict]:
+    text = read_text(plan)
+    campaigns: list[dict] = []
+    matches = list(re.finditer(r"^## Campaign:\s*([A-Za-z0-9][A-Za-z0-9-]*)\s*$", text, re.MULTILINE))
+    for idx, match in enumerate(matches):
+        slug = match.group(1)
+        section_end = matches[idx + 1].start() if idx + 1 < len(matches) else len(text)
+        section = text[match.end():section_end]
+        seam: dict[str, str] = {}
+        block_match = re.search(r"```yaml\s*(.*?)```", section, re.DOTALL)
+        if block_match:
+            for raw in block_match.group(1).splitlines():
+                if ":" not in raw:
+                    continue
+                key, value = raw.split(":", 1)
+                seam[key.strip()] = value.strip()
+        audience = seam.get("audience", "")
+        concept = seam.get("concept", "")
+        html_manifest = seam.get("html_video_manifest") or f"{target_dir}/generated/html-video/{slug}/project.json"
+        campaigns.append({
+            "id": slug,
+            "audience": audience,
+            "concept": concept,
+            "campaignPlanPath": rel(plan),
+            "imageReviewPath": seam.get("human_review") or f"{target_dir}/docs/image-review-board.md",
+            "svgManifestPath": seam.get("svg_manifest") or f"{target_dir}/docs/svg-asset-manifest.md",
+            "hyperframesCatalogPath": seam.get("hyperframes_catalog") or f"{target_dir}/docs/composition-catalog.md",
+            "htmlVideoManifestPath": html_manifest,
+            "metadata": {
+                "channels": seam.get("channels", ""),
+                "durations": seam.get("durations", ""),
+            },
+        })
+    return campaigns
+
+def html_video_manifests() -> list[Path]:
+    base = target / "generated" / "html-video"
+    if not base.is_dir():
+        return []
+    return sorted(base.glob("*/project.json"))
+
+campaigns = parse_campaigns(target / "docs" / "content-campaign-plan.md")
+known_campaigns = {campaign["id"]: campaign for campaign in campaigns}
+for manifest in html_video_manifests():
+    try:
+        payload = json.loads(manifest.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        continue
+    project_id = str(payload.get("projectId") or manifest.parent.name)
+    campaign_id = str(payload.get("campaign") or project_id)
+    if campaign_id not in known_campaigns:
+        campaign = {
+            "id": campaign_id,
+            "audience": str(payload.get("audience") or ""),
+            "concept": str(payload.get("concept") or ""),
+            "campaignPlanPath": str(payload.get("sourcePlan") or f"{target_dir}/docs/content-campaign-plan.md"),
+            "imageReviewPath": str(payload.get("imageReview") or f"{target_dir}/docs/image-review-board.md"),
+            "svgManifestPath": str(payload.get("svgManifest") or f"{target_dir}/docs/svg-asset-manifest.md"),
+            "hyperframesCatalogPath": f"{target_dir}/docs/composition-catalog.md",
+            "htmlVideoManifestPath": rel(manifest),
+            "metadata": {"htmlVideoProjectId": project_id},
+        }
+        campaigns.append(campaign)
+        known_campaigns[campaign_id] = campaign
+    elif not known_campaigns[campaign_id].get("htmlVideoManifestPath"):
+        known_campaigns[campaign_id]["htmlVideoManifestPath"] = rel(manifest)
+
+artifacts: list[dict] = []
+doc_specs = [
+    ("strategy", "aoc", "docs/brand-strategy.md", "Brand strategy", "draft"),
+    ("concept", "omp", "docs/concept-directions.md", "Concept directions", "draft"),
+    ("image_prompt", "gpt_image", "docs/image-generation-board.md", "GPT Image prompt board", "pending_review"),
+    ("doc", "operator", "docs/image-review-board.md", "Human image review board", "pending_review"),
+    ("doc", "omp", "docs/svg-asset-manifest.md", "SVG asset manifest", "pending_review"),
+    ("doc", "aoc", "docs/content-campaign-plan.md", "Content campaign plan", "draft"),
+    ("doc", "operator", "docs/campaign-review-board.md", "Campaign review board", "pending_review"),
+    ("manifest", "hyperframes", "docs/composition-catalog.md", "HyperFrames composition catalog", "generated"),
+]
+for kind, engine, doc_rel, title, status in doc_specs:
+    path = target / doc_rel
+    if path.is_file():
+        add_artifact(artifacts, kind=kind, engine=engine, path=rel(path), status=status, title=title)
+
+asset_dirs = [
+    ("concept_image", "gpt_image", target / "assets" / "generated" / "concepts", "generated"),
+    ("approved_image", "operator", target / "assets" / "generated" / "approved", "approved"),
+    ("region", "operator", target / "assets" / "generated" / "sections", "generated"),
+    ("svg_asset", "omp", target / "assets" / "generated" / "svg", "generated"),
+]
+for kind, engine, directory, status in asset_dirs:
+    if not directory.is_dir():
+        continue
+    for file in sorted(path for path in directory.rglob("*") if path.is_file()):
+        add_artifact(
+            artifacts,
+            kind=kind,
+            engine=engine,
+            path=rel(file),
+            status=status,
+            title=file.name,
+            metadata={"bytes": file.stat().st_size},
+        )
+
+composition_root = target / "compositions"
+if composition_root.is_dir():
+    for file in sorted(composition_root.rglob("*.html")):
+        text = read_text(file)
+        comp_id_match = re.search(r'data-composition-id="([^"]+)"', text)
+        add_artifact(
+            artifacts,
+            kind="composition",
+            engine="hyperframes",
+            path=rel(file),
+            status="generated",
+            title=comp_id_match.group(1) if comp_id_match else file.stem,
+            metadata={"compositionId": comp_id_match.group(1) if comp_id_match else ""},
+        )
+
+render_roots = [target / "renders", target / "generated" / "html-video"]
+for render_root in render_roots:
+    if not render_root.is_dir():
+        continue
+    for file in sorted(path for path in render_root.rglob("*") if path.is_file() and path.suffix.lower() in {".mp4", ".webm", ".mov"}):
+        engine = "html_video" if "generated/html-video" in rel(file) else "hyperframes"
+        add_artifact(artifacts, kind="render", engine=engine, path=rel(file), status="rendered", title=file.name, metadata={"bytes": file.stat().st_size})
+    for file in sorted(path for path in render_root.rglob("*") if path.is_file() and path.suffix.lower() in {".png", ".jpg", ".jpeg", ".webp"}):
+        engine = "html_video" if "generated/html-video" in rel(file) else "hyperframes"
+        add_artifact(artifacts, kind="preview", engine=engine, path=rel(file), status="generated", title=file.name, metadata={"bytes": file.stat().st_size})
+
+content_graphs: list[dict] = []
+for manifest in html_video_manifests():
+    try:
+        payload = json.loads(manifest.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        continue
+    manifest_rel = rel(manifest)
+    project_id = str(payload.get("projectId") or manifest.parent.name)
+    campaign_id = str(payload.get("campaign") or project_id)
+    graph = payload.get("contentGraph") or {}
+    nodes = graph.get("nodes") if isinstance(graph, dict) else []
+    edges = graph.get("edges") if isinstance(graph, dict) else []
+    if not isinstance(nodes, list):
+        nodes = []
+    if not isinstance(edges, list):
+        edges = []
+    add_artifact(artifacts, kind="manifest", engine="html_video", path=manifest_rel, status="generated", title=f"html-video project {project_id}", campaign_id=campaign_id, metadata={"projectId": project_id})
+    add_artifact(artifacts, kind="storyboard", engine="html_video", path=manifest_rel, status="generated", title=f"Storyboard {project_id}", campaign_id=campaign_id, metadata={"nodeCount": len(nodes), "edgeCount": len(edges)})
+    assets_manifest = manifest.parent / "assets.json"
+    if assets_manifest.is_file():
+        add_artifact(artifacts, kind="manifest", engine="html_video", path=rel(assets_manifest), status="generated", title=f"html-video assets {project_id}", campaign_id=campaign_id, metadata={"projectId": project_id})
+    content_graphs.append({
+        "id": stable_id("content-graph", project_id, manifest_rel),
+        "engine": "html_video",
+        "projectId": project_id,
+        "campaignId": campaign_id,
+        "manifestPath": manifest_rel,
+        "nodeCount": len(nodes),
+        "edgeCount": len(edges),
+        "nodes": [{"id": str(node.get("id", "")), "kind": str(node.get("kind", "")), "durationSec": node.get("durationSec")} for node in nodes if isinstance(node, dict)],
+        "edges": [{"from": str(edge.get("from", "")), "to": str(edge.get("to", "")), "kind": str(edge.get("kind", ""))} for edge in edges if isinstance(edge, dict)],
+    })
+
+def gates_from_doc(path: Path) -> list[dict]:
+    text = read_text(path)
+    gates: list[dict] = []
+    for idx, match in enumerate(re.finditer(r"^- \[([ xX])\]\s+(.+)$", text, re.MULTILINE), start=1):
+        checked = match.group(1).lower() == "x"
+        label = match.group(2).strip()
+        gates.append({
+            "id": stable_id("gate", rel(path), str(idx), label),
+            "sourcePath": rel(path),
+            "label": label,
+            "status": "approved" if checked else "pending_review",
+        })
+    return gates
+
+operator_gates = []
+for gate_path in [target / "docs" / "campaign-review-board.md", target / "docs" / "content-campaign-plan.md", target / "docs" / "image-review-board.md", target / "docs" / "svg-asset-manifest.md"]:
+    if gate_path.is_file():
+        operator_gates.extend(gates_from_doc(gate_path))
+
+bundle = {
+    "schema": "aoc.brand_content.bundle.v1",
+    "projectRoot": str(root),
+    "generatedAt": datetime.now(timezone.utc).replace(microsecond=0).isoformat(),
+    "brand": {"strategyPath": f"{target_dir}/docs/brand-strategy.md"},
+    "campaigns": campaigns,
+    "artifacts": artifacts,
+    "contentGraphs": content_graphs,
+    "operatorGates": operator_gates,
+}
+
+output.write_text(json.dumps(bundle, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+print(rel(output))
+PY
+  log "Exported AOC branded content manifest: ${output_abs#$root/}"
+}
+
+run_brand() {
+  case "${args[0]:-}" in
+    init)
+      run_brand_init
+      ;;
+    check)
+      run_brand_check
+      ;;
+    board)
+      run_brand_board
+      ;;
+    campaign)
+      run_brand_campaign
+      ;;
+    export)
+      run_brand_export
+      ;;
+    *)
+      fail "Usage: aoc-hyperframes brand <init|check|board|campaign|export> [options]"
+      ;;
+  esac
+}
+
 append_inventory_row() {
   local src="$1" dest_rel="$2" kind="$3" inv="$root/$target_dir/docs/asset-inventory.md"
   mkdir -p "$(dirname "$inv")"
@@ -993,8 +1670,8 @@ run_check() {
   if [[ -f "$dest/docs/DESIGN.md" ]] && ! grep -Eq '\.\./\.\./DESIGN\.md|root .*DESIGN\.md|Root .*DESIGN\.md' "$dest/docs/DESIGN.md"; then
     check_warn "$target_dir/docs/DESIGN.md should reference ../../DESIGN.md"
   fi
-  local req_dirs=(compositions/_playgrounds compositions/components assets/brand assets/maps docs/shotlists renders/exports)
-  local req_docs=(docs/asset-inventory.md docs/brand-motion-brief.md docs/campaign-message-matrix.md docs/export-naming.md docs/composition-catalog.md)
+  local req_dirs=(compositions/_playgrounds compositions/components assets/brand assets/maps assets/generated/concepts assets/generated/approved assets/generated/sections assets/generated/svg docs/shotlists renders/exports)
+  local req_docs=(docs/asset-inventory.md docs/brand-motion-brief.md docs/campaign-message-matrix.md docs/export-naming.md docs/composition-catalog.md docs/brand-strategy.md docs/concept-directions.md docs/image-generation-board.md docs/image-review-board.md docs/svg-asset-manifest.md docs/content-campaign-plan.md)
   local item
   for item in "${req_dirs[@]}"; do [[ -d "$dest/$item" ]] || check_err "Missing dir: $target_dir/$item"; done
   for item in "${req_docs[@]}"; do [[ -f "$dest/$item" ]] || check_err "Missing doc: $target_dir/$item"; done
@@ -1135,6 +1812,9 @@ case "$command" in
     ;;
   campaign)
     run_campaign
+    ;;
+  brand)
+    run_brand
     ;;
   seed-assets)
     run_seed_assets

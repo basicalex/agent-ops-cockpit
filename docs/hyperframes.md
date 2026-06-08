@@ -26,7 +26,7 @@ Alt+C -> Settings -> Tools -> HyperFrames -> Init workspace + campaign factory
 This seeds the full production workspace:
 
 - `hyperframes/` workspace
-- Pi HyperFrames skills and prompt
+- OMP HyperFrames/brand-content commands plus compatible source skills/prompts
 - source-tracking `.gitignore` policy
 - `hyperframes/package.json` with `hyperframes@0.4.33` and `packageManager: bun@1.3.9`
 - `hyperframes/docs/DESIGN.md`
@@ -62,6 +62,44 @@ aoc-hyperframes catalog --dir hyperframes --write
 aoc-hyperframes workbench set compositions/_playgrounds/system-board.html
 aoc-hyperframes seed-assets --dir hyperframes --dry-run
 ```
+
+## Branded content pipeline
+
+Use this when a campaign starts from brand strategy and approved generated concepts rather than from an already-authored composition.
+
+```bash
+aoc-hyperframes brand init --brand <brand-slug>
+```
+
+Operator workflow:
+
+1. In OMP, activate a mode with `/brand-content strategy` or `/hyperframes-director strategy`.
+2. Fill and approve `hyperframes/docs/brand-strategy.md`.
+3. Generate 3-7 strategy-bound campaign directions in `hyperframes/docs/concept-directions.md`.
+4. Use `/brand-content image` to create GPT Image 2 prompt packs in `hyperframes/docs/image-generation-board.md`.
+5. Save generated or Open Design-imported concept images under `hyperframes/assets/generated/concepts/`.
+6. Review with the operator in `hyperframes/docs/image-review-board.md`; approve, reject, or mark regions for extraction.
+7. Dispatch OMP specialists such as `svg-asset` for exact SVG specs from approved regions, then record outputs in `hyperframes/docs/svg-asset-manifest.md` and `hyperframes/assets/generated/svg/`.
+8. Assemble short-form slides/posts/stories through either:
+   - html-video content graph + template/studio/render flow for multi-frame campaign videos, or
+   - direct HyperFrames HTML/GSAP compositions when custom motion is required.
+9. Run `aoc-hyperframes brand check --no-lint`, `aoc-hyperframes check --no-lint`, and `aoc-hyperframes catalog --write`.
+10. Export the stable Prism import contract with `aoc-hyperframes brand export`.
+11. Preview first; render only when explicitly requested.
+
+Useful commands:
+
+```bash
+aoc-hyperframes brand check --no-lint
+aoc-hyperframes brand board --write
+aoc-hyperframes brand campaign <slug> --audience <audience> --concept <concept>
+aoc-hyperframes brand export
+aoc-hyperframes brand export --output hyperframes/generated/brand-content/manifest.json
+aoc-html-video project create --from hyperframes/docs/content-campaign-plan.md
+aoc-html-video project add-assets <project-id> --from hyperframes/docs/svg-asset-manifest.md
+```
+
+Generated concept images, approved source images, crops, renders, and html-video exports are ignored by default unless the project explicitly promotes them.
 
 ## Create campaign compositions
 
@@ -148,15 +186,21 @@ The wrapper runs checks, sets the workbench target, and writes output under `hyp
 
 Do not commit render batches by default. Promote selected exports only when explicitly needed.
 
-## Preset surface
+## OMP command surface
 
-Use:
+Use these OMP slash commands after setup:
 
 ```text
-Alt+X -> AOC HyperFrames
+/brand-content strategy
+/brand-content concepts
+/brand-content image
+/brand-content review
+/brand-content svg
+/brand-content campaign
+/hyperframes-director campaign
 ```
 
-Use this after setup when asking the Pi agent to build, review, or render campaign compositions.
+They load prompt components from `.aoc/presets/hyperframes/**` into the active OMP turn. They do not require the legacy Pi preset runtime.
 
 ## Requirements
 
