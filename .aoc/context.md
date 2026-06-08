@@ -1,10 +1,10 @@
 # Project Context Snapshot
 
 ## Repository
-- Name: .
-- Root: .
+- Name: agent-ops-cockpit
+- Root: /home/ceii/dev/agent-ops-cockpit
 - VCS: jj (colocated with git)
-- Git branch: 255ec5f
+- Git branch: bd52b92
 - Jujutsu root: /home/ceii/dev/agent-ops-cockpit
 - Jujutsu colocation: yes
 

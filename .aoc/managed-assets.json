@@ -94,9 +94,9 @@
     ".pi/prompts/commit.md": {
       "asset": "prompt/commit",
       "assetVersion": 3,
-      "expectedSha256": "8cdfd36dd6fd66d72003752464b6531db0d986efc4e1884a7adc517f5e686a88",
+      "expectedSha256": "b245e82891182b57310ac75f99d5ccf0f1a329dc4b2f8d187bc6eb3bd7de4a1d",
       "marker": ".pi/prompts/commit.md.aoc-managed",
-      "sha256": "8cdfd36dd6fd66d72003752464b6531db0d986efc4e1884a7adc517f5e686a88",
+      "sha256": "b245e82891182b57310ac75f99d5ccf0f1a329dc4b2f8d187bc6eb3bd7de4a1d",
       "source": ".pi/prompts/commit.md",
       "status": "current"
     },
@@ -157,11 +157,11 @@
     ".pi/skills/aoc-init-ops": {
       "asset": "skill/aoc-init-ops",
       "assetVersion": 3,
-      "expectedSha256": "7ae05e45cbe3981c4d4771a9e2f9a6fc5452daf9811fb3ec87ca0e676afecb88",
+      "expectedSha256": "f92ca958570a23a93e23592167b3beb0e7e6a17faa42d4be521c43462357f3da",
       "marker": ".pi/skills/aoc-init-ops/.aoc-managed",
       "sha256": "f92ca958570a23a93e23592167b3beb0e7e6a17faa42d4be521c43462357f3da",
       "source": ".pi/skills/aoc-init-ops",
-      "status": "dirty"
+      "status": "current"
     },
     ".pi/skills/aoc-map": {
       "asset": "skill/aoc-map",
@@ -390,11 +390,11 @@
     }
   },
   "counts": {
-    "current": 40,
-    "dirty": 3,
+    "current": 41,
+    "dirty": 2,
     "stale": 0,
     "unknown": 0
   },
   "schemaVersion": 1,
-  "updatedAt": "2026-06-08T10:04:04.467356Z"
+  "updatedAt": "2026-06-08T16:16:08.276901Z"
 }
