@@ -3,11 +3,11 @@ description: Run the automated AOC commit workflow after implementation/polish
 argument-hint: "[instructions]"
 ---
 
-Run the AOC commit workflow for:
+Run the AOC commit workflow for this prompt-first intent:
 
 $ARGUMENTS
 
-Use this after implementation and any polish passes. The goal is a clean, atomic, provenance-rich commit using the repository's detected VCS. The user's `/commit` invocation is approval to run the full VCS-aware commit flow directly: inspect, select a safe atomic change set, commit with the detected workflow, and report the result. Never push unless explicitly requested.
+Use this after implementation and any polish passes. The goal is a clean, atomic, provenance-rich commit using the repository's detected VCS. Treat the text after `/commit` as the primary commit intent/scope; use recent session edits and related dirty work only when they support that intent. The user's `/commit` invocation is approval to run the full VCS-aware commit flow directly: inspect, select a safe atomic change set, commit with the detected workflow, and report the result. Never push unless explicitly requested.
 
 Workflow:
 
@@ -23,7 +23,7 @@ Workflow:
   - `git diff --stat`
   - `git diff --cached --stat`
   - targeted diffs for candidate files only
-- Identify unrelated/pre-existing changes and exclude or split them before committing.
+- Identify unrelated/pre-existing changes and exclude or split them before committing, even if they were edited in the same working copy.
 
 2. Resolve AOC provenance
 - Identify relevant task/subtask/spec/PRD from recent implementation context or Taskmaster.
@@ -31,11 +31,15 @@ Workflow:
 - Use STM/Mind only if needed for focused provenance, with explicit reason.
 
 3. Plan atomic commit(s)
+- Start prompt-first: infer the intended commit slice from `$ARGUMENTS`; if it is empty, use the current completed work from the session.
+- Include only files that are part of that coherent intent: directly edited session files plus related dirty work needed for correctness.
 - Group by intent, not by timestamp.
 - Prefer one commit for one coherent implementation slice.
 - Git uses explicit staging; never stage broad paths like `.`.
 - Jujutsu has no Git staging area: the working copy is the current mutable `@` change, and `jj commit` without filesets selects all current changes.
-- If Jujutsu `@` is mixed, split unrelated work first with `jj split` / `jj commit <filesets>` / `jj squash -i` as appropriate; if the intended split is unclear, ask one concise clarification before mutating.
+- Plain `jj commit` is allowed only when `@` already contains only the intended atomic work.
+- If Jujutsu `@` is mixed, default to a selected-fileset/split workflow (`jj commit -m <message> <filesets>` or `jj split <filesets>`) so unrelated work remains in the new/current change; use `jj squash -i` only when it is the clearer way to reshape already-separated changes.
+- If the intended slice is unclear after inspecting the prompt, session context, and targeted diffs, ask one concise clarification before mutating.
 
 4. Draft commit message
 Use:
@@ -54,9 +58,9 @@ Risk: low|medium|high; <reason>
 5. Validate and commit directly
 - Run targeted validation appropriate to the selected files when practical.
 - Git-only: stage only explicit approved-by-workflow paths with `git add -- path ...`; never stage broad paths like `.`.
-- Jujutsu: verify `@` contains only the intended atomic work, then use `jj commit -m <message>` or `jj describe -m <message>` plus the workflow-appropriate new-change step.
-- Jujutsu selected filesets: when the intended fileset is clear but `@` is mixed, use `jj commit -m <message> <filesets>` or `jj split <filesets>` according to the desired split direction.
-- If no safe atomic set can be inferred, ask one concise clarification before staging or mutating.
+- Jujutsu: verify `@` contains only the intended atomic work before plain `jj commit -m <message>` or use `jj describe -m <message>` plus the workflow-appropriate new-change step.
+- Jujutsu mixed `@`: when the intended fileset is clear, use `jj commit -m <message> <filesets>` or `jj split <filesets>` to isolate/commit the prompt-selected slice and leave unrelated changes behind.
+- If no safe atomic set can be inferred from the prompt, session context, and targeted diffs, ask one concise clarification before staging or mutating.
 - Never push unless explicitly requested.
 
 Final response after commit:
@@ -67,7 +71,7 @@ Final response after commit:
 - remaining unrelated changes, if any
 
 Safety:
-- Treat `/commit` as approval to commit only the safe atomic change set inferred by this workflow.
+- Treat `/commit` as approval to commit only the safe atomic change set inferred from the prompt, recent session context, and targeted diffs.
 - Never commit secrets/tokens/private logs.
 - Never stage broad Git paths or include unrelated/pre-existing changes.
 - If the atomic set or message is ambiguous, ask before staging/committing.

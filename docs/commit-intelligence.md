@@ -66,6 +66,8 @@ jj diff -- path/to/file
 
 ### 2. Plan atomic groups
 
+The text after `/commit` is the primary commit intent/scope. The agent should use recent session edits and related dirty work only when they support that intent; it should not commit every dirty file just because it changed during the session.
+
 A commit should represent one coherent intent:
 
 - one feature slice
@@ -98,11 +100,11 @@ aoc-mind-service context-pack --project-root "$PWD" --mode focused --reason "pre
 
 The user's `/commit` invocation is approval for the agent to complete the safe VCS-aware commit flow directly:
 
-- select a coherent atomic change set
-- exclude or split unrelated/pre-existing changes
+- select a coherent atomic change set from the prompt-first intent, recent session context, and targeted diffs
+- exclude or split unrelated/pre-existing changes, even if they share the same working copy
 - run targeted validation when practical
 - in Git-only repositories, stage only explicit paths and never broad paths like `.`
-- in Jujutsu repositories, verify `@` contains only the intended atomic work before `jj commit -m <message>` or use selected filesets/splitting (`jj commit <filesets>`, `jj split`, `jj squash -i`) when work is mixed
+- in Jujutsu repositories, plain `jj commit -m <message>` only after verifying `@` is already atomic; when `@` is mixed, use selected filesets/splitting (`jj commit -m <message> <filesets>`, `jj split`, `jj squash -i`) to commit the prompt-selected slice and leave unrelated work behind
 - commit with AOC provenance trailers
 - report the resulting Git SHA or Jujutsu change/commit identity and remaining unrelated changes
 

@@ -5,8 +5,15 @@ type CommandContext = {
 	};
 };
 
+type AutocompleteItem = {
+	value: string;
+	label?: string;
+	description?: string;
+};
+
 type CommandDefinition = {
 	description: string;
+	getArgumentCompletions?: (prefix: string) => AutocompleteItem[] | null;
 	handler: (args: string | string[] | undefined, ctx: CommandContext) => void | Promise<void>;
 };
 
@@ -33,9 +40,9 @@ function argsText(args: string | string[] | undefined): string {
 
 function renderCommitPrompt(scope: string): string {
 	const target = scope || "the current completed work";
-	return `Run the AOC/OMP commit workflow for: ${target}
+	return `Run the AOC/OMP commit workflow for this prompt-first intent: ${target}
 
-The user's /commit invocation is approval to run the full VCS-aware commit flow directly: inspect, select a safe atomic change set, commit with the detected repository workflow, and report the result. Never push unless explicitly requested.
+The user's /commit invocation is approval to run the full VCS-aware commit flow directly: inspect, select a safe atomic change set, commit with the detected repository workflow, and report the result. Treat the text after /commit as the primary commit intent/scope; use recent session edits and related dirty work only when they support that intent. Never push unless explicitly requested.
 
 Workflow:
 
@@ -51,7 +58,7 @@ Workflow:
   - git diff --stat
   - git diff --cached --stat
   - targeted diffs for candidate files only
-- Identify unrelated/pre-existing changes and exclude or split them before committing.
+- Identify unrelated/pre-existing changes and exclude or split them before committing, even if they were edited in the same working copy.
 
 2. Resolve provenance
 - Identify relevant task/subtask/spec from recent implementation context, Taskmaster, or explicit user instructions.
@@ -59,11 +66,15 @@ Workflow:
 - Do not use broad Mind/STM recall unless a focused missing-provenance question requires it.
 
 3. Plan atomic commit(s)
+- Start prompt-first: infer the intended commit slice from the /commit arguments; if they are empty, use the current completed work from the session.
+- Include only files that are part of that coherent intent: directly edited session files plus related dirty work needed for correctness.
 - Group by intent, not by timestamp.
 - Prefer one commit for one coherent implementation slice.
 - Git uses explicit staging; never stage broad paths like .
 - Jujutsu has no Git staging area: the working copy is the current mutable @ change, and jj commit without filesets selects all current changes.
-- If Jujutsu @ is mixed, split unrelated work first with jj split / jj commit <filesets> / jj squash -i as appropriate; if the intended split is unclear, ask one concise clarification before mutating.
+- Plain jj commit is allowed only when @ already contains only the intended atomic work.
+- If Jujutsu @ is mixed, default to a selected-fileset/split workflow (jj commit -m <message> <filesets> or jj split <filesets>) so unrelated work remains in the new/current change; use jj squash -i only when it is the clearer way to reshape already-separated changes.
+- If the intended slice is unclear after inspecting the prompt, session context, and targeted diffs, ask one concise clarification before mutating.
 
 4. Draft commit message
 Use:
@@ -82,9 +93,9 @@ Risk: low|medium|high; <reason>
 5. Validate and commit directly
 - Run targeted validation appropriate to the selected files when practical.
 - Git-only: stage only explicit paths with git add -- path ..., commit, and report the observed SHA.
-- Jujutsu: verify @ contains only the intended atomic work, then use jj commit -m <message> or jj describe -m <message> plus the workflow-appropriate new-change step.
-- Jujutsu selected filesets: when the intended fileset is clear but @ is mixed, use jj commit -m <message> <filesets> or jj split <filesets> according to the desired split direction.
-- If no safe atomic set can be inferred, ask one concise clarification before staging or mutating.
+- Jujutsu: verify @ contains only the intended atomic work before plain jj commit -m <message> or use jj describe -m <message> plus the workflow-appropriate new-change step.
+- Jujutsu mixed @: when the intended fileset is clear, use jj commit -m <message> <filesets> or jj split <filesets> to isolate/commit the prompt-selected slice and leave unrelated changes behind.
+- If no safe atomic set can be inferred from the prompt, session context, and targeted diffs, ask one concise clarification before staging or mutating.
 - Never push unless explicitly requested.
 
 Final response after commit:
@@ -95,15 +106,27 @@ Final response after commit:
 - remaining unrelated changes, if any
 
 Safety:
+- Treat /commit as approval to commit only the safe atomic change set inferred from the prompt, recent session context, and targeted diffs.
 - Never commit secrets/tokens/private logs.
-- Never stage broad Git paths or include unrelated/pre-existing changes.
 - Never push without explicit push approval.
 - Do not include raw chain-of-thought or huge diffs in commit messages.`;
 }
 
 export default function aocCommitExtension(pi: ExtensionAPI): void {
 	pi.registerCommand("commit", {
-		description: "Run the AOC/OMP safe atomic commit workflow for the current work.",
+		description: "Usage: /commit [intent]. Commit only the prompt-selected atomic slice; jj-first/split-safe.",
+		getArgumentCompletions: (prefix: string): AutocompleteItem[] | null => {
+			const examples = [
+				"commit only the jj prompt-first /commit workflow updates",
+				"commit the docs update, leave implementation changes uncommitted",
+				"commit the bug fix and related test only",
+			];
+			const trimmed = prefix.trim().toLowerCase();
+			const matches = examples
+				.filter(example => !trimmed || example.toLowerCase().includes(trimmed))
+				.map(example => ({ value: example, label: example }));
+			return matches.length > 0 ? matches : null;
+		},
 		handler: async (args, ctx) => {
 			const scope = argsText(args);
 			const content = renderCommitPrompt(scope);
