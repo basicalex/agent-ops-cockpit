@@ -90,19 +90,23 @@ AOC-Intent: <durable intent>
 Tests: <commands run/results>
 Risk: low|medium|high; <reason>
 
-5. Validate and commit directly
+5. Validate, commit directly, then refresh CodeGraph cache
 - Run targeted validation appropriate to the selected files when practical.
 - Git-only: stage only explicit paths with git add -- path ..., commit, and report the observed SHA.
 - Jujutsu: verify @ contains only the intended atomic work before plain jj commit -m <message> or use jj describe -m <message> plus the workflow-appropriate new-change step.
 - Jujutsu mixed @: when the intended fileset is clear, use jj commit -m <message> <filesets> or jj split <filesets> to isolate/commit the prompt-selected slice and leave unrelated changes behind.
 - If no safe atomic set can be inferred from the prompt, session context, and targeted diffs, ask one concise clarification before staging or mutating.
 - Never push unless explicitly requested.
+- After a successful commit only, if `.codegraph/` exists and `codegraph` is on PATH, run `codegraph sync <repo-root>` as best-effort cache maintenance.
+- Never run CodeGraph sync before the commit, never include `.codegraph/**` in the commit, and never let sync failure change, undo, block, or invalidate the committed VCS result.
+- If sync fails or is unavailable, report it as advisory cache status and continue the final commit report.
 
 Final response after commit:
 - Git commit SHA or Jujutsu change/commit identity
 - subject
 - files committed
 - tests noted
+- CodeGraph cache status: synced | skipped (no index/CLI) | failed (advisory; reason)
 - remaining unrelated changes, if any
 
 Safety:

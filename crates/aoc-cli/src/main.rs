@@ -1,6 +1,7 @@
 use anyhow::Result;
 use clap::{Parser, Subcommand};
 
+mod dox;
 mod insight;
 mod map;
 mod overseer;
@@ -42,6 +43,11 @@ enum Commands {
         #[command(subcommand)]
         action: overseer::OverseerCommand,
     },
+    /// Map sparse AGENTS.md context contracts
+    Dox {
+        #[command(subcommand)]
+        action: dox::DoxCommand,
+    },
     /// Build and serve agent-authored project maps
     #[command(alias = "see")]
     Map {
@@ -66,6 +72,7 @@ fn main() -> Result<()> {
                 Ok(())
             }
         },
+        Commands::Dox { action } => dox::handle_dox_command(action),
         Commands::Rlm { action } => rlm::handle_rlm_command(action),
         Commands::Insight { action } => insight::handle_insight_command(action),
         Commands::Overseer { action } => overseer::handle_overseer_command(action),

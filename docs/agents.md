@@ -89,6 +89,7 @@ Current OMP surfaces include:
 - `aoc-state.ts` — `/state-status`, `/state-commit`, and `/state-push` workflows for repo-owned AOC project state; commit and push are separate, explicit steps.
 - `aoc-jj-init.ts` — `/jj-init` explicit workflow for initializing colocated Jujutsu over an existing Git repo after dirty-work inspection.
 - `aoc-brand-content.ts` — `/brand-content` and `/hyperframes-director` HyperFrames branded-content modes.
+- `aoc-dox.ts` — `aoc_dox` safe metadata tool plus `/dox` slash command for sparse AGENTS cartography with `dox-*` subagents.
 - `aoc-web-search.ts` — `aoc_web_search` wrapper around local `aoc-search`/SearXNG plus direct package/GitHub lookup modes for agents when built-in paid web-search providers fail.
 
 Project-local `.pi/extensions/` remains a compatibility/source surface. Do not base new operator workflows on legacy Pi subagent controls when an OMP extension exists.

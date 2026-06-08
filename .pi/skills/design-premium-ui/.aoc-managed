@@ -1,6 +1,6 @@
 aoc-managed: true
 asset: skill/design-premium-ui
 asset-version: 3
-source: .pi/skills/design-premium-ui
+source: ../.config/aoc/pi/skills/design-premium-ui
 sha256: 891f8c842d35260899f76e3445007f0303c7d90a87a7f21580c621174f3c93af
-updated-at: 2026-06-08T16:15:58Z
+updated-at: 2026-06-09T20:31:08Z

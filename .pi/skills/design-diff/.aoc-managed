@@ -1,6 +1,6 @@
 aoc-managed: true
 asset: skill/design-diff
 asset-version: 3
-source: .pi/skills/design-diff
+source: ../.config/aoc/pi/skills/design-diff
 sha256: cd5b9cff85a25d1a8c8568d5f28179b410cd35a13f856f61baf4004cc4e9184c
-updated-at: 2026-06-08T16:15:57Z
+updated-at: 2026-06-09T20:31:06Z

@@ -1,6 +1,6 @@
 aoc-managed: true
 asset: skill/spec-rpg-authoring
 asset-version: 3
-source: .pi/skills/spec-rpg-authoring
+source: ../.config/aoc/pi/skills/spec-rpg-authoring
 sha256: 834f069461031316226821b6a7175210c1d48ea97e27855ae1280212a074f817
-updated-at: 2026-06-08T16:16:03Z
+updated-at: 2026-06-09T20:31:15Z

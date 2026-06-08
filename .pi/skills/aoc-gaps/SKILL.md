@@ -1,7 +1,7 @@
 ---
 name: aoc-gaps
-description: Audit implementation and conceptual gaps by comparing the Understand-Anything code graph, Taskmaster tasks/specs, AOC memory/STM decisions, git state, and an optional operator focus. Use for broad project gap reviews or directed planning such as `/skill:aoc-gaps mission-control observability`.
-allowed-tools: Bash(aoc-understand:*), Bash(tm:*), Bash(aoc-task:*), Bash(aoc-mem:*), Bash(aoc-stm:*), Bash(git:*), Bash(python3:*), Bash(jq:*), Bash(rg:*), Bash(find:*), Bash(test:*)
+description: Audit implementation and conceptual gaps by comparing targeted code inspection, Taskmaster tasks/specs, AOC memory/STM decisions, VCS state, and an optional operator focus. Use for broad project gap reviews or directed planning such as `/skill:aoc-gaps mission-control observability`.
+allowed-tools: Bash(tm:*), Bash(aoc-task:*), Bash(aoc-mem:*), Bash(aoc-stm:*), Bash(git:*), Bash(python3:*), Bash(jq:*), Bash(rg:*), Bash(find:*), Bash(test:*)
 ---
 
 # AOC Gaps
@@ -23,8 +23,7 @@ Arguments after the command are the **direction**. No quotes are needed in Pi ch
 Compare these layers, escalating only as needed:
 
 1. **Implemented code reality**
-   - `aoc-understand status`
-   - `.understand-anything/knowledge-graph.json` slices only; never load the full graph into context.
+   - Use the `aoc_codegraph` tool first when `.codegraph/` exists; otherwise use targeted file/symbol inspection.
    - `git status --short` and recent commits when relevant.
 2. **Planned intent**
    - `tm tag current`
@@ -46,37 +45,15 @@ Compare these layers, escalating only as needed:
 - Run:
 
 ```bash
-aoc-understand status
 tm tag current
 git status --short
 ```
 
-If the Understand graph is missing, stop and recommend:
+Do not invent code-backed conclusions without local evidence.
 
-```text
-/skill:understand --full
-```
+### 2. Inspect implementation narrowly
 
-Do not invent graph-backed conclusions without the graph.
-
-### 2. Slice the graph narrowly
-
-Use Python or `jq` to inspect compact graph metadata:
-
-```bash
-python3 - <<'PY'
-import json
-from pathlib import Path
-p=Path('.understand-anything/knowledge-graph.json')
-g=json.loads(p.read_text())
-print('project:', g.get('project', {}).get('name'))
-print('nodes:', len(g.get('nodes') or []))
-print('edges:', len(g.get('edges') or []))
-print('layers:', [l.get('name') or l.get('id') for l in (g.get('layers') or [])[:20]])
-PY
-```
-
-For a directed audit, search node names, paths, summaries, tags, and layer names for direction terms. Keep excerpts small.
+For a directed audit, query `aoc_codegraph` first for `status`, `search`, `context`, `callers`, `callees`, `impact`, or `affected` evidence tied to the direction terms. If `aoc_codegraph` reports CodeGraph missing, stale, uninitialized, or unavailable, fall back to focused searches and bounded file reads. Keep excerpts small.
 
 ### 3. Load task/spec intent
 
@@ -157,5 +134,4 @@ Keep the plan concise enough to execute. Prefer 3-7 high-signal gaps over a huge
 - Do not mark tasks complete.
 - Do not edit files unless the operator asks to implement the plan.
 - Do not read `.aoc/memory.md`, `.aoc/stm/current.md`, or `.taskmaster/tasks/tasks.json` directly; use AOC CLI commands.
-- Do not load full `.understand-anything/knowledge-graph.json` into context; slice it.
-- State graph freshness and evidence quality clearly.
+- State evidence quality clearly; separate observed code facts from inferred gaps.

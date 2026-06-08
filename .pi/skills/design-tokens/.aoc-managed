@@ -1,6 +1,6 @@
 aoc-managed: true
 asset: skill/design-tokens
 asset-version: 3
-source: .pi/skills/design-tokens
+source: ../.config/aoc/pi/skills/design-tokens
 sha256: 657037f25880f8410dd0400aa5cf6ffe5202e767f534bbcc8554c9eac92953ea
-updated-at: 2026-06-08T16:16:00Z
+updated-at: 2026-06-09T20:31:10Z

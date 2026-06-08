@@ -117,7 +117,7 @@ Evidence: `README.md`; `AOC.md`; `docs/layouts.md`.
 Definition: `Alt+C` operator surface for tools, setup, integrations, logs, health checks, and background jobs.
 Aliases: Alt+C control pane; `aoc-control`.
 Avoid: settings-only surface.
-Relationships: Tools-first taxonomy; background jobs; AOC Understand; Agent Browser + Search; RTK Routing; HyperFrames.
+Relationships: Tools-first taxonomy; background jobs; Agent Browser + Search; RTK Routing; HyperFrames.
 Evidence: `docs/control-pane.md`; `.taskmaster/docs/specs/aoc_control_tools_first_taxonomy_spec_rpg.md`.
 
 ### Mission Control
@@ -222,20 +222,12 @@ Avoid: nested-skill runtime; replacement for layouts; replacement for Mind.
 Relationships: `/preset`; `Alt+X`; `.aoc/presets/`; active skill; recommended skill.
 Evidence: `docs/presets.md`.
 
-### AOC Understand
-
-Definition: AOC wrapper around Understand-Anything for repository knowledge graphs, guided tours, explain/chat/onboard/diff/domain flows, dashboard, and AOC Map sync.
-Aliases: Understand wrapper.
-Avoid: teach workflow for new repo-understanding work.
-Relationships: `aoc-understand`; Understand-Anything; AOC Map.
-Evidence: `docs/understand.md`; `.taskmaster/docs/specs/aoc_understand_integration_spec_rpg.md`.
-
 ### AOC Map
 
 Definition: Canonical project-local graph microsite under `.aoc/map/` for curated repo maps, Mermaid diagrams, generated pages, and local browsing.
 Aliases: map microsite.
 Avoid: AOC See; `.aoc/see/`; `.aoc/diagrams/` as current terms.
-Relationships: `aoc-map`; `aoc map`; Mermaid; AOC Understand map sync.
+Relationships: `aoc-map`; `aoc map`; Mermaid.
 Evidence: `docs/aoc-map.md`.
 
 ### Open Design
@@ -287,8 +279,7 @@ Evidence: `.taskmaster/docs/specs/task-207_prd_to_spec_refactor_spec_rpg.md`.
 Definition: Deprecated prompt-only repository-understanding workflow that wrote Markdown notes under `.aoc/insight/`.
 Aliases: teach workflow; legacy teach prompts.
 Avoid: using teach for new repository-understanding work.
-Relationships: AOC Understand replaces teach for new repo understanding.
-Evidence: `docs/understand.md`.
+Relationships: deprecated teach-mode insight notes only.
 
 ### Pulse Pane
 

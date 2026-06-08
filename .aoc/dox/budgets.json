@@ -1,0 +1,17 @@
+{
+  "schema": "aoc.dox.v1",
+  "generated_at": "2026-06-09T19:22:14.764513777+00:00",
+  "project_root": "/home/ceii/dev/agent-ops-cockpit",
+  "data": {
+    "root_agents_target_bytes": 8192,
+    "root_agents_hard_bytes": 12288,
+    "child_agents_target_bytes": 2048,
+    "child_agents_hard_bytes": 4096,
+    "active_chain_target_bytes": 16384,
+    "active_chain_hard_bytes": 24576,
+    "measured_root_agents_bytes": 6259,
+    "measured_project_chain_bytes": 6259,
+    "fallback_filenames_supported": false,
+    "status": "ok"
+  }
+}

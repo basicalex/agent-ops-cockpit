@@ -1,6 +1,6 @@
 aoc-managed: true
 asset: preset/ops
 asset-version: 3
-source: .aoc/presets/ops
+source: ../.config/aoc/presets/ops
 sha256: 63142ff9ec383188d83ecf75505a2324c80118b9f517c292cff7e0f8f2f2617e
-updated-at: 2026-06-08T16:16:06Z
+updated-at: 2026-06-09T20:31:20Z

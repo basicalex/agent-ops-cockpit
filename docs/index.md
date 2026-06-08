@@ -21,10 +21,10 @@ This is the human entrypoint. Start here before opening architecture or maintain
 | Use Mind/memory overlay with `Alt+M` | [Tasks and memory](tasks-memory.md) |
 | Track tasks and decisions | [Tasks and memory](tasks-memory.md) |
 | Research the web | [Web research](web-research.md) |
-| Understand a repository with a knowledge graph | [AOC Understand](understand.md) |
 | Iterate visual designs in a GUI studio | [Open Design studio](open-design.md) |
 | Create video/campaign assets | [HyperFrames](hyperframes.md) |
 | Configure agents/skills | [Agents](agents.md), [Skills](skills.md) |
+| Map sparse local AGENTS contracts | [DOX cartography](dox-cartography.md) |
 | Customize layouts | [Layouts](layouts.md) |
 | Fix problems | [Troubleshooting](troubleshooting.md) |
 
@@ -45,7 +45,6 @@ Use these when you need exact contracts or paths:
 - [Session lifecycle](reference/session-lifecycle.md)
 - [Pulse IPC protocol](reference/pulse-ipc-protocol.md)
 - [Managed assets](managed-assets.md)
-- [AOC Understand](understand.md)
 - [Open Design studio](open-design.md)
 - [Commit intelligence](commit-intelligence.md)
 - [Agent extensibility](agent-extensibility.md)

@@ -48,7 +48,6 @@ aoc-skill validate
 
 ## Built-in skills
 - `aoc-workflow`
-- `aoc-understand`
 - `aoc-init-ops`
 - `memory-ops`
 - `stm-ops`
@@ -66,7 +65,7 @@ aoc-skill validate
 - `skill-creator`
 - `zellij-theme-ops`
 
-`aoc-understand` is the canonical umbrella repository-understanding/onboarding skill for Understand-Anything. Upstream granular skills such as `understand`, `understand-chat`, `understand-dashboard`, `understand-diff`, `understand-domain`, `understand-explain`, `understand-knowledge`, and `understand-onboard` are hidden by default to avoid skill-inventory bloat; invoke those modes through `/skill:aoc-understand ...` or `aoc-understand <mode>`. Legacy `teach-workflow` is deprecated and hidden by default; use it only to inspect old `.aoc/insight/` notes when explicitly requested.
+Legacy `teach-workflow` is hidden by default; use it only to inspect old `.aoc/insight/` notes when explicitly requested.
 
 `zellij-theme-ops` pairs with the `aoc-theme` CLI for global theme workflows (`~/.config/zellij/themes`), including `aoc-theme tui` for interactive selection.
 

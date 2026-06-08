@@ -34,6 +34,8 @@ Resolution order for launches:
 - Do **not** reuse reserved/legacy managed names:
   - `unstat`
   - `minimal`
+  - `aoc-zjstatus-single`
+  - `aoc-zjstatus-test`
   - `aoc.hybrid`
   - `mission-control`
 - Keep custom layout names simple and shell-safe: letters, numbers, `.`, `_`, `-`.
@@ -43,15 +45,17 @@ Resolution order for launches:
 ## Required layout conventions
 Custom layouts should preserve these AOC behaviors where relevant:
 
-1. **Explicit tab metadata sync**
+1. **Managed top bar plugin**
+   - plugin path: `file:{{HOME}}/.config/zellij/plugins/zjstatus-aoc.wasm`
+2. **Explicit tab metadata sync**
    - call `aoc-tab-metadata sync >/dev/null 2>&1 || true` during pane startup
-2. **Injected AOC env**
+3. **Injected AOC env**
    - `AOC_PROJECT_ROOT`
    - `AOC_SESSION_ID`
    - `AOC_HUB_ADDR`
    - `AOC_HUB_URL`
    - `AOC_TAB_SCOPE`
-3. **Launch placeholders**
+4. **Launch placeholders**
    - `__AOC_TAB_NAME__`
    - `__AOC_PROJECT_ROOT__`
    - `__AOC_AGENT_ID__`
@@ -102,3 +106,4 @@ Then launch a fresh tab/session and confirm:
 ## Related docs
 - `docs/layouts.md`
 - `docs/control-pane.md`
+- `docs/zellij-top-bar.md`

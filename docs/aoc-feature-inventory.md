@@ -13,7 +13,6 @@ This inventory defines the Herdr/OMP cutover target. AOC should become a project
 | Agent wrapper if useful for OMP | `bin/aoc-agent-wrap`, `crates/aoc-agent-wrap-rs` | AOC + OMP | Keep only if it can wrap OMP cleanly for lifecycle/context/provenance without Zellij coupling. |
 | HyperFrames | `bin/aoc-hf`, `bin/aoc-hf-u`, `bin/aoc-hyperframes`, `docs/hyperframes.md`, related skills | AOC tooling | Keep. |
 | OpenDesign | `bin/aoc-od`, `docs/open-design.md`, related skills | AOC tooling | Keep. |
-| Understand | `bin/aoc-understand`, `docs/understand.md`, related skills | AOC tooling | Keep. |
 | Web research | `.omp/extensions/aoc-web-search.ts`, `bin/aoc-search`, `docs/web-research.md`, `scripts/test-web-research-stack.sh`, related skills/scripts | OMP extension + AOC tooling | Keep. Local fallback for agent web search when paid/native providers fail. |
 | AOC Services workspace | `bin/aoc-herdr-services`, `bin/aoc-services`, `aoc services`, `docs/operator/aoc-services.md` | Herdr + AOC tooling | Retained Herdr runtime owner for project-scoped service health/startup, especially managed local SearXNG. Distinct from retired Mission Control/status UI. |
 | RTK | `bin/aoc-rtk`, `bin/aoc-rtk-proxy`, `docs/reference/rtk-routing.md` | AOC tooling | Keep only for allowlisted noisy-command routing with raw-output preservation. |
@@ -50,7 +49,7 @@ Default install must become lean and must not install old cockpit assets.
 - Taskmaster commands: `tm`, `aoc-task`, `aoc-tm`
 - CodeGraph OMP extension: `.omp/extensions/aoc-codegraph.ts`
 - AOC Mind OMP extension: `.omp/extensions/aoc-mind.ts` for read-only status/evidence/provenance/candidate memory synthesis
-- Kept tooling: HyperFrames, OpenDesign, Understand, web research, RTK if selected
+- Kept tooling: HyperFrames, OpenDesign, web research, RTK if selected
 - Herdr AOC Services workspace command: `aoc services` / `bin/aoc-herdr-services`
 
 ### Default install no longer does

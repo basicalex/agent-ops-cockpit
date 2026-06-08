@@ -1,0 +1,7051 @@
+{
+  "schema": "aoc.dox.v1",
+  "generated_at": "2026-06-09T19:22:14.764503713+00:00",
+  "project_root": "/home/ceii/dev/agent-ops-cockpit",
+  "data": {
+    "candidates": [
+      {
+        "path": ".",
+        "decision": "reject",
+        "score": 5,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [
+          "cargo test -p aoc-cli dox"
+        ],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".agents",
+        "decision": "reject",
+        "score": 0,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".agents/skills",
+        "decision": "reject",
+        "score": 0,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".aoc",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".aoc/insight",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".aoc/insight/sessions",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".aoc/layouts",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".aoc/logs",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".aoc/map",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".aoc/map/assets",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".aoc/map/diagrams",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".aoc/map/pages",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".aoc/mind",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".aoc/mind/insight",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".aoc/mind/insight/mind-backfill_20260224T045835Z_b7f28146170d",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".aoc/mind/insight/mind-backfill_20260224T045853Z_60ce22c47989",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".aoc/mind/insight/mind-backfill_20260224T045913Z_8b882fc6a9e2",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".aoc/mind/insight/mind-backfill_20260224T045928Z_449125ade652",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".aoc/mind/insight/mind-backfill_20260224T045931Z_4b14909406f0",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".aoc/mind/insight/mind-backfill_20260224T051259Z_56e5d0b19991",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".aoc/mind/insight/mind-backfill_20260224T052758Z_4d69d8210e07",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".aoc/mind/insight/mind-backfill_20260224T054755Z_5942d6a0c3e9",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".aoc/mind/insight/mind-backfill_20260224T062154Z_e567ee3b4a75",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".aoc/mind/insight/mind-backfill_20260224T063718Z_128bb334e051",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".aoc/mind/insight/mind-backfill_20260224T070845Z_8de503c0de7b",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".aoc/mind/insight/mind-backfill_20260224T075624Z_efdf3a87fe64",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".aoc/mind/insight/mind-backfill_20260224T080520Z_01bfaee0f4d2",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".aoc/mind/insight/mind-backfill_20260224T082539Z_f38cd56fae19",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".aoc/mind/insight/mind-backfill_20260224T145423Z_238bf64b33e8",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".aoc/mind/insight/mind-backfill_20260224T150143Z_f61fbf2df0a3",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".aoc/mind/insight/mind-backfill_20260224T150225Z_067b62c1be0c",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".aoc/mind/insight/mind-backfill_20260224T150537Z_68fcfdcf9574",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".aoc/mind/insight/mind-backfill_20260224T150810Z_7316e5b73a3f",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".aoc/mind/insight/mind-backfill_20260225T050626Z_7d7411188dd6",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".aoc/mind/insight/mind-backfill_20260225T063536Z_455e723b6153",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".aoc/mind/insight/mind-backfill_20260225T142943Z_071f2c3ca4b5",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".aoc/mind/insight/mind-backfill_20260225T144418Z_81083ec7d58c",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".aoc/mind/insight/mind-backfill_20260225T144804Z_a02ebb039a3a",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".aoc/mind/insight/mind-backfill_20260225T151844Z_10ba54fd1a92",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".aoc/mind/insight/mind-backfill_20260225T152335Z_2edf1ed0c87d",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".aoc/mind/insight/mind-backfill_20260225T153751Z_1441ae59128b",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".aoc/mind/insight/mind-backfill_20260226T061219Z_bd366d84b9dd",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".aoc/mind/insight/mind-backfill_20260226T064702Z_1b62f8a710ed",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".aoc/mind/insight/mind-backfill_20260226T085226Z_71ed284e53fa",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".aoc/mind/insight/mind-backfill_20260226T152602Z_0f9e45a6e200",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".aoc/mind/insight/mind-backfill_20260227T053100Z_148459e24a53",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".aoc/mind/insight/mind-backfill_20260227T064151Z_e04397c7c36e",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".aoc/mind/insight/mind-backfill_20260227T082152Z_ad05c07d21c2",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".aoc/mind/insight/mind-backfill_20260227T124007Z_96d4cfa70774",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".aoc/mind/insight/mind-backfill_20260227T134850Z_bf214ea9292d",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".aoc/mind/insight/mind-backfill_20260227T134912Z_f99c63f60f20",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".aoc/mind/insight/mind-backfill_20260227T134935Z_4a930d5a000d",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".aoc/mind/insight/mind-backfill_20260228T130921Z_db3fd41a9d00",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".aoc/mind/insight/mind-backfill_20260228T204451Z_47ca7a526842",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".aoc/mind/insight/mind-backfill_20260301T073833Z_056a7f1c5b6e",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".aoc/mind/insight/mind-backfill_20260301T091124Z_1a1e13aa5bf3",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".aoc/mind/insight/mind-backfill_20260302T063435Z_f5372ed55a7b",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".aoc/mind/insight/mind-backfill_20260304T182416Z_8d181b49c7c3",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".aoc/mind/insight/mind-backfill_20260308T184746Z_b7857eea4f2a",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".aoc/mind/insight/mind-backfill_20260309T100901Z_05c0f7715389",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".aoc/mind/insight/mind-backfill_20260310T193948Z_2ec95cb15f65",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".aoc/mind/insight/mind-backfill_20260313T092918Z_3df2dff7ff0c",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".aoc/mind/insight/mind-backfill_20260315T202951Z_d288fd8528a8",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".aoc/mind/insight/mind-backfill_20260317T141455Z_fbfe4c2080ba",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".aoc/mind/insight/mind-backfill_20260318T093822Z_80a90f54c38c",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".aoc/mind/insight/mind-backfill_20260318T183714Z_124d56855c31",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".aoc/mind/insight/mind-backfill_20260318T202650Z_325689923059",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".aoc/mind/insight/mind-backfill_20260320T111830Z_ea3775a9091c",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".aoc/mind/insight/mind-backfill_20260320T115114Z_2ec6c99b89aa",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".aoc/mind/insight/mind-backfill_20260320T120244Z_4c64bdfe7c4d",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".aoc/mind/insight/mind-backfill_20260321T094331Z_7554e0659817",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".aoc/mind/insight/mind-backfill_20260321T101036Z_aab8a25d0aa7",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".aoc/mind/insight/mind-backfill_20260321T103111Z_c730cb41ced3",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".aoc/mind/insight/mind-backfill_20260321T110042Z_e89c7efcc9c3",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".aoc/mind/insight/mind-backfill_20260323T145218Z_00edfec693c7",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".aoc/mind/insight/mind-backfill_20260323T145412Z_a75652ea9306",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".aoc/mind/insight/mind-backfill_20260323T170708Z_921364fbccdd",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".aoc/mind/insight/mind-backfill_20260324T173423Z_46848af887bd",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".aoc/mind/insight/mind-backfill_20260324T184856Z_378dfdd0d7e4",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".aoc/mind/insight/mind-backfill_20260326T102140Z_101c3a1634eb",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".aoc/mind/insight/mind-backfill_20260326T120419Z_3cc2d04d28a1",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".aoc/mind/insight/mind-backfill_20260327T110601Z_c58e2b0425b5",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".aoc/mind/insight/mind-backfill_20260329T162732Z_0bfd578d86a3",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".aoc/mind/insight/mind-backfill_20260402T073226Z_599fd332ab9d",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".aoc/mind/insight/mind-backfill_20260403T073905Z_b65bc399d369",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".aoc/mind/insight/mind-backfill_20260403T075416Z_28a57f61a679",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".aoc/mind/insight/mind-backfill_20260405T153342Z_71203b3b3f6c",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".aoc/mind/insight/mind-backfill_20260405T153629Z_586ac3a4e6fd",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".aoc/mind/insight/mind-backfill_20260406T124916Z_1288bca96a2b",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".aoc/mind/insight/mind-backfill_20260406T125012Z_8fcf4f602273",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".aoc/mind/insight/mind-backfill_20260406T125748Z_aa350434fc8a",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".aoc/mind/insight/mind-backfill_20260406T185643Z_2715a8e83269",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".aoc/mind/insight/mind-backfill_20260407T193538Z_e3d5f8a5753b",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".aoc/mind/insight/mind-backfill_20260409T142140Z_c6d3835a440c",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".aoc/mind/insight/mind-backfill_20260409T174204Z_85c371e27ba6",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".aoc/mind/insight/mind-backfill_20260409T195016Z_7b25f5bdcd32",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".aoc/mind/insight/mind-backfill_20260410T105843Z_52fbcb33010e",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".aoc/mind/insight/mind-backfill_20260411T093949Z_e0a9a59715b8",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".aoc/mind/insight/mind-backfill_20260411T123053Z_7fdb8cd88e84",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".aoc/mind/insight/mind-backfill_20260412T194927Z_aecc979fb3f7",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".aoc/mind/insight/mind-backfill_20260412T195807Z_d6f6504db861",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".aoc/mind/insight/mind-backfill_20260412T203643Z_a945b261be9f",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".aoc/mind/insight/mind-backfill_20260412T204935Z_e2c8d7778e14",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".aoc/mind/insight/mind-backfill_20260412T205005Z_7bd7bf2b99e4",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".aoc/mind/insight/mind-backfill_20260413T085416Z_1622b88e52e6",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".aoc/mind/insight/mind-backfill_20260413T085454Z_f6486e482e15",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".aoc/mind/insight/mind-backfill_20260413T090503Z_f0a346ba2e80",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".aoc/mind/insight/mind-backfill_20260413T095709Z_3225139e2ef6",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".aoc/mind/insight/mind-backfill_20260413T210019Z_2d418ec6f2c0",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".aoc/mind/insight/mind-backfill_20260413T212722Z_79ca1341dce2",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".aoc/mind/insight/mind-backfill_20260413T212823Z_6f9b82d8f99e",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".aoc/mind/insight/mind-backfill_20260416T141852Z_8af1bebcf84b",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".aoc/mind/insight/mind-backfill_20260416T141852Z_9d19669a104f",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".aoc/mind/insight/mind-backfill_20260418T100103Z_197e6fd66a7e",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".aoc/mind/insight/mind-backfill_20260418T100103Z_da43bc8800b6",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".aoc/mind/insight/mind-backfill_20260420T143724Z_55724c7c03a4",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".aoc/mind/insight/mind-backfill_20260420T143737Z_a8fc7397f7d0",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".aoc/mind/insight/mind-backfill_20260420T143743Z_3733d4f34af5",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".aoc/mind/insight/mind-backfill_20260420T143930Z_722c15d649a9",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".aoc/mind/insight/mind-backfill_20260421T130335Z_2c77995c34c8",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".aoc/mind/insight/mind-backfill_20260421T130335Z_f5a127bc3c49",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".aoc/mind/insight/mind-backfill_20260421T131649Z_009dfc33b996",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".aoc/mind/insight/mind-backfill_20260421T131751Z_1ce094b605a4",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".aoc/mind/insight/mind-backfill_20260421T131751Z_fd5afec461d6",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".aoc/mind/insight/mind-backfill_20260421T135032Z_479ea005bbfd",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".aoc/mind/insight/mind-backfill_20260421T135032Z_e47e1fe6c06c",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".aoc/mind/insight/mind-backfill_20260421T135637Z_0bf3ebd00d64",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".aoc/mind/insight/mind-backfill_20260421T135637Z_3e875fc28252",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".aoc/mind/insight/mind-backfill_20260421T135655Z_1d012f47927a",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".aoc/mind/insight/mind-backfill_20260421T135655Z_bdd064ab509b",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".aoc/mind/insight/mind-backfill_20260421T135940Z_5158f91a1c30",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".aoc/mind/insight/mind-backfill_20260421T135940Z_e329da1eebc9",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".aoc/mind/insight/mind-backfill_20260422T134853Z_776802b0cd67",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".aoc/mind/insight/mind-backfill_20260422T135536Z_f64494c2fafe",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".aoc/mind/insight/mind-backfill_20260422T143058Z_676b09da0e1f",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".aoc/mind/insight/mind-backfill_20260422T143058Z_69a6f1a8e7bb",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".aoc/mind/insight/mind-backfill_20260422T150414Z_1208599e9ebf",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".aoc/mind/insight/mind-backfill_20260422T150414Z_c4e5c4190015",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".aoc/mind/insight/mind-backfill_20260422T150603Z_8dbbf70b9701",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".aoc/mind/insight/mind-backfill_20260422T150603Z_ee9dc72eccd1",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".aoc/mind/insight/mind-backfill_20260422T150826Z_0c7b34127e28",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".aoc/mind/insight/mind-backfill_20260422T151457Z_7cec8fa29463",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".aoc/mind/insight/mind-backfill_20260422T151457Z_d0a4c57685f1",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".aoc/mind/insight/mind-backfill_20260422T170932Z_2ddb5eab7820",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".aoc/mind/insight/mind-backfill_20260422T170932Z_bdf7c370d1ce",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".aoc/mind/insight/mind-backfill_20260422T171011Z_2fc05f1e41f8",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".aoc/mind/insight/mind-backfill_20260422T171011Z_a77c82b13360",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".aoc/mind/insight/mind-backfill_20260422T210212Z_0aed8e76217c",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".aoc/mind/insight/mind-backfill_20260422T210212Z_c8ff889b511e",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".aoc/mind/insight/mind-backfill_20260422T210757Z_331d9586a15c",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".aoc/mind/insight/mind-backfill_20260422T210757Z_bc84574c8b79",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".aoc/mind/insight/mind-backfill_20260422T212122Z_cdf7fdb8b512",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".aoc/mind/insight/mind-backfill_20260422T212122Z_da1211fb17ac",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".aoc/mind/insight/mind-backfill_20260424T083709Z_308e8a7e0539",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".aoc/mind/insight/mind-backfill_20260424T155449Z_d061b3df057f",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".aoc/mind/insight/mind-backfill_20260424T160203Z_97e37267411e",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".aoc/mind/insight/mind-backfill_20260424T160203Z_fbb87bfcccf9",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".aoc/mind/insight/mind-backfill_20260424T174441Z_bc67ee968790",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".aoc/mind/insight/mind-backfill_20260424T174441Z_fccc48fbc850",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".aoc/mind/insight/mind-backfill_20260425T143937Z_36539c60a7da",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".aoc/mind/insight/mind-backfill_20260425T143937Z_9c1e4a350e03",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".aoc/mind/insight/mind-backfill_20260427T090812Z_2fdb47c31bf5",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".aoc/mind/insight/mind-backfill_20260427T094525Z_3f70c8eac8f1",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".aoc/mind/insight/mind-backfill_20260427T095817Z_465c230c47e4",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".aoc/mind/insight/mind-backfill_20260427T095817Z_511fc1d8d102",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".aoc/mind/insight/mind-backfill_20260427T101231Z_76cfb13a3056",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".aoc/mind/insight/mind-backfill_20260428T163322Z_5755e8d37ae4",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".aoc/mind/insight/mind-backfill_20260428T175556Z_9413ad522016",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".aoc/mind/insight/mind-backfill_20260429T084818Z_15b5abf27c85",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".aoc/mind/insight/mind-backfill_20260506T144654Z_2e3590d6d27a",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".aoc/mind/insight/mind-backfill_20260506T152221Z_a78ed21c7a41",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".aoc/mind/insight/mind-backfill_20260507T081353Z_03c058647294",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".aoc/mind/insight/mind-backfill_20260507T081353Z_961a8aab35ff",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".aoc/mind/insight/mind-backfill_20260507T094340Z_0cfa7481ba8a",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".aoc/mind/insight/mind-backfill_20260507T101331Z_1e9c607fe7f8",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".aoc/mind/insight/mind-backfill_20260513T194136Z_7ef3899158c7",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".aoc/mind/insight/mind-backfill_20260513T194451Z_272085e1d942",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".aoc/mind/insight/mind-backfill_20260513T194451Z_3d2217e18cd7",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".aoc/mind/insight/mind-backfill_20260515T081302Z_e88f68a73593",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".aoc/mind/insight/mind-backfill_20260515T081302Z_fecf1318dfe2",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".aoc/mind/insight/mind-backfill_20260515T160629Z_ac971a1078c2",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".aoc/mind/insight/mind-backfill_20260515T164541Z_009bb2538d05",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".aoc/mind/insight/mind-backfill_20260515T164541Z_0802bd8971ce",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".aoc/open-design",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".aoc/presets",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".aoc/presets/.aoc-backups",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".aoc/presets/.aoc-backups/design.aoc-dirty-backup.20260517T125757Z",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".aoc/presets/.aoc-backups/design.aoc-dirty-backup.20260517T125757Z/components",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".aoc/presets/.aoc-backups/design.aoc-unmanaged-backup.20260428T172357Z",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".aoc/presets/.aoc-backups/design.aoc-unmanaged-backup.20260428T172357Z/components",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".aoc/presets/.aoc-backups/hyperframes.aoc-dirty-backup.20260517T125757Z",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".aoc/presets/.aoc-backups/hyperframes.aoc-dirty-backup.20260517T125757Z/components",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".aoc/presets/.aoc-backups/hyperframes.aoc-unmanaged-backup.20260428T172357Z",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".aoc/presets/.aoc-backups/hyperframes.aoc-unmanaged-backup.20260428T172357Z/components",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".aoc/presets/.aoc-backups/ops.aoc-unmanaged-backup.20260517T125757Z",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".aoc/presets/.aoc-backups/ops.aoc-unmanaged-backup.20260517T125757Z/components",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".aoc/presets/.aoc-backups/research.aoc-unmanaged-backup.20260517T125757Z",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".aoc/presets/.aoc-backups/research.aoc-unmanaged-backup.20260517T125757Z/components",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".aoc/presets/.aoc-backups/test.aoc-unmanaged-backup.20260523T140701Z",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".aoc/presets/.aoc-backups/test.aoc-unmanaged-backup.20260523T140701Z/components",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".aoc/presets/design",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".aoc/presets/design/components",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".aoc/presets/hyperframes",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".aoc/presets/hyperframes/components",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".aoc/presets/ops",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".aoc/presets/ops/components",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".aoc/presets/research",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".aoc/presets/research/components",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".aoc/presets/test",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".aoc/presets/test/components",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".aoc/prompts",
+        "decision": "reject",
+        "score": 3,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".aoc/prompts-optional",
+        "decision": "reject",
+        "score": 3,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".aoc/prompts-optional/pi",
+        "decision": "reject",
+        "score": 3,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".aoc/prompts/pi",
+        "decision": "reject",
+        "score": 3,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".aoc/services",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".aoc/services/searxng",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".aoc/skills",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".aoc/skills-optional",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".aoc/skills-optional/aoc-hyperframes",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".aoc/skills-optional/aoc-hyperframes/playbooks",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".aoc/skills-optional/aoc-hyperframes/templates",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".aoc/skills-optional/gsap",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".aoc/skills-optional/hyperframes",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".aoc/skills-optional/hyperframes-cli",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".aoc/skills-optional/website-to-hyperframes",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".aoc/skills/aoc-init-ops",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".aoc/skills/prd-rpg-authoring",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".aoc/skills/rlm-analysis",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".aoc/skills/teach-workflow",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".aoc/skills/tm-cc",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".aoc/skills/zellij-theme-ops",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".aoc/stm",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".aoc/stm/archive",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".aoc/tools",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".aoc/tools/obscura",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".github",
+        "decision": "reject",
+        "score": -2,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".github/ISSUE_TEMPLATE",
+        "decision": "reject",
+        "score": -2,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".github/workflows",
+        "decision": "reject",
+        "score": -2,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".omp",
+        "decision": "reject",
+        "score": -2,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".omp/agents",
+        "decision": "reject",
+        "score": 3,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".omp/extensions",
+        "decision": "reject",
+        "score": 9,
+        "confidence": 0.5,
+        "reason": "missing evidence or verification",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [
+          "bun --check .omp/extensions/aoc-dox.ts"
+        ],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".omp/skills",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".omp/skills/aoc-dox-cartography",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".pi",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".pi/agents",
+        "decision": "reject",
+        "score": 3,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".pi/extensions",
+        "decision": "reject",
+        "score": 3,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".pi/extensions/.aoc-backups",
+        "decision": "reject",
+        "score": 3,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".pi/extensions/.aoc-backups/aoc-presets.aoc-dirty-backup.20260517T125753Z",
+        "decision": "reject",
+        "score": 3,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".pi/extensions/.aoc-backups/aoc-presets.aoc-unmanaged-backup.20260428T172352Z",
+        "decision": "reject",
+        "score": 3,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".pi/extensions/.aoc-backups/subagent.aoc-unmanaged-backup.20260518T141418Z",
+        "decision": "reject",
+        "score": 3,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".pi/extensions/aoc-presets",
+        "decision": "reject",
+        "score": 3,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".pi/extensions/lib",
+        "decision": "reject",
+        "score": 3,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".pi/extensions/subagent",
+        "decision": "reject",
+        "score": 3,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".pi/packages",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".pi/packages/.aoc-backups",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".pi/packages/.aoc-backups/pi-multi-auth-aoc.aoc-dirty-backup.20260428T172352Z",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".pi/packages/.aoc-backups/pi-multi-auth-aoc.aoc-dirty-backup.20260428T172352Z/debug",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".pi/packages/.aoc-backups/pi-multi-auth-aoc.aoc-dirty-backup.20260428T172352Z/scripts",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".pi/packages/.aoc-backups/pi-multi-auth-aoc.aoc-dirty-backup.20260428T172352Z/src",
+        "decision": "reject",
+        "score": 3,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".pi/packages/.aoc-backups/pi-multi-auth-aoc.aoc-dirty-backup.20260428T172352Z/src/balancer",
+        "decision": "reject",
+        "score": 3,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".pi/packages/.aoc-backups/pi-multi-auth-aoc.aoc-dirty-backup.20260428T172352Z/src/formatters",
+        "decision": "reject",
+        "score": 3,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".pi/packages/.aoc-backups/pi-multi-auth-aoc.aoc-dirty-backup.20260428T172352Z/src/usage",
+        "decision": "reject",
+        "score": 3,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".pi/packages/.aoc-backups/pi-multi-auth-aoc.aoc-dirty-backup.20260428T173228Z",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".pi/packages/.aoc-backups/pi-multi-auth-aoc.aoc-dirty-backup.20260428T173228Z/debug",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".pi/packages/.aoc-backups/pi-multi-auth-aoc.aoc-dirty-backup.20260428T173228Z/scripts",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".pi/packages/.aoc-backups/pi-multi-auth-aoc.aoc-dirty-backup.20260428T173228Z/src",
+        "decision": "reject",
+        "score": 3,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".pi/packages/.aoc-backups/pi-multi-auth-aoc.aoc-dirty-backup.20260428T173228Z/src/balancer",
+        "decision": "reject",
+        "score": 3,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".pi/packages/.aoc-backups/pi-multi-auth-aoc.aoc-dirty-backup.20260428T173228Z/src/formatters",
+        "decision": "reject",
+        "score": 3,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".pi/packages/.aoc-backups/pi-multi-auth-aoc.aoc-dirty-backup.20260428T173228Z/src/usage",
+        "decision": "reject",
+        "score": 3,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".pi/packages/.aoc-backups/pi-multi-auth-aoc.aoc-dirty-backup.20260429T084747Z",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".pi/packages/.aoc-backups/pi-multi-auth-aoc.aoc-dirty-backup.20260429T084747Z/debug",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".pi/packages/.aoc-backups/pi-multi-auth-aoc.aoc-dirty-backup.20260429T084747Z/scripts",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".pi/packages/.aoc-backups/pi-multi-auth-aoc.aoc-dirty-backup.20260429T084747Z/src",
+        "decision": "reject",
+        "score": 3,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".pi/packages/.aoc-backups/pi-multi-auth-aoc.aoc-dirty-backup.20260429T084747Z/src/balancer",
+        "decision": "reject",
+        "score": 3,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".pi/packages/.aoc-backups/pi-multi-auth-aoc.aoc-dirty-backup.20260429T084747Z/src/formatters",
+        "decision": "reject",
+        "score": 3,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".pi/packages/.aoc-backups/pi-multi-auth-aoc.aoc-dirty-backup.20260429T084747Z/src/usage",
+        "decision": "reject",
+        "score": 3,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".pi/packages/.aoc-backups/pi-multi-auth-aoc.aoc-dirty-backup.20260513T151222Z",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".pi/packages/.aoc-backups/pi-multi-auth-aoc.aoc-dirty-backup.20260513T151222Z/debug",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".pi/packages/.aoc-backups/pi-multi-auth-aoc.aoc-dirty-backup.20260513T151222Z/scripts",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".pi/packages/.aoc-backups/pi-multi-auth-aoc.aoc-dirty-backup.20260513T151222Z/src",
+        "decision": "reject",
+        "score": 3,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".pi/packages/.aoc-backups/pi-multi-auth-aoc.aoc-dirty-backup.20260513T151222Z/src/balancer",
+        "decision": "reject",
+        "score": 3,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".pi/packages/.aoc-backups/pi-multi-auth-aoc.aoc-dirty-backup.20260513T151222Z/src/formatters",
+        "decision": "reject",
+        "score": 3,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".pi/packages/.aoc-backups/pi-multi-auth-aoc.aoc-dirty-backup.20260513T151222Z/src/usage",
+        "decision": "reject",
+        "score": 3,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".pi/packages/.aoc-backups/pi-multi-auth-aoc.aoc-dirty-backup.20260523T140653Z",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".pi/packages/.aoc-backups/pi-multi-auth-aoc.aoc-dirty-backup.20260523T140653Z/debug",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".pi/packages/.aoc-backups/pi-multi-auth-aoc.aoc-dirty-backup.20260523T140653Z/scripts",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".pi/packages/.aoc-backups/pi-multi-auth-aoc.aoc-dirty-backup.20260523T140653Z/src",
+        "decision": "reject",
+        "score": 3,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".pi/packages/.aoc-backups/pi-multi-auth-aoc.aoc-dirty-backup.20260523T140653Z/src/balancer",
+        "decision": "reject",
+        "score": 3,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".pi/packages/.aoc-backups/pi-multi-auth-aoc.aoc-dirty-backup.20260523T140653Z/src/formatters",
+        "decision": "reject",
+        "score": 3,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".pi/packages/.aoc-backups/pi-multi-auth-aoc.aoc-dirty-backup.20260523T140653Z/src/usage",
+        "decision": "reject",
+        "score": 3,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".pi/packages/.aoc-backups/pi-multi-auth-aoc.aoc-dirty-backup.20260524T085159Z",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".pi/packages/.aoc-backups/pi-multi-auth-aoc.aoc-dirty-backup.20260524T085159Z/debug",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".pi/packages/.aoc-backups/pi-multi-auth-aoc.aoc-dirty-backup.20260524T085159Z/scripts",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".pi/packages/.aoc-backups/pi-multi-auth-aoc.aoc-dirty-backup.20260524T085159Z/src",
+        "decision": "reject",
+        "score": 3,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".pi/packages/.aoc-backups/pi-multi-auth-aoc.aoc-dirty-backup.20260524T085159Z/src/balancer",
+        "decision": "reject",
+        "score": 3,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".pi/packages/.aoc-backups/pi-multi-auth-aoc.aoc-dirty-backup.20260524T085159Z/src/formatters",
+        "decision": "reject",
+        "score": 3,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".pi/packages/.aoc-backups/pi-multi-auth-aoc.aoc-dirty-backup.20260524T085159Z/src/usage",
+        "decision": "reject",
+        "score": 3,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".pi/packages/.aoc-backups/pi-multi-auth-aoc.aoc-dirty-backup.20260530T135904Z",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".pi/packages/.aoc-backups/pi-multi-auth-aoc.aoc-dirty-backup.20260530T135904Z/debug",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".pi/packages/.aoc-backups/pi-multi-auth-aoc.aoc-dirty-backup.20260530T135904Z/scripts",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".pi/packages/.aoc-backups/pi-multi-auth-aoc.aoc-dirty-backup.20260530T135904Z/src",
+        "decision": "reject",
+        "score": 3,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".pi/packages/.aoc-backups/pi-multi-auth-aoc.aoc-dirty-backup.20260530T135904Z/src/balancer",
+        "decision": "reject",
+        "score": 3,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".pi/packages/.aoc-backups/pi-multi-auth-aoc.aoc-dirty-backup.20260530T135904Z/src/formatters",
+        "decision": "reject",
+        "score": 3,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".pi/packages/.aoc-backups/pi-multi-auth-aoc.aoc-dirty-backup.20260530T135904Z/src/usage",
+        "decision": "reject",
+        "score": 3,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".pi/packages/.aoc-backups/pi-multi-auth-aoc.aoc-dirty-backup.20260531T184127Z",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".pi/packages/.aoc-backups/pi-multi-auth-aoc.aoc-dirty-backup.20260531T184127Z/debug",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".pi/packages/.aoc-backups/pi-multi-auth-aoc.aoc-dirty-backup.20260531T184127Z/scripts",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".pi/packages/.aoc-backups/pi-multi-auth-aoc.aoc-dirty-backup.20260531T184127Z/src",
+        "decision": "reject",
+        "score": 3,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".pi/packages/.aoc-backups/pi-multi-auth-aoc.aoc-dirty-backup.20260531T184127Z/src/balancer",
+        "decision": "reject",
+        "score": 3,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".pi/packages/.aoc-backups/pi-multi-auth-aoc.aoc-dirty-backup.20260531T184127Z/src/formatters",
+        "decision": "reject",
+        "score": 3,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".pi/packages/.aoc-backups/pi-multi-auth-aoc.aoc-dirty-backup.20260531T184127Z/src/usage",
+        "decision": "reject",
+        "score": 3,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".pi/packages/pi-multi-auth-aoc",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".pi/packages/pi-multi-auth-aoc/debug",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".pi/packages/pi-multi-auth-aoc/scripts",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".pi/packages/pi-multi-auth-aoc/src",
+        "decision": "reject",
+        "score": 3,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".pi/packages/pi-multi-auth-aoc/src/balancer",
+        "decision": "reject",
+        "score": 3,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".pi/packages/pi-multi-auth-aoc/src/formatters",
+        "decision": "reject",
+        "score": 3,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".pi/packages/pi-multi-auth-aoc/src/usage",
+        "decision": "reject",
+        "score": 3,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".pi/prompts",
+        "decision": "reject",
+        "score": 3,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".pi/prompts-optional",
+        "decision": "reject",
+        "score": 3,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".pi/prompts-optional/production-hidden",
+        "decision": "reject",
+        "score": 3,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".pi/prompts/.aoc-backups",
+        "decision": "reject",
+        "score": 3,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".pi/skills",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".pi/skills/.aoc-backups",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".pi/skills/.aoc-backups/aoc-commit.aoc-unmanaged-backup.20260428T172353Z",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".pi/skills/.aoc-backups/aoc-hyperframes.aoc-dirty-backup.20260513T151225Z",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".pi/skills/.aoc-backups/aoc-hyperframes.aoc-dirty-backup.20260513T151225Z/playbooks",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".pi/skills/.aoc-backups/aoc-hyperframes.aoc-dirty-backup.20260513T151225Z/templates",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".pi/skills/.aoc-backups/aoc-hyperframes.aoc-unmanaged-backup.20260428T172353Z",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".pi/skills/.aoc-backups/aoc-hyperframes.aoc-unmanaged-backup.20260428T172353Z/playbooks",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".pi/skills/.aoc-backups/aoc-hyperframes.aoc-unmanaged-backup.20260428T172353Z/templates",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".pi/skills/.aoc-backups/aoc-init-ops.aoc-unmanaged-backup.20260428T172353Z",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".pi/skills/.aoc-backups/aoc-map.aoc-unmanaged-backup.20260428T172354Z",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".pi/skills/.aoc-backups/architecture-design.aoc-unmanaged-backup.20260517T075407Z",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".pi/skills/.aoc-backups/custom-layout-ops.aoc-unmanaged-backup.20260428T172354Z",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".pi/skills/.aoc-backups/design-diff.aoc-unmanaged-backup.20260428T172354Z",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".pi/skills/.aoc-backups/design-director.aoc-unmanaged-backup.20260428T172354Z",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".pi/skills/.aoc-backups/design-handoff.aoc-unmanaged-backup.20260428T172354Z",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".pi/skills/.aoc-backups/design-premium-ui.aoc-unmanaged-backup.20260428T172354Z",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".pi/skills/.aoc-backups/design-redesign.aoc-unmanaged-backup.20260428T172354Z",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".pi/skills/.aoc-backups/design-review.aoc-unmanaged-backup.20260428T172354Z",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".pi/skills/.aoc-backups/design-spec.aoc-unmanaged-backup.20260428T172355Z",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".pi/skills/.aoc-backups/design-tokens.aoc-unmanaged-backup.20260428T172355Z",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".pi/skills/.aoc-backups/enforce-dashboard-ux-guardrails.aoc-unmanaged-backup.20260523T140658Z",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".pi/skills/.aoc-backups/frontend-design.aoc-unmanaged-backup.20260513T151231Z",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".pi/skills/.aoc-backups/funnel-design.aoc-dirty-backup.20260530T135918Z",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".pi/skills/.aoc-backups/funnel-design.aoc-dirty-backup.20260530T135918Z/references",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".pi/skills/.aoc-backups/funnel-design.aoc-unmanaged-backup.20260513T151232Z",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".pi/skills/.aoc-backups/funnel-design.aoc-unmanaged-backup.20260513T151232Z/references",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".pi/skills/.aoc-backups/motion-director.aoc-unmanaged-backup.20260428T172355Z",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".pi/skills/.aoc-backups/prd-rpg-authoring.aoc-unmanaged-backup.20260428T172355Z",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".pi/skills/.aoc-backups/rlm-analysis.aoc-unmanaged-backup.20260428T172356Z",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".pi/skills/.aoc-backups/safe-gamification.aoc-unmanaged-backup.20260517T075409Z",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".pi/skills/.aoc-backups/spec-rpg-authoring.aoc-unmanaged-backup.20260429T084758Z",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".pi/skills/.aoc-backups/teach-workflow.aoc-unmanaged-backup.20260428T172356Z",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".pi/skills/.aoc-backups/tm-cc.aoc-unmanaged-backup.20260428T172356Z",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".pi/skills/.aoc-backups/vercel-cli.aoc-unmanaged-backup.20260428T172356Z",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".pi/skills/.aoc-backups/web-research.aoc-unmanaged-backup.20260428T172357Z",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".pi/skills/.aoc-backups/zellij-theme-ops.aoc-unmanaged-backup.20260428T172357Z",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".pi/skills/agent-browser",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".pi/skills/animejs-core-api",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".pi/skills/animejs-core-api/references",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".pi/skills/animejs-performance-a11y",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".pi/skills/animejs-react-integration",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".pi/skills/animejs-reviewer",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".pi/skills/animejs-scene-planner",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".pi/skills/animejs-scroll-interaction",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".pi/skills/animejs-svg-motion",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".pi/skills/animejs-text-splitting",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".pi/skills/animejs-timelines",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".pi/skills/aoc-gaps",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".pi/skills/aoc-hyperframes",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".pi/skills/aoc-hyperframes/playbooks",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".pi/skills/aoc-hyperframes/templates",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".pi/skills/aoc-init-ops",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".pi/skills/aoc-map",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".pi/skills/architecture-design",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".pi/skills/custom-layout-ops",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".pi/skills/design-diff",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".pi/skills/design-director",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".pi/skills/design-handoff",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".pi/skills/design-premium-ui",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".pi/skills/design-redesign",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".pi/skills/design-review",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".pi/skills/design-spec",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".pi/skills/design-tokens",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".pi/skills/enforce-dashboard-ux-guardrails",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".pi/skills/frontend-design",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".pi/skills/funnel-design",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".pi/skills/funnel-design/references",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".pi/skills/gsap",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".pi/skills/hyperframes",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".pi/skills/hyperframes-cli",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".pi/skills/motion-director",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".pi/skills/omarchy-theme-ops",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".pi/skills/prd-rpg-authoring",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".pi/skills/rlm-analysis",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".pi/skills/safe-gamification",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".pi/skills/spec-rpg-authoring",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".pi/skills/teach-workflow",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".pi/skills/tm-cc",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".pi/skills/tmcc",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".pi/skills/vercel-cli",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".pi/skills/web-research",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".pi/skills/website-to-hyperframes",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".pi/skills/zellij-theme-ops",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".pi/tmp",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".pi/tmp/subagents",
+        "decision": "reject",
+        "score": 3,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".pi/tmp/subagents/sj_mp5rj3ng_explorer-agent_0ynb8j9y",
+        "decision": "reject",
+        "score": 3,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".pi/tmp/subagents/sj_mp5sn6v0_specialist-core_525tuch0",
+        "decision": "reject",
+        "score": 3,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".pi/tmp/subagents/sj_mp5sn9c2_planner-agent_gx9edlsi",
+        "decision": "reject",
+        "score": 3,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".pi/tmp/subagents/sj_mp5t4wxn_planner-agent_5qxp9fah",
+        "decision": "reject",
+        "score": 3,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".pi/tmp/subagents/sj_mp5t72v3_planner-agent_1dcrt7b4",
+        "decision": "reject",
+        "score": 3,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".pi/tmp/subagents/sj_mp6lxbyx_planner-agent_sk40illa",
+        "decision": "reject",
+        "score": 3,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".pi/tmp/subagents/sj_mp6m84nz_planner-agent_resr5g72",
+        "decision": "reject",
+        "score": 3,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".pi/tmp/subagents/sj_mp6me1ar_planner-agent_djw530d6",
+        "decision": "reject",
+        "score": 3,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".pi/tmp/subagents/sj_mp6ntbtw_planner-agent_a1csku6x",
+        "decision": "reject",
+        "score": 3,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".pi/tmp/subagents/sj_mp6o6204_planner-agent_pk8gvndf",
+        "decision": "reject",
+        "score": 3,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".pi/tmp/subagents/sj_mp72g5tj_planner-agent_g6bhi7tm",
+        "decision": "reject",
+        "score": 3,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".pi/tmp/subagents/sj_mp740523_planner-agent_2ni71d0u",
+        "decision": "reject",
+        "score": 3,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".pi/tmp/subagents/sj_mpf94y1e_explorer-agent_5mut0t4s",
+        "decision": "reject",
+        "score": 3,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".pi/tmp/subagents/sj_mph75433_code-review-agent_atrw4but",
+        "decision": "reject",
+        "score": 3,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".taskmaster",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".taskmaster/docs",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".taskmaster/docs/prds",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".taskmaster/docs/specs",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".taskmaster/reports",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".taskmaster/tasks",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".taskmaster/templates",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": "bin",
+        "decision": "reject",
+        "score": 7,
+        "confidence": 0.5,
+        "reason": "missing evidence or verification",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [
+          "cargo test -p aoc-cli dox"
+        ],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": "bin/__pycache__",
+        "decision": "reject",
+        "score": 7,
+        "confidence": 0.5,
+        "reason": "missing evidence or verification",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [
+          "cargo test -p aoc-cli dox"
+        ],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": "config",
+        "decision": "reject",
+        "score": -2,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": "crates",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": "crates/.aoc",
+        "decision": "reject",
+        "score": 4,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [],
+        "verification": [
+          "cargo test -p aoc-cli dox"
+        ],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": "crates/.aoc/logs",
+        "decision": "reject",
+        "score": 4,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [],
+        "verification": [
+          "cargo test -p aoc-cli dox"
+        ],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": "crates/.taskmaster",
+        "decision": "reject",
+        "score": 4,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [],
+        "verification": [
+          "cargo test -p aoc-cli dox"
+        ],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": "crates/aoc-agent-wrap-rs",
+        "decision": "reject",
+        "score": 4,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [],
+        "verification": [
+          "cargo test -p aoc-cli dox"
+        ],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": "crates/aoc-agent-wrap-rs/src",
+        "decision": "reject",
+        "score": 7,
+        "confidence": 0.5,
+        "reason": "missing evidence or verification",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [
+          "cargo test -p aoc-cli dox"
+        ],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": "crates/aoc-cli",
+        "decision": "reject",
+        "score": 7,
+        "confidence": 0.5,
+        "reason": "missing evidence or verification",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [
+          "cargo test -p aoc-cli dox"
+        ],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": "crates/aoc-cli/assets",
+        "decision": "reject",
+        "score": 4,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [],
+        "verification": [
+          "cargo test -p aoc-cli dox"
+        ],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": "crates/aoc-cli/src",
+        "decision": "reject",
+        "score": 7,
+        "confidence": 0.5,
+        "reason": "missing evidence or verification",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [
+          "cargo test -p aoc-cli dox"
+        ],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": "crates/aoc-control",
+        "decision": "reject",
+        "score": 4,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [],
+        "verification": [
+          "cargo test -p aoc-cli dox"
+        ],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": "crates/aoc-control/src",
+        "decision": "reject",
+        "score": 7,
+        "confidence": 0.5,
+        "reason": "missing evidence or verification",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [
+          "cargo test -p aoc-cli dox"
+        ],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": "crates/aoc-core",
+        "decision": "reject",
+        "score": 4,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [],
+        "verification": [
+          "cargo test -p aoc-cli dox"
+        ],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": "crates/aoc-core/src",
+        "decision": "reject",
+        "score": 7,
+        "confidence": 0.5,
+        "reason": "missing evidence or verification",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [
+          "cargo test -p aoc-cli dox"
+        ],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": "crates/aoc-hub-rs",
+        "decision": "reject",
+        "score": 4,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [],
+        "verification": [
+          "cargo test -p aoc-cli dox"
+        ],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": "crates/aoc-hub-rs/src",
+        "decision": "reject",
+        "score": 7,
+        "confidence": 0.5,
+        "reason": "missing evidence or verification",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [
+          "cargo test -p aoc-cli dox"
+        ],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": "crates/aoc-installer",
+        "decision": "reject",
+        "score": 4,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [],
+        "verification": [
+          "cargo test -p aoc-cli dox"
+        ],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": "crates/aoc-installer/src",
+        "decision": "reject",
+        "score": 7,
+        "confidence": 0.5,
+        "reason": "missing evidence or verification",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [
+          "cargo test -p aoc-cli dox"
+        ],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": "crates/aoc-mind",
+        "decision": "reject",
+        "score": 4,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [],
+        "verification": [
+          "cargo test -p aoc-cli dox"
+        ],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": "crates/aoc-mind/src",
+        "decision": "reject",
+        "score": 7,
+        "confidence": 0.5,
+        "reason": "missing evidence or verification",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [
+          "cargo test -p aoc-cli dox"
+        ],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": "crates/aoc-mind/src/bin",
+        "decision": "reject",
+        "score": 7,
+        "confidence": 0.5,
+        "reason": "missing evidence or verification",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [
+          "cargo test -p aoc-cli dox"
+        ],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": "crates/aoc-mind/tests",
+        "decision": "reject",
+        "score": 4,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [],
+        "verification": [
+          "cargo test -p aoc-cli dox"
+        ],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": "crates/aoc-mission-control",
+        "decision": "reject",
+        "score": 4,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [],
+        "verification": [
+          "cargo test -p aoc-cli dox"
+        ],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": "crates/aoc-mission-control/src",
+        "decision": "reject",
+        "score": 7,
+        "confidence": 0.5,
+        "reason": "missing evidence or verification",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [
+          "cargo test -p aoc-cli dox"
+        ],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": "crates/aoc-opencode-adapter",
+        "decision": "reject",
+        "score": 4,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [],
+        "verification": [
+          "cargo test -p aoc-cli dox"
+        ],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": "crates/aoc-opencode-adapter/src",
+        "decision": "reject",
+        "score": 7,
+        "confidence": 0.5,
+        "reason": "missing evidence or verification",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [
+          "cargo test -p aoc-cli dox"
+        ],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": "crates/aoc-pi-adapter",
+        "decision": "reject",
+        "score": 4,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [],
+        "verification": [
+          "cargo test -p aoc-cli dox"
+        ],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": "crates/aoc-pi-adapter/src",
+        "decision": "reject",
+        "score": 7,
+        "confidence": 0.5,
+        "reason": "missing evidence or verification",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [
+          "cargo test -p aoc-cli dox"
+        ],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": "crates/aoc-segment-routing",
+        "decision": "reject",
+        "score": 4,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [],
+        "verification": [
+          "cargo test -p aoc-cli dox"
+        ],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": "crates/aoc-segment-routing/src",
+        "decision": "reject",
+        "score": 7,
+        "confidence": 0.5,
+        "reason": "missing evidence or verification",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [
+          "cargo test -p aoc-cli dox"
+        ],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": "crates/aoc-storage",
+        "decision": "reject",
+        "score": 4,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [],
+        "verification": [
+          "cargo test -p aoc-cli dox"
+        ],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": "crates/aoc-storage/migrations",
+        "decision": "reject",
+        "score": 4,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [],
+        "verification": [
+          "cargo test -p aoc-cli dox"
+        ],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": "crates/aoc-storage/src",
+        "decision": "reject",
+        "score": 7,
+        "confidence": 0.5,
+        "reason": "missing evidence or verification",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [
+          "cargo test -p aoc-cli dox"
+        ],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": "crates/aoc-task-attribution",
+        "decision": "reject",
+        "score": 4,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [],
+        "verification": [
+          "cargo test -p aoc-cli dox"
+        ],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": "crates/aoc-task-attribution/src",
+        "decision": "reject",
+        "score": 7,
+        "confidence": 0.5,
+        "reason": "missing evidence or verification",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [
+          "cargo test -p aoc-cli dox"
+        ],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": "crates/aoc-taskmaster",
+        "decision": "reject",
+        "score": 4,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [],
+        "verification": [
+          "cargo test -p aoc-cli dox"
+        ],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": "crates/aoc-taskmaster/src",
+        "decision": "reject",
+        "score": 7,
+        "confidence": 0.5,
+        "reason": "missing evidence or verification",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [
+          "cargo test -p aoc-cli dox"
+        ],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": "crates/aoc-yazi-mermaid",
+        "decision": "reject",
+        "score": 4,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [],
+        "verification": [
+          "cargo test -p aoc-cli dox"
+        ],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": "crates/aoc-yazi-mermaid/src",
+        "decision": "reject",
+        "score": 7,
+        "confidence": 0.5,
+        "reason": "missing evidence or verification",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [
+          "cargo test -p aoc-cli dox"
+        ],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": "docs",
+        "decision": "reject",
+        "score": -2,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": "docs/archive",
+        "decision": "reject",
+        "score": -2,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": "docs/archive/research",
+        "decision": "reject",
+        "score": -2,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": "docs/assets",
+        "decision": "reject",
+        "score": -2,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": "docs/maintainer",
+        "decision": "reject",
+        "score": -2,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": "docs/operator",
+        "decision": "reject",
+        "score": -2,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": "docs/reference",
+        "decision": "reject",
+        "score": -2,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": "docs/security",
+        "decision": "reject",
+        "score": -2,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": "herdr",
+        "decision": "reject",
+        "score": -2,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": "install",
+        "decision": "reject",
+        "score": -2,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": "legacy",
+        "decision": "reject",
+        "score": -2,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": "legacy/opencode",
+        "decision": "reject",
+        "score": -2,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": "legacy/opencode/config",
+        "decision": "reject",
+        "score": -2,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": "legacy/opencode/scripts",
+        "decision": "reject",
+        "score": -2,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": "lib",
+        "decision": "reject",
+        "score": -2,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": "lib/aoc_cleanup",
+        "decision": "reject",
+        "score": -2,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": "lib/aoc_cleanup/__pycache__",
+        "decision": "reject",
+        "score": -2,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": "micro",
+        "decision": "reject",
+        "score": -2,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": "scripts",
+        "decision": "reject",
+        "score": 5,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [
+          "bun test"
+        ],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": "scripts/pi",
+        "decision": "reject",
+        "score": 5,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [
+          "bun test"
+        ],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": "scripts/pi/__pycache__",
+        "decision": "reject",
+        "score": 5,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [
+          "bun test"
+        ],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": "shellcheck-v0.10.0",
+        "decision": "reject",
+        "score": -2,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": "vendor",
+        "decision": "reject",
+        "score": -2,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": "yazi",
+        "decision": "reject",
+        "score": -2,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": "yazi/plugins",
+        "decision": "reject",
+        "score": -2,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": "yazi/plugins/aoc-help-exit.yazi",
+        "decision": "reject",
+        "score": -2,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": "yazi/plugins/aoc-help-toggle.yazi",
+        "decision": "reject",
+        "score": -2,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": "yazi/plugins/aoc-mermaid-open.yazi",
+        "decision": "reject",
+        "score": -2,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": "yazi/plugins/aoc-mermaid.yazi",
+        "decision": "reject",
+        "score": -2,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": "yazi/plugins/aoc-open-explorer.yazi",
+        "decision": "reject",
+        "score": -2,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": "yazi/plugins/aoc-open.yazi",
+        "decision": "reject",
+        "score": -2,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": "yazi/plugins/aoc-pane-toggle.yazi",
+        "decision": "reject",
+        "score": -2,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": "yazi/plugins/aoc-title.yazi",
+        "decision": "reject",
+        "score": -2,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": "zellij",
+        "decision": "reject",
+        "score": -2,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": "zellij/layouts",
+        "decision": "reject",
+        "score": -2,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      }
+    ]
+  }
+}

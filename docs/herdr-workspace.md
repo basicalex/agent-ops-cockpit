@@ -18,7 +18,7 @@ Keep only AOC pieces that are still valuable as project/tooling primitives:
 - metadata-only context handshakes for OMP startup
 - CodeGraph as a read-only OMP tool when a project has an index
 - `aoc-agent-wrap-rs` only if it can provide OMP-native lifecycle/context/provenance without Zellij coupling
-- HyperFrames, OpenDesign, Understand, web research, and RTK as standalone project/tooling features
+- HyperFrames, OpenDesign, web research, and RTK as standalone project/tooling features
 - selected lightweight handoff helpers only if they remain useful
 - Mind only as optional, lazy focused recall/provenance after user intent is known
 - selected Pi/OMP skills only when they complement the new stack
@@ -107,7 +107,7 @@ The Herdr-first path is implemented with:
 - `bin/aoc` — delegates to Herdr by default and exposes `aoc services`
 - `install.sh` — defaults to Herdr/OMP assets and skips legacy Zellij cockpit assets unless `--legacy-zellij` is passed
 - `bin/aoc-init` — installs AOC OMP extensions and AOC OMP agent templates, seeds the lean PI prompt/tool baseline, and skips legacy `.aoc/layouts`, Zellij plugin repair, subagent manager extension, AOC agent presence extension, Mission Control, and Control pane defaults
-- `/commit [scope]` — OMP slash command that triggers the safe atomic commit workflow: inspect changes, run targeted validation, use Git staging or Jujutsu current-change semantics based on detected VCS, commit only the intended atomic work, and report the Git SHA or Jujutsu change/commit identity; never push
+- `/commit [scope]` — OMP slash command that triggers the safe atomic commit workflow: inspect changes, run targeted validation, use Git staging or Jujutsu current-change semantics based on detected VCS, commit only the intended atomic work, report the Git SHA or Jujutsu change/commit identity, and after a successful commit perform best-effort `codegraph sync` when a project `.codegraph/` index and CLI are present; never push
 
 The old Zellij cockpit remains available during transition with:
 
@@ -178,10 +178,11 @@ ${PI_CODING_AGENT_DIR:-~/.omp/agent}/agents/
 ```
 
 `aoc-codegraph.ts` exposes the read-only `aoc_codegraph` tool for code discovery: `status`, `files`, `search`, `context`, `callers`, `callees`, `impact`, and `affected`.
+Use this as the agent graph/context tool in Herdr/OMP workspaces; Understand-Anything is not part of the active graph path.
 
 `aoc-mind.ts` exposes the read-only `aoc_mind` tool for historical/provenance intelligence: `status`, `evidence`, `provenance`, and dry-run `mnemopi_candidates`. It augments OMP/Mnemopi with cited AOC Mind evidence; it does not write memories or inject broad startup context.
 
-`aoc-commit.ts` registers `/commit` for safe atomic commits. It uses Git staging in Git-only repositories and Jujutsu current-change/fileset workflows in Jujutsu repositories, including colocated Jujutsu+Git workspaces.
+`aoc-commit.ts` registers `/commit` for safe atomic commits. It uses Git staging in Git-only repositories and Jujutsu current-change/fileset workflows in Jujutsu repositories, including colocated Jujutsu+Git workspaces. CodeGraph refresh is post-commit advisory cache maintenance only; it does not initialize/index new projects.
 
 `aoc-jj-init.ts` registers `/jj-init` for explicit Jujutsu setup. It asks the agent to inspect Git/JJ state and dirty work before running `jj git init --colocate`; ordinary `aoc-init` and startup handshakes only detect/report Jujutsu.
 

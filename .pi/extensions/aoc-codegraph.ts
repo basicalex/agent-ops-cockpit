@@ -9,26 +9,27 @@ const MAX_ALLOWED_CHARS = 40_000;
 const COMMAND_TIMEOUT_MS = 30_000;
 
 const CodeGraphActionSchema = StringEnum(
-	["status", "files", "search", "context", "node", "callers", "callees", "impact", "affected"] as const,
+	["status", "files", "search", "context", "callers", "callees", "impact", "affected"] as const,
 	{ description: "Read-only CodeGraph action to run." },
 );
 
 const CodeGraphParams = Type.Object({
 	action: CodeGraphActionSchema,
 	query: Type.Optional(Type.String({ description: "Search/context text for search and context actions." })),
-	symbol: Type.Optional(Type.String({ description: "Symbol name or id for node/callers/callees/impact actions." })),
+	symbol: Type.Optional(Type.String({ description: "Symbol name or id for callers/callees/impact actions." })),
 	files: Type.Optional(Type.Array(Type.String(), { description: "Changed/source files for affected-test analysis." })),
 	cwd: Type.Optional(Type.String({ description: "Optional working directory scoped under the current project root." })),
 	limit: Type.Optional(Type.Integer({ minimum: 1, maximum: 100, description: "Result limit for search/call graph actions." })),
 	depth: Type.Optional(Type.Integer({ minimum: 1, maximum: 10, description: "Traversal depth for impact/affected actions." })),
 	maxDepth: Type.Optional(Type.Integer({ minimum: 1, maximum: 12, description: "Maximum file tree depth for files action." })),
 	filter: Type.Optional(Type.String({ description: "Optional file/test glob filter for files or affected actions." })),
+	pattern: Type.Optional(Type.String({ description: "Optional glob pattern for files action." })),
 	json: Type.Optional(Type.Boolean({ description: "Ask CodeGraph for JSON output where the CLI supports it." })),
 	maxChars: Type.Optional(Type.Integer({ minimum: 1000, maximum: MAX_ALLOWED_CHARS, description: "Maximum characters returned to the model." })),
 });
 
 type CodeGraphParamsType = {
-	action: "status" | "files" | "search" | "context" | "node" | "callers" | "callees" | "impact" | "affected";
+	action: "status" | "files" | "search" | "context" | "callers" | "callees" | "impact" | "affected";
 	query?: string;
 	symbol?: string;
 	files?: string[];
@@ -37,6 +38,7 @@ type CodeGraphParamsType = {
 	depth?: number;
 	maxDepth?: number;
 	filter?: string;
+	pattern?: string;
 	json?: boolean;
 	maxChars?: number;
 };
@@ -84,46 +86,38 @@ function buildArgs(params: CodeGraphParamsType, root: string): string[] {
 	switch (params.action) {
 		case "status":
 			args.push("status", root);
+			if (json) args.push("--json");
 			break;
 		case "files":
-			args.push("files", root);
+			args.push("files", "--path", root);
 			if (params.filter) args.push("--filter", params.filter);
+			if (params.pattern) args.push("--pattern", params.pattern);
 			if (params.maxDepth) args.push("--max-depth", String(positiveInt(params.maxDepth, 4, 12)));
 			if (json) args.push("--json");
 			break;
 		case "search":
-			args.push("query", requireText(params.query, "query"));
-			args.push("--limit", String(positiveInt(params.limit, 10, 100)));
+			args.push("query", requireText(params.query, "query"), "--path", root, "--limit", String(positiveInt(params.limit, 10, 100)));
 			if (json) args.push("--json");
 			break;
 		case "context":
-			args.push("context", requireText(params.query, "query"));
-			args.push("--max-nodes", String(positiveInt(params.limit, 20, 100)));
-			args.push("--format", json ? "json" : "markdown");
-			break;
-		case "node":
-			args.push("node", requireText(params.symbol, "symbol"));
-			if (json) args.push("--json");
+			args.push("context", requireText(params.query, "query"), "--path", root, "--max-nodes", String(positiveInt(params.limit, 20, 100)), "--format", json ? "json" : "markdown");
 			break;
 		case "callers":
-			args.push("callers", requireText(params.symbol, "symbol"));
-			args.push("--limit", String(positiveInt(params.limit, 20, 100)));
+			args.push("callers", requireText(params.symbol, "symbol"), "--path", root, "--limit", String(positiveInt(params.limit, 20, 100)));
 			if (json) args.push("--json");
 			break;
 		case "callees":
-			args.push("callees", requireText(params.symbol, "symbol"));
-			args.push("--limit", String(positiveInt(params.limit, 20, 100)));
+			args.push("callees", requireText(params.symbol, "symbol"), "--path", root, "--limit", String(positiveInt(params.limit, 20, 100)));
 			if (json) args.push("--json");
 			break;
 		case "impact":
-			args.push("impact", requireText(params.symbol, "symbol"));
-			args.push("--depth", String(positiveInt(params.depth, 2, 10)));
+			args.push("impact", requireText(params.symbol, "symbol"), "--path", root, "--depth", String(positiveInt(params.depth, 2, 10)));
 			if (json) args.push("--json");
 			break;
 		case "affected": {
 			const files = (params.files ?? []).map(stripAt).filter((file) => file.trim().length > 0);
 			if (files.length === 0) throw new Error("files is required for affected");
-			args.push("affected", ...files);
+			args.push("affected", ...files, "--path", root);
 			if (params.depth) args.push("--depth", String(positiveInt(params.depth, 5, 10)));
 			if (params.filter) args.push("--filter", params.filter);
 			if (json) args.push("--json");

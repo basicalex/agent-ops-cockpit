@@ -192,13 +192,9 @@ The manifest can also store:
 - `order`
 - timestamps
 
-## Relationship to AOC Understand and Open Design
+## Relationship to Open Design
 
-AOC Map remains the curated offline visual microsite. It is not replaced by Understand-Anything.
-
-Use `aoc-understand` for generated repository knowledge graphs, dashboard exploration, graph-aware chat/explain/onboarding, and domain/diff analysis. After a graph exists, `aoc-understand map-sync` can create a compact AOC Map overview page from `.understand-anything/knowledge-graph.json`.
-
-Open Design (`aoc-od`) remains the GUI design studio bridge. A future advanced AOC Map layer may bring together Understand-Anything graph summaries and Open Design artifact metadata, but v1 priority is to integrate `aoc-understand` correctly.
+AOC Map remains the curated offline visual microsite. Open Design (`aoc-od`) remains the GUI design studio bridge for design/prototype artifacts.
 
 ## Authoring guidance
 

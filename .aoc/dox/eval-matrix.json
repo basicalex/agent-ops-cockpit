@@ -1,0 +1,25 @@
+{
+  "schema": "aoc.dox.v1",
+  "generated_at": "2026-06-09T19:20:10.726692014+00:00",
+  "project_root": "/home/ceii/dev/agent-ops-cockpit",
+  "data": {
+    "strategies": [
+      "no_agents",
+      "root_agents_only",
+      "sparse_dox",
+      "bloated_dox"
+    ],
+    "metrics": [
+      "task_success",
+      "tests_passing",
+      "tool_calls",
+      "input_tokens",
+      "output_tokens",
+      "wall_time_ms",
+      "irrelevant_files_touched",
+      "docs_changed",
+      "stale_or_false_rules",
+      "human_review_severity"
+    ]
+  }
+}

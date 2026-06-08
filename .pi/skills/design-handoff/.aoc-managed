@@ -1,6 +1,6 @@
 aoc-managed: true
 asset: skill/design-handoff
 asset-version: 3
-source: .pi/skills/design-handoff
+source: ../.config/aoc/pi/skills/design-handoff
 sha256: 42279c934b9542ea3337492726ef1220b28950241ecb265743b1d6b87c9051f0
-updated-at: 2026-06-08T16:15:58Z
+updated-at: 2026-06-09T20:31:07Z

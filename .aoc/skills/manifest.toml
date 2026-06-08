@@ -14,14 +14,9 @@ type = "analysis"
 summary = "Analyze large repos with aoc-rlm scan/peek/chunk."
 
 [[skill]]
-name = "aoc-understand"
-type = "analysis"
-summary = "Understand-Anything bridge for repo knowledge graphs, dashboards, onboarding, and graph-aware explain/chat flows."
-
-[[skill]]
 name = "teach-workflow"
 type = "workflow"
-summary = "Deprecated legacy teach-mode scans and local insight logging; prefer aoc-understand."
+summary = "Deprecated legacy teach-mode scans and local insight logging."
 
 [[skill]]
 name = "zellij-theme-ops"

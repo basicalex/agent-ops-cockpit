@@ -11,7 +11,6 @@ Use AOC when you want:
 - `Alt+X` for focused modes like Design and HyperFrames
 - `Alt+M` for Pi-native Mind/memory actions
 - `Alt+A` for Pi-native subagent/delegation management
-- `aoc-understand` for Understand-Anything repository knowledge graphs
 - optional Open Design GUI studio bridge for higher-quality visual design iteration
 
 ## Install
@@ -58,7 +57,6 @@ Common setup paths:
 | Subagent manager | `Alt+A`, `/subagent-manager` |
 | Tasks | `tm list`, Taskmaster pane |
 | Memory CLI | `aoc-mem`, `aoc-stm` |
-| Repository knowledge graph | `Alt+C -> Tools -> AOC Understand`, or `aoc-understand status` then `aoc-understand analyze --full` |
 | Open Design GUI studio | `aoc-od install`, then `aoc-od start --open` |
 | HyperFrames video/campaign work | `Alt+C -> Tools -> HyperFrames video -> Init workspace + campaign factory` |
 | Web research | `Alt+C -> Tools -> Agent Browser + Search` |
@@ -72,7 +70,6 @@ Start here:
 - [Installation](./docs/installation.md)
 - [Control pane](./docs/control-pane.md)
 - [Tasks and memory](./docs/tasks-memory.md)
-- [AOC Understand](./docs/understand.md)
 - [Open Design studio](./docs/open-design.md)
 - [HyperFrames](./docs/hyperframes.md)
 - [Troubleshooting](./docs/troubleshooting.md)

@@ -1,21 +1,12 @@
 ---
 name: teach-workflow
-description: DEPRECATED legacy teach-mode scans and local insight logging. Prefer aoc-understand for repository understanding, onboarding, architecture questions, and graph/dashboard flows.
+description: DEPRECATED legacy teach-mode scans and local insight logging. Use only to inspect old `.aoc/insight/` notes when explicitly requested.
 ---
 
 # Deprecated: teach-workflow
 
 This skill is deprecated.
 
-Use `aoc-understand` / Understand-Anything for new repository-understanding work:
-
-```bash
-aoc-understand status
-aoc-understand analyze --full
-aoc-understand dashboard --open
-aoc-understand chat "How does this subsystem work?"
-aoc-understand explain path/to/file
-```
 
 ## Legacy scope
 
