@@ -97,8 +97,8 @@ Risk: low|medium|high; <reason>
 - Jujutsu mixed @: when the intended fileset is clear, use jj commit -m <message> <filesets> or jj split <filesets> to isolate/commit the prompt-selected slice and leave unrelated changes behind.
 - If no safe atomic set can be inferred from the prompt, session context, and targeted diffs, ask one concise clarification before staging or mutating.
 - Never push unless explicitly requested.
-- After a successful commit only, if `.codegraph/` exists and `codegraph` is on PATH, run `codegraph sync <repo-root>` as best-effort cache maintenance.
-- Never run CodeGraph sync before the commit, never include `.codegraph/**` in the commit, and never let sync failure change, undo, block, or invalidate the committed VCS result.
+- After a successful commit only, if \`.codegraph/\` exists and \`codegraph\` is on PATH, run \`codegraph sync <repo-root>\` as best-effort cache maintenance.
+- Never run CodeGraph sync before the commit, never include \`.codegraph/**\` in the commit, and never let sync failure change, undo, block, or invalidate the committed VCS result.
 - If sync fails or is unavailable, report it as advisory cache status and continue the final commit report.
 
 Final response after commit:
