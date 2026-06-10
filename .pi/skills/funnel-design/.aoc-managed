@@ -1,6 +1,6 @@
 aoc-managed: true
 asset: skill/funnel-design
 asset-version: 3
-source: ../.config/aoc/pi/skills/funnel-design
+source: .pi/skills/funnel-design
 sha256: 015c50a2ecd29e00457384aa8a3a17c0731200058685d7478bbdf56ddff54d10
-updated-at: 2026-06-09T20:31:12Z
+updated-at: 2026-06-10T16:33:53Z

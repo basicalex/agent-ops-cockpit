@@ -1,6 +1,6 @@
 aoc-managed: true
 asset: skill/frontend-design
 asset-version: 3
-source: ../.config/aoc/pi/skills/frontend-design
+source: .pi/skills/frontend-design
 sha256: 5302fb1270b962bac6aa443ee2b5aff6e857dbf3c0972a7a12a03ff22b29fa2f
-updated-at: 2026-06-09T20:31:11Z
+updated-at: 2026-06-10T16:33:53Z

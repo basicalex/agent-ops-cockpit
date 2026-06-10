@@ -8,10 +8,12 @@ config_dst="$config_dir/config.toml"
 hypr_bindings="${XDG_CONFIG_HOME:-$HOME/.config}/hypr/bindings.lua"
 omp_extension_dir="${PI_CODING_AGENT_DIR:-$HOME/.omp/agent}/extensions"
 omp_agent_dir="${PI_CODING_AGENT_DIR:-$HOME/.omp/agent}/agents"
+omp_skill_dir="${PI_CODING_AGENT_DIR:-$HOME/.omp/agent}/skills"
 omp_extensions=(
   aoc-codegraph.ts
   aoc-mind.ts
   aoc-commit.ts
+  aoc-dox.ts
   aoc-jj-init.ts
   aoc-brand-content.ts
   aoc-web-search.ts
@@ -21,6 +23,13 @@ omp_agents=(
   brand-concept.md
   svg-asset.md
   hyperframes-content.md
+  dox-scout.md
+  dox-mapper.md
+  dox-critic.md
+  dox-writer.md
+)
+omp_skills=(
+  aoc-dox-cartography
 )
 install_voxtype_lexicon() {
   local voxtype_bin="aoc-voxtype-setup"
@@ -142,6 +151,19 @@ for extension_name in "${omp_extensions[@]}"; do
 done
 rm -f "$omp_extension_dir/aoc-openai-stt.ts"
 
+
+for skill_name in "${omp_skills[@]}"; do
+  skill_src="$repo_root/.omp/skills/$skill_name"
+  skill_dst="$omp_skill_dir/$skill_name"
+  if [[ -d "$skill_src" ]]; then
+    mkdir -p "$omp_skill_dir"
+    rm -rf "$skill_dst"
+    cp -R "$skill_src" "$skill_dst"
+    echo "Installed AOC OMP skill to $skill_dst"
+  else
+    echo "Warning: missing $skill_src; skipping AOC OMP skill" >&2
+  fi
+done
 
 for agent_name in "${omp_agents[@]}"; do
   agent_src="$repo_root/.omp/agents/$agent_name"

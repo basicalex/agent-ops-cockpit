@@ -1,6 +1,6 @@
 aoc-managed: true
 asset: skill/rlm-analysis
 asset-version: 3
-source: ../.config/aoc/pi/skills/rlm-analysis
+source: .pi/skills/rlm-analysis
 sha256: 7844902bf081428c2a3f4586a69209e0ac30e0ee8e6fe7873c51ff79ba8d6f39
-updated-at: 2026-06-09T20:31:14Z
+updated-at: 2026-06-10T16:33:54Z

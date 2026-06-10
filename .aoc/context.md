@@ -4,7 +4,7 @@
 - Name: agent-ops-cockpit
 - Root: /home/ceii/dev/agent-ops-cockpit
 - VCS: jj (colocated with git)
-- Git branch: 4653b6e
+- Git branch: c12b24e
 - Jujutsu root: /home/ceii/dev/agent-ops-cockpit
 - Jujutsu colocation: yes
 

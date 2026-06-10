@@ -1981,8 +1981,8 @@ description: Initialize or repair AOC context, memory, and tasks safely.
 - Ensures spec directory `.taskmaster/docs/specs/` is available for tag/task links
 - Seeds `.pi/settings.json` when missing
 - Seeds and refreshes managed core PI prompt templates in `.pi/prompts/` (`/aoc-ops`, `/tm-cc`, `/lexicon`, `/commit`); legacy `/implement`, `/handoff`, and `/rresume` prompts are not seeded for Herdr/OMP defaults
-- Installs AOC OMP extensions (`aoc-codegraph.ts`, `aoc-mind.ts`, `aoc-commit.ts`, `aoc-state.ts`, `aoc-jj-init.ts`, `aoc-brand-content.ts`, `aoc-web-search.ts`) into the configured OMP agent extension directory when available
-- Installs AOC OMP agent templates (`brand-strategy.md`, `brand-concept.md`, `svg-asset.md`, `hyperframes-content.md`) into the configured OMP agent directory when available
+- Installs AOC OMP extensions (`aoc-codegraph.ts`, `aoc-mind.ts`, `aoc-commit.ts`, `aoc-state.ts`, `aoc-dox.ts`, `aoc-jj-init.ts`, `aoc-brand-content.ts`, `aoc-web-search.ts`) into the configured OMP agent extension directory when available
+- Installs AOC OMP agent templates (`brand-strategy.md`, `brand-concept.md`, `svg-asset.md`, `hyperframes-content.md`, `dox-scout.md`, `dox-mapper.md`, `dox-critic.md`, `dox-writer.md`) and OMP skills (`aoc-dox-cartography`) into the configured OMP agent directory when available
 - Seeds PI default extensions in `.pi/extensions/` (`minimal.ts`, `themeMap.ts`, `mind-ingest.ts`, `mind-ops.ts`, `mind-context.ts`, `mind-focus.ts`, `aoc-models.ts`, `aoc-codegraph.ts`, `aoc-compaction.ts`, plus `lib/mind.ts` and `lib/caveman.ts`) when missing
 - Seeds the preset runtime family in `.pi/extensions/aoc-presets/` when missing
 - Seeds reusable preset assets in `.aoc/presets/{design,hyperframes,ops,research,test}/` when missing
@@ -2161,6 +2161,7 @@ setup_omp_extensions() {
     "aoc-mind.ts"
     "aoc-commit.ts"
     "aoc-state.ts"
+    "aoc-dox.ts"
     "aoc-jj-init.ts"
     "aoc-brand-content.ts"
     "aoc-web-search.ts"
@@ -2186,6 +2187,35 @@ setup_omp_extensions() {
   rm -f "$omp_extension_dir/aoc-openai-stt.ts"
 }
 
+
+setup_omp_skills() {
+  local omp_skill_seed_dir="$script_dir/../.omp/skills"
+  local omp_skill_dir="${PI_CODING_AGENT_DIR:-$HOME/.omp/agent}/skills"
+  local skill_name=""
+  local skill_src=""
+  local skill_dst=""
+  local required_skills=(
+    "aoc-dox-cartography"
+  )
+
+  if [[ ! -d "$omp_skill_seed_dir" ]]; then
+    warn "Missing AOC OMP skill seed directory: $omp_skill_seed_dir"
+    return 0
+  fi
+
+  mkdir -p "$omp_skill_dir"
+  for skill_name in "${required_skills[@]}"; do
+    skill_src="$omp_skill_seed_dir/$skill_name"
+    skill_dst="$omp_skill_dir/$skill_name"
+    if [[ -d "$skill_src" ]]; then
+      rm -rf "$skill_dst"
+      cp -R "$skill_src" "$skill_dst"
+      log "Installed AOC OMP skill: $skill_dst"
+    else
+      warn "Missing AOC OMP skill seed: $skill_name"
+    fi
+  done
+}
 setup_omp_agents() {
   local omp_agent_seed_dir="$script_dir/../.omp/agents"
   local omp_agent_dir="${PI_CODING_AGENT_DIR:-$HOME/.omp/agent}/agents"
@@ -2197,6 +2227,10 @@ setup_omp_agents() {
     "brand-concept.md"
     "svg-asset.md"
     "hyperframes-content.md"
+    "dox-scout.md"
+    "dox-mapper.md"
+    "dox-critic.md"
+    "dox-writer.md"
   )
 
   if [[ ! -d "$omp_agent_seed_dir" ]]; then
@@ -3812,6 +3846,7 @@ main() {
   setup_project_mind_service_config
   setup_project_mind_runtime
   setup_omp_extensions
+  setup_omp_skills
   setup_omp_agents
   setup_voxtype_lexicon
   patch_omp_footer
