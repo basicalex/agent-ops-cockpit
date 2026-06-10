@@ -3,4 +3,4 @@ asset: pi-package/pi-multi-auth-aoc
 asset-version: 3
 source: ../.config/aoc/pi/packages/pi-multi-auth-aoc
 sha256: 95e3a384e38a6f75858bf111ff19ac0599482ce210dd5d7a64e7f4689103a303
-updated-at: 2026-06-09T20:30:55Z
+updated-at: 2026-06-10T16:44:09Z

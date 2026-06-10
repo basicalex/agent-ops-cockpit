@@ -22,7 +22,6 @@ This file defines the always-on rules for agents in this repo. Procedural playbo
 ## Low-Token Default Mode
 - Keep responses concise by default; do not print full files or raw logs unless explicitly requested.
 - Start with the smallest viable step; use narrow, path-scoped searches before broad scans.
-- When `.codegraph/` exists and the OMP `aoc_codegraph` tool is available, use it before broad text/file scans for code discovery, call-flow mapping, impact probes, and affected-test selection.
 - Read files in bounded chunks and avoid rereading unchanged large files.
 - Summarize command/tool output with actionable lines only (key errors, next actions).
 - Run targeted checks/tests first; run full-suite commands only when required.
@@ -54,7 +53,7 @@ STM is for deliberate directed in-progress handoff packets only; it is not a mai
 - Task spec overrides are currently stored via legacy key `aocPrd`; resolve with `aoc-task spec show <id> --tag <tag>`.
 - Effective precedence is task spec override -> tag default spec.
 - Keep task specs in git: `.taskmaster/docs/specs/**` and legacy `.taskmaster/docs/prds/**` should always be tracked.
-- Keep AOC/task/config/source state in git: `.aoc/**`, `.taskmaster/**`, `.pi/**`, `.omp/extensions/**`, `.omp/agents/**`, `AGENTS.md`, and `DESIGN.md` should not be ignored except explicit high-churn runtime artifacts such as logs, locks, caches, debug output, and live Mind databases.
+- Keep AOC/task/config state in git: `.aoc/**`, `.taskmaster/**`, and `.pi/**` should not be ignored except explicit high-churn runtime artifacts such as logs, locks, and `.aoc/mind/project.sqlite`.
 
 ## Task Management
 - `.taskmaster/tasks/tasks.json` is task state; use the Taskmaster TUI, `aoc-task`, or `tm` (alias for `aoc-task`). Do not edit the file directly.

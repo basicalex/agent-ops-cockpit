@@ -16,7 +16,7 @@
       "expectedSha256": "66ee8af82f27bcce2f25dd6fa3714d3dfcb806dba2db669da25098109bd6189e",
       "marker": ".aoc/presets/design/.aoc-managed",
       "sha256": "66ee8af82f27bcce2f25dd6fa3714d3dfcb806dba2db669da25098109bd6189e",
-      "source": ".aoc/presets/design",
+      "source": "../.config/aoc/presets/design",
       "status": "current"
     },
     ".aoc/presets/hyperframes": {
@@ -25,7 +25,7 @@
       "expectedSha256": "e861f3597d22e564d10360d4452815938d96be52ce35747a99eae0b92c8051af",
       "marker": ".aoc/presets/hyperframes/.aoc-managed",
       "sha256": "e861f3597d22e564d10360d4452815938d96be52ce35747a99eae0b92c8051af",
-      "source": ".aoc/presets/hyperframes",
+      "source": "../.config/aoc/presets/hyperframes",
       "status": "current"
     },
     ".aoc/presets/ops": {
@@ -34,7 +34,7 @@
       "expectedSha256": "63142ff9ec383188d83ecf75505a2324c80118b9f517c292cff7e0f8f2f2617e",
       "marker": ".aoc/presets/ops/.aoc-managed",
       "sha256": "63142ff9ec383188d83ecf75505a2324c80118b9f517c292cff7e0f8f2f2617e",
-      "source": ".aoc/presets/ops",
+      "source": "../.config/aoc/presets/ops",
       "status": "current"
     },
     ".aoc/presets/research": {
@@ -43,7 +43,7 @@
       "expectedSha256": "db3a38c19330c414dd5b889dc12a6f6de6d4ae52230293b3047a473dc37f76aa",
       "marker": ".aoc/presets/research/.aoc-managed",
       "sha256": "db3a38c19330c414dd5b889dc12a6f6de6d4ae52230293b3047a473dc37f76aa",
-      "source": ".aoc/presets/research",
+      "source": "../.config/aoc/presets/research",
       "status": "current"
     },
     ".aoc/presets/test": {
@@ -52,7 +52,7 @@
       "expectedSha256": "d06a9b32ac516c4e5c1d80ee1e77276289a79e7cee7cb634ba73cd86cd5fa4cc",
       "marker": ".aoc/presets/test/.aoc-managed",
       "sha256": "d06a9b32ac516c4e5c1d80ee1e77276289a79e7cee7cb634ba73cd86cd5fa4cc",
-      "source": ".aoc/presets/test",
+      "source": "../.config/aoc/presets/test",
       "status": "current"
     },
     ".pi/extensions/aoc-presets": {
@@ -61,7 +61,7 @@
       "expectedSha256": "4dc01fcd31cc248d34d5746b60f6159ec362e613399f57f56ebce50f92da1b5f",
       "marker": ".pi/extensions/aoc-presets/.aoc-managed",
       "sha256": "4dc01fcd31cc248d34d5746b60f6159ec362e613399f57f56ebce50f92da1b5f",
-      "source": ".pi/extensions/aoc-presets",
+      "source": "../.config/aoc/pi/extensions/aoc-presets",
       "status": "current"
     },
     ".pi/extensions/subagent": {
@@ -88,7 +88,7 @@
       "expectedSha256": "6591ea86997eab7d06c7bfd5db4b18a54891cfba63909c9226487b2e6505d530",
       "marker": ".pi/prompts/aoc-ops.md.aoc-managed",
       "sha256": "6591ea86997eab7d06c7bfd5db4b18a54891cfba63909c9226487b2e6505d530",
-      "source": ".pi/prompts/aoc-ops.md",
+      "source": "../.config/aoc/pi/prompts/aoc-ops.md",
       "status": "current"
     },
     ".pi/prompts/commit.md": {
@@ -97,7 +97,7 @@
       "expectedSha256": "927e503915017201ff4c99ad06c10b384daf44e60fd1cb81bf51c85bfe23ad91",
       "marker": ".pi/prompts/commit.md.aoc-managed",
       "sha256": "927e503915017201ff4c99ad06c10b384daf44e60fd1cb81bf51c85bfe23ad91",
-      "source": ".pi/prompts/commit.md",
+      "source": "../.config/aoc/pi/prompts/commit.md",
       "status": "current"
     },
     ".pi/prompts/handoff.md": {
@@ -124,7 +124,7 @@
       "expectedSha256": "52cb0a15cd619a6b40d994f960036abd33466b6f855dc513b9f3920f8d94d281",
       "marker": ".pi/prompts/lexicon.md.aoc-managed",
       "sha256": "52cb0a15cd619a6b40d994f960036abd33466b6f855dc513b9f3920f8d94d281",
-      "source": ".pi/prompts/lexicon.md",
+      "source": "../.config/aoc/pi/prompts/lexicon.md",
       "status": "current"
     },
     ".pi/prompts/rresume.md": {
@@ -142,7 +142,7 @@
       "expectedSha256": "c0a597be003de72076d97562810518388a8f1728508dbc78e3a1a361eedcac99",
       "marker": ".pi/prompts/tm-cc.md.aoc-managed",
       "sha256": "c0a597be003de72076d97562810518388a8f1728508dbc78e3a1a361eedcac99",
-      "source": ".pi/prompts/tm-cc.md",
+      "source": "../.config/aoc/pi/prompts/tm-cc.md",
       "status": "current"
     },
     ".pi/skills/aoc-hyperframes": {
@@ -151,16 +151,16 @@
       "expectedSha256": "69c2d4c7005c50d8218dd27e48d4ddc6689174d55672408cb0c8e1db6a5b65ca",
       "marker": ".pi/skills/aoc-hyperframes/.aoc-managed",
       "sha256": "69c2d4c7005c50d8218dd27e48d4ddc6689174d55672408cb0c8e1db6a5b65ca",
-      "source": ".pi/skills/aoc-hyperframes",
+      "source": "../.config/aoc/pi/skills/aoc-hyperframes",
       "status": "current"
     },
     ".pi/skills/aoc-init-ops": {
       "asset": "skill/aoc-init-ops",
       "assetVersion": 3,
-      "expectedSha256": "7ae05e45cbe3981c4d4771a9e2f9a6fc5452daf9811fb3ec87ca0e676afecb88",
+      "expectedSha256": "58726bcb19041ae80310ee9937971277eb46c55746da92ec5fecd549c6127236",
       "marker": ".pi/skills/aoc-init-ops/.aoc-managed",
-      "sha256": "c37e092d1baa0e0d2093e7f27debbf72ab0897f25c057cb4f9fb377e50a1408a",
-      "source": ".pi/skills/aoc-init-ops",
+      "sha256": "7ae05e45cbe3981c4d4771a9e2f9a6fc5452daf9811fb3ec87ca0e676afecb88",
+      "source": "../.config/aoc/pi/skills/aoc-init-ops",
       "status": "dirty"
     },
     ".pi/skills/aoc-map": {
@@ -169,7 +169,7 @@
       "expectedSha256": "000954162e01e3d47617e0d9b4f754dfc3585ded0c5e747b6c443d20732e8863",
       "marker": ".pi/skills/aoc-map/.aoc-managed",
       "sha256": "000954162e01e3d47617e0d9b4f754dfc3585ded0c5e747b6c443d20732e8863",
-      "source": ".pi/skills/aoc-map",
+      "source": "../.config/aoc/pi/skills/aoc-map",
       "status": "current"
     },
     ".pi/skills/aoc-understand": {
@@ -187,7 +187,7 @@
       "expectedSha256": "28596583c13cfb0d6eaec3abc9e3296001ee194e978e21882cfa7522972423af",
       "marker": ".pi/skills/architecture-design/.aoc-managed",
       "sha256": "28596583c13cfb0d6eaec3abc9e3296001ee194e978e21882cfa7522972423af",
-      "source": ".pi/skills/architecture-design",
+      "source": "../.config/aoc/pi/skills/architecture-design",
       "status": "current"
     },
     ".pi/skills/custom-layout-ops": {
@@ -196,7 +196,7 @@
       "expectedSha256": "9dff3c1fb99e43f5541c0fe2fcfd54613ff355ee89a8eb58f300054b89b25116",
       "marker": ".pi/skills/custom-layout-ops/.aoc-managed",
       "sha256": "9dff3c1fb99e43f5541c0fe2fcfd54613ff355ee89a8eb58f300054b89b25116",
-      "source": ".pi/skills/custom-layout-ops",
+      "source": "../.config/aoc/pi/skills/custom-layout-ops",
       "status": "current"
     },
     ".pi/skills/design-diff": {
@@ -205,7 +205,7 @@
       "expectedSha256": "cd5b9cff85a25d1a8c8568d5f28179b410cd35a13f856f61baf4004cc4e9184c",
       "marker": ".pi/skills/design-diff/.aoc-managed",
       "sha256": "cd5b9cff85a25d1a8c8568d5f28179b410cd35a13f856f61baf4004cc4e9184c",
-      "source": ".pi/skills/design-diff",
+      "source": "../.config/aoc/pi/skills/design-diff",
       "status": "current"
     },
     ".pi/skills/design-director": {
@@ -214,7 +214,7 @@
       "expectedSha256": "5cd46e26172d065b560234e4f443b62d3b90bda79e0508123738a23cedca7a48",
       "marker": ".pi/skills/design-director/.aoc-managed",
       "sha256": "5cd46e26172d065b560234e4f443b62d3b90bda79e0508123738a23cedca7a48",
-      "source": ".pi/skills/design-director",
+      "source": "../.config/aoc/pi/skills/design-director",
       "status": "current"
     },
     ".pi/skills/design-handoff": {
@@ -223,7 +223,7 @@
       "expectedSha256": "42279c934b9542ea3337492726ef1220b28950241ecb265743b1d6b87c9051f0",
       "marker": ".pi/skills/design-handoff/.aoc-managed",
       "sha256": "42279c934b9542ea3337492726ef1220b28950241ecb265743b1d6b87c9051f0",
-      "source": ".pi/skills/design-handoff",
+      "source": "../.config/aoc/pi/skills/design-handoff",
       "status": "current"
     },
     ".pi/skills/design-premium-ui": {
@@ -232,7 +232,7 @@
       "expectedSha256": "891f8c842d35260899f76e3445007f0303c7d90a87a7f21580c621174f3c93af",
       "marker": ".pi/skills/design-premium-ui/.aoc-managed",
       "sha256": "891f8c842d35260899f76e3445007f0303c7d90a87a7f21580c621174f3c93af",
-      "source": ".pi/skills/design-premium-ui",
+      "source": "../.config/aoc/pi/skills/design-premium-ui",
       "status": "current"
     },
     ".pi/skills/design-redesign": {
@@ -241,7 +241,7 @@
       "expectedSha256": "fd9240d92d567bf72ada0737f3cad991ba577867f8ddc8411536684f19832a7d",
       "marker": ".pi/skills/design-redesign/.aoc-managed",
       "sha256": "fd9240d92d567bf72ada0737f3cad991ba577867f8ddc8411536684f19832a7d",
-      "source": ".pi/skills/design-redesign",
+      "source": "../.config/aoc/pi/skills/design-redesign",
       "status": "current"
     },
     ".pi/skills/design-review": {
@@ -250,7 +250,7 @@
       "expectedSha256": "d58e9eda56973436149c6293acbd2d2c2cd209e4760e548c662bf1bcf8174240",
       "marker": ".pi/skills/design-review/.aoc-managed",
       "sha256": "d58e9eda56973436149c6293acbd2d2c2cd209e4760e548c662bf1bcf8174240",
-      "source": ".pi/skills/design-review",
+      "source": "../.config/aoc/pi/skills/design-review",
       "status": "current"
     },
     ".pi/skills/design-spec": {
@@ -259,7 +259,7 @@
       "expectedSha256": "e76f1be8c09b7e5bb36cc96be4e7faad1a0557fd94a2b23d0166ec5650ab9751",
       "marker": ".pi/skills/design-spec/.aoc-managed",
       "sha256": "e76f1be8c09b7e5bb36cc96be4e7faad1a0557fd94a2b23d0166ec5650ab9751",
-      "source": ".pi/skills/design-spec",
+      "source": "../.config/aoc/pi/skills/design-spec",
       "status": "current"
     },
     ".pi/skills/design-tokens": {
@@ -268,7 +268,7 @@
       "expectedSha256": "657037f25880f8410dd0400aa5cf6ffe5202e767f534bbcc8554c9eac92953ea",
       "marker": ".pi/skills/design-tokens/.aoc-managed",
       "sha256": "657037f25880f8410dd0400aa5cf6ffe5202e767f534bbcc8554c9eac92953ea",
-      "source": ".pi/skills/design-tokens",
+      "source": "../.config/aoc/pi/skills/design-tokens",
       "status": "current"
     },
     ".pi/skills/enforce-dashboard-ux-guardrails": {
@@ -277,7 +277,7 @@
       "expectedSha256": "0867aa7e737e91bb544de8bb96329c29e795bdc17f5645b37caac1ab27d5dcee",
       "marker": ".pi/skills/enforce-dashboard-ux-guardrails/.aoc-managed",
       "sha256": "0867aa7e737e91bb544de8bb96329c29e795bdc17f5645b37caac1ab27d5dcee",
-      "source": ".pi/skills/enforce-dashboard-ux-guardrails",
+      "source": "../.config/aoc/pi/skills/enforce-dashboard-ux-guardrails",
       "status": "current"
     },
     ".pi/skills/frontend-design": {
@@ -286,7 +286,7 @@
       "expectedSha256": "5302fb1270b962bac6aa443ee2b5aff6e857dbf3c0972a7a12a03ff22b29fa2f",
       "marker": ".pi/skills/frontend-design/.aoc-managed",
       "sha256": "5302fb1270b962bac6aa443ee2b5aff6e857dbf3c0972a7a12a03ff22b29fa2f",
-      "source": ".pi/skills/frontend-design",
+      "source": "../.config/aoc/pi/skills/frontend-design",
       "status": "current"
     },
     ".pi/skills/funnel-design": {
@@ -295,7 +295,7 @@
       "expectedSha256": "015c50a2ecd29e00457384aa8a3a17c0731200058685d7478bbdf56ddff54d10",
       "marker": ".pi/skills/funnel-design/.aoc-managed",
       "sha256": "015c50a2ecd29e00457384aa8a3a17c0731200058685d7478bbdf56ddff54d10",
-      "source": ".pi/skills/funnel-design",
+      "source": "../.config/aoc/pi/skills/funnel-design",
       "status": "current"
     },
     ".pi/skills/motion-director": {
@@ -304,7 +304,7 @@
       "expectedSha256": "1bdd885db96bbbd768049dcc2671aa8b3b583698bb2125aae6b256ad127f1ab8",
       "marker": ".pi/skills/motion-director/.aoc-managed",
       "sha256": "1bdd885db96bbbd768049dcc2671aa8b3b583698bb2125aae6b256ad127f1ab8",
-      "source": ".pi/skills/motion-director",
+      "source": "../.config/aoc/pi/skills/motion-director",
       "status": "current"
     },
     ".pi/skills/prd-rpg-authoring": {
@@ -313,7 +313,7 @@
       "expectedSha256": "afafc573d579a6a191a0ecfe7e550d65cdb95958dca51cdba151729666bbd724",
       "marker": ".pi/skills/prd-rpg-authoring/.aoc-managed",
       "sha256": "afafc573d579a6a191a0ecfe7e550d65cdb95958dca51cdba151729666bbd724",
-      "source": ".pi/skills/prd-rpg-authoring",
+      "source": "../.config/aoc/pi/skills/prd-rpg-authoring",
       "status": "current"
     },
     ".pi/skills/rlm-analysis": {
@@ -322,7 +322,7 @@
       "expectedSha256": "7844902bf081428c2a3f4586a69209e0ac30e0ee8e6fe7873c51ff79ba8d6f39",
       "marker": ".pi/skills/rlm-analysis/.aoc-managed",
       "sha256": "7844902bf081428c2a3f4586a69209e0ac30e0ee8e6fe7873c51ff79ba8d6f39",
-      "source": ".pi/skills/rlm-analysis",
+      "source": "../.config/aoc/pi/skills/rlm-analysis",
       "status": "current"
     },
     ".pi/skills/safe-gamification": {
@@ -331,7 +331,7 @@
       "expectedSha256": "a8044d5601d26c3f13bc9bbb09cc6a0d1227b9d74843c5fadf5715a43fdc4500",
       "marker": ".pi/skills/safe-gamification/.aoc-managed",
       "sha256": "a8044d5601d26c3f13bc9bbb09cc6a0d1227b9d74843c5fadf5715a43fdc4500",
-      "source": ".pi/skills/safe-gamification",
+      "source": "../.config/aoc/pi/skills/safe-gamification",
       "status": "current"
     },
     ".pi/skills/spec-rpg-authoring": {
@@ -340,7 +340,7 @@
       "expectedSha256": "834f069461031316226821b6a7175210c1d48ea97e27855ae1280212a074f817",
       "marker": ".pi/skills/spec-rpg-authoring/.aoc-managed",
       "sha256": "834f069461031316226821b6a7175210c1d48ea97e27855ae1280212a074f817",
-      "source": ".pi/skills/spec-rpg-authoring",
+      "source": "../.config/aoc/pi/skills/spec-rpg-authoring",
       "status": "current"
     },
     ".pi/skills/teach-workflow": {
@@ -349,7 +349,7 @@
       "expectedSha256": "5e55b0e184599a7ffc05a4eb3a7bc30ec8f52730aebed22405bacc668e4c2d10",
       "marker": ".pi/skills/teach-workflow/.aoc-managed",
       "sha256": "5e55b0e184599a7ffc05a4eb3a7bc30ec8f52730aebed22405bacc668e4c2d10",
-      "source": ".pi/skills/teach-workflow",
+      "source": "../.config/aoc/pi/skills/teach-workflow",
       "status": "current"
     },
     ".pi/skills/tm-cc": {
@@ -358,7 +358,7 @@
       "expectedSha256": "bf18338a71c856dd9b23188e5dfecfbbe95bb66e2498602af294c1dd7e2482af",
       "marker": ".pi/skills/tm-cc/.aoc-managed",
       "sha256": "bf18338a71c856dd9b23188e5dfecfbbe95bb66e2498602af294c1dd7e2482af",
-      "source": ".pi/skills/tm-cc",
+      "source": "../.config/aoc/pi/skills/tm-cc",
       "status": "current"
     },
     ".pi/skills/vercel-cli": {
@@ -367,7 +367,7 @@
       "expectedSha256": "a07cc0ba54921796bc25de741cbc8b5b19db3d32be5849cff96cf5e321cc37bd",
       "marker": ".pi/skills/vercel-cli/.aoc-managed",
       "sha256": "a07cc0ba54921796bc25de741cbc8b5b19db3d32be5849cff96cf5e321cc37bd",
-      "source": ".pi/skills/vercel-cli",
+      "source": "../.config/aoc/pi/skills/vercel-cli",
       "status": "current"
     },
     ".pi/skills/web-research": {
@@ -376,7 +376,7 @@
       "expectedSha256": "222d73d4a2618639a9eccc821b451141dd86c8ee129f1587687dd940cbdd666e",
       "marker": ".pi/skills/web-research/.aoc-managed",
       "sha256": "222d73d4a2618639a9eccc821b451141dd86c8ee129f1587687dd940cbdd666e",
-      "source": ".pi/skills/web-research",
+      "source": "../.config/aoc/pi/skills/web-research",
       "status": "current"
     },
     ".pi/skills/zellij-theme-ops": {
@@ -385,7 +385,7 @@
       "expectedSha256": "ac76958f7b7a1cd77f694ece848641f9861ff8e33077741bbdea8f36ea396166",
       "marker": ".pi/skills/zellij-theme-ops/.aoc-managed",
       "sha256": "ac76958f7b7a1cd77f694ece848641f9861ff8e33077741bbdea8f36ea396166",
-      "source": ".pi/skills/zellij-theme-ops",
+      "source": "../.config/aoc/pi/skills/zellij-theme-ops",
       "status": "current"
     }
   },
@@ -396,5 +396,5 @@
     "unknown": 0
   },
   "schemaVersion": 1,
-  "updatedAt": "2026-06-10T16:33:59.170209Z"
+  "updatedAt": "2026-06-10T16:44:20.438212Z"
 }

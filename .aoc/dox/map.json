@@ -1,12 +1,31 @@
 {
   "schema": "aoc.dox.v1",
-  "generated_at": "2026-06-09T19:22:14.764474305+00:00",
+  "generated_at": "2026-06-10T17:27:27.870166256+00:00",
   "project_root": "/home/ceii/dev/agent-ops-cockpit",
   "data": {
     "codegraph": {
-      "available": false,
-      "disabled": true,
-      "commands": [],
+      "available": true,
+      "disabled": false,
+      "commands": [
+        {
+          "command": "codegraph status . --json",
+          "status": 0,
+          "success": true,
+          "truncated": false,
+          "stdout_chars": 531,
+          "stderr_chars": 0,
+          "summary": "{\"initialized\":true,\"projectPath\":\"/home/ceii/dev/agent-ops-cockpit\",\"fileCount\":195,\"nodeCount\":7180,\"edgeCount\":21855,\"dbSizeBytes\":25833472,\"backend\":\"node-sqlite\",\"journalMode\":\"wal\",\"nodesByKind\":{\"class\":23,\"constant\":265,\"enum\":149,\"enum_member\":664,\"file\":183,\"function\":2915,\"import\":701,\"interface\":147,\"method\":1249,\"struct\":487,\"trait\":4,\"type_alias\":146,\"variable\":247},\"languages\":[\"javascript\",\"lua\",\"python\",\"rust\",\"typescript\",\"yaml\"],\"pendingChanges\":{\"added\":1,\"modified\":1,\"removed\":0},\"worktreeMismatch\":null}"
+        },
+        {
+          "command": "codegraph files --path . --max-depth 3 --json",
+          "status": 0,
+          "success": true,
+          "truncated": true,
+          "stdout_chars": 25602,
+          "stderr_chars": 0,
+          "summary": "[\n  {\n    \"path\": \".aoc/map/assets/render-mermaid.js\",\n    \"language\": \"javascript\",\n    \"nodeCount\": 1,\n    \"size\": 3237\n  },\n  {\n    \"path\": \".aoc/services/searxng/docker-compose.yml\",\n    \"language\": \"yaml\",\n    \"nodeCount\": 0,\n    \"size\": 228\n  },\n  {\n    \"path\": \".aoc/services/searxng/settings.yml\",\n    \"language\": \"yaml\",\n    \"nodeCount\": 0,\n    \"size\": 420\n  },\n  {\n    \"path\": \".github/FUNDING.yml\",\n    \"language\": \"yaml\",\n    \"nodeCount\": 0,\n    \"size\": 896\n  },\n  {\n    \"path\": \".github/ISSUE_TEMPLATE/bug_report.yml\",\n    \"language\": \"yaml\",\n    \"nodeCount\": 0,\n    \"size\": 1321\n  },\n  {\n    \"path\": \".github/ISSUE_TEMPLATE/config.yml\",\n    \"language\": \"yaml\",\n    \"nodeCount\": 0,\n    \"size\": 332\n  },\n  {\n    \"path\": \".github/ISSUE_TEMPLATE/feature_request.yml\",\n    \"language\": \"yaml\",\n    \"nodeCount\": 0,\n    \"size\": 797\n  },\n  {\n    \"path\": \".github/workflows/ci.yml\",\n    \"language\": \"yaml\",\n    \"nodeCount\": 0,\n    \"size\": 1167\n  },\n  {\n    \"path\": \".github/workflows/installer-smoke.yml\",\n    \"language\": \"yaml\",\n    \"nodeCount\": 0,\n    \"size\": 3715\n  },\n  {\n    \"path\": \".github/workflows/release-installer.yml\",\n    \"language\": \"yaml\",\n    \"nodeCount\": 0,\n    \"size\": 2038\n  },\n  {\n    \"path\": \".omp/extensions/aoc-brand-content.ts\",\n    \"language\": \"typescript\",\n    \"nodeCount\": 20,\n    \"size\": 6688\n  },\n  {\n    \"path\": \".omp/extensions/aoc-codegraph.ts\",\n    \"language\": \"typescript\",\n    \"nodeCount\": 21,\n    \"size\": 9407\n  },\n  {\n    \"path\": \".omp/extensions/aoc-commit.ts\",\n    \"language\": \"typescript\",\n    \"nodeCount\": 10,\n    \"size\": 6840\n  },\n  {\n    \"path\": \".omp/extensions/aoc-dox.ts\",\n    \"language\": \"typescript\",\n    \"nodeCount\": 27,\n    \"size\": 12822\n  },\n  {\n    \"path\": \".omp/extensions/aoc-jj-init.ts\",\n    \"language\": \"typescript\",\n    \"nodeCount\": 9,\n    \"size\": 4859\n  },\n  {\n    \"path\": \".omp/extensions/aoc-mind.ts\",\n    \"language\": \"typescript\",\n    \"nodeCount\": 25,\n    \"size\": 9255\n  },\n  {\n    \"path\": \".omp/extensions/aoc-state.ts\",\n    \"language\": \"typescript\",\n    \"nodeCount\": 12,\n    \"size\": 5980\n  },\n  {\n    \"path\": \".omp/extensions/aoc-web-search.ts\",\n    \"language\": \"typescript\",\n    \"nodeCount\": 22,\n    \"size\": 6783\n  },\n  {\n    \"path\": \".pi/agents/agent-chain.yaml\",\n    \"language\": \"yaml\",\n    \"nodeCount\": 0,\n    \"size\": 2119\n  },\n  {\n    \"path\": \".pi/agents/teams.yaml\",\n    \"language\": \"yaml\",\n    \"nodeCount\": 0,\n    \"size\": 388\n  },\n  {\n    \"path\": \".pi/extensions/aoc-agent-presence.ts\",\n    \"language\": \"typescript\",\n    \"nodeCount\": 30,\n    \"size\": 9607\n  },\n  {\n    \"path\": \".pi/extensions/aoc-codegraph.ts\",\n    \"language\": \"typescript\",\n    \"nodeCount\": 21,\n    \"size\": 9447\n  },\n  {\n    \"path\": \".pi/extensions/aoc-compaction.ts\",\n    \"language\": \"typescript\",\n    \"nodeCount\": 25,\n    \"size\": 14994\n  },\n  {\n    \"path\": \".pi/extensions/aoc-models.ts\",\n    \"language\": \"typescript\",\n    \"nodeCount\": 40,\n    \"size\": 10386\n  },\n  {\n    \"path\": \".pi/extensions/aoc-presets/commands.ts\",\n    \"language\": \"typescript\",\n    \"nodeCount\": 43,\n    \"size\": 24041\n  },\n  {\n    \"path\": \".pi/extensions/aoc-presets/index.ts\",\n    \"language\": \"typescript\",\n    \"nodeCount\": 13,\n    \"size\": 6428\n  },\n  {\n    \"path\": \".pi/extensions/aoc-presets/manifest.ts\",\n    \"language\": \"typescript\",\n    \"nodeCount\": 11,\n    \"size\": 5971\n  },\n  {\n    \"path\": \".pi/extensions/aoc-presets/renderer.ts\",\n    \"language\": \"typescript\",\n    \"nodeCount\": 8,\n    \"size\": 2762\n  },\n  {\n    \"path\": \".pi/extensions/aoc-presets/skill-filters.ts\",\n    \"language\": \"typescript\",\n    \"nodeCount\": 17,\n    \"size\": 3963\n  },\n  {\n    \"path\": \".pi/extensions/aoc-presets/state.ts\",\n    \"language\": \"typescript\",\n    \"nodeCount\": 25,\n    \"size\": 8744\n  },\n  {\n    \"path\": \".pi/extensions/lib/caveman.ts\",\n    \"language\": \"typescript\",\n    \"nodeCount\": 4,\n    \"size\": 250\n  },\n  {\n    \"path\": \".pi/extensions/lib/mind.ts\",\n    \"language\": \"typescript\",\n    \"nodeCount\": 47,\n    \"size\": 21044\n  },\n  {\n    \"path\": \".pi/extensions/mind-context.ts\",\n    \"language\": \"typescript\",\n    \"nodeCount\": 4,\n    \"size\": 1429\n  },\n  {\n    \"path\": \".pi/extensions/mind-focus.ts\",\n    \"language\": \"typescript\",\n    \"nodeCount\": 4,\n    \"size\": 1301\n  },\n  {\n    \"path\": \".pi/extensions/mind-ingest.ts\",\n    \"language\": \"typescript\",\n    \"nodeCount\": 4,\n    \"size\": 1238\n  },\n  {\n    \"path\": \".pi/extensions/mind-ops.ts\",\n    \"language\": \"typescript\",\n    \"nodeCount\": 6,\n    \"size\": 3941\n  },\n  {\n    \"path\": \".pi/extensions/minimal.ts\",\n    \"language\": \"typescript\",\n    \"nodeCount\": 40,\n    \"size\": 15634\n  },\n  {\n    \"path\": \".pi/extensions/subagent.ts\",\n    \"language\": \"typescript\",\n    \"nodeCount\": 203,\n    \"size\": 156427\n  },\n  {\n    \"path\": \".pi/extensions/subagent/artifacts.ts\",\n    \"language\": \"typescript\",\n    \"nodeCount\": 20,\n    \"size\": 9703\n  },\n  {\n    \"path\": \".pi/extensions/subagent/manifests.ts\",\n    \"language\": \"typescript\",\n    \"nodeCount\": 24,\n    \"size\": 10742\n  },\n  {\n    \"path\": \".pi/extensions/subagent/registry.ts\",\n    \"language\": \"typescript\",\n    \"nodeCount\": 27,\n    \"size\": 9714\n  },\n  {\n    \"path\": \".pi/extensions/subagent/shared.ts\",\n    \"language\": \"typescript\",\n    \"nodeCount\": 43,\n    \"size\": 5884\n  },\n  {\n    \"path\": \".pi/extensions/themeMap.ts\",\n    \"language\": \"typescript\",\n    \"nodeCount\": 10,\n    \"size\": 7195\n  },\n  {\n    \"path\": \".pi/packages/pi-multi-auth-aoc/index.ts\",\n    \"language\": \"typescript\",\n    \"nodeCount\": 2,\n    \"size\": 85\n  },\n  {\n    \"path\": \".pi/packages/pi-multi-auth-aoc/scripts/validate-vendored.mjs\",\n    \"language\": \"javascript\",\n    \"nodeCount\": 17,\n    \"size\": 2006\n  },\n  {\n    \"path\": \".pi/packages/pi-multi-auth-aoc/src/account-batch-selection.ts\",\n    \"language\": \"typescript\",\n    \"nodeCount\": 7,\n    \"size\": 2180\n  },\n  {\n    \"path\": \".pi/packages/pi-multi-auth-aoc/src/account-manager.ts\",\n    \"language\": \"typescript\",\n    \"nodeCount\": 156,\n    \"size\": 110610\n  },\n  {\n    \"path\": \".pi/packages/pi-multi-auth-aoc/src/async-buffered-log-writer.ts\",\n    \"language\": \"typescript\",\n    \"nodeCount\": 39,\n    \"size\": 6220\n  },\n  {\n    \"path\": \".pi/packages/pi-multi-auth-aoc/src/auth-writer.ts\",\n    \"language\": \"typescript\",\n    \"nodeCount\": 62,\n    \"size\": 25791\n  },\n  {\n    \"path\": \".pi/packages/pi-multi-auth-aoc/src/balancer/credential-backoff.ts\",\n    \"language\": \"typescript\",\n    \"nodeCount\": 6,\n    \"size\": 1025\n  },\n  {\n    \"path\": \".pi/packages/pi-multi-auth-aoc/src/balancer/global-distributor.ts\",\n    \"language\": \"typescript\",\n    \"nodeCount\": 6,\n    \"size\": 1192\n  },\n  {\n    \"path\": \".pi/packages/pi-multi-auth-aoc/src/balancer/index.ts\",\n    \"language\": \"typescript\",\n    \"nodeCount\": 1,\n    \"size\": 322\n  },\n  {\n    \"path\": \".pi/packages/pi-multi-auth-aoc/src/balancer/key-distributor.ts\",\n    \"language\": \"typescript\",\n    \"nodeCount\": 73,\n    \"size\": 34208\n  },\n  {\n    \"path\": \".pi/packages/pi-multi-auth-aoc/src/balancer/types.ts\",\n    \"language\": \"typescript\",\n    \"nodeCount\": 11,\n    \"size\": 2651\n  },\n  {\n    \"path\": \".pi/packages/pi-multi-auth-aoc/src/balancer/weighted-selector.ts\",\n    \"language\": \"typescript\",\n    \"nodeCount\": 14,\n    \"size\": 6427\n  },\n  {\n    \"path\": \".pi/packages/pi-multi-auth-aoc/src/cascade-state.ts\",\n    \"language\": \"typescript\",\n    \"nodeCount\": 25,\n    \"size\": 6756\n  },\n  {\n    \"path\": \".pi/packages/pi-multi-auth-aoc/src/commands.ts\",\n    \"language\": \"typescript\",\n    \"nodeCount\": 159,\n    \"size\": 85038\n  },\n  {\n    \"path\": \".pi/packages/pi-multi-auth-aoc/src/config.ts\",\n    \"language\": \"typescript\",\n    \"nodeCount\": 47,\n    \"size\": 17225\n  },\n  {\n    \"path\": \".pi/packages/pi-multi-auth-aoc/src/credential-display.ts\",\n    \"language\": \"typescript\",\n    \"nodeCount\": 18,\n    \"size\": 6141\n  },\n  {\n    \"path\": \".pi/packages/pi-multi-auth-aoc/src/debug-logger.ts\",\n    \"language\": \"typescript\",\n    \"nodeCount\": 13,\n    \"size\": 2325\n  },\n  {\n    \"path\": \".pi/packages/pi-multi-auth-aoc/src/error-classifier.ts\",\n    \"language\": \"typescript\",\n    \"nodeCount\": 23,\n    \"size\": 11691\n  },\n  {\n    \"path\": \".pi/packages/pi-multi-auth-aoc/src/failover-chain.ts\",\n    \"language\": \"typescript\",\n    \"nodeCount\": 19,\n    \"size\": 5455\n  },\n  {\n    \"path\": \".pi/packages/pi-multi-auth-aoc/src/file-retry.ts\",\n    \"language\": \"typescript\",\n    \"nodeCount\": 16,\n    \"size\": 5062\n  },\n  {\n    \"path\": \".pi/packages/pi-multi-auth-aoc/src/formatters/bar.ts\",\n    \"language\": \"typescript\",\n    \"nodeCount\": 6,\n    \"size\": 1887\n  },\n  {\n    \"path\": \".pi/packages/pi-multi-auth-aoc/src/formatters/carousel.ts\",\n    \"language\": \"typescript\",\n    \"nodeCount\": 8,\n    \"size\": 3717\n  },\n  {\n    \"path\": \".pi/packages/pi-multi-auth-aoc/src/formatters/charset.ts\",\n    \"language\": \"typescript\",\n    \"nodeCount\": 7,\n    \"size\": 1688\n  },\n  {\n    \"path\": \".pi/packages/pi-multi-auth-aoc/src/formatters/modal-ui.ts\",\n    \"language\": \"typescript\",\n    \"nodeCount\": 12,\n    \"size\": 4857\n  },\n  {\n    \"path\": \".pi/packages/pi-multi-auth-aoc/src/formatters/multi-auth-display.ts\",\n    \"language\": \"typescript\",\n    \"nodeCount\": 11,\n    \"size\": 4572\n  },\n  {\n    \"path\": \".pi/packages/pi-multi-auth-aoc/src/formatters/responsive-modal.ts\",\n    \"language\": \"typescript\",\n    \"nodeCount\": 12,\n    \"size\": 4644\n  },\n  {\n    \"path\": \".pi/packages/pi-multi-auth-aoc/src/formatters/zellij-frame.ts\",\n    \"language\": \"typescript\",\n    \"nodeCount\": 14,\n    \"size\": 5105\n  },\n  {\n    \"path\": \".pi/packages/pi-multi-auth-aoc/src/health-scorer.ts\",\n    \"language\": \"typescript\",\n    \"nodeCount\": 38,\n    \"size\": 11679\n  },\n  {\n    \"path\": \".pi/packages/pi-multi-auth-aoc/src/history-storage.ts\",\n    \"language\": \"typescript\",\n    \"nodeCount\": 39,\n    \"size\": 13740\n  },\n  {\n    \"path\": \".pi/packages/pi-multi-auth-aoc/src/index.ts\",\n    \"language\": \"typescript\",\n    \"nodeCount\": 15,\n    \"size\": 6365\n  },\n  {\n    \"path\": \".pi/packages/pi-multi-auth-aoc/src/modal-visibility.ts\",\n    \"language\": \"typescript\",\n    \"nodeCount\": 9,\n    \"size\": 1003\n  },\n  {\n    \"path\": \".pi/packages/pi-multi-auth-aoc/src/model-entitlements.ts\",\n    \"language\": \"typescript\",\n    \"nodeCount\": 12,\n    \"size\": 2801\n  },\n  {\n    \"path\": \".pi/packages/pi-multi-auth-aoc/src/oauth-compat.ts\",\n    \"language\": \"typescript\",\n    \"nodeCount\": 25,\n    \"size\": 9274\n  },\n  {\n    \"path\": \".pi/packages/pi-multi-auth-aoc/src/oauth-login-flow.ts\",\n    \"language\": \"typescript\",\n    \"nodeCount\": 20,\n    \"size\": 5197\n  },\n  {\n    \"path\": \".pi/packages/pi-multi-auth-aoc/src/oauth-refresh-scheduler.ts\",\n    \"language\": \"typescript\",\n    \"nodeCount\": 29,\n    \"size\": 10221\n  },\n  {\n    \"path\": \".pi/packages/pi-multi-auth-aoc/src/openai-codex-identity.ts\",\n    \"language\": \"typescript\",\n    \"nodeCount\": 9,\n    \"size\": 2114\n  },\n  {\n    \"path\": \".pi/packages/pi-multi-auth-aoc/src/performance-metrics.ts\",\n    \"language\": \"typescript\",\n    \"nodeCount\": 13,\n    \"size\": 1847\n  },\n  {\n    \"path\": \".pi/packages/pi-multi-auth-aoc/src/pool-manager.ts\",\n    \"language\": \"typescript\",\n    \"nodeCount\": 18,\n    \"size\": 6115\n  },\n  {\n    \"path\": \".pi/packages/pi-multi-auth-aoc/src/provider-registry.ts\",\n    \"language\": \"typescript\",\n    \"nodeCount\": 54,\n    \"size\": 19367\n  },\n  {\n    \"path\": \".pi/packages/pi-multi-auth-aoc/src/provider.ts\",\n    \"language\": \"typescript\",\n    \"nodeCount\": 54,\n    \"size\": 31438\n  },\n  {\n    \"path\": \".pi/packages/pi-multi-auth-aoc/src/quota-classifier.ts\",\n    \"language\": \"typescript\",\n    \"nodeCount\": 19,\n    \"size\": 7270\n  },\n  {\n    \"path\": \".pi/packages/pi-multi-auth-aoc/src/rate-limit-headers.ts\",\n    \"language\": \"typescript\",\n    \"nodeCount\": 20,\n    \"size\": 6798\n  },\n  {\n    \"path\": \".pi/packages/pi-multi-auth-aoc/src/rotation-modes.ts\",\n    \"language\": \"typescript\",\n    \"nodeCount\": 8,\n    \"size\": 1118\n  },\n  {\n    \"path\": \".pi/packages/pi-multi-auth-aoc/src/runtime-context.ts\",\n    \"language\": \"typescript\",\n    \"nodeCount\": 7,\n    \"size\": 1465\n  },\n  {\n    \"path\": \".pi/packages/pi-multi-auth-aoc/src/runtime-paths.ts\",\n    \"language\": \"typescript\",\n    \"nodeCount\": 6,\n    \"size\": 565\n  },\n  {\n    \"path\": \".pi/packages/pi-multi-auth-aoc/src/storage.ts\",\n    \"languag\n[truncated]"
+        }
+      ],
       "errors_log": null
     },
     "directories": [
@@ -322,7 +341,6 @@
       ".pi/packages/.aoc-backups/pi-multi-auth-aoc.aoc-dirty-backup.20260531T184127Z/src/formatters",
       ".pi/packages/.aoc-backups/pi-multi-auth-aoc.aoc-dirty-backup.20260531T184127Z/src/usage",
       ".pi/packages/pi-multi-auth-aoc",
-      ".pi/packages/pi-multi-auth-aoc/debug",
       ".pi/packages/pi-multi-auth-aoc/scripts",
       ".pi/packages/pi-multi-auth-aoc/src",
       ".pi/packages/pi-multi-auth-aoc/src/balancer",
@@ -341,6 +359,7 @@
       ".pi/skills/.aoc-backups/aoc-hyperframes.aoc-unmanaged-backup.20260428T172353Z",
       ".pi/skills/.aoc-backups/aoc-hyperframes.aoc-unmanaged-backup.20260428T172353Z/playbooks",
       ".pi/skills/.aoc-backups/aoc-hyperframes.aoc-unmanaged-backup.20260428T172353Z/templates",
+      ".pi/skills/.aoc-backups/aoc-init-ops.aoc-dirty-backup.20260610T164412Z",
       ".pi/skills/.aoc-backups/aoc-init-ops.aoc-unmanaged-backup.20260428T172353Z",
       ".pi/skills/.aoc-backups/aoc-map.aoc-unmanaged-backup.20260428T172354Z",
       ".pi/skills/.aoc-backups/architecture-design.aoc-unmanaged-backup.20260517T075407Z",
@@ -364,6 +383,7 @@
       ".pi/skills/.aoc-backups/rlm-analysis.aoc-unmanaged-backup.20260428T172356Z",
       ".pi/skills/.aoc-backups/safe-gamification.aoc-unmanaged-backup.20260517T075409Z",
       ".pi/skills/.aoc-backups/spec-rpg-authoring.aoc-unmanaged-backup.20260429T084758Z",
+      ".pi/skills/.aoc-backups/teach-workflow.aoc-dirty-backup.20260609T203116Z",
       ".pi/skills/.aoc-backups/teach-workflow.aoc-unmanaged-backup.20260428T172356Z",
       ".pi/skills/.aoc-backups/tm-cc.aoc-unmanaged-backup.20260428T172356Z",
       ".pi/skills/.aoc-backups/vercel-cli.aoc-unmanaged-backup.20260428T172356Z",
@@ -386,6 +406,7 @@
       ".pi/skills/aoc-hyperframes/templates",
       ".pi/skills/aoc-init-ops",
       ".pi/skills/aoc-map",
+      ".pi/skills/aoc-understand",
       ".pi/skills/architecture-design",
       ".pi/skills/custom-layout-ops",
       ".pi/skills/design-diff",
@@ -708,15 +729,15 @@
         "marker": "aoc-managed"
       },
       {
-        "path": ".pi/skills/aoc-hyperframes/.aoc-managed",
+        "path": ".pi/skills/.aoc-backups/teach-workflow.aoc-dirty-backup.20260609T203116Z/.aoc-managed",
+        "marker": "aoc-managed"
+      },
+      {
+        "path": ".pi/skills/.aoc-backups/aoc-init-ops.aoc-dirty-backup.20260610T164412Z/.aoc-managed",
         "marker": "aoc-managed"
       },
       {
         "path": ".pi/skills/aoc-map/.aoc-managed",
-        "marker": "aoc-managed"
-      },
-      {
-        "path": ".pi/skills/custom-layout-ops/.aoc-managed",
         "marker": "aoc-managed"
       },
       {
@@ -772,10 +793,6 @@
         "marker": "aoc-managed"
       },
       {
-        "path": ".pi/skills/teach-workflow/.aoc-managed",
-        "marker": "aoc-managed"
-      },
-      {
         "path": ".pi/skills/tm-cc/.aoc-managed",
         "marker": "aoc-managed"
       },
@@ -785,10 +802,6 @@
       },
       {
         "path": ".pi/skills/web-research/.aoc-managed",
-        "marker": "aoc-managed"
-      },
-      {
-        "path": ".pi/skills/zellij-theme-ops/.aoc-managed",
         "marker": "aoc-managed"
       },
       {
@@ -805,6 +818,26 @@
       },
       {
         "path": ".pi/skills/funnel-design/.aoc-managed",
+        "marker": "aoc-managed"
+      },
+      {
+        "path": ".pi/skills/aoc-hyperframes/.aoc-managed",
+        "marker": "aoc-managed"
+      },
+      {
+        "path": ".pi/skills/aoc-understand/.aoc-managed",
+        "marker": "aoc-managed"
+      },
+      {
+        "path": ".pi/skills/custom-layout-ops/.aoc-managed",
+        "marker": "aoc-managed"
+      },
+      {
+        "path": ".pi/skills/teach-workflow/.aoc-managed",
+        "marker": "aoc-managed"
+      },
+      {
+        "path": ".pi/skills/zellij-theme-ops/.aoc-managed",
         "marker": "aoc-managed"
       },
       {
@@ -855,7 +888,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "specific",
         "status": "ok",
         "candidate_path": ".",
@@ -867,7 +900,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".agents",
@@ -879,7 +912,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".agents/skills",
@@ -891,7 +924,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".aoc",
@@ -903,7 +936,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".aoc/insight",
@@ -915,7 +948,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".aoc/insight/sessions",
@@ -927,7 +960,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".aoc/layouts",
@@ -939,7 +972,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".aoc/logs",
@@ -951,7 +984,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".aoc/map",
@@ -963,7 +996,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".aoc/map/assets",
@@ -975,7 +1008,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".aoc/map/diagrams",
@@ -987,7 +1020,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".aoc/map/pages",
@@ -999,7 +1032,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".aoc/mind",
@@ -1011,7 +1044,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".aoc/mind/insight",
@@ -1023,7 +1056,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".aoc/mind/insight/mind-backfill_20260224T045835Z_b7f28146170d",
@@ -1035,7 +1068,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".aoc/mind/insight/mind-backfill_20260224T045853Z_60ce22c47989",
@@ -1047,7 +1080,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".aoc/mind/insight/mind-backfill_20260224T045913Z_8b882fc6a9e2",
@@ -1059,7 +1092,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".aoc/mind/insight/mind-backfill_20260224T045928Z_449125ade652",
@@ -1071,7 +1104,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".aoc/mind/insight/mind-backfill_20260224T045931Z_4b14909406f0",
@@ -1083,7 +1116,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".aoc/mind/insight/mind-backfill_20260224T051259Z_56e5d0b19991",
@@ -1095,7 +1128,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".aoc/mind/insight/mind-backfill_20260224T052758Z_4d69d8210e07",
@@ -1107,7 +1140,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".aoc/mind/insight/mind-backfill_20260224T054755Z_5942d6a0c3e9",
@@ -1119,7 +1152,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".aoc/mind/insight/mind-backfill_20260224T062154Z_e567ee3b4a75",
@@ -1131,7 +1164,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".aoc/mind/insight/mind-backfill_20260224T063718Z_128bb334e051",
@@ -1143,7 +1176,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".aoc/mind/insight/mind-backfill_20260224T070845Z_8de503c0de7b",
@@ -1155,7 +1188,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".aoc/mind/insight/mind-backfill_20260224T075624Z_efdf3a87fe64",
@@ -1167,7 +1200,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".aoc/mind/insight/mind-backfill_20260224T080520Z_01bfaee0f4d2",
@@ -1179,7 +1212,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".aoc/mind/insight/mind-backfill_20260224T082539Z_f38cd56fae19",
@@ -1191,7 +1224,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".aoc/mind/insight/mind-backfill_20260224T145423Z_238bf64b33e8",
@@ -1203,7 +1236,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".aoc/mind/insight/mind-backfill_20260224T150143Z_f61fbf2df0a3",
@@ -1215,7 +1248,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".aoc/mind/insight/mind-backfill_20260224T150225Z_067b62c1be0c",
@@ -1227,7 +1260,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".aoc/mind/insight/mind-backfill_20260224T150537Z_68fcfdcf9574",
@@ -1239,7 +1272,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".aoc/mind/insight/mind-backfill_20260224T150810Z_7316e5b73a3f",
@@ -1251,7 +1284,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".aoc/mind/insight/mind-backfill_20260225T050626Z_7d7411188dd6",
@@ -1263,7 +1296,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".aoc/mind/insight/mind-backfill_20260225T063536Z_455e723b6153",
@@ -1275,7 +1308,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".aoc/mind/insight/mind-backfill_20260225T142943Z_071f2c3ca4b5",
@@ -1287,7 +1320,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".aoc/mind/insight/mind-backfill_20260225T144418Z_81083ec7d58c",
@@ -1299,7 +1332,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".aoc/mind/insight/mind-backfill_20260225T144804Z_a02ebb039a3a",
@@ -1311,7 +1344,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".aoc/mind/insight/mind-backfill_20260225T151844Z_10ba54fd1a92",
@@ -1323,7 +1356,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".aoc/mind/insight/mind-backfill_20260225T152335Z_2edf1ed0c87d",
@@ -1335,7 +1368,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".aoc/mind/insight/mind-backfill_20260225T153751Z_1441ae59128b",
@@ -1347,7 +1380,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".aoc/mind/insight/mind-backfill_20260226T061219Z_bd366d84b9dd",
@@ -1359,7 +1392,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".aoc/mind/insight/mind-backfill_20260226T064702Z_1b62f8a710ed",
@@ -1371,7 +1404,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".aoc/mind/insight/mind-backfill_20260226T085226Z_71ed284e53fa",
@@ -1383,7 +1416,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".aoc/mind/insight/mind-backfill_20260226T152602Z_0f9e45a6e200",
@@ -1395,7 +1428,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".aoc/mind/insight/mind-backfill_20260227T053100Z_148459e24a53",
@@ -1407,7 +1440,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".aoc/mind/insight/mind-backfill_20260227T064151Z_e04397c7c36e",
@@ -1419,7 +1452,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".aoc/mind/insight/mind-backfill_20260227T082152Z_ad05c07d21c2",
@@ -1431,7 +1464,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".aoc/mind/insight/mind-backfill_20260227T124007Z_96d4cfa70774",
@@ -1443,7 +1476,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".aoc/mind/insight/mind-backfill_20260227T134850Z_bf214ea9292d",
@@ -1455,7 +1488,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".aoc/mind/insight/mind-backfill_20260227T134912Z_f99c63f60f20",
@@ -1467,7 +1500,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".aoc/mind/insight/mind-backfill_20260227T134935Z_4a930d5a000d",
@@ -1479,7 +1512,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".aoc/mind/insight/mind-backfill_20260228T130921Z_db3fd41a9d00",
@@ -1491,7 +1524,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".aoc/mind/insight/mind-backfill_20260228T204451Z_47ca7a526842",
@@ -1503,7 +1536,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".aoc/mind/insight/mind-backfill_20260301T073833Z_056a7f1c5b6e",
@@ -1515,7 +1548,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".aoc/mind/insight/mind-backfill_20260301T091124Z_1a1e13aa5bf3",
@@ -1527,7 +1560,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".aoc/mind/insight/mind-backfill_20260302T063435Z_f5372ed55a7b",
@@ -1539,7 +1572,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".aoc/mind/insight/mind-backfill_20260304T182416Z_8d181b49c7c3",
@@ -1551,7 +1584,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".aoc/mind/insight/mind-backfill_20260308T184746Z_b7857eea4f2a",
@@ -1563,7 +1596,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".aoc/mind/insight/mind-backfill_20260309T100901Z_05c0f7715389",
@@ -1575,7 +1608,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".aoc/mind/insight/mind-backfill_20260310T193948Z_2ec95cb15f65",
@@ -1587,7 +1620,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".aoc/mind/insight/mind-backfill_20260313T092918Z_3df2dff7ff0c",
@@ -1599,7 +1632,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".aoc/mind/insight/mind-backfill_20260315T202951Z_d288fd8528a8",
@@ -1611,7 +1644,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".aoc/mind/insight/mind-backfill_20260317T141455Z_fbfe4c2080ba",
@@ -1623,7 +1656,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".aoc/mind/insight/mind-backfill_20260318T093822Z_80a90f54c38c",
@@ -1635,7 +1668,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".aoc/mind/insight/mind-backfill_20260318T183714Z_124d56855c31",
@@ -1647,7 +1680,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".aoc/mind/insight/mind-backfill_20260318T202650Z_325689923059",
@@ -1659,7 +1692,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".aoc/mind/insight/mind-backfill_20260320T111830Z_ea3775a9091c",
@@ -1671,7 +1704,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".aoc/mind/insight/mind-backfill_20260320T115114Z_2ec6c99b89aa",
@@ -1683,7 +1716,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".aoc/mind/insight/mind-backfill_20260320T120244Z_4c64bdfe7c4d",
@@ -1695,7 +1728,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".aoc/mind/insight/mind-backfill_20260321T094331Z_7554e0659817",
@@ -1707,7 +1740,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".aoc/mind/insight/mind-backfill_20260321T101036Z_aab8a25d0aa7",
@@ -1719,7 +1752,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".aoc/mind/insight/mind-backfill_20260321T103111Z_c730cb41ced3",
@@ -1731,7 +1764,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".aoc/mind/insight/mind-backfill_20260321T110042Z_e89c7efcc9c3",
@@ -1743,7 +1776,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".aoc/mind/insight/mind-backfill_20260323T145218Z_00edfec693c7",
@@ -1755,7 +1788,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".aoc/mind/insight/mind-backfill_20260323T145412Z_a75652ea9306",
@@ -1767,7 +1800,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".aoc/mind/insight/mind-backfill_20260323T170708Z_921364fbccdd",
@@ -1779,7 +1812,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".aoc/mind/insight/mind-backfill_20260324T173423Z_46848af887bd",
@@ -1791,7 +1824,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".aoc/mind/insight/mind-backfill_20260324T184856Z_378dfdd0d7e4",
@@ -1803,7 +1836,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".aoc/mind/insight/mind-backfill_20260326T102140Z_101c3a1634eb",
@@ -1815,7 +1848,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".aoc/mind/insight/mind-backfill_20260326T120419Z_3cc2d04d28a1",
@@ -1827,7 +1860,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".aoc/mind/insight/mind-backfill_20260327T110601Z_c58e2b0425b5",
@@ -1839,7 +1872,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".aoc/mind/insight/mind-backfill_20260329T162732Z_0bfd578d86a3",
@@ -1851,7 +1884,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".aoc/mind/insight/mind-backfill_20260402T073226Z_599fd332ab9d",
@@ -1863,7 +1896,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".aoc/mind/insight/mind-backfill_20260403T073905Z_b65bc399d369",
@@ -1875,7 +1908,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".aoc/mind/insight/mind-backfill_20260403T075416Z_28a57f61a679",
@@ -1887,7 +1920,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".aoc/mind/insight/mind-backfill_20260405T153342Z_71203b3b3f6c",
@@ -1899,7 +1932,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".aoc/mind/insight/mind-backfill_20260405T153629Z_586ac3a4e6fd",
@@ -1911,7 +1944,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".aoc/mind/insight/mind-backfill_20260406T124916Z_1288bca96a2b",
@@ -1923,7 +1956,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".aoc/mind/insight/mind-backfill_20260406T125012Z_8fcf4f602273",
@@ -1935,7 +1968,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".aoc/mind/insight/mind-backfill_20260406T125748Z_aa350434fc8a",
@@ -1947,7 +1980,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".aoc/mind/insight/mind-backfill_20260406T185643Z_2715a8e83269",
@@ -1959,7 +1992,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".aoc/mind/insight/mind-backfill_20260407T193538Z_e3d5f8a5753b",
@@ -1971,7 +2004,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".aoc/mind/insight/mind-backfill_20260409T142140Z_c6d3835a440c",
@@ -1983,7 +2016,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".aoc/mind/insight/mind-backfill_20260409T174204Z_85c371e27ba6",
@@ -1995,7 +2028,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".aoc/mind/insight/mind-backfill_20260409T195016Z_7b25f5bdcd32",
@@ -2007,7 +2040,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".aoc/mind/insight/mind-backfill_20260410T105843Z_52fbcb33010e",
@@ -2019,7 +2052,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".aoc/mind/insight/mind-backfill_20260411T093949Z_e0a9a59715b8",
@@ -2031,7 +2064,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".aoc/mind/insight/mind-backfill_20260411T123053Z_7fdb8cd88e84",
@@ -2043,7 +2076,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".aoc/mind/insight/mind-backfill_20260412T194927Z_aecc979fb3f7",
@@ -2055,7 +2088,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".aoc/mind/insight/mind-backfill_20260412T195807Z_d6f6504db861",
@@ -2067,7 +2100,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".aoc/mind/insight/mind-backfill_20260412T203643Z_a945b261be9f",
@@ -2079,7 +2112,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".aoc/mind/insight/mind-backfill_20260412T204935Z_e2c8d7778e14",
@@ -2091,7 +2124,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".aoc/mind/insight/mind-backfill_20260412T205005Z_7bd7bf2b99e4",
@@ -2103,7 +2136,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".aoc/mind/insight/mind-backfill_20260413T085416Z_1622b88e52e6",
@@ -2115,7 +2148,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".aoc/mind/insight/mind-backfill_20260413T085454Z_f6486e482e15",
@@ -2127,7 +2160,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".aoc/mind/insight/mind-backfill_20260413T090503Z_f0a346ba2e80",
@@ -2139,7 +2172,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".aoc/mind/insight/mind-backfill_20260413T095709Z_3225139e2ef6",
@@ -2151,7 +2184,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".aoc/mind/insight/mind-backfill_20260413T210019Z_2d418ec6f2c0",
@@ -2163,7 +2196,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".aoc/mind/insight/mind-backfill_20260413T212722Z_79ca1341dce2",
@@ -2175,7 +2208,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".aoc/mind/insight/mind-backfill_20260413T212823Z_6f9b82d8f99e",
@@ -2187,7 +2220,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".aoc/mind/insight/mind-backfill_20260416T141852Z_8af1bebcf84b",
@@ -2199,7 +2232,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".aoc/mind/insight/mind-backfill_20260416T141852Z_9d19669a104f",
@@ -2211,7 +2244,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".aoc/mind/insight/mind-backfill_20260418T100103Z_197e6fd66a7e",
@@ -2223,7 +2256,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".aoc/mind/insight/mind-backfill_20260418T100103Z_da43bc8800b6",
@@ -2235,7 +2268,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".aoc/mind/insight/mind-backfill_20260420T143724Z_55724c7c03a4",
@@ -2247,7 +2280,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".aoc/mind/insight/mind-backfill_20260420T143737Z_a8fc7397f7d0",
@@ -2259,7 +2292,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".aoc/mind/insight/mind-backfill_20260420T143743Z_3733d4f34af5",
@@ -2271,7 +2304,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".aoc/mind/insight/mind-backfill_20260420T143930Z_722c15d649a9",
@@ -2283,7 +2316,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".aoc/mind/insight/mind-backfill_20260421T130335Z_2c77995c34c8",
@@ -2295,7 +2328,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".aoc/mind/insight/mind-backfill_20260421T130335Z_f5a127bc3c49",
@@ -2307,7 +2340,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".aoc/mind/insight/mind-backfill_20260421T131649Z_009dfc33b996",
@@ -2319,7 +2352,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".aoc/mind/insight/mind-backfill_20260421T131751Z_1ce094b605a4",
@@ -2331,7 +2364,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".aoc/mind/insight/mind-backfill_20260421T131751Z_fd5afec461d6",
@@ -2343,7 +2376,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".aoc/mind/insight/mind-backfill_20260421T135032Z_479ea005bbfd",
@@ -2355,7 +2388,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".aoc/mind/insight/mind-backfill_20260421T135032Z_e47e1fe6c06c",
@@ -2367,7 +2400,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".aoc/mind/insight/mind-backfill_20260421T135637Z_0bf3ebd00d64",
@@ -2379,7 +2412,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".aoc/mind/insight/mind-backfill_20260421T135637Z_3e875fc28252",
@@ -2391,7 +2424,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".aoc/mind/insight/mind-backfill_20260421T135655Z_1d012f47927a",
@@ -2403,7 +2436,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".aoc/mind/insight/mind-backfill_20260421T135655Z_bdd064ab509b",
@@ -2415,7 +2448,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".aoc/mind/insight/mind-backfill_20260421T135940Z_5158f91a1c30",
@@ -2427,7 +2460,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".aoc/mind/insight/mind-backfill_20260421T135940Z_e329da1eebc9",
@@ -2439,7 +2472,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".aoc/mind/insight/mind-backfill_20260422T134853Z_776802b0cd67",
@@ -2451,7 +2484,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".aoc/mind/insight/mind-backfill_20260422T135536Z_f64494c2fafe",
@@ -2463,7 +2496,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".aoc/mind/insight/mind-backfill_20260422T143058Z_676b09da0e1f",
@@ -2475,7 +2508,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".aoc/mind/insight/mind-backfill_20260422T143058Z_69a6f1a8e7bb",
@@ -2487,7 +2520,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".aoc/mind/insight/mind-backfill_20260422T150414Z_1208599e9ebf",
@@ -2499,7 +2532,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".aoc/mind/insight/mind-backfill_20260422T150414Z_c4e5c4190015",
@@ -2511,7 +2544,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".aoc/mind/insight/mind-backfill_20260422T150603Z_8dbbf70b9701",
@@ -2523,7 +2556,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".aoc/mind/insight/mind-backfill_20260422T150603Z_ee9dc72eccd1",
@@ -2535,7 +2568,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".aoc/mind/insight/mind-backfill_20260422T150826Z_0c7b34127e28",
@@ -2547,7 +2580,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".aoc/mind/insight/mind-backfill_20260422T151457Z_7cec8fa29463",
@@ -2559,7 +2592,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".aoc/mind/insight/mind-backfill_20260422T151457Z_d0a4c57685f1",
@@ -2571,7 +2604,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".aoc/mind/insight/mind-backfill_20260422T170932Z_2ddb5eab7820",
@@ -2583,7 +2616,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".aoc/mind/insight/mind-backfill_20260422T170932Z_bdf7c370d1ce",
@@ -2595,7 +2628,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".aoc/mind/insight/mind-backfill_20260422T171011Z_2fc05f1e41f8",
@@ -2607,7 +2640,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".aoc/mind/insight/mind-backfill_20260422T171011Z_a77c82b13360",
@@ -2619,7 +2652,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".aoc/mind/insight/mind-backfill_20260422T210212Z_0aed8e76217c",
@@ -2631,7 +2664,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".aoc/mind/insight/mind-backfill_20260422T210212Z_c8ff889b511e",
@@ -2643,7 +2676,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".aoc/mind/insight/mind-backfill_20260422T210757Z_331d9586a15c",
@@ -2655,7 +2688,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".aoc/mind/insight/mind-backfill_20260422T210757Z_bc84574c8b79",
@@ -2667,7 +2700,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".aoc/mind/insight/mind-backfill_20260422T212122Z_cdf7fdb8b512",
@@ -2679,7 +2712,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".aoc/mind/insight/mind-backfill_20260422T212122Z_da1211fb17ac",
@@ -2691,7 +2724,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".aoc/mind/insight/mind-backfill_20260424T083709Z_308e8a7e0539",
@@ -2703,7 +2736,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".aoc/mind/insight/mind-backfill_20260424T155449Z_d061b3df057f",
@@ -2715,7 +2748,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".aoc/mind/insight/mind-backfill_20260424T160203Z_97e37267411e",
@@ -2727,7 +2760,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".aoc/mind/insight/mind-backfill_20260424T160203Z_fbb87bfcccf9",
@@ -2739,7 +2772,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".aoc/mind/insight/mind-backfill_20260424T174441Z_bc67ee968790",
@@ -2751,7 +2784,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".aoc/mind/insight/mind-backfill_20260424T174441Z_fccc48fbc850",
@@ -2763,7 +2796,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".aoc/mind/insight/mind-backfill_20260425T143937Z_36539c60a7da",
@@ -2775,7 +2808,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".aoc/mind/insight/mind-backfill_20260425T143937Z_9c1e4a350e03",
@@ -2787,7 +2820,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".aoc/mind/insight/mind-backfill_20260427T090812Z_2fdb47c31bf5",
@@ -2799,7 +2832,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".aoc/mind/insight/mind-backfill_20260427T094525Z_3f70c8eac8f1",
@@ -2811,7 +2844,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".aoc/mind/insight/mind-backfill_20260427T095817Z_465c230c47e4",
@@ -2823,7 +2856,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".aoc/mind/insight/mind-backfill_20260427T095817Z_511fc1d8d102",
@@ -2835,7 +2868,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".aoc/mind/insight/mind-backfill_20260427T101231Z_76cfb13a3056",
@@ -2847,7 +2880,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".aoc/mind/insight/mind-backfill_20260428T163322Z_5755e8d37ae4",
@@ -2859,7 +2892,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".aoc/mind/insight/mind-backfill_20260428T175556Z_9413ad522016",
@@ -2871,7 +2904,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".aoc/mind/insight/mind-backfill_20260429T084818Z_15b5abf27c85",
@@ -2883,7 +2916,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".aoc/mind/insight/mind-backfill_20260506T144654Z_2e3590d6d27a",
@@ -2895,7 +2928,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".aoc/mind/insight/mind-backfill_20260506T152221Z_a78ed21c7a41",
@@ -2907,7 +2940,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".aoc/mind/insight/mind-backfill_20260507T081353Z_03c058647294",
@@ -2919,7 +2952,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".aoc/mind/insight/mind-backfill_20260507T081353Z_961a8aab35ff",
@@ -2931,7 +2964,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".aoc/mind/insight/mind-backfill_20260507T094340Z_0cfa7481ba8a",
@@ -2943,7 +2976,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".aoc/mind/insight/mind-backfill_20260507T101331Z_1e9c607fe7f8",
@@ -2955,7 +2988,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".aoc/mind/insight/mind-backfill_20260513T194136Z_7ef3899158c7",
@@ -2967,7 +3000,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".aoc/mind/insight/mind-backfill_20260513T194451Z_272085e1d942",
@@ -2979,7 +3012,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".aoc/mind/insight/mind-backfill_20260513T194451Z_3d2217e18cd7",
@@ -2991,7 +3024,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".aoc/mind/insight/mind-backfill_20260515T081302Z_e88f68a73593",
@@ -3003,7 +3036,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".aoc/mind/insight/mind-backfill_20260515T081302Z_fecf1318dfe2",
@@ -3015,7 +3048,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".aoc/mind/insight/mind-backfill_20260515T160629Z_ac971a1078c2",
@@ -3027,7 +3060,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".aoc/mind/insight/mind-backfill_20260515T164541Z_009bb2538d05",
@@ -3039,7 +3072,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".aoc/mind/insight/mind-backfill_20260515T164541Z_0802bd8971ce",
@@ -3051,7 +3084,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".aoc/open-design",
@@ -3063,7 +3096,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".aoc/presets",
@@ -3075,7 +3108,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".aoc/presets/.aoc-backups",
@@ -3087,7 +3120,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".aoc/presets/.aoc-backups/design.aoc-dirty-backup.20260517T125757Z",
@@ -3099,7 +3132,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".aoc/presets/.aoc-backups/design.aoc-dirty-backup.20260517T125757Z/components",
@@ -3111,7 +3144,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".aoc/presets/.aoc-backups/design.aoc-unmanaged-backup.20260428T172357Z",
@@ -3123,7 +3156,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".aoc/presets/.aoc-backups/design.aoc-unmanaged-backup.20260428T172357Z/components",
@@ -3135,7 +3168,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".aoc/presets/.aoc-backups/hyperframes.aoc-dirty-backup.20260517T125757Z",
@@ -3147,7 +3180,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".aoc/presets/.aoc-backups/hyperframes.aoc-dirty-backup.20260517T125757Z/components",
@@ -3159,7 +3192,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".aoc/presets/.aoc-backups/hyperframes.aoc-unmanaged-backup.20260428T172357Z",
@@ -3171,7 +3204,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".aoc/presets/.aoc-backups/hyperframes.aoc-unmanaged-backup.20260428T172357Z/components",
@@ -3183,7 +3216,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".aoc/presets/.aoc-backups/ops.aoc-unmanaged-backup.20260517T125757Z",
@@ -3195,7 +3228,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".aoc/presets/.aoc-backups/ops.aoc-unmanaged-backup.20260517T125757Z/components",
@@ -3207,7 +3240,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".aoc/presets/.aoc-backups/research.aoc-unmanaged-backup.20260517T125757Z",
@@ -3219,7 +3252,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".aoc/presets/.aoc-backups/research.aoc-unmanaged-backup.20260517T125757Z/components",
@@ -3231,7 +3264,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".aoc/presets/.aoc-backups/test.aoc-unmanaged-backup.20260523T140701Z",
@@ -3243,7 +3276,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".aoc/presets/.aoc-backups/test.aoc-unmanaged-backup.20260523T140701Z/components",
@@ -3255,7 +3288,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".aoc/presets/design",
@@ -3267,7 +3300,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".aoc/presets/design/components",
@@ -3279,7 +3312,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".aoc/presets/hyperframes",
@@ -3291,7 +3324,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".aoc/presets/hyperframes/components",
@@ -3303,7 +3336,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".aoc/presets/ops",
@@ -3315,7 +3348,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".aoc/presets/ops/components",
@@ -3327,7 +3360,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".aoc/presets/research",
@@ -3339,7 +3372,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".aoc/presets/research/components",
@@ -3351,7 +3384,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".aoc/presets/test",
@@ -3363,7 +3396,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".aoc/presets/test/components",
@@ -3375,7 +3408,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".aoc/prompts",
@@ -3387,7 +3420,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".aoc/prompts-optional",
@@ -3399,7 +3432,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".aoc/prompts-optional/pi",
@@ -3411,7 +3444,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".aoc/prompts/pi",
@@ -3423,7 +3456,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".aoc/services",
@@ -3435,7 +3468,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".aoc/services/searxng",
@@ -3447,7 +3480,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".aoc/skills",
@@ -3459,7 +3492,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".aoc/skills-optional",
@@ -3471,7 +3504,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".aoc/skills-optional/aoc-hyperframes",
@@ -3483,7 +3516,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".aoc/skills-optional/aoc-hyperframes/playbooks",
@@ -3495,7 +3528,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".aoc/skills-optional/aoc-hyperframes/templates",
@@ -3507,7 +3540,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".aoc/skills-optional/gsap",
@@ -3519,7 +3552,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".aoc/skills-optional/hyperframes",
@@ -3531,7 +3564,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".aoc/skills-optional/hyperframes-cli",
@@ -3543,7 +3576,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".aoc/skills-optional/website-to-hyperframes",
@@ -3555,7 +3588,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".aoc/skills/aoc-init-ops",
@@ -3567,7 +3600,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".aoc/skills/prd-rpg-authoring",
@@ -3579,7 +3612,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".aoc/skills/rlm-analysis",
@@ -3591,7 +3624,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".aoc/skills/teach-workflow",
@@ -3603,7 +3636,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".aoc/skills/tm-cc",
@@ -3615,7 +3648,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".aoc/skills/zellij-theme-ops",
@@ -3627,7 +3660,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".aoc/stm",
@@ -3639,7 +3672,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".aoc/stm/archive",
@@ -3651,7 +3684,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".aoc/tools",
@@ -3663,7 +3696,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".aoc/tools/obscura",
@@ -3675,7 +3708,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".github",
@@ -3687,7 +3720,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".github/ISSUE_TEMPLATE",
@@ -3699,7 +3732,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".github/workflows",
@@ -3711,7 +3744,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".omp",
@@ -3723,7 +3756,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".omp/agents",
@@ -3735,7 +3768,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "insufficient",
         "status": "candidate_local_agents",
         "candidate_path": ".omp/extensions",
@@ -3747,7 +3780,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".omp/skills",
@@ -3759,7 +3792,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".omp/skills/aoc-dox-cartography",
@@ -3771,7 +3804,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".pi",
@@ -3783,7 +3816,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".pi/agents",
@@ -3795,7 +3828,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".pi/extensions",
@@ -3807,7 +3840,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".pi/extensions/.aoc-backups",
@@ -3819,7 +3852,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".pi/extensions/.aoc-backups/aoc-presets.aoc-dirty-backup.20260517T125753Z",
@@ -3831,7 +3864,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".pi/extensions/.aoc-backups/aoc-presets.aoc-unmanaged-backup.20260428T172352Z",
@@ -3843,7 +3876,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".pi/extensions/.aoc-backups/subagent.aoc-unmanaged-backup.20260518T141418Z",
@@ -3855,7 +3888,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".pi/extensions/aoc-presets",
@@ -3867,7 +3900,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".pi/extensions/lib",
@@ -3879,7 +3912,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".pi/extensions/subagent",
@@ -3891,7 +3924,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".pi/packages",
@@ -3903,7 +3936,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".pi/packages/.aoc-backups",
@@ -3915,7 +3948,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".pi/packages/.aoc-backups/pi-multi-auth-aoc.aoc-dirty-backup.20260428T172352Z",
@@ -3927,7 +3960,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".pi/packages/.aoc-backups/pi-multi-auth-aoc.aoc-dirty-backup.20260428T172352Z/debug",
@@ -3939,7 +3972,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".pi/packages/.aoc-backups/pi-multi-auth-aoc.aoc-dirty-backup.20260428T172352Z/scripts",
@@ -3951,7 +3984,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".pi/packages/.aoc-backups/pi-multi-auth-aoc.aoc-dirty-backup.20260428T172352Z/src",
@@ -3963,7 +3996,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".pi/packages/.aoc-backups/pi-multi-auth-aoc.aoc-dirty-backup.20260428T172352Z/src/balancer",
@@ -3975,7 +4008,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".pi/packages/.aoc-backups/pi-multi-auth-aoc.aoc-dirty-backup.20260428T172352Z/src/formatters",
@@ -3987,7 +4020,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".pi/packages/.aoc-backups/pi-multi-auth-aoc.aoc-dirty-backup.20260428T172352Z/src/usage",
@@ -3999,7 +4032,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".pi/packages/.aoc-backups/pi-multi-auth-aoc.aoc-dirty-backup.20260428T173228Z",
@@ -4011,7 +4044,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".pi/packages/.aoc-backups/pi-multi-auth-aoc.aoc-dirty-backup.20260428T173228Z/debug",
@@ -4023,7 +4056,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".pi/packages/.aoc-backups/pi-multi-auth-aoc.aoc-dirty-backup.20260428T173228Z/scripts",
@@ -4035,7 +4068,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".pi/packages/.aoc-backups/pi-multi-auth-aoc.aoc-dirty-backup.20260428T173228Z/src",
@@ -4047,7 +4080,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".pi/packages/.aoc-backups/pi-multi-auth-aoc.aoc-dirty-backup.20260428T173228Z/src/balancer",
@@ -4059,7 +4092,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".pi/packages/.aoc-backups/pi-multi-auth-aoc.aoc-dirty-backup.20260428T173228Z/src/formatters",
@@ -4071,7 +4104,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".pi/packages/.aoc-backups/pi-multi-auth-aoc.aoc-dirty-backup.20260428T173228Z/src/usage",
@@ -4083,7 +4116,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".pi/packages/.aoc-backups/pi-multi-auth-aoc.aoc-dirty-backup.20260429T084747Z",
@@ -4095,7 +4128,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".pi/packages/.aoc-backups/pi-multi-auth-aoc.aoc-dirty-backup.20260429T084747Z/debug",
@@ -4107,7 +4140,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".pi/packages/.aoc-backups/pi-multi-auth-aoc.aoc-dirty-backup.20260429T084747Z/scripts",
@@ -4119,7 +4152,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".pi/packages/.aoc-backups/pi-multi-auth-aoc.aoc-dirty-backup.20260429T084747Z/src",
@@ -4131,7 +4164,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".pi/packages/.aoc-backups/pi-multi-auth-aoc.aoc-dirty-backup.20260429T084747Z/src/balancer",
@@ -4143,7 +4176,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".pi/packages/.aoc-backups/pi-multi-auth-aoc.aoc-dirty-backup.20260429T084747Z/src/formatters",
@@ -4155,7 +4188,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".pi/packages/.aoc-backups/pi-multi-auth-aoc.aoc-dirty-backup.20260429T084747Z/src/usage",
@@ -4167,7 +4200,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".pi/packages/.aoc-backups/pi-multi-auth-aoc.aoc-dirty-backup.20260513T151222Z",
@@ -4179,7 +4212,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".pi/packages/.aoc-backups/pi-multi-auth-aoc.aoc-dirty-backup.20260513T151222Z/debug",
@@ -4191,7 +4224,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".pi/packages/.aoc-backups/pi-multi-auth-aoc.aoc-dirty-backup.20260513T151222Z/scripts",
@@ -4203,7 +4236,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".pi/packages/.aoc-backups/pi-multi-auth-aoc.aoc-dirty-backup.20260513T151222Z/src",
@@ -4215,7 +4248,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".pi/packages/.aoc-backups/pi-multi-auth-aoc.aoc-dirty-backup.20260513T151222Z/src/balancer",
@@ -4227,7 +4260,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".pi/packages/.aoc-backups/pi-multi-auth-aoc.aoc-dirty-backup.20260513T151222Z/src/formatters",
@@ -4239,7 +4272,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".pi/packages/.aoc-backups/pi-multi-auth-aoc.aoc-dirty-backup.20260513T151222Z/src/usage",
@@ -4251,7 +4284,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".pi/packages/.aoc-backups/pi-multi-auth-aoc.aoc-dirty-backup.20260523T140653Z",
@@ -4263,7 +4296,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".pi/packages/.aoc-backups/pi-multi-auth-aoc.aoc-dirty-backup.20260523T140653Z/debug",
@@ -4275,7 +4308,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".pi/packages/.aoc-backups/pi-multi-auth-aoc.aoc-dirty-backup.20260523T140653Z/scripts",
@@ -4287,7 +4320,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".pi/packages/.aoc-backups/pi-multi-auth-aoc.aoc-dirty-backup.20260523T140653Z/src",
@@ -4299,7 +4332,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".pi/packages/.aoc-backups/pi-multi-auth-aoc.aoc-dirty-backup.20260523T140653Z/src/balancer",
@@ -4311,7 +4344,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".pi/packages/.aoc-backups/pi-multi-auth-aoc.aoc-dirty-backup.20260523T140653Z/src/formatters",
@@ -4323,7 +4356,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".pi/packages/.aoc-backups/pi-multi-auth-aoc.aoc-dirty-backup.20260523T140653Z/src/usage",
@@ -4335,7 +4368,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".pi/packages/.aoc-backups/pi-multi-auth-aoc.aoc-dirty-backup.20260524T085159Z",
@@ -4347,7 +4380,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".pi/packages/.aoc-backups/pi-multi-auth-aoc.aoc-dirty-backup.20260524T085159Z/debug",
@@ -4359,7 +4392,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".pi/packages/.aoc-backups/pi-multi-auth-aoc.aoc-dirty-backup.20260524T085159Z/scripts",
@@ -4371,7 +4404,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".pi/packages/.aoc-backups/pi-multi-auth-aoc.aoc-dirty-backup.20260524T085159Z/src",
@@ -4383,7 +4416,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".pi/packages/.aoc-backups/pi-multi-auth-aoc.aoc-dirty-backup.20260524T085159Z/src/balancer",
@@ -4395,7 +4428,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".pi/packages/.aoc-backups/pi-multi-auth-aoc.aoc-dirty-backup.20260524T085159Z/src/formatters",
@@ -4407,7 +4440,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".pi/packages/.aoc-backups/pi-multi-auth-aoc.aoc-dirty-backup.20260524T085159Z/src/usage",
@@ -4419,7 +4452,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".pi/packages/.aoc-backups/pi-multi-auth-aoc.aoc-dirty-backup.20260530T135904Z",
@@ -4431,7 +4464,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".pi/packages/.aoc-backups/pi-multi-auth-aoc.aoc-dirty-backup.20260530T135904Z/debug",
@@ -4443,7 +4476,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".pi/packages/.aoc-backups/pi-multi-auth-aoc.aoc-dirty-backup.20260530T135904Z/scripts",
@@ -4455,7 +4488,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".pi/packages/.aoc-backups/pi-multi-auth-aoc.aoc-dirty-backup.20260530T135904Z/src",
@@ -4467,7 +4500,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".pi/packages/.aoc-backups/pi-multi-auth-aoc.aoc-dirty-backup.20260530T135904Z/src/balancer",
@@ -4479,7 +4512,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".pi/packages/.aoc-backups/pi-multi-auth-aoc.aoc-dirty-backup.20260530T135904Z/src/formatters",
@@ -4491,7 +4524,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".pi/packages/.aoc-backups/pi-multi-auth-aoc.aoc-dirty-backup.20260530T135904Z/src/usage",
@@ -4503,7 +4536,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".pi/packages/.aoc-backups/pi-multi-auth-aoc.aoc-dirty-backup.20260531T184127Z",
@@ -4515,7 +4548,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".pi/packages/.aoc-backups/pi-multi-auth-aoc.aoc-dirty-backup.20260531T184127Z/debug",
@@ -4527,7 +4560,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".pi/packages/.aoc-backups/pi-multi-auth-aoc.aoc-dirty-backup.20260531T184127Z/scripts",
@@ -4539,7 +4572,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".pi/packages/.aoc-backups/pi-multi-auth-aoc.aoc-dirty-backup.20260531T184127Z/src",
@@ -4551,7 +4584,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".pi/packages/.aoc-backups/pi-multi-auth-aoc.aoc-dirty-backup.20260531T184127Z/src/balancer",
@@ -4563,7 +4596,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".pi/packages/.aoc-backups/pi-multi-auth-aoc.aoc-dirty-backup.20260531T184127Z/src/formatters",
@@ -4575,7 +4608,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".pi/packages/.aoc-backups/pi-multi-auth-aoc.aoc-dirty-backup.20260531T184127Z/src/usage",
@@ -4587,22 +4620,10 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".pi/packages/pi-multi-auth-aoc",
-        "missing_contracts": []
-      },
-      {
-        "path": ".pi/packages/pi-multi-auth-aoc/debug",
-        "kind": "config",
-        "resolved_agents_chain": [
-          "AGENTS.md"
-        ],
-        "effective_agents_bytes": 6259,
-        "coverage": "root_only",
-        "status": "ok",
-        "candidate_path": ".pi/packages/pi-multi-auth-aoc/debug",
         "missing_contracts": []
       },
       {
@@ -4611,7 +4632,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".pi/packages/pi-multi-auth-aoc/scripts",
@@ -4623,7 +4644,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".pi/packages/pi-multi-auth-aoc/src",
@@ -4635,7 +4656,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".pi/packages/pi-multi-auth-aoc/src/balancer",
@@ -4647,7 +4668,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".pi/packages/pi-multi-auth-aoc/src/formatters",
@@ -4659,7 +4680,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".pi/packages/pi-multi-auth-aoc/src/usage",
@@ -4671,7 +4692,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".pi/prompts",
@@ -4683,7 +4704,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".pi/prompts-optional",
@@ -4695,7 +4716,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".pi/prompts-optional/production-hidden",
@@ -4707,7 +4728,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".pi/prompts/.aoc-backups",
@@ -4719,7 +4740,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".pi/skills",
@@ -4731,7 +4752,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".pi/skills/.aoc-backups",
@@ -4743,7 +4764,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".pi/skills/.aoc-backups/aoc-commit.aoc-unmanaged-backup.20260428T172353Z",
@@ -4755,7 +4776,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".pi/skills/.aoc-backups/aoc-hyperframes.aoc-dirty-backup.20260513T151225Z",
@@ -4767,7 +4788,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".pi/skills/.aoc-backups/aoc-hyperframes.aoc-dirty-backup.20260513T151225Z/playbooks",
@@ -4779,7 +4800,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".pi/skills/.aoc-backups/aoc-hyperframes.aoc-dirty-backup.20260513T151225Z/templates",
@@ -4791,7 +4812,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".pi/skills/.aoc-backups/aoc-hyperframes.aoc-unmanaged-backup.20260428T172353Z",
@@ -4803,7 +4824,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".pi/skills/.aoc-backups/aoc-hyperframes.aoc-unmanaged-backup.20260428T172353Z/playbooks",
@@ -4815,10 +4836,22 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".pi/skills/.aoc-backups/aoc-hyperframes.aoc-unmanaged-backup.20260428T172353Z/templates",
+        "missing_contracts": []
+      },
+      {
+        "path": ".pi/skills/.aoc-backups/aoc-init-ops.aoc-dirty-backup.20260610T164412Z",
+        "kind": "config",
+        "resolved_agents_chain": [
+          "AGENTS.md"
+        ],
+        "effective_agents_bytes": 5977,
+        "coverage": "root_only",
+        "status": "ok",
+        "candidate_path": ".pi/skills/.aoc-backups/aoc-init-ops.aoc-dirty-backup.20260610T164412Z",
         "missing_contracts": []
       },
       {
@@ -4827,7 +4860,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".pi/skills/.aoc-backups/aoc-init-ops.aoc-unmanaged-backup.20260428T172353Z",
@@ -4839,7 +4872,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".pi/skills/.aoc-backups/aoc-map.aoc-unmanaged-backup.20260428T172354Z",
@@ -4851,7 +4884,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".pi/skills/.aoc-backups/architecture-design.aoc-unmanaged-backup.20260517T075407Z",
@@ -4863,7 +4896,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".pi/skills/.aoc-backups/custom-layout-ops.aoc-unmanaged-backup.20260428T172354Z",
@@ -4875,7 +4908,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".pi/skills/.aoc-backups/design-diff.aoc-unmanaged-backup.20260428T172354Z",
@@ -4887,7 +4920,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".pi/skills/.aoc-backups/design-director.aoc-unmanaged-backup.20260428T172354Z",
@@ -4899,7 +4932,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".pi/skills/.aoc-backups/design-handoff.aoc-unmanaged-backup.20260428T172354Z",
@@ -4911,7 +4944,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".pi/skills/.aoc-backups/design-premium-ui.aoc-unmanaged-backup.20260428T172354Z",
@@ -4923,7 +4956,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".pi/skills/.aoc-backups/design-redesign.aoc-unmanaged-backup.20260428T172354Z",
@@ -4935,7 +4968,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".pi/skills/.aoc-backups/design-review.aoc-unmanaged-backup.20260428T172354Z",
@@ -4947,7 +4980,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".pi/skills/.aoc-backups/design-spec.aoc-unmanaged-backup.20260428T172355Z",
@@ -4959,7 +4992,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".pi/skills/.aoc-backups/design-tokens.aoc-unmanaged-backup.20260428T172355Z",
@@ -4971,7 +5004,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".pi/skills/.aoc-backups/enforce-dashboard-ux-guardrails.aoc-unmanaged-backup.20260523T140658Z",
@@ -4983,7 +5016,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".pi/skills/.aoc-backups/frontend-design.aoc-unmanaged-backup.20260513T151231Z",
@@ -4995,7 +5028,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".pi/skills/.aoc-backups/funnel-design.aoc-dirty-backup.20260530T135918Z",
@@ -5007,7 +5040,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".pi/skills/.aoc-backups/funnel-design.aoc-dirty-backup.20260530T135918Z/references",
@@ -5019,7 +5052,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".pi/skills/.aoc-backups/funnel-design.aoc-unmanaged-backup.20260513T151232Z",
@@ -5031,7 +5064,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".pi/skills/.aoc-backups/funnel-design.aoc-unmanaged-backup.20260513T151232Z/references",
@@ -5043,7 +5076,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".pi/skills/.aoc-backups/motion-director.aoc-unmanaged-backup.20260428T172355Z",
@@ -5055,7 +5088,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".pi/skills/.aoc-backups/prd-rpg-authoring.aoc-unmanaged-backup.20260428T172355Z",
@@ -5067,7 +5100,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".pi/skills/.aoc-backups/rlm-analysis.aoc-unmanaged-backup.20260428T172356Z",
@@ -5079,7 +5112,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".pi/skills/.aoc-backups/safe-gamification.aoc-unmanaged-backup.20260517T075409Z",
@@ -5091,10 +5124,22 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".pi/skills/.aoc-backups/spec-rpg-authoring.aoc-unmanaged-backup.20260429T084758Z",
+        "missing_contracts": []
+      },
+      {
+        "path": ".pi/skills/.aoc-backups/teach-workflow.aoc-dirty-backup.20260609T203116Z",
+        "kind": "config",
+        "resolved_agents_chain": [
+          "AGENTS.md"
+        ],
+        "effective_agents_bytes": 5977,
+        "coverage": "root_only",
+        "status": "ok",
+        "candidate_path": ".pi/skills/.aoc-backups/teach-workflow.aoc-dirty-backup.20260609T203116Z",
         "missing_contracts": []
       },
       {
@@ -5103,7 +5148,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".pi/skills/.aoc-backups/teach-workflow.aoc-unmanaged-backup.20260428T172356Z",
@@ -5115,7 +5160,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".pi/skills/.aoc-backups/tm-cc.aoc-unmanaged-backup.20260428T172356Z",
@@ -5127,7 +5172,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".pi/skills/.aoc-backups/vercel-cli.aoc-unmanaged-backup.20260428T172356Z",
@@ -5139,7 +5184,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".pi/skills/.aoc-backups/web-research.aoc-unmanaged-backup.20260428T172357Z",
@@ -5151,7 +5196,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".pi/skills/.aoc-backups/zellij-theme-ops.aoc-unmanaged-backup.20260428T172357Z",
@@ -5163,7 +5208,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".pi/skills/agent-browser",
@@ -5175,7 +5220,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".pi/skills/animejs-core-api",
@@ -5187,7 +5232,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".pi/skills/animejs-core-api/references",
@@ -5199,7 +5244,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".pi/skills/animejs-performance-a11y",
@@ -5211,7 +5256,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".pi/skills/animejs-react-integration",
@@ -5223,7 +5268,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".pi/skills/animejs-reviewer",
@@ -5235,7 +5280,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".pi/skills/animejs-scene-planner",
@@ -5247,7 +5292,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".pi/skills/animejs-scroll-interaction",
@@ -5259,7 +5304,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".pi/skills/animejs-svg-motion",
@@ -5271,7 +5316,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".pi/skills/animejs-text-splitting",
@@ -5283,7 +5328,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".pi/skills/animejs-timelines",
@@ -5295,7 +5340,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".pi/skills/aoc-gaps",
@@ -5307,7 +5352,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".pi/skills/aoc-hyperframes",
@@ -5319,7 +5364,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".pi/skills/aoc-hyperframes/playbooks",
@@ -5331,7 +5376,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".pi/skills/aoc-hyperframes/templates",
@@ -5343,7 +5388,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".pi/skills/aoc-init-ops",
@@ -5355,10 +5400,22 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".pi/skills/aoc-map",
+        "missing_contracts": []
+      },
+      {
+        "path": ".pi/skills/aoc-understand",
+        "kind": "config",
+        "resolved_agents_chain": [
+          "AGENTS.md"
+        ],
+        "effective_agents_bytes": 5977,
+        "coverage": "root_only",
+        "status": "ok",
+        "candidate_path": ".pi/skills/aoc-understand",
         "missing_contracts": []
       },
       {
@@ -5367,7 +5424,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".pi/skills/architecture-design",
@@ -5379,7 +5436,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".pi/skills/custom-layout-ops",
@@ -5391,7 +5448,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".pi/skills/design-diff",
@@ -5403,7 +5460,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".pi/skills/design-director",
@@ -5415,7 +5472,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".pi/skills/design-handoff",
@@ -5427,7 +5484,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".pi/skills/design-premium-ui",
@@ -5439,7 +5496,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".pi/skills/design-redesign",
@@ -5451,7 +5508,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".pi/skills/design-review",
@@ -5463,7 +5520,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".pi/skills/design-spec",
@@ -5475,7 +5532,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".pi/skills/design-tokens",
@@ -5487,7 +5544,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".pi/skills/enforce-dashboard-ux-guardrails",
@@ -5499,7 +5556,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".pi/skills/frontend-design",
@@ -5511,7 +5568,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".pi/skills/funnel-design",
@@ -5523,7 +5580,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".pi/skills/funnel-design/references",
@@ -5535,7 +5592,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".pi/skills/gsap",
@@ -5547,7 +5604,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".pi/skills/hyperframes",
@@ -5559,7 +5616,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".pi/skills/hyperframes-cli",
@@ -5571,7 +5628,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".pi/skills/motion-director",
@@ -5583,7 +5640,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".pi/skills/omarchy-theme-ops",
@@ -5595,7 +5652,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".pi/skills/prd-rpg-authoring",
@@ -5607,7 +5664,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".pi/skills/rlm-analysis",
@@ -5619,7 +5676,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".pi/skills/safe-gamification",
@@ -5631,7 +5688,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".pi/skills/spec-rpg-authoring",
@@ -5643,7 +5700,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".pi/skills/teach-workflow",
@@ -5655,7 +5712,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".pi/skills/tm-cc",
@@ -5667,7 +5724,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".pi/skills/tmcc",
@@ -5679,7 +5736,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".pi/skills/vercel-cli",
@@ -5691,7 +5748,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".pi/skills/web-research",
@@ -5703,7 +5760,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".pi/skills/website-to-hyperframes",
@@ -5715,7 +5772,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".pi/skills/zellij-theme-ops",
@@ -5727,7 +5784,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".pi/tmp",
@@ -5739,7 +5796,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".pi/tmp/subagents",
@@ -5751,7 +5808,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".pi/tmp/subagents/sj_mp5rj3ng_explorer-agent_0ynb8j9y",
@@ -5763,7 +5820,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".pi/tmp/subagents/sj_mp5sn6v0_specialist-core_525tuch0",
@@ -5775,7 +5832,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".pi/tmp/subagents/sj_mp5sn9c2_planner-agent_gx9edlsi",
@@ -5787,7 +5844,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".pi/tmp/subagents/sj_mp5t4wxn_planner-agent_5qxp9fah",
@@ -5799,7 +5856,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".pi/tmp/subagents/sj_mp5t72v3_planner-agent_1dcrt7b4",
@@ -5811,7 +5868,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".pi/tmp/subagents/sj_mp6lxbyx_planner-agent_sk40illa",
@@ -5823,7 +5880,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".pi/tmp/subagents/sj_mp6m84nz_planner-agent_resr5g72",
@@ -5835,7 +5892,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".pi/tmp/subagents/sj_mp6me1ar_planner-agent_djw530d6",
@@ -5847,7 +5904,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".pi/tmp/subagents/sj_mp6ntbtw_planner-agent_a1csku6x",
@@ -5859,7 +5916,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".pi/tmp/subagents/sj_mp6o6204_planner-agent_pk8gvndf",
@@ -5871,7 +5928,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".pi/tmp/subagents/sj_mp72g5tj_planner-agent_g6bhi7tm",
@@ -5883,7 +5940,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".pi/tmp/subagents/sj_mp740523_planner-agent_2ni71d0u",
@@ -5895,7 +5952,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".pi/tmp/subagents/sj_mpf94y1e_explorer-agent_5mut0t4s",
@@ -5907,7 +5964,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".pi/tmp/subagents/sj_mph75433_code-review-agent_atrw4but",
@@ -5919,7 +5976,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".taskmaster",
@@ -5931,7 +5988,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".taskmaster/docs",
@@ -5943,7 +6000,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".taskmaster/docs/prds",
@@ -5955,7 +6012,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".taskmaster/docs/specs",
@@ -5967,7 +6024,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".taskmaster/reports",
@@ -5979,7 +6036,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".taskmaster/tasks",
@@ -5991,7 +6048,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": ".taskmaster/templates",
@@ -6003,7 +6060,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "insufficient",
         "status": "candidate_local_agents",
         "candidate_path": "bin",
@@ -6015,7 +6072,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "insufficient",
         "status": "candidate_local_agents",
         "candidate_path": "bin/__pycache__",
@@ -6027,7 +6084,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": "config",
@@ -6039,7 +6096,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": "crates",
@@ -6051,7 +6108,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": "crates/.aoc",
@@ -6063,7 +6120,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": "crates/.aoc/logs",
@@ -6075,7 +6132,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": "crates/.taskmaster",
@@ -6087,7 +6144,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": "crates/aoc-agent-wrap-rs",
@@ -6099,7 +6156,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "insufficient",
         "status": "candidate_local_agents",
         "candidate_path": "crates/aoc-agent-wrap-rs/src",
@@ -6111,7 +6168,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "insufficient",
         "status": "candidate_local_agents",
         "candidate_path": "crates/aoc-cli",
@@ -6123,7 +6180,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": "crates/aoc-cli/assets",
@@ -6135,7 +6192,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "insufficient",
         "status": "candidate_local_agents",
         "candidate_path": "crates/aoc-cli/src",
@@ -6147,7 +6204,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": "crates/aoc-control",
@@ -6159,7 +6216,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "insufficient",
         "status": "candidate_local_agents",
         "candidate_path": "crates/aoc-control/src",
@@ -6171,7 +6228,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": "crates/aoc-core",
@@ -6183,7 +6240,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "insufficient",
         "status": "candidate_local_agents",
         "candidate_path": "crates/aoc-core/src",
@@ -6195,7 +6252,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": "crates/aoc-hub-rs",
@@ -6207,7 +6264,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "insufficient",
         "status": "candidate_local_agents",
         "candidate_path": "crates/aoc-hub-rs/src",
@@ -6219,7 +6276,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": "crates/aoc-installer",
@@ -6231,7 +6288,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "insufficient",
         "status": "candidate_local_agents",
         "candidate_path": "crates/aoc-installer/src",
@@ -6243,7 +6300,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": "crates/aoc-mind",
@@ -6255,7 +6312,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "insufficient",
         "status": "candidate_local_agents",
         "candidate_path": "crates/aoc-mind/src",
@@ -6267,7 +6324,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "insufficient",
         "status": "candidate_local_agents",
         "candidate_path": "crates/aoc-mind/src/bin",
@@ -6279,7 +6336,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": "crates/aoc-mind/tests",
@@ -6291,7 +6348,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": "crates/aoc-mission-control",
@@ -6303,7 +6360,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "insufficient",
         "status": "candidate_local_agents",
         "candidate_path": "crates/aoc-mission-control/src",
@@ -6315,7 +6372,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": "crates/aoc-opencode-adapter",
@@ -6327,7 +6384,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "insufficient",
         "status": "candidate_local_agents",
         "candidate_path": "crates/aoc-opencode-adapter/src",
@@ -6339,7 +6396,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": "crates/aoc-pi-adapter",
@@ -6351,7 +6408,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "insufficient",
         "status": "candidate_local_agents",
         "candidate_path": "crates/aoc-pi-adapter/src",
@@ -6363,7 +6420,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": "crates/aoc-segment-routing",
@@ -6375,7 +6432,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "insufficient",
         "status": "candidate_local_agents",
         "candidate_path": "crates/aoc-segment-routing/src",
@@ -6387,7 +6444,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": "crates/aoc-storage",
@@ -6399,7 +6456,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": "crates/aoc-storage/migrations",
@@ -6411,7 +6468,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "insufficient",
         "status": "candidate_local_agents",
         "candidate_path": "crates/aoc-storage/src",
@@ -6423,7 +6480,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": "crates/aoc-task-attribution",
@@ -6435,7 +6492,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "insufficient",
         "status": "candidate_local_agents",
         "candidate_path": "crates/aoc-task-attribution/src",
@@ -6447,7 +6504,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": "crates/aoc-taskmaster",
@@ -6459,7 +6516,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "insufficient",
         "status": "candidate_local_agents",
         "candidate_path": "crates/aoc-taskmaster/src",
@@ -6471,7 +6528,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": "crates/aoc-yazi-mermaid",
@@ -6483,7 +6540,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "insufficient",
         "status": "candidate_local_agents",
         "candidate_path": "crates/aoc-yazi-mermaid/src",
@@ -6495,7 +6552,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": "docs",
@@ -6507,7 +6564,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": "docs/archive",
@@ -6519,7 +6576,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": "docs/archive/research",
@@ -6531,7 +6588,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": "docs/assets",
@@ -6543,7 +6600,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": "docs/maintainer",
@@ -6555,7 +6612,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": "docs/operator",
@@ -6567,7 +6624,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": "docs/reference",
@@ -6579,7 +6636,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": "docs/security",
@@ -6591,7 +6648,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": "herdr",
@@ -6603,7 +6660,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": "install",
@@ -6615,7 +6672,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": "legacy",
@@ -6627,7 +6684,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": "legacy/opencode",
@@ -6639,7 +6696,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": "legacy/opencode/config",
@@ -6651,7 +6708,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": "legacy/opencode/scripts",
@@ -6663,7 +6720,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": "lib",
@@ -6675,7 +6732,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": "lib/aoc_cleanup",
@@ -6687,7 +6744,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": "lib/aoc_cleanup/__pycache__",
@@ -6699,7 +6756,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": "micro",
@@ -6711,7 +6768,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": "scripts",
@@ -6723,7 +6780,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": "scripts/pi",
@@ -6735,7 +6792,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": "scripts/pi/__pycache__",
@@ -6747,7 +6804,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": "shellcheck-v0.10.0",
@@ -6759,7 +6816,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": "vendor",
@@ -6771,7 +6828,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": "yazi",
@@ -6783,7 +6840,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": "yazi/plugins",
@@ -6795,7 +6852,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": "yazi/plugins/aoc-help-exit.yazi",
@@ -6807,7 +6864,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": "yazi/plugins/aoc-help-toggle.yazi",
@@ -6819,7 +6876,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": "yazi/plugins/aoc-mermaid-open.yazi",
@@ -6831,7 +6888,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": "yazi/plugins/aoc-mermaid.yazi",
@@ -6843,7 +6900,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": "yazi/plugins/aoc-open-explorer.yazi",
@@ -6855,7 +6912,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": "yazi/plugins/aoc-open.yazi",
@@ -6867,7 +6924,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": "yazi/plugins/aoc-pane-toggle.yazi",
@@ -6879,7 +6936,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": "yazi/plugins/aoc-title.yazi",
@@ -6891,7 +6948,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": "zellij",
@@ -6903,7 +6960,7 @@
         "resolved_agents_chain": [
           "AGENTS.md"
         ],
-        "effective_agents_bytes": 6259,
+        "effective_agents_bytes": 5977,
         "coverage": "root_only",
         "status": "ok",
         "candidate_path": "zellij/layouts",

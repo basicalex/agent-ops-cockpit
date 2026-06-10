@@ -1,6 +1,6 @@
 {
   "schema": "aoc.dox.v1",
-  "generated_at": "2026-06-09T19:22:14.764503713+00:00",
+  "generated_at": "2026-06-10T17:27:27.870187245+00:00",
   "project_root": "/home/ceii/dev/agent-ops-cockpit",
   "data": {
     "candidates": [
@@ -4365,20 +4365,6 @@
         "target_agents_path": null
       },
       {
-        "path": ".pi/packages/pi-multi-auth-aoc/debug",
-        "decision": "reject",
-        "score": 1,
-        "confidence": 0.45,
-        "reason": "below min_score",
-        "contracts": [],
-        "risks": [
-          "high-risk invariant"
-        ],
-        "verification": [],
-        "evidence": [],
-        "target_agents_path": null
-      },
-      {
         "path": ".pi/packages/pi-multi-auth-aoc/scripts",
         "decision": "reject",
         "score": 1,
@@ -4618,6 +4604,20 @@
       },
       {
         "path": ".pi/skills/.aoc-backups/aoc-hyperframes.aoc-unmanaged-backup.20260428T172353Z/templates",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".pi/skills/.aoc-backups/aoc-init-ops.aoc-dirty-backup.20260610T164412Z",
         "decision": "reject",
         "score": 1,
         "confidence": 0.45,
@@ -4953,6 +4953,20 @@
         "target_agents_path": null
       },
       {
+        "path": ".pi/skills/.aoc-backups/teach-workflow.aoc-dirty-backup.20260609T203116Z",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
         "path": ".pi/skills/.aoc-backups/teach-workflow.aoc-unmanaged-backup.20260428T172356Z",
         "decision": "reject",
         "score": 1,
@@ -5248,6 +5262,20 @@
       },
       {
         "path": ".pi/skills/aoc-map",
+        "decision": "reject",
+        "score": 1,
+        "confidence": 0.45,
+        "reason": "below min_score",
+        "contracts": [],
+        "risks": [
+          "high-risk invariant"
+        ],
+        "verification": [],
+        "evidence": [],
+        "target_agents_path": null
+      },
+      {
+        "path": ".pi/skills/aoc-understand",
         "decision": "reject",
         "score": 1,
         "confidence": 0.45,

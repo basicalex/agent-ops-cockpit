@@ -1,6 +1,6 @@
 aoc-managed: true
 asset: skill/prd-rpg-authoring
 asset-version: 3
-source: .pi/skills/prd-rpg-authoring
+source: ../.config/aoc/pi/skills/prd-rpg-authoring
 sha256: afafc573d579a6a191a0ecfe7e550d65cdb95958dca51cdba151729666bbd724
-updated-at: 2026-06-10T16:33:54Z
+updated-at: 2026-06-10T16:44:16Z
