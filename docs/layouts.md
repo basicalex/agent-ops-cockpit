@@ -86,7 +86,7 @@ aoc-new-tab --layout review
 
 A dedicated agent skill is also available at:
 
-- `.pi/skills/custom-layout-ops/SKILL.md`
+- retired custom-layout skill
 
 ## Context injection
 

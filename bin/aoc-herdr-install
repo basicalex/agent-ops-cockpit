@@ -6,31 +6,34 @@ config_src="$repo_root/herdr/config.toml"
 config_dir="${XDG_CONFIG_HOME:-$HOME/.config}/herdr"
 config_dst="$config_dir/config.toml"
 hypr_bindings="${XDG_CONFIG_HOME:-$HOME/.config}/hypr/bindings.lua"
-omp_extension_dir="${PI_CODING_AGENT_DIR:-$HOME/.omp/agent}/extensions"
-omp_agent_dir="${PI_CODING_AGENT_DIR:-$HOME/.omp/agent}/agents"
-omp_skill_dir="${PI_CODING_AGENT_DIR:-$HOME/.omp/agent}/skills"
-omp_extensions=(
-  aoc-codegraph.ts
-  aoc-mind.ts
-  aoc-commit.ts
-  aoc-dox.ts
-  aoc-jj-init.ts
-  aoc-brand-content.ts
-  aoc-web-search.ts
-)
-omp_agents=(
-  brand-strategy.md
-  brand-concept.md
-  svg-asset.md
-  hyperframes-content.md
-  dox-scout.md
-  dox-mapper.md
-  dox-critic.md
-  dox-writer.md
-)
-omp_skills=(
-  aoc-dox-cartography
-)
+omp_extension_dir="${AOC_OMP_AGENT_DIR:-$HOME/.omp/agent}/extensions"
+omp_agent_dir="${AOC_OMP_AGENT_DIR:-$HOME/.omp/agent}/agents"
+omp_skill_dir="${AOC_OMP_AGENT_DIR:-$HOME/.omp/agent}/skills"
+read_omp_manifest_list() {
+  local key="$1"
+  python3 - "$repo_root/.omp/manifest.toml" "$key" <<'PY'
+import sys
+import tomllib
+from pathlib import Path
+
+manifest = Path(sys.argv[1])
+key = sys.argv[2]
+try:
+    data = tomllib.loads(manifest.read_text())
+    values = data[key]
+    if not isinstance(values, list) or not all(isinstance(value, str) for value in values):
+        raise TypeError(f"{key} must be a list of strings")
+except Exception as exc:
+    print(f"invalid OMP manifest {manifest}: {exc}", file=sys.stderr)
+    sys.exit(2)
+for value in values:
+    print(value)
+PY
+}
+
+mapfile -t omp_extensions < <(read_omp_manifest_list extensions)
+mapfile -t omp_agents < <(read_omp_manifest_list agents)
+mapfile -t omp_skills < <(read_omp_manifest_list skills)
 install_voxtype_lexicon() {
   local voxtype_bin="aoc-voxtype-setup"
   if [[ -x "$repo_root/bin/aoc-voxtype-setup" ]]; then
@@ -74,8 +77,9 @@ Install the lean Herdr-first AOC workspace config and OMP-native AOC tools.
 
 This installs the Herdr config baseline, Herdr OMP integration, AOC OMP
 extensions such as CodeGraph, /commit, /brand-content, and AOC OMP specialist
-agent templates. It does not install Zellij layouts, the AOC top bar, AOC Mind,
-or AOC subagent/Mission Control assets.
+agent templates. It installs the read-only AOC Mind OMP extension, but does not
+install legacy Mind cockpit/runtime assets, Zellij layouts, the AOC top bar, or
+AOC subagent/Mission Control assets.
 EOF
 }
 
@@ -177,13 +181,6 @@ for agent_name in "${omp_agents[@]}"; do
   fi
 done
 install_voxtype_lexicon
-patch_bin="aoc-omp-patch"
-if [[ -x "$repo_root/bin/aoc-omp-patch" ]]; then
-  patch_bin="$repo_root/bin/aoc-omp-patch"
-fi
-if ! "$patch_bin" --quiet; then
-  echo "Warning: aoc-omp-patch failed; continuing with unpatched OMP footer" >&2
-fi
 
 
 

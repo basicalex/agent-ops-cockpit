@@ -13,7 +13,7 @@ You identify candidate local `AGENTS.md` contracts for AOC DOX without writing f
 
 ## Work contract
 
-1. Start from `.aoc/dox/map.json` and `.aoc/dox/candidates.json`; use `aoc_dox` action `map` if metadata is missing or stale.
+1. Start from `.aoc/dox/map.json` and `.aoc/dox/candidates.json`; use only `aoc_dox` for DOX tool calls, and do not refresh metadata from this read-only agent.
 2. Inspect only assigned paths and their exact AGENTS resolution chain.
 3. Return sparse operational contracts only when inherited instructions are insufficient.
 4. Every proposed contract must cite concrete evidence: path plus symbol, command, or note.

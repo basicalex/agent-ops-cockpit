@@ -4679,11 +4679,11 @@ fn settings_detail_lines(app: &App) -> Vec<Line<'static>> {
                     }
                 )));
                 lines.push(Line::from(
-                    "Manage global auto-compaction presets written to ~/.pi/agent/settings.json.",
+                    "Legacy Pi compaction preset writing is retired; configure OMP runtime directly.",
                 ));
                 if app.pi_compaction_status.project_override {
                     lines.push(Line::from(
-                        "Project override detected in .pi/settings.json for this repo.",
+                        "Legacy project Pi compaction override detected; it is ignored by OMP.",
                     ));
                 }
                 lines.push(Line::from("Enter opens preset + refresh actions."));
@@ -4722,7 +4722,7 @@ fn settings_detail_lines(app: &App) -> Vec<Line<'static>> {
                 lines.push(Line::from(""));
                 lines.push(Line::from(format!("Status: {}", aoc_map_summary())));
                 lines.push(Line::from(
-                    "Enter syncs .pi/skills/aoc-map/SKILL.md and runs 'aoc-map init' in the current repo (.aoc/map workspace).",
+                    "Enter syncs .omp/skills/aoc-map/SKILL.md and runs 'aoc-map init' in the current repo (.aoc/map workspace).",
                 ));
                 lines.push(Line::from(
                     "Use this to ensure both the agent skill and the project-local visualization microsite shell exist.",
@@ -4785,7 +4785,7 @@ fn settings_detail_lines(app: &App) -> Vec<Line<'static>> {
                     }
                 )));
                 lines.push(Line::from(
-                    "Enter opens preset choices for global ~/.pi/agent/settings.json.",
+                    "Legacy Pi compaction preset writing is retired.",
                 ));
                 lines.push(Line::from(
                     "Preset labels and reserve-token values are computed from the selected context window.",
@@ -4799,7 +4799,7 @@ fn settings_detail_lines(app: &App) -> Vec<Line<'static>> {
                 ));
                 if app.pi_compaction_status.project_override {
                     lines.push(Line::from(
-                        "This repo has a .pi/settings.json compaction override.",
+                        "This repo has a retired Pi settings file; OMP ignores it.",
                     ));
                 }
             }
@@ -4885,7 +4885,7 @@ fn settings_detail_lines(app: &App) -> Vec<Line<'static>> {
                     }
                 )));
                 lines.push(Line::from(
-                    "Enter syncs .pi/skills/agent-browser/SKILL.md from upstream.",
+                    "Legacy agent-browser skill sync is retired; use OMP/browser and web-search tools.",
                 ));
             }
             2 => {
@@ -4900,7 +4900,7 @@ fn settings_detail_lines(app: &App) -> Vec<Line<'static>> {
                     }
                 )));
                 lines.push(Line::from(
-                    "Enter writes .pi/skills/web-research/SKILL.md into the current repo.",
+                    "Legacy web-research skill sync is retired; use OMP web-search tooling.",
                 ));
                 lines.push(Line::from(
                     "Use this alongside managed local search so agents can follow a search-first, browse-second workflow.",
@@ -5096,7 +5096,7 @@ fn settings_detail_lines(app: &App) -> Vec<Line<'static>> {
                     }
                 )));
                 lines.push(Line::from(
-                    "Enter writes .pi/skills/vercel-cli/SKILL.md into the current repo.",
+                    "Legacy Vercel skill sync is retired; use project docs or OMP skills.",
                 ));
                 lines.push(Line::from(
                     "The skill documents deploy, env, domains, logs, projects, teams, and safety patterns.",
@@ -6041,7 +6041,7 @@ fn probe_agent_browser_runtime_ready() -> bool {
 }
 
 fn agent_browser_skill_installed() -> bool {
-    project_relative_exists(".pi/skills/agent-browser/SKILL.md")
+    false
 }
 
 fn agent_browser_summary_with_runtime(runtime_checked: bool, runtime_ready: bool) -> String {
@@ -6691,95 +6691,16 @@ fn enable_managed_search() -> io::Result<String> {
 }
 
 fn web_research_skill_installed() -> bool {
-    project_relative_exists(".pi/skills/web-research/SKILL.md")
+    false
 }
 
 fn install_web_research_skill() -> io::Result<String> {
-    let Some(project_root) = project_root_path() else {
-        return Err(io::Error::other("unable to resolve project root"));
-    };
-
-    let target_dir = project_root.join(".pi").join("skills").join("web-research");
-    fs::create_dir_all(&target_dir)?;
-    let target_file = target_dir.join("SKILL.md");
-    fs::write(
-        &target_file,
-        include_str!("../../../.pi/skills/web-research/SKILL.md"),
-    )?;
-
-    Ok(format!(
-        "Synced web research skill ({})",
-        target_file.to_string_lossy()
-    ))
+    Err(io::Error::other("legacy web-research skill sync has been retired; use OMP web-search tooling"))
 }
 
-fn agent_browser_skill_url() -> String {
-    env::var("AOC_AGENT_BROWSER_SKILL_URL")
-        .ok()
-        .filter(|value| !value.trim().is_empty())
-        .unwrap_or_else(|| {
-            "https://raw.githubusercontent.com/vercel-labs/agent-browser/main/skills/agent-browser/SKILL.md"
-                .to_string()
-        })
-}
 
 fn install_agent_browser_skill() -> io::Result<String> {
-    let Some(project_root) = project_root_path() else {
-        return Err(io::Error::new(
-            io::ErrorKind::Other,
-            "unable to resolve project root",
-        ));
-    };
-
-    let target_dir = project_root
-        .join(".pi")
-        .join("skills")
-        .join("agent-browser");
-    fs::create_dir_all(&target_dir)?;
-    let target_file = target_dir.join("SKILL.md");
-    let url = agent_browser_skill_url();
-
-    let output = if binary_in_path("curl") {
-        Command::new("curl")
-            .args([
-                "-fsSL",
-                "--connect-timeout",
-                "10",
-                "--max-time",
-                "120",
-                &url,
-                "-o",
-                &target_file.to_string_lossy(),
-            ])
-            .output()?
-    } else if binary_in_path("wget") {
-        Command::new("wget")
-            .args([
-                "-q",
-                "--timeout=10",
-                "-O",
-                &target_file.to_string_lossy(),
-                &url,
-            ])
-            .output()?
-    } else {
-        return Err(io::Error::new(
-            io::ErrorKind::Other,
-            "curl or wget is required to install Agent Browser skill",
-        ));
-    };
-
-    if !output.status.success() {
-        return Err(command_failure(
-            &format!("download agent-browser skill from {url}"),
-            &output,
-        ));
-    }
-
-    Ok(format!(
-        "Synced Agent Browser skill ({})",
-        target_file.to_string_lossy()
-    ))
+    Err(io::Error::other("legacy agent-browser skill sync has been retired; use OMP browser/web-search tools"))
 }
 
 fn vercel_bin_name() -> String {
@@ -6794,7 +6715,7 @@ fn vercel_installed() -> bool {
 }
 
 fn vercel_skill_installed() -> bool {
-    project_relative_exists(".pi/skills/vercel-cli/SKILL.md")
+    false
 }
 
 fn vercel_auth_configured() -> bool {
@@ -6825,22 +6746,7 @@ fn vercel_summary() -> String {
 }
 
 fn install_vercel_skill() -> io::Result<String> {
-    let Some(project_root) = project_root_path() else {
-        return Err(io::Error::other("unable to resolve project root"));
-    };
-
-    let target_dir = project_root.join(".pi").join("skills").join("vercel-cli");
-    fs::create_dir_all(&target_dir)?;
-    let target_file = target_dir.join("SKILL.md");
-    fs::write(
-        &target_file,
-        include_str!("../../../.pi/skills/vercel-cli/SKILL.md"),
-    )?;
-
-    Ok(format!(
-        "Synced Vercel skill ({})",
-        target_file.to_string_lossy()
-    ))
+    Err(io::Error::other("legacy Vercel skill sync has been retired; use OMP skills or project docs"))
 }
 
 fn default_vercel_install_cmd() -> String {
@@ -6907,7 +6813,7 @@ fn verify_vercel_cli() -> io::Result<String> {
 }
 
 fn aoc_map_skill_installed() -> bool {
-    project_relative_exists(".pi/skills/aoc-map/SKILL.md")
+    project_relative_exists(".omp/skills/aoc-map/SKILL.md")
 }
 
 fn install_aoc_map_skill() -> io::Result<String> {
@@ -6915,12 +6821,12 @@ fn install_aoc_map_skill() -> io::Result<String> {
         return Err(io::Error::other("unable to resolve project root"));
     };
 
-    let target_dir = project_root.join(".pi").join("skills").join("aoc-map");
+    let target_dir = project_root.join(".omp").join("skills").join("aoc-map");
     fs::create_dir_all(&target_dir)?;
     let target_file = target_dir.join("SKILL.md");
     fs::write(
         &target_file,
-        include_str!("../../../.pi/skills/aoc-map/SKILL.md"),
+        include_str!("../../../.omp/skills/aoc-map/SKILL.md"),
     )?;
 
     Ok(format!(
@@ -7015,7 +6921,7 @@ fn aoc_understand_installed() -> bool {
 }
 
 fn aoc_understand_skill_installed() -> bool {
-    project_relative_exists(".pi/skills/aoc-understand/SKILL.md")
+    project_relative_exists(".omp/skills/aoc-understand/SKILL.md")
 }
 
 fn aoc_understand_summary() -> String {
@@ -7070,12 +6976,12 @@ fn hyperframes_summary() -> String {
     } else {
         "workspace missing"
     };
-    let prompt = if project_relative_exists(".pi/prompts/hyperframes.md") {
+    let prompt = if project_relative_exists(".omp/skills/aoc-hyperframes/SKILL.md") {
         "prompt present"
     } else {
         "prompt missing"
     };
-    let skills = if project_relative_is_dir(".pi/skills/hyperframes") {
+    let skills = if project_relative_is_dir(".omp/skills/hyperframes") {
         "skills present"
     } else {
         "skills missing"
@@ -7817,14 +7723,14 @@ fn save_pi_compaction_status(status: &PiCompactionStatus) -> io::Result<()> {
 }
 
 fn pi_global_settings_path() -> PathBuf {
-    home_dir().join(".pi/agent/settings.json")
+    home_dir().join(".omp/agent/config.yml")
 }
 
 fn project_pi_compaction_override_exists() -> bool {
     let Some(project_root) = find_project_root() else {
         return false;
     };
-    let path = project_root.join(".pi/settings.json");
+    let path = project_root.join(".omp/agent/config.yml");
     let Ok(contents) = fs::read_to_string(path) else {
         return false;
     };

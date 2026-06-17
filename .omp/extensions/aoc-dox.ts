@@ -1,5 +1,4 @@
-import { spawn } from "node:child_process";
-import * as path from "node:path";
+import { clampMaxChars, findProjectRoot, renderCommand, resolveRepoCommand, runBoundedCommand, scopedCwd } from "./aoc-runtime";
 import { StringEnum } from "@mariozechner/pi-ai";
 import { Type } from "@sinclair/typebox";
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
@@ -8,21 +7,35 @@ const MAX_DEFAULT_CHARS = 12_000;
 const MAX_ALLOWED_CHARS = 40_000;
 const COMMAND_TIMEOUT_MS = 30_000;
 
-const DoxActionSchema = StringEnum(["map", "review", "doctor", "eval", "apply-dry-run"] as const, {
-	description: "Safe AOC DOX action to run. This tool never applies writes.",
+const DoxActionSchema = StringEnum(["review", "review-packet", "doctor", "apply-dry-run"] as const, {
+	description: "Read-only AOC DOX action to run. This tool never writes metadata or applies changes.",
+});
+
+const DoxWriterActionSchema = StringEnum(["map", "eval", "review-packet"] as const, {
+	description: "Metadata-writing AOC DOX action for writer workflows only.",
 });
 
 const DoxParams = Type.Object({
 	action: DoxActionSchema,
 	cwd: Type.Optional(Type.String({ description: "Optional working directory scoped under the current project root." })),
 	json: Type.Optional(Type.Boolean({ description: "Request JSON output where supported." })),
+	noCodegraph: Type.Optional(Type.Boolean({ description: "Disable CodeGraph usage where supported." })),
+	minScore: Type.Optional(Type.Integer({ minimum: 1, maximum: 20, description: "Minimum candidate score where supported." })),
+	maxChars: Type.Optional(Type.Integer({ minimum: 1000, maximum: 40000, description: "Maximum characters returned to the model." })),
+});
+
+const DoxWriterParams = Type.Object({
+	action: DoxWriterActionSchema,
+	cwd: Type.Optional(Type.String({ description: "Optional working directory scoped under the current project root." })),
+	json: Type.Optional(Type.Boolean({ description: "Request JSON output where supported." })),
 	noCodegraph: Type.Optional(Type.Boolean({ description: "Disable CodeGraph usage for map." })),
 	minScore: Type.Optional(Type.Integer({ minimum: 1, maximum: 20, description: "Minimum candidate score for map." })),
+	writePacket: Type.Optional(Type.Boolean({ description: "For action=review-packet, write .aoc/dox/review.md." })),
 	maxChars: Type.Optional(Type.Integer({ minimum: 1000, maximum: 40000, description: "Maximum characters returned to the model." })),
 });
 
 type DoxParamsType = {
-	action: "map" | "review" | "doctor" | "eval" | "apply-dry-run";
+	action: "review" | "review-packet" | "doctor" | "apply-dry-run";
 	cwd?: string;
 	json?: boolean;
 	noCodegraph?: boolean;
@@ -30,53 +43,33 @@ type DoxParamsType = {
 	maxChars?: number;
 };
 
+type DoxWriterParamsType = {
+	action: "map" | "eval" | "review-packet";
+	cwd?: string;
+	json?: boolean;
+	noCodegraph?: boolean;
+	minScore?: number;
+	writePacket?: boolean;
+	maxChars?: number;
+};
 
-function stripAt(value: string): string {
-	return value.startsWith("@") ? value.slice(1) : value;
-}
 
-function scopedCwd(root: string, requested?: string): string {
-	if (!requested || requested.trim().length === 0) return root;
-	const resolved = path.resolve(root, stripAt(requested));
-	const rel = path.relative(root, resolved);
-	if (rel === "" || (!rel.startsWith("..") && !path.isAbsolute(rel))) return resolved;
-	throw new Error(`cwd escapes project root: ${requested}`);
-}
 
-function clampMaxChars(value?: number): number {
-	if (!Number.isFinite(value ?? NaN)) return MAX_DEFAULT_CHARS;
-	return Math.max(1000, Math.min(MAX_ALLOWED_CHARS, Math.floor(value as number)));
-}
-
-function truncateOutput(text: string, maxChars: number): { text: string; truncated: boolean } {
-	if (text.length <= maxChars) return { text, truncated: false };
-	return {
-		text: `${text.slice(0, maxChars)}\n\n[truncated ${text.length - maxChars} chars; rerun with a narrower query or higher maxChars]`,
-		truncated: true,
-	};
-}
-
-function buildArgs(params: DoxParamsType): string[] {
+function buildReadOnlyArgs(params: DoxParamsType): string[] {
 	const args = ["dox"];
 	const json = params.json === true;
 
 	switch (params.action) {
-		case "map":
-			args.push("map");
-			if (json) args.push("--json");
-			if (params.noCodegraph) args.push("--no-codegraph");
-			if (Number.isFinite(params.minScore ?? NaN)) args.push("--min-score", String(Math.floor(params.minScore as number)));
-			break;
 		case "review":
 			args.push("review");
 			if (json) args.push("--json");
 			break;
-		case "doctor":
-			args.push("doctor");
+		case "review-packet":
+			args.push("review", "--packet");
 			if (json) args.push("--json");
 			break;
-		case "eval":
-			args.push("eval");
+		case "doctor":
+			args.push("doctor");
 			if (json) args.push("--json");
 			break;
 		case "apply-dry-run":
@@ -88,47 +81,39 @@ function buildArgs(params: DoxParamsType): string[] {
 	return args;
 }
 
-async function runAoc(args: string[], cwd: string, maxChars: number, signal?: AbortSignal) {
-	return await new Promise<{ ok: boolean; exitCode: number | null; stdout: string; stderr: string; timedOut: boolean; truncated: boolean }>((resolve, reject) => {
-		let stdout = "";
-		let stderr = "";
-		let settled = false;
-		let timedOut = false;
-		const child = spawn("aoc", args, { cwd, stdio: ["ignore", "pipe", "pipe"], shell: false });
-		const timer = setTimeout(() => {
-			timedOut = true;
-			child.kill("SIGTERM");
-		}, COMMAND_TIMEOUT_MS);
+function buildWriterArgs(params: DoxWriterParamsType): string[] {
+	const args = ["dox"];
+	const json = params.json === true;
 
-		const abort = () => child.kill("SIGTERM");
-		signal?.addEventListener("abort", abort, { once: true });
+	switch (params.action) {
+		case "map":
+			args.push("map");
+			if (json) args.push("--json");
+			if (params.noCodegraph) args.push("--no-codegraph");
+			if (Number.isFinite(params.minScore ?? NaN)) args.push("--min-score", String(Math.floor(params.minScore as number)));
+			break;
+		case "eval":
+			args.push("eval");
+			if (json) args.push("--json");
+			break;
+		case "review-packet":
+			args.push("review", "--packet");
+			if (params.writePacket === true) args.push("--write-packet");
+			if (json) args.push("--json");
+			break;
+	}
 
-		child.stdout.on("data", (chunk) => {
-			stdout += String(chunk);
-		});
-		child.stderr.on("data", (chunk) => {
-			stderr += String(chunk);
-		});
-		child.on("error", (error: NodeJS.ErrnoException) => {
-			if (settled) return;
-			settled = true;
-			clearTimeout(timer);
-			signal?.removeEventListener("abort", abort);
-			if (error.code === "ENOENT") {
-				reject(new Error("aoc CLI is not installed or not on PATH; install AOC or run from the agent-ops-cockpit development shell."));
-				return;
-			}
-			reject(error);
-		});
-		child.on("close", (exitCode) => {
-			if (settled) return;
-			settled = true;
-			clearTimeout(timer);
-			signal?.removeEventListener("abort", abort);
-			const out = truncateOutput(stdout, maxChars);
-			const err = truncateOutput(stderr, Math.min(maxChars, 8000));
-			resolve({ ok: exitCode === 0 && !timedOut, exitCode, stdout: out.text, stderr: err.text, timedOut, truncated: out.truncated || err.truncated });
-		});
+	return args;
+}
+
+async function runAoc(command: string, args: string[], cwd: string, maxChars: number, signal?: AbortSignal) {
+	return await runBoundedCommand(command, args, {
+		cwd,
+		maxStdoutChars: maxChars,
+		maxStderrChars: Math.min(maxChars, 8000),
+		timeoutMs: COMMAND_TIMEOUT_MS,
+		missingMessage: "aoc CLI is not installed or not on PATH; install AOC or run from the agent-ops-cockpit development shell.",
+		signal,
 	});
 }
 
@@ -137,22 +122,23 @@ export default function aocDoxExtension(pi: ExtensionAPI): void {
 	pi.registerTool({
 		name: "aoc_dox",
 		label: "AOC DOX",
-		description: "Run safe AOC DOX cartography actions for AGENTS.md resolution coverage, candidate review, doctor checks, and dry-run apply output.",
-		promptSnippet: "Use AOC DOX to map sparse AGENTS.md context contracts and inspect .aoc/dox metadata without applying writes.",
+		description: "Run read-only AOC DOX cartography actions for AGENTS.md resolution review packets, doctor checks, and dry-run apply output.",
+		promptSnippet: "Use AOC DOX to inspect AGENTS resolution coverage, candidate review packets, doctor checks, and apply dry-run output without metadata writes.",
 		promptGuidelines: [
-			"Use aoc_dox for AOC DOX metadata, AGENTS resolution coverage, candidate review, and doctor checks.",
-			"Use action=map before launching DOX scout/mapper agents so they consume .aoc/dox evidence instead of rediscovering the whole repo.",
-			"This tool is safe by construction: it can run apply-dry-run but cannot run apply --yes.",
+			"Use aoc_dox for read-only AOC DOX review packets, doctor checks, and apply dry-run output.",
+			"Do not use aoc_dox for metadata-writing map or eval workflows; writer workflows must use aoc_dox_writer.",
+			"This tool is read-only plus apply dry-run by construction: it cannot write .aoc/dox/review.md and cannot run apply --yes.",
 			"Do not use aoc_dox to replace ordinary project documentation; AGENTS.md output is sparse operational context only.",
 		],
 		parameters: DoxParams,
 		async execute(_toolCallId, params: DoxParamsType, signal, _onUpdate, ctx) {
-			const projectRoot = ctx.cwd ?? process.cwd();
+			const projectRoot = findProjectRoot(ctx.cwd);
 			const cwd = scopedCwd(projectRoot, params.cwd);
-			const args = buildArgs(params);
-			const maxChars = clampMaxChars(params.maxChars);
-			const result = await runAoc(args, cwd, maxChars, signal);
-			const command = `aoc ${args.map((arg) => (arg.includes(" ") ? JSON.stringify(arg) : arg)).join(" ")}`;
+			const args = buildReadOnlyArgs(params);
+			const maxChars = clampMaxChars(params.maxChars, MAX_DEFAULT_CHARS, MAX_ALLOWED_CHARS);
+			const commandBin = resolveRepoCommand(projectRoot, "bin/aoc", "aoc");
+			const result = await runAoc(commandBin, args, cwd, maxChars, signal);
+			const command = renderCommand(commandBin, args);
 			const lines = [
 				`$ ${command}`,
 				`exit: ${result.exitCode}${result.timedOut ? " (timed out)" : ""}${result.truncated ? " (truncated)" : ""}`,
@@ -160,6 +146,39 @@ export default function aocDoxExtension(pi: ExtensionAPI): void {
 			if (result.stdout.trim()) lines.push("", result.stdout.trimEnd());
 			if (result.stderr.trim()) lines.push("", "stderr:", result.stderr.trimEnd());
 			if (!result.ok) lines.push("", "AOC DOX did not complete successfully. Treat this as unavailable evidence and fall back to targeted repo inspection.");
+			return {
+				content: [{ type: "text", text: lines.join("\n") }],
+				details: { action: params.action, command, cwd, ok: result.ok, exitCode: result.exitCode, timedOut: result.timedOut, truncated: result.truncated },
+			};
+		},
+	});
+	pi.registerTool({
+		name: "aoc_dox_writer",
+		label: "AOC DOX Writer",
+		description: "Run metadata-writing AOC DOX actions for writer workflows only. This surface may refresh .aoc/dox metadata but still cannot apply changes.",
+		promptSnippet: "Use AOC DOX writer actions only from dox-writer or intentionally metadata-refreshing main-agent workflows.",
+		promptGuidelines: [
+			"Use aoc_dox_writer only for DOX writer workflows that are allowed to refresh .aoc/dox metadata.",
+			"Use action=map or action=eval only when metadata refresh is intentional and expected by the workflow.",
+			"For action=review-packet, writePacket=true writes .aoc/dox/review.md before dry-run review; do not use it from read-only scout, mapper, or critic agents.",
+			"This tool does not expose apply --yes; use aoc_dox action=apply-dry-run for dry-run application review.",
+		],
+		parameters: DoxWriterParams,
+		async execute(_toolCallId, params: DoxWriterParamsType, signal, _onUpdate, ctx) {
+			const projectRoot = findProjectRoot(ctx.cwd);
+			const cwd = scopedCwd(projectRoot, params.cwd);
+			const args = buildWriterArgs(params);
+			const maxChars = clampMaxChars(params.maxChars, MAX_DEFAULT_CHARS, MAX_ALLOWED_CHARS);
+			const commandBin = resolveRepoCommand(projectRoot, "bin/aoc", "aoc");
+			const result = await runAoc(commandBin, args, cwd, maxChars, signal);
+			const command = renderCommand(commandBin, args);
+			const lines = [
+				`$ ${command}`,
+				`exit: ${result.exitCode}${result.timedOut ? " (timed out)" : ""}${result.truncated ? " (truncated)" : ""}`,
+			];
+			if (result.stdout.trim()) lines.push("", result.stdout.trimEnd());
+			if (result.stderr.trim()) lines.push("", "stderr:", result.stderr.trimEnd());
+			if (!result.ok) lines.push("", "AOC DOX writer action did not complete successfully. Treat this as unavailable evidence and fall back to targeted repo inspection.");
 			return {
 				content: [{ type: "text", text: lines.join("\n") }],
 				details: { action: params.action, command, cwd, ok: result.ok, exitCode: result.exitCode, timedOut: result.timedOut, truncated: result.truncated },

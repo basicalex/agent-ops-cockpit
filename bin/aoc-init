@@ -75,16 +75,14 @@ aoc_config_dir="${XDG_CONFIG_HOME:-$HOME/.config}/aoc"
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 aoc_init_state_file="$aoc_dir/init-state.json"
 aoc_managed_assets_file="$aoc_dir/managed-assets.json"
+aoc_omp_seed_cache_dir="$aoc_config_dir/omp"
 
 AOC_PROJECT_LAYOUT_VERSION=3
 AOC_INIT_STATE_SCHEMA_VERSION=1
-AOC_LOCAL_MULTI_AUTH_PACKAGE="./packages/pi-multi-auth-aoc"
 
 aoc_project_version_before=0
 aoc_project_version_after="$AOC_PROJECT_LAYOUT_VERSION"
 aoc_project_migrations_applied=()
-aoc_local_multi_auth_available=0
-aoc_local_multi_auth_seed_source="unresolved"
 
 log() { echo ">> $1"; }
 warn() { echo "!! $1"; }
@@ -110,6 +108,37 @@ is_truthy() {
     1|true|yes|on) return 0 ;;
     *) return 1 ;;
   esac
+}
+
+aoc_omp_seed_root() {
+  local repo_seed_root="$script_dir/../.omp"
+  if [[ -d "$repo_seed_root" ]]; then
+    printf '%s\n' "$repo_seed_root"
+  else
+    printf '%s\n' "$aoc_omp_seed_cache_dir"
+  fi
+}
+
+read_omp_manifest_list() {
+  local key="$1"
+  python3 - "$(aoc_omp_seed_root)/manifest.toml" "$key" <<'PY'
+import sys
+import tomllib
+from pathlib import Path
+
+manifest = Path(sys.argv[1])
+key = sys.argv[2]
+try:
+    data = tomllib.loads(manifest.read_text())
+    values = data[key]
+    if not isinstance(values, list) or not all(isinstance(value, str) for value in values):
+        raise TypeError(f"{key} must be a list of strings")
+except Exception as exc:
+    print(f"invalid OMP manifest {manifest}: {exc}", file=sys.stderr)
+    sys.exit(2)
+for value in values:
+    print(value)
+PY
 }
 
 positive_int_or_default() {
@@ -414,87 +443,12 @@ raise SystemExit(0 if digest_tree(left) == digest_tree(right) else 1)
 PY
 }
 
-managed_pi_skill_name() {
-  local skill_name="$1"
-  case "$skill_name" in
-    aoc-hyperframes|aoc-init-ops|aoc-map|architecture-design|custom-layout-ops|design-diff|design-director|design-handoff|design-premium-ui|design-redesign|design-review|design-spec|design-tokens|enforce-dashboard-ux-guardrails|frontend-design|funnel-design|safe-gamification|motion-director|spec-rpg-authoring|prd-rpg-authoring|rlm-analysis|teach-workflow|tm-cc|vercel-cli|web-research|zellij-theme-ops)
-      return 0
-      ;;
-    *)
-      return 1
-      ;;
-  esac
-}
-
-managed_pi_extension_name() {
-  local extension_name="$1"
-  case "$extension_name" in
-    minimal.ts|themeMap.ts|mind-ingest.ts|mind-ops.ts|mind-context.ts|mind-focus.ts|aoc-models.ts|aoc-codegraph.ts|aoc-compaction.ts|lib/mind.ts|lib/caveman.ts)
-      return 0
-      ;;
-    *)
-      return 1
-      ;;
-  esac
-}
-
-get_project_pi_multi_auth_package_dir() {
-  printf '%s\n' "$project_root/.pi/packages/pi-multi-auth-aoc"
-}
-
-get_cached_pi_multi_auth_package_dir() {
-  printf '%s\n' "$aoc_config_dir/pi/packages/pi-multi-auth-aoc"
-}
-
-get_canonical_pi_multi_auth_package_dir() {
-  printf '%s\n' "$script_dir/../.pi/packages/pi-multi-auth-aoc"
-}
-
 get_project_mind_service_config_path() {
   printf '%s\n' "$aoc_dir/mind-service.json"
 }
 
 get_global_mind_service_config_path() {
   printf '%s\n' "$aoc_config_dir/mind-service.json"
-}
-
-sync_cached_pi_multi_auth_package() {
-  local canonical_dir
-  local cache_dir
-  canonical_dir="$(get_canonical_pi_multi_auth_package_dir)"
-  cache_dir="$(get_cached_pi_multi_auth_package_dir)"
-
-  if [[ ! -d "$canonical_dir" ]]; then
-    return 0
-  fi
-
-  if [[ -d "$cache_dir" ]] && directories_match "$canonical_dir" "$cache_dir"; then
-    return 0
-  fi
-
-  copy_tree_force "$canonical_dir" "$cache_dir"
-  echo ">> Refreshed cached PI package seed: pi-multi-auth-aoc" >&2
-}
-
-resolve_pi_multi_auth_seed_dir() {
-  local canonical_dir
-  local cache_dir
-  canonical_dir="$(get_canonical_pi_multi_auth_package_dir)"
-  cache_dir="$(get_cached_pi_multi_auth_package_dir)"
-
-  sync_cached_pi_multi_auth_package
-
-  if [[ -d "$canonical_dir" ]]; then
-    printf '%s\n' "$canonical_dir"
-    return 0
-  fi
-
-  if [[ -d "$cache_dir" ]]; then
-    printf '%s\n' "$cache_dir"
-    return 0
-  fi
-
-  return 1
 }
 
 read_project_aoc_version() {
@@ -544,8 +498,8 @@ apply_project_version_migrations() {
 
   if (( aoc_project_version_before < 1 )); then
     note_project_migration \
-      "v1-versioned-init-state-and-pi-runtime-repair" \
-      "Applying AOC project migration v1: initialize versioned state and repair PI runtime package wiring."
+      "v1-versioned-init-state" \
+      "Applying AOC project migration v1: initialize versioned AOC project state."
   fi
 
   if (( aoc_project_version_before < 2 )); then
@@ -557,15 +511,13 @@ apply_project_version_migrations() {
   if (( aoc_project_version_before < 3 )); then
     note_project_migration \
       "v3-managed-asset-version-markers" \
-      "Applying AOC project migration v3: mark managed skills, presets, and extension families for safe updates."
+      "Applying AOC project migration v3: mark managed skills, presets, and OMP assets for safe updates."
   fi
 }
 
 write_project_aoc_state() {
-  local package_path
   local joined_migrations=""
   local migration=""
-  package_path="$(get_project_pi_multi_auth_package_dir)"
 
   for migration in "${aoc_project_migrations_applied[@]:-}"; do
     if [[ -n "$migration" ]]; then
@@ -576,7 +528,7 @@ write_project_aoc_state() {
     fi
   done
 
-  python3 - "$aoc_init_state_file" "$aoc_project_version_before" "$aoc_project_version_after" "$AOC_INIT_STATE_SCHEMA_VERSION" "$package_path" "$aoc_local_multi_auth_available" "$aoc_local_multi_auth_seed_source" "$script_dir" "$joined_migrations" <<'PY'
+  python3 - "$aoc_init_state_file" "$aoc_project_version_before" "$aoc_project_version_after" "$AOC_INIT_STATE_SCHEMA_VERSION" "$script_dir" "$joined_migrations" <<'PY'
 import json
 import sys
 from datetime import datetime, timezone
@@ -586,11 +538,8 @@ state_path = Path(sys.argv[1])
 previous_version = int(sys.argv[2])
 project_version = int(sys.argv[3])
 schema_version = int(sys.argv[4])
-package_path = Path(sys.argv[5])
-package_available = sys.argv[6] == "1"
-seed_source = sys.argv[7]
-script_dir = sys.argv[8]
-migrations_raw = sys.argv[9]
+script_dir = sys.argv[5]
+migrations_raw = sys.argv[6]
 migrations = [line for line in migrations_raw.splitlines() if line]
 
 state_path.parent.mkdir(parents=True, exist_ok=True)
@@ -600,96 +549,11 @@ payload = {
     "previousProjectAocVersion": previous_version,
     "lastInitializedAt": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
     "lastInitScriptDir": script_dir,
-    "pi": {
-        "localMultiAuthPackage": {
-            "configuredPath": "./packages/pi-multi-auth-aoc",
-            "projectPath": str(package_path),
-            "available": package_available,
-            "seedSource": seed_source,
-        }
-    },
+    "runtime": {"canonical": "omp"},
     "migrationsApplied": migrations,
 }
 state_path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
 PY
-}
-
-compute_project_pi_runtime_contract_status() {
-  local settings_path="$project_root/.pi/settings.json"
-  local package_path
-  package_path="$(get_project_pi_multi_auth_package_dir)"
-
-  python3 - "$settings_path" "$package_path" "$AOC_LOCAL_MULTI_AUTH_PACKAGE" <<'PY'
-import json
-import sys
-from pathlib import Path
-
-settings_path = Path(sys.argv[1])
-package_path = Path(sys.argv[2])
-local_package = sys.argv[3]
-
-if not settings_path.exists():
-    print("missing_settings")
-    raise SystemExit(0)
-
-try:
-    data = json.loads(settings_path.read_text(encoding="utf-8"))
-except Exception:
-    print("invalid_settings")
-    raise SystemExit(0)
-
-packages = data.get("packages")
-if not isinstance(packages, list):
-    packages = []
-
-normalized = []
-for entry in packages:
-    if isinstance(entry, str):
-        normalized.append(entry)
-    elif isinstance(entry, dict) and isinstance(entry.get("source"), str):
-        normalized.append(entry["source"])
-
-references_local = local_package in normalized
-package_exists = package_path.is_dir()
-
-if references_local and not package_exists:
-    print("invalid_missing_local_package")
-elif package_exists and not references_local:
-    print("warning_missing_local_package_reference")
-else:
-    print("ok")
-PY
-}
-
-validate_project_pi_runtime_contract() {
-  local validation_status=""
-  validation_status="$(compute_project_pi_runtime_contract_status)"
-
-  case "$validation_status" in
-    ok)
-      return 0
-      ;;
-    warning_missing_local_package_reference)
-      warn "PI package exists but settings are not wired to it: .pi/packages/pi-multi-auth-aoc"
-      return 0
-      ;;
-    invalid_missing_local_package)
-      warn "PI settings reference ./packages/pi-multi-auth-aoc but the package directory is missing."
-      return 1
-      ;;
-    missing_settings)
-      warn "PI settings missing after initialization: $settings_path"
-      return 1
-      ;;
-    invalid_settings)
-      warn "PI settings invalid after initialization: $settings_path"
-      return 1
-      ;;
-    *)
-      warn "Unexpected PI runtime validation status: $validation_status"
-      return 1
-      ;;
-  esac
 }
 
 refresh_aoc_managed_manifest() {
@@ -886,26 +750,25 @@ PY
 
 print_project_aoc_status() {
   local current_version="0"
-  local runtime_status=""
-  local package_dir
-  local package_ref_status="missing"
-  local settings_path="$project_root/.pi/settings.json"
   local state_path="$aoc_init_state_file"
   local has_context="no"
   local has_memory="no"
   local has_stm="no"
   local has_rtk="no"
+  local has_omp_extensions="no"
+  local has_omp_agents="no"
+  local has_omp_skills="no"
   local migration_lines=""
 
   current_version="$(read_project_aoc_version)"
-  runtime_status="$(compute_project_pi_runtime_contract_status)"
-  package_dir="$(get_project_pi_multi_auth_package_dir)"
 
   if [[ -f "$project_root/.aoc/context.md" ]]; then has_context="yes"; fi
   if [[ -f "$project_root/.aoc/memory.md" ]]; then has_memory="yes"; fi
   if [[ -f "$project_root/.aoc/stm/current.md" ]]; then has_stm="yes"; fi
   if [[ -f "$project_root/.aoc/rtk.toml" ]]; then has_rtk="yes"; fi
-  if [[ -d "$package_dir" ]]; then package_ref_status="present"; fi
+  if [[ -d "$project_root/.omp/extensions" ]]; then has_omp_extensions="yes"; fi
+  if [[ -d "$project_root/.omp/agents" ]]; then has_omp_agents="yes"; fi
+  if [[ -d "$project_root/.omp/skills" ]]; then has_omp_skills="yes"; fi
 
   migration_lines="$(python3 - "$state_path" <<'PY'
 import json
@@ -925,26 +788,42 @@ for item in data.get('migrationsApplied', []):
 PY
 )"
 
-  printf '%s\n' "AOC Init Status"
-  printf '%s\n' "  project_root: $project_root"
-  printf '%s\n' "  vcs: $(aoc_vcs_status_line)"
-  printf '%s\n' "  target_project_aoc_version: $AOC_PROJECT_LAYOUT_VERSION"
-  printf '%s\n' "  project_aoc_version: $current_version"
-  printf '%s\n' "  init_state: $([[ -f "$state_path" ]] && echo present || echo missing)"
-  printf '%s\n' "  aoc_context: $has_context"
-  printf '%s\n' "  aoc_memory: $has_memory"
-  printf '%s\n' "  aoc_stm: $has_stm"
-  printf '%s\n' "  aoc_rtk: $has_rtk"
-  printf '%s\n' "  design_contract: $([[ -f "$project_root/DESIGN.md" ]] && echo present || echo missing)"
-  printf '%s\n' "  pi_settings: $([[ -f "$settings_path" ]] && echo present || echo missing)"
-  printf '%s\n' "  pi_multi_auth_package: $package_ref_status"
-  printf '%s\n' "  pi_runtime_status: $runtime_status"
+  printf '%s
+' "AOC Init Status"
+  printf '%s
+' "  project_root: $project_root"
+  printf '%s
+' "  vcs: $(aoc_vcs_status_line)"
+  printf '%s
+' "  target_project_aoc_version: $AOC_PROJECT_LAYOUT_VERSION"
+  printf '%s
+' "  project_aoc_version: $current_version"
+  printf '%s
+' "  init_state: $([[ -f "$state_path" ]] && echo present || echo missing)"
+  printf '%s
+' "  aoc_context: $has_context"
+  printf '%s
+' "  aoc_memory: $has_memory"
+  printf '%s
+' "  aoc_stm: $has_stm"
+  printf '%s
+' "  aoc_rtk: $has_rtk"
+  printf '%s
+' "  omp_extensions: $has_omp_extensions"
+  printf '%s
+' "  omp_agents: $has_omp_agents"
+  printf '%s
+' "  omp_skills: $has_omp_skills"
+  printf '%s
+' "  design_contract: $([[ -f "$project_root/DESIGN.md" ]] && echo present || echo missing)"
   managed_manifest_summary
   if [[ -n "$migration_lines" ]]; then
-    printf '%s\n' "  migrations_applied:"
+    printf '%s
+' "  migrations_applied:"
     while IFS= read -r line; do
       [[ -n "$line" ]] || continue
-      printf '%s\n' "    - $line"
+      printf '%s
+' "    - $line"
     done <<< "$migration_lines"
   fi
 }
@@ -1008,7 +887,7 @@ STM is for deliberate directed in-progress handoff packets only; it is not a mai
 - Task spec overrides are currently stored via legacy key `aocPrd`; resolve with `aoc-task spec show <id> --tag <tag>`.
 - Effective precedence is task spec override -> tag default spec.
 - Keep task specs in git: `.taskmaster/docs/specs/**` and legacy `.taskmaster/docs/prds/**` should always be tracked.
-- Keep AOC/task/config/source state in git: `.aoc/**`, `.taskmaster/**`, `.pi/**`, `.omp/extensions/**`, `.omp/agents/**`, `AGENTS.md`, and `DESIGN.md` should not be ignored except explicit high-churn runtime artifacts such as logs, locks, caches, debug output, and live Mind databases.
+- Keep AOC/task/config/source state in git: `.aoc/**`, `.taskmaster/**`, `.omp/extensions/**`, `.omp/agents/**`, `.omp/skills/**`, `AGENTS.md`, and `DESIGN.md` should not be ignored except explicit high-churn runtime artifacts such as logs, locks, caches, debug output, and live Mind databases.
 
 ## Task Management
 - `.taskmaster/tasks/tasks.json` is task state; use the Taskmaster TUI, `aoc-task`, or `tm` (alias for `aoc-task`). Do not edit the file directly.
@@ -1238,15 +1117,15 @@ When changing UI, visual assets, product copy, documentation presentation, marke
 EOF
 }
 
-write_pi_low_token_prompt() {
+write_omp_low_token_prompt() {
   local target_file="$1"
   cat <<'EOF' > "$target_file"
-# PI Low-Token Mode (AOC Default)
+# OMP Low-Token Mode (AOC Default)
 
 Apply these defaults unless the user asks for higher detail.
 
 - Keep replies concise and actionable (default: <= 8 bullets).
-- Start with direct path guesses before searching. Example: if asked about screenshot tool, check `.pi/extensions/latest-screenshot.ts` first.
+- Start with direct path guesses before searching. Example: if asked about an OMP extension, check `.omp/extensions/` first.
 - Avoid broad scans by default. Do NOT run `tm list`, `git status`, or repo-wide `rg` unless the user asks or a targeted check fails.
 - Use the fewest tool calls needed. For simple locate/explain requests, limit to 1-3 focused reads.
 - Hard budget before first answer: at most 3 tool calls unless the first attempt fails.
@@ -1487,13 +1366,13 @@ ensure_git_tracking_policy() {
     "!/.aoc/**"
     "!/.taskmaster/"
     "!/.taskmaster/**"
-    "!/.pi/"
-    "!/.pi/**"
     "!/.omp/"
     "!/.omp/extensions/"
     "!/.omp/extensions/**"
     "!/.omp/agents/"
     "!/.omp/agents/**"
+    "!/.omp/skills/"
+    "!/.omp/skills/**"
   )
 
   for line in "${rules[@]}"; do
@@ -1504,9 +1383,9 @@ ensure_git_tracking_policy() {
   done
 
   if [[ "$changed" == "1" ]]; then
-    log "Updated .gitignore to keep .aoc/, .taskmaster/, .pi/, and repo-owned .omp/ sources tracked."
+    log "Updated .gitignore to keep .aoc/, .taskmaster/, and repo-owned .omp/ sources tracked."
   else
-    log ".gitignore already keeps .aoc/, .taskmaster/, .pi/, and repo-owned .omp/ sources tracked."
+    log ".gitignore already keeps .aoc/, .taskmaster/, and repo-owned .omp/ sources tracked."
   fi
 }
 
@@ -1610,18 +1489,18 @@ EOF
 
   ensure_rtk_config
 
-  # PI default prompt contract
+  # OMP default prompt contract
   local prompts_dir="$aoc_dir/prompts"
-  local pi_low_token_prompt="$prompts_dir/pi-low-token.md"
+  local omp_low_token_prompt="$prompts_dir/omp-low-token.md"
   if [[ ! -d "$prompts_dir" ]]; then
     log "Creating prompts directory ($prompts_dir)..."
     mkdir -p "$prompts_dir"
   fi
-  if [[ ! -f "$pi_low_token_prompt" ]]; then
-    log "Seeding PI low-token prompt ($pi_low_token_prompt)..."
-    write_pi_low_token_prompt "$pi_low_token_prompt"
+  if [[ ! -f "$omp_low_token_prompt" ]]; then
+    log "Seeding OMP low-token prompt ($omp_low_token_prompt)..."
+    write_omp_low_token_prompt "$omp_low_token_prompt"
   else
-    log "PI low-token prompt exists ($pi_low_token_prompt). Preserving."
+    log "OMP low-token prompt exists ($omp_low_token_prompt). Preserving."
   fi
 
   # Context Generation (project-specific, concise, full injection safe)
@@ -1780,34 +1659,21 @@ EOF
 
 }
 
-# 1b. Setup skill sync (PI-first)
+# 1b. Validate OMP skills
 setup_skills() {
-  local pi_skills_dir="$project_root/.pi/skills"
-  local legacy_target=""
-  local legacy_targets=(
-    "$project_root/.codex/skills"
-    "$project_root/.claude/skills"
-    "$project_root/.opencode/skills"
-    "$project_root/.agents/skills"
-  )
+  local omp_skills_dir="$project_root/.omp/skills"
 
-  upgrade_stm_skill_guidance "$pi_skills_dir"
+  upgrade_stm_skill_guidance "$omp_skills_dir"
 
   if [[ -x "$script_dir/aoc-skill" ]]; then
-    log "Ensuring PI skill baseline (.pi/skills)..."
-    (cd "$project_root" && "$script_dir/aoc-skill" sync --agent pi --root "$project_root" || true)
+    log "Validating OMP skill baseline (.omp/skills)..."
+    (cd "$project_root" && "$script_dir/aoc-skill" validate --root "$project_root" || true)
   elif command -v aoc-skill >/dev/null 2>&1; then
-    log "Ensuring PI skill baseline (.pi/skills)..."
-    (cd "$project_root" && aoc-skill sync --agent pi --root "$project_root" || true)
+    log "Validating OMP skill baseline (.omp/skills)..."
+    (cd "$project_root" && aoc-skill validate --root "$project_root" || true)
   else
-    warn "aoc-skill not found; .pi/skills baseline may be incomplete."
+    warn "aoc-skill not found; .omp/skills baseline may be incomplete."
   fi
-
-  for legacy_target in "${legacy_targets[@]}"; do
-    if [[ -d "$legacy_target" ]]; then
-      warn "Legacy non-PI skill target detected ($legacy_target); aoc-init no longer syncs it automatically in PI-first mode."
-    fi
-  done
 }
 
 upgrade_stm_skill_guidance() {
@@ -1951,11 +1817,12 @@ EOF
 
   if [[ -f "$init_ops_skill" ]] && (
     ! grep -Fq '.aoc/stm/current.md' "$init_ops_skill" ||
-    ! grep -Fq '.pi/prompts/' "$init_ops_skill" ||
-    ! grep -Fq '/tm-cc' "$init_ops_skill" ||
+    ! grep -Fq '.omp/skills/' "$init_ops_skill" ||
     ! grep -Fq 'aoc-stm handoff' "$init_ops_skill" ||
     ! grep -Fq 'aoc-stm resume' "$init_ops_skill" ||
-    ! grep -Fq '.pi/extensions/' "$init_ops_skill" ||
+    ! grep -Fq '.omp/extensions/' "$init_ops_skill" ||
+    ! grep -Fq 'ponytail.ts' "$init_ops_skill" ||
+    ! grep -Fq 'ponytail-help' "$init_ops_skill" ||
     grep -Fq 'Syncs skills for existing agent targets' "$init_ops_skill"
   ); then
     cat <<'EOF' > "$init_ops_skill"
@@ -1979,18 +1846,13 @@ description: Initialize or repair AOC context, memory, and tasks safely.
 - Seeds `.aoc/memory.md`
 - Seeds `.aoc/stm/current.md` and `.aoc/stm/archive/` without overwriting existing STM files
 - Ensures spec directory `.taskmaster/docs/specs/` is available for tag/task links
-- Seeds `.pi/settings.json` when missing
-- Seeds and refreshes managed core PI prompt templates in `.pi/prompts/` (`/aoc-ops`, `/tm-cc`, `/lexicon`, `/commit`); legacy `/implement`, `/handoff`, and `/rresume` prompts are not seeded for Herdr/OMP defaults
-- Installs AOC OMP extensions (`aoc-codegraph.ts`, `aoc-mind.ts`, `aoc-commit.ts`, `aoc-state.ts`, `aoc-dox.ts`, `aoc-jj-init.ts`, `aoc-brand-content.ts`, `aoc-web-search.ts`) into the configured OMP agent extension directory when available
-- Installs AOC OMP agent templates (`brand-strategy.md`, `brand-concept.md`, `svg-asset.md`, `hyperframes-content.md`, `dox-scout.md`, `dox-mapper.md`, `dox-critic.md`, `dox-writer.md`) and OMP skills (`aoc-dox-cartography`) into the configured OMP agent directory when available
-- Seeds PI default extensions in `.pi/extensions/` (`minimal.ts`, `themeMap.ts`, `mind-ingest.ts`, `mind-ops.ts`, `mind-context.ts`, `mind-focus.ts`, `aoc-models.ts`, `aoc-codegraph.ts`, `aoc-compaction.ts`, plus `lib/mind.ts` and `lib/caveman.ts`) when missing
-- Seeds the preset runtime family in `.pi/extensions/aoc-presets/` when missing
+- Seeds project OMP assets under `.omp/extensions/`, `.omp/agents/`, `.omp/skills/`, and `.omp/manifest.toml`
+- Installs AOC OMP extensions from `.omp/manifest.toml` into `${AOC_OMP_AGENT_DIR:-$HOME/.omp/agent}/extensions` when available
+- Installs AOC OMP agent templates from `.omp/manifest.toml` into `${AOC_OMP_AGENT_DIR:-$HOME/.omp/agent}/agents` when available
+- Installs OMP skills from `.omp/manifest.toml` into `${AOC_OMP_AGENT_DIR:-$HOME/.omp/agent}/skills` when available
 - Seeds reusable preset assets in `.aoc/presets/{design,hyperframes,ops,research,test}/` when missing
 - Seeds `.aoc/init-state.json` with the current AOC project version and applies version-specific migrations on older repos
-- Seeds the vendored local PI multi-auth package at `.pi/packages/pi-multi-auth-aoc` and wires `.pi/settings.json` to load it only when the package is available
-- Removes legacy global npm `pi-multi-auth` package entries from `~/.pi/agent/settings.json` to avoid duplicate extension loading
-- Migrates missing legacy project-local PI prompts/skills from `.aoc/prompts/pi/` and `.aoc/skills/` into `.pi/**` (non-destructive), and cleans safe `tmcc` prompt alias duplicates
-- Ensures `.pi/skills` baseline (PI-first canonical)
+- Validates `.omp/skills` as the canonical skill surface
 EOF
     log "Updated aoc-init-ops skill with STM seeding guidance."
   fi
@@ -2150,22 +2012,42 @@ setup_project_mind_runtime() {
   fi
 }
 
+setup_project_omp_assets() {
+  local omp_seed_root
+  omp_seed_root="$(aoc_omp_seed_root)"
+  local project_omp_root="$project_root/.omp"
+  local kind=""
+  local source_dir=""
+  local target_dir=""
+
+  if [[ ! -d "$omp_seed_root" ]]; then
+    warn "Missing AOC OMP asset seed directory: $omp_seed_root"
+    return 0
+  fi
+
+  mkdir -p "$project_omp_root"
+  for kind in extensions agents skills; do
+    source_dir="$omp_seed_root/$kind"
+    target_dir="$project_omp_root/$kind"
+    [[ -d "$source_dir" ]] || continue
+    if [[ "$(cd "$source_dir" && pwd -P)" == "$(mkdir -p "$target_dir" && cd "$target_dir" && pwd -P)" ]]; then
+      log "Project OMP $kind already canonical ($target_dir)."
+      continue
+    fi
+    copy_tree_force_managed "$source_dir" "$target_dir" "omp-$kind"
+    log "Seeded project OMP $kind: .omp/$kind"
+  done
+}
+
 setup_omp_extensions() {
-  local omp_extension_seed_dir="$script_dir/../.omp/extensions"
-  local omp_extension_dir="${PI_CODING_AGENT_DIR:-$HOME/.omp/agent}/extensions"
+  local omp_extension_seed_dir
+  omp_extension_seed_dir="$(aoc_omp_seed_root)/extensions"
+  local omp_extension_dir="${AOC_OMP_AGENT_DIR:-$HOME/.omp/agent}/extensions"
   local extension_name=""
   local extension_src=""
   local extension_dst=""
-  local required_extensions=(
-    "aoc-codegraph.ts"
-    "aoc-mind.ts"
-    "aoc-commit.ts"
-    "aoc-state.ts"
-    "aoc-dox.ts"
-    "aoc-jj-init.ts"
-    "aoc-brand-content.ts"
-    "aoc-web-search.ts"
-  )
+  local required_extensions=()
+  mapfile -t required_extensions < <(read_omp_manifest_list extensions)
 
   if [[ ! -d "$omp_extension_seed_dir" ]]; then
     warn "Missing AOC OMP extension seed directory: $omp_extension_seed_dir"
@@ -2189,14 +2071,14 @@ setup_omp_extensions() {
 
 
 setup_omp_skills() {
-  local omp_skill_seed_dir="$script_dir/../.omp/skills"
-  local omp_skill_dir="${PI_CODING_AGENT_DIR:-$HOME/.omp/agent}/skills"
+  local omp_skill_seed_dir
+  omp_skill_seed_dir="$(aoc_omp_seed_root)/skills"
+  local omp_skill_dir="${AOC_OMP_AGENT_DIR:-$HOME/.omp/agent}/skills"
   local skill_name=""
   local skill_src=""
   local skill_dst=""
-  local required_skills=(
-    "aoc-dox-cartography"
-  )
+  local required_skills=()
+  mapfile -t required_skills < <(read_omp_manifest_list skills)
 
   if [[ ! -d "$omp_skill_seed_dir" ]]; then
     warn "Missing AOC OMP skill seed directory: $omp_skill_seed_dir"
@@ -2217,21 +2099,14 @@ setup_omp_skills() {
   done
 }
 setup_omp_agents() {
-  local omp_agent_seed_dir="$script_dir/../.omp/agents"
-  local omp_agent_dir="${PI_CODING_AGENT_DIR:-$HOME/.omp/agent}/agents"
+  local omp_agent_seed_dir
+  omp_agent_seed_dir="$(aoc_omp_seed_root)/agents"
+  local omp_agent_dir="${AOC_OMP_AGENT_DIR:-$HOME/.omp/agent}/agents"
   local agent_name=""
   local agent_src=""
   local agent_dst=""
-  local required_agents=(
-    "brand-strategy.md"
-    "brand-concept.md"
-    "svg-asset.md"
-    "hyperframes-content.md"
-    "dox-scout.md"
-    "dox-mapper.md"
-    "dox-critic.md"
-    "dox-writer.md"
-  )
+  local required_agents=()
+  mapfile -t required_agents < <(read_omp_manifest_list agents)
 
   if [[ ! -d "$omp_agent_seed_dir" ]]; then
     warn "Missing AOC OMP agent seed directory: $omp_agent_seed_dir"
@@ -2261,715 +2136,7 @@ setup_voxtype_lexicon() {
   fi
 }
 
-patch_omp_footer() {
-  local patch_bin="aoc-omp-patch"
-  if [[ -x "$script_dir/aoc-omp-patch" ]]; then
-    patch_bin="$script_dir/aoc-omp-patch"
-  fi
-  if ! "$patch_bin" --quiet; then
-    warn "aoc-omp-patch failed; continuing with unpatched OMP footer."
-  fi
-}
 
-
-# 1c. Setup PI settings + baseline directories (.pi/)
-setup_pi_settings() {
-  local pi_dir="$project_root/.pi"
-  local pi_settings="$pi_dir/settings.json"
-  local local_package_dir="$(get_project_pi_multi_auth_package_dir)"
-  local settings_status=""
-
-  if [[ ! -d "$pi_dir" ]]; then
-    mkdir -p "$pi_dir"
-  fi
-
-  # Deterministic PI-first baseline directory contract.
-  mkdir -p "$pi_dir/prompts" "$pi_dir/skills" "$pi_dir/extensions" "$pi_dir/packages"
-
-  settings_status="$(python3 - "$pi_settings" "$local_package_dir" "$AOC_LOCAL_MULTI_AUTH_PACKAGE" <<'PY'
-import json
-import sys
-from pathlib import Path
-
-path = Path(sys.argv[1])
-local_package_dir = Path(sys.argv[2])
-local_multi_auth_package = sys.argv[3]
-include_local_multi_auth_package = local_package_dir.is_dir()
-pi_defaults = {
-    "defaultProvider": "openai-codex",
-    "defaultModel": "gpt-5.5",
-    "defaultThinkingLevel": "low",
-}
-seeded_enabled_models = [
-    "openai-codex/gpt-5.5",
-    "openai-codex/gpt-5.4",
-]
-previous_seeded_enabled_models = [
-    "openai-codex/gpt-5.5",
-    "opencode/glm-5",
-    "opencode/gemini-3-flash",
-    "opencode/gemini-3.1-pro",
-    "openrouter/alibaba/qwen3.6-plus",
-]
-older_previous_seeded_enabled_models = [
-    "openai-codex/gpt-5.5",
-    "opencode/glm-5",
-    "opencode/gemini-3-flash",
-    "opencode/gemini-3.1-pro",
-    "alibaba/qwen3.6-plus",
-]
-previous_seeded_enabled_models_with_openrouter = [
-    "openai-codex/gpt-5.5",
-    "openai-codex/gpt-5.4",
-    "opencode/glm-5",
-    "opencode/gemini-3-flash",
-    "opencode/gemini-3.1-pro",
-    "openrouter/anthropic/claude-sonnet-4",
-    "openrouter/openai/gpt-5.1-codex",
-    "openrouter/google/gemini-2.5-pro",
-    "openrouter/google/gemini-2.5-flash",
-    "openrouter/qwen/qwen3.6-plus",
-]
-legacy_seeded_enabled_models_with_gpt55 = [
-    *previous_seeded_enabled_models_with_openrouter,
-    "kimi-coding/kimi-for-coding",
-]
-previous_pi_defaults = {
-    "defaultProvider": "openai-codex",
-    "defaultModel": "gpt-5.5",
-    "defaultThinkingLevel": "medium",
-}
-older_pi_defaults = {
-    "defaultProvider": "openai-codex",
-    "defaultModel": "gpt-5.4",
-    "defaultThinkingLevel": "medium",
-}
-legacy_seeded_defaults = {
-    "defaultProvider": "opencode",
-    "defaultModel": "gpt-5.3-codex",
-    "defaultThinkingLevel": "medium",
-}
-legacy_seeded_enabled_models = [
-    "opencode/gpt-5.3-codex:medium",
-    "opencode/claude-sonnet-4-6:medium",
-    "opencode/gemini-3.1-pro:medium",
-    "opencode/kimi-k2.5:medium",
-]
-default_extensions = [
-    "extensions/minimal.ts",
-    "extensions/mind-ingest.ts",
-    "extensions/mind-ops.ts",
-    "extensions/mind-context.ts",
-    "extensions/mind-focus.ts",
-    "extensions/aoc-models.ts",
-    "extensions/aoc-codegraph.ts",
-    "extensions/aoc-compaction.ts",
-    "extensions/aoc-presets/index.ts",
-]
-default_skill_filters = [
-    "!skills/prd-rpg-authoring",
-    "!skills/tmcc",
-    "!skills/teach-workflow",
-    "!skills/understand",
-    "!skills/understand-*",
-    "!skills/agent-browser",
-    "!skills/custom-layout-ops",
-    "!skills/zellij-theme-ops",
-    "!skills/architecture-design",
-    "!skills/design-*",
-    "!skills/enforce-dashboard-ux-guardrails",
-    "!skills/frontend-design",
-    "!skills/funnel-design",
-    "!skills/motion-director",
-    "!skills/safe-gamification",
-    "!skills/animejs-*",
-    "!skills/aoc-hyperframes",
-    "!skills/hyperframes",
-    "!skills/hyperframes-cli",
-    "!skills/website-to-hyperframes",
-    "!skills/gsap",
-]
-defaults = {
-    "extensions": default_extensions,
-    "skills": default_skill_filters,
-    "packages": ([local_multi_auth_package] if include_local_multi_auth_package else []),
-    **pi_defaults,
-    "enabledModels": seeded_enabled_models,
-}
-legacy_package_prefixes = ("npm:pi-multi-auth",)
-legacy_package_values = {"pi-multi-auth", local_multi_auth_package}
-
-
-def source_value(entry):
-    if isinstance(entry, str):
-        return entry
-    if isinstance(entry, dict) and isinstance(entry.get("source"), str):
-        return entry["source"]
-    return ""
-
-
-def is_legacy_multi_auth(entry):
-    value = source_value(entry)
-    if value in legacy_package_values:
-        return value != local_multi_auth_package
-    return value.startswith(legacy_package_prefixes)
-
-
-if not path.exists():
-    path.write_text(json.dumps(defaults, indent=2) + "\n", encoding="utf-8")
-    print("seeded")
-    raise SystemExit(0)
-
-try:
-    data = json.loads(path.read_text(encoding="utf-8"))
-except Exception:
-    print("invalid")
-    raise SystemExit(0)
-
-if not isinstance(data, dict):
-    print("invalid")
-    raise SystemExit(0)
-
-changed = False
-if not isinstance(data.get("extensions"), list):
-    data["extensions"] = []
-    changed = True
-for extension in default_extensions:
-    if extension not in data["extensions"]:
-        data["extensions"].append(extension)
-        changed = True
-
-if not isinstance(data.get("skills"), list):
-    data["skills"] = []
-    changed = True
-for skill_filter in default_skill_filters:
-    if skill_filter not in data["skills"]:
-        data["skills"].append(skill_filter)
-        changed = True
-
-packages = data.get("packages")
-if not isinstance(packages, list):
-    packages = []
-    data["packages"] = packages
-    changed = True
-
-normalized_packages = [entry for entry in packages if not is_legacy_multi_auth(entry)]
-if normalized_packages != packages:
-    data["packages"] = normalized_packages
-    packages = normalized_packages
-    changed = True
-
-package_sources = [source_value(entry) for entry in packages]
-if include_local_multi_auth_package:
-    if local_multi_auth_package not in package_sources:
-        packages.append(local_multi_auth_package)
-        changed = True
-elif local_multi_auth_package in package_sources:
-    packages = [entry for entry in packages if source_value(entry) != local_multi_auth_package]
-    data["packages"] = packages
-    changed = True
-
-has_provider = "defaultProvider" in data
-has_model = "defaultModel" in data
-has_thinking = "defaultThinkingLevel" in data
-
-if not has_provider and not has_model:
-    for key, value in defaults.items():
-        if key not in data:
-            data[key] = value
-            changed = True
-elif all(data.get(key) == value for key, value in legacy_seeded_defaults.items()):
-    for key, value in pi_defaults.items():
-        if data.get(key) != value:
-            data[key] = value
-            changed = True
-    if data.get("enabledModels") != seeded_enabled_models:
-        data["enabledModels"] = seeded_enabled_models
-        changed = True
-elif all(data.get(key) == value for key, value in pi_defaults.items()):
-    if "enabledModels" not in data:
-        data["enabledModels"] = seeded_enabled_models
-        changed = True
-elif (
-    data.get("defaultProvider") == pi_defaults["defaultProvider"]
-    and data.get("defaultModel") == pi_defaults["defaultModel"]
-    and not has_thinking
-):
-    data["defaultThinkingLevel"] = pi_defaults["defaultThinkingLevel"]
-    changed = True
-    if "enabledModels" not in data:
-        data["enabledModels"] = seeded_enabled_models
-        changed = True
-elif all(data.get(key) == value for key, value in previous_pi_defaults.items()):
-    for key, value in pi_defaults.items():
-        if data.get(key) != value:
-            data[key] = value
-            changed = True
-    if data.get("enabledModels") != seeded_enabled_models:
-        data["enabledModels"] = seeded_enabled_models
-        changed = True
-elif all(data.get(key) == value for key, value in older_pi_defaults.items()):
-    for key, value in pi_defaults.items():
-        if data.get(key) != value:
-            data[key] = value
-            changed = True
-    if data.get("enabledModels") != seeded_enabled_models:
-        data["enabledModels"] = seeded_enabled_models
-        changed = True
-
-if data.get("enabledModels") == legacy_seeded_enabled_models:
-    data["enabledModels"] = seeded_enabled_models
-    changed = True
-
-if data.get("enabledModels") == legacy_seeded_enabled_models_with_gpt55:
-    data["enabledModels"] = seeded_enabled_models
-    changed = True
-
-if data.get("enabledModels") == previous_seeded_enabled_models_with_openrouter:
-    data["enabledModels"] = seeded_enabled_models
-    changed = True
-
-if data.get("enabledModels") == previous_seeded_enabled_models:
-    data["enabledModels"] = seeded_enabled_models
-    changed = True
-
-if data.get("enabledModels") == older_previous_seeded_enabled_models:
-    data["enabledModels"] = seeded_enabled_models
-    changed = True
-
-if changed:
-    path.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
-    print("updated")
-else:
-    print("unchanged")
-PY
-)"
-
-  case "$settings_status" in
-    seeded)
-      log "Seeded PI settings: $pi_settings"
-      ;;
-    updated)
-      log "Updated PI settings with GPT-5.5 low reasoning defaults: $pi_settings"
-      ;;
-    unchanged)
-      log "PI settings exist ($pi_settings). Preserving."
-      ;;
-    invalid)
-      warn "PI settings exist but are not valid JSON ($pi_settings). Preserving."
-      ;;
-    *)
-      warn "Unexpected PI settings status '$settings_status' for $pi_settings"
-      ;;
-  esac
-}
-
-setup_pi_packages() {
-  local pi_packages_dir="$project_root/.pi/packages"
-  local target_package_dir="$pi_packages_dir/pi-multi-auth-aoc"
-  local seed_package_dir=""
-
-  mkdir -p "$pi_packages_dir"
-  aoc_local_multi_auth_available=0
-  aoc_local_multi_auth_seed_source="unresolved"
-
-  seed_package_dir="$(resolve_pi_multi_auth_seed_dir || true)"
-
-  if [[ ! -d "$target_package_dir" ]]; then
-    if [[ -z "$seed_package_dir" ]]; then
-      warn "Missing PI package seed for pi-multi-auth-aoc; leaving project settings unwired until a seed is available."
-      return 0
-    fi
-
-    copy_tree_force_managed "$seed_package_dir" "$target_package_dir" "pi-package/pi-multi-auth-aoc"
-    remove_pi_multi_auth_mutable_dirs "$target_package_dir"
-    write_aoc_managed_marker "$target_package_dir" "pi-package/pi-multi-auth-aoc" "$seed_package_dir" "$(managed_path_sha256 "$target_package_dir")"
-    aoc_local_multi_auth_available=1
-    aoc_local_multi_auth_seed_source="$seed_package_dir"
-    log "Seeded PI package: .pi/packages/pi-multi-auth-aoc"
-    return 0
-  fi
-
-  aoc_local_multi_auth_available=1
-  aoc_local_multi_auth_seed_source="existing-project-copy"
-
-  if [[ -z "$seed_package_dir" ]]; then
-    log "PI package exists (.pi/packages/pi-multi-auth-aoc). Preserving."
-    return 0
-  fi
-
-  if [[ "$(cd "$seed_package_dir" && pwd)" == "$(cd "$target_package_dir" && pwd)" ]]; then
-    aoc_local_multi_auth_seed_source="$seed_package_dir"
-    log "Bundled PI package already present at target path (.pi/packages/pi-multi-auth-aoc)."
-    return 0
-  fi
-
-  if [[ -f "$target_package_dir/.aoc-managed" ]]; then
-    copy_tree_force_managed "$seed_package_dir" "$target_package_dir" "pi-package/pi-multi-auth-aoc"
-    remove_pi_multi_auth_mutable_dirs "$target_package_dir"
-    write_aoc_managed_marker "$target_package_dir" "pi-package/pi-multi-auth-aoc" "$seed_package_dir" "$(managed_path_sha256 "$target_package_dir")"
-    aoc_local_multi_auth_seed_source="$seed_package_dir"
-    log "Refreshed managed PI package: .pi/packages/pi-multi-auth-aoc"
-    return 0
-  fi
-
-  remove_pi_multi_auth_mutable_dirs "$target_package_dir"
-  log "PI package exists (.pi/packages/pi-multi-auth-aoc). Preserving."
-}
-
-cleanup_global_pi_multi_auth() {
-  local enabled="${AOC_INIT_CLEANUP_GLOBAL_PI_MULTI_AUTH:-1}"
-  local global_settings="$HOME/.pi/agent/settings.json"
-  local cleanup_status=""
-
-  if ! is_truthy "$enabled"; then
-    log "Skipping global PI multi-auth cleanup (AOC_INIT_CLEANUP_GLOBAL_PI_MULTI_AUTH=$enabled)."
-    return 0
-  fi
-
-  cleanup_status="$(python3 - "$global_settings" <<'PY'
-import json
-import sys
-from pathlib import Path
-
-path = Path(sys.argv[1])
-
-if not path.exists():
-    print("missing")
-    raise SystemExit(0)
-
-try:
-    data = json.loads(path.read_text(encoding="utf-8"))
-except Exception:
-    print("invalid")
-    raise SystemExit(0)
-
-if not isinstance(data, dict):
-    print("invalid")
-    raise SystemExit(0)
-
-packages = data.get("packages")
-if not isinstance(packages, list):
-    print("missing")
-    raise SystemExit(0)
-
-
-def source_value(entry):
-    if isinstance(entry, str):
-        return entry
-    if isinstance(entry, dict) and isinstance(entry.get("source"), str):
-        return entry["source"]
-    return ""
-
-filtered = []
-removed = 0
-for entry in packages:
-    value = source_value(entry)
-    if value == "pi-multi-auth" or value.startswith("npm:pi-multi-auth"):
-        removed += 1
-        continue
-    filtered.append(entry)
-
-if removed == 0:
-    print("unchanged")
-    raise SystemExit(0)
-
-data["packages"] = filtered
-path.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
-print("removed")
-PY
-)"
-
-  case "$cleanup_status" in
-    removed)
-      log "Removed legacy global npm PI multi-auth package entry from ~/.pi/agent/settings.json"
-      ;;
-    unchanged)
-      log "Global PI settings already avoid legacy npm PI multi-auth package entries."
-      ;;
-    missing)
-      log "Global PI settings missing or have no package list. Nothing to clean."
-      ;;
-    invalid)
-      warn "Global PI settings are invalid ($global_settings); skipping legacy npm PI multi-auth cleanup."
-      ;;
-    *)
-      warn "Unexpected global PI multi-auth cleanup status '$cleanup_status' for $global_settings"
-      ;;
-  esac
-}
-
-discover_pi_extension_template() {
-  local extension_file="$1"
-  local -a search_roots=(
-    "$HOME/dev"
-    "$HOME"
-  )
-
-  local root=""
-  local found=""
-  for root in "${search_roots[@]}"; do
-    [[ -d "$root" ]] || continue
-    found="$(find "$root" -maxdepth 6 -type f -path "*/.pi/extensions/$extension_file" 2>/dev/null | head -n 1 || true)"
-    if [[ -n "$found" ]]; then
-      printf '%s' "$found"
-      return 0
-    fi
-  done
-
-  return 1
-}
-
-write_builtin_pi_extension_template() {
-  local extension_file="$1"
-  local target_file="$2"
-
-  case "$extension_file" in
-    minimal.ts)
-      cat <<'EOF' > "$target_file"
-import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
-import { applyExtensionDefaults } from "./themeMap.ts";
-
-export default function ({ pi }: ExtensionAPI) {
-  pi.on("session_start", async (_event, ctx) => {
-    applyExtensionDefaults(import.meta.url, ctx);
-  });
-}
-EOF
-      ;;
-    themeMap.ts)
-      cat <<'EOF' > "$target_file"
-import type { ExtensionContext } from "@mariozechner/pi-coding-agent";
-import { basename } from "path";
-import { fileURLToPath } from "url";
-
-export const THEME_MAP: Record<string, string> = {
-  "minimal": "synthwave",
-};
-
-function extensionName(fileUrl: string): string {
-  const filePath = fileUrl.startsWith("file://") ? fileURLToPath(fileUrl) : fileUrl;
-  return basename(filePath).replace(/\.[^.]+$/, "");
-}
-
-function primaryExtensionName(): string | null {
-  const argv = process.argv;
-  for (let i = 0; i < argv.length - 1; i++) {
-    if (argv[i] === "-e" || argv[i] === "--extension") {
-      return basename(argv[i + 1]).replace(/\.[^.]+$/, "");
-    }
-  }
-  return null;
-}
-
-export function applyExtensionTheme(fileUrl: string, ctx?: ExtensionContext): boolean {
-  if (!ctx || !ctx.hasUI || !(ctx as any).ui) return false;
-
-  const name = extensionName(fileUrl);
-  const primaryExt = primaryExtensionName();
-  if (primaryExt && primaryExt !== name) return true;
-
-  const setTheme = (ctx as any).ui?.setTheme;
-  if (typeof setTheme !== "function") return false;
-
-  const aocThemeName = (process.env.AOC_PI_THEME_NAME || "").trim();
-  const aocThemeLocked = /^(1|true|yes|on)$/i.test((process.env.AOC_PI_THEME_LOCKED || "").trim());
-
-  if (aocThemeName.length > 0) {
-    const aocResult = setTheme(aocThemeName);
-    if (aocResult?.success) return true;
-    if (aocThemeLocked) return false;
-  }
-
-  if (aocThemeLocked) return false;
-
-  const themeName = THEME_MAP[name] || "synthwave";
-  const result = setTheme(themeName);
-  return !!result?.success;
-}
-
-export function applyExtensionDefaults(fileUrl: string, ctx?: ExtensionContext): void {
-  applyExtensionTheme(fileUrl, ctx);
-}
-
-export default function (): void {}
-EOF
-      ;;
-    *)
-      return 1
-      ;;
-  esac
-
-  return 0
-}
-
-is_legacy_pi_extension_template() {
-  local extension_file="$1"
-  local target_file="$2"
-
-  [[ -f "$target_file" ]] || return 1
-
-  case "$extension_file" in
-    minimal.ts)
-      if grep -Fq 'const mindPart = `✦ [${bar(mindLoadPct)}] ${Math.round(mindLoadPct * 100)}%`;' "$target_file" 2>/dev/null; then
-        return 0
-      fi
-      ;;
-  esac
-
-  return 1
-}
-
-cleanup_deprecated_pi_extensions() {
-  local pi_extensions_dir="$1"
-  local global_template_dir="$2"
-  local deprecated_project_extension="$pi_extensions_dir/alibaba-model-studio.ts"
-  local deprecated_global_template="$global_template_dir/alibaba-model-studio.ts"
-  local deprecated_archive=""
-
-  if [[ -f "$deprecated_project_extension" ]]; then
-    if grep -Fq 'DEFAULT_ALIBABA_MODEL_STUDIO_BASE_URL' "$deprecated_project_extension" 2>/dev/null \
-      && grep -Fq 'pi.registerProvider("alibaba"' "$deprecated_project_extension" 2>/dev/null; then
-      rm -f "$deprecated_project_extension"
-      log "Removed deprecated PI extension: alibaba-model-studio.ts"
-    else
-      deprecated_archive="$pi_extensions_dir/alibaba-model-studio.ts.disabled"
-      if [[ -e "$deprecated_archive" ]]; then
-        deprecated_archive="$pi_extensions_dir/alibaba-model-studio.ts.disabled.$(date +%s)"
-      fi
-      mv "$deprecated_project_extension" "$deprecated_archive"
-      warn "Archived deprecated PI extension: .pi/extensions/alibaba-model-studio.ts -> $(basename "$deprecated_archive")"
-    fi
-  fi
-
-  if [[ -f "$deprecated_global_template" ]]; then
-    rm -f "$deprecated_global_template"
-    log "Removed deprecated global PI extension template: alibaba-model-studio.ts"
-  fi
-}
-
-# 1d. Setup PI default extensions (.pi/extensions)
-setup_pi_extensions() {
-  local pi_extensions_dir="$project_root/.pi/extensions"
-  local global_template_dir="$aoc_config_dir/pi/extensions"
-  local candidate=""
-  local canonical_seed_dirs=(
-    "$script_dir/../.pi/extensions"
-    "$global_template_dir"
-  )
-  local required_extensions=(
-    "minimal.ts"
-    "themeMap.ts"
-    "mind-ingest.ts"
-    "mind-ops.ts"
-    "mind-context.ts"
-    "mind-focus.ts"
-    "aoc-models.ts"
-    "aoc-codegraph.ts"
-    "aoc-compaction.ts"
-    "lib/mind.ts"
-    "lib/caveman.ts"
-  )
-
-  mkdir -p "$pi_extensions_dir" "$global_template_dir"
-
-  local seeded_any=0
-  local extension_file=""
-  local preferred_seed_file=""
-  local discovered_file=""
-  local target_file=""
-  local cache_file=""
-  local managed_target=""
-  for extension_file in "${required_extensions[@]}"; do
-    target_file="$pi_extensions_dir/$extension_file"
-    cache_file="$global_template_dir/$extension_file"
-    mkdir -p "$(dirname "$target_file")" "$(dirname "$cache_file")"
-
-    preferred_seed_file=""
-    for candidate in "${canonical_seed_dirs[@]}"; do
-      if [[ -f "$candidate/$extension_file" ]]; then
-        preferred_seed_file="$candidate/$extension_file"
-        break
-      fi
-    done
-
-    discovered_file=""
-    if [[ -z "$preferred_seed_file" ]]; then
-      discovered_file="$(discover_pi_extension_template "$extension_file" || true)"
-      if [[ -n "$discovered_file" ]]; then
-        preferred_seed_file="$discovered_file"
-      fi
-    fi
-
-    if [[ -f "$target_file" ]]; then
-      if [[ -n "$preferred_seed_file" ]] && ! cmp -s "$target_file" "$preferred_seed_file"; then
-        managed_target="0"
-        for candidate in "${canonical_seed_dirs[@]}"; do
-          if [[ -f "$candidate/$extension_file" ]] && cmp -s "$target_file" "$candidate/$extension_file"; then
-            managed_target="1"
-            break
-          fi
-        done
-
-        if [[ "$managed_target" != "1" ]] && is_legacy_pi_extension_template "$extension_file" "$target_file"; then
-          managed_target="1"
-        fi
-
-        if [[ "$managed_target" != "1" ]] && managed_pi_extension_name "$extension_file"; then
-          managed_target="1"
-        fi
-
-        if [[ "$managed_target" == "1" ]]; then
-          cp "$preferred_seed_file" "$target_file"
-          log "Updated PI extension from current template: $extension_file"
-          seeded_any=1
-        else
-          log "PI extension $extension_file already present. Preserving."
-        fi
-      else
-        log "PI extension $extension_file already present. Preserving."
-      fi
-
-      if [[ -n "$preferred_seed_file" && "$preferred_seed_file" != "$cache_file" ]]; then
-        if [[ ! -f "$cache_file" ]] || ! cmp -s "$preferred_seed_file" "$cache_file"; then
-          cp "$preferred_seed_file" "$cache_file" || true
-          log "Refreshed global PI extension template: $extension_file"
-        fi
-      fi
-      continue
-    fi
-
-    if [[ -n "$preferred_seed_file" ]]; then
-      cp "$preferred_seed_file" "$target_file"
-      log "Seeded PI extension: $extension_file"
-      seeded_any=1
-      if [[ -n "$preferred_seed_file" && "$preferred_seed_file" != "$cache_file" ]]; then
-        if [[ ! -f "$cache_file" ]] || ! cmp -s "$preferred_seed_file" "$cache_file"; then
-          cp "$preferred_seed_file" "$cache_file" || true
-          log "Refreshed global PI extension template: $extension_file"
-        fi
-      fi
-      continue
-    fi
-
-    if write_builtin_pi_extension_template "$extension_file" "$target_file"; then
-      log "Seeded PI extension (builtin fallback): $extension_file"
-      seeded_any=1
-      if [[ ! -f "$cache_file" ]]; then
-        cp "$target_file" "$cache_file" || true
-      fi
-      continue
-    fi
-
-    warn "Missing PI extension template: $extension_file"
-  done
-
-  cleanup_deprecated_pi_extensions "$pi_extensions_dir" "$global_template_dir"
-
-  if [[ "$seeded_any" != "1" ]]; then
-    log "PI default extensions already present in .pi/extensions. Preserving."
-  fi
-}
 
 setup_search_assets() {
   local search_file="$project_root/.aoc/search.toml"
@@ -3065,134 +2232,6 @@ EOF
   cp "$search_file" "$global_search_dir/search.toml" || true
   cp "$compose_file" "$global_services_dir/docker-compose.yml" || true
   cp "$settings_file" "$global_services_dir/settings.yml" || true
-}
-
-setup_pi_agents() {
-  local pi_agents_dir="$project_root/.pi/agents"
-  local global_agents_dir="$aoc_config_dir/pi/agents"
-  local canonical_seed_dirs=(
-    "$script_dir/../.pi/agents"
-    "$global_agents_dir"
-  )
-  local required_agent_files=(
-    "explorer-agent.md"
-    "planner-agent.md"
-    "builder-agent.md"
-    "code-review-agent.md"
-    "documenter-agent.md"
-    "red-team-agent.md"
-    "testing-agent.md"
-    "scout-web-agent.md"
-    "insight-t1-observer.md"
-    "insight-t2-reflector.md"
-    "insight-t3-aligner.md"
-    "teams.yaml"
-    "agent-chain.yaml"
-  )
-
-  mkdir -p "$pi_agents_dir" "$global_agents_dir"
-
-  local seeded_any=0
-  local agent_file=""
-  local candidate=""
-  local seed_file=""
-  local target_file=""
-  local cache_file=""
-
-  for agent_file in "${required_agent_files[@]}"; do
-    seed_file=""
-    for candidate in "${canonical_seed_dirs[@]}"; do
-      if [[ -f "$candidate/$agent_file" ]]; then
-        seed_file="$candidate/$agent_file"
-        break
-      fi
-    done
-
-    if [[ -z "$seed_file" ]]; then
-      warn "Missing PI agent template: $agent_file"
-      continue
-    fi
-
-    target_file="$pi_agents_dir/$agent_file"
-    cache_file="$global_agents_dir/$agent_file"
-
-    if [[ ! -f "$target_file" ]]; then
-      cp "$seed_file" "$target_file"
-      log "Seeded PI agent: $agent_file"
-      seeded_any=1
-    else
-      log "PI agent $agent_file already present. Preserving."
-    fi
-
-    if [[ "$seed_file" != "$cache_file" ]]; then
-      if [[ ! -f "$cache_file" ]] || ! cmp -s "$seed_file" "$cache_file"; then
-        cp "$seed_file" "$cache_file" || true
-        log "Refreshed global PI agent template: $agent_file"
-      fi
-    fi
-  done
-
-  if [[ "$seeded_any" != "1" ]]; then
-    log "PI default agents already present in .pi/agents. Preserving."
-  fi
-}
-
-setup_pi_extension_families() {
-  local pi_extensions_dir="$project_root/.pi/extensions"
-  local global_template_dir="$aoc_config_dir/pi/extensions"
-  local canonical_seed_dirs=(
-    "$script_dir/../.pi/extensions"
-    "$global_template_dir"
-  )
-  local required_families=(
-    "aoc-presets"
-  )
-
-  mkdir -p "$pi_extensions_dir" "$global_template_dir"
-
-  local family_name=""
-  local seed_dir=""
-  local target_dir=""
-  local cache_dir=""
-  local candidate=""
-  local seeded_any=0
-
-  for family_name in "${required_families[@]}"; do
-    seed_dir=""
-    for candidate in "${canonical_seed_dirs[@]}"; do
-      if [[ -d "$candidate/$family_name" ]]; then
-        seed_dir="$candidate/$family_name"
-        break
-      fi
-    done
-
-    if [[ -z "$seed_dir" ]]; then
-      warn "Missing PI extension family template: $family_name"
-      continue
-    fi
-
-    target_dir="$pi_extensions_dir/$family_name"
-    cache_dir="$global_template_dir/$family_name"
-
-    if [[ ! -d "$target_dir" ]]; then
-      copy_tree_force_managed "$seed_dir" "$target_dir" "pi-extension-family/$family_name"
-      log "Seeded PI extension family: $family_name"
-      seeded_any=1
-    else
-      copy_tree_force_managed "$seed_dir" "$target_dir" "pi-extension-family/$family_name"
-      log "Refreshed managed PI extension family: $family_name"
-      seeded_any=1
-    fi
-
-    if [[ ! -d "$cache_dir" ]] || ! directories_match "$seed_dir" "$cache_dir"; then
-      copy_tree_force "$seed_dir" "$cache_dir"
-      log "Refreshed global PI extension family template: $family_name"
-    fi
-  done
-
-  if [[ "$seeded_any" != "1" ]]; then
-    log "PI extension families already present in .pi/extensions. Preserving existing files."
-  fi
 }
 
 setup_aoc_preset_assets() {
@@ -3304,278 +2343,6 @@ PY
   fi
 }
 
-# 1d. Migrate legacy PI runtime assets from project-local .aoc paths
-cleanup_deprecated_pi_skills() {
-  local pi_skills_dir="$project_root/.pi/skills"
-  local deprecated_skill_dir="$pi_skills_dir/aoc-commit"
-
-  if [[ -d "$deprecated_skill_dir" ]]; then
-    if [[ -f "$deprecated_skill_dir/.aoc-managed" ]]; then
-      rm -rf "$deprecated_skill_dir"
-      log "Removed deprecated managed PI skill: .pi/skills/aoc-commit (use /commit prompt)."
-    else
-      warn "Deprecated PI skill .pi/skills/aoc-commit is unmanaged; preserving for manual review. Use /commit instead."
-    fi
-  fi
-}
-
-migrate_legacy_pi_assets() {
-  local pi_prompts_dir="$project_root/.pi/prompts"
-  local pi_skills_dir="$project_root/.pi/skills"
-  local legacy_prompts_dir="$aoc_dir/prompts/pi"
-  local legacy_skills_dir="$aoc_dir/skills"
-
-  local legacy_prompt=""
-  local legacy_prompt_name=""
-  local canonical_prompt_name=""
-  local target_prompt=""
-
-  if [[ -d "$legacy_prompts_dir" ]]; then
-    shopt -s nullglob
-    local legacy_prompts=("$legacy_prompts_dir"/*.md)
-    shopt -u nullglob
-    for legacy_prompt in "${legacy_prompts[@]}"; do
-      legacy_prompt_name="$(basename "$legacy_prompt")"
-      canonical_prompt_name="$legacy_prompt_name"
-      if [[ "$legacy_prompt_name" == "tmcc.md" ]]; then
-        canonical_prompt_name="tm-cc.md"
-      fi
-      target_prompt="$pi_prompts_dir/$canonical_prompt_name"
-      if [[ ! -f "$target_prompt" ]]; then
-        cp "$legacy_prompt" "$target_prompt"
-        log "Migrated legacy PI prompt: .aoc/prompts/pi/$legacy_prompt_name -> .pi/prompts/$canonical_prompt_name"
-      elif ! cmp -s "$legacy_prompt" "$target_prompt"; then
-        warn "Legacy prompt differs from canonical (.aoc/prompts/pi/$legacy_prompt_name vs .pi/prompts/$canonical_prompt_name). Preserving canonical file."
-      fi
-    done
-  fi
-
-  local alias_prompt="$pi_prompts_dir/tmcc.md"
-  local canonical_tmcc_prompt="$pi_prompts_dir/tm-cc.md"
-  if [[ -f "$alias_prompt" ]]; then
-    if [[ ! -f "$canonical_tmcc_prompt" ]]; then
-      mv "$alias_prompt" "$canonical_tmcc_prompt"
-      log "Migrated legacy PI prompt alias: .pi/prompts/tmcc.md -> .pi/prompts/tm-cc.md"
-    elif cmp -s "$alias_prompt" "$canonical_tmcc_prompt"; then
-      rm -f "$alias_prompt"
-      log "Removed legacy PI prompt alias duplicate: .pi/prompts/tmcc.md"
-    else
-      warn "Legacy PI prompt alias .pi/prompts/tmcc.md differs from .pi/prompts/tm-cc.md; preserving both for manual merge."
-    fi
-  fi
-
-  local legacy_skill_dir=""
-  local legacy_skill_name=""
-  local canonical_skill_name=""
-  local target_skill_dir=""
-  if [[ -d "$legacy_skills_dir" ]]; then
-    shopt -s nullglob
-    local legacy_skill_entries=("$legacy_skills_dir"/*)
-    shopt -u nullglob
-    for legacy_skill_dir in "${legacy_skill_entries[@]}"; do
-      [[ -d "$legacy_skill_dir" ]] || continue
-      [[ -f "$legacy_skill_dir/SKILL.md" ]] || continue
-      legacy_skill_name="$(basename "$legacy_skill_dir")"
-      canonical_skill_name="$legacy_skill_name"
-      if [[ "$legacy_skill_name" == "tmcc" ]]; then
-        canonical_skill_name="tm-cc"
-      fi
-      target_skill_dir="$pi_skills_dir/$canonical_skill_name"
-      if [[ ! -e "$target_skill_dir" ]]; then
-        mkdir -p "$target_skill_dir"
-        cp -R "$legacy_skill_dir"/. "$target_skill_dir"/
-        log "Migrated legacy PI skill: .aoc/skills/$legacy_skill_name -> .pi/skills/$canonical_skill_name"
-      elif [[ -f "$target_skill_dir/SKILL.md" ]] && ! cmp -s "$legacy_skill_dir/SKILL.md" "$target_skill_dir/SKILL.md"; then
-        warn "Legacy skill differs from canonical (.aoc/skills/$legacy_skill_name vs .pi/skills/$canonical_skill_name). Preserving canonical skill."
-      fi
-    done
-  fi
-}
-
-# 1f. Setup PI Prompt Templates (.pi/prompts)
-setup_pi_prompts() {
-  local pi_prompts_dir="$project_root/.pi/prompts"
-  local candidate=""
-  local canonical_seed_dirs=(
-    "$script_dir/../.pi/prompts"
-    "$aoc_config_dir/pi/prompts"
-  )
-  local required_prompts=(
-    "aoc-ops"
-    "tm-cc"
-    "lexicon"
-    "commit"
-  )
-
-  if [[ ! -d "$pi_prompts_dir" ]]; then
-    mkdir -p "$pi_prompts_dir"
-  fi
-
-  local legacy_resume_prompt="$pi_prompts_dir/resume.md"
-  if [[ -f "$legacy_resume_prompt" ]] && grep -Fq 'safe_to_resume_latest' "$legacy_resume_prompt" && grep -Fq 'Operator resume target or focus:' "$legacy_resume_prompt"; then
-    rm -f "$legacy_resume_prompt"
-    log "Removed legacy AOC /resume prompt to avoid clashing with Pi native /resume; use /rresume."
-  fi
-
-  local seeded_any=0
-  local prompt_name=""
-  local seed_file=""
-  local target_file=""
-  for prompt_name in "${required_prompts[@]}"; do
-    seed_file=""
-
-    for candidate in "${canonical_seed_dirs[@]}"; do
-      if [[ -f "$candidate/${prompt_name}.md" ]]; then
-        seed_file="$candidate/${prompt_name}.md"
-        break
-      fi
-    done
-
-    if [[ -z "$seed_file" ]]; then
-      warn "Missing PI prompt template: /$prompt_name"
-      continue
-    fi
-
-    target_file="$pi_prompts_dir/${prompt_name}.md"
-    if [[ ! -f "$target_file" ]]; then
-      copy_file_force_managed "$seed_file" "$target_file" "prompt/$prompt_name"
-      log "Seeded PI prompt: /$prompt_name"
-    elif is_aoc_managed_target "$target_file"; then
-      if cmp -s "$seed_file" "$target_file"; then
-        copy_file_force_managed "$seed_file" "$target_file" "prompt/$prompt_name"
-        log "PI prompt /$prompt_name already current."
-      else
-        copy_file_force_managed "$seed_file" "$target_file" "prompt/$prompt_name"
-        log "Refreshed managed PI prompt: /$prompt_name"
-      fi
-    elif cmp -s "$seed_file" "$target_file"; then
-      copy_file_force_managed "$seed_file" "$target_file" "prompt/$prompt_name"
-      log "Adopted PI prompt as managed: /$prompt_name"
-    else
-      copy_file_force_managed "$seed_file" "$target_file" "prompt/$prompt_name"
-      log "Refreshed PI prompt from AOC seed: /$prompt_name"
-    fi
-    seeded_any=1
-  done
-
-  if [[ "$seeded_any" != "1" ]]; then
-    warn "No PI prompt templates found; skipping PI prompt seeding."
-  fi
-
-  local optional_hidden_dir="$project_root/.pi/prompts-optional/production-hidden"
-  local optional_seed_dirs=(
-    "$aoc_config_dir/pi/prompts-optional/production-hidden"
-    "$script_dir/../.pi/prompts-optional/production-hidden"
-  )
-  local optional_prompt=""
-  local optional_seed_file=""
-  mkdir -p "$optional_hidden_dir"
-  for optional_prompt in "hyperframes"; do
-    optional_seed_file=""
-    for candidate in "${optional_seed_dirs[@]}"; do
-      if [[ -f "$candidate/${optional_prompt}.md" ]]; then
-        optional_seed_file="$candidate/${optional_prompt}.md"
-        break
-      fi
-    done
-    if [[ -n "$optional_seed_file" && ! -f "$optional_hidden_dir/${optional_prompt}.md" ]]; then
-      cp "$optional_seed_file" "$optional_hidden_dir/${optional_prompt}.md"
-      log "Seeded optional hidden PI prompt: /$optional_prompt"
-    fi
-  done
-
-  for optional_prompt in "hyperframes"; do
-    if [[ -f "$pi_prompts_dir/${optional_prompt}.md" && ! -f "$optional_hidden_dir/${optional_prompt}.md" ]]; then
-      mv "$pi_prompts_dir/${optional_prompt}.md" "$optional_hidden_dir/${optional_prompt}.md"
-      log "Moved optional PI prompt out of production surface: /$optional_prompt"
-    fi
-  done
-
-  for deprecated_prompt in "teach" "teach-full" "teach-dive" "teach-ask"; do
-    if [[ -f "$pi_prompts_dir/${deprecated_prompt}.md" ]]; then
-      rm -f "$pi_prompts_dir/${deprecated_prompt}.md"
-      log "Removed deprecated legacy teach PI prompt: /$deprecated_prompt"
-    fi
-    if [[ -f "$optional_hidden_dir/${deprecated_prompt}.md" ]]; then
-      rm -f "$optional_hidden_dir/${deprecated_prompt}.md"
-      log "Removed deprecated hidden legacy teach PI prompt: /$deprecated_prompt"
-    fi
-  done
-
-  if [[ -f "$pi_prompts_dir/tmcc.md" ]]; then
-    log "Legacy PI prompt alias /tmcc detected; preserving file but alias is no longer seeded."
-  fi
-}
-
-# 1g. Setup PI Skill Templates (.pi/skills)
-setup_pi_skills() {
-  local pi_skills_dir="$project_root/.pi/skills"
-  local candidate=""
-  local canonical_seed_dirs=(
-    "$script_dir/../.pi/skills"
-    "$aoc_config_dir/pi/skills"
-  )
-
-  mkdir -p "$pi_skills_dir"
-
-  local seed_dir=""
-  local skill_list=()
-
-  for candidate in "${canonical_seed_dirs[@]}"; do
-    [[ -d "$candidate" ]] || continue
-    shopt -s nullglob
-    skill_list=("$candidate"/*/SKILL.md)
-    shopt -u nullglob
-    if ((${#skill_list[@]} > 0)); then
-      seed_dir="$candidate"
-      break
-    fi
-  done
-
-  if [[ -z "$seed_dir" ]]; then
-    warn "No PI skill templates found; skipping PI skill seeding."
-    return
-  fi
-
-  local copied_any=0
-  local seed_skill_dir=""
-  local skill_name=""
-  local target_skill_dir=""
-
-  shopt -s nullglob
-  local seed_entries=("$seed_dir"/*)
-  shopt -u nullglob
-  for seed_skill_dir in "${seed_entries[@]}"; do
-    [[ -d "$seed_skill_dir" ]] || continue
-    [[ -f "$seed_skill_dir/SKILL.md" ]] || continue
-    skill_name="$(basename "$seed_skill_dir")"
-    if [[ "$skill_name" == "aoc-commit" ]]; then
-      continue
-    fi
-    target_skill_dir="$pi_skills_dir/$skill_name"
-    if [[ ! -e "$target_skill_dir" ]]; then
-      copy_tree_force_managed "$seed_skill_dir" "$target_skill_dir" "skill/$skill_name"
-      copied_any=1
-      continue
-    fi
-
-    if managed_pi_skill_name "$skill_name"; then
-      copy_tree_force_managed "$seed_skill_dir" "$target_skill_dir" "skill/$skill_name"
-      copied_any=1
-      continue
-    fi
-
-    copy_tree_missing_only "$seed_skill_dir" "$target_skill_dir"
-  done
-
-  if [[ "$copied_any" == "1" ]]; then
-    log "Seeded/refreshed PI skills into .pi/skills."
-  else
-    log "PI skills already present in .pi/skills. Seeded missing support files only."
-  fi
-}
-
-# 2. Setup Taskmaster (.taskmaster/)
 setup_tasks() {
   log "Initializing Taskmaster..."
 
@@ -3721,9 +2488,9 @@ setup_env() {
 
 setup_aoc_map() {
   local map_dir="$project_root/.aoc/map"
-  local aoc_map_skill="$project_root/.pi/skills/aoc-map/SKILL.md"
-  local aoc_map_skill_dir="$project_root/.pi/skills/aoc-map"
-  local canonical_skill_src="$script_dir/../.pi/skills/aoc-map/SKILL.md"
+  local aoc_map_skill="$project_root/.omp/skills/aoc-map/SKILL.md"
+  local aoc_map_skill_dir="$project_root/.omp/skills/aoc-map"
+  local canonical_skill_src="$script_dir/../.omp/skills/aoc-map/SKILL.md"
   local output=""
   local -a init_args=(init)
 
@@ -3743,33 +2510,8 @@ setup_aoc_map() {
     fi
   fi
 
-  if command -v aoc-map >/dev/null 2>&1; then
-    if output="$(cd "$project_root" && aoc-map "${init_args[@]}" 2>&1)"; then
-      log "AOC Map workspace ready ($map_dir)."
-      if [[ -f "$aoc_map_skill" ]]; then
-        log "AOC Map skill ready ($aoc_map_skill)."
-      else
-        warn "AOC Map skill missing after aoc-map init ($aoc_map_skill)."
-      fi
-    else
-      warn "aoc-map init failed; unable to seed $map_dir."
-      [[ -n "$output" ]] && warn "$output"
-    fi
-  elif [[ -x "$script_dir/aoc-map" ]]; then
-    if output="$(cd "$project_root" && "$script_dir/aoc-map" "${init_args[@]}" 2>&1)"; then
-      log "AOC Map workspace ready ($map_dir)."
-      if [[ -f "$aoc_map_skill" ]]; then
-        log "AOC Map skill ready ($aoc_map_skill)."
-      else
-        warn "AOC Map skill missing after aoc-map init ($aoc_map_skill)."
-      fi
-    else
-      warn "aoc-map init failed; unable to seed $map_dir."
-      [[ -n "$output" ]] && warn "$output"
-    fi
-  else
-    warn "aoc-map not found; skipping AOC Map workspace seeding."
-  fi
+  mkdir -p "$map_dir"
+  log "AOC Map workspace directory ready ($map_dir)."
 }
 
 
@@ -3845,22 +2587,12 @@ main() {
   apply_project_version_migrations
   setup_project_mind_service_config
   setup_project_mind_runtime
+  setup_project_omp_assets
   setup_omp_extensions
   setup_omp_skills
   setup_omp_agents
   setup_voxtype_lexicon
-  patch_omp_footer
-  setup_pi_packages
-  setup_pi_settings
-  cleanup_global_pi_multi_auth
-  cleanup_deprecated_pi_skills
-  setup_pi_extensions
-  setup_pi_extension_families
-  setup_pi_agents
   setup_search_assets
-  migrate_legacy_pi_assets
-  setup_pi_prompts
-  setup_pi_skills
   setup_aoc_preset_assets
   setup_skills
   setup_aoc_map
@@ -3870,10 +2602,6 @@ main() {
   setup_binaries
   refresh_aoc_managed_manifest
   write_project_aoc_state
-  if ! validate_project_pi_runtime_contract; then
-    warn "AOC initialization finished with PI runtime validation errors."
-    exit 1
-  fi
   log "AOC Initialization Complete. Ready to launch."
 }
 

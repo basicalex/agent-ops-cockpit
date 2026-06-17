@@ -39,8 +39,8 @@ project_root="$tmp_root/project"
 log_file="$tmp_root/commands.log"
 mkdir -p "$fake_bin" "$project_root/.git" "$project_root/.jj" \
   "$project_root/.aoc/logs" "$project_root/.aoc/mind" \
-  "$project_root/.taskmaster/docs/specs" "$project_root/.pi/tmp" \
-  "$project_root/.omp/extensions" "$project_root/.omp/agents"
+  "$project_root/.taskmaster/docs/specs" \
+  "$project_root/.omp/extensions" "$project_root/.omp/agents" "$project_root/.omp/skills"
 
 cat > "$fake_bin/aoc-handshake" <<'FAKE'
 #!/usr/bin/env bash
@@ -106,9 +106,9 @@ printf 'context\n' > "$project_root/.aoc/context.md"
 printf 'runtime log\n' > "$project_root/.aoc/logs/runtime.log"
 printf 'mind db\n' > "$project_root/.aoc/mind/project.sqlite"
 printf 'task\n' > "$project_root/.taskmaster/docs/specs/spec.md"
-printf 'tmp\n' > "$project_root/.pi/tmp/session.json"
 printf 'extension\n' > "$project_root/.omp/extensions/aoc-state.ts"
 printf 'agent\n' > "$project_root/.omp/agents/reviewer.md"
+printf 'skill\n' > "$project_root/.omp/skills/example.md"
 printf 'rules\n' > "$project_root/AGENTS.md"
 printf 'design\n' > "$project_root/DESIGN.md"
 
@@ -121,13 +121,14 @@ status_output="$tmp_root/status.out"
 assert_contains 'VCS: jj (preferred: jj)' "$status_output"
 assert_contains '.omp/extensions' "$status_output"
 assert_contains '.omp/agents' "$status_output"
+assert_contains '.omp/skills' "$status_output"
 assert_contains 'Runtime/churn artifacts excluded by policy:' "$status_output"
 assert_contains 'No unsafe state candidates found by name/pattern scan.' "$status_output"
 assert_contains 'No unexpectedly ignored project-state files found.' "$status_output"
 assert_contains 'State audit result: project state is clean or trackable.' "$status_output"
 assert_contains 'jj status' "$log_file"
-assert_contains 'jj diff --summary -- .aoc .taskmaster .pi .omp/extensions .omp/agents AGENTS.md DESIGN.md' "$log_file"
-assert_contains 'jj diff --stat -- .aoc .taskmaster .pi .omp/extensions .omp/agents AGENTS.md DESIGN.md' "$log_file"
+assert_contains 'jj diff --summary -- .aoc .taskmaster .omp/extensions .omp/agents .omp/skills AGENTS.md DESIGN.md' "$log_file"
+assert_contains 'jj diff --stat -- .aoc .taskmaster .omp/extensions .omp/agents .omp/skills AGENTS.md DESIGN.md' "$log_file"
 
 unsafe_output="$tmp_root/unsafe.out"
 printf 'OPENAI_API_KEY=bad\n' > "$project_root/.aoc/bad.env"

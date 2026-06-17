@@ -3,357 +3,127 @@ set -euo pipefail
 
 usage() {
   cat <<'EOF'
-Usage: aoc-omp-patch [--cache-root PATH] [--omp-dir PATH] [--quiet]
+Usage: aoc-omp-patch [--cache-root PATH] [--quiet]
 
-Patch the installed OMP footer so jj workspaces show jj diff/bookmark metrics
-instead of the colocated Git branch/detached implementation detail.
+Patch OMP after an upstream update so colocated jj workspaces show the desired
+status summary in the existing git segment:
+  Δ<files> +<added> -<removed> ⇢<bookmarks>
+
+Contract for future agents:
+- Patch the newest cached @oh-my-pi/pi-coding-agent dist/cli.js and active
+  ~/.cache/.bun/bin/omp bundle.
+- Use async cached jj refresh via Bun.spawn; never put spawnSync or synchronous
+  jj commands on the status render path.
+- Keep the first frame cheap ("jj..."), then refresh the segment.
+- Configure ~/.omp/agent/config.yml for Nerd Font custom status line with the
+  git segment present and upstream Git dirty counters disabled.
 EOF
 }
 
 cache_root="${BUN_INSTALL_CACHE_DIR:-$HOME/.cache/.bun/install/cache}"
-omp_dir="${PI_CODING_AGENT_DIR:-$HOME/.omp/agent}"
 quiet=0
-
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --cache-root)
-      [[ $# -ge 2 ]] || { echo "aoc-omp-patch: --cache-root requires a path" >&2; exit 2; }
-      cache_root="$2"
-      shift 2
-      ;;
-    --omp-dir)
-      [[ $# -ge 2 ]] || { echo "aoc-omp-patch: --omp-dir requires a path" >&2; exit 2; }
-      omp_dir="$2"
-      shift 2
-      ;;
-    --quiet)
-      quiet=1
-      shift
-      ;;
-    -h|--help)
-      usage
-      exit 0
-      ;;
-    *)
-      echo "aoc-omp-patch: unknown option: $1" >&2
-      usage >&2
-      exit 2
-      ;;
+    --cache-root) cache_root="$2"; shift 2 ;;
+    --quiet) quiet=1; shift ;;
+    -h|--help) usage; exit 0 ;;
+    *) echo "aoc-omp-patch: unknown option: $1" >&2; usage >&2; exit 2 ;;
   esac
 done
 
-python3 - "$cache_root" "$omp_dir" "$quiet" <<'PY'
+python3 - "$cache_root" "$quiet" <<'PY'
 from __future__ import annotations
-
-import re
-import sys
-import textwrap
 from pathlib import Path
+import re, sys
 
 cache_root = Path(sys.argv[1]).expanduser()
-omp_dir = Path(sys.argv[2]).expanduser()
-quiet = sys.argv[3] == "1"
-unsupported = "aoc-omp-patch: unsupported OMP package layout; footer anchors not found"
+quiet = sys.argv[2] == "1"
 
+def semver_key(path: Path):
+    for part in path.parts:
+        m = re.search(r"pi-coding-agent@(\d+)\.(\d+)\.(\d+)", part)
+        if m:
+            return tuple(map(int, m.groups()))
+    return (-1, -1, -1)
 
-def semver_key(version: str) -> tuple[int, int, int, tuple[str, ...]]:
-    parts = version.split("-", 1)
-    nums = parts[0].split(".")
-    major, minor, patch = (int(n) if n.isdigit() else 0 for n in (nums + ["0", "0", "0"])[:3])
-    pre = tuple(parts[1].split(".")) if len(parts) > 1 else ()
-    return (major, minor, patch, pre)
+candidates = sorted(cache_root.glob("@oh-my-pi/pi-coding-agent@*@@@*/dist/cli.js"), key=semver_key, reverse=True)
+bundle_paths = [Path.home() / ".cache/.bun/install/global/node_modules/@oh-my-pi/pi-coding-agent/dist/cli.js"]
+if candidates:
+    bundle_paths.append(candidates[0])
+bundle_paths.append(Path.home() / ".cache/.bun/bin/omp")
 
-
-def candidate_srcs() -> list[Path]:
-    base = cache_root
-    preferred_version = None
-    config = omp_dir / "config.yml"
-    if config.exists():
-        match = re.search(r"^lastChangelogVersion:\s*['\"]?([^'\"\s]+)", config.read_text(encoding="utf-8", errors="replace"), re.M)
-        if match:
-            preferred_version = match.group(1)
-
-    candidates: list[tuple[str, Path]] = []
-    for src in base.glob("@oh-my-pi/pi-coding-agent@*/src"):
-        footer = src / "modes/components/footer.ts"
-        if not footer.is_file():
+old_statuses = [
+    '#getCurrentBranch(){let cwd=getProjectDir();if(this.#cachedBranch!==void 0&&this.#cachedBranchCwd===cwd)return this.#cachedBranch;let head2=head.resolveSync(cwd),gitHeadPath=head2?.headPath??null;if(this.#cachedBranchCwd=cwd,this.#cachedBranchRepoId=gitHeadPath,!head2)return this.#cachedBranch=null,null;return this.#cachedBranch=head2.kind==="ref"?head2.branchName??head2.ref:"detached",this.#cachedBranch??null}',
+    '#getCurrentBranch(){if(this.#cachedBranch!==void 0)return this.#cachedBranch;let headState=head.resolveSync(getProjectDir());return this.#cachedBranch=headState===null?null:headState.kind==="ref"?headState.branchName??headState.ref:"detached",this.#cachedBranch}',
+]
+new_status = '#getCurrentBranch(){let cwd=getProjectDir(),jjRepoDir=aocFindJjRepoDirAsync(cwd);if(jjRepoDir){if(this._aocJjCwd!==cwd&&(this._aocJjCwd=cwd,this._aocJjSummary=void 0,this._aocJjLastFetch=0),!this._aocJjInFlight&&(this._aocJjSummary===void 0||Date.now()-(this._aocJjLastFetch??0)>2e3)){this._aocJjInFlight=!0;aocResolveJjSummaryAsync(jjRepoDir).then((summary)=>{this._aocJjCwd===cwd&&(this._aocJjSummary=summary,this._aocJjLastFetch=Date.now(),this.#onBranchChange&&this.#onBranchChange())}).finally(()=>{this._aocJjInFlight=!1})}return this._aocJjSummary??"jj..."}if(this.#cachedBranch!==void 0)return this.#cachedBranch;let headState=head.resolveSync(cwd);return this.#cachedBranch=headState===null?null:headState.kind==="ref"?headState.branchName??headState.ref:"detached",this.#cachedBranch}'
+pr_old = 'branch === "detached" || this.#isDefaultBranch(branch) || this.#prLookupInFlight'
+pr_new = 'branch === "detached" || branch === "jj?" || branch === "jj..." || branch.startsWith("Δ") || this.#isDefaultBranch(branch) || this.#prLookupInFlight'
+old_sync_helper = re.compile(r'function aocFindJjRepoDir(?:Async)?\(cwd\).*?function aocResolveJjSummary(?:Sync|Async)\([^)]*\)\{.*?return`(?:\\u0394|Δ)\$\{files\} \+\$\{added\} -\$\{removed\} (?:\\u21E2|⇢)\$\{bookmarks\}`\}', re.S)
+footer_import_re = re.compile(r'import\*as (fs\d+) from"fs";import\*as (path\d+) from"path";import\{stripVTControlCharacters as stripVTControlCharacters2\}from"util";class FooterComponent')
+seen = set()
+for path in bundle_paths:
+    path = path.expanduser()
+    if path in seen or not path.is_file():
+        continue
+    seen.add(path)
+    text = path.read_text('utf-8')
+    text = old_sync_helper.sub('', text, count=1)
+    footer_match = footer_import_re.search(text)
+    if not footer_match:
+        print(f"aoc-omp-patch: warning: helper anchor missing in {path}", file=sys.stderr)
+        continue
+    fs_alias, path_alias = footer_match.groups()
+    helper = f'''function aocFindJjRepoDirAsync(cwd){{let dir=cwd;for(;;){{if({fs_alias}.existsSync({path_alias}.join(dir,".jj","repo")))return dir;let parent={path_alias}.dirname(dir);if(parent===dir)return null;dir=parent}}}}async function aocRunJjAsync(repoDir,args){{try{{let proc=Bun.spawn(["jj","--no-pager","--color=never",...args],{{cwd:repoDir,stdin:"ignore",stdout:"pipe",stderr:"ignore"}}),stdout=await new Response(proc.stdout).text(),code=await proc.exited;if(code!==0)return null;return stdout.trim()}}catch{{return null}}}}function aocCountEditedFilesAsync(summary){{return summary.split("\\n").filter((line)=>line.trim()!=="").length}}function aocCountAddedRemovedAsync(stat){{let added=0,removed=0;for(let match of stat.matchAll(/([0-9]+)\\s+insertions?\\(\\+\\)/g))added+=Number(match[1]);for(let match of stat.matchAll(/([0-9]+)\\s+deletions?\\(-\\)/g))removed+=Number(match[1]);return{{added,removed}}}}function aocCountActiveBookmarksAsync(bookmarks){{return bookmarks.split("\\n").filter((line)=>{{let trimmed=line.trim();return trimmed!==""&&!/^\\s/.test(line)&&!line.includes("@origin")&&!line.includes("deleted")&&!line.includes("conflicted")}}).length}}async function aocResolveJjSummaryAsync(repoDir){{let[summary,stat,bookmarksText]=await Promise.all([aocRunJjAsync(repoDir,["diff","--summary"]),aocRunJjAsync(repoDir,["diff","--stat"]),aocRunJjAsync(repoDir,["bookmark","list"])]);if(summary===null||stat===null||bookmarksText===null)return"jj?";let files=aocCountEditedFilesAsync(summary),{{added,removed}}=aocCountAddedRemovedAsync(stat),bookmarks=aocCountActiveBookmarksAsync(bookmarksText);return`\\u0394${{files}} +${{added}} -${{removed}} \\u21E2${{bookmarks}}`}}'''
+    if 'function aocFindJjRepoDirAsync' not in text:
+        text = text[:footer_match.start()] + helper + text[footer_match.start():]
+    if new_status not in text:
+        for old_status in old_statuses:
+            if old_status in text:
+                text = text.replace(old_status, new_status, 1)
+                break
+        else:
+            print(f"aoc-omp-patch: warning: status method anchor missing in {path}", file=sys.stderr)
             continue
-        match = re.match(r"pi-coding-agent@([^@]+)@@@", src.parent.name)
-        if not match:
-            continue
-        candidates.append((match.group(1), src))
-
-    if preferred_version:
-        preferred = [src for version, src in candidates if version == preferred_version]
-        if preferred:
-            return sorted(preferred, key=lambda p: p.parent.name, reverse=True)
-
-    return [src for _, src in sorted(candidates, key=lambda item: (semver_key(item[0]), item[1].parent.name), reverse=True)]
-
-srcs = candidate_srcs()
-if not srcs:
-    print(unsupported, file=sys.stderr)
-    sys.exit(1)
-
-footer = srcs[0] / "modes/components/footer.ts"
-original = footer.read_text(encoding="utf-8")
-text = original
-
-source_already_patched = "// AOC-JJ-FOOTER-PATCH-BEGIN" in text and "#getCurrentVcsSummary" in text and "#cachedVcsSummary" in text
-if source_already_patched and not quiet:
-    print(f"aoc-omp-patch: already patched {footer}")
-
-if not source_already_patched:
-    required = [
-        'import * as fs from "node:fs";',
-        'import * as git from "../../utils/git";',
-        '#cachedBranch: string | null | undefined = undefined;',
-        '#getCurrentBranch(): string | null {',
-    ]
-    if any(anchor not in text for anchor in required):
-        print(unsupported, file=sys.stderr)
-        sys.exit(1)
-
-    if 'import { spawnSync } from "node:child_process";' not in text:
-        text = text.replace('import * as fs from "node:fs";\n', 'import { spawnSync } from "node:child_process";\nimport * as fs from "node:fs";\n', 1)
-    if 'import * as path from "node:path";' not in text:
-        text = text.replace('import * as fs from "node:fs";\n', 'import * as fs from "node:fs";\nimport * as path from "node:path";\n', 1)
-
-    text = text.replace('#cachedBranch: string | null | undefined = undefined;', '#cachedVcsSummary: string | null | undefined = undefined;')
-    text = text.replace('this.#cachedBranch = undefined;', 'this.#cachedVcsSummary = undefined;')
-    text = text.replace('this.#cachedBranch = null;', 'this.#cachedVcsSummary = null;')
-
-    helper_and_method = r'''
-      // AOC-JJ-FOOTER-PATCH-BEGIN
-      #isJjWorkspace(projectDir: string): boolean {
-        try {
-          return fs.existsSync(path.join(projectDir, ".jj", "repo"));
-        } catch {
-          return false;
-        }
-      }
-
-      #runJj(projectDir: string, args: string[]): string | null {
-        const result = spawnSync("jj", ["--no-pager", "--color=never", ...args], {
-          cwd: projectDir,
-          encoding: "utf8",
-          stdio: ["ignore", "pipe", "ignore"],
-          timeout: 750,
-        });
-
-        if (result.status !== 0) {
-          return null;
-        }
-
-        return result.stdout.trim();
-      }
-
-      #countEditedFiles(summary: string): number {
-        return summary.split("\n").filter((line) => line.trim() !== "").length;
-      }
-
-      #countAddedRemoved(stat: string): { added: number; removed: number } {
-        let added = 0;
-        let removed = 0;
-
-        for (const match of stat.matchAll(/([0-9]+)\s+insertions?\(\+\)/g)) {
-          added += Number(match[1]);
-        }
-
-        for (const match of stat.matchAll(/([0-9]+)\s+deletions?\(-\)/g)) {
-          removed += Number(match[1]);
-        }
-
-        return { added, removed };
-      }
-
-      #countActiveBookmarks(bookmarks: string): number {
-        return bookmarks
-          .split("\n")
-          .filter((line) => {
-            const trimmed = line.trim();
-            return (
-              trimmed !== "" &&
-              !/^\s/.test(line) &&
-              !line.includes("@origin") &&
-              !line.includes("deleted") &&
-              !line.includes("conflicted")
-            );
-          }).length;
-      }
-      // AOC-JJ-FOOTER-PATCH-END
-
-      #getCurrentVcsSummary(): string | null {
-        if (this.#cachedVcsSummary !== undefined) {
-          return this.#cachedVcsSummary;
-        }
-
-        const projectDir = getProjectDir();
-
-        if (this.#isJjWorkspace(projectDir)) {
-          const summary = this.#runJj(projectDir, ["diff", "--summary"]);
-          const stat = this.#runJj(projectDir, ["diff", "--stat"]);
-          const bookmarkList = this.#runJj(projectDir, ["bookmark", "list"]);
-
-          if (summary === null || stat === null || bookmarkList === null) {
-            this.#cachedVcsSummary = "jj?";
-            return this.#cachedVcsSummary;
-          }
-
-          const files = this.#countEditedFiles(summary);
-          const { added, removed } = this.#countAddedRemoved(stat);
-          const bookmarks = this.#countActiveBookmarks(bookmarkList);
-          this.#cachedVcsSummary = `Δ${files} +${added} -${removed} ⇢${bookmarks}`;
-          return this.#cachedVcsSummary;
-        }
-
-        const headState = git.head.resolveSync(projectDir);
-        this.#cachedVcsSummary =
-          headState === null ? null : headState.kind === "ref" ? (headState.branchName ?? headState.ref) : "detached";
-        return this.#cachedVcsSummary;
-      }
-    '''
-    method_match = re.search(r"\n([ \t]*)#getCurrentBranch\(\): string \| null \{", text)
-    if not method_match:
-        print(unsupported, file=sys.stderr)
-        sys.exit(1)
-
-    indent = method_match.group(1)
-    method_start = method_match.start()
-    prefix = text[:method_start]
-    doc_match = re.search(r"\n[ \t]*/\*\*\n(?:[ \t]*[ \t]?\*.*\n)*[ \t]*\*/\Z", prefix)
-    if doc_match:
-        method_start = doc_match.start()
-
-    render_start = text.find(f"\n{indent}render(", method_match.end())
-    if render_start == -1:
-        print(unsupported, file=sys.stderr)
-        sys.exit(1)
-
-    text = text[:method_start] + "\n" + textwrap.dedent(helper_and_method).strip("\n") + "\n" + text[render_start:]
-
-    render_pattern = re.compile(
-        r"(?P<indent>[ \t]*)const branch = this\.#getCurrentBranch\(\);\n"
-        r"(?P=indent)if \(branch\) \{\n"
-        r"(?P=indent)[ \t]+pwd = `\$\{pwd\} \(\$\{branch\}\)`;\n"
-        r"(?P=indent)\}",
-    )
-    render_replacement = (
-        r"\g<indent>const vcsSummary = this.#getCurrentVcsSummary();\n"
-        r"\g<indent>if (vcsSummary) {\n"
-        r"\g<indent>  pwd = `${pwd} (${vcsSummary})`;\n"
-        r"\g<indent>}"
-    )
-    text, count = render_pattern.subn(render_replacement, text, count=1)
-    if count != 1:
-        print(unsupported, file=sys.stderr)
-        sys.exit(1)
-
-    if text == original:
-        print(unsupported, file=sys.stderr)
-        sys.exit(1)
-
-
-else:
+    text = text.replace('"jj…"', '"jj..."')
+    text = text.replace(pr_old, pr_new, 1)
+    path.write_text(text, 'utf-8')
     if not quiet:
-        print(f"aoc-omp-patch: source repair skipped for {footer}")
-status_line = srcs[0] / "modes/components/status-line/component.ts"
-if status_line.is_file():
-    status_original = status_line.read_text(encoding="utf-8")
-    status_text = status_original
-    if "// AOC-JJ-FOOTER-PATCH-BEGIN" not in status_text:
-        status_required = [
-            'import * as fs from "node:fs";',
-            'import * as git from "../../../utils/git";',
-            '#cachedBranch: string | null | undefined = undefined;',
-            '#getCurrentBranch(): string | null {',
-            'branch: this.#getCurrentBranch(),',
-        ]
-        if all(anchor in status_text for anchor in status_required):
-            if 'import { spawnSync } from "node:child_process";' not in status_text:
-                status_text = status_text.replace(
-                    'import * as fs from "node:fs";\n',
-                    'import { spawnSync } from "node:child_process";\nimport * as fs from "node:fs";\n',
-                    1,
-                )
-            if 'import * as path from "node:path";' not in status_text:
-                status_text = status_text.replace(
-                    'import * as fs from "node:fs";\n',
-                    'import * as fs from "node:fs";\nimport * as path from "node:path";\n',
-                    1,
-                )
-            status_text = status_text.replace(
-                '#cachedBranch: string | null | undefined = undefined;',
-                '#cachedVcsSummary: string | null | undefined = undefined;',
-                1,
-            )
-            status_text = status_text.replace('this.#cachedBranch = undefined;', 'this.#cachedVcsSummary = undefined;')
-            status_text = status_text.replace('this.#cachedBranch = null;', 'this.#cachedVcsSummary = null;')
-            status_text = status_text.replace('#getCurrentBranch()', '#getCurrentVcsSummary()')
-            status_text = status_text.replace('this.#cachedBranch !== undefined', 'this.#cachedVcsSummary !== undefined')
-            status_text = status_text.replace('return this.#cachedBranch;', 'return this.#cachedVcsSummary;')
-            status_text = status_text.replace('this.#cachedBranch = head.kind === "ref" ? (head.branchName ?? head.ref) : "detached";', 'this.#cachedVcsSummary = head.kind === "ref" ? (head.branchName ?? head.ref) : "detached";')
-            status_text = status_text.replace('return this.#cachedBranch ?? null;', 'return this.#cachedVcsSummary ?? null;')
-            status_text = status_text.replace(
-                'if (!branch || branch === "detached" || this.#isDefaultBranch(branch) || this.#prLookupInFlight) {',
-                'if (!branch || branch === "detached" || branch === "jj?" || branch.startsWith("Δ") || this.#isDefaultBranch(branch) || this.#prLookupInFlight) {',
-                1,
-            )
-            status_method_match = re.search(r"\n([ \t]*)#getCurrentVcsSummary\(\): string \| null \{", status_text)
-            if status_method_match:
-                status_indent = status_method_match.group(1)
-                status_render_start = status_text.find(f"\n{status_indent}#isDefaultBranch(", status_method_match.end())
-                if status_render_start != -1:
-                    status_text = (
-                        status_text[:status_method_match.start()]
-                        + "\n"
-                        + textwrap.dedent(helper_and_method).strip("\n")
-                        + "\n"
-                        + status_text[status_render_start:]
-                    )
-                    status_line.write_text(status_text, encoding="utf-8")
-        elif not quiet:
-            print(f"aoc-omp-patch: warning: status-line anchors not found in {status_line}", file=sys.stderr)
+        print(f"aoc-omp-patch: patched {path}")
 
-
-bundle_helper = '''function aocFindJjRepoDir(cwd){let dir=cwd;for(;;){if(fs81.existsSync(path103.join(dir,".jj","repo")))return dir;let parent=path103.dirname(dir);if(parent===dir)return null;dir=parent}}function aocRunJj(repoDir,args){let result=Bun.spawnSync(["jj","--no-pager","--color=never",...args],{cwd:repoDir,stdout:"pipe",stderr:"ignore",windowsHide:!0,timeout:750});if(result.exitCode!==0)return null;return String(result.stdout??"").trim()}function aocCountEditedFiles(summary){return summary.split("\\n").filter((line)=>line.trim()!=="").length}function aocCountAddedRemoved(stat){let added=0,removed=0;for(let match of stat.matchAll(/([0-9]+)\\s+insertions?\\(\\+\\)/g))added+=Number(match[1]);for(let match of stat.matchAll(/([0-9]+)\\s+deletions?\\(-\\)/g))removed+=Number(match[1]);return{added,removed}}function aocCountActiveBookmarks(bookmarks){return bookmarks.split("\\n").filter((line)=>{let trimmed=line.trim();return trimmed!==""&&!/^\\s/.test(line)&&!line.includes("@origin")&&!line.includes("deleted")&&!line.includes("conflicted")}).length}function aocResolveJjSummarySync(cwd){let repoDir=aocFindJjRepoDir(cwd);if(!repoDir)return null;let summary=aocRunJj(repoDir,["diff","--summary"]),stat=aocRunJj(repoDir,["diff","--stat"]),bookmarkList=aocRunJj(repoDir,["bookmark","list"]);if(summary===null||stat===null||bookmarkList===null)return"jj?";let files=aocCountEditedFiles(summary),{added,removed}=aocCountAddedRemoved(stat),bookmarks=aocCountActiveBookmarks(bookmarkList);return`Δ${files} +${added} -${removed} ⇢${bookmarks}`;}'''
-bundle_old_method = '#getCurrentBranch(){if(this.#cachedBranch!==void 0)return this.#cachedBranch;let headState=head.resolveSync(getProjectDir());return this.#cachedBranch=headState===null?null:headState.kind==="ref"?headState.branchName??headState.ref:"detached",this.#cachedBranch}'
-bundle_new_method = '#getCurrentBranch(){if(this.#cachedBranch!==void 0)return this.#cachedBranch;let jjSummary=aocResolveJjSummarySync(getProjectDir());if(jjSummary!==null)return this.#cachedBranch=jjSummary,jjSummary;let headState=head.resolveSync(getProjectDir());return this.#cachedBranch=headState===null?null:headState.kind==="ref"?headState.branchName??headState.ref:"detached",this.#cachedBranch}'
-status_bundle_old_method = '#getCurrentBranch(){let cwd=getProjectDir();if(this.#cachedBranch!==void 0&&this.#cachedBranchCwd===cwd)return this.#cachedBranch;let head2=head.resolveSync(cwd),gitHeadPath=head2?.headPath??null;if(this.#cachedBranchCwd=cwd,this.#cachedBranchRepoId=gitHeadPath,!head2)return this.#cachedBranch=null,null;return this.#cachedBranch=head2.kind==="ref"?head2.branchName??head2.ref:"detached",this.#cachedBranch??null}'
-status_bundle_new_method = '#getCurrentBranch(){let cwd=getProjectDir();if(this.#cachedBranch!==void 0&&this.#cachedBranchCwd===cwd)return this.#cachedBranch;let jjSummary=aocResolveJjSummarySync(cwd);if(jjSummary!==null)return this.#cachedBranchCwd=cwd,this.#cachedBranchRepoId=null,this.#cachedBranch=jjSummary,jjSummary;let head2=head.resolveSync(cwd),gitHeadPath=head2?.headPath??null;if(this.#cachedBranchCwd=cwd,this.#cachedBranchRepoId=gitHeadPath,!head2)return this.#cachedBranch=null,null;return this.#cachedBranch=head2.kind==="ref"?head2.branchName??head2.ref:"detached",this.#cachedBranch??null}'
-bundle_anchor = 'import*as fs81 from"fs";import*as path103 from"path";import{stripVTControlCharacters as stripVTControlCharacters2}from"util";class FooterComponent'
-bundle_paths = [srcs[0].parent / "dist/cli.js", Path.home() / ".cache/.bun/bin/omp"]
-for bundle_path in bundle_paths:
-    if not bundle_path.is_file():
-        continue
-    bundle_original = bundle_path.read_text(encoding="utf-8")
-    bundle_text = bundle_original
-    if "function aocResolveJjSummarySync" not in bundle_text:
-        if bundle_anchor not in bundle_text:
-            if not quiet:
-                print(f"aoc-omp-patch: warning: bundle anchors not found in {bundle_path}", file=sys.stderr)
-            continue
-        bundle_text = bundle_text.replace(
-            bundle_anchor,
-            bundle_anchor.replace("class FooterComponent", bundle_helper + "class FooterComponent"),
-            1,
-        )
-    missing_methods = []
-    if bundle_old_method in bundle_text:
-        bundle_text = bundle_text.replace(bundle_old_method, bundle_new_method, 1)
-    elif bundle_new_method not in bundle_text:
-        missing_methods.append("footer #getCurrentBranch")
-    if status_bundle_old_method in bundle_text:
-        bundle_text = bundle_text.replace(status_bundle_old_method, status_bundle_new_method, 1)
-    elif status_bundle_new_method not in bundle_text:
-        missing_methods.append("status-line #getCurrentBranch")
-    if missing_methods:
-        if not quiet:
-            print(f"aoc-omp-patch: warning: bundle method anchor(s) not found in {bundle_path}: {', '.join(missing_methods)}", file=sys.stderr)
-        continue
-    if bundle_text != bundle_original:
-        bundle_path.write_text(bundle_text, encoding="utf-8")
-footer.write_text(text, encoding="utf-8")
-if not quiet:
-    print(f"aoc-omp-patch: patched {footer}")
+config_path = Path.home() / ".omp/agent/config.yml"
+status_block = '''statusLine: 
+  separator: powerline-thin
+  preset: custom
+  leftSegments: 
+    - model
+    - mode
+    - path
+    - git
+  rightSegments: 
+    - context_pct
+    - session_name
+  segmentOptions:
+    git:
+      showBranch: true
+      showStaged: false
+      showUnstaged: false
+      showUntracked: false
+  sessionAccent: true'''
+if config_path.is_file():
+    cfg = config_path.read_text('utf-8')
+    if re.search(r'^symbolPreset:', cfg, flags=re.M):
+        cfg = re.sub(r'^symbolPreset:.*$', 'symbolPreset: nerd', cfg, count=1, flags=re.M)
+    else:
+        cfg = 'symbolPreset: nerd\n' + cfg
+    status_re = r'^statusLine:\s*\n(?:^[ \t].*\n?)*'
+    if re.search(status_re, cfg, flags=re.M):
+        cfg = re.sub(status_re, status_block + '\n', cfg, count=1, flags=re.M)
+    else:
+        cfg = cfg.rstrip() + '\n' + status_block + '\n'
+    config_path.write_text(cfg, 'utf-8')
+    if not quiet:
+        print(f"aoc-omp-patch: configured {config_path}")
+else:
+    print(f"aoc-omp-patch: warning: config not found: {config_path}", file=sys.stderr)
 PY

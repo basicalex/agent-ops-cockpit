@@ -8,7 +8,7 @@ Usage: aoc-hyperframes <command> [options]
 Commands:
   init                         Initialize HyperFrames integration and campaign factory
   bootstrap-asset-system       Create/repair AOC HyperFrames campaign factory folders/docs
-  sync-skills                  Seed/sync HyperFrames Pi skills and prompt only
+  sync-skills                  Seed/sync HyperFrames OMP skills only
   doctor                       Check Node/FFmpeg and run HyperFrames doctor when possible
   check                        Validate AOC HyperFrames factory contract
   catalog [--write]            List/update composition catalog
@@ -278,7 +278,7 @@ check_toolchain() {
 
 copy_optional_dir() {
   local name="$1"
-  local dest="$root/.pi/skills/$name"
+  local dest="$root/.omp/skills/$name"
   local script_dir config_dir source_dir
   script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
   config_dir="${XDG_CONFIG_HOME:-$HOME/.config}/aoc"
@@ -302,7 +302,7 @@ copy_optional_dir() {
       expected_sha="$(marker_sha_for_dir "$dest" || true)"
       if [[ "$target_sha" == "$source_sha" ]]; then
         write_aoc_managed_marker "$dest" "skill/$name"
-        log "Pi skill current: $name"
+        log "OMP skill current: $name"
         return 0
       fi
       if [[ -n "$expected_sha" && "$target_sha" != "$expected_sha" ]]; then
@@ -311,10 +311,10 @@ copy_optional_dir() {
     fi
   fi
   rm -rf "$dest"
-  mkdir -p "$root/.pi/skills"
+  mkdir -p "$root/.omp/skills"
   cp -R "$source_dir" "$dest"
   write_aoc_managed_marker "$dest" "skill/$name"
-  log "Synced Pi skill: $name"
+  log "Synced OMP skill: $name"
 }
 
 seed_skills() {
@@ -325,36 +325,16 @@ seed_skills() {
   copy_optional_dir gsap
 }
 
-seed_prompt() {
-  local dest_dir="$root/.pi/prompts"
-  local dest="$dest_dir/hyperframes.md"
-  local script_dir config_dir source_file
-  script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-  config_dir="${XDG_CONFIG_HOME:-$HOME/.config}/aoc"
-  source_file=""
-  if [[ -f "$config_dir/prompts-optional/pi/hyperframes.md" ]]; then
-    source_file="$config_dir/prompts-optional/pi/hyperframes.md"
-  elif [[ -f "$script_dir/../.aoc/prompts-optional/pi/hyperframes.md" ]]; then
-    source_file="$script_dir/../.aoc/prompts-optional/pi/hyperframes.md"
-  fi
-  if [[ -z "$source_file" ]]; then
-    warn "No Pi hyperframes prompt template found."
-    return 0
-  fi
-  mkdir -p "$dest_dir"
-  cp "$source_file" "$dest"
-  log "Synced Pi prompt: /hyperframes"
-}
 
 sync_skills() {
   local script_dir
   script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
   if [[ -x "$script_dir/aoc-skill" ]]; then
     (cd "$root" && "$script_dir/aoc-skill" validate --root "$root" || true)
-    (cd "$root" && "$script_dir/aoc-skill" sync --active --root "$root" || true)
+    (cd "$root" && "$script_dir/aoc-skill" sync --root "$root" || true)
   elif command -v aoc-skill >/dev/null 2>&1; then
     (cd "$root" && aoc-skill validate --root "$root" || true)
-    (cd "$root" && aoc-skill sync --active --root "$root" || true)
+    (cd "$root" && aoc-skill sync --root "$root" || true)
   fi
 }
 
@@ -382,7 +362,6 @@ ensure_hyperframes_git_policy() {
     "/$target_dir/.cache/**" \
     "/$target_dir/node_modules/**" \
     "/$target_dir/.aoc/**" \
-    "/$target_dir/.pi/**" \
     "/$target_dir/.taskmaster/**" \
     "/$target_dir/.thumbnails/**"; do
     if ! grep -Fqx "$line" "$ignore_file"; then
@@ -432,8 +411,8 @@ template_source_dir() {
   local script_dir config_dir
   script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
   config_dir="${XDG_CONFIG_HOME:-$HOME/.config}/aoc"
-  if [[ -d "$root/.pi/skills/aoc-hyperframes/templates" ]]; then
-    printf '%s\n' "$root/.pi/skills/aoc-hyperframes/templates"
+  if [[ -d "$root/.omp/skills/aoc-hyperframes/templates" ]]; then
+    printf '%s\n' "$root/.omp/skills/aoc-hyperframes/templates"
   elif [[ -d "$root/.aoc/skills-optional/aoc-hyperframes/templates" ]]; then
     printf '%s\n' "$root/.aoc/skills-optional/aoc-hyperframes/templates"
   elif [[ -d "$script_dir/../.aoc/skills-optional/aoc-hyperframes/templates" ]]; then
@@ -1783,7 +1762,6 @@ case "$command" in
     init_workspace
     ensure_hyperframes_git_policy
     seed_skills
-    seed_prompt
     sync_skills
     bootstrap_asset_system
     run_check || true
@@ -1794,7 +1772,6 @@ case "$command" in
     ;;
   sync-skills)
     seed_skills
-    seed_prompt
     sync_skills
     log "HyperFrames skills synced."
     ;;

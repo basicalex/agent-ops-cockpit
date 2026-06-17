@@ -11,6 +11,7 @@ type CommandContext = {
 
 type CommandDefinition = {
 	description: string;
+	getArgumentCompletions?: (prefix: string) => { value: string; label: string; description: string }[] | null;
 	handler: (args: string | string[] | undefined, ctx: CommandContext) => void | Promise<void>;
 };
 
@@ -133,7 +134,7 @@ ${loaded.componentNames.map((name) => `- ${name}`).join("\n")}
 ${loaded.content}
 
 Brand-content operating contract:
-- Active runtime is OMP. Do not use Pi subagent controls or .pi/extensions/aoc-presets for this workflow.
+- Active runtime is OMP. Do not use retired Pi subagent controls or retired Pi preset controls for this workflow.
 - Keep the operator approval boundary intact: strategy -> concepts -> image prompts -> image review/regions -> SVG specs -> campaign assembly.
 - Use GPT Image 2 as a prompt/artifact workflow: write prompt packs and asset paths; do not claim generation happened unless files exist.
 - Use specialist OMP agents only for exact specs/code and target paths unless the operator explicitly approves direct writes.
@@ -146,6 +147,15 @@ Proceed with the requested ${mode} work using the current project files as sourc
 function registerBrandCommand(pi: ExtensionAPI, name: string, description: string): void {
 	pi.registerCommand(name, {
 		description,
+		getArgumentCompletions: (prefix: string) => {
+			const query = prefix.trim().toLowerCase();
+			return Object.keys(MODE_ALIASES)
+				.filter((alias) => {
+					const normalized = MODE_ALIASES[alias];
+					return !query || alias.toLowerCase().includes(query) || normalized.toLowerCase().includes(query);
+				})
+				.map((alias) => ({ value: alias, label: alias, description: `Run brand content mode: ${MODE_ALIASES[alias]}` }));
+		},
 		handler: async (args, ctx) => {
 			try {
 				const text = argsText(args);

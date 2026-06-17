@@ -64,7 +64,7 @@ if [[ "$jj_min" != *"vcs=jj; preferred=jj"* ]]; then
   exit 1
 fi
 
-if [[ "$jj_full" != *"VCS / Jujutsu policy"* || "$jj_full" != *"not a Git staging area"* || "$jj_full" != *"split mixed parallel-agent work"* ]]; then
+if [[ "$jj_full" != *"## VCS policy"* || "$jj_full" != *"not a Git staging area"* || "$jj_full" != *"jj split"* ]]; then
   echo "ERROR: colocated Jujutsu fixture did not include full Jujutsu safety guidance" >&2
   exit 1
 fi
@@ -78,7 +78,9 @@ for required in \
   .omp/agents/brand-strategy.md \
   .omp/agents/brand-concept.md \
   .omp/agents/svg-asset.md \
-  .omp/agents/hyperframes-content.md; do
+  .omp/agents/hyperframes-content.md \
+  .omp/skills/aoc-dox-cartography/SKILL.md \
+  .omp/skills/aoc-init-ops/SKILL.md; do
   if [[ ! -f "$required" ]]; then
     echo "ERROR: missing repo-tracked OMP runtime asset: $required" >&2
     exit 1

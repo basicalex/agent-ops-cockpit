@@ -16,6 +16,7 @@ const CANDIDATES_PATH: &str = ".aoc/dox/candidates.json";
 const ROUTES_PATH: &str = ".aoc/dox/routes.json";
 const BUDGETS_PATH: &str = ".aoc/dox/budgets.json";
 const REPORT_PATH: &str = ".aoc/dox/report.md";
+const REVIEW_PACKET_PATH: &str = ".aoc/dox/review.md";
 const EVAL_MATRIX_PATH: &str = ".aoc/dox/eval-matrix.json";
 const ROOT_AGENTS: &str = "AGENTS.md";
 const CODEGRAPH_ERRORS: &str = ".codegraph/errors.log";
@@ -60,6 +61,10 @@ pub struct MapArgs {
 pub struct ReviewArgs {
     #[arg(long)]
     pub json: bool,
+    #[arg(long)]
+    pub packet: bool,
+    #[arg(long)]
+    pub write_packet: bool,
 }
 
 #[derive(Args, Debug, Clone)]
@@ -70,6 +75,8 @@ pub struct ApplyArgs {
     pub yes: bool,
     #[arg(long)]
     pub json: bool,
+    #[arg(long)]
+    pub include_content: bool,
 }
 
 #[derive(Args, Debug, Clone)]
@@ -326,6 +333,33 @@ fn handle_review(args: ReviewArgs) -> Result<()> {
     let candidates: DoxEnvelope<DoxCandidatesData> = read_json(project_root.join(CANDIDATES_PATH))?;
     let budgets: DoxEnvelope<DoxBudgets> = read_json(project_root.join(BUDGETS_PATH))?;
     let routes: DoxEnvelope<DoxRoutesData> = read_json(project_root.join(ROUTES_PATH))?;
+    if args.write_packet && !args.packet {
+        bail!("--write-packet requires --packet");
+    }
+
+    if args.packet {
+        let packet = render_review_packet(&map, &candidates, &budgets, &routes)?;
+        let written = args.write_packet;
+        if written {
+            let packet_path = project_root.join(REVIEW_PACKET_PATH);
+            if let Some(parent) = packet_path.parent() {
+                fs::create_dir_all(parent).with_context(|| format!("create parent for {}", REVIEW_PACKET_PATH))?;
+            }
+            fs::write(&packet_path, &packet).with_context(|| format!("write {}", REVIEW_PACKET_PATH))?;
+        }
+        if args.json {
+            let value = serde_json::json!({
+                "schema": SCHEMA_VERSION,
+                "packet_path": REVIEW_PACKET_PATH,
+                "packet": packet,
+                "written": written,
+            });
+            println!("{}", serde_json::to_string_pretty(&value)?);
+        } else {
+            println!("{}", packet);
+        }
+        return Ok(());
+    }
 
     if args.json {
         let value = serde_json::json!({
@@ -358,6 +392,10 @@ fn handle_review(args: ReviewArgs) -> Result<()> {
 }
 
 fn handle_apply(args: ApplyArgs) -> Result<()> {
+    if args.include_content && (!args.dry_run || !args.json) {
+        bail!("--include-content is only valid with --dry-run --json");
+    }
+
     let project_root = std::env::current_dir().context("resolve project root")?;
     let candidates: DoxEnvelope<DoxCandidatesData> = read_json(project_root.join(CANDIDATES_PATH))?;
     let selected: Vec<&DoxCandidate> = candidates
@@ -381,7 +419,15 @@ fn handle_apply(args: ApplyArgs) -> Result<()> {
         if args.json {
             let items: Vec<_> = rendered
                 .iter()
-                .map(|(path, content)| serde_json::json!({ "path": path, "bytes": content.len() }))
+                .map(|(path, content)| {
+                    let mut item = serde_json::Map::new();
+                    item.insert("path".to_string(), serde_json::json!(path));
+                    item.insert("bytes".to_string(), serde_json::json!(content.len()));
+                    if args.include_content {
+                        item.insert("content".to_string(), serde_json::json!(content));
+                    }
+                    serde_json::Value::Object(item)
+                })
                 .collect();
             println!("{}", serde_json::to_string_pretty(&serde_json::json!({ "schema": SCHEMA_VERSION, "dry_run": true, "targets": items }))?);
         } else {
@@ -424,6 +470,7 @@ fn handle_apply(args: ApplyArgs) -> Result<()> {
     }
     Ok(())
 }
+
 
 fn handle_doctor(args: DoctorArgs) -> Result<()> {
     let project_root = std::env::current_dir().context("resolve project root")?;
@@ -663,7 +710,6 @@ fn is_instruction_file(project_root: &Path, path: &Path, file_name: &str) -> boo
         || rel_path(project_root, path).starts_with(".cursor/rules/")
         || rel_path(project_root, path).starts_with(".codex/agents/")
         || rel_path(project_root, path).starts_with(".omp/agents/")
-        || rel_path(project_root, path).starts_with(".pi/agents/")
 }
 
 fn is_test_config(file_name: &str, rel: &str) -> bool {
@@ -955,7 +1001,6 @@ fn is_high_risk_path(rel: &str) -> bool {
     let rel = rel.trim_start_matches("./");
     rel.starts_with(".aoc/")
         || rel.starts_with(".taskmaster/")
-        || rel.starts_with(".pi/")
         || rel.starts_with(".omp/")
         || rel.starts_with("scripts/")
         || rel.starts_with("bin/")
@@ -1148,6 +1193,162 @@ fn render_report(
     ))
 }
 
+fn render_review_packet(
+    map: &DoxEnvelope<DoxMapData>,
+    candidates: &DoxEnvelope<DoxCandidatesData>,
+    budgets: &DoxEnvelope<DoxBudgets>,
+    routes: &DoxEnvelope<DoxRoutesData>,
+) -> Result<String> {
+    let mut approved: Vec<&DoxCandidate> = candidates
+        .data
+        .candidates
+        .iter()
+        .filter(|candidate| matches!(candidate.decision, CandidateDecision::Create | CandidateDecision::Update))
+        .collect();
+    approved.sort_by_key(|candidate| candidate.target_agents_path.as_deref().unwrap_or(&candidate.path));
+
+    let mut rejected: Vec<&DoxCandidate> = candidates
+        .data
+        .candidates
+        .iter()
+        .filter(|candidate| candidate.decision == CandidateDecision::Reject)
+        .filter(|candidate| candidate.score >= 7 || !candidate.reason.trim().is_empty())
+        .collect();
+    rejected.sort_by_key(|candidate| candidate.path.as_str());
+
+    let candidate_routes = build_routes(&candidates.data.candidates);
+    let mut rendered = Vec::with_capacity(approved.len());
+    for candidate in &approved {
+        let target = candidate
+            .target_agents_path
+            .as_ref()
+            .ok_or_else(|| anyhow!("approved candidate missing target_agents_path: {}", candidate.path))?;
+        rendered.push((*candidate, target, render_agents_file(candidate)?));
+    }
+
+    let mut lines = vec![
+        "# AOC DOX Review Packet".to_string(),
+        "".to_string(),
+        "## Summary".to_string(),
+        format!("- Schema: `{}`", SCHEMA_VERSION),
+        format!("- Directories scanned: {}", map.data.directories.len()),
+        format!("- Budget status: `{:?}`", budgets.data.status),
+        format!("- Proposed local AGENTS.md files: {}", rendered.len()),
+        format!("- Rejected candidates listed: {}", rejected.len()),
+        format!("- Persisted routes: {}", routes.data.routes.len()),
+        format!("- Candidate-derived routes: {}", candidate_routes.len()),
+        "".to_string(),
+        "## Proposed AGENTS.md routes".to_string(),
+        "| Target AGENTS.md | Scope | Purpose | Decision | Score | Bytes |".to_string(),
+        "|---|---|---|---|---:|---:|".to_string(),
+    ];
+
+    for (candidate, target, content) in &rendered {
+        push_markdown_table_row(
+            &mut lines,
+            &[
+                target.to_string(),
+                candidate.path.clone(),
+                candidate_purpose(candidate),
+                format!("{:?}", candidate.decision),
+                candidate.score.to_string(),
+                content.len().to_string(),
+            ],
+        );
+    }
+
+    lines.extend([
+        "".to_string(),
+        "## Rejected routes".to_string(),
+        "| Path | Score | Reason |".to_string(),
+        "|---|---:|---|".to_string(),
+    ]);
+    if rejected.is_empty() {
+        lines.push("_None listed._".to_string());
+    } else {
+        for candidate in &rejected {
+            push_markdown_table_row(&mut lines, &[candidate.path.clone(), candidate.score.to_string(), candidate.reason.clone()]);
+        }
+    }
+
+    lines.extend(["".to_string(), "## Rendered local contracts".to_string()]);
+    for (candidate, target, content) in &rendered {
+        lines.extend([
+            format!("### `{}`", target),
+            format!("Scope: `{}`", candidate.path),
+            format!("Purpose: {}", candidate_purpose(candidate)),
+            "".to_string(),
+            "```md".to_string(),
+            content.clone(),
+            "```".to_string(),
+            "".to_string(),
+            "Evidence:".to_string(),
+        ]);
+        if candidate.evidence.is_empty() {
+            lines.push("- _None recorded._".to_string());
+        } else {
+            for evidence in &candidate.evidence {
+                let mut parts = Vec::new();
+                if let Some(symbol) = evidence.symbol.as_deref().filter(|value| !value.trim().is_empty()) {
+                    parts.push(format!("symbol={}", symbol.trim()));
+                }
+                if let Some(command) = evidence.command.as_deref().filter(|value| !value.trim().is_empty()) {
+                    parts.push(format!("command={}", command.trim()));
+                }
+                if let Some(note) = evidence.note.as_deref().filter(|value| !value.trim().is_empty()) {
+                    parts.push(note.trim().replace('\n', " "));
+                }
+                let suffix = if parts.is_empty() { String::new() } else { format!(" — {}", parts.join("; ")) };
+                lines.push(format!("- `{}`{}", evidence.path, suffix));
+            }
+        }
+        lines.extend(["".to_string(), "Verification:".to_string()]);
+        if candidate.verification.is_empty() {
+            lines.push("- _None recorded._".to_string());
+        } else {
+            for command in &candidate.verification {
+                lines.push(format!("- `{}`", command));
+            }
+        }
+        lines.push("".to_string());
+    }
+
+    lines.extend([
+        "## Operator apply command".to_string(),
+        "After reviewing this packet, apply manually with:".to_string(),
+        "".to_string(),
+        "```bash".to_string(),
+        "aoc dox apply --yes".to_string(),
+        "```".to_string(),
+    ]);
+
+    Ok(lines.join("\n"))
+}
+
+fn candidate_purpose(candidate: &DoxCandidate) -> String {
+    fn first_line_capped(value: &str) -> String {
+        value.trim().lines().next().unwrap_or("").chars().take(180).collect::<String>()
+    }
+
+    let reason = first_line_capped(&candidate.reason);
+    if !reason.is_empty() {
+        return reason;
+    }
+    if let Some(rule) = candidate.contracts.iter().map(|contract| first_line_capped(&contract.rule)).find(|rule| !rule.is_empty()) {
+        return rule;
+    }
+    "No purpose recorded; inspect candidate evidence before applying.".to_string()
+}
+
+fn markdown_cell(value: &str) -> String {
+    value.replace('|', "\\|").replace('\n', " ")
+}
+
+fn push_markdown_table_row(lines: &mut Vec<String>, cells: &[String]) {
+    let row = cells.iter().map(|cell| markdown_cell(cell)).collect::<Vec<_>>().join(" | ");
+
+    lines.push(format!("| {} |", row));
+}
 fn find_agents_chain(project_root: &Path, cwd: &Path) -> Result<Vec<PathBuf>> {
     let root = project_root.canonicalize().unwrap_or_else(|_| project_root.to_path_buf());
     let cwd_abs = if cwd.exists() { cwd.canonicalize().unwrap_or_else(|_| cwd.to_path_buf()) } else { cwd.to_path_buf() };
@@ -1343,6 +1544,72 @@ mod tests {
         EvidenceRef { path: path.to_string(), symbol: None, command: None, note: None }
     }
 
+    fn sample_candidate(path: &str, target: &str, decision: CandidateDecision) -> DoxCandidate {
+        DoxCandidate {
+            path: path.to_string(),
+            decision,
+            score: 8,
+            confidence: 0.8,
+            reason: "High-risk local conventions need local context.".to_string(),
+            contracts: vec![LocalContract {
+                rule: "Keep DOX local contracts evidence-backed.".to_string(),
+                do_not: vec![],
+                update_when: vec!["DOX metadata schema changes.".to_string()],
+                verification: vec!["cargo test -p aoc-cli dox".to_string()],
+                evidence: vec![evidence("crates/aoc-cli/src/dox.rs")],
+            }],
+            risks: vec![],
+            verification: vec!["cargo test -p aoc-cli dox".to_string()],
+            evidence: vec![EvidenceRef {
+                path: "crates/aoc-cli/src/dox.rs".to_string(),
+                symbol: Some("render_review_packet".to_string()),
+                command: Some("cargo test -p aoc-cli dox".to_string()),
+                note: Some("packet renderer coverage".to_string()),
+            }],
+            target_agents_path: Some(target.to_string()),
+        }
+    }
+
+    fn test_envelope<T>(data: T) -> DoxEnvelope<T> {
+        DoxEnvelope {
+            schema: SCHEMA_VERSION.to_string(),
+            generated_at: "2026-06-13T00:00:00Z".to_string(),
+            project_root: "/tmp/aoc".to_string(),
+            data,
+        }
+    }
+
+    fn empty_map() -> DoxEnvelope<DoxMapData> {
+        test_envelope(DoxMapData {
+            codegraph: CodeGraphSummary { available: false, disabled: true, commands: vec![], errors_log: None },
+            directories: vec!["crates/aoc-cli".to_string()],
+            package_manifests: vec![],
+            instruction_files: vec![],
+            test_configs: vec![],
+            generated_markers: vec![],
+            coverage: vec![],
+        })
+    }
+
+    fn test_budgets() -> DoxEnvelope<DoxBudgets> {
+        test_envelope(DoxBudgets {
+            root_agents_target_bytes: ROOT_AGENTS_TARGET_BYTES,
+            root_agents_hard_bytes: ROOT_AGENTS_HARD_BYTES,
+            child_agents_target_bytes: CHILD_AGENTS_TARGET_BYTES,
+            child_agents_hard_bytes: CHILD_AGENTS_HARD_BYTES,
+            active_chain_target_bytes: 16_384,
+            active_chain_hard_bytes: 24_576,
+            measured_root_agents_bytes: 0,
+            measured_project_chain_bytes: 0,
+            fallback_filenames_supported: false,
+            status: BudgetStatus::Ok,
+        })
+    }
+
+    fn empty_routes() -> DoxEnvelope<DoxRoutesData> {
+        test_envelope(DoxRoutesData { routes: vec![] })
+    }
+
     #[test]
     fn score_rejects_candidate_without_verification_even_when_high_risk() {
         let decision = score_candidate(
@@ -1447,6 +1714,56 @@ mod tests {
         assert!(!output.contains("## Update When"));
     }
 
+
+    #[test]
+    fn review_packet_lists_routes_rejects_content_and_apply_command() {
+        let create = sample_candidate("crates/aoc-cli", "crates/aoc-cli/AGENTS.md", CandidateDecision::Create);
+        let reject = DoxCandidate {
+            path: "crates/aoc-control/src".to_string(),
+            decision: CandidateDecision::Reject,
+            score: 8,
+            confidence: 0.7,
+            reason: "verification mismatch".to_string(),
+            contracts: vec![],
+            risks: vec![],
+            verification: vec![],
+            evidence: vec![],
+            target_agents_path: None,
+        };
+        let candidates = test_envelope(DoxCandidatesData { candidates: vec![create, reject] });
+        let output = render_review_packet(&empty_map(), &candidates, &test_budgets(), &empty_routes()).unwrap();
+
+        assert!(output.contains("# AOC DOX Review Packet"));
+        assert!(output.contains("crates/aoc-cli/AGENTS.md"));
+        assert!(output.contains("Scope: `crates/aoc-cli`"));
+        assert!(output.contains("```md\n# Repository Guidelines"));
+        assert!(output.contains("crates/aoc-control/src"));
+        assert!(output.contains("aoc dox apply --yes"));
+    }
+
+    #[test]
+    fn markdown_cell_escapes_pipes_and_newlines() {
+        assert_eq!(markdown_cell("a|b\nc"), "a\\|b c");
+    }
+
+    #[test]
+    fn review_packet_rejects_approved_candidate_without_target() {
+        let mut candidate = sample_candidate("crates/aoc-cli", "crates/aoc-cli/AGENTS.md", CandidateDecision::Create);
+        candidate.target_agents_path = None;
+        let candidates = test_envelope(DoxCandidatesData { candidates: vec![candidate] });
+        let error = render_review_packet(&empty_map(), &candidates, &test_budgets(), &empty_routes()).unwrap_err();
+        assert!(error.to_string().contains("approved candidate missing target_agents_path"));
+    }
+
+    #[test]
+    fn candidate_purpose_prefers_reason_then_rule() {
+        let with_reason = sample_candidate("crates/aoc-cli", "crates/aoc-cli/AGENTS.md", CandidateDecision::Create);
+        assert_eq!(candidate_purpose(&with_reason), "High-risk local conventions need local context.");
+
+        let mut with_rule = sample_candidate("crates/aoc-cli", "crates/aoc-cli/AGENTS.md", CandidateDecision::Create);
+        with_rule.reason.clear();
+        assert_eq!(candidate_purpose(&with_rule), "Keep DOX local contracts evidence-backed.");
+    }
     #[test]
     fn doctor_rejects_destructive_verification_command() {
         assert!(validate_verification_command("git push origin main").is_err());

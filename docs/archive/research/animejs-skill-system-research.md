@@ -91,6 +91,6 @@ It mirrors the actual complexity boundaries in the official docs:
 
 ## Official docs used
 See:
-- `.pi/skills/animejs-core-api/references/official-docs-map.md`
+- `.omp/skills/animejs-core-api/references/official-docs-map.md`
 
 That file includes the distilled source list and the primary official conclusions.

@@ -1,89 +1,44 @@
-# AOC project contract
+# Project contract
 
-This page summarizes the project-local files AOC expects after `aoc-init`.
-
-## Core paths
+Canonical AOC project surfaces:
 
 ```text
-.aoc/context.md              # generated project snapshot
-.aoc/memory.md               # durable project memory, managed by aoc-mem
-.aoc/stm/current.md          # short-term handoff draft, managed by aoc-stm
-.aoc/rtk.toml                # RTK routing policy
-.aoc/mind-service.json       # project Mind launcher metadata
+.aoc/                        # AOC context, memory CLI state, presets, layouts, managed metadata
 .taskmaster/                 # Taskmaster tasks, tags, specs/PRDs
-.pi/settings.json            # project Pi settings
-.pi/prompts/                 # project Pi prompts
-.pi/skills/                  # project Pi skills
-.pi/extensions/              # project Pi extensions
 .omp/extensions/             # repo-owned AOC OMP extension sources
 .omp/agents/                 # repo-owned AOC OMP agent template sources
-DESIGN.md                    # root product/design contract; Google Labs design.md-compatible YAML tokens + prose
-AGENTS.md                    # agent rules for the repo
+.omp/skills/                 # repo-owned AOC OMP skill sources
+AGENTS.md                    # agent contract
+DESIGN.md                    # root product/design contract
 ```
 
-## Git/Jujutsu tracking policy
+`.gitignore` must keep repo-owned AOC/OMP sources trackable:
 
-AOC project source/state should be tracked:
-
-```gitignore
+```text
 !/.aoc/
 !/.aoc/**
 !/.taskmaster/
 !/.taskmaster/**
-!/.pi/
-!/.pi/**
 !/.omp/
 !/.omp/extensions/
 !/.omp/extensions/**
 !/.omp/agents/
 !/.omp/agents/**
+!/.omp/skills/
+!/.omp/skills/**
 ```
 
-Keep runtime/churn state ignored:
+High-churn/runtime artifacts remain ignored:
 
-```gitignore
+```text
 /.aoc/logs/
-/.aoc/**/*.log
-/.aoc/**/*.lock
 /.aoc/mind/
+/.aoc/tools/
 /.taskmaster/logs/
 /.taskmaster/**/*.log
 /.taskmaster/**/*.lock
-/.pi/tmp/
-/.pi/packages/pi-multi-auth-aoc/debug/
 **/.aoc-backups/
 .codegraph/
 ```
 
-Do not commit secrets, tokens, private logs, live Mind databases, lock files, caches, or OMP runtime state from `~/.omp/agent`.
-
-## Commands
-
-```bash
-aoc-init                  # initialize/repair project contract
-aoc-init --status         # summarize project readiness
-aoc-handshake --json      # agent startup metadata
-aoc state status          # read-only audit of trackable project state
-aoc-skill validate --root .
-aoc-doctor
-pnpm design:lint          # validate root DESIGN.md against Google Labs design.md format
-```
-
-## HyperFrames add-on
-
-When HyperFrames is enabled, AOC expects source/docs/assets tracked and generated outputs ignored:
-
-```gitignore
-!/hyperframes/
-!/hyperframes/**
-/hyperframes/renders/**
-/hyperframes/.hyperframes/**
-/hyperframes/.cache/**
-/hyperframes/node_modules/**
-```
-
-Check with:
-
-```bash
-aoc-hyperframes check --dir hyperframes
-```
+Global/operator OMP runtime config lives outside the repo at `~/.omp/agent/config.yml` and may be created by the operator or upstream OMP tooling.

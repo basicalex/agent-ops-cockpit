@@ -13,7 +13,7 @@ Project-local config lives in:
 
 ```text
 .aoc/
-.pi/
+.omp/
 .taskmaster/
 ```
 

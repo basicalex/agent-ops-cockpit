@@ -70,6 +70,9 @@ mkdir -p "$AOC_CONFIG_DIR/pi/extensions"
 mkdir -p "$AOC_CONFIG_DIR/taskmaster/templates"
 mkdir -p "$AOC_CONFIG_DIR/skills-optional"
 mkdir -p "$AOC_CONFIG_DIR/prompts-optional/pi"
+mkdir -p "$AOC_CONFIG_DIR/omp/extensions"
+mkdir -p "$AOC_CONFIG_DIR/omp/agents"
+mkdir -p "$AOC_CONFIG_DIR/omp/skills"
 if is_truthy "${AOC_INSTALL_LEGACY_ZELLIJ:-0}"; then mkdir -p "$AOC_CONFIG_DIR/zellij/plugins"; fi
 mkdir -p "${XDG_STATE_HOME:-$HOME/.local/state}/aoc"
 DEFAULT_LAYOUT_FILE="${XDG_STATE_HOME:-$HOME/.local/state}/aoc/layout_default"
@@ -1054,6 +1057,26 @@ if [[ -d "$ROOT_DIR/.pi/skills" ]]; then
       rm -rf "$dest"
       cp -R "$d" "$dest"
     fi
+  done
+fi
+
+# AOC default OMP seed assets for installed aoc-init fallback
+if [[ -d "$ROOT_DIR/.omp" ]]; then
+  for kind in extensions agents skills; do
+    source_root="$ROOT_DIR/.omp/$kind"
+    target_root="$AOC_CONFIG_DIR/omp/$kind"
+    [[ -d "$source_root" ]] || continue
+    mkdir -p "$target_root"
+    for entry in "$source_root"/*; do
+      [[ -e "$entry" ]] || continue
+      dest="$target_root/$(basename "$entry")"
+      if [[ -d "$entry" ]]; then
+        rm -rf "$dest"
+        cp -R "$entry" "$dest"
+      elif [[ ! -f "$dest" ]] || ! cmp -s "$entry" "$dest"; then
+        cp "$entry" "$dest"
+      fi
+    done
   done
 fi
 

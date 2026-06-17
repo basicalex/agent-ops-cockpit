@@ -38,6 +38,7 @@ const DOX_COMMAND_COMPLETIONS: AutocompleteItem[] = [
 	{ value: "scout", label: "scout", description: "Map metadata and launch dox-scout for target paths." },
 	{ value: "map", label: "map", description: "Run aoc_dox map and summarize metadata." },
 	{ value: "review", label: "review", description: "Review current .aoc/dox candidate decisions." },
+	{ value: "packet", label: "packet", description: "Render/write the DOX review packet for editor review." },
 	{ value: "doctor", label: "doctor", description: "Validate DOX metadata and AGENTS chain health." },
 	{ value: "dry-run", label: "dry-run", description: "Run safe apply dry-run only." },
 ];
@@ -52,6 +53,8 @@ function renderDoxCommandPrompt(args: string | string[] | undefined): { mode: st
 		scout: "scout",
 		map: "map",
 		review: "review",
+		packet: "packet",
+		"review-packet": "packet",
 		doctor: "doctor",
 		"dry-run": "dry-run",
 		dryrun: "dry-run",
@@ -59,7 +62,7 @@ function renderDoxCommandPrompt(args: string | string[] | undefined): { mode: st
 	};
 	const mode = aliases[rawMode.toLowerCase()];
 	if (!mode) {
-		throw new Error("Unknown /dox mode. Use one of: full, scout, map, review, doctor, dry-run.");
+		throw new Error("Unknown /dox mode. Use one of: full, scout, map, review, packet, doctor, dry-run.");
 	}
 	const target = rest.join(" ").trim();
 	const targetLine = target ? `Target path or focus: \`${target}\`.` : "Target path or focus: repo-wide high-risk and insufficient-coverage paths only.";
@@ -81,7 +84,18 @@ ${targetLine}`,
 			target,
 			content: `Use the aoc-dox-cartography skill.
 
-Run aoc_dox with action=review and json=true. Summarize create/update/reject decisions, budget status, and next safe operator action. Do not write files and do not run apply --yes.
+Run aoc_dox with action=review and json=true, then run aoc_dox with action=review-packet and writePacket=true when create/update candidates exist. Summarize create/update/reject decisions, budget status, .aoc/dox/review.md when written, and next safe operator action. Do not write AGENTS.md files and do not run apply --yes.
+
+${targetLine}`,
+		};
+	}
+	if (mode === "packet") {
+		return {
+			mode,
+			target,
+			content: `Use the aoc-dox-cartography skill.
+
+Run aoc_dox with action=review-packet, json=false, and writePacket=true. Summarize the proposed AGENTS.md routes, rejected routes, .aoc/dox/review.md path, and the exact manual apply command. Do not write AGENTS.md files and do not run apply --yes.
 
 ${targetLine}`,
 		};
@@ -103,7 +117,7 @@ ${targetLine}`,
 			target,
 			content: `Use the aoc-dox-cartography skill.
 
-Run aoc_dox with action=apply-dry-run and json=true. Report target AGENTS.md paths and rendered byte counts. Do not write AGENTS.md files and do not run apply --yes.
+Run aoc_dox with action=apply-dry-run and json=true. Report target paths/bytes and point to \`.aoc/dox/review.md\` if present; if missing, run review-packet first. Do not write AGENTS.md files and do not run apply --yes.
 
 ${targetLine}`,
 		};
@@ -132,7 +146,8 @@ Run the full safe DOX workflow:
 4. Launch dox-mapper only for scout-approved candidate areas.
 5. Launch dox-critic on every create/update proposal; treat reject as success.
 6. Use dox-writer only after critic approval. Writer may edit only .aoc/dox/candidates.json and .aoc/dox/report.md.
-7. Finish by running aoc_dox action=apply-dry-run, then aoc_dox action=doctor.
+7. Run aoc_dox action=review-packet with writePacket=true and report .aoc/dox/review.md plus a concise route summary.
+8. Finish by running aoc_dox action=apply-dry-run, then aoc_dox action=doctor.
 
 Never run aoc dox apply --yes from this command. Do not create or edit AGENTS.md directly.
 
@@ -142,7 +157,7 @@ ${targetLine}`,
 
 export default function aocDoxCommandExtension(pi: ExtensionAPI): void {
 	pi.registerCommand("dox", {
-		description: "Usage: /dox [full|scout|map|review|doctor|dry-run] [path]. Run safe AOC DOX cartography with dox-* agents.",
+		description: "Usage: /dox [full|scout|map|review|packet|doctor|dry-run] [path]. Run safe AOC DOX cartography with dox-* agents.",
 		getArgumentCompletions: (prefix: string): AutocompleteItem[] | null => {
 			const query = prefix.trim().toLowerCase();
 			if (!query) return DOX_COMMAND_COMPLETIONS;

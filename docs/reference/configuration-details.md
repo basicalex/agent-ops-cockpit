@@ -227,21 +227,18 @@ Safety model:
 - Explicit bypass via `AOC_RTK_BYPASS=1`.
 - Fail-open fallback to native execution when RTK is unavailable.
 
-### PI-first init migration behavior
+### OMP-first init migration behavior
 
-`aoc-init` is the one-command repair path for PI-first repos.
+`aoc-init` is the one-command repair path for OMP-first repos.
 
 What it guarantees:
-- Seeds/repairs canonical PI runtime paths under `.pi/**` (`settings.json`, prompts, skills, extensions).
-- Seeds default PI extensions when missing: `.pi/extensions/minimal.ts`, `.pi/extensions/themeMap.ts`, `.pi/extensions/mind-ingest.ts`, `.pi/extensions/mind-ops.ts`, `.pi/extensions/mind-context.ts`, `.pi/extensions/mind-focus.ts`, `.pi/extensions/aoc-models.ts`, `.pi/extensions/aoc-agent-presence.ts`, `.pi/extensions/aoc-codegraph.ts`, `.pi/extensions/aoc-compaction.ts`, `.pi/extensions/subagent.ts`, `.pi/extensions/lib/mind.ts`, `.pi/extensions/lib/caveman.ts`, plus the preset runtime family under `.pi/extensions/aoc-presets/`.
-- Installs AOC OMP extensions when available: `.omp/extensions/aoc-codegraph.ts`, `.omp/extensions/aoc-mind.ts`, `.omp/extensions/aoc-commit.ts`, `.omp/extensions/aoc-jj-init.ts`, `.omp/extensions/aoc-brand-content.ts`, and `.omp/extensions/aoc-web-search.ts`.
-- Seeds vendored local PI package `.pi/packages/pi-multi-auth-aoc`, wires `.pi/settings.json` to load it by path, and removes legacy global npm `pi-multi-auth` package entries to avoid duplicate extension loading.
+- Seeds/repairs canonical project OMP sources under `.omp/extensions/`, `.omp/agents/`, and `.omp/skills/`.
+- Installs AOC OMP extensions into `${AOC_OMP_AGENT_DIR:-~/.omp/agent}/extensions`, including CodeGraph, Mind, commit, state, DOX, jj-init, brand-content, and web-search surfaces.
+- Installs AOC OMP agent templates into `${AOC_OMP_AGENT_DIR:-~/.omp/agent}/agents`.
+- Installs AOC OMP skills into `${AOC_OMP_AGENT_DIR:-~/.omp/agent}/skills`.
 - Keeps AOC control-plane state under `.aoc/**`, including `.aoc/mind-service.json` for project-local standalone Mind launcher metadata.
-- Migrates missing project-local legacy assets from `.aoc/prompts/pi/` and `.aoc/skills/` into `.pi/**` without overwriting existing canonical files.
 - Seeds reusable preset/layout assets when missing: `.aoc/presets/design/**` and `.aoc/layouts/design.kdl`.
-- Refreshes managed built-in PI runtime extensions in existing repos when canonical templates change: `.pi/extensions/minimal.ts`, `.pi/extensions/themeMap.ts`, `.pi/extensions/mind-ingest.ts`, `.pi/extensions/mind-ops.ts`, `.pi/extensions/mind-context.ts`, `.pi/extensions/mind-focus.ts`, `.pi/extensions/aoc-models.ts`, `.pi/extensions/aoc-agent-presence.ts`, `.pi/extensions/aoc-codegraph.ts`, `.pi/extensions/aoc-compaction.ts`, `.pi/extensions/subagent.ts`, `.pi/extensions/lib/mind.ts`, `.pi/extensions/lib/caveman.ts`, plus the preset runtime family under `.pi/extensions/aoc-presets/`.
-- Cleans safe prompt alias duplicates (`.pi/prompts/tmcc.md` -> `.pi/prompts/tm-cc.md`) and warns when manual merge is required.
-- Does not auto-sync non-PI skill targets (`.codex/.claude/.opencode/.agents`) in PI-first mode.
+- Does not create or repair legacy Pi runtime paths.
 
 Validation commands:
 
@@ -287,7 +284,7 @@ Theme management now lives inside `aoc-control` under Settings -> Theme -> Theme
 
 ### Agent Installers
 
-Use direct commands or retained control-pane compatibility when needed. PI runtime installer status/actions are backed by:
+Use direct commands or retained control-pane compatibility when needed. OMP runtime installer status/actions are backed by:
 
 - `aoc-agent-install status <agent>`
 - `aoc-agent-install install <agent>`
@@ -313,27 +310,15 @@ Prefer direct Herdr/CLI surfaces for default work:
 - RTK: `aoc-rtk`
 - Vercel CLI: `vercel`
 
-### PI Compaction Presets (Alt+C -> Settings -> Tools -> PI compaction)
+### OMP runtime config
 
-`aoc-control` can write global PI auto-compaction settings to `~/.pi/agent/settings.json` using preset profiles. This updates PI's `compaction.enabled`, `compaction.reserveTokens`, and `compaction.keepRecentTokens` values without manual JSON edits.
+Use OMP's own runtime config at `~/.omp/agent/config.yml` for model/auth/status-line settings. AOC project state does not write global OMP secrets or model credentials.
 
-Current built-in presets:
-
-- `PI default (~window-dependent)`
-- `Parallel balanced (~60%)`
-- `Parallel aggressive (~45%)`
-- `Max throughput (~40%)`
-- `Disable auto-compaction`
-
-The PI compaction section also includes a context-window selector used for preset math. Use `h/l` on the `Context window` row to cycle between `75k`, `125k`, `250k`, and `1m` so the reserve-token values match the model/window you intend to use.
-
-The control pane also warns when the current repo has a `.pi/settings.json` compaction override, since project settings take precedence over the global preset.
+`aoc-doctor` warns if `~/.omp/agent/config.yml` is missing, but that is not a project failure because global/operator config may be created outside the repo.
 
 | Variable | Description |
 |----------|-------------|
-| `AOC_AGENT_BROWSER_BIN` | Agent Browser binary name/path check (default `agent-browser`) |
-| `AOC_AGENT_BROWSER_INSTALL_CMD` / `AOC_AGENT_BROWSER_UPDATE_CMD` | Agent Browser install/update commands |
-| `AOC_AGENT_BROWSER_SKILL_URL` | Source URL for syncing `.pi/skills/agent-browser/SKILL.md` |
+| `AOC_OMP_AGENT_DIR` | OMP runtime directory used by `aoc-init`/`aoc-herdr-install` for extensions, agents, and skills (default `~/.omp/agent`) |
 | `AOC_VERCEL_BIN` | Vercel CLI binary name/path check (default `vercel`) |
 | `AOC_VERCEL_INSTALL_CMD` / `AOC_VERCEL_UPDATE_CMD` | Vercel CLI install/update commands |
 | `AOC_HYPERFRAMES_DIR` | Workspace directory used by `aoc-hyperframes` (default `hyperframes`) |
@@ -349,10 +334,8 @@ Services/search setup writes:
 - write `.aoc/services/searxng/docker-compose.yml`
 - write `.aoc/services/searxng/settings.yml`
 - start/verify the managed SearXNG container through `aoc services start search` or `aoc-search start --wait`
-- sync `.pi/skills/agent-browser/SKILL.md`
-- seed `.pi/skills/web-research/SKILL.md`
 
-When managed local search is enabled, AOC also ensures both PI skills are seeded so the repo gets the full browser + search workflow guidance.
+Managed local search no longer seeds browser/search legacy browser/search skills. Agents use the built-in/web-search tool surface and OMP extension paths.
 
 Canonical phase-1 paths:
 
@@ -360,7 +343,7 @@ Canonical phase-1 paths:
 - `.aoc/services/searxng/docker-compose.yml`
 - `.aoc/services/searxng/settings.yml`
 - `bin/aoc-search`
-- `.pi/skills/web-research/SKILL.md`
+- `.omp/extensions/aoc-web-search.ts`
 
 Use `aoc services` for operator-visible runtime ownership and `aoc-search` as the stable interface for agents and operators:
 
@@ -382,10 +365,10 @@ General docs/web search needs managed local SearXNG unless a separate paid searc
 |----------|-------------|---------|
 | `AOC_AGENT_ID` | Override default agent for session | From `aoc-agent` |
 | `AOC_PI_BIN` | PI Agent (npm) binary path | `pi` |
-| `AOC_PI_LOW_TOKEN_MODE` | Enable default PI low-token prompt append (`1`/`0`) | `1` |
-| `AOC_PI_LOW_TOKEN_PROMPT` | Override PI low-token prompt file path | `<project>/.aoc/prompts/pi-low-token.md` |
+| `AOC_OMP_LOW_TOKEN_MODE` | Enable default OMP low-token prompt append (`1`/`0`) | `1` |
+| `AOC_PI_LOW_TOKEN_PROMPT` | Override OMP low-token prompt file path | `<project>/.aoc/prompts/pi-low-token.md` |
 | `AOC_PI_APPEND_SYSTEM_PROMPT` | Extra `--append-system-prompt` text/path passed to PI | None |
-| `AOC_PI_HANDSHAKE_MODE` | PI handshake verbosity (`compact`, `full`, `off`) | `compact` |
+| `AOC_OMP_HANDSHAKE_MODE` | PI handshake verbosity (`compact`, `full`, `off`) | `compact` |
 | `AOC_HANDSHAKE_MODE` | Global handshake verbosity override (`compact`, `full`, `off`) | Agent default |
 | `AOC_OMP_CONTEXT_LEVEL` | OMP startup capsule size (`min`, `compact`, `full`) | `compact` |
 | `AOC_PI_USE_WRAP_RS` | PI launch mode (`auto`, `1`, `0`) | `auto` |
@@ -400,8 +383,8 @@ General docs/web search needs managed local SearXNG unless a separate paid searc
 Valid `AOC_AGENT_ID` value is `pi`.
 
 - `pi` launches the npm PI Agent CLI.
-- `pi` auto-appends `.aoc/prompts/pi-low-token.md` unless disabled by `AOC_PI_LOW_TOKEN_MODE=0` or overridden by explicit PI prompt flags.
-- `pi` defaults to compact handshake output; set `AOC_PI_HANDSHAKE_MODE=full` for the richer focus-first briefing.
+- `pi` auto-appends `.aoc/prompts/omp-low-token.md` unless disabled by `AOC_OMP_LOW_TOKEN_MODE=0` or overridden by explicit PI prompt flags.
+- `pi` defaults to compact handshake output; set `AOC_OMP_HANDSHAKE_MODE=full` for the richer focus-first briefing.
 - Full handshake mode now favors: focus provenance, high-value open work, workstream health, recent developments, and open fronts before lower-value inventory.
 - When canon or task state is missing, the briefing degrades explicitly with fallback status notes instead of silently pretending a stronger focus signal exists.
 - `pi` enables RTK ultra-compact output and non-tty routing by default (`AOC_RTK_ULTRA_COMPACT=1`, `AOC_RTK_ROUTE_NON_TTY_STDIN=1`) unless you override them.
@@ -522,7 +505,7 @@ AOC uses a **Distributed Cognitive Architecture** with four layers:
 
 - **Purpose:** Project-local managed search contract
 - **Management:** `aoc services`, `aoc-services`, or `bin/aoc-search`
-- **Related paths:** `.aoc/services/searxng/**`, `.pi/skills/web-research/SKILL.md`
+- **Related paths:** `.aoc/services/searxng/**`, `.omp/extensions/aoc-web-search.ts`
 
 ### Global Configuration
 

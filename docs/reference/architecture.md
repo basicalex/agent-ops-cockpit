@@ -236,7 +236,7 @@ These still exist for migration/transport compatibility and are intentionally th
 These should not be treated as active product truth:
 
 - Pi Mind via Pulse transport
-- `.pi/extensions/pulse/index.ts` for Pi Mind behavior
+- `retired Pulse extension` for Pi Mind behavior
 - `Mind ingest unavailable: pulse offline` style UX framing
 - `pulse-pane` as an active required product surface
 - docs implying Mind is still primarily wrapper/Pulse coupled

@@ -8,7 +8,7 @@ Use it to run the most common tools first, inspect runtime state, and launch set
 
 Primary areas exposed through the control pane include:
 
-- **Tools** — first/default surface for AOC Understand, Agent Browser + Search, AOC Map, CodeGraph, HyperFrames, Vercel, PI compaction, PI agent installer, and RTK routing
+- **Tools** — first/default surface for AOC Understand, Agent Browser + Search, AOC Map, CodeGraph, HyperFrames, Vercel, OMP runtime config, and RTK routing
 - **Projects** — open, create, search, and retarget project roots
 - **Launch** — start sessions with selected defaults/overrides
 - **Advanced** — background profile plus legacy/deprecated AOC-specific theme and custom layout utilities
@@ -123,7 +123,7 @@ Path:
 - `Alt+C -> Tools -> AOC Map microsite`
 
 Use it to:
-- sync `.pi/skills/aoc-map/SKILL.md` for the current repo
+- sync `.omp/skills/aoc-map/SKILL.md` for the current repo
 - run `aoc-map init`
 - seed or confirm `.aoc/map/`
 - migrate older AOC See workspaces when needed
@@ -146,10 +146,10 @@ AOC installs the CLI only. Project indexing remains explicit; after install, run
 
 Path:
 
-- `Alt+C -> Tools -> PI agent installer`
+- `Alt+C -> Tools -> retired Pi agent installer`
 
 Use it to:
-- check PI install state
+- check OMP install state
 - run install/update actions
 
 ## PI compaction presets
@@ -161,7 +161,7 @@ Path:
 Use it to:
 - choose a context window preset
 - apply compaction defaults without manual JSON edits
-- inspect when a repo-level `.pi/settings.json` override takes precedence
+- inspect when a repo-level `~/.omp/agent/config.yml` override takes precedence
 
 ## When to use Alt+C vs CLI
 

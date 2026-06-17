@@ -1,6 +1,4 @@
-import { spawn } from "node:child_process";
-import * as fs from "node:fs";
-import * as path from "node:path";
+import { clampInt, clampMaxChars, findProjectRoot, renderCommand, resolveRepoCommand, runBoundedCommand } from "./aoc-runtime";
 import { Type } from "@sinclair/typebox";
 import { StringEnum } from "@mariozechner/pi-ai";
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
@@ -33,37 +31,11 @@ type WebSearchParamsType = {
 	maxChars?: number;
 };
 
-type CommandResult = {
-	ok: boolean;
-	exitCode: number | null;
-	stdout: string;
-	stderr: string;
-	timedOut: boolean;
-	truncated: boolean;
-};
 
 function positiveInt(value: number | undefined, fallback: number, max: number): number {
-	if (!Number.isFinite(value ?? NaN)) return fallback;
-	return Math.max(1, Math.min(max, Math.floor(value as number)));
+	return clampInt(value, fallback, 1, max);
 }
 
-function clampMaxChars(value?: number): number {
-	if (!Number.isFinite(value ?? NaN)) return MAX_DEFAULT_CHARS;
-	return Math.max(1000, Math.min(MAX_ALLOWED_CHARS, Math.floor(value as number)));
-}
-
-function truncateOutput(text: string, maxChars: number): { text: string; truncated: boolean } {
-	if (text.length <= maxChars) return { text, truncated: false };
-	return {
-		text: `${text.slice(0, maxChars)}\n\n[truncated ${text.length - maxChars} chars; rerun with a narrower query or higher maxChars]`,
-		truncated: true,
-	};
-}
-
-function resolveSearchCommand(projectRoot: string): string {
-	const local = path.join(projectRoot, "bin", "aoc-search");
-	return fs.existsSync(local) ? local : "aoc-search";
-}
 
 function buildArgs(params: WebSearchParamsType): string[] {
 	const mode = params.mode ?? "general";
@@ -74,46 +46,14 @@ function buildArgs(params: WebSearchParamsType): string[] {
 	return args;
 }
 
-async function runCommand(command: string, args: string[], cwd: string, maxChars: number, signal?: AbortSignal): Promise<CommandResult> {
-	return await new Promise<CommandResult>((resolve, reject) => {
-		let stdout = "";
-		let stderr = "";
-		let settled = false;
-		let timedOut = false;
-		const child = spawn(command, args, { cwd, stdio: ["ignore", "pipe", "pipe"], shell: false });
-		const timer = setTimeout(() => {
-			timedOut = true;
-			child.kill("SIGTERM");
-		}, COMMAND_TIMEOUT_MS);
-		const abort = () => child.kill("SIGTERM");
-		signal?.addEventListener("abort", abort, { once: true });
-
-		child.stdout.on("data", (chunk) => {
-			stdout += String(chunk);
-		});
-		child.stderr.on("data", (chunk) => {
-			stderr += String(chunk);
-		});
-		child.on("error", (error: NodeJS.ErrnoException) => {
-			if (settled) return;
-			settled = true;
-			clearTimeout(timer);
-			signal?.removeEventListener("abort", abort);
-			if (error.code === "ENOENT") {
-				reject(new Error("aoc-search is not installed or not on PATH. Run aoc-init or install AOC before using aoc_web_search."));
-				return;
-			}
-			reject(error);
-		});
-		child.on("close", (exitCode) => {
-			if (settled) return;
-			settled = true;
-			clearTimeout(timer);
-			signal?.removeEventListener("abort", abort);
-			const out = truncateOutput(stdout, maxChars);
-			const err = truncateOutput(stderr, Math.min(maxChars, 8000));
-			resolve({ ok: exitCode === 0 && !timedOut, exitCode, stdout: out.text, stderr: err.text, timedOut, truncated: out.truncated || err.truncated });
-		});
+async function runCommand(command: string, args: string[], cwd: string, maxChars: number, signal?: AbortSignal): Promise<import("./aoc-runtime").CommandResult> {
+	return await runBoundedCommand(command, args, {
+		cwd,
+		maxStdoutChars: maxChars,
+		maxStderrChars: Math.min(maxChars, 8000),
+		timeoutMs: COMMAND_TIMEOUT_MS,
+		missingMessage: "aoc-search is not installed or not on PATH. Run aoc-init or install AOC before using aoc_web_search.",
+		signal,
 	});
 }
 
@@ -130,12 +70,12 @@ export default function aocWebSearchExtension(pi: ExtensionAPI): void {
 		],
 		parameters: WebSearchParams,
 		async execute(_toolCallId, params: WebSearchParamsType, signal, _onUpdate, ctx) {
-			const projectRoot = ctx.cwd ?? process.cwd();
-			const command = resolveSearchCommand(projectRoot);
+			const projectRoot = findProjectRoot(ctx.cwd);
+			const command = resolveRepoCommand(projectRoot, "bin/aoc-search", "aoc-search");
 			const args = buildArgs(params);
-			const maxChars = clampMaxChars(params.maxChars);
+			const maxChars = clampMaxChars(params.maxChars, MAX_DEFAULT_CHARS, MAX_ALLOWED_CHARS);
 			const result = await runCommand(command, args, projectRoot, maxChars, signal);
-			const renderedCommand = `${path.basename(command)} ${args.map((arg) => (arg.includes(" ") ? JSON.stringify(arg) : arg)).join(" ")}`;
+			const renderedCommand = renderCommand(command, args);
 			const lines = [
 				`$ ${renderedCommand}`,
 				`exit: ${result.exitCode}${result.timedOut ? " (timed out)" : ""}${result.truncated ? " (truncated)" : ""}`,

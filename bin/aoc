@@ -1,29 +1,37 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" >/dev/null 2>&1 && pwd)"
+
+exec_sibling_or_path() {
+  local name="$1"
+  shift
+  if [[ -x "$DIR/$name" ]]; then
+    exec "$DIR/$name" "$@"
+  fi
+  exec "$name" "$@"
+}
+
 # Forward known subcommands to the Rust CLI
 if [[ "${1:-}" == "omp" ]]; then
   shift
-  exec aoc-omp "$@"
+  exec_sibling_or_path aoc-omp "$@"
 fi
 
 if [[ "${1:-}" == "omp-patch" ]]; then
   shift
-  exec aoc-omp-patch "$@"
+  exec_sibling_or_path aoc-omp-patch "$@"
 fi
+
 
 if [[ "${1:-}" == "voxtype-setup" ]]; then
   shift
-  exec aoc-voxtype-setup "$@"
+  exec_sibling_or_path aoc-voxtype-setup "$@"
 fi
 
 if [[ "${1:-}" == "state" ]]; then
   shift
-  DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" >/dev/null 2>&1 && pwd)"
-  if [[ -x "$DIR/aoc-state" ]]; then
-    exec "$DIR/aoc-state" "$@"
-  fi
-  exec aoc-state "$@"
+  exec_sibling_or_path aoc-state "$@"
 fi
 
 if [[ "${1:-}" == "services" ]]; then
@@ -31,14 +39,14 @@ if [[ "${1:-}" == "services" ]]; then
   case "${1:-workspace}" in
     workspace|focus)
       shift || true
-      exec aoc-herdr-services focus "$@"
+      exec_sibling_or_path aoc-herdr-services focus "$@"
       ;;
     ensure)
       shift
-      exec aoc-herdr-services ensure "$@"
+      exec_sibling_or_path aoc-herdr-services ensure "$@"
       ;;
     status|up|start|stop|doctor)
-      exec aoc-services "$@"
+      exec_sibling_or_path aoc-services "$@"
       ;;
     -h|--help)
       echo "Usage: aoc services [workspace|status|up|start|stop|doctor]"
@@ -56,7 +64,6 @@ if [[ $# -gt 0 ]]; then
   case "$1" in
     task|mem|rlm|insight|overseer|map|dox|see|--help|-h)
       # Assuming aoc-cli is in path or same directory
-      DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" >/dev/null 2>&1 && pwd)"
       if [[ -x "$DIR/aoc-cli" ]]; then
         exec "$DIR/aoc-cli" "$@"
       elif [[ -x "$DIR/../crates/target/debug/aoc-cli" ]]; then
@@ -107,20 +114,23 @@ aoc_fullscreen() {
 
 if [[ "${AOC_LEGACY_ZELLIJ:-0}" == "1" ]]; then
   if [[ -n "${ZELLIJ:-}" ]]; then
-    exec aoc-new-tab "$@"
+    exec_sibling_or_path aoc-new-tab "$@"
   fi
 
   if [[ -n "${ZELLIJ_SESSION_NAME:-}" ]]; then
     zellij_bin="$(aoc_zellij_bin)"
     if "$zellij_bin" action list-clients >/dev/null 2>&1; then
-      exec aoc-new-tab "$@"
+      exec_sibling_or_path aoc-new-tab "$@"
     fi
   fi
 
   aoc_fullscreen
-  exec env -u AOC_SESSION_ID -u AOC_HUB_ADDR -u AOC_HUB_URL -u AOC_PULSE_CMD -u ZELLIJ_SESSION_NAME aoc-launch
+  if [[ -x "$DIR/aoc-launch" ]]; then
+    exec env -u AOC_SESSION_ID -u AOC_HUB_ADDR -u AOC_HUB_URL -u AOC_PULSE_CMD -u ZELLIJ_SESSION_NAME "$DIR/aoc-launch" "$@"
+  fi
+  exec env -u AOC_SESSION_ID -u AOC_HUB_ADDR -u AOC_HUB_URL -u AOC_PULSE_CMD -u ZELLIJ_SESSION_NAME aoc-launch "$@"
 fi
 
 # Herdr-first launcher. The old Zellij cockpit remains available with:
 #   AOC_LEGACY_ZELLIJ=1 aoc
-exec aoc-herdr-launch "$@"
+exec_sibling_or_path aoc-herdr-launch "$@"

@@ -38,7 +38,7 @@ aoc
 
 ## What install does
 
-`install.sh` installs AOC binaries, scripts, Zellij/Yazi/Micro assets, Pi defaults, optional skill templates, and global config under user-local paths. Core Pi prompts include `/handoff <focus>` for directed STM packet creation and `/rresume [archive]` for safe handoff loading.
+`install.sh` installs AOC binaries, scripts, Zellij/Yazi/Micro assets, OMP defaults, optional skill templates, and global config under user-local paths. OMP skills include `aoc-stm` for directed STM packet creation and safe handoff loading.
 
 It does **not** assume every repo should become an AOC repo. Use `aoc-init` for each project you want to use with AOC.
 
@@ -79,7 +79,7 @@ Recommended:
 
 - Rust/Cargo for local builds
 - Yazi for file navigation
-- Node.js `>= 22` for Pi extensions and HyperFrames
+- Node.js `>= 22` for OMP extensions and HyperFrames
 - FFmpeg for HyperFrames renders
 - Docker for managed local search
 

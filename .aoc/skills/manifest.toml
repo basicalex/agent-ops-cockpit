@@ -1,3 +1,7 @@
+# Legacy/archive-only AOC skill metadata.
+# Active OMP runtime skills are sourced from .omp/skills and .omp/manifest.toml.
+archive_only = true
+
 [[skill]]
 name = "aoc-init-ops"
 type = "ops"

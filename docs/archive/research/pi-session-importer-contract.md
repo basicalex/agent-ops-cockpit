@@ -10,7 +10,7 @@ This contract is intentionally **source-substrate first**:
 
 ## Inputs confirmed from Pi docs
 Installed Pi docs confirm:
-- Sessions are stored as **JSONL files** under `~/.pi/agent/sessions/`.
+- Sessions are stored as **JSONL files** under `retired Pi session storage`.
 - Session files are **tree-structured** via `id` / `parentId`.
 - Header contains session metadata including `id`, `cwd`, optional `parentSession`, and `version`.
 - Relevant entry types include:

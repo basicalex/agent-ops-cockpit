@@ -1,6 +1,0 @@
-aoc-managed: true
-asset: prompt/aoc-ops
-asset-version: 3
-source: ../.config/aoc/pi/prompts/aoc-ops.md
-sha256: 6591ea86997eab7d06c7bfd5db4b18a54891cfba63909c9226487b2e6505d530
-updated-at: 2026-06-10T16:44:10Z

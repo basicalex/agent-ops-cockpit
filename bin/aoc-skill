@@ -3,16 +3,13 @@ set -euo pipefail
 
 usage() {
   cat <<'EOF'
-Usage: aoc-skill sync [--agent AGENT] [--active] [--existing] [--root PATH] [--quiet]
+Usage: aoc-skill sync [--root PATH] [--quiet]
        aoc-skill validate [--root PATH] [--quiet]
 
-Sync AOC skills for PI targets.
-PI-first canonical source is `.pi/skills`.
+Validate or mark canonical OMP skills.
+Canonical source and target is `.omp/skills`.
 
 Options:
-  --agent AGENT   Sync skills for a specific agent (pi).
-  --active        Sync skills for the current default agent.
-  --existing      Sync only targets already synced in this repo (default).
   --root PATH     Project root to use (defaults to searching for .aoc).
   --quiet         Suppress non-error output.
   -h, --help      Show this help.
@@ -20,8 +17,7 @@ EOF
 }
 
 quiet=0
-mode="existing"
-agent=""
+mode="sync"
 project_root=""
 
 log() {
@@ -36,15 +32,6 @@ warn() {
     return
   fi
   echo "!! $1" >&2
-}
-
-normalize_agent() {
-  local input="${1:-}"
-  input="$(printf '%s' "$input" | tr '[:upper:]' '[:lower:]')"
-  case "$input" in
-    pi|pi-agent|pi_agent) echo "pi" ;;
-    *) echo "" ;;
-  esac
 }
 
 find_project_root() {
@@ -64,19 +51,6 @@ find_project_root() {
     probe="$(dirname "$probe")"
   done
   return 1
-}
-
-active_agent() {
-  local state_dir="${XDG_STATE_HOME:-$HOME/.local/state}/aoc"
-  local default_file="${AOC_AGENT_DEFAULT_FILE:-$state_dir/agent_default}"
-  local current="${AOC_AGENT_ID:-}"
-  if [[ -z "$current" && -f "$default_file" ]]; then
-    current="$(cat "$default_file" 2>/dev/null || true)"
-  fi
-  if [[ -z "$current" ]]; then
-    current="pi"
-  fi
-  normalize_agent "$current"
 }
 
 toml_escape() {
@@ -134,7 +108,7 @@ skills_present() {
 
 resolve_source_skills_dir() {
   local root="$1"
-  local canonical="$root/.pi/skills"
+  local canonical="$root/.omp/skills"
 
   if [[ -d "$canonical" ]] && skills_present "$canonical"; then
     printf '%s\n' "$canonical"
@@ -151,11 +125,7 @@ resolve_source_skills_dir() {
 
 target_dir_for_agent() {
   local root="$1"
-  local agent_name="$2"
-  case "$agent_name" in
-    pi) echo "$root/.pi/skills" ;;
-    *) echo "" ;;
-  esac
+  echo "$root/.omp/skills"
 }
 
 sync_symlinks() {
@@ -276,7 +246,7 @@ validate_skills() {
 
   skills_dir="$(resolve_source_skills_dir "$root" || true)"
   if [[ -z "$skills_dir" || ! -d "$skills_dir" ]]; then
-    warn "No skills directory present (.pi/skills)."
+    warn "No skills directory present (.omp/skills)."
     return 1
   fi
 
@@ -385,39 +355,24 @@ write_marker() {
 
 marker_path() {
   local root="$1"
-  local agent_name="$2"
-  case "$agent_name" in
-    pi) echo "$root/.pi/skills/.aoc-skill-sync" ;;
-    *) echo "" ;;
-  esac
+  echo "$root/.omp/skills/.aoc-skill-sync"
 }
 
 sync_agent() {
   local root="$1"
   local skills_dir="$2"
-  local agent_name="$3"
   local target=""
-  local label="$agent_name"
 
-  target="$(target_dir_for_agent "$root" "$agent_name")"
-  if [[ -z "$target" ]]; then
-    warn "Unknown agent: $agent_name"
-    return 1
-  fi
-
-  case "$agent_name" in
-    pi) label="PI Agent" ;;
-  esac
-
+  target="$(target_dir_for_agent "$root")"
   if [[ "$skills_dir" == "$target" ]]; then
-    log "$label skills already canonical at $target."
-    write_marker "$(marker_path "$root" "$agent_name")" "$agent_name"
+    log "OMP skills already canonical at $target."
+    write_marker "$(marker_path "$root")" "omp"
     return 0
   fi
 
-  log "Syncing skills for $label"
+  log "Syncing skills for OMP"
   sync_symlinks "$skills_dir" "$target"
-  write_marker "$(marker_path "$root" "$agent_name")" "$agent_name"
+  write_marker "$(marker_path "$root")" "omp"
 }
 
 command="${1:-sync}"
@@ -429,17 +384,6 @@ fi
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --agent)
-      shift
-      agent="${1:-}"
-      mode="agent"
-      ;;
-    --active)
-      mode="agent"
-      ;;
-    --existing)
-      mode="existing"
-      ;;
     --root)
       shift
       project_root="${1:-}"
@@ -483,7 +427,7 @@ fi
 
 skills_dir="$(resolve_source_skills_dir "$root" || true)"
 if [[ -z "$skills_dir" || ! -d "$skills_dir" ]]; then
-  log "No skills directory present (.pi/skills). Skipping."
+  log "No skills directory present (.omp/skills). Skipping."
   exit 0
 fi
 
@@ -492,41 +436,6 @@ if ! skills_present "$skills_dir"; then
   exit 0
 fi
 
-targets=()
-if [[ "$mode" == "agent" ]]; then
-  if [[ -z "$agent" ]]; then
-    agent="$(active_agent)"
-  else
-    agent="$(normalize_agent "$agent")"
-  fi
-  if [[ -z "$agent" ]]; then
-    warn "Unsupported agent. PI-only mode supports 'pi'."
-    exit 1
-  fi
-  targets=("$agent")
-else
-  for candidate in pi; do
-    marker="$(marker_path "$root" "$candidate")"
-    if [[ -n "$marker" && -f "$marker" ]]; then
-      targets+=("$candidate")
-      continue
-    fi
-    candidate_dir="$(target_dir_for_agent "$root" "$candidate")"
-    if [[ -n "$candidate_dir" && -d "$candidate_dir" ]]; then
-      if skills_present "$candidate_dir"; then
-        targets+=("$candidate")
-      fi
-    fi
-  done
-fi
-
-if ((${#targets[@]} == 0)); then
-  log "No existing skill targets to sync."
-  exit 0
-fi
-
-for target in "${targets[@]}"; do
-  sync_agent "$root" "$skills_dir" "$target"
-done
+sync_agent "$root" "$skills_dir"
 
 exit 0

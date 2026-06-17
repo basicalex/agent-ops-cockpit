@@ -4,6 +4,9 @@
     "design:lint": "design.md lint DESIGN.md"
   },
   "devDependencies": {
-    "@google/design.md": "^0.1.1"
+    "@google/design.md": "^0.1.1",
+    "@mariozechner/pi-ai": "^0.73.1",
+    "@mariozechner/pi-coding-agent": "^0.73.1",
+    "@sinclair/typebox": "^0.34.49"
   }
 }

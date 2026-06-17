@@ -23,9 +23,7 @@ esac
 project_root="$PWD"
 aoc_project_dir="$project_root/.aoc"
 aoc_init_state_file="$aoc_project_dir/init-state.json"
-pi_settings_file="$project_root/.pi/settings.json"
-pi_multi_auth_package_dir="$project_root/.pi/packages/pi-multi-auth-aoc"
-local_multi_auth_package_ref="./packages/pi-multi-auth-aoc"
+omp_agent_config_file="${AOC_OMP_AGENT_CONFIG:-$HOME/.omp/agent/config.yml}"
 
 have() { command -v "$1" >/dev/null 2>&1; }
 have_bat() { have bat || have batcat; }
@@ -77,49 +75,6 @@ if not isinstance(data, dict):
 
 value = data.get("projectAocVersion", data.get("version", 0))
 print(value if isinstance(value, int) and value >= 0 else 0)
-PY
-}
-
-compute_project_pi_runtime_contract_status() {
-  python3 - "$pi_settings_file" "$pi_multi_auth_package_dir" "$local_multi_auth_package_ref" <<'PY'
-import json
-import sys
-from pathlib import Path
-
-settings_path = Path(sys.argv[1])
-package_path = Path(sys.argv[2])
-local_package = sys.argv[3]
-
-if not settings_path.exists():
-    print("missing_settings")
-    raise SystemExit(0)
-
-try:
-    data = json.loads(settings_path.read_text(encoding="utf-8"))
-except Exception:
-    print("invalid_settings")
-    raise SystemExit(0)
-
-packages = data.get("packages")
-if not isinstance(packages, list):
-    packages = []
-
-normalized = []
-for entry in packages:
-    if isinstance(entry, str):
-        normalized.append(entry)
-    elif isinstance(entry, dict) and isinstance(entry.get("source"), str):
-        normalized.append(entry["source"])
-
-references_local = local_package in normalized
-package_exists = package_path.is_dir()
-
-if references_local and not package_exists:
-    print("invalid_missing_local_package")
-elif package_exists and not references_local:
-    print("warning_missing_local_package_reference")
-else:
-    print("ok")
 PY
 }
 
@@ -364,7 +319,6 @@ done
 
 
 project_aoc_version="$(read_project_aoc_version)"
-project_pi_runtime_status="$(compute_project_pi_runtime_contract_status)"
 
 if [[ -d "$project_root/.aoc" ]]; then
   [[ -f "$project_root/.aoc/context.md" ]] || project_runtime_issues+=("missing project context: .aoc/context.md")
@@ -380,25 +334,10 @@ else
   fi
 fi
 
-case "$project_pi_runtime_status" in
-  ok)
-    ;;
-  warning_missing_local_package_reference)
-    project_runtime_warnings+=("local PI package exists but settings are not wired to ./packages/pi-multi-auth-aoc")
-    ;;
-  invalid_missing_local_package)
-    project_runtime_issues+=(".pi/settings.json references ./packages/pi-multi-auth-aoc but .pi/packages/pi-multi-auth-aoc is missing")
-    ;;
-  missing_settings)
-    project_runtime_issues+=("missing PI settings: .pi/settings.json")
-    ;;
-  invalid_settings)
-    project_runtime_issues+=("invalid PI settings: .pi/settings.json")
-    ;;
-  *)
-    project_runtime_warnings+=("unexpected PI runtime status: $project_pi_runtime_status")
-    ;;
-esac
+[[ -f "$omp_agent_config_file" ]] || project_runtime_warnings+=("missing OMP agent config: ~/.omp/agent/config.yml")
+for omp_kind in extensions agents skills; do
+  [[ -d "$project_root/.omp/$omp_kind" ]] || project_runtime_warnings+=("missing project OMP assets: .omp/$omp_kind")
+done
 
 if [[ -d "$HOME/.config/zellij/layouts" ]]; then
   while IFS= read -r layout_path; do
@@ -466,36 +405,18 @@ if [[ "$quiet" -eq 0 ]]; then
     echo "    Project AOC version: 0 (legacy/unversioned)"
   fi
 
-  if [[ -f ".pi/settings.json" ]]; then
-    echo "    [ok] .pi/settings.json present"
+  if [[ -f "$omp_agent_config_file" ]]; then
+    echo "    [ok] OMP agent config present ($omp_agent_config_file)"
   else
-    echo "    [missing] .pi/settings.json"
+    echo "    [warn] missing OMP agent config: ~/.omp/agent/config.yml"
   fi
-  if [[ -d ".pi/packages/pi-multi-auth-aoc" ]]; then
-    echo "    [ok] .pi/packages/pi-multi-auth-aoc present"
-  else
-    echo "    [warn] .pi/packages/pi-multi-auth-aoc missing"
-  fi
-  case "$project_pi_runtime_status" in
-    ok)
-      echo "    [ok] PI runtime package wiring"
-      ;;
-    warning_missing_local_package_reference)
-      echo "    [warn] PI package exists but .pi/settings.json is not wired to ./packages/pi-multi-auth-aoc"
-      ;;
-    invalid_missing_local_package)
-      echo "    [missing] .pi/settings.json references ./packages/pi-multi-auth-aoc but the package directory is missing"
-      ;;
-    missing_settings)
-      echo "    [missing] PI runtime settings missing (.pi/settings.json)"
-      ;;
-    invalid_settings)
-      echo "    [missing] PI runtime settings invalid (.pi/settings.json)"
-      ;;
-    *)
-      echo "    [warn] PI runtime status unknown: $project_pi_runtime_status"
-      ;;
-  esac
+  for omp_kind in extensions agents skills; do
+    if [[ -d ".omp/$omp_kind" ]]; then
+      echo "    [ok] .omp/$omp_kind present"
+    else
+      echo "    [warn] missing project OMP assets: .omp/$omp_kind"
+    fi
+  done
 
   if ((${#project_runtime_issues[@]} > 0)); then
     for issue in "${project_runtime_issues[@]}"; do
@@ -512,11 +433,6 @@ if [[ "$quiet" -eq 0 ]]; then
     if [[ ! -d ".aoc" ]] || [[ ! -f ".aoc/init-state.json" ]] || [[ "$project_aoc_version" == "0" ]]; then
       echo "      - Run 'aoc-init' to initialize or migrate this project to the current AOC version."
     fi
-    case "$project_pi_runtime_status" in
-      invalid_missing_local_package|missing_settings|invalid_settings|warning_missing_local_package_reference)
-        echo "      - Run 'aoc-init' to repair PI runtime package seeding and .pi/settings.json wiring."
-        ;;
-    esac
     if [[ -f ".aoc/init-state.json" ]] && [[ "$project_aoc_version" != "0" ]]; then
       echo "      - Inspect project state with 'aoc-init --status'."
     fi

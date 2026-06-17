@@ -14,8 +14,8 @@ const ASSETS_DIR: &str = ".aoc/map/assets";
 const MANIFEST_PATH: &str = ".aoc/map/manifest.json";
 const INDEX_PATH: &str = ".aoc/map/index.html";
 const README_PATH: &str = ".aoc/map/README.md";
-const AOC_MAP_SKILL_PATH: &str = ".pi/skills/aoc-map/SKILL.md";
-const LEGACY_AOC_SEE_SKILL_DIR: &str = ".pi/skills/aoc-see";
+const AOC_MAP_SKILL_PATH: &str = ".omp/skills/aoc-map/SKILL.md";
+const LEGACY_AOC_SEE_SKILL_DIR: &str = ".omp/skills/aoc-see";
 const MERMAID_JS_PATH: &str = ".aoc/map/assets/mermaid.min.js";
 const MERMAID_RENDER_HELPER_PATH: &str = ".aoc/map/assets/render-mermaid.js";
 const LEGACY_SEE_DIR: &str = ".aoc/see";
@@ -567,7 +567,7 @@ fn ensure_aoc_map_skill(root: &Path, force: bool) -> Result<()> {
     }
     fs::create_dir_all(target_dir)
         .with_context(|| format!("failed to create {}", target_dir.display()))?;
-    fs::write(&path, include_str!("../../../.pi/skills/aoc-map/SKILL.md"))
+    fs::write(&path, include_str!("../../../.omp/skills/aoc-map/SKILL.md"))
         .with_context(|| format!("failed to write {}", path.display()))?;
     Ok(())
 }
@@ -1763,7 +1763,7 @@ fn section_title(section: &str, collections: &[CollectionRecord]) -> String {
 }
 
 fn starter_readme() -> String {
-    "# AOC Map\n\nAOC Map is the project-local graph microsite for this repo.\n\n## Canonical surface\n- command: `aoc-map`\n- workspace: `.aoc/map/`\n- skill: `.pi/skills/aoc-map/SKILL.md`\n\nLegacy `aoc-see` / `.aoc/see` content is tolerated only for migration and compatibility.\n\n## Layout\n- `pages/*.html` — graph-first pages.\n- `diagrams/*.mmd` — Mermaid graph sources.\n- `assets/mermaid.min.js` — vendored Mermaid runtime.\n- `assets/render-mermaid.js` — local Mermaid render helper.\n- `manifest.json` — site + page metadata.\n- `index.html` — generated homepage.\n\n## Seed / refresh\n```bash\naoc-map init\naoc-map build\naoc-map serve --open\n```\n\nYou can also seed from:\n- `aoc-init`\n- `Alt+C -> Settings -> Tools -> AOC Map microsite`\n\n## Homepage shape\nThe generated homepage is intentionally compact:\n- `AOC Map` title\n- total pages\n- total diagrams\n- search box\n- closed-by-default filters dropdown\n- one filtered page list\n- compact recent updates sidebar\n\n## Workflow\n1. `aoc-map init`\n2. `aoc-map new agent-topology --section agents --kind topology --summary \"How AOC agents route through this repo\"`\n3. Edit `diagrams/agent-topology.mmd`.\n4. Keep `pages/agent-topology.html` minimal and graph-first.\n5. Rebuild with `aoc-map build`.\n6. Browse with `aoc-map serve --open`.\n\n## Metadata conventions\nPages can declare metadata directly in HTML:\n- `<meta name=\"aoc-map:summary\" content=\"...\">`\n- `<meta name=\"aoc-map:section\" content=\"agents\">`\n- `<meta name=\"aoc-map:kind\" content=\"topology\">`\n- `<meta name=\"aoc-map:status\" content=\"active\">`\n- `<meta name=\"aoc-map:diagram\" content=\"diagrams/agent-topology.mmd\">`\n- `<meta name=\"aoc-map:tags\" content=\"agents,orchestration\">`\n\n## Graph authoring\nPrefer Mermaid files in `diagrams/*.mmd` and reference them from pages with:\n\n```html\n<script type=\"text/plain\" data-aoc-map-mermaid-src=\"../diagrams/agent-topology.mmd\"></script>\n```\n\nInline Mermaid blocks still work, but external graph files are preferred.\n\nKeep pages self-contained and avoid external network-loaded assets when possible.\n"
+    "# AOC Map\n\nAOC Map is the project-local graph microsite for this repo.\n\n## Canonical surface\n- command: `aoc-map`\n- workspace: `.aoc/map/`\n- skill: `.omp/skills/aoc-map/SKILL.md`\n\nLegacy `aoc-see` / `.aoc/see` content is tolerated only for migration and compatibility.\n\n## Layout\n- `pages/*.html` — graph-first pages.\n- `diagrams/*.mmd` — Mermaid graph sources.\n- `assets/mermaid.min.js` — vendored Mermaid runtime.\n- `assets/render-mermaid.js` — local Mermaid render helper.\n- `manifest.json` — site + page metadata.\n- `index.html` — generated homepage.\n\n## Seed / refresh\n```bash\naoc-map init\naoc-map build\naoc-map serve --open\n```\n\nYou can also seed from:\n- `aoc-init`\n- `Alt+C -> Settings -> Tools -> AOC Map microsite`\n\n## Homepage shape\nThe generated homepage is intentionally compact:\n- `AOC Map` title\n- total pages\n- total diagrams\n- search box\n- closed-by-default filters dropdown\n- one filtered page list\n- compact recent updates sidebar\n\n## Workflow\n1. `aoc-map init`\n2. `aoc-map new agent-topology --section agents --kind topology --summary \"How AOC agents route through this repo\"`\n3. Edit `diagrams/agent-topology.mmd`.\n4. Keep `pages/agent-topology.html` minimal and graph-first.\n5. Rebuild with `aoc-map build`.\n6. Browse with `aoc-map serve --open`.\n\n## Metadata conventions\nPages can declare metadata directly in HTML:\n- `<meta name=\"aoc-map:summary\" content=\"...\">`\n- `<meta name=\"aoc-map:section\" content=\"agents\">`\n- `<meta name=\"aoc-map:kind\" content=\"topology\">`\n- `<meta name=\"aoc-map:status\" content=\"active\">`\n- `<meta name=\"aoc-map:diagram\" content=\"diagrams/agent-topology.mmd\">`\n- `<meta name=\"aoc-map:tags\" content=\"agents,orchestration\">`\n\n## Graph authoring\nPrefer Mermaid files in `diagrams/*.mmd` and reference them from pages with:\n\n```html\n<script type=\"text/plain\" data-aoc-map-mermaid-src=\"../diagrams/agent-topology.mmd\"></script>\n```\n\nInline Mermaid blocks still work, but external graph files are preferred.\n\nKeep pages self-contained and avoid external network-loaded assets when possible.\n"
             .to_string()
 }
 

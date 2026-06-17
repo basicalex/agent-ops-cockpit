@@ -93,9 +93,14 @@ def detect_vcs(project_root: Path) -> dict[str, Any]:
             colocation_status = first_line(colocation_result.get("stdout"))
 
     colocated_git = bool(jj_present and (git_present or colocation_status))
-    kind = "jj" if jj_present else ("git" if git_present else "none")
+    # A colocated .jj directory is metadata, not always the operator's desired
+    # workflow. If Git has an attached branch, prefer normal Git semantics and
+    # report Jujutsu only as available metadata. Detached Git in a colocated
+    # workspace still indicates an active jj-managed checkout.
+    git_attached = bool(git_present and git_branch)
+    kind = "git" if git_attached else ("jj" if jj_present else ("git" if git_present else "none"))
     preferred_tool = "jj" if kind == "jj" else ("git" if kind == "git" else "none")
-    root = jj_root if kind == "jj" and jj_root else git_root if kind == "git" and git_root else str(project_root)
+    root = git_root if kind == "git" and git_root else jj_root if kind == "jj" and jj_root else str(project_root)
     git_label = git_branch or ("detached" if git_head else ("unknown" if git_present else None))
 
     if kind == "jj":
@@ -232,7 +237,9 @@ def vcs_summary(vcs: dict[str, Any]) -> str:
     kind = str(vcs.get("kind") or "unknown")
     preferred = str(vcs.get("preferredTool") or "none")
     jj = vcs.get("jj") if isinstance(vcs.get("jj"), dict) else {}
-    suffix = " (colocated with git)" if kind == "jj" and jj.get("colocatedGit") else ""
+    suffix = " (jj metadata present)" if kind == "git" and jj.get("present") else ""
+    if kind == "jj" and jj.get("colocatedGit"):
+        suffix = " (colocated with git)"
     return f"{kind}{suffix}; preferred={preferred}"
 
 
@@ -422,16 +429,16 @@ def print_prompt_full(packet: dict[str, Any]) -> None:
     print("- If `.codegraph/` exists and the OMP `aoc_codegraph` tool is available, use it before broad text scans for code discovery, architecture tracing, impact analysis, and affected-test selection.")
     print("- Treat CodeGraph as read-only inside the agent. Initialization, indexing, and sync are explicit operator actions.")
     print()
-    print("## VCS / Jujutsu policy")
+    print("## VCS policy")
     print(f"- Detected: {vcs_summary(vcs)}")
-    print("- AOC reports existing Jujutsu repositories automatically. It initializes/colocates Jujutsu only through explicit operator action such as `/jj-init` or a direct shell command, never at ordinary startup/init.")
-    print("- Git-only repositories: use `git status --short`, targeted diffs, explicit path staging, `git commit`, and report the observed SHA.")
+    print("- AOC reports existing Jujutsu repositories automatically, but an attached Git branch means the operator is using normal Git flow. In that state, agents must use Git staging/commit commands even if `.jj` metadata is present.")
+    print("- Git repositories: use `git status --short`, targeted diffs, explicit path staging, `git commit`, and report the observed SHA.")
     print("- Jujutsu repositories: use `jj status`, `jj diff --summary`, `jj diff --stat`, and targeted `jj diff -- <filesets>`; the working copy is the current mutable `@` change, not a Git staging area.")
     print("- For Jujutsu commits, ensure `@` contains only the intended atomic work before `jj commit -m <message>` or use selected filesets/splitting (`jj commit <filesets>`, `jj split`, `jj squash -i`) to separate unrelated changes.")
-    print("- Keep one agent task in one Jujutsu change where practical; split mixed parallel-agent work before committing; never push through Git or Jujutsu without explicit approval.")
+    print("- Never push through Git or Jujutsu without explicit approval.")
     print()
     print("## Slash commands")
-    print("- `/commit [scope]` is the AOC/OMP safe atomic commit workflow. Treat it as approval to inspect changes, run targeted validation, commit only the intended atomic work using the detected VCS workflow, and report the observed Git SHA or Jujutsu change/commit identity. Never push without explicit approval.")
+    print("- `/commit [scope]` is the AOC/OMP safe atomic commit workflow. Treat it as approval to inspect changes, run targeted validation, commit only the intended atomic work using the detected preferred VCS workflow, and report the observed Git SHA or Jujutsu change/commit identity. In a colocated repo with an attached Git branch, use Git. Never push without explicit approval.")
     print("- `/jj-init [scope]` is the explicit AOC/OMP workflow to analyze a Git repository and initialize colocated Jujutsu safely. It must inspect dirty work first, never push/fetch/import/export, and report remaining work in `@`.")
     print()
     print("## RTK")

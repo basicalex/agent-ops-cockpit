@@ -28,9 +28,8 @@ rename_tab = "alt+shift+r"
 previous_tab = "alt+i"
 next_tab = "alt+o"
 # Herdr 0.6.6 has internal mouse-drag tab moving, but no public key action yet.
-# When Herdr exposes it, bind:
+# When Herdr exposes it, keep alt+p free for OMP agent selection.
 # move_tab_left = "alt+u"
-# move_tab_right = "alt+p"
 switch_tab = "alt+1..9"
 close_tab = "alt+shift+x"
 # Direct pane navigation.
@@ -42,7 +41,7 @@ navigate_pane_left = ""
 navigate_pane_down = ""
 navigate_pane_up = ""
 navigate_pane_right = ""
-cycle_pane_next = "alt+p"
+cycle_pane_next = ""
 cycle_pane_previous = "prefix+shift+tab"
 last_pane = "alt+tab"
 rename_pane = "alt+r"

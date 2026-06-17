@@ -1,6 +1,0 @@
-aoc-managed: true
-asset: skill/zellij-theme-ops
-asset-version: 3
-source: ../.config/aoc/pi/skills/zellij-theme-ops
-sha256: ac76958f7b7a1cd77f694ece848641f9861ff8e33077741bbdea8f36ea396166
-updated-at: 2026-06-10T16:44:18Z

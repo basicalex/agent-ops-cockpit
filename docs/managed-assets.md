@@ -1,110 +1,34 @@
-# AOC Managed Assets
+# Managed assets
 
-AOC system assets are authored in this repository and distributed to projects by `aoc-init` and related AOC commands.
+AOC may refresh repo-owned assets it can prove are AOC-managed. Project-authored work is preserved by default.
 
-## Source-of-truth rule
-
-```text
-agent-ops-cockpit repo = edit here
-consumer project = receive/update via aoc-init
-```
-
-Do not hand-edit managed AOC system internals inside consumer projects unless debugging.
-
-## Managed vs project-authored
-
-Managed by AOC:
+Managed by default:
 
 ```text
-.pi/skills/<aoc skill>/**
-.pi/extensions/**
+.omp/skills/<aoc skill>/**
+.omp/extensions/**
+.omp/agents/**
 .aoc/presets/**
 .aoc/layouts/**
-.pi/prompts/<aoc prompt>.md
-.pi/packages/pi-multi-auth-aoc/**
 ```
 
 Project-authored, preserve by default:
 
 ```text
-DESIGN.md
-.aoc/memory.md
-.aoc/stm/**
-.taskmaster/** task state
-hyperframes/docs/**
-hyperframes/compositions/**
-hyperframes/assets/**
-hyperframes/renders/**
+hyperframes/**
+docs/** outside generated AOC docs
+source code outside managed AOC paths
 ```
 
-## Marker contract
-
-Managed directories receive:
+Managed markers use `.aoc-managed` files with asset id, source, checksum, and timestamp. Example:
 
 ```text
-.aoc-managed
-```
-
-Managed files may receive sidecar markers:
-
-```text
-<file>.aoc-managed
-```
-
-Marker fields:
-
-```yaml
 aoc-managed: true
 asset: skill/aoc-hyperframes
 asset-version: 3
-source: .pi/skills/aoc-hyperframes
+source: .omp/skills/aoc-hyperframes
 sha256: <installed tree/file sha256>
 updated-at: <utc>
 ```
 
-## Managed manifest
-
-`aoc-init` writes:
-
-```text
-.aoc/managed-assets.json
-```
-
-It tracks:
-
-```text
-asset id
-asset version
-source path
-installed checksum
-expected checksum
-status: current | dirty | unknown
-marker path
-```
-
-## Status check
-
-```bash
-aoc-init --check-managed
-```
-
-Outputs managed asset counts via existing status surface:
-
-```text
-managed_assets_current: N
-managed_assets_dirty: N
-managed_assets_unknown: N
-```
-
-## Update behavior
-
-```text
-missing managed asset -> seed latest + marker + manifest
-clean managed asset -> refresh latest
-current managed asset -> leave/mark current
-locally modified managed asset -> backup before refresh
-unmarked local managed-path edit -> backup before refresh
-project artifact -> preserve
-```
-
-HyperFrames uses same rule: `.pi/skills/aoc-hyperframes/**` and `.aoc/presets/hyperframes/**` are managed; `hyperframes/**` workspace content is project-authored after seed.
+If a managed target changed since the last recorded checksum, AOC backs it up before refresh. HyperFrames uses the same rule: `.omp/skills/aoc-hyperframes/**` and `.aoc/presets/hyperframes/**` are managed; `hyperframes/**` workspace content is project-authored after seed.

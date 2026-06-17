@@ -3356,19 +3356,155 @@
       },
       {
         "path": ".omp/extensions",
-        "decision": "reject",
+        "decision": "create",
         "score": 9,
-        "confidence": 0.5,
-        "reason": "missing evidence or verification",
-        "contracts": [],
+        "confidence": 0.84,
+        "reason": "critic-approved compressed create: `.omp/extensions` is root-only/insufficient in `.aoc/dox/map.json`; local rules govern host-facing Pi extension command/tool surfaces.",
+        "contracts": [
+          {
+            "rule": "Expose Pi capabilities only through `ExtensionAPI.registerTool`/`registerCommand`; keep tool parameters typed with TypeBox/StringEnum schemas and keep slash-command arguments routed through explicit modes, aliases, and completions.",
+            "do_not": [
+              "Do not add ad-hoc string-command parsing, untyped parameter bags, or hidden host actions outside the registered Pi extension API."
+            ],
+            "update_when": [
+              "Update when adding or changing `.omp/extensions/*.ts` command names, tool schemas, argument parsing, aliases, or completions."
+            ],
+            "verification": [
+              "bun --check .omp/extensions/<changed-extension>.ts"
+            ],
+            "evidence": [
+              {
+                "path": ".omp/extensions/aoc-dox.ts",
+                "symbol": "DoxActionSchema / DoxParams",
+                "command": null,
+                "note": "Uses `StringEnum` and `Type.Object` for tool parameters."
+              },
+              {
+                "path": ".omp/extensions/aoc-dox-command.ts",
+                "symbol": "DOX_COMMAND_COMPLETIONS / renderDoxCommandPrompt",
+                "command": null,
+                "note": "Uses explicit completions, aliases, and mode parsing before registering `/dox`."
+              }
+            ]
+          },
+          {
+            "rule": "For subprocess-backed tools, scope cwd under the project root, bound/truncate output, enforce timeout and AbortSignal cleanup, use `spawn(..., { shell:false })`, and surface nonzero/timeout results as unavailable evidence rather than success.",
+            "do_not": [
+              "Do not introduce `shell:true`, cwd escape paths, unbounded stdout/stderr, synchronous long-running subprocesses on agent-facing paths, or fake-success fallbacks after CLI failure."
+            ],
+            "update_when": [
+              "Update when adding or changing a subprocess-backed tool, cwd parameter, timeout/output limit, or wrapper around AOC/CodeGraph/Mind/search CLIs."
+            ],
+            "verification": [
+              "bun --check .omp/extensions/<changed-extension>.ts"
+            ],
+            "evidence": [
+              {
+                "path": ".omp/extensions/aoc-dox.ts",
+                "symbol": "scopedCwd / truncateOutput / runAoc",
+                "command": null,
+                "note": "Rejects cwd escapes, truncates output, uses timeout/AbortSignal cleanup and `shell:false`, and marks failed DOX as unavailable evidence."
+              },
+              {
+                "path": ".omp/extensions/aoc-codegraph.ts",
+                "symbol": "scopedCwd / truncateOutput / runCodeGraph",
+                "command": null,
+                "note": "Uses the same cwd, truncation, timeout, AbortSignal, `shell:false`, and failure-as-evidence pattern."
+              },
+              {
+                "path": ".omp/extensions/aoc-web-search.ts",
+                "symbol": "truncateOutput / runCommand",
+                "command": null,
+                "note": "Bounds output and uses timeout, AbortSignal cleanup, `shell:false`, and operational error reporting."
+              }
+            ]
+          },
+          {
+            "rule": "Slash-command extensions should hand workflow prompts to the agent with `pi.sendMessage({ customType, display:true, content, details }, { triggerTurn:true })`; include cwd/scope in details and use `ctx.ui.notify` only as fallback.",
+            "do_not": [
+              "Do not make slash commands mutate the project directly, bypass the agent turn, omit `customType`/`details`, or rely on UI notification when `sendMessage` is available."
+            ],
+            "update_when": [
+              "Update when adding or changing slash commands, workflow prompts, `customType` names, or sendMessage details payloads."
+            ],
+            "verification": [
+              "bun --check .omp/extensions/<changed-extension>.ts"
+            ],
+            "evidence": [
+              {
+                "path": ".omp/extensions/aoc-dox-command.ts",
+                "symbol": "aocDoxCommandExtension",
+                "command": null,
+                "note": "Sends `customType:\"aoc.dox.request\"`, `display:true`, mode/target/cwd details, and `{ triggerTurn:true }`."
+              },
+              {
+                "path": ".omp/extensions/aoc-state.ts",
+                "symbol": "send / aocStateExtension",
+                "command": null,
+                "note": "Centralizes sendMessage with `display:true`, details, and `triggerTurn:true`; commands generate prompts rather than performing VCS operations."
+              },
+              {
+                "path": ".omp/extensions",
+                "symbol": null,
+                "command": "search customType|triggerTurn|sendMessage|registerCommand\\(",
+                "note": "Same pattern appears in commit, brand-content, jj-init, dox, and state command extensions."
+              }
+            ]
+          },
+          {
+            "rule": "Tool descriptions and `promptGuidelines` must encode operational limits and write-safety for each exposed capability; write/apply/install/init/sync-style actions require a safe schema mode and matching prompt guidance before exposure.",
+            "do_not": [
+              "Do not expose apply/write/install/init/index/sync actions by name or implication unless the safe mode is encoded in both schema and prompt guidance; do not turn AGENTS output into general documentation."
+            ],
+            "update_when": [
+              "Update when adding tool actions, changing promptGuidelines, or broadening a wrapper from read-only/dry-run to a mutating capability."
+            ],
+            "verification": [
+              "bun --check .omp/extensions/<changed-extension>.ts"
+            ],
+            "evidence": [
+              {
+                "path": ".omp/extensions/aoc-dox.ts",
+                "symbol": "DoxActionSchema / promptGuidelines",
+                "command": null,
+                "note": "Schema exposes `apply-dry-run`, not apply-yes; prompt guidance says the tool cannot run `apply --yes`."
+              },
+              {
+                "path": ".omp/extensions/aoc-codegraph.ts",
+                "symbol": "promptGuidelines",
+                "command": null,
+                "note": "Guidance states CodeGraph is read-only discovery and must not install, initialize, index, or sync projects."
+              },
+              {
+                "path": ".omp/extensions/aoc-web-search.ts",
+                "symbol": "promptGuidelines",
+                "command": null,
+                "note": "Guidance tells agents to explain local search configuration failures instead of repeated provider retries."
+              }
+            ]
+          }
+        ],
         "risks": [
-          "high-risk invariant"
+          "Pi extensions expose host-facing command/tool surfaces; missing local rules can permit unsafe CLI actions, cwd escape, shell injection, unbounded output, or project mutation outside agent review."
         ],
         "verification": [
-          "bun --check .omp/extensions/aoc-dox.ts"
+          "bun --check .omp/extensions/<changed-extension>.ts"
         ],
-        "evidence": [],
-        "target_agents_path": null
+        "evidence": [
+          {
+            "path": ".aoc/dox/map.json",
+            "symbol": null,
+            "command": null,
+            "note": "Marks `.omp/extensions` as `coverage: insufficient`, `status: candidate_local_agents`, with resolved chain `[\"AGENTS.md\"]`."
+          },
+          {
+            "path": "AGENTS.md",
+            "symbol": null,
+            "command": null,
+            "note": "Root rules cover repo-wide AOC workflow and do not define ExtensionAPI, TypeBox schemas, sendMessage/customType, or subprocess-wrapper invariants."
+          }
+        ],
+        "target_agents_path": ".omp/extensions/AGENTS.md"
       },
       {
         "path": ".omp/skills",
@@ -6032,19 +6168,165 @@
       },
       {
         "path": "bin",
-        "decision": "reject",
-        "score": 7,
-        "confidence": 0.5,
-        "reason": "missing evidence or verification",
-        "contracts": [],
+        "decision": "create",
+        "score": 9,
+        "confidence": 0.82,
+        "reason": "critic-approved compressed create: `bin` is root-only/insufficient in `.aoc/dox/map.json`; local rules protect public PATH entrypoints and generated/cache boundaries not covered by root AGENTS.",
+        "contracts": [
+          {
+            "rule": "Preserve `bin/*` as public PATH entrypoints: Bash wrappers keep shebangs, `set -euo pipefail`, `exec` handoff on delegation, and existing colocated/repo-relative command resolution before PATH fallback.",
+            "do_not": [
+              "Do not replace `exec` dispatch with plain subprocess calls, remove strict shell mode from Bash wrappers, simplify existing resolution to PATH-only lookup, or remove local/debug/release fallbacks without preserving the development workflow."
+            ],
+            "update_when": [
+              "Update when adding or changing a public command in `bin`, wrapper delegation, local binary lookup order, or help/startup behavior."
+            ],
+            "verification": [
+              "bash -n bin/<changed-bash-wrapper>",
+              "bin/<changed-command> --help >/dev/null"
+            ],
+            "evidence": [
+              {
+                "path": "bin/aoc",
+                "symbol": null,
+                "command": null,
+                "note": "Bash wrapper uses strict mode, delegates with `exec`, checks colocated `aoc-omp-patch`/`aoc-state`, and resolves `aoc-cli` via colocated/debug/release/PATH order."
+              },
+              {
+                "path": "bin/aoc-omp",
+                "symbol": null,
+                "command": null,
+                "note": "Bash wrapper uses strict mode, resolves raw OMP through environment/PATH, reports explicit missing-binary errors, then `exec`s OMP with appended startup capsule."
+              },
+              {
+                "path": "bin/aoc-omp-patch",
+                "symbol": null,
+                "command": null,
+                "note": "Bash wrapper uses strict mode and exposes command-specific help/contract for patch behavior."
+              }
+            ]
+          },
+          {
+            "rule": "Do not hand-edit generated or managed outputs/cache under `bin`; update the source/template/regeneration path instead, and never treat `bin/__pycache__/*.pyc` as source.",
+            "do_not": [
+              "Do not create a local AGENTS file inside `bin/__pycache__`, review `.pyc` files as source, or patch generated/managed files without identifying the source generator or asset marker."
+            ],
+            "update_when": [
+              "Update when generated/managed markers move, regeneration ownership changes, or cache/source boundaries under `bin` change."
+            ],
+            "verification": [
+              "bash -n bin/aoc-context bin/aoc-hyperframes bin/aoc-init"
+            ],
+            "evidence": [
+              {
+                "path": ".aoc/dox/map.json",
+                "symbol": "generated_markers",
+                "command": null,
+                "note": "Records generated/managed markers for `bin/aoc-context`, `bin/aoc-hyperframes`, and `bin/aoc-init`."
+              },
+              {
+                "path": "bin/aoc-context",
+                "symbol": null,
+                "command": null,
+                "note": "Emits `Generated from layered AGENTS.md policy. Do not edit this generated output directly; edit source AGENTS.md files instead.`"
+              },
+              {
+                "path": "bin/aoc-hyperframes",
+                "symbol": null,
+                "command": null,
+                "note": "Writes `.aoc-managed` marker metadata."
+              },
+              {
+                "path": "bin/aoc-init",
+                "symbol": null,
+                "command": null,
+                "note": "Writes `.aoc-managed` and `<target>.aoc-managed` markers."
+              },
+              {
+                "path": "bin/__pycache__",
+                "symbol": null,
+                "command": null,
+                "note": "Directory listing contains only CPython bytecode artifacts."
+              }
+            ]
+          },
+          {
+            "rule": "For Python CLIs in `bin`, keep argument parsing and runtime work behind `main()` and `if __name__ == \"__main__\"`; imports should not start services, clean processes, mutate files, or perform network work.",
+            "do_not": [
+              "Do not perform service startup, process cleanup, filesystem mutation, or network work at import time; do not hide CLI behavior outside parser/main entrypoints."
+            ],
+            "update_when": [
+              "Update when adding or changing Python CLI files in `bin`, parser setup, or importable helper modules."
+            ],
+            "verification": [
+              "PYTHONDONTWRITEBYTECODE=1 python3 -B bin/<changed-python-cli> --help >/dev/null"
+            ],
+            "evidence": [
+              {
+                "path": "bin/aoc-handshake",
+                "symbol": "main / __main__",
+                "command": null,
+                "note": "Defines parser/main and calls it only under `if __name__ == \"__main__\"`."
+              },
+              {
+                "path": "bin/aoc-services",
+                "symbol": "main / __main__",
+                "command": null,
+                "note": "Defines parser/main and calls it only under `if __name__ == \"__main__\"`."
+              },
+              {
+                "path": "bin/aoc-herdr-services",
+                "symbol": "main / __main__",
+                "command": null,
+                "note": "Builds parser, resolves project root inside main, and calls main only under `__main__`."
+              },
+              {
+                "path": "bin/aoc-search",
+                "symbol": "main / __main__",
+                "command": null,
+                "note": "Builds/parser runs inside main and exits from `__main__`."
+              },
+              {
+                "path": "bin/aoc-fetch",
+                "symbol": "main / __main__",
+                "command": null,
+                "note": "Defines parser/main and calls it only under `if __name__ == \"__main__\"`."
+              },
+              {
+                "path": "bin/aoc-cleanup-core.py",
+                "symbol": "main / __main__",
+                "command": null,
+                "note": "Defines cleanup CLI main and only invokes it from `__main__`."
+              }
+            ]
+          }
+        ],
         "risks": [
-          "high-risk invariant"
+          "`bin/*` files are PATH-facing public entrypoints; wrapper regressions can change process ownership, binary selection, help behavior, or startup semantics.",
+          "Generated/managed outputs and `__pycache__` can be mistaken for source, causing churn or overwritten edits.",
+          "Python CLI import-time side effects can make help/import checks perform runtime work unexpectedly."
         ],
         "verification": [
-          "cargo test -p aoc-cli dox"
+          "bash -n bin/<changed-bash-wrapper>",
+          "bin/<changed-command> --help >/dev/null",
+          "bash -n bin/aoc-context bin/aoc-hyperframes bin/aoc-init",
+          "PYTHONDONTWRITEBYTECODE=1 python3 -B bin/<changed-python-cli> --help >/dev/null"
         ],
-        "evidence": [],
-        "target_agents_path": null
+        "evidence": [
+          {
+            "path": ".aoc/dox/map.json",
+            "symbol": null,
+            "command": null,
+            "note": "Marks `bin` as `coverage: insufficient`, `status: candidate_local_agents`, with resolved chain `[\"AGENTS.md\"]`."
+          },
+          {
+            "path": "AGENTS.md",
+            "symbol": null,
+            "command": null,
+            "note": "Root rules cover repo-wide AOC workflow and do not define `bin` wrapper, dispatcher, generated/cache, or Python CLI entrypoint invariants."
+          }
+        ],
+        "target_agents_path": "bin/AGENTS.md"
       },
       {
         "path": "bin/__pycache__",
@@ -6146,35 +6428,153 @@
       },
       {
         "path": "crates/aoc-agent-wrap-rs/src",
-        "decision": "reject",
-        "score": 7,
-        "confidence": 0.5,
-        "reason": "missing evidence or verification",
-        "contracts": [],
+        "decision": "create",
+        "score": 8,
+        "confidence": 0.8,
+        "reason": "critic-approved compressed create: root AGENTS does not cover Pulse wire shape, secret-safe child env, redaction, stop escalation, or detached Insight state.",
+        "contracts": [
+          {
+            "rule": "Route Pulse insight commands through `build_pulse_command_response`/`InsightCommand`: validate target agent, return JSON `command_result`s, and emit runtime/detached `PulseUpdate`s for state changes.",
+            "do_not": [],
+            "update_when": [],
+            "verification": [
+              "cargo test --manifest-path crates/aoc-agent-wrap-rs/Cargo.toml pulse_insight_dispatch_returns_structured_result"
+            ],
+            "evidence": []
+          },
+          {
+            "rule": "Spawn Mind/Insight child processes with the existing `env_clear` allowlist path (`configure_mind_child_std_command_env` or equivalent); test any added allowed env key.",
+            "do_not": [],
+            "update_when": [],
+            "verification": [
+              "cargo test --manifest-path crates/aoc-agent-wrap-rs/Cargo.toml mind_child_env_excludes_ambient_secrets_and_keeps_allowlisted_vars"
+            ],
+            "evidence": []
+          },
+          {
+            "rule": "Sanitize/redact external output before it reaches agent-visible status, telemetry, command results, exports, or persisted text; extend secret-pattern tests for new formats.",
+            "do_not": [],
+            "update_when": [],
+            "verification": [
+              "cargo test --manifest-path crates/aoc-agent-wrap-rs/Cargo.toml sanitize_activity_line_redacts_common_secret_patterns"
+            ],
+            "evidence": []
+          },
+          {
+            "rule": "Preserve stop/cancel semantics: SIGINT/INT grace, TERM grace, final kill, persisted detached cancellation, and parent/child job cancellation together.",
+            "do_not": [],
+            "update_when": [],
+            "verification": [
+              "cargo test --manifest-path crates/aoc-agent-wrap-rs/Cargo.toml stop_tokio_child_escalates_when_sigint_ignored"
+            ],
+            "evidence": []
+          },
+          {
+            "rule": "Insight dispatch must fail deterministically when manifests or subprocess config are absent: return bounded fallback/error result objects, not panics or live `.pi` assumptions.",
+            "do_not": [],
+            "update_when": [],
+            "verification": [
+              "cargo test --manifest-path crates/aoc-agent-wrap-rs/Cargo.toml pulse_insight_dispatch_returns_structured_result"
+            ],
+            "evidence": []
+          }
+        ],
         "risks": [
-          "high-risk invariant"
+          "Pulse command protocol, Mind/Insight subprocess dispatch, secret redaction, PTY/process stop escalation, and persisted detached job state are high-risk runtime boundaries currently covered only by generic root guidance."
         ],
         "verification": [
-          "cargo test -p aoc-cli dox"
+          "cargo test --manifest-path crates/aoc-agent-wrap-rs/Cargo.toml sanitize_activity_line_redacts_common_secret_patterns",
+          "cargo test --manifest-path crates/aoc-agent-wrap-rs/Cargo.toml mind_child_env_excludes_ambient_secrets_and_keeps_allowlisted_vars",
+          "cargo test --manifest-path crates/aoc-agent-wrap-rs/Cargo.toml pulse_insight_dispatch_returns_structured_result",
+          "cargo test --manifest-path crates/aoc-agent-wrap-rs/Cargo.toml stop_tokio_child_escalates_when_sigint_ignored"
         ],
-        "evidence": [],
-        "target_agents_path": null
+        "evidence": [
+          {
+            "path": ".aoc/dox/map.json",
+            "symbol": null,
+            "command": null,
+            "note": ".aoc/dox/map.json:6153-6163 marks this source path insufficient/candidate_local_agents with only AGENTS.md in the chain."
+          },
+          {
+            "path": "crates/aoc-agent-wrap-rs/src/main.rs",
+            "symbol": "build_pulse_command_response / InsightCommand / PulseUpdate::InsightRuntime",
+            "command": null,
+            "note": "Insight commands are target-checked, parsed through InsightCommand, serialized to structured command_result JSON, and return runtime/detached PulseUpdate values."
+          },
+          {
+            "path": "crates/aoc-agent-wrap-rs/src/insight_orchestrator.rs",
+            "symbol": "InsightSupervisor / DetachedInsightRuntime",
+            "command": null,
+            "note": "Covers configured child env, deterministic fallback/error results, output truncation, persisted detached jobs, cancellation, and child-job cancellation."
+          }
+        ],
+        "target_agents_path": "crates/aoc-agent-wrap-rs/src/AGENTS.md"
       },
       {
         "path": "crates/aoc-cli",
-        "decision": "reject",
-        "score": 7,
-        "confidence": 0.5,
-        "reason": "missing evidence or verification",
-        "contracts": [],
+        "decision": "create",
+        "score": 8,
+        "confidence": 0.8,
+        "reason": "critic-approved compressed create: package owns the user-facing `aoc` binary surface plus stateful Taskmaster, DOX, and map writes.",
+        "contracts": [
+          {
+            "rule": "Add/change user-facing `aoc` commands only through `main.rs::Commands` and the existing module `handle_*_command` dispatch; preserve public names and aliases such as `map`/`see` unless fully migrated.",
+            "do_not": [],
+            "update_when": [],
+            "verification": [
+              "cargo test -p aoc-cli"
+            ],
+            "evidence": []
+          },
+          {
+            "rule": "State-mutating commands must use existing project-root/path/write helpers for Taskmaster, DOX, and map outputs; do not hand-roll writes to `.taskmaster/*`, `.aoc/dox/*`, or `.aoc/map/*`.",
+            "do_not": [],
+            "update_when": [],
+            "verification": [
+              "cargo test -p aoc-cli map",
+              "cargo test -p aoc-cli"
+            ],
+            "evidence": []
+          },
+          {
+            "rule": "Keep DOX review/apply conservative: approvals need evidence plus safe verification, verification commands pass `validate_verification_command`, and AGENTS writes stay dry-run/`--yes` guarded with unmanaged-content protection.",
+            "do_not": [],
+            "update_when": [],
+            "verification": [
+              "cargo test -p aoc-cli dox"
+            ],
+            "evidence": []
+          }
+        ],
         "risks": [
-          "high-risk invariant"
+          "User-facing aoc binary dispatch, Taskmaster state writes, DOX AGENTS metadata/apply safety, map asset generation, and overseer/insight command surfaces are high-risk operational surfaces not described by root AGENTS.md."
         ],
         "verification": [
-          "cargo test -p aoc-cli dox"
+          "cargo test -p aoc-cli dox",
+          "cargo test -p aoc-cli map",
+          "cargo test -p aoc-cli"
         ],
-        "evidence": [],
-        "target_agents_path": null
+        "evidence": [
+          {
+            "path": ".aoc/dox/map.json",
+            "symbol": null,
+            "command": null,
+            "note": ".aoc/dox/map.json:6166-6175 marks crates/aoc-cli insufficient/candidate_local_agents with only AGENTS.md inherited."
+          },
+          {
+            "path": "crates/aoc-cli/src/main.rs",
+            "symbol": "Commands / main",
+            "command": null,
+            "note": "Top-level subcommands are defined in Commands; map has alias see; main dispatches each command to a module handle_*_command function."
+          },
+          {
+            "path": "crates/aoc-cli/src/dox.rs",
+            "symbol": "handle_apply / validate_verification_command",
+            "command": null,
+            "note": "Apply supports dry-run, refuses writes without --yes, rejects unmanaged AGENTS.md content, and validates destructive verification command tokens."
+          }
+        ],
+        "target_agents_path": "crates/aoc-cli/AGENTS.md"
       },
       {
         "path": "crates/aoc-cli/assets",
@@ -6252,19 +6652,81 @@
       },
       {
         "path": "crates/aoc-core/src",
-        "decision": "reject",
-        "score": 7,
-        "confidence": 0.5,
-        "reason": "missing evidence or verification",
-        "contracts": [],
+        "decision": "create",
+        "score": 8,
+        "confidence": 0.8,
+        "reason": "critic-approved compressed create: subtree exports shared serde/wire/storage contracts where compatibility, framing, redaction, and budget constants are durable local invariants.",
+        "contracts": [
+          {
+            "rule": "Treat exported serde structs/enums as wire/storage contracts: preserve `rename_all`, tagged layouts, schema defaults, and backward-compatible `#[serde(default)]` unless a versioned migration and compatibility tests land together.",
+            "do_not": [],
+            "update_when": [],
+            "verification": [
+              "cargo test -p aoc-core pulse_ipc::tests"
+            ],
+            "evidence": []
+          },
+          {
+            "rule": "Preserve Pulse IPC framing: newline-delimited JSON, `ProtocolVersion::CURRENT`, `DEFAULT_MAX_FRAME_BYTES`, oversize rejection, and decoder recovery after malformed frames.",
+            "do_not": [],
+            "update_when": [],
+            "verification": [
+              "cargo test -p aoc-core pulse_ipc::tests"
+            ],
+            "evidence": []
+          },
+          {
+            "rule": "Do not persist or emit unredacted Mind event secrets; new `RawEventBody`/attrs text must use the sanitizer and keep `mind_sanitized` / `mind_sanitized_reasons` plus deterministic canonical JSON/hash behavior.",
+            "do_not": [],
+            "update_when": [],
+            "verification": [
+              "cargo test -p aoc-core mind_contracts::tests::sanitizer_redacts_message_and_nested_payload_secrets"
+            ],
+            "evidence": []
+          },
+          {
+            "rule": "Changes to consultation caps, T0/T1/T2 constraints, context-layer precedence, or overseer command policy require behavior tests for truncation/defaulting/error/allow-confirm-deny branches.",
+            "do_not": [],
+            "update_when": [],
+            "verification": [
+              "cargo test -p aoc-core consultation_contracts::tests",
+              "cargo test -p aoc-core mind_contracts::tests",
+              "cargo test -p aoc-core session_overseer::tests"
+            ],
+            "evidence": []
+          }
+        ],
         "risks": [
-          "high-risk invariant"
+          "Shared Rust wire/storage contracts for Mind, provenance, Pulse IPC, consultation packets, and overseer commands can break consumers if serde shapes, schema versions, framing, redaction, or normalization drift."
         ],
         "verification": [
-          "cargo test -p aoc-cli dox"
+          "cargo test -p aoc-core pulse_ipc::tests",
+          "cargo test -p aoc-core mind_contracts::tests::sanitizer_redacts_message_and_nested_payload_secrets",
+          "cargo test -p aoc-core consultation_contracts::tests",
+          "cargo test -p aoc-core mind_contracts::tests",
+          "cargo test -p aoc-core session_overseer::tests"
         ],
-        "evidence": [],
-        "target_agents_path": null
+        "evidence": [
+          {
+            "path": ".aoc/dox/map.json",
+            "symbol": null,
+            "command": null,
+            "note": ".aoc/dox/map.json:6238-6247 marks crates/aoc-core/src insufficient/candidate_local_agents with only AGENTS.md inherited."
+          },
+          {
+            "path": "crates/aoc-core/src/pulse_ipc.rs",
+            "symbol": "WireMsg / ProtocolVersion / DEFAULT_MAX_FRAME_BYTES",
+            "command": null,
+            "note": "Pulse IPC uses tagged serde wire messages, protocol versioning, bounded newline-delimited JSON frames, oversize rejection, and decoder recovery tests."
+          },
+          {
+            "path": "crates/aoc-core/src/mind_contracts.rs",
+            "symbol": "sanitize_raw_event_for_storage / canonical_json / T0/T1/T2 tests",
+            "command": null,
+            "note": "Mind contracts define sanitizer entrypoints, sanitized metadata markers, deterministic canonical JSON/hash behavior, and T0/T1/T2/context-pack behavior tests."
+          }
+        ],
+        "target_agents_path": "crates/aoc-core/src/AGENTS.md"
       },
       {
         "path": "crates/aoc-hub-rs",
@@ -6282,19 +6744,69 @@
       },
       {
         "path": "crates/aoc-hub-rs/src",
-        "decision": "reject",
-        "score": 7,
-        "confidence": 0.5,
-        "reason": "missing evidence or verification",
-        "contracts": [],
+        "decision": "create",
+        "score": 8,
+        "confidence": 0.8,
+        "reason": "critic-approved compressed create: root rules do not cover hub protocol/session/UDS transport invariants.",
+        "contracts": [
+          {
+            "rule": "Validate hub envelopes before registration or routing: protocol version, required fields, RFC3339 timestamp, session id, role, and publisher identity must pass first; publisher ids stay scoped as `{session_id}::{pane_or_agent}`. Routing/consultation changes must cover accepted route+ack and invalid-target error behavior.",
+            "do_not": [],
+            "update_when": [],
+            "verification": [
+              "cargo test -p aoc-hub-rs --all-targets stop_agent_command_routes_and_acks",
+              "cargo test -p aoc-hub-rs --all-targets command_errors_include_code_and_message"
+            ],
+            "evidence": []
+          },
+          {
+            "rule": "Keep transport bounds and observability constraints: WebSocket envelopes, patches, file lists, and UDS frames stay capped by the existing constants, and raw message bodies remain debug-only.",
+            "do_not": [],
+            "update_when": [],
+            "verification": [
+              "cargo test -p aoc-hub-rs --all-targets snapshot_on_connect_and_ordered_deltas"
+            ],
+            "evidence": []
+          },
+          {
+            "rule": "Preserve private UDS lifecycle: create socket parents with user-private permissions, remove stale sockets before bind, bind sockets private to the user, and remove the socket path on shutdown.",
+            "do_not": [],
+            "update_when": [],
+            "verification": [
+              "cargo test -p aoc-hub-rs --all-targets snapshot_on_connect_and_ordered_deltas"
+            ],
+            "evidence": []
+          }
+        ],
         "risks": [
-          "high-risk invariant"
+          "Cross-session command routing or state leaks, local DoS from unbounded transport payloads, UDS socket exposure, and acknowledgement drift are not covered by root AGENTS.md."
         ],
         "verification": [
-          "cargo test -p aoc-cli dox"
+          "cargo test -p aoc-hub-rs --all-targets stop_agent_command_routes_and_acks",
+          "cargo test -p aoc-hub-rs --all-targets command_errors_include_code_and_message",
+          "cargo test -p aoc-hub-rs --all-targets snapshot_on_connect_and_ordered_deltas"
         ],
-        "evidence": [],
-        "target_agents_path": null
+        "evidence": [
+          {
+            "path": ".aoc/dox/map.json",
+            "symbol": null,
+            "command": null,
+            "note": ".aoc/dox/map.json:6262-6270 shows root-only resolved chain and insufficient coverage."
+          },
+          {
+            "path": "crates/aoc-hub-rs/src/main.rs",
+            "symbol": "WebSocket validation / payload limits",
+            "command": null,
+            "note": "Validates hello/session/publisher before registering and validates later frames before handling; enforces payload limits and debug-only raw logging."
+          },
+          {
+            "path": "crates/aoc-hub-rs/src/pulse_uds.rs",
+            "symbol": "UDS lifecycle / routing tests",
+            "command": null,
+            "note": "Handles private UDS directory/socket setup, stale removal, cleanup, frame limits, publisher scoping, target validation, and routing/error tests."
+          }
+        ],
+        "target_agents_path": "crates/aoc-hub-rs/src/AGENTS.md"
       },
       {
         "path": "crates/aoc-installer",
@@ -6312,19 +6824,62 @@
       },
       {
         "path": "crates/aoc-installer/src",
-        "decision": "reject",
-        "score": 7,
-        "confidence": 0.5,
-        "reason": "missing evidence or verification",
-        "contracts": [],
+        "decision": "create",
+        "score": 8,
+        "confidence": 0.8,
+        "reason": "critic-approved compressed create: root rules do not protect live installer side effects, downloader/source validation, or host PATH process spawning.",
+        "contracts": [
+          {
+            "rule": "Treat this as live installer code: routine verification must not run installs, downloaded `install.sh`, `--yes`, post-install doctor, or mutate real `~/.local/bin`/`~/.config`; prefer parser/resolver checks, compile checks, and no-run tests.",
+            "do_not": [],
+            "update_when": [],
+            "verification": [
+              "cargo check -p aoc-installer",
+              "cargo test -p aoc-installer --no-run"
+            ],
+            "evidence": []
+          },
+          {
+            "rule": "Keep installs explicit, interactive by default, and user-local in messaging. Keep downloads constrained to GitHub archive/API flows and slug-shaped repos; if touching explicit `--repo`, close the current validation seam instead of widening accepted inputs.",
+            "do_not": [],
+            "update_when": [],
+            "verification": [
+              "cargo check -p aoc-installer"
+            ],
+            "evidence": []
+          },
+          {
+            "rule": "Tests or refactors around command spawning/downloading must isolate temp PATH/filesystem fixtures and target pure helpers before integration paths; never test by executing downloaded code or depending on host `curl`/`wget`/`tar`/`bash`/`git`/`aoc-doctor` behavior.",
+            "do_not": [],
+            "update_when": [],
+            "verification": [
+              "cargo test -p aoc-installer --no-run"
+            ],
+            "evidence": []
+          }
+        ],
         "risks": [
-          "high-risk invariant"
+          "Accidental live install can mutate user-local paths or run downloaded code; relaxed repo/ref validation and host process-spawning helpers can widen side effects."
         ],
         "verification": [
-          "cargo test -p aoc-cli dox"
+          "cargo check -p aoc-installer",
+          "cargo test -p aoc-installer --no-run"
         ],
-        "evidence": [],
-        "target_agents_path": null
+        "evidence": [
+          {
+            "path": ".aoc/dox/map.json",
+            "symbol": null,
+            "command": null,
+            "note": ".aoc/dox/map.json:6286-6294 shows root-only resolved chain and insufficient coverage."
+          },
+          {
+            "path": "crates/aoc-installer/src/main.rs",
+            "symbol": "run / resolve_repo / downloader helpers",
+            "command": null,
+            "note": "Downloads a GitHub archive, extracts with tar, runs downloaded install.sh, optionally runs doctor, keeps --yes explicit, constrains auto-detected repos/remotes, and exposes pure-ish parsing/source-root helpers plus host process spawning/PATH detection."
+          }
+        ],
+        "target_agents_path": "crates/aoc-installer/src/AGENTS.md"
       },
       {
         "path": "crates/aoc-mind",
@@ -6342,35 +6897,162 @@
       },
       {
         "path": "crates/aoc-mind/src",
-        "decision": "reject",
-        "score": 7,
-        "confidence": 0.5,
-        "reason": "missing evidence or verification",
-        "contracts": [],
+        "decision": "create",
+        "score": 8,
+        "confidence": 0.8,
+        "reason": "critic-approved compressed create: root rules do not cover Mind state layout, legacy compatibility, file-lock/store-lease coordination, deterministic fallback, manifests, watermarks, or T3 provenance.",
+        "contracts": [
+          {
+            "rule": "Treat project Mind state layout and compatibility seams as stable API: derive runtime/store/legacy/lock/health paths through `MindProjectPaths` and resolver helpers, sanitize project/session/pane path components, and keep legacy imports/readers plus `AOC_MIND_FEED_COMPAT`, `AOC_PI_SESSION_DIR`, and `AOC_PI_SETTINGS_PATH` intentional.",
+            "do_not": [],
+            "update_when": [],
+            "verification": [
+              "cargo test --manifest-path crates/aoc-mind/Cargo.toml --lib project_paths_match_expected_layout",
+              "cargo test --manifest-path crates/aoc-mind/Cargo.toml --lib explicit_overrides_and_legacy_paths_are_supported",
+              "cargo test --manifest-path crates/aoc-mind/Cargo.toml --lib sync_session_file_into_project_store_ingests_pi_jsonl",
+              "cargo test --manifest-path crates/aoc-mind/Cargo.toml --lib latest_pi_session_file_prefers_newest_jsonl"
+            ],
+            "evidence": []
+          },
+          {
+            "rule": "Preserve runtime coordination as dual ownership: service/reflector/T3 work requires the advisory file lock plus the store lease before claiming jobs, lock conflicts are not claims, and service ticks keep heartbeat/health snapshots current.",
+            "do_not": [],
+            "update_when": [],
+            "verification": [
+              "cargo test --manifest-path crates/aoc-mind/Cargo.toml --lib runtime_owns_scope_and_lease_queries",
+              "cargo test --manifest-path crates/aoc-mind/Cargo.toml --lib runtime_owns_tick_health_and_observer_effects"
+            ],
+            "evidence": []
+          },
+          {
+            "rule": "Preserve deterministic provenance through ingestion, observer fallback, retrieval, T3, and finalization: semantic/guardrail failures fall back deterministically, export manifests keep schema/slice/artifact/tag/watermark/T3 fields, and watermarks/T3 backlog jobs advance only with slice provenance.",
+            "do_not": [],
+            "update_when": [],
+            "verification": [
+              "cargo test --manifest-path crates/aoc-mind/Cargo.toml --lib semantic_failure_falls_back_to_deterministic_t1",
+              "cargo test --manifest-path crates/aoc-mind/Cargo.toml --lib guardrail_budget_exceeded_falls_back_to_deterministic_t1",
+              "cargo test --manifest-path crates/aoc-mind/Cargo.toml --lib session_export_bundle_renders_markdown_and_manifest",
+              "cargo test --manifest-path crates/aoc-mind/Cargo.toml --lib prepare_session_finalize_execution_builds_host_plan_and_enqueues_t3"
+            ],
+            "evidence": []
+          }
+        ],
         "risks": [
-          "high-risk invariant"
+          "Project-scoped SQLite layout, legacy import compatibility, concurrent service/reflector/T3 work, observer fallback, export manifests, and watermarks can break downstream Mind behavior if local invariants drift."
         ],
         "verification": [
-          "cargo test -p aoc-cli dox"
+          "cargo test --manifest-path crates/aoc-mind/Cargo.toml --lib project_paths_match_expected_layout",
+          "cargo test --manifest-path crates/aoc-mind/Cargo.toml --lib explicit_overrides_and_legacy_paths_are_supported",
+          "cargo test --manifest-path crates/aoc-mind/Cargo.toml --lib sync_session_file_into_project_store_ingests_pi_jsonl",
+          "cargo test --manifest-path crates/aoc-mind/Cargo.toml --lib latest_pi_session_file_prefers_newest_jsonl",
+          "cargo test --manifest-path crates/aoc-mind/Cargo.toml --lib runtime_owns_scope_and_lease_queries",
+          "cargo test --manifest-path crates/aoc-mind/Cargo.toml --lib runtime_owns_tick_health_and_observer_effects",
+          "cargo test --manifest-path crates/aoc-mind/Cargo.toml --lib semantic_failure_falls_back_to_deterministic_t1",
+          "cargo test --manifest-path crates/aoc-mind/Cargo.toml --lib guardrail_budget_exceeded_falls_back_to_deterministic_t1",
+          "cargo test --manifest-path crates/aoc-mind/Cargo.toml --lib session_export_bundle_renders_markdown_and_manifest",
+          "cargo test --manifest-path crates/aoc-mind/Cargo.toml --lib prepare_session_finalize_execution_builds_host_plan_and_enqueues_t3"
         ],
-        "evidence": [],
-        "target_agents_path": null
+        "evidence": [
+          {
+            "path": ".aoc/dox/map.json",
+            "symbol": null,
+            "command": null,
+            "note": ".aoc/dox/map.json:6310-6330 shows root-only resolved chain and insufficient coverage for `src`/`src/bin`."
+          },
+          {
+            "path": "crates/aoc-mind/src/standalone.rs",
+            "symbol": "MindProjectPaths / MindServiceLeaseGuard / Pi session sync",
+            "command": null,
+            "note": "Defines project layout, resolvers, legacy import, Pi session discovery/sync, service leases, health snapshots, and lock paths."
+          },
+          {
+            "path": "crates/aoc-mind/src/lib.rs",
+            "symbol": "SessionExportManifest / finalization / T3 enqueue",
+            "command": null,
+            "note": "Defines export manifest fields, host plan files, T3 enqueue, artifact selection, and watermark scope."
+          }
+        ],
+        "target_agents_path": "crates/aoc-mind/src/AGENTS.md"
       },
       {
         "path": "crates/aoc-mind/src/bin",
-        "decision": "reject",
-        "score": 7,
-        "confidence": 0.5,
-        "reason": "missing evidence or verification",
-        "contracts": [],
+        "decision": "create",
+        "score": 8,
+        "confidence": 0.8,
+        "reason": "critic-approved compressed create: binary-specific machine output, exit-code, long-running loop, finalization write-order, and project-scoped external memory checks remain additive to the parent Mind source contract.",
+        "contracts": [
+          {
+            "rule": "Keep `aoc-mind-service` project-root scoped and path/store construction delegated to library APIs (`MindProjectPaths`, `open_project_store`, `MindRuntimeCore`); do not duplicate Mind path derivation in the binary.",
+            "do_not": [],
+            "update_when": [],
+            "verification": [
+              "cargo test --manifest-path crates/aoc-mind/Cargo.toml --bins --no-run",
+              "cargo run --manifest-path crates/aoc-mind/Cargo.toml --bin aoc-mind-service -- status --project-root /tmp/aoc-mind-dox-smoke --json"
+            ],
+            "evidence": []
+          },
+          {
+            "rule": "Preserve CLI machine contracts: JSON mode emits structured JSON without human prose on stdout, human errors go to stderr, success exits `0`, operational failures exit `1`, and existing parse/mode validation failures continue to exit `2`.",
+            "do_not": [],
+            "update_when": [],
+            "verification": [
+              "cargo test --manifest-path crates/aoc-mind/Cargo.toml --bins --no-run"
+            ],
+            "evidence": []
+          },
+          {
+            "rule": "Long-running `serve`/`watch-pi` paths must compose existing single-tick/sync helpers, keep service heartbeat/queue health updates, and retain minimum sleep clamps to avoid busy loops.",
+            "do_not": [],
+            "update_when": [],
+            "verification": [
+              "cargo test --manifest-path crates/aoc-mind/Cargo.toml --bins --no-run"
+            ],
+            "evidence": []
+          },
+          {
+            "rule": "Finalization writes remain safety ordered: validate every prepared export file with `ensure_safe_export_text`, write only `prepared.host_plan.export_files`, and advance the project watermark only after all writes succeed.",
+            "do_not": [],
+            "update_when": [],
+            "verification": [
+              "cargo test --manifest-path crates/aoc-mind/Cargo.toml --lib prepare_session_finalize_execution_builds_host_plan_and_enqueues_t3",
+              "cargo test --manifest-path crates/aoc-mind/Cargo.toml --lib session_export_bundle_renders_markdown_and_manifest"
+            ],
+            "evidence": []
+          },
+          {
+            "rule": "Doctor memory checks stay project-scoped: external `aoc-mem` calls run with `current_dir(project_root)` and validate path/header consistency before reporting healthy memory.",
+            "do_not": [],
+            "update_when": [],
+            "verification": [
+              "cargo test --manifest-path crates/aoc-mind/Cargo.toml --bins --no-run"
+            ],
+            "evidence": []
+          }
+        ],
         "risks": [
-          "high-risk invariant"
+          "Machine consumers, project-scoped store/lock use, finalization secret safety/watermark ordering, memory doctor scope, and long-running loop health can regress in binary code while parent library contracts still hold."
         ],
         "verification": [
-          "cargo test -p aoc-cli dox"
+          "cargo test --manifest-path crates/aoc-mind/Cargo.toml --bins --no-run",
+          "cargo run --manifest-path crates/aoc-mind/Cargo.toml --bin aoc-mind-service -- status --project-root /tmp/aoc-mind-dox-smoke --json",
+          "cargo test --manifest-path crates/aoc-mind/Cargo.toml --lib prepare_session_finalize_execution_builds_host_plan_and_enqueues_t3",
+          "cargo test --manifest-path crates/aoc-mind/Cargo.toml --lib session_export_bundle_renders_markdown_and_manifest"
         ],
-        "evidence": [],
-        "target_agents_path": null
+        "evidence": [
+          {
+            "path": ".aoc/dox/map.json",
+            "symbol": null,
+            "command": null,
+            "note": ".aoc/dox/map.json:6322-6330 shows root-only resolved chain and insufficient coverage for `src/bin`."
+          },
+          {
+            "path": "crates/aoc-mind/src/bin/aoc-mind-service.rs",
+            "symbol": "CLI dispatch / serve / finalize / doctor memory",
+            "command": null,
+            "note": "Defines project-root commands, JSON/human stdout-stderr and exit-code behavior, serve/watch loops, safety-ordered finalization writes, and project-scoped `aoc-mem` checks."
+          }
+        ],
+        "target_agents_path": "crates/aoc-mind/src/bin/AGENTS.md"
       },
       {
         "path": "crates/aoc-mind/tests",
@@ -6402,19 +7084,84 @@
       },
       {
         "path": "crates/aoc-mission-control/src",
-        "decision": "reject",
-        "score": 7,
-        "confidence": 0.5,
-        "reason": "missing evidence or verification",
-        "contracts": [],
+        "decision": "create",
+        "score": 8,
+        "confidence": 0.8,
+        "reason": "critic-approved compressed create: Mission Control has Pulse sequencing/session filters, config/env parsing, offline fallback rendering, Zellij vs standalone launch paths, and Mind consultation provenance that root AGENTS does not cover.",
+        "contracts": [
+          {
+            "rule": "Preserve Pulse hub ordering/resync semantics: ignore other-session or newer-protocol envelopes, drop stale deltas, reconnect on sequence gaps, and clear cached hub state before resync.",
+            "do_not": [],
+            "update_when": [],
+            "verification": [
+              "cargo test --manifest-path crates/aoc-mission-control/Cargo.toml"
+            ],
+            "evidence": []
+          },
+          {
+            "rule": "Keep Mission Control runtime knobs in config.rs; new AOC_* env vars must use existing bool parsing/default conventions and clamp user-controlled refresh/poll intervals.",
+            "do_not": [],
+            "update_when": [],
+            "verification": [
+              "cargo test --manifest-path crates/aoc-mission-control/Cargo.toml"
+            ],
+            "evidence": []
+          },
+          {
+            "rule": "Baseline rendering must not require a live Pulse hub or Zellij polling; local snapshot/presence fallback must still work when Pulse is disabled/offline.",
+            "do_not": [],
+            "update_when": [],
+            "verification": [
+              "cargo test --manifest-path crates/aoc-mission-control/Cargo.toml"
+            ],
+            "evidence": []
+          },
+          {
+            "rule": "Keep Zellij in-session launch/navigation distinct from standalone aoc-launch/aoc-new-tab fallbacks; worker launch plans use program/args/env/cwd with Command::new, not shell-expanded strings.",
+            "do_not": [],
+            "update_when": [],
+            "verification": [
+              "cargo test --manifest-path crates/aoc-mission-control/Cargo.toml"
+            ],
+            "evidence": []
+          },
+          {
+            "rule": "Mind consultation persistence must keep provenance, task/file links, and stable prompt/source identifiers, not display-only summaries.",
+            "do_not": [],
+            "update_when": [],
+            "verification": [
+              "cargo test --manifest-path crates/aoc-mission-control/Cargo.toml"
+            ],
+            "evidence": []
+          }
+        ],
         "risks": [
-          "high-risk invariant"
+          "Pulse state ordering, offline fallback rendering, launch plan safety, and Mind consultation provenance are local Mission Control invariants absent from root AGENTS.md."
         ],
         "verification": [
-          "cargo test -p aoc-cli dox"
+          "cargo test --manifest-path crates/aoc-mission-control/Cargo.toml"
         ],
-        "evidence": [],
-        "target_agents_path": null
+        "evidence": [
+          {
+            "path": ".aoc/dox/map.json",
+            "symbol": null,
+            "command": null,
+            "note": ".aoc/dox/map.json marks this source path coverage=insufficient, status=candidate_local_agents, resolved_agents_chain=[AGENTS.md]."
+          },
+          {
+            "path": "crates/aoc-mission-control/src/hub.rs",
+            "symbol": "HubEvent / Pulse sequencing",
+            "command": null,
+            "note": "Connects to Pulse, sends Hello/Subscribe, filters session/protocol, drops stale deltas, and reconnects on sequence gaps."
+          },
+          {
+            "path": "crates/aoc-mission-control/src/ops.rs",
+            "symbol": "WorkerLaunchPlan",
+            "command": null,
+            "note": "Builds worker launch plans as program/args/env/cwd, using aoc-new-tab in Zellij and aoc-launch otherwise, then executes via Command::new."
+          }
+        ],
+        "target_agents_path": "crates/aoc-mission-control/src/AGENTS.md"
       },
       {
         "path": "crates/aoc-opencode-adapter",
@@ -6432,19 +7179,78 @@
       },
       {
         "path": "crates/aoc-opencode-adapter/src",
-        "decision": "reject",
-        "score": 7,
-        "confidence": 0.5,
-        "reason": "missing evidence or verification",
-        "contracts": [],
+        "decision": "create",
+        "score": 8,
+        "confidence": 0.8,
+        "reason": "critic-approved compressed create: append-only NDJSON ingestion, redaction, deterministic identity, lineage compatibility, and restart attribution are adapter-specific invariants absent from root AGENTS.",
+        "contracts": [
+          {
+            "rule": "Conversation files are append-only but truncation-tolerant: checkpoint raw byte cursors, defer incomplete trailing lines, skip corrupt complete lines, and advance only to consumed complete records.",
+            "do_not": [],
+            "update_when": [],
+            "verification": [
+              "cargo test --manifest-path crates/aoc-opencode-adapter/Cargo.toml"
+            ],
+            "evidence": []
+          },
+          {
+            "rule": "Never persist raw tool output into Mind; sanitize RawEvent before insert and keep tool-result output redacted through compaction/normalization.",
+            "do_not": [],
+            "update_when": [],
+            "verification": [
+              "cargo test --manifest-path crates/aoc-opencode-adapter/Cargo.toml"
+            ],
+            "evidence": []
+          },
+          {
+            "rule": "Event identity and fallback timestamps stay deterministic: prefer event_id/id, otherwise hash conversation_id + line_offset + canonical JSON; use line-offset fallback timestamps only when source timestamps are missing/invalid.",
+            "do_not": [],
+            "update_when": [],
+            "verification": [
+              "cargo test --manifest-path crates/aoc-opencode-adapter/Cargo.toml"
+            ],
+            "evidence": []
+          },
+          {
+            "rule": "Maintain lineage compatibility across mind_lineage, lineage, conversation_lineage, payload lineage, and legacy parent/root key spellings; emit canonical lineage attrs when session_id is present.",
+            "do_not": [],
+            "update_when": [],
+            "verification": [
+              "cargo test --manifest-path crates/aoc-opencode-adapter/Cargo.toml"
+            ],
+            "evidence": []
+          },
+          {
+            "rule": "Task attribution must resume from latest_context_state and update on tm/aoc-task lifecycle signals across initial and resumed ingest.",
+            "do_not": [],
+            "update_when": [],
+            "verification": [
+              "cargo test --manifest-path crates/aoc-opencode-adapter/Cargo.toml"
+            ],
+            "evidence": []
+          }
+        ],
         "risks": [
-          "high-risk invariant"
+          "Secret leakage, duplicate or unstable Mind events, broken branch/session graph, and lost task attribution can occur if adapter ingestion invariants drift."
         ],
         "verification": [
-          "cargo test -p aoc-cli dox"
+          "cargo test --manifest-path crates/aoc-opencode-adapter/Cargo.toml"
         ],
-        "evidence": [],
-        "target_agents_path": null
+        "evidence": [
+          {
+            "path": ".aoc/dox/map.json",
+            "symbol": null,
+            "command": null,
+            "note": ".aoc/dox/map.json marks this source path coverage=insufficient, status=candidate_local_agents, resolved_agents_chain=[AGENTS.md]."
+          },
+          {
+            "path": "crates/aoc-opencode-adapter/src/lib.rs",
+            "symbol": "OpenCode ingest / normalize / attribution",
+            "command": null,
+            "note": "Reads raw checkpoint cursors, handles truncation/partial/corrupt lines, sanitizes raw events before storage, redacts tool output, preserves deterministic ids/timestamps, lineage compatibility, and task context resume."
+          }
+        ],
+        "target_agents_path": "crates/aoc-opencode-adapter/src/AGENTS.md"
       },
       {
         "path": "crates/aoc-pi-adapter",
@@ -6462,19 +7268,78 @@
       },
       {
         "path": "crates/aoc-pi-adapter/src",
-        "decision": "reject",
-        "score": 7,
-        "confidence": 0.5,
-        "reason": "missing evidence or verification",
-        "contracts": [],
+        "decision": "create",
+        "score": 8,
+        "confidence": 0.8,
+        "reason": "critic-approved compressed create: Pi session header identity, cursor semantics, redaction, source attrs/lineage, and compaction rebuildability are durable adapter invariants.",
+        "contracts": [
+          {
+            "rule": "Require a newline-terminated JSON session header and derive conversation_id as pi:<session_id>; keep missing-id fallback based on the session file path stable.",
+            "do_not": [],
+            "update_when": [],
+            "verification": [
+              "cargo test --manifest-path crates/aoc-pi-adapter/Cargo.toml"
+            ],
+            "evidence": []
+          },
+          {
+            "rule": "Ingest only complete newline-delimited entries after header/checkpoint cursor; never ingest the header, defer partial trailing lines, skip corrupt complete lines, and reset to header_end_cursor on truncation.",
+            "do_not": [],
+            "update_when": [],
+            "verification": [
+              "cargo test --manifest-path crates/aoc-pi-adapter/Cargo.toml"
+            ],
+            "evidence": []
+          },
+          {
+            "rule": "Never persist bash/tool output from Pi sessions into Mind; ToolResultEvent.output stays None and redacted while source output remains only in the Pi session/artifact file.",
+            "do_not": [],
+            "update_when": [],
+            "verification": [
+              "cargo test --manifest-path crates/aoc-pi-adapter/Cargo.toml"
+            ],
+            "evidence": []
+          },
+          {
+            "rule": "Preserve Pi source attrs and lineage attrs on raw events: session/file/conversation/import ids, entry id/type/parent, cwd/version/parent session when present, and LINEAGE_ATTRS_KEY with root conversation id.",
+            "do_not": [],
+            "update_when": [],
+            "verification": [
+              "cargo test --manifest-path crates/aoc-pi-adapter/Cargo.toml"
+            ],
+            "evidence": []
+          },
+          {
+            "rule": "Compaction imports must keep checkpoint/T0 slice rebuildability: marker/source event links, entry ids, source/read/modified files, tokens, first-kept entry, and pi_compaction_checkpoint source remain round-trippable.",
+            "do_not": [],
+            "update_when": [],
+            "verification": [
+              "cargo test --manifest-path crates/aoc-pi-adapter/Cargo.toml"
+            ],
+            "evidence": []
+          }
+        ],
         "risks": [
-          "high-risk invariant"
+          "Import duplication, data loss, secret leakage, compaction recovery regression, and lineage/search degradation can occur if Pi adapter invariants drift."
         ],
         "verification": [
-          "cargo test -p aoc-cli dox"
+          "cargo test --manifest-path crates/aoc-pi-adapter/Cargo.toml"
         ],
-        "evidence": [],
-        "target_agents_path": null
+        "evidence": [
+          {
+            "path": ".aoc/dox/map.json",
+            "symbol": null,
+            "command": null,
+            "note": ".aoc/dox/map.json marks this source path coverage=insufficient, status=candidate_local_agents, resolved_agents_chain=[AGENTS.md]."
+          },
+          {
+            "path": "crates/aoc-pi-adapter/src/lib.rs",
+            "symbol": "Pi session ingest / source attrs / compaction",
+            "command": null,
+            "note": "Requires newline-terminated session headers, handles cursors/truncation/partial/corrupt lines, drops tool output, preserves source and lineage attrs, and stores compaction checkpoint/T0 slice fields."
+          }
+        ],
+        "target_agents_path": "crates/aoc-pi-adapter/src/AGENTS.md"
       },
       {
         "path": "crates/aoc-segment-routing",
@@ -6492,19 +7357,60 @@
       },
       {
         "path": "crates/aoc-segment-routing/src",
-        "decision": "reject",
-        "score": 7,
-        "confidence": 0.5,
-        "reason": "missing evidence or verification",
-        "contracts": [],
+        "decision": "create",
+        "score": 8,
+        "confidence": 0.8,
+        "reason": "critic-approved compressed create: routing precedence/provenance, uncertainty fallback, and manual override audit semantics are compact and operational.",
+        "contracts": [
+          {
+            "rule": "SegmentRouter::compute_auto_route must prefer a non-empty active Taskmaster tag mapped by tag_to_segment over heuristics, emit RouteOrigin::Taskmaster, use Taskmaster confidence, and keep taskmaster_tag_map...source=context_state provenance.",
+            "do_not": [],
+            "update_when": [],
+            "verification": [
+              "cargo test -p aoc-segment-routing --lib"
+            ],
+            "evidence": []
+          },
+          {
+            "rule": "Heuristic routing must use default_uncertain_segment for low-confidence or ambiguous top candidates; uncertain_fallback keeps useful secondary candidates and includes the normalized default_global_segment fallback when absent.",
+            "do_not": [],
+            "update_when": [],
+            "verification": [
+              "cargo test -p aoc-segment-routing --lib"
+            ],
+            "evidence": []
+          },
+          {
+            "rule": "Manual overrides must reject empty patch_id/primary segment, normalize and dedupe segments case-insensitively, cap secondaries, preserve prior auto route candidates when possible, set ManualOverride/overridden_by, and include override_patch plus base provenance.",
+            "do_not": [],
+            "update_when": [],
+            "verification": [
+              "cargo test -p aoc-segment-routing --lib"
+            ],
+            "evidence": []
+          }
+        ],
         "risks": [
-          "high-risk invariant"
+          "Route precedence/provenance drift, overconfident heuristic routing, and manual override audit loss can occur if local routing semantics drift."
         ],
         "verification": [
-          "cargo test -p aoc-cli dox"
+          "cargo test -p aoc-segment-routing --lib"
         ],
-        "evidence": [],
-        "target_agents_path": null
+        "evidence": [
+          {
+            "path": ".aoc/dox/map.json",
+            "symbol": null,
+            "command": null,
+            "note": ".aoc/dox/map.json marks this source path coverage=insufficient, status=candidate_local_agents, resolved_agents_chain=[AGENTS.md]."
+          },
+          {
+            "path": "crates/aoc-segment-routing/src/lib.rs",
+            "symbol": "SegmentRouter::compute_auto_route / compute_heuristic_route / apply_override",
+            "command": null,
+            "note": "Implements Taskmaster tag precedence, uncertain fallback behavior, manual override normalization/deduping/caps, overridden_by, and override/base provenance."
+          }
+        ],
+        "target_agents_path": "crates/aoc-segment-routing/src/AGENTS.md"
       },
       {
         "path": "crates/aoc-storage",
@@ -6536,19 +7442,78 @@
       },
       {
         "path": "crates/aoc-storage/src",
-        "decision": "reject",
-        "score": 7,
-        "confidence": 0.5,
-        "reason": "missing evidence or verification",
-        "contracts": [],
+        "decision": "create",
+        "score": 8,
+        "confidence": 0.8,
+        "reason": "critic-approved compressed create: storage schema/versioning, secret rejection, lease ownership, segment-route replacement, and compaction round trips are durable SQLite boundary invariants.",
+        "contracts": [
+          {
+            "rule": "Schema changes must be monotonic and versioned: bump MIND_SCHEMA_VERSION, extend MindStore::migrate in order, set PRAGMA user_version, record migrations where current paths do, and keep explicit SELECT lists/parsers/round-trip tests synchronized.",
+            "do_not": [],
+            "update_when": [],
+            "verification": [
+              "cargo test -p aoc-storage --lib"
+            ],
+            "evidence": []
+          },
+          {
+            "rule": "Storage boundaries must reject unredacted secrets: raw events use raw_event_contains_unredacted_secret, and text-bearing durable surfaces use ensure_no_secrets_in_text/optional variants before INSERT/UPSERT.",
+            "do_not": [],
+            "update_when": [],
+            "verification": [
+              "cargo test -p aoc-storage --lib"
+            ],
+            "evidence": []
+          },
+          {
+            "rule": "Reflector/T3 leases and job claims remain owner- and expiry-gated: acquisition replaces only same-owner or expired leases, and claim_next_* returns None unless owner_id matches and expires_at >= now.",
+            "do_not": [],
+            "update_when": [],
+            "verification": [
+              "cargo test -p aoc-storage --lib"
+            ],
+            "evidence": []
+          },
+          {
+            "rule": "Segment-route persistence preserves replacement semantics: delete old rows before replacement, load ordered by confidence then segment id, error on invalid confidence/origin, and strip storage rank suffixes from public reasons.",
+            "do_not": [],
+            "update_when": [],
+            "verification": [
+              "cargo test -p aoc-storage --lib"
+            ],
+            "evidence": []
+          },
+          {
+            "rule": "Compaction checkpoint/T0 slice storage must preserve idempotent upserts, conversation-scoped compaction_entry_id, latest lookups by conversation/session/checkpoint, and round-trippable slice hashes/source/read/modified/token/first-kept fields.",
+            "do_not": [],
+            "update_when": [],
+            "verification": [
+              "cargo test -p aoc-storage --lib"
+            ],
+            "evidence": []
+          }
+        ],
         "risks": [
-          "high-risk invariant"
+          "Persistent schema drift, secret leakage into SQLite, double-owned job claims, stale segment-route rows, and compaction identity regressions can corrupt durable storage behavior."
         ],
         "verification": [
-          "cargo test -p aoc-cli dox"
+          "cargo test -p aoc-storage --lib"
         ],
-        "evidence": [],
-        "target_agents_path": null
+        "evidence": [
+          {
+            "path": ".aoc/dox/map.json",
+            "symbol": null,
+            "command": null,
+            "note": ".aoc/dox/map.json marks this source path coverage=insufficient, status=candidate_local_agents, resolved_agents_chain=[AGENTS.md]."
+          },
+          {
+            "path": "crates/aoc-storage/src/lib.rs",
+            "symbol": "MindStore::migrate / secret guards / leases / segment routes / compaction storage",
+            "command": null,
+            "note": "Implements schema versioned migrations, storage-boundary secret rejection, owner/expiry-gated leases and claims, segment-route replacement/load semantics, and compaction checkpoint/T0 slice round trips."
+          }
+        ],
+        "target_agents_path": "crates/aoc-storage/src/AGENTS.md"
       },
       {
         "path": "crates/aoc-task-attribution",
@@ -6566,19 +7531,67 @@
       },
       {
         "path": "crates/aoc-task-attribution/src",
-        "decision": "reject",
-        "score": 7,
-        "confidence": 0.5,
-        "reason": "missing evidence or verification",
-        "contracts": [],
+        "decision": "create",
+        "score": 8,
+        "confidence": 0.86,
+        "reason": "critic-approved compressed create: root AGENTS does not cover Mind artifact-task confidence, provenance, dedup, or extraction boundaries.",
+        "contracts": [
+          {
+            "rule": "Preserve artifact-task link meaning: `Active`, `Mentioned`, `WorkedOn`, completion-backfilled `WorkedOn`, and `Completed` keep their confidence order/source strings; duplicate `(task_id, relation)` drafts merge via `LinkDraft::key`/`upsert_draft` with highest confidence/source and unioned sorted evidence.",
+            "do_not": [
+              "Do not add fuzzy/global task matching, widen mention windows, or change completion backfill/Completed relation timing without focused attribution tests.",
+              "Do not bypass sorted `BTreeSet` evidence collection before `ArtifactTaskLink::new`."
+            ],
+            "update_when": [
+              "Confidence constants, `TaskAttributionEngine::attribute_conversation`, completion/mention extraction, draft merge keys, or store upsert flow change."
+            ],
+            "verification": [
+              "cargo test --manifest-path crates/Cargo.toml -p aoc-task-attribution --lib"
+            ],
+            "evidence": []
+          },
+          {
+            "rule": "Keep attribution inputs narrow and evidence-backed: task IDs may come only from active context states, artifact text, and t0 compact events inside `AttributionConfig`'s mention window; evidence IDs retain `ctx:`, `artifact:*:text`, or `t0:` prefixes.",
+            "do_not": [
+              "Do not add fuzzy/global task matching, widen mention windows, or change completion backfill/Completed relation timing without focused attribution tests.",
+              "Do not bypass sorted `BTreeSet` evidence collection before `ArtifactTaskLink::new`."
+            ],
+            "update_when": [
+              "Confidence constants, `TaskAttributionEngine::attribute_conversation`, completion/mention extraction, draft merge keys, or store upsert flow change."
+            ],
+            "verification": [
+              "cargo test --manifest-path crates/Cargo.toml -p aoc-task-attribution --lib"
+            ],
+            "evidence": []
+          }
+        ],
         "risks": [
-          "high-risk invariant"
+          "Durable Mind artifact-task links can be misclassified or over-broadened if confidence, provenance, dedup, extraction, or mention-window behavior changes silently."
         ],
         "verification": [
-          "cargo test -p aoc-cli dox"
+          "cargo test --manifest-path crates/Cargo.toml -p aoc-task-attribution --lib"
         ],
-        "evidence": [],
-        "target_agents_path": null
+        "evidence": [
+          {
+            "path": ".aoc/dox/map.json",
+            "symbol": null,
+            "command": null,
+            "note": "crates/aoc-task-attribution/src is source coverage=insufficient, status=candidate_local_agents, resolved_agents_chain=[AGENTS.md]."
+          },
+          {
+            "path": "crates/aoc-task-attribution/src/lib.rs",
+            "symbol": "TaskAttributionEngine::attribute_conversation / upsert_draft / extract_task_ids",
+            "command": null,
+            "note": "Defines confidence constants, relation link creation, completion signals, t0/artifact mention extraction, draft merging, sorted evidence, and bounded task id extraction."
+          },
+          {
+            "path": "crates/aoc-task-attribution/Cargo.toml",
+            "symbol": null,
+            "command": null,
+            "note": "Package name supports the scoped verification command."
+          }
+        ],
+        "target_agents_path": "crates/aoc-task-attribution/src/AGENTS.md"
       },
       {
         "path": "crates/aoc-taskmaster",
@@ -6596,19 +7609,81 @@
       },
       {
         "path": "crates/aoc-taskmaster/src",
-        "decision": "reject",
-        "score": 7,
-        "confidence": 0.5,
-        "reason": "missing evidence or verification",
-        "contracts": [],
+        "decision": "create",
+        "score": 8,
+        "confidence": 0.84,
+        "reason": "critic-approved compressed create: root AGENTS does not cover the TUI writer path, root resolution, terminal restoration, and watcher bounds.",
+        "contracts": [
+          {
+            "rule": "Taskmaster mutations must update visible `App` state and the `ProjectData` mirror before persisting only through `save_project -> write_atomic -> touch_state_file`; keep `tasks.json` as pretty `ProjectData` JSON and `state.json` updates on that path.",
+            "do_not": [
+              "Do not write `.taskmaster/tasks/tasks.json` or `.taskmaster/state.json` directly from handlers, or update `App.tasks` without matching `project.tags` changes.",
+              "Do not create `.taskmaster` from root detection, persist subtask `aocPrd`, remove legacy `parse_project_compat` formats, add recursive/project-wide watchers, or skip terminal restore after setup."
+            ],
+            "update_when": [
+              "`resolve_root*`, `find_taskmaster_root`, `is_taskmaster_root`, mutation handlers, `save_project`, `touch_state_file`, `write_atomic`, `parse_project_compat`, `validate_project`, `main`, terminal setup/restore, `run_app`, or `setup_watcher` change."
+            ],
+            "verification": [
+              "cargo check --manifest-path crates/Cargo.toml -p aoc-taskmaster"
+            ],
+            "evidence": []
+          },
+          {
+            "rule": "Root resolution stays non-creating: `AOC_TASKMASTER_ROOT`/`TM_ROOT`/`TASKMASTER_ROOT` must canonicalize to existing directories; otherwise use the nearest existing Taskmaster root, then `AOC_PROJECT_ROOT` only if it is already a Taskmaster root, else cwd.",
+            "do_not": [
+              "Do not write `.taskmaster/tasks/tasks.json` or `.taskmaster/state.json` directly from handlers, or update `App.tasks` without matching `project.tags` changes.",
+              "Do not create `.taskmaster` from root detection, persist subtask `aocPrd`, remove legacy `parse_project_compat` formats, add recursive/project-wide watchers, or skip terminal restore after setup."
+            ],
+            "update_when": [
+              "`resolve_root*`, `find_taskmaster_root`, `is_taskmaster_root`, mutation handlers, `save_project`, `touch_state_file`, `write_atomic`, `parse_project_compat`, `validate_project`, `main`, terminal setup/restore, `run_app`, or `setup_watcher` change."
+            ],
+            "verification": [
+              "cargo check --manifest-path crates/Cargo.toml -p aoc-taskmaster"
+            ],
+            "evidence": []
+          },
+          {
+            "rule": "TUI runtime safety is part of the contract: restore raw mode, alternate screen, mouse capture, and cursor visibility after `run_app`; keep refresh watching non-recursive and bounded to `.taskmaster`, `.taskmaster/tasks`, or the root fallback with bounded signaling.",
+            "do_not": [
+              "Do not write `.taskmaster/tasks/tasks.json` or `.taskmaster/state.json` directly from handlers, or update `App.tasks` without matching `project.tags` changes.",
+              "Do not create `.taskmaster` from root detection, persist subtask `aocPrd`, remove legacy `parse_project_compat` formats, add recursive/project-wide watchers, or skip terminal restore after setup."
+            ],
+            "update_when": [
+              "`resolve_root*`, `find_taskmaster_root`, `is_taskmaster_root`, mutation handlers, `save_project`, `touch_state_file`, `write_atomic`, `parse_project_compat`, `validate_project`, `main`, terminal setup/restore, `run_app`, or `setup_watcher` change."
+            ],
+            "verification": [
+              "cargo check --manifest-path crates/Cargo.toml -p aoc-taskmaster"
+            ],
+            "evidence": []
+          }
+        ],
         "risks": [
-          "high-risk invariant"
+          "TUI mutations can corrupt Taskmaster files, root detection can target the wrong project, terminal state can leak, and broad watchers can create refresh loops if these local invariants drift."
         ],
         "verification": [
-          "cargo test -p aoc-cli dox"
+          "cargo check --manifest-path crates/Cargo.toml -p aoc-taskmaster"
         ],
-        "evidence": [],
-        "target_agents_path": null
+        "evidence": [
+          {
+            "path": ".aoc/dox/map.json",
+            "symbol": null,
+            "command": null,
+            "note": "crates/aoc-taskmaster/src is source coverage=insufficient, status=candidate_local_agents, resolved_agents_chain=[AGENTS.md]."
+          },
+          {
+            "path": "crates/aoc-taskmaster/src/state.rs",
+            "symbol": "resolve_root* / mutation handlers / save_project / write_atomic / parse_project_compat / validate_project",
+            "command": null,
+            "note": "Covers root resolution, visible App state and ProjectData mirroring, atomic pretty ProjectData writes, state touches, compatibility parsing, and unsupported subtask aocPrd validation."
+          },
+          {
+            "path": "crates/aoc-taskmaster/src/main.rs",
+            "symbol": "setup_terminal / restore_terminal / run_app / setup_watcher",
+            "command": null,
+            "note": "Covers terminal setup/restore and bounded non-recursive watcher behavior."
+          }
+        ],
+        "target_agents_path": "crates/aoc-taskmaster/src/AGENTS.md"
       },
       {
         "path": "crates/aoc-yazi-mermaid",
@@ -6626,19 +7701,78 @@
       },
       {
         "path": "crates/aoc-yazi-mermaid/src",
-        "decision": "reject",
+        "decision": "create",
         "score": 7,
-        "confidence": 0.5,
-        "reason": "missing evidence or verification",
-        "contracts": [],
+        "confidence": 0.82,
+        "reason": "critic-approved compressed create: root AGENTS has no Yazi preview CLI, stdout, cache identity, atomic render, or Markdown fence contract.",
+        "contracts": [
+          {
+            "rule": "Keep the Yazi CLI machine-readable: success prints exactly the cache PNG path to stdout, diagnostics/errors go to stderr, and failures exit nonzero; preserve `--input`, `--cache-dir`, `--cols`, `--rows`, `--block-index`, and `--theme` semantics with the preview integration.",
+            "do_not": [
+              "Do not add progress/debug/status text to stdout, convert render/load failures into successful output, reuse stale/empty cache files, write the final PNG directly, or fall back to another Mermaid block when `block_index` is missing."
+            ],
+            "update_when": [
+              "`Args`, `main`, `run`, `cache_path_for`, `render_preview`, `is_nonempty_file`, `load_mermaid_source`, fence detection, render sizing/theme, or stdout/error handling change."
+            ],
+            "verification": [
+              "cargo test --manifest-path crates/Cargo.toml -p aoc-yazi-mermaid"
+            ],
+            "evidence": []
+          },
+          {
+            "rule": "Cache/render identity is part of behavior: cache keys include package version, canonical input path, file length/mtime, block index, cols, rows, and theme; a cache hit must be a non-empty file; rendering writes a temp PNG and renames only after PNG encoding succeeds.",
+            "do_not": [
+              "Do not add progress/debug/status text to stdout, convert render/load failures into successful output, reuse stale/empty cache files, write the final PNG directly, or fall back to another Mermaid block when `block_index` is missing."
+            ],
+            "update_when": [
+              "`Args`, `main`, `run`, `cache_path_for`, `render_preview`, `is_nonempty_file`, `load_mermaid_source`, fence detection, render sizing/theme, or stdout/error handling change."
+            ],
+            "verification": [
+              "cargo test --manifest-path crates/Cargo.toml -p aoc-yazi-mermaid"
+            ],
+            "evidence": []
+          },
+          {
+            "rule": "Markdown inputs select the requested Mermaid block from ```mermaid, ~~~mermaid, or :::mermaid fences; missing block indexes are errors, and non-Markdown files are raw Mermaid source.",
+            "do_not": [
+              "Do not add progress/debug/status text to stdout, convert render/load failures into successful output, reuse stale/empty cache files, write the final PNG directly, or fall back to another Mermaid block when `block_index` is missing."
+            ],
+            "update_when": [
+              "`Args`, `main`, `run`, `cache_path_for`, `render_preview`, `is_nonempty_file`, `load_mermaid_source`, fence detection, render sizing/theme, or stdout/error handling change."
+            ],
+            "verification": [
+              "cargo test --manifest-path crates/Cargo.toml -p aoc-yazi-mermaid"
+            ],
+            "evidence": []
+          }
+        ],
         "risks": [
-          "high-risk invariant"
+          "Yazi integration can break if stdout changes, stale/partial PNGs can be consumed if cache identity or atomic rename regresses, and Markdown block-index changes can preview the wrong diagram."
         ],
         "verification": [
-          "cargo test -p aoc-cli dox"
+          "cargo test --manifest-path crates/Cargo.toml -p aoc-yazi-mermaid"
         ],
-        "evidence": [],
-        "target_agents_path": null
+        "evidence": [
+          {
+            "path": ".aoc/dox/map.json",
+            "symbol": null,
+            "command": null,
+            "note": "crates/aoc-yazi-mermaid/src is source coverage=insufficient, status=candidate_local_agents, resolved_agents_chain=[AGENTS.md]."
+          },
+          {
+            "path": "crates/aoc-yazi-mermaid/src/main.rs",
+            "symbol": "Args / main / run / cache_path_for / render_preview / load_mermaid_source",
+            "command": null,
+            "note": "Defines Yazi CLI flags, stderr/nonzero failures, stdout cache path success, cache key identity, temp PNG rename after encoding, nonempty cache check, and Mermaid fence extraction."
+          },
+          {
+            "path": "crates/aoc-yazi-mermaid/Cargo.toml",
+            "symbol": null,
+            "command": null,
+            "note": "Package name supports the scoped verification command."
+          }
+        ],
+        "target_agents_path": "crates/aoc-yazi-mermaid/src/AGENTS.md"
       },
       {
         "path": "docs",

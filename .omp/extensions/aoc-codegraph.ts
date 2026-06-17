@@ -1,5 +1,4 @@
-import { spawn } from "node:child_process";
-import * as path from "node:path";
+import { clampInt, clampMaxChars, findProjectRoot, renderCommand, resolveRepoCommand, runBoundedCommand, scopedCwd, stripAt } from "./aoc-runtime";
 import { StringEnum } from "@mariozechner/pi-ai";
 import { Type } from "@sinclair/typebox";
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
@@ -43,30 +42,6 @@ type CodeGraphParamsType = {
 	maxChars?: number;
 };
 
-function stripAt(value: string): string {
-	return value.startsWith("@") ? value.slice(1) : value;
-}
-
-function scopedCwd(root: string, requested?: string): string {
-	if (!requested || requested.trim().length === 0) return root;
-	const resolved = path.resolve(root, stripAt(requested));
-	const rel = path.relative(root, resolved);
-	if (rel === "" || (!rel.startsWith("..") && !path.isAbsolute(rel))) return resolved;
-	throw new Error(`cwd escapes project root: ${requested}`);
-}
-
-function clampMaxChars(value?: number): number {
-	if (!Number.isFinite(value ?? NaN)) return MAX_DEFAULT_CHARS;
-	return Math.max(1000, Math.min(MAX_ALLOWED_CHARS, Math.floor(value as number)));
-}
-
-function truncateOutput(text: string, maxChars: number): { text: string; truncated: boolean } {
-	if (text.length <= maxChars) return { text, truncated: false };
-	return {
-		text: `${text.slice(0, maxChars)}\n\n[truncated ${text.length - maxChars} chars; rerun with a narrower query or higher maxChars]`,
-		truncated: true,
-	};
-}
 
 function requireText(value: string | undefined, label: string): string {
 	const trimmed = (value ?? "").trim();
@@ -75,8 +50,7 @@ function requireText(value: string | undefined, label: string): string {
 }
 
 function positiveInt(value: number | undefined, fallback: number, max: number): number {
-	if (!Number.isFinite(value ?? NaN)) return fallback;
-	return Math.max(1, Math.min(max, Math.floor(value as number)));
+	return clampInt(value, fallback, 1, max);
 }
 
 function buildArgs(params: CodeGraphParamsType, projectRoot: string): string[] {
@@ -128,47 +102,14 @@ function buildArgs(params: CodeGraphParamsType, projectRoot: string): string[] {
 	return args;
 }
 
-async function runCodeGraph(args: string[], cwd: string, maxChars: number, signal?: AbortSignal) {
-	return await new Promise<{ ok: boolean; exitCode: number | null; stdout: string; stderr: string; timedOut: boolean; truncated: boolean }>((resolve, reject) => {
-		let stdout = "";
-		let stderr = "";
-		let settled = false;
-		let timedOut = false;
-		const child = spawn("codegraph", args, { cwd, stdio: ["ignore", "pipe", "pipe"], shell: false });
-		const timer = setTimeout(() => {
-			timedOut = true;
-			child.kill("SIGTERM");
-		}, COMMAND_TIMEOUT_MS);
-
-		const abort = () => child.kill("SIGTERM");
-		signal?.addEventListener("abort", abort, { once: true });
-
-		child.stdout.on("data", (chunk) => {
-			stdout += String(chunk);
-		});
-		child.stderr.on("data", (chunk) => {
-			stderr += String(chunk);
-		});
-		child.on("error", (error: NodeJS.ErrnoException) => {
-			if (settled) return;
-			settled = true;
-			clearTimeout(timer);
-			signal?.removeEventListener("abort", abort);
-			if (error.code === "ENOENT") {
-				reject(new Error("codegraph CLI is not installed or not on PATH. Install CodeGraph, then run codegraph init -i for this project."));
-				return;
-			}
-			reject(error);
-		});
-		child.on("close", (exitCode) => {
-			if (settled) return;
-			settled = true;
-			clearTimeout(timer);
-			signal?.removeEventListener("abort", abort);
-			const out = truncateOutput(stdout, maxChars);
-			const err = truncateOutput(stderr, Math.min(maxChars, 8000));
-			resolve({ ok: exitCode === 0 && !timedOut, exitCode, stdout: out.text, stderr: err.text, timedOut, truncated: out.truncated || err.truncated });
-		});
+async function runCodeGraph(command: string, args: string[], cwd: string, maxChars: number, signal?: AbortSignal) {
+	return await runBoundedCommand(command, args, {
+		cwd,
+		maxStdoutChars: maxChars,
+		maxStderrChars: Math.min(maxChars, 8000),
+		timeoutMs: COMMAND_TIMEOUT_MS,
+		missingMessage: "codegraph CLI is not installed or not on PATH. Install CodeGraph, then run codegraph init -i for this project.",
+		signal,
 	});
 }
 
@@ -185,12 +126,13 @@ export default function aocCodeGraphExtension(pi: ExtensionAPI): void {
 		],
 		parameters: CodeGraphParams,
 		async execute(_toolCallId, params: CodeGraphParamsType, signal, _onUpdate, ctx) {
-			const projectRoot = ctx.cwd ?? process.cwd();
+			const projectRoot = findProjectRoot(ctx.cwd);
 			const cwd = scopedCwd(projectRoot, params.cwd);
 			const args = buildArgs(params, projectRoot);
-			const maxChars = clampMaxChars(params.maxChars);
-			const result = await runCodeGraph(args, cwd, maxChars, signal);
-			const command = `codegraph ${args.map((arg) => (arg.includes(" ") ? JSON.stringify(arg) : arg)).join(" ")}`;
+			const maxChars = clampMaxChars(params.maxChars, MAX_DEFAULT_CHARS, MAX_ALLOWED_CHARS);
+			const commandBin = resolveRepoCommand(projectRoot, "bin/codegraph", "codegraph");
+			const result = await runCodeGraph(commandBin, args, cwd, maxChars, signal);
+			const command = renderCommand(commandBin, args);
 			const lines = [
 				`$ ${command}`,
 				`exit: ${result.exitCode}${result.timedOut ? " (timed out)" : ""}${result.truncated ? " (truncated)" : ""}`,

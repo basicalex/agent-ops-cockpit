@@ -1,6 +1,0 @@
-aoc-managed: true
-asset: prompt/lexicon
-asset-version: 3
-source: ../.config/aoc/pi/prompts/lexicon.md
-sha256: 52cb0a15cd619a6b40d994f960036abd33466b6f855dc513b9f3920f8d94d281
-updated-at: 2026-06-10T16:44:11Z

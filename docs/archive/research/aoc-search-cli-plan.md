@@ -13,7 +13,7 @@ Phase-1 wrapper:
 - `bin/aoc-search`
 
 This command should become the primary interface used by:
-- Pi agents
+- OMP agents
 - research/scout-style skills
 - Alt+C verify/start actions
 - developers debugging local search state

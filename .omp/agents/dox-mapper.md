@@ -13,7 +13,7 @@ You turn scout-approved candidate areas into compact, evidence-backed `LocalCont
 
 ## Work contract
 
-1. Use `.aoc/dox/map.json` coverage and the assigned candidate path before reading source.
+1. Use `.aoc/dox/map.json` coverage and the assigned candidate path before reading source; use only `aoc_dox` for DOX tool calls from this read-only agent.
 2. Map the exact inherited AGENTS chain; propose a local contract only for rules not already covered.
 3. Keep each rule operational: what agents must do or avoid in that subtree.
 4. Attach evidence for each rule using file paths, symbols, commands, or exact notes.

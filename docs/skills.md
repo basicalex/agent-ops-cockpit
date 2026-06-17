@@ -1,78 +1,19 @@
-# Agent Skills
+# Skills
 
 ## Overview
-Skills are reusable workflow playbooks stored in `.pi/skills/<name>/SKILL.md` (PI-first canonical path).
 
-Task spec workflows use task-level links (legacy key `aocPrd`) and new specs under `.taskmaster/docs/specs/`; `.taskmaster/docs/prds/` remains legacy-compatible.
+Skills are reusable workflow playbooks stored in `.omp/skills/<name>/SKILL.md`.
 
-## Sync behavior (PI-first)
-- `aoc-init` seeds default PI skills into `.pi/skills` (if missing) and syncs PI skills only.
-- `aoc-agent --set pi` and `aoc-agent --run pi` re-sync PI skills before launch.
-- Manual sync:
+Task spec workflows use task-level links (legacy key `aocPrd`) and specs under `.taskmaster/docs/specs/`; `.taskmaster/docs/prds/` remains legacy-compatible.
 
-```bash
-aoc-skill sync --agent pi
-```
+## Sync behavior
 
-Sync is additive: existing skills in target directories are preserved. If a name collision exists, AOC skips that skill and logs a warning.
-
-## PI-first migration notes
-- `.pi/skills` is the only canonical skill source for sync/validation.
-- `aoc-init` still migrates missing project-local legacy skills from `.aoc/skills` to `.pi/skills` (non-destructive).
-- Non-PI skill targets are no longer auto-synced by `aoc-init`.
-- In PI-only mode, use `aoc-skill sync --agent pi` as the canonical sync path.
-
-## Skill format
-Each `SKILL.md` must include YAML frontmatter with the required fields:
-
-```markdown
----
-name: my-skill
-description: One-line description of the workflow
----
-```
-
-Naming rules:
-- Lowercase letters, numbers, and single hyphens
-- 1-64 characters
-- Must match the directory name
-
-Regex: `^[a-z0-9]+(-[a-z0-9]+)*$`
-
-## Validation
-Run this to validate skill frontmatter and naming:
+- `aoc-init` seeds/repairs `.omp/skills` and installs those skills into `${AOC_OMP_AGENT_DIR:-~/.omp/agent}/skills`.
+- Manual sync/validation:
 
 ```bash
-aoc-skill validate
+aoc-skill sync --root .
+aoc-skill validate --root .
 ```
 
-## Built-in skills
-- `aoc-workflow`
-- `aoc-init-ops`
-- `memory-ops`
-- `stm-ops`
-- `taskmaster-ops`
-- `tm-cc`
-- `rlm-analysis`
-- `spec-dev` (`prd-dev` legacy alias)
-- `spec-intake` (`prd-intake` legacy alias)
-- `spec-align` (`prd-align` legacy alias)
-- `spec-rpg-authoring` (`prd-rpg-authoring` legacy alias)
-- `tag-align`
-- `task-breakdown`
-- `task-checker`
-- `release-notes`
-- `skill-creator`
-- `zellij-theme-ops`
-
-Legacy `teach-workflow` is hidden by default; use it only to inspect old `.aoc/insight/` notes when explicitly requested.
-
-`zellij-theme-ops` pairs with the `aoc-theme` CLI for global theme workflows (`~/.config/zellij/themes`), including `aoc-theme tui` for interactive selection.
-
-## Optional skills
-Use `aoc-hyperframes init` to add the HyperFrames video skill stack:
-
-- `hyperframes`
-- `hyperframes-cli`
-- `website-to-hyperframes`
-- `gsap`
+`.omp/skills` is the only canonical project skill source. Legacy Pi skill paths are not active runtime evidence.

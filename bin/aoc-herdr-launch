@@ -64,7 +64,9 @@ if herdr status server >/dev/null 2>&1; then
     herdr workspace create --cwd "$cwd" --label "$label" --focus >/dev/null 2>&1 || true
   fi
 
-  case "${AOC_HERDR_SERVICES:-auto}" in
+  # Services workspace creation is opt-in through AOC_HERDR_SERVICES=auto|focus
+  # or `aoc services`; ordinary launch only focuses/creates the project workspace.
+  case "${AOC_HERDR_SERVICES:-off}" in
     auto)
       if command -v aoc-herdr-services >/dev/null 2>&1; then
         aoc-herdr-services ensure --cwd "$cwd" --no-focus >/dev/null 2>&1 || true

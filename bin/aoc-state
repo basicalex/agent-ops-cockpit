@@ -9,9 +9,9 @@ fi
 tracked_paths=(
   ".aoc"
   ".taskmaster"
-  ".pi"
   ".omp/extensions"
   ".omp/agents"
+  ".omp/skills"
   "AGENTS.md"
   "DESIGN.md"
 )
@@ -24,8 +24,6 @@ ignored_roots=(
   ".taskmaster/logs"
   ".taskmaster/**/*.log"
   ".taskmaster/**/*.lock"
-  ".pi/tmp"
-  ".pi/packages/pi-multi-auth-aoc/debug"
   "**/.aoc-backups"
   ".codegraph"
 )
@@ -73,7 +71,7 @@ existing_tracked_paths() {
 expected_runtime_path() {
   local path="$1"
   case "$path" in
-    .aoc/logs|.aoc/logs/*|.aoc/mind|.aoc/mind/*|.aoc/tools|.aoc/tools/*|.taskmaster/logs|.taskmaster/logs/*|.pi/tmp|.pi/tmp/*|.pi/packages/pi-multi-auth-aoc/debug|.pi/packages/pi-multi-auth-aoc/debug/*|.codegraph|.codegraph/*|*/.aoc-backups|*/.aoc-backups/*)
+    .aoc/logs|.aoc/logs/*|.aoc/mind|.aoc/mind/*|.aoc/tools|.aoc/tools/*|.taskmaster/logs|.taskmaster/logs/*|.codegraph|.codegraph/*|*/.aoc-backups|*/.aoc-backups/*)
       return 0
       ;;
     *.log|*.lock|*.db|*.sqlite|*.sqlite3|*.db-wal|*.db-shm|*.sqlite-wal|*.sqlite-shm)

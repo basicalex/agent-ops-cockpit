@@ -4,7 +4,7 @@ AOC Presets are a project-local orchestration layer for reusable session modes.
 
 A preset coordinates:
 - bounded prompt components
-- Pi runtime state
+- OMP runtime state
 - slash commands
 - installed vs active vs recommended skill routing
 - transition handoff summaries
@@ -40,7 +40,7 @@ Then switch presets live inside the same Pi session:
 The preset runtime lives in:
 
 ```text
-.pi/extensions/aoc-presets/
+retired Pi preset controls/
 ```
 
 It:
@@ -56,7 +56,7 @@ It:
 ## Skill activation model
 
 Preset skills are now treated as:
-- **installed**: present in `.pi/skills` and manually invocable when explicitly needed
+- **installed**: present in `.omp/skills` and manually invocable when explicitly needed
 - **active**: currently part of preset routing bias
 - **recommended**: suggested only when the task matches the active preset/mode
 
@@ -89,7 +89,7 @@ Preset assets live in:
   components/
 ```
 
-`aoc-init` seeds these assets, plus `.aoc/layouts/design.kdl` and `.pi/extensions/aoc-presets/`, into other projects. Managed preset/runtime/design assets are now refreshed in existing repos too.
+`aoc-init` seeds these assets, plus `.aoc/layouts/design.kdl` and `retired Pi preset controls/`, into other projects. Managed preset/runtime/design assets are now refreshed in existing repos too.
 
 ## Commands
 
@@ -180,7 +180,7 @@ Inside the navigator:
 
 Focused lenses are available through either nested `Alt+X` sub-options or slash commands. Examples: `/design-director spec`, `/hyperframes-director review`, `/preset ops deploy`, `/preset research repo`.
 
-Changing a preset/mode updates runtime routing immediately: the next agent turn receives the active preset prompt context. It also updates `.pi/settings.json` skill filters. Run `/reload` only when you want Pi's visible skill inventory/list to match the selected preset.
+Changing a preset/mode updates runtime routing immediately: the next agent turn receives the active preset prompt context. It also updates `~/.omp/agent/config.yml` skill filters. Run `/reload` only when you want Pi's visible skill inventory/list to match the selected preset.
 
 ## Relationship to Open Design
 

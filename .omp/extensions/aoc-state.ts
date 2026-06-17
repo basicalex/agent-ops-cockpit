@@ -62,8 +62,9 @@ Workflow:
 Default AOC state filesets:
 - .aoc/ excluding logs, locks, .aoc/mind/, .aoc/tools/, and backups
 - .taskmaster/ excluding logs and locks
-- .pi/ excluding .pi/tmp/ and .pi/packages/pi-multi-auth-aoc/debug/
-- .omp/extensions/ and .omp/agents/
+- .omp/extensions/
+- .omp/agents/
+- .omp/skills/
 - AGENTS.md, DESIGN.md, relevant AOC docs/tests for this state workflow
 
 For Jujutsu:

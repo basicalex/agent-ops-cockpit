@@ -1,5 +1,4 @@
-import { spawn } from "node:child_process";
-import * as path from "node:path";
+import { clampInt, clampMaxChars, findProjectRoot, renderCommand, resolveRepoCommand, runBoundedCommand, scopedCwd } from "./aoc-runtime";
 import { StringEnum } from "@mariozechner/pi-ai";
 import { Type } from "@sinclair/typebox";
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
@@ -54,40 +53,11 @@ interface MindParamsType {
 	maxChars?: number;
 }
 
-interface MindCommandResult {
-	ok: boolean;
-	exitCode: number | null;
-	stdout: string;
-	stderr: string;
-	timedOut: boolean;
-	truncated: boolean;
-}
-
-function stripAt(value: string): string {
-	return value.startsWith("@") ? value.slice(1) : value;
-}
-
-function scopedCwd(root: string, requested?: string): string {
-	if (!requested) return root;
-	const resolved = path.resolve(root, stripAt(requested));
-	if (resolved !== root && !resolved.startsWith(root + path.sep)) {
-		throw new Error(`cwd must stay under project root: ${requested}`);
-	}
-	return resolved;
-}
-
-function clampMaxChars(value?: number): number {
-	return Math.min(Math.max(value ?? MAX_DEFAULT_CHARS, 1000), MAX_ALLOWED_CHARS);
-}
 
 function positiveInt(value: number | undefined, fallback: number, max: number): number {
-	return Math.min(Math.max(value ?? fallback, 1), max);
+	return clampInt(value, fallback, 1, max);
 }
 
-function truncateOutput(text: string, maxChars: number): { text: string; truncated: boolean } {
-	if (text.length <= maxChars) return { text, truncated: false };
-	return { text: text.slice(0, maxChars) + "\n…[truncated]", truncated: true };
-}
 
 function requiredReason(params: MindParamsType): string {
 	const reason = params.reason?.trim();
@@ -131,45 +101,14 @@ function buildArgs(params: MindParamsType, projectRoot: string): string[] {
 	}
 }
 
-async function runMind(args: string[], cwd: string, maxChars: number, signal?: AbortSignal): Promise<MindCommandResult> {
-	return await new Promise<MindCommandResult>((resolve, reject) => {
-		let stdout = "";
-		let stderr = "";
-		let settled = false;
-		let timedOut = false;
-		const child = spawn("aoc-mind-service", args, { cwd, stdio: ["ignore", "pipe", "pipe"], shell: false });
-		const timer = setTimeout(() => {
-			timedOut = true;
-			child.kill("SIGTERM");
-		}, COMMAND_TIMEOUT_MS);
-		const abort = () => child.kill("SIGTERM");
-		signal?.addEventListener("abort", abort, { once: true });
-		child.stdout.on("data", (chunk) => {
-			stdout += String(chunk);
-		});
-		child.stderr.on("data", (chunk) => {
-			stderr += String(chunk);
-		});
-		child.on("error", (error: NodeJS.ErrnoException) => {
-			if (settled) return;
-			settled = true;
-			clearTimeout(timer);
-			signal?.removeEventListener("abort", abort);
-			if (error.code === "ENOENT") {
-				reject(new Error("aoc-mind-service is not installed or not on PATH. Run aoc-init after installing AOC."));
-				return;
-			}
-			reject(error);
-		});
-		child.on("close", (exitCode) => {
-			if (settled) return;
-			settled = true;
-			clearTimeout(timer);
-			signal?.removeEventListener("abort", abort);
-			const out = truncateOutput(stdout, maxChars);
-			const err = truncateOutput(stderr, Math.min(maxChars, 8000));
-			resolve({ ok: exitCode === 0 && !timedOut, exitCode, stdout: out.text, stderr: err.text, timedOut, truncated: out.truncated || err.truncated });
-		});
+async function runMind(command: string, args: string[], cwd: string, maxChars: number, signal?: AbortSignal): Promise<import("./aoc-runtime").CommandResult> {
+	return await runBoundedCommand(command, args, {
+		cwd,
+		maxStdoutChars: maxChars,
+		maxStderrChars: Math.min(maxChars, 8000),
+		timeoutMs: COMMAND_TIMEOUT_MS,
+		missingMessage: "aoc-mind-service is not installed or not on PATH. Run aoc-init after installing AOC.",
+		signal,
 	});
 }
 
@@ -187,12 +126,13 @@ export default function aocMindExtension(pi: ExtensionAPI): void {
 		],
 		parameters: MindParams,
 		async execute(_toolCallId, params: MindParamsType, signal, _onUpdate, ctx) {
-			const projectRoot = ctx.cwd ?? process.cwd();
+			const projectRoot = findProjectRoot(ctx.cwd);
 			const cwd = scopedCwd(projectRoot, params.cwd);
 			const args = buildArgs(params, projectRoot);
-			const maxChars = clampMaxChars(params.maxChars);
-			const result = await runMind(args, cwd, maxChars, signal);
-			const command = `aoc-mind-service ${args.map((arg) => (arg.includes(" ") ? JSON.stringify(arg) : arg)).join(" ")}`;
+			const maxChars = clampMaxChars(params.maxChars, MAX_DEFAULT_CHARS, MAX_ALLOWED_CHARS);
+			const commandBin = resolveRepoCommand(projectRoot, "bin/aoc-mind-service", "aoc-mind-service");
+			const result = await runMind(commandBin, args, cwd, maxChars, signal);
+			const command = renderCommand(commandBin, args);
 			const lines = [
 				`$ ${command}`,
 				`exit: ${result.exitCode}${result.timedOut ? " (timed out)" : ""}${result.truncated ? " (truncated)" : ""}`,

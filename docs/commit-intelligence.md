@@ -27,7 +27,7 @@ This helps future operators and agents answer:
 
 Implemented immediately:
 
-- `.pi/prompts/commit.md` (`/commit`)
+- `.omp/extensions/aoc-commit.ts` (`/commit`)
 - Commit message and trailer contract
 - Approval-gated agent workflow
 - Human-readable docs and examples
@@ -41,11 +41,11 @@ Planned later under Taskmaster task `193`:
 
 ## `/commit` workflow
 
-### 1. Detect VCS and inspect read-only state
+### 1. Detect preferred VCS and inspect read-only state
 
 Start from `aoc-handshake --json` VCS metadata when available. If needed, use narrow local inspection.
 
-Git-only repositories use staging semantics:
+When `preferredTool` is `git`, use staging semantics even if colocated `.jj` metadata exists:
 
 ```bash
 git status --short
@@ -55,7 +55,7 @@ git diff -- path/to/file
 git diff --cached -- path/to/file
 ```
 
-Jujutsu repositories use current-change semantics: the working copy is the mutable `@` change, not a staging area.
+When `preferredTool` is `jj`, use current-change semantics: the working copy is the mutable `@` change, not a staging area.
 
 ```bash
 jj status
@@ -103,8 +103,8 @@ The user's `/commit` invocation is approval for the agent to complete the safe V
 - select a coherent atomic change set from the prompt-first intent, recent session context, and targeted diffs
 - exclude or split unrelated/pre-existing changes, even if they share the same working copy
 - run targeted validation when practical
-- in Git-only repositories, stage only explicit paths and never broad paths like `.`
-- in Jujutsu repositories, plain `jj commit -m <message>` only after verifying `@` is already atomic; when `@` is mixed, use selected filesets/splitting (`jj commit -m <message> <filesets>`, `jj split`, `jj squash -i`) to commit the prompt-selected slice and leave unrelated work behind
+- when Git is preferred, stage only explicit paths and never broad paths like `.`
+- when Jujutsu is preferred, plain `jj commit -m <message>` only after verifying `@` is already atomic; when `@` is mixed, use selected filesets/splitting (`jj commit -m <message> <filesets>`, `jj split`, `jj squash -i`) to commit the prompt-selected slice and leave unrelated work behind
 - commit with AOC provenance trailers
 - report the resulting Git SHA or Jujutsu change/commit identity, CodeGraph cache status, and remaining unrelated changes
 
@@ -127,8 +127,8 @@ Tracked project-state filesets:
 
 - `.aoc/` excluding logs, locks, live Mind databases, downloaded tools, and backups
 - `.taskmaster/` excluding logs and locks
-- `.pi/` excluding `.pi/tmp/` and `.pi/packages/pi-multi-auth-aoc/debug/`
-- `.omp/extensions/` and `.omp/agents/`
+- `.omp/skills/`
+- `.omp/extensions/`, `.omp/agents/`, and `.omp/skills/`
 - `AGENTS.md`, `DESIGN.md`, and relevant AOC docs/tests
 
 `/state-commit` is approval to commit only safe project-state files after `aoc state status` and narrow VCS inspection. In Jujutsu repos it must use `jj status`, `jj diff --summary`, `jj diff --stat`, and selected `jj commit <filesets>`/`jj split` workflows when `@` is mixed. It must never use Git staging in a Jujutsu repo.

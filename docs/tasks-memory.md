@@ -96,9 +96,7 @@ Do not use STM for durable decisions, raw logs, every minor task, or information
 
 ## AOC compaction
 
-AOC seeds a Pi compaction extension at `.pi/extensions/aoc-compaction.ts`. It hooks native `/compact [focus]` and automatic Pi compaction to preserve a small **AOC Operational Context** section in the compaction summary. This keeps post-compaction agents aware of AOC tools such as `aoc_codegraph`, safe commands, and safety rules without loading broad memory, latest STM, full specs, or raw diffs.
-
-The extension may collect bounded metadata from safe commands such as `aoc-handshake --json`, `tm tag current`, `tm show <detected-task-id>`, and `git status --short`. It also includes Pi's recent kept context so newer live evidence can correct stale previous summaries. It should not read protected files directly (`.aoc/memory.md`, `.aoc/stm/current.md`, `.taskmaster/tasks/tasks.json`). Disable it for a run with `AOC_PI_COMPACTION=0` if native Pi compaction is needed.
+AOC no longer ships a Pi compaction extension. OMP context health is handled by the OMP runtime plus AOC metadata tools such as `aoc-handshake --json`, `aoc-omp-context`, and focused Mind context packs. Protected files (`.aoc/memory.md`, `.aoc/stm/current.md`, `.taskmaster/tasks/tasks.json`) remain CLI-mediated, not directly injected.
 
 ## Commit intelligence
 

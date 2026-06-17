@@ -14,9 +14,9 @@ AOC currently has multiple context producers that can appear equally relevant at
 - `.aoc/memory.md` through `aoc-mem`
 - STM through `aoc-stm`
 - Mind context packs/provenance
-- `.pi/skills/**/SKILL.md`
-- `.pi/prompts/*.md`
-- `.pi/extensions/**`
+- `.omp/skills/**/SKILL.md`
+- `.omp/skills/aoc-*.md` workflows
+- `.omp/extensions/**`
 - `.aoc/presets/**`
 - `DESIGN.md` and subsystem design docs
 - themes/layouts/subagent manifests
@@ -110,13 +110,13 @@ interface ContextSourceRecord {
 | `aoc-mem read/search` | intent-triggered/manual-only | no | prior decisions/provenance |
 | `aoc-stm resume/read` | intent-triggered/manual-only | no | resume/handoff request |
 | Mind context pack | intent-triggered | no | focused reason required |
-| `.pi/skills/**/SKILL.md` | index-only | names/descriptions only | skill intent match |
-| `.pi/prompts/*.md` | index-only | names only | slash prompt invoked |
-| `.pi/extensions/**` | never-inject-source | capability names only | editing/debugging extension |
+| `.omp/skills/**/SKILL.md` | index-only | names/descriptions only | skill intent match |
+| `.omp/skills/aoc-*.md` workflows | index-only | names only | slash prompt invoked |
+| `.omp/extensions/**` | never-inject-source | capability names only | editing/debugging extension |
 | `.aoc/presets/*` components | active-preset | no unless active | preset/mode active |
 | `DESIGN.md` | intent-triggered | no | UI/product/design/HyperFrames work |
 | themes/layouts | index-only | names only | UI/theme/layout work |
-| `.pi/agents/**` | index-only | names/capabilities only | explicit subagent dispatch |
+| `.omp/agents/**` | index-only | names/capabilities only | explicit subagent dispatch |
 
 ## Budget targets
 
@@ -193,7 +193,7 @@ Implemented initial enforcement in the managed-Pi path:
 
 Remaining hardening:
 
-- Extend the same router path to non-Pi runtimes if needed.
+- Extend the same router path to non-OMP runtimes if needed.
 - Add stricter startup budget failures after observing real launch sizes.
 
 ### Phase 4: Preset and task/spec routing

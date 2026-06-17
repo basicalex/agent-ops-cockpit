@@ -78,7 +78,7 @@ No functional change required except updated section naming and summary wiring.
 Matches current browser skill sync behavior.
 
 Behavior:
-- ensure `.pi/skills/agent-browser/SKILL.md`
+- ensure `retired agent-browser skill`
 - potentially later append reference to search-first research workflow docs
 
 ### Row 3: Enable managed local search (SearXNG)

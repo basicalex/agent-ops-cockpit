@@ -11,7 +11,7 @@ AOC Map is the canonical surface now:
 - command: `aoc-map`
 - subcommand: `aoc map ...`
 - workspace: `.aoc/map/`
-- skill: `.pi/skills/aoc-map/SKILL.md`
+- skill: `.omp/skills/aoc-map/SKILL.md`
 
 Legacy compatibility still exists during transition:
 
@@ -76,7 +76,7 @@ Path:
 
 That action:
 
-- syncs `.pi/skills/aoc-map/SKILL.md`
+- syncs `.omp/skills/aoc-map/SKILL.md`
 - runs `aoc-map init`
 - seeds or confirms `.aoc/map/`
 - migrates older AOC See workspaces when needed
@@ -211,7 +211,7 @@ If a repo still has old AOC See content:
 
 - `.aoc/see/` is migrated to `.aoc/map/`
 - `.aoc/diagrams/` is migrated to `.aoc/map/`
-- `.pi/skills/aoc-see/` is replaced by `.pi/skills/aoc-map/`
+- legacy AOC See skill content is replaced by `.omp/skills/aoc-map/`
 - old page attributes are normalized to the new `aoc-map` names
 
 For a stale older repo, the safest refresh path is usually:

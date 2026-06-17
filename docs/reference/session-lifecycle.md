@@ -9,7 +9,7 @@ aoc-launch
   -> choose project/layout/session id
   -> start Zellij layout
   -> start hub + panes
-  -> wrap Pi agents with AOC env
+  -> wrap OMP agents with AOC env
   -> publish tab/session metadata
   -> Mission Control / Mind / Taskmaster observe state
 ```

@@ -9,7 +9,7 @@ This inventory defines the Herdr/OMP cutover target. AOC should become a project
 | Familiar launcher | `bin/aoc`, `bin/aoc-herdr-launch` | AOC + Herdr | `aoc` should launch/focus Herdr. |
 | OMP launcher/context | `bin/aoc-omp`, `bin/aoc-omp-context`, `bin/aoc-handshake --prompt/--json` | AOC + OMP | Metadata-only startup capsule; no broad Mind injection. |
 | Taskmaster integration | `bin/aoc-task`, `bin/tm`, `bin/aoc-tm`, `crates/aoc-taskmaster` | AOC | Keep as task/spec source of truth. |
-| CodeGraph | `.omp/extensions/aoc-codegraph.ts`, `.pi/extensions/aoc-codegraph.ts`, `codegraph` CLI | OMP extension | Read-only agent discovery; indexing/sync remains operator-controlled. |
+| CodeGraph | `.omp/extensions/aoc-codegraph.ts`, `codegraph` CLI | OMP extension | Read-only agent discovery; indexing/sync remains operator-controlled. |
 | Agent wrapper if useful for OMP | `bin/aoc-agent-wrap`, `crates/aoc-agent-wrap-rs` | AOC + OMP | Keep only if it can wrap OMP cleanly for lifecycle/context/provenance without Zellij coupling. |
 | HyperFrames | `bin/aoc-hf`, `bin/aoc-hf-u`, `bin/aoc-hyperframes`, `docs/hyperframes.md`, related skills | AOC tooling | Keep. |
 | OpenDesign | `bin/aoc-od`, `docs/open-design.md`, related skills | AOC tooling | Keep. |
@@ -17,7 +17,7 @@ This inventory defines the Herdr/OMP cutover target. AOC should become a project
 | AOC Services workspace | `bin/aoc-herdr-services`, `bin/aoc-services`, `aoc services`, `docs/operator/aoc-services.md` | Herdr + AOC tooling | Retained Herdr runtime owner for project-scoped service health/startup, especially managed local SearXNG. Distinct from retired Mission Control/status UI. |
 | RTK | `bin/aoc-rtk`, `bin/aoc-rtk-proxy`, `docs/reference/rtk-routing.md` | AOC tooling | Keep only for allowlisted noisy-command routing with raw-output preservation. |
 | AOC Mind evidence for Mnemopi | `.omp/extensions/aoc-mind.ts`, `crates/aoc-mind`, `crates/aoc-storage`, `aoc-mind-service serve/evidence-pack/mnemopi-candidates` | AOC + OMP/Mnemopi | Default project background T0/T1/T2/T3 processing plus lazy focused evidence/provenance; no startup injection or automatic Mnemopi writes. |
-| Selected skills/prompts/docs | `.pi/skills`, `.pi/prompts`, docs | AOC tooling | Keep only if they complement Herdr/OMP workflows. |
+| Selected skills/prompts/docs | `.omp/skills`, docs | AOC tooling | Keep only if they complement Herdr/OMP workflows. |
 
 ## Remove / retire from default AOC
 
@@ -29,9 +29,9 @@ These are out of the default Herdr/OMP stack. Transitional compatibility may rem
 | AOC tab bar / top bar | removed | Herdr | Purged; Herdr owns workspace/status UI. |
 | Zellij layouts/keybindings | `zellij/aoc.config.kdl.template`, `zellij/layouts/aoc.kdl.template`, `.aoc/layouts/*.kdl`, `bin/aoc-layout`, `bin/aoc-zellij.sh`, `bin/aoc-zellij-resize` | Herdr | Managed layout seeding removed from default install/init. |
 | Mission Control | `bin/aoc-mission-control`, `bin/aoc-mission-control-tab`, `bin/aoc-mission-control-toggle`, `crates/aoc-mission-control`, `.aoc/layouts/mission-control.kdl`, docs/operator Mission Control docs | Herdr + OMP | Not built by default. Remove rather than port; overlapping functionality belongs in Herdr/OMP. |
-| AOC subagent manager/control surfaces | `.pi/extensions/subagent.ts`, `.pi/extensions/subagent/**`, `bin/aoc-subagent-supervision*`, docs/reference/subagent-runtime.md` | OMP | Not seeded by default. OMP owns subagent orchestration. |
+| AOC subagent manager/control surfaces | `bin/aoc-subagent-supervision*`, docs/reference/subagent-runtime.md` | OMP | Not seeded by default. OMP owns subagent orchestration. |
 | Control pane | `bin/aoc-control`, `bin/aoc-control-toggle`, `crates/aoc-control`, `docs/control-pane.md` | Herdr | Not built by default. Remove floating/control pane UX. |
-| Agent status surfaces | `bin/aoc-agent`, `bin/aoc-agent-run`, `bin/aoc-agent-install` UI/status behavior, `.pi/extensions/aoc-agent-presence.ts` | Herdr + OMP | Presence extension not seeded by default; status display belongs to Herdr/OMP. |
+| Agent status surfaces | `bin/aoc-agent`, `bin/aoc-agent-run`, `bin/aoc-agent-install` UI/status behavior, retired Pi presence extension | Herdr + OMP | Presence extension not seeded by default; status display belongs to Herdr/OMP. |
 | Legacy pane/workspace/session health UI | `bin/aoc-session-state`, `bin/aoc-pane-evidence`, `bin/aoc-pulse-pane`, `bin/aoc-hub`, `crates/aoc-hub-rs`, Pulse/session docs | Herdr | Legacy hub/status UI not installed by default; `bin/aoc-services` is retained for the Herdr AOC Services workspace. |
 | Tab/project metadata | `bin/aoc-tab-metadata`, `bin/aoc-tab-group`, `bin/aoc-pane-rename`, layout metadata sync calls | Herdr | Not required by default install; Herdr workspaces/tabs/panes are the metadata source. |
 | Zellij cleanup/inventory | `bin/aoc-cleanup`, `bin/aoc-cleanup-core.py`, Zellij inventory helpers | Herdr | Retire with Zellij cockpit. |

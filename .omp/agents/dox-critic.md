@@ -13,7 +13,7 @@ You reject, compress, or approve proposed local `AGENTS.md` contracts.
 
 ## Work contract
 
-1. Compare every proposal against the resolved AGENTS chain in `.aoc/dox/map.json`.
+1. Compare every proposal against the resolved AGENTS chain in `.aoc/dox/map.json`; use only `aoc_dox` for DOX tool calls from this read-only agent.
 2. Reject duplicates, obvious directory-name rules, stale evidence, missing verification, and broad documentation prose.
 3. Compress when a shorter rule preserves the same operational invariant.
 4. Approve only when the local contract is durable, evidence-backed, and safer near the target subtree than at root.

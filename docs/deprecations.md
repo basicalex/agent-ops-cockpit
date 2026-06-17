@@ -1,61 +1,29 @@
-# Deprecations and removals (PI-first AOC)
+# Deprecations and removals
 
-This page tracks intentional simplifications in the PI-first AOC surface.
+This page tracks intentional simplifications in the OMP-first AOC surface.
 
 ## Runtime surface
 
-### Removed from core support
+Removed from the active operator path:
 
-- Non-PI runtime wrappers/installers in active AOC paths
-- Multi-runtime selector behavior in core agent commands
+- Legacy Pi settings, prompts, skills, extensions, packages, and agents.
+- Multi-runtime wrapper behavior in core agent commands.
+- Zellij cockpit-only layout/theme sync surfaces.
 
-### Canonical supported runtime
+## Canonical supported runtime
 
-- `pi` only (`aoc-agent`, `aoc-agent-run`, `aoc-agent-install`, `aoc-control`)
+- OMP runtime config: `~/.omp/agent/config.yml`
+- Project OMP sources: `.omp/extensions/`, `.omp/agents/`, `.omp/skills/`
+- AOC state/contracts: `.aoc/**`, `.taskmaster/**`, `AGENTS.md`, `DESIGN.md`
 
-If you need another CLI, use the wrapper path described in [Agent Extensibility](agent-extensibility.md).
-
-## Project-local runtime files
-
-### Canonical location (current)
-
-- `.pi/**`
-  - settings
-  - prompts
-  - skills
-  - extensions
-
-### Legacy migration sources
-
-- `.aoc/prompts/pi/**`
-- `.aoc/skills/**`
-
-`aoc-init` migrates missing assets from these legacy locations into `.pi/**` non-destructively.
+`aoc-init` no longer migrates or recreates legacy Pi paths.
 
 ## Skill sync behavior
 
-### Removed behavior
+Kept:
 
-- Auto-sync of non-PI skill targets (`.codex`, `.claude`, `.opencode`, `.agents`) in `aoc-init`
+- OMP-only validation/sync via `aoc-skill sync --root .` and `aoc-skill validate --root .`
 
-### Current behavior
+Removed:
 
-- PI-only sync surface (`.pi/skills/**`)
-
-## Prompt alias cleanup
-
-### Legacy alias
-
-- `/tmcc`
-
-### Canonical prompt
-
-- `/tm-cc`
-
-`aoc-init` removes safe duplicate aliases and warns when manual merge is required.
-
-## Why this was done
-
-- Fewer moving parts in fresh setup
-- Lower maintenance and support drift
-- Predictable release validation and troubleshooting
+- Legacy Pi skill sync and prompt alias cleanup.

@@ -26,7 +26,7 @@ find_root() {
   fi
   local dir="$PWD"
   while [[ "$dir" != "/" ]]; do
-    if [[ -d "$dir/.aoc" || -d "$dir/.pi" || -f "$dir/AGENTS.md" ]]; then
+    if [[ -d "$dir/.aoc" || -d "$dir/.omp" || -f "$dir/AGENTS.md" ]]; then
       printf '%s\n' "$dir"
       return 0
     fi
@@ -363,33 +363,23 @@ records = [
         "notes": "Default startup budget is zero.",
     },
     {
-        "id": "pi.skills",
+        "id": "omp.skills",
         "kind": "skill",
-        "source": {"path": ".pi/skills"},
+        "source": {"path": ".omp/skills"},
         "loadingClass": "index-only",
         "trigger": "skill intent match",
         "budgetBytes": 0,
-        "provenance": "Pi skill registry",
+        "provenance": "OMP skill registry",
         "notes": "Names/descriptions only by default; bodies lazy.",
     },
     {
-        "id": "pi.prompts",
-        "kind": "prompt",
-        "source": {"path": ".pi/prompts"},
-        "loadingClass": "index-only",
-        "trigger": "slash prompt invoked",
-        "budgetBytes": 0,
-        "provenance": "Pi prompt registry",
-        "notes": "Prompt bodies are not startup context.",
-    },
-    {
-        "id": "pi.extensions",
+        "id": "omp.extensions",
         "kind": "extension",
-        "source": {"path": ".pi/extensions"},
+        "source": {"path": ".omp/extensions"},
         "loadingClass": "never-inject-source",
         "trigger": "editing/debugging extension implementation",
         "budgetBytes": 0,
-        "provenance": "Pi extension registry",
+        "provenance": "OMP extension registry",
         "notes": "Expose capabilities, not source, by default.",
     },
     {
@@ -413,34 +403,24 @@ records = [
         "notes": "Not needed for generic backend/ops tasks.",
     },
     {
-        "id": "ui.themes",
-        "kind": "theme",
-        "source": {"path": ".pi/themes"},
+        "id": "omp.agents",
+        "kind": "subagent",
+        "source": {"path": ".omp/agents"},
         "loadingClass": "index-only",
-        "trigger": "theme/UI work",
+        "trigger": "explicit OMP subagent dispatch/listing",
         "budgetBytes": 0,
-        "provenance": "Pi theme registry",
-        "notes": "Theme files are not startup context.",
+        "provenance": "OMP agent templates",
+        "notes": "Use OMP agent templates; do not load bodies unless dispatching that agent.",
     },
     {
         "id": "aoc.layouts",
         "kind": "theme",
         "source": {"path": ".aoc/layouts"},
         "loadingClass": "index-only",
-        "trigger": "layout/Zellij work",
+        "trigger": "legacy layout work",
         "budgetBytes": 0,
         "provenance": "AOC layout registry",
         "notes": "Names/metadata only by default.",
-    },
-    {
-        "id": "pi.subagents",
-        "kind": "subagent",
-        "source": {"path": ".pi/agents"},
-        "loadingClass": "index-only",
-        "trigger": "explicit subagent dispatch/listing",
-        "budgetBytes": 0,
-        "provenance": "Pi/AOC subagent manifests",
-        "notes": "Do not dispatch/load specialist prompts without explicit user control.",
     },
 ]
 
@@ -636,7 +616,7 @@ esac
 
 root="$(find_root)"
 aoc_dir="$root/.aoc"
-pi_dir="$root/.pi"
+omp_dir="$root/.omp"
 
 case "$cmd" in
   agents)
@@ -717,17 +697,14 @@ Startup kernel:
 - Estimated always-load budget footprint: ${always_budget} bytes
 
 Indexed, not injected by default:
-- Skills: $(find "$pi_dir/skills" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | wc -l | tr -d ' ') dirs ($(sum_bytes "$pi_dir/skills") bytes on disk)
-- Prompts: $(count_files "$pi_dir/prompts") files ($(sum_bytes "$pi_dir/prompts") bytes on disk)
-- Extensions: $(count_files "$pi_dir/extensions") files ($(sum_bytes "$pi_dir/extensions") bytes on disk)
+- Skills: $(find "$omp_dir/skills" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | wc -l | tr -d ' ') dirs ($(sum_bytes "$omp_dir/skills") bytes on disk)
+- Extensions: $(count_files "$omp_dir/extensions") files ($(sum_bytes "$omp_dir/extensions") bytes on disk)
 - Presets: $(find "$aoc_dir/presets" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | wc -l | tr -d ' ') dirs ($(sum_bytes "$aoc_dir/presets") bytes on disk)
-- Themes: $(count_files "$pi_dir/themes") files ($(sum_bytes "$pi_dir/themes") bytes on disk)
-- Subagents: $(count_files "$pi_dir/agents") files ($(sum_bytes "$pi_dir/agents") bytes on disk)
+- OMP agents: $(count_files "$omp_dir/agents") files ($(sum_bytes "$omp_dir/agents") bytes on disk)
 
 Lazy-load only when intent/preset requires:
 - Mind context packs and provenance
 - Full SKILL.md bodies
-- Prompt bodies
 - Extension source files
 - DESIGN.md and product/design docs
 - Task/spec details beyond active-tag summaries

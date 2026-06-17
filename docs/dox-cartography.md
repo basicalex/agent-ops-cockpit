@@ -7,6 +7,7 @@ AOC DOX maps sparse, evidence-backed `AGENTS.md` local contracts. It is for oper
 ```bash
 aoc dox map
 aoc dox review
+aoc dox review --packet --write-packet
 aoc dox apply --dry-run
 aoc dox apply --yes
 aoc dox doctor
@@ -15,7 +16,9 @@ aoc dox eval
 
 - `aoc dox map` writes only `.aoc/dox/` metadata. It never creates or edits `AGENTS.md`.
 - `aoc dox review` groups create/update/reject candidates and reports budget state.
-- `aoc dox apply --dry-run` renders target paths and byte counts without writing files.
+- `aoc dox review --packet` renders full proposed local contracts for editor review.
+- `aoc dox review --packet --write-packet` writes `.aoc/dox/review.md`.
+- `aoc dox apply --dry-run` renders target paths and byte counts without writing files. `aoc dox apply --dry-run --json --include-content` adds full rendered content for machine review; default dry-run JSON remains paths/bytes only.
 - `aoc dox apply --yes` is the only DOX command that may create or update local `AGENTS.md` files.
 - `aoc dox doctor` validates metadata, evidence paths, safe verification commands, and instruction-chain budgets.
 - `aoc dox eval` writes an eval matrix scaffold only; v1 does not run task evals.
@@ -29,13 +32,15 @@ Use `/dox` inside OMP:
 /dox scout [path]
 /dox map
 /dox review
+/dox packet
 /dox doctor
 /dox dry-run
 ```
 
-- `/dox full` runs the safe agent workflow: `aoc_dox map` -> `dox-scout` -> `dox-mapper` -> `dox-critic` -> `dox-writer` -> `apply-dry-run` -> `doctor`.
+- `/dox full` runs the safe agent workflow: `aoc_dox map` -> `dox-scout` -> `dox-mapper` -> `dox-critic` -> `dox-writer` -> `review-packet` -> `apply-dry-run` -> `doctor`.
 - `/dox scout` runs map plus scout-only candidate discovery.
-- `/dox dry-run` runs only `aoc_dox` action `apply-dry-run`.
+- `/dox packet` renders and writes `.aoc/dox/review.md` for editor review.
+- `/dox dry-run` runs `aoc_dox` action `apply-dry-run` and points to `.aoc/dox/review.md` when present.
 - No `/dox` mode may run `aoc dox apply --yes`; that remains a human/operator CLI action.
 
 ## OMP tool sequence
@@ -44,11 +49,13 @@ Use `/dox` inside OMP:
 2. Launch `dox-scout` in parallel for high-risk or insufficient-coverage paths from `.aoc/dox/map.json`.
 3. Launch `dox-mapper` only for scout-approved candidate areas.
 4. Launch `dox-critic` on every create/update proposal.
-5. Use `dox-writer` only after critic approval; writer may edit `.aoc/dox/candidates.json` and `.aoc/dox/report.md`, then run `aoc_dox` action `apply-dry-run`.
-6. A human/operator runs `aoc dox apply --yes` after dry-run review.
-7. Finish with `aoc_dox` action `doctor` or `aoc dox doctor`.
+5. Use `dox-writer` only after critic approval; writer may edit `.aoc/dox/candidates.json` and `.aoc/dox/report.md`.
+6. Run `aoc_dox` action `review-packet` with `writePacket=true` to write `.aoc/dox/review.md`.
+7. Run `aoc_dox` action `apply-dry-run`.
+8. Finish with `aoc_dox` action `doctor` or `aoc dox doctor`.
+9. A human/operator may later run `aoc dox apply --yes` after reviewing the packet and dry-run.
 
-The `aoc_dox` extension is safe by construction: it exposes `map`, `review`, `doctor`, `eval`, and `apply-dry-run`; it never exposes `apply --yes`.
+The `aoc_dox` extension is safe by construction: it exposes `map`, `review`, `review-packet`, `doctor`, `eval`, and `apply-dry-run`; it never exposes `apply --yes`.
 
 ## CodeGraph-first behavior
 
@@ -70,6 +77,10 @@ DOX must not run mutating CodeGraph commands such as `init`, `index`, `sync`, `i
 - `.aoc/dox/routes.json`: path glob to agent profile/context/verification routing metadata.
 - `.aoc/dox/budgets.json`: byte budgets and measured root/project-chain sizes.
 - `.aoc/dox/report.md`: concise review report generated from the JSON metadata.
+
+`aoc dox review --packet --write-packet` writes:
+
+- `.aoc/dox/review.md`: full editor review packet with proposed routes, rejected routes, rendered local contracts, evidence, verification, and the manual apply command.
 
 `aoc dox eval` writes `.aoc/dox/eval-matrix.json`.
 
