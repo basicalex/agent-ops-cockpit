@@ -1,10 +1,12 @@
 extensions = [
+  "aoc-runtime.ts",
   "aoc-codegraph.ts",
   "aoc-mind.ts",
   "aoc-commit.ts",
   "aoc-state.ts",
   "aoc-dox.ts",
   "aoc-dox-command.ts",
+  "aoc-herdr.ts",
   "aoc-jj-init.ts",
   "aoc-brand-content.ts",
   "aoc-web-search.ts",
