@@ -158,7 +158,9 @@ ${AOC_OMP_AGENT_DIR:-~/.omp/agent}/agents/
 
 Do not maintain a second active inventory in this document or under `.aoc/skills`; `.aoc/skills` is legacy/archive-only content, not an OMP runtime source. Runtime skill sources are `.omp/skills` entries named by `.omp/manifest.toml`.
 
-The manifest-owned extension surface includes the operational tools and slash commands Herdr expects, including `aoc-codegraph.ts`, `aoc-mind.ts`, `aoc-commit.ts`, `aoc-state.ts`, `aoc-dox.ts`, `aoc-dox-command.ts`, `aoc-jj-init.ts`, `aoc-brand-content.ts`, `aoc-web-search.ts`, and `ponytail.ts`. The same manifest owns the installed OMP skill set, including the `ponytail`, `ponytail-review`, `ponytail-audit`, `ponytail-debt`, and `ponytail-help` skills.
+The manifest-owned extension surface includes the operational tools and slash commands Herdr expects, including `aoc-codegraph.ts`, `aoc-mind.ts`, `aoc-commit.ts`, `aoc-state.ts`, `aoc-dox.ts`, `aoc-dox-command.ts`, `aoc-herdr.ts`, `aoc-master.ts`, `aoc-jj-init.ts`, `aoc-brand-content.ts`, `aoc-web-search.ts`, and `ponytail.ts`. The same manifest owns the installed OMP skill set, including the `ponytail`, `ponytail-review`, `ponytail-audit`, `ponytail-debt`, and `ponytail-help` skills.
+
+`aoc-master.ts` registers `/master on [minutes]`, `/master off`, and `/master status` plus the gated `aoc_orchestrate` tool. `/master` routes through the agent turn; `aoc_orchestrate master_on` creates a Herdr-session/workspace lease owned by the current pane, and only that lease owner may `assign` or `send` bounded text to peer agents. Peer mutation is intentionally limited to `herdr agent send`: no shell commands, keystrokes, focus, pane control, spawning, move/resize, or broadcast actions are exposed. Use `aoc_herdr` first for grounded observation, then `aoc_orchestrate` only for explicit peer assignments/messages.
 
 `aoc-codegraph.ts` exposes the read-only `aoc_codegraph` tool for code discovery: `status`, `files`, `search`, `context`, `callers`, `callees`, `impact`, and `affected`.
 Use this as the agent graph/context tool in Herdr/OMP workspaces; Understand-Anything is not part of the active graph path.

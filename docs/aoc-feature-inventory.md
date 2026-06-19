@@ -10,6 +10,7 @@ This inventory defines the Herdr/OMP cutover target. AOC should become a project
 | OMP launcher/context | `bin/aoc-omp`, `bin/aoc-omp-context`, `bin/aoc-handshake --prompt/--json` | AOC + OMP | Metadata-only startup capsule; no broad Mind injection. |
 | Taskmaster integration | `bin/aoc-task`, `bin/tm`, `bin/aoc-tm`, `crates/aoc-taskmaster` | AOC | Keep as task/spec source of truth. |
 | CodeGraph | `.omp/extensions/aoc-codegraph.ts`, `codegraph` CLI | OMP extension | Read-only agent discovery; indexing/sync remains operator-controlled. |
+| Master orchestration | `.omp/extensions/aoc-master.ts`, `/master`, `aoc_orchestrate` | OMP extension + Herdr | Keep as gated peer coordination. Requires an active master lease for the current pane; mutating surface is bounded text sends only, after read-only observation through `aoc_herdr`. |
 | Agent wrapper if useful for OMP | `bin/aoc-agent-wrap`, `crates/aoc-agent-wrap-rs` | AOC + OMP | Keep only if it can wrap OMP cleanly for lifecycle/context/provenance without Zellij coupling. |
 | HyperFrames | `bin/aoc-hf`, `bin/aoc-hf-u`, `bin/aoc-hyperframes`, `docs/hyperframes.md`, related skills | AOC tooling | Keep. |
 | OpenDesign | `bin/aoc-od`, `docs/open-design.md`, related skills | AOC tooling | Keep. |
