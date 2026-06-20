@@ -1024,10 +1024,10 @@ if is_truthy "${AOC_INSTALL_LEGACY_ZELLIJ:-0}"; then
     "$ROOT_DIR/zellij/aoc.config.kdl.template" > "$HOME/.config/zellij/aoc.config.kdl"
 else
   log "Skipping legacy Zellij cockpit assets (pass --legacy-zellij to install)."
-  if [[ -x "$BIN_DIR/aoc-herdr-install" ]]; then
-    "$BIN_DIR/aoc-herdr-install"
-  elif [[ -x "$ROOT_DIR/bin/aoc-herdr-install" ]]; then
+  if [[ -x "$ROOT_DIR/bin/aoc-herdr-install" ]]; then
     "$ROOT_DIR/bin/aoc-herdr-install"
+  elif [[ -x "$BIN_DIR/aoc-herdr-install" ]]; then
+    AOC_SOURCE_ROOT="$ROOT_DIR" "$BIN_DIR/aoc-herdr-install"
   fi
 fi
 
