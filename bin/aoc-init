@@ -1821,7 +1821,7 @@ EOF
     ! grep -Fq 'aoc-stm handoff' "$init_ops_skill" ||
     ! grep -Fq 'aoc-stm resume' "$init_ops_skill" ||
     ! grep -Fq '.omp/extensions/' "$init_ops_skill" ||
-    ! grep -Fq 'ponytail.ts' "$init_ops_skill" ||
+    ! grep -Fq 'aoc-style.ts' "$init_ops_skill" ||
     ! grep -Fq 'ponytail-help' "$init_ops_skill" ||
     grep -Fq 'Syncs skills for existing agent targets' "$init_ops_skill"
   ); then
@@ -1848,6 +1848,7 @@ description: Initialize or repair AOC context, memory, and tasks safely.
 - Ensures spec directory `.taskmaster/docs/specs/` is available for tag/task links
 - Seeds project OMP assets under `.omp/extensions/`, `.omp/agents/`, `.omp/skills/`, and `.omp/manifest.toml`
 - Installs AOC OMP extensions from `.omp/manifest.toml` into `${AOC_OMP_AGENT_DIR:-$HOME/.omp/agent}/extensions` when available
+- Seeds the global OMP style hook state file at `${AOC_STYLE_STATE_FILE:-$HOME/.omp/agent/style-hooks.json}` with both hooks off when missing
 - Installs AOC OMP agent templates from `.omp/manifest.toml` into `${AOC_OMP_AGENT_DIR:-$HOME/.omp/agent}/agents` when available
 - Installs OMP skills from `.omp/manifest.toml` into `${AOC_OMP_AGENT_DIR:-$HOME/.omp/agent}/skills` when available
 - Seeds reusable preset assets in `.aoc/presets/{design,hyperframes,ops,research,test}/` when missing
@@ -2067,6 +2068,25 @@ setup_omp_extensions() {
   done
 
   rm -f "$omp_extension_dir/aoc-openai-stt.ts"
+}
+
+setup_omp_style_state() {
+  local style_state_file="${AOC_STYLE_STATE_FILE:-$HOME/.omp/agent/style-hooks.json}"
+  if [[ -f "$style_state_file" ]]; then
+    log "OMP style hook state exists ($style_state_file). Preserving."
+    return 0
+  fi
+
+  mkdir -p "$(dirname "$style_state_file")"
+  cat > "$style_state_file" <<'EOF'
+{
+  "version": 1,
+  "ponytail": "off",
+  "caveman": "off",
+  "updatedAt": ""
+}
+EOF
+  log "Seeded OMP style hook state: $style_state_file"
 }
 
 
@@ -2589,6 +2609,7 @@ main() {
   setup_project_mind_runtime
   setup_project_omp_assets
   setup_omp_extensions
+  setup_omp_style_state
   setup_omp_skills
   setup_omp_agents
   setup_voxtype_lexicon

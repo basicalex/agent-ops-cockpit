@@ -10,6 +10,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import signal
 import subprocess
 import sys
 from pathlib import Path
@@ -38,19 +39,48 @@ def read_json(path: Path) -> dict[str, Any]:
 
 def run(cmd: list[str], cwd: Path, timeout: float = 5.0) -> dict[str, Any]:
     try:
-        proc = subprocess.run(cmd, cwd=str(cwd), text=True, capture_output=True, timeout=timeout)
-        return {
-            "ok": proc.returncode == 0,
-            "exitCode": proc.returncode,
-            "stdout": proc.stdout.strip(),
-            "stderr": proc.stderr.strip(),
-        }
+        proc = subprocess.Popen(
+            cmd,
+            cwd=str(cwd),
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            start_new_session=True,
+        )
     except FileNotFoundError as exc:
         return {"ok": False, "error": f"missing command: {exc.filename}"}
-    except subprocess.TimeoutExpired:
-        return {"ok": False, "error": f"timeout after {timeout}s"}
     except Exception as exc:
         return {"ok": False, "error": str(exc)}
+
+    try:
+        stdout, stderr = proc.communicate(timeout=timeout)
+    except subprocess.TimeoutExpired:
+        try:
+            os.killpg(proc.pid, signal.SIGTERM)
+        except ProcessLookupError:
+            pass
+        try:
+            stdout, stderr = proc.communicate(timeout=0.5)
+        except subprocess.TimeoutExpired:
+            try:
+                os.killpg(proc.pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+            stdout, stderr = proc.communicate()
+        return {
+            "ok": False,
+            "exitCode": proc.returncode,
+            "stdout": stdout.strip(),
+            "stderr": stderr.strip(),
+            "error": f"timeout after {timeout}s",
+        }
+
+    return {
+        "ok": proc.returncode == 0,
+        "exitCode": proc.returncode,
+        "stdout": stdout.strip(),
+        "stderr": stderr.strip(),
+    }
 
 
 def first_line(value: Any) -> str | None:
@@ -260,7 +290,7 @@ def build_packet(project_root: Path, do_sync: bool) -> dict[str, Any]:
     launcher = resolve_mind_launcher(project_root)
     status = mind_status(project_root, launcher)
     active_tag_result = run(["tm", "tag", "current"], project_root, timeout=3.0)
-    rtk_result = run(["aoc-rtk", "status"], project_root, timeout=3.0)
+    rtk_config_present = (aoc_dir / "rtk.toml").exists()
 
     packet: dict[str, Any] = {
         "schemaVersion": 1,
@@ -275,7 +305,7 @@ def build_packet(project_root: Path, do_sync: bool) -> dict[str, Any]:
             "agentsContractPresent": (project_root / "AGENTS.md").exists(),
             "stmPresent": (aoc_dir / "stm").exists(),
             "memoryPresent": (aoc_dir / "memory.md").exists(),
-            "rtkStatusAvailable": bool(rtk_result.get("ok")),
+            "rtkStatusAvailable": rtk_config_present,
         },
         "taskmaster": {
             "available": bool(active_tag_result.get("ok")),

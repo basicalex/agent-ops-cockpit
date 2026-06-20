@@ -1,10 +1,10 @@
 # Project Context Snapshot
 
 ## Repository
-- Name: agent-ops-cockpit
-- Root: /home/ceii/dev/agent-ops-cockpit
+- Name: .
+- Root: .
 - VCS: jj (colocated with git)
-- Git branch: 10c523a
+- Git branch: main
 - Jujutsu root: /home/ceii/dev/agent-ops-cockpit
 - Jujutsu colocation: yes
 
@@ -22,6 +22,7 @@
 ./.agents/skills
 ./AOC.md
 ./bin
+./bin/AGENTS.md
 ./bin/aoc
 ./bin/aoc-agent
 ./bin/aoc-agent-install
@@ -55,7 +56,6 @@
 ./bin/aoc-mind-toggle
 ./bin/aoc-mission-control
 ./bin/aoc-mission-control-tab
-./bin/aoc-mission-control-toggle
 ... [tree truncated to 40 lines]
 ```
 

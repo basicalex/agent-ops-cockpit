@@ -6,6 +6,7 @@ set -euo pipefail
 #   min     handshake essentials only
 #   compact concise default policy/capability capsule
 #   full    verbose/debug capsule
+# AOC_OMP_CONTEXT_FAST=0 forces the Python handshake path for compact/min.
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 handshake="$script_dir/aoc-handshake"
 if [[ ! -x "$handshake" ]]; then
@@ -20,5 +21,142 @@ case "$level" in
     exit 2
     ;;
 esac
+
+find_aoc_root() {
+  local dir="${1:-$PWD}"
+  dir="$(cd "$dir" 2>/dev/null && pwd -P)" || return 1
+  while [[ "$dir" != "/" ]]; do
+    if [[ -d "$dir/.aoc" || -f "$dir/AGENTS.md" || -d "$dir/.git" || -d "$dir/.jj" ]]; then
+      printf '%s\n' "$dir"
+      return 0
+    fi
+    dir="$(dirname "$dir")"
+  done
+  pwd -P
+}
+
+first_line() {
+  sed -n '1p'
+}
+
+run_quick() {
+  local seconds="$1"
+  shift
+  if command -v timeout >/dev/null 2>&1; then
+    timeout "$seconds" "$@" 2>/dev/null || true
+  else
+    "$@" 2>/dev/null || true
+  fi
+}
+
+print_style_hooks() {
+  local file="${AOC_STYLE_STATE_FILE:-$HOME/.omp/agent/style-hooks.json}"
+  if [[ ! -f "$file" ]]; then
+    return 0
+  fi
+  python3 - "$file" <<'PY' || true
+import json
+import sys
+from pathlib import Path
+
+file = Path(sys.argv[1])
+try:
+    data = json.loads(file.read_text())
+except Exception:
+    raise SystemExit(0)
+
+if not isinstance(data, dict) or data.get("version") != 1:
+    raise SystemExit(0)
+
+ponytail = data.get("ponytail")
+caveman = data.get("caveman")
+if ponytail not in {"off", "lite", "full", "ultra"}:
+    raise SystemExit(0)
+if caveman not in {"off", "lite", "full", "ultra", "wenyan-lite", "wenyan-full", "wenyan-ultra"}:
+    raise SystemExit(0)
+if ponytail == "off" and caveman == "off":
+    raise SystemExit(0)
+
+lines = ["# AOC Host Style Hooks"]
+if ponytail != "off":
+    lines.extend([
+        f"- Ponytail engineering mode: {ponytail}.",
+        "- Correctness first; choose boring minimal implementation; avoid new abstractions unless existing code proves need.",
+        "- Delete obsolete code instead of adding compatibility shims; prefer source fixes over warning suppression.",
+    ])
+if caveman != "off":
+    lines.extend([
+        f"- Caveman output mode: {caveman}.",
+        "- Compress prose; drop filler, pleasantries, and hedging; preserve user's language.",
+        "- Preserve code symbols, paths, API names, CLI commands, commit keywords, and exact error strings verbatim.",
+        "- Use clear normal prose for security warnings, irreversible/destructive actions, and ordered steps where compression could create ambiguity.",
+        "- Never announce caveman style unless user asks what mode is active.",
+    ])
+    if caveman == "ultra":
+        lines.append("- Ultra: use arrows and common prose abbreviations only when they cannot alter technical meaning.")
+    if caveman.startswith("wenyan-"):
+        lines.append("- Wenyan modes: use concise classical Chinese style only when the user's dominant language is Chinese; otherwise keep the user's language and apply equivalent compression.")
+print()
+print("\n".join(lines))
+PY
+}
+
+print_fast_context() {
+  local root initialized context_state agents_state vcs_line policy_line task_line mind_line rtk_line
+  root="$(find_aoc_root "${1:-$PWD}")"
+  if [[ -d "$root/.aoc" ]]; then initialized="initialized"; else initialized="not initialized"; fi
+  if [[ -f "$root/.aoc/context.md" ]]; then context_state="present"; else context_state="missing"; fi
+  if [[ -f "$root/AGENTS.md" ]]; then agents_state="present"; else agents_state="missing"; fi
+
+  if [[ -d "$root/.jj" ]] && command -v jj >/dev/null 2>&1 && [[ -n "$(run_quick 1s jj root)" ]]; then
+    vcs_line="jj; preferred=jj"
+    policy_line="jj current-change workflow; no git staging; split mixed work before commit"
+  elif [[ -d "$root/.git" ]] && command -v git >/dev/null 2>&1; then
+    vcs_line="git; preferred=git"
+    policy_line="git explicit path staging; keep the commit atomic; never push without explicit approval"
+  else
+    vcs_line="none; preferred=none"
+    policy_line="no VCS detected; do not commit until configured"
+  fi
+
+  local tag
+  tag="$(cd "$root" && run_quick 1s tm tag current | first_line)"
+  if [[ -n "$tag" ]]; then
+    task_line="available; active tag \`$tag\`. Use CLI commands for task/spec details; do not read task JSON directly."
+  else
+    task_line="unknown at startup. Use \`tm tag current\` lazily if task/spec grounding is needed."
+  fi
+
+  if command -v aoc-mind-service >/dev/null 2>&1 || [[ -f "$root/.aoc/mind-service.json" || -f "$HOME/.config/aoc/mind-service.json" ]]; then
+    mind_line="available or configured. Retrieve focused context only after user intent is known and the reason is explicit."
+  else
+    mind_line="not detected. Continue with local repo context."
+  fi
+
+  if [[ -f "$root/.aoc/rtk.toml" ]]; then
+    rtk_line="configured; CodeGraph/RTK/details are lazy capability lookups, not startup prose."
+  else
+    rtk_line="not configured; CodeGraph/RTK/details are lazy capability lookups, not startup prose."
+  fi
+
+  cat <<EOF
+# AOC Startup Context
+
+- Mode: metadata-only startup capsule; do not inject broad Mind memories, raw task state, raw AGENTS chains, skills, prompts, extension source, or docs by default.
+- Root: \`$root\`
+- AOC: $initialized; context \`.aoc/context.md\` is $context_state; agent contract is $agents_state.
+- VCS: $vcs_line. Safety rule: $policy_line.
+- Taskmaster: $task_line
+- Mind: $mind_line
+- RTK status command: $rtk_line
+- Protected direct reads: \`.aoc/memory.md\`, \`.aoc/stm/current.md\`, \`.taskmaster/tasks/tasks.json\`.
+EOF
+  print_style_hooks
+}
+
+if [[ "${AOC_OMP_CONTEXT_FAST:-1}" != "0" && "$level" != "full" ]]; then
+  print_fast_context "${1:-$PWD}"
+  exit 0
+fi
 
 exec "$handshake" --prompt --prompt-level "$level" "$@"

@@ -15,7 +15,17 @@ have() {
   command -v "$1" >/dev/null 2>&1
 }
 
-bin_dir="${AOC_BIN_DIR:-$HOME/.local/bin}"
+configured_bin_dir="${AOC_BIN_DIR:-}"
+if [[ -n "$configured_bin_dir" ]]; then
+  bin_dir="$configured_bin_dir"
+else
+  first_omp="$(command -v omp 2>/dev/null || true)"
+  if [[ -n "$first_omp" && "$first_omp" != "$HOME/.local/bin/omp" && -w "$(dirname "$first_omp")" ]]; then
+    bin_dir="$(dirname "$first_omp")"
+  else
+    bin_dir="$HOME/.local/bin"
+  fi
+fi
 status=0
 while [[ $# -gt 0 ]]; do
   case "$1" in

@@ -185,3 +185,6 @@ __pycache__/
 
 
 
+
+!/.omp/skills/
+!/.omp/skills/**
