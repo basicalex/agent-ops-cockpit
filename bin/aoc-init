@@ -2067,7 +2067,7 @@ setup_omp_extensions() {
     fi
   done
 
-  rm -f "$omp_extension_dir/aoc-openai-stt.ts"
+  rm -f "$omp_extension_dir/aoc-openai-stt.ts" "$omp_extension_dir/ponytail.ts"
 }
 
 setup_omp_style_state() {
@@ -2117,6 +2117,8 @@ setup_omp_skills() {
       warn "Missing AOC OMP skill seed: $skill_name"
     fi
   done
+
+  rm -rf "$omp_skill_dir/ponytail"
 }
 setup_omp_agents() {
   local omp_agent_seed_dir
