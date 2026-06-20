@@ -35,7 +35,7 @@ const HerdrParams = Type.Object({
 	maxChars: Type.Optional(Type.Integer({ minimum: 1000, maximum: MAX_ALLOWED_CHARS, description: "Maximum characters returned to the model." })),
 });
 
-type HerdrParamsType = {
+export type HerdrParamsType = {
 	action: "list" | "get" | "read" | "explain" | "wait" | "transcript";
 	target?: string;
 	source?: "visible" | "recent" | "recent-unwrapped";
@@ -253,7 +253,7 @@ async function runHerdr(command: string, args: string[], cwd: string, maxChars: 
 	});
 }
 
-async function runTranscript(params: HerdrParamsType, cwd: string, maxChars: number, signal?: AbortSignal) {
+export async function runTranscript(params: HerdrParamsType, cwd: string, maxChars: number, signal?: AbortSignal) {
 	const target = requireText(params.target, "target");
 	const commandBin = "herdr";
 	const args = ["agent", "get", target];

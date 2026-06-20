@@ -34,6 +34,36 @@ PY
 mapfile -t omp_extensions < <(read_omp_manifest_list extensions)
 mapfile -t omp_agents < <(read_omp_manifest_list agents)
 mapfile -t omp_skills < <(read_omp_manifest_list skills)
+sync_omp_extension_config() {
+  local omp_config="${AOC_OMP_AGENT_CONFIG:-$HOME/.omp/agent/config.yml}"
+  python3 - "$omp_config" "$omp_extension_dir" "${omp_extensions[@]}" <<'PY'
+import sys
+from pathlib import Path
+
+config = Path(sys.argv[1])
+extension_dir = Path(sys.argv[2])
+extensions = [str(extension_dir / name) for name in sys.argv[3:]]
+if not config.exists():
+    sys.exit(0)
+
+lines = config.read_text().splitlines()
+block = ["extensions: "] + [f"  - {value}" for value in extensions]
+start = None
+for index, line in enumerate(lines):
+    if line.startswith("extensions:"):
+        start = index
+        break
+if start is None:
+    lines.extend(block)
+else:
+    end = start + 1
+    while end < len(lines) and (lines[end].startswith(" ") or lines[end].strip() == ""):
+        end += 1
+    lines[start:end] = block
+config.write_text("\n".join(lines) + "\n")
+PY
+}
+
 install_voxtype_lexicon() {
   local voxtype_bin="aoc-voxtype-setup"
   if [[ -x "$repo_root/bin/aoc-voxtype-setup" ]]; then
@@ -100,13 +130,6 @@ Install Herdr first, then rerun this command.
 EOF
   exit 1
 fi
-
-if [[ ! -f "$config_src" ]]; then
-  echo "aoc-herdr-install: missing $config_src" >&2
-  exit 1
-fi
-
-mkdir -p "$config_dir"
 if [[ -f "$config_dst" && "$force" != "1" ]]; then
   backup="$config_dst.bak.$(date +%Y%m%d%H%M%S)"
   cp "$config_dst" "$backup"
@@ -129,8 +152,12 @@ if command -v omp >/dev/null 2>&1 || command -v omp-raw >/dev/null 2>&1; then
     echo "Warning: Herdr OMP integration install failed; continuing" >&2
   fi
 
-  if command -v aoc-omp-shim-install >/dev/null 2>&1; then
-    if aoc-omp-shim-install >/dev/null; then
+  omp_shim_installer="aoc-omp-shim-install"
+  if [[ -x "$repo_root/bin/aoc-omp-shim-install" ]]; then
+    omp_shim_installer="$repo_root/bin/aoc-omp-shim-install"
+  fi
+  if command -v "$omp_shim_installer" >/dev/null 2>&1 || [[ -x "$omp_shim_installer" ]]; then
+    if "$omp_shim_installer" >/dev/null; then
       echo "Installed/updated AOC-aware OMP shim"
     else
       echo "Warning: AOC OMP shim install failed; continuing" >&2
@@ -153,6 +180,8 @@ for extension_name in "${omp_extensions[@]}"; do
     echo "Warning: missing $extension_src; skipping AOC OMP extension" >&2
   fi
 done
+sync_omp_extension_config
+echo "Updated OMP extension config in ${AOC_OMP_AGENT_CONFIG:-$HOME/.omp/agent/config.yml}"
 rm -f "$omp_extension_dir/aoc-openai-stt.ts"
 
 

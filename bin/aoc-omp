@@ -18,6 +18,7 @@ if [[ "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
   exit 0
 fi
 
+
 raw_omp="${AOC_RAW_OMP_BIN:-}"
 if [[ -z "$raw_omp" ]]; then
   if command -v omp-raw >/dev/null 2>&1; then
@@ -34,6 +35,16 @@ if ! command -v "$raw_omp" >/dev/null 2>&1; then
   fi
   exit 1
 fi
+if [[ -z "${PI_PACKAGE_DIR:-}" && -d "$HOME/.cache/.bun/install/global/node_modules/@oh-my-pi/pi-coding-agent" ]]; then
+  export PI_PACKAGE_DIR="$HOME/.cache/.bun/install/global/node_modules/@oh-my-pi/pi-coding-agent"
+fi
+
+
+case "${1:-}" in
+  update|--version|-V|version)
+    exec "$raw_omp" "$@"
+    ;;
+esac
 
 
 runtime_dir="${XDG_RUNTIME_DIR:-/tmp}"

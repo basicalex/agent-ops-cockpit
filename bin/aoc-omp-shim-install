@@ -61,7 +61,9 @@ else
   omp_path="$(command -v omp 2>/dev/null || true)"
 fi
 if [[ -n "$omp_path" && -x "$omp_path" ]]; then
-  if [[ "$omp_path" != "$bin_dir/omp" ]]; then
+  if [[ "$omp_path" == "$bin_dir/omp-raw" ]]; then
+    :
+  elif [[ "$omp_path" != "$bin_dir/omp" ]]; then
     cp -p "$omp_path" "$bin_dir/omp-raw"
   elif ! grep -q "AOC-aware OMP shim" "$omp_path" 2>/dev/null; then
     cp -p "$omp_path" "$bin_dir/omp-raw"
@@ -71,6 +73,10 @@ fi
 if [[ ! -x "$bin_dir/omp-raw" ]]; then
   echo "Could not install AOC omp shim: raw OMP binary not found. Install OMP first or set AOC_RAW_OMP_BIN." >&2
   exit 1
+fi
+
+if [[ -L "$bin_dir/omp" ]]; then
+  rm "$bin_dir/omp"
 fi
 
 cat > "$bin_dir/omp" <<'SHIM'
@@ -86,6 +92,24 @@ set -euo pipefail
 raw_omp="${AOC_RAW_OMP_BIN:-omp-raw}"
 aoc_omp="${AOC_OMP_WRAPPER_BIN:-aoc-omp}"
 
+
+# Bun global installs can leave peer-only runtime deps (for example zod for
+# @agentclientprotocol/sdk) resolvable only from the global node_modules tree.
+# Preserve any operator-provided NODE_PATH and add that tree for omp-raw.
+if [[ -z "${NODE_PATH:-}" ]]; then
+  export NODE_PATH="$HOME/.cache/.bun/install/global/node_modules"
+else
+  export NODE_PATH="$HOME/.cache/.bun/install/global/node_modules:$NODE_PATH"
+fi
+if [[ -z "${PI_PACKAGE_DIR:-}" && -d "$HOME/.cache/.bun/install/global/node_modules/@oh-my-pi/pi-coding-agent" ]]; then
+  export PI_PACKAGE_DIR="$HOME/.cache/.bun/install/global/node_modules/@oh-my-pi/pi-coding-agent"
+fi
+if [[ -d "$HOME/.cache/.bun/install/global/node_modules/@oh-my-pi/pi-coding-agent/src" ]]; then
+  raw_omp_path="$(command -v "${AOC_RAW_OMP_BIN:-$raw_omp}" 2>/dev/null || true)"
+  raw_omp_dir="$(dirname "${raw_omp_path:-$0}")"
+  rm -rf "$raw_omp_dir/src" 2>/dev/null || true
+  ln -sfn "$HOME/.cache/.bun/install/global/node_modules/@oh-my-pi/pi-coding-agent/src" "$raw_omp_dir/src" 2>/dev/null || true
+fi
 find_aoc_root() {
   local dir="${PWD:-.}"
   dir="$(cd "$dir" 2>/dev/null && pwd -P)" || return 1

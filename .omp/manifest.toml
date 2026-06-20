@@ -1,5 +1,4 @@
 extensions = [
-  "aoc-runtime.ts",
   "aoc-codegraph.ts",
   "aoc-mind.ts",
   "aoc-commit.ts",

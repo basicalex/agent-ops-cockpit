@@ -7,6 +7,7 @@ Scope: `.omp/extensions`
 - For subprocess-backed tools, scope cwd under the project root, bound/truncate output, enforce timeout and AbortSignal cleanup, use `spawn(..., { shell:false })`, and surface nonzero/timeout results as unavailable evidence rather than success.
 - Slash-command extensions should hand workflow prompts to the agent with `pi.sendMessage({ customType, display:true, content, details }, { triggerTurn:true })`; include cwd/scope in details and use `ctx.ui.notify` only as fallback.
 - Tool descriptions and `promptGuidelines` must encode operational limits and write-safety for each exposed capability; write/apply/install/init/sync-style actions require a safe schema mode and matching prompt guidance before exposure.
+- Autonomous worker-to-master prompting belongs in `aoc-master.ts` only, must be gated by typed schemas and master-owned full-retard state, and must preserve bounded output/timeouts plus no arbitrary Herdr host actions.
 
 ## Verification
 - `bun --check .omp/extensions/<changed-extension>.ts`

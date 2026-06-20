@@ -102,3 +102,5 @@ export async function runBoundedCommand(
 	});
 	return await promise;
 }
+
+export default function aocRuntimeHelperExtension(): void {}
