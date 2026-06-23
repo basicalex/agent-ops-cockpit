@@ -6,7 +6,7 @@ This is the human entrypoint. Start here before opening architecture or maintain
 
 1. [Quickstart](quickstart.md)
 2. [Installation](installation.md)
-3. [Control pane](control-pane.md)
+3. [Herdr workspace](herdr-workspace.md)
 4. [Tasks and memory](tasks-memory.md)
 5. [Troubleshooting](troubleshooting.md)
 
@@ -16,16 +16,16 @@ This is the human entrypoint. Start here before opening architecture or maintain
 |---|---|
 | Install AOC | [Installation](installation.md) |
 | Run first project | [Quickstart](quickstart.md) |
-| Use `Alt+C` | [Control pane](control-pane.md) |
-| Switch modes with `Alt+X` | [Presets](presets.md) |
-| Use Mind/memory overlay with `Alt+M` | [Tasks and memory](tasks-memory.md) |
+| Herdr workspace management | [Herdr workspace](herdr-workspace.md) |
+| Master orchestration `/master` | [Herdr workspace](herdr-workspace.md) |
+| Safe commits `/commit` | [Commit intelligence](commit-intelligence.md) |
+| Code discovery `aoc_codegraph` | [Agent extensibility](agent-extensibility.md) |
+| DOX cartography `/dox` | [DOX cartography](dox-cartography.md) |
 | Track tasks and decisions | [Tasks and memory](tasks-memory.md) |
 | Research the web | [Web research](web-research.md) |
 | Iterate visual designs in a GUI studio | [Open Design studio](open-design.md) |
 | Create video/campaign assets | [HyperFrames](hyperframes.md) |
 | Configure agents/skills | [Agents](agents.md), [Skills](skills.md) |
-| Map sparse local AGENTS contracts | [DOX cartography](dox-cartography.md) |
-| Customize layouts | [Layouts](layouts.md) |
 | Fix problems | [Troubleshooting](troubleshooting.md) |
 
 ## Operator docs
@@ -42,8 +42,6 @@ Use these when you need exact contracts or paths:
 - [Architecture](reference/architecture.md)
 - [AOC Mind architecture](reference/aoc-mind-architecture.md)
 - [RTK routing](reference/rtk-routing.md)
-- [Session lifecycle](reference/session-lifecycle.md)
-- [Pulse IPC protocol](reference/pulse-ipc-protocol.md)
 - [Managed assets](managed-assets.md)
 - [Open Design studio](open-design.md)
 - [Commit intelligence](commit-intelligence.md)

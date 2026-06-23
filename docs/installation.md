@@ -38,7 +38,7 @@ aoc
 
 ## What install does
 
-`install.sh` installs AOC binaries, scripts, Zellij/Yazi/Micro assets, OMP defaults, optional skill templates, and global config under user-local paths. OMP skills include `aoc-stm` for directed STM packet creation and safe handoff loading.
+`install.sh` installs AOC binaries, scripts, the Herdr config baseline, OMP defaults, optional skill templates, OMP extension/skill/agent assets declared in `.omp/manifest.toml`, the AOC-aware OMP shim, and global config under user-local paths. OMP skills include `aoc-stm` for directed STM packet creation and safe handoff loading.
 
 It does **not** assume every repo should become an AOC repo. Use `aoc-init` for each project you want to use with AOC.
 
@@ -61,8 +61,6 @@ curl -fsSL https://raw.githubusercontent.com/basicalex/agent-ops-cockpit/main/in
 Local install overrides:
 
 ```bash
-AOC_INSTALL_PI_AGENT=0 ./install.sh       # skip automatic Pi install
-AOC_INSTALL_PI_REQUIRED=0 ./install.sh    # continue if Pi install fails
 AOC_INSTALL_RUST=0 ./install.sh           # skip Rust bootstrap
 ```
 
@@ -72,28 +70,26 @@ Required:
 
 - Git
 - Bash
-- Zellij (`>= 0.44.0` recommended)
-- Pi coding agent CLI
+- Herdr
+- OMP coding agent CLI (`omp`)
 
 Recommended:
 
 - Rust/Cargo for local builds
-- Yazi for file navigation
 - Node.js `>= 22` for OMP extensions and HyperFrames
 - FFmpeg for HyperFrames renders
 - Docker for managed local search
 
 ## Verify
 
+Run the health check, project status check, and OMP startup checks:
+
 ```bash
 aoc-doctor
 aoc-init --status
-```
-
-Inside AOC:
-
-```text
-Alt+C -> Settings -> Tools
+aoc-handshake --json
+aoc-omp-context
+omp --help
 ```
 
 Run tool-specific verify actions when enabling optional integrations.

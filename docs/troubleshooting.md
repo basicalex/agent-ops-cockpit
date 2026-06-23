@@ -14,36 +14,43 @@ Check:
 
 ```bash
 which aoc
-which zellij
+which herdr
 aoc-doctor
 ```
 
 Fix PATH first. AOC installs to user-local paths such as `~/.local/bin`.
 
-## Pi pane fails
+## OMP agent fails
 
 Check:
 
 ```bash
-which pi
-aoc-agent --set pi
+which omp
 aoc-doctor
 ```
 
-If model/auth setup is the issue, use Pi's own model/auth commands, then restart `aoc`.
+If model/auth setup is the issue, check OMP's own provider credentials and model selection in `~/.omp/agent/config.yml`, then restart `aoc` or `aoc omp`.
 
-## `Alt+C` does not open
-
-Check you are inside the AOC Zellij session. Then run manually:
+To bypass the AOC-aware OMP shim while isolating wrapper problems:
 
 ```bash
-aoc-control
+OMP_NO_AOC_WRAPPER=1 omp ...
 ```
 
-If it fails, reinstall:
+## OMP extensions not loading
+
+Check the current OMP log:
 
 ```bash
-./install.sh
+~/.omp/logs/omp.<date>.log
+```
+
+Look for `Failed to load extension` errors.
+
+Known failure: OMP reports a `typebox.ts` resolution error because `src/extensibility/typebox.ts` is missing from the OMP binary dir. Fix by relinking the package source shim:
+
+```bash
+aoc-herdr-install --force
 ```
 
 ## Skills missing or stale
@@ -120,27 +127,56 @@ Common fixes:
 
 See [Web research](web-research.md).
 
-Use:
+Check service state:
 
-```text
-Alt+C -> Settings -> Tools -> Agent Browser + Search
+```bash
+aoc services status
 ```
 
-Run install/verify actions top to bottom.
+Then test the CLI path agents use:
+
+```bash
+aoc-search "test query"
+```
 
 Managed local search needs Docker or Docker Compose.
 
-## Zellij layout looks wrong
+## Herdr workspace issues
 
-Run:
+Check Herdr:
 
 ```bash
-aoc-doctor
-aoc-layout list
+herdr status
+herdr server reload-config
 ```
 
-Then restart the AOC session.
+Use the workspace picker with `Alt+W` to confirm the expected workspace is active.
+
+## Master orchestration
+
+Check:
+
+```text
+/master status
+```
+
+Common cases:
+
+- `/master status` shows `off` when the master lease expired.
+- `/master on` fails if another pane owns the lease.
+- `aoc_orchestrate` mutating actions require `master_on` first.
 
 ## Need deeper logs
 
-AOC writes logs under project and user-local state paths. Start with the command that failed, then use `Alt+C` details/log actions when available.
+Start with:
+
+```bash
+aoc-doctor
+```
+
+Then inspect the current OMP log:
+
+```bash
+~/.omp/logs/omp.<date>.log
+```
+

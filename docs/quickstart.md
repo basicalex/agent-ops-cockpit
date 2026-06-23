@@ -37,50 +37,57 @@ aoc
 
 ## 5. Use the workspace
 
-- Pi pane: coding agent work
-- Taskmaster pane: tasks
-- File pane: project navigation
-- Shell pane: manual commands
-- `Alt+C`: tools, setup, logs, health checks
-- `Alt+X`: presets/modes
-- `Alt+M`: Mind/memory overlay
-- `Alt+A`: subagent/delegation overlay
+- OMP coding agent pane: coding work and OMP subagent orchestration
+- Taskmaster: use `tm` commands for tasks/specs
+- `/commit`: safe atomic commits
+- `/master`: gated master orchestration
+- `/dox`: DOX cartography
+- `aoc-doctor`: install/project health checks
 
 ## 6. Basic commands
 
 ```bash
-tm list                 # tasks
-aoc-mem add "decision"  # durable project decision
+tm list                               # tasks
+aoc-mem add "decision"                # durable project decision
 aoc-stm template --purpose continue   # purpose-specific handoff shape
-aoc-stm add "note"                   # short-term handoff draft note
+aoc-stm add "note"                    # short-term handoff draft note
 aoc-stm handoff --purpose continue --to builder --focus "next safe step"
-# In Pi: /handoff focusing on the next safe step
-# In Pi: /rresume  # safely load latest sealed handoff when safe
-# In Pi: /compact focus on changed files and next safe actions
-# AOC's compaction extension preserves AOC tool/safety context across compactions.
-aoc-doctor              # health check
+aoc-doctor                            # health check
+```
+
+OMP slash commands:
+
+```text
+/master on                            # enable gated master orchestration
+/commit                               # run safe atomic commit workflow
 ```
 
 ## Optional: web research
 
-In AOC, press `Alt+C`:
+OMP agents use the `aoc_web_search` tool for local SearXNG or direct package/GitHub search fallback.
 
-```text
-Settings -> Tools -> Agent Browser + Search
+Operators can manage the local search service through the Herdr AOC Services workspace:
+
+```bash
+aoc services
+aoc services status
+aoc services start search
 ```
 
-Run the install/verify actions top to bottom. See [Web research](web-research.md).
+See [Web research](web-research.md).
 
 ## Optional: HyperFrames
 
-In AOC, press `Alt+C`:
+Use the AOC HyperFrames CLI or the OMP brand pipeline:
 
-```text
-Settings -> Tools -> HyperFrames -> Init workspace + campaign factory
+```bash
+aoc-hyperframes
 ```
 
-Then use:
+OMP slash command:
 
 ```text
-Alt+X -> AOC HyperFrames
+/brand-content
 ```
+
+See [HyperFrames](hyperframes.md).
