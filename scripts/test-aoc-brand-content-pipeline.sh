@@ -7,18 +7,18 @@ trap 'rm -rf "$tmp"' EXIT
 
 project="$tmp/project"
 omp_runtime="$tmp/omp-agent"
+omp_config="$omp_runtime/config.yml"
 mkdir -p "$project" "$omp_runtime"
 
-AOC_INIT_SKIP_BUILD=1 AOC_OMP_AGENT_DIR="$omp_runtime" bash "$root/bin/aoc-init" "$project"
+AOC_INIT_SKIP_BUILD=1 AOC_OMP_PROFILES=core,hyperframes AOC_OMP_AGENT_DIR="$omp_runtime" AOC_OMP_AGENT_CONFIG="$omp_config" bash "$root/bin/aoc-init" "$project"
 
 for required in \
   extensions/aoc-codegraph.ts \
   extensions/aoc-mind.ts \
-  extensions/aoc-commit.ts \
-  extensions/aoc-state.ts \
-  extensions/aoc-jj-init.ts \
+  extensions/aoc-dox.ts \
+  extensions/aoc-style.ts \
+  extensions/aoc-profile.ts \
   extensions/aoc-brand-content.ts \
-  extensions/aoc-web-search.ts \
   agents/brand-strategy.md \
   agents/brand-concept.md \
   agents/svg-asset.md \
@@ -26,7 +26,8 @@ for required in \
   skills/aoc-hyperframes/SKILL.md \
   skills/hyperframes/SKILL.md \
   skills/hyperframes-cli/SKILL.md \
-  skills/website-to-hyperframes/SKILL.md; do
+  skills/website-to-hyperframes/SKILL.md \
+  skills/gsap/SKILL.md; do
   if [[ ! -f "$omp_runtime/$required" ]]; then
     echo "ERROR: missing synced OMP runtime asset: $required" >&2
     exit 1

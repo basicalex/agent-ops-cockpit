@@ -43,6 +43,7 @@ type ExtensionAPI = {
 };
 
 export type PonytailMode = "off" | "lite" | "full" | "ultra";
+type PonytailCommand = PonytailMode | "status" | "review" | "audit" | "debt" | "help";
 export type CavemanMode = "off" | "lite" | "full" | "ultra" | "wenyan-lite" | "wenyan-full" | "wenyan-ultra";
 export type StyleState = { version: 1; ponytail: PonytailMode; caveman: CavemanMode; updatedAt: string };
 
@@ -55,6 +56,10 @@ const PONYTAIL_MODE_COMPLETIONS: AutocompleteItem[] = [
 	{ value: "full", label: "full", description: "Enable the Ponytail host hook in full mode." },
 	{ value: "ultra", label: "ultra", description: "Enable the Ponytail host hook in ultra mode." },
 	{ value: "status", label: "status", description: "Report the active style host hook state." },
+	{ value: "review", label: "review", description: "Run the diff-focused over-engineering review workflow." },
+	{ value: "audit", label: "audit", description: "Run the repo or target-wide over-engineering audit workflow." },
+	{ value: "debt", label: "debt", description: "Run the ponytail debt-ledger workflow." },
+	{ value: "help", label: "help", description: "Show Ponytail commands and modes." },
 ];
 
 const CAVEMAN_MODE_COMPLETIONS: AutocompleteItem[] = [
@@ -67,6 +72,12 @@ const CAVEMAN_MODE_COMPLETIONS: AutocompleteItem[] = [
 	{ value: "wenyan-ultra", label: "wenyan-ultra", description: "Enable the Caveman host hook in wenyan-ultra mode." },
 	{ value: "status", label: "status", description: "Report the active style host hook state." },
 ];
+
+const PONYTAIL_WORKFLOW_PURPOSE: Record<"review" | "audit" | "debt", string> = {
+	review: "Run Ponytail's diff-focused over-engineering review workflow. List only concrete delete, stdlib, native, yagni, or shrink findings; apply no edits.",
+	audit: "Run Ponytail's repo or target-wide over-engineering audit workflow. Rank biggest cuts first; apply no edits.",
+	debt: "Run Ponytail's debt-ledger workflow. Search for ponytail: markers, report ceiling and upgrade triggers, and apply no edits unless the user explicitly asks to persist a ledger.",
+};
 
 function argsText(args: string | string[] | undefined): string {
 	if (Array.isArray(args)) return args.join(" ").trim();
@@ -157,12 +168,17 @@ function filteredCompletions(prefix: string, items: AutocompleteItem[]): Autocom
 	return items.filter((item) => item.value.startsWith(query) || item.label?.toLowerCase().startsWith(query));
 }
 
-function parsePonytailMode(args: string | string[] | undefined): PonytailMode | "status" {
+function parsePonytailMode(args: string | string[] | undefined): PonytailCommand {
 	const text = argsText(args);
 	const [rawMode = "status"] = text.split(/\s+/).filter(Boolean);
 	const mode = rawMode.toLowerCase();
-	if (mode === "off" || mode === "lite" || mode === "full" || mode === "ultra" || mode === "status") return mode;
-	throw new Error("Unknown /ponytail mode. Use one of: off, lite, full, ultra, status.");
+	if (mode === "off" || mode === "lite" || mode === "full" || mode === "ultra" || mode === "status" || mode === "review" || mode === "audit" || mode === "debt" || mode === "help") return mode;
+	throw new Error("Unknown /ponytail mode. Use one of: off, lite, full, ultra, status, review, audit, debt, help.");
+}
+
+function ponytailTarget(args: string | string[] | undefined): string {
+	const parts = argsText(args).split(/\s+/).filter(Boolean);
+	return parts.slice(1).join(" ").trim();
 }
 
 function parseCavemanMode(args: string | string[] | undefined): CavemanMode | "status" {
@@ -198,14 +214,40 @@ async function send(pi: ExtensionAPI, ctx: CommandContext, content: string, deta
 	await ctx.ui?.notify?.(content, "info");
 }
 
+function ponytailHelpCard(): string {
+	return `Ponytail commands:
+/ponytail status — report active Ponytail/Caveman hook state.
+/ponytail off|lite|full|ultra — set persistent Ponytail host-hook mode.
+/ponytail review [target] — run diff-focused over-engineering review through ponytail-workflows.
+/ponytail audit [target] — run repo or target-wide over-engineering audit through ponytail-workflows.
+/ponytail debt [target] — run ponytail: marker debt ledger through ponytail-workflows.
+/ponytail help — show this card.`;
+}
+
 export default function aocStyleExtension(pi: ExtensionAPI): void {
+	void STYLE_STATUS_CUSTOM_TYPE;
 	pi.registerCommand("ponytail", {
-		description: "Usage: /ponytail [off|lite|full|ultra|status]. Set Ponytail host hook state.",
+		description: "Usage: /ponytail [off|lite|full|ultra|status|review|audit|debt|help] [target]. Set Ponytail host hook state or run Ponytail workflows.",
 		getArgumentCompletions: (prefix: string): AutocompleteItem[] | null => filteredCompletions(prefix, PONYTAIL_MODE_COMPLETIONS),
 		handler: async (args, ctx) => {
 			const mode = parsePonytailMode(args);
 			if (mode === "status") {
 				await notify(ctx, statusMessage(readStyleState()));
+				return;
+			}
+			if (mode === "help") {
+				await notify(ctx, ponytailHelpCard());
+				return;
+			}
+			if (mode === "review" || mode === "audit" || mode === "debt") {
+				const target = ponytailTarget(args);
+				await send(pi, ctx, renderNamedPrompt("ponytail-workflows", PONYTAIL_WORKFLOW_PURPOSE[mode], target), {
+					command: "ponytail",
+					mode,
+					skill: "ponytail-workflows",
+					cwd: ctx.cwd,
+					target: target || null,
+				});
 				return;
 			}
 			const current = readStyleState();
@@ -226,58 +268,6 @@ export default function aocStyleExtension(pi: ExtensionAPI): void {
 			const current = readStyleState();
 			writeStyleState({ ...current, caveman: mode, updatedAt: new Date().toISOString() });
 			await notify(ctx, `Caveman host hook set to ${mode}.`);
-		},
-	});
-
-	pi.registerCommand("ponytail-review", {
-		description: "Ask the agent to use the ponytail-review skill for review-focused work.",
-		handler: async (args, ctx) => {
-			const target = argsText(args);
-			await send(
-				pi,
-				ctx,
-				renderNamedPrompt("ponytail-review", "Review the current task or supplied target with Ponytail's practical code-review posture. Prefer concise findings, concrete risk, and maintainable fixes.", target),
-				{ command: "ponytail-review", skill: "ponytail-review", cwd: ctx.cwd, target: target || null },
-			);
-		},
-	});
-
-	pi.registerCommand("ponytail-audit", {
-		description: "Ask the agent to use the ponytail-audit skill for broader audit work.",
-		handler: async (args, ctx) => {
-			const target = argsText(args);
-			await send(
-				pi,
-				ctx,
-				renderNamedPrompt("ponytail-audit", "Audit the current task or supplied target with Ponytail's engineering-risk posture. Focus on correctness, hidden coupling, edge cases, and operational hazards.", target),
-				{ command: "ponytail-audit", skill: "ponytail-audit", cwd: ctx.cwd, target: target || null },
-			);
-		},
-	});
-
-	pi.registerCommand("ponytail-debt", {
-		description: "Ask the agent to use the ponytail-debt skill for technical-debt analysis.",
-		handler: async (args, ctx) => {
-			const target = argsText(args);
-			await send(
-				pi,
-				ctx,
-				renderNamedPrompt("ponytail-debt", "Analyze technical debt in the current task or supplied target with Ponytail's bias for boring, removable complexity and source-level fixes.", target),
-				{ command: "ponytail-debt", skill: "ponytail-debt", cwd: ctx.cwd, target: target || null },
-			);
-		},
-	});
-
-	pi.registerCommand("ponytail-help", {
-		description: "Ask the agent to use the ponytail-help skill for Ponytail command guidance.",
-		handler: async (args, ctx) => {
-			const target = argsText(args);
-			await send(
-				pi,
-				ctx,
-				renderNamedPrompt("ponytail-help", "Explain the available Ponytail slash commands and when to use host-hook modes, workflow review, audit, and debt commands.", target),
-				{ command: "ponytail-help", skill: "ponytail-help", cwd: ctx.cwd, target: target || null },
-			);
 		},
 	});
 

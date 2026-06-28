@@ -5,42 +5,111 @@ root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 tmp="$(mktemp -d)"
 trap 'rm -rf "$tmp"' EXIT
 
-project="$tmp/project"
-omp_runtime="$tmp/omp-agent"
-mkdir -p "$project" "$omp_runtime"
+assert_file() {
+  local path="$1"
+  [[ -f "$path" ]] || { echo "ERROR: missing file: $path" >&2; exit 1; }
+}
 
-AOC_INIT_SKIP_BUILD=1 AOC_OMP_AGENT_DIR="$omp_runtime" bash "$root/bin/aoc-init" "$project"
+assert_dir() {
+  local path="$1"
+  [[ -d "$path" ]] || { echo "ERROR: missing directory: $path" >&2; exit 1; }
+}
+
+assert_absent() {
+  local path="$1"
+  [[ ! -e "$path" ]] || { echo "ERROR: unexpected asset present: $path" >&2; exit 1; }
+}
+
+assert_config_extensions_match() {
+  local config="$1"
+  local extension_dir="$2"
+  shift 2
+  python3 - "$config" "$extension_dir" "$@" <<'PY'
+from pathlib import Path
+import sys
+config = Path(sys.argv[1])
+extension_dir = Path(sys.argv[2])
+expected = [str(extension_dir / name) for name in sys.argv[3:]]
+lines = config.read_text(encoding='utf-8').splitlines()
+try:
+    start = next(i for i, line in enumerate(lines) if line.startswith('extensions:'))
+except StopIteration:
+    raise SystemExit('ERROR: config missing extensions block')
+end = start + 1
+while end < len(lines) and (lines[end].startswith('  - ') or not lines[end].strip()):
+    end += 1
+actual = [line[4:] for line in lines[start + 1:end] if line.startswith('  - ')]
+if actual != expected:
+    raise SystemExit(f'ERROR: config extensions mismatch\nexpected={expected!r}\nactual={actual!r}')
+PY
+}
+
+run_init_fixture() {
+  local name="$1"
+  local profiles="${2:-}"
+  local project="$tmp/$name-project"
+  local runtime="$tmp/$name-omp-agent"
+  local config="$runtime/config.yml"
+  mkdir -p "$project" "$runtime"
+  printf 'extensions:\n  - stale-extension.ts\n' >"$config"
+  mkdir -p "$runtime/extensions" "$runtime/skills/aoc-hyperframes" "$runtime/agents"
+  printf 'stale extension\n' >"$runtime/extensions/aoc-brand-content.ts"
+  printf 'stale skill\n' >"$runtime/skills/aoc-hyperframes/SKILL.md"
+  printf 'stale AOC agent\n' >"$runtime/agents/brand-strategy.md"
+  printf 'user agent\n' >"$runtime/agents/user-local.md"
+  if [[ -n "$profiles" ]]; then
+    AOC_INIT_SKIP_BUILD=1 AOC_OMP_PROFILES="$profiles" AOC_OMP_AGENT_DIR="$runtime" AOC_OMP_AGENT_CONFIG="$config" bash "$root/bin/aoc-init" "$project" >&2
+  else
+    AOC_INIT_SKIP_BUILD=1 AOC_OMP_AGENT_DIR="$runtime" AOC_OMP_AGENT_CONFIG="$config" bash "$root/bin/aoc-init" "$project" >&2
+  fi
+  printf '%s\n%s\n%s\n' "$project" "$runtime" "$config"
+}
+
+mapfile -t default_fixture < <(run_init_fixture default "")
+default_project="${default_fixture[0]}"
+default_runtime="${default_fixture[1]}"
+default_config="${default_fixture[2]}"
 
 for required in \
   .aoc/context.md \
+  .omp/manifest.toml \
   .omp/extensions \
   .omp/agents \
   .omp/skills; do
-  if [[ ! -e "$project/$required" ]]; then
+  if [[ ! -e "$default_project/$required" ]]; then
     echo "ERROR: missing initialized project asset: $required" >&2
     exit 1
   fi
 done
 
-if [[ -e "$project/.pi" ]]; then
+if [[ -e "$default_project/.pi" ]]; then
   echo "ERROR: aoc-init created legacy .pi directory" >&2
   exit 1
 fi
 
-for required in \
-  aoc-codegraph.ts \
-  aoc-mind.ts \
-  aoc-commit.ts \
-  aoc-state.ts \
-  aoc-dox.ts \
-  aoc-dox-command.ts \
-  aoc-jj-init.ts \
-  aoc-brand-content.ts \
-  aoc-web-search.ts; do
-  [[ -f "$omp_runtime/extensions/$required" ]] || { echo "ERROR: missing OMP extension: $required" >&2; exit 1; }
+core_extensions=(
+  aoc-profile.ts
+  aoc-codegraph.ts
+  aoc-mind.ts
+  aoc-dox.ts
+  aoc-style.ts
+)
+for required in "${core_extensions[@]}"; do
+  assert_file "$default_runtime/extensions/$required"
 done
 
-for required in \
+for forbidden in \
+  aoc-herdr.ts \
+  aoc-master.ts \
+  aoc-commit.ts \
+  aoc-state.ts \
+  aoc-brand-content.ts \
+  aoc-web-search.ts \
+  aoc-dox-command.ts; do
+  assert_absent "$default_runtime/extensions/$forbidden"
+done
+
+for forbidden in \
   brand-strategy.md \
   brand-concept.md \
   svg-asset.md \
@@ -49,55 +118,71 @@ for required in \
   dox-mapper.md \
   dox-critic.md \
   dox-writer.md; do
-  [[ -f "$omp_runtime/agents/$required" ]] || { echo "ERROR: missing OMP agent: $required" >&2; exit 1; }
+  assert_absent "$default_runtime/agents/$forbidden"
 done
+assert_file "$default_runtime/agents/user-local.md"
 
 for required in \
-  animejs-core-api \
-  animejs-performance-a11y \
-  animejs-react-integration \
-  animejs-reviewer \
-  animejs-scene-planner \
-  animejs-scroll-interaction \
-  animejs-svg-motion \
-  animejs-text-splitting \
-  animejs-timelines \
-  aoc-dox-cartography \
-  aoc-gaps \
-  aoc-hyperframes \
-  aoc-init-ops \
-  aoc-lexicon \
-  aoc-map \
-  aoc-stm \
   aoc-understand \
+  aoc-init-ops \
   aoc-update \
-  architecture-design \
-  design-diff \
-  design-director \
-  design-handoff \
-  design-premium-ui \
-  design-redesign \
-  design-review \
-  design-spec \
-  design-tokens \
-  enforce-dashboard-ux-guardrails \
   frontend-design \
-  funnel-design \
-  gsap \
-  hyperframes \
-  hyperframes-cli \
   motion-director \
-  omarchy-theme-ops \
-  rlm-analysis \
+  animejs-core-api \
+  funnel-design \
   safe-gamification \
-  spec-rpg-authoring \
-  tm-cc \
-  website-to-hyperframes; do
-  [[ -f "$omp_runtime/skills/$required/SKILL.md" ]] || { echo "ERROR: missing OMP skill: $required" >&2; exit 1; }
+  omarchy-theme-ops \
+  ponytail-workflows; do
+  assert_file "$default_runtime/skills/$required/SKILL.md"
 done
 
+for forbidden in \
+  aoc-hyperframes \
+  hyperframes \
+  hyperframes-cli \
+  website-to-hyperframes \
+  gsap \
+  aoc-dox-cartography \
+  ponytail-review \
+  ponytail-audit \
+  ponytail-debt \
+  ponytail-help; do
+  assert_absent "$default_runtime/skills/$forbidden"
+done
+
+assert_config_extensions_match "$default_config" "$default_runtime/extensions" "${core_extensions[@]}"
+assert_absent "$default_runtime/extensions/ponytail.ts"
+assert_absent "$default_runtime/skills/ponytail-review"
+assert_absent "$default_runtime/skills/ponytail-audit"
+assert_absent "$default_runtime/skills/ponytail-debt"
+assert_absent "$default_runtime/skills/ponytail-help"
+
+mapfile -t full_fixture < <(run_init_fixture full full)
+full_runtime="${full_fixture[1]}"
+full_config="${full_fixture[2]}"
+mapfile -t full_extensions < <(AOC_OMP_PROFILES=full bash "$root/bin/aoc-profile" active --kind extensions --root "$root" --manifest "$root/.omp/manifest.toml")
+mapfile -t full_skills < <(AOC_OMP_PROFILES=full bash "$root/bin/aoc-profile" active --kind skills --root "$root" --manifest "$root/.omp/manifest.toml")
+mapfile -t full_agents < <(AOC_OMP_PROFILES=full bash "$root/bin/aoc-profile" active --kind agents --root "$root" --manifest "$root/.omp/manifest.toml")
+
+for required in "${full_extensions[@]}"; do
+  assert_file "$full_runtime/extensions/$required"
+done
+for required in "${full_skills[@]}"; do
+  assert_file "$full_runtime/skills/$required/SKILL.md"
+done
+for required in "${full_agents[@]}"; do
+  assert_file "$full_runtime/agents/$required"
+done
+assert_config_extensions_match "$full_config" "$full_runtime/extensions" "${full_extensions[@]}"
+assert_absent "$full_runtime/extensions/ponytail.ts"
+assert_absent "$full_runtime/skills/ponytail-review"
+assert_absent "$full_runtime/skills/ponytail-audit"
+assert_absent "$full_runtime/skills/ponytail-debt"
+assert_absent "$full_runtime/skills/ponytail-help"
+assert_dir "$full_runtime/skills/ponytail-workflows"
+
 doctor_log="$tmp/doctor.log"
-(cd "$project" && bash "$root/bin/aoc-doctor") >"$doctor_log"
+(cd "$default_project" && bash "$root/bin/aoc-doctor") >"$doctor_log"
 for forbidden in '.pi/settings.json' 'PI runtime' 'pi-multi-auth'; do
   if grep -Fq "$forbidden" "$doctor_log"; then
     echo "ERROR: aoc-doctor mentioned retired surface: $forbidden" >&2
@@ -105,4 +190,4 @@ for forbidden in '.pi/settings.json' 'PI runtime' 'pi-multi-auth'; do
   fi
 done
 
-echo "PASS: AOC OMP canonical init"
+echo "PASS: AOC OMP canonical init profiles"

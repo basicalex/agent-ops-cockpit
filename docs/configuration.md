@@ -23,7 +23,7 @@ Managed AOC assets use marker files and safe refresh rules. See [Managed assets]
 
 ## OMP extensions and slash commands
 
-`.omp/manifest.toml` is the canonical repo-owned inventory for AOC's OMP extensions, skills, and specialist agent templates. `aoc-init` and `aoc-herdr-install` copy the manifest entries into `${AOC_OMP_AGENT_DIR:-~/.omp/agent}`.
+`.omp/manifest.toml` is the canonical repo-owned full inventory for AOC's OMP extensions, skills, and specialist agent templates. The same file also contains profile tables; active profiles decide which inventory entries `aoc-init` and `aoc-herdr-install` copy into `${AOC_OMP_AGENT_DIR:-~/.omp/agent}`.
 
 Key extension-owned commands and tools:
 
@@ -36,10 +36,10 @@ Key extension-owned commands and tools:
 | `aoc-state.ts` | `/state-status`, `/state-commit`, `/state-push` project-state workflows |
 | `aoc-herdr.ts` | `aoc_herdr` workspace observation |
 | `aoc-dox.ts`, `aoc-dox-command.ts` | `/dox [full|scout|map|review|packet|doctor|dry-run]` |
-| `aoc-jj-init.ts` | `/jj-init` |
 | `aoc-brand-content.ts` | `/brand-content`, `/hyperframes-director` |
 | `aoc-web-search.ts` | `aoc_web_search` |
 | `aoc-style.ts` | AOC style hook state |
+| `aoc-profile.ts` | `/profile [list|show|enable|disable|set|explain]` capability profile management |
 
 ### Master orchestration
 

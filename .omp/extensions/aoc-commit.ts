@@ -42,23 +42,16 @@ function renderCommitPrompt(scope: string): string {
 	const target = scope || "the current completed work";
 	return `Run the AOC/OMP commit workflow for this prompt-first intent: ${target}
 
-The user's /commit invocation is approval to run the full VCS-aware commit flow directly: inspect, select a safe atomic change set, commit with the detected repository workflow, and report the result. Treat the text after /commit as the primary commit intent/scope; use recent session edits and related dirty work only when they support that intent. Never push unless explicitly requested.
+The user's /commit invocation is approval to run the Git commit flow directly: inspect, select a safe atomic change set, commit, and report the result. Treat the text after /commit as the primary commit intent/scope; use recent session edits and related dirty work only when they support that intent. Never push unless explicitly requested.
 
 Workflow:
 
-1. Detect preferred VCS mode, then inspect read-only state
-- Prefer startup context VCS metadata. If it is unavailable or stale, run \`aoc-handshake --json\`.
-- If the handshake reports \`preferredTool: "git"\`, use normal Git flow even when \`.jj\` metadata is present:
-  - git status --short
-  - git diff --stat
-  - git diff --cached --stat
-  - targeted diffs for candidate files only
-- If the handshake reports \`preferredTool: "jj"\`, run narrow Jujutsu summaries:
-  - jj status
-  - jj diff --summary
-  - jj diff --stat
-  - targeted jj diff -- <filesets> when needed
-- Identify unrelated/pre-existing changes and exclude or split them before committing, even if they were edited in the same working copy.
+1. Inspect read-only Git state
+- Run \`git status --short\`.
+- Run \`git diff --stat\`.
+- Run \`git diff --cached --stat\`.
+- Inspect targeted diffs for candidate files only.
+- Identify unrelated/pre-existing changes and exclude them before committing, even if they were edited in the same working tree.
 
 2. Resolve provenance
 - Identify relevant task/subtask/spec from recent implementation context, Taskmaster, or explicit user instructions.
@@ -70,11 +63,7 @@ Workflow:
 - Include only files that are part of that coherent intent: directly edited session files plus related dirty work needed for correctness.
 - Group by intent, not by timestamp.
 - Prefer one commit for one coherent implementation slice.
-- Git uses explicit staging; never stage broad paths like .
-- Jujutsu has no Git staging area: the working copy is the current mutable @ change, and jj commit without filesets selects all current changes.
-- Use Jujutsu commit/split semantics only when \`aoc-handshake --json\` reports \`preferredTool: "jj"\`.
-- In a colocated repository with an attached Git branch, \`preferredTool\` is Git; use \`git add -- <paths>\` and \`git commit\`, not \`jj split\` or \`jj describe\`.
-- If Jujutsu @ is mixed and Jujutsu is the preferred tool, default to a selected-fileset/split workflow (jj commit -m <message> <filesets> or jj split <filesets>) so unrelated work remains in the new/current change; use jj squash -i only when it is the clearer way to reshape already-separated changes.
+- Stage only explicit paths with \`git add -- <paths>\`; never stage broad paths like \`.\`.
 - If the intended slice is unclear after inspecting the prompt, session context, and targeted diffs, ask one concise clarification before mutating.
 
 4. Draft commit message
@@ -93,9 +82,7 @@ Risk: low|medium|high; <reason>
 
 5. Validate, commit directly, then refresh CodeGraph cache
 - Run targeted validation appropriate to the selected files when practical.
-- Git preferred: stage only explicit paths with git add -- path ..., commit, and report the observed SHA.
-- Jujutsu preferred: verify @ contains only the intended atomic work before plain jj commit -m <message> or use jj describe -m <message> plus the workflow-appropriate new-change step.
-- Jujutsu preferred with mixed @: when the intended fileset is clear, use jj commit -m <message> <filesets> or jj split <filesets> to isolate/commit the prompt-selected slice and leave unrelated changes behind.
+- Stage only explicit paths with \`git add -- path ...\`, commit, and report the observed SHA.
 - If no safe atomic set can be inferred from the prompt, session context, and targeted diffs, ask one concise clarification before staging or mutating.
 - Never push unless explicitly requested.
 - After a successful commit only, if \`.codegraph/\` exists and \`codegraph\` is on PATH, run \`codegraph sync <repo-root>\` as best-effort cache maintenance.
@@ -103,7 +90,7 @@ Risk: low|medium|high; <reason>
 - If sync fails or is unavailable, report it as advisory cache status and continue the final commit report.
 
 Final response after commit:
-- Git commit SHA or Jujutsu change/commit identity
+- Git commit SHA
 - subject
 - files committed
 - tests noted
@@ -119,7 +106,7 @@ Safety:
 
 export default function aocCommitExtension(pi: ExtensionAPI): void {
 	pi.registerCommand("commit", {
-		description: "Usage: /commit [intent]. Commit only the prompt-selected atomic slice using preferred VCS.",
+		description: "Usage: /commit [intent]. Commit only the prompt-selected atomic slice using Git.",
 		getArgumentCompletions: (prefix: string): AutocompleteItem[] | null => {
 			const examples = [
 				"commit only the prompt-first /commit workflow updates",

@@ -1,8 +1,196 @@
 {
   "schema": "aoc.dox.v1",
-  "generated_at": "2026-06-10T17:27:27.870190870+00:00",
+  "generated_at": "2026-06-28T14:18:54.534439369+00:00",
   "project_root": "/home/ceii/dev/agent-ops-cockpit",
   "data": {
-    "routes": []
+    "routes": [
+      {
+        "path_glob": ".omp/extensions/**/*",
+        "agent_profile": "dox-writer",
+        "required_context": [
+          ".omp/extensions"
+        ],
+        "verification": [
+          "bun --check .omp/extensions/aoc-dox.ts"
+        ],
+        "source_candidate_path": ".omp/extensions"
+      },
+      {
+        "path_glob": "bin/**/*",
+        "agent_profile": "dox-writer",
+        "required_context": [
+          "bin"
+        ],
+        "verification": [
+          "cargo test -p aoc-cli dox"
+        ],
+        "source_candidate_path": "bin"
+      },
+      {
+        "path_glob": "crates/aoc-agent-wrap-rs/src/**/*",
+        "agent_profile": "dox-writer",
+        "required_context": [
+          "crates/aoc-agent-wrap-rs/src"
+        ],
+        "verification": [
+          "cargo test -p aoc-cli dox"
+        ],
+        "source_candidate_path": "crates/aoc-agent-wrap-rs/src"
+      },
+      {
+        "path_glob": "crates/aoc-cli/**/*",
+        "agent_profile": "dox-writer",
+        "required_context": [
+          "crates/aoc-cli"
+        ],
+        "verification": [
+          "cargo test -p aoc-cli dox"
+        ],
+        "source_candidate_path": "crates/aoc-cli"
+      },
+      {
+        "path_glob": "crates/aoc-core/src/**/*",
+        "agent_profile": "dox-writer",
+        "required_context": [
+          "crates/aoc-core/src"
+        ],
+        "verification": [
+          "cargo test -p aoc-cli dox"
+        ],
+        "source_candidate_path": "crates/aoc-core/src"
+      },
+      {
+        "path_glob": "crates/aoc-hub-rs/src/**/*",
+        "agent_profile": "dox-writer",
+        "required_context": [
+          "crates/aoc-hub-rs/src"
+        ],
+        "verification": [
+          "cargo test -p aoc-cli dox"
+        ],
+        "source_candidate_path": "crates/aoc-hub-rs/src"
+      },
+      {
+        "path_glob": "crates/aoc-installer/src/**/*",
+        "agent_profile": "dox-writer",
+        "required_context": [
+          "crates/aoc-installer/src"
+        ],
+        "verification": [
+          "cargo test -p aoc-cli dox"
+        ],
+        "source_candidate_path": "crates/aoc-installer/src"
+      },
+      {
+        "path_glob": "crates/aoc-mind/src/**/*",
+        "agent_profile": "dox-writer",
+        "required_context": [
+          "crates/aoc-mind/src"
+        ],
+        "verification": [
+          "cargo test -p aoc-cli dox"
+        ],
+        "source_candidate_path": "crates/aoc-mind/src"
+      },
+      {
+        "path_glob": "crates/aoc-mind/src/bin/**/*",
+        "agent_profile": "dox-writer",
+        "required_context": [
+          "crates/aoc-mind/src/bin"
+        ],
+        "verification": [
+          "cargo test -p aoc-cli dox"
+        ],
+        "source_candidate_path": "crates/aoc-mind/src/bin"
+      },
+      {
+        "path_glob": "crates/aoc-mission-control/src/**/*",
+        "agent_profile": "dox-writer",
+        "required_context": [
+          "crates/aoc-mission-control/src"
+        ],
+        "verification": [
+          "cargo test -p aoc-cli dox"
+        ],
+        "source_candidate_path": "crates/aoc-mission-control/src"
+      },
+      {
+        "path_glob": "crates/aoc-opencode-adapter/src/**/*",
+        "agent_profile": "dox-writer",
+        "required_context": [
+          "crates/aoc-opencode-adapter/src"
+        ],
+        "verification": [
+          "cargo test -p aoc-cli dox"
+        ],
+        "source_candidate_path": "crates/aoc-opencode-adapter/src"
+      },
+      {
+        "path_glob": "crates/aoc-pi-adapter/src/**/*",
+        "agent_profile": "dox-writer",
+        "required_context": [
+          "crates/aoc-pi-adapter/src"
+        ],
+        "verification": [
+          "cargo test -p aoc-cli dox"
+        ],
+        "source_candidate_path": "crates/aoc-pi-adapter/src"
+      },
+      {
+        "path_glob": "crates/aoc-segment-routing/src/**/*",
+        "agent_profile": "dox-writer",
+        "required_context": [
+          "crates/aoc-segment-routing/src"
+        ],
+        "verification": [
+          "cargo test -p aoc-cli dox"
+        ],
+        "source_candidate_path": "crates/aoc-segment-routing/src"
+      },
+      {
+        "path_glob": "crates/aoc-storage/src/**/*",
+        "agent_profile": "dox-writer",
+        "required_context": [
+          "crates/aoc-storage/src"
+        ],
+        "verification": [
+          "cargo test -p aoc-cli dox"
+        ],
+        "source_candidate_path": "crates/aoc-storage/src"
+      },
+      {
+        "path_glob": "crates/aoc-task-attribution/src/**/*",
+        "agent_profile": "dox-writer",
+        "required_context": [
+          "crates/aoc-task-attribution/src"
+        ],
+        "verification": [
+          "cargo test -p aoc-cli dox"
+        ],
+        "source_candidate_path": "crates/aoc-task-attribution/src"
+      },
+      {
+        "path_glob": "crates/aoc-taskmaster/src/**/*",
+        "agent_profile": "dox-writer",
+        "required_context": [
+          "crates/aoc-taskmaster/src"
+        ],
+        "verification": [
+          "cargo test -p aoc-cli dox"
+        ],
+        "source_candidate_path": "crates/aoc-taskmaster/src"
+      },
+      {
+        "path_glob": "crates/aoc-yazi-mermaid/src/**/*",
+        "agent_profile": "dox-writer",
+        "required_context": [
+          "crates/aoc-yazi-mermaid/src"
+        ],
+        "verification": [
+          "cargo test -p aoc-cli dox"
+        ],
+        "source_candidate_path": "crates/aoc-yazi-mermaid/src"
+      }
+    ]
   }
 }

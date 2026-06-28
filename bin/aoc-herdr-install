@@ -31,9 +31,51 @@ for value in values:
 PY
 }
 
-mapfile -t omp_extensions < <(read_omp_manifest_list extensions)
-mapfile -t omp_agents < <(read_omp_manifest_list agents)
-mapfile -t omp_skills < <(read_omp_manifest_list skills)
+read_omp_active_list() {
+  local kind="$1"
+  local manifest="$repo_root/.omp/manifest.toml"
+  if [[ -x "$repo_root/bin/aoc-profile" ]]; then
+    "$repo_root/bin/aoc-profile" active --kind "$kind" --root "$repo_root" --manifest "$manifest"
+  else
+    read_omp_manifest_list "$kind"
+  fi
+}
+
+load_omp_active_array() {
+  local array_name="$1"
+  local kind="$2"
+  local tmp
+  tmp="$(mktemp)"
+  read_omp_active_list "$kind" > "$tmp"
+  mapfile -t "$array_name" < "$tmp"
+  rm -f "$tmp"
+}
+
+load_omp_manifest_array() {
+  local array_name="$1"
+  local kind="$2"
+  local tmp
+  tmp="$(mktemp)"
+  read_omp_manifest_list "$kind" > "$tmp"
+  mapfile -t "$array_name" < "$tmp"
+  rm -f "$tmp"
+}
+
+array_contains() {
+  local needle="$1"
+  shift
+  local item=""
+  for item in "$@"; do
+    [[ "$item" == "$needle" ]] && return 0
+  done
+  return 1
+}
+
+load_omp_active_array omp_extensions extensions
+load_omp_active_array omp_agents agents
+load_omp_active_array omp_skills skills
+
+
 sync_omp_extension_config() {
   local omp_config="${AOC_OMP_AGENT_CONFIG:-$HOME/.omp/agent/config.yml}"
   python3 - "$omp_config" "$omp_extension_dir" "${omp_extensions[@]}" <<'PY'
@@ -180,9 +222,16 @@ for extension_name in "${omp_extensions[@]}"; do
     echo "Warning: missing $extension_src; skipping AOC OMP extension" >&2
   fi
 done
+
+load_omp_manifest_array omp_manifest_extensions extensions
+for extension_name in "${omp_manifest_extensions[@]}"; do
+  if ! array_contains "$extension_name" "${omp_extensions[@]}"; then
+    rm -f "$omp_extension_dir/$extension_name"
+  fi
+done
 sync_omp_extension_config
 echo "Updated OMP extension config in ${AOC_OMP_AGENT_CONFIG:-$HOME/.omp/agent/config.yml}"
-rm -f "$omp_extension_dir/aoc-openai-stt.ts"
+rm -f "$omp_extension_dir/aoc-openai-stt.ts" "$omp_extension_dir/ponytail.ts"
 
 
 for skill_name in "${omp_skills[@]}"; do
@@ -197,6 +246,13 @@ for skill_name in "${omp_skills[@]}"; do
     echo "Warning: missing $skill_src; skipping AOC OMP skill" >&2
   fi
 done
+load_omp_manifest_array omp_manifest_skills skills
+for skill_name in "${omp_manifest_skills[@]}"; do
+  if ! array_contains "$skill_name" "${omp_skills[@]}"; then
+    rm -rf "$omp_skill_dir/$skill_name"
+  fi
+done
+rm -rf "$omp_skill_dir/ponytail-review" "$omp_skill_dir/ponytail-audit" "$omp_skill_dir/ponytail-debt" "$omp_skill_dir/ponytail-help"
 
 for agent_name in "${omp_agents[@]}"; do
   agent_src="$repo_root/.omp/agents/$agent_name"
@@ -207,6 +263,13 @@ for agent_name in "${omp_agents[@]}"; do
     echo "Installed AOC OMP agent template to $agent_dst"
   else
     echo "Warning: missing $agent_src; skipping AOC OMP agent template" >&2
+  fi
+done
+
+load_omp_manifest_array omp_manifest_agents agents
+for agent_name in "${omp_manifest_agents[@]}"; do
+  if ! array_contains "$agent_name" "${omp_agents[@]}"; then
+    rm -f "$omp_agent_dir/$agent_name"
   fi
 done
 install_voxtype_lexicon

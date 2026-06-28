@@ -3,7 +3,7 @@
 Scope: `bin`
 
 ## Local Contracts
-- Preserve `bin/*` as public PATH entrypoints: Bash wrappers keep shebangs, `set -euo pipefail`, `exec` handoff on delegation, and existing colocated/repo-relative command resolution before PATH fallback.
+- Preserve `bin/*` as public PATH entrypoints: Bash wrappers keep shebangs, `set -euo pipefail`, `exec` handoff on delegation, and existing repo-local/repo-relative command resolution before PATH fallback.
 - Do not hand-edit generated or managed outputs/cache under `bin`; update the source/template/regeneration path instead, and never treat `bin/__pycache__/*.pyc` as source.
 - For Python CLIs in `bin`, keep argument parsing and runtime work behind `main()` and `if __name__ == "__main__"`; imports should not start services, clean processes, mutate files, or perform network work.
 

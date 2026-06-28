@@ -13,7 +13,7 @@ AOC is OMP-only for active coding-agent runtime/config. Repo-owned OMP source su
 .aoc/
 ```
 
-`aoc-init` and `aoc-herdr-install` sync those sources into the active OMP runtime directory:
+`aoc-init` and `aoc-herdr-install` sync the active `.omp/manifest.toml` profile surface into the active OMP runtime directory:
 
 ```text
 ${AOC_OMP_AGENT_DIR:-~/.omp/agent}/extensions/
@@ -30,9 +30,8 @@ aoc-init
 aoc-skill validate --root .
 ```
 
-to seed or repair project-local AOC assets and sync OMP extensions, agent templates, and skills.
+to seed or repair project-local AOC assets and sync the extensions, agent templates, and skills selected by active OMP capability profiles.
 
-OMP jj status line patch: when the operator asks to restore the jj status summary after an OMP update, run `aoc omp-patch` from this repo. The patch targets the newest cached `@oh-my-pi/pi-coding-agent@*/dist/cli.js` plus the active `~/.cache/.bun/bin/omp` bundle. It replaces only the status-line `git` branch provider with an async cached jj summary (`Δ<files> +<added> -<removed> ⇢<bookmarks>`), keeps jj subprocesses off the render hot path (`Bun.spawn`, never `spawnSync`), and leaves upstream OMP behavior otherwise intact. Required config is `~/.omp/agent/config.yml`: `symbolPreset: nerd`, `statusLine.preset: custom`, left segments `model, mode, path, git`, right segments `context_pct, session_name`, and git dirty counters disabled under `statusLine.segments.git.options`.
 
 AOC uses VoxType, not an OMP speech-to-text extension, for operator dictation. `aoc-init` and `aoc-herdr-install` install `voxtype-aoc-lexicon-filter`, seed `~/.config/aoc/voxtype-lexicon.md`, and wire VoxType post-processing so system and active-project `.aoc/lexicon.md` terms normalize after transcription.
 
@@ -63,19 +62,20 @@ See [Skills](skills.md).
 
 ## OMP extensions
 
-AOC OMP extensions are repo-tracked under `.omp/extensions/` and synced to the OMP runtime extension directory.
+AOC OMP extensions are repo-tracked under `.omp/extensions/`. `.omp/manifest.toml` keeps the full extension inventory plus profile tables; active profiles decide which extensions are synced to the OMP runtime extension directory.
 
 Current OMP surfaces include:
 
 - `aoc-codegraph.ts` — read-only CodeGraph tool for indexed code discovery.
 - `aoc-mind.ts` — read-only AOC Mind evidence/provenance tool.
-- `aoc-commit.ts` — `/commit` safe atomic commit workflow; it follows the handshake's preferred VCS tool, using Git when an attached Git branch is present even if colocated Jujutsu metadata exists, and never pushes without explicit approval.
-- `aoc-state.ts` — `/state-status`, `/state-commit`, and `/state-push` workflows for repo-owned AOC project state; commit and push are separate, explicit steps.
-- `aoc-jj-init.ts` — `/jj-init` explicit workflow for initializing colocated Jujutsu over an existing Git repo after dirty-work inspection.
+- `aoc-commit.ts` — `/commit` safe atomic Git commit workflow; stages only explicit paths and never pushes without explicit approval.
+- `aoc-state.ts` — `/state-status`, `/state-commit`, and `/state-push` Git workflows for repo-owned AOC project state; commit and push are separate, explicit steps.
 - `aoc-brand-content.ts` — `/brand-content` and `/hyperframes-director` HyperFrames branded-content modes.
 - `aoc-dox.ts` — `aoc_dox` safe metadata tool for DOX metadata, review, doctor, eval, and apply dry-run.
 - `aoc-dox-command.ts` — `/dox` slash command for sparse AGENTS cartography with `dox-*` subagents.
 - `aoc-web-search.ts` — `aoc_web_search` wrapper around local `aoc-search`/SearXNG plus direct package/GitHub lookup modes for agents when built-in paid web-search providers fail.
+- `aoc-style.ts` — `/ponytail off|lite|full|ultra|status|review|audit|debt|help`, `/caveman off|lite|full|ultra|status`, and persistent AOC host-style hook state.
+- `aoc-profile.ts` — `/profile [list|show|enable|disable|set|explain]` capability profile management.
 
 Legacy Pi runtime assets have been purged; do not use Pi paths as active runtime evidence.
 

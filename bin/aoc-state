@@ -134,10 +134,7 @@ state_status() {
   if [[ -n "$handshake" ]]; then
     vcs_kind="$(printf '%s' "$handshake" | json_get vcs.kind 2>/dev/null || printf 'unknown')"
     preferred="$(printf '%s' "$handshake" | json_get vcs.preferredTool 2>/dev/null || printf '')"
-  elif [[ -d .jj ]]; then
-    vcs_kind="jj"
-    preferred="jj"
-  elif [[ -d .git ]]; then
+  elif [[ -e .git ]]; then
     vcs_kind="git"
     preferred="git"
   fi
@@ -208,24 +205,7 @@ state_status() {
     return 0
   fi
 
-  if [[ "$vcs_kind" == "jj" ]]; then
-    print_section "Jujutsu state"
-    run_checked "jj status" jj status
-    run_checked "jj diff --summary -- <state filesets>" jj diff --summary -- "${existing_paths[@]}"
-    run_checked "jj diff --stat -- <state filesets>" jj diff --stat -- "${existing_paths[@]}"
-
-    print_section "Remote-tracking state presence"
-    local remote_count=""
-    remote_count="$(jj file list -r 'latest(remote_bookmarks())' -- "${existing_paths[@]}" 2>/dev/null | python3 -c 'import sys; print(sum(1 for _ in sys.stdin))' || true)"
-    if [[ -n "$remote_count" ]]; then
-      printf 'Project-state files visible at latest remote bookmark: %s\n' "$remote_count"
-    else
-      printf 'No remote bookmark file listing available; verify bookmarks before push.\n'
-    fi
-
-    print_section "Mixed-work reminder"
-    printf 'Review jj status/diff above. If @ includes unrelated feature work, split it before committing project state.\n'
-  elif [[ "$vcs_kind" == "git" ]]; then
+  if [[ "$vcs_kind" == "git" ]]; then
     print_section "Git state"
     run_checked "git status --short -- <state paths>" git status --short -- "${existing_paths[@]}"
     run_checked "git diff --stat -- <state paths>" git diff --stat -- "${existing_paths[@]}"

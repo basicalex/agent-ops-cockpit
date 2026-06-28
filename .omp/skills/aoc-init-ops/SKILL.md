@@ -19,9 +19,11 @@ description: Initialize or repair AOC context, memory, and tasks safely.
 - Seeds `.aoc/stm/current.md` and `.aoc/stm/archive/` without overwriting existing STM files
 - Ensures spec directory `.taskmaster/docs/specs/` is available for tag/task links
 - Seeds project OMP assets under `.omp/extensions/`, `.omp/agents/`, `.omp/skills/`, and `.omp/manifest.toml`
-- Installs AOC OMP extensions from `.omp/manifest.toml` into `${AOC_OMP_AGENT_DIR:-$HOME/.omp/agent}/extensions` when available
-- Installs AOC OMP agent templates from `.omp/manifest.toml` into `${AOC_OMP_AGENT_DIR:-$HOME/.omp/agent}/agents` when available
-- Installs OMP skills from `.omp/manifest.toml` into `${AOC_OMP_AGENT_DIR:-$HOME/.omp/agent}/skills` when available
+- Keeps `.omp/manifest.toml` as the full OMP inventory plus profile tables
+- Installs AOC OMP extensions selected by active profiles into `${AOC_OMP_AGENT_DIR:-$HOME/.omp/agent}/extensions` when available
+- Seeds the global OMP style hook state file at `${AOC_STYLE_STATE_FILE:-$HOME/.omp/agent/style-hooks.json}` with both hooks off when missing
+- Installs AOC OMP agent templates selected by active profiles into `${AOC_OMP_AGENT_DIR:-$HOME/.omp/agent}/agents` when available
+- Installs OMP skills selected by active profiles into `${AOC_OMP_AGENT_DIR:-$HOME/.omp/agent}/skills` when available
 - Seeds reusable preset assets in `.aoc/presets/{design,hyperframes,ops,research,test}/` when missing
 - Seeds `.aoc/init-state.json` with the current AOC project version and applies version-specific migrations on older repos
 - Validates `.omp/skills` as the canonical skill surface

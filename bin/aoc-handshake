@@ -24,7 +24,7 @@ def truthy(value: str | None) -> bool:
 def find_project_root(start: Path) -> Path:
     current = start.resolve()
     for candidate in [current, *current.parents]:
-        if (candidate / ".aoc").exists() or (candidate / "AGENTS.md").exists() or (candidate / ".jj").exists() or (candidate / ".git").exists():
+        if (candidate / ".aoc").exists() or (candidate / "AGENTS.md").exists() or (candidate / ".git").exists():
             return candidate
     return current
 
@@ -92,9 +92,7 @@ def first_line(value: Any) -> str | None:
 
 def detect_vcs(project_root: Path) -> dict[str, Any]:
     git_marker = project_root / ".git"
-    jj_marker = project_root / ".jj"
     git_present = git_marker.exists()
-    jj_present = jj_marker.exists()
 
     git_root: str | None = None
     git_branch: str | None = None
@@ -110,37 +108,12 @@ def detect_vcs(project_root: Path) -> dict[str, Any]:
         if head_result.get("ok"):
             git_head = first_line(head_result.get("stdout"))
 
-    jj_root: str | None = None
-    jj_root_result = run(["jj", "root"], project_root, timeout=3.0)
-    if jj_root_result.get("ok"):
-        jj_present = True
-        jj_root = first_line(jj_root_result.get("stdout"))
-
-    colocation_status: str | None = None
-    if jj_present:
-        colocation_result = run(["jj", "git", "colocation", "status"], project_root, timeout=3.0)
-        if colocation_result.get("ok"):
-            colocation_status = first_line(colocation_result.get("stdout"))
-
-    colocated_git = bool(jj_present and (git_present or colocation_status))
-    # A colocated .jj directory is metadata, not always the operator's desired
-    # workflow. If Git has an attached branch, prefer normal Git semantics and
-    # report Jujutsu only as available metadata. Detached Git in a colocated
-    # workspace still indicates an active jj-managed checkout.
-    git_attached = bool(git_present and git_branch)
-    kind = "git" if git_attached else ("jj" if jj_present else ("git" if git_present else "none"))
-    preferred_tool = "jj" if kind == "jj" else ("git" if kind == "git" else "none")
-    root = git_root if kind == "git" and git_root else jj_root if kind == "jj" and jj_root else str(project_root)
+    kind = "git" if git_present else "none"
+    preferred_tool = "git" if git_present else "none"
+    root = git_root if git_root else str(project_root)
     git_label = git_branch or ("detached" if git_head else ("unknown" if git_present else None))
 
-    if kind == "jj":
-        policy = {
-            "inspect": ["jj status", "jj diff --summary", "jj diff --stat"],
-            "commit": "Use jj current-change workflow; do not use git add/staging semantics.",
-            "parallelism": "Keep one agent task in one jj change; split unrelated work before committing.",
-            "push": "Never push without explicit approval.",
-        }
-    elif kind == "git":
+    if kind == "git":
         policy = {
             "inspect": ["git status --short", "git diff --stat", "git diff --cached --stat"],
             "commit": "Use explicit path staging for the intended atomic change.",
@@ -163,12 +136,6 @@ def detect_vcs(project_root: Path) -> dict[str, Any]:
             "present": bool(git_present),
             "root": git_root,
             "branch": git_label,
-        },
-        "jj": {
-            "present": bool(jj_present),
-            "root": jj_root or (str(project_root) if jj_present else None),
-            "colocatedGit": colocated_git,
-            "colocationStatus": colocation_status,
         },
         "agentPolicy": policy,
     }
@@ -266,17 +233,11 @@ def mind_sync(project_root: Path, launcher: dict[str, Any]) -> dict[str, Any]:
 def vcs_summary(vcs: dict[str, Any]) -> str:
     kind = str(vcs.get("kind") or "unknown")
     preferred = str(vcs.get("preferredTool") or "none")
-    jj = vcs.get("jj") if isinstance(vcs.get("jj"), dict) else {}
-    suffix = " (jj metadata present)" if kind == "git" and jj.get("present") else ""
-    if kind == "jj" and jj.get("colocatedGit"):
-        suffix = " (colocated with git)"
-    return f"{kind}{suffix}; preferred={preferred}"
+    return f"{kind}; preferred={preferred}"
 
 
 def vcs_policy_line(vcs: dict[str, Any]) -> str:
     kind = str(vcs.get("kind") or "unknown")
-    if kind == "jj":
-        return "jj current-change workflow; no git staging; split mixed work before commit"
     if kind == "git":
         return "git explicit path staging; keep the commit atomic"
     return "no VCS detected; do not commit until configured"
@@ -461,15 +422,11 @@ def print_prompt_full(packet: dict[str, Any]) -> None:
     print()
     print("## VCS policy")
     print(f"- Detected: {vcs_summary(vcs)}")
-    print("- AOC reports existing Jujutsu repositories automatically, but an attached Git branch means the operator is using normal Git flow. In that state, agents must use Git staging/commit commands even if `.jj` metadata is present.")
     print("- Git repositories: use `git status --short`, targeted diffs, explicit path staging, `git commit`, and report the observed SHA.")
-    print("- Jujutsu repositories: use `jj status`, `jj diff --summary`, `jj diff --stat`, and targeted `jj diff -- <filesets>`; the working copy is the current mutable `@` change, not a Git staging area.")
-    print("- For Jujutsu commits, ensure `@` contains only the intended atomic work before `jj commit -m <message>` or use selected filesets/splitting (`jj commit <filesets>`, `jj split`, `jj squash -i`) to separate unrelated changes.")
-    print("- Never push through Git or Jujutsu without explicit approval.")
+    print("- Never push without explicit approval.")
     print()
     print("## Slash commands")
-    print("- `/commit [scope]` is the AOC/OMP safe atomic commit workflow. Treat it as approval to inspect changes, run targeted validation, commit only the intended atomic work using the detected preferred VCS workflow, and report the observed Git SHA or Jujutsu change/commit identity. In a colocated repo with an attached Git branch, use Git. Never push without explicit approval.")
-    print("- `/jj-init [scope]` is the explicit AOC/OMP workflow to analyze a Git repository and initialize colocated Jujutsu safely. It must inspect dirty work first, never push/fetch/import/export, and report remaining work in `@`.")
+    print("- `/commit [scope]` is the AOC/OMP safe atomic commit workflow. Treat it as approval to inspect changes, run targeted validation, commit only the intended atomic work with Git, and report the observed Git SHA. Never push without explicit approval.")
     print()
     print("## RTK")
     print(f"- Status command available: {'yes' if aoc.get('rtkStatusAvailable') else 'no'}")

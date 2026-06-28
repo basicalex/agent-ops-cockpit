@@ -1,0 +1,353 @@
+#!/usr/bin/env bash
+set -euo pipefail
+python3 - "$@" <<'PY'
+import argparse
+import json
+import os
+from pathlib import Path
+import sys
+import tomllib
+
+STATE_VERSION = 1
+KINDS = ("extensions", "skills", "agents")
+RISK_DISABLED = {"high", "metadata-write", "orchestration"}
+
+
+def die(message: str, code: int = 2) -> None:
+    print(message, file=sys.stderr)
+    raise SystemExit(code)
+
+
+def warn(message: str) -> None:
+    print(message, file=sys.stderr)
+
+
+def resolve_root(value: str | None) -> Path:
+    if value:
+        return Path(value).expanduser().resolve()
+    current = Path.cwd().resolve()
+    probe = current
+    while True:
+        if (probe / ".aoc").exists() or (probe / ".git").exists():
+            return probe
+        if probe.parent == probe:
+            return current
+        probe = probe.parent
+
+
+def resolve_manifest(root: Path, value: str | None) -> Path:
+    if value:
+        manifest = Path(value).expanduser()
+        if not manifest.is_absolute():
+            manifest = (Path.cwd() / manifest).resolve()
+        return manifest
+    project_manifest = root / ".omp" / "manifest.toml"
+    if project_manifest.exists():
+        return project_manifest
+    xdg = os.environ.get("XDG_CONFIG_HOME")
+    base = Path(xdg).expanduser() if xdg else Path.home() / ".config"
+    fallback = base / "aoc" / "omp" / "manifest.toml"
+    if fallback.exists():
+        return fallback
+    die(f"missing OMP manifest: {fallback}", 1)
+
+
+def load_manifest(path: Path) -> dict:
+    if not path.exists():
+        die(f"missing OMP manifest: {path}", 1)
+    try:
+        data = tomllib.loads(path.read_text(encoding="utf-8"))
+    except Exception as exc:
+        die(f"invalid OMP manifest {path}: {exc}")
+    if not isinstance(data, dict):
+        die(f"invalid OMP manifest {path}: root must be a table")
+    for kind in KINDS:
+        values = data.get(kind)
+        if not isinstance(values, list) or not all(isinstance(value, str) for value in values):
+            die(f"invalid OMP manifest {path}: {kind} must be a list of strings")
+    profiles = data.get("profiles")
+    if not isinstance(profiles, dict):
+        die(f"invalid OMP manifest {path}: profiles must be a table")
+    defaults = data.get("profile_defaults")
+    if not isinstance(defaults, dict) or not isinstance(defaults.get("profiles"), list) or not all(isinstance(value, str) for value in defaults["profiles"]):
+        die(f"invalid OMP manifest {path}: profile_defaults.profiles must be a list of strings")
+    for name, profile in profiles.items():
+        if not isinstance(name, str) or not isinstance(profile, dict):
+            die(f"invalid OMP manifest {path}: profile entries must be tables")
+        for field in ("description", "risk"):
+            if not isinstance(profile.get(field), str):
+                die(f"invalid OMP manifest {path}: profile {name}.{field} must be a string")
+        for kind in KINDS:
+            values = profile.get(kind)
+            if not isinstance(values, list) or not all(isinstance(value, str) for value in values):
+                die(f"invalid OMP manifest {path}: profile {name}.{kind} must be a list of strings")
+    return data
+
+
+def state_path() -> Path:
+    configured = os.environ.get("AOC_PROFILE_STATE_FILE", "").strip()
+    if configured:
+        return Path(configured).expanduser()
+    return Path.home() / ".config" / "aoc" / "profiles.json"
+
+
+def empty_state() -> dict:
+    return {"version": STATE_VERSION, "projects": {}}
+
+
+def load_state(path: Path) -> dict:
+    if not path.exists() or path.stat().st_size == 0:
+        return empty_state()
+    try:
+        parsed = json.loads(path.read_text(encoding="utf-8"))
+        if not isinstance(parsed, dict):
+            raise ValueError("root must be an object")
+        if parsed.get("version") != STATE_VERSION:
+            raise ValueError(f"unsupported version {parsed.get('version')!r}")
+        if not isinstance(parsed.get("projects"), dict):
+            raise ValueError("projects must be an object")
+    except Exception as exc:
+        die(f"invalid profile state: {path}: {exc}")
+    return parsed
+
+
+def write_state(path: Path, state: dict) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_name(f"{path.name}.tmp-{os.getpid()}")
+    tmp.write_text(json.dumps(state, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    tmp.replace(path)
+
+
+def parse_env_profiles(profiles: dict) -> list[str] | None:
+    raw = os.environ.get("AOC_OMP_PROFILES")
+    if raw is None or raw == "":
+        return None
+    names = [part.strip(" \t\r\n") for part in raw.split(",")]
+    names = [name for name in names if name]
+    for name in names:
+        if name not in profiles:
+            die(f"unknown profile: {name}")
+    return names
+
+
+def project_record(state: dict, root: Path) -> dict:
+    projects = state.setdefault("projects", {})
+    key = str(root)
+    record = projects.get(key)
+    if not isinstance(record, dict):
+        record = {"enabled": [], "disabled": []}
+        projects[key] = record
+    for field in ("enabled", "disabled"):
+        values = record.get(field)
+        if not isinstance(values, list):
+            values = []
+        record[field] = [value for value in values if isinstance(value, str)]
+    return record
+
+
+def unique(values: list[str]) -> list[str]:
+    seen: set[str] = set()
+    out: list[str] = []
+    for value in values:
+        if value in seen:
+            continue
+        seen.add(value)
+        out.append(value)
+    return out
+
+
+def active_profiles(data: dict, root: Path, state: dict | None) -> list[str]:
+    profiles = data["profiles"]
+    env_profiles = parse_env_profiles(profiles)
+    if env_profiles is not None:
+        return env_profiles
+    names = list(data["profile_defaults"]["profiles"])
+    record = project_record(state if state is not None else empty_state(), root)
+    for field in ("enabled", "disabled"):
+        for name in record[field]:
+            if name not in profiles:
+                warn(f"warning: ignoring unknown profile in state: {name}")
+    for name in record["enabled"]:
+        if name in profiles and name not in names:
+            names.append(name)
+    disabled = {name for name in record["disabled"] if name in profiles}
+    return [name for name in names if name not in disabled]
+
+
+def validate_profile_names(data: dict, names: list[str]) -> None:
+    for name in names:
+        if name not in data["profiles"]:
+            die(f"unknown profile: {name}")
+
+
+def active_assets(data: dict, profiles: list[str], kind: str) -> list[str]:
+    inventory = set(data[kind])
+    out: list[str] = []
+    seen: set[str] = set()
+    for profile_name in profiles:
+        profile = data["profiles"][profile_name]
+        for asset in profile[kind]:
+            if asset not in inventory:
+                die(f"profile {profile_name} references unknown {kind} asset: {asset}")
+            if asset in seen:
+                continue
+            seen.add(asset)
+            out.append(asset)
+    return out
+
+
+def get_asset_meta(data: dict, kind: str, name: str) -> dict:
+    asset_meta = data.get("asset_meta")
+    if not isinstance(asset_meta, dict):
+        return {}
+    per_kind = asset_meta.get(kind)
+    if not isinstance(per_kind, dict):
+        return {}
+    meta = per_kind.get(name)
+    return meta if isinstance(meta, dict) else {}
+
+
+def profile_state_for_commands(data: dict, root: Path) -> tuple[list[str], dict | None, Path]:
+    profiles = data["profiles"]
+    env_profiles = parse_env_profiles(profiles)
+    path = state_path()
+    if env_profiles is not None:
+        return env_profiles, None, path
+    state = load_state(path)
+    return active_profiles(data, root, state), state, path
+
+
+def cmd_list(data: dict, _root: Path, _state: dict | None, _args: argparse.Namespace) -> int:
+    for name, profile in data["profiles"].items():
+        print(f"{name}: {profile['description']} risk={profile['risk']}")
+    return 0
+
+
+def cmd_show(data: dict, root: Path, state: dict | None, _args: argparse.Namespace) -> int:
+    active = active_profiles(data, root, state)
+    print("Active profiles: " + (", ".join(active) if active else "(none)"))
+    for kind in KINDS:
+        print(f"Active {kind}: {len(active_assets(data, active, kind))}")
+    disabled = [name for name, profile in data["profiles"].items() if name not in active and profile["risk"] in RISK_DISABLED]
+    print("Disabled high/metadata-write/orchestration risk profiles: " + (", ".join(disabled) if disabled else "(none)"))
+    print(f"Project root: {root}")
+    if os.environ.get("AOC_OMP_PROFILES"):
+        print("Profile source: AOC_OMP_PROFILES")
+    else:
+        print(f"Profile state: {state_path()}")
+    return 0
+
+
+def cmd_active(data: dict, root: Path, state: dict | None, args: argparse.Namespace) -> int:
+    active = active_profiles(data, root, state)
+    for asset in active_assets(data, active, args.kind):
+        print(asset)
+    return 0
+
+
+def cmd_explain(data: dict, root: Path, state: dict | None, args: argparse.Namespace) -> int:
+    name = args.name
+    active = active_profiles(data, root, state)
+    profiles = data["profiles"]
+    if name in profiles:
+        profile = profiles[name]
+        print(f"Profile: {name}")
+        print(f"Description: {profile['description']}")
+        print(f"Risk: {profile['risk']}")
+        print(f"Active: {'yes' if name in active else 'no'}")
+        for kind in KINDS:
+            print(f"{kind}: " + (", ".join(profile[kind]) if profile[kind] else "(none)"))
+        return 0
+    for kind in KINDS:
+        if name in data[kind]:
+            print(f"Asset: {name}")
+            print(f"Kind: {kind}")
+            included = [profile_name for profile_name, profile in profiles.items() if name in profile[kind]]
+            print("Profiles: " + (", ".join(included) if included else "(none)"))
+            print(f"Active: {'yes' if name in active_assets(data, active, kind) else 'no'}")
+            meta = get_asset_meta(data, kind, name)
+            if meta:
+                for key in ("category", "risk", "default", "reason"):
+                    if key in meta:
+                        print(f"{key.capitalize()}: {meta[key]}")
+            return 0
+    die(f"unknown profile or asset: {name}")
+
+
+def cmd_enable_disable_set(data: dict, root: Path, _state: dict | None, args: argparse.Namespace) -> int:
+    if os.environ.get("AOC_OMP_PROFILES"):
+        die("cannot write profile state while AOC_OMP_PROFILES is set")
+    validate_profile_names(data, [args.profile])
+    path = state_path()
+    state = load_state(path)
+    record = project_record(state, root)
+    profile = args.profile
+    if args.command == "enable":
+        record["disabled"] = [name for name in record["disabled"] if name != profile]
+        if profile not in record["enabled"]:
+            record["enabled"].append(profile)
+    elif args.command == "disable":
+        record["enabled"] = [name for name in record["enabled"] if name != profile]
+        if profile not in record["disabled"]:
+            record["disabled"].append(profile)
+    elif args.command == "set":
+        record["enabled"] = [profile]
+        record["disabled"] = []
+    write_state(path, state)
+    active = active_profiles(data, root, state)
+    print(f"Updated profile state: {path}")
+    print("Active profiles: " + (", ".join(active) if active else "(none)"))
+    return 0
+
+
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(prog="aoc-profile")
+    sub = parser.add_subparsers(dest="command", required=True)
+    for name in ("list", "show"):
+        cmd = sub.add_parser(name)
+        add_common(cmd)
+    active = sub.add_parser("active")
+    active.add_argument("--kind", choices=KINDS, required=True)
+    add_common(active)
+    explain = sub.add_parser("explain")
+    explain.add_argument("name")
+    add_common(explain)
+    for name in ("enable", "disable", "set"):
+        cmd = sub.add_parser(name)
+        cmd.add_argument("profile")
+        add_common(cmd)
+    return parser
+
+
+def add_common(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument("--root")
+    parser.add_argument("--manifest")
+
+
+def main(argv: list[str]) -> int:
+    parser = build_parser()
+    args = parser.parse_args(argv)
+    root = resolve_root(args.root)
+    manifest = resolve_manifest(root, args.manifest)
+    data = load_manifest(manifest)
+    state: dict | None = None
+    if not os.environ.get("AOC_OMP_PROFILES"):
+        state = load_state(state_path())
+    command = args.command
+    if command == "list":
+        return cmd_list(data, root, state, args)
+    if command == "show":
+        return cmd_show(data, root, state, args)
+    if command == "active":
+        return cmd_active(data, root, state, args)
+    if command == "explain":
+        return cmd_explain(data, root, state, args)
+    if command in {"enable", "disable", "set"}:
+        return cmd_enable_disable_set(data, root, state, args)
+    parser.error(f"unknown command: {command}")
+    return 2
+
+
+if __name__ == "__main__":
+    raise SystemExit(main(sys.argv[1:]))
+PY

@@ -7,16 +7,20 @@ settings:
 importers:
 
   .:
+    dependencies:
+      zod:
+        specifier: ^4.4.3
+        version: 4.4.3
     devDependencies:
       '@google/design.md':
         specifier: ^0.1.1
         version: 0.1.1
       '@mariozechner/pi-ai':
         specifier: ^0.73.1
-        version: 0.73.1(ws@8.20.0)(zod@3.25.76)
+        version: 0.73.1(ws@8.20.0)(zod@4.4.3)
       '@mariozechner/pi-coding-agent':
         specifier: ^0.73.1
-        version: 0.73.1(ws@8.20.0)(zod@3.25.76)
+        version: 0.73.1(ws@8.20.0)(zod@4.4.3)
       '@sinclair/typebox':
         specifier: ^0.34.49
         version: 0.34.49
@@ -1290,6 +1294,9 @@ packages:
   zod@3.25.76:
     resolution: {integrity: sha512-gzUt/qt81nXsFGKIFcC3YnfEAx5NkunCfnDlvuBSSFS02bcXu4Lmea0AFIUwbLWxWPx3d9p8S5QoaujKcNQxcQ==}
 
+  zod@4.4.3:
+    resolution: {integrity: sha512-ytENFjIJFl2UwYglde2jchW2Hwm4GJFLDiSXWdTrJQBIN9Fcyp7n4DhxJEiWNAJMV1/BqWfW/kkg71UDcHJyTQ==}
+
   zwitch@2.0.4:
     resolution: {integrity: sha512-bXE4cR/kVZhKZX/RjPEflHaKVhUVl85noU3v6b8apfQEc1x4A+zBxjZ4lN8LqGd6WZ3dl98pY4o717VFmoPp+A==}
 
@@ -1300,11 +1307,11 @@ snapshots:
       ansi-styles: 6.2.3
       is-fullwidth-code-point: 5.1.0
 
-  '@anthropic-ai/sdk@0.91.1(zod@3.25.76)':
+  '@anthropic-ai/sdk@0.91.1(zod@4.4.3)':
     dependencies:
       json-schema-to-ts: 3.1.1
     optionalDependencies:
-      zod: 3.25.76
+      zod: 4.4.3
 
   '@aws-crypto/crc32@5.2.0':
     dependencies:
@@ -1615,9 +1622,9 @@ snapshots:
       '@mariozechner/clipboard-win32-x64-msvc': 0.3.9
     optional: true
 
-  '@mariozechner/pi-agent-core@0.73.1(ws@8.20.0)(zod@3.25.76)':
+  '@mariozechner/pi-agent-core@0.73.1(ws@8.20.0)(zod@4.4.3)':
     dependencies:
-      '@mariozechner/pi-ai': 0.73.1(ws@8.20.0)(zod@3.25.76)
+      '@mariozechner/pi-ai': 0.73.1(ws@8.20.0)(zod@4.4.3)
       typebox: 1.2.14
     transitivePeerDependencies:
       - '@modelcontextprotocol/sdk'
@@ -1628,19 +1635,19 @@ snapshots:
       - ws
       - zod
 
-  '@mariozechner/pi-ai@0.73.1(ws@8.20.0)(zod@3.25.76)':
+  '@mariozechner/pi-ai@0.73.1(ws@8.20.0)(zod@4.4.3)':
     dependencies:
-      '@anthropic-ai/sdk': 0.91.1(zod@3.25.76)
+      '@anthropic-ai/sdk': 0.91.1(zod@4.4.3)
       '@aws-sdk/client-bedrock-runtime': 3.1069.0
       '@google/genai': 1.52.0
       '@mistralai/mistralai': 2.2.6
       chalk: 5.6.2
-      openai: 6.26.0(ws@8.20.0)(zod@3.25.76)
+      openai: 6.26.0(ws@8.20.0)(zod@4.4.3)
       partial-json: 0.1.7
       proxy-agent: 6.5.0
       typebox: 1.2.14
       undici: 7.28.0
-      zod-to-json-schema: 3.25.2(zod@3.25.76)
+      zod-to-json-schema: 3.25.2(zod@4.4.3)
     transitivePeerDependencies:
       - '@modelcontextprotocol/sdk'
       - '@opentelemetry/api'
@@ -1650,10 +1657,10 @@ snapshots:
       - ws
       - zod
 
-  '@mariozechner/pi-coding-agent@0.73.1(ws@8.20.0)(zod@3.25.76)':
+  '@mariozechner/pi-coding-agent@0.73.1(ws@8.20.0)(zod@4.4.3)':
     dependencies:
-      '@mariozechner/pi-agent-core': 0.73.1(ws@8.20.0)(zod@3.25.76)
-      '@mariozechner/pi-ai': 0.73.1(ws@8.20.0)(zod@3.25.76)
+      '@mariozechner/pi-agent-core': 0.73.1(ws@8.20.0)(zod@4.4.3)
+      '@mariozechner/pi-ai': 0.73.1(ws@8.20.0)(zod@4.4.3)
       '@mariozechner/pi-tui': 0.73.1
       '@silvia-odwyer/photon-node': 0.3.4
       chalk: 5.6.2
@@ -1698,8 +1705,8 @@ snapshots:
     dependencies:
       '@opentelemetry/semantic-conventions': 1.41.1
       ws: 8.20.0
-      zod: 3.25.76
-      zod-to-json-schema: 3.25.2(zod@3.25.76)
+      zod: 4.4.3
+      zod-to-json-schema: 3.25.2(zod@4.4.3)
     transitivePeerDependencies:
       - bufferutil
       - utf-8-validate
@@ -2588,10 +2595,10 @@ snapshots:
     dependencies:
       mimic-fn: 2.1.0
 
-  openai@6.26.0(ws@8.20.0)(zod@3.25.76):
+  openai@6.26.0(ws@8.20.0)(zod@4.4.3):
     optionalDependencies:
       ws: 8.20.0
-      zod: 3.25.76
+      zod: 4.4.3
 
   p-retry@4.6.2:
     dependencies:
@@ -2933,10 +2940,12 @@ snapshots:
 
   yoga-layout@3.2.1: {}
 
-  zod-to-json-schema@3.25.2(zod@3.25.76):
+  zod-to-json-schema@3.25.2(zod@4.4.3):
     dependencies:
-      zod: 3.25.76
+      zod: 4.4.3
 
   zod@3.25.76: {}
+
+  zod@4.4.3: {}
 
   zwitch@2.0.4: {}

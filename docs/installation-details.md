@@ -13,7 +13,6 @@ extensions/aoc-commit.ts
 extensions/aoc-state.ts
 extensions/aoc-dox.ts
 extensions/aoc-dox-command.ts
-extensions/aoc-jj-init.ts
 extensions/aoc-brand-content.ts
 extensions/aoc-web-search.ts
 agents/brand-strategy.md

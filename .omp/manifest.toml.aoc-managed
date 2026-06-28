@@ -1,0 +1,6 @@
+aoc-managed: true
+asset: omp-manifest
+asset-version: 3
+source: .omp/manifest.toml
+sha256: a4c151551486089b8341432753fa2f3a3ed8dfa0fefa352b68fda6593c16451d
+updated-at: 2026-06-28T14:18:02Z

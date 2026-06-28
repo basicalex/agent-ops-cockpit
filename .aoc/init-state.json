@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "projectAocVersion": 3,
   "previousProjectAocVersion": 3,
-  "lastInitializedAt": "2026-06-19T13:46:12.864915Z",
+  "lastInitializedAt": "2026-06-28T14:18:11.048989Z",
   "lastInitScriptDir": "/home/ceii/dev/agent-ops-cockpit/bin",
   "runtime": {
     "canonical": "omp"

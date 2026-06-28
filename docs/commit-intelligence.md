@@ -6,7 +6,7 @@ This first layer does not require Mind schema changes. It establishes a stable h
 
 ## Why commits matter to AOC Mind
 
-AOC already links project understanding through PRDs, Taskmaster tasks, sessions, STM, memory, artifacts, file links, and provenance graphs. Git and Jujutsu commits are durable implementation endpoints of that chain.
+AOC already links project understanding through PRDs, Taskmaster tasks, sessions, STM, memory, artifacts, file links, and provenance graphs. Git commits are durable implementation endpoints of that chain.
 
 A commit can connect:
 
@@ -41,11 +41,11 @@ Planned later under Taskmaster task `193`:
 
 ## `/commit` workflow
 
-### 1. Detect preferred VCS and inspect read-only state
+### 1. Inspect read-only Git state
 
 Start from `aoc-handshake --json` VCS metadata when available. If needed, use narrow local inspection.
 
-When `preferredTool` is `git`, use staging semantics even if colocated `.jj` metadata exists:
+Use Git staging semantics:
 
 ```bash
 git status --short
@@ -53,15 +53,6 @@ git diff --stat
 git diff --cached --stat
 git diff -- path/to/file
 git diff --cached -- path/to/file
-```
-
-When `preferredTool` is `jj`, use current-change semantics: the working copy is the mutable `@` change, not a staging area.
-
-```bash
-jj status
-jj diff --summary
-jj diff --stat
-jj diff -- path/to/file
 ```
 
 ### 2. Plan atomic groups
@@ -98,15 +89,14 @@ aoc-mind-service context-pack --project-root "$PWD" --mode focused --reason "pre
 
 ### 4. Commit directly from `/commit`
 
-The user's `/commit` invocation is approval for the agent to complete the safe VCS-aware commit flow directly:
+The user's `/commit` invocation is approval for the agent to complete the safe Git commit flow directly:
 
 - select a coherent atomic change set from the prompt-first intent, recent session context, and targeted diffs
-- exclude or split unrelated/pre-existing changes, even if they share the same working copy
+- exclude unrelated/pre-existing changes, even if they share the same working tree
 - run targeted validation when practical
-- when Git is preferred, stage only explicit paths and never broad paths like `.`
-- when Jujutsu is preferred, plain `jj commit -m <message>` only after verifying `@` is already atomic; when `@` is mixed, use selected filesets/splitting (`jj commit -m <message> <filesets>`, `jj split`, `jj squash -i`) to commit the prompt-selected slice and leave unrelated work behind
+- stage only explicit paths and never broad paths like `.`
 - commit with AOC provenance trailers
-- report the resulting Git SHA or Jujutsu change/commit identity, CodeGraph cache status, and remaining unrelated changes
+- report the resulting Git SHA, CodeGraph cache status, and remaining unrelated changes
 
 After a successful commit, agents should refresh CodeGraph only as cache maintenance: if `.codegraph/` exists and `codegraph` is on PATH, run `codegraph sync <repo-root>`. This happens after the commit, never before it, and sync failure is advisory only; it must not block, undo, or invalidate the VCS result.
 
@@ -131,7 +121,7 @@ Tracked project-state filesets:
 - `.omp/extensions/`, `.omp/agents/`, and `.omp/skills/`
 - `AGENTS.md`, `DESIGN.md`, and relevant AOC docs/tests
 
-`/state-commit` is approval to commit only safe project-state files after `aoc state status` and narrow VCS inspection. In Jujutsu repos it must use `jj status`, `jj diff --summary`, `jj diff --stat`, and selected `jj commit <filesets>`/`jj split` workflows when `@` is mixed. It must never use Git staging in a Jujutsu repo.
+`/state-commit` is approval to commit only safe project-state files after `aoc state status` and narrow Git inspection. It must stage only explicit approved state paths.
 
 Use the default subject:
 
@@ -142,12 +132,12 @@ chore(state): track AOC project state
 Include:
 
 ```text
-AOC-Intent: keep AOC project state portable through Jujutsu/Git remotes
+AOC-Intent: keep AOC project state portable through Git remotes
 Tests: <state audit and init tests>
 Risk: low|medium; <reason>
 ```
 
-`/state-push` is separate because pushing mutates remotes. It requires explicit push invocation, verifies Jujutsu mode, re-runs the state audit, checks `jj bookmark list` and `jj git remote list`, and uses `jj git push --bookmark <bookmark> --remote <remote>` only when the bookmark/remote are unambiguous. It must never run raw `git push` in a Jujutsu repo.
+`/state-push` is separate because pushing mutates remotes. It requires explicit push invocation, verifies Git branch/remote state, re-runs the state audit, and uses `git push origin main` only when the branch/remote are unambiguous.
 
 ## Message format
 
@@ -197,7 +187,7 @@ Do not include:
 
 ## AOC trailers
 
-Use Git-trailer-style metadata at the bottom. Include only known values; the same message format applies to Git commits and Jujutsu descriptions.
+Use Git-trailer-style metadata at the bottom. Include only known values.
 
 ```text
 AOC-Task: <id>
@@ -242,8 +232,7 @@ Risk: low; no runtime behavior changed
 ```text
 feat(mind): ingest commits as provenance artifacts
 
-Add idempotent commit ingestion so Mind can represent Git or Jujutsu history as
-source artifacts. Parsed AOC trailers create explicit links to tasks, PRDs,
+Add idempotent commit ingestion so Mind can represent Git history as source artifacts. Parsed AOC trailers create explicit links to tasks, PRDs,
 sessions, files, tests, and Mind artifacts while preserving concise metadata by
 default.
 

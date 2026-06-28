@@ -26,7 +26,7 @@ find_aoc_root() {
   local dir="${1:-$PWD}"
   dir="$(cd "$dir" 2>/dev/null && pwd -P)" || return 1
   while [[ "$dir" != "/" ]]; do
-    if [[ -d "$dir/.aoc" || -f "$dir/AGENTS.md" || -d "$dir/.git" || -d "$dir/.jj" ]]; then
+    if [[ -d "$dir/.aoc" || -f "$dir/AGENTS.md" || -d "$dir/.git" ]]; then
       printf '%s\n' "$dir"
       return 0
     fi
@@ -108,10 +108,7 @@ print_fast_context() {
   if [[ -f "$root/.aoc/context.md" ]]; then context_state="present"; else context_state="missing"; fi
   if [[ -f "$root/AGENTS.md" ]]; then agents_state="present"; else agents_state="missing"; fi
 
-  if [[ -d "$root/.jj" ]] && command -v jj >/dev/null 2>&1 && [[ -n "$(run_quick 1s jj root)" ]]; then
-    vcs_line="jj; preferred=jj"
-    policy_line="jj current-change workflow; no git staging; split mixed work before commit"
-  elif [[ -d "$root/.git" ]] && command -v git >/dev/null 2>&1; then
+  if [[ -e "$root/.git" ]] && command -v git >/dev/null 2>&1; then
     vcs_line="git; preferred=git"
     policy_line="git explicit path staging; keep the commit atomic; never push without explicit approval"
   else

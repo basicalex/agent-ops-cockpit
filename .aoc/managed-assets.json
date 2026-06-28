@@ -55,6 +55,42 @@
       "source": ".aoc/presets/test",
       "status": "current"
     },
+    ".omp/agents": {
+      "asset": "omp-agents",
+      "assetVersion": 3,
+      "expectedSha256": "e37ba23cb76f2f39c77846b3820f391145e3d70d984d8d478f72cad5eb90e017",
+      "marker": ".omp/agents/.aoc-managed",
+      "sha256": "e37ba23cb76f2f39c77846b3820f391145e3d70d984d8d478f72cad5eb90e017",
+      "source": "../.config/aoc/omp/agents",
+      "status": "current"
+    },
+    ".omp/extensions": {
+      "asset": "omp-extensions",
+      "assetVersion": 3,
+      "expectedSha256": "bc00cd80c8dfccf5481ff3f88f84a70760457476ccc5c78ee059d058a8d12edb",
+      "marker": ".omp/extensions/.aoc-managed",
+      "sha256": "2f62ce49c87c2f684d7f3d9766781eb96403add0332ca6dbbb5c2e6dc8f87e4d",
+      "source": "../.config/aoc/omp/extensions",
+      "status": "dirty"
+    },
+    ".omp/manifest.toml": {
+      "asset": "omp-manifest",
+      "assetVersion": 3,
+      "expectedSha256": "a4c151551486089b8341432753fa2f3a3ed8dfa0fefa352b68fda6593c16451d",
+      "marker": ".omp/manifest.toml.aoc-managed",
+      "sha256": "a4c151551486089b8341432753fa2f3a3ed8dfa0fefa352b68fda6593c16451d",
+      "source": ".omp/manifest.toml",
+      "status": "current"
+    },
+    ".omp/skills": {
+      "asset": "omp-skills",
+      "assetVersion": 3,
+      "expectedSha256": "2c29e2fc7768982ec838c393b2ed4d34fe2da49e799783d795bb90033de7e699",
+      "marker": ".omp/skills/.aoc-managed",
+      "sha256": "1467e082a05f4accfce97829c7f4ef4766a64935b71e4a5de0184012291aafec",
+      "source": "../.config/aoc/omp/skills",
+      "status": "dirty"
+    },
     ".omp/skills/aoc-hyperframes": {
       "asset": "skill/aoc-hyperframes",
       "assetVersion": 3,
@@ -69,7 +105,7 @@
       "assetVersion": 3,
       "expectedSha256": "58726bcb19041ae80310ee9937971277eb46c55746da92ec5fecd549c6127236",
       "marker": ".omp/skills/aoc-init-ops/.aoc-managed",
-      "sha256": "df27e3d33e8531d17b9c885eca8413984517da9e588bfd459f0451c33289b51b",
+      "sha256": "78919b0c9067aa451c1e9c00b54dd8c0564ada8569714ad2d78a88e5e790c4c3",
       "source": "../.config/aoc/pi/skills/aoc-init-ops",
       "status": "dirty"
     },
@@ -246,11 +282,11 @@
     }
   },
   "counts": {
-    "current": 25,
-    "dirty": 2,
+    "current": 27,
+    "dirty": 4,
     "stale": 0,
     "unknown": 0
   },
   "schemaVersion": 1,
-  "updatedAt": "2026-06-19T13:46:12.739372Z"
+  "updatedAt": "2026-06-28T14:18:10.938644Z"
 }

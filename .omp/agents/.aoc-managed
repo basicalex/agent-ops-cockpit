@@ -1,0 +1,6 @@
+aoc-managed: true
+asset: omp-agents
+asset-version: 3
+source: ../.config/aoc/omp/agents
+sha256: e37ba23cb76f2f39c77846b3820f391145e3d70d984d8d478f72cad5eb90e017
+updated-at: 2026-06-20T08:38:04Z

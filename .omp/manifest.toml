@@ -7,10 +7,10 @@ extensions = [
   "aoc-dox-command.ts",
   "aoc-herdr.ts",
   "aoc-master.ts",
-  "aoc-jj-init.ts",
   "aoc-brand-content.ts",
   "aoc-web-search.ts",
   "aoc-style.ts",
+  "aoc-profile.ts",
 ]
 
 agents = [
@@ -64,9 +64,183 @@ skills = [
   "safe-gamification",
   "spec-rpg-authoring",
   "tm-cc",
-  "ponytail-review",
-  "ponytail-audit",
-  "ponytail-debt",
-  "ponytail-help",
+  "ponytail-workflows",
   "website-to-hyperframes",
 ]
+
+[profile_defaults]
+profiles = ["core"]
+
+[profiles.core]
+description = "Default lean AOC OMP surface for code understanding, init/update, design routing, style hooks, and Ponytail workflows."
+risk = "medium"
+extensions = [
+  "aoc-profile.ts",
+  "aoc-codegraph.ts",
+  "aoc-mind.ts",
+  "aoc-dox.ts",
+  "aoc-style.ts",
+]
+skills = [
+  "aoc-understand",
+  "aoc-init-ops",
+  "aoc-update",
+  "frontend-design",
+  "motion-director",
+  "animejs-core-api",
+  "funnel-design",
+  "safe-gamification",
+  "omarchy-theme-ops",
+  "ponytail-workflows",
+]
+agents = []
+
+[profiles.operator]
+description = "Operator-only AOC OMP surface for Herdr observation, master orchestration, commits, and project state."
+risk = "orchestration"
+extensions = [
+  "aoc-herdr.ts",
+  "aoc-master.ts",
+  "aoc-commit.ts",
+  "aoc-state.ts",
+]
+skills = []
+agents = []
+
+[profiles.dox]
+description = "AGENTS.md cartography and DOX review workflow with specialist mapping agents."
+risk = "metadata-write"
+extensions = ["aoc-dox-command.ts"]
+skills = ["aoc-dox-cartography"]
+agents = [
+  "dox-scout.md",
+  "dox-mapper.md",
+  "dox-critic.md",
+  "dox-writer.md",
+]
+
+[profiles.hyperframes]
+description = "HyperFrames branded-content production surface and visual content specialist agents."
+risk = "medium"
+extensions = ["aoc-brand-content.ts"]
+skills = [
+  "aoc-hyperframes",
+  "hyperframes",
+  "hyperframes-cli",
+  "website-to-hyperframes",
+  "gsap",
+]
+agents = [
+  "brand-strategy.md",
+  "brand-concept.md",
+  "svg-asset.md",
+  "hyperframes-content.md",
+]
+
+[profiles.research]
+description = "Local web-search fallback for package, docs, GitHub, and error lookup."
+risk = "network"
+extensions = ["aoc-web-search.ts"]
+skills = []
+agents = []
+
+[profiles.full]
+description = "Full compatibility surface matching the previous always-installed AOC OMP inventory."
+risk = "high"
+extensions = [
+  "aoc-codegraph.ts",
+  "aoc-mind.ts",
+  "aoc-commit.ts",
+  "aoc-state.ts",
+  "aoc-dox.ts",
+  "aoc-dox-command.ts",
+  "aoc-herdr.ts",
+  "aoc-master.ts",
+  "aoc-brand-content.ts",
+  "aoc-web-search.ts",
+  "aoc-style.ts",
+  "aoc-profile.ts",
+]
+skills = [
+  "animejs-core-api",
+  "animejs-performance-a11y",
+  "animejs-react-integration",
+  "animejs-reviewer",
+  "animejs-scene-planner",
+  "animejs-scroll-interaction",
+  "animejs-svg-motion",
+  "animejs-text-splitting",
+  "animejs-timelines",
+  "aoc-dox-cartography",
+  "aoc-gaps",
+  "aoc-hyperframes",
+  "aoc-init-ops",
+  "aoc-lexicon",
+  "aoc-map",
+  "aoc-stm",
+  "aoc-understand",
+  "aoc-update",
+  "architecture-design",
+  "design-diff",
+  "design-director",
+  "design-handoff",
+  "design-premium-ui",
+  "design-redesign",
+  "design-review",
+  "design-spec",
+  "design-tokens",
+  "enforce-dashboard-ux-guardrails",
+  "frontend-design",
+  "funnel-design",
+  "gsap",
+  "hyperframes",
+  "hyperframes-cli",
+  "motion-director",
+  "omarchy-theme-ops",
+  "rlm-analysis",
+  "safe-gamification",
+  "spec-rpg-authoring",
+  "tm-cc",
+  "ponytail-workflows",
+  "website-to-hyperframes",
+]
+agents = [
+  "brand-strategy.md",
+  "brand-concept.md",
+  "svg-asset.md",
+  "hyperframes-content.md",
+  "dox-scout.md",
+  "dox-mapper.md",
+  "dox-critic.md",
+  "dox-writer.md",
+]
+
+[asset_meta.extensions."aoc-master.ts"]
+category = "orchestration"
+risk = "high"
+default = false
+reason = "Peer orchestration and master/full-retard state writes."
+
+[asset_meta.extensions."aoc-dox.ts"]
+category = "dox"
+risk = "metadata-write"
+default = true
+reason = "Includes read-only aoc_dox and current metadata-writing aoc_dox_writer; split is deferred."
+
+[asset_meta.extensions."aoc-style.ts"]
+category = "style"
+risk = "medium"
+default = true
+reason = "Persistent Ponytail/Caveman prompt hook state."
+
+[asset_meta.extensions."aoc-profile.ts"]
+category = "profile"
+risk = "medium"
+default = true
+reason = "User-local profile state changes affect future installed OMP runtime surface."
+
+[asset_meta.skills."ponytail-workflows"]
+category = "review"
+risk = "low"
+default = true
+reason = "Read-only Ponytail review/audit/debt workflows."

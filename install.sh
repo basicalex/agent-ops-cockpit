@@ -1078,6 +1078,10 @@ if [[ -d "$ROOT_DIR/.omp" ]]; then
       fi
     done
   done
+  if [[ -f "$ROOT_DIR/.omp/manifest.toml" ]]; then
+    mkdir -p "$AOC_CONFIG_DIR/omp"
+    cp "$ROOT_DIR/.omp/manifest.toml" "$AOC_CONFIG_DIR/omp/manifest.toml"
+  fi
 fi
 
 # Upstream Taskmaster PRD templates for project seeding
@@ -1093,46 +1097,41 @@ if [[ -d "$ROOT_DIR/.taskmaster/templates" ]]; then
 fi
 
 # AOC default PI prompt templates
-if [[ -d "$ROOT_DIR/.pi/prompts" ]]; then
-  for f in "$ROOT_DIR/.pi/prompts"/*.md; do
-    [[ -f "$f" ]] || continue
-    # Repo-local AOC maintainer workflow; do not distribute to other AOC projects.
-    [[ "$(basename "$f")" == "aoc-update.md" ]] && continue
-    dest="${XDG_CONFIG_HOME:-$HOME/.config}/aoc/pi/prompts/$(basename "$f")"
-    if [[ ! -f "$dest" ]]; then
-      cp "$f" "$dest"
-      continue
-    fi
-    if ! cmp -s "$f" "$dest"; then
-      cp "$f" "$dest"
-    fi
-  done
-fi
+for prompt_source_dir in "$ROOT_DIR/.pi/prompts" "$ROOT_DIR/.aoc/prompts/pi"; do
+  if [[ -d "$prompt_source_dir" ]]; then
+    for f in "$prompt_source_dir"/*.md; do
+      [[ -f "$f" ]] || continue
+      # Repo-local AOC maintainer workflow; do not distribute to other AOC projects.
+      [[ "$(basename "$f")" == "aoc-update.md" ]] && continue
+      dest="${XDG_CONFIG_HOME:-$HOME/.config}/aoc/pi/prompts/$(basename "$f")"
+      if [[ ! -f "$dest" ]]; then
+        cp "$f" "$dest"
+        continue
+      fi
+      if ! cmp -s "$f" "$dest"; then
+        cp "$f" "$dest"
+      fi
+    done
+  fi
+done
+
+required_pi_prompts=(
+  aoc-ops
+  tm-cc
+)
+for prompt_name in "${required_pi_prompts[@]}"; do
+  installed_prompt="${XDG_CONFIG_HOME:-$HOME/.config}/aoc/pi/prompts/${prompt_name}.md"
+  if [[ ! -f "$installed_prompt" ]]; then
+    echo "Missing required AOC PI prompt template after install: $installed_prompt" >&2
+    exit 1
+  fi
+done
 
 legacy_resume_prompt="${XDG_CONFIG_HOME:-$HOME/.config}/aoc/pi/prompts/resume.md"
 if [[ -f "$legacy_resume_prompt" ]] && grep -Fq 'safe_to_resume_latest' "$legacy_resume_prompt" && grep -Fq 'Operator resume target or focus:' "$legacy_resume_prompt"; then
   rm -f "$legacy_resume_prompt"
 fi
 
-required_pi_prompts=(
-  aoc-ops
-  tm-cc
-  implement
-  handoff
-  rresume
-  commit
-)
-for prompt_name in "${required_pi_prompts[@]}"; do
-  source_prompt="$ROOT_DIR/.pi/prompts/${prompt_name}.md"
-  installed_prompt="${XDG_CONFIG_HOME:-$HOME/.config}/aoc/pi/prompts/${prompt_name}.md"
-  if [[ ! -f "$source_prompt" ]]; then
-    echo "Missing required AOC PI prompt template: $source_prompt" >&2
-    exit 1
-  fi
-  if [[ ! -f "$installed_prompt" ]]; then
-    cp "$source_prompt" "$installed_prompt"
-  fi
-done
 
 # AOC default PI extension templates
 if [[ -d "$ROOT_DIR/.pi/extensions" ]]; then

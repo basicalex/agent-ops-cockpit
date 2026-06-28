@@ -141,6 +141,49 @@ for value in values:
 PY
 }
 
+read_omp_active_list() {
+  local kind="$1"
+  local manifest
+  manifest="$(aoc_omp_seed_root)/manifest.toml"
+  if [[ -x "$script_dir/aoc-profile" ]]; then
+    "$script_dir/aoc-profile" active --kind "$kind" --root "$project_root" --manifest "$manifest"
+  elif command -v aoc-profile >/dev/null 2>&1; then
+    aoc-profile active --kind "$kind" --root "$project_root" --manifest "$manifest"
+  else
+    read_omp_manifest_list "$kind"
+  fi
+}
+
+load_omp_active_array() {
+  local array_name="$1"
+  local kind="$2"
+  local tmp
+  tmp="$(mktemp)"
+  read_omp_active_list "$kind" > "$tmp"
+  mapfile -t "$array_name" < "$tmp"
+  rm -f "$tmp"
+}
+
+load_omp_manifest_array() {
+  local array_name="$1"
+  local kind="$2"
+  local tmp
+  tmp="$(mktemp)"
+  read_omp_manifest_list "$kind" > "$tmp"
+  mapfile -t "$array_name" < "$tmp"
+  rm -f "$tmp"
+}
+
+array_contains() {
+  local needle="$1"
+  shift
+  local item=""
+  for item in "$@"; do
+    [[ "$item" == "$needle" ]] && return 0
+  done
+  return 1
+}
+
 positive_int_or_default() {
   local candidate="$1"
   local fallback="$2"
@@ -692,11 +735,7 @@ from pathlib import Path
 
 root = Path(sys.argv[1])
 git_present = (root / ".git").exists()
-jj_present = (root / ".jj").exists()
-if jj_present:
-    suffix = " (colocated with git)" if git_present else ""
-    print(f"jj{suffix}")
-elif git_present:
+if git_present:
     print("git")
 else:
     print("none")
@@ -711,7 +750,6 @@ from pathlib import Path
 
 root = Path(sys.argv[1])
 git_present = (root / ".git").exists()
-jj_present = (root / ".jj").exists()
 
 def run(cmd):
     try:
@@ -727,23 +765,11 @@ git_branch = None
 if git_present:
     git_branch = run(["git", "branch", "--show-current"]) or run(["git", "rev-parse", "--short", "HEAD"]) or "unknown"
 
-jj_root = str(root) if jj_present else None
-if jj_present:
-    jj_root = run(["jj", "root"]) or jj_root
-
-if jj_present:
-    vcs = "jj (colocated with git)" if git_present else "jj"
-elif git_present:
-    vcs = "git"
-else:
-    vcs = "none"
+vcs = "git" if git_present else "none"
 
 print(f"- VCS: {vcs}")
 if git_branch:
     print(f"- Git branch: {git_branch}")
-if jj_present:
-    print(f"- Jujutsu root: {jj_root}")
-    print(f"- Jujutsu colocation: {'yes' if git_present else 'no'}")
 PY
 }
 
@@ -844,13 +870,11 @@ This file defines the always-on rules for agents in this repo. Procedural playbo
 - RTK exists to improve context health: allowlisted noisy commands are condensed for better signal density, with fail-open native fallback.
 
 ## Startup handshake
-- `aoc-handshake --json` is the metadata-only startup packet for agents: AOC status, Taskmaster tag, Mind availability, VCS mode/preferred command family, and usage policy.
+- `aoc-handshake --json` is the metadata-only startup packet for agents: AOC status, Taskmaster tag, Mind availability, Git repository state, and usage policy.
 - Startup must not load broad Mind memories or context packs by default; use the handshake to discover Mind, not to prime direction.
 - Mind may sync/ingest in the background, but retrieval should be lazy and intent-bound.
 - Request focused Mind context only after user intent is known, for resume/continuation, prior decisions, task/spec grounding, debugging previous attempts, provenance/audit, or when targeted local inspection is insufficient.
 - Always pass an explicit reason when requesting Mind context; prefer focused/provenance/resume modes over broad recall.
-- Prefer `jj` commands when handshake VCS metadata reports Jujutsu, including colocated Jujutsu+Git repositories; prefer Git commands only in Git-only repositories.
-- Jujutsu setup/import/init/export is operator-controlled. AOC init reports existing `.jj` state but must not create or initialize Jujutsu; use explicit `/jj-init` or a direct shell command for setup.
 
 ## Low-Token Default Mode
 - Keep responses concise by default; do not print full files or raw logs unless explicitly requested.
@@ -865,6 +889,13 @@ This file defines the always-on rules for agents in this repo. Procedural playbo
 - Do not open/read image binaries unless the user explicitly asks to view/open one now.
 - Use one narrow diagnostic path first; avoid retry spray with variant commands unless first attempt fails.
 
+## Lightweight Validation
+- Prefer OMP `lsp diagnostics` on touched files/globs for edit-loop validation before running build, lint, or typecheck commands.
+- Use `lsp references` before changing exported symbols, and `lsp code_actions` for language-server fixes/imports when available.
+- Do not run full project build/lint/test as a routine sanity check during active edits.
+- In delegated multi-agent work, subagents should skip project-wide validation unless explicitly assigned.
+- Final verification is still required; choose the smallest targeted command that proves the changed behavior.
+
 ## AOC CLI Commands (run via Bash tool - NOT Read tool)
 These commands are in PATH and work without loading any skill:
 - Startup/repair: `aoc-handshake --json`, `aoc-init`
@@ -872,7 +903,7 @@ These commands are in PATH and work without loading any skill:
 - STM directed handoff only: `aoc-stm status`, `aoc-stm template --purpose <kind>`, `aoc-stm`, `aoc-stm add "note"`, `aoc-stm handoff --purpose <kind> --to <recipient> --focus <focus>`, `aoc-stm resume <archive>`
 - Tasks: `tm tag current`, `tm tag spec show`, `aoc-task tag spec show --tag <tag>`, `aoc-task spec show <id> --tag <tag>`
 - RTK: `aoc-rtk status`, `aoc-rtk doctor`, `aoc-rtk install --auto`, `aoc-rtk enable|disable`
-- VCS: inspect detected mode with `aoc-handshake --json`; use `jj status`/`jj diff` in Jujutsu repos and `git status`/`git diff` in Git-only repos; use `/jj-init` only for explicit colocated Jujutsu setup.
+- VCS: inspect detected mode with `aoc-handshake --json`; use `git status`/`git diff` in Git repositories.
 
 STM is for deliberate directed in-progress handoff packets only; it is not a mailbox and does not notify another agent by itself. Pass the printed next-agent brief or exact archive explicitly. In Pi, `/handoff <focus>` asks the agent to generate a clean purpose-matched packet for the current work; `/rresume [archive]` asks the agent to load a sealed handoff into context safely. Do not use STM for durable decisions, generic logs, raw command output, or every minor task.
 
@@ -1180,7 +1211,7 @@ Use the AOC tools for context, memory, and tasks in this repo.
 - **Tasks:** use `tm` or `aoc-task` via Bash tool (do not edit `.taskmaster/tasks/tasks.json` directly)
 - **Task specs:** tag-level defaults + task-level overrides via `aocPrd` (resolve with `aoc-task tag spec show --tag <tag>` and `aoc-task spec show <id> --tag <tag>`)
 - **RTK routing (default-on for new AOC repos):** allowlisted commands route via RTK in AOC panes; manage with `aoc-rtk status|enable|disable|doctor|install --auto` and `.aoc/rtk.toml`
-- **Startup handshake:** use `aoc-handshake --json` for metadata-only AOC/Mind/VCS availability. Do not load broad Mind memories at startup; request focused Mind context only after task intent is clear. Prefer `jj` when the handshake reports Jujutsu, including colocated Jujutsu+Git repositories.
+- **Startup handshake:** use `aoc-handshake --json` for metadata-only AOC/Mind/VCS availability. Do not load broad Mind memories at startup; request focused Mind context only after task intent is clear. Use Git for repository changes.
 
 If AOC files are missing or stale, run `aoc-init` at the repo root.
 EOF
@@ -1203,13 +1234,6 @@ allowlist = [
   "git show",
   "git branch",
   "git rev-parse",
-  "jj status",
-  "jj diff",
-  "jj log",
-  "jj show",
-  "jj root",
-  "jj git colocation status",
-  "jj operation log",
   "rg",
   "fd",
   "find",
@@ -1258,23 +1282,6 @@ denylist = [
   "git reset --hard",
   "git clean -fd",
   "git worktree remove",
-  "jj commit",
-  "jj describe",
-  "jj new",
-  "jj split",
-  "jj squash",
-  "jj abandon",
-  "jj rebase",
-  "jj restore",
-  "jj revert",
-  "jj undo",
-  "jj git push",
-  "jj git fetch",
-  "jj git import",
-  "jj git export",
-  "jj git init",
-  "jj git colocation enable",
-  "jj git colocation disable",
   "rm -rf",
   "sudo",
   "ssh",
@@ -1525,9 +1532,9 @@ EOF
 
 
   if command -v tree >/dev/null 2>&1; then
-    tree_output="$(tree -L "$context_tree_depth" --gitignore -I '.git|.jj|.taskmaster|.aoc|.gemini|node_modules|target|dist|archive|deprecated|.venv|venv|__pycache__' "$project_root" 2>/dev/null || true)"
+    tree_output="$(tree -L "$context_tree_depth" --gitignore -I '.git|.taskmaster|.aoc|.gemini|node_modules|target|dist|archive|deprecated|.venv|venv|__pycache__' "$project_root" 2>/dev/null || true)"
   else
-    tree_output="$(cd "$project_root" && find . -maxdepth "$context_tree_depth" \( -path './.git' -o -path './.jj' -o -path './.taskmaster' -o -path './.aoc' -o -path './.gemini' -o -path './node_modules' -o -path './target' -o -path './dist' -o -path './archive' -o -path './deprecated' -o -path './.venv' -o -path './venv' -o -path './__pycache__' \) -prune -o -print 2>/dev/null | sort || true)"
+    tree_output="$(cd "$project_root" && find . -maxdepth "$context_tree_depth" \( -path './.git' -o -path './.taskmaster' -o -path './.aoc' -o -path './.gemini' -o -path './node_modules' -o -path './target' -o -path './dist' -o -path './archive' -o -path './deprecated' -o -path './.venv' -o -path './venv' -o -path './__pycache__' \) -prune -o -print 2>/dev/null | sort || true)"
   fi
   tree_lines="$(printf '%s\n' "$tree_output" | wc -l | tr -d ' ')"
 
@@ -1822,7 +1829,9 @@ EOF
     ! grep -Fq 'aoc-stm resume' "$init_ops_skill" ||
     ! grep -Fq '.omp/extensions/' "$init_ops_skill" ||
     ! grep -Fq 'aoc-style.ts' "$init_ops_skill" ||
-    ! grep -Fq 'ponytail-help' "$init_ops_skill" ||
+    ! grep -Fq 'ponytail-workflows' "$init_ops_skill" ||
+    ! grep -Fq 'active profiles' "$init_ops_skill" ||
+    ! grep -Fq 'profile tables' "$init_ops_skill" ||
     grep -Fq 'Syncs skills for existing agent targets' "$init_ops_skill"
   ); then
     cat <<'EOF' > "$init_ops_skill"
@@ -1847,10 +1856,11 @@ description: Initialize or repair AOC context, memory, and tasks safely.
 - Seeds `.aoc/stm/current.md` and `.aoc/stm/archive/` without overwriting existing STM files
 - Ensures spec directory `.taskmaster/docs/specs/` is available for tag/task links
 - Seeds project OMP assets under `.omp/extensions/`, `.omp/agents/`, `.omp/skills/`, and `.omp/manifest.toml`
-- Installs AOC OMP extensions from `.omp/manifest.toml` into `${AOC_OMP_AGENT_DIR:-$HOME/.omp/agent}/extensions` when available
+- Keeps `.omp/manifest.toml` as the full OMP inventory plus profile tables
+- Installs AOC OMP extensions selected by active profiles into `${AOC_OMP_AGENT_DIR:-$HOME/.omp/agent}/extensions` when available
 - Seeds the global OMP style hook state file at `${AOC_STYLE_STATE_FILE:-$HOME/.omp/agent/style-hooks.json}` with both hooks off when missing
-- Installs AOC OMP agent templates from `.omp/manifest.toml` into `${AOC_OMP_AGENT_DIR:-$HOME/.omp/agent}/agents` when available
-- Installs OMP skills from `.omp/manifest.toml` into `${AOC_OMP_AGENT_DIR:-$HOME/.omp/agent}/skills` when available
+- Installs AOC OMP agent templates selected by active profiles into `${AOC_OMP_AGENT_DIR:-$HOME/.omp/agent}/agents` when available
+- Installs OMP skills selected by active profiles into `${AOC_OMP_AGENT_DIR:-$HOME/.omp/agent}/skills` when available
 - Seeds reusable preset assets in `.aoc/presets/{design,hyperframes,ops,research,test}/` when missing
 - Seeds `.aoc/init-state.json` with the current AOC project version and applies version-specific migrations on older repos
 - Validates `.omp/skills` as the canonical skill surface
@@ -2038,6 +2048,46 @@ setup_project_omp_assets() {
     copy_tree_force_managed "$source_dir" "$target_dir" "omp-$kind"
     log "Seeded project OMP $kind: .omp/$kind"
   done
+
+  local manifest_source="$omp_seed_root/manifest.toml"
+  local manifest_target="$project_omp_root/manifest.toml"
+  if [[ -f "$manifest_source" ]]; then
+    copy_file_force_managed "$manifest_source" "$manifest_target" "omp-manifest"
+    log "Seeded project OMP manifest: .omp/manifest.toml"
+  fi
+}
+
+sync_omp_extension_config() {
+  local omp_extension_dir="${AOC_OMP_AGENT_DIR:-$HOME/.omp/agent}/extensions"
+  local omp_config="${AOC_OMP_AGENT_CONFIG:-$HOME/.omp/agent/config.yml}"
+  local required_extensions=()
+  load_omp_active_array required_extensions extensions
+  python3 - "$omp_config" "$omp_extension_dir" "${required_extensions[@]}" <<'PY'
+import sys
+from pathlib import Path
+
+config = Path(sys.argv[1])
+extension_dir = Path(sys.argv[2])
+extensions = [str(extension_dir / name) for name in sys.argv[3:]]
+if not config.exists():
+    sys.exit(0)
+
+lines = config.read_text().splitlines()
+block = ["extensions: "] + [f"  - {value}" for value in extensions]
+start = None
+for index, line in enumerate(lines):
+    if line.startswith("extensions:"):
+        start = index
+        break
+if start is None:
+    lines.extend(block)
+else:
+    end = start + 1
+    while end < len(lines) and (lines[end].startswith(" ") or lines[end].strip() == ""):
+        end += 1
+    lines[start:end] = block
+config.write_text("\n".join(lines) + "\n")
+PY
 }
 
 setup_omp_extensions() {
@@ -2048,7 +2098,7 @@ setup_omp_extensions() {
   local extension_src=""
   local extension_dst=""
   local required_extensions=()
-  mapfile -t required_extensions < <(read_omp_manifest_list extensions)
+  load_omp_active_array required_extensions extensions
 
   if [[ ! -d "$omp_extension_seed_dir" ]]; then
     warn "Missing AOC OMP extension seed directory: $omp_extension_seed_dir"
@@ -2067,7 +2117,18 @@ setup_omp_extensions() {
     fi
   done
 
+  local manifest_extensions=()
+  load_omp_manifest_array manifest_extensions extensions
+  for extension_name in "${manifest_extensions[@]}"; do
+    if ! array_contains "$extension_name" "${required_extensions[@]}"; then
+      rm -f "$omp_extension_dir/$extension_name"
+    fi
+  done
+
   rm -f "$omp_extension_dir/aoc-openai-stt.ts" "$omp_extension_dir/ponytail.ts"
+  sync_omp_extension_config
+  log "Updated OMP extension config: ${AOC_OMP_AGENT_CONFIG:-$HOME/.omp/agent/config.yml}"
+
 }
 
 setup_omp_style_state() {
@@ -2098,7 +2159,7 @@ setup_omp_skills() {
   local skill_src=""
   local skill_dst=""
   local required_skills=()
-  mapfile -t required_skills < <(read_omp_manifest_list skills)
+  load_omp_active_array required_skills skills
 
   if [[ ! -d "$omp_skill_seed_dir" ]]; then
     warn "Missing AOC OMP skill seed directory: $omp_skill_seed_dir"
@@ -2117,8 +2178,15 @@ setup_omp_skills() {
       warn "Missing AOC OMP skill seed: $skill_name"
     fi
   done
+  local manifest_skills=()
+  load_omp_manifest_array manifest_skills skills
+  for skill_name in "${manifest_skills[@]}"; do
+    if ! array_contains "$skill_name" "${required_skills[@]}"; then
+      rm -rf "$omp_skill_dir/$skill_name"
+    fi
+  done
 
-  rm -rf "$omp_skill_dir/ponytail"
+  rm -rf "$omp_skill_dir/ponytail-review" "$omp_skill_dir/ponytail-audit" "$omp_skill_dir/ponytail-debt" "$omp_skill_dir/ponytail-help"
 }
 setup_omp_agents() {
   local omp_agent_seed_dir
@@ -2128,7 +2196,7 @@ setup_omp_agents() {
   local agent_src=""
   local agent_dst=""
   local required_agents=()
-  mapfile -t required_agents < <(read_omp_manifest_list agents)
+  load_omp_active_array required_agents agents
 
   if [[ ! -d "$omp_agent_seed_dir" ]]; then
     warn "Missing AOC OMP agent seed directory: $omp_agent_seed_dir"
@@ -2144,6 +2212,14 @@ setup_omp_agents() {
       log "Installed AOC OMP agent template: $agent_dst"
     else
       warn "Missing AOC OMP agent seed: $agent_name"
+    fi
+  done
+
+  local manifest_agents=()
+  load_omp_manifest_array manifest_agents agents
+  for agent_name in "${manifest_agents[@]}"; do
+    if ! array_contains "$agent_name" "${required_agents[@]}"; then
+      rm -f "$omp_agent_dir/$agent_name"
     fi
   done
 }

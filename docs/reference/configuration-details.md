@@ -189,13 +189,13 @@ mode = "on"
 fail_open = true
 gain_mode = "double-dash"
 binary = "rtk"
-allowlist = ["git status", "git diff", "jj status", "jj diff", "jj operation log", "rg", "pytest"]
-denylist = ["git push", "git reset --hard", "jj commit", "jj describe", "jj split", "jj git push", "rm -rf"]
+allowlist = ["git status", "git diff", "rg", "pytest"]
+denylist = ["git push", "git reset --hard", "rm -rf"]
 install_url = ""
 install_sha256 = ""
 ```
 
-The seeded allowlist includes read-only Jujutsu inspection (`jj status`, `jj diff`, `jj log`, `jj show`, `jj root`, `jj git colocation status`, `jj operation log`). Mutating Jujutsu operations (`jj commit`, `jj describe`, `jj new`, `jj split`, `jj squash`, `jj abandon`, `jj rebase`, `jj restore`, `jj revert`, `jj undo`, and `jj git ...` import/export/push/fetch/init/colocation changes) are denied in ambient routing so mutations only happen through explicit operator workflows.
+The seeded allowlist includes read-only Git inspection and common safe local diagnostics. Mutating Git operations are denied in ambient routing so mutations only happen through explicit operator workflows.
 
 Operator commands:
 
@@ -233,7 +233,7 @@ Safety model:
 
 What it guarantees:
 - Seeds/repairs canonical project OMP sources under `.omp/extensions/`, `.omp/agents/`, and `.omp/skills/`.
-- Installs AOC OMP extensions into `${AOC_OMP_AGENT_DIR:-~/.omp/agent}/extensions`, including CodeGraph, Mind, commit, state, DOX, jj-init, brand-content, and web-search surfaces.
+- Installs AOC OMP extensions into `${AOC_OMP_AGENT_DIR:-~/.omp/agent}/extensions`, including CodeGraph, Mind, commit, state, DOX, brand-content, and web-search surfaces.
 - Installs AOC OMP agent templates into `${AOC_OMP_AGENT_DIR:-~/.omp/agent}/agents`.
 - Installs AOC OMP skills into `${AOC_OMP_AGENT_DIR:-~/.omp/agent}/skills`.
 - Keeps AOC control-plane state under `.aoc/**`, including `.aoc/mind-service.json` for project-local standalone Mind launcher metadata.
@@ -483,7 +483,7 @@ AOC uses a **Distributed Cognitive Architecture** with four layers:
 ### 1. Project Context (`.aoc/context.md`)
 
 - **Purpose:** Auto-generated project map
-- **Content:** Project-specific snapshot (repo facts, VCS mode, Git branch when present, Jujutsu root/colocation when present, key files, structure tree, README headings, workstream tags, task PRD location)
+- **Content:** Project-specific snapshot (repo facts, VCS mode, Git branch when present, key files, structure tree, README headings, workstream tags, task PRD location)
 - **Refresh:** `aoc-init` (manual) or `aoc-watcher` (auto)
 
 ### 2. Long-Term Memory (`.aoc/memory.md`)

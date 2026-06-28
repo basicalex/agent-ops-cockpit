@@ -1,12 +1,10 @@
 # Project Context Snapshot
 
 ## Repository
-- Name: .
-- Root: .
-- VCS: jj (colocated with git)
+- Name: agent-ops-cockpit
+- Root: /home/ceii/dev/agent-ops-cockpit
+- VCS: git
 - Git branch: main
-- Jujutsu root: /home/ceii/dev/agent-ops-cockpit
-- Jujutsu colocation: yes
 
 ## Key Files
 - README.md
@@ -60,7 +58,7 @@
 ```
 
 ## README Headings
-# AOC — terminal-first AI workspace
+# AOC — Herdr-first AI workspace
 ## Install
 ## First run
 ## Human docs

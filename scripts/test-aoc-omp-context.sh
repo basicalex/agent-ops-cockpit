@@ -18,8 +18,8 @@ if [[ "$compact" == *"Focused commands:"* ]]; then
   exit 1
 fi
 
-if [[ "$min" != *"policy=metadata-only"* ]]; then
-  echo "ERROR: min AOC OMP context did not include minimal policy line" >&2
+if [[ "$min" != *"Mode: metadata-only startup capsule"* ]]; then
+  echo "ERROR: min AOC OMP context did not include metadata-only marker" >&2
   exit 1
 fi
 
@@ -41,15 +41,12 @@ fi
 tmp_dir="$(mktemp -d)"
 trap 'rm -rf "$tmp_dir"' EXIT
 git_fixture="$tmp_dir/git-only"
-jj_fixture="$tmp_dir/jj-colocated"
-mkdir -p "$git_fixture/.git" "$jj_fixture/.git" "$jj_fixture/.jj"
+mkdir -p "$git_fixture/.git"
 
 git_min="$(AOC_OMP_CONTEXT_LEVEL=min bin/aoc-omp-context "$git_fixture")"
 git_compact="$(AOC_OMP_CONTEXT_LEVEL=compact bin/aoc-omp-context "$git_fixture")"
-jj_min="$(AOC_OMP_CONTEXT_LEVEL=min bin/aoc-omp-context "$jj_fixture")"
-jj_full="$(AOC_OMP_CONTEXT_LEVEL=full bin/aoc-omp-context "$jj_fixture")"
 
-if [[ "$git_min" != *"vcs=git; preferred=git"* ]]; then
+if [[ "$git_min" != *"VCS: git; preferred=git"* ]]; then
   echo "ERROR: git-only fixture did not report git VCS in min context" >&2
   exit 1
 fi
@@ -59,30 +56,37 @@ if [[ "$git_compact" != *"VCS: git; preferred=git"* ]]; then
   exit 1
 fi
 
-if [[ "$jj_min" != *"vcs=jj; preferred=jj"* ]]; then
-  echo "ERROR: colocated Jujutsu fixture did not report jj VCS in min context" >&2
-  exit 1
-fi
-
-if [[ "$jj_full" != *"## VCS policy"* || "$jj_full" != *"not a Git staging area"* || "$jj_full" != *"jj split"* ]]; then
-  echo "ERROR: colocated Jujutsu fixture did not include full Jujutsu safety guidance" >&2
-  exit 1
-fi
 
 for required in \
   .omp/extensions/aoc-codegraph.ts \
   .omp/extensions/aoc-commit.ts \
-  .omp/extensions/aoc-jj-init.ts \
   .omp/extensions/aoc-brand-content.ts \
   .omp/extensions/aoc-web-search.ts \
+  .omp/extensions/aoc-style.ts \
+  .omp/extensions/aoc-profile.ts \
   .omp/agents/brand-strategy.md \
   .omp/agents/brand-concept.md \
   .omp/agents/svg-asset.md \
   .omp/agents/hyperframes-content.md \
   .omp/skills/aoc-dox-cartography/SKILL.md \
-  .omp/skills/aoc-init-ops/SKILL.md; do
+  .omp/skills/aoc-init-ops/SKILL.md \
+  .omp/skills/ponytail-workflows/SKILL.md; do
   if [[ ! -f "$required" ]]; then
     echo "ERROR: missing repo-tracked OMP runtime asset: $required" >&2
+    exit 1
+  fi
+done
+
+style_state="$tmp_dir/style-state.json"
+printf '%s\n' '{"version":1,"ponytail":"lite","caveman":"ultra","updatedAt":"test"}' >"$style_state"
+style_context="$(AOC_STYLE_STATE_FILE="$style_state" AOC_OMP_CONTEXT_LEVEL=compact bin/aoc-omp-context)"
+for required in \
+  "# AOC Host Style Hooks" \
+  "Ponytail engineering mode: lite." \
+  "Caveman output mode: ultra." \
+  "Ultra: use arrows and common prose abbreviations only when they cannot alter technical meaning."; do
+  if [[ "$style_context" != *"$required"* ]]; then
+    echo "ERROR: compact context did not include style hook line: $required" >&2
     exit 1
   fi
 done
