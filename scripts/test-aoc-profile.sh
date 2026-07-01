@@ -20,13 +20,13 @@ AOC_PROFILE_STATE_FILE="$state_file" bash "$root/bin/aoc-profile" active --kind 
 cat >"$tmp/default-extensions.expected" <<'EOF'
 aoc-profile.ts
 aoc-codegraph.ts
-aoc-mind.ts
 aoc-dox.ts
 aoc-style.ts
 EOF
 assert_lines_equal "$tmp/default-extensions.out" "$tmp/default-extensions.expected"
 
-if grep -Fxq 'aoc-master.ts' "$tmp/default-extensions.out" || \
+if grep -Fxq 'aoc-mind.ts' "$tmp/default-extensions.out" || \
+   grep -Fxq 'aoc-master.ts' "$tmp/default-extensions.out" || \
    grep -Fxq 'aoc-brand-content.ts' "$tmp/default-extensions.out" || \
    grep -Fxq 'aoc-web-search.ts' "$tmp/default-extensions.out"; then
   echo "ERROR: default core extensions included gated profile assets" >&2
@@ -41,6 +41,22 @@ svg-asset.md
 hyperframes-content.md
 EOF
 assert_lines_equal "$tmp/hyperframes-agents.out" "$tmp/hyperframes-agents.expected"
+
+AOC_OMP_PROFILES=core,provenance bash "$root/bin/aoc-profile" active --kind extensions --root "$root" --manifest "$root/.omp/manifest.toml" >"$tmp/provenance-extensions.out"
+cat >"$tmp/provenance-extensions.expected" <<'EOF'
+aoc-profile.ts
+aoc-codegraph.ts
+aoc-dox.ts
+aoc-style.ts
+aoc-mind.ts
+EOF
+assert_lines_equal "$tmp/provenance-extensions.out" "$tmp/provenance-extensions.expected"
+
+AOC_OMP_PROFILES=full bash "$root/bin/aoc-profile" active --kind extensions --root "$root" --manifest "$root/.omp/manifest.toml" >"$tmp/full-extensions.out"
+if ! grep -Fxq 'aoc-mind.ts' "$tmp/full-extensions.out"; then
+  echo "ERROR: full profile extensions did not include aoc-mind.ts" >&2
+  exit 1
+fi
 
 if AOC_OMP_PROFILES=does-not-exist bash "$root/bin/aoc-profile" active --kind extensions --root "$root" --manifest "$root/.omp/manifest.toml" >"$tmp/unknown.out" 2>"$tmp/unknown.err"; then
   echo "ERROR: unknown AOC_OMP_PROFILES unexpectedly succeeded" >&2

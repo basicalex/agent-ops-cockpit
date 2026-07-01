@@ -24,6 +24,7 @@ Managed AOC assets use marker files and safe refresh rules. See [Managed assets]
 ## OMP extensions and slash commands
 
 `.omp/manifest.toml` is the canonical repo-owned full inventory for AOC's OMP extensions, skills, and specialist agent templates. The same file also contains profile tables; active profiles decide which inventory entries `aoc-init` and `aoc-herdr-install` copy into `${AOC_OMP_AGENT_DIR:-~/.omp/agent}`.
+Default/core profiles keep OMP/Mnemopi as the memory plane and do not install `aoc-mind.ts`; enable the provenance/full profile only when cited AOC Mind evidence or provenance queries are needed.
 
 Key extension-owned commands and tools:
 
@@ -32,7 +33,7 @@ Key extension-owned commands and tools:
 | `aoc-commit.ts` | `/commit [intent]` |
 | `aoc-master.ts` | `/master on [minutes]`, `/master off`, `/master status`, `/master full-retard on|off|status`, `aoc_orchestrate`, `aoc_report` |
 | `aoc-codegraph.ts` | `aoc_codegraph` read-only discovery |
-| `aoc-mind.ts` | `aoc_mind` read-only evidence/provenance |
+| `aoc-mind.ts` | `aoc_mind` read-only evidence/provenance; opt-in via provenance/full profile |
 | `aoc-state.ts` | `/state-status`, `/state-commit`, `/state-push` project-state workflows |
 | `aoc-herdr.ts` | `aoc_herdr` workspace observation |
 | `aoc-dox.ts`, `aoc-dox-command.ts` | `/dox [full|scout|map|review|packet|doctor|dry-run]` |

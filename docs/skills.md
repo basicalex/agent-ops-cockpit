@@ -16,4 +16,4 @@ aoc-skill sync --root .
 aoc-skill validate --root .
 ```
 
-`.omp/skills` is the source for skill bodies. `.omp/manifest.toml` profiles decide which canonical skills are active in the runtime install surface. Legacy Pi skill paths are not active runtime evidence.
+`.omp/skills` is the source for skill bodies. `.omp/manifest.toml` profiles decide which canonical skills are active in the runtime install surface. Default/core keeps OMP/Mnemopi as the memory plane and leaves AOC Mind provenance skills/extensions to explicit provenance/full opt-in profiles. Legacy Pi skill paths are not active runtime evidence.

@@ -1077,6 +1077,9 @@ if [[ -d "$ROOT_DIR/.omp" ]]; then
         cp "$entry" "$dest"
       fi
     done
+    if [[ "$kind" == "extensions" ]]; then
+      rm -f "$target_root/aoc-jj-init.ts"
+    fi
   done
   if [[ -f "$ROOT_DIR/.omp/manifest.toml" ]]; then
     mkdir -p "$AOC_CONFIG_DIR/omp"

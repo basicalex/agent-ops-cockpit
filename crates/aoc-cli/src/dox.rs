@@ -1503,7 +1503,6 @@ fn validate_verification_command(command: &str) -> Result<()> {
         " rm ",
         " rm -",
         "git push",
-        "jj git push",
         "npm install",
         "pnpm install",
         "bun install",

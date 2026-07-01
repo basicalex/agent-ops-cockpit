@@ -21,7 +21,7 @@ ${AOC_OMP_AGENT_DIR:-~/.omp/agent}/agents/
 ${AOC_OMP_AGENT_DIR:-~/.omp/agent}/skills/
 ```
 
-Treat `~/.omp/agent` and `~/.omp/agent/config.yml` as user/operator runtime state; do not commit it. Legacy Pi runtime assets have been purged; do not use Pi paths as active runtime evidence.
+Treat `~/.omp/agent` and `~/.omp/agent/config.yml` as user/operator runtime state; do not commit it. `aoc-init` and `aoc-herdr-install` prune inactive AOC runtime agents and set `task.disabledAgents` for inactive AOC project-agent inventory so the task tool cannot spawn profile-gated AOC agents. OMP's Agent Control Center still counts discovered project files under `.omp/agents`; inactive profile agents may appear there as disabled unless OMP discovery itself is profile-aware. Legacy Pi runtime assets have been purged; do not use Pi paths as active runtime evidence.
 
 Run:
 
@@ -31,6 +31,7 @@ aoc-skill validate --root .
 ```
 
 to seed or repair project-local AOC assets and sync the extensions, agent templates, and skills selected by active OMP capability profiles.
+Default/core profiles use OMP/Mnemopi as the memory plane. AOC Mind is not part of the default/core surface; enable the provenance/full profile to install `aoc-mind.ts` for cited evidence/provenance workflows.
 
 
 AOC uses VoxType, not an OMP speech-to-text extension, for operator dictation. `aoc-init` and `aoc-herdr-install` install `voxtype-aoc-lexicon-filter`, seed `~/.config/aoc/voxtype-lexicon.md`, and wire VoxType post-processing so system and active-project `.aoc/lexicon.md` terms normalize after transcription.
@@ -62,12 +63,11 @@ See [Skills](skills.md).
 
 ## OMP extensions
 
-AOC OMP extensions are repo-tracked under `.omp/extensions/`. `.omp/manifest.toml` keeps the full extension inventory plus profile tables; active profiles decide which extensions are synced to the OMP runtime extension directory.
+AOC OMP extensions are repo-tracked under `.omp/extensions/`. `.omp/manifest.toml` keeps the full extension inventory plus profile tables; active profiles decide which extensions are synced to the OMP runtime extension directory. The default/core profile excludes `aoc-mind.ts`; provenance/full opt-in profiles include it for cited AOC Mind evidence/provenance.
 
-Current OMP surfaces include:
+Profile-gated OMP surfaces include:
 
 - `aoc-codegraph.ts` — read-only CodeGraph tool for indexed code discovery.
-- `aoc-mind.ts` — read-only AOC Mind evidence/provenance tool.
 - `aoc-commit.ts` — `/commit` safe atomic Git commit workflow; stages only explicit paths and never pushes without explicit approval.
 - `aoc-state.ts` — `/state-status`, `/state-commit`, and `/state-push` Git workflows for repo-owned AOC project state; commit and push are separate, explicit steps.
 - `aoc-brand-content.ts` — `/brand-content` and `/hyperframes-director` HyperFrames branded-content modes.

@@ -1,8 +1,8 @@
 # Project Context Snapshot
 
 ## Repository
-- Name: agent-ops-cockpit
-- Root: /home/ceii/dev/agent-ops-cockpit
+- Name: .
+- Root: .
 - VCS: git
 - Git branch: main
 

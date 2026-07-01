@@ -72,12 +72,11 @@ skills = [
 profiles = ["core"]
 
 [profiles.core]
-description = "Default lean AOC OMP surface for code understanding, init/update, design routing, style hooks, and Ponytail workflows."
+description = "Default lean AOC OMP surface for code understanding, init/update, design routing, style hooks, Ponytail workflows, and OMP/Mnemopi memory."
 risk = "medium"
 extensions = [
   "aoc-profile.ts",
   "aoc-codegraph.ts",
-  "aoc-mind.ts",
   "aoc-dox.ts",
   "aoc-style.ts",
 ]
@@ -143,6 +142,14 @@ risk = "network"
 extensions = ["aoc-web-search.ts"]
 skills = []
 agents = []
+
+[profiles.provenance]
+description = "Opt-in AOC Mind surface for cited project history, provenance, evidence packs, and Mnemopi candidate review."
+risk = "medium"
+extensions = ["aoc-mind.ts"]
+skills = []
+agents = []
+
 
 [profiles.full]
 description = "Full compatibility surface matching the previous always-installed AOC OMP inventory."
@@ -214,6 +221,12 @@ agents = [
   "dox-critic.md",
   "dox-writer.md",
 ]
+
+[asset_meta.extensions."aoc-mind.ts"]
+category = "provenance"
+risk = "medium"
+default = false
+reason = "AOC Mind is opt-in provenance/history tooling; OMP/Mnemopi is the default memory plane."
 
 [asset_meta.extensions."aoc-master.ts"]
 category = "orchestration"

@@ -2090,6 +2090,107 @@ config.write_text("\n".join(lines) + "\n")
 PY
 }
 
+sync_omp_agent_disable_config() {
+  local omp_config="${AOC_OMP_AGENT_CONFIG:-$HOME/.omp/agent/config.yml}"
+  local active_agents=()
+  local manifest_agents=()
+  load_omp_active_array active_agents agents
+  load_omp_manifest_array manifest_agents agents
+  python3 - "$omp_config" "${active_agents[@]}" -- "${manifest_agents[@]}" <<'PY'
+import sys
+from pathlib import Path
+
+config = Path(sys.argv[1])
+if "--" not in sys.argv[2:]:
+    raise SystemExit("missing separator")
+sep = sys.argv.index("--")
+active = {Path(name).stem for name in sys.argv[2:sep]}
+disabled = [Path(name).stem for name in sys.argv[sep + 1:] if Path(name).stem not in active]
+if not config.exists():
+    raise SystemExit(0)
+
+lines = config.read_text().splitlines()
+task_start = None
+for index, line in enumerate(lines):
+    if line.startswith("task:"):
+        task_start = index
+        break
+if task_start is None:
+    lines.extend(["task:"])
+    task_start = len(lines) - 1
+
+task_end = task_start + 1
+while task_end < len(lines) and (lines[task_end].startswith(" ") or lines[task_end].strip() == ""):
+    task_end += 1
+
+disabled_start = None
+for index in range(task_start + 1, task_end):
+    if lines[index].startswith("  disabledAgents:"):
+        disabled_start = index
+        break
+if disabled_start is not None:
+    disabled_end = disabled_start + 1
+    while disabled_end < task_end and (lines[disabled_end].startswith("    ") or lines[disabled_end].strip() == ""):
+        disabled_end += 1
+    del lines[disabled_start:disabled_end]
+
+block = ["  disabledAgents: []"] if not disabled else ["  disabledAgents:"] + [f"    - {name}" for name in disabled]
+lines[task_start + 1:task_start + 1] = block
+config.write_text("\n".join(lines) + "\n")
+PY
+}
+
+sync_omp_extension_disable_config() {
+  local omp_config="${AOC_OMP_AGENT_CONFIG:-$HOME/.omp/agent/config.yml}"
+  local active_extensions=()
+  local manifest_extensions=()
+  load_omp_active_array active_extensions extensions
+  load_omp_manifest_array manifest_extensions extensions
+  python3 - "$omp_config" "${active_extensions[@]}" -- "${manifest_extensions[@]}" <<'PY'
+import sys
+from pathlib import Path
+
+config = Path(sys.argv[1])
+if "--" not in sys.argv[2:]:
+    raise SystemExit("missing separator")
+sep = sys.argv.index("--")
+def ext_id(name: str) -> str:
+    return f"extension-module:{Path(name).stem}"
+active = {ext_id(name) for name in sys.argv[2:sep]}
+manifest = [ext_id(name) for name in sys.argv[sep + 1:]]
+manifest_set = set(manifest)
+profile_disabled = [name for name in manifest if name not in active]
+if not config.exists():
+    raise SystemExit(0)
+
+lines = config.read_text().splitlines()
+start = None
+for index, line in enumerate(lines):
+    if line.startswith("disabledExtensions:"):
+        start = index
+        break
+existing = []
+if start is not None:
+    end = start + 1
+    if lines[start].strip() != "disabledExtensions: []":
+        while end < len(lines) and (lines[end].startswith(" ") or lines[end].strip() == ""):
+            stripped = lines[end].strip()
+            if stripped.startswith("- "):
+                existing.append(stripped[2:])
+            end += 1
+    else:
+        end = start + 1
+    del lines[start:end]
+
+preserved = [name for name in existing if name not in manifest_set]
+final = preserved + [name for name in profile_disabled if name not in preserved]
+block = ["disabledExtensions: []"] if not final else ["disabledExtensions:"] + [f"  - {name}" for name in final]
+insert_at = start if start is not None else 0
+lines[insert_at:insert_at] = block
+config.write_text("\n".join(lines) + "\n")
+PY
+}
+
 setup_omp_extensions() {
   local omp_extension_seed_dir
   omp_extension_seed_dir="$(aoc_omp_seed_root)/extensions"
@@ -2125,7 +2226,8 @@ setup_omp_extensions() {
     fi
   done
 
-  rm -f "$omp_extension_dir/aoc-openai-stt.ts" "$omp_extension_dir/ponytail.ts"
+  rm -f "$omp_extension_dir/aoc-openai-stt.ts" "$omp_extension_dir/ponytail.ts" "$omp_extension_dir/aoc-jj-init.ts"
+  sync_omp_extension_disable_config
   sync_omp_extension_config
   log "Updated OMP extension config: ${AOC_OMP_AGENT_CONFIG:-$HOME/.omp/agent/config.yml}"
 
@@ -2222,6 +2324,7 @@ setup_omp_agents() {
       rm -f "$omp_agent_dir/$agent_name"
     fi
   done
+  sync_omp_agent_disable_config
 }
 
 setup_voxtype_lexicon() {

@@ -99,7 +99,7 @@ Important shortcuts:
 
 The Herdr-first path is implemented with:
 
-- `bin/aoc-herdr-install` — installs the lean Herdr config baseline, installs the Herdr OMP integration when `omp` is available, installs the AOC-aware plain `omp` shim, installs the OMP assets selected by active `.omp/manifest.toml` profiles (extensions, skills, and specialist agent templates), and installs the read-only AOC Mind OMP extension without legacy Mind cockpit/runtime assets
+- `bin/aoc-herdr-install` — installs the lean Herdr config baseline, installs the Herdr OMP integration when `omp` is available, installs the AOC-aware plain `omp` shim, and installs the OMP assets selected by active `.omp/manifest.toml` profiles (extensions, skills, and specialist agent templates); AOC Mind is not in default/core and is installed only by provenance/full opt-in profiles
 - `bin/aoc-herdr-launch` — launches/focuses Herdr for the current project root, reusing an existing workspace for the same root when possible; Services workspace ensure/focus is opt-in through `AOC_HERDR_SERVICES=auto|focus` or `aoc services`
 - `bin/aoc-herdr-services` — creates/focuses the project-scoped Herdr AOC Services workspace without starting Herdr behind the operator's back
 - `bin/aoc-omp-context` — renders the compact metadata-only AOC startup capsule for OMP `--append-system-prompt`, including detected VCS mode and preferred command family
@@ -157,6 +157,7 @@ ${AOC_OMP_AGENT_DIR:-~/.omp/agent}/agents/
 ```
 
 Do not maintain a second active inventory in this document or under `.aoc/skills`; `.aoc/skills` is legacy/archive-only content, not an OMP runtime source. Runtime skill sources are `.omp/skills`, and active `.omp/manifest.toml` profiles decide which canonical skills install.
+Default/core profiles use OMP/Mnemopi as the memory plane and exclude `aoc-mind.ts`. Enable provenance/full when agents need cited AOC Mind evidence or provenance workflows.
 
 The manifest-owned full extension inventory includes the operational tools and slash commands Herdr can enable, including `aoc-codegraph.ts`, `aoc-mind.ts`, `aoc-commit.ts`, `aoc-state.ts`, `aoc-dox.ts`, `aoc-dox-command.ts`, `aoc-herdr.ts`, `aoc-master.ts`, `aoc-brand-content.ts`, `aoc-web-search.ts`, `aoc-style.ts`, and `aoc-profile.ts`. The active profile surface includes Ponytail through `/ponytail review|audit|debt|help` and the `ponytail-workflows` skill.
 
@@ -165,7 +166,7 @@ The manifest-owned full extension inventory includes the operational tools and s
 `aoc-codegraph.ts` exposes the read-only `aoc_codegraph` tool for code discovery: `status`, `files`, `search`, `context`, `callers`, `callees`, `impact`, and `affected`.
 Use this as the agent graph/context tool in Herdr/OMP workspaces; Understand-Anything is not part of the active graph path.
 
-`aoc-mind.ts` exposes the read-only `aoc_mind` tool for historical/provenance intelligence: `status`, `evidence`, `provenance`, and dry-run `mnemopi_candidates`. It augments OMP/Mnemopi with cited AOC Mind evidence; it does not write memories or inject broad startup context.
+`aoc-mind.ts` exposes the read-only `aoc_mind` tool for historical/provenance intelligence: `status`, `evidence`, `provenance`, and dry-run `mnemopi_candidates`. It is opt-in via provenance/full profiles, augments OMP/Mnemopi with cited AOC Mind evidence, and does not write memories or inject broad startup context.
 
 `aoc-commit.ts` registers `/commit` for safe atomic Git commits. It stages explicit paths only, never stages broad paths, and keeps CodeGraph refresh as post-commit advisory cache maintenance only; it does not initialize/index new projects.
 

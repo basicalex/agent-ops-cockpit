@@ -17,7 +17,7 @@ This inventory defines the Herdr/OMP cutover target. AOC should become a project
 | Web research | `.omp/extensions/aoc-web-search.ts`, `bin/aoc-search`, `docs/web-research.md`, `scripts/test-web-research-stack.sh`, related skills/scripts | OMP extension + AOC tooling | Keep. Local fallback for agent web search when paid/native providers fail. |
 | AOC Services workspace | `bin/aoc-herdr-services`, `bin/aoc-services`, `aoc services`, `docs/operator/aoc-services.md` | Herdr + AOC tooling | Retained Herdr runtime owner for project-scoped service health/startup, especially managed local SearXNG. Distinct from retired Mission Control/status UI. |
 | RTK | `bin/aoc-rtk`, `bin/aoc-rtk-proxy`, `docs/reference/rtk-routing.md` | AOC tooling | Keep only for allowlisted noisy-command routing with raw-output preservation. |
-| AOC Mind evidence for Mnemopi | `.omp/extensions/aoc-mind.ts`, `crates/aoc-mind`, `crates/aoc-storage`, `aoc-mind-service serve/evidence-pack/mnemopi-candidates` | AOC + OMP/Mnemopi | Default project background T0/T1/T2/T3 processing plus lazy focused evidence/provenance; no startup injection or automatic Mnemopi writes. |
+| AOC Mind evidence for Mnemopi | `.omp/extensions/aoc-mind.ts`, `crates/aoc-mind`, `crates/aoc-storage`, `aoc-mind-service serve/evidence-pack/mnemopi-candidates` | AOC + OMP/Mnemopi | Opt-in via provenance/full profiles for cited evidence/provenance; OMP/Mnemopi remains the default memory plane, with no default startup injection, runtime dependency, or automatic Mnemopi writes. |
 | Selected skills/prompts/docs | `.omp/skills`, docs | AOC tooling | Keep only if they complement Herdr/OMP workflows. |
 
 ## Remove / retire from default AOC
@@ -49,9 +49,10 @@ Default install must become lean and must not install old cockpit assets.
 - AOC OMP context commands: `aoc-omp`, `aoc-omp-context`, `aoc-handshake`
 - Taskmaster commands: `tm`, `aoc-task`, `aoc-tm`
 - CodeGraph OMP extension: `.omp/extensions/aoc-codegraph.ts`
-- AOC Mind OMP extension: `.omp/extensions/aoc-mind.ts` for read-only status/evidence/provenance/candidate memory synthesis
 - Kept tooling: HyperFrames, OpenDesign, web research, RTK if selected
 - Herdr AOC Services workspace command: `aoc services` / `bin/aoc-herdr-services`
+
+Provenance/full opt-in profiles may additionally include `.omp/extensions/aoc-mind.ts` for read-only status/evidence/provenance/candidate memory synthesis.
 
 ### Default install no longer does
 

@@ -76,9 +76,9 @@
     ".omp/manifest.toml": {
       "asset": "omp-manifest",
       "assetVersion": 3,
-      "expectedSha256": "a4c151551486089b8341432753fa2f3a3ed8dfa0fefa352b68fda6593c16451d",
+      "expectedSha256": "20e631a871ec55d5dcbbd82bb76e0d346fe7c61bc46f75fbce439e6ac6007f95",
       "marker": ".omp/manifest.toml.aoc-managed",
-      "sha256": "a4c151551486089b8341432753fa2f3a3ed8dfa0fefa352b68fda6593c16451d",
+      "sha256": "20e631a871ec55d5dcbbd82bb76e0d346fe7c61bc46f75fbce439e6ac6007f95",
       "source": ".omp/manifest.toml",
       "status": "current"
     },
@@ -288,5 +288,5 @@
     "unknown": 0
   },
   "schemaVersion": 1,
-  "updatedAt": "2026-06-28T14:18:10.938644Z"
+  "updatedAt": "2026-06-30T09:13:07.247769Z"
 }

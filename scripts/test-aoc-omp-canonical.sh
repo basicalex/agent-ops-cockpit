@@ -51,9 +51,10 @@ run_init_fixture() {
   local runtime="$tmp/$name-omp-agent"
   local config="$runtime/config.yml"
   mkdir -p "$project" "$runtime"
-  printf 'extensions:\n  - stale-extension.ts\n' >"$config"
+  printf 'disabledExtensions:\n  - extension-module:third-party\nextensions:\n  - stale-extension.ts\n' >"$config"
   mkdir -p "$runtime/extensions" "$runtime/skills/aoc-hyperframes" "$runtime/agents"
   printf 'stale extension\n' >"$runtime/extensions/aoc-brand-content.ts"
+  printf 'stale removed AOC extension\n' >"$runtime/extensions/aoc-jj-init.ts"
   printf 'stale skill\n' >"$runtime/skills/aoc-hyperframes/SKILL.md"
   printf 'stale AOC agent\n' >"$runtime/agents/brand-strategy.md"
   printf 'user agent\n' >"$runtime/agents/user-local.md"
@@ -90,7 +91,6 @@ fi
 core_extensions=(
   aoc-profile.ts
   aoc-codegraph.ts
-  aoc-mind.ts
   aoc-dox.ts
   aoc-style.ts
 )
@@ -99,6 +99,7 @@ for required in "${core_extensions[@]}"; do
 done
 
 for forbidden in \
+  aoc-mind.ts \
   aoc-herdr.ts \
   aoc-master.ts \
   aoc-commit.ts \
@@ -108,6 +109,7 @@ for forbidden in \
   aoc-dox-command.ts; do
   assert_absent "$default_runtime/extensions/$forbidden"
 done
+assert_absent "$default_runtime/extensions/aoc-jj-init.ts"
 
 for forbidden in \
   brand-strategy.md \
@@ -121,6 +123,27 @@ for forbidden in \
   assert_absent "$default_runtime/agents/$forbidden"
 done
 assert_file "$default_runtime/agents/user-local.md"
+python3 - "$default_config" <<'PY'
+from pathlib import Path
+import sys
+config = Path(sys.argv[1]).read_text(encoding='utf-8')
+for name in (
+    'brand-strategy',
+    'brand-concept',
+    'svg-asset',
+    'hyperframes-content',
+    'dox-scout',
+    'dox-mapper',
+    'dox-critic',
+    'dox-writer',
+):
+    needle = f'    - {name}'
+    if needle not in config:
+        raise SystemExit(f'ERROR: inactive AOC agent not disabled in config: {name}')
+if '    - user-local' in config:
+    raise SystemExit('ERROR: non-AOC user-local agent was disabled')
+PY
+
 
 for required in \
   aoc-understand \
@@ -151,6 +174,24 @@ for forbidden in \
 done
 
 assert_config_extensions_match "$default_config" "$default_runtime/extensions" "${core_extensions[@]}"
+for disabled_extension in \
+  extension-module:aoc-mind \
+  extension-module:aoc-herdr \
+  extension-module:aoc-master \
+  extension-module:aoc-commit \
+  extension-module:aoc-state \
+  extension-module:aoc-brand-content \
+  extension-module:aoc-web-search \
+  extension-module:aoc-dox-command; do
+  if ! grep -Fq "  - $disabled_extension" "$default_config"; then
+    echo "ERROR: inactive AOC extension not disabled in config: $disabled_extension" >&2
+    exit 1
+  fi
+done
+if ! grep -Fq '  - extension-module:third-party' "$default_config"; then
+  echo "ERROR: user disabled extension was not preserved" >&2
+  exit 1
+fi
 assert_absent "$default_runtime/extensions/ponytail.ts"
 assert_absent "$default_runtime/skills/ponytail-review"
 assert_absent "$default_runtime/skills/ponytail-audit"
@@ -174,6 +215,23 @@ for required in "${full_agents[@]}"; do
   assert_file "$full_runtime/agents/$required"
 done
 assert_config_extensions_match "$full_config" "$full_runtime/extensions" "${full_extensions[@]}"
+assert_file "$full_runtime/extensions/aoc-mind.ts"
+if grep -Fq 'extension-module:aoc-mind' "$full_config"; then
+  echo "ERROR: full profile should not disable aoc-mind extension" >&2
+  exit 1
+fi
+if ! grep -Fq '  disabledAgents: []' "$full_config"; then
+  echo "ERROR: full profile should clear AOC disabled-agent list" >&2
+  exit 1
+fi
+if grep -Fq 'extension-module:aoc-master' "$full_config"; then
+  echo "ERROR: full profile should not disable aoc-master extension" >&2
+  exit 1
+fi
+if ! grep -Fq '  - extension-module:third-party' "$full_config"; then
+  echo "ERROR: full profile did not preserve user disabled extension" >&2
+  exit 1
+fi
 assert_absent "$full_runtime/extensions/ponytail.ts"
 assert_absent "$full_runtime/skills/ponytail-review"
 assert_absent "$full_runtime/skills/ponytail-audit"
