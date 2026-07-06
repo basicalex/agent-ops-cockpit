@@ -74,6 +74,17 @@ Hard rules to bake into every packet's CONSTRAINTS:
 - "No interactive questions — if blocked, report the blocker in your final response and stop."
 - ACCEPTANCE includes the verification commands (TEST_CMD / TYPECHECK_CMD) with the framing: "pre-existing errors are acceptable; errors in YOUR files must be clean."
 
+### Typecheck rules for large apps (avoid timeouts and cache thrash)
+
+Concurrent workers running tsc compete for CPU and thrash the shared `tsconfig.tsbuildinfo`. Bake these into every packet's CONSTRAINTS/ACCEPTANCE:
+
+- "Run typecheck ONCE, at the end — not after every edit. Use an explicit raised timeout (600s+); if it times out, retry once."
+- Per-worker build cache — no shared-cache contention. Before dispatch, the orchestrator seeds each worker's cache by copying the repo's warm tsbuildinfo to `/tmp/tsbuildinfo-<worker>`; the packet's typecheck command is:
+  ```
+  tsc -p tsconfig.json --noEmit --tsBuildInfoFile /tmp/tsbuildinfo-<worker>
+  ```
+- "If typecheck times out twice, report your diff as done and note the timeout — the orchestrator runs the authoritative check." Worker typecheck is best-effort; the verify phase's central run is load-bearing.
+
 Dispatch with:
 
 ```
@@ -124,7 +135,7 @@ Worker summaries describe what they *intended* to do. Verify everything yourself
 
 - Close tabs **you spawned** after verification succeeds: `herdr tab close <tab-id>`. Keep a failed worker's tab open for diagnosis until its slice is resolved.
 - Never close tabs or panes the user provided.
-- Remove the campaign's `/tmp/<campaign>-*.txt` packets.
+- Remove the campaign's `/tmp/<campaign>-*.txt` packets and `/tmp/tsbuildinfo-*` worker caches.
 
 ## Failure handling
 
