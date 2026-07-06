@@ -1,0 +1,44 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Installs the Claude-side orchestration assets (global CLAUDE.md policy and
+# user-level skills) from the repo's claude/ directory into ~/.claude.
+# Follows the aoc-herdr-install convention: copy with timestamped backup.
+
+repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+claude_src="$repo_root/claude"
+claude_home="${AOC_CLAUDE_DIR:-$HOME/.claude}"
+skills_dst="$claude_home/skills"
+
+if [[ ! -d "$claude_src" ]]; then
+  echo "aoc-claude-install: missing $claude_src" >&2
+  exit 1
+fi
+
+mkdir -p "$claude_home" "$skills_dst"
+
+install_file() {
+  local src="$1"
+  local dst="$2"
+  if [[ -f "$dst" ]] && ! cmp -s "$src" "$dst"; then
+    local backup="$dst.bak.$(date +%Y%m%d%H%M%S)"
+    cp "$dst" "$backup"
+    echo "aoc-claude-install: backed up $dst -> $backup"
+  fi
+  cp "$src" "$dst"
+  echo "aoc-claude-install: installed $dst"
+}
+
+install_file "$claude_src/CLAUDE.global.md" "$claude_home/CLAUDE.md"
+
+for skill_dir in "$claude_src/skills"/*/; do
+  [[ -d "$skill_dir" ]] || continue
+  skill_name="$(basename "$skill_dir")"
+  mkdir -p "$skills_dst/$skill_name"
+  for f in "$skill_dir"*; do
+    [[ -f "$f" ]] || continue
+    install_file "$f" "$skills_dst/$skill_name/$(basename "$f")"
+  done
+done
+
+echo "aoc-claude-install: done"
