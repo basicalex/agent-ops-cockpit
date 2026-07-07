@@ -35,7 +35,7 @@ Key extension-owned commands and tools:
 | `aoc-codegraph.ts` | `aoc_codegraph` read-only discovery |
 | `aoc-mind.ts` | `aoc_mind` read-only evidence/provenance; opt-in via provenance/full profile |
 | `aoc-state.ts` | `/state-status`, `/state-commit`, `/state-push` project-state workflows |
-| `aoc-herdr.ts` | `aoc_herdr` workspace observation |
+| native Herdr + `herdr-agent-observation` skill | read-only workspace, agent, pane, tab, and transcript observation |
 | `aoc-dox.ts`, `aoc-dox-command.ts` | `/dox [full|scout|map|review|packet|doctor|dry-run]` |
 | `aoc-brand-content.ts` | `/brand-content`, `/hyperframes-director` |
 | `aoc-web-search.ts` | `aoc_web_search` |
@@ -44,7 +44,7 @@ Key extension-owned commands and tools:
 
 ### Master orchestration
 
-Use `/master on [minutes]`, `/master off`, and `/master status` to manage the master lease for the current OMP pane. The lease is scoped to the Herdr session/workspace/pane, expires automatically, defaults to 60 minutes, and accepts 1-240 minutes. Mutating orchestration requires an active lease; read-only Herdr observation remains separate through `aoc_herdr`.
+Use `/master on [minutes]`, `/master off`, and `/master status` to manage the master lease for the current OMP pane. The lease is scoped to the Herdr session/workspace/pane, expires automatically, defaults to 60 minutes, and accepts 1-240 minutes. Mutating orchestration requires an active lease; read-only Herdr observation is a separate native Herdr procedure documented by the `herdr-agent-observation` skill.
 
 `aoc_orchestrate` handles master-side `master_on`, `master_off`, `master_status`, assignment, messaging, collection, inbox review, ingest, ack, and full-retard lease state. `aoc_report` is the worker-facing reporting tool. Reports queue for master review by default; direct submit/full-retard delivery requires the master-owned full-retard toggle and a resolved OMP master target.
 

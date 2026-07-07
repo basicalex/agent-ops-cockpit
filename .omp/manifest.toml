@@ -5,7 +5,6 @@ extensions = [
   "aoc-state.ts",
   "aoc-dox.ts",
   "aoc-dox-command.ts",
-  "aoc-herdr.ts",
   "aoc-master.ts",
   "aoc-brand-content.ts",
   "aoc-web-search.ts",
@@ -35,6 +34,7 @@ skills = [
   "animejs-text-splitting",
   "animejs-timelines",
   "aoc-dox-cartography",
+  "herdr-agent-observation",
   "aoc-gaps",
   "aoc-hyperframes",
   "aoc-init-ops",
@@ -84,6 +84,7 @@ skills = [
   "aoc-understand",
   "aoc-init-ops",
   "aoc-update",
+  "herdr-agent-observation",
   "frontend-design",
   "motion-director",
   "animejs-core-api",
@@ -98,7 +99,6 @@ agents = []
 description = "Operator-only AOC OMP surface for Herdr observation, master orchestration, commits, and project state."
 risk = "orchestration"
 extensions = [
-  "aoc-herdr.ts",
   "aoc-master.ts",
   "aoc-commit.ts",
   "aoc-state.ts",
@@ -161,7 +161,6 @@ extensions = [
   "aoc-state.ts",
   "aoc-dox.ts",
   "aoc-dox-command.ts",
-  "aoc-herdr.ts",
   "aoc-master.ts",
   "aoc-brand-content.ts",
   "aoc-web-search.ts",
@@ -179,6 +178,7 @@ skills = [
   "animejs-text-splitting",
   "animejs-timelines",
   "aoc-dox-cartography",
+  "herdr-agent-observation",
   "aoc-gaps",
   "aoc-hyperframes",
   "aoc-init-ops",

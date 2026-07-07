@@ -55,6 +55,7 @@ run_init_fixture() {
   mkdir -p "$runtime/extensions" "$runtime/skills/aoc-hyperframes" "$runtime/agents"
   printf 'stale extension\n' >"$runtime/extensions/aoc-brand-content.ts"
   printf 'stale removed AOC extension\n' >"$runtime/extensions/aoc-jj-init.ts"
+  printf 'stale removed Herdr extension\n' >"$runtime/extensions/aoc-herdr.ts"
   printf 'stale skill\n' >"$runtime/skills/aoc-hyperframes/SKILL.md"
   printf 'stale AOC agent\n' >"$runtime/agents/brand-strategy.md"
   printf 'user agent\n' >"$runtime/agents/user-local.md"
@@ -97,10 +98,10 @@ core_extensions=(
 for required in "${core_extensions[@]}"; do
   assert_file "$default_runtime/extensions/$required"
 done
+assert_file "$default_runtime/extensions/aoc-runtime.ts"
 
 for forbidden in \
   aoc-mind.ts \
-  aoc-herdr.ts \
   aoc-master.ts \
   aoc-commit.ts \
   aoc-state.ts \
@@ -110,6 +111,7 @@ for forbidden in \
   assert_absent "$default_runtime/extensions/$forbidden"
 done
 assert_absent "$default_runtime/extensions/aoc-jj-init.ts"
+assert_absent "$default_runtime/extensions/aoc-herdr.ts"
 
 for forbidden in \
   brand-strategy.md \
@@ -147,6 +149,7 @@ PY
 
 for required in \
   aoc-understand \
+  herdr-agent-observation \
   aoc-init-ops \
   aoc-update \
   frontend-design \
@@ -176,7 +179,6 @@ done
 assert_config_extensions_match "$default_config" "$default_runtime/extensions" "${core_extensions[@]}"
 for disabled_extension in \
   extension-module:aoc-mind \
-  extension-module:aoc-herdr \
   extension-module:aoc-master \
   extension-module:aoc-commit \
   extension-module:aoc-state \
@@ -233,6 +235,8 @@ if ! grep -Fq '  - extension-module:third-party' "$full_config"; then
   exit 1
 fi
 assert_absent "$full_runtime/extensions/ponytail.ts"
+assert_absent "$full_runtime/extensions/aoc-herdr.ts"
+assert_file "$full_runtime/extensions/aoc-runtime.ts"
 assert_absent "$full_runtime/skills/ponytail-review"
 assert_absent "$full_runtime/skills/ponytail-audit"
 assert_absent "$full_runtime/skills/ponytail-debt"

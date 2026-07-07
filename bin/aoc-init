@@ -2218,6 +2218,10 @@ setup_omp_extensions() {
     fi
   done
 
+  if [[ "${#required_extensions[@]}" -gt 0 && -f "$omp_extension_seed_dir/aoc-runtime.ts" ]]; then
+    cp "$omp_extension_seed_dir/aoc-runtime.ts" "$omp_extension_dir/aoc-runtime.ts"
+  fi
+
   local manifest_extensions=()
   load_omp_manifest_array manifest_extensions extensions
   for extension_name in "${manifest_extensions[@]}"; do
@@ -2226,7 +2230,7 @@ setup_omp_extensions() {
     fi
   done
 
-  rm -f "$omp_extension_dir/aoc-openai-stt.ts" "$omp_extension_dir/ponytail.ts" "$omp_extension_dir/aoc-jj-init.ts"
+  rm -f "$omp_extension_dir/aoc-openai-stt.ts" "$omp_extension_dir/ponytail.ts" "$omp_extension_dir/aoc-jj-init.ts" "$omp_extension_dir/aoc-herdr.ts"
   sync_omp_extension_disable_config
   sync_omp_extension_config
   log "Updated OMP extension config: ${AOC_OMP_AGENT_CONFIG:-$HOME/.omp/agent/config.yml}"

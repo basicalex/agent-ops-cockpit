@@ -59,6 +59,8 @@ aoc-skill validate --root .
 
 Useful former prompt workflows are now OMP skills (`aoc-update`, `aoc-lexicon`, `aoc-stm`). No project prompt registry is active.
 
+Herdr peer observation is a native `herdr` workflow taught by the default/core `herdr-agent-observation` skill. Use it for read-only workspace, agent, pane, tab, and transcript observation before escalating to master orchestration.
+
 See [Skills](skills.md).
 
 ## OMP extensions

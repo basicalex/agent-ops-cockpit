@@ -316,6 +316,11 @@ for extension_name in "${omp_extensions[@]}"; do
   fi
 done
 
+if [[ "${#omp_extensions[@]}" -gt 0 && -f "$repo_root/.omp/extensions/aoc-runtime.ts" ]]; then
+  mkdir -p "$omp_extension_dir"
+  cp "$repo_root/.omp/extensions/aoc-runtime.ts" "$omp_extension_dir/aoc-runtime.ts"
+fi
+
 load_omp_manifest_array omp_manifest_extensions extensions
 for extension_name in "${omp_manifest_extensions[@]}"; do
   if ! array_contains "$extension_name" "${omp_extensions[@]}"; then
@@ -325,7 +330,7 @@ done
 sync_omp_extension_disable_config
 sync_omp_extension_config
 echo "Updated OMP extension config in ${AOC_OMP_AGENT_CONFIG:-$HOME/.omp/agent/config.yml}"
-rm -f "$omp_extension_dir/aoc-openai-stt.ts" "$omp_extension_dir/ponytail.ts" "$omp_extension_dir/aoc-jj-init.ts"
+rm -f "$omp_extension_dir/aoc-openai-stt.ts" "$omp_extension_dir/ponytail.ts" "$omp_extension_dir/aoc-jj-init.ts" "$omp_extension_dir/aoc-herdr.ts"
 
 
 for skill_name in "${omp_skills[@]}"; do

@@ -1084,7 +1084,7 @@ if [[ -d "$ROOT_DIR/.omp" ]]; then
       fi
     done
     if [[ "$kind" == "extensions" ]]; then
-      rm -f "$target_root/aoc-jj-init.ts"
+      rm -f "$target_root/aoc-jj-init.ts" "$target_root/aoc-herdr.ts"
     fi
   done
   if [[ -f "$ROOT_DIR/.omp/manifest.toml" ]]; then

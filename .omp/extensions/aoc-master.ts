@@ -3,7 +3,6 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { randomUUID } from "node:crypto";
 import { clampInt, clampMaxChars, findProjectRoot, renderCommand, runBoundedCommand } from "./aoc-runtime";
-import { runTranscript } from "./aoc-herdr";
 import { StringEnum } from "@mariozechner/pi-ai";
 import { Type } from "@sinclair/typebox";
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
@@ -29,6 +28,7 @@ const REPORT_INBOX_DEFAULT_LIMIT = 10;
 const REPORT_INBOX_MAX_LIMIT = 50;
 const FULL_RETARD_MIN_INTERVAL_MS = 30_000;
 const FULL_RETARD_BATCH_MAX_REPORTS = 5;
+const TRANSCRIPT_DEFAULT_TAIL = 20;
 
 type CommandContext = {
 	cwd?: string;
@@ -249,6 +249,241 @@ function currentIdentity(ctxCwd: string | undefined): MasterIdentity {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
 	return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+type SessionEntry = { file: string; id: string; title: string; mtimeMs: number; startedAt: string };
+type TranscriptMsg = { role: string; text: string; tools: string[] };
+type HerdrTranscriptParams = {
+	target?: string;
+	session?: string;
+	scope?: "last" | "summary" | "tail";
+	maxChars?: number;
+};
+
+function asText(value: unknown): string {
+	return typeof value === "string" ? value : "";
+}
+
+function ompSessionsDir(): string {
+	return path.join(os.homedir(), ".omp", "agent", "sessions");
+}
+
+function slugFromCwd(cwd: string): string {
+	const home = os.homedir();
+	const rel = cwd.startsWith(home + "/") ? cwd.slice(home.length) : cwd;
+	return rel.split("/").join("-");
+}
+
+function readFirstLine(file: string): string {
+	const fd = fs.openSync(file, "r");
+	try {
+		const chunks: Buffer[] = [];
+		const buffer = Buffer.alloc(512);
+		for (;;) {
+			const bytes = fs.readSync(fd, buffer, 0, buffer.length, null);
+			if (bytes === 0) break;
+			const newline = buffer.subarray(0, bytes).indexOf(10);
+			if (newline >= 0) {
+				chunks.push(Buffer.from(buffer.subarray(0, newline)));
+				break;
+			}
+			chunks.push(Buffer.from(buffer.subarray(0, bytes)));
+			if (chunks.reduce((total, chunk) => total + chunk.length, 0) > 64 * 1024) break;
+		}
+		return Buffer.concat(chunks).toString("utf8");
+	} finally {
+		fs.closeSync(fd);
+	}
+}
+
+function listSessions(dir: string): SessionEntry[] {
+	if (!fs.existsSync(dir)) return [];
+	return fs.readdirSync(dir)
+		.filter((name) => name.endsWith(".jsonl"))
+		.flatMap((name) => {
+			const file = path.join(dir, name);
+			try {
+				const first = JSON.parse(readFirstLine(file)) as unknown;
+				if (!isRecord(first) || first.type !== "session") return [];
+				const stat = fs.statSync(file);
+				return [{
+					file,
+					id: asText(first.id),
+					title: asText(first.title) || "(untitled)",
+					mtimeMs: stat.mtimeMs,
+					startedAt: asText(first.timestamp),
+				}];
+			} catch {
+				return [];
+			}
+		})
+		.sort((left, right) => right.mtimeMs - left.mtimeMs);
+}
+
+function readTranscript(file: string): { title: string; id: string; cwd: string; startedAt: string; msgs: TranscriptMsg[] } {
+	let title = "(untitled)";
+	let id = "";
+	let cwd = "";
+	let startedAt = "";
+	const msgs: TranscriptMsg[] = [];
+	for (const line of fs.readFileSync(file, "utf8").split(/\r?\n/)) {
+		if (!line.trim()) continue;
+		let parsed: unknown;
+		try {
+			parsed = JSON.parse(line);
+		} catch {
+			continue;
+		}
+		if (!isRecord(parsed)) continue;
+		if (parsed.type === "session") {
+			title = asText(parsed.title) || title;
+			id = asText(parsed.id) || id;
+			cwd = asText(parsed.cwd) || cwd;
+			startedAt = asText(parsed.timestamp) || startedAt;
+			continue;
+		}
+		if (parsed.type !== "message" || !isRecord(parsed.message)) continue;
+		const role = asText(parsed.message.role);
+		const content = parsed.message.content;
+		const tools: string[] = [];
+		const textParts: string[] = [];
+		if (typeof content === "string") {
+			textParts.push(content);
+		} else if (Array.isArray(content)) {
+			for (const block of content) {
+				if (!isRecord(block)) continue;
+				if (block.type === "text" || block.type === "output_text") {
+					const text = asText(block.text);
+					if (text) textParts.push(text);
+				} else if (block.type === "tool_use" || block.type === "toolCall") {
+					const name = asText(block.name);
+					if (name) tools.push(name);
+				}
+			}
+		}
+		msgs.push({ role, text: textParts.join("\n"), tools });
+	}
+	return { title, id, cwd, startedAt, msgs };
+}
+
+function pickSession(entries: SessionEntry[], selector: string): SessionEntry | undefined {
+	const trimmed = selector.trim();
+	if (!trimmed || trimmed === "latest") return entries[0];
+	const direct = entries.find((entry) => entry.id.startsWith(trimmed) || entry.file.includes(trimmed));
+	if (direct) return direct;
+	const lower = trimmed.toLowerCase();
+	return entries.find((entry) => entry.title.toLowerCase().includes(lower));
+}
+
+function truncateText(text: string, maxLength: number): string {
+	if (text.length <= maxLength) return text;
+	return `${text.slice(0, Math.max(0, maxLength - 15)).trimEnd()}\n...(truncated)`;
+}
+
+function truncateWithHeader(header: string, body: string, maxChars: number): { text: string; truncated: boolean } {
+	const prefix = `${header}\n\n`;
+	const full = `${prefix}${body}`;
+	if (full.length <= maxChars) return { text: full, truncated: false };
+	return { text: `${prefix}${body.slice(0, Math.max(0, maxChars - prefix.length - 15)).trimEnd()}\n...(truncated)`, truncated: true };
+}
+
+function messageCounts(msgs: TranscriptMsg[]): { user: number; assistant: number; toolResult: number } {
+	return {
+		user: msgs.filter((msg) => msg.role === "user").length,
+		assistant: msgs.filter((msg) => msg.role === "assistant").length,
+		toolResult: msgs.filter((msg) => msg.role === "toolResult" || msg.role === "tool" || msg.role === "tool_result").length,
+	};
+}
+
+function transcriptReasonResult(target: string, reason: string) {
+	return {
+		content: [{ type: "text", text: reason }],
+		details: { action: "transcript", target, ok: false, reason },
+	};
+}
+
+async function runTranscript(params: HerdrTranscriptParams, cwd: string, maxChars: number, signal?: AbortSignal) {
+	const target = requireText(params.target, "target");
+	const result = await runHerdr(["agent", "get", target], cwd, maxChars, COMMAND_TIMEOUT_MS, signal);
+	const failReason = "could not resolve peer (herdr get failed); transcript needs a reachable OMP peer";
+	let parsed: unknown;
+	try {
+		parsed = JSON.parse(result.stdout);
+	} catch {
+		return transcriptReasonResult(target, failReason);
+	}
+	if (!result.ok || !isRecord(parsed) || !isRecord(parsed.result) || !isRecord(parsed.result.agent)) {
+		return transcriptReasonResult(target, failReason);
+	}
+	const agent = parsed.result.agent;
+	const agentKind = asText(agent.agent);
+	const agentCwd = asText(agent.cwd);
+	if (agentKind !== "omp") {
+		return transcriptReasonResult(target, `peer is '${agentKind}', not omp; transcript reading supports OMP peers — use Herdr pane scrollback instead`);
+	}
+	const dir = path.join(ompSessionsDir(), slugFromCwd(agentCwd));
+	const entries = listSessions(dir);
+	if (entries.length === 0) {
+		return transcriptReasonResult(target, `no OMP sessions found for peer cwd ${agentCwd}; the peer may not be OMP or has no recorded sessions — use Herdr pane scrollback instead`);
+	}
+	const selector = (params.session ?? "latest").trim();
+	const selected = pickSession(entries, selector);
+	if (!selected) {
+		const recent = entries.slice(0, 12).map((entry) => `- ${entry.title} (${entry.startedAt || "unknown date"})`).join("\n");
+		const reason = "no session match";
+		return {
+			content: [{ type: "text", text: `no session matched '${params.session}'. Recent sessions:\n${recent}` }],
+			details: { action: "transcript", target, ok: false, reason },
+		};
+	}
+	const transcript = readTranscript(selected.file);
+	const counts = messageCounts(transcript.msgs);
+	const assistantMsgs = transcript.msgs.filter((msg) => msg.role === "assistant" && msg.text.trim());
+	const scope = params.scope ?? "last";
+	const header = [
+		`$ herdr agent transcript target=${target} session=${params.session ?? "latest"} scope=${scope}`,
+		"",
+		`session: ${transcript.title} (${transcript.startedAt})`,
+		`peer cwd: ${agentCwd}`,
+		`messages: ${transcript.msgs.length} (${counts.user} user, ${counts.assistant} assistant, ${counts.toolResult} toolResult)`,
+	].join("\n");
+	const bodyLines: string[] = [];
+	if (scope === "summary") {
+		const firstUser = transcript.msgs.find((msg) => msg.role === "user" && msg.text.trim());
+		bodyLines.push(
+			"first user ask:",
+			firstUser ? truncateText(firstUser.text.trim(), 600) : "(none)",
+			"",
+			"last assistant response:",
+			assistantMsgs.length ? truncateText(assistantMsgs[assistantMsgs.length - 1].text.trim(), 1500) : "(none)",
+		);
+	} else if (scope === "tail") {
+		for (const msg of transcript.msgs.slice(-TRANSCRIPT_DEFAULT_TAIL)) {
+			const text = msg.text.trim();
+			if (!text && msg.tools.length === 0) continue;
+			const suffix = msg.tools.length ? ` [tools: ${msg.tools.join(", ")}]` : "";
+			bodyLines.push(`${msg.role}: ${text}${suffix}`);
+		}
+	} else if (assistantMsgs.length) {
+		bodyLines.push("last assistant response:", assistantMsgs[assistantMsgs.length - 1].text.trim());
+	} else {
+		bodyLines.push("last assistant response:", "(no assistant text in session)");
+	}
+	const truncated = truncateWithHeader(header, bodyLines.join("\n"), maxChars);
+	return {
+		content: [{ type: "text", text: truncated.text }],
+		details: {
+			action: "transcript",
+			target,
+			ok: true,
+			peer: { agent: agentKind, cwd: agentCwd },
+			session: { title: transcript.title, id: transcript.id, startedAt: transcript.startedAt },
+			scope,
+			selector: params.session ?? "latest",
+			messageCount: transcript.msgs.length,
+			truncated: truncated.truncated,
+		},
+	};
 }
 
 function readLease(file: string): MasterLease | null {
@@ -975,7 +1210,7 @@ async function sendToPeer(action: "assign" | "send", params: OrchestrateParamsTy
 	if (startAck) lines.push(`start acknowledgement: ${startAck.text}`);
 	if (result.ok && deliveryMode === "draft") lines.push("next: review the peer pane and press Enter there to submit, or rerun with deliveryMode=submit for autonomous execution");
 	lines.push("message preview:", preview);
-	if (!result.ok) lines.push("", `Herdr ${deliveryMode} delivery did not complete successfully. Treat this as unavailable orchestration; use aoc_herdr read/transcript to inspect target state before retrying.`);
+	if (!result.ok) lines.push("", `Herdr ${deliveryMode} delivery did not complete successfully. Treat this as unavailable orchestration; use native herdr observation before retrying.`);
 	try {
 		appendEvent({ version: 2, timestamp: new Date().toISOString(), assignmentId, action, deliveryMode, masterPaneId: identity.paneId, target, resolvedTarget: info.paneId, ok: result.ok, exitCode: result.exitCode, status: deliveryStatus, startStatus: startAck?.status, command, messagePreview: preview, expectedMarker });
 	} catch (error) {
@@ -1008,7 +1243,7 @@ async function collectAssignment(params: OrchestrateParamsType, identity: Master
 		`expected marker: ${event.expectedMarker}`,
 	];
 	if (resultTimeoutMs > 0) lines.push(`idle wait: ${await waitForPeerIdle(event.resolvedTarget, cwd, maxChars, resultTimeoutMs, signal)}`);
-	const transcript = await runTranscript({ action: "transcript", target: event.resolvedTarget, session: "latest", scope: "last", maxChars }, cwd, maxChars, signal);
+	const transcript = await runTranscript({ target: event.resolvedTarget, session: "latest", scope: "last", maxChars }, cwd, maxChars, signal);
 	const transcriptText = firstTextContent(transcript);
 	const markerFound = assistantResultMarkerFound(transcriptText, event.expectedMarker);
 	lines.push(markerFound ? "result marker found" : "result marker not found", "", "last assistant response:", transcriptText);
@@ -1100,7 +1335,7 @@ function ackReports(params: OrchestrateParamsType, targetMasterPaneId: string): 
 function masterPrompt(mode: "on" | "off" | "status" | "full-retard-on" | "full-retard-off" | "full-retard-status", ttlMinutes?: number): string {
 	if (mode === "on") return `Enable AOC master mode for this Herdr workspace.
 
-Call aoc_orchestrate with action=master_on and ttlMinutes=${ttlMinutes}. Then report the returned lease owner and expiry. After master mode is enabled, use aoc_herdr for observation and aoc_orchestrate for explicit peer assignments/messages only.`;
+Call aoc_orchestrate with action=master_on and ttlMinutes=${ttlMinutes}. Then report the returned lease owner and expiry. After master mode is enabled, use native herdr observation for peer state and aoc_orchestrate for explicit peer assignments/messages only.`;
 	if (mode === "off") return `Disable AOC master mode for this Herdr workspace.
 
 Call aoc_orchestrate with action=master_off. Then report whether this pane released the lease or why it could not.`;
@@ -1200,11 +1435,11 @@ export default function aocMasterExtension(pi: CommandExtensionAPI): void {
 		promptSnippet: "Use /master on before aoc_orchestrate assign/send/collect/inbox. Default deliveryMode=draft preserves operator review. full-retard is off by default; enable it explicitly before workers may submit report prompts back to the master.",
 		promptGuidelines: [
 			"Use aoc_orchestrate only after /master on has enabled master mode for this pane; otherwise master_on is the only mutating setup action you may call.",
-			"Use aoc_herdr list/get/transcript/read before assigning work so targets, status, and current context are grounded.",
+			"Use native herdr observation before assigning work so targets, status, and current context are grounded.",
 			"assign/send reject busy peers by default. Do not set requireIdle=false unless the user explicitly asks to interrupt or the peer is known to be waiting for master input.",
 			"Default assign/send deliveryMode=draft uses Herdr agent send and does not submit the peer turn; report it as awaiting operator submit.",
 			"deliveryMode=submit is allowed only for resolved OMP peers; it uses Herdr pane run to submit the prepared assignment as one peer turn. Never expose arbitrary shell commands, keystrokes, focus, close, move, resize, spawn, or broadcast actions.",
-			"After submit, use start acknowledgement and collect with the assignment id; after draft, use aoc_herdr read/transcript or operator confirmation before assuming the peer executed anything.",
+			"After submit, use start acknowledgement and collect with the assignment id; after draft, use native herdr observation or operator confirmation before assuming the peer executed anything.",
 			"full-retard is a master-owned toggle; it is off by default and disabled by /master off.",
 			"Use inbox/ingest/ack for queued aoc_report records; inbox lists bounded summaries, ingest pulls selected content, ack marks read.",
 			"Workers remain executors; full-retard only permits bounded worker-to-master report prompts, not arbitrary Herdr operations.",

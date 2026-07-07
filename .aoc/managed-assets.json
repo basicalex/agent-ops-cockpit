@@ -69,16 +69,16 @@
       "assetVersion": 3,
       "expectedSha256": "bc00cd80c8dfccf5481ff3f88f84a70760457476ccc5c78ee059d058a8d12edb",
       "marker": ".omp/extensions/.aoc-managed",
-      "sha256": "2f62ce49c87c2f684d7f3d9766781eb96403add0332ca6dbbb5c2e6dc8f87e4d",
+      "sha256": "dd7a9f48f539364eb0f6e0c3b90ae65f98d27d2872328620edf02b51081c32a7",
       "source": "../.config/aoc/omp/extensions",
       "status": "dirty"
     },
     ".omp/manifest.toml": {
       "asset": "omp-manifest",
       "assetVersion": 3,
-      "expectedSha256": "20e631a871ec55d5dcbbd82bb76e0d346fe7c61bc46f75fbce439e6ac6007f95",
+      "expectedSha256": "7c22990e90e370f50f1c62cf4b574bda4923a0e1e64082297afa0edc88d4e2e2",
       "marker": ".omp/manifest.toml.aoc-managed",
-      "sha256": "20e631a871ec55d5dcbbd82bb76e0d346fe7c61bc46f75fbce439e6ac6007f95",
+      "sha256": "7c22990e90e370f50f1c62cf4b574bda4923a0e1e64082297afa0edc88d4e2e2",
       "source": ".omp/manifest.toml",
       "status": "current"
     },
@@ -87,7 +87,7 @@
       "assetVersion": 3,
       "expectedSha256": "2c29e2fc7768982ec838c393b2ed4d34fe2da49e799783d795bb90033de7e699",
       "marker": ".omp/skills/.aoc-managed",
-      "sha256": "1467e082a05f4accfce97829c7f4ef4766a64935b71e4a5de0184012291aafec",
+      "sha256": "c4aa23ad45a1e30b9b528eb14c167e8b03482a91fb53245741140869b050a909",
       "source": "../.config/aoc/omp/skills",
       "status": "dirty"
     },
@@ -288,5 +288,5 @@
     "unknown": 0
   },
   "schemaVersion": 1,
-  "updatedAt": "2026-06-30T09:13:07.247769Z"
+  "updatedAt": "2026-07-05T14:11:55.823951Z"
 }
