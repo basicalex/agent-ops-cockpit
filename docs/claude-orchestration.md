@@ -9,11 +9,11 @@ The `claude/` directory versions the Claude-side half of the machine's delegatio
 
 ## Install
 
-```bash
-bin/aoc-claude-install
-```
+`install.sh` seeds the Claude plane by default during AOC installation by copying these assets into `${AOC_CLAUDE_DIR:-$HOME/.claude}` with timestamped backups when overwriting differing files (same convention as `bin/aoc-herdr-install`). Set `AOC_CLAUDE_DIR` to target a different Claude config directory.
 
-Copies assets into `~/.claude` with timestamped backups when overwriting differing files (same convention as `bin/aoc-herdr-install`). Prerequisites on the target machine: `herdr` with the `omp` integration installed (`herdr integration install omp`) so worker agent status is reliable, and `omp` on PATH.
+This is intentionally install-time-only seeding, not `aoc-init` managed-assets: `~/.claude` is edited live and resynced back to the repo, so init-time stamping from stale repo copies could clobber newer live edits.
+
+Prerequisites on the target machine: `omp` must be on PATH, and `herdr` must have the `omp` integration installed (`herdr integration install omp`) so worker agent status is reliable.
 
 ## Relationship to AOC master orchestration
 

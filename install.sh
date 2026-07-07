@@ -766,6 +766,7 @@ required_bin_scripts=(
   aoc
   aoc-herdr-launch
   aoc-herdr-install
+  aoc-claude-install
   aoc-omp
   aoc-omp-context
   aoc-omp-shim-install
@@ -1028,6 +1029,11 @@ else
     "$ROOT_DIR/bin/aoc-herdr-install"
   elif [[ -x "$BIN_DIR/aoc-herdr-install" ]]; then
     AOC_SOURCE_ROOT="$ROOT_DIR" "$BIN_DIR/aoc-herdr-install"
+  fi
+  if [[ -x "$ROOT_DIR/bin/aoc-claude-install" ]]; then
+    "$ROOT_DIR/bin/aoc-claude-install"
+  elif [[ -x "$BIN_DIR/aoc-claude-install" ]]; then
+    AOC_SOURCE_ROOT="$ROOT_DIR" "$BIN_DIR/aoc-claude-install"
   fi
 fi
 
