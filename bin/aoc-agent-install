@@ -125,9 +125,9 @@ resolve_aoc_root() {
     return 0
   fi
 
-  # In AOC-managed Zellij panes the cwd may be a sub-process/chosen directory,
-  # but AOC_PROJECT_ROOT/ZELLIJ_PROJECT_ROOT still identifies the pane project.
-  for root in "${AOC_PROJECT_ROOT:-}" "${ZELLIJ_PROJECT_ROOT:-}"; do
+  # In AOC-managed panes the cwd may be a sub-process/chosen directory,
+  # but AOC_PROJECT_ROOT still identifies the pane project.
+  for root in "${AOC_PROJECT_ROOT:-}"; do
     if [[ -n "$root" && -d "$root/.aoc" && -f "$root/.aoc/context.md" ]]; then
       cd "$root" 2>/dev/null && pwd -P
       return 0
@@ -151,8 +151,7 @@ if [[ "${PI_NO_AOC_WRAPPER:-0}" != "1" ]]; then
     # different AOC tab/project.
     export AOC_PROJECT_ROOT="$aoc_root"
     export AOC_PI_BIN="${AOC_PI_BIN:-$raw_pi}"
-    # Run the AOC wrapper in the current terminal. Without this, aoc-pi's
-    # interactive launcher opens a new Zellij tab when already inside Zellij.
+    # Run the AOC wrapper in the current terminal instead of a new tab.
     export AOC_AGENT_RUN=1
     # Manual `pi` in an AOC project should visibly run the AOC startup
     # handshake. aoc-agent-wrap normally suppresses the bootloader for managed

@@ -65,7 +65,7 @@ FALLBACK_PROJECT_LEXICON = Path(os.environ.get("AOC_VOXTYPE_FALLBACK_LEXICON", "
 
 SAFE_SINGLE_TOKEN_ALIASES = {
     "aoc", "od", "omp", "rtk", "stm", "prd", "pi", "pulse", "mind",
-    "hyperframes", "taskmaster", "zellij", "omarchy", "herdr", "voxtype",
+    "hyperframes", "taskmaster", "omarchy", "herdr", "voxtype",
 }
 
 MANUAL_REPLACEMENTS = {

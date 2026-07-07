@@ -133,7 +133,7 @@ resolve_aoc_root() {
     return 0
   fi
 
-  for root in "${AOC_PROJECT_ROOT:-}" "${ZELLIJ_PROJECT_ROOT:-}"; do
+  for root in "${AOC_PROJECT_ROOT:-}"; do
     if [[ -n "$root" && -d "$root/.aoc" && -f "$root/.aoc/context.md" ]]; then
       cd "$root" 2>/dev/null && pwd -P
       return 0

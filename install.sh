@@ -26,17 +26,12 @@ while [[ $# -gt 0 ]]; do
       export AOC_INSTALL_PI_REQUIRED=1
       shift
       ;;
-    --legacy-zellij)
-      export AOC_INSTALL_LEGACY_ZELLIJ=1
-      shift
-      ;;
     -h|--help)
       cat <<'EOF'
-Usage: ./install.sh [--mind] [--legacy-zellij]
+Usage: ./install.sh [--mind]
 
 Options:
   --mind           Install/refresh optional Mind/Pi runtime components.
-  --legacy-zellij  Install legacy AOC Zellij cockpit assets and binaries.
   -h, --help
 EOF
       exit 0
@@ -54,11 +49,6 @@ export PATH="$BIN_DIR:$PATH"
 
 # Ensure dirs exist
 mkdir -p "$BIN_DIR"
-if is_truthy "${AOC_INSTALL_LEGACY_ZELLIJ:-0}"; then
-  mkdir -p "$HOME/.config/zellij/layouts"
-  mkdir -p "$HOME/.config/zellij"
-  mkdir -p "$HOME/.config/zellij/plugins"
-fi
 mkdir -p "$HOME/.config/yazi"
 mkdir -p "$HOME/.config/yazi/plugins"
 mkdir -p "${MICRO_CONFIG_HOME:-${XDG_CONFIG_HOME:-$HOME/.config}/micro}"
@@ -73,7 +63,6 @@ mkdir -p "$AOC_CONFIG_DIR/prompts-optional/pi"
 mkdir -p "$AOC_CONFIG_DIR/omp/extensions"
 mkdir -p "$AOC_CONFIG_DIR/omp/agents"
 mkdir -p "$AOC_CONFIG_DIR/omp/skills"
-if is_truthy "${AOC_INSTALL_LEGACY_ZELLIJ:-0}"; then mkdir -p "$AOC_CONFIG_DIR/zellij/plugins"; fi
 mkdir -p "${XDG_STATE_HOME:-$HOME/.local/state}/aoc"
 DEFAULT_LAYOUT_FILE="${XDG_STATE_HOME:-$HOME/.local/state}/aoc/layout_default"
 
@@ -308,36 +297,6 @@ linux_arch_target() {
   esac
 }
 
-install_zellij_binary() {
-  [[ "$(uname -s)" == "Linux" ]] || return 1
-  local arch tag tmpdir asset url
-  arch="$(linux_arch_target)"
-  [[ -n "$arch" ]] || return 1
-  tag="$(latest_release_tag "zellij-org/zellij")" || return 1
-
-  tmpdir="$(mktemp -d "${TMPDIR:-/tmp}/aoc-zellij.XXXXXX")"
-  asset="zellij-${arch}-unknown-linux-musl.tar.gz"
-  url="https://github.com/zellij-org/zellij/releases/download/${tag}/${asset}"
-
-  if ! download_to_file "$url" "$tmpdir/$asset"; then
-    rm -rf "$tmpdir"
-    return 1
-  fi
-
-  if ! tar -xzf "$tmpdir/$asset" -C "$tmpdir"; then
-    rm -rf "$tmpdir"
-    return 1
-  fi
-
-  if [[ -f "$tmpdir/zellij" ]]; then
-    install -m 0755 "$tmpdir/zellij" "$BIN_DIR/zellij"
-    rm -rf "$tmpdir"
-    return 0
-  fi
-
-  rm -rf "$tmpdir"
-  return 1
-}
 
 install_yazi_binary() {
   [[ "$(uname -s)" == "Linux" ]] || return 1
@@ -611,18 +570,6 @@ install_tool() {
     curl|wget)
       pm_install "$tool" || warn "Failed to install $tool."
       ;;
-    zellij)
-      pm_install zellij || warn "Failed to install zellij via package manager."
-      if ! have zellij; then
-        if install_zellij_binary; then
-          return
-        fi
-        if cargo_bin="$(cargo_cmd)"; then
-          log "Installing zellij via cargo..."
-          "$cargo_bin" install --locked zellij || warn "Failed to install zellij via cargo."
-        fi
-      fi
-      ;;
     yazi)
       case "$pm" in
         brew|pacman|dnf|apk|apt|yum|zypper)
@@ -885,17 +832,10 @@ if cargo_bin="$(cargo_cmd)"; then
     log "Installing optional AOC/Mind runtime binaries..."
     install_rust_package_binary "$cargo_bin" aoc-mind aoc-mind-service
     write_global_mind_service_config
-    install_rust_binary "$cargo_bin" aoc-hub-rs
     install_rust_binary "$cargo_bin" aoc-agent-wrap-rs
     AOC_MIND_RUNTIME_INSTALLED=1
   else
     log "Skipping optional AOC/Mind runtime binaries (pass --mind to enable)."
-  fi
-  # Build native helper binaries. Legacy control surfaces stay opt-in.
-  install_rust_package_binary "$cargo_bin" aoc-taskmaster aoc-taskmaster aoc-taskmaster-native || true
-  if is_truthy "${AOC_INSTALL_LEGACY_ZELLIJ:-0}" || is_truthy "${AOC_INSTALL_LEGACY_CONTROL:-0}"; then
-    install_rust_package_binary "$cargo_bin" aoc-control aoc-control aoc-control-native || true
-    install_rust_package_binary "$cargo_bin" aoc-mission-control aoc-mission-control aoc-mission-control-native || true
   fi
   install_rust_package_binary "$cargo_bin" aoc-yazi-mermaid aoc-yazi-mermaid aoc-yazi-mermaid-native || true
 else
@@ -916,11 +856,6 @@ if ! have curl && ! have wget; then
   fi
 fi
 
-if is_truthy "${AOC_INSTALL_LEGACY_ZELLIJ:-0}"; then
-  if ! ensure_tool zellij "zellij"; then
-    missing_required+=("zellij")
-  fi
-fi
 if ! ensure_tool yazi "yazi"; then
   missing_required+=("yazi")
 fi
@@ -991,50 +926,15 @@ fi
 # 4. Generate & Install Configs
 log "Generating configurations..."
 
-if is_truthy "${AOC_INSTALL_LEGACY_ZELLIJ:-0}"; then
-
-  # Zellij Layout
-  PROJECTS_BASE="$HOME/dev"
-  [[ ! -d "$PROJECTS_BASE" ]] && PROJECTS_BASE="$HOME"
-
-  sed \
-    -e "s|{{HOME}}|$HOME|g" \
-    -e "s|{{PROJECTS_BASE}}|$PROJECTS_BASE|g" \
-    "$ROOT_DIR/zellij/layouts/aoc.kdl.template" > "$HOME/.config/zellij/layouts/aoc.kdl"
-
-  legacy_managed_layouts=(
-    "$HOME/.config/zellij/layouts/unstat.kdl"
-    "$HOME/.config/zellij/layouts/minimal.kdl"
-    "$HOME/.config/zellij/layouts/aoc.hybrid.kdl"
-  )
-  for legacy_layout in "${legacy_managed_layouts[@]}"; do
-    rm -f "$legacy_layout"
-  done
-
-  current_default_layout="$(cat "$DEFAULT_LAYOUT_FILE" 2>/dev/null || true)"
-  case "$current_default_layout" in
-    ""|unstat|minimal|aoc.hybrid)
-      printf 'aoc\n' > "$DEFAULT_LAYOUT_FILE"
-      ;;
-  esac
-
-  log "Generated managed layout in $HOME/.config/zellij/layouts/aoc.kdl"
-
-  sed \
-    -e "s|{{HOME}}|$HOME|g" \
-    "$ROOT_DIR/zellij/aoc.config.kdl.template" > "$HOME/.config/zellij/aoc.config.kdl"
-else
-  log "Skipping legacy Zellij cockpit assets (pass --legacy-zellij to install)."
-  if [[ -x "$ROOT_DIR/bin/aoc-herdr-install" ]]; then
-    "$ROOT_DIR/bin/aoc-herdr-install"
-  elif [[ -x "$BIN_DIR/aoc-herdr-install" ]]; then
-    AOC_SOURCE_ROOT="$ROOT_DIR" "$BIN_DIR/aoc-herdr-install"
-  fi
-  if [[ -x "$ROOT_DIR/bin/aoc-claude-install" ]]; then
-    "$ROOT_DIR/bin/aoc-claude-install"
-  elif [[ -x "$BIN_DIR/aoc-claude-install" ]]; then
-    AOC_SOURCE_ROOT="$ROOT_DIR" "$BIN_DIR/aoc-claude-install"
-  fi
+if [[ -x "$ROOT_DIR/bin/aoc-herdr-install" ]]; then
+  "$ROOT_DIR/bin/aoc-herdr-install"
+elif [[ -x "$BIN_DIR/aoc-herdr-install" ]]; then
+  AOC_SOURCE_ROOT="$ROOT_DIR" "$BIN_DIR/aoc-herdr-install"
+fi
+if [[ -x "$ROOT_DIR/bin/aoc-claude-install" ]]; then
+  "$ROOT_DIR/bin/aoc-claude-install"
+elif [[ -x "$BIN_DIR/aoc-claude-install" ]]; then
+  AOC_SOURCE_ROOT="$ROOT_DIR" "$BIN_DIR/aoc-claude-install"
 fi
 
 # Copy other configs
@@ -1159,7 +1059,7 @@ if [[ -d "$ROOT_DIR/.pi/extensions" ]]; then
   done
 fi
 
-# AOC preset and project-layout templates for cross-project seeding
+# AOC preset templates for cross-project seeding
 if [[ -d "$ROOT_DIR/.aoc/presets" ]]; then
   mkdir -p "${XDG_CONFIG_HOME:-$HOME/.config}/aoc/presets"
   for d in "$ROOT_DIR/.aoc/presets"/*; do
@@ -1168,10 +1068,6 @@ if [[ -d "$ROOT_DIR/.aoc/presets" ]]; then
     rm -rf "$dest"
     cp -R "$d" "$dest"
   done
-fi
-if [[ -f "$ROOT_DIR/.aoc/layouts/design.kdl" ]]; then
-  mkdir -p "${XDG_CONFIG_HOME:-$HOME/.config}/aoc/layouts"
-  cp "$ROOT_DIR/.aoc/layouts/design.kdl" "${XDG_CONFIG_HOME:-$HOME/.config}/aoc/layouts/design.kdl"
 fi
 
 # Optional skills and PI prompts
@@ -1204,26 +1100,6 @@ if [[ -d "$ROOT_DIR/yazi/plugins" ]]; then
     done
   done
   shopt -u nullglob
-fi
-
-# Bash integration for dynamic layout shortcuts (aoc.<layout>)
-bashrc_file="$HOME/.bashrc"
-bashrc_block_start="# >>> AOC bash integration >>>"
-
-if [[ ! -f "$bashrc_file" ]]; then
-  : > "$bashrc_file"
-fi
-
-if ! grep -Fq "$bashrc_block_start" "$bashrc_file"; then
-  cat <<'EOF' >> "$bashrc_file"
-
-# >>> AOC bash integration >>>
-if command -v aoc-layout >/dev/null 2>&1; then
-  eval "$(aoc-layout --shell-init bash)"
-fi
-# <<< AOC bash integration <<<
-EOF
-  log "Enabled Bash layout shortcuts in $bashrc_file"
 fi
 
 # Tmux integration for modified/special key forwarding
@@ -1263,7 +1139,7 @@ log "Install finished. Initialize each repo explicitly with: aoc-init /path/to/r
 
 log "AOC Installed Successfully!"
 if (( AOC_MIND_RUNTIME_INSTALLED == 1 )); then
-  log "AOC/Mind runtime refreshed: aoc-mind-service, aoc-hub-rs, and aoc-agent-wrap-rs should now be current in $BIN_DIR."
+  log "AOC/Mind runtime refreshed: aoc-mind-service and aoc-agent-wrap-rs should now be current in $BIN_DIR."
 fi
 if (( INSTALL_MIND_EXPLICIT == 1 )); then
   log "PI agent force-refresh requested (--mind). Start a fresh Herdr/OMP session to pick up refreshed runtime components."

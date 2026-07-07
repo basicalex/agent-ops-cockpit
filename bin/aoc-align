@@ -1,15 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-source "$(dirname "$0")/aoc-zellij.sh"
-
-# aoc-align: Discover project root for the current AOC tab
-#
-# Strategy:
-# 1. Prefer explicit AOC_PROJECT_ROOT from the current pane environment.
-# 2. Use Zellij 0.44+ native inventory to inspect cwd metadata for panes in
-#    the current tab and normalize to the nearest repo root.
-# 3. Fall back to walking up from $PWD looking for .aoc or .git.
 
 print_only=false
 if [[ "${1:-}" == "--print-root" ]]; then
@@ -53,16 +44,6 @@ normalize_project_root() {
   return 1
 }
 
-# Try to get root from current Zellij tab metadata.
-discover_from_zellij() {
-  local root
-  if root="$(aoc_zellij_current_tab_project_root 2>/dev/null)" && [[ -n "$root" ]]; then
-    echo "$root"
-    return 0
-  fi
-
-  return 1
-}
 
 # Fall back to walking up from PWD
 discover_from_pwd() {
@@ -81,11 +62,7 @@ root=""
 
 if [[ -n "${AOC_PROJECT_ROOT:-}" ]] && root="$(normalize_project_root "$AOC_PROJECT_ROOT" 2>/dev/null)" && [[ -n "$root" ]]; then
   :
-# Try Zellij-based discovery next (works even without ZELLIJ env var)
-elif root="$(discover_from_zellij 2>/dev/null)" && [[ -n "$root" ]]; then
-  :
 else
-  # Fall back to PWD-based discovery
   root="$(discover_from_pwd)"
 fi
 
@@ -102,13 +79,3 @@ if [[ -z "$root" ]]; then
   exit 0
 fi
 
-# If not in Zellij context at all, don't try to write chars
-if [[ -z "${ZELLIJ:-}" && -z "${ZELLIJ_SESSION_NAME:-}" ]]; then
-  exit 0
-fi
-if ! command -v zellij >/dev/null 2>&1; then
-  exit 0
-fi
-
-payload="cd \"${root}\" && clear"$'\n'
-zellij action write-chars "$payload" >/dev/null 2>&1 || true

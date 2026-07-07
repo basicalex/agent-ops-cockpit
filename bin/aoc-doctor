@@ -45,12 +45,6 @@ sha256_file() {
   return 1
 }
 
-version_ge() {
-  [[ "$1" == "$2" ]] && return 0
-  local first
-  first="$(printf '%s\n%s\n' "$1" "$2" | sort -V | head -n1)"
-  [[ "$first" == "$2" ]]
-}
 
 read_project_aoc_version() {
   python3 - "$aoc_init_state_file" <<'PY'
@@ -78,10 +72,6 @@ print(value if isinstance(value, int) and value >= 0 else 0)
 PY
 }
 
-zellij_version() {
-  have zellij || return 1
-  zellij --version 2>/dev/null | awk '{print $2}' | head -n1
-}
 
 detect_task_control_backend() {
   if have aoc-task; then
@@ -130,16 +120,6 @@ task_control_backend="$(detect_task_control_backend || true)"
 hint_for() {
   local tool="$1"
   case "$tool" in
-    zellij)
-      case "$pm" in
-        apt) echo "sudo apt-get install -y zellij" ;;
-        dnf) echo "sudo dnf install -y zellij" ;;
-        pacman) echo "sudo pacman -S zellij" ;;
-        brew) echo "brew install zellij" ;;
-        apk) echo "sudo apk add zellij" ;;
-        *) echo "Install zellij via your package manager." ;;
-      esac
-      ;;
     yazi)
       echo "cargo install --locked --force yazi-build"
       ;;
@@ -275,7 +255,7 @@ hint_for() {
   esac
 }
 
-required=(zellij yazi fzf pi)
+required=(yazi fzf pi)
 optional=(tmux chafa ffmpeg resvg file pdftoppm rg bat tectonic task-master python3 git)
 
 missing_required=()
@@ -284,18 +264,6 @@ managed_runtime_issues=()
 managed_runtime_warnings=()
 project_runtime_issues=()
 project_runtime_warnings=()
-stale_layout_paths=()
-zellij_ver="$(zellij_version || true)"
-zellij_recommended="0.44.0"
-zellij_native_inventory="unknown"
-default_layout_file="${XDG_STATE_HOME:-$HOME/.local/state}/aoc/layout_default"
-if [[ -n "$zellij_ver" ]]; then
-  if version_ge "$zellij_ver" "$zellij_recommended"; then
-    zellij_native_inventory="yes"
-  else
-    zellij_native_inventory="fallback-only"
-  fi
-fi
 
 for tool in "${required[@]}"; do
   if ! have "$tool"; then
@@ -339,30 +307,6 @@ for omp_kind in extensions agents skills; do
   [[ -d "$project_root/.omp/$omp_kind" ]] || project_runtime_warnings+=("missing project OMP assets: .omp/$omp_kind")
 done
 
-if [[ -d "$HOME/.config/zellij/layouts" ]]; then
-  while IFS= read -r layout_path; do
-    [[ -n "$layout_path" ]] || continue
-    case "$(basename "$layout_path")" in
-      unstat.kdl|minimal.kdl|aoc.hybrid.kdl)
-        stale_layout_paths+=("$layout_path")
-        continue
-        ;;
-    esac
-  done < <(find "$HOME/.config/zellij/layouts" -maxdepth 1 -type f -name '*.kdl' | sort)
-fi
-
-if [[ -f "$default_layout_file" ]]; then
-  current_default_layout="$(cat "$default_layout_file" 2>/dev/null || true)"
-  case "$current_default_layout" in
-    unstat|minimal|aoc.hybrid)
-      managed_runtime_warnings+=("default layout '$current_default_layout' is deprecated; switch to 'aoc'")
-      ;;
-  esac
-fi
-
-if ((${#stale_layout_paths[@]} > 0)); then
-  managed_runtime_warnings+=("stale global Zellij layouts detected under ~/.config/zellij/layouts")
-fi
 
 if [[ "$quiet" -eq 0 ]]; then
   echo "AOC Doctor"
@@ -448,31 +392,6 @@ if [[ "$quiet" -eq 0 ]]; then
       echo "    -> $(hint_for "$tool")"
     fi
   done
-  if [[ -n "$zellij_ver" ]]; then
-    echo "  Zellij version: $zellij_ver"
-    if version_ge "$zellij_ver" "$zellij_recommended"; then
-      echo "  [ok] Native pane/tab JSON inventory available (recommended baseline: >= $zellij_recommended)"
-    else
-      echo "  [warn] Native pane/tab JSON inventory not available; operator pane discovery/floating controls may be limited"
-      echo "    -> Upgrade zellij to >= $zellij_recommended for explicit list-panes/list-tabs/current-tab-info support"
-    fi
-  fi
-  echo
-  echo "Legacy Zellij:"
-  echo "  [info] AOC no longer ships or installs Zellij top-bar assets."
-  if ((${#stale_layout_paths[@]} > 0)); then
-    echo "  [warn] stale global layouts detected:"
-    for layout_path in "${stale_layout_paths[@]}"; do
-      echo "    - $layout_path"
-    done
-    echo "    -> rerun install.sh or remove deprecated managed layout files"
-  fi
-  if ((${#managed_runtime_warnings[@]} > 0)); then
-    for warning in "${managed_runtime_warnings[@]}"; do
-      echo "  [warn] $warning"
-    done
-  fi
-
   echo
   echo "Optional (features may degrade if missing):"
   for tool in "${optional[@]}"; do
@@ -511,7 +430,7 @@ if [[ "$quiet" -eq 0 ]]; then
     echo "  Mode override: $(preview_get preview_mode_override)"
     echo "  Effective mode: $(preview_get effective_mode)"
     echo "  Terminal family: $(preview_get terminal_family)"
-    echo "  Multiplexer: tmux=$(preview_get in_tmux), zellij=$(preview_get in_zellij)"
+    echo "  Multiplexer: tmux=$(preview_get in_tmux)"
     echo "  Native backend: $(preview_get native_backend)"
     echo "  Native ready: $(preview_get native_ready)"
     echo "  Quality note: $(preview_get quality_note)"

@@ -911,7 +911,6 @@ STM is for deliberate directed in-progress handoff packets only; it is not a mai
 - `.aoc/context.md`: auto-generated project snapshot.
 - `.aoc/rtk.toml`: project-local RTK routing policy and install contract.
 - `.aoc/mind-service.json`: optional project-local launcher metadata for the standalone Mind service.
-- `.aoc/layouts/`: legacy-only Zellij layouts, created only when `AOC_INIT_LEGACY_ZELLIJ=1`.
 - `DESIGN.md`: project-wide visual/product design contract; subsystem design docs extend it.
 - `.taskmaster/docs/specs/`: spec documents linked to tags and tasks; `.taskmaster/docs/prds/` remains legacy-compatible.
 - Tag default specs are currently stored via legacy key `aocPrd`; resolve with `aoc-task tag spec show --tag <tag>`.

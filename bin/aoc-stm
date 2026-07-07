@@ -525,9 +525,9 @@ archive_current_locked() {
   ts="$(date -u '+%Y%m%d-%H%M%SZ')"
   nanos="$(date -u '+%N' 2>/dev/null || printf '%s' "$$")"
   [[ "$nanos" =~ ^[0-9]+$ ]] || nanos="$$"
-  session_label="$(sanitize_name "${ZELLIJ_SESSION_NAME:-${AOC_SESSION_ID:-adhoc}}")"
+  session_label="$(sanitize_name "${AOC_SESSION_ID:-adhoc}")"
   project_label="$(sanitize_name "$(basename "$project_root")")"
-  session_source="${ZELLIJ_SESSION_NAME:-${AOC_SESSION_ID:-adhoc}}"
+  session_source="${AOC_SESSION_ID:-adhoc}"
 
   archive_file="$archive_dir/${ts}-${nanos}-${session_label}-${project_label}.md"
   while [[ -e "$archive_file" ]]; do

@@ -9,8 +9,8 @@ fi
 sanitize() { printf '%s' "$1" | sed -E 's/[^A-Za-z0-9._-]+/-/g; s/^-+|-+$//g'; }
 
 state_root="${XDG_STATE_HOME:-$HOME/.local/state}/aoc/yazi-cwd"
-session="${AOC_SESSION_ID:-${ZELLIJ_SESSION_NAME:-adhoc}}"
-tab="${AOC_TAB_SCOPE:-${ZELLIJ_TAB_NAME:-default}}"
+session="${AOC_SESSION_ID:-adhoc}"
+tab="${AOC_TAB_SCOPE:-default}"
 project_root="${AOC_PROJECT_ROOT:-$PWD}"
 state_dir="$state_root/$(sanitize "$session")"
 cwd_file="$state_dir/$(sanitize "$tab").cwd"
@@ -30,27 +30,5 @@ if [[ ${#args[@]} -eq 0 || "${args[0]}" == "." ]]; then
 	fi
 fi
 
-force_kitty_in_zellij="${AOC_YAZI_FORCE_KITTY_IN_ZELLIJ:-1}"
-in_zellij=0
-[[ -n "${ZELLIJ:-}" || -n "${ZELLIJ_SESSION_NAME:-}" ]] && in_zellij=1
-in_kitty=0
-[[ -n "${KITTY_PID:-}" || -n "${KITTY_WINDOW_ID:-}" || "${TERM:-}" == xterm-kitty || "${TERM_PROGRAM:-}" == kitty ]] && in_kitty=1
-
-run_yazi() {
-	yazi --cwd-file "$cwd_file" "${args[@]}"
-}
-
-if [[ "$force_kitty_in_zellij" != "0" && $in_zellij -eq 1 && $in_kitty -eq 1 ]]; then
-	# Yazi/kitty image support historically needed ZELLIJ unset, but AOC plugins
-	# still need the real Zellij session/pane to drive Explorer resize actions.
-	env \
-		-u ZELLIJ \
-		-u ZELLIJ_SESSION_NAME \
-		AOC_ZELLIJ_SESSION_NAME="${ZELLIJ_SESSION_NAME:-}" \
-		AOC_ZELLIJ_PANE_ID="${ZELLIJ_PANE_ID:-}" \
-		TERM_PROGRAM="${TERM_PROGRAM:-kitty}" \
-		yazi --cwd-file "$cwd_file" "${args[@]}"
-	exit $?
-fi
 
 exec yazi --cwd-file "$cwd_file" "${args[@]}"
