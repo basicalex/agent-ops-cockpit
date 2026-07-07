@@ -49,9 +49,9 @@ Wait for each worker to reach `idle` (finished booting) before dispatching.
 - Tab names: `herdr tab list` to map label → tab_id, then `herdr pane list` and take panes whose `tab_id` matches. If a named tab has multiple panes, confirm with the user which is the worker.
 - Manually-started agents may NOT be registered with herdr's agent detector, so `herdr agent wait` / `agent_status` can be unreliable for them. The robust fallback liveness check:
   ```
-  herdr pane read <qualified-id> | grep "(esc"
+  herdr pane read <qualified-id> | grep "esc⟩"
   ```
-  Spinner present ⇒ busy; absent ⇒ idle.
+  Spinner present ⇒ busy; absent ⇒ idle. (omp renders the spinner hint as `⟨esc⟩` with angle brackets — `grep "(esc"` never matches and reports permanently-idle.)
 - Never conscript panes the user didn't name — panes may carry other in-progress work.
 
 ## 2. Packet protocol
@@ -112,7 +112,7 @@ For **manual** panes, fall back to the spinner check per pane:
 while true; do
   busy=""
   for id in <qualified-ids>; do
-    if herdr pane read "$id" | grep -q "(esc"; then busy="$busy $id"; fi
+    if herdr pane read "$id" | grep -q "esc⟩"; then busy="$busy $id"; fi
   done
   if [ -z "$busy" ]; then echo "all idle"; exit 0; fi
   echo "busy:$busy"
