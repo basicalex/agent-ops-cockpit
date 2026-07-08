@@ -12,7 +12,9 @@ Coordinate a campaign of parallel work across omp agents running in herdr panes.
 
 1. **omp workers (default)** — mechanical/parallelizable slices: sweeps, migrations, typecheck fixes, audits.
 2. **Opus subagents** — visual/design slices: UI polish, component composition, spacing/tone/palette, anything where "does this look right" is the acceptance criterion. Dispatch via the Agent tool with `model: "opus"`, never as omp packets.
-3. **Fable workers (escalation — explicit user request only)** — Claude sessions spawned as herdr workers for *critical* slices: architecture-sensitive changes, deep cross-cutting reasoning, or a slice omp workers have already fumbled. Both gates must hold: the slice is critical AND the user explicitly asked for fable workers. Never escalate on your own — fable sessions burn metered Claude usage while omp is effectively unlimited, so that spend is the user's call. If you believe a slice needs fable-level judgment, say so and ask; don't silently spawn.
+3. **Fable escalation (explicit user request only)** — for *critical* slices: architecture-sensitive changes, deep cross-cutting reasoning, or a slice omp workers have already fumbled. Both gates must hold: the slice is critical AND the user asked for fable-level handling. Never escalate on your own — fable sessions burn metered Claude usage while omp is effectively unlimited, so that spend is the user's call; if a slice seems to need it, recommend and ask. Two dispatch forms:
+   - **Escalation agent (default):** dispatch via the Agent tool with no model override, so the subagent inherits the fable model. No pane management, no permission stalls, result returns in-session. Right for one-off critical slices.
+   - **Herdr fable worker:** only when the critical slice must run as a long-lived peer of a parallel campaign alongside omp workers — see "Spawning fable workers" below.
 
 ## Project parameters
 
@@ -47,16 +49,16 @@ One tab per work slice, labeled `<campaign>-w<N>` so the sidebar shows what each
 
 Wait for each worker to reach `idle` (finished booting) before dispatching.
 
-### Spawning fable workers (only when the user asked for them)
+### Spawning fable workers (campaign-parallel escalation; only when the user asked)
 
 Same tab-per-worker pattern; only the launch command differs:
 
 ```bash
-herdr pane run <root-pane-id> "claude --permission-mode acceptEdits"
+herdr pane run <root-pane-id> "claude --dangerously-skip-permissions"
 ```
 
+- `--dangerously-skip-permissions` is standing-authorized by the user for spawned worker panes (2026-07-08) so packets never stall on permission prompts. It makes the packet's file-scope CONSTRAINTS the only guardrail — keep them tight.
 - Claude sessions register with herdr's agent detector just like omp, so `agent_status` / `herdr agent wait` are reliable for them too.
-- `acceptEdits` auto-approves file edits but not arbitrary commands; a packet whose ACCEPTANCE runs tests may stall on a permission prompt. Watch for a stalled `agent_status` and check the pane. Launch with `--dangerously-skip-permissions` only if the user explicitly approves that mode.
 - The anti-cascade rule in the packet protocol is doubly load-bearing for fable workers: they load the same delegation-first CLAUDE.md as the orchestrator and will re-delegate unless the packet forbids it.
 - Everything else — packets, non-overlapping scopes, no-commit rule, monitor, trust-but-verify — is identical to omp workers.
 
