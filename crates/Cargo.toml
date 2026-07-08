@@ -4,11 +4,6 @@ members = [
     "aoc-cli",
     "aoc-core",
     "aoc-storage",
-    "aoc-pi-adapter",
-    "aoc-task-attribution",
-    "aoc-segment-routing",
-    "aoc-mind",
-    "aoc-agent-wrap-rs",
     "aoc-taskmaster",
     "aoc-yazi-mermaid",
 ]
