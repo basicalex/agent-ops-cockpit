@@ -3,7 +3,7 @@
 Canonical AOC project surfaces:
 
 ```text
-.aoc/                        # AOC context, memory CLI state, presets, layouts, managed metadata
+.aoc/                        # AOC context, memory CLI state, presets, services, managed metadata
 .taskmaster/                 # Taskmaster tasks, tags, specs/PRDs
 .omp/extensions/             # repo-owned AOC OMP extension sources
 .omp/agents/                 # repo-owned AOC OMP agent template sources

@@ -5,8 +5,8 @@ script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 repo_root="$(cd "$script_dir/.." && pwd)"
 omp_extension="$repo_root/.omp/extensions/aoc-codegraph.ts"
 init="$repo_root/bin/aoc-init"
-control="$repo_root/crates/aoc-control/src/main.rs"
-control_doc="$repo_root/docs/control-pane.md"
+rust_fixture="$repo_root/crates/aoc-cli/src/main.rs"
+agent_doc="$repo_root/docs/agents.md"
 agents_contract="$repo_root/AGENTS.md"
 
 fail() {
@@ -30,8 +30,8 @@ assert_not_contains() {
 
 [[ -f "$omp_extension" ]] || fail "Missing OMP CodeGraph extension: $omp_extension"
 [[ -f "$init" ]] || fail "Missing aoc-init: $init"
-[[ -f "$control" ]] || fail "Missing aoc-control source: $control"
-[[ -f "$control_doc" ]] || fail "Missing control pane docs: $control_doc"
+[[ -f "$rust_fixture" ]] || fail "Missing kept Rust source fixture: $rust_fixture"
+[[ -f "$agent_doc" ]] || fail "Missing agent docs: $agent_doc"
 [[ -f "$agents_contract" ]] || fail "Missing agent contract: $agents_contract"
 
 if node -e "require('typescript')" >/dev/null 2>&1; then
@@ -54,17 +54,16 @@ fi
 
 assert_contains "$omp_extension" 'name: "aoc_codegraph"'
 assert_contains "$omp_extension" '"status", "files", "search", "context", "callers", "callees", "impact", "affected"'
-assert_contains "$omp_extension" 'spawn("codegraph", args'
-assert_contains "$omp_extension" 'cwd escapes project root'
+assert_contains "$omp_extension" 'resolveRepoCommand(projectRoot, "bin/codegraph", "codegraph")'
+assert_contains "$omp_extension" 'scopedCwd(projectRoot, params.cwd)'
 assert_contains "$omp_extension" '"--path", projectRoot'
 assert_contains "$omp_extension" 'Use aoc_codegraph before broad grep/read scans'
 assert_not_contains "$omp_extension" '"node"'
-assert_contains "$init" 'aoc-codegraph.ts'
-assert_contains "$control" 'CodeGraph agent index'
-assert_contains "$control" 'pnpm add -g @colbymchenry/codegraph'
-assert_contains "$control" 'SettingsSection::ToolsCodeGraph'
-assert_contains "$control_doc" 'Alt+C -> Tools -> CodeGraph agent index'
-assert_contains "$control_doc" 'pnpm add -g @colbymchenry/codegraph'
+assert_contains "$init" 'Installs AOC OMP extensions selected by active profiles'
+assert_contains "$rust_fixture" 'Agent Ops Cockpit CLI'
+assert_contains "$rust_fixture" 'Commands::Map'
+assert_contains "$agent_doc" 'AOC includes an OMP `aoc_codegraph` tool'
+assert_contains "$agent_doc" 'codegraph sync /path/to/project'
 
 if command -v codegraph >/dev/null 2>&1; then
   codegraph --help >/dev/null || fail "codegraph is on PATH but --help failed"

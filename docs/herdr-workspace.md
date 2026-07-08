@@ -1,12 +1,12 @@
 # Herdr-first workspace direction
 
-AOC is moving from a Zellij-managed cockpit to a Herdr-first workspace.
+AOC is Herdr-first: Herdr is the workspace layer, while AOC provides project/tooling commands around it.
 
 ## Decision
 
 Herdr is now the structural multiplexer and operator surface for agentic workspaces.
 
-The old AOC/Zellij stack solved important problems at the time: persistent panes, project layout, top-bar status, and operator shortcuts. Herdr now handles the structural multiplexer role better, so AOC should stop treating Zellij layouts and the custom top bar as the canonical workspace layer.
+The old cockpit stack solved important problems at the time: persistent panes, project layout, top-bar status, and operator shortcuts. Herdr now handles the structural multiplexer role, so AOC no longer treats legacy cockpit layouts or custom top-bar assets as active workspace surfaces.
 
 ## What stays from AOC
 
@@ -17,7 +17,7 @@ Keep only AOC pieces that are still valuable as project/tooling primitives:
 - Taskmaster / `tm` integration
 - metadata-only context handshakes for OMP startup
 - CodeGraph as a read-only OMP tool when a project has an index
-- `aoc-agent-wrap-rs` only if it can provide OMP-native lifecycle/context/provenance without Zellij coupling
+- `aoc-agent-wrap-rs` only if it can provide OMP-native lifecycle/context/provenance without cockpit coupling
 - HyperFrames, OpenDesign, web research, and RTK as standalone project/tooling features
 - selected lightweight handoff helpers only if they remain useful
 - Mind only as optional, lazy focused recall/provenance after user intent is known
@@ -29,9 +29,9 @@ Keep only AOC pieces that are still valuable as project/tooling primitives:
 
 Treat these as legacy or transitional:
 
-- managed Zellij layouts
-- removed AOC Zellij tab bar assets
-- AOC Zellij-specific keybindings
+- removed cockpit layout assets
+- removed AOC tab bar assets
+- removed cockpit-specific keybindings
 - legacy Mission Control
 - AOC subagent manager/control surfaces
 - Control pane
@@ -49,7 +49,7 @@ Treat these as legacy or transitional:
 - **OMP** owns subagent orchestration.
 - **AOC** becomes the compatibility/tooling layer around project setup, task workflows, launch convenience, and retained standalone tools.
 
-The `aoc` command launches/focuses the Herdr workspace by default. The default installer and initializer should stay lean: no Zellij cockpit assets, custom top bar, AOC subagent UI, Mission Control, Control pane, legacy AOC-owned status/health panels, tab metadata systems, or AOC Mind services by default.
+The `aoc` command launches/focuses the Herdr workspace. The default installer and initializer stay lean: no retired cockpit assets, custom top bar, AOC subagent UI, Mission Control, Control pane, legacy AOC-owned status/health panels, tab metadata systems, or AOC Mind services by default.
 
 ## Services workspace
 
@@ -106,16 +106,11 @@ The Herdr-first path is implemented with:
 - `bin/aoc-omp-context` — renders the compact metadata-only AOC startup capsule for OMP `--append-system-prompt`, including detected VCS mode and preferred command family
 - `bin/aoc-omp` / `aoc omp` — launches upstream OMP with that startup capsule already appended
 - `bin/aoc` — delegates to Herdr by default and exposes `aoc services`
-- `install.sh` — defaults to Herdr/OMP assets and skips legacy Zellij cockpit assets unless `--legacy-zellij` is passed
-- `bin/aoc-init` — installs the AOC OMP extensions, skills, and agent templates selected by active `.omp/manifest.toml` profiles, seeds the lean OMP tool baseline, and skips legacy `.aoc/layouts`, Zellij plugin repair, subagent manager extension, AOC agent presence extension, Mission Control, and Control pane defaults
+- `install.sh` — defaults to Herdr/OMP assets and does not install retired cockpit assets
+- `bin/aoc-init` — installs the AOC OMP extensions, skills, and agent templates selected by active `.omp/manifest.toml` profiles, seeds the lean OMP tool baseline, and skips retired layout assets, plugin repair, subagent manager extension, AOC agent presence extension, Mission Control, and Control pane defaults
 - `/commit [scope]` — OMP slash command that triggers the safe atomic Git commit workflow: inspect changes, run targeted validation, commit only the intended atomic work, report the Git SHA, and after a successful commit perform best-effort `codegraph sync` when a project `.codegraph/` index and CLI are present; never push
 
-The old Zellij cockpit remains available during transition with:
-
-```bash
-AOC_LEGACY_ZELLIJ=1 aoc
-./install.sh --legacy-zellij
-```
+Retired cockpit compatibility paths are tracked only in `docs/deprecations.md`.
 
 The working feature classification is tracked in:
 

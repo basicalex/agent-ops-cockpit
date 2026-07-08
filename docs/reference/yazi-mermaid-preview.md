@@ -217,18 +217,13 @@ It is the terminal/multiplexer stack.
 
 ### Important current limitation
 
-True inline image preview inside:
-
-- Yazi
-- running under Zellij
-- in current released Zellij
-
-is still limited by Zellij image protocol handling.
+True inline image preview inside Yazi can still be limited by restrictive
+multiplexer or terminal backends that do not forward the image protocol cleanly.
 
 ### Practical outcome
 
 - outside restrictive multiplexer paths, Yazi image preview can work well
-- inside current released Zellij, inline image behavior still depends on terminal/backend behavior
+- inside restrictive multiplexer paths, inline image behavior still depends on terminal/backend behavior
 - Kitty/kitten is the preferred path for inline graph/image preview
 - the safe fallback is `Alt+Enter` external open
 
@@ -248,7 +243,7 @@ Look for fields such as:
 - `effective_mode=...`
 - `terminal_family=...`
 - `native_backend=kitty|kitten|none`
-- `in_zellij=yes|no`
+- `restrictive_multiplexer=yes|no`
 
 ## Helper environment variables
 
@@ -324,7 +319,7 @@ The current project consensus is:
 - exact Mermaid JS parity is not guaranteed
 - cache invalidation is metadata-based today, not full content-hash based
 - dense diagrams may still be hard to inspect inside a small preview pane
-- current released Zellij remains the main blocker for ideal inline image behavior
+- restrictive multiplexer/backend paths remain the main blocker for ideal inline image behavior
 
 ## Likely future improvements
 

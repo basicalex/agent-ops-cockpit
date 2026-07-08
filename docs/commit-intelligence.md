@@ -165,7 +165,7 @@ Examples:
 feat(commit): add AOC commit prompt workflow
 docs(commit): define AOC trailer contract
 fix(mind): preserve focused context retrieval policy
-test(mission-control): cover provenance drilldown toggle
+test(mind): cover provenance drilldown toggle
 ```
 
 ## Body guidance

@@ -12,7 +12,7 @@ A preset coordinates:
 
 A preset is **not**:
 - a nested-skill runtime
-- a replacement for layouts
+- a replacement for Herdr workspaces or tabs
 - a replacement for skills
 - part of AOC Mind
 
@@ -89,7 +89,7 @@ Preset assets live in:
   components/
 ```
 
-`aoc-init` seeds these assets, plus `.aoc/layouts/design.kdl` and `retired Pi preset controls/`, into other projects. Managed preset/runtime/design assets are now refreshed in existing repos too.
+`aoc-init` seeds these preset assets into other projects. Managed preset/runtime/design assets are refreshed in existing repos too.
 
 ## Commands
 

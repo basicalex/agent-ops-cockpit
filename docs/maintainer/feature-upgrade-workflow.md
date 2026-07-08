@@ -69,7 +69,7 @@ aoc-task list
 ```markdown
 | Component | Current State | Impact |
 |-----------|--------------|--------|
-| Zellij layouts | Hardcoded bash | High - all panes |
+| Multiplexer layouts | Hardcoded shell scripts | High - all panes |
 | bin/* scripts | bash-only | Medium - internal |
 | Taskmaster TUI | native (Ratatui) | Low |
 ```
@@ -248,14 +248,14 @@ This feature was planned using the above process:
 
 ### Roadmap
 - Added as Phase 1 in ROADMAP.md
-- Noted Zellij Windows limitation as external blocker
-- Included contribution encouragement for Zellij project
+- Noted native Windows multiplexer limitations as external blocker
+- Included contribution encouragement for upstream terminal-multiplexer projects
 
 ### Memory
 ```
-Added ROADMAP.md documenting cross-platform vision: multi-shell terminal 
-support (Phase 1), script portability (Phase 2), alternative multiplexer 
-research (Phase 3), and native Windows (Phase 4, blocked by Zellij). 
+Added ROADMAP.md documenting cross-platform vision: multi-shell terminal
+support (Phase 1), script portability (Phase 2), alternative multiplexer
+research (Phase 3), and native Windows (Phase 4, blocked by current multiplexer support).
 Created task #41 for multi-shell implementation with 6 subtasks.
 ```
 

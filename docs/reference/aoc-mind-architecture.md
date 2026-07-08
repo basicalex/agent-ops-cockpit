@@ -47,7 +47,7 @@ T0 is reproducibility substrate. T3 is the durable project-memory layer used by 
 
 | Component | Responsibility |
 |---|---|
-| `aoc-mind-service serve` | OMP/Herdr-era project service loop; ingests Pi sessions, heartbeats health, runs T1 threshold checks, and ticks T2/T3 queues without Zellij or wrapper ownership |
+| `aoc-mind-service serve` | OMP/Herdr-era project service loop; ingests Pi sessions, heartbeats health, runs T1 threshold checks, and ticks T2/T3 queues without retired cockpit or wrapper ownership |
 | `aoc-pi-adapter` | Converts Pi-native session/import/compaction data into AOC Mind event/slice contracts |
 | `aoc-core` | Shared contracts for Mind events, semantic stages, provenance, graph/lineage primitives, and context payloads |
 | `aoc-storage` | Persistent store APIs for artifacts, checkpoints, provenance links, canon, and query surfaces |

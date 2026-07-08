@@ -9,7 +9,6 @@ Managed by default:
 .omp/extensions/**
 .omp/agents/**
 .aoc/presets/**
-.aoc/layouts/**
 ```
 
 Project-authored, preserve by default:
