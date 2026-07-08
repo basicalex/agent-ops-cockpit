@@ -1,5 +1,0 @@
-#!/usr/bin/env bash
-set -euo pipefail
-
-echo 'aoc-agent-wrap has been retired. Use `aoc omp` or the OMP shim installed by `aoc-omp-shim-install`.' >&2
-exit 1

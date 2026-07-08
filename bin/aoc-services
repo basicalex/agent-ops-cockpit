@@ -154,15 +154,6 @@ def browser_status():
     return {"name": "browser", "kind": "daemon", "state": "ready" if ready else "cold", "healthy": ready, "requiredFor": ["agent-browser"], "details": {"stdout": out, "stderr": err}}
 
 
-def mind_status():
-    if not shutil.which("aoc-mind-service"):
-        return {"name": "mind", "kind": "daemon-or-cold", "state": "missing", "healthy": False, "requiredFor": ["mind", "context-pack"], "message": "aoc-mind-service not found"}
-    code, payload, out, err = json_cmd(f"aoc-mind-service status --project-root {quote(str(SERVICE_ROOT))} --json", timeout=10, cwd=SERVICE_ROOT)
-    state = "healthy" if code == 0 else "cold"
-    raw_state = (((payload or {}).get("service_status") or {}).get("state")) if isinstance(payload, dict) else None
-    if raw_state:
-        state = raw_state
-    return {"name": "mind", "kind": "daemon-or-cold", "state": state, "healthy": code == 0, "requiredFor": ["mind", "context-pack", "provenance"], "details": payload or {"stdout": out, "stderr": err}}
 
 
 def quote(value):
@@ -170,8 +161,8 @@ def quote(value):
 
 
 def all_status():
-    services = [search_status(), render_status(), browser_status(), mind_status()]
-    return {"schemaVersion": 1, "projectRoot": str(SERVICE_ROOT), "launchCwd": str(ROOT), "serviceRoot": str(SERVICE_ROOT), "services": services, "healthy": all(s.get("healthy") or s.get("kind") in {"oneshot", "daemon-or-cold"} for s in services)}
+    services = [search_status(), render_status(), browser_status()]
+    return {"schemaVersion": 1, "projectRoot": str(SERVICE_ROOT), "launchCwd": str(ROOT), "serviceRoot": str(SERVICE_ROOT), "services": services, "healthy": all(s.get("healthy") or s.get("kind") in {"oneshot"} for s in services)}
 
 
 def all_status_cached(max_age=HEALTH_CACHE_TTL):
@@ -192,7 +183,7 @@ def print_status(payload, as_json=False):
     if payload.get("launchCwd") and payload.get("launchCwd") != payload.get("projectRoot"):
         print(f" launch cwd: {payload['launchCwd']}")
     for svc in payload["services"]:
-        marker = "✓" if svc.get("healthy") else ("·" if svc.get("kind") in {"oneshot", "daemon-or-cold"} else "✗")
+        marker = "✓" if svc.get("healthy") else ("·" if svc.get("kind") in {"oneshot"} else "✗")
         extra = " no-server" if svc.get("serverRequired") is False else ""
         print(f" {marker} {svc['name']:<8} {svc['state']:<12} {svc['kind']}{extra}")
 
@@ -207,8 +198,6 @@ def start_service(name):
         return 0, "render is one-shot; no server to start", ""
     if name == "browser":
         return 0, "browser starts lazily via agent-browser open; no default page launched", ""
-    if name == "mind":
-        return 0, "mind service is cold/lazy by default; use aoc-mind-service commands for warm mode", ""
     raise SystemExit(f"unknown service: {name}")
 
 
@@ -218,7 +207,7 @@ def stop_service(name):
         if not cmd:
             return 127, "", "aoc-search not found"
         return run([*cmd, "stop"], timeout=60, cwd=SERVICE_ROOT)
-    if name in {"render", "browser", "mind"}:
+    if name in {"render", "browser"}:
         return 0, f"{name} has no managed default stop action", ""
     raise SystemExit(f"unknown service: {name}")
 
@@ -228,8 +217,8 @@ def main():
     sub = parser.add_subparsers(dest="command", required=True)
     p = sub.add_parser("status"); p.add_argument("--json", action="store_true"); p.add_argument("--watch", action="store_true"); p.add_argument("--interval", type=float, default=DEFAULT_WATCH_INTERVAL)
     p = sub.add_parser("up"); p.add_argument("--watch", action="store_true"); p.add_argument("--interval", type=float, default=DEFAULT_WATCH_INTERVAL); p.add_argument("--no-search", action="store_true")
-    p = sub.add_parser("start"); p.add_argument("service", choices=["search", "render", "browser", "mind"])
-    p = sub.add_parser("stop"); p.add_argument("service", choices=["search", "render", "browser", "mind"])
+    p = sub.add_parser("start"); p.add_argument("service", choices=["search", "render", "browser"])
+    p = sub.add_parser("stop"); p.add_argument("service", choices=["search", "render", "browser"])
     p = sub.add_parser("doctor"); p.add_argument("--json", action="store_true")
     args = parser.parse_args()
 

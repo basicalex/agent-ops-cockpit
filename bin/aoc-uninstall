@@ -50,12 +50,22 @@ files=(
   "$HOME/.local/bin/aoc-mem"
   "$HOME/.local/bin/aoc-align"
   "$HOME/.local/bin/aoc-uninstall"
+  "$HOME/.local/bin/aoc-mind-service"
+  "$HOME/.local/bin/aoc-agent-wrap-rs"
+  "$HOME/.local/bin/aoc-pi"
+  "$HOME/.local/bin/aoc-agent"
+  "$HOME/.local/bin/aoc-agent-run"
+  "$HOME/.local/bin/aoc-agent-wrap"
+  "$HOME/.local/bin/aoc-agent-install"
+  "$HOME/.local/bin/aoc-voxtype-setup"
+  "$HOME/.local/bin/voxtype-aoc-lexicon-filter"
   "$HOME/.config/zellij/layouts/aoc.kdl"
   "$HOME/.config/zellij/layouts/aoc.plugin.kdl"
   "$HOME/.config/zellij/layouts/aoc-plugin.kdl"
   "$HOME/.config/zellij/aoc.config.kdl"
   "$HOME/.config/yazi/yazi.toml"
   "$HOME/.config/yazi/keymap.toml"
+  "$HOME/.config/aoc/voxtype-lexicon.md"
 )
 
 echo "This will remove AOC-installed files from your home directory."
@@ -74,6 +84,18 @@ for f in "${files[@]}"; do
     echo "Removed: $f"
   fi
 done
+
+pi_shim="$HOME/.local/bin/pi"
+pi_raw="$HOME/.local/bin/pi-raw"
+if [[ -f "$pi_shim" ]] && grep -q "AOC-aware Pi shim" "$pi_shim"; then
+  if [[ -e "$pi_raw" ]]; then
+    mv -f "$pi_raw" "$pi_shim"
+    echo "Restored: $pi_shim"
+  else
+    rm -f "$pi_shim"
+    echo "Removed: $pi_shim"
+  fi
+fi
 
 if [[ -d "$state_dir" ]]; then
   rm -rf "$state_dir"

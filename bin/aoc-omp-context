@@ -102,7 +102,7 @@ PY
 }
 
 print_fast_context() {
-  local root initialized context_state agents_state vcs_line policy_line task_line mind_line rtk_line
+  local root initialized context_state agents_state vcs_line policy_line task_line rtk_line
   root="$(find_aoc_root "${1:-$PWD}")"
   if [[ -d "$root/.aoc" ]]; then initialized="initialized"; else initialized="not initialized"; fi
   if [[ -f "$root/.aoc/context.md" ]]; then context_state="present"; else context_state="missing"; fi
@@ -124,11 +124,6 @@ print_fast_context() {
     task_line="unknown at startup. Use \`tm tag current\` lazily if task/spec grounding is needed."
   fi
 
-  if command -v aoc-mind-service >/dev/null 2>&1 || [[ -f "$root/.aoc/mind-service.json" || -f "$HOME/.config/aoc/mind-service.json" ]]; then
-    mind_line="available or configured. Retrieve focused context only after user intent is known and the reason is explicit."
-  else
-    mind_line="not detected. Continue with local repo context."
-  fi
 
   if [[ -f "$root/.aoc/rtk.toml" ]]; then
     rtk_line="configured; CodeGraph/RTK/details are lazy capability lookups, not startup prose."
@@ -139,12 +134,11 @@ print_fast_context() {
   cat <<EOF
 # AOC Startup Context
 
-- Mode: metadata-only startup capsule; do not inject broad Mind memories, raw task state, raw AGENTS chains, skills, prompts, extension source, or docs by default.
+- Mode: metadata-only startup capsule; do not inject broad raw task state, raw AGENTS chains, skills, prompts, extension source, or docs by default.
 - Root: \`$root\`
 - AOC: $initialized; context \`.aoc/context.md\` is $context_state; agent contract is $agents_state.
 - VCS: $vcs_line. Safety rule: $policy_line.
 - Taskmaster: $task_line
-- Mind: $mind_line
 - RTK status command: $rtk_line
 - Protected direct reads: \`.aoc/memory.md\`, \`.aoc/stm/current.md\`, \`.taskmaster/tasks/tasks.json\`.
 EOF

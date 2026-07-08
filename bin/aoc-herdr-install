@@ -199,15 +199,6 @@ config.write_text("\n".join(lines) + "\n")
 PY
 }
 
-install_voxtype_lexicon() {
-  local voxtype_bin="aoc-voxtype-setup"
-  if [[ -x "$repo_root/bin/aoc-voxtype-setup" ]]; then
-    voxtype_bin="$repo_root/bin/aoc-voxtype-setup"
-  fi
-  if ! "$voxtype_bin" --quiet; then
-    echo "Warning: aoc-voxtype-setup failed; continuing without VoxType lexicon setup" >&2
-  fi
-}
 
 
 install_hypr_empty_workspace_fallback() {
@@ -372,7 +363,6 @@ for agent_name in "${omp_manifest_agents[@]}"; do
   fi
 done
 sync_omp_agent_disable_config
-install_voxtype_lexicon
 
 
 

@@ -4,9 +4,6 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 BIN_DIR="$HOME/.local/bin"
 AOC_CONFIG_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/aoc"
-INSTALL_MIND_EXPLICIT=0
-AOC_MIND_RUNTIME_INSTALLED=0
-AOC_MIND_SERVICE_CONFIG_FILE="$AOC_CONFIG_DIR/mind-service.json"
 is_truthy() {
   local value="${1:-}"
   value="$(printf '%s' "$value" | tr '[:upper:]' '[:lower:]')"
@@ -19,19 +16,11 @@ is_truthy() {
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --mind)
-      INSTALL_MIND_EXPLICIT=1
-      export AOC_INSTALL_MIND_RUNTIME=1
-      export AOC_INSTALL_PI_AGENT=1
-      export AOC_INSTALL_PI_REQUIRED=1
-      shift
-      ;;
     -h|--help)
       cat <<'EOF'
-Usage: ./install.sh [--mind]
+Usage: ./install.sh
 
 Options:
-  --mind           Install/refresh optional Mind/Pi runtime components.
   -h, --help
 EOF
       exit 0
@@ -106,70 +95,6 @@ install_rust_toolchain_if_needed() {
   return 1
 }
 
-install_pi_agent_if_enabled() {
-  if ! is_truthy "${AOC_INSTALL_PI_AGENT:-0}"; then
-    log "Skipping PI agent install (set AOC_INSTALL_PI_AGENT=1 or pass --mind to enable)."
-    return 0
-  fi
-
-  local pi_bin="${AOC_PI_BIN:-pi}"
-  local refresh_pi="${AOC_INSTALL_PI_REFRESH:-0}"
-  if have "$pi_bin" && ! is_truthy "$refresh_pi"; then
-    log "PI agent already installed ($pi_bin)."
-    if have aoc-agent-install; then
-      AOC_PI_INSTALL_CMD=":" aoc-agent-install install pi >/dev/null 2>&1 || true
-    elif [[ -x "$ROOT_DIR/bin/aoc-agent-install" ]]; then
-      AOC_PI_INSTALL_CMD=":" "$ROOT_DIR/bin/aoc-agent-install" install pi >/dev/null 2>&1 || true
-    fi
-    return 0
-  fi
-
-  if ! have pnpm && ! have npm && ! have corepack; then
-    log "pnpm/npm missing; attempting Node.js install..."
-    install_tool npm || true
-  fi
-
-  if ! have pnpm && have corepack; then
-    corepack enable >/dev/null 2>&1 || true
-    corepack prepare pnpm@latest --activate >/dev/null 2>&1 || true
-  fi
-
-  local installer=""
-  if [[ -x "$BIN_DIR/aoc-agent-install" ]]; then
-    installer="$BIN_DIR/aoc-agent-install"
-  elif have aoc-agent-install; then
-    installer="$(command -v aoc-agent-install)"
-  elif [[ -x "$ROOT_DIR/bin/aoc-agent-install" ]]; then
-    installer="$ROOT_DIR/bin/aoc-agent-install"
-  fi
-
-  if [[ -z "$installer" ]]; then
-    warn "aoc-agent-install not found; cannot install PI agent automatically."
-    return 1
-  fi
-
-  if have "$pi_bin" && is_truthy "$refresh_pi"; then
-    log "Updating PI agent CLI..."
-    if ! "$installer" update pi; then
-      warn "PI agent update command failed."
-      return 1
-    fi
-  else
-    log "Installing PI agent CLI..."
-    if ! "$installer" install pi; then
-      warn "PI agent install command failed."
-      return 1
-    fi
-  fi
-
-  if have "$pi_bin"; then
-    log "PI agent installed ($pi_bin)."
-    return 0
-  fi
-
-  warn "PI agent install completed but '$pi_bin' is still missing from PATH."
-  return 1
-}
 
 github_token() {
   if [[ -n "${AOC_GITHUB_TOKEN:-}" ]]; then
@@ -410,40 +335,6 @@ install_rust_binary() {
   install_rust_package_binary "$cargo_bin" "$package" "$package" "$dest_name"
 }
 
-write_global_mind_service_config() {
-  local service_bin=""
-  local cargo_manifest="$ROOT_DIR/crates/Cargo.toml"
-
-  if [[ -x "$BIN_DIR/aoc-mind-service" ]]; then
-    service_bin="$BIN_DIR/aoc-mind-service"
-  elif have aoc-mind-service; then
-    service_bin="$(command -v aoc-mind-service)"
-  fi
-
-  python3 - "$AOC_MIND_SERVICE_CONFIG_FILE" "$service_bin" "$cargo_manifest" "$ROOT_DIR" <<'PY'
-import json
-import sys
-from datetime import datetime, timezone
-from pathlib import Path
-
-config_path = Path(sys.argv[1])
-service_bin = sys.argv[2].strip()
-cargo_manifest = sys.argv[3].strip()
-source_root = sys.argv[4].strip()
-
-payload = {
-    "schemaVersion": 1,
-    "updatedAt": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
-    "serviceBin": service_bin or None,
-    "cargoManifest": cargo_manifest or None,
-    "sourceRoot": source_root or None,
-}
-config_path.parent.mkdir(parents=True, exist_ok=True)
-config_path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
-PY
-
-  log "Updated global Mind service config: $AOC_MIND_SERVICE_CONFIG_FILE"
-}
 
 detect_pm() {
   if have apt-get; then echo "apt"; return; fi
@@ -828,15 +719,6 @@ if cargo_bin="$(cargo_cmd)"; then
   # Build aoc-cli
   install_rust_binary "$cargo_bin" aoc-cli
 
-  if is_truthy "${AOC_INSTALL_MIND_RUNTIME:-0}"; then
-    log "Installing optional AOC/Mind runtime binaries..."
-    install_rust_package_binary "$cargo_bin" aoc-mind aoc-mind-service
-    write_global_mind_service_config
-    install_rust_binary "$cargo_bin" aoc-agent-wrap-rs
-    AOC_MIND_RUNTIME_INSTALLED=1
-  else
-    log "Skipping optional AOC/Mind runtime binaries (pass --mind to enable)."
-  fi
   install_rust_package_binary "$cargo_bin" aoc-yazi-mermaid aoc-yazi-mermaid aoc-yazi-mermaid-native || true
 else
   log "WARNING: cargo not found. Skipping Rust builds. You must install aoc-cli manually."
@@ -1122,26 +1004,8 @@ EOF
   fi
 fi
 
-if (( INSTALL_MIND_EXPLICIT == 1 )); then
-  log "Mind explicit mode enabled: force-refreshing PI agent."
-  export AOC_INSTALL_PI_REFRESH=1
-fi
-
-if ! install_pi_agent_if_enabled; then
-  if is_truthy "${AOC_INSTALL_PI_REQUIRED:-0}"; then
-    warn "PI agent installation failed and is required (set AOC_INSTALL_PI_REQUIRED=0 to continue anyway)."
-    exit 1
-  fi
-  warn "PI agent installation failed; continuing because PI agent installation is optional by default."
-fi
 
 log "Install finished. Initialize each repo explicitly with: aoc-init /path/to/repo"
 
 log "AOC Installed Successfully!"
-if (( AOC_MIND_RUNTIME_INSTALLED == 1 )); then
-  log "AOC/Mind runtime refreshed: aoc-mind-service and aoc-agent-wrap-rs should now be current in $BIN_DIR."
-fi
-if (( INSTALL_MIND_EXPLICIT == 1 )); then
-  log "PI agent force-refresh requested (--mind). Start a fresh Herdr/OMP session to pick up refreshed runtime components."
-fi
 log "Run 'aoc-init /path/to/repo' next, then 'aoc' inside that repo."

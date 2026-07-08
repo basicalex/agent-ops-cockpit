@@ -143,9 +143,6 @@ hint_for() {
         *) echo "Install tmux via your package manager." ;;
       esac
       ;;
-    pi)
-      echo "Install the PI Agent CLI and ensure it is in PATH (or set AOC_PI_BIN)."
-      ;;
     chafa)
       case "$pm" in
         apt) echo "sudo apt-get install -y chafa" ;;
@@ -255,7 +252,7 @@ hint_for() {
   esac
 }
 
-required=(yazi fzf pi)
+required=(yazi fzf)
 optional=(tmux chafa ffmpeg resvg file pdftoppm rg bat tectonic task-master python3 git)
 
 missing_required=()

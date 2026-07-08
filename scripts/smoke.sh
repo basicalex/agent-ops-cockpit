@@ -31,24 +31,5 @@ if ! AOC_RTK_CONFIG="$tmp_dir/rtk.toml" bash bin/aoc-rtk echo smoke-test >/dev/n
 fi
 rm -rf "$tmp_dir"
 
-echo "Smoke testing bin/aoc-agent current..."
-if ! bash bin/aoc-agent --current >/dev/null; then
-  echo "ERROR: Smoke test failed for bin/aoc-agent --current"
-  exit 1
-fi
-
-echo "Smoke testing bin/aoc-agent-install status..."
-if ! bash bin/aoc-agent-install status pi >/dev/null; then
-  echo "ERROR: Smoke test failed for bin/aoc-agent-install status pi"
-  exit 1
-fi
-
-
-
-echo "Smoke testing non-PI agent rejection..."
-if bash bin/aoc-agent-install status codex >/dev/null 2>&1; then
-  echo "ERROR: non-PI agent status unexpectedly succeeded"
-  exit 1
-fi
 
 echo "All shell integration smoke tests passed successfully."

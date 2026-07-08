@@ -116,8 +116,6 @@ hard_rules = [
 ]
 startup = [
     "Use `aoc-handshake --json` as the metadata-only startup packet, including Git repository state.",
-    "Do not load broad Mind memories during startup.",
-    "Request focused Mind context only after user intent is known and include an explicit reason.",
 ]
 lightweight_validation = [
     "Prefer OMP `lsp diagnostics` on touched files/globs for edit-loop validation before running build, lint, or typecheck commands.",
@@ -146,7 +144,7 @@ lazy = [
 ]
 sections = [
     ("Hard rules", uniq(hard_rules)),
-    ("Startup and Mind policy", uniq(startup)),
+    ("Startup policy", uniq(startup)),
     ("Project overrides", uniq(project_overrides[:8])),
     ("Lightweight validation", uniq(lightweight_validation)),
     ("Task, memory, and STM commands", commands_block),
@@ -297,7 +295,7 @@ records = [
         "budgetBytes": 3072,
         "staleCheck": None,
         "provenance": "AOC CLI metadata-only handshake",
-        "notes": "Discovers AOC/Taskmaster/Mind/VCS status without broad memories.",
+        "notes": "Discovers AOC/Taskmaster/VCS status without broad memories.",
     },
     {
         "id": "task.active-tag",
@@ -358,16 +356,6 @@ records = [
         "budgetBytes": 4096,
         "provenance": "AOC STM CLI",
         "notes": "Do not read .aoc/stm/current.md directly.",
-    },
-    {
-        "id": "mind.context-pack",
-        "kind": "mind",
-        "source": {"command": "aoc-mind-service context-pack --mode focused --reason <reason> --json"},
-        "loadingClass": "intent-triggered",
-        "trigger": "focused Mind reason after user intent is known",
-        "budgetBytes": 8192,
-        "provenance": "AOC Mind service focused retrieval",
-        "notes": "Default startup budget is zero.",
     },
     {
         "id": "omp.skills",
@@ -563,11 +551,6 @@ packet = {
             "readyPreview": ready_result["stdout"].splitlines()[:4] if ready_result["ok"] else [],
             "warning": None if ready_result["ok"] else (ready_result["stderr"] or ready_result["stdout"] or "tm ready unavailable"),
         },
-        "mind": {
-            "handshakeAvailable": handshake["ok"],
-            "contextPackCommand": "aoc-mind-service context-pack --project-root <root> --mode focused --reason <reason> --json",
-            "policy": "lazy, focused, reason-bound; no broad startup recall",
-        },
         "memory": {"commands": ["aoc-mem search <query>", "aoc-mem add <decision>", "aoc-mem read"], "directReadProtected": True},
         "stm": {"commands": ["aoc-stm status", "aoc-stm handoff", "aoc-stm resume <archive>"], "purpose": "directed handoff only"},
         "rtk": {"available": rtk["ok"], "purpose": "condense noisy safe command output"},
@@ -604,7 +587,6 @@ else:
         print(f"warning: {tm['warning']}")
     print("")
     print("Focused context tools:")
-    print("- Mind: focused context packs only after explicit reason")
     print("- Memory: aoc-mem search/add/read; never direct-read .aoc/memory.md")
     print("- STM: directed handoff/resume only; never direct-read .aoc/stm/current.md")
     print("- RTK: condenses noisy safe checks when available")
@@ -710,7 +692,6 @@ Indexed, not injected by default:
 - OMP agents: $(count_files "$omp_dir/agents") files ($(sum_bytes "$omp_dir/agents") bytes on disk)
 
 Lazy-load only when intent/preset requires:
-- Mind context packs and provenance
 - Full SKILL.md bodies
 - Extension source files
 - DESIGN.md and product/design docs

@@ -18,12 +18,6 @@ if [[ "${1:-}" == "omp" ]]; then
   exec_sibling_or_path aoc-omp "$@"
 fi
 
-
-if [[ "${1:-}" == "voxtype-setup" ]]; then
-  shift
-  exec_sibling_or_path aoc-voxtype-setup "$@"
-fi
-
 if [[ "${1:-}" == "state" ]]; then
   shift
   exec_sibling_or_path aoc-state "$@"
