@@ -6,7 +6,6 @@ Start with:
 
 - [Project contract](project-contract.md)
 - [Architecture](architecture.md)
-- [AOC Mind architecture](aoc-mind-architecture.md)
 - [RTK routing](rtk-routing.md)
 - [Installation details](installation-details.md)
 - [Configuration details](configuration-details.md)

@@ -14,7 +14,6 @@ AOC_INIT_SKIP_BUILD=1 AOC_OMP_PROFILES=core,hyperframes AOC_OMP_AGENT_DIR="$omp_
 
 for required in \
   extensions/aoc-codegraph.ts \
-  extensions/aoc-mind.ts \
   extensions/aoc-dox.ts \
   extensions/aoc-style.ts \
   extensions/aoc-profile.ts \

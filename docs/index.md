@@ -40,7 +40,6 @@ Use these when you need exact contracts or paths:
 - [Configuration](configuration.md)
 - [Project contract](reference/project-contract.md)
 - [Architecture](reference/architecture.md)
-- [AOC Mind architecture](reference/aoc-mind-architecture.md)
 - [RTK routing](reference/rtk-routing.md)
 - [Managed assets](managed-assets.md)
 - [Open Design studio](open-design.md)

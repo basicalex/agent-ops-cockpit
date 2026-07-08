@@ -38,13 +38,11 @@ Override default commands used by AOC helper panes/services:
 | `AOC_SYS_CMD` | System stats command | `aoc-sys` |
 | `AOC_TERMINAL_CMD` | Terminal shell | `$SHELL` |
 
-For low-pain custom agent integration, point `AOC_AGENT_CMD` at your own wrapper script (recommended):
+For low-pain custom agent integration, point `AOC_AGENT_CMD` at your own launcher script when a project needs a non-default agent command:
 
 ```bash
 AOC_AGENT_CMD=~/.local/bin/aoc-agent-acme aoc
 ```
-
-Use `aoc-agent-wrap` inside that script only when you need AOC wrapper behavior. See [Agent Extensibility](../agent-extensibility.md).
 
 ### Clock Configuration
 
@@ -112,13 +110,12 @@ Primary benefit: route noisy shell output through RTK so agents keep higher sign
 | `AOC_RTK_RELEASE_REPO` | Upstream repo used by `aoc-rtk install --auto` | `rtk-ai/rtk` |
 | `AOC_RTK_RELEASE_TAG` | Override release tag for `aoc-rtk install --auto` | latest |
 
-Runtime/debug variables (usually set by `aoc-agent-wrap`):
+Runtime/debug variables:
 
 | Variable | Description |
 |----------|-------------|
 | `AOC_RTK_ACTIVE` | `1` when RTK shims are active in the current agent session |
 | `AOC_RTK_SHIM_DIR` | Session-local shim directory prepended to PATH |
-| `AOC_PI_USE_WRAP_RS` | Pi launch mode for `aoc-agent-wrap` (`auto`/unset = prefer Rust wrapper when available, `1` = force wrapper, `0` = legacy direct exec) |
 
 Project config file: `.aoc/rtk.toml` (seeded by `aoc-init`).
 
@@ -173,10 +170,10 @@ Safety model:
 
 What it guarantees:
 - Seeds/repairs canonical project OMP sources under `.omp/extensions/`, `.omp/agents/`, and `.omp/skills/`.
-- Installs AOC OMP extensions into `${AOC_OMP_AGENT_DIR:-~/.omp/agent}/extensions`, including CodeGraph, Mind, commit, state, DOX, brand-content, and web-search surfaces.
+- Installs AOC OMP extensions into `${AOC_OMP_AGENT_DIR:-~/.omp/agent}/extensions`, including CodeGraph, commit, state, DOX, brand-content, and web-search surfaces.
 - Installs AOC OMP agent templates into `${AOC_OMP_AGENT_DIR:-~/.omp/agent}/agents`.
 - Installs AOC OMP skills into `${AOC_OMP_AGENT_DIR:-~/.omp/agent}/skills`.
-- Keeps AOC control-plane state under `.aoc/**`, including `.aoc/mind-service.json` for project-local standalone Mind launcher metadata.
+- Keeps AOC control-plane state under `.aoc/**`.
 - Seeds reusable preset assets when missing: `.aoc/presets/design/**`.
 - Does not create or repair legacy Pi runtime paths.
 
@@ -188,7 +185,7 @@ bash scripts/pi/test-pi-only-agent-surface.sh
 aoc-handshake --json >/tmp/aoc-handshake.json
 ```
 
-`aoc-handshake` is metadata-only by design: it advertises Mind health/policy and focused retrieval commands without injecting broad Mind memories into agent startup context.
+`aoc-handshake` is metadata-only by design: it advertises context health/policy and focused retrieval commands without injecting broad memory into agent startup context.
 
 **Preview Pane Placement:**
 
@@ -201,13 +198,9 @@ aoc-handshake --json >/tmp/aoc-handshake.json
 | `AOC_PREVIEW_PINED` | Keep pinned | Boolean |
 | `AOC_PREVIEW_PANE_NAME` | Pane name | `Preview` |
 
-### Agent Installers
+### Agent runtime setup
 
-Use direct commands when needed. OMP runtime installer status/actions are backed by:
-
-- `aoc-agent-install status <agent>`
-- `aoc-agent-install install <agent>`
-- `aoc-agent-install update <agent>`
+Use OMP-managed agent installation and update flows through `aoc-init`, `aoc-herdr-install`, or direct OMP tooling when needed.
 
 Default command overrides:
 
@@ -307,7 +300,7 @@ Valid `AOC_AGENT_ID` value is `pi`.
 - Full handshake mode now favors: focus provenance, high-value open work, workstream health, recent developments, and open fronts before lower-value inventory.
 - When canon or task state is missing, the briefing degrades explicitly with fallback status notes instead of silently pretending a stronger focus signal exists.
 - `pi` enables RTK ultra-compact output and non-tty routing by default (`AOC_RTK_ULTRA_COMPACT=1`, `AOC_RTK_ROUTE_NON_TTY_STDIN=1`) unless you override them.
-- In wrapped AOC agent sessions, `pi` can use the thin startup path: `aoc-agent-wrap -> aoc-agent-wrap-rs -> pi`.
+- Managed `pi` launches should use the supported Herdr/OMP/AOC CLI path directly.
 
 ## Theme Management
 

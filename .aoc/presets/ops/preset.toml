@@ -41,7 +41,3 @@ deploy = "Preserve environment, target project, branch/commit, preview/prod dist
 repo-map = "Preserve map scope, findings, code paths, and confidence gaps."
 tasks = "Preserve tag, task IDs, spec links, blockers, and next atomic action."
 
-[integrations.mind]
-policy = "focused"
-available = true
-default = "off"

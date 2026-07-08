@@ -31,10 +31,7 @@ aoc-skill validate --root .
 ```
 
 to seed or repair project-local AOC assets and sync the extensions, agent templates, and skills selected by active OMP capability profiles.
-Default/core profiles use OMP/Mnemopi as the memory plane. AOC Mind is not part of the default/core surface; enable the provenance/full profile to install `aoc-mind.ts` for cited evidence/provenance workflows.
-
-
-AOC uses VoxType, not an OMP speech-to-text extension, for operator dictation. `aoc-init` and `aoc-herdr-install` install `voxtype-aoc-lexicon-filter`, seed `~/.config/aoc/voxtype-lexicon.md`, and wire VoxType post-processing so system and active-project `.aoc/lexicon.md` terms normalize after transcription.
+Default/core profiles use OMP/Mnemopi as the memory plane. Retired Mind and lexicon integrations are not part of the active AOC runtime.
 
 ## Model/auth setup
 
@@ -57,7 +54,7 @@ aoc-skill sync --root .
 aoc-skill validate --root .
 ```
 
-Useful former prompt workflows are now OMP skills (`aoc-update`, `aoc-lexicon`, `aoc-stm`). No project prompt registry is active.
+Useful former prompt workflows are now OMP skills such as `aoc-update` and `aoc-stm`. No project prompt registry is active.
 
 Herdr peer observation is a native `herdr` workflow taught by the default/core `herdr-agent-observation` skill. Use it for read-only workspace, agent, pane, tab, and transcript observation before escalating to master orchestration.
 
@@ -65,7 +62,7 @@ See [Skills](skills.md).
 
 ## OMP extensions
 
-AOC OMP extensions are repo-tracked under `.omp/extensions/`. `.omp/manifest.toml` keeps the full extension inventory plus profile tables; active profiles decide which extensions are synced to the OMP runtime extension directory. The default/core profile excludes `aoc-mind.ts`; provenance/full opt-in profiles include it for cited AOC Mind evidence/provenance.
+AOC OMP extensions are repo-tracked under `.omp/extensions/`. `.omp/manifest.toml` keeps the full extension inventory plus profile tables; active profiles decide which extensions are synced to the OMP runtime extension directory.
 
 Profile-gated OMP surfaces include:
 

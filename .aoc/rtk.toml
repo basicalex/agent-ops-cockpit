@@ -42,7 +42,6 @@ allowlist = [
   "bun run",
   "aoc-task",
   "tm list",
-  "aoc-mind-service status",
   "aoc-rtk doctor",
   "journalctl",
   "systemctl status",

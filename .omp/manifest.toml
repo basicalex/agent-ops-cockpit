@@ -1,6 +1,5 @@
 extensions = [
   "aoc-codegraph.ts",
-  "aoc-mind.ts",
   "aoc-commit.ts",
   "aoc-state.ts",
   "aoc-dox.ts",
@@ -38,7 +37,6 @@ skills = [
   "aoc-gaps",
   "aoc-hyperframes",
   "aoc-init-ops",
-  "aoc-lexicon",
   "aoc-map",
   "aoc-stm",
   "aoc-understand",
@@ -143,12 +141,6 @@ extensions = ["aoc-web-search.ts"]
 skills = []
 agents = []
 
-[profiles.provenance]
-description = "Opt-in AOC Mind surface for cited project history, provenance, evidence packs, and Mnemopi candidate review."
-risk = "medium"
-extensions = ["aoc-mind.ts"]
-skills = []
-agents = []
 
 
 [profiles.full]
@@ -156,7 +148,6 @@ description = "Full compatibility surface matching the previous always-installed
 risk = "high"
 extensions = [
   "aoc-codegraph.ts",
-  "aoc-mind.ts",
   "aoc-commit.ts",
   "aoc-state.ts",
   "aoc-dox.ts",
@@ -182,7 +173,6 @@ skills = [
   "aoc-gaps",
   "aoc-hyperframes",
   "aoc-init-ops",
-  "aoc-lexicon",
   "aoc-map",
   "aoc-stm",
   "aoc-understand",
@@ -222,11 +212,6 @@ agents = [
   "dox-writer.md",
 ]
 
-[asset_meta.extensions."aoc-mind.ts"]
-category = "provenance"
-risk = "medium"
-default = false
-reason = "AOC Mind is opt-in provenance/history tooling; OMP/Mnemopi is the default memory plane."
 
 [asset_meta.extensions."aoc-master.ts"]
 category = "orchestration"

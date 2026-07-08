@@ -5,9 +5,6 @@ These docs are for release validation, implementation status, and internal proje
 Useful entrypoints:
 
 - [Implementation status checklist](implementation-status-checklist.md)
-- [Mind runtime validation](mind-runtime-validation.md)
-- [Mind v2 architecture cutover checklist](mind-v2-architecture-cutover-checklist.md)
-- [Mind background reliability checklist](mind-background-reliability-checklist.md)
 - [Pi-only rollout checklist](pi-only-rollout-checklist.md)
 - [Feature upgrade workflow](feature-upgrade-workflow.md)
 

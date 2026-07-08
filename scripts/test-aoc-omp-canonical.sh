@@ -101,7 +101,6 @@ done
 assert_file "$default_runtime/extensions/aoc-runtime.ts"
 
 for forbidden in \
-  aoc-mind.ts \
   aoc-master.ts \
   aoc-commit.ts \
   aoc-state.ts \
@@ -178,7 +177,6 @@ done
 
 assert_config_extensions_match "$default_config" "$default_runtime/extensions" "${core_extensions[@]}"
 for disabled_extension in \
-  extension-module:aoc-mind \
   extension-module:aoc-master \
   extension-module:aoc-commit \
   extension-module:aoc-state \
@@ -217,11 +215,6 @@ for required in "${full_agents[@]}"; do
   assert_file "$full_runtime/agents/$required"
 done
 assert_config_extensions_match "$full_config" "$full_runtime/extensions" "${full_extensions[@]}"
-assert_file "$full_runtime/extensions/aoc-mind.ts"
-if grep -Fq 'extension-module:aoc-mind' "$full_config"; then
-  echo "ERROR: full profile should not disable aoc-mind extension" >&2
-  exit 1
-fi
 if ! grep -Fq '  disabledAgents: []' "$full_config"; then
   echo "ERROR: full profile should clear AOC disabled-agent list" >&2
   exit 1

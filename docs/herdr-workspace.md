@@ -17,10 +17,8 @@ Keep only AOC pieces that are still valuable as project/tooling primitives:
 - Taskmaster / `tm` integration
 - metadata-only context handshakes for OMP startup
 - CodeGraph as a read-only OMP tool when a project has an index
-- `aoc-agent-wrap-rs` only if it can provide OMP-native lifecycle/context/provenance without cockpit coupling
 - HyperFrames, OpenDesign, web research, and RTK as standalone project/tooling features
 - selected lightweight handoff helpers only if they remain useful
-- Mind only as optional, lazy focused recall/provenance after user intent is known
 - selected Pi/OMP skills only when they complement the new stack
 - docs and install/bootstrap knowledge that can be simplified for Herdr
 - AOC Services workspace for project-scoped runtime health, especially managed local search
@@ -153,16 +151,15 @@ ${AOC_OMP_AGENT_DIR:-~/.omp/agent}/agents/
 ```
 
 Do not maintain a second active inventory in this document or under `.aoc/skills`; `.aoc/skills` is legacy/archive-only content, not an OMP runtime source. Runtime skill sources are `.omp/skills`, and active `.omp/manifest.toml` profiles decide which canonical skills install.
-Default/core profiles use OMP/Mnemopi as the memory plane and exclude `aoc-mind.ts`. Enable provenance/full when agents need cited AOC Mind evidence or provenance workflows.
+Default/core profiles use OMP/Mnemopi as the memory plane. Retired project-memory extensions are not part of the active Herdr/OMP surface.
 
-The manifest-owned full extension inventory includes the operational tools and slash commands Herdr can enable, including `aoc-codegraph.ts`, `aoc-mind.ts`, `aoc-commit.ts`, `aoc-state.ts`, `aoc-dox.ts`, `aoc-dox-command.ts`, `aoc-master.ts`, `aoc-brand-content.ts`, `aoc-web-search.ts`, `aoc-style.ts`, and `aoc-profile.ts`. Herdr peer observation is a native `herdr` procedure taught by the default/core `herdr-agent-observation` skill, not an AOC OMP tool. The active profile surface includes Ponytail through `/ponytail review|audit|debt|help` and the `ponytail-workflows` skill.
+The manifest-owned full extension inventory includes the operational tools and slash commands Herdr can enable, including `aoc-codegraph.ts`, `aoc-commit.ts`, `aoc-state.ts`, `aoc-dox.ts`, `aoc-dox-command.ts`, `aoc-master.ts`, `aoc-brand-content.ts`, `aoc-web-search.ts`, `aoc-style.ts`, and `aoc-profile.ts`. Herdr peer observation is a native `herdr` procedure taught by the default/core `herdr-agent-observation` skill, not an AOC OMP tool. The active profile surface includes Ponytail through `/ponytail review|audit|debt|help` and the `ponytail-workflows` skill.
 
 `aoc-master.ts` registers `/master on [minutes]`, `/master off`, `/master status`, and `/master full-retard on/off/status` plus the gated `aoc_orchestrate` and worker-facing `aoc_report` tools. `/master on/off/status` and `/master full-retard on/off/status` route through the agent turn. Existing `aoc_orchestrate assign/send` default to `deliveryMode=draft`, preserving the reviewable `draft|submit|collect` assignment flow; `deliveryMode=notify` drafts a bounded report prompt to the master without submitting. `aoc_report` queues worker reports by default for master-side `aoc_orchestrate inbox/ingest/ack` review. `deliveryMode=submit` and `deliveryMode=full-retard` report delivery require the master-owned `full-retard` toggle and a resolved OMP master target. `aoc_orchestrate collect` retrieves the latest result evidence by assignment ID and result marker. No arbitrary shell commands, focus, pane movement, spawning, resizing, closing, or broadcast actions are exposed.
 
 `aoc-codegraph.ts` exposes the read-only `aoc_codegraph` tool for code discovery: `status`, `files`, `search`, `context`, `callers`, `callees`, `impact`, and `affected`.
 Use this as the agent graph/context tool in Herdr/OMP workspaces; Understand-Anything is not part of the active graph path.
 
-`aoc-mind.ts` exposes the read-only `aoc_mind` tool for historical/provenance intelligence: `status`, `evidence`, `provenance`, and dry-run `mnemopi_candidates`. It is opt-in via provenance/full profiles, augments OMP/Mnemopi with cited AOC Mind evidence, and does not write memories or inject broad startup context.
 
 `aoc-commit.ts` registers `/commit` for safe atomic Git commits. It stages explicit paths only, never stages broad paths, and keeps CodeGraph refresh as post-commit advisory cache maintenance only; it does not initialize/index new projects.
 

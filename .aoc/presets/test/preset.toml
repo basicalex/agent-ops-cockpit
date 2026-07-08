@@ -41,7 +41,3 @@ browser = "Preserve target URL/route, viewport, user journey, screenshots or DOM
 regression = "Preserve baseline behavior, changed files, targeted test scope, failing/passing commands, and risks not covered."
 preview = "Preserve preview URL, deployment target, env/project, logs inspected, browser checks, and rollback/alias notes."
 
-[integrations.mind]
-policy = "focused"
-available = true
-default = "off"

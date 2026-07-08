@@ -15,8 +15,9 @@ Removed from the active operator path:
 - AOC subagent manager/control surfaces such as `bin/aoc-subagent-supervision*` and their runtime reference docs.
 - Zellij cleanup/inventory helpers: `bin/aoc-cleanup`, `bin/aoc-cleanup-core.py`, and Zellij session inventory helpers.
 - Legacy-zellij install/init flags and compatibility paths such as `./install.sh --legacy-zellij` and `AOC_LEGACY_ZELLIJ=1 aoc`; they are no longer part of the supported Herdr-first path.
-
-`aoc-pi-adapter` is not part of this removal. It remains because `aoc-mind` depends on it for Pi-native session/import/compaction normalization. Treat any older wording that grouped it with cockpit deprecations as historical context, not a deletion instruction.
+- Mind subsystem: crates `aoc-mind`, `aoc-pi-adapter`, `aoc-task-attribution`, `aoc-segment-routing`, and `aoc-agent-wrap-rs`; the `aoc-mind-service` binary; and the `.omp/extensions/aoc-mind.ts` extension.
+- Pi agent lifecycle scripts: `aoc-pi`, `aoc-agent`, `aoc-agent-run`, `aoc-agent-wrap`, `aoc-agent-install`, and the installed pi shim.
+- Lexicon feature: the `aoc-lexicon` skill, `.aoc/lexicon.md`, `aoc-voxtype-setup`, and `voxtype-aoc-lexicon-filter`.
 
 ## Canonical supported runtime
 

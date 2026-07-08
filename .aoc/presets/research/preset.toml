@@ -38,7 +38,3 @@ web = "Preserve queries, sources, retrieved facts, uncertainty, and next source 
 repo = "Preserve searched paths, symbols, findings, and confidence gaps."
 sources = "Preserve source list, citation labels, claims supported, and claims unresolved."
 
-[integrations.mind]
-policy = "focused"
-available = true
-default = "off"

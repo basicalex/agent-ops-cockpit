@@ -1,8 +1,8 @@
 # Project Context Snapshot
 
 ## Repository
-- Name: .
-- Root: .
+- Name: agent-ops-cockpit
+- Root: /home/ceii/dev/agent-ops-cockpit
 - VCS: git
 - Git branch: main
 
@@ -22,18 +22,9 @@
 ./bin
 ./bin/AGENTS.md
 ./bin/aoc
-./bin/aoc-agent
-./bin/aoc-agent-install
-./bin/aoc-agent-run
-./bin/aoc-agent-wrap
 ./bin/aoc-align
-./bin/aoc-cleanup
-./bin/aoc-cleanup-core.py
-./bin/aoc-clock
-./bin/aoc-clock-set
+./bin/aoc-claude-install
 ./bin/aoc-context
-./bin/aoc-control
-./bin/aoc-control-toggle
 ./bin/aoc-doctor
 ./bin/aoc-fetch
 ./bin/aoc-handshake
@@ -43,17 +34,26 @@
 ./bin/aoc-hf
 ./bin/aoc-hf-u
 ./bin/aoc-html-video
-./bin/aoc-hub
 ./bin/aoc-hyperframes
 ./bin/aoc-init
 ./bin/aoc-insight
-./bin/aoc-launch
-./bin/aoc-layout
 ./bin/aoc-map
 ./bin/aoc-mem
-./bin/aoc-mind-toggle
-./bin/aoc-mission-control
-./bin/aoc-mission-control-tab
+./bin/aoc-obscura-install
+./bin/aoc-od
+./bin/aoc-omp
+./bin/aoc-omp-context
+./bin/aoc-omp-shim-install
+./bin/aoc-open-explorer
+./bin/aoc-open-file
+./bin/aoc-pane-rename
+./bin/aoc-profile
+./bin/aoc-render
+./bin/aoc-rlm
+./bin/aoc-rtk
+./bin/aoc-rtk-proxy
+./bin/aoc-search
+./bin/aoc-services
 ... [tree truncated to 40 lines]
 ```
 

@@ -46,20 +46,18 @@ These commands are in PATH and work without loading any skill:
 - RTK: `aoc-rtk status`, `aoc-rtk doctor`, `aoc-rtk install --auto`, `aoc-rtk enable|disable`
 - VCS: inspect detected mode with `aoc-handshake --json`; use `git status`/`git diff` in Git repositories.
 
-STM is for deliberate directed in-progress handoff packets only; it is not a mailbox and does not notify another agent by itself. Pass the printed next-agent brief or exact archive explicitly. In Pi, `/handoff <focus>` asks the agent to generate a clean purpose-matched packet for the current work; `/rresume [archive]` asks the agent to load a sealed handoff into context safely. Do not use STM for durable decisions, generic logs, raw command output, or every minor task.
+STM is for deliberate directed in-progress handoff packets only; it is not a mailbox and does not notify another agent by itself. Pass the printed next-agent brief or exact archive explicitly. Use `aoc-stm handoff --purpose <kind> --to <recipient> --focus <focus>` to generate a clean purpose-matched packet for the current work; use `aoc-stm resume <archive>` to load a sealed handoff into context safely. Do not use STM for durable decisions, generic logs, raw command output, or every minor task.
 
 ## Core files
 - `.aoc/context.md`: auto-generated project snapshot.
 - `.aoc/rtk.toml`: project-local RTK routing policy and install contract.
-- `.aoc/mind-service.json`: optional project-local launcher metadata for the standalone Mind service.
-- `.aoc/layouts/`: legacy-only Zellij layouts, created only when `AOC_INIT_LEGACY_ZELLIJ=1`.
 - `DESIGN.md`: project-wide visual/product design contract; subsystem design docs extend it.
 - `.taskmaster/docs/specs/`: spec documents linked to tags and tasks; `.taskmaster/docs/prds/` remains legacy-compatible.
 - Tag default specs are currently stored via legacy key `aocPrd`; resolve with `aoc-task tag spec show --tag <tag>`.
 - Task spec overrides are currently stored via legacy key `aocPrd`; resolve with `aoc-task spec show <id> --tag <tag>`.
 - Effective precedence is task spec override -> tag default spec.
 - Keep task specs in git: `.taskmaster/docs/specs/**` and legacy `.taskmaster/docs/prds/**` should always be tracked.
-- Keep AOC/task/config/source state in git: `.aoc/**`, `.taskmaster/**`, `.omp/extensions/**`, `.omp/agents/**`, `.omp/skills/**`, `AGENTS.md`, and `DESIGN.md` should not be ignored except explicit high-churn runtime artifacts such as logs, locks, caches, debug output, and live Mind databases.
+- Keep AOC/task/config/source state in git: `.aoc/**`, `.taskmaster/**`, `.omp/extensions/**`, `.omp/agents/**`, `.omp/skills/**`, `AGENTS.md`, and `DESIGN.md` should not be ignored except explicit high-churn runtime artifacts such as logs, locks, caches, and debug output.
 
 ## Task Management
 - `.taskmaster/tasks/tasks.json` is task state; use the Taskmaster TUI, `aoc-task`, or `tm` (alias for `aoc-task`). Do not edit the file directly.

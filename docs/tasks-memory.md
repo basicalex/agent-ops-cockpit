@@ -96,7 +96,7 @@ Do not use STM for durable decisions, raw logs, every minor task, or information
 
 ## AOC compaction
 
-AOC no longer ships a Pi compaction extension. OMP context health is handled by the OMP runtime plus AOC metadata tools such as `aoc-handshake --json`, `aoc-omp-context`, and focused Mind context packs. Protected files (`.aoc/memory.md`, `.aoc/stm/current.md`, `.taskmaster/tasks/tasks.json`) remain CLI-mediated, not directly injected.
+AOC no longer ships a Pi compaction extension. OMP context health is handled by the OMP runtime plus AOC metadata tools such as `aoc-handshake --json`, `aoc-omp-context`, and focused retained-context lookups. Protected files (`.aoc/memory.md`, `.aoc/stm/current.md`, `.taskmaster/tasks/tasks.json`) remain CLI-mediated, not directly injected.
 
 ## Commit intelligence
 
@@ -114,14 +114,6 @@ aoc-handshake --json
 
 This gives project status without dumping broad memory. Retrieve memory only when needed for the current task.
 
-## AOC Mind
+## Focused context
 
-AOC Mind is the deeper project-memory and provenance system behind focused context packs, session-derived knowledge, and operator views. It is intentionally lazy: agents request Mind context only for a specific reason, not at every startup.
-
-Use:
-
-```bash
-aoc-mind-service context-pack --project-root "$PWD" --mode focused --reason "resume task 123" --json
-```
-
-Architecture details: [reference/aoc-mind-architecture.md](reference/aoc-mind-architecture.md).
+AOC keeps startup context compact. Agents should retrieve deeper project memory only for a specific task reason, using the available Taskmaster, Mnemopi, CodeGraph, and AOC CLI surfaces instead of broad startup dumps.

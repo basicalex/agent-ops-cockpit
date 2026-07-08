@@ -13,8 +13,8 @@ if [[ "$compact" != *"Mode: metadata-only startup capsule"* ]]; then
   exit 1
 fi
 
-if [[ "$compact" == *"Focused commands:"* ]]; then
-  echo "ERROR: compact AOC OMP context included verbose focused command list" >&2
+if [[ "$compact" == *"## Context policy"* ]]; then
+  echo "ERROR: compact AOC OMP context included verbose sections" >&2
   exit 1
 fi
 
@@ -23,12 +23,12 @@ if [[ "$min" != *"Mode: metadata-only startup capsule"* ]]; then
   exit 1
 fi
 
-if [[ "$min" == *"## Mind / recall policy"* ]]; then
+if [[ "$min" == *"## Context policy"* ]]; then
   echo "ERROR: min AOC OMP context included verbose sections" >&2
   exit 1
 fi
 
-if [[ "$full" != *"## Mind / recall policy"* || "$full" != *"Focused commands:"* ]]; then
+if [[ "$full" != *"## Context policy"* || "$full" != *"## Slash commands"* ]]; then
   echo "ERROR: full AOC OMP context did not preserve verbose debug capsule" >&2
   exit 1
 fi

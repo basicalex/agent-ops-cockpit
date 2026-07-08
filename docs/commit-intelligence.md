@@ -1,17 +1,17 @@
 # AOC Commit Intelligence
 
-AOC treats commits as durable engineering-intelligence checkpoints. A good commit records not only what changed, but why it changed, how it was validated, and which AOC planning or Mind context it belongs to.
+AOC treats commits as durable engineering-intelligence checkpoints. A good commit records not only what changed, but why it changed, how it was validated, and which AOC planning or retained context it belongs to.
 
-This first layer does not require Mind schema changes. It establishes a stable human and machine-readable convention that later Mind ingestion can consume.
+This first layer establishes a stable human and machine-readable convention that later provenance ingestion can consume.
 
-## Why commits matter to AOC Mind
+## Why commits matter to AOC provenance
 
 AOC already links project understanding through PRDs, Taskmaster tasks, sessions, STM, memory, artifacts, file links, and provenance graphs. Git commits are durable implementation endpoints of that chain.
 
 A commit can connect:
 
 ```text
-PRD -> task/subtask -> agent session -> changed files -> tests -> commit -> future Mind provenance
+PRD -> task/subtask -> agent session -> changed files -> tests -> commit -> future retained provenance
 ```
 
 This helps future operators and agents answer:
@@ -35,7 +35,7 @@ Implemented immediately:
 Planned later under Taskmaster task `193`:
 
 - Optional commit provenance ingestion support
-- Mind commit source artifacts
+- Commit source artifacts
 - Provenance graph commit nodes/edges
 - `aoc insight provenance` and context-pack commit citations
 
@@ -81,11 +81,7 @@ aoc-task prd show <id> --tag <tag>
 tm tag prd show
 ```
 
-Use Mind context only when it is needed and with an explicit reason:
-
-```bash
-aoc-mind-service context-pack --project-root "$PWD" --mode focused --reason "prepare AOC commit provenance" --json
-```
+Use retained project context only when it is needed and with an explicit reason; prefer targeted task/PRD lookups over broad memory dumps.
 
 ### 4. Commit directly from `/commit`
 
@@ -115,7 +111,7 @@ aoc state status
 
 Tracked project-state filesets:
 
-- `.aoc/` excluding logs, locks, live Mind databases, downloaded tools, and backups
+- `.aoc/` excluding logs, locks, live runtime databases, downloaded tools, and backups
 - `.taskmaster/` excluding logs and locks
 - `.omp/skills/`
 - `.omp/extensions/`, `.omp/agents/`, and `.omp/skills/`
@@ -195,7 +191,7 @@ AOC-Subtask: <id.n>
 AOC-PRD: <path>
 AOC-Intent: <short durable intent>
 AOC-Session: <pi/aoc session id>
-AOC-Mind: <artifact/provenance id>
+AOC-Provenance: <artifact/provenance id>
 AOC-STM: <handoff/checkpoint ref>
 Tests: <commands run or not run reason>
 Risk: low|medium|high; <reason>
@@ -216,8 +212,8 @@ feat(commit): add AOC commit intelligence workflow
 
 Add the first-layer `/commit` prompt workflow so agents can prepare atomic,
 approval-gated commits with structured AOC trailers. This establishes the
-message contract that future Mind ingestion can parse without requiring an
-immediate Mind schema refactor.
+message contract that future provenance ingestion can parse without requiring an
+immediate storage schema refactor.
 
 AOC-Task: 193
 AOC-Subtask: 193.1
@@ -227,20 +223,19 @@ Tests: not run; documentation and prompt only
 Risk: low; no runtime behavior changed
 ```
 
-## Example: future Mind integration commit
+## Example: provenance-aware commit
 
 ```text
-feat(mind): ingest commits as provenance artifacts
+feat(commit): ingest commits as provenance artifacts
 
-Add idempotent commit ingestion so Mind can represent Git history as source artifacts. Parsed AOC trailers create explicit links to tasks, PRDs,
-sessions, files, tests, and Mind artifacts while preserving concise metadata by
-default.
+Add idempotent commit ingestion so AOC can represent Git history as source artifacts. Parsed AOC trailers create explicit links to tasks, PRDs,
+sessions, files, and tests while preserving concise metadata by default.
 
 AOC-Task: 193
 AOC-Subtask: 193.4
 AOC-PRD: .taskmaster/docs/prds/aoc_commit_history_intelligence_prd_rpg.md
-AOC-Intent: make commit history queryable from Mind provenance
-Tests: cargo test -p aoc-mind
+AOC-Intent: make commit history queryable from retained provenance
+Tests: cargo test -p aoc-commit
 Risk: medium; adds provenance storage/query behavior
 ```
 
@@ -272,9 +267,9 @@ AOC-Task: maybe 193?
 
 If a reference is unknown, omit it rather than guessing.
 
-## Future Mind model
+## Future provenance model
 
-The later Mind integration should treat commits as source artifacts with concise metadata:
+Later provenance integration should treat commits as source artifacts with concise metadata:
 
 ```text
 commit_or_change_id

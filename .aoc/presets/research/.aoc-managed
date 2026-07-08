@@ -2,5 +2,5 @@ aoc-managed: true
 asset: preset/research
 asset-version: 3
 source: .aoc/presets/research
-sha256: db3a38c19330c414dd5b889dc12a6f6de6d4ae52230293b3047a473dc37f76aa
-updated-at: 2026-07-05T14:11:45Z
+sha256: 63a9d70188308f7fff87833106899f8ee8feacd0d0e57ae40972d6ea72341951
+updated-at: 2026-07-08T00:39:44Z

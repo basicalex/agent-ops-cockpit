@@ -64,7 +64,3 @@ image-review = "Preserve image decisions, rejection reasons, approved source pat
 svg = "Preserve source image/region IDs, SVG quality contract, exact target paths, accessibility metadata, and operator approval boundary."
 campaign = "Preserve campaign beats, ContentGraph nodes/edges, copy/CTA approvals, HyperFrames composition paths, html-video project/export paths, and render policy."
 
-[integrations.mind]
-policy = "separate"
-available = true
-default = "off"

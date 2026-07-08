@@ -8,7 +8,6 @@ AOC installation is OMP-first.
 
 ```text
 extensions/aoc-codegraph.ts
-extensions/aoc-mind.ts
 extensions/aoc-commit.ts
 extensions/aoc-state.ts
 extensions/aoc-dox.ts
@@ -35,7 +34,6 @@ AOC project initialization creates or repairs:
 ```text
 .aoc/context.md
 .aoc/rtk.toml
-.aoc/mind-service.json (optional, when Mind runtime setup is enabled)
 .omp/extensions/
 .omp/agents/
 .omp/skills/

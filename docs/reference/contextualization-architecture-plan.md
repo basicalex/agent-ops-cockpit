@@ -13,7 +13,7 @@ AOC currently has multiple context producers that can appear equally relevant at
 - Taskmaster tasks/specs
 - `.aoc/memory.md` through `aoc-mem`
 - STM through `aoc-stm`
-- Mind context packs/provenance
+- retained context packs/provenance
 - `.omp/skills/**/SKILL.md`
 - `.omp/skills/aoc-*.md` workflows
 - `.omp/extensions/**`
@@ -52,7 +52,7 @@ Default startup should include only:
 These are not injected by default:
 
 - full `AGENTS.md` chain
-- broad Mind memories/context packs
+- broad memory/context packs
 - full Taskmaster task JSON
 - full task/spec docs
 - skill bodies
@@ -109,7 +109,7 @@ interface ContextSourceRecord {
 | `tm tag spec show` / `tm spec show` | intent-triggered | no | spec grounding required |
 | `aoc-mem read/search` | intent-triggered/manual-only | no | prior decisions/provenance |
 | `aoc-stm resume/read` | intent-triggered/manual-only | no | resume/handoff request |
-| Mind context pack | intent-triggered | no | focused reason required |
+| retained context pack | intent-triggered | no | focused reason required |
 | `.omp/skills/**/SKILL.md` | index-only | names/descriptions only | skill intent match |
 | `.omp/skills/aoc-*.md` workflows | index-only | names only | slash prompt invoked |
 | `.omp/extensions/**` | never-inject-source | capability names only | editing/debugging extension |
@@ -125,7 +125,7 @@ interface ContextSourceRecord {
 - Project snapshot: <= 6 KB, with compact fallback.
 - Handshake metadata: <= 3 KB.
 - Preset prompt injection: <= 4 KB per active preset/mode.
-- Mind default: 0 bytes.
+- Retained context default: 0 bytes.
 - Skill/prompt/extension bodies default: 0 bytes.
 
 ## Commands and diagnostics
@@ -172,9 +172,9 @@ Next:
 
 ### Phase 2: Startup integration
 
-Implemented initial managed-Pi path:
+Implemented initial managed-Pi startup path:
 
-- `aoc-agent-wrap` defaults managed Pi launches to `AOC_PI_CONTEXT_KERNEL=on`.
+- Managed Pi launches default to `AOC_PI_CONTEXT_KERNEL=on`.
 - Startup refreshes `.aoc/effective-agent-contract.md` when stale/missing.
 - Pi is launched with `--no-context-files` and a generated `--append-system-prompt` kernel containing the effective contract, compact project snapshot, router explanation, and metadata-only handshake.
 - If generation fails, startup fails open to Pi raw context-file discovery with a warning.
@@ -210,7 +210,7 @@ Add tests proving:
 - stale/missing contract is detected.
 - project overrides survive contract generation.
 - default kernel stays under budget.
-- skills/prompts/extensions/Mind are not body-injected by default.
+- skills/prompts/extensions/retained context are not body-injected by default.
 - active preset injects only selected preset components.
 - task/spec details load only on intent.
 

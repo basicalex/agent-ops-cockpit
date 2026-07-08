@@ -86,7 +86,3 @@ text = "Carry forward the split granularity, responsive behavior, accessibility 
 react = "Carry forward refs, lifecycle cleanup, responsive rebuild needs, and reduced-motion handling."
 audit = "Carry forward performance risks, cleanup discipline, and accessibility gaps that need verification."
 
-[integrations.mind]
-policy = "separate"
-available = true
-default = "off"
