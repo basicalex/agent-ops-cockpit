@@ -4,8 +4,8 @@ The `claude/` directory versions the Claude-side half of the machine's delegatio
 
 ## Assets
 
-- `claude/CLAUDE.global.md` — installed to `~/.claude/CLAUDE.md`. Global policy loaded by every Claude session on the machine: delegate substantial code changes to OMP workers via the `herdr-orchestrate` skill; route visual/design slices to Opus subagents; minor surgical fixes may be done directly.
-- `claude/skills/herdr-orchestrate/SKILL.md` — installed to `~/.claude/skills/herdr-orchestrate/`. User-level Claude skill encoding the full protocol: spawn one labeled herdr tab per worker (`herdr tab create` + `herdr pane run <root-pane> "omp"`), dispatch fixed-section assignment packets (GOAL/CONTEXT/STEPS/CONSTRAINTS/ACCEPTANCE) with non-overlapping file scopes, monitor via herdr agent status, then trust-but-verify: independent diff review, self-run tests, per-slice commits by the orchestrator (workers never commit).
+- `claude/CLAUDE.global.md` — installed to `~/.claude/CLAUDE.md`. Global policy loaded by every Claude session on the machine: delegate substantial code changes to OMP workers via the `herdr-orchestrate` skill; route visual/design slices to Opus subagents; minor surgical fixes may be done directly. Fable (Claude) workers are a third, escalation-only tier: reserved for critical slices and spawned only on explicit user request, since they burn metered Claude usage while OMP is effectively unlimited.
+- `claude/skills/herdr-orchestrate/SKILL.md` — installed to `~/.claude/skills/herdr-orchestrate/`. User-level Claude skill encoding the full protocol: spawn one labeled herdr tab per worker (`herdr tab create` + `herdr pane run <root-pane> "omp"`, or `"claude --permission-mode acceptEdits"` for user-requested fable workers), dispatch fixed-section assignment packets (GOAL/CONTEXT/STEPS/CONSTRAINTS/ACCEPTANCE) with non-overlapping file scopes, monitor via herdr agent status (requiring consecutive idle checks), then trust-but-verify: independent diff review, self-run tests, per-slice commits by the orchestrator (workers never commit).
 
 ## Install
 

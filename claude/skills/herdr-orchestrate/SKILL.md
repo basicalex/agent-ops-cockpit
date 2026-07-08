@@ -1,6 +1,6 @@
 ---
 name: herdr-orchestrate
-description: Orchestrate parallel work across omp worker agents in herdr panes — spawn or discover workers, dispatch assignment packets, monitor liveness, and verify results before committing. Use whenever a code change should be delegated instead of implemented firsthand (delegation-first policy), e.g. /herdr-orchestrate 3 to spawn three workers, or /herdr-orchestrate p17,p18,p19 to use existing panes.
+description: Orchestrate parallel work across worker agents in herdr panes (omp by default; fable/claude workers on explicit user request) — spawn or discover workers, dispatch assignment packets, monitor liveness, and verify results before committing. Use whenever a code change should be delegated instead of implemented firsthand (delegation-first policy), e.g. /herdr-orchestrate 3 to spawn three workers, or /herdr-orchestrate p17,p18,p19 to use existing panes.
 argument-hint: "[N workers to spawn | comma-separated pane IDs or tab names]"
 ---
 
@@ -8,7 +8,11 @@ argument-hint: "[N workers to spawn | comma-separated pane IDs or tab names]"
 
 Coordinate a campaign of parallel work across omp agents running in herdr panes. You are the **orchestrator**: you design the work contracts and verify the results. The workers only execute. The judgment work — designing contracts, splitting scopes into non-overlapping file sets, verifying diffs — is yours; this skill only encodes the spawn/dispatch/monitor/verify *protocol*.
 
-**Slice routing rule:** omp workers handle mechanical/parallelizable slices only (sweeps, migrations, typecheck fixes, audits). Visual/design slices — UI polish, component composition, spacing/tone/palette, anything where "does this look right" is the acceptance criterion — must NOT be packeted to omp workers; dispatch those via the Agent tool with `model: "opus"` instead. When splitting a campaign, separate visual slices from mechanical slices up front.
+**Slice routing rule:** three tiers, decided when splitting the campaign:
+
+1. **omp workers (default)** — mechanical/parallelizable slices: sweeps, migrations, typecheck fixes, audits.
+2. **Opus subagents** — visual/design slices: UI polish, component composition, spacing/tone/palette, anything where "does this look right" is the acceptance criterion. Dispatch via the Agent tool with `model: "opus"`, never as omp packets.
+3. **Fable workers (escalation — explicit user request only)** — Claude sessions spawned as herdr workers for *critical* slices: architecture-sensitive changes, deep cross-cutting reasoning, or a slice omp workers have already fumbled. Both gates must hold: the slice is critical AND the user explicitly asked for fable workers. Never escalate on your own — fable sessions burn metered Claude usage while omp is effectively unlimited, so that spend is the user's call. If you believe a slice needs fable-level judgment, say so and ask; don't silently spawn.
 
 ## Project parameters
 
@@ -43,6 +47,19 @@ One tab per work slice, labeled `<campaign>-w<N>` so the sidebar shows what each
 
 Wait for each worker to reach `idle` (finished booting) before dispatching.
 
+### Spawning fable workers (only when the user asked for them)
+
+Same tab-per-worker pattern; only the launch command differs:
+
+```bash
+herdr pane run <root-pane-id> "claude --permission-mode acceptEdits"
+```
+
+- Claude sessions register with herdr's agent detector just like omp, so `agent_status` / `herdr agent wait` are reliable for them too.
+- `acceptEdits` auto-approves file edits but not arbitrary commands; a packet whose ACCEPTANCE runs tests may stall on a permission prompt. Watch for a stalled `agent_status` and check the pane. Launch with `--dangerously-skip-permissions` only if the user explicitly approves that mode.
+- The anti-cascade rule in the packet protocol is doubly load-bearing for fable workers: they load the same delegation-first CLAUDE.md as the orchestrator and will re-delegate unless the packet forbids it.
+- Everything else — packets, non-overlapping scopes, no-commit rule, monitor, trust-but-verify — is identical to omp workers.
+
 ### Using existing panes
 
 - **Pane IDs must be workspace-qualified** (`w653a789c697dc2:p17`, not bare `p17`). Dispatching to a bare ID can silently go to the wrong workspace — a dispatch has been lost to this before.
@@ -68,6 +85,7 @@ ACCEPTANCE
 
 Hard rules to bake into every packet's CONSTRAINTS:
 
+- **"You are the worker. Execute this yourself — do NOT delegate, spawn panes, dispatch to other panes, or invoke herdr-orchestrate."** Workers read the repo/user CLAUDE.md delegation-first policy (written for the orchestrator) and will otherwise cascade-delegate — one worker has conscripted another campaign's pane this way.
 - **Non-overlapping file scopes per worker** — no two workers may touch the same file.
 - "Touch ONLY these files: <explicit list>."
 - "Do NOT commit, stage, or revert anything."
@@ -95,13 +113,21 @@ herdr pane run <qualified-id> "Read /tmp/<campaign>-<pane>.txt and execute the M
 
 Run the watcher loop with `run_in_background` so you get notified instead of blocking.
 
+**Require consecutive idle checks before declaring done.** Workers (omp and claude alike) blip to `idle` between turns mid-task; a single idle poll has ended a monitor early more than once. Only treat the campaign as finished after 3+ consecutive all-idle polls.
+
 For **spawned** workers (reliable agent detection), poll `agent_status`:
 
 ```bash
+consec=0
 while true; do
   busy=$(herdr pane list | jq -r '.result.panes[] | select(.pane_id as $p | ["<id1>","<id2>"] | index($p)) | select(.agent_status == "working") | .pane_id')
-  if [ -z "$busy" ]; then echo "all idle"; exit 0; fi
-  echo "busy: $busy"
+  if [ -z "$busy" ]; then
+    consec=$((consec+1))
+    if [ "$consec" -ge 3 ]; then echo "all idle (3 consecutive checks)"; exit 0; fi
+  else
+    consec=0
+    echo "busy: $busy"
+  fi
   sleep 30
 done
 ```
