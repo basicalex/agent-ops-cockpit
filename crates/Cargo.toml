@@ -2,6 +2,7 @@
 members = [
     "aoc-installer",
     "aoc-cli",
+    "localhost-manage",
     "aoc-core",
     "aoc-storage",
     "aoc-taskmaster",

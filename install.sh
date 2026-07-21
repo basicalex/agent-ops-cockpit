@@ -762,6 +762,7 @@ if cargo_bin="$(cargo_cmd)"; then
 
   # Build aoc-cli
   install_rust_binary "$cargo_bin" aoc-cli
+  install_rust_binary "$cargo_bin" localhost-manage || true
 
   install_rust_package_binary "$cargo_bin" aoc-yazi-mermaid aoc-yazi-mermaid aoc-yazi-mermaid-native || true
 else
