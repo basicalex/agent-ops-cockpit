@@ -11,10 +11,10 @@ Use after a campaign pack, render batch, or major production decision.
 - Issues encountered
 - Next iteration recommendations
 
-## AOC/Mind
-Record durable reusable decisions with `aoc-mem add`, not transient TODOs.
+## Durable decisions
+Record reusable decisions in the retrospective or the relevant tracked design/inventory file, not transient TODOs.
 
-Good memory examples:
+Good decision examples:
 - `Decision: Voyager HyperFrames renders use project-audience-channel-duration-concept-vN naming under hyperframes/renders/**.`
 - `Decision: HyperFrames source assets remain under hyperframes/assets/**; generated outputs remain under hyperframes/renders/**.`
 

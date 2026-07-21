@@ -111,7 +111,7 @@ for b in project_bullets:
 
 hard_rules = [
     "Use `.aoc/context.md` for orientation; run `aoc-init` if it is missing or stale.",
-    "Do not read `.aoc/memory.md`, `.aoc/stm/current.md`, or `.taskmaster/tasks/tasks.json` directly; use AOC CLI commands.",
+    "Do not read `.taskmaster/tasks/tasks.json` directly; use Taskmaster CLI commands.",
     "Use root `DESIGN.md` before UI, docs-site, marketing, HyperFrames, or product-facing work when present.",
 ]
 startup = [
@@ -130,8 +130,6 @@ response = [
     "Run targeted checks/tests first; escalate only when required.",
 ]
 commands_block = [
-    "Memory: `aoc-mem read`, `aoc-mem add`, `aoc-mem search`.",
-    "STM handoff layer: `aoc-stm status`, `aoc-stm template`, `aoc-stm resume`, `aoc-stm handoff`, `aoc-stm add` (handoffs only; durable decisions use `aoc-mem`).",
     "Tasks/specs: `tm list`, `tm show <id>`, `tm add`, `tm sub ...`, `tm tag current`, `tm tag spec show`.",
     "AOC health: `aoc-init`, `aoc-handshake --json`, `aoc-rtk status`, `aoc-rtk doctor`.",
     "VCS: inspect mode with `aoc-handshake --json`; use Git commands for Git repositories.",
@@ -147,7 +145,7 @@ sections = [
     ("Startup policy", uniq(startup)),
     ("Project overrides", uniq(project_overrides[:8])),
     ("Lightweight validation", uniq(lightweight_validation)),
-    ("Task, memory, and STM commands", commands_block),
+    ("Task and project commands", commands_block),
     ("Lazy-load policy", uniq(lazy)),
     ("Response defaults", uniq(response)),
 ]
@@ -336,26 +334,6 @@ records = [
         "budgetBytes": 8192,
         "provenance": "Taskmaster spec/legacy PRD linkage",
         "notes": "Task override beats tag default.",
-    },
-    {
-        "id": "memory.aoc-mem",
-        "kind": "memory",
-        "source": {"command": "aoc-mem search/read"},
-        "loadingClass": "intent-triggered",
-        "trigger": "prior decisions, architecture provenance, or targeted local inspection insufficient",
-        "budgetBytes": 4096,
-        "provenance": "AOC durable memory CLI",
-        "notes": "Do not read .aoc/memory.md directly.",
-    },
-    {
-        "id": "stm.resume",
-        "kind": "stm",
-        "source": {"command": "aoc-stm resume/read"},
-        "loadingClass": "intent-triggered",
-        "trigger": "explicit resume/handoff/continuation need",
-        "budgetBytes": 4096,
-        "provenance": "AOC STM CLI",
-        "notes": "Do not read .aoc/stm/current.md directly.",
     },
     {
         "id": "omp.skills",
@@ -551,8 +529,6 @@ packet = {
             "readyPreview": ready_result["stdout"].splitlines()[:4] if ready_result["ok"] else [],
             "warning": None if ready_result["ok"] else (ready_result["stderr"] or ready_result["stdout"] or "tm ready unavailable"),
         },
-        "memory": {"commands": ["aoc-mem search <query>", "aoc-mem add <decision>", "aoc-mem read"], "directReadProtected": True},
-        "stm": {"commands": ["aoc-stm status", "aoc-stm handoff", "aoc-stm resume <archive>"], "purpose": "directed handoff only"},
         "rtk": {"available": rtk["ok"], "purpose": "condense noisy safe command output"},
         "vcs": {
             "kind": vcs.get("kind", "unknown"),
@@ -562,7 +538,7 @@ packet = {
         },
         "subagents": {"commands": ["/subagent-run", "/subagent-review", "/subagent-test", "/specialist-run"], "policy": "explicit dispatch only"},
     },
-    "protectedDirectReads": [".aoc/memory.md", ".aoc/stm/current.md", ".taskmaster/tasks/tasks.json"],
+    "protectedDirectReads": [".taskmaster/tasks/tasks.json"],
 }
 
 if mode == "json":
@@ -587,8 +563,6 @@ else:
         print(f"warning: {tm['warning']}")
     print("")
     print("Focused context tools:")
-    print("- Memory: aoc-mem search/add/read; never direct-read .aoc/memory.md")
-    print("- STM: directed handoff/resume only; never direct-read .aoc/stm/current.md")
     print("- RTK: condenses noisy safe checks when available")
     vcs_tool = packet["tools"]["vcs"]
     print(f"- VCS: {vcs_tool['kind']} preferred={vcs_tool['preferredTool']}; use Git for repository changes")
@@ -696,7 +670,6 @@ Lazy-load only when intent/preset requires:
 - Extension source files
 - DESIGN.md and product/design docs
 - Task/spec details beyond active-tag summaries
-- STM and durable memory contents
 
 Policy checks:
 - AOC_HANDSHAKE_MODE default: compact

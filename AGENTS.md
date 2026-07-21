@@ -6,16 +6,12 @@ This file defines the always-on rules for agents in this repo. Procedural playbo
 - Use `.aoc/context.md` for orientation; run `aoc-init` if it is missing or stale.
 - Use root `DESIGN.md` as the visual/product design contract before UI, docs-site, marketing, HyperFrames, or other product-facing work.
 - **DO NOT manually read these files** - use the Bash tool to run CLI commands instead (see below).
-- Run AOC commands via Bash tool - do NOT use Read tool for `.aoc/memory.md`, `.aoc/stm/current.md`, or `.taskmaster/tasks/tasks.json`.
+- Run AOC commands via Bash tool; do not read `.taskmaster/tasks/tasks.json` directly.
 - RTK routing is default-on for new AOC projects (`.aoc/rtk.toml` mode=`on`); existing explicit mode=`off` is preserved.
 - RTK exists to improve context health: allowlisted noisy commands are condensed for better signal density, with fail-open native fallback.
 
 ## Startup handshake
-- `aoc-handshake --json` is the metadata-only startup packet for agents: AOC status, Taskmaster tag, Mind availability, Git repository state, and usage policy.
-- Startup must not load broad Mind memories or context packs by default; use the handshake to discover Mind, not to prime direction.
-- Mind may sync/ingest in the background, but retrieval should be lazy and intent-bound.
-- Request focused Mind context only after user intent is known, for resume/continuation, prior decisions, task/spec grounding, debugging previous attempts, provenance/audit, or when targeted local inspection is insufficient.
-- Always pass an explicit reason when requesting Mind context; prefer focused/provenance/resume modes over broad recall.
+- `aoc-handshake --json` is the metadata-only startup packet for agents: AOC status, Taskmaster tag, Git repository state, and usage policy.
 
 ## Low-Token Default Mode
 - Keep responses concise by default; do not print full files or raw logs unless explicitly requested.
@@ -40,13 +36,10 @@ This file defines the always-on rules for agents in this repo. Procedural playbo
 ## AOC CLI Commands (run via Bash tool - NOT Read tool)
 These commands are in PATH and work without loading any skill:
 - Startup/repair: `aoc-handshake --json`, `aoc-init`
-- Memory: `aoc-mem read`, `aoc-mem search "query"`, `aoc-mem add "decision"`
-- STM directed handoff only: `aoc-stm status`, `aoc-stm template --purpose <kind>`, `aoc-stm`, `aoc-stm add "note"`, `aoc-stm handoff --purpose <kind> --to <recipient> --focus <focus>`, `aoc-stm resume <archive>`
 - Tasks: `tm tag current`, `tm tag spec show`, `aoc-task tag spec show --tag <tag>`, `aoc-task spec show <id> --tag <tag>`
 - RTK: `aoc-rtk status`, `aoc-rtk doctor`, `aoc-rtk install --auto`, `aoc-rtk enable|disable`
 - VCS: inspect detected mode with `aoc-handshake --json`; use `git status`/`git diff` in Git repositories.
 
-STM is for deliberate directed in-progress handoff packets only; it is not a mailbox and does not notify another agent by itself. Pass the printed next-agent brief or exact archive explicitly. Use `aoc-stm handoff --purpose <kind> --to <recipient> --focus <focus>` to generate a clean purpose-matched packet for the current work; use `aoc-stm resume <archive>` to load a sealed handoff into context safely. Do not use STM for durable decisions, generic logs, raw command output, or every minor task.
 
 ## Core files
 - `.aoc/context.md`: auto-generated project snapshot.
@@ -61,9 +54,8 @@ STM is for deliberate directed in-progress handoff packets only; it is not a mai
 
 ## Task Management
 - `.taskmaster/tasks/tasks.json` is task state; use the Taskmaster TUI, `aoc-task`, or `tm` (alias for `aoc-task`). Do not edit the file directly.
-- Record major decisions and constraints in memory (`aoc-mem add "..."`).
 
 ## Skills (load when needed)
 Load a skill only when its description matches the user request. Keep always-on guidance here minimal; procedural playbooks belong in skill files.
 
-Note: `aoc-mem`, `aoc-stm`, and `tm` are basic CLI commands (see above) - no skill needed.
+Note: `tm` is a basic CLI command (see above) and needs no skill.

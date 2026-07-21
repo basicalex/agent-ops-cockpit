@@ -18,7 +18,6 @@ Output PRDs under:
    - `.taskmaster/templates/example_prd_rpg.txt`
 3. Gather project context before drafting:
    - `.aoc/context.md`
-   - `aoc-mem read` and targeted `aoc-mem search "<topic>"`
    - Relevant code/docs for the target scope
 4. Draft the PRD with full RPG sections (problem, functional/structural decomposition, dependency graph, phases, test strategy, architecture, risks).
 5. Save to `.taskmaster/docs/prds/<name>_prd_rpg.md`.

@@ -20,6 +20,6 @@ Scope: `.omp/extensions`
 
 ## Update When
 - Update when adding or changing `.omp/extensions/*.ts` command names, tool schemas, argument parsing, aliases, or completions.
-- Update when adding or changing a subprocess-backed tool, cwd parameter, timeout/output limit, or wrapper around AOC/CodeGraph/Mind/search CLIs.
+- Update when adding or changing a subprocess-backed tool, cwd parameter, timeout/output limit, or wrapper around AOC, CodeGraph, or search CLIs.
 - Update when adding or changing slash commands, workflow prompts, `customType` names, or sendMessage details payloads.
 - Update when adding tool actions, changing promptGuidelines, or broadening a wrapper from read-only/dry-run to a mutating capability.

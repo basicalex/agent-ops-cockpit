@@ -10,4 +10,4 @@ Rules:
 - Do not use Anime.js for HyperFrames composition unless explicitly requested as external frontend code.
 - Prefer `npx hyperframes lint` before preview/render.
 - Prefer preview handoff before final MP4 rendering.
-- Never edit `.aoc/memory.md` or `.taskmaster/tasks/tasks.json` directly.
+- Never edit `.taskmaster/tasks/tasks.json` directly.

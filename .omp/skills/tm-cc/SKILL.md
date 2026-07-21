@@ -18,7 +18,7 @@ Use either:
 
 Examples:
 - `tm --tm-root ~/dev/proj-a tag list`
-- `tm --tm-root ~/dev/proj-b list --tag mind`
+- `tm --tm-root ~/dev/proj-b list --tag research`
 - `aoc-task --tm-root ../proj-c add "Draft migration" --tag infra`
 - `aoc-taskmaster --tm-root ~/dev/proj-d`
 

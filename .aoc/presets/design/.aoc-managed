@@ -1,6 +1,6 @@
 aoc-managed: true
 asset: preset/design
-asset-version: 3
+asset-version: 4
 source: .aoc/presets/design
 sha256: 13624ad686bd5868a0d34fa6bb574eebd1ae2f07d30b8bcc5ee6faa36132f5b3
-updated-at: 2026-07-08T00:39:43Z
+updated-at: 2026-07-21T07:54:48Z

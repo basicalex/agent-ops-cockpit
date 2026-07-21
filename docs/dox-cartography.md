@@ -113,7 +113,7 @@ Over-target is a warning. Over-hard fails `doctor`.
 Positive signals:
 
 - `+3` existing local rule differs from parent AGENTS.
-- `+3` high-risk invariant: auth, secrets, money, data loss, generated files, migrations, task state, memory/STM, or deployment.
+- `+3` high-risk invariant: auth, secrets, money, data loss, generated files, migrations, task state, or deployment.
 - `+2` non-obvious build/test command local to subtree.
 - `+2` public API, plugin API, CLI surface, schema, or wire format.
 - `+2` dynamic registry, reflection, runtime loading, or generated dispatch.

@@ -36,8 +36,6 @@ Treat these as legacy or transitional:
 - agent status surfaces owned by legacy AOC UI
 - legacy pane/workspace/session health displays outside Herdr
 - tab/project metadata systems owned by AOC
-- AOC Mind as a startup context injector or always-on cockpit dependency
-- broad Mind context packs during startup
 - heavy install steps that existed only to support the old cockpit stack
 
 ## New model
@@ -47,7 +45,7 @@ Treat these as legacy or transitional:
 - **OMP** owns subagent orchestration.
 - **AOC** becomes the compatibility/tooling layer around project setup, task workflows, launch convenience, and retained standalone tools.
 
-The `aoc` command launches/focuses the Herdr workspace. The default installer and initializer stay lean: no retired cockpit assets, custom top bar, AOC subagent UI, Mission Control, Control pane, legacy AOC-owned status/health panels, tab metadata systems, or AOC Mind services by default.
+The `aoc` command launches/focuses the Herdr workspace. The default installer and initializer stay lean: no retired cockpit assets, custom top bar, AOC subagent UI, Mission Control, Control pane, legacy AOC-owned status/health panels, or tab metadata systems.
 
 ## Services workspace
 
@@ -97,7 +95,7 @@ Important shortcuts:
 
 The Herdr-first path is implemented with:
 
-- `bin/aoc-herdr-install` — installs the lean Herdr config baseline, installs the Herdr OMP integration when `omp` is available, installs the AOC-aware plain `omp` shim, and installs the OMP assets selected by active `.omp/manifest.toml` profiles (extensions, skills, and specialist agent templates); AOC Mind is not in default/core and is installed only by provenance/full opt-in profiles
+- `bin/aoc-herdr-install` — installs the lean Herdr config baseline, installs the Herdr OMP integration when `omp` is available, installs the AOC-aware plain `omp` shim, and installs the OMP assets selected by active `.omp/manifest.toml` profiles (extensions, skills, and specialist agent templates)
 - `aoc-herdr-install` is the installer name and remains valid; it does not imply an active AOC Herdr OMP extension or tool
 - `bin/aoc-herdr-launch` — launches/focuses Herdr for the current project root, reusing an existing workspace for the same root when possible; Services workspace ensure/focus is opt-in through `AOC_HERDR_SERVICES=auto|focus` or `aoc services`
 - `bin/aoc-herdr-services` — creates/focuses the project-scoped Herdr AOC Services workspace without starting Herdr behind the operator's back

@@ -62,7 +62,6 @@ Use these when the page fits:
 - `architecture`
 - `agents`
 - `tasks`
-- `mind`
 - `ops`
 - `dashboards`
 - `explainers`

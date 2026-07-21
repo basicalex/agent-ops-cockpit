@@ -161,8 +161,6 @@ def build_packet(project_root: Path) -> dict[str, Any]:
             "contextPath": ".aoc/context.md",
             "contextPresent": (aoc_dir / "context.md").exists(),
             "agentsContractPresent": (project_root / "AGENTS.md").exists(),
-            "stmPresent": (aoc_dir / "stm").exists(),
-            "memoryPresent": (aoc_dir / "memory.md").exists(),
             "rtkStatusAvailable": rtk_config_present,
         },
         "taskmaster": {
@@ -229,7 +227,6 @@ def print_prompt_compact(packet: dict[str, Any]) -> None:
     print(f"- Taskmaster: {'available' if taskmaster.get('available') else 'unavailable'}; active tag `{active_tag}`. Use CLI commands for task/spec details; do not read task JSON directly.")
     print("- Context policy: load focused context only after user intent is known and the reason is explicit.")
     print(f"- RTK status command: {'available' if aoc.get('rtkStatusAvailable') else 'unavailable'}; CodeGraph/RTK/details are lazy capability lookups, not startup prose.")
-    print("- Protected direct reads: `.aoc/memory.md`, `.aoc/stm/current.md`, `.taskmaster/tasks/tasks.json`.")
     if warnings:
         print("- Warnings: " + "; ".join(str(w) for w in warnings))
 
@@ -241,7 +238,7 @@ def print_prompt_full(packet: dict[str, Any]) -> None:
     vcs = packet.get("vcs", {})
     print("# AOC Startup Context")
     print()
-    print("This is a metadata-only startup capsule. It orients the agent without loading broad memory or raw task state.")
+    print("This is a metadata-only startup capsule. It orients the agent without loading broad project context or raw task state.")
     print()
     print("## Project")
     print(f"- Root: `{packet.get('projectRoot')}`")
@@ -282,7 +279,7 @@ def print_prompt_full(packet: dict[str, Any]) -> None:
     print("- RTK is for allowlisted noisy commands only; native fallback and raw output preservation remain required.")
     print()
     print("## Protected direct reads")
-    print("- Do not directly read `.aoc/memory.md`, `.aoc/stm/current.md`, or `.taskmaster/tasks/tasks.json`; use the AOC CLIs.")
+    print("- Do not directly read `.taskmaster/tasks/tasks.json`; use the Taskmaster CLI.")
     if warnings:
         print()
         print("## Warnings")

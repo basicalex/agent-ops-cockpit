@@ -20,7 +20,6 @@ Legacy PRD documents under `.taskmaster/docs/prds/` remain valid and linkable.
    - `.taskmaster/templates/example_prd_rpg.txt`
 3. Gather project context before drafting:
    - `.aoc/context.md`
-   - `aoc-mem read` and targeted `aoc-mem search "<topic>"`
    - Relevant code/docs for the target scope
 4. Draft the spec with full RPG sections (problem, functional/structural decomposition, dependency graph, phases, test strategy, architecture, risks).
 5. Save to `.taskmaster/docs/specs/<name>_spec_rpg.md` unless updating a legacy PRD path intentionally.

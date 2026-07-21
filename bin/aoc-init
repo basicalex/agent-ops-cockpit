@@ -77,7 +77,7 @@ aoc_init_state_file="$aoc_dir/init-state.json"
 aoc_managed_assets_file="$aoc_dir/managed-assets.json"
 aoc_omp_seed_cache_dir="$aoc_config_dir/omp"
 
-AOC_PROJECT_LAYOUT_VERSION=3
+AOC_PROJECT_LAYOUT_VERSION=4
 AOC_INIT_STATE_SCHEMA_VERSION=1
 
 aoc_project_version_before=0
@@ -517,6 +517,48 @@ prepare_project_aoc_state() {
   aoc_project_version_after="$AOC_PROJECT_LAYOUT_VERSION"
 }
 
+remove_retired_project_state() {
+  rm -rf "$aoc_dir/stm"
+  rm -f "$aoc_dir/memory.md" "$aoc_dir/mind-service.json"
+
+  local agents_file="$project_root/AGENTS.md"
+  [[ -f "$agents_file" ]] || return 0
+  grep -Fq "## Agent Ops Cockpit (AOC)" "$agents_file" || return 0
+
+  python3 - "$agents_file" <<'PY'
+import sys
+import re
+from pathlib import Path
+
+path = Path(sys.argv[1])
+lines = path.read_text(encoding="utf-8").splitlines()
+marker = "## Agent Ops Cockpit (AOC)"
+try:
+    start = lines.index(marker)
+except ValueError:
+    raise SystemExit(0)
+
+end = len(lines)
+for index in range(start + 1, len(lines)):
+    if lines[index].startswith("## "):
+        end = index
+        break
+
+retired = re.compile(
+    r"aoc-" r"stm|aoc-" r"mem|\.aoc/stm|\.aoc/memory\.md|\bSTM\b|\bMind\b|mind-service"
+)
+section = []
+for line in lines[start:end]:
+    if line == "Use the AOC tools for context, memory, and tasks in this repo.":
+        section.append("Use the AOC tools for context and tasks in this repo.")
+    elif not retired.search(line):
+        section.append(line)
+
+updated = lines[:start] + section + lines[end:]
+path.write_text("\n".join(updated).rstrip() + "\n", encoding="utf-8")
+PY
+}
+
 apply_project_version_migrations() {
   if (( aoc_project_version_before > AOC_PROJECT_LAYOUT_VERSION )); then
     aoc_project_version_after="$aoc_project_version_before"
@@ -540,6 +582,12 @@ apply_project_version_migrations() {
     note_project_migration \
       "v3-managed-asset-version-markers" \
       "Applying AOC project migration v3: mark managed skills, presets, and OMP assets for safe updates."
+  fi
+  if (( aoc_project_version_before < 4 )); then
+    remove_retired_project_state
+    note_project_migration \
+      "v4-retired-memory-cleanup" \
+      "Applying AOC project migration v4: remove retired STM, decision-log, and Mind project state."
   fi
 }
 
@@ -763,8 +811,6 @@ print_project_aoc_status() {
   local current_version="0"
   local state_path="$aoc_init_state_file"
   local has_context="no"
-  local has_memory="no"
-  local has_stm="no"
   local has_rtk="no"
   local has_omp_extensions="no"
   local has_omp_agents="no"
@@ -774,8 +820,6 @@ print_project_aoc_status() {
   current_version="$(read_project_aoc_version)"
 
   if [[ -f "$project_root/.aoc/context.md" ]]; then has_context="yes"; fi
-  if [[ -f "$project_root/.aoc/memory.md" ]]; then has_memory="yes"; fi
-  if [[ -f "$project_root/.aoc/stm/current.md" ]]; then has_stm="yes"; fi
   if [[ -f "$project_root/.aoc/rtk.toml" ]]; then has_rtk="yes"; fi
   if [[ -d "$project_root/.omp/extensions" ]]; then has_omp_extensions="yes"; fi
   if [[ -d "$project_root/.omp/agents" ]]; then has_omp_agents="yes"; fi
@@ -814,10 +858,6 @@ PY
   printf '%s
 ' "  aoc_context: $has_context"
   printf '%s
-' "  aoc_memory: $has_memory"
-  printf '%s
-' "  aoc_stm: $has_stm"
-  printf '%s
 ' "  aoc_rtk: $has_rtk"
   printf '%s
 ' "  omp_extensions: $has_omp_extensions"
@@ -850,16 +890,12 @@ This file defines the always-on rules for agents in this repo. Procedural playbo
 - Use `.aoc/context.md` for orientation; run `aoc-init` if it is missing or stale.
 - Use root `DESIGN.md` as the visual/product design contract before UI, docs-site, marketing, HyperFrames, or other product-facing work.
 - **DO NOT manually read these files** - use the Bash tool to run CLI commands instead (see below).
-- Run AOC commands via Bash tool - do NOT use Read tool for `.aoc/memory.md`, `.aoc/stm/current.md`, or `.taskmaster/tasks/tasks.json`.
+- Run AOC commands via Bash tool; do not read `.taskmaster/tasks/tasks.json` directly.
 - RTK routing is default-on for new AOC projects (`.aoc/rtk.toml` mode=`on`); existing explicit mode=`off` is preserved.
 - RTK exists to improve context health: allowlisted noisy commands are condensed for better signal density, with fail-open native fallback.
 
 ## Startup handshake
-- `aoc-handshake --json` is the metadata-only startup packet for agents: AOC status, Taskmaster tag, Mind availability, Git repository state, and usage policy.
-- Startup must not load broad Mind memories or context packs by default; use the handshake to discover Mind, not to prime direction.
-- Mind may sync/ingest in the background, but retrieval should be lazy and intent-bound.
-- Request focused Mind context only after user intent is known, for resume/continuation, prior decisions, task/spec grounding, debugging previous attempts, provenance/audit, or when targeted local inspection is insufficient.
-- Always pass an explicit reason when requesting Mind context; prefer focused/provenance/resume modes over broad recall.
+- `aoc-handshake --json` is the metadata-only startup packet for agents: AOC status, Taskmaster tag, Git repository state, and usage policy.
 
 ## Low-Token Default Mode
 - Keep responses concise by default; do not print full files or raw logs unless explicitly requested.
@@ -884,13 +920,10 @@ This file defines the always-on rules for agents in this repo. Procedural playbo
 ## AOC CLI Commands (run via Bash tool - NOT Read tool)
 These commands are in PATH and work without loading any skill:
 - Startup/repair: `aoc-handshake --json`, `aoc-init`
-- Memory: `aoc-mem read`, `aoc-mem search "query"`, `aoc-mem add "decision"`
-- STM directed handoff only: `aoc-stm status`, `aoc-stm template --purpose <kind>`, `aoc-stm`, `aoc-stm add "note"`, `aoc-stm handoff --purpose <kind> --to <recipient> --focus <focus>`, `aoc-stm resume <archive>`
 - Tasks: `tm tag current`, `tm tag spec show`, `aoc-task tag spec show --tag <tag>`, `aoc-task spec show <id> --tag <tag>`
 - RTK: `aoc-rtk status`, `aoc-rtk doctor`, `aoc-rtk install --auto`, `aoc-rtk enable|disable`
 - VCS: inspect detected mode with `aoc-handshake --json`; use `git status`/`git diff` in Git repositories.
 
-STM is for deliberate directed in-progress handoff packets only; it is not a mailbox and does not notify another agent by itself. Pass the printed next-agent brief or exact archive explicitly. Use `aoc-stm handoff --purpose <kind> --to <recipient> --focus <focus>` to generate a clean purpose-matched packet for the current work; use `aoc-stm resume <archive>` to load a sealed handoff into context safely. Do not use STM for durable decisions, generic logs, raw command output, or every minor task.
 
 ## Core files
 - `.aoc/context.md`: auto-generated project snapshot.
@@ -905,12 +938,11 @@ STM is for deliberate directed in-progress handoff packets only; it is not a mai
 
 ## Task Management
 - `.taskmaster/tasks/tasks.json` is task state; use the Taskmaster TUI, `aoc-task`, or `tm` (alias for `aoc-task`). Do not edit the file directly.
-- Record major decisions and constraints in memory (`aoc-mem add "..."`).
 
 ## Skills (load when needed)
 Load a skill only when its description matches the user request. Keep always-on guidance here minimal; procedural playbooks belong in skill files.
 
-Note: `aoc-mem`, `aoc-stm`, and `tm` are basic CLI commands (see above) - no skill needed.
+Note: `tm` is a basic CLI command (see above) and needs no skill.
 EOF
 }
 
@@ -1155,6 +1187,7 @@ EOF
 
 ensure_agents_contract() {
   local agents_file="$1"
+  local first_agents_line=""
 
   if [[ ! -f "$agents_file" ]]; then
     log "Creating AGENTS.md..."
@@ -1162,7 +1195,7 @@ ensure_agents_contract() {
     return
   fi
 
-  if grep -Eq "AOC Architecture & Agent Guidelines|Agent Ops Cockpit \(AOC\)" "$agents_file"; then
+  if IFS= read -r first_agents_line < "$agents_file" && [[ "$first_agents_line" == "# AOC Architecture & Agent Guidelines" ]]; then
     local tmp_agents
     tmp_agents="$(mktemp)"
     write_aoc_agents_contract "$tmp_agents"
@@ -1185,16 +1218,14 @@ ensure_agents_contract() {
   cat <<'EOF' >> "$agents_file"
 
 ## Agent Ops Cockpit (AOC)
-Use the AOC tools for context, memory, and tasks in this repo.
+Use the AOC tools for context and tasks in this repo.
 
 - **Context:** `.aoc/context.md` (auto-generated project map)
 - **Design:** `DESIGN.md` at the project root is the visual/product design contract. Read it before UI, docs-site, marketing, HyperFrames, or other product-facing changes.
-- **Memory:** use `aoc-mem read/search/add` via Bash tool (do not edit `.aoc/memory.md` directly)
-- **STM directed handoff layer:** use `aoc-stm status`, `aoc-stm template --purpose <kind>`, `aoc-stm` (draft), `aoc-stm handoff --purpose <kind> --to <recipient> --focus <focus>` (seal), and `aoc-stm resume <archive>`/`aoc-stm read <archive>` (resume) via Bash tool for deliberate in-progress handoffs only. STM is not a mailbox; pass the printed next-agent brief or exact archive explicitly. Durable decisions belong in `aoc-mem` (do not read `.aoc/stm/current.md` directly)
 - **Tasks:** use `tm` or `aoc-task` via Bash tool (do not edit `.taskmaster/tasks/tasks.json` directly)
 - **Task specs:** tag-level defaults + task-level overrides via `aocPrd` (resolve with `aoc-task tag spec show --tag <tag>` and `aoc-task spec show <id> --tag <tag>`)
 - **RTK routing (default-on for new AOC repos):** allowlisted commands route via RTK in AOC panes; manage with `aoc-rtk status|enable|disable|doctor|install --auto` and `.aoc/rtk.toml`
-- **Startup handshake:** use `aoc-handshake --json` for metadata-only AOC/Mind/VCS availability. Do not load broad Mind memories at startup; request focused Mind context only after task intent is clear. Use Git for repository changes.
+- **Startup handshake:** use `aoc-handshake --json` for metadata-only AOC, Taskmaster, and VCS availability. Use Git for repository changes.
 
 If AOC files are missing or stale, run `aoc-init` at the repo root.
 EOF
@@ -1378,8 +1409,8 @@ ensure_git_tracking_policy() {
   fi
 }
 
-# 1. Setup Context & Memory (.aoc/)
-setup_memory() {
+# 1. Setup project-local AOC state
+setup_project_state() {
   # Migration Logic
   if [[ -d "$gemini_dir" && ! -d "$aoc_dir" ]]; then
     log "Migrating .gemini/ to .aoc/..."
@@ -1392,34 +1423,6 @@ setup_memory() {
   if [[ ! -d "$aoc_dir" ]]; then
     log "Creating .aoc/ directory..."
     mkdir -p "$aoc_dir"
-  fi
-
-  # Memory File
-  local mem_file="$aoc_dir/memory.md"
-  if [[ ! -f "$mem_file" ]]; then
-    log "Initializing empty memory ($mem_file)..."
-    cat <<EOF > "$mem_file"
-# Agent Memory for Project: $(basename "$project_root")
-This file contains persistent context, decisions, and knowledge for the AI agent.
-Agents should read this to understand project history and append new decisions here.
-
-## Core Decisions
-EOF
-  else
-    log "Memory file exists ($mem_file). Skipping."
-  fi
-
-
-  # Short-term memory workspace
-  local stm_dir="$aoc_dir/stm"
-  local stm_current="$stm_dir/current.md"
-  local stm_archive="$stm_dir/archive"
-  mkdir -p "$stm_archive"
-  if [[ ! -f "$stm_current" ]]; then
-    log "Initializing short-term memory ($stm_current)..."
-    : > "$stm_current"
-  else
-    log "Short-term memory exists ($stm_current). Preserving."
   fi
 
 
@@ -1612,7 +1615,6 @@ EOF
 setup_skills() {
   local omp_skills_dir="$project_root/.omp/skills"
 
-  upgrade_stm_skill_guidance "$omp_skills_dir"
 
   if [[ -x "$script_dir/aoc-skill" ]]; then
     log "Validating OMP skill baseline (.omp/skills)..."
@@ -1625,191 +1627,6 @@ setup_skills() {
   fi
 }
 
-upgrade_stm_skill_guidance() {
-  local skills_dir="$1"
-  local stm_skill="$skills_dir/stm-ops/SKILL.md"
-  local memory_skill="$skills_dir/memory-ops/SKILL.md"
-  local workflow_skill="$skills_dir/aoc-workflow/SKILL.md"
-  local init_ops_skill="$skills_dir/aoc-init-ops/SKILL.md"
-
-  if [[ -f "$stm_skill" ]] && (
-    grep -Fq 'aoc-stm --last' "$stm_skill" ||
-    grep -Fq 'aoc-stm use <archive>' "$stm_skill" ||
-    grep -Fq 'fresh tab/session' "$stm_skill" ||
-    grep -Fq 'aoc-stm handoff` (read current draft, fallback to latest archive)' "$stm_skill" ||
-    ! grep -Fq 'template --purpose' "$stm_skill"
-  ); then
-    cat <<'EOF' > "$stm_skill"
----
-name: stm-ops
-description: Capture deliberate in-progress agent/session handoff packets with aoc-stm.
----
-
-## When to use
-- Another agent/session needs to continue in-progress work.
-- Multiple agents may touch nearby files and need coordination context.
-- Context window is getting tight and work is incomplete.
-- Switching from builder to reviewer/tester/documenter.
-
-## Do not use STM for
-- Durable decisions or project conventions; use `aoc-mem add`.
-- Generic progress logs, raw command output, or every minor task.
-- Information already captured cleanly in Taskmaster, specs, commits, or Mind.
-
-## Commands
-- `aoc-stm status`
-- `aoc-stm template --purpose <continue|review|test|debug|docs|commit>`
-- `aoc-stm add "<note>"`
-- `aoc-stm edit`
-- `aoc-stm` (default read current handoff draft)
-- `aoc-stm read-current`
-- `aoc-stm handoff --purpose <kind> --to <recipient> --focus <focus>` (archive current draft and print directed packet)
-- `aoc-stm resume <archive>` (read a specific archived handoff packet)
-- `aoc-stm archive`
-- `aoc-stm read <archive>`
-- `aoc-stm history`
-
-## Handoff format (recommended)
-Use `aoc-stm template --purpose <kind>` and keep packets concise. Pick a purpose so the packet matches the next session:
-- `continue`: current status, touched areas, validation, next safe actions
-- `review`: review target, intended behavior, known risks, review questions
-- `test`: behavior under test, commands, fixtures, suspected gaps
-- `debug`: symptom, evidence, hypotheses tried, next diagnostics
-- `docs`: user-facing behavior, examples, caveats
-- `commit`: files changed, rationale, validation, task/spec refs
-
-## Guardrails
-- Keep STM as a short-lived handoff draft, then seal clean checkpoints with directed `aoc-stm handoff`.
-- STM is not a mailbox and does not notify another agent; pass the printed next-agent brief or exact archive explicitly.
-- Prefer a specific archive on resume; do not blindly trust latest if stale warnings appear.
-- Promote durable decisions to `aoc-mem add`, not STM.
-- Do not edit `tasks.json` directly while preparing handoff state.
-EOF
-    log "Updated stm-ops skill with draft-seal-resume STM guidance."
-  fi
-
-  if [[ -f "$memory_skill" ]] && (
-    grep -Fq 'aoc-stm handoff` (read current draft, fallback to latest archive)' "$memory_skill" ||
-    ! grep -Fq 'template --purpose' "$memory_skill"
-  ); then
-    cat <<'EOF' > "$memory_skill"
----
-name: memory-ops
-description: Use aoc-mem to read, search, and record project decisions.
----
-
-## Commands
-- `aoc-mem read`
-- `aoc-mem search "<term>"`
-- `aoc-mem add "<decision>"`
-- `aoc-stm status`
-- `aoc-stm template --purpose <kind>`
-- `aoc-stm add "<handoff note>"`
-- `aoc-stm edit`
-- `aoc-stm` (read current handoff draft)
-- `aoc-stm handoff --purpose <kind> --to <recipient> --focus <focus>` (archive current draft and print directed packet)
-- `aoc-stm resume <archive>` (read a specific archived handoff packet)
-- `aoc-stm archive`
-- `aoc-stm read <archive>`
-- `aoc-stm history`
-
-## Recording guidelines
-- Capture the "why" behind decisions.
-- Keep entries short and scoped.
-- Record one decision per line.
-
-## Guardrail
-- Never edit `.aoc/memory.md` directly.
-- Keep `.aoc/stm/current.md` as a short-lived in-progress handoff draft only; archive deliberate directed handoff packets with `aoc-stm handoff --purpose <kind> --to <recipient> --focus <focus>`, pass the printed brief/archive explicitly, and promote durable decisions to `aoc-mem`.
-EOF
-    log "Updated memory-ops skill with STM command guidance."
-  fi
-
-  if [[ -f "$workflow_skill" ]] && (
-    grep -Fq 'aoc task list' "$workflow_skill" ||
-    grep -Fq 'aoc task add' "$workflow_skill" ||
-    grep -Fq 'aoc task status' "$workflow_skill" ||
-    grep -Fq 'review current draft with `aoc-stm`' "$workflow_skill" ||
-    ! grep -Fq 'aoc-stm resume' "$workflow_skill"
-  ); then
-    cat <<'EOF' > "$workflow_skill"
----
-name: aoc-workflow
-description: Standard AOC workflow using context, memory, and tasks.
----
-
-## When to use
-Use this when you start a new task or need to re-orient inside a project.
-
-## Steps
-1. If AOC files are missing or stale, run `aoc-init` from the project root.
-2. Read memory: `aoc-mem read` and `aoc-mem search "<topic>"` as needed.
-3. Resolve active tag at session start with `tm tag current` (or `aoc-task tag current`).
-4. Review tasks: `tm list`, `aoc-task list`, or the Taskmaster TUI.
-5. Check spec linkage for scope and task:
-   - Tag default: `aoc-task tag spec show --tag <tag>`
-   - Task override: `aoc-task spec show <id> --tag <tag>`
-6. Plan: add or refine tasks with `aoc-task add "<task>"` and set status.
-7. Execute changes and run tests.
-8. If context gets tight or another agent/session needs to continue, capture state (`aoc-stm template --purpose <kind>`, `aoc-stm add/edit`), seal a directed checkpoint with `aoc-stm handoff --purpose <kind> --to <recipient> --focus <focus>`, and pass the printed next-agent brief or exact archive to the next session for `aoc-stm resume <archive>`.
-9. Update tasks and record decisions: `aoc-task status <id> done`, `aoc-mem add "<decision>"`.
-
-## Guardrails
-- Do not edit `.aoc/memory.md` directly.
-- Do not keep long-term decisions in `.aoc/stm/current.md`; promote durable decisions to `aoc-mem`.
-- Do not edit `.taskmaster/tasks/tasks.json` directly.
-- Do not add spec links to subtasks.
-- Use tag-level spec defaults with task-level overrides (`aocPrd`), with precedence task -> tag.
-EOF
-    log "Updated aoc-workflow skill with draft-seal-resume STM guidance."
-  fi
-
-  if [[ -f "$init_ops_skill" ]] && (
-    ! grep -Fq '.aoc/stm/current.md' "$init_ops_skill" ||
-    ! grep -Fq '.omp/skills/' "$init_ops_skill" ||
-    ! grep -Fq 'aoc-stm handoff' "$init_ops_skill" ||
-    ! grep -Fq 'aoc-stm resume' "$init_ops_skill" ||
-    ! grep -Fq '.omp/extensions/' "$init_ops_skill" ||
-    ! grep -Fq 'aoc-style.ts' "$init_ops_skill" ||
-    ! grep -Fq 'ponytail-workflows' "$init_ops_skill" ||
-    ! grep -Fq 'active profiles' "$init_ops_skill" ||
-    ! grep -Fq 'profile tables' "$init_ops_skill" ||
-    grep -Fq 'Syncs skills for existing agent targets' "$init_ops_skill"
-  ); then
-    cat <<'EOF' > "$init_ops_skill"
----
-name: aoc-init-ops
-description: Initialize or repair AOC context, memory, and tasks safely.
----
-
-## When to use
-- New repository setup
-- Missing `.aoc/` or `.taskmaster/`
-- Stale or inconsistent context
-
-## Run
-- `aoc-init`
-- To skip Rust builds: `AOC_INIT_SKIP_BUILD=1 aoc-init`
-
-## What it does
-- Creates `.aoc/` and `.taskmaster/` if missing
-- Generates `.aoc/context.md`
-- Seeds `.aoc/memory.md`
-- Seeds `.aoc/stm/current.md` and `.aoc/stm/archive/` without overwriting existing STM files
-- Ensures spec directory `.taskmaster/docs/specs/` is available for tag/task links
-- Seeds project OMP assets under `.omp/extensions/`, `.omp/agents/`, `.omp/skills/`, and `.omp/manifest.toml`
-- Keeps `.omp/manifest.toml` as the full OMP inventory plus profile tables
-- Installs AOC OMP extensions selected by active profiles into `${AOC_OMP_AGENT_DIR:-$HOME/.omp/agent}/extensions` when available
-- Seeds the global OMP style hook state file at `${AOC_STYLE_STATE_FILE:-$HOME/.omp/agent/style-hooks.json}` with both hooks off when missing
-- Installs AOC OMP agent templates selected by active profiles into `${AOC_OMP_AGENT_DIR:-$HOME/.omp/agent}/agents` when available
-- Installs OMP skills selected by active profiles into `${AOC_OMP_AGENT_DIR:-$HOME/.omp/agent}/skills` when available
-- Seeds reusable preset assets in `.aoc/presets/{design,hyperframes,ops,research,test}/` when missing
-- Seeds `.aoc/init-state.json` with the current AOC project version and applies version-specific migrations on older repos
-- Validates `.omp/skills` as the canonical skill surface
-EOF
-    log "Updated aoc-init-ops skill with STM seeding guidance."
-  fi
-}
 
 
 setup_project_omp_assets() {
@@ -2567,7 +2384,7 @@ main() {
 
   refuse_nested_hyperframes_init
   log "Initializing AOC in: $project_root"
-  setup_memory
+  setup_project_state
   prepare_project_aoc_state
   apply_project_version_migrations
   setup_project_omp_assets

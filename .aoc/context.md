@@ -38,7 +38,6 @@
 ./bin/aoc-init
 ./bin/aoc-insight
 ./bin/aoc-map
-./bin/aoc-mem
 ./bin/aoc-obscura-install
 ./bin/aoc-od
 ./bin/aoc-omp
@@ -54,6 +53,7 @@
 ./bin/aoc-rtk-proxy
 ./bin/aoc-search
 ./bin/aoc-services
+./bin/aoc-skill
 ... [tree truncated to 40 lines]
 ```
 

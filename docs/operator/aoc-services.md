@@ -12,7 +12,6 @@ Default centralized services:
 |---|---|---|
 | `search` | server | started by `aoc-services up`; backs `aoc-search` via local SearXNG |
 | `browser` | daemon | reported centrally; starts lazily through `agent-browser` when needed |
-| `mind` | daemon-or-cold | reported centrally; remains cold/lazy unless warm mode is explicitly used |
 | `render` | oneshot | reported centrally; no server required for Obscura-backed `aoc-render` |
 
 One-shot tools such as `aoc-fetch` and `aoc-render` should not become persistent servers by default.

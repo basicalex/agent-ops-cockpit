@@ -1,7 +1,7 @@
 ---
 name: aoc-gaps
-description: Audit implementation and conceptual gaps by comparing targeted code inspection, Taskmaster tasks/specs, AOC memory/STM decisions, VCS state, and an optional operator focus. Use for broad project gap reviews or directed planning such as `/skill:aoc-gaps mission-control observability`.
-allowed-tools: Bash(tm:*), Bash(aoc-task:*), Bash(aoc-mem:*), Bash(aoc-stm:*), Bash(git:*), Bash(python3:*), Bash(jq:*), Bash(rg:*), Bash(find:*), Bash(test:*)
+description: Audit implementation and conceptual gaps by comparing targeted code inspection, Taskmaster tasks/specs, VCS state, and an optional operator focus. Use for broad project gap reviews or directed planning such as `/skill:aoc-gaps mission-control observability`.
+allowed-tools: Bash(tm:*), Bash(aoc-task:*), Bash(git:*), Bash(python3:*), Bash(jq:*), Bash(rg:*), Bash(find:*), Bash(test:*)
 ---
 
 # AOC Gaps
@@ -30,10 +30,7 @@ Compare these layers, escalating only as needed:
    - `tm list --tag <tag>`
    - `aoc-task tag spec show --tag <tag>`
    - `aoc-task spec show <id> --tag <tag>` for task-specific grounding when needed.
-3. **Decisions and continuity**
-   - `aoc-mem search <direction>` for durable decisions.
-   - `aoc-stm status` / `aoc-stm resume` only when active handoff/current continuation matters.
-4. **Operator direction**
+3. **Operator direction**
    - Treat command arguments as authoritative scope unless repo/task evidence conflicts.
 
 ## Workflow
@@ -72,28 +69,19 @@ tm show <id> --tag "$tag"
 aoc-task spec show <id> --tag "$tag"
 ```
 
-### 4. Pull focused memory only when useful
 
-For directed audits:
-
-```bash
-aoc-mem search "<direction>"
-```
-
-For broad audits, use at most a few focused searches based on the code/task hotspots discovered. Do not load broad memory dumps.
-
-### 5. Compare and classify gaps
+### 4. Compare and classify gaps
 
 Classify findings as:
 
 - **Planned but missing** — task/spec intent exists but no graph/code evidence.
 - **Implemented but unplanned** — code exists with no task/spec/provenance.
 - **Spec stale** — implementation has moved beyond the documented intent.
-- **Decision drift** — memory/STM decisions conflict with current code or tasks.
+- **Intent drift** — current code conflicts with tasks or specs.
 - **Operational gap** — tests, docs, install/runtime flows, observability, or safety are missing.
 - **Conceptual gap** — user/product concept lacks a concrete task/spec/code path.
 
-### 6. Output operational plan
+### 5. Output operational plan
 
 Use this format:
 
@@ -111,8 +99,8 @@ Use this format:
 
 ## Gaps
 1. <gap title>
-   - Type: planned-missing | implemented-unplanned | spec-stale | decision-drift | operational | conceptual
-   - Evidence: code/graph/task/spec/memory references
+   - Type: planned-missing | implemented-unplanned | spec-stale | intent-drift | operational | conceptual
+   - Evidence: code/graph/task/spec references
    - Impact: why it matters
    - Close with: concrete code/doc/test/spec/task action
 
@@ -133,5 +121,5 @@ Keep the plan concise enough to execute. Prefer 3-7 high-signal gaps over a huge
 
 - Do not mark tasks complete.
 - Do not edit files unless the operator asks to implement the plan.
-- Do not read `.aoc/memory.md`, `.aoc/stm/current.md`, or `.taskmaster/tasks/tasks.json` directly; use AOC CLI commands.
+- Do not read `.taskmaster/tasks/tasks.json` directly; use Taskmaster CLI commands.
 - State evidence quality clearly; separate observed code facts from inferred gaps.

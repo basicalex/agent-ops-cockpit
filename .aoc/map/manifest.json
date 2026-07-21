@@ -24,12 +24,6 @@
         "order": 30
       },
       {
-        "key": "mind",
-        "title": "Mind",
-        "description": "Insight, provenance, compaction, observer/reflector paths, and memory views.",
-        "order": 40
-      },
-      {
         "key": "ops",
         "title": "Ops",
         "description": "Operational runbooks, session lifecycle pages, troubleshooting surfaces, and control flows.",

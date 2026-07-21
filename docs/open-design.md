@@ -21,7 +21,7 @@ AOC's biggest design-quality gap is that terminal-only prompts do not provide a 
 
 AOC then adds what OD does not try to own:
 
-- repo/task/spec/STM/Mind provenance
+- repo/task/spec provenance
 - project integration and implementation handoff
 - durable imported artifact paths
 - HyperFrames campaign scale-out
@@ -31,7 +31,7 @@ AOC then adds what OD does not try to own:
 
 | Layer | Owns | Does not own |
 |---|---|---|
-| **Open Design** | GUI design studio, prototypes, decks, templates, design systems, preview/export loop | AOC tasks, STM/Mind, project operating contract |
+| **Open Design** | GUI design studio, prototypes, decks, templates, design systems, preview/export loop | AOC tasks and project operating contract |
 | **AOC** | Project OS, context, tasks/specs, provenance, install/run/import bridge, implementation/campaign handoff | Rebuilding OD's GUI design studio |
 | **HyperFrames** | Durable project-local video/campaign factory, reusable media assets, renders, shotlists | Generic UI design iteration |
 | **html-video** | Motion/storyboard meta-layer, ContentGraph, template/studio flow, local MP4 export through HyperFrames | AOC approvals, provenance, or brand strategy source of truth |
@@ -127,7 +127,7 @@ AOC auth/proxy → local OpenAI-compatible endpoint → OD provider config
 
 Until that bridge is verified, configure OD providers inside OD or run OD through a local agent adapter that already has auth.
 
-Security warning: Do not put API keys, OAuth tokens, cookies, or private credentials in `.aoc/open-design/link.json`, specs, STM, commits, or imported artifact metadata.
+Security warning: Do not put API keys, OAuth tokens, cookies, or private credentials in `.aoc/open-design/link.json`, specs, commits, or imported artifact metadata.
 
 ## Recommended design journey
 
@@ -152,7 +152,7 @@ Use AOC after OD for:
 
 - converting a polished design into Taskmaster implementation work
 - promoting reviewed OD `DESIGN.md` into root `DESIGN.md`
-- linking artifact paths in specs/tasks/STM/Mind
+- linking artifact paths in specs and tasks
 - turning approved direction into HyperFrames campaign assets
 - preserving decisions and proof in commits/release notes
 
@@ -206,7 +206,7 @@ An imported artifact is safe to reference from:
 - design review notes
 - HyperFrames shotlists/briefs
 - commit trailers
-- STM/Mind provenance entries
+- project provenance records
 
 ## Handoff into implementation
 

@@ -1,6 +1,6 @@
 ---
 name: aoc-init-ops
-description: Initialize or repair AOC context, memory, and tasks safely.
+description: Initialize or repair AOC context, tooling, and tasks safely.
 ---
 
 ## When to use
@@ -15,8 +15,6 @@ description: Initialize or repair AOC context, memory, and tasks safely.
 ## What it does
 - Creates `.aoc/` and `.taskmaster/` if missing
 - Generates `.aoc/context.md`
-- Seeds `.aoc/memory.md`
-- Seeds `.aoc/stm/current.md` and `.aoc/stm/archive/` without overwriting existing STM files
 - Ensures spec directory `.taskmaster/docs/specs/` is available for tag/task links
 - Seeds project OMP assets under `.omp/extensions/`, `.omp/agents/`, `.omp/skills/`, and `.omp/manifest.toml`
 - Keeps `.omp/manifest.toml` as the full OMP inventory plus profile tables

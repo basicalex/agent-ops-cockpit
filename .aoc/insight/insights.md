@@ -14,7 +14,7 @@ Append-only entries for high-signal teaching insights.
 - timestamp: 2026-02-15T17:57:57Z
   subsystem: ingestion/parsing/chunking
   insight: Current implementation provides deterministic repository chunking via RLM, but no staged ingest pipeline exists in this checkout.
-  evidence: `crates/aoc-cli/src/rlm.rs`, `.aoc/memory.md`
+  evidence: `crates/aoc-cli/src/rlm.rs`
   confidence: high
   suggested action: Define whether RLM chunking is the intended long-term ingestion layer or add explicit ingest stages.
   promote to memory: no

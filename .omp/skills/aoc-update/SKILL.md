@@ -19,7 +19,6 @@ Workflow:
 - Identify the current user request, task, subtask, spec, or PRD.
 - Inspect task/spec with `tm`/`aoc-task` when applicable.
 - Use `.aoc/context.md` for orientation.
-- Use focused Mind context only when needed and with an explicit reason.
 
 2. Classify lifecycle surfaces
 For every change, decide which surfaces are affected:

@@ -8,7 +8,7 @@ html-video is the motion/storyboard engine from the Open Design team. In AOC it 
 | --- | --- | --- |
 | Open Design | Visual/design exploration and GUI iteration | Campaign provenance or rendering internals |
 | AOC | Strategy, approvals, manifests, project-local assets, OMP workflow | Silently installing html-video or owning its engine internals |
-| html-video | ContentGraph/storyboard, templates, studio preview, local MP4 export | AOC task/spec/Mind state |
+| html-video | ContentGraph/storyboard, templates, studio preview, local MP4 export | AOC task/spec state |
 | HyperFrames | Default HTML/CSS/GSAP render/source engine | Brand approval decisions |
 | Prism | System-of-record import of AOC creative manifests, status, reviews, and audit state | First-pass rendering implementation or html-video internals |
 

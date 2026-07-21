@@ -59,7 +59,7 @@ Workflow:
 
 3. Inspect candidate state filesets
 Default AOC state filesets:
-- .aoc/ excluding logs, locks, .aoc/mind/, .aoc/tools/, and backups
+- .aoc/ excluding logs, locks, .aoc/tools/, and backups
 - .taskmaster/ excluding logs and locks
 - .omp/extensions/
 - .omp/agents/

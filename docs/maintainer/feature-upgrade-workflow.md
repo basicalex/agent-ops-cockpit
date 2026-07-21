@@ -12,7 +12,6 @@ User Idea
     v
 [1] Discovery & Analysis
     - Explore codebase for relevant code
-    - Read memory.md for past decisions
     - Identify scope and constraints
     |
     v
@@ -39,11 +38,6 @@ User Idea
     - Add to ROADMAP.md with phase/timeline
     - Note blockers and external dependencies
     - Include contribution opportunities
-    |
-    v
-[6] Memory Recording
-    - Log decision in memory.md
-    - Reference task ID and roadmap phase
 ```
 
 ---
@@ -51,10 +45,7 @@ User Idea
 ## Step 1: Discovery & Analysis
 
 Before proposing anything, understand the current state:
-
 ```bash
-# Read project memory for context
-aoc-mem read
 
 # Check existing tasks
 aoc-task list
@@ -181,22 +172,6 @@ If blocked by external projects, include:
 
 ---
 
-## Step 6: Memory Recording
-
-Log the decision for future agents:
-
-```bash
-aoc-mem add "Brief summary: what was decided, task ID, roadmap phase."
-```
-
-### Memory Entry Format
-
-```
-Added FEATURE_NAME: [brief description]. Created task #XX with N subtasks. 
-Roadmap Phase N. [Any blockers or key decisions.]
-```
-
----
 
 ## Template: New Feature Proposal
 
@@ -251,21 +226,12 @@ This feature was planned using the above process:
 - Noted native Windows multiplexer limitations as external blocker
 - Included contribution encouragement for upstream terminal-multiplexer projects
 
-### Memory
-```
-Added ROADMAP.md documenting cross-platform vision: multi-shell terminal
-support (Phase 1), script portability (Phase 2), alternative multiplexer
-research (Phase 3), and native Windows (Phase 4, blocked by current multiplexer support).
-Created task #41 for multi-shell implementation with 6 subtasks.
-```
 
 ---
 
 ## Quick Reference
 
 ```bash
-# Explore codebase
-aoc-mem read
 aoc-task list
 
 # Create feature task
@@ -274,8 +240,6 @@ aoc-task add "Title" --priority high --description "..."
 # Add subtasks
 aoc-task sub add <ID> "Subtask" --desc "..."
 
-# Record decision
-aoc-mem add "Summary of decision and task IDs"
 
 # Update roadmap
 # Edit ROADMAP.md with new phase
@@ -287,11 +251,9 @@ aoc-mem add "Summary of decision and task IDs"
 
 When the user proposes a new feature:
 
-- [ ] Read `memory.md` for relevant past decisions
 - [ ] Explore codebase to understand current architecture
 - [ ] Ask clarifying questions (scope, priority, constraints)
 - [ ] Present structured proposal with options
 - [ ] Create parent task with subtasks in taskmaster
 - [ ] Add to ROADMAP.md with appropriate phase
-- [ ] Record decision in memory.md
 - [ ] Summarize what was created for user

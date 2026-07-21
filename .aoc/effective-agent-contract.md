@@ -3,32 +3,30 @@
 Generated from layered AGENTS.md policy. Do not edit this generated output directly; edit source AGENTS.md files instead.
 
 ## Sources
-- workspace: `~/dev/AGENTS.md` (4897 bytes)
-- project: `~/dev/agent-ops-cockpit/AGENTS.md` (6861 bytes)
+- global: `~/AGENTS.md` (7861 bytes)
+- workspace: `~/dev/AGENTS.md` (6861 bytes)
+- project: `~/dev/agent-ops-cockpit/AGENTS.md` (4668 bytes)
 - precedence: project > workspace > global
-- source hash: `8a596bfa795db0f8`
-- raw AGENTS bytes: 11758
+- source hash: `76c1a27a5622c118`
+- raw AGENTS bytes: 19390
 
 ## Hard rules
 - Use `.aoc/context.md` for orientation; run `aoc-init` if it is missing or stale.
-- Do not read `.aoc/memory.md`, `.aoc/stm/current.md`, or `.taskmaster/tasks/tasks.json` directly; use AOC CLI commands.
+- Do not read `.taskmaster/tasks/tasks.json` directly; use Taskmaster CLI commands.
 - Use root `DESIGN.md` before UI, docs-site, marketing, HyperFrames, or product-facing work when present.
 
-## Startup and Mind policy
-- Use `aoc-handshake --json` as the metadata-only startup packet, including VCS mode and preferred command family.
-- Do not load broad Mind memories during startup.
-- Request focused Mind context only after user intent is known and include an explicit reason.
-- Use Git for repository changes.
+## Startup policy
+- Use `aoc-handshake --json` as the metadata-only startup packet, including Git repository state.
 
 ## Project overrides
 - Use root `DESIGN.md` as the visual/product design contract before UI, docs-site, marketing, HyperFrames, or other product-facing work.
-- Request focused Mind context only after user intent is known, for resume/continuation, prior decisions, task/spec grounding, debugging previous attempts, provenance/audit, or when targeted local inspection is insufficient.
 - If targeted inspection fails, escalate scope gradually and state why.
 - Tasks: `tm tag current`, `tm tag spec show`, `aoc-task tag spec show --tag <tag>`, `aoc-task spec show <id> --tag <tag>`
 - VCS: inspect detected mode with `aoc-handshake --json`; use `git status`/`git diff` in Git repositories.
 - `DESIGN.md`: project-wide visual/product design contract; subsystem design docs extend it.
 - `.taskmaster/docs/specs/`: spec documents linked to tags and tasks; `.taskmaster/docs/prds/` remains legacy-compatible.
 - Tag default specs are currently stored via legacy key `aocPrd`; resolve with `aoc-task tag spec show --tag <tag>`.
+- Task spec overrides are currently stored via legacy key `aocPrd`; resolve with `aoc-task spec show <id> --tag <tag>`.
 
 ## Lightweight validation
 - Prefer OMP `lsp diagnostics` on touched files/globs for edit-loop validation before running build, lint, or typecheck commands.
@@ -37,9 +35,7 @@ Generated from layered AGENTS.md policy. Do not edit this generated output direc
 - In delegated multi-agent work, subagents should skip project-wide validation unless explicitly assigned.
 - Final verification is still required; choose the smallest targeted command that proves the changed behavior.
 
-## Task, memory, and STM commands
-- Memory: `aoc-mem read`, `aoc-mem add`, `aoc-mem search`.
-- STM handoff layer: `aoc-stm status`, `aoc-stm template`, `aoc-stm resume`, `aoc-stm handoff`, `aoc-stm add` (handoffs only; durable decisions use `aoc-mem`).
+## Task and project commands
 - Tasks/specs: `tm list`, `tm show <id>`, `tm add`, `tm sub ...`, `tm tag current`, `tm tag spec show`.
 - AOC health: `aoc-init`, `aoc-handshake --json`, `aoc-rtk status`, `aoc-rtk doctor`.
 - VCS: inspect mode with `aoc-handshake --json`; use Git commands for Git repositories.

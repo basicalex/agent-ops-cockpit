@@ -31,7 +31,7 @@ aoc-skill validate --root .
 ```
 
 to seed or repair project-local AOC assets and sync the extensions, agent templates, and skills selected by active OMP capability profiles.
-Default/core profiles use OMP/Mnemopi as the memory plane. Retired Mind and lexicon integrations are not part of the active AOC runtime.
+Default/core profiles use OMP/Mnemopi for retained context. Retired provenance and lexicon integrations are not part of the active AOC runtime.
 
 ## Model/auth setup
 
@@ -54,7 +54,7 @@ aoc-skill sync --root .
 aoc-skill validate --root .
 ```
 
-Useful former prompt workflows are now OMP skills such as `aoc-update` and `aoc-stm`. No project prompt registry is active.
+Useful former prompt workflows are now OMP skills such as `aoc-update`. No project prompt registry is active.
 
 Herdr peer observation is a native `herdr` workflow taught by the default/core `herdr-agent-observation` skill. Use it for read-only workspace, agent, pane, tab, and transcript observation before escalating to master orchestration.
 

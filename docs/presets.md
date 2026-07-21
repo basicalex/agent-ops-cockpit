@@ -14,7 +14,6 @@ A preset is **not**:
 - a nested-skill runtime
 - a replacement for Herdr workspaces or tabs
 - a replacement for skills
-- part of AOC Mind
 
 ## Runtime-first model
 
@@ -213,8 +212,3 @@ Use these terms consistently:
 - **primary flow**: `aoc` then live preset switching
 - **convenience bootstrap**: `aoc.design` preactivating a preset at startup
 
-## Separation from AOC Mind
-
-AOC Mind remains a separate subsystem.
-
-Presets may later consume Mind-derived context explicitly, but the preset framework does not require Mind to function.

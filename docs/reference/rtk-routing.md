@@ -151,7 +151,6 @@ aoc-rtk install --auto
 
 RTK is separate from:
 
-- AOC Mind: Mind stores/retrieves project knowledge; RTK condenses command output.
 - Taskmaster: tasks track work; RTK may condense task command output.
 - Mission Control: Mission Control observes session/runtime state; RTK operates at command execution/output level.
 - Security controls: RTK is not a secret scanner or sandbox.

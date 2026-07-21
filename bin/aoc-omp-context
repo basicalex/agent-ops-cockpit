@@ -140,7 +140,7 @@ print_fast_context() {
 - VCS: $vcs_line. Safety rule: $policy_line.
 - Taskmaster: $task_line
 - RTK status command: $rtk_line
-- Protected direct reads: \`.aoc/memory.md\`, \`.aoc/stm/current.md\`, \`.taskmaster/tasks/tasks.json\`.
+- Protected direct reads: \`.taskmaster/tasks/tasks.json\`.
 EOF
   print_style_hooks
 }

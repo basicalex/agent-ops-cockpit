@@ -308,7 +308,7 @@ Theme management is outside the default Herdr-first AOC cockpit surface. Use dir
 
 ## Per-Project Configuration
 
-AOC uses a **Distributed Cognitive Architecture** with four layers:
+AOC uses a project-local configuration model:
 
 ### 1. Project Context (`.aoc/context.md`)
 
@@ -316,22 +316,18 @@ AOC uses a **Distributed Cognitive Architecture** with four layers:
 - **Content:** Project-specific snapshot (repo facts, VCS mode, Git branch when present, key files, structure tree, README headings, workstream tags, task PRD location)
 - **Refresh:** `aoc-init` (manual) or `aoc-watcher` (auto)
 
-### 2. Long-Term Memory (`.aoc/memory.md`)
 
-- **Purpose:** Persistent architectural decisions
-- **Access:** `aoc-mem read` (start of task), `aoc-mem add` (decisions)
-
-### 3. Task State (`.taskmaster/tasks/tasks.json`)
+### 2. Task State (`.taskmaster/tasks/tasks.json`)
 
 - **Purpose:** Active work queue
 - **Management:** `aoc-task` commands
 
-### 4. RTK Routing Policy (`.aoc/rtk.toml`)
+### 3. RTK Routing Policy (`.aoc/rtk.toml`)
 
 - **Purpose:** Project-local routing mode, allowlist/denylist, and pinned install contract
 - **Management:** `aoc-rtk status|enable|disable|doctor|install --auto`
 
-### 5. Search Configuration (`.aoc/search.toml`)
+### 4. Search Configuration (`.aoc/search.toml`)
 
 - **Purpose:** Project-local managed search contract
 - **Management:** `aoc services`, `aoc-services`, or `bin/aoc-search`

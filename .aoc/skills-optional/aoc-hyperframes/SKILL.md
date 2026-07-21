@@ -1,6 +1,6 @@
 ---
 name: aoc-hyperframes
-description: Umbrella production mode for operating HyperFrames inside AOC. Use for HyperFrames workspace architecture, reusable asset systems, campaign packs, brand motion systems, render/export conventions, inventories, retrospectives, and Mind/AOC provenance. For low-level composition authoring use the hyperframes skill; for CLI commands use hyperframes-cli.
+description: Umbrella production mode for operating HyperFrames inside AOC. Use for HyperFrames workspace architecture, reusable asset systems, campaign packs, brand motion systems, render/export conventions, inventories, retrospectives, and project provenance. For low-level composition authoring use the hyperframes skill; for CLI commands use hyperframes-cli.
 ---
 
 # AOC HyperFrames
@@ -135,11 +135,11 @@ Use `aoc-hyperframes` for factory operations:
 - Ask before rendering long videos or running broad asset transformations.
 - Keep responses concise; summarize large inventories.
 
-## Mind/AOC provenance
+## AOC provenance
 
-Record major decisions with `aoc-mem add` when they affect reusable production rules, e.g. workspace contract, export naming, brand motion grammar, campaign message families.
+Record reusable production rules in the project’s tracked design, inventory, and retrospective files.
 
-Good artifacts for Mind/project intelligence:
+Good artifacts for project provenance:
 
 - `hyperframes/docs/DESIGN.md`
 - `hyperframes/docs/asset-inventory.md`

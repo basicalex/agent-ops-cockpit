@@ -1,11 +1,13 @@
 {
   "schemaVersion": 1,
-  "projectAocVersion": 3,
+  "projectAocVersion": 4,
   "previousProjectAocVersion": 3,
-  "lastInitializedAt": "2026-07-08T00:39:49.563934Z",
+  "lastInitializedAt": "2026-07-21T07:54:53.236425Z",
   "lastInitScriptDir": "/home/ceii/dev/agent-ops-cockpit/bin",
   "runtime": {
     "canonical": "omp"
   },
-  "migrationsApplied": []
+  "migrationsApplied": [
+    "v4-retired-memory-cleanup"
+  ]
 }

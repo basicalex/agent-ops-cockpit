@@ -56,7 +56,6 @@ Workflow:
 2. Resolve provenance
 - Identify relevant task/subtask/spec from recent implementation context, Taskmaster, or explicit user instructions.
 - Use tm/aoc-task only when it materially improves commit provenance.
-- Do not use broad Mind/STM recall unless a focused missing-provenance question requires it.
 
 3. Plan atomic commit(s)
 - Start prompt-first: infer the intended commit slice from the /commit arguments; if they are empty, use the current completed work from the session.

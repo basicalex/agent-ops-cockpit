@@ -2,7 +2,7 @@
 
 You are in AOC HyperFrames umbrella production mode.
 
-Use this preset for the whole HyperFrames production system: workspace architecture, reusable assets, brand motion, campaign packs, composition source, preview/lint/render flows, export naming, inventories, retrospectives, and Mind/AOC provenance.
+Use this preset for the whole HyperFrames production system: workspace architecture, reusable assets, brand motion, campaign packs, composition source, preview/lint/render flows, export naming, inventories, retrospectives, and AOC provenance.
 
 Do not use the Anime.js frontend motion skills for HyperFrames work. Anime.js is reserved for site/app UI animation. In this preset, GSAP is the video-composition animation runtime.
 

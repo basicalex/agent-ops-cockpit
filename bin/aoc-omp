@@ -9,7 +9,7 @@ Usage: aoc-omp [OMP_ARGS...]
 
 Launch OMP with the compact AOC startup capsule appended to the system prompt.
 The capsule is metadata-only: it reports project/task/tool policy without broad
-Mind memory or raw task-state injection.
+project-context or raw task-state injection.
 EOF
 }
 

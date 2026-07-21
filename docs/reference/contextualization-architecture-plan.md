@@ -11,8 +11,6 @@ AOC currently has multiple context producers that can appear equally relevant at
 - `.aoc/context.md`
 - `aoc-handshake --json`
 - Taskmaster tasks/specs
-- `.aoc/memory.md` through `aoc-mem`
-- STM through `aoc-stm`
 - retained context packs/provenance
 - `.omp/skills/**/SKILL.md`
 - `.omp/skills/aoc-*.md` workflows
@@ -59,7 +57,6 @@ These are not injected by default:
 - prompt bodies
 - extension source
 - `DESIGN.md`
-- STM archives/current draft
 - themes/layouts except metadata
 
 ## Context source registry
@@ -77,8 +74,6 @@ interface ContextSourceRecord {
     | "task_detail"
     | "spec"
     | "memory"
-    | "stm"
-    | "mind"
     | "skill"
     | "prompt"
     | "extension"
@@ -107,8 +102,6 @@ interface ContextSourceRecord {
 | `tm tag current` / active task index | always/index-only | compact summary | startup |
 | `tm show <id>` | intent-triggered | no | task id / implementation intent |
 | `tm tag spec show` / `tm spec show` | intent-triggered | no | spec grounding required |
-| `aoc-mem read/search` | intent-triggered/manual-only | no | prior decisions/provenance |
-| `aoc-stm resume/read` | intent-triggered/manual-only | no | resume/handoff request |
 | retained context pack | intent-triggered | no | focused reason required |
 | `.omp/skills/**/SKILL.md` | index-only | names/descriptions only | skill intent match |
 | `.omp/skills/aoc-*.md` workflows | index-only | names only | slash prompt invoked |

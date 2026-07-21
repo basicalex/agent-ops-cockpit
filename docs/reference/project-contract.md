@@ -32,7 +32,6 @@ High-churn/runtime artifacts remain ignored:
 
 ```text
 /.aoc/logs/
-/.aoc/mind/
 /.aoc/tools/
 /.taskmaster/logs/
 /.taskmaster/**/*.log

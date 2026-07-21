@@ -233,8 +233,7 @@ Install the lean Herdr-first AOC workspace config and OMP-native AOC tools.
 
 This installs the Herdr config baseline, Herdr OMP integration, AOC OMP
 extensions such as CodeGraph, /commit, /brand-content, and AOC OMP specialist
-agent templates. It installs the read-only AOC Mind OMP extension, but does not
-install legacy Mind cockpit/runtime assets, Zellij layouts, the AOC top bar, or
+agent templates. It does not install legacy Zellij layouts, the AOC top bar, or
 AOC subagent/Mission Control assets.
 EOF
 }

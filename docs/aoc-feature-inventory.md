@@ -7,7 +7,7 @@ This inventory defines the Herdr/OMP cutover target. AOC should become a project
 | Feature | Current files / commands | Future owner | Notes |
 |---|---|---|---|
 | Familiar launcher | `bin/aoc`, `bin/aoc-herdr-launch` | AOC + Herdr | `aoc` should launch/focus Herdr. |
-| OMP launcher/context | `bin/aoc-omp`, `bin/aoc-omp-context`, `bin/aoc-handshake --prompt/--json` | AOC + OMP | Metadata-only startup capsule; no broad Mind injection. |
+| OMP launcher/context | `bin/aoc-omp`, `bin/aoc-omp-context`, `bin/aoc-handshake --prompt/--json` | AOC + OMP | Metadata-only startup capsule; no broad project-context injection. |
 | Taskmaster integration | `bin/aoc-task`, `bin/tm`, `bin/aoc-tm`, `crates/aoc-taskmaster` | AOC | Keep as task/spec source of truth. |
 | CodeGraph | `.omp/extensions/aoc-codegraph.ts`, `codegraph` CLI | OMP extension | Read-only agent discovery; indexing/sync remains operator-controlled. |
 | Master orchestration | `.omp/extensions/aoc-master.ts`, `/master`, `aoc_orchestrate` | OMP extension + Herdr | Keep as gated peer coordination. Requires an active master lease for the current pane; mutating surface is bounded text sends only, after read-only observation through native `herdr` and the `herdr-agent-observation` skill. |

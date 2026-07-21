@@ -1,9 +1,9 @@
 {
-  "aocAssetVersion": 3,
+  "aocAssetVersion": 4,
   "assets": {
     ".aoc/presets/design": {
       "asset": "preset/design",
-      "assetVersion": 3,
+      "assetVersion": 4,
       "expectedSha256": "13624ad686bd5868a0d34fa6bb574eebd1ae2f07d30b8bcc5ee6faa36132f5b3",
       "marker": ".aoc/presets/design/.aoc-managed",
       "sha256": "13624ad686bd5868a0d34fa6bb574eebd1ae2f07d30b8bcc5ee6faa36132f5b3",
@@ -12,25 +12,25 @@
     },
     ".aoc/presets/hyperframes": {
       "asset": "preset/hyperframes",
-      "assetVersion": 3,
-      "expectedSha256": "8421e2403e9369d59ede12fae7689ebe72c4ec432d04f2dc7619853a3498d8c9",
+      "assetVersion": 4,
+      "expectedSha256": "e35aa4706b8911d231f4a16628796639729c5705b9b7dfd8e3acb803d907df85",
       "marker": ".aoc/presets/hyperframes/.aoc-managed",
-      "sha256": "8421e2403e9369d59ede12fae7689ebe72c4ec432d04f2dc7619853a3498d8c9",
+      "sha256": "e35aa4706b8911d231f4a16628796639729c5705b9b7dfd8e3acb803d907df85",
       "source": ".aoc/presets/hyperframes",
       "status": "current"
     },
     ".aoc/presets/ops": {
       "asset": "preset/ops",
-      "assetVersion": 3,
-      "expectedSha256": "4df04e6d9fc10cccea36d4cc968ab45cbdb566f3dc927697ceb15e373ccf88f8",
+      "assetVersion": 4,
+      "expectedSha256": "f1745fad936dc9694b579b22f2e34a4424444b83efed5ebc4ea72d86ae4b57eb",
       "marker": ".aoc/presets/ops/.aoc-managed",
-      "sha256": "4df04e6d9fc10cccea36d4cc968ab45cbdb566f3dc927697ceb15e373ccf88f8",
+      "sha256": "f1745fad936dc9694b579b22f2e34a4424444b83efed5ebc4ea72d86ae4b57eb",
       "source": ".aoc/presets/ops",
       "status": "current"
     },
     ".aoc/presets/research": {
       "asset": "preset/research",
-      "assetVersion": 3,
+      "assetVersion": 4,
       "expectedSha256": "63a9d70188308f7fff87833106899f8ee8feacd0d0e57ae40972d6ea72341951",
       "marker": ".aoc/presets/research/.aoc-managed",
       "sha256": "63a9d70188308f7fff87833106899f8ee8feacd0d0e57ae40972d6ea72341951",
@@ -39,7 +39,7 @@
     },
     ".aoc/presets/test": {
       "asset": "preset/test",
-      "assetVersion": 3,
+      "assetVersion": 4,
       "expectedSha256": "10a772f8e8f5d809d65e0e72ea5d928ff5882339cf45b1e292d1951c77679fce",
       "marker": ".aoc/presets/test/.aoc-managed",
       "sha256": "10a772f8e8f5d809d65e0e72ea5d928ff5882339cf45b1e292d1951c77679fce",
@@ -60,16 +60,16 @@
       "assetVersion": 3,
       "expectedSha256": "bc00cd80c8dfccf5481ff3f88f84a70760457476ccc5c78ee059d058a8d12edb",
       "marker": ".omp/extensions/.aoc-managed",
-      "sha256": "26822b9f70ed0aeaa8a01ba57c5ace73a23db20f34fcbfb3e65225bca8ba3521",
+      "sha256": "078e8df97c7eb84bebf4a08ad371db13c5f98de6c4a0379b8a01b6b5e7e514ea",
       "source": "../.config/aoc/omp/extensions",
       "status": "dirty"
     },
     ".omp/manifest.toml": {
       "asset": "omp-manifest",
-      "assetVersion": 3,
-      "expectedSha256": "27d81be40067fc7433d85532ec7b4382a6a8a3ff59e926b905276145af6b03cd",
+      "assetVersion": 4,
+      "expectedSha256": "952280e8905dda1d8001b94e61d2f9c455a827a7cb0735c0f1d38bdc30ebca40",
       "marker": ".omp/manifest.toml.aoc-managed",
-      "sha256": "27d81be40067fc7433d85532ec7b4382a6a8a3ff59e926b905276145af6b03cd",
+      "sha256": "952280e8905dda1d8001b94e61d2f9c455a827a7cb0735c0f1d38bdc30ebca40",
       "source": ".omp/manifest.toml",
       "status": "current"
     },
@@ -78,7 +78,7 @@
       "assetVersion": 3,
       "expectedSha256": "2c29e2fc7768982ec838c393b2ed4d34fe2da49e799783d795bb90033de7e699",
       "marker": ".omp/skills/.aoc-managed",
-      "sha256": "e18c1f624ef32ff515b760f93d0700731fe348b9812e45e8363d6ca6c5e98e6c",
+      "sha256": "d77445f2c279a9c745d96735778f0deea212a95c2c8f541fe75fc220d5160cdf",
       "source": "../.config/aoc/omp/skills",
       "status": "dirty"
     },
@@ -87,16 +87,16 @@
       "assetVersion": 3,
       "expectedSha256": "69c2d4c7005c50d8218dd27e48d4ddc6689174d55672408cb0c8e1db6a5b65ca",
       "marker": ".omp/skills/aoc-hyperframes/.aoc-managed",
-      "sha256": "69c2d4c7005c50d8218dd27e48d4ddc6689174d55672408cb0c8e1db6a5b65ca",
+      "sha256": "325630d26d903ead6568f0f8decfb67cbabfcacb007a9e0a378ac547027b4bff",
       "source": "../.config/aoc/pi/skills/aoc-hyperframes",
-      "status": "current"
+      "status": "dirty"
     },
     ".omp/skills/aoc-init-ops": {
       "asset": "skill/aoc-init-ops",
       "assetVersion": 3,
       "expectedSha256": "58726bcb19041ae80310ee9937971277eb46c55746da92ec5fecd549c6127236",
       "marker": ".omp/skills/aoc-init-ops/.aoc-managed",
-      "sha256": "78919b0c9067aa451c1e9c00b54dd8c0564ada8569714ad2d78a88e5e790c4c3",
+      "sha256": "e52909e82492708a145f5c3af38d17959347689ad0453d8b65388a6b76f8b237",
       "source": "../.config/aoc/pi/skills/aoc-init-ops",
       "status": "dirty"
     },
@@ -222,9 +222,9 @@
       "assetVersion": 3,
       "expectedSha256": "015c50a2ecd29e00457384aa8a3a17c0731200058685d7478bbdf56ddff54d10",
       "marker": ".omp/skills/funnel-design/.aoc-managed",
-      "sha256": "015c50a2ecd29e00457384aa8a3a17c0731200058685d7478bbdf56ddff54d10",
+      "sha256": "7268621271e86cd965469c3e1ffd327b057d0e531ce4e7d6402b57ec1a26f787",
       "source": "../.config/aoc/pi/skills/funnel-design",
-      "status": "current"
+      "status": "dirty"
     },
     ".omp/skills/motion-director": {
       "asset": "skill/motion-director",
@@ -258,9 +258,9 @@
       "assetVersion": 3,
       "expectedSha256": "834f069461031316226821b6a7175210c1d48ea97e27855ae1280212a074f817",
       "marker": ".omp/skills/spec-rpg-authoring/.aoc-managed",
-      "sha256": "834f069461031316226821b6a7175210c1d48ea97e27855ae1280212a074f817",
+      "sha256": "9121d9f597a077e8d265b1136ad72f0345e1f6969b2def8ff57fe2f6bc29507a",
       "source": "../.config/aoc/pi/skills/spec-rpg-authoring",
-      "status": "current"
+      "status": "dirty"
     },
     ".omp/skills/tm-cc": {
       "asset": "skill/tm-cc",
@@ -273,11 +273,11 @@
     }
   },
   "counts": {
-    "current": 27,
-    "dirty": 3,
+    "current": 24,
+    "dirty": 6,
     "stale": 0,
     "unknown": 0
   },
   "schemaVersion": 1,
-  "updatedAt": "2026-07-08T00:39:49.479862Z"
+  "updatedAt": "2026-07-21T07:54:53.182283Z"
 }

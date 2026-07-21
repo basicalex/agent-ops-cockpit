@@ -16,6 +16,6 @@ aoc-skill sync --root .
 aoc-skill validate --root .
 ```
 
-`.omp/skills` is the source for skill bodies. `.omp/manifest.toml` profiles decide which canonical skills are active in the runtime install surface. Default/core keeps OMP/Mnemopi as the memory plane and leaves AOC Mind provenance skills/extensions to explicit provenance/full opt-in profiles. Legacy Pi skill paths are not active runtime evidence.
+`.omp/skills` is the source for skill bodies. `.omp/manifest.toml` profiles decide which canonical skills are active in the runtime install surface. Default/core keeps OMP/Mnemopi as the retained-context plane. Legacy Pi skill paths are not active runtime evidence.
 
 `herdr-agent-observation` is part of the default/core skill surface. It teaches agents to observe peers with native read-only `herdr` commands (`agent list/get/read/explain/wait`, pane/tab/workspace list/get/read) instead of an AOC-specific Herdr OMP tool.

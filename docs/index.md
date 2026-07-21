@@ -7,7 +7,7 @@ This is the human entrypoint. Start here before opening architecture or maintain
 1. [Quickstart](quickstart.md)
 2. [Installation](installation.md)
 3. [Herdr workspace](herdr-workspace.md)
-4. [Tasks and memory](tasks-memory.md)
+4. [Tasks and project context](tasks-memory.md)
 5. [Troubleshooting](troubleshooting.md)
 
 ## Common workflows
@@ -21,7 +21,7 @@ This is the human entrypoint. Start here before opening architecture or maintain
 | Safe commits `/commit` | [Commit intelligence](commit-intelligence.md) |
 | Code discovery `aoc_codegraph` | [Agent extensibility](agent-extensibility.md) |
 | DOX cartography `/dox` | [DOX cartography](dox-cartography.md) |
-| Track tasks and decisions | [Tasks and memory](tasks-memory.md) |
+| Track tasks and project context | [Tasks and project context](tasks-memory.md) |
 | Research the web | [Web research](web-research.md) |
 | Iterate visual designs in a GUI studio | [Open Design studio](open-design.md) |
 | Create video/campaign assets | [HyperFrames](hyperframes.md) |

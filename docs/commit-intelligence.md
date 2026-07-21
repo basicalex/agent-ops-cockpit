@@ -6,7 +6,7 @@ This first layer establishes a stable human and machine-readable convention that
 
 ## Why commits matter to AOC provenance
 
-AOC already links project understanding through PRDs, Taskmaster tasks, sessions, STM, memory, artifacts, file links, and provenance graphs. Git commits are durable implementation endpoints of that chain.
+AOC links project understanding through PRDs, Taskmaster tasks, sessions, artifacts, file links, and provenance graphs. Git commits are durable implementation endpoints of that chain.
 
 A commit can connect:
 
@@ -160,8 +160,8 @@ Examples:
 ```text
 feat(commit): add AOC commit prompt workflow
 docs(commit): define AOC trailer contract
-fix(mind): preserve focused context retrieval policy
-test(mind): cover provenance drilldown toggle
+fix(context): preserve focused retrieval policy
+test(provenance): cover artifact drilldown toggle
 ```
 
 ## Body guidance
@@ -192,7 +192,6 @@ AOC-PRD: <path>
 AOC-Intent: <short durable intent>
 AOC-Session: <pi/aoc session id>
 AOC-Provenance: <artifact/provenance id>
-AOC-STM: <handoff/checkpoint ref>
 Tests: <commands run or not run reason>
 Risk: low|medium|high; <reason>
 ```
@@ -284,7 +283,7 @@ diffstat
 linked_task_ids
 linked_prd_paths
 linked_session_ids
-linked_mind_artifact_ids
+linked_artifact_ids
 validation_evidence
 risk
 ```

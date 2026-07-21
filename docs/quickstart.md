@@ -48,10 +48,6 @@ aoc
 
 ```bash
 tm list                               # tasks
-aoc-mem add "decision"                # durable project decision
-aoc-stm template --purpose continue   # purpose-specific handoff shape
-aoc-stm add "note"                    # short-term handoff draft note
-aoc-stm handoff --purpose continue --to builder --focus "next safe step"
 aoc-doctor                            # health check
 ```
 
