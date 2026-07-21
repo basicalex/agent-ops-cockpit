@@ -16,3 +16,28 @@ This machine runs a delegation-first workflow. The main Claude (fable) session i
 Use the `/herdr-orchestrate` skill (user-level, `~/.claude/skills/herdr-orchestrate/`). It encodes the full protocol: spawning/discovering omp workers in herdr panes, writing assignment packets, dispatching, monitoring, and trust-but-verify. The judgment work — splitting scopes, designing contracts, verifying diffs, running tests — stays in this session.
 
 Workers are spawned with `omp` by default; user-requested fable workers launch with `claude --dangerously-skip-permissions` in the same tab-per-worker pattern (both register with herdr's agent detector, so agent status is reliable). The main session never asks workers to commit; it verifies and commits worker output itself.
+
+# Prose style (docs, PR text, commit messages, reports, UI/marketing copy)
+
+These rules govern prose only. Never touch code, identifiers, or precise technical terms.
+
+1. Cut every word that adds nothing; prefer the short word over the long one.
+2. Use the active voice, not the passive.
+3. Avoid stock metaphors and phrases you are used to seeing in print.
+4. No achievement language or filler jargon — "comprehensive", "robust", "seamless", "leverage", "ensure". Say what it does in everyday words.
+5. Break any of these rules sooner than write something awkward or imprecise.
+
+- Commit messages and PR descriptions: state what changed and why in plain words. A reviewer should know what it does in one read.
+- Progress reports: plain sentences — what changed, what failed, what comes next. No emoji checkmarks, no "Successfully", no walls of bullets.
+- Marketing/landing copy: one concrete claim per line; if a competitor could paste the line unchanged onto their page, rewrite or delete it.
+
+# Tooling
+
+- **Bun everywhere.** All current and future JS/TS projects use bun, never npm/yarn/pnpm: `bun install`, `bun run`, `bunx`. Scaffold new projects with bun, and if a repo somehow has an npm/yarn lockfile, converting it to bun is the expected fix, not an exception.
+
+## Headless-browser QA hygiene (all projects)
+
+- **Every Playwright/Puppeteer QA script must close its browser** in a `try/finally` (`browser.close()`), and be launched under a hard timeout (e.g. `timeout 900 bun script.ts`) so a hung run can't leak a browser. Bake this into worker packets that involve browser QA.
+- **Backstop:** the `qa-browser-reaper` systemd user timer (`~/.config/systemd/user/qa-browser-reaper.{service,timer}` → `~/.local/bin/qa-browser-reaper.sh`) runs every 30min and kills headless browsers older than 6h machine-wide. It only matches real browser binaries carrying `--headless`, so desktop browsers are never touched.
+- **Never ad-hoc mass-kill browser processes** by loose patterns (crashpad, profile dirs, etc.) — that killed the user's desktop Chrome on 2026-07-16. If zombies pile up before the reaper fires, run `systemctl --user start qa-browser-reaper.service` instead of hand-rolled kills.
+- Symptom check when a machine feels slow: `free -h` (swap) + `ps -eo pid,etimes,args | grep -- --headless | awk '$2>21600'` before blaming the app.

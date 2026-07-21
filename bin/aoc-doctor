@@ -24,6 +24,9 @@ project_root="$PWD"
 aoc_project_dir="$project_root/.aoc"
 aoc_init_state_file="$aoc_project_dir/init-state.json"
 omp_agent_config_file="${AOC_OMP_AGENT_CONFIG:-$HOME/.omp/agent/config.yml}"
+script_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+seed_cache="${XDG_CONFIG_HOME:-$HOME/.config}/aoc/global-seeds"
+local_bin="$HOME/.local/bin"
 
 have() { command -v "$1" >/dev/null 2>&1; }
 have_bat() { have bat || have batcat; }
@@ -45,8 +48,81 @@ sha256_file() {
   return 1
 }
 
+find_seed() {
+  local relative_path="$1"
+  local cached_name="$2"
+  local candidate
+  local candidates=(
+    "$script_root/$relative_path"
+    "$PWD/$relative_path"
+    "$seed_cache/$cached_name"
+  )
+  if [[ -n "${AOC_SOURCE_ROOT:-}" ]]; then
+    candidates=("$AOC_SOURCE_ROOT/$relative_path" "${candidates[@]}")
+  fi
+  for candidate in "${candidates[@]}"; do
+    if [[ -f "$candidate" ]]; then
+      printf '%s\n' "$candidate"
+      return 0
+    fi
+  done
+  return 1
+}
+
+interactive_path_has_local_bin() {
+  local shell_path="${SHELL:-}"
+  local shell_name="${shell_path##*/}"
+  if [[ -x "$shell_path" ]]; then
+    case "$shell_name" in
+      fish)
+        "$shell_path" -ic 'contains -- "$HOME/.local/bin" $PATH' >/dev/null 2>&1
+        return
+        ;;
+      bash|zsh)
+        "$shell_path" -ic 'case ":$PATH:" in *":$HOME/.local/bin:"*) exit 0 ;; *) exit 1 ;; esac' >/dev/null 2>&1
+        return
+        ;;
+    esac
+  fi
+  case ":$PATH:" in
+    *":$local_bin:"*) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+python311_or_newer() {
+  have python3 && python3 -c 'import sys; raise SystemExit(0 if sys.version_info >= (3, 11) else 1)' >/dev/null 2>&1
+}
+
+seed_status() {
+  local seed="$1"
+  local live="$2"
+  local seed_hash live_hash
+  [[ -f "$live" ]] || {
+    printf 'missing'
+    return
+  }
+  [[ -n "$seed" && -f "$seed" ]] || {
+    printf 'unverifiable'
+    return
+  }
+  seed_hash="$(sha256_file "$seed" || true)"
+  live_hash="$(sha256_file "$live" || true)"
+  if [[ -z "$seed_hash" || -z "$live_hash" ]]; then
+    printf 'unverifiable'
+  elif [[ "$seed_hash" == "$live_hash" ]]; then
+    printf 'current'
+  else
+    printf 'stale'
+  fi
+}
+
 
 read_project_aoc_version() {
+  if ! have python3; then
+    echo 0
+    return
+  fi
   python3 - "$aoc_init_state_file" <<'PY'
 import json
 import sys
@@ -106,6 +182,7 @@ detect_task_control_backend() {
 }
 
 detect_pm() {
+  if [[ "$(uname -s)" == "Darwin" ]] && have brew; then echo "brew"; return; fi
   if have apt-get; then echo "apt"; return; fi
   if have dnf; then echo "dnf"; return; fi
   if have pacman; then echo "pacman"; return; fi
@@ -115,6 +192,10 @@ detect_pm() {
 }
 
 pm="$(detect_pm)"
+claude_seed="$(find_seed "claude/CLAUDE.global.md" "CLAUDE.global.md" || true)"
+agents_seed="$(find_seed "claude/AGENTS.global.md" "AGENTS.global.md" || true)"
+claude_seed_status="$(seed_status "$claude_seed" "$HOME/.claude/CLAUDE.md")"
+agents_seed_status="$(seed_status "$agents_seed" "$HOME/AGENTS.md")"
 task_control_backend="$(detect_task_control_backend || true)"
 
 hint_for() {
@@ -287,8 +368,6 @@ project_aoc_version="$(read_project_aoc_version)"
 
 if [[ -d "$project_root/.aoc" ]]; then
   [[ -f "$project_root/.aoc/context.md" ]] || project_runtime_issues+=("missing project context: .aoc/context.md")
-  [[ -f "$project_root/.aoc/memory.md" ]] || project_runtime_issues+=("missing project memory: .aoc/memory.md")
-  [[ -f "$project_root/.aoc/stm/current.md" ]] || project_runtime_issues+=("missing project STM draft: .aoc/stm/current.md")
   [[ -f "$project_root/.aoc/rtk.toml" ]] || project_runtime_warnings+=("missing RTK config: .aoc/rtk.toml")
   [[ -f "$aoc_init_state_file" ]] || project_runtime_warnings+=("missing init state: .aoc/init-state.json (run 'aoc-init' to record project AOC version)")
 else
@@ -322,16 +401,6 @@ if [[ "$quiet" -eq 0 ]]; then
     echo "    [ok] context.md present"
   else
     echo "    [missing] context.md"
-  fi
-  if [[ -f ".aoc/memory.md" ]]; then
-    echo "    [ok] memory.md present"
-  else
-    echo "    [missing] memory.md"
-  fi
-  if [[ -f ".aoc/stm/current.md" ]]; then
-    echo "    [ok] stm/current.md present"
-  else
-    echo "    [missing] stm/current.md"
   fi
   if [[ -f ".aoc/rtk.toml" ]]; then
     echo "    [ok] rtk.toml present"
@@ -378,6 +447,40 @@ if [[ "$quiet" -eq 0 ]]; then
       echo "      - Inspect project state with 'aoc-init --status'."
     fi
   fi
+  echo
+
+  echo "Machine Setup:"
+  if interactive_path_has_local_bin; then
+    echo "  [ok] ~/.local/bin is on interactive shell PATH"
+  else
+    echo "  [warn] ~/.local/bin is missing from interactive shell PATH"
+  fi
+  if python311_or_newer; then
+    echo "  [ok] python3 >= 3.11 ($(python3 --version 2>&1))"
+  elif have python3; then
+    echo "  [warn] python3 >= 3.11 required; found $(python3 --version 2>&1)"
+  else
+    echo "  [warn] python3 >= 3.11 missing"
+  fi
+  for tool in bun omp herdr jj; do
+    if have "$tool"; then
+      echo "  [ok] $tool"
+    else
+      echo "  [warn] $tool missing"
+    fi
+  done
+  case "$claude_seed_status" in
+    current) echo "  [ok] ~/.claude/CLAUDE.md matches seed" ;;
+    stale) echo "  [warn] ~/.claude/CLAUDE.md is stale" ;;
+    missing) echo "  [warn] ~/.claude/CLAUDE.md missing" ;;
+    *) echo "  [warn] ~/.claude/CLAUDE.md seed unavailable; cannot verify" ;;
+  esac
+  case "$agents_seed_status" in
+    current) echo "  [ok] ~/AGENTS.md matches seed" ;;
+    stale) echo "  [warn] ~/AGENTS.md is stale" ;;
+    missing) echo "  [warn] ~/AGENTS.md missing" ;;
+    *) echo "  [warn] ~/AGENTS.md seed unavailable; cannot verify" ;;
+  esac
   echo
 
   echo "Required Tools:"

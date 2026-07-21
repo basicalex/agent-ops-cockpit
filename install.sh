@@ -4,6 +4,40 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 BIN_DIR="$HOME/.local/bin"
 AOC_CONFIG_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/aoc"
+OS_NAME="$(uname -s)"
+SHELL_PATH_MARKER_BEGIN="# >>> agent-ops-cockpit PATH >>>"
+SHELL_PATH_MARKER_END="# <<< agent-ops-cockpit PATH <<<"
+
+ensure_shell_path_profiles() {
+  is_truthy "${AOC_SKIP_SHELL_PROFILE:-0}" && return 0
+
+  local fish_profile="$HOME/.config/fish/conf.d/aoc.fish"
+  local profile
+  mkdir -p "$(dirname "$fish_profile")"
+
+  if [[ ! -f "$fish_profile" ]] || ! grep -Fq "$SHELL_PATH_MARKER_BEGIN" "$fish_profile"; then
+    printf '\n' >>"$fish_profile"
+    cat >>"$fish_profile" <<EOF
+$SHELL_PATH_MARKER_BEGIN
+if not contains -- "\$HOME/.local/bin" \$PATH
+    set -gx PATH "\$HOME/.local/bin" \$PATH
+end
+$SHELL_PATH_MARKER_END
+EOF
+  fi
+
+  for profile in "$HOME/.zshrc" "$HOME/.bashrc"; do
+    if [[ -f "$profile" ]] && grep -Fq "$SHELL_PATH_MARKER_BEGIN" "$profile"; then
+      continue
+    fi
+    printf '\n' >>"$profile"
+    cat >>"$profile" <<EOF
+$SHELL_PATH_MARKER_BEGIN
+export PATH="\$HOME/.local/bin:\$PATH"
+$SHELL_PATH_MARKER_END
+EOF
+  done
+}
 is_truthy() {
   local value="${1:-}"
   value="$(printf '%s' "$value" | tr '[:upper:]' '[:lower:]')"
@@ -35,6 +69,7 @@ done
 
 # Ensure user-local bin is discoverable during install checks
 export PATH="$BIN_DIR:$PATH"
+ensure_shell_path_profiles
 
 # Ensure dirs exist
 mkdir -p "$BIN_DIR"
@@ -337,6 +372,7 @@ install_rust_binary() {
 
 
 detect_pm() {
+  if [[ "$OS_NAME" == "Darwin" ]] && have brew; then echo "brew"; return; fi
   if have apt-get; then echo "apt"; return; fi
   if have dnf; then echo "dnf"; return; fi
   if have pacman; then echo "pacman"; return; fi
@@ -462,6 +498,14 @@ install_tool() {
       pm_install "$tool" || warn "Failed to install $tool."
       ;;
     yazi)
+      if [[ "$OS_NAME" == "Darwin" ]]; then
+        if [[ "$pm" == "brew" ]]; then
+          pm_install yazi || warn "Failed to install yazi via Homebrew."
+        else
+          warn "Homebrew is required to install yazi on macOS."
+        fi
+        return
+      fi
       case "$pm" in
         brew|pacman|dnf|apk|apt|yum|zypper)
           pm_install yazi || warn "Failed to install yazi via package manager."
@@ -783,8 +827,14 @@ if ((${#missing_optional[@]} > 0)); then
 fi
 
 # Micro
-if ! command -v micro >/dev/null 2>&1; then
-  if [[ ! -f "$BIN_DIR/micro" ]]; then
+if ! have micro; then
+  if [[ "$OS_NAME" == "Darwin" ]]; then
+    if [[ "$pm" == "brew" ]]; then
+      pm_install micro || warn "Failed to install micro via Homebrew."
+    else
+      warn "Homebrew is required to install micro on macOS."
+    fi
+  elif [[ ! -f "$BIN_DIR/micro" ]]; then
     log "Downloading micro..."
     if have curl; then
       if ! curl -fsSL https://getmic.ro | bash; then

@@ -1,6 +1,8 @@
 # Installation
 
 ## Recommended install
+For a fresh Linux or macOS system, follow the [new-machine runbook](new-machine.md).
+
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/basicalex/agent-ops-cockpit/main/install/bootstrap.sh | bash
@@ -38,7 +40,7 @@ aoc
 
 ## What install does
 
-`install.sh` installs AOC binaries, scripts, the Herdr config baseline, OMP defaults, optional skill templates, OMP extension/skill/agent assets declared in `.omp/manifest.toml`, the AOC-aware OMP shim, and global config under user-local paths. OMP skills include `aoc-stm` for directed STM packet creation and safe handoff loading.
+`install.sh` installs AOC binaries, scripts, the Herdr config baseline, OMP defaults, optional skill templates, OMP extension/skill/agent assets declared in `.omp/manifest.toml`, the AOC-aware OMP shim, and global config under user-local paths.
 
 It does **not** assume every repo should become an AOC repo. Use `aoc-init` for each project you want to use with AOC.
 
@@ -62,6 +64,7 @@ Local install overrides:
 
 ```bash
 AOC_INSTALL_RUST=0 ./install.sh           # skip Rust bootstrap
+AOC_SKIP_SHELL_PROFILE=1 ./install.sh     # leave shell profiles unchanged
 ```
 
 ## Requirements

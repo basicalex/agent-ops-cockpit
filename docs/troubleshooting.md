@@ -86,7 +86,7 @@ tm add "First task"
 
 Do not edit `.taskmaster/tasks/tasks.json` directly.
 
-## Memory/context stale
+## Project context stale
 
 Run:
 
@@ -95,15 +95,7 @@ aoc-init
 aoc-handshake --json
 ```
 
-Use:
-
-```bash
-aoc-mem search "topic"
-aoc-stm status
-aoc-stm resume <archive-name>  # prefer a specific operator-provided archive
-```
-
-only when relevant to the current task. Do not treat latest STM as delivered/authoritative if stale warnings appear.
+Use the handshake and generated `.aoc/context.md` to confirm the current project state.
 
 ## HyperFrames check fails
 
