@@ -1531,7 +1531,7 @@ setup_project_state() {
     echo '```'
     if [[ -n "$tree_output" ]]; then
       if (( tree_lines > context_tree_line_budget )); then
-        printf '%s\n' "$tree_output" | head -n "$context_tree_line_budget"
+        head -n "$context_tree_line_budget" <<<"$tree_output"
         echo "... [tree truncated to ${context_tree_line_budget} lines]"
       else
         printf '%s\n' "$tree_output"
