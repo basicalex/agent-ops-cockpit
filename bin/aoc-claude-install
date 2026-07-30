@@ -1,9 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Installs machine-global agent policy, Codex defaults, and Claude skills.
-# Existing policy files get timestamped backups; an existing Codex config is
-# never overwritten.
+# Installs machine-global agent policy, Codex defaults, Claude skills, and
+# Claude Code permission defaults.
 
 repo_root="${AOC_SOURCE_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
 claude_src="$repo_root/claude"
@@ -14,13 +13,36 @@ codex_src="$repo_root/config/codex/config.toml"
 codex_home="${AOC_CODEX_DIR:-$HOME/.codex}"
 seed_cache="${XDG_CONFIG_HOME:-$HOME/.config}/aoc/global-seeds"
 
-if [[ ! -d "$claude_src" ]]; then
+settings_only=0
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --settings-only)
+      settings_only=1
+      shift
+      ;;
+    -h|--help)
+      cat <<'EOF'
+Usage: aoc-claude-install [--settings-only]
+
+Options:
+  --settings-only  Only merge Claude Code global settings.json permission defaults
+  -h, --help       Show this help text
+EOF
+      exit 0
+      ;;
+    *)
+      echo "aoc-claude-install: unknown option: $1" >&2
+      exit 1
+      ;;
+  esac
+done
+
+if [[ "$settings_only" != "1" && ! -d "$claude_src" ]]; then
   echo "aoc-claude-install: missing $claude_src" >&2
   exit 1
 fi
 
-mkdir -p "$claude_home" "$skills_dst"
-mkdir -p "$codex_home" "$seed_cache"
+mkdir -p "$claude_home"
 
 install_file() {
   local src="$1"
@@ -46,6 +68,64 @@ install_if_missing() {
   echo "aoc-claude-install: installed $dst"
 }
 
+merge_claude_settings() {
+  local settings_file="$claude_home/settings.json"
+  local tmp
+  tmp="$(mktemp)"
+  if ! python3 - "$settings_file" "$tmp" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+settings_file = Path(sys.argv[1])
+tmp = Path(sys.argv[2])
+
+if settings_file.exists():
+    try:
+        data = json.loads(settings_file.read_text())
+    except Exception as exc:
+        print(f"aoc-claude-install: invalid JSON in {settings_file}: {exc}", file=sys.stderr)
+        raise SystemExit(2)
+    if not isinstance(data, dict):
+        print(f"aoc-claude-install: invalid JSON in {settings_file}: top-level value must be an object", file=sys.stderr)
+        raise SystemExit(2)
+else:
+    data = {}
+
+permissions = data.get("permissions")
+if permissions is None:
+    permissions = {}
+elif not isinstance(permissions, dict):
+    permissions = {}
+
+permissions["defaultMode"] = "bypassPermissions"
+data["permissions"] = permissions
+data["skipDangerousModePermissionPrompt"] = True
+data["skipAutoPermissionPrompt"] = True
+
+tmp.write_text(json.dumps(data, indent=2, sort_keys=False) + "\n")
+PY
+  then
+    rm -f "$tmp"
+    return 1
+  fi
+
+  if [[ -f "$settings_file" ]] && cmp -s "$tmp" "$settings_file"; then
+    rm -f "$tmp"
+    echo "aoc-claude-install: kept existing $settings_file"
+    return
+  fi
+
+  if [[ -f "$settings_file" ]]; then
+    local backup
+    backup="$settings_file.bak.$(date +%Y%m%d%H%M%S)"
+    cp "$settings_file" "$backup"
+    echo "aoc-claude-install: backed up $settings_file -> $backup"
+  fi
+  mv "$tmp" "$settings_file"
+  echo "aoc-claude-install: installed $settings_file"
+}
+
 warn_orchestration_prereqs() {
   local status_output=""
 
@@ -68,6 +148,15 @@ warn_orchestration_prereqs() {
   fi
 }
 
+merge_claude_settings
+
+if [[ "$settings_only" == "1" ]]; then
+  echo "aoc-claude-install: done"
+  exit 0
+fi
+
+mkdir -p "$skills_dst"
+mkdir -p "$codex_home" "$seed_cache"
 install_file "$claude_src/CLAUDE.global.md" "$claude_home/CLAUDE.md"
 install_file "$agents_src" "$HOME/AGENTS.md"
 install_if_missing "$codex_src" "$codex_home/config.toml"

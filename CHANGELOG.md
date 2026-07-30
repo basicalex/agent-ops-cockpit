@@ -27,6 +27,7 @@
 - **PI-first ownership rollout**: `aoc-init` now treats `.pi/**` as canonical runtime ownership, keeps `.aoc/**` as control plane, and no longer auto-syncs non-PI skill targets in active PI-first flow.
 - **PI migration behavior**: Existing repos are repaired non-destructively by migrating missing legacy `.aoc/prompts/pi` + `.aoc/skills` assets to `.pi/**`; safe `tmcc` prompt alias duplicates are cleaned automatically.
 - **Taskmaster**: Removed the Zellij WASM plugin; the native `aoc-taskmaster` TUI is now the default.
+- **Claude permission defaults**: `aoc-claude-install` and normal `aoc-init` now merge global `bypassPermissions` defaults without replacing unrelated Claude settings.
 
 ### Fixed
 - **Herdr installer portability**: Made missing Herdr nonfatal, created fresh config directories, and replaced Bash 4-only array loading with Bash 3.2-safe data handling.

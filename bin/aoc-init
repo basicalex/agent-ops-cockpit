@@ -2383,6 +2383,7 @@ main() {
   fi
 
   refuse_nested_hyperframes_init
+  "$script_dir/aoc-claude-install" --settings-only
   log "Initializing AOC in: $project_root"
   setup_project_state
   prepare_project_aoc_state
