@@ -649,6 +649,7 @@ required_bin_scripts=(
   aoc-herdr-launch
   aoc-herdr-install
   aoc-claude-install
+  aoc-jcode-install
   aoc-omp
   aoc-omp-context
   aoc-omp-shim-install
@@ -782,6 +783,14 @@ if ! have curl && ! have wget; then
     fi
   fi
 fi
+if is_truthy "${AOC_INSTALL_JCODE:-1}"; then
+  if ! aoc-jcode-install; then
+    missing_required+=("jcode")
+  fi
+else
+  warn "Skipping jcode install because AOC_INSTALL_JCODE=0."
+fi
+
 
 if ! ensure_tool yazi "yazi"; then
   missing_required+=("yazi")

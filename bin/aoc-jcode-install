@@ -1,0 +1,69 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+INSTALL_URL="${JCODE_INSTALL_URL:-https://jcode.sh/install}"
+LOCAL_BIN="$HOME/.local/bin"
+
+have() { command -v "$1" >/dev/null 2>&1; }
+
+status() {
+  export PATH="$LOCAL_BIN:$PATH"
+  if have jcode; then
+    printf 'installed\n'
+  else
+    printf 'missing\n'
+  fi
+}
+
+usage() {
+  cat <<'EOF'
+Usage: aoc-jcode-install [--status]
+
+Installs the machine-global jcode CLI when it is missing from PATH.
+EOF
+}
+
+case "${1:-}" in
+  "")
+    ;;
+  --status)
+    status
+    exit 0
+    ;;
+  -h|--help)
+    usage
+    exit 0
+    ;;
+  *)
+    usage >&2
+    exit 2
+    ;;
+esac
+
+export PATH="$LOCAL_BIN:$PATH"
+
+if have jcode; then
+  exit 0
+fi
+
+if have curl; then
+  fetch=(curl -fsSL "$INSTALL_URL")
+elif have wget; then
+  fetch=(wget -qO - "$INSTALL_URL")
+else
+  printf 'aoc-jcode-install: curl or wget is required to install jcode\n' >&2
+  exit 1
+fi
+
+tmp="$(mktemp -t aoc-jcode-install.XXXXXX)"
+trap 'rm -f "$tmp"' EXIT
+
+"${fetch[@]}" >"$tmp"
+chmod 0755 "$tmp"
+DO_NOT_TRACK="${DO_NOT_TRACK:-1}" JCODE_NO_TELEMETRY="${JCODE_NO_TELEMETRY:-1}" bash "$tmp"
+
+export PATH="$LOCAL_BIN:$PATH"
+if ! have jcode; then
+  printf 'aoc-jcode-install: jcode install finished, but jcode is not on PATH\n' >&2
+  exit 1
+fi

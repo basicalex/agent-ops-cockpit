@@ -462,7 +462,7 @@ if [[ "$quiet" -eq 0 ]]; then
   else
     echo "  [warn] python3 >= 3.11 missing"
   fi
-  for tool in bun omp herdr jj; do
+  for tool in bun omp herdr jcode jj; do
     if have "$tool"; then
       echo "  [ok] $tool"
     else

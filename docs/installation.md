@@ -40,9 +40,11 @@ aoc
 
 ## What install does
 
-`install.sh` installs AOC binaries, scripts, the Herdr config baseline, OMP defaults, optional skill templates, OMP extension/skill/agent assets declared in `.omp/manifest.toml`, the AOC-aware OMP shim, and global config under user-local paths.
+`install.sh` installs AOC binaries, scripts, the machine-global jcode coding-agent CLI, the Herdr config baseline, OMP defaults, optional skill templates, OMP extension/skill/agent assets declared in `.omp/manifest.toml`, the AOC-aware OMP shim, and global config under user-local paths.
 
 It does **not** assume every repo should become an AOC repo. Use `aoc-init` for each project you want to use with AOC.
+
+`jcode` is machine-global. `aoc-init` does not seed per-project jcode state.
 
 ## Useful install options
 
@@ -64,6 +66,7 @@ Local install overrides:
 
 ```bash
 AOC_INSTALL_RUST=0 ./install.sh           # skip Rust bootstrap
+AOC_INSTALL_JCODE=0 ./install.sh          # skip jcode install
 AOC_SKIP_SHELL_PROFILE=1 ./install.sh     # leave shell profiles unchanged
 ```
 
@@ -75,6 +78,7 @@ Required:
 - Bash
 - Herdr
 - OMP coding agent CLI (`omp`)
+- jcode coding-agent CLI (`jcode`)
 
 Recommended:
 
@@ -93,6 +97,7 @@ aoc-init --status
 aoc-handshake --json
 aoc-omp-context
 omp --help
+jcode --help
 ```
 
 Run tool-specific verify actions when enabling optional integrations.
