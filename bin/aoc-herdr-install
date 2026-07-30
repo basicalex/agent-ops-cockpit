@@ -41,24 +41,92 @@ read_omp_active_list() {
   fi
 }
 
-load_omp_active_array() {
+append_omp_array_line() {
+  local array_name="$1"
+  local line="$2"
+  case "$array_name" in
+    omp_extensions)
+      omp_extensions+=("$line")
+      ;;
+    omp_agents)
+      omp_agents+=("$line")
+      ;;
+    omp_skills)
+      omp_skills+=("$line")
+      ;;
+    omp_manifest_extensions)
+      omp_manifest_extensions+=("$line")
+      ;;
+    omp_manifest_agents)
+      omp_manifest_agents+=("$line")
+      ;;
+    omp_manifest_skills)
+      omp_manifest_skills+=("$line")
+      ;;
+    *)
+      echo "unknown OMP array destination: $array_name" >&2
+      return 2
+      ;;
+  esac
+}
+
+clear_omp_array() {
+  local array_name="$1"
+  case "$array_name" in
+    omp_extensions)
+      omp_extensions=()
+      ;;
+    omp_agents)
+      omp_agents=()
+      ;;
+    omp_skills)
+      omp_skills=()
+      ;;
+    omp_manifest_extensions)
+      omp_manifest_extensions=()
+      ;;
+    omp_manifest_agents)
+      omp_manifest_agents=()
+      ;;
+    omp_manifest_skills)
+      omp_manifest_skills=()
+      ;;
+    *)
+      echo "unknown OMP array destination: $array_name" >&2
+      return 2
+      ;;
+  esac
+}
+
+load_omp_array_from_command() {
   local array_name="$1"
   local kind="$2"
+  local source="$3"
   local tmp
+  local line
   tmp="$(mktemp)"
-  read_omp_active_list "$kind" > "$tmp"
-  mapfile -t "$array_name" < "$tmp"
+  if [[ "$source" == "active" ]]; then
+    read_omp_active_list "$kind" > "$tmp"
+  elif [[ "$source" == "manifest" ]]; then
+    read_omp_manifest_list "$kind" > "$tmp"
+  else
+    echo "unknown OMP array source: $source" >&2
+    rm -f "$tmp"
+    return 2
+  fi
+  clear_omp_array "$array_name"
+  while IFS= read -r line; do
+    append_omp_array_line "$array_name" "$line"
+  done < "$tmp"
   rm -f "$tmp"
 }
 
+load_omp_active_array() {
+  load_omp_array_from_command "$1" "$2" active
+}
+
 load_omp_manifest_array() {
-  local array_name="$1"
-  local kind="$2"
-  local tmp
-  tmp="$(mktemp)"
-  read_omp_manifest_list "$kind" > "$tmp"
-  mapfile -t "$array_name" < "$tmp"
-  rm -f "$tmp"
+  load_omp_array_from_command "$1" "$2" manifest
 }
 
 array_contains() {
@@ -248,12 +316,14 @@ while [[ $# -gt 0 ]]; do
   shift
 done
 
-if ! command -v herdr >/dev/null 2>&1; then
+has_herdr=0
+if command -v herdr >/dev/null 2>&1; then
+  has_herdr=1
+else
   cat >&2 <<'EOF'
-aoc-herdr-install: herdr is not installed or not on PATH.
-Install Herdr first, then rerun this command.
+Warning: herdr is not installed or not on PATH; installing config and OMP assets only.
+Warning: skipped Herdr reload and OMP integration; after installing Herdr, run: herdr integration install omp
 EOF
-  exit 1
 fi
 if [[ -f "$config_dst" && "$force" != "1" ]]; then
   backup="$config_dst.bak.$(date +%Y%m%d%H%M%S)"
@@ -261,22 +331,27 @@ if [[ -f "$config_dst" && "$force" != "1" ]]; then
   echo "Backed up existing Herdr config to $backup"
 fi
 
+mkdir -p "$config_dir"
 cp "$config_src" "$config_dst"
 echo "Installed Herdr config to $config_dst"
 install_hypr_empty_workspace_fallback
 
-if herdr status server >/dev/null 2>&1; then
+if [[ "$has_herdr" == "1" ]] && herdr status server >/dev/null 2>&1; then
   herdr server reload-config >/dev/null || true
   echo "Reloaded running Herdr server"
 fi
 
 if command -v omp >/dev/null 2>&1 || command -v omp-raw >/dev/null 2>&1; then
-  if command -v herdr >/dev/null 2>&1 && herdr integration install omp >/dev/null 2>&1; then
-    echo "Installed/updated Herdr OMP integration"
+  if [[ "$has_herdr" == "1" ]]; then
+    if herdr integration install omp >/dev/null 2>&1; then
+      echo "Installed/updated Herdr OMP integration"
+    else
+      echo "Warning: Herdr OMP integration install failed; continuing" >&2
+      echo "To retry later, run: herdr integration install omp" >&2
+    fi
   else
-    echo "Warning: Herdr OMP integration install failed; continuing" >&2
+    echo "Warning: skipping Herdr OMP integration because herdr is not on PATH; after installing Herdr, run: herdr integration install omp" >&2
   fi
-
   omp_shim_installer="aoc-omp-shim-install"
   if [[ -x "$repo_root/bin/aoc-omp-shim-install" ]]; then
     omp_shim_installer="$repo_root/bin/aoc-omp-shim-install"

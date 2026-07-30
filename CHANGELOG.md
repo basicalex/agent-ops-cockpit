@@ -3,6 +3,7 @@
 ## [Unreleased]
 
 ### Added
+- **macOS Herdr install fixture**: Added an isolated smoke test for config and OMP asset installation when Herdr is not yet installed.
 - **PI-first init smoke test**: Added `scripts/pi/test-aoc-init-pi-first.sh` to validate fresh + existing repo migration behavior in one command.
 - **PI-only agent surface smoke test**: Added `scripts/pi/test-pi-only-agent-surface.sh` to verify non-PI and PI-R harness wrappers are removed while `pi` remains operational.
 - **PI-only rollout checklist**: Added `docs/pi-only-rollout-checklist.md` for release closeout, operator notice timing, and post-release verification.
@@ -18,6 +19,7 @@
 - **Process Cleanup**: `aoc-launch` now runs `aoc-cleanup` asynchronously (disable with `AOC_CLEANUP=0`).
 
 ### Changed
+- **macOS bootstrap path**: Documented Python 3.11+, Homebrew shell setup, deferred Herdr/OMP integration, and Option-as-Alt pane shortcuts for fresh Macs.
 - **Taskmaster TUI**: Added automatic wide/narrow detail view modes (`v`) and removed inner Tasks/Details/Tags/Help borders in favor of a quieter margin-based layout.
 - **PI-only agent lockdown**: `aoc-agent`, `aoc-agent-run`, `aoc-agent-install`, and `aoc-control` now expose only `pi`.
 - **Legacy harness removal**: Non-PI launcher wrappers (`aoc-codex`, `aoc-gemini`, `aoc-cc`, `aoc-oc`, `aoc-kimi`, `aoc-omo`, and related aliases) are removed from the shipped bin surface.
@@ -27,6 +29,7 @@
 - **Taskmaster**: Removed the Zellij WASM plugin; the native `aoc-taskmaster` TUI is now the default.
 
 ### Fixed
+- **Herdr installer portability**: Made missing Herdr nonfatal, created fresh config directories, and replaced Bash 4-only array loading with Bash 3.2-safe data handling.
 - **Taskmaster TUI**: Improved selection visibility with high-contrast highlighting (Black on Cyan).
 - **Session Management**: Hardened `aoc-session-watch` to prevent accidental session deletion. Added a 2-second timeout to client checks and implemented a requirement for 3 consecutive idle counts before a session is destroyed.
 - **Process Cleanup**: Improved `aoc-cleanup` accuracy by refining the agent process pattern and adding a protected list for essential cockpit scripts, preventing them from being killed as orphans.

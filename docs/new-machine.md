@@ -4,13 +4,27 @@ This runbook covers Linux and macOS.
 
 ## Install
 
-Run the bootstrap installer:
+On macOS, install Homebrew first if it is not already installed. The bootstrap uses Homebrew for Yazi, Micro, and Python:
+
+```bash
+/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+if [ -x /opt/homebrew/bin/brew ]; then
+  eval "$(/opt/homebrew/bin/brew shellenv)"
+elif [ -x /usr/local/bin/brew ]; then
+  eval "$(/usr/local/bin/brew shellenv)"
+fi
+brew install python
+```
+
+`brew install python` provides `python3` with `tomllib` before AOC bootstrap.
+
+Then run the AOC bootstrap installer:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/basicalex/agent-ops-cockpit/main/install/bootstrap.sh | bash
 ```
 
-The installer selects a Linux or macOS release. If no release binary is available, it downloads the source archive and runs `install.sh`.
+The installer selects a Linux or macOS release. If no release binary is available, it downloads the source archive and runs `install.sh`. AOC bootstrap may run before Herdr and OMP are installed; missing `herdr` or `omp` should leave integration work for the manual steps below, not break the bootstrap.
 
 Use `--yes` for a non-interactive install:
 
@@ -47,24 +61,30 @@ Then add `~/.local/bin` to PATH yourself.
 ## Manual steps
 
 1. Copy required `.env` files and secrets from an existing machine. The repository and installer do not carry secrets.
-2. If the doctor reports `omp` or `herdr` missing, install each CLI with its supported installer. Then connect Herdr to OMP:
+2. Install the Herdr CLI with its supported installer.
+3. Install the OMP coding agent CLI (`omp`) with its supported installer.
+4. Connect Herdr to OMP:
 
    ```bash
    herdr integration install omp
    ```
 
-3. Complete the logins used by your work, such as GitHub, Claude, Codex, model providers, and deployment services. For GitHub CLI:
+5. Complete the logins used by your work, such as GitHub, Claude, Codex, model providers, and deployment services. For GitHub CLI:
 
    ```bash
    gh auth login
    ```
 
-4. Initialize each project separately:
+6. Initialize each project separately:
 
    ```bash
    cd ~/your-project
    aoc-init
    ```
+
+## macOS keyboard note
+
+The repo Herdr config uses `alt+...` bindings. On macOS, configure your terminal to send Option as Alt/Meta so `Option+H/J/K/L` keeps pane focus shortcuts and `Option+Z` keeps zoom. Common terminal settings call this "Use Option as Meta key", "Left Option key acts as Esc+", or "Option sends Meta".
 
 ## Verify
 
@@ -83,4 +103,4 @@ aoc-init --status
 aoc-handshake --json
 ```
 
-The macOS path uses Homebrew for Yazi and Micro. Install Homebrew first if the doctor or installer reports that it is missing.
+On macOS, if the doctor or installer still reports Homebrew missing, install Homebrew and re-run the failed step.

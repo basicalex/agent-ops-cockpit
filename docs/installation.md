@@ -72,13 +72,17 @@ AOC_SKIP_SHELL_PROFILE=1 ./install.sh     # leave shell profiles unchanged
 
 ## Requirements
 
-Required:
+Bootstrap prerequisites:
 
 - Git
 - Bash
-- Herdr
-- OMP coding agent CLI (`omp`)
-- jcode coding-agent CLI (`jcode`)
+- Python 3.11+ (`python3` with `tomllib`)
+
+Herdr and the OMP coding agent CLI (`omp`) are required for Herdr/OMP orchestration after bootstrap. Install them with their supported installers, then run:
+
+```bash
+herdr integration install omp
+```
 
 Recommended:
 
