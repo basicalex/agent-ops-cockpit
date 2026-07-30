@@ -653,6 +653,7 @@ required_bin_scripts=(
   aoc-omp
   aoc-omp-context
   aoc-omp-shim-install
+  aoc-omp-update
   aoc-utils.sh
   aoc-init
   aoc-handshake

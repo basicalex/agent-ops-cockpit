@@ -1,0 +1,107 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+usage() {
+  cat <<'EOF'
+Usage: aoc-omp-update update [--check|--help|-h|--plugins|-l|--force]
+
+AOC-safe updater for the OMP wrapper. Read-only update modes are forwarded to
+omp-raw. Install modes update the Bun global OMP packages, then refresh the
+AOC shim and omp-raw.
+EOF
+}
+
+fail() {
+  echo "aoc-omp-update: $*" >&2
+  exit 1
+}
+
+resolve_command() {
+  local cmd="$1"
+  if command -v "$cmd" >/dev/null 2>&1; then
+    command -v "$cmd"
+  elif [[ -x "$cmd" ]]; then
+    printf '%s\n' "$cmd"
+  else
+    return 1
+  fi
+}
+
+forward_to_raw() {
+  local raw="${AOC_RAW_OMP_BIN:-omp-raw}"
+  if ! raw_path="$(resolve_command "$raw")"; then
+    fail "raw OMP binary not found: $raw; install OMP first or set AOC_RAW_OMP_BIN"
+  fi
+  exec "$raw_path" "$@"
+}
+
+if [[ $# -eq 0 ]]; then
+  usage >&2
+  exit 2
+fi
+
+if [[ "${1:-}" != "update" ]]; then
+  fail "expected argv beginning with 'update'; got '${1:-}'"
+fi
+
+case " ${*:2} " in
+  *" --check "*|*" --help "*|*" -h "*|*" --plugins "*|*" -l "*)
+    forward_to_raw "$@"
+    ;;
+esac
+
+bun_cmd="${AOC_BUN_BIN:-bun}"
+if ! bun_path="$(resolve_command "$bun_cmd")"; then
+  fail "Bun is required to update OMP; install Bun or set AOC_BUN_BIN"
+fi
+
+node_modules="${AOC_BUN_GLOBAL_NODE_MODULES:-}"
+if [[ -z "$node_modules" ]]; then
+  if [[ -n "${BUN_INSTALL:-}" ]]; then
+    node_modules="$BUN_INSTALL/install/global/node_modules"
+  elif [[ -d "$HOME/.cache/.bun/install/global/node_modules" ]]; then
+    node_modules="$HOME/.cache/.bun/install/global/node_modules"
+  else
+    node_modules="$HOME/.bun/install/global/node_modules"
+  fi
+fi
+
+scope="${AOC_OMP_PACKAGE_SCOPE:-@oh-my-pi}"
+coding_agent_pkg="${AOC_OMP_CODING_AGENT_PACKAGE:-$scope/pi-coding-agent}"
+pi_natives_pkg="${AOC_OMP_PI_NATIVES_PACKAGE:-$scope/pi-natives}"
+platform_leaf_pkg="${AOC_OMP_PI_NATIVES_LEAF_PACKAGE:-}"
+
+if [[ -z "$platform_leaf_pkg" ]]; then
+  scope_dir="$node_modules/$scope"
+  [[ -d "$scope_dir" ]] || fail "Bun global OMP package directory not found: $scope_dir; install OMP with Bun first or set AOC_BUN_GLOBAL_NODE_MODULES"
+  shopt -s nullglob
+  leaves=("$scope_dir"/pi-natives-*)
+  shopt -u nullglob
+  if [[ ${#leaves[@]} -eq 0 ]]; then
+    fail "platform-specific pi-natives package not found under $scope_dir; set AOC_OMP_PI_NATIVES_LEAF_PACKAGE"
+  fi
+  if [[ ${#leaves[@]} -gt 1 ]]; then
+    fail "multiple platform-specific pi-natives packages found under $scope_dir; set AOC_OMP_PI_NATIVES_LEAF_PACKAGE"
+  fi
+  platform_leaf_pkg="$scope/$(basename "${leaves[0]}")"
+fi
+
+install_packages=(
+  "$coding_agent_pkg@latest"
+  "$pi_natives_pkg@latest"
+  "$platform_leaf_pkg@latest"
+)
+
+"$bun_path" add -g --no-cache --registry https://registry.npmjs.org "${install_packages[@]}"
+
+updated_cli="$node_modules/$coding_agent_pkg/dist/cli.js"
+if [[ ! -f "$updated_cli" ]]; then
+  fail "updated OMP CLI not found: $updated_cli; Bun global package layout is not supported"
+fi
+
+shim_installer="${AOC_OMP_SHIM_INSTALLER:-aoc-omp-shim-install}"
+if ! shim_installer_path="$(resolve_command "$shim_installer")"; then
+  fail "shim installer not found: $shim_installer; set AOC_OMP_SHIM_INSTALLER"
+fi
+
+AOC_RAW_OMP_BIN="$updated_cli" "$shim_installer_path"

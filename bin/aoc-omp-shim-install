@@ -91,6 +91,7 @@ set -euo pipefail
 
 raw_omp="${AOC_RAW_OMP_BIN:-omp-raw}"
 aoc_omp="${AOC_OMP_WRAPPER_BIN:-aoc-omp}"
+updater="${AOC_OMP_UPDATER:-aoc-omp-update}"
 
 
 # Bun global installs can leave peer-only runtime deps (for example zod for
@@ -142,6 +143,10 @@ resolve_aoc_root() {
 
   return 1
 }
+
+if [[ "${1:-}" == "update" ]]; then
+  exec "$updater" "$@"
+fi
 
 if [[ "${OMP_NO_AOC_WRAPPER:-0}" != "1" ]]; then
   if aoc_root="$(resolve_aoc_root)"; then
