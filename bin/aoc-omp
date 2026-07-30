@@ -41,15 +41,62 @@ fi
 
 
 case "${1:-}" in
-  update|--version|-V|version)
+  __complete|acp|agents|auth-broker|auth-gateway|bench|cleanse|commit|completions|config|dry-balance|gallery|gc|grep|grievances|help|install|join|models|plugin|q|read|say|search|setup|shell|ssh|stats|tiny-models|token|ttsr|update|usage|worktree|wt|--version|-V|version)
     exec "$raw_omp" "$@"
     ;;
 esac
 
+has_explicit_skills=0
+for arg in "$@"; do
+  case "$arg" in
+    --skills|--skills=*|--no-skills)
+      has_explicit_skills=1
+      break
+      ;;
+  esac
+done
+
+skill_args=()
+if [[ "$has_explicit_skills" -eq 0 ]]; then
+  if [[ -x "$script_dir/aoc-profile" ]]; then
+    profile_bin="$script_dir/aoc-profile"
+  elif command -v aoc-profile >/dev/null 2>&1; then
+    profile_bin="aoc-profile"
+  else
+    echo "aoc-omp: aoc-profile not found; refusing to launch without an explicit --skills allowlist" >&2
+    exit 1
+  fi
+
+  profile_err="$(mktemp "${TMPDIR:-/tmp}/aoc-omp-profile.XXXXXX.err")"
+  if ! active_skills="$("$profile_bin" active --kind skills 2>"$profile_err")"; then
+    profile_diag="$(<"$profile_err")"
+    rm -f "$profile_err"
+    echo "aoc-omp: failed to resolve active skills: $profile_diag" >&2
+    exit 1
+  fi
+  rm -f "$profile_err"
+
+  skill_csv=""
+  declare -A seen_skills=()
+  while IFS= read -r skill; do
+    [[ -n "$skill" ]] || continue
+    [[ -z "${seen_skills[$skill]:-}" ]] || continue
+    seen_skills[$skill]=1
+    if [[ -n "$skill_csv" ]]; then
+      skill_csv+=","
+    fi
+    skill_csv+="$skill"
+  done <<<"$active_skills"
+  if [[ -n "$skill_csv" ]]; then
+    skill_args=(--skills "$skill_csv")
+  else
+    skill_args=(--no-skills)
+  fi
+fi
 
 runtime_dir="${XDG_RUNTIME_DIR:-/tmp}"
 mkdir -p "$runtime_dir"
 capsule="$(mktemp "$runtime_dir/aoc-omp-context.XXXXXX.md")"
 aoc-omp-context > "$capsule"
 
-exec "$raw_omp" --append-system-prompt "$capsule" "$@"
+exec "$raw_omp" --append-system-prompt "$capsule" "${skill_args[@]}" "$@"

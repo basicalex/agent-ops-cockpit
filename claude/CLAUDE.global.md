@@ -15,7 +15,7 @@ This machine runs a delegation-first workflow. The main Claude (fable) session i
 
 Use the `/herdr-orchestrate` skill (user-level, `~/.claude/skills/herdr-orchestrate/`). It encodes the full protocol: spawning/discovering omp workers in herdr panes, writing assignment packets, dispatching, monitoring, and trust-but-verify. The judgment work — splitting scopes, designing contracts, verifying diffs, running tests — stays in this session.
 
-Workers are spawned with `omp` by default; user-requested fable workers launch with `claude --dangerously-skip-permissions` in the same tab-per-worker pattern (both register with herdr's agent detector, so agent status is reliable). The main session never asks workers to commit; it verifies and commits worker output itself.
+Workers are spawned with `aoc-omp` by default; user-requested fable workers launch with `claude --dangerously-skip-permissions` in the same tab-per-worker pattern (both register with herdr's agent detector, so agent status is reliable). The main session never asks workers to commit; it verifies and commits worker output itself.
 
 # Prose style (docs, PR text, commit messages, reports, UI/marketing copy)
 

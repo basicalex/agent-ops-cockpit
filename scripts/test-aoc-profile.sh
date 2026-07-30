@@ -25,6 +25,30 @@ aoc-style.ts
 EOF
 assert_lines_equal "$tmp/default-extensions.out" "$tmp/default-extensions.expected"
 
+AOC_PROFILE_STATE_FILE="$state_file" bash "$root/bin/aoc-profile" active --kind skills --root "$root" --manifest "$root/.omp/manifest.toml" >"$tmp/default-skills.out"
+cat >"$tmp/default-skills.expected" <<'EOF'
+aoc-understand
+ponytail-workflows
+EOF
+assert_lines_equal "$tmp/default-skills.out" "$tmp/default-skills.expected"
+
+AOC_OMP_PROFILES=core,maintenance,qa,design-product,motion,desktop,review bash "$root/bin/aoc-profile" active --kind skills --root "$root" --manifest "$root/.omp/manifest.toml" >"$tmp/combined-skills.out"
+cat >"$tmp/combined-skills.expected" <<'EOF'
+aoc-understand
+ponytail-workflows
+aoc-init-ops
+aoc-update
+herdr-agent-observation
+browser-qa
+frontend-design
+funnel-design
+safe-gamification
+motion-director
+animejs-core-api
+omarchy-theme-ops
+EOF
+assert_lines_equal "$tmp/combined-skills.out" "$tmp/combined-skills.expected"
+
 if grep -Fxq 'aoc-master.ts' "$tmp/default-extensions.out" || \
    grep -Fxq 'aoc-brand-content.ts' "$tmp/default-extensions.out" || \
    grep -Fxq 'aoc-web-search.ts' "$tmp/default-extensions.out"; then

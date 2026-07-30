@@ -146,22 +146,20 @@ if '    - user-local' in config:
 PY
 
 
-for required in \
-  aoc-understand \
+assert_file "$default_runtime/skills/aoc-understand/SKILL.md"
+assert_file "$default_runtime/skills/ponytail-workflows/SKILL.md"
+
+for forbidden in \
   herdr-agent-observation \
   aoc-init-ops \
   aoc-update \
+  browser-qa \
   frontend-design \
   motion-director \
   animejs-core-api \
   funnel-design \
   safe-gamification \
   omarchy-theme-ops \
-  ponytail-workflows; do
-  assert_file "$default_runtime/skills/$required/SKILL.md"
-done
-
-for forbidden in \
   aoc-hyperframes \
   hyperframes \
   hyperframes-cli \

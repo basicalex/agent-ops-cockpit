@@ -1,6 +1,6 @@
 ---
 name: herdr-orchestrate
-description: Orchestrate parallel work across worker agents in herdr panes (omp by default; fable/claude workers on explicit user request) — spawn or discover workers, dispatch assignment packets, monitor liveness, and verify results before committing. Use whenever a code change should be delegated instead of implemented firsthand (delegation-first policy), e.g. /herdr-orchestrate 3 to spawn three workers, or /herdr-orchestrate p17,p18,p19 to use existing panes.
+description: Orchestrate parallel work across worker agents in herdr panes (aoc-omp by default; fable/claude workers on explicit user request) — spawn or discover workers, dispatch assignment packets, monitor liveness, and verify results before committing. Use whenever a code change should be delegated instead of implemented firsthand (delegation-first policy), e.g. /herdr-orchestrate 3 to spawn three workers, or /herdr-orchestrate p17,p18,p19 to use existing panes.
 argument-hint: "[N workers to spawn | comma-separated pane IDs or tab names]"
 ---
 
@@ -34,18 +34,18 @@ The skill argument decides the mode:
 - **Pane IDs or tab names** (e.g. `/herdr-orchestrate p17,p18,p19` or `workers-a,workers-b`) → **use existing panes**.
 - **No argument** → default to spawning one worker per work slice you designed; tell the user how many you're spawning and why.
 
-### Spawning workers (preferred — omp is the workhorse)
+### Spawning workers (preferred — aoc-omp is the launch wrapper)
 
 **One tab per worker — never split panes into an existing tab.** Cramming workers as splits clutters the workspace; each worker gets a full tab. `herdr agent start` can only split, so use tab create + pane run:
 
 ```bash
 # 1. Create a dedicated tab; capture root_pane.pane_id from the JSON response
 herdr tab create --workspace <workspace-id> --cwd <repo-root> --label <campaign>-w<N> --no-focus
-# 2. Launch omp in that tab's root pane
-herdr pane run <root-pane-id> "omp"
+# 2. Launch aoc-omp in that tab's root pane
+herdr pane run <root-pane-id> "aoc-omp"
 ```
 
-One tab per work slice, labeled `<campaign>-w<N>` so the sidebar shows what each worker is doing. Get the current workspace ID from `herdr pane current` or `herdr pane list`. Spawned omp agents register with herdr's agent detector (the omp integration is installed), so their `agent_status` in `herdr pane list` and `herdr agent wait <target> --status idle` are **reliable**.
+One tab per work slice, labeled `<campaign>-w<N>` so the sidebar shows what each worker is doing. Get the current workspace ID from `herdr pane current` or `herdr pane list`. Spawned `aoc-omp` agents register with herdr's agent detector through the underlying omp integration, so their `agent_status` in `herdr pane list` and `herdr agent wait <target> --status idle` are **reliable**.
 
 Wait for each worker to reach `idle` (finished booting) before dispatching.
 

@@ -70,32 +70,72 @@ skills = [
 profiles = ["core"]
 
 [profiles.core]
-description = "Default lean AOC OMP surface for code understanding, init/update, design routing, style hooks, Ponytail workflows, and OMP/Mnemopi memory."
-risk = "medium"
+description = "Lean default AOC OMP surface for code understanding and Ponytail workflows."
+risk = "low"
 extensions = [
   "aoc-profile.ts",
   "aoc-codegraph.ts",
   "aoc-dox.ts",
   "aoc-style.ts",
 ]
+skills = ["aoc-understand", "ponytail-workflows"]
+agents = []
+
+[profiles.maintenance]
+description = "AOC init, update, and Herdr observation helpers."
+risk = "medium"
+extensions = []
 skills = [
-  "aoc-understand",
   "aoc-init-ops",
   "aoc-update",
-  "browser-qa",
   "herdr-agent-observation",
-  "frontend-design",
-  "motion-director",
-  "animejs-core-api",
-  "funnel-design",
-  "safe-gamification",
-  "omarchy-theme-ops",
-  "ponytail-workflows",
 ]
 agents = []
 
+[profiles.qa]
+description = "Authenticated browser QA workflow."
+risk = "medium"
+extensions = []
+skills = ["browser-qa"]
+agents = []
+
+[profiles.design-product]
+description = "Product design, funnel, and ethical gameful UX routing."
+risk = "medium"
+extensions = []
+skills = [
+  "frontend-design",
+  "funnel-design",
+  "safe-gamification",
+]
+agents = []
+
+[profiles.motion]
+description = "Product motion routing and Anime.js API help."
+risk = "medium"
+extensions = []
+skills = [
+  "motion-director",
+  "animejs-core-api",
+]
+agents = []
+
+[profiles.desktop]
+description = "Omarchy theme maintenance helpers."
+risk = "medium"
+extensions = []
+skills = ["omarchy-theme-ops"]
+agents = []
+
+[profiles.review]
+description = "Ponytail review, audit, and debt workflows."
+risk = "low"
+extensions = []
+skills = ["ponytail-workflows"]
+agents = []
+
 [profiles.operator]
-description = "Operator-only AOC OMP surface for Herdr observation, master orchestration, commits, and project state."
+description = "Operator-only AOC OMP surface for master orchestration, commits, and project state."
 risk = "orchestration"
 extensions = [
   "aoc-master.ts",
