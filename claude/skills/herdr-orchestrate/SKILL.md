@@ -10,7 +10,7 @@ Coordinate a campaign of parallel work across omp agents running in herdr panes.
 
 **Slice routing rule:** three tiers, decided when splitting the campaign:
 
-1. **omp workers (default)** — mechanical/parallelizable slices: sweeps, migrations, typecheck fixes, audits.
+1. **omp workers (default)** — mechanical/parallelizable slices: sweeps, migrations, typecheck fixes, audits. Model policy: see "Worker model policy" below.
 2. **Opus subagents** — visual/design slices: UI polish, component composition, spacing/tone/palette, anything where "does this look right" is the acceptance criterion. Dispatch via the Agent tool with `model: "opus"`, never as omp packets.
 3. **Fable escalation (explicit user request only)** — for *critical* slices: architecture-sensitive changes, deep cross-cutting reasoning, or a slice omp workers have already fumbled. Both gates must hold: the slice is critical AND the user asked for fable-level handling. Never escalate on your own — fable sessions burn metered Claude usage while omp is effectively unlimited, so that spend is the user's call; if a slice seems to need it, recommend and ask. Two dispatch forms:
    - **Escalation agent (default):** dispatch via the Agent tool with no model override, so the subagent inherits the fable model. No pane management, no permission stalls, result returns in-session. Right for one-off critical slices.
@@ -42,8 +42,15 @@ The skill argument decides the mode:
 # 1. Create a dedicated tab; capture root_pane.pane_id from the JSON response
 herdr tab create --workspace <workspace-id> --cwd <repo-root> --label <campaign>-w<N> --no-focus
 # 2. Launch aoc-omp in that tab's root pane
-herdr pane run <root-pane-id> "aoc-omp"
+herdr pane run <root-pane-id> "aoc-omp --model openai-codex/gpt-5.6-terra --thinking high"
 ```
+
+### Worker model policy (decided 2026-08-02)
+
+- **Default worker: `--model openai-codex/gpt-5.6-terra --thinking high`.** Benched at ~51 tok/s standard tier — matches luna's speed, ~1.75× sol's, at half sol's quota weight. Never spawn a worker on the settings default (gpt-5.5 low).
+- **Intelligence-critical slices: `--model openai-codex/gpt-5.6-sol --thinking high`.** The orchestrator decides this on its own when splitting slices — subtle API semantics, cross-cutting invariants, or a slice terra has already fumbled. No user approval needed (unlike fable escalation).
+- **Always provider-qualify the model id** (`openai-codex/...`). Unqualified `gpt-5.6-sol` has silently no-opped in headless mode (ambiguous match across catalogs); qualified ids resolve reliably (verified 2026-08-02: both spawn paths boot and answer).
+- **Never enable fast mode** (`/fast`, `tier.openai: priority`) on workers. Terra-standard already matches sol-fast throughput; priority only burns premium-request quota.
 
 One tab per work slice, labeled `<campaign>-w<N>` so the sidebar shows what each worker is doing. Get the current workspace ID from `herdr pane current` or `herdr pane list`. Spawned `aoc-omp` agents register with herdr's agent detector through the underlying omp integration, so their `agent_status` in `herdr pane list` and `herdr agent wait <target> --status idle` are **reliable**.
 
