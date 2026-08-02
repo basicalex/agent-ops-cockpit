@@ -1,0 +1,568 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+MIGRATE_HOME="${AOC_MIGRATE_HOME:-$HOME}"
+if [[ "$MIGRATE_HOME" != "/" ]]; then
+  MIGRATE_HOME="${MIGRATE_HOME%/}"
+fi
+
+CURATED_PATHS=(
+  ".ssh"
+  ".gnupg"
+  ".gitconfig"
+  ".config/git"
+  ".config/gh"
+  ".claude"
+  ".pi"
+  ".config/fish"
+  ".config/herdr"
+  ".npmrc"
+  ".netrc"
+  ".bunfig.toml"
+  ".config/vercel"
+  ".local/share/com.vercel.cli"
+  ".config/vercel-plugin"
+  ".wrangler"
+  ".config/.wrangler"
+  ".config/cloudflare"
+  ".aws"
+  ".config/gcloud"
+  ".kube"
+  ".cargo/credentials.toml"
+  ".config/systemd/user/qa-browser-reaper.service"
+  ".config/systemd/user/qa-browser-reaper.timer"
+  ".local/bin/qa-browser-reaper.sh"
+)
+
+cleanup_file=""
+cleanup_dir=""
+
+cleanup() {
+  local status=$?
+  if [[ -n "$cleanup_file" && -e "$cleanup_file" ]]; then
+    rm -f -- "$cleanup_file"
+  fi
+  if [[ -n "$cleanup_dir" && -d "$cleanup_dir" ]]; then
+    rm -rf -- "$cleanup_dir"
+  fi
+  return "$status"
+}
+
+trap cleanup EXIT
+trap 'exit 130' HUP INT TERM
+
+usage() {
+  cat <<'EOF'
+Usage: aoc-migrate paths
+       aoc-migrate pack [--out DIR]
+       aoc-migrate restore <bundle.tar.gz.age|bundle.tar.gz.enc>
+
+Commands:
+  paths    Show which curated migration paths exist.
+  pack     Create an encrypted state bundle and print the ~/dev transfer recipe.
+  restore  Back up conflicts, restore a bundle, and print follow-up work.
+
+Environment:
+  AOC_MIGRATE_HOME            Override the home root. Intended for fixture tests.
+  AOC_MIGRATE_ENCRYPTION      Set to openssl to force the fallback during tests.
+  AOC_MIGRATE_PASSPHRASE_FD  Read an OpenSSL test passphrase from this file descriptor.
+
+Normal pack and restore runs prompt for the passphrase interactively. The passphrase
+file-descriptor hook is for tests only; it is not supported for age bundles.
+EOF
+}
+
+die() {
+  printf 'aoc-migrate: %s\n' "$1" >&2
+  exit 1
+}
+
+have() {
+  command -v "$1" >/dev/null 2>&1
+}
+
+require_safe_home() {
+  case "$MIGRATE_HOME" in
+    /*) ;;
+    *) die "AOC_MIGRATE_HOME must be an absolute path" ;;
+  esac
+  [[ "$MIGRATE_HOME" != "/" ]] || die "refusing to use / as the migration home"
+}
+
+validate_relative_path() {
+  local path="$1"
+  case "$path" in
+    ""|.|..|/*|../*|*/../*|*/..) return 1 ;;
+  esac
+  return 0
+}
+
+print_paths() {
+  local relative=""
+  require_safe_home
+  printf '%-8s %s\n' "STATUS" "PATH"
+  for relative in "${CURATED_PATHS[@]}"; do
+    if [[ -e "$MIGRATE_HOME/$relative" || -L "$MIGRATE_HOME/$relative" ]]; then
+      printf '%-8s %s\n' "EXISTS" "$MIGRATE_HOME/$relative"
+    else
+      printf '%-8s %s\n' "missing" "$MIGRATE_HOME/$relative"
+    fi
+  done
+}
+
+select_pack_encryption() {
+  local requested="${AOC_MIGRATE_ENCRYPTION:-auto}"
+  case "$requested" in
+    auto)
+      if have age; then
+        printf 'age\n'
+      elif have openssl; then
+        printf 'openssl\n'
+      else
+        die "age and openssl are both unavailable"
+      fi
+      ;;
+    age)
+      have age || die "AOC_MIGRATE_ENCRYPTION=age but age is unavailable"
+      printf 'age\n'
+      ;;
+    openssl)
+      have openssl || die "AOC_MIGRATE_ENCRYPTION=openssl but openssl is unavailable"
+      printf 'openssl\n'
+      ;;
+    *) die "AOC_MIGRATE_ENCRYPTION must be age, openssl, or unset" ;;
+  esac
+}
+
+validate_passphrase_fd() {
+  local fd="${AOC_MIGRATE_PASSPHRASE_FD:-}"
+  [[ -n "$fd" ]] || return 0
+  case "$fd" in
+    *[!0-9]*) die "AOC_MIGRATE_PASSPHRASE_FD must be a file descriptor number" ;;
+  esac
+}
+
+encrypt_tar() {
+  local encryption="$1"
+  local plaintext="$2"
+  local encrypted="$3"
+  local fd="${AOC_MIGRATE_PASSPHRASE_FD:-}"
+
+  validate_passphrase_fd
+  case "$encryption" in
+    age)
+      [[ -z "$fd" ]] || die "AOC_MIGRATE_PASSPHRASE_FD is supported only with OpenSSL"
+      age -p -o "$encrypted" "$plaintext"
+      ;;
+    openssl)
+      if [[ -n "$fd" ]]; then
+        openssl enc -aes-256-cbc -pbkdf2 -salt -pass "fd:$fd" -in "$plaintext" -out "$encrypted"
+      else
+        openssl enc -aes-256-cbc -pbkdf2 -salt -in "$plaintext" -out "$encrypted"
+      fi
+      ;;
+  esac
+}
+
+decrypt_tar() {
+  local bundle="$1"
+  local plaintext="$2"
+  local fd="${AOC_MIGRATE_PASSPHRASE_FD:-}"
+
+  validate_passphrase_fd
+  case "$bundle" in
+    *.age)
+      have age || die "age is required to restore this bundle"
+      [[ -z "$fd" ]] || die "AOC_MIGRATE_PASSPHRASE_FD is supported only with OpenSSL"
+      age -d -o "$plaintext" "$bundle"
+      ;;
+    *.enc)
+      have openssl || die "openssl is required to restore this bundle"
+      if [[ -n "$fd" ]]; then
+        openssl enc -d -aes-256-cbc -pbkdf2 -pass "fd:$fd" -in "$bundle" -out "$plaintext"
+      else
+        openssl enc -d -aes-256-cbc -pbkdf2 -in "$bundle" -out "$plaintext"
+      fi
+      ;;
+    *) die "bundle must end in .age or .enc" ;;
+  esac
+}
+
+print_rsync_recipe() {
+  printf '\n~/dev transfer recipe (review the destination, then run it yourself):\n'
+  printf 'rsync -av \\\n'
+  printf "  --exclude 'node_modules' \\\n"
+  printf "  --exclude 'target' \\\n"
+  printf "  --exclude '.venv' \\\n"
+  printf "  --exclude 'dist' \\\n"
+  printf "  --exclude '.next' \\\n"
+  printf "  --exclude '.turbo' \\\n"
+  printf "  --exclude '__pycache__' \\\n"
+  printf "  --exclude '*.tsbuildinfo' \\\n"
+  printf "  '%s/dev/' '<new-machine>:~/dev/'\n" "$MIGRATE_HOME"
+}
+
+report_repositories() {
+  local dev_root="$MIGRATE_HOME/dev"
+  local candidate=""
+  local nested=""
+  local dirty=""
+  local unpushed=""
+  local found=0
+  local -a repositories=()
+
+  printf '\nGit repository sweep (report only):\n'
+  if ! have git; then
+    printf 'git unavailable; repository sweep skipped.\n'
+    return 0
+  fi
+  if [[ ! -d "$dev_root" ]]; then
+    printf 'No dev directory found at %s.\n' "$dev_root"
+    return 0
+  fi
+
+  for candidate in "$dev_root"/*; do
+    [[ -d "$candidate" ]] || continue
+    if [[ -e "$candidate/.git" ]]; then
+      repositories[${#repositories[@]}]="$candidate"
+      continue
+    fi
+    for nested in "$candidate"/*; do
+      if [[ -d "$nested" && -e "$nested/.git" ]]; then
+        repositories[${#repositories[@]}]="$nested"
+      fi
+    done
+  done
+
+  for candidate in "${repositories[@]}"; do
+    git -C "$candidate" rev-parse --show-toplevel >/dev/null 2>&1 || continue
+    dirty="$(git -C "$candidate" status --porcelain 2>/dev/null || true)"
+    unpushed="$(git -C "$candidate" log --branches --not --remotes --oneline 2>/dev/null || true)"
+    if [[ -n "$dirty" ]]; then
+      printf '\nDIRTY %s\n%s\n' "$candidate" "$dirty"
+      found=1
+    fi
+    if [[ -n "$unpushed" ]]; then
+      printf '\nUNPUSHED %s\n%s\n' "$candidate" "$unpushed"
+      found=1
+    fi
+  done
+  if [[ "$found" -eq 0 ]]; then
+    printf 'No dirty worktrees or unpushed branch commits found.\n'
+  fi
+}
+
+pack_state() {
+  local out_dir=""
+  local date_stamp=""
+  local pack_work=""
+  local manifest_file=""
+  local plaintext=""
+  local encrypted=""
+  local encryption=""
+  local relative=""
+  local host_name=""
+  local -a captured_paths=()
+
+  require_safe_home
+  [[ -d "$MIGRATE_HOME" ]] || die "migration home does not exist: $MIGRATE_HOME"
+
+  date_stamp="$(date +%Y%m%d)"
+  out_dir="$MIGRATE_HOME/aoc-migrate-$date_stamp"
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --out)
+        [[ $# -ge 2 ]] || die "--out requires a directory"
+        out_dir="$2"
+        shift 2
+        ;;
+      -h|--help)
+        usage
+        return 0
+        ;;
+      *) die "unknown pack argument: $1" ;;
+    esac
+  done
+
+  umask 077
+  mkdir -p "$out_dir"
+  pack_work="$out_dir/.aoc-migrate-pack.$$"
+  mkdir "$pack_work"
+  cleanup_dir="$pack_work"
+  manifest_file="$pack_work/manifest.txt"
+  plaintext="$out_dir/aoc-state-$date_stamp.tar.gz"
+  cleanup_file="$plaintext"
+
+  for relative in "${CURATED_PATHS[@]}"; do
+    if [[ -e "$MIGRATE_HOME/$relative" || -L "$MIGRATE_HOME/$relative" ]]; then
+      captured_paths[${#captured_paths[@]}]="$relative"
+    fi
+  done
+
+  host_name="$(hostname 2>/dev/null || printf 'unknown')"
+  {
+    printf 'old_home=%s\n' "$MIGRATE_HOME"
+    printf 'hostname=%s\n' "$host_name"
+    printf 'date=%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+    printf 'captured_paths:\n'
+    if [[ "${#captured_paths[@]}" -gt 0 ]]; then
+      printf '%s\n' "${captured_paths[@]}"
+    fi
+  } > "$manifest_file"
+
+  [[ ! -e "$plaintext" ]] || die "plaintext archive already exists: $plaintext"
+  tar -czf "$plaintext" -C "$MIGRATE_HOME" "${captured_paths[@]}" -C "$pack_work" manifest.txt
+
+  encryption="$(select_pack_encryption)"
+  case "$encryption" in
+    age) encrypted="$plaintext.age" ;;
+    openssl) encrypted="$plaintext.enc" ;;
+  esac
+  [[ ! -e "$encrypted" ]] || die "encrypted bundle already exists: $encrypted"
+  encrypt_tar "$encryption" "$plaintext" "$encrypted"
+
+  rm -f -- "$plaintext"
+  cleanup_file=""
+  rm -rf -- "$pack_work"
+  cleanup_dir=""
+
+  printf 'Encrypted state bundle: %s\n' "$encrypted"
+  printf 'Captured paths: %s\n' "${#captured_paths[@]}"
+  print_rsync_recipe
+  report_repositories
+}
+
+archive_member_allowed() {
+  local member="$1"
+  shift
+  local relative=""
+
+  [[ "$member" == "manifest.txt" ]] && return 0
+  for relative in "$@"; do
+    if [[ "$member" == "$relative" || "$member" == "$relative/" || "$member" == "$relative/"* ]]; then
+      return 0
+    fi
+  done
+  return 1
+}
+
+fix_restored_permissions() {
+  local path=""
+
+  if [[ -d "$MIGRATE_HOME/.ssh" && ! -L "$MIGRATE_HOME/.ssh" ]]; then
+    chmod 700 "$MIGRATE_HOME/.ssh"
+    for path in "$MIGRATE_HOME/.ssh"/*; do
+      [[ -e "$path" || -L "$path" ]] || continue
+      if [[ -L "$path" ]]; then
+        continue
+      elif [[ -d "$path" ]]; then
+        chmod 700 "$path"
+      elif [[ -f "$path" ]]; then
+        case "$path" in
+          *.pub) chmod 644 "$path" ;;
+          *) chmod 600 "$path" ;;
+        esac
+      fi
+    done
+  fi
+  if [[ -d "$MIGRATE_HOME/.gnupg" && ! -L "$MIGRATE_HOME/.gnupg" ]]; then
+    chmod 700 "$MIGRATE_HOME/.gnupg"
+  fi
+}
+
+rewrite_claude_project_slugs() {
+  local old_home="$1"
+  local projects_dir="$MIGRATE_HOME/.claude/projects"
+  local old_slug="${old_home//\//-}"
+  local new_slug="${MIGRATE_HOME//\//-}"
+  local source=""
+  local name=""
+  local suffix=""
+  local destination=""
+
+  [[ -d "$projects_dir" ]] || return 0
+  [[ "$old_slug" != "$new_slug" ]] || return 0
+  for source in "$projects_dir"/"$old_slug"*; do
+    [[ -d "$source" ]] || continue
+    name="${source##*/}"
+    suffix="${name#"$old_slug"}"
+    destination="$projects_dir/$new_slug$suffix"
+    [[ ! -e "$destination" && ! -L "$destination" ]] || die "Claude project slug destination exists: $destination"
+    mv "$source" "$destination"
+    printf 'Renamed Claude project state: %s -> %s\n' "$name" "${destination##*/}"
+  done
+}
+
+scan_old_home_references() {
+  local old_home="$1"
+  shift
+  local review_file="$cleanup_dir/review-manually.txt"
+  local relative=""
+  local target=""
+
+  : > "$review_file"
+  for relative in "$@"; do
+    target="$MIGRATE_HOME/$relative"
+    if [[ -f "$target" && ! -L "$target" ]]; then
+      grep -IlF "$old_home" "$target" >> "$review_file" 2>/dev/null || true
+    elif [[ -d "$target" && ! -L "$target" ]]; then
+      find "$target" -type f -exec grep -IlF "$old_home" {} + >> "$review_file" 2>/dev/null || true
+    fi
+  done
+
+  if [[ -s "$review_file" ]]; then
+    printf '\nOld home path remains in these restored text files; review manually:\n'
+    sort -u "$review_file"
+  else
+    printf '\nNo restored text files require old-home path review.\n'
+  fi
+}
+
+print_restore_next_steps() {
+  cat <<EOF
+
+Next steps:
+1. From the cloned AOC repo, run: ./install.sh
+2. Open a new shell if PATH changed, then run: aoc-doctor
+3. Transfer $MIGRATE_HOME/dev with the rsync recipe printed by pack.
+4. Run bun install in each restored project that needs dependencies.
+5. Re-authenticate device-bound tools when their migrated credentials are rejected.
+
+The qa-browser-reaper systemd user units do not run on macOS. Port them to
+launchd before relying on the reaper there; docs/migration.md covers the gap.
+EOF
+}
+
+restore_state() {
+  local bundle="$1"
+  local restore_work=""
+  local plaintext=""
+  local manifest_copy=""
+  local members_file=""
+  local old_home=""
+  local line=""
+  local in_captured=0
+  local member=""
+  local normalized=""
+  local relative=""
+  local target=""
+  local backup_root=""
+  local backup_target=""
+  local backup_stamp=""
+  local backup_count=0
+  local -a captured_paths=()
+
+  require_safe_home
+  [[ -f "$bundle" ]] || die "bundle not found: $bundle"
+  mkdir -p "$MIGRATE_HOME"
+  umask 077
+  restore_work="$MIGRATE_HOME/.aoc-migrate-restore.$$"
+  mkdir "$restore_work"
+  cleanup_dir="$restore_work"
+  plaintext="$restore_work/state.tar.gz"
+  cleanup_file="$plaintext"
+  manifest_copy="$restore_work/manifest.txt"
+  members_file="$restore_work/members.txt"
+
+  decrypt_tar "$bundle" "$plaintext"
+  tar -tzf "$plaintext" > "$members_file"
+  tar -xzf "$plaintext" -C "$restore_work" manifest.txt
+  [[ -f "$manifest_copy" ]] || die "bundle has no root manifest.txt"
+
+  while IFS= read -r line || [[ -n "$line" ]]; do
+    if [[ "$line" == "captured_paths:" ]]; then
+      in_captured=1
+      continue
+    fi
+    if [[ "$in_captured" -eq 0 ]]; then
+      case "$line" in
+        old_home=*) old_home="${line#old_home=}" ;;
+      esac
+    elif [[ -n "$line" ]]; then
+      validate_relative_path "$line" || die "unsafe path in manifest: $line"
+      captured_paths[${#captured_paths[@]}]="$line"
+    fi
+  done < "$manifest_copy"
+
+  [[ -n "$old_home" && "$old_home" == /* && "$old_home" != "/" ]] || die "manifest has an invalid old_home"
+
+  while IFS= read -r member || [[ -n "$member" ]]; do
+    normalized="$member"
+    while [[ "$normalized" == ./* ]]; do
+      normalized="${normalized#./}"
+    done
+    validate_relative_path "$normalized" || die "unsafe archive member: $member"
+    archive_member_allowed "$normalized" "${captured_paths[@]}" || die "unexpected archive member: $member"
+  done < "$members_file"
+
+  backup_stamp="$(date +%Y%m%d-%H%M%S)"
+  backup_root="$MIGRATE_HOME/aoc-migrate-backup-$backup_stamp"
+  if [[ -e "$backup_root" || -L "$backup_root" ]]; then
+    backup_root="$backup_root-$$"
+  fi
+
+  for relative in "${captured_paths[@]}" manifest.txt; do
+    target="$MIGRATE_HOME/$relative"
+    if [[ -e "$target" || -L "$target" ]]; then
+      if [[ "$backup_count" -eq 0 ]]; then
+        mkdir -p "$backup_root"
+        chmod 700 "$backup_root"
+      fi
+      backup_target="$backup_root/$relative"
+      mkdir -p "$(dirname "$backup_target")"
+      mv "$target" "$backup_target"
+      backup_count=$((backup_count + 1))
+    fi
+  done
+
+  tar -xzf "$plaintext" -C "$MIGRATE_HOME" "${captured_paths[@]}" manifest.txt
+  fix_restored_permissions
+  rewrite_claude_project_slugs "$old_home"
+  scan_old_home_references "$old_home" "${captured_paths[@]}"
+
+  if [[ "$backup_count" -gt 0 ]]; then
+    printf '\nBacked up %s overwritten path(s) to: %s\n' "$backup_count" "$backup_root"
+  else
+    printf '\nNo existing paths required backup.\n'
+  fi
+  printf 'Restored state into: %s\n' "$MIGRATE_HOME"
+  print_restore_next_steps
+
+  rm -f -- "$plaintext"
+  cleanup_file=""
+  rm -rf -- "$restore_work"
+  cleanup_dir=""
+}
+
+main() {
+  local command_name="${1:-}"
+
+  case "$command_name" in
+    paths)
+      shift
+      [[ $# -eq 0 ]] || die "paths takes no arguments"
+      print_paths
+      ;;
+    pack)
+      shift
+      pack_state "$@"
+      ;;
+    restore)
+      shift
+      [[ $# -eq 1 ]] || die "restore requires exactly one bundle path"
+      restore_state "$1"
+      ;;
+    -h|--help|help)
+      usage
+      ;;
+    "")
+      usage >&2
+      exit 1
+      ;;
+    *)
+      die "unknown command: $command_name"
+      ;;
+  esac
+}
+
+main "$@"
