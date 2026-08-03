@@ -46,6 +46,14 @@ The install places:
 
 Existing Claude and global agent policy files receive timestamped `.bak` copies before replacement. An existing Codex config is never replaced.
 
+### claude-codex (Claude Code on Codex OAuth)
+
+`claude-codex` runs Claude Code through the local CLIProxyAPI bridge with Codex OAuth. `install.sh` installs the wrapper, proxy config, and Linux user services. On each machine, run the login once:
+
+```bash
+claude-codex-login
+```
+
 ## Restart the shell
 
 The installer adds a marked `~/.local/bin` PATH block for fish, zsh, and bash. Restart the shell or open a new terminal before running installed commands.

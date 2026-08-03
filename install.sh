@@ -879,6 +879,11 @@ if [[ -x "$ROOT_DIR/bin/aoc-claude-install" ]]; then
 elif [[ -x "$BIN_DIR/aoc-claude-install" ]]; then
   AOC_SOURCE_ROOT="$ROOT_DIR" "$BIN_DIR/aoc-claude-install"
 fi
+if [[ -x "$ROOT_DIR/bin/aoc-claude-codex-install" ]]; then
+  "$ROOT_DIR/bin/aoc-claude-codex-install"
+elif [[ -x "$BIN_DIR/aoc-claude-codex-install" ]]; then
+  AOC_SOURCE_ROOT="$ROOT_DIR" "$BIN_DIR/aoc-claude-codex-install"
+fi
 
 # Copy other configs
 install -m 0644 "$ROOT_DIR/yazi/yazi.toml" "$HOME/.config/yazi/yazi.toml"

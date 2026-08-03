@@ -1,0 +1,25 @@
+host: 127.0.0.1
+port: 8317
+auth-dir: "@HOME@/.local/share/cli-proxy-api/auth"
+api-keys:
+  - "@CLIENT_KEY@"
+remote-management:
+  enabled: false
+  secret: ""
+control-panel:
+  enabled: false
+debug: false
+log-to-file: false
+# Keep baseline recovery for direct CLIProxyAPI clients; the Claude retry proxy
+# adds Sol-specific backoff and Terra fallback without replacing this policy.
+request-retry: 3
+max-retry-interval: 30
+transient-error-cooldown-seconds: -1
+streaming:
+  bootstrap-retries: 3
+usage-stats: false
+# NOTE: a top-level `model-aliases:` block used to live here. CLIProxyAPI has no such
+# key (aliases are per-credential, and only for api-key entries, not OAuth auth files),
+# so it was silently ignored — sending model "haiku" returns "unknown provider for model
+# haiku". Slot mapping is done by ~/.local/bin/claude-codex via ANTHROPIC_DEFAULT_*_MODEL,
+# which sends concrete gpt-5.6-* ids over the wire.

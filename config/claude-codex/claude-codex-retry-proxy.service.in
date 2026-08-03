@@ -1,0 +1,15 @@
+[Unit]
+Description=Claude Codex retry proxy
+Requires=cli-proxy-api.service
+After=cli-proxy-api.service
+
+[Service]
+Type=simple
+ExecStart=@BUN@ run %h/.local/lib/claude-codex-retry-proxy.ts
+Restart=on-failure
+UMask=0077
+Environment=UPSTREAM_BASE_URL=http://127.0.0.1:8317
+Environment=LISTEN_PORT=8318
+
+[Install]
+WantedBy=default.target

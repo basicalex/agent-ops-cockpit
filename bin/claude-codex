@@ -1,0 +1,86 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+CONFIG_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/cli-proxy-api"
+KEY_FILE="$CONFIG_DIR/client-key"
+SERVICE_NAME="claude-codex-retry-proxy.service"
+
+if ! systemctl --user is-active --quiet "$SERVICE_NAME"; then
+  systemctl --user start "$SERVICE_NAME"
+fi
+
+export ANTHROPIC_BASE_URL="http://127.0.0.1:8318"
+ANTHROPIC_AUTH_TOKEN="$(<"$KEY_FILE")"
+export ANTHROPIC_AUTH_TOKEN
+
+# The three selectable models, bound to Claude Code's model slots so /model and
+# --model both reach them:
+#   opus / fable -> sol    (strongest; see reliability note below)
+#   sonnet       -> terra
+#   haiku        -> luna
+CODEX_SOL="gpt-5.6-sol"
+CODEX_TERRA="gpt-5.6-terra"
+CODEX_LUNA="gpt-5.6-luna"
+
+map_model() {
+  case "${1,,}" in
+    opus|fable|sol) printf '%s\n' "$CODEX_SOL" ;;
+    sonnet|terra) printf '%s\n' "$CODEX_TERRA" ;;
+    haiku|luna) printf '%s\n' "$CODEX_LUNA" ;;
+    *) printf '%s\n' "$1" ;;
+  esac
+}
+
+# sol is entitled on this account. The local retry proxy handles pre-output
+# transient overloads before Claude Code sees a failed launch.
+CODEX_TOP_MODEL="$(map_model "${CODEX_TOP_MODEL:-sol}")"
+
+export ANTHROPIC_DEFAULT_OPUS_MODEL="$CODEX_SOL"
+export ANTHROPIC_DEFAULT_FABLE_MODEL="$CODEX_SOL"
+export ANTHROPIC_DEFAULT_SONNET_MODEL="$CODEX_TERRA"
+export ANTHROPIC_DEFAULT_HAIKU_MODEL="$CODEX_LUNA"
+
+# GPT-5.6 session tuning (Claude Code 2.1.220 supports all four):
+export CLAUDE_CODE_MAX_CONTEXT_TOKENS=372000     # Sol context on the Codex backend; CC assumes 200K for unknown model ids
+export CLAUDE_CODE_AUTO_COMPACT_WINDOW=372000
+export CLAUDE_CODE_SUBAGENT_MODEL="$CODEX_TERRA" # keep subagents off sol
+export CLAUDE_CODE_MAX_TOOL_USE_CONCURRENCY=3    # GPT batches mutating tool calls unsafely at higher concurrency
+
+translated_args=()
+while (($#)); do
+  case "$1" in
+    --model)
+      if (($# < 2)); then
+        printf 'claude-codex: --model requires a value\n' >&2
+        exit 2
+      fi
+      translated_args+=("--model" "$(map_model "$2")")
+      shift 2
+      ;;
+    --model=*)
+      translated_args+=("--model=$(map_model "${1#--model=}")")
+      shift
+      ;;
+    *)
+      translated_args+=("$1")
+      shift
+      ;;
+  esac
+done
+
+# Prefer the bun-global install (kept current) over the pacman /usr/bin/claude, which lags.
+CLAUDE_BIN="$HOME/.cache/.bun/bin/claude"
+[[ -x "$CLAUDE_BIN" ]] || CLAUDE_BIN="$(command -v claude)"
+
+PERSONA_FILE="$CONFIG_DIR/codex-persona.md"
+persona_args=()
+if [[ "${CLAUDE_CODEX_PERSONA:-on}" != "off" && -r "$PERSONA_FILE" ]]; then
+  persona_args=(--append-system-prompt "$(<"$PERSONA_FILE")")
+fi
+
+DISABLE_UPDATES=1 exec "$CLAUDE_BIN" \
+  --settings "$CONFIG_DIR/claude-settings.json" \
+  --model "$(map_model "${CLAUDE_CODEX_MODEL:-$CODEX_TOP_MODEL}")" \
+  --effort "${CLAUDE_CODEX_EFFORT:-high}" \
+  "${persona_args[@]}" \
+  "${translated_args[@]}"

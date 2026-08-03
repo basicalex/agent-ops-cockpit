@@ -1,0 +1,9 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+CONFIG="${XDG_CONFIG_HOME:-$HOME/.config}/cli-proxy-api/config.yaml"
+BINARY="$HOME/.local/bin/cli-proxy-api"
+SERVICE_NAME="cli-proxy-api.service"
+
+"$BINARY" -config "$CONFIG" -codex-login
+systemctl --user restart "$SERVICE_NAME"

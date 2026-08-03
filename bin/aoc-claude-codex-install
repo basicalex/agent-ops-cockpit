@@ -1,0 +1,272 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+repo_root="${AOC_SOURCE_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
+source_dir="$repo_root/config/claude-codex"
+config_dir="${XDG_CONFIG_HOME:-$HOME/.config}/cli-proxy-api"
+bin_dir="$HOME/.local/bin"
+lib_dir="$HOME/.local/lib"
+systemd_dir="${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user"
+auth_dir="$HOME/.local/share/cli-proxy-api/auth"
+cli_proxy_bin="$bin_dir/cli-proxy-api"
+
+log() {
+  printf 'aoc-claude-codex-install: %s\n' "$*"
+}
+
+warn() {
+  printf 'Warning: %s\n' "$*" >&2
+}
+
+install_managed() {
+  local src="$1"
+  local dst="$2"
+  local mode="$3"
+
+  if [[ -f "$dst" ]] && cmp -s "$src" "$dst"; then
+    log "kept existing $dst"
+    return
+  fi
+  install -m "$mode" "$src" "$dst"
+  log "installed $dst"
+}
+
+install_if_missing() {
+  local src="$1"
+  local dst="$2"
+  local mode="$3"
+
+  if [[ -e "$dst" ]]; then
+    log "kept existing $dst"
+    return
+  fi
+  install -m "$mode" "$src" "$dst"
+  log "installed $dst"
+}
+
+download_cli_proxy() {
+  local os arch asset_suffix tmp_dir release_json download_url archive extract_dir candidate
+
+  case "$(uname -s)" in
+    Linux) os="linux" ;;
+    Darwin) os="darwin" ;;
+    *)
+      warn "CLIProxyAPI has no automatic download for $(uname -s); install $cli_proxy_bin manually"
+      return 1
+      ;;
+  esac
+
+  case "$(uname -m)" in
+    x86_64|amd64) arch="amd64" ;;
+    arm64|aarch64) arch="aarch64" ;;
+    *)
+      warn "CLIProxyAPI has no automatic download for $(uname -m); install $cli_proxy_bin manually"
+      return 1
+      ;;
+  esac
+
+  if ! command -v curl >/dev/null 2>&1 || ! command -v tar >/dev/null 2>&1; then
+    warn "curl and tar are required to download CLIProxyAPI; install $cli_proxy_bin manually"
+    return 1
+  fi
+
+  tmp_dir="$(mktemp -d)"
+  release_json="$tmp_dir/release.json"
+  archive="$tmp_dir/cli-proxy-api.tar.gz"
+  extract_dir="$tmp_dir/extract"
+  mkdir -p "$extract_dir"
+
+  if ! curl -fsSL "https://api.github.com/repos/router-for-me/CLIProxyAPI/releases/latest" -o "$release_json"; then
+    rm -rf "$tmp_dir"
+    warn "failed to query the latest CLIProxyAPI release; install $cli_proxy_bin manually"
+    return 1
+  fi
+
+  asset_suffix="_${os}_${arch}.tar.gz"
+  download_url=""
+  while IFS= read -r candidate; do
+    case "$candidate" in
+      *"$asset_suffix")
+        download_url="$candidate"
+        break
+        ;;
+    esac
+  done < <(sed -n 's/^[[:space:]]*"browser_download_url": "\([^"]*\)".*/\1/p' "$release_json")
+
+  if [[ -z "$download_url" ]] || ! curl -fsSL "$download_url" -o "$archive"; then
+    rm -rf "$tmp_dir"
+    warn "failed to download CLIProxyAPI for $os/$arch; install $cli_proxy_bin manually"
+    return 1
+  fi
+
+  if ! tar -xzf "$archive" -C "$extract_dir"; then
+    rm -rf "$tmp_dir"
+    warn "failed to extract CLIProxyAPI; install $cli_proxy_bin manually"
+    return 1
+  fi
+
+  candidate=""
+  if [[ -f "$extract_dir/cli-proxy-api" ]]; then
+    candidate="$extract_dir/cli-proxy-api"
+  elif [[ -f "$extract_dir/CLIProxyAPI" ]]; then
+    candidate="$extract_dir/CLIProxyAPI"
+  fi
+
+  if [[ -z "$candidate" ]]; then
+    rm -rf "$tmp_dir"
+    warn "the CLIProxyAPI archive did not contain its binary; install $cli_proxy_bin manually"
+    return 1
+  fi
+
+  chmod 0755 "$candidate"
+  if ! "$candidate" --version >/dev/null 2>&1; then
+    rm -rf "$tmp_dir"
+    warn "the downloaded CLIProxyAPI binary failed --version; install $cli_proxy_bin manually"
+    return 1
+  fi
+
+  install -m 0755 "$candidate" "$cli_proxy_bin"
+  rm -rf "$tmp_dir"
+  log "installed $cli_proxy_bin"
+}
+
+UNIT_CHANGED=0
+render_unit() {
+  local template="$1"
+  local dst="$2"
+  local bun_bin="$3"
+  local content tmp
+
+  content="$(<"$template")"
+  content="${content//@BUN@/$bun_bin}"
+  tmp="$(mktemp)"
+  printf '%s\n' "$content" > "$tmp"
+
+  if [[ -f "$dst" ]] && cmp -s "$tmp" "$dst"; then
+    rm -f "$tmp"
+    UNIT_CHANGED=0
+    log "kept existing $dst"
+    return
+  fi
+
+  install -m 0644 "$tmp" "$dst"
+  rm -f "$tmp"
+  UNIT_CHANGED=1
+  log "installed $dst"
+}
+
+for required in \
+  claude-codex-retry-proxy.ts \
+  codex-persona.md \
+  system-prompt-rules.json \
+  claude-settings.json \
+  config.yaml.in \
+  claude-codex-retry-proxy.service.in \
+  cli-proxy-api.service.in; do
+  if [[ ! -f "$source_dir/$required" ]]; then
+    printf 'aoc-claude-codex-install: missing %s\n' "$source_dir/$required" >&2
+    exit 1
+  fi
+done
+
+mkdir -p "$config_dir" "$bin_dir" "$lib_dir"
+install_managed "$source_dir/claude-codex-retry-proxy.ts" "$lib_dir/claude-codex-retry-proxy.ts" 0644
+install_managed "$source_dir/codex-persona.md" "$config_dir/codex-persona.md" 0644
+install_managed "$source_dir/claude-settings.json" "$config_dir/claude-settings.json" 0644
+install_if_missing "$source_dir/system-prompt-rules.json" "$config_dir/system-prompt-rules.json" 0644
+
+config_file="$config_dir/config.yaml"
+key_file="$config_dir/client-key"
+if [[ -f "$config_file" ]]; then
+  log "kept existing $config_file and $key_file"
+else
+  if [[ ! -f "$key_file" ]]; then
+    key_tmp="$(mktemp)"
+    if command -v openssl >/dev/null 2>&1; then
+      openssl rand -hex 32 > "$key_tmp"
+    else
+      od -An -N32 -tx1 /dev/urandom | tr -d ' \n' > "$key_tmp"
+      printf '\n' >> "$key_tmp"
+    fi
+    install -m 0600 "$key_tmp" "$key_file"
+    rm -f "$key_tmp"
+    log "generated $key_file"
+  else
+    chmod 0600 "$key_file"
+    log "kept existing $key_file"
+  fi
+
+  IFS= read -r client_key < "$key_file"
+  config_content="$(<"$source_dir/config.yaml.in")"
+  config_content="${config_content//@CLIENT_KEY@/$client_key}"
+  config_content="${config_content//@HOME@/$HOME}"
+  config_tmp="$(mktemp)"
+  printf '%s\n' "$config_content" > "$config_tmp"
+  install -m 0600 "$config_tmp" "$config_file"
+  rm -f "$config_tmp"
+  unset client_key config_content
+  log "installed $config_file"
+fi
+
+if [[ ! -x "$cli_proxy_bin" ]]; then
+  download_cli_proxy || true
+else
+  log "kept existing $cli_proxy_bin"
+fi
+
+case "$(uname -s)" in
+  Linux)
+    bun_bin="$(command -v bun || true)"
+    if [[ -z "$bun_bin" && -x "$HOME/.cache/.bun/bin/bun" ]]; then
+      bun_bin="$HOME/.cache/.bun/bin/bun"
+    fi
+    if [[ -z "$bun_bin" && -x "$HOME/.local/share/mise/shims/bun" ]]; then
+      bun_bin="$HOME/.local/share/mise/shims/bun"
+    fi
+
+    if [[ -z "$bun_bin" ]]; then
+      warn "bun was not found; install bun and re-run this installer to start the claude-codex services"
+    elif [[ ! -x "$cli_proxy_bin" ]]; then
+      warn "CLIProxyAPI is missing; install $cli_proxy_bin and re-run this installer to start the claude-codex services"
+    else
+      mkdir -p "$systemd_dir"
+      cli_was_active=0
+      retry_was_active=0
+      systemctl --user is-active --quiet cli-proxy-api.service && cli_was_active=1
+      systemctl --user is-active --quiet claude-codex-retry-proxy.service && retry_was_active=1
+
+      render_unit "$source_dir/cli-proxy-api.service.in" "$systemd_dir/cli-proxy-api.service" "$bun_bin"
+      cli_changed="$UNIT_CHANGED"
+      render_unit "$source_dir/claude-codex-retry-proxy.service.in" "$systemd_dir/claude-codex-retry-proxy.service" "$bun_bin"
+      retry_changed="$UNIT_CHANGED"
+
+      systemctl --user daemon-reload
+      systemctl --user enable --now cli-proxy-api.service
+      systemctl --user enable --now claude-codex-retry-proxy.service
+      if [[ "$cli_changed" == "1" && "$cli_was_active" == "1" ]]; then
+        systemctl --user restart cli-proxy-api.service
+        log "restarted cli-proxy-api.service"
+      fi
+      if [[ "$retry_changed" == "1" && "$retry_was_active" == "1" ]]; then
+        systemctl --user restart claude-codex-retry-proxy.service
+        log "restarted claude-codex-retry-proxy.service"
+      fi
+    fi
+    ;;
+  Darwin)
+    warn "service supervision on macOS is manual for now"
+    ;;
+esac
+
+auth_present=0
+for auth_entry in "$auth_dir"/*.json; do
+  if [[ -f "$auth_entry" ]]; then
+    auth_present=1
+    break
+  fi
+done
+if [[ "$auth_present" == "0" ]]; then
+  log "run claude-codex-login once on this machine"
+fi
+
+log "done"
