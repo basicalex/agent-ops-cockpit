@@ -105,3 +105,8 @@ if ! shim_installer_path="$(resolve_command "$shim_installer")"; then
 fi
 
 AOC_RAW_OMP_BIN="$updated_cli" "$shim_installer_path"
+
+seed="${AOC_OMP_SEEDER:-aoc-omp-seed}"
+if seed_path="$(resolve_command "$seed" 2>/dev/null)"; then
+  "$seed_path"
+fi

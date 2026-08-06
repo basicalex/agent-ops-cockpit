@@ -1,0 +1,66 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+usage() {
+  cat <<'EOF'
+Usage: aoc-omp-seed [--status]
+
+Seed machine-global OMP rules and the autolearn configuration when OMP exists.
+EOF
+}
+
+repo_root="${AOC_SOURCE_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
+omp_agent_dir="${AOC_OMP_AGENT_DIR:-$HOME/.omp/agent}"
+omp_config="${AOC_OMP_AGENT_CONFIG:-$omp_agent_dir/config.yml}"
+rules_source="$repo_root/config/omp/RULES.md"
+rules_target="$omp_agent_dir/RULES.md"
+status=0
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --status) status=1 ;;
+    -h|--help) usage; exit 0 ;;
+    *) echo "Unknown option: $1" >&2; usage; exit 2 ;;
+  esac
+  shift
+done
+
+have_autolearn() {
+  [[ -f "$omp_config" ]] && python3 - "$omp_config" <<'PY'
+import sys
+from pathlib import Path
+
+config = Path(sys.argv[1])
+raise SystemExit(0 if any(line.startswith("autolearn:") for line in config.read_text().splitlines()) else 1)
+PY
+}
+
+if [[ "$status" == "1" ]]; then
+  if [[ -f "$rules_target" ]] && have_autolearn; then
+    printf '%s\n' "installed"
+  else
+    printf '%s\n' "missing"
+  fi
+  exit 0
+fi
+
+[[ -f "$omp_config" && -f "$rules_source" ]] || exit 0
+
+if [[ ! -e "$rules_target" ]]; then
+  mkdir -p "$omp_agent_dir"
+  cp "$rules_source" "$rules_target"
+fi
+
+python3 - "$omp_config" <<'PY'
+import sys
+from pathlib import Path
+
+config = Path(sys.argv[1])
+contents = config.read_bytes()
+text = contents.decode()
+if any(line.startswith("autolearn:") for line in text.splitlines()):
+    raise SystemExit(0)
+
+separator = b"" if not contents or contents.endswith(b"\n") else b"\n"
+config.write_bytes(contents + separator + b"autolearn:\n  enabled: true\n  autoContinue: true\n")
+PY

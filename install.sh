@@ -653,6 +653,7 @@ required_bin_scripts=(
   aoc-omp
   aoc-omp-context
   aoc-omp-shim-install
+  aoc-omp-seed
   aoc-omp-update
   aoc-utils.sh
   aoc-init
@@ -883,6 +884,16 @@ if [[ -x "$ROOT_DIR/bin/aoc-claude-codex-install" ]]; then
   "$ROOT_DIR/bin/aoc-claude-codex-install"
 elif [[ -x "$BIN_DIR/aoc-claude-codex-install" ]]; then
   AOC_SOURCE_ROOT="$ROOT_DIR" "$BIN_DIR/aoc-claude-codex-install"
+fi
+if [[ -x "$ROOT_DIR/bin/aoc-omp-shim-install" ]]; then
+  "$ROOT_DIR/bin/aoc-omp-shim-install"
+elif [[ -x "$BIN_DIR/aoc-omp-shim-install" ]]; then
+  AOC_SOURCE_ROOT="$ROOT_DIR" "$BIN_DIR/aoc-omp-shim-install"
+fi
+if [[ -x "$ROOT_DIR/bin/aoc-omp-seed" ]]; then
+  "$ROOT_DIR/bin/aoc-omp-seed"
+elif [[ -x "$BIN_DIR/aoc-omp-seed" ]]; then
+  AOC_SOURCE_ROOT="$ROOT_DIR" "$BIN_DIR/aoc-omp-seed"
 fi
 
 # Copy other configs

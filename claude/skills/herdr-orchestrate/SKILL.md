@@ -166,7 +166,18 @@ Worker summaries describe what they *intended* to do. Verify everything yourself
 3. Run TEST_CMD and TYPECHECK_CMD yourself. **Never trust worker summaries.**
 4. Commit only worker-scoped files, grouped per coherent slice — never `git add -A`.
 
-## 5. Cleanup
+## 5. Lesson write-back (after verify, before cleanup)
+
+Campaign knowledge must not die in the pane. After verification, ask: did this campaign surface anything a future campaign or worker needs to know? If nothing durable, skip — no filler lessons. If yes, write it to the right store:
+
+- **Machine-global worker lesson** (applies to any repo) → append a short rule to `~/.omp/agent/RULES.md` (create if absent; omp auto-loads it in every session).
+- **Mid-stream-detectable failure** (a bad command pattern, e.g. `git stash` on a dirty worktree) → a TTSR interrupt rule at `~/.omp/agent/rules/<slug>.md` with `condition:` regex and `scope:` frontmatter — copy the format of `never-stash-dirty-worktree.md`.
+- **Project-specific lesson** → `<repo>/.omp/RULES.md`.
+- **Orchestrator-side lesson** (packet design, scope splitting, model choice) → this skill file or Claude memory, whichever it belongs to.
+
+Rules for lessons: one per incident, short, state the failure evidence and the corrective behavior. Delete rules that stop being true. Workers also have the `learn` tool (autolearn is enabled machine-wide since 2026-08-06); their self-captured lessons land in mnemopi/managed-skills — periodically curate those with `/optimize-mnemopi`.
+
+## 6. Cleanup
 
 - Close tabs **you spawned** after verification succeeds: `herdr tab close <tab-id>`. Keep a failed worker's tab open for diagnosis until its slice is resolved.
 - Never close tabs or panes the user provided.
