@@ -10,8 +10,8 @@ Coordinate a campaign of parallel work across omp agents running in herdr panes.
 
 **Slice routing rule:** three tiers, decided when splitting the campaign:
 
-1. **omp workers (default)** — mechanical/parallelizable slices: sweeps, migrations, typecheck fixes, audits. Model policy: see "Worker model policy" below.
-2. **Opus subagents** — visual/design slices: UI polish, component composition, spacing/tone/palette, anything where "does this look right" is the acceptance criterion. Dispatch via the Agent tool with `model: "opus"`, never as omp packets.
+1. **omp workers (default for non-UI work)** — mechanical/parallelizable slices: sweeps, migrations, typecheck fixes, audits. **Never frontend**: no components, pages, styles, or anything rendered, however mechanical the slice looks (violated 2026-08-07; hard rule since).
+2. **Opus subagents** — ALL frontend/UI slices: components, pages, styling, layout, animations, UX copy — plus any other change where "does this look right" is the acceptance criterion. Dispatch via the Agent tool with `model: "opus"`, never as omp packets.
 3. **Fable escalation (explicit user request only)** — for *critical* slices: architecture-sensitive changes, deep cross-cutting reasoning, or a slice omp workers have already fumbled. Both gates must hold: the slice is critical AND the user asked for fable-level handling. Never escalate on your own — fable sessions burn metered Claude usage while omp is effectively unlimited, so that spend is the user's call; if a slice seems to need it, recommend and ask. Two dispatch forms:
    - **Escalation agent (default):** dispatch via the Agent tool with no model override, so the subagent inherits the fable model. No pane management, no permission stalls, result returns in-session. Right for one-off critical slices.
    - **Herdr fable worker:** only when the critical slice must run as a long-lived peer of a parallel campaign alongside omp workers — see "Spawning fable workers" below.
