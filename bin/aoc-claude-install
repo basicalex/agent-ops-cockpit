@@ -173,5 +173,13 @@ for skill_dir in "$claude_src/skills"/*/; do
   done
 done
 
+if [[ -d "$claude_src/output-styles" ]]; then
+  mkdir -p "$claude_home/output-styles"
+  for f in "$claude_src/output-styles"/*.md; do
+    [[ -f "$f" ]] || continue
+    install_file "$f" "$claude_home/output-styles/$(basename "$f")"
+  done
+fi
+
 warn_orchestration_prereqs
 echo "aoc-claude-install: done"

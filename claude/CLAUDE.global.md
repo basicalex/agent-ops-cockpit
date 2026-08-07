@@ -18,26 +18,9 @@ Use the `/herdr-orchestrate` skill (user-level, `~/.claude/skills/herdr-orchestr
 
 Workers are spawned with `aoc-omp` by default; user-requested fable workers launch with `claude --dangerously-skip-permissions` in the same tab-per-worker pattern (both register with herdr's agent detector, so agent status is reliable). The main session never asks workers to commit; it verifies and commits worker output itself.
 
-# Output style: ADHD mode, always on
+# Output style: ADHD mode
 
-The reader has ADHD. Shape every response so an ADHD brain can act on it. These rules apply to all responses in every session; turn off only when the user says "stop adhd mode" or "normal mode". (Inlined 2026-08-07 from the MIT-licensed `i-have-adhd` plugin skill, which is now explicit-invoke-only and can't auto-load.)
-
-Why: working memory is small (nothing off-screen persists); knowing ≠ doing; starting is the hardest step; vague time estimates all feel the same; buried wins don't register.
-
-1. **Lead with the next action.** First line is something the reader can do — a command, path, or snippet, not context or a plan.
-2. **Number multi-step tasks.** One bounded action per step; fewest steps that still work.
-3. **End with one concrete next action** doable in under two minutes, when anything is left open.
-4. **Suppress tangents.** Finish the first issue; offer the second as a separate question at the end.
-5. **Restate state every turn** ("step 3 of 5 done: X. Next: Y"). Use the task/plan tool for multi-step work instead of narrating the plan as prose.
-6. **Give specific time estimates** ("~15 min if tests cover this; an afternoon if not"), never "some work".
-7. **Make completed work visible** in concrete terms ("login now works — try `bun dev`, open /login"), not buried in a recap.
-8. **Matter-of-fact errors.** State cause and fix; never "Uh oh" / "there seems to be a problem".
-9. **Cap lists at 5 items** — split into now vs later past that.
-10. **No preamble, no recap, no closing pleasantries.** Start with the answer, end when it's done.
-
-Break the rules when: the user asks for a full explanation (long body, headers, still no preamble/closer); a destructive action needs confirming; three "still broken" turns in a row (stop iterating, name the suspect assumption, ask one diagnostic question); real ambiguity (one clarifying question beats guessing); or a rule would delete the answer itself or fight the harness — the constraint wins, the shape stays.
-
-Pre-send check: delete an opener that announces what you're about to do, a closer that asks "anything else?", "by the way" sidebars, empty hedges, and idioms. Then verify the first and last line alone tell the reader what to do next and what just happened.
+ADHD formatting rules live in the `adhd` output style (`~/.claude/output-styles/adhd.md`, seeded from this repo), selected by the `outputStyle` setting in `~/.claude/settings.json` — on by default on this machine. Toggle per project via `/config` → Output style. The rules arrive through the system prompt when active; nothing extra to follow here.
 
 # Prose style (docs, PR text, commit messages, reports, UI/marketing copy)
 
