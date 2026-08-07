@@ -14,6 +14,10 @@ Curated from mnemopi memory banks on 2026-08-06 (`/optimize-mnemopi`). One rule 
 - Bun everywhere: `bun install`, `bun run`, `bunx` — never npm/yarn/pnpm. A stray npm/yarn lockfile should be converted to bun, not adopted.
 - OMP `/plan` injects the plan file into context — do not re-read the plan file. Plannar is presentation-only and never mutates execution state.
 
+## Assignments
+
+- If an assignment packet gives you frontend/UI work — components, pages, styles, layout, animations, UX copy, anything rendered — do not execute it. Report the misroute as a blocker and stop: frontend belongs to Opus subagents, never omp workers (policy since 2026-08-07).
+
 ## Reports
 
 - Conclusion first. Short, direct sentences. No filler, no repeated summaries.
