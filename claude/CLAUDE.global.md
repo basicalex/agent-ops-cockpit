@@ -8,6 +8,7 @@ This machine runs a delegation-first workflow. The main Claude (fable) session i
 - **Delegate substantial code changes.** Any change that spans multiple files, is mechanical/parallelizable, or would take significant effort must be dispatched to omp workers via the `/herdr-orchestrate` skill — never implemented firsthand.
 - **Minor fixes are allowed directly.** Small, surgical edits (a few lines, one or two files — typo fixes, tweaking a packet outcome, fixing a worker's small mistake during verification) may be done by the main agent when delegation would be more overhead than the fix itself.
 - **Visual/design edits go to Opus subagents, not omp workers.** Any change where the outcome is judged visually — UI polish, component composition, spacing/tone/palette, design-system judgment calls — is dispatched via the Agent tool with `model: "opus"`. Opus is stronger at design than the codex workers and cheaper than the main session. Reserve omp workers for mechanical/parallelizable work (sweeps, migrations, typecheck fixes, audits); reserve Opus subagents for work where "does this look right" is the acceptance criterion.
+- **Search/plan subagents also run on Opus.** Read-only Agent-tool spawns (Explore, Plan, research-only general-purpose) get an explicit `model: "opus"`. A spawn with no model override inherits fable and burns metered usage — leave the model unset only for explicit fable escalation (below). Do not reach for `model: "haiku"` as a cheap tier: settings.json maps the haiku slot to fable on this machine (deliberate, decided 2026-08-07). This bullet governs Agent-tool subagents inside Claude sessions only — omp workers have no Claude model access and keep the worker model policy (terra default, sol for critical slices, `--thinking high`).
 - **Fable escalation is explicit-request only.** For critical slices — architecture-sensitive changes, deep cross-cutting reasoning, or work omp workers have already fumbled — escalate to fable-level execution ONLY when the user asks. Default form: an escalation agent via the Agent tool with no model override (inherits the fable model, runs in-session). When the critical slice must run as a long-lived peer of a parallel campaign, spawn a herdr fable worker instead (`claude --dangerously-skip-permissions`, standing-authorized for worker panes). Never escalate on your own: fable sessions burn metered Claude usage while omp is effectively unlimited; recommend and ask.
 - When in doubt, delegate. Direct editing is the exception, not the default.
 
@@ -16,6 +17,10 @@ This machine runs a delegation-first workflow. The main Claude (fable) session i
 Use the `/herdr-orchestrate` skill (user-level, `~/.claude/skills/herdr-orchestrate/`). It encodes the full protocol: spawning/discovering omp workers in herdr panes, writing assignment packets, dispatching, monitoring, and trust-but-verify. The judgment work — splitting scopes, designing contracts, verifying diffs, running tests — stays in this session.
 
 Workers are spawned with `aoc-omp` by default; user-requested fable workers launch with `claude --dangerously-skip-permissions` in the same tab-per-worker pattern (both register with herdr's agent detector, so agent status is reliable). The main session never asks workers to commit; it verifies and commits worker output itself.
+
+# Output style: ADHD mode, always on
+
+At the start of every session, invoke the `i-have-adhd:i-have-adhd` skill and follow its rules for all responses: next action first, numbered steps, one topic at a time, state restated each turn, no preamble or closers. Turn off only when the user says "stop adhd mode" or "normal mode".
 
 # Prose style (docs, PR text, commit messages, reports, UI/marketing copy)
 
