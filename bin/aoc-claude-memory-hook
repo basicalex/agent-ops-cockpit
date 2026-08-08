@@ -1,0 +1,24 @@
+#!/usr/bin/env bash
+# Claude Code SessionStart hook: join the current repo to the shared memory
+# rail by running aoc-memory-link on the git root of the session's cwd.
+#
+# Contract (this runs on every Claude session start):
+#   - never fails the session: always exits 0
+#   - silent: SessionStart hook stdout is injected into the session context,
+#     so all aoc-memory-link output is discarded
+#   - fast no-op outside git repos and when the link already exists
+#     (aoc-memory-link is idempotent and migrates any pre-existing real
+#     memory dir into the store before symlinking)
+set -u
+
+root="$(git -C "$PWD" rev-parse --show-toplevel 2>/dev/null)" || exit 0
+[[ -n "$root" && -d "$root" ]] || exit 0
+
+# Prefer the sibling install of aoc-memory-link, fall back to PATH.
+link_tool="$(dirname "${BASH_SOURCE[0]}")/aoc-memory-link"
+if [[ ! -x "$link_tool" ]]; then
+  link_tool="$(command -v aoc-memory-link 2>/dev/null)" || exit 0
+fi
+
+"$link_tool" "$root" >/dev/null 2>&1 || true
+exit 0

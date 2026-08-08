@@ -103,6 +103,35 @@ data["permissions"] = permissions
 data["skipDangerousModePermissionPrompt"] = True
 data["skipAutoPermissionPrompt"] = True
 
+# Memory-rail hook: link every repo's Claude memory dir into ~/.aoc/memory
+# on session start. Merge surgically: replace any existing entry that
+# references the hook script, keep every other hook untouched.
+hook_cmd = str(Path.home() / ".local/bin/aoc-claude-memory-hook")
+desired_entry = {
+    "matcher": "*",
+    "hooks": [{"type": "command", "command": hook_cmd, "timeout": 10}],
+}
+
+def references_memory_hook(entry):
+    if not isinstance(entry, dict) or not isinstance(entry.get("hooks"), list):
+        return False
+    return any(
+        isinstance(h, dict) and "aoc-claude-memory-hook" in str(h.get("command", ""))
+        for h in entry["hooks"]
+    )
+
+hooks = data.get("hooks")
+if not isinstance(hooks, dict):
+    hooks = {}
+session_start = hooks.get("SessionStart")
+if not isinstance(session_start, list):
+    session_start = []
+
+merged = [e for e in session_start if not references_memory_hook(e)]
+merged.append(desired_entry)
+hooks["SessionStart"] = merged
+data["hooks"] = hooks
+
 tmp.write_text(json.dumps(data, indent=2, sort_keys=False) + "\n")
 PY
   then

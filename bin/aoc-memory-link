@@ -1,0 +1,97 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Rolls the shared agent-memory rail out to one repo:
+#   1. creates the canonical store ~/.aoc/memory/<repo-basename>/
+#   2. migrates any files from that repo's Claude Code memory dir into it
+#   3. replaces the Claude memory dir with a symlink into the store
+#
+# Claude Code keys its per-project dir on a slug of the absolute repo path
+# (non-alphanumerics become "-"), so after moving a repo (e.g. Linux -> Mac)
+# rerunning this tool against the new path relinks the new slug to the same
+# store. Idempotent: safe to run any number of times.
+
+usage() {
+  cat <<'EOF'
+Usage: aoc-memory-link <repo-path>
+
+Creates ~/.aoc/memory/<basename>/ for the repo, migrates the repo's existing
+Claude Code memory files into it, and symlinks
+~/.claude/projects/<path-slug>/memory into the store.
+EOF
+}
+
+log() {
+  printf 'aoc-memory-link: %s\n' "$*"
+}
+
+if [[ $# -ne 1 || "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
+  usage >&2
+  [[ "${1:-}" == "-h" || "${1:-}" == "--help" ]] && exit 0
+  exit 2
+fi
+
+repo_path="$(realpath -m "$1")"
+if [[ ! -d "$repo_path" ]]; then
+  printf 'aoc-memory-link: %s is not a directory\n' "$repo_path" >&2
+  exit 1
+fi
+
+repo_name="$(basename "$repo_path")"
+store="$HOME/.aoc/memory/$repo_name"
+
+# Claude Code's project slug: absolute path with every non-alphanumeric
+# character replaced by "-" (/home/x/dev/my.repo -> -home-x-dev-my-repo).
+slug="$(printf '%s' "$repo_path" | sed 's|[^a-zA-Z0-9]|-|g')"
+claude_project_dir="$HOME/.claude/projects/$slug"
+claude_mem="$claude_project_dir/memory"
+
+mkdir -p "$store"
+
+if [[ -L "$claude_mem" ]]; then
+  current_target="$(realpath -m "$claude_mem")"
+  if [[ "$current_target" == "$store" ]]; then
+    log "already linked: $claude_mem -> $store"
+    exit 0
+  fi
+  # Relink case: symlink points at an old store (renamed repo, migrated machine).
+  ln -sfn "$store" "$claude_mem"
+  log "relinked $claude_mem (was -> $current_target, now -> $store)"
+  exit 0
+fi
+
+if [[ -d "$claude_mem" ]]; then
+  # Migrate real dir contents into the store, then swap in the symlink.
+  conflicts=()
+  shopt -s nullglob dotglob
+  for src in "$claude_mem"/*; do
+    name="$(basename "$src")"
+    dst="$store/$name"
+    if [[ ! -e "$dst" ]]; then
+      mv "$src" "$dst"
+    elif cmp -s "$src" "$dst"; then
+      rm "$src"
+    else
+      conflicts+=("$name")
+    fi
+  done
+  shopt -u nullglob dotglob
+
+  if [[ ${#conflicts[@]} -gt 0 ]]; then
+    backup="$claude_project_dir/memory.pre-link.bak"
+    mkdir -p "$backup"
+    for name in "${conflicts[@]}"; do
+      mv "$claude_mem/$name" "$backup/$name"
+    done
+    log "kept store versions of: ${conflicts[*]} (diverging copies moved to $backup)"
+  fi
+
+  rmdir "$claude_mem"
+  ln -sfn "$store" "$claude_mem"
+  log "migrated $claude_mem into $store and linked it"
+  exit 0
+fi
+
+mkdir -p "$claude_project_dir"
+ln -sfn "$store" "$claude_mem"
+log "linked $claude_mem -> $store"

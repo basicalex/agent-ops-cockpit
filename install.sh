@@ -659,6 +659,8 @@ required_bin_scripts=(
   aoc-init
   aoc-handshake
   aoc-doctor
+  aoc-memory-link
+  aoc-claude-memory-hook
   tm
 )
 missing_installed_scripts=()
@@ -870,6 +872,12 @@ fi
 # 4. Generate & Install Configs
 log "Generating configurations..."
 
+# Shared agent-memory rail: canonical store base dir. Per-repo stores and
+# Claude-side symlinks are created lazily by the SessionStart hook
+# (aoc-claude-memory-hook -> aoc-memory-link); memory *data* syncs between
+# machines via dotfiles, not this installer.
+mkdir -p "$HOME/.aoc/memory"
+
 if [[ -x "$ROOT_DIR/bin/aoc-herdr-install" ]]; then
   "$ROOT_DIR/bin/aoc-herdr-install"
 elif [[ -x "$BIN_DIR/aoc-herdr-install" ]]; then
@@ -884,6 +892,11 @@ if [[ -x "$ROOT_DIR/bin/aoc-claude-codex-install" ]]; then
   "$ROOT_DIR/bin/aoc-claude-codex-install"
 elif [[ -x "$BIN_DIR/aoc-claude-codex-install" ]]; then
   AOC_SOURCE_ROOT="$ROOT_DIR" "$BIN_DIR/aoc-claude-codex-install"
+fi
+if [[ -x "$ROOT_DIR/bin/aoc-prime-memory-install" ]]; then
+  "$ROOT_DIR/bin/aoc-prime-memory-install"
+elif [[ -x "$BIN_DIR/aoc-prime-memory-install" ]]; then
+  AOC_SOURCE_ROOT="$ROOT_DIR" "$BIN_DIR/aoc-prime-memory-install"
 fi
 if [[ -x "$ROOT_DIR/bin/aoc-omp-shim-install" ]]; then
   "$ROOT_DIR/bin/aoc-omp-shim-install"

@@ -1,0 +1,59 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Installs the prime memory rail assets into ~/.prime/agent/:
+#   extensions/aoc-memory.ts   - injects the shared memory index into every
+#                                session's system prompt; validates the store
+#                                after each refine
+#   skills/refine/**           - shadows the builtin refine skill with the
+#                                shared-store routing rule (carries the builtin
+#                                kernel-side python package so `refine.run()`
+#                                keeps working)
+#   APPEND_SYSTEM.md           - the shared memory contract appended to prime's
+#                                system prompt
+#
+# Sources live in config/prime-memory-rail/ in the aoc repo. Idempotent:
+# unchanged targets are kept, changed ones are overwritten (they are
+# aoc-managed, not user-owned).
+
+repo_root="${AOC_SOURCE_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
+source_dir="$repo_root/config/prime-memory-rail"
+agent_dir="$HOME/.prime/agent"
+
+log() {
+  printf 'aoc-prime-memory-install: %s\n' "$*"
+}
+
+install_managed() {
+  local src="$1"
+  local dst="$2"
+
+  if [[ -f "$dst" ]] && cmp -s "$src" "$dst"; then
+    log "kept existing $dst"
+    return
+  fi
+  install -m 0644 "$src" "$dst"
+  log "installed $dst"
+}
+
+for required in \
+  extensions/aoc-memory.ts \
+  skills/refine/SKILL.md \
+  skills/refine/pyproject.toml \
+  skills/refine/src/refine/__init__.py \
+  APPEND_SYSTEM.md; do
+  if [[ ! -f "$source_dir/$required" ]]; then
+    printf 'aoc-prime-memory-install: missing %s\n' "$source_dir/$required" >&2
+    exit 1
+  fi
+done
+
+mkdir -p "$agent_dir/extensions" "$agent_dir/skills/refine/src/refine"
+
+install_managed "$source_dir/extensions/aoc-memory.ts" "$agent_dir/extensions/aoc-memory.ts"
+install_managed "$source_dir/skills/refine/SKILL.md" "$agent_dir/skills/refine/SKILL.md"
+install_managed "$source_dir/skills/refine/pyproject.toml" "$agent_dir/skills/refine/pyproject.toml"
+install_managed "$source_dir/skills/refine/src/refine/__init__.py" "$agent_dir/skills/refine/src/refine/__init__.py"
+install_managed "$source_dir/APPEND_SYSTEM.md" "$agent_dir/APPEND_SYSTEM.md"
+
+log "done"
