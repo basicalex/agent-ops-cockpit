@@ -34,8 +34,8 @@ switch_tab = "alt+1..9"
 close_tab = "alt+shift+x"
 # Direct pane navigation.
 focus_pane_left = "alt+h"
-focus_pane_down = "alt+j"
-focus_pane_up = "alt+k"
+focus_pane_down = "alt+k"
+focus_pane_up = "alt+j"
 focus_pane_right = "alt+l"
 navigate_pane_left = ""
 navigate_pane_down = ""
@@ -59,7 +59,7 @@ edit_scrollback = "prefix+e"
 [ui]
 show_agent_labels_on_pane_borders = false
 
-agent_panel_scope = "all"
+agent_panel_sort = "spaces"
 [ui.toast]
 delivery = "system"
 
@@ -71,4 +71,3 @@ enabled = true
 
 [theme]
 name = "terminal"
-

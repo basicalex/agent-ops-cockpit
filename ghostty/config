@@ -1,0 +1,79 @@
+# Ghostty on macOS — herdr is the multiplexer, Ghostty stays plain.
+
+# Option sends Alt (Esc-prefixed) so herdr's alt+hjkl / alt+1..9 bindings work.
+macos-option-as-alt = true
+
+# Font
+font-family = "JetBrainsMonoNL Nerd Font"
+font-style = Regular
+font-size = 12
+
+# Window
+window-padding-x = 14
+window-padding-y = 14
+confirm-close-surface = false
+resize-overlay = never
+
+# Cursor
+cursor-style = block
+cursor-style-blink = false
+
+# Cursor styling + SSH session terminfo
+# (all shell integration options must be passed together)
+shell-integration-features = no-cursor,ssh-env
+
+# Mouse: slightly slowed trackpad, default speed for physical wheels.
+mouse-scroll-multiplier = precision:0.95,discrete:3
+
+# Linux-style word deletion: Ctrl+Backspace = delete word back (same bytes
+# as Option+Backspace), Ctrl+Delete = delete word forward (alt+d).
+keybind = ctrl+backspace=text:\x1b\x7f
+keybind = ctrl+delete=esc:d
+
+# herdr navigation on Cmd: translate to the Alt (ESC-prefixed) sequences
+# herdr already binds. Option keeps working for everything, including the
+# destructive bindings (alt+q close pane, alt+shift+q close workspace)
+# which deliberately stay OFF Cmd.
+keybind = super+h=esc:h
+keybind = super+j=esc:j
+keybind = super+k=esc:k
+keybind = super+l=esc:l
+keybind = super+i=esc:i
+keybind = super+o=esc:o
+keybind = super+x=esc:x
+# W = close pane on both modifiers (each sends herdr's alt+q close_pane).
+# The workspace picker (herdr alt+w) moves to Cmd+Shift+W.
+keybind = super+w=esc:q
+keybind = alt+w=esc:q
+keybind = super+shift+w=esc:w
+
+# Cmd+C opens herdr settings (alt+c); copy moves to Cmd+Shift+C.
+# Mouse selection still auto-copies (Ghostty copy-on-select default).
+keybind = super+c=esc:c
+keybind = super+shift+c=copy_to_clipboard
+keybind = super+z=esc:z
+keybind = super+b=esc:b
+keybind = super+n=esc:n
+keybind = super+shift+j=esc:J
+keybind = super+shift+k=esc:K
+keybind = super+shift+n=esc:N
+# Cmd+digits: override both the physical (digit_N) and translated (N) forms
+# so Ghostty's default goto_tab bindings are fully replaced.
+keybind = super+digit_1=esc:1
+keybind = super+digit_2=esc:2
+keybind = super+digit_3=esc:3
+keybind = super+digit_4=esc:4
+keybind = super+digit_5=esc:5
+keybind = super+digit_6=esc:6
+keybind = super+digit_7=esc:7
+keybind = super+digit_8=esc:8
+keybind = super+digit_9=esc:9
+keybind = super+one=esc:1
+keybind = super+two=esc:2
+keybind = super+three=esc:3
+keybind = super+four=esc:4
+keybind = super+five=esc:5
+keybind = super+six=esc:6
+keybind = super+seven=esc:7
+keybind = super+eight=esc:8
+keybind = super+nine=esc:9

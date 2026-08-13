@@ -293,6 +293,39 @@ EOF
 }
 
 
+install_macos_host_configs() {
+  [[ "$(uname -s)" == "Darwin" ]] || return 0
+
+  local ghostty_src="$repo_root/ghostty/config"
+  local ghostty_dir="${XDG_CONFIG_HOME:-$HOME/.config}/ghostty"
+  local ghostty_dst="$ghostty_dir/config"
+  if [[ -f "$ghostty_src" ]]; then
+    if [[ -f "$ghostty_dst" && "$force" != "1" ]]; then
+      cp "$ghostty_dst" "$ghostty_dst.bak.$(date +%Y%m%d%H%M%S)"
+      echo "Backed up existing Ghostty config"
+    fi
+    mkdir -p "$ghostty_dir"
+    cp "$ghostty_src" "$ghostty_dst"
+    echo "Installed Ghostty config to $ghostty_dst (reload: Cmd+Shift+, in Ghostty)"
+  fi
+
+  local hs_src="$repo_root/hammerspoon/init.lua"
+  local hs_dst="$HOME/.hammerspoon/init.lua"
+  if [[ -f "$hs_src" ]]; then
+    if [[ -f "$hs_dst" && "$force" != "1" ]]; then
+      cp "$hs_dst" "$hs_dst.bak.$(date +%Y%m%d%H%M%S)"
+      echo "Backed up existing Hammerspoon config"
+    fi
+    mkdir -p "$HOME/.hammerspoon"
+    cp "$hs_src" "$hs_dst"
+    echo "Installed Hammerspoon config to $hs_dst"
+    if [[ -x "$HOME/.local/bin/hs" ]]; then
+      "$HOME/.local/bin/hs" -c "hs.reload()" >/dev/null 2>&1 || true
+      echo "Reloaded Hammerspoon"
+    fi
+  fi
+}
+
 usage() {
   cat <<'EOF'
 Usage: aoc-herdr-install [--force]
@@ -335,6 +368,7 @@ mkdir -p "$config_dir"
 cp "$config_src" "$config_dst"
 echo "Installed Herdr config to $config_dst"
 install_hypr_empty_workspace_fallback
+install_macos_host_configs
 
 if [[ "$has_herdr" == "1" ]] && herdr status server >/dev/null 2>&1; then
   herdr server reload-config >/dev/null || true
