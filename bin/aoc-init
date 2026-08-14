@@ -123,7 +123,11 @@ read_omp_manifest_list() {
   local key="$1"
   python3 - "$(aoc_omp_seed_root)/manifest.toml" "$key" <<'PY'
 import sys
-import tomllib
+
+try:
+    import tomllib
+except ModuleNotFoundError:  # Python < 3.11
+    import tomli as tomllib
 from pathlib import Path
 
 manifest = Path(sys.argv[1])

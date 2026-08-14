@@ -882,13 +882,19 @@ fi
 # 4. Generate & Install Configs
 log "Generating configurations..."
 
-# Config seeding (aoc-herdr-install, aoc-profile) needs python3 >= 3.11 for
-# tomllib. macOS system python3 is 3.9, so install a current one when missing.
+# Config seeding (aoc-herdr-install, aoc-profile, aoc-init) needs a TOML
+# parser: tomllib (python >= 3.11) or the tomli backport. macOS system
+# python3 is 3.9 and Ubuntu 22.04 ships 3.10, so provide one when missing.
+have_python_toml() {
+  have python3 || return 1
+  python3 -c 'import tomllib' >/dev/null 2>&1 && return 0
+  python3 -c 'import tomli' >/dev/null 2>&1
+}
 ensure_python3_tomllib() {
-  if have python3 && python3 -c 'import tomllib' >/dev/null 2>&1; then
+  if have_python_toml; then
     return 0
   fi
-  log "python3 >= 3.11 (tomllib) missing; installing..."
+  log "python3 with tomllib/tomli missing; installing..."
   case "$pm" in
     brew) pm_install python ;;
     apt|dnf|apk|yum|zypper) pm_install python3 ;;
@@ -896,10 +902,21 @@ ensure_python3_tomllib() {
     *) ;;
   esac
   hash -r 2>/dev/null || true
-  if have python3 && python3 -c 'import tomllib' >/dev/null 2>&1; then
+  if have_python_toml; then
     return 0
   fi
-  warn "python3 >= 3.11 (tomllib) still missing; config seeding may fail."
+  # python3 < 3.11 (e.g. Ubuntu 22.04): the tomli backport satisfies the
+  # scripts' fallback import.
+  case "$pm" in
+    apt|dnf|yum|zypper) pm_install python3-tomli ;;
+    apk) pm_install py3-tomli ;;
+    pacman) pm_install python-tomli ;;
+    *) ;;
+  esac
+  if have_python_toml; then
+    return 0
+  fi
+  warn "python3 with tomllib/tomli still missing; config seeding may fail."
   return 1
 }
 ensure_python3_tomllib || true
