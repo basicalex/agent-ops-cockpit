@@ -41,7 +41,6 @@ skills = [
   "aoc-understand",
   "aoc-update",
   "architecture-design",
-  "browser-qa",
   "design-diff",
   "design-director",
   "design-handoff",
@@ -90,13 +89,6 @@ skills = [
   "aoc-update",
   "herdr-agent-observation",
 ]
-agents = []
-
-[profiles.qa]
-description = "Authenticated browser QA workflow."
-risk = "medium"
-extensions = []
-skills = ["browser-qa"]
 agents = []
 
 [profiles.design-product]
@@ -218,7 +210,6 @@ skills = [
   "aoc-understand",
   "aoc-update",
   "architecture-design",
-  "browser-qa",
   "design-diff",
   "design-director",
   "design-handoff",

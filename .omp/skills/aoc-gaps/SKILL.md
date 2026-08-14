@@ -13,7 +13,7 @@ Invocation forms:
 ```text
 /skill:aoc-gaps
 /skill:aoc-gaps mission-control observability
-/skill:aoc-gaps voyager onboarding
+/skill:aoc-gaps acme onboarding
 ```
 
 Arguments after the command are the **direction**. No quotes are needed in Pi chat. If no direction is provided, run a broad repo-level gap audit.
