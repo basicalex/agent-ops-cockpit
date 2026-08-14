@@ -26,6 +26,10 @@ curl -fsSL https://raw.githubusercontent.com/basicalex/agent-ops-cockpit/main/in
 
 The installer selects a Linux or macOS release. If no release binary is available, it downloads the source archive and runs `install.sh`. AOC bootstrap may run before Herdr and OMP are installed; missing `herdr` or `omp` should leave integration work for the manual steps below, not break the bootstrap.
 
+The bootstrap installs the latest tagged release; add `-s -- --ref main` to install current `main` (what these docs describe). A `git clone` + `./install.sh` always installs the checked-out state.
+
+On macOS, install [Ghostty](https://ghostty.org) and [Hammerspoon](https://www.hammerspoon.org) yourself (and grant Hammerspoon Accessibility permission). `install.sh` seeds their configs — `~/.config/ghostty/config` and `~/.hammerspoon/init.lua` — backing up any existing file with a `.bak.<timestamp>` suffix before overwriting.
+
 Use `--yes` for a non-interactive install:
 
 ```bash
@@ -48,7 +52,7 @@ Existing Claude and global agent policy files receive timestamped `.bak` copies 
 
 ### claude-codex (Claude Code on Codex OAuth)
 
-`claude-codex` runs Claude Code through the local CLIProxyAPI bridge with Codex OAuth. `install.sh` installs the wrapper, proxy config, and Linux user services. On each machine, run the login once:
+`claude-codex` runs Claude Code through the local CLIProxyAPI bridge with Codex OAuth. `install.sh` installs the wrapper, proxy config, and Linux user services (on macOS there are no services yet; start the proxy manually). On each machine, run the login once:
 
 ```bash
 claude-codex-login
@@ -71,19 +75,20 @@ Then add `~/.local/bin` to PATH yourself.
 1. Copy required `.env` files and secrets from an existing machine. The repository and installer do not carry secrets.
 2. Install the Herdr CLI with its supported installer.
 3. Install the OMP coding agent CLI (`omp`) with its supported installer.
-4. Connect Herdr to OMP:
+4. Re-run `./install.sh` from the AOC clone (or `aoc-omp-shim-install` and `aoc-herdr-install` directly) so the AOC omp shim, OMP rules, and OMP extension/skill assets seed now that `omp` exists.
+5. Connect Herdr to OMP:
 
    ```bash
    herdr integration install omp
    ```
 
-5. Complete the logins used by your work, such as GitHub, Claude, Codex, model providers, and deployment services. For GitHub CLI:
+6. Complete the logins used by your work, such as GitHub, Claude, Codex, model providers, and deployment services. For GitHub CLI:
 
    ```bash
    gh auth login
    ```
 
-6. Initialize each project separately:
+7. Initialize each project separately:
 
    ```bash
    cd ~/your-project

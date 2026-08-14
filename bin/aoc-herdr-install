@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+repo_root="${AOC_SOURCE_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
 config_src="$repo_root/herdr/config.toml"
 config_dir="${XDG_CONFIG_HOME:-$HOME/.config}/herdr"
 config_dst="$config_dir/config.toml"

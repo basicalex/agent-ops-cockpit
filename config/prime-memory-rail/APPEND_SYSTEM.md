@@ -4,7 +4,7 @@ You share a persistent file-based memory with the other agents on this machine (
 
 ## Store location
 
-Per-repo store: `~/.aoc/memory/<repo>/` where `<repo>` is the basename of the git root of your working directory (e.g. `~/.aoc/memory/prism/` when working in `~/dev/prism`). If the directory does not exist, there are no shared memories for this repo yet — create it on your first write.
+Per-repo store: `~/.aoc/memory/<repo>/` where `<repo>` is the basename of the git root of your working directory (e.g. `~/.aoc/memory/myapp/` when working in `~/dev/myapp`). If the directory does not exist, there are no shared memories for this repo yet — create it on your first write.
 
 ## At session start
 

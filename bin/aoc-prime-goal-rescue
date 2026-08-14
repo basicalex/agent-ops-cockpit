@@ -17,8 +17,7 @@ import { pathToFileURL } from "node:url";
 const DEFAULT_KEEP_TOKENS = 20_000;
 const RESCUE_CONTEXT_WINDOW = 272_000;
 const RESCUE_MAX_CONTEXT_TOKENS = 60_000;
-const FALLBACK_PRIME_AGENT_PACKAGE =
-  "/home/ceii/.local/share/mise/installs/node/26.1.0/lib/node_modules/prime-agent";
+const FALLBACK_PRIME_AGENT_PACKAGE = process.env.AOC_PRIME_AGENT_PACKAGE ?? "";
 
 const HELP = `Usage: aoc-prime-goal-rescue <session.jsonl> [--keep-tokens 20000] [--dry-run]
 
@@ -92,10 +91,15 @@ function findPrimeAgentPackage() {
       return packageRoot;
     }
   }
-  if (existsSync(join(FALLBACK_PRIME_AGENT_PACKAGE, "dist/core/session-manager.js"))) {
+  if (
+    FALLBACK_PRIME_AGENT_PACKAGE &&
+    existsSync(join(FALLBACK_PRIME_AGENT_PACKAGE, "dist/core/session-manager.js"))
+  ) {
     return FALLBACK_PRIME_AGENT_PACKAGE;
   }
-  throw new Error("Cannot locate prime-agent dist/core modules");
+  throw new Error(
+    "Cannot locate prime-agent dist/core modules; install prime-agent or set AOC_PRIME_AGENT_PACKAGE to its package root",
+  );
 }
 
 async function loadPiHelpers() {

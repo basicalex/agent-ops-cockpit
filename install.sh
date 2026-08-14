@@ -475,7 +475,8 @@ ensure_rust_build_prereqs() {
       pm_install gcc gcc-c++ make pkg-config libopenssl-devel
       ;;
     brew)
-      # Assume Command Line Tools are present if cc/pkg-config already exist.
+      # Command Line Tools provide cc; pkg-config comes from Homebrew.
+      pm_install pkg-config
       ;;
     *)
       warn "Unknown package manager; cannot auto-install Rust build prerequisites."
@@ -650,6 +651,7 @@ required_bin_scripts=(
   aoc-herdr-install
   aoc-claude-install
   aoc-jcode-install
+  aoc-prime-agent-install
   aoc-omp
   aoc-omp-context
   aoc-omp-shim-install
@@ -795,6 +797,14 @@ else
   warn "Skipping jcode install because AOC_INSTALL_JCODE=0."
 fi
 
+if is_truthy "${AOC_INSTALL_PRIME_AGENT:-1}"; then
+  if ! aoc-prime-agent-install; then
+    missing_optional+=("prime-agent")
+  fi
+else
+  warn "Skipping prime-agent install because AOC_INSTALL_PRIME_AGENT=0."
+fi
+
 
 if ! ensure_tool yazi "yazi"; then
   missing_required+=("yazi")
@@ -872,42 +882,57 @@ fi
 # 4. Generate & Install Configs
 log "Generating configurations..."
 
+# Config seeding (aoc-herdr-install, aoc-profile) needs python3 >= 3.11 for
+# tomllib. macOS system python3 is 3.9, so install a current one when missing.
+ensure_python3_tomllib() {
+  if have python3 && python3 -c 'import tomllib' >/dev/null 2>&1; then
+    return 0
+  fi
+  log "python3 >= 3.11 (tomllib) missing; installing..."
+  case "$pm" in
+    brew) pm_install python ;;
+    apt|dnf|apk|yum|zypper) pm_install python3 ;;
+    pacman) pm_install python ;;
+    *) ;;
+  esac
+  hash -r 2>/dev/null || true
+  if have python3 && python3 -c 'import tomllib' >/dev/null 2>&1; then
+    return 0
+  fi
+  warn "python3 >= 3.11 (tomllib) still missing; config seeding may fail."
+  return 1
+}
+ensure_python3_tomllib || true
+
 # Shared agent-memory rail: canonical store base dir. Per-repo stores and
 # Claude-side symlinks are created lazily by the SessionStart hook
 # (aoc-claude-memory-hook -> aoc-memory-link); memory *data* syncs between
 # machines via dotfiles, not this installer.
 mkdir -p "$HOME/.aoc/memory"
 
-if [[ -x "$ROOT_DIR/bin/aoc-herdr-install" ]]; then
-  "$ROOT_DIR/bin/aoc-herdr-install"
-elif [[ -x "$BIN_DIR/aoc-herdr-install" ]]; then
-  AOC_SOURCE_ROOT="$ROOT_DIR" "$BIN_DIR/aoc-herdr-install"
-fi
-if [[ -x "$ROOT_DIR/bin/aoc-claude-install" ]]; then
-  "$ROOT_DIR/bin/aoc-claude-install"
-elif [[ -x "$BIN_DIR/aoc-claude-install" ]]; then
-  AOC_SOURCE_ROOT="$ROOT_DIR" "$BIN_DIR/aoc-claude-install"
-fi
-if [[ -x "$ROOT_DIR/bin/aoc-claude-codex-install" ]]; then
-  "$ROOT_DIR/bin/aoc-claude-codex-install"
-elif [[ -x "$BIN_DIR/aoc-claude-codex-install" ]]; then
-  AOC_SOURCE_ROOT="$ROOT_DIR" "$BIN_DIR/aoc-claude-codex-install"
-fi
-if [[ -x "$ROOT_DIR/bin/aoc-prime-memory-install" ]]; then
-  "$ROOT_DIR/bin/aoc-prime-memory-install"
-elif [[ -x "$BIN_DIR/aoc-prime-memory-install" ]]; then
-  AOC_SOURCE_ROOT="$ROOT_DIR" "$BIN_DIR/aoc-prime-memory-install"
-fi
-if [[ -x "$ROOT_DIR/bin/aoc-omp-shim-install" ]]; then
-  "$ROOT_DIR/bin/aoc-omp-shim-install"
-elif [[ -x "$BIN_DIR/aoc-omp-shim-install" ]]; then
-  AOC_SOURCE_ROOT="$ROOT_DIR" "$BIN_DIR/aoc-omp-shim-install"
-fi
-if [[ -x "$ROOT_DIR/bin/aoc-omp-seed" ]]; then
-  "$ROOT_DIR/bin/aoc-omp-seed"
-elif [[ -x "$BIN_DIR/aoc-omp-seed" ]]; then
-  AOC_SOURCE_ROOT="$ROOT_DIR" "$BIN_DIR/aoc-omp-seed"
-fi
+# A failing sub-installer (e.g. omp not installed yet) must not abort the rest
+# of the install; warn and keep seeding so a re-run can pick up the missing piece.
+run_config_installer() {
+  local name="$1"
+  local runner=""
+  if [[ -x "$ROOT_DIR/bin/$name" ]]; then
+    runner="$ROOT_DIR/bin/$name"
+  elif [[ -x "$BIN_DIR/$name" ]]; then
+    runner="$BIN_DIR/$name"
+  else
+    return 0
+  fi
+  if ! AOC_SOURCE_ROOT="$ROOT_DIR" "$runner"; then
+    warn "$name did not complete; fix the warning above, then re-run ./install.sh (or $name directly)."
+  fi
+}
+
+run_config_installer aoc-herdr-install
+run_config_installer aoc-claude-install
+run_config_installer aoc-claude-codex-install
+run_config_installer aoc-prime-memory-install
+run_config_installer aoc-omp-shim-install
+run_config_installer aoc-omp-seed
 
 # Copy other configs
 install -m 0644 "$ROOT_DIR/yazi/yazi.toml" "$HOME/.config/yazi/yazi.toml"

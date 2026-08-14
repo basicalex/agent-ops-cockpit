@@ -15,7 +15,7 @@ Status: Level 1 live on this machine since 2026-08-08. Level 2 built and install
 ## What exists (Level 1)
 
 - Canonical store: `~/.aoc/memory/<repo>/` — one markdown file per fact plus a `MEMORY.md` index (one line per memory). Prism migrated first.
-- Claude Code: its fixed per-project memory path is a symlink into the store (`~/.claude/projects/-home-ceii-dev-prism/memory → ~/.aoc/memory/prism`). The harness notices nothing.
+- Claude Code: its fixed per-project memory path is a symlink into the store (`~/.claude/projects/<encoded-project-path>/memory → ~/.aoc/memory/<repo>`). The harness notices nothing.
 - Prime: `~/.prime/agent/APPEND_SYSTEM.md` carries the contract — read the index at session start, read a fact file only when its index line is relevant, write curated one-fact files with `author: prime` in frontmatter and `(prime)` on the index line, dedupe before creating, delete proven-wrong entries.
 - Author audit: grep the store for `author: prime` or scan `(prime)` index lines.
 
@@ -45,7 +45,7 @@ Content: the builtin refine doc, plus the routing rule — durable user/project/
 
 ## Rollout
 
-1. Build `aoc-memory.ts` with the `before_agent_start` injection only; verify on prism (start prime, confirm index in prompt, no store → graceful note).
+1. Build `aoc-memory.ts` with the `before_agent_start` injection only; verify on a real repo (start prime, confirm index in prompt, no store → graceful note).
 2. Add the shadowed refine SKILL.md; run a manual `/refine` after a session with obvious durable facts; confirm files + index lines + author flags land in the store.
 3. Add the `refine_complete` validator.
 4. Fold all three into the aoc repo as managed assets (install.sh copies them like `aoc-prime-agent-install` artifacts) so every aoc machine gets the rail on setup.

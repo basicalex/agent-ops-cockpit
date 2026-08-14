@@ -36,15 +36,17 @@ jobs:
               command -v aoc-cli
               command -v aoc-init
               command -v aoc-doctor
-              command -v pi
+              command -v jcode
               aoc task --help >/dev/null
               test -f ~/.config/yazi/yazi.toml
+              test -f ~/.config/yazi/plugins/aoc-open.yazi/main.lua
+              grep -Fxq 'local editor = "micro"' ~/.config/yazi/plugins/aoc-open.yazi/main.lua
 
               mkdir -p ~/sandbox && cd ~/sandbox
               git init
               aoc-init
               test -f .aoc/context.md
-              test -f .aoc/memory.md
+              test -f .aoc/init-state.json
               test -f .taskmaster/tasks/tasks.json
 
               AOC_DEFAULT_REPO=${{ github.repository }} \
@@ -81,15 +83,17 @@ jobs:
               command -v aoc-cli
               command -v aoc-init
               command -v aoc-doctor
-              command -v pi
+              command -v jcode
               aoc task --help >/dev/null
               test -f ~/.config/yazi/yazi.toml
+              test -f ~/.config/yazi/plugins/aoc-open.yazi/main.lua
+              grep -Fxq 'local editor = "micro"' ~/.config/yazi/plugins/aoc-open.yazi/main.lua
 
               mkdir -p ~/sandbox && cd ~/sandbox
               git init
               aoc-init
               test -f .aoc/context.md
-              test -f .aoc/memory.md
+              test -f .aoc/init-state.json
               test -f .taskmaster/tasks/tasks.json
 
               AOC_DEFAULT_REPO=${{ github.repository }} \
