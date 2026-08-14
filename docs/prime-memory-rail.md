@@ -4,7 +4,7 @@ Status: Level 1 live on this machine since 2026-08-08. Level 2 built and install
 
 ## Built (2026-08-08)
 
-- Repo assets under `config/prime-memory-rail/`: `extensions/aoc-memory.ts`, `skills/refine/**` (shadowed skill), `APPEND_SYSTEM.md` (contract template). Installed to `~/.prime/agent/` by `bin/aoc-prime-memory-install` (cmp-keep, overwrite-on-change — same pattern as `aoc-claude-codex-install`), wired into `install.sh` in the "Generating configurations" block.
+- Repo assets under `config/prime-memory-rail/`: `extensions/aoc-memory.ts`, `skills/refine/**` (shadowed skill), `APPEND_SYSTEM.md` (contract template). Installed to `~/.prime/agent/` by `bin/aoc-prime-memory-install` (cmp-keep, overwrite-on-change), wired into `install.sh` in the "Generating configurations" block.
 - `bin/aoc-memory-link <repo-path>`: creates `~/.aoc/memory/<basename>/`, migrates the repo's Claude Code memory dir into it (store wins conflicts; diverging copies go to `memory.pre-link.bak`), and symlinks the Claude path. Idempotent; relinks stale symlinks, which covers the Mac path-slug migration case.
 - `bin/aoc-claude-memory-hook`: Claude Code `SessionStart` hook that runs `aoc-memory-link` on the git root of the session's cwd. Every repo joins the rail the first time a Claude session starts in it — no manual link step. Silent (hook stdout would leak into session context), always exits 0, no-op outside git repos. `aoc-claude-install` merges the hook entry into `~/.claude/settings.json` surgically (replaces only entries referencing the hook script, keeps all other hooks).
 - Second store rolled out: `~/.aoc/memory/agent-ops-cockpit/` (7 files migrated from this repo's Claude memory dir).

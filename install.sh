@@ -946,7 +946,6 @@ run_config_installer() {
 
 run_config_installer aoc-herdr-install
 run_config_installer aoc-claude-install
-run_config_installer aoc-claude-codex-install
 run_config_installer aoc-prime-memory-install
 run_config_installer aoc-omp-shim-install
 run_config_installer aoc-omp-seed
