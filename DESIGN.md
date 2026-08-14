@@ -187,7 +187,7 @@ Use small, consistent radii. Controls should feel precise and technical, not pla
 
 - Tone: concise, clear, operator-centered.
 - CTA style: command-oriented: “Initialize”, “Sync”, “Run doctor”, “Open log”.
-- Terminology: prefer AOC, Pi, Taskmaster, Mind, STM, Spec, HyperFrames consistently.
+- Terminology: prefer AOC, Pi, Taskmaster, Spec, HyperFrames consistently.
 - Error message style: name failing command/action, give log path or next repair step.
 - Things to avoid: vague success, silent failures, unbounded “magic”, unsupported runtime claims.
 

@@ -2,7 +2,13 @@
 
 ## [Unreleased]
 
+### Removed
+- **RTK routing**: deleted `bin/aoc-rtk`, `bin/aoc-rtk-proxy`, `.aoc/rtk.toml`, and all RTK seeding, doctor checks, handshake fields, docs, and smoke tests. AOC no longer routes command output.
+- **Retired-concept references**: purged remaining Mind/STM/`aoc-mem` and jj/Jujutsu mentions from bin scripts, seeds, docs, keybindings, and skills (repos are Git-only; the shared memory rail replaced the old memory CLIs). Cleanup migrations that scrub old installs are kept.
+- **`crates/aoc-opencode-adapter`**: dead workspace-excluded crate deleted along with mind-era and pi-era planning docs in `.taskmaster/docs/prds/`.
+
 ### Added
+- **Prime Agent install**: `install.sh` installs PrimeIntellect's `prime-agent` CLI through the new `bin/aoc-prime-agent-install` wrapper (skip with `AOC_INSTALL_PRIME_AGENT=0`), `aoc-doctor` reports it, and `scripts/test-aoc-prime-agent-install.sh` covers the wrapper.
 - **macOS Herdr install fixture**: Added an isolated smoke test for config and OMP asset installation when Herdr is not yet installed.
 - **PI-first init smoke test**: Added `scripts/pi/test-aoc-init-pi-first.sh` to validate fresh + existing repo migration behavior in one command.
 - **PI-only agent surface smoke test**: Added `scripts/pi/test-pi-only-agent-surface.sh` to verify non-PI and PI-R harness wrappers are removed while `pi` remains operational.

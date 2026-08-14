@@ -1,0 +1,125 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+INSTALL_URL="${PRIME_AGENT_INSTALL_URL:-https://app.primeintellect.ai/prime-agent/install.sh}"
+LOCAL_BIN="$HOME/.local/bin"
+
+have() { command -v "$1" >/dev/null 2>&1; }
+
+resolve_prime_agent() {
+  export PATH="$LOCAL_BIN:$PATH"
+  hash -r 2>/dev/null || true
+  if have prime-agent; then
+    command -v prime-agent
+    return 0
+  fi
+  local npm_prefix
+  if have npm && npm_prefix="$(npm prefix -g 2>/dev/null)" && [[ -x "$npm_prefix/bin/prime-agent" ]]; then
+    printf '%s\n' "$npm_prefix/bin/prime-agent"
+    return 0
+  fi
+  return 1
+}
+
+status() {
+  if resolve_prime_agent >/dev/null; then
+    printf 'installed\n'
+  else
+    printf 'missing\n'
+  fi
+}
+
+usage() {
+  cat <<'EOF'
+Usage: aoc-prime-agent-install [--status] [--force]
+
+Installs the machine-global prime-agent CLI (PrimeIntellect Prime Agent) when it
+is missing from PATH, then makes sure it is reachable from ~/.local/bin.
+
+  --status   print "installed" or "missing" and exit
+  --force    reinstall even when prime-agent is already present
+
+Environment:
+  PRIME_AGENT_INSTALL_URL                    override the installer URL
+  PRIME_AGENT_BOOTSTRAP_KERNEL_ON_INSTALL    1 (default) prepares the IPython
+                                             runtime during install, 0 defers it
+EOF
+}
+
+force=0
+case "${1:-}" in
+  "")
+    ;;
+  --status)
+    status
+    exit 0
+    ;;
+  --force)
+    force=1
+    ;;
+  -h|--help)
+    usage
+    exit 0
+    ;;
+  *)
+    usage >&2
+    exit 2
+    ;;
+esac
+
+export PATH="$LOCAL_BIN:$PATH"
+
+if ((force == 0)) && resolve_prime_agent >/dev/null; then
+  exit 0
+fi
+
+# prime-agent is an npm package; its installer can bootstrap Node itself, but on
+# a machine that already manages Node (mise, nvm, system) we want that runtime.
+if have node; then
+  node_major="$(node -p 'process.versions.node.split(".")[0]' 2>/dev/null || echo 0)"
+  if ((node_major < 22)); then
+    printf 'aoc-prime-agent-install: node %s found; prime-agent needs node >= 22\n' "$(node --version)" >&2
+    exit 1
+  fi
+fi
+
+if have curl; then
+  fetch=(curl -fsSL "$INSTALL_URL")
+elif have wget; then
+  fetch=(wget -qO - "$INSTALL_URL")
+else
+  printf 'aoc-prime-agent-install: curl or wget is required to install prime-agent\n' >&2
+  exit 1
+fi
+
+tmp="$(mktemp -t aoc-prime-agent-install.XXXXXX)"
+trap 'rm -f "$tmp"' EXIT
+
+"${fetch[@]}" >"$tmp"
+chmod 0755 "$tmp"
+DO_NOT_TRACK="${DO_NOT_TRACK:-1}" \
+  PRIME_AGENT_INSTALLER_PLAIN="${PRIME_AGENT_INSTALLER_PLAIN:-1}" \
+  PRIME_AGENT_BOOTSTRAP_KERNEL_ON_INSTALL="${PRIME_AGENT_BOOTSTRAP_KERNEL_ON_INSTALL:-1}" \
+  sh "$tmp"
+
+# npm global bins land wherever the active Node manager points. Re-shim for mise,
+# then fall back to a ~/.local/bin symlink so AOC's PATH always finds it.
+if ! resolve_prime_agent >/dev/null && have mise; then
+  mise reshim >/dev/null 2>&1 || true
+fi
+
+if ! target="$(resolve_prime_agent)"; then
+  printf 'aoc-prime-agent-install: prime-agent install finished, but prime-agent is not on PATH\n' >&2
+  exit 1
+fi
+
+if [[ "$(command -v prime-agent 2>/dev/null || true)" != "$target" ]] && ! have prime-agent; then
+  mkdir -p "$LOCAL_BIN"
+  ln -sf "$target" "$LOCAL_BIN/prime-agent"
+fi
+
+hash -r 2>/dev/null || true
+if ! have prime-agent; then
+  printf 'aoc-prime-agent-install: prime-agent installed at %s but not reachable on PATH\n' "$target" >&2
+  exit 1
+fi

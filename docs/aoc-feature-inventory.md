@@ -15,7 +15,6 @@ This inventory defines the Herdr/OMP cutover target. AOC should become a project
 | OpenDesign | `bin/aoc-od`, `docs/open-design.md`, related skills | AOC tooling | Keep. |
 | Web research | `.omp/extensions/aoc-web-search.ts`, `bin/aoc-search`, `docs/web-research.md`, `scripts/test-web-research-stack.sh`, related skills/scripts | OMP extension + AOC tooling | Keep. Local fallback for agent web search when paid/native providers fail. |
 | AOC Services workspace | `bin/aoc-herdr-services`, `bin/aoc-services`, `aoc services`, `docs/operator/aoc-services.md` | Herdr + AOC tooling | Retained Herdr runtime owner for project-scoped service health/startup, especially managed local SearXNG. Distinct from retired Mission Control/status UI. |
-| RTK | `bin/aoc-rtk`, `bin/aoc-rtk-proxy`, `docs/reference/rtk-routing.md` | AOC tooling | Keep only for allowlisted noisy-command routing with raw-output preservation. |
 | Selected skills/prompts/docs | `.omp/skills`, docs | AOC tooling | Keep only if they complement Herdr/OMP workflows. |
 
 ## Remove / retire from default AOC
@@ -45,7 +44,7 @@ Default install must become lean and must not install old cockpit assets.
 - AOC OMP context commands: `aoc-omp`, `aoc-omp-context`, `aoc-handshake`
 - Taskmaster commands: `tm`, `aoc-task`, `aoc-tm`
 - CodeGraph OMP extension: `.omp/extensions/aoc-codegraph.ts`
-- Kept tooling: HyperFrames, OpenDesign, web research, RTK if selected
+- Kept tooling: HyperFrames, OpenDesign, web research
 - Herdr AOC Services workspace command: `aoc services` / `bin/aoc-herdr-services`
 - Native Herdr observation skill: `.omp/skills/herdr-agent-observation/SKILL.md`
 

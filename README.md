@@ -53,7 +53,6 @@ Common setup paths:
 | Safe commit workflow | `/commit [intent]` |
 | Master orchestration | `/master on [minutes]`, `/master off`, `/master status` |
 | Tasks | `tm list`, `aoc-task` |
-| Memory and handoff CLI | `aoc-mem`, `aoc-stm` |
 | Code discovery | `aoc_codegraph` in OMP, `codegraph sync /path/to/project` by operator |
 | HyperFrames video/campaign work | `aoc-hyperframes`, `/hyperframes-director`, `/brand-content` |
 | Web research fallback | `aoc_web_search`, `aoc-search`, `aoc services` |

@@ -136,7 +136,7 @@ function M:entry()
 		return
 	end
 
-	local editor = os.getenv("EDITOR") or "micro"
+	local editor = "micro"
 	local quoted_url = sh_quote(url_str)
 
 	local should_resize = should_resize_for_edit()

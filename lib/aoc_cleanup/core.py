@@ -27,7 +27,6 @@ PROTECTED_COMMANDS = [
     "aoc-launch",
     "aoc-align",
     "aoc-doctor",
-    "aoc-mem",
     "aoc-tasks",
     "aoc-clock",
     "aoc-sys",

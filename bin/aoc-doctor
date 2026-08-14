@@ -368,7 +368,6 @@ project_aoc_version="$(read_project_aoc_version)"
 
 if [[ -d "$project_root/.aoc" ]]; then
   [[ -f "$project_root/.aoc/context.md" ]] || project_runtime_issues+=("missing project context: .aoc/context.md")
-  [[ -f "$project_root/.aoc/rtk.toml" ]] || project_runtime_warnings+=("missing RTK config: .aoc/rtk.toml")
   [[ -f "$aoc_init_state_file" ]] || project_runtime_warnings+=("missing init state: .aoc/init-state.json (run 'aoc-init' to record project AOC version)")
 else
   if [[ -d "$project_root/.gemini" ]]; then
@@ -401,11 +400,6 @@ if [[ "$quiet" -eq 0 ]]; then
     echo "    [ok] context.md present"
   else
     echo "    [missing] context.md"
-  fi
-  if [[ -f ".aoc/rtk.toml" ]]; then
-    echo "    [ok] rtk.toml present"
-  else
-    echo "    [warn] rtk.toml missing"
   fi
   if [[ -f ".aoc/init-state.json" ]]; then
     echo "    [ok] init-state.json present"
@@ -462,7 +456,7 @@ if [[ "$quiet" -eq 0 ]]; then
   else
     echo "  [warn] python3 >= 3.11 missing"
   fi
-  for tool in bun omp herdr jcode jj; do
+  for tool in bun omp herdr jcode prime-agent; do
     if have "$tool"; then
       echo "  [ok] $tool"
     else

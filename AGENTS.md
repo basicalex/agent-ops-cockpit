@@ -7,8 +7,6 @@ This file defines the always-on rules for agents in this repo. Procedural playbo
 - Use root `DESIGN.md` as the visual/product design contract before UI, docs-site, marketing, HyperFrames, or other product-facing work.
 - **DO NOT manually read these files** - use the Bash tool to run CLI commands instead (see below).
 - Run AOC commands via Bash tool; do not read `.taskmaster/tasks/tasks.json` directly.
-- RTK routing is default-on for new AOC projects (`.aoc/rtk.toml` mode=`on`); existing explicit mode=`off` is preserved.
-- RTK exists to improve context health: allowlisted noisy commands are condensed for better signal density, with fail-open native fallback.
 
 ## Startup handshake
 - `aoc-handshake --json` is the metadata-only startup packet for agents: AOC status, Taskmaster tag, Git repository state, and usage policy.
@@ -37,13 +35,11 @@ This file defines the always-on rules for agents in this repo. Procedural playbo
 These commands are in PATH and work without loading any skill:
 - Startup/repair: `aoc-handshake --json`, `aoc-init`
 - Tasks: `tm tag current`, `tm tag spec show`, `aoc-task tag spec show --tag <tag>`, `aoc-task spec show <id> --tag <tag>`
-- RTK: `aoc-rtk status`, `aoc-rtk doctor`, `aoc-rtk install --auto`, `aoc-rtk enable|disable`
 - VCS: inspect detected mode with `aoc-handshake --json`; use `git status`/`git diff` in Git repositories.
 
 
 ## Core files
 - `.aoc/context.md`: auto-generated project snapshot.
-- `.aoc/rtk.toml`: project-local RTK routing policy and install contract.
 - `DESIGN.md`: project-wide visual/product design contract; subsystem design docs extend it.
 - `.taskmaster/docs/specs/`: spec documents linked to tags and tasks; `.taskmaster/docs/prds/` remains legacy-compatible.
 - Tag default specs are currently stored via legacy key `aocPrd`; resolve with `aoc-task tag spec show --tag <tag>`.

@@ -41,7 +41,7 @@ For a big bank, delegate the raw dump to an Explore/general-purpose agent and cu
 
 **Keep (durable):**
 - Explicit user policies, especially ones appearing in multiple banks (e.g. "never push without approval").
-- Decisions with dates ("jj removed 2026-06-28", "model tiers decided 2026-07-09").
+- Decisions with dates ("bun adopted 2026-06-28", "model tiers decided 2026-07-09").
 - Project invariants: security/privacy rules, API contracts, styling constants, feature-flag defaults.
 - Workflow gotchas that cost a debugging session (env override orders, tool semantics).
 
@@ -51,7 +51,7 @@ For a big bank, delegate the raw dump to an Explore/general-purpose agent and cu
 - IPs, line numbers, dates captured as "versions"/"metrics".
 - Transient debugging state ("never reached listen", "never became ready").
 
-**Verify staleness before writing:** a memory records what was true when retained. Check decisions against the repo (does `.jj` still exist? is that flag still in the code?) — reverted decisions are the most dangerous rules to write. Date every uncertain item and mark it "verify before relying".
+**Verify staleness before writing:** a memory records what was true when retained. Check decisions against the repo (does that config file still exist? is that flag still in the code?) — reverted decisions are the most dangerous rules to write. Date every uncertain item and mark it "verify before relying".
 
 ## 4. Write curated output
 

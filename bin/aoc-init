@@ -811,7 +811,6 @@ print_project_aoc_status() {
   local current_version="0"
   local state_path="$aoc_init_state_file"
   local has_context="no"
-  local has_rtk="no"
   local has_omp_extensions="no"
   local has_omp_agents="no"
   local has_omp_skills="no"
@@ -820,7 +819,6 @@ print_project_aoc_status() {
   current_version="$(read_project_aoc_version)"
 
   if [[ -f "$project_root/.aoc/context.md" ]]; then has_context="yes"; fi
-  if [[ -f "$project_root/.aoc/rtk.toml" ]]; then has_rtk="yes"; fi
   if [[ -d "$project_root/.omp/extensions" ]]; then has_omp_extensions="yes"; fi
   if [[ -d "$project_root/.omp/agents" ]]; then has_omp_agents="yes"; fi
   if [[ -d "$project_root/.omp/skills" ]]; then has_omp_skills="yes"; fi
@@ -858,8 +856,6 @@ PY
   printf '%s
 ' "  aoc_context: $has_context"
   printf '%s
-' "  aoc_rtk: $has_rtk"
-  printf '%s
 ' "  omp_extensions: $has_omp_extensions"
   printf '%s
 ' "  omp_agents: $has_omp_agents"
@@ -891,8 +887,6 @@ This file defines the always-on rules for agents in this repo. Procedural playbo
 - Use root `DESIGN.md` as the visual/product design contract before UI, docs-site, marketing, HyperFrames, or other product-facing work.
 - **DO NOT manually read these files** - use the Bash tool to run CLI commands instead (see below).
 - Run AOC commands via Bash tool; do not read `.taskmaster/tasks/tasks.json` directly.
-- RTK routing is default-on for new AOC projects (`.aoc/rtk.toml` mode=`on`); existing explicit mode=`off` is preserved.
-- RTK exists to improve context health: allowlisted noisy commands are condensed for better signal density, with fail-open native fallback.
 
 ## Startup handshake
 - `aoc-handshake --json` is the metadata-only startup packet for agents: AOC status, Taskmaster tag, Git repository state, and usage policy.
@@ -921,13 +915,11 @@ This file defines the always-on rules for agents in this repo. Procedural playbo
 These commands are in PATH and work without loading any skill:
 - Startup/repair: `aoc-handshake --json`, `aoc-init`
 - Tasks: `tm tag current`, `tm tag spec show`, `aoc-task tag spec show --tag <tag>`, `aoc-task spec show <id> --tag <tag>`
-- RTK: `aoc-rtk status`, `aoc-rtk doctor`, `aoc-rtk install --auto`, `aoc-rtk enable|disable`
 - VCS: inspect detected mode with `aoc-handshake --json`; use `git status`/`git diff` in Git repositories.
 
 
 ## Core files
 - `.aoc/context.md`: auto-generated project snapshot.
-- `.aoc/rtk.toml`: project-local RTK routing policy and install contract.
 - `DESIGN.md`: project-wide visual/product design contract; subsystem design docs extend it.
 - `.taskmaster/docs/specs/`: spec documents linked to tags and tasks; `.taskmaster/docs/prds/` remains legacy-compatible.
 - Tag default specs are currently stored via legacy key `aocPrd`; resolve with `aoc-task tag spec show --tag <tag>`.
@@ -1224,143 +1216,12 @@ Use the AOC tools for context and tasks in this repo.
 - **Design:** `DESIGN.md` at the project root is the visual/product design contract. Read it before UI, docs-site, marketing, HyperFrames, or other product-facing changes.
 - **Tasks:** use `tm` or `aoc-task` via Bash tool (do not edit `.taskmaster/tasks/tasks.json` directly)
 - **Task specs:** tag-level defaults + task-level overrides via `aocPrd` (resolve with `aoc-task tag spec show --tag <tag>` and `aoc-task spec show <id> --tag <tag>`)
-- **RTK routing (default-on for new AOC repos):** allowlisted commands route via RTK in AOC panes; manage with `aoc-rtk status|enable|disable|doctor|install --auto` and `.aoc/rtk.toml`
 - **Startup handshake:** use `aoc-handshake --json` for metadata-only AOC, Taskmaster, and VCS availability. Use Git for repository changes.
 
 If AOC files are missing or stale, run `aoc-init` at the repo root.
 EOF
 }
 
-write_default_rtk_config() {
-  local target_file="$1"
-  cat <<'EOF' > "$target_file"
-# AOC RTK routing config (project-local, seeded by aoc-init)
-# mode: off|on
-mode = "on"
-fail_open = true
-# gain_mode: double-dash|positional
-gain_mode = "double-dash"
-binary = "rtk"
-allowlist = [
-  "git status",
-  "git diff",
-  "git log",
-  "git show",
-  "git branch",
-  "git rev-parse",
-  "rg",
-  "fd",
-  "find",
-  "grep",
-  "tree",
-  "ls",
-  "du",
-  "wc",
-  "cat",
-  "head",
-  "tail",
-  "pytest",
-  "cargo test",
-  "cargo check",
-  "cargo build",
-  "cargo clippy",
-  "cargo fmt",
-  "cargo nextest",
-  "cargo metadata",
-  "cargo tree",
-  "cargo doc",
-  "npm test",
-  "npm run",
-  "pnpm test",
-  "pnpm run",
-  "pnpm exec",
-  "bun test",
-  "bun run",
-  "aoc-task",
-  "tm list",
-  "aoc-rtk doctor",
-  "journalctl",
-  "systemctl status",
-]
-denylist = [
-  "git add",
-  "git commit",
-  "git checkout",
-  "git switch",
-  "git restore",
-  "git stash",
-  "git merge",
-  "git rebase",
-  "git push",
-  "git reset --hard",
-  "git clean -fd",
-  "git worktree remove",
-  "rm -rf",
-  "sudo",
-  "ssh",
-  "scp",
-  "cargo publish",
-  "npm publish",
-  "pnpm publish",
-  "bun publish",
-  "vercel deploy --prod",
-  "docker system prune",
-  "docker compose down -v",
-]
-# Install contract: pinned URL + pinned sha256
-install_url = ""
-install_sha256 = ""
-EOF
-}
-
-read_rtk_mode() {
-  local rtk_file="$1"
-  if ! command -v python3 >/dev/null 2>&1; then
-    return
-  fi
-
-  python3 - "$rtk_file" <<'PY'
-import sys
-from pathlib import Path
-
-try:
-    import tomllib
-except Exception:
-    tomllib = None
-
-path = Path(sys.argv[1])
-if tomllib is None or not path.exists():
-    raise SystemExit(0)
-
-mode = ""
-try:
-    data = tomllib.loads(path.read_text(encoding="utf-8"))
-    mode = str(data.get("mode", "")).strip().lower()
-except Exception:
-    mode = ""
-
-if mode in {"on", "off"}:
-    print(mode)
-PY
-}
-
-ensure_rtk_config() {
-  local rtk_file="$aoc_dir/rtk.toml"
-  if [[ ! -f "$rtk_file" ]]; then
-    write_default_rtk_config "$rtk_file"
-    log "Seeded RTK routing config ($rtk_file, mode=on default)."
-  else
-    local existing_mode=""
-    existing_mode="$(read_rtk_mode "$rtk_file" || true)"
-    if [[ "$existing_mode" == "off" ]]; then
-      log "RTK routing config exists with mode=off ($rtk_file). Preserving explicit disable."
-    elif [[ "$existing_mode" == "on" ]]; then
-      log "RTK routing config exists with mode=on ($rtk_file). Preserving."
-    else
-      log "RTK routing config exists ($rtk_file). Preserving."
-    fi
-  fi
-}
 
 ensure_git_tracking_policy() {
   local ignore_file="$project_root/.gitignore"
@@ -1439,7 +1300,6 @@ setup_project_state() {
     log "Root design contract exists (DESIGN.md). Preserving."
   fi
 
-  ensure_rtk_config
 
   # OMP default prompt contract
   local prompts_dir="$aoc_dir/prompts"
@@ -1626,7 +1486,6 @@ setup_skills() {
     warn "aoc-skill not found; .omp/skills baseline may be incomplete."
   fi
 }
-
 
 
 setup_project_omp_assets() {
@@ -1936,8 +1795,6 @@ setup_omp_agents() {
   done
   sync_omp_agent_disable_config
 }
-
-
 
 
 setup_search_assets() {

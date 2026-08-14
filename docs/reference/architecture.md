@@ -21,7 +21,7 @@ AOC is a Herdr-first project/tooling layer:
 | Taskmaster | AOC | `tm`, `aoc-task`, and `aoc-tm` remain task/spec surfaces. |
 | CodeGraph | OMP extension | Read-only repo discovery when a project has an index. |
 | Retained context | AOC + OMP/Mnemopi | Optional focused task, project-memory, and provenance lookup through supported CLI and OMP surfaces. |
-| Standalone tools | AOC | HyperFrames, OpenDesign, web research, RTK, and selected handoff helpers. |
+| Standalone tools | AOC | HyperFrames, OpenDesign, web research, and selected handoff helpers. |
 
 ## Removed product surfaces
 

@@ -33,7 +33,6 @@ AOC project initialization creates or repairs:
 
 ```text
 .aoc/context.md
-.aoc/rtk.toml
 .omp/extensions/
 .omp/agents/
 .omp/skills/

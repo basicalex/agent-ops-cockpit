@@ -5,31 +5,4 @@ export AOC_SMOKE_TEST=1
 
 echo "Running shell integration smoke tests..."
 
-
-echo "Smoke testing bin/aoc-rtk status..."
-if ! bash bin/aoc-rtk status --shell >/dev/null; then
-  echo "ERROR: Smoke test failed for bin/aoc-rtk status"
-  exit 1
-fi
-
-echo "Smoke testing bin/aoc-rtk manual route..."
-tmp_dir="$(mktemp -d)"
-cat <<'EOF' > "$tmp_dir/rtk.toml"
-mode = "on"
-fail_open = true
-gain_mode = "double-dash"
-binary = "missing-rtk"
-allowlist = ["echo"]
-denylist = []
-install_url = ""
-install_sha256 = ""
-EOF
-if ! AOC_RTK_CONFIG="$tmp_dir/rtk.toml" bash bin/aoc-rtk echo smoke-test >/dev/null; then
-  echo "ERROR: Smoke test failed for bin/aoc-rtk manual route"
-  rm -rf "$tmp_dir"
-  exit 1
-fi
-rm -rf "$tmp_dir"
-
-
 echo "All shell integration smoke tests passed successfully."

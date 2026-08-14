@@ -67,7 +67,7 @@ if [[ "$has_explicit_skills" -eq 0 ]]; then
     exit 1
   fi
 
-  profile_err="$(mktemp "${TMPDIR:-/tmp}/aoc-omp-profile.XXXXXX.err")"
+  profile_err="$(mktemp "${TMPDIR:-/tmp}/aoc-omp-profile.err.XXXXXX")"
   if ! active_skills="$("$profile_bin" active --kind skills 2>"$profile_err")"; then
     profile_diag="$(<"$profile_err")"
     rm -f "$profile_err"
@@ -96,7 +96,7 @@ fi
 
 runtime_dir="${XDG_RUNTIME_DIR:-/tmp}"
 mkdir -p "$runtime_dir"
-capsule="$(mktemp "$runtime_dir/aoc-omp-context.XXXXXX.md")"
+capsule="$(mktemp "$runtime_dir/aoc-omp-context.md.XXXXXX")"
 aoc-omp-context > "$capsule"
 
 exec "$raw_omp" --append-system-prompt "$capsule" "${skill_args[@]}" "$@"

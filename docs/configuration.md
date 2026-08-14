@@ -86,16 +86,6 @@ aoc-skill validate --root .
 
 See [Skills](skills.md).
 
-## RTK routing
-
-RTK routing condenses noisy allowlisted command output while preserving native fallback for safe commands.
-
-```bash
-aoc-rtk status
-aoc-rtk doctor
-```
-
-See [RTK routing](reference/rtk-routing.md).
 
 ## Detailed reference
 

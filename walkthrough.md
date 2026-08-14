@@ -220,17 +220,17 @@ f = filter
 **Duration:** 15 seconds
 
 **Recording:**
-- `aoc-mem read`
-- `aoc-mem add "decision"`
+- `ls ~/.aoc/memory/<repo>/`
+- open `MEMORY.md`
 
-**Narration:** *"Decisions live in memory, so they persist across sessions."*
+**Narration:** *"Decisions live in the shared memory store, so they persist across sessions and agents."*
 
 **On-Screen Text:**
-- "aoc-mem read"
-- "aoc-mem add"
+- "~/.aoc/memory/<repo>/"
+- "MEMORY.md"
 
 **Actions:**
-- Run two commands
+- Show the store and its index
 
 ---
 

@@ -83,7 +83,6 @@ Migrate critical user-facing scripts to POSIX sh or Rust for broader compatibili
 
 **Candidates for migration:**
 - `aoc-init` - Project initialization
-- `aoc-mem` - Memory management
 - `aoc-doctor` - Dependency validation
 
 **Non-candidates (remain bash):**

@@ -16,7 +16,6 @@ Advanced configuration options for Agent Ops Cockpit (AOC).
   - [Command Overrides](#command-overrides)
   - [Clock Configuration](#clock-configuration)
   - [Herdr Services](#herdr-services)
-  - [RTK Routing](#rtk-routing)
   - [Agent Installers](#agent-installers)
   - [Agent Configuration](#agent-configuration)
 - [Theme Management](#theme-management)
@@ -88,82 +87,6 @@ aoc services start search
 
 `aoc services` uses Herdr workspace/tab/pane commands. It does not start Herdr behind the operator's back; start Herdr with `aoc` first if no Herdr server is running.
 
-### RTK Routing
-
-RTK routing is optional, per-project, and fail-open by default. It activates for wrapped agent commands when routing mode is enabled.
-
-Primary benefit: route noisy shell output through RTK so agents keep higher signal density in-context (less output bloat, lower token pressure, faster coding loops).
-
-| Variable | Description | Default |
-|----------|-------------|---------|
-| `AOC_RTK_BYPASS` | Disable RTK routing for the current process/session | `0` |
-| `AOC_RTK_MODE` | Force mode override (`off` to bypass) | From `.aoc/rtk.toml` |
-| `AOC_RTK_CONFIG` | Override RTK config file location | `<project>/.aoc/rtk.toml` |
-| `AOC_RTK_BINARY` | Override RTK binary name/path | `rtk` |
-| `AOC_RTK_GAIN_MODE` | RTK invocation mode (`double-dash` or `positional`) | `double-dash` |
-| `AOC_RTK_FAIL_OPEN` | Fallback to native command on RTK execution error | `1` |
-| `AOC_RTK_ULTRA_COMPACT` | Pass `-u` to RTK commands for tighter output | `0` |
-| `AOC_RTK_ROUTE_NON_TTY_STDIN` | Allow RTK routing when stdin is non-tty and not piped/file redirected | `0` |
-| `AOC_RTK_INSTALL_URL` | Pinned installer artifact URL for `aoc-rtk install` | None |
-| `AOC_RTK_INSTALL_SHA256` | SHA256 for pinned installer artifact | None |
-| `AOC_RTK_INSTALL_DIR` | Install target directory for `aoc-rtk install` | `~/.local/bin` |
-| `AOC_RTK_RELEASE_REPO` | Upstream repo used by `aoc-rtk install --auto` | `rtk-ai/rtk` |
-| `AOC_RTK_RELEASE_TAG` | Override release tag for `aoc-rtk install --auto` | latest |
-
-Runtime/debug variables:
-
-| Variable | Description |
-|----------|-------------|
-| `AOC_RTK_ACTIVE` | `1` when RTK shims are active in the current agent session |
-| `AOC_RTK_SHIM_DIR` | Session-local shim directory prepended to PATH |
-
-Project config file: `.aoc/rtk.toml` (seeded by `aoc-init`).
-
-By default, new `aoc-init` runs seed RTK with `mode = "on"` for context health. Existing projects with `mode = "off"` are preserved as-is.
-
-```toml
-mode = "on"
-fail_open = true
-gain_mode = "double-dash"
-binary = "rtk"
-allowlist = ["git status", "git diff", "rg", "pytest"]
-denylist = ["git push", "git reset --hard", "rm -rf"]
-install_url = ""
-install_sha256 = ""
-```
-
-The seeded allowlist includes read-only Git inspection and common safe local diagnostics. Mutating Git operations are denied in ambient routing so mutations only happen through explicit operator workflows.
-
-Operator commands:
-
-```bash
-aoc-rtk status
-aoc-rtk enable
-aoc-rtk disable
-aoc-rtk doctor
-aoc-rtk install
-aoc-rtk install --auto
-# Manual routing test (shorthand)
-aoc-rtk git status
-# Manual routing test (explicit)
-aoc-rtk run rg "TODO"
-```
-
-Recommended rollout order:
-
-1. Run `aoc-rtk install --auto`.
-2. Optionally review pinned `install_url` + `install_sha256` in `.aoc/rtk.toml`.
-3. Validate with `aoc-rtk doctor`.
-4. If needed, disable quickly with `aoc-rtk disable`.
-5. If needed, bypass immediately with `AOC_RTK_BYPASS=1`.
-
-Safety model:
-
-- Allowlist-first routing through `aoc-rtk-proxy` command shims.
-- Session-local PATH wiring (no global command hijack).
-- Explicit bypass via `AOC_RTK_BYPASS=1`.
-- Fail-open fallback to native execution when RTK is unavailable.
-
 ### OMP-first init migration behavior
 
 `aoc-init` is the one-command repair path for OMP-first repos.
@@ -219,7 +142,6 @@ Prefer direct Herdr/CLI surfaces for default work:
 
 - Managed search/service runtime: `aoc services`, `aoc-search`
 - HyperFrames: `aoc-hyperframes`
-- RTK: `aoc-rtk`
 - Vercel CLI: `vercel`
 
 ### OMP runtime config
@@ -299,7 +221,6 @@ Valid `AOC_AGENT_ID` value is `pi`.
 - `pi` defaults to compact handshake output; set `AOC_OMP_HANDSHAKE_MODE=full` for the richer focus-first briefing.
 - Full handshake mode now favors: focus provenance, high-value open work, workstream health, recent developments, and open fronts before lower-value inventory.
 - When canon or task state is missing, the briefing degrades explicitly with fallback status notes instead of silently pretending a stronger focus signal exists.
-- `pi` enables RTK ultra-compact output and non-tty routing by default (`AOC_RTK_ULTRA_COMPACT=1`, `AOC_RTK_ROUTE_NON_TTY_STDIN=1`) unless you override them.
 - Managed `pi` launches should use the supported Herdr/OMP/AOC CLI path directly.
 
 ## Theme Management
@@ -322,12 +243,7 @@ AOC uses a project-local configuration model:
 - **Purpose:** Active work queue
 - **Management:** `aoc-task` commands
 
-### 3. RTK Routing Policy (`.aoc/rtk.toml`)
-
-- **Purpose:** Project-local routing mode, allowlist/denylist, and pinned install contract
-- **Management:** `aoc-rtk status|enable|disable|doctor|install --auto`
-
-### 4. Search Configuration (`.aoc/search.toml`)
+### 3. Search Configuration (`.aoc/search.toml`)
 
 - **Purpose:** Project-local managed search contract
 - **Management:** `aoc services`, `aoc-services`, or `bin/aoc-search`

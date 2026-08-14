@@ -17,7 +17,7 @@ Keep only AOC pieces that are still valuable as project/tooling primitives:
 - Taskmaster / `tm` integration
 - metadata-only context handshakes for OMP startup
 - CodeGraph as a read-only OMP tool when a project has an index
-- HyperFrames, OpenDesign, web research, and RTK as standalone project/tooling features
+- HyperFrames, OpenDesign, and web research as standalone project/tooling features
 - selected lightweight handoff helpers only if they remain useful
 - selected Pi/OMP skills only when they complement the new stack
 - docs and install/bootstrap knowledge that can be simplified for Herdr

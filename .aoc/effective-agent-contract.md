@@ -37,7 +37,7 @@ Generated from layered AGENTS.md policy. Do not edit this generated output direc
 
 ## Task and project commands
 - Tasks/specs: `tm list`, `tm show <id>`, `tm add`, `tm sub ...`, `tm tag current`, `tm tag spec show`.
-- AOC health: `aoc-init`, `aoc-handshake --json`, `aoc-rtk status`, `aoc-rtk doctor`.
+- AOC health: `aoc-init`, `aoc-handshake --json`.
 - VCS: inspect mode with `aoc-handshake --json`; use Git commands for Git repositories.
 
 ## Lazy-load policy

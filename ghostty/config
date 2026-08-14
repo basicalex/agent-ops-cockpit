@@ -41,6 +41,9 @@ keybind = super+l=esc:l
 keybind = super+i=esc:i
 keybind = super+o=esc:o
 keybind = super+x=esc:x
+# Cmd+P → alt+p: Claude Code's default model picker (chat:modelPicker).
+# Herdr reserves alt+p for future OMP agent selection — revisit if it lands.
+keybind = super+p=esc:p
 # W = close pane on both modifiers (each sends herdr's alt+q close_pane).
 # The workspace picker (herdr alt+w) moves to Cmd+Shift+W.
 keybind = super+w=esc:q

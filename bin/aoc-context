@@ -131,7 +131,7 @@ response = [
 ]
 commands_block = [
     "Tasks/specs: `tm list`, `tm show <id>`, `tm add`, `tm sub ...`, `tm tag current`, `tm tag spec show`.",
-    "AOC health: `aoc-init`, `aoc-handshake --json`, `aoc-rtk status`, `aoc-rtk doctor`.",
+    "AOC health: `aoc-init`, `aoc-handshake --json`.",
     "VCS: inspect mode with `aoc-handshake --json`; use Git commands for Git repositories.",
 ]
 lazy = [
@@ -491,7 +491,6 @@ handshake_cmd = [str(handshake_bin), "--json"] if handshake_bin.exists() else ["
 audit_help = run(["tm", "audit", "--help"])
 complete_help = run(["tm", "complete", "--help"])
 handshake = run(handshake_cmd)
-rtk = run(["aoc-rtk", "status"])
 handshake_packet = {}
 if handshake["ok"] and handshake["stdout"]:
     try:
@@ -529,7 +528,6 @@ packet = {
             "readyPreview": ready_result["stdout"].splitlines()[:4] if ready_result["ok"] else [],
             "warning": None if ready_result["ok"] else (ready_result["stderr"] or ready_result["stdout"] or "tm ready unavailable"),
         },
-        "rtk": {"available": rtk["ok"], "purpose": "condense noisy safe command output"},
         "vcs": {
             "kind": vcs.get("kind", "unknown"),
             "preferredTool": vcs.get("preferredTool", "none"),
@@ -563,7 +561,6 @@ else:
         print(f"warning: {tm['warning']}")
     print("")
     print("Focused context tools:")
-    print("- RTK: condenses noisy safe checks when available")
     vcs_tool = packet["tools"]["vcs"]
     print(f"- VCS: {vcs_tool['kind']} preferred={vcs_tool['preferredTool']}; use Git for repository changes")
     print("- Subagents: explicit dispatch only; attach task/spec context in prompt")

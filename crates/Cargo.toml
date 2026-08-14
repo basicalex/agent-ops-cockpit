@@ -8,7 +8,4 @@ members = [
     "aoc-taskmaster",
     "aoc-yazi-mermaid",
 ]
-exclude = [
-    "aoc-opencode-adapter",
-]
 resolver = "2"

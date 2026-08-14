@@ -148,7 +148,6 @@ def build_packet(project_root: Path) -> dict[str, Any]:
     aoc_dir = project_root / ".aoc"
     vcs = detect_vcs(project_root)
     active_tag_result = run(["tm", "tag", "current"], project_root, timeout=3.0)
-    rtk_config_present = (aoc_dir / "rtk.toml").exists()
 
     packet: dict[str, Any] = {
         "schemaVersion": 1,
@@ -161,7 +160,6 @@ def build_packet(project_root: Path) -> dict[str, Any]:
             "contextPath": ".aoc/context.md",
             "contextPresent": (aoc_dir / "context.md").exists(),
             "agentsContractPresent": (project_root / "AGENTS.md").exists(),
-            "rtkStatusAvailable": rtk_config_present,
         },
         "taskmaster": {
             "available": bool(active_tag_result.get("ok")),
@@ -226,7 +224,7 @@ def print_prompt_compact(packet: dict[str, Any]) -> None:
     active_tag = taskmaster.get("activeTag") or "none"
     print(f"- Taskmaster: {'available' if taskmaster.get('available') else 'unavailable'}; active tag `{active_tag}`. Use CLI commands for task/spec details; do not read task JSON directly.")
     print("- Context policy: load focused context only after user intent is known and the reason is explicit.")
-    print(f"- RTK status command: {'available' if aoc.get('rtkStatusAvailable') else 'unavailable'}; CodeGraph/RTK/details are lazy capability lookups, not startup prose.")
+    print("- CodeGraph and other capability details are lazy lookups, not startup prose.")
     if warnings:
         print("- Warnings: " + "; ".join(str(w) for w in warnings))
 
@@ -273,10 +271,6 @@ def print_prompt_full(packet: dict[str, Any]) -> None:
     print()
     print("## Slash commands")
     print("- `/commit [scope]` is the AOC/OMP safe atomic commit workflow. Treat it as approval to inspect changes, run targeted validation, commit only the intended atomic work with Git, and report the observed Git SHA. Never push without explicit approval.")
-    print()
-    print("## RTK")
-    print(f"- Status command available: {'yes' if aoc.get('rtkStatusAvailable') else 'no'}")
-    print("- RTK is for allowlisted noisy commands only; native fallback and raw output preservation remain required.")
     print()
     print("## Protected direct reads")
     print("- Do not directly read `.taskmaster/tasks/tasks.json`; use the Taskmaster CLI.")

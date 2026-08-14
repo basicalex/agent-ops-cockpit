@@ -1,0 +1,40 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Installs the Grok subscription OAuth provider into ~/.prime/agent/:
+#   extensions/xai-oauth.ts - registers the xai-oauth provider (device-code
+#                             login, cli-chat-proxy.grok.com transport)
+#
+# Sources live in config/prime-xai-oauth/ in the aoc repo. Idempotent:
+# unchanged targets are kept, changed ones are overwritten (they are
+# aoc-managed, not user-owned).
+
+repo_root="${AOC_SOURCE_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
+source_dir="$repo_root/config/prime-xai-oauth"
+agent_dir="$HOME/.prime/agent"
+
+log() {
+  printf 'aoc-prime-xai-oauth-install: %s\n' "$*"
+}
+
+install_managed() {
+  local src="$1"
+  local dst="$2"
+
+  if [[ -f "$dst" ]] && cmp -s "$src" "$dst"; then
+    log "kept existing $dst"
+    return
+  fi
+  install -m 0644 "$src" "$dst"
+  log "installed $dst"
+}
+
+src="$source_dir/extensions/xai-oauth.ts"
+if [[ ! -f "$src" ]]; then
+  log "missing source $src" >&2
+  exit 1
+fi
+
+mkdir -p "$agent_dir/extensions"
+install_managed "$src" "$agent_dir/extensions/xai-oauth.ts"
+log "done; run /login in prime-agent and pick xAI Grok OAuth"

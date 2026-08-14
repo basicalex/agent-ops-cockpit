@@ -2,7 +2,7 @@
 
 ## Repository
 - Name: agent-ops-cockpit
-- Root: /home/ceii/dev/agent-ops-cockpit
+- Root: /Users/basicalex/dev/agent-ops-cockpit
 - VCS: git
 - Git branch: main
 
@@ -49,8 +49,6 @@
 ./bin/aoc-profile
 ./bin/aoc-render
 ./bin/aoc-rlm
-./bin/aoc-rtk
-./bin/aoc-rtk-proxy
 ./bin/aoc-search
 ./bin/aoc-services
 ./bin/aoc-skill
@@ -92,7 +90,6 @@ pi-compaction-ui (1)
 pi-terminal-ops (1)
 pulse-hub-spoke (8)
 pulse-tab-overview (1)
-rtk (5)
 safety (9)
 session-overseer (0)
 sub-agents (7)

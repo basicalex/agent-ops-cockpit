@@ -684,7 +684,6 @@ fn should_exclude(path: &Path, file_name: &str) -> bool {
     matches!(
         file_name,
         ".git"
-            | ".jj"
             | "node_modules"
             | ".next"
             | ".codegraph"
