@@ -40,7 +40,7 @@ jobs:
               aoc task --help >/dev/null
               test -f ~/.config/yazi/yazi.toml
               test -f ~/.config/yazi/plugins/aoc-open.yazi/main.lua
-              grep -Fxq 'local editor = \"micro\"' ~/.config/yazi/plugins/aoc-open.yazi/main.lua
+              grep -Fq \"local editor = \\\"micro\\\"\" ~/.config/yazi/plugins/aoc-open.yazi/main.lua
 
               mkdir -p ~/sandbox && cd ~/sandbox
               git init
@@ -87,7 +87,7 @@ jobs:
               aoc task --help >/dev/null
               test -f ~/.config/yazi/yazi.toml
               test -f ~/.config/yazi/plugins/aoc-open.yazi/main.lua
-              grep -Fxq 'local editor = \"micro\"' ~/.config/yazi/plugins/aoc-open.yazi/main.lua
+              grep -Fq \"local editor = \\\"micro\\\"\" ~/.config/yazi/plugins/aoc-open.yazi/main.lua
 
               mkdir -p ~/sandbox && cd ~/sandbox
               git init
