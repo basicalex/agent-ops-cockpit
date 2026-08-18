@@ -103,6 +103,10 @@ data["permissions"] = permissions
 data["skipDangerousModePermissionPrompt"] = True
 data["skipAutoPermissionPrompt"] = True
 
+# Communication contract output style: default it on, but never override a
+# user's explicit choice (the outputStyle toggle belongs to the main agent).
+data.setdefault("outputStyle", "contract")
+
 # Memory-rail hook: link every repo's Claude memory dir into ~/.aoc/memory
 # on session start. Merge surgically: replace any existing entry that
 # references the hook script, keep every other hook untouched.
