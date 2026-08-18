@@ -19,6 +19,11 @@ set -euo pipefail
 repo_root="${AOC_SOURCE_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
 source_dir="$repo_root/config/prime-memory-rail"
 agent_dir="$HOME/.prime/agent"
+contract_src="$repo_root/config/communication-contract/CONTRACT.md"
+if [[ ! -r "$contract_src" ]]; then
+  contract_src="${XDG_CONFIG_HOME:-$HOME/.config}/aoc/communication-contract.md"
+fi
+
 
 log() {
   printf 'aoc-prime-memory-install: %s\n' "$*"
@@ -49,6 +54,16 @@ for required in \
   fi
 done
 
+append_system_src="$(mktemp)"
+trap 'rm -f "$append_system_src"' EXIT
+cat "$source_dir/APPEND_SYSTEM.md" > "$append_system_src"
+if [[ -r "$contract_src" ]]; then
+  {
+    printf '\n<!-- aoc communication contract -->\n'
+    cat "$contract_src"
+  } >> "$append_system_src"
+fi
+
 mkdir -p "$agent_dir/extensions" "$agent_dir/skills/refine/src/refine"
 
 install_managed "$source_dir/extensions/aoc-memory.ts" "$agent_dir/extensions/aoc-memory.ts"
@@ -56,6 +71,6 @@ install_managed "$source_dir/extensions/aoc-goal-compact.ts" "$agent_dir/extensi
 install_managed "$source_dir/skills/refine/SKILL.md" "$agent_dir/skills/refine/SKILL.md"
 install_managed "$source_dir/skills/refine/pyproject.toml" "$agent_dir/skills/refine/pyproject.toml"
 install_managed "$source_dir/skills/refine/src/refine/__init__.py" "$agent_dir/skills/refine/src/refine/__init__.py"
-install_managed "$source_dir/APPEND_SYSTEM.md" "$agent_dir/APPEND_SYSTEM.md"
+install_managed "$append_system_src" "$agent_dir/APPEND_SYSTEM.md"
 
 log "done"

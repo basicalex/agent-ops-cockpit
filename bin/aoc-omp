@@ -98,5 +98,13 @@ runtime_dir="${XDG_RUNTIME_DIR:-/tmp}"
 mkdir -p "$runtime_dir"
 capsule="$(mktemp "$runtime_dir/aoc-omp-context.md.XXXXXX")"
 aoc-omp-context > "$capsule"
+contract="${XDG_CONFIG_HOME:-$HOME/.config}/aoc/communication-contract.md"
+if [[ -r "$contract" ]]; then
+  {
+    printf '\n'
+    cat "$contract"
+  } >> "$capsule" 2>/dev/null || true
+fi
+
 
 exec "$raw_omp" --append-system-prompt "$capsule" "${skill_args[@]}" "$@"

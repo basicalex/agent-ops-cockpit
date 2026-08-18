@@ -652,6 +652,8 @@ required_bin_scripts=(
   aoc-claude-install
   aoc-jcode-install
   aoc-prime-agent-install
+  aoc-contract-install
+  aoc-compare
   aoc-omp
   aoc-omp-context
   aoc-omp-shim-install
@@ -947,6 +949,7 @@ run_config_installer() {
 run_config_installer aoc-herdr-install
 run_config_installer aoc-claude-install
 run_config_installer aoc-prime-memory-install
+run_config_installer aoc-contract-install
 run_config_installer aoc-omp-shim-install
 run_config_installer aoc-omp-seed
 

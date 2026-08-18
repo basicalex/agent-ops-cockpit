@@ -1,0 +1,114 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+repo_root="${AOC_SOURCE_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
+contract_src="$repo_root/config/communication-contract/CONTRACT.md"
+config_dir="${XDG_CONFIG_HOME:-$HOME/.config}/aoc"
+canonical_dst="$config_dir/communication-contract.md"
+jcode_dst="$HOME/.jcode/prompt-overlay.md"
+jcode_sha="$config_dir/communication-contract.jcode.sha"
+
+usage() {
+  cat <<'EOF'
+Usage: aoc-contract-install [--status]
+
+Install the AOC communication contract for harness launchers.
+
+Options:
+  --status    Print the management status of each target
+  -h, --help  Show this help text
+EOF
+}
+
+log() {
+  printf 'aoc-contract-install: %s\n' "$*"
+}
+
+sha256() {
+  shasum -a 256 "$1" | awk '{print $1}'
+}
+
+jcode_status() {
+  if [[ ! -f "$jcode_dst" ]]; then
+    printf 'missing\n'
+    return
+  fi
+
+  if [[ -f "$jcode_sha" ]] && [[ "$(sha256 "$jcode_dst")" == "$(<"$jcode_sha")" ]]; then
+    printf 'installed\n'
+  else
+    printf 'user-owned\n'
+  fi
+}
+
+status() {
+  if [[ -f "$canonical_dst" ]]; then
+    printf 'canonical installed\n'
+  else
+    printf 'canonical missing\n'
+  fi
+  printf 'jcode '
+  jcode_status
+}
+
+install_managed() {
+  local src="$1"
+  local dst="$2"
+
+  mkdir -p "$(dirname "$dst")"
+  if [[ -f "$dst" ]] && cmp -s "$src" "$dst"; then
+    log "kept existing $dst"
+    return
+  fi
+  if [[ -f "$dst" ]]; then
+    local backup
+    backup="$dst.bak.$(date +%Y%m%d%H%M%S)"
+    cp "$dst" "$backup"
+    log "backed up $dst -> $backup"
+  fi
+  install -m 0644 "$src" "$dst"
+  log "installed $dst"
+}
+
+install_jcode() {
+  if [[ -f "$jcode_dst" ]] && [[ "$(jcode_status)" != "installed" ]]; then
+    printf 'aoc-contract-install: warning: keeping user-owned %s\n' "$jcode_dst" >&2
+    return
+  fi
+
+  if [[ -f "$jcode_dst" ]] && cmp -s "$contract_src" "$jcode_dst"; then
+    log "kept existing $jcode_dst"
+    return
+  fi
+
+  mkdir -p "$(dirname "$jcode_dst")" "$config_dir"
+  install -m 0644 "$contract_src" "$jcode_dst"
+  sha256 "$jcode_dst" > "$jcode_sha"
+  log "installed $jcode_dst"
+}
+
+case "${1:-}" in
+  -h|--help)
+    usage
+    exit 0
+    ;;
+  --status)
+    status
+    exit 0
+    ;;
+  '')
+    ;;
+  *)
+    printf 'aoc-contract-install: unknown option: %s\n' "$1" >&2
+    exit 1
+    ;;
+esac
+
+if [[ ! -f "$contract_src" ]]; then
+  printf 'aoc-contract-install: missing %s\n' "$contract_src" >&2
+  exit 1
+fi
+
+install_managed "$contract_src" "$canonical_dst"
+install_jcode
+log 'done'
