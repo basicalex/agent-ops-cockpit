@@ -18,9 +18,14 @@ Use the `/herdr-orchestrate` skill (user-level, `~/.claude/skills/herdr-orchestr
 
 Workers are spawned with `aoc-omp` by default; both omp and Claude workers register with herdr's agent detector, so agent status is reliable. The main session never asks workers to commit; it verifies and commits worker output itself.
 
-# Output style: ADHD mode
+# Communication contract
 
-ADHD formatting rules live in the `adhd` output style (`~/.claude/output-styles/adhd.md`, seeded from this repo), selected by the `outputStyle` setting in `~/.claude/settings.json`. Toggle per project via `/config` → Output style. The rules arrive through the system prompt when active; nothing extra to follow here.
+The AOC communication contract (`~/.config/aoc/communication-contract.md`, source `agent-ops-cockpit/config/communication-contract/CONTRACT.md`) sets machine-wide response behavior for every harness: plain language, reference codes, hard scope boundaries, no filler. Delivery routes:
+
+- **Main Claude session**: the `contract` output style, selected by `outputStyle` in `~/.claude/settings.json` (on by default; rules arrive through the system prompt when active). Toggling it via `/config` affects the main agent ONLY — it is a personal toggle, never the delivery route for workers or subagents.
+- **Agent-tool subagents**: output styles do not reach them. Every subagent prompt includes: "Follow the communication contract at ~/.config/aoc/communication-contract.md for your report: plain language, findings not narrative, no filler."
+- **Claude herdr workers**: spawned with `--append-system-prompt "$(cat ~/.config/aoc/communication-contract.md 2>/dev/null)"` (encoded in the herdr-orchestrate skill).
+- **omp / prime / jcode**: wired by `aoc-contract-install` and the aoc-omp capsule; nothing to do from Claude sessions.
 
 # Prose style (docs, PR text, commit messages, reports, UI/marketing copy)
 
@@ -45,3 +50,9 @@ These rules govern prose only. Never touch code, identifiers, or precise technic
 
 - **Every Playwright/Puppeteer QA script must close its browser** in a `try/finally` (`browser.close()`), and be launched under a hard timeout (e.g. `timeout 900 bun script.ts`) so a hung run can't leak a browser. Bake this into worker packets that involve browser QA.
 - **Never ad-hoc mass-kill browser processes** by loose patterns (crashpad, profile dirs, etc.) — loose patterns match desktop browsers too. Clean up stale headless browsers by matching real browser binaries carrying `--headless`, nothing broader.
+
+# Machine-local policy
+
+Rules that belong to this machine only (private harnesses, model-slot remaps, local tool paths) live in `~/.claude/CLAUDE.local.md`, which is never seeded or overwritten by `aoc-claude-install`. The import below loads it when it exists and is skipped when it does not.
+
+@~/.claude/CLAUDE.local.md

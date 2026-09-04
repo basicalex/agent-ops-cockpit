@@ -12,6 +12,8 @@ The `claude/` directory versions the Claude-side half of the machine's delegatio
 
 `install.sh` seeds the Claude plane by default during AOC installation by copying these assets into `${AOC_CLAUDE_DIR:-$HOME/.claude}` (skill directories recursively, minus `node_modules` and `.bak` files) with timestamped backups when overwriting differing files (same convention as `bin/aoc-herdr-install`). Set `AOC_CLAUDE_DIR` to target a different Claude config directory.
 
+Machine-local policy (private harnesses, model-slot remaps, local tool paths) goes in `~/.claude/CLAUDE.local.md`; the seeded `CLAUDE.md` imports it with Claude Code's `@path` syntax and the import is skipped when the file is absent. The installer never writes that file, so `aoc-doctor`'s seed check stays meaningful: the installed `CLAUDE.md` should equal the seed byte for byte.
+
 This is intentionally install-time-only seeding, not `aoc-init` managed-assets: `~/.claude` is edited live and resynced back to the repo, so init-time stamping from stale repo copies could clobber newer live edits.
 
 Prerequisites on the target machine: `omp` must be on PATH, and `herdr` must have the `omp` integration installed (`herdr integration install omp`) so worker agent status is reliable.

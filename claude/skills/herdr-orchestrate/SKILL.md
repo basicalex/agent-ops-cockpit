@@ -12,6 +12,8 @@ Coordinate a campaign of parallel work across omp agents running in herdr panes.
 
 1. **omp workers (default for non-UI work)** — mechanical/parallelizable slices: sweeps, migrations, typecheck fixes, audits. **Never frontend**: no components, pages, styles, or anything rendered, however mechanical the slice looks (violated 2026-08-07; hard rule since).
 2. **Opus subagents** — ALL frontend/UI slices: components, pages, styling, layout, animations, UX copy — plus any other change where "does this look right" is the acceptance criterion. Dispatch via the Agent tool with `model: "opus"`, never as omp packets.
+
+**Contract rule for every Agent-tool spawn (any tier, any purpose):** include this line in the subagent prompt: "Follow the communication contract at ~/.config/aoc/communication-contract.md for your report: plain language, findings not narrative, no filler." Output styles do not reach subagents, so the prompt line is the only delivery route. omp workers need nothing extra — aoc-omp appends the contract to their launch capsule.
 3. **Fable escalation (explicit user request only)** — for *critical* slices: architecture-sensitive changes, deep cross-cutting reasoning, or a slice omp workers have already fumbled. Both gates must hold: the slice is critical AND the user asked for fable-level handling. Never escalate on your own — fable sessions burn metered Claude usage while omp is effectively unlimited, so that spend is the user's call; if a slice seems to need it, recommend and ask. Two dispatch forms:
    - **Escalation agent (default):** dispatch via the Agent tool with no model override, so the subagent inherits the fable model. No pane management, no permission stalls, result returns in-session. Right for one-off critical slices.
    - **Herdr fable worker:** only when the critical slice must run as a long-lived peer of a parallel campaign alongside omp workers — see "Spawning fable workers" below.
@@ -45,6 +47,8 @@ herdr tab create --workspace <workspace-id> --cwd <repo-root> --label <campaign>
 herdr pane run <root-pane-id> "aoc-omp --model openai-codex/gpt-5.6-terra --thinking high"
 ```
 
+Launch-failure recovery: if `aoc-omp` crashes at boot with "Failed to load pi_natives native addon", the global bun tree is broken — run `aoc-omp-update update` (the sanctioned reinstaller), never hand-patch caches. After any crashed launch, `herdr pane read` the pane before relaunching: text queued at a dead prompt executes as shell commands and can eat the next dispatch.
+
 ### Worker model policy (decided 2026-08-02)
 
 - **Default worker: `--model openai-codex/gpt-5.6-terra --thinking high`.** Benched at ~51 tok/s standard tier — matches luna's speed, ~1.75× sol's, at half sol's quota weight. Never spawn a worker on the settings default (gpt-5.5 low).
@@ -52,7 +56,7 @@ herdr pane run <root-pane-id> "aoc-omp --model openai-codex/gpt-5.6-terra --thin
 - **Always provider-qualify the model id** (`openai-codex/...`). Unqualified `gpt-5.6-sol` has silently no-opped in headless mode (ambiguous match across catalogs); qualified ids resolve reliably (verified 2026-08-02: both spawn paths boot and answer).
 - **Never enable fast mode** (`/fast`, `tier.openai: priority`) on workers. Terra-standard already matches sol-fast throughput; priority only burns premium-request quota.
 
-One tab per work slice, labeled `<campaign>-w<N>` so the sidebar shows what each worker is doing. Get the current workspace ID from `herdr pane current` or `herdr pane list`. Spawned `aoc-omp` agents register with herdr's agent detector through the underlying omp integration, so their `agent_status` in `herdr pane list` and `herdr agent wait <target> --status idle` are **reliable**.
+One tab per work slice, labeled `<campaign>-w<N>` so the sidebar shows what each worker is doing. Get the current workspace ID from `herdr pane current` or `herdr pane list`. Spawned `aoc-omp` agents register with herdr's agent detector through the underlying omp integration, so their `agent_status` in `herdr pane list` and `herdr agent wait <target> --until idle` are **reliable** once registered. Registration is not guaranteed: a worker can stay `agent_status: unknown` for its whole run, and `herdr agent wait` then returns agent_not_found. If status reads `unknown` after boot, fall back to the spinner check (`herdr pane read <id> | grep "esc\u27e9"`) without waiting on the detector. `herdr agent wait` takes `--until <status>`, not `--status`.
 
 Wait for each worker to reach `idle` (finished booting) before dispatching.
 
@@ -61,10 +65,15 @@ Wait for each worker to reach `idle` (finished booting) before dispatching.
 Same tab-per-worker pattern; only the launch command differs:
 
 ```bash
-herdr pane run <root-pane-id> "claude --dangerously-skip-permissions"
+herdr pane run <root-pane-id> "claude --dangerously-skip-permissions --append-system-prompt \"\$(cat ~/.config/aoc/communication-contract.md 2>/dev/null)\""
 ```
 
-- `--dangerously-skip-permissions` is standing-authorized by the user for spawned worker panes (2026-07-08) so packets never stall on permission prompts. It makes the packet's file-scope CONSTRAINTS the only guardrail — keep them tight.
+The appended file is the AOC communication contract (installed by
+`aoc-contract-install`). Workers get it via this flag — not via the
+`outputStyle` setting, which is the main agent's personal toggle and must not
+be the thing carrying worker behavior.
+
+- `--dangerously-skip-permissions` is standing-authorized by the user for spawned worker panes so packets never stall on permission prompts. It makes the packet's file-scope CONSTRAINTS the only guardrail — keep them tight.
 - Claude sessions register with herdr's agent detector just like omp, so `agent_status` / `herdr agent wait` are reliable for them too.
 - The anti-cascade rule in the packet protocol is doubly load-bearing for fable workers: they load the same delegation-first CLAUDE.md as the orchestrator and will re-delegate unless the packet forbids it.
 - Everything else — packets, non-overlapping scopes, no-commit rule, monitor, trust-but-verify — is identical to omp workers.
@@ -97,8 +106,9 @@ Hard rules to bake into every packet's CONSTRAINTS:
 - **"You are the worker. Execute this yourself — do NOT delegate, spawn panes, dispatch to other panes, or invoke herdr-orchestrate."** Workers read the repo/user CLAUDE.md delegation-first policy (written for the orchestrator) and will otherwise cascade-delegate — one worker has conscripted another campaign's pane this way.
 - **Non-overlapping file scopes per worker** — no two workers may touch the same file.
 - "Touch ONLY these files: <explicit list>."
-- "Do NOT commit, stage, or revert anything."
+- "Do NOT commit, stage, stash, or revert anything — `git stash` included: it sweeps every concurrent session's uncommitted work off a shared tree. To test whether a failure is pre-existing, check out the file to a temp path (`git show HEAD:<file> > /tmp/...`) instead." This line goes into EVERY subagent prompt, not only omp packets.
 - "No interactive questions — if blocked, report the blocker in your final response and stop."
+- **"Do NOT run aoc-init or create AOC/Taskmaster scaffolding (.aoc/, .omp/, .taskmaster/, DESIGN.md) in repos that don't already have it committed."** A worker's startup ritual otherwise dirties AGENTS.md, .gitignore and scaffold dirs that the orchestrator has to revert during verify.
 - ACCEPTANCE includes the verification commands (TEST_CMD / TYPECHECK_CMD) with the framing: "pre-existing errors are acceptable; errors in YOUR files must be clean."
 
 ### Typecheck rules for large apps (avoid timeouts and cache thrash)
@@ -175,7 +185,7 @@ Campaign knowledge must not die in the pane. After verification, ask: did this c
 - **Project-specific lesson** → `<repo>/.omp/RULES.md`.
 - **Orchestrator-side lesson** (packet design, scope splitting, model choice) → this skill file or Claude memory, whichever it belongs to.
 
-Rules for lessons: one per incident, short, state the failure evidence and the corrective behavior. Delete rules that stop being true. Workers also have the `learn` tool (autolearn is enabled machine-wide since 2026-08-06); their self-captured lessons land in mnemopi/managed-skills — periodically curate those with `/optimize-mnemopi`.
+Rules for lessons: one per incident, short, state the failure evidence and the corrective behavior. Delete rules that stop being true. Workers also have the `learn` tool (autolearn is enabled machine-wide ); their self-captured lessons land in mnemopi/managed-skills — periodically curate those with `/optimize-mnemopi`.
 
 ## 6. Cleanup
 
