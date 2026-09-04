@@ -21,7 +21,7 @@ assert_eq() {
 }
 
 run_installer() {
-  HOME="$1" XDG_CONFIG_HOME="$1/.config" AOC_SOURCE_ROOT="$source_root" bash "$script" "${@:2}"
+  HOME="$1" XDG_CONFIG_HOME="$1/.config" AOC_SOURCE_ROOT="$source_root" AOC_INSTALL_JCODE=1 bash "$script" "${@:2}"
 }
 
 contract_path() {
@@ -35,6 +35,13 @@ jcode_path() {
 sha_path() {
   printf '%s/.config/aoc/communication-contract.jcode.sha' "$1"
 }
+
+# Jcode is disabled by default, so a normal install creates only the canonical contract.
+disabled_home="$tmp/disabled-home"
+mkdir -p "$disabled_home"
+assert_eq "$(HOME="$disabled_home" XDG_CONFIG_HOME="$disabled_home/.config" AOC_SOURCE_ROOT="$source_root" bash "$script" --status)" $'canonical missing\njcode disabled'
+HOME="$disabled_home" XDG_CONFIG_HOME="$disabled_home/.config" AOC_SOURCE_ROOT="$source_root" bash "$script" >/dev/null
+[[ -f "$(contract_path "$disabled_home")" && ! -e "$disabled_home/.jcode" ]]
 
 # Empty homes report missing targets before installation.
 missing_home="$tmp/missing-home"

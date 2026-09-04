@@ -791,12 +791,12 @@ if ! have curl && ! have wget; then
     fi
   fi
 fi
-if is_truthy "${AOC_INSTALL_JCODE:-1}"; then
+if is_truthy "${AOC_INSTALL_JCODE:-0}"; then
   if ! aoc-jcode-install; then
     missing_required+=("jcode")
   fi
 else
-  warn "Skipping jcode install because AOC_INSTALL_JCODE=0."
+  log "Jcode install is disabled; set AOC_INSTALL_JCODE=1 to opt in."
 fi
 
 if is_truthy "${AOC_INSTALL_PRIME_AGENT:-1}"; then

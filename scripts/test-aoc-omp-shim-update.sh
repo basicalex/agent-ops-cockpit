@@ -58,6 +58,10 @@ if [[ ! -x "$bin_dir/omp" || ! -x "$bin_dir/omp-raw" ]]; then
   echo "shim installer did not create executable omp and omp-raw" >&2
   exit 1
 fi
+if [[ ! -L "$bin_dir/omp-raw" || "$(readlink "$bin_dir/omp-raw")" != "$raw_source" ]]; then
+  echo "shim installer did not preserve the raw OMP package path with a symlink" >&2
+  exit 1
+fi
 
 # Non-update commands keep the existing shim behavior: outside an AOC project they
 # go to omp-raw; inside one they go through aoc-omp.

@@ -64,9 +64,9 @@ if [[ -n "$omp_path" && -x "$omp_path" ]]; then
   if [[ "$omp_path" == "$bin_dir/omp-raw" ]]; then
     :
   elif [[ "$omp_path" != "$bin_dir/omp" ]]; then
-    cp -p "$omp_path" "$bin_dir/omp-raw"
+    ln -sfn "$omp_path" "$bin_dir/omp-raw"
   elif ! grep -q "AOC-aware OMP shim" "$omp_path" 2>/dev/null; then
-    cp -p "$omp_path" "$bin_dir/omp-raw"
+    ln -sfn "$omp_path" "$bin_dir/omp-raw"
   fi
 fi
 

@@ -24,6 +24,17 @@ log() {
   printf 'aoc-contract-install: %s\n' "$*"
 }
 
+is_truthy() {
+  case "${1:-}" in
+    1|true|TRUE|yes|YES|on|ON) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+jcode_enabled() {
+  is_truthy "${AOC_INSTALL_JCODE:-0}" || command -v jcode >/dev/null 2>&1
+}
+
 sha256() {
   shasum -a 256 "$1" | awk '{print $1}'
 }
@@ -47,8 +58,12 @@ status() {
   else
     printf 'canonical missing\n'
   fi
-  printf 'jcode '
-  jcode_status
+  if jcode_enabled; then
+    printf 'jcode '
+    jcode_status
+  else
+    printf 'jcode disabled\n'
+  fi
 }
 
 install_managed() {
@@ -110,5 +125,9 @@ if [[ ! -f "$contract_src" ]]; then
 fi
 
 install_managed "$contract_src" "$canonical_dst"
-install_jcode
+if jcode_enabled; then
+  install_jcode
+else
+  log 'skipped Jcode prompt overlay because Jcode is disabled'
+fi
 log 'done'

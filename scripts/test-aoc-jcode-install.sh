@@ -76,6 +76,7 @@ assert_eq "$(HOME="$fake_home" PATH="$fake_path:/usr/bin:/bin" bash "$script" --
 
 # Syntax checks for the installer integration surface.
 bash -n "$script"
+grep -Fq 'if is_truthy "${AOC_INSTALL_JCODE:-0}"; then' "$root/install.sh"
 bash -n "$root/install.sh"
 bash -n "${BASH_SOURCE[0]}"
 

@@ -456,13 +456,18 @@ if [[ "$quiet" -eq 0 ]]; then
   else
     echo "  [warn] python3 >= 3.11 missing"
   fi
-  for tool in bun omp herdr jcode prime-agent; do
+  for tool in bun omp herdr prime-agent; do
     if have "$tool"; then
       echo "  [ok] $tool"
     else
       echo "  [warn] $tool missing"
     fi
   done
+  if have jcode; then
+    echo "  [ok] jcode (optional)"
+  else
+    echo "  [info] jcode not installed (optional)"
+  fi
   case "$claude_seed_status" in
     current) echo "  [ok] ~/.claude/CLAUDE.md matches seed" ;;
     stale) echo "  [warn] ~/.claude/CLAUDE.md is stale" ;;
