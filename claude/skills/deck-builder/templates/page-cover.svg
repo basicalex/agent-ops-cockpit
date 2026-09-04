@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 720" width="1280" height="720" font-family="Arial" data-pptx-page-role="cover">
+  <rect id="bg" data-pptx-role="background" x="0" y="0" width="1280" height="720" fill="#0F1B2B"/>
+
+  <!-- optional full-bleed image under an ink scrim: background/decoration roles at root, never a bounded group
+       (bounded root groups must not overlap each other; this is a blocking gate error) -->
+  <image id="cover-photo" data-pptx-role="background" href="../images/REPLACE.png" x="0" y="0" width="1280" height="720" preserveAspectRatio="xMidYMid slice"/>
+  <rect id="cover-scrim" data-pptx-role="decoration" x="0" y="0" width="1280" height="720" fill="#0F1B2B" fill-opacity="0.75"/>
+
+  <!-- one thin accent path as the recurring motif (smooth cubic segments, not a polyline) -->
+  <path id="motif" d="M 0 540 C 240 500, 420 590, 640 545 S 1040 470, 1280 520" fill="none" stroke="#1A7F7C" stroke-width="1.5" stroke-opacity="0.9"/>
+
+  <g id="title-block" data-pptx-bounds="72 200 1000 260">
+    <text x="72" y="228" font-size="13" font-weight="bold" letter-spacing="2.3" fill="#8A5D2F">EYEBROW · DATE</text>
+    <text x="72" y="310" font-family="Georgia" font-size="60" fill="#FFFAF0">Title sentence.</text>
+    <text x="72" y="360" font-size="24" fill="#FFFAF0" fill-opacity="0.78">Subtitle line.<tspan x="72" dy="32">Second subtitle line if needed.</tspan></text>
+  </g>
+
+  <g id="meta" data-pptx-bounds="72 620 1136 40">
+    <text x="72" y="646" font-size="15" fill="#FFFAF0" fill-opacity="0.7">For: recipient</text>
+    <text x="1208" y="646" font-size="15" text-anchor="end" fill="#FFFAF0" fill-opacity="0.7">Author · month year</text>
+  </g>
+</svg>

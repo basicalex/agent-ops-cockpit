@@ -196,14 +196,21 @@ install_if_missing "$codex_src" "$codex_home/config.toml"
 install_file "$claude_src/CLAUDE.global.md" "$seed_cache/CLAUDE.global.md"
 install_file "$agents_src" "$seed_cache/AGENTS.global.md"
 
+# Skills are copied recursively so a skill can ship bin/, templates/ and
+# reference/ beside SKILL.md. Dependency trees, lockfile-free caches and
+# installer backups never travel: node_modules is rebuilt by the skill's own
+# setup script on the target machine.
 for skill_dir in "$claude_src/skills"/*/; do
   [[ -d "$skill_dir" ]] || continue
   skill_name="$(basename "$skill_dir")"
-  mkdir -p "$skills_dst/$skill_name"
-  for f in "$skill_dir"*; do
-    [[ -f "$f" ]] || continue
-    install_file "$f" "$skills_dst/$skill_name/$(basename "$f")"
-  done
+  while IFS= read -r -d '' f; do
+    rel="${f#"$skill_dir"}"
+    mkdir -p "$skills_dst/$skill_name/$(dirname "$rel")"
+    install_file "$f" "$skills_dst/$skill_name/$rel"
+    if [[ -x "$f" ]]; then
+      chmod +x "$skills_dst/$skill_name/$rel"
+    fi
+  done < <(find "$skill_dir" \( -name node_modules -o -name .git \) -prune -o -type f ! -name '*.bak.*' -print0)
 done
 
 if [[ -d "$claude_src/output-styles" ]]; then

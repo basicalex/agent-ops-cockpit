@@ -74,6 +74,12 @@ Then add `~/.local/bin` to PATH yourself.
    herdr integration install omp
    ```
 
+6. Prepare the deck-builder skill's tools (ppt-master, lieflat-charts, a Python 3.12 venv, Playwright Chromium; needs `git`, `uv`, `bun`):
+
+   ```bash
+   bash ~/.claude/skills/deck-builder/setup.sh
+   ```
+
 6. Complete the logins used by your work, such as GitHub, Claude, Codex, model providers, and deployment services. For GitHub CLI:
 
    ```bash
