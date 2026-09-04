@@ -25,6 +25,10 @@ shell-integration-features = no-cursor,ssh-env
 # Mouse: slightly slowed trackpad, default speed for physical wheels.
 mouse-scroll-multiplier = precision:0.95,discrete:3
 
+# Quit needs Cmd+Q twice (Chrome-style guard). The first press arms a key
+# sequence; only a second Cmd+Q quits, any other key cancels.
+keybind = super+q>super+q=quit
+
 # Linux-style word deletion: Ctrl+Backspace = delete word back (same bytes
 # as Option+Backspace), Ctrl+Delete = delete word forward (alt+d).
 keybind = ctrl+backspace=text:\x1b\x7f
@@ -32,8 +36,8 @@ keybind = ctrl+delete=esc:d
 
 # herdr navigation on Cmd: translate to the Alt (ESC-prefixed) sequences
 # herdr already binds. Option keeps working for everything, including the
-# destructive bindings (alt+q close pane, alt+shift+q close workspace)
-# which deliberately stay OFF Cmd.
+# destructive binding alt+shift+q (close workspace) which deliberately
+# stays OFF Cmd. alt+q is left free for apps in panes (micro quits on it).
 keybind = super+h=esc:h
 keybind = super+j=esc:j
 keybind = super+k=esc:k
@@ -44,10 +48,10 @@ keybind = super+x=esc:x
 # Cmd+P → alt+p: Claude Code's default model picker (chat:modelPicker).
 # Herdr reserves alt+p for future OMP agent selection — revisit if it lands.
 keybind = super+p=esc:p
-# W = close pane on both modifiers (each sends herdr's alt+q close_pane).
+# W = close pane on both modifiers (each sends herdr's alt+shift+w close_pane).
 # The workspace picker (herdr alt+w) moves to Cmd+Shift+W.
-keybind = super+w=esc:q
-keybind = alt+w=esc:q
+keybind = super+w=esc:W
+keybind = alt+w=esc:W
 keybind = super+shift+w=esc:w
 
 # Cmd+C opens herdr settings (alt+c); copy moves to Cmd+Shift+C.
@@ -55,11 +59,18 @@ keybind = super+shift+w=esc:w
 keybind = super+c=esc:c
 keybind = super+shift+c=copy_to_clipboard
 keybind = super+z=esc:z
+# Splits: Cmd+S down (herdr alt+minus), Cmd+D sideways (herdr alt+v) —
+# S = south/below, D sits to the right of S on the keyboard.
+# Cmd+D override replaces Ghostty's native new_split:right.
+keybind = super+s=esc:-
+keybind = super+d=esc:v
 keybind = super+b=esc:b
 keybind = super+n=esc:n
 keybind = super+shift+j=esc:J
 keybind = super+shift+k=esc:K
 keybind = super+shift+n=esc:N
+# Cmd+Shift+R → alt+shift+r: herdr rename_tab.
+keybind = super+shift+r=esc:R
 # Cmd+digits: override both the physical (digit_N) and translated (N) forms
 # so Ghostty's default goto_tab bindings are fully replaced.
 keybind = super+digit_1=esc:1

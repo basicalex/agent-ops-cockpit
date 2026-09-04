@@ -17,8 +17,8 @@ new_workspace = "alt+shift+n"
 new_worktree = "prefix+shift+g"
 rename_workspace = "prefix+shift+r"
 close_workspace = "alt+shift+q"
-previous_workspace = "alt+shift+k"
-next_workspace = "alt+shift+j"
+previous_workspace = "alt+k"
+next_workspace = "alt+j"
 navigate_workspace_up = "k"
 navigate_workspace_down = "j"
 
@@ -34,8 +34,8 @@ switch_tab = "alt+1..9"
 close_tab = "alt+shift+x"
 # Direct pane navigation.
 focus_pane_left = "alt+h"
-focus_pane_down = "alt+j"
-focus_pane_up = "alt+k"
+focus_pane_down = "alt+shift+j"
+focus_pane_up = "alt+shift+k"
 focus_pane_right = "alt+l"
 navigate_pane_left = ""
 navigate_pane_down = ""
@@ -45,7 +45,7 @@ cycle_pane_next = ""
 cycle_pane_previous = "prefix+shift+tab"
 last_pane = "alt+tab"
 rename_pane = "alt+r"
-close_pane = "alt+q"
+close_pane = "alt+shift+w"
 
 # Pane/layout actions.
 split_vertical = "alt+v"
@@ -64,6 +64,7 @@ agent_panel_sort = "spaces"
 delivery = "terminal"
 
 [experimental]
+kitty_graphics = true
 pane_history = false
 
 [ui.sound]
