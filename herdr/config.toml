@@ -31,6 +31,10 @@ next_tab = "alt+o"
 # When Herdr exposes it, keep alt+p free for OMP agent selection.
 # move_tab_left = "alt+u"
 switch_tab = "alt+1..9"
+# Agent attention queue: alt+a jumps to the next sidebar agent (Cmd+A in Ghostty).
+# With agent_panel_sort = "priority" the walk starts at blocked/done agents.
+next_agent = "alt+a"
+previous_agent = "alt+shift+a"
 close_tab = "alt+shift+x"
 # Direct pane navigation.
 focus_pane_left = "alt+h"
@@ -59,7 +63,7 @@ edit_scrollback = "prefix+e"
 [ui]
 show_agent_labels_on_pane_borders = false
 
-agent_panel_sort = "spaces"
+agent_panel_sort = "priority"
 [ui.toast]
 delivery = "terminal"
 

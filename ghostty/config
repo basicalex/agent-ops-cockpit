@@ -54,6 +54,10 @@ keybind = super+w=esc:W
 keybind = alt+w=esc:W
 keybind = super+shift+w=esc:w
 
+# Cmd+A / Cmd+Shift+A -> herdr next_agent / previous_agent (alt+a, alt+shift+a).
+keybind = super+a=esc:a
+keybind = super+shift+a=esc:A
+
 # Cmd+C opens herdr settings (alt+c); copy moves to Cmd+Shift+C.
 # Mouse selection still auto-copies (Ghostty copy-on-select default).
 keybind = super+c=esc:c
