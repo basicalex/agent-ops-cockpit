@@ -44,6 +44,15 @@ keybind = super+k=esc:k
 keybind = super+l=esc:l
 keybind = super+i=esc:i
 keybind = super+o=esc:o
+# Cmd+Shift+I / Cmd+Shift+O -> herdr swap_pane_left / swap_pane_right (alt+shift+i, alt+shift+o).
+keybind = super+shift+i=esc:I
+keybind = super+shift+o=text:\x1b[111;4u
+# Cmd+Shift+U / Cmd+Shift+P -> herdr move_tab_previous / move_tab_next (alt+shift+u, alt+shift+p).
+# ESC+O, ESC+P and ESC+N are C1 escape introducers (SS3, DCS, SS2), so those chords are sent
+# as kitty CSI u key reports (codepoint;modifiers=1+shift+alt) instead of esc:<letter>.
+# Ghostty's default Cmd+Shift+P command palette is overridden here.
+keybind = super+shift+u=esc:U
+keybind = super+shift+p=text:\x1b[112;4u
 keybind = super+x=esc:x
 # Cmd+P → alt+p: Claude Code's default model picker (chat:modelPicker).
 # Herdr reserves alt+p for future OMP agent selection — revisit if it lands.
@@ -72,7 +81,7 @@ keybind = super+b=esc:b
 keybind = super+n=esc:n
 keybind = super+shift+j=esc:J
 keybind = super+shift+k=esc:K
-keybind = super+shift+n=esc:N
+keybind = super+shift+n=text:\x1b[110;4u
 # Cmd+Shift+R → alt+shift+r: herdr rename_tab.
 keybind = super+shift+r=esc:R
 # Cmd+digits: override both the physical (digit_N) and translated (N) forms

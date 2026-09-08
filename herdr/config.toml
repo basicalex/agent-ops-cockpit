@@ -27,9 +27,9 @@ new_tab = "alt+n"
 rename_tab = "alt+shift+r"
 previous_tab = "alt+i"
 next_tab = "alt+o"
-# Herdr 0.6.6 has internal mouse-drag tab moving, but no public key action yet.
-# When Herdr exposes it, keep alt+p free for OMP agent selection.
-# move_tab_left = "alt+u"
+# Reorder the active tab in place (Herdr 0.8.2+); Cmd+Shift+U / Cmd+Shift+P in Ghostty.
+move_tab_previous = "alt+shift+u"
+move_tab_next = "alt+shift+p"
 switch_tab = "alt+1..9"
 # Agent attention queue: alt+a jumps to the next sidebar agent (Cmd+A in Ghostty).
 # With agent_panel_sort = "priority" the walk starts at blocked/done agents.
@@ -50,6 +50,10 @@ cycle_pane_previous = "prefix+shift+tab"
 last_pane = "alt+tab"
 rename_pane = "alt+r"
 close_pane = "alt+shift+w"
+# Swap the focused pane with its left/right neighbour; Cmd+Shift+I / Cmd+Shift+O in Ghostty.
+# Up/down swaps stay on the default prefix+shift+k / prefix+shift+j.
+swap_pane_left = "alt+shift+i"
+swap_pane_right = "alt+shift+o"
 
 # Pane/layout actions.
 split_vertical = "alt+v"
