@@ -27,3 +27,8 @@ These rules govern prose only. Never touch code, identifiers, or precise technic
 - Commit messages and PR descriptions: state what changed and why in plain words. A reviewer should know what it does in one read.
 - Progress reports: plain sentences — what changed, what failed, what comes next. No emoji checkmarks, no "Successfully", no walls of bullets.
 - Marketing/landing copy: one concrete claim per line; if a competitor could paste the line unchanged onto their page, rewrite or delete it.
+
+## Artifacts and pages
+
+- Deliverable pages (reports, briefs, boards, dashboards, one-off HTML) are written as page bodies to `~/dev/artifact-library/<project>/<slug>.html` (`<title>` first, then `<style>`, then content; no doctype/html/head/body) and published with `artifact-pages add <project>/<slug> --title "…"` then `artifact-pages publish`. The page is then at `https://docs.intrface.eu/<project>/<slug>/`, private by default. `<project>` is the repo basename. Full rules: `~/.claude/skills/artifact-pages/SKILL.md`.
+- Sharing with a client is `artifact-pages share <project>/<slug> --days N` (signed link) or `artifact-pages visibility <project>/<slug> public` + `publish`. Never hand out the owner password.

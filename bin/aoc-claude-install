@@ -213,6 +213,16 @@ for skill_dir in "$claude_src/skills"/*/; do
   done < <(find "$skill_dir" \( -name node_modules -o -name .git \) -prune -o -type f ! -name '*.bak.*' -print0)
 done
 
+# Skill executables become plain commands so omp/codex workers and shell
+# scripts can call them without knowing the skill path.
+mkdir -p "$HOME/.local/bin"
+for exe in "$skills_dst"/*/bin/*; do
+  [[ -f "$exe" && -x "$exe" ]] || continue
+  case "$(basename "$exe")" in *.sh|*.py|*.mjs|lib*) continue ;; esac
+  ln -sfn "$exe" "$HOME/.local/bin/$(basename "$exe")"
+  echo "aoc-claude-install: linked ~/.local/bin/$(basename "$exe")"
+done
+
 if [[ -d "$claude_src/output-styles" ]]; then
   mkdir -p "$claude_home/output-styles"
   for f in "$claude_src/output-styles"/*.md; do

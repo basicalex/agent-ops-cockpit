@@ -44,6 +44,7 @@ These rules govern prose only. Never touch code, identifiers, or precise technic
 # Tooling
 
 - **Bun everywhere.** All current and future JS/TS projects use bun, never npm/yarn/pnpm: `bun install`, `bun run`, `bunx`. Scaffold new projects with bun, and if a repo somehow has an npm/yarn lockfile, converting it to bun is the expected fix, not an exception.
+- **Artifacts and pages.** Any artifact, page, report, brief, board, dashboard, or HTML deliverable the user asks to see or share goes through the `/artifact-pages` skill (`~/.claude/skills/artifact-pages/`): the page body lives in `~/dev/artifact-library/<project>/<slug>.html`, `artifact-pages add` + `artifact-pages publish` put it at `https://docs.intrface.eu/<project>/<slug>/` (private; owner login), and `artifact-pages share` or `visibility public` open it to a client. The claude.ai Artifact tool is an optional mirror on top, never the only copy: artifacts there are bound to one Claude account and cannot be shared privately across accounts. This holds in every harness (claude, claude-codex) and every project.
 - **Presentations.** Any deck, slides, or PPTX request goes through the `/deck-builder` skill (`~/.claude/skills/deck-builder/`): content brief first, SVG pages via ppt-master, gate, export, render, look at every slide. Run its `setup.sh` once per machine.
 
 ## Headless-browser QA hygiene (all projects)

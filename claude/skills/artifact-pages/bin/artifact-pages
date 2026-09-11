@@ -1,0 +1,421 @@
+#!/usr/bin/env bun
+// artifact-pages: local artifact library -> private pages on Cloudflare Pages.
+//
+// Library layout (ARTIFACT_LIBRARY, default ~/dev/artifact-library):
+//   manifest.json            registry: one entry per artifact
+//   <project>/<slug>.html    authored page body (no doctype/html/head/body)
+//   <project>/<slug>/        or a directory entry (multi-file page, index.html)
+//   site/                    build output + functions/, deployed as-is
+//   INDEX.md                 generated from the manifest
+//
+// Commands: init | add | build | publish | share | visibility | url | list | strip | secrets | domain | open
+
+import { existsSync, mkdirSync, readFileSync, writeFileSync, readdirSync, statSync, copyFileSync, rmSync } from "node:fs";
+import { join, dirname, basename, resolve } from "node:path";
+import { homedir } from "node:os";
+import { createHmac, randomBytes } from "node:crypto";
+import { spawnSync } from "node:child_process";
+
+const HOME = homedir();
+const LIB = process.env.ARTIFACT_LIBRARY || join(HOME, "dev", "artifact-library");
+const SKILL_DIR = resolve(dirname(Bun.main), "..");
+const ENV_FILE = process.env.ARTIFACT_PAGES_ENV || join(HOME, ".config", "aoc", "artifact-pages.env");
+const DEFAULTS = { project: "intrface-docs", host: "docs.intrface.eu", branch: "main" };
+
+type Entry = {
+  project: string;
+  slug: string;
+  title: string;
+  type?: "file" | "dir";
+  visibility: "private" | "public";
+  updated: string;
+  claude?: Record<string, string>; // account -> claude.ai artifact URL
+  note?: string;
+};
+type Manifest = { site: { project: string; host: string; branch: string }; entries: Entry[] };
+
+function die(msg: string): never {
+  console.error(`artifact-pages: ${msg}`);
+  process.exit(1);
+}
+function today(): string {
+  return new Date().toISOString().slice(0, 10);
+}
+function readEnvFile(): Record<string, string> {
+  const out: Record<string, string> = {};
+  if (!existsSync(ENV_FILE)) return out;
+  for (const line of readFileSync(ENV_FILE, "utf8").split("\n")) {
+    const m = line.match(/^\s*([A-Z_]+)\s*=\s*(.*)\s*$/);
+    if (m) out[m[1]] = m[2].replace(/^["']|["']$/g, "");
+  }
+  return out;
+}
+function cfToken(): string {
+  const env = readEnvFile();
+  if (process.env.CLOUDFLARE_API_TOKEN) return process.env.CLOUDFLARE_API_TOKEN;
+  if (env.CLOUDFLARE_API_TOKEN) return env.CLOUDFLARE_API_TOKEN;
+  // Fall back to wrangler's OAuth token (works as a bearer token until it expires).
+  const cfg = join(HOME, "Library", "Preferences", ".wrangler", "config", "default.toml");
+  const alt = join(HOME, ".wrangler", "config", "default.toml");
+  for (const f of [cfg, alt]) {
+    if (!existsSync(f)) continue;
+    const m = readFileSync(f, "utf8").match(/^oauth_token\s*=\s*"([^"]+)"/m);
+    if (m) return m[1];
+  }
+  die("no Cloudflare token: set CLOUDFLARE_API_TOKEN in " + ENV_FILE + " or run `bunx wrangler login`");
+}
+function manifestPath(): string {
+  return join(LIB, "manifest.json");
+}
+function loadManifest(): Manifest {
+  if (!existsSync(manifestPath())) die(`no manifest at ${manifestPath()}; run \`artifact-pages init\``);
+  return JSON.parse(readFileSync(manifestPath(), "utf8"));
+}
+function saveManifest(m: Manifest) {
+  m.entries.sort((a, b) => a.project.localeCompare(b.project) || a.slug.localeCompare(b.slug));
+  writeFileSync(manifestPath(), JSON.stringify(m, null, 2) + "\n");
+}
+function parseRef(ref: string): [string, string] {
+  const m = ref.match(/^([a-z0-9][a-z0-9-]*)\/([a-z0-9][a-z0-9-]*)$/);
+  if (!m) die(`bad reference "${ref}"; expected <project>/<slug> in lowercase kebab-case`);
+  return [m[1], m[2]];
+}
+function findEntry(m: Manifest, ref: string): Entry {
+  const [project, slug] = parseRef(ref);
+  const e = m.entries.find((x) => x.project === project && x.slug === slug);
+  if (!e) die(`no entry ${ref} in manifest`);
+  return e;
+}
+function urlFor(m: Manifest, e: Entry): string {
+  return `https://${m.site.host}/${e.project}/${e.slug}/`;
+}
+function sourcePath(e: Entry): string {
+  return e.type === "dir" ? join(LIB, e.project, e.slug) : join(LIB, e.project, `${e.slug}.html`);
+}
+function flag(args: string[], name: string): string | undefined {
+  const i = args.indexOf(name);
+  if (i < 0) return undefined;
+  const v = args[i + 1];
+  args.splice(i, 2);
+  return v;
+}
+function has(args: string[], name: string): boolean {
+  const i = args.indexOf(name);
+  if (i < 0) return false;
+  args.splice(i, 1);
+  return true;
+}
+function esc(s: string): string {
+  return s.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c] as string));
+}
+
+// ---------- wrapping ----------
+const HEAD_RESET = `<style>:root{color-scheme:light}body{margin:0;padding:0;font:14px -apple-system,BlinkMacSystemFont,sans-serif;background:#faf9f5;color:#141413}img{max-width:100%}[hidden]:not([hidden=until-found i]){display:none!important}</style>`;
+
+export function stripWrapper(raw: string): string {
+  const m = raw.match(/<\/head><body>\n?([\s\S]*)<\/body><\/html>\s*$/);
+  return m ? m[1] : raw;
+}
+function wrapBody(body: string, fallbackTitle: string): string {
+  let title = fallbackTitle;
+  const tm = body.match(/<title>([\s\S]*?)<\/title>/i);
+  if (tm) {
+    title = tm[1].trim();
+    body = body.replace(tm[0], "");
+  }
+  const mermaid = /class="mermaid"/.test(body)
+    ? `<script src="https://cdnjs.cloudflare.com/ajax/libs/mermaid/11.4.1/mermaid.min.js"></script><script>mermaid.initialize({startOnLoad:true})</script>`
+    : "";
+  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${esc(title)}</title>${HEAD_RESET}</head><body>\n${body}\n${mermaid}</body></html>\n`;
+}
+
+// ---------- listing pages ----------
+const LIST_CSS = `<style>body{margin:0;background:#f5f1eb;color:#0f1729;font:15px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;padding:clamp(24px,6vh,64px) clamp(16px,6vw,72px)}
+main{max-width:860px;margin:0 auto}h1{font-size:22px;font-weight:500;margin:0 0 6px}h2{font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:#47536b;font-weight:600;margin:32px 0 8px}
+p{color:#47536b;margin:0 0 20px}ul{list-style:none;margin:0;padding:0;border-top:1px solid rgba(15,23,41,.14)}li{display:flex;gap:14px;align-items:baseline;padding:11px 0;border-bottom:1px solid rgba(15,23,41,.14)}
+a{color:inherit;text-decoration:none}a:hover{text-decoration:underline}.d{margin-left:auto;font-variant-numeric:tabular-nums;color:#47536b;font-size:13px;white-space:nowrap}
+.v{font-size:11px;letter-spacing:.06em;text-transform:uppercase;padding:2px 7px;border:1px solid rgba(15,23,41,.2);color:#47536b}.v.public{border-color:#0f766e;color:#0f766e}
+nav{font-size:13px;color:#47536b;margin-bottom:22px}nav a{color:#0f766e}</style>`;
+function listPage(title: string, nav: string, sections: Array<{ heading: string; items: Array<{ href: string; label: string; date?: string; vis?: string }> }>): string {
+  const body = sections
+    .map((s) => `<h2>${esc(s.heading)}</h2><ul>${s.items.map((i) => `<li><a href="${i.href}">${esc(i.label)}</a>${i.vis ? `<span class="v ${i.vis}">${i.vis}</span>` : ""}${i.date ? `<span class="d">${i.date}</span>` : ""}</li>`).join("")}</ul>`)
+    .join("");
+  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${esc(title)}</title>${LIST_CSS}</head><body><main><nav>${nav}</nav><h1>${esc(title)}</h1>${body}<p style="margin-top:32px;font-size:13px"><a href="/_logout">Sign out</a></p></main></body></html>\n`;
+}
+
+function copyDir(src: string, dst: string) {
+  mkdirSync(dst, { recursive: true });
+  for (const name of readdirSync(src)) {
+    if (name === ".DS_Store") continue;
+    const s = join(src, name), d = join(dst, name);
+    if (statSync(s).isDirectory()) copyDir(s, d);
+    else copyFileSync(s, d);
+  }
+}
+
+// ---------- commands ----------
+function cmdInit() {
+  mkdirSync(LIB, { recursive: true });
+  if (!existsSync(manifestPath())) {
+    saveManifest({ site: { ...DEFAULTS }, entries: [] });
+    console.log(`created ${manifestPath()}`);
+  }
+  const gi = join(LIB, ".gitignore");
+  if (!existsSync(gi)) writeFileSync(gi, "site/\n.DS_Store\n.wrangler/\n");
+  if (!existsSync(join(LIB, ".git"))) spawnSync("git", ["init", "-q", "-b", "main"], { cwd: LIB, stdio: "inherit" });
+  if (!existsSync(ENV_FILE)) {
+    mkdirSync(dirname(ENV_FILE), { recursive: true });
+    const secret = randomBytes(32).toString("hex");
+    const password = randomBytes(9).toString("base64url");
+    writeFileSync(ENV_FILE, `# artifact-pages: owner password for the docs site and the HMAC secret for share links.\n# Push to Cloudflare with: artifact-pages secrets\nDOCS_PASSWORD=${password}\nDOCS_SECRET=${secret}\n# Optional: a scoped API token (Pages edit). Without it the wrangler OAuth token is used.\n#CLOUDFLARE_API_TOKEN=\n`, { mode: 0o600 });
+    console.log(`created ${ENV_FILE} with a new owner password and secret`);
+  }
+  console.log(`library: ${LIB}`);
+}
+
+function cmdAdd(args: string[]) {
+  const title = flag(args, "--title");
+  const from = flag(args, "--from");
+  const visibility = (flag(args, "--visibility") as Entry["visibility"]) || "private";
+  const claudeUrl = flag(args, "--claude-url");
+  const account = flag(args, "--account");
+  const isDir = has(args, "--dir");
+  const ref = args[0];
+  if (!ref) die("usage: add <project>/<slug> --title \"...\" [--from <file|dir>] [--dir] [--visibility private|public] [--claude-url URL --account NAME]");
+  const [project, slug] = parseRef(ref);
+  const m = loadManifest();
+  let e = m.entries.find((x) => x.project === project && x.slug === slug);
+  const dest = isDir ? join(LIB, project, slug) : join(LIB, project, `${slug}.html`);
+  if (from) {
+    mkdirSync(dirname(dest), { recursive: true });
+    if (isDir) copyDir(resolve(from), dest);
+    else {
+      const raw = readFileSync(resolve(from), "utf8");
+      writeFileSync(dest, stripWrapper(raw));
+    }
+  }
+  if (!existsSync(dest)) die(`source missing: ${dest} (write the page body there, or pass --from)`);
+  if (!e) {
+    if (!title) die("--title is required for a new entry");
+    e = { project, slug, title, visibility, updated: today() };
+    if (isDir) e.type = "dir";
+    m.entries.push(e);
+  } else {
+    if (title) e.title = title;
+    if (args.includes("--visibility") || visibility !== "private") e.visibility = visibility;
+    e.updated = today();
+  }
+  if (claudeUrl) {
+    e.claude = e.claude || {};
+    e.claude[account || "unknown"] = claudeUrl;
+  }
+  saveManifest(m);
+  console.log(`${e.title} -> ${urlFor(m, e)} (${e.visibility})`);
+}
+
+function writeIndexMd(m: Manifest) {
+  const accounts = [...new Set(m.entries.flatMap((e) => Object.keys(e.claude || {})))].sort();
+  const lines: string[] = [];
+  lines.push(`# Artifact library`, ``, `Generated by \`artifact-pages build\` from manifest.json on ${today()}. Do not edit by hand.`, ``);
+  lines.push(`Site: https://${m.site.host}/ (Cloudflare Pages project \`${m.site.project}\`). Every page is private unless marked public; share links come from \`artifact-pages share <project>/<slug>\`.`, ``);
+  const projects = [...new Set(m.entries.map((e) => e.project))].sort();
+  for (const p of projects) {
+    lines.push(`## ${p}`, ``);
+    lines.push(`| Page | Title | Visibility | Updated |${accounts.map((a) => ` ${a} |`).join("")}`);
+    lines.push(`|---|---|---|---|${accounts.map(() => "---|").join("")}`);
+    for (const e of m.entries.filter((x) => x.project === p)) {
+      lines.push(`| [${e.slug}](${urlFor(m, e)}) | ${e.title} | ${e.visibility} | ${e.updated} |${accounts.map((a) => ` ${e.claude?.[a] || "—"} |`).join("")}`);
+    }
+    lines.push(``);
+  }
+  writeFileSync(join(LIB, "INDEX.md"), lines.join("\n"));
+}
+
+function cmdBuild(): Manifest {
+  const m = loadManifest();
+  const site = join(LIB, "site");
+  rmSync(site, { recursive: true, force: true });
+  mkdirSync(join(site, "dist"), { recursive: true });
+  copyDir(join(SKILL_DIR, "templates", "functions"), join(site, "functions"));
+  const access: Record<string, string> = {};
+  const byProject = new Map<string, Entry[]>();
+  for (const e of m.entries) {
+    const src = sourcePath(e);
+    if (!existsSync(src)) die(`missing source for ${e.project}/${e.slug}: ${src}`);
+    const out = join(site, "dist", e.project, e.slug);
+    if (e.type === "dir") copyDir(src, out);
+    else {
+      mkdirSync(out, { recursive: true });
+      writeFileSync(join(out, "index.html"), wrapBody(readFileSync(src, "utf8"), e.title));
+    }
+    access[`/${e.project}/${e.slug}/`] = e.visibility;
+    byProject.set(e.project, [...(byProject.get(e.project) || []), e]);
+  }
+  for (const [p, entries] of byProject) {
+    const items = entries.map((e) => ({ href: `/${p}/${e.slug}/`, label: e.title, date: e.updated, vis: e.visibility }));
+    writeFileSync(join(site, "dist", p, "index.html"), listPage(p, `<a href="/">All projects</a>`, [{ heading: "Pages", items }]));
+  }
+  const root = [...byProject.keys()].sort().map((p) => ({ href: `/${p}/`, label: `${p} · ${byProject.get(p)!.length} page${byProject.get(p)!.length === 1 ? "" : "s"}` }));
+  writeFileSync(join(site, "dist", "index.html"), listPage("Intrface documents", `${m.site.host}`, [{ heading: "Projects", items: root }]));
+  writeFileSync(join(site, "dist", "_access.json"), JSON.stringify(access, null, 2));
+  writeFileSync(join(site, "dist", "_headers"), `/*\n  X-Robots-Tag: noindex\n  Referrer-Policy: same-origin\n  Cache-Control: no-store\n`);
+  writeIndexMd(m);
+  console.log(`built ${m.entries.length} pages into ${site}/dist`);
+  return m;
+}
+
+function wrangler(args: string[], cwd: string): number {
+  const r = spawnSync("bunx", ["wrangler", ...args], { cwd, stdio: "inherit", env: { ...process.env, CLOUDFLARE_API_TOKEN: cfToken() } });
+  return r.status ?? 1;
+}
+
+function cmdSecrets() {
+  const m = loadManifest();
+  const env = readEnvFile();
+  for (const k of ["DOCS_SECRET", "DOCS_PASSWORD"]) {
+    if (!env[k]) die(`${k} missing in ${ENV_FILE}`);
+    const r = spawnSync("bunx", ["wrangler", "pages", "secret", "put", k, "--project-name", m.site.project], {
+      cwd: join(LIB, "site"), input: env[k], stdio: ["pipe", "inherit", "inherit"], env: { ...process.env, CLOUDFLARE_API_TOKEN: cfToken() },
+    });
+    if (r.status !== 0) die(`failed to set ${k}`);
+  }
+}
+
+function cmdPublish(args: string[]) {
+  const noCommit = has(args, "--no-commit");
+  const msg = flag(args, "-m") || `publish ${today()}`;
+  const m = cmdBuild();
+  const site = join(LIB, "site");
+  if (!existsSync(site)) die("build produced no site/");
+  const code = wrangler(["pages", "deploy", "dist", "--project-name", m.site.project, "--branch", m.site.branch, "--commit-dirty=true"], site);
+  if (code !== 0) die("deploy failed");
+  if (!noCommit && existsSync(join(LIB, ".git"))) {
+    spawnSync("git", ["add", "-A"], { cwd: LIB });
+    const st = spawnSync("git", ["status", "--porcelain"], { cwd: LIB, encoding: "utf8" }).stdout.trim();
+    if (st) spawnSync("git", ["commit", "-q", "-m", msg], { cwd: LIB, stdio: "inherit" });
+  }
+  console.log(`live: https://${m.site.host}/`);
+}
+
+function cmdShare(args: string[]) {
+  const days = Number(flag(args, "--days") || "30");
+  const ref = args[0];
+  if (!ref) die("usage: share <project>/<slug> [--days N|0 for no expiry]");
+  const m = loadManifest();
+  const e = findEntry(m, ref);
+  const env = readEnvFile();
+  if (!env.DOCS_SECRET) die(`DOCS_SECRET missing in ${ENV_FILE}`);
+  const prefix = `/${e.project}/${e.slug}/`;
+  const exp = days > 0 ? Date.now() + days * 864e5 : 0;
+  const sig = createHmac("sha256", env.DOCS_SECRET).update(`${prefix}|${exp}`).digest("hex").slice(0, 40);
+  const token = Buffer.from(`${prefix}|${exp}|${sig}`).toString("base64url");
+  console.log(`${urlFor(m, e)}?share=${token}`);
+  if (exp) console.error(`expires ${new Date(exp).toISOString().slice(0, 10)}; rotate DOCS_SECRET to revoke all share links`);
+}
+
+function cmdVisibility(args: string[]) {
+  const [ref, vis] = args;
+  if (!ref || !["public", "private"].includes(vis)) die("usage: visibility <project>/<slug> public|private");
+  const m = loadManifest();
+  const e = findEntry(m, ref);
+  e.visibility = vis as Entry["visibility"];
+  e.updated = today();
+  saveManifest(m);
+  console.log(`${ref} is now ${vis}; run \`artifact-pages publish\` to apply`);
+}
+
+function cmdUrl(args: string[]) {
+  const m = loadManifest();
+  console.log(urlFor(m, findEntry(m, args[0] || "")));
+}
+function cmdList() {
+  const m = loadManifest();
+  for (const e of m.entries) console.log(`${e.visibility.padEnd(7)} ${e.updated}  ${e.project}/${e.slug}  ${e.title}`);
+}
+function cmdStrip(args: string[]) {
+  const f = args[0];
+  if (!f) die("usage: strip <raw-artifact.html> [> body.html]");
+  process.stdout.write(stripWrapper(readFileSync(resolve(f), "utf8")));
+}
+function cmdOpen(args: string[]) {
+  const m = loadManifest();
+  const u = args[0] ? urlFor(m, findEntry(m, args[0])) : `https://${m.site.host}/`;
+  spawnSync("open", [u]);
+  console.log(u);
+}
+
+async function cfApi(path: string, init: RequestInit = {}): Promise<any> {
+  const r = await fetch(`https://api.cloudflare.com/client/v4${path}`, {
+    ...init,
+    headers: { authorization: `Bearer ${cfToken()}`, "content-type": "application/json", ...(init.headers || {}) },
+  });
+  const d: any = await r.json();
+  if (!d.success) throw new Error(`${path}: ${JSON.stringify(d.errors)}`);
+  return d.result;
+}
+
+// Point the custom host at the Pages project: attach the domain, replace any
+// stale DNS record on that name with a proxied CNAME to <project>.pages.dev,
+// then report the verification state. Needs a token with Zone DNS edit.
+async function cmdDomain() {
+  const m = loadManifest();
+  const host = m.site.host, project = m.site.project;
+  const zoneName = host.split(".").slice(-2).join(".");
+  const [zone] = await cfApi(`/zones?name=${zoneName}`);
+  if (!zone) die(`zone ${zoneName} not on this account`);
+  const accounts = await cfApi(`/accounts`);
+  const account = accounts.find((a: any) => a.id === zone.account.id) || accounts[0];
+  const domains = await cfApi(`/accounts/${account.id}/pages/projects/${project}/domains`);
+  if (!domains.some((d: any) => d.name === host)) {
+    await cfApi(`/accounts/${account.id}/pages/projects/${project}/domains`, { method: "POST", body: JSON.stringify({ name: host }) });
+    console.log(`attached ${host} to ${project}`);
+  }
+  const target = `${project}.pages.dev`;
+  const records = await cfApi(`/zones/${zone.id}/dns_records?name=${host}`);
+  const ok = records.find((r: any) => r.type === "CNAME" && r.content === target);
+  for (const r of records) {
+    if (r === ok) continue;
+    await cfApi(`/zones/${zone.id}/dns_records/${r.id}`, { method: "DELETE" });
+    console.log(`removed stale ${r.type} ${r.name} -> ${r.content}`);
+  }
+  if (!ok) {
+    await cfApi(`/zones/${zone.id}/dns_records`, { method: "POST", body: JSON.stringify({ type: "CNAME", name: host, content: target, proxied: true, ttl: 1, comment: "artifact-pages" }) });
+    console.log(`created CNAME ${host} -> ${target}`);
+  }
+  for (let i = 0; i < 12; i++) {
+    const d = await cfApi(`/accounts/${account.id}/pages/projects/${project}/domains/${host}`);
+    console.log(`${host}: ${d.status} (verification ${d.verification_data?.status}, certificate ${d.validation_data?.status})`);
+    if (d.status === "active") return;
+    await new Promise((r) => setTimeout(r, 5000));
+  }
+  console.log("still pending; rerun `artifact-pages domain` in a few minutes");
+}
+
+const [cmd, ...rest] = process.argv.slice(2);
+switch (cmd) {
+  case "init": cmdInit(); break;
+  case "add": cmdAdd(rest); break;
+  case "build": cmdBuild(); break;
+  case "publish": case "deploy": cmdPublish(rest); break;
+  case "share": cmdShare(rest); break;
+  case "visibility": cmdVisibility(rest); break;
+  case "url": cmdUrl(rest); break;
+  case "list": cmdList(); break;
+  case "strip": cmdStrip(rest); break;
+  case "secrets": cmdSecrets(); break;
+  case "open": cmdOpen(rest); break;
+  case "domain": await cmdDomain(); break;
+  default:
+    console.log(`usage: artifact-pages <init|add|build|publish|share|visibility|url|list|strip|secrets|open> ...
+  init                                   create manifest, git repo, and ${ENV_FILE}
+  add <p>/<s> --title T [--from F] [--dir] [--visibility V] [--claude-url U --account A]
+  build                                  manifest -> site/dist (+ INDEX.md)
+  publish [-m msg] [--no-commit]         build, deploy to Cloudflare Pages, commit
+  share <p>/<s> [--days N]               signed link for a private page (0 = no expiry)
+  visibility <p>/<s> public|private      flip a page's visibility (then publish)
+  url <p>/<s> | list | open [<p>/<s>]    lookups
+  strip <raw.html>                       strip the claude.ai frame wrapper to stdout
+  secrets                                push DOCS_SECRET and DOCS_PASSWORD to Pages
+  domain                                 attach the custom host and fix its DNS (needs Zone DNS edit token)`);
+    process.exit(cmd ? 1 : 0);
+}
