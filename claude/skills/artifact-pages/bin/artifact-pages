@@ -404,7 +404,15 @@ switch (cmd) {
   case "strip": cmdStrip(rest); break;
   case "secrets": cmdSecrets(); break;
   case "open": cmdOpen(rest); break;
-  case "domain": await cmdDomain(); break;
+  case "domain":
+    try { await cmdDomain(); } catch (e: any) {
+      if (/Authentication error/.test(String(e?.message))) {
+        console.error("Cloudflare refused the DNS call: the current token has no Zone DNS Edit scope.\nCreate an API token (Zone DNS Edit + Pages Edit on intrface.eu), put it in " + ENV_FILE + " as CLOUDFLARE_API_TOKEN, and rerun `artifact-pages domain`.\nAlternative: delete the stale `docs` DNS record in the Cloudflare dashboard, then rerun.");
+        process.exit(2);
+      }
+      throw e;
+    }
+    break;
   default:
     console.log(`usage: artifact-pages <init|add|build|publish|share|visibility|url|list|strip|secrets|open> ...
   init                                   create manifest, git repo, and ${ENV_FILE}
