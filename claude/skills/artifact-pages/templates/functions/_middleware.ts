@@ -147,6 +147,10 @@ export const onRequest = async (ctx: { request: Request; env: Env; next: () => P
     return new Response(null, { status: 303, headers: { location: "/_login", "set-cookie": `${OWNER_COOKIE}=; Path=/; Max-Age=0; HttpOnly; Secure; SameSite=Lax` } });
   }
 
+  // Comments: the Function enforces its own access (owner, share cookie, or a
+  // public page), and the script/stylesheet it needs carry no data.
+  if (path === "/_comments" || path === "/_comments.js" || path === "/_comments.css") return ctx.next();
+
   const owner = await isOwner(request, env.DOCS_SECRET);
   if (path === "/_access.json" || path === "/_search.json") return owner ? ctx.next() : new Response("Not found", { status: 404 });
 
@@ -161,13 +165,17 @@ export const onRequest = async (ctx: { request: Request; env: Env; next: () => P
     url.searchParams.delete("share");
     const t = decodeToken(shareParam)!;
     const maxAge = t.exp ? Math.max(60, Math.floor((t.exp - Date.now()) / 1000)) : 30 * 86400;
-    return new Response(null, {
+    const r = new Response(null, {
       status: 303,
       headers: {
         location: url.pathname + (url.search || ""),
         "set-cookie": `${SHARE_COOKIE}=${encodeURIComponent(shareParam)}; Path=${prefix}; Max-Age=${maxAge}; HttpOnly; Secure; SameSite=Lax`,
       },
     });
+    const h = r.headers;
+    // Second copy scoped to the comments endpoint so a client can comment on the shared page.
+    h.append("set-cookie", `${SHARE_COOKIE}_c=${encodeURIComponent(shareParam)}; Path=/_comments; Max-Age=${maxAge}; HttpOnly; Secure; SameSite=Lax`);
+    return r;
   }
   if (prefix) {
     for (const [name, value] of cookies(request)) {

@@ -9,7 +9,8 @@
 //   INDEX.md                 generated from the manifest
 //
 // Commands: init | add | build | publish | share | visibility | decide | supersede | research
-//           | show | find | decisions | url | list | strip | secrets | domain | open
+//           | show | find | decisions | comments | reply | resolve | comment
+//           | url | list | strip | secrets | domain | open
 
 import { existsSync, mkdirSync, readFileSync, writeFileSync, readdirSync, statSync, copyFileSync, rmSync } from "node:fs";
 import { join, dirname, basename, resolve } from "node:path";
@@ -23,6 +24,8 @@ const SKILL_DIR = resolve(dirname(Bun.main), "..");
 const ENV_FILE = process.env.ARTIFACT_PAGES_ENV || join(HOME, ".config", "aoc", "artifact-pages.env");
 // Pinned: unpinned `bunx wrangler` resolves to a build whose esbuild dependency is missing from bun's cache.
 const WRANGLER = process.env.ARTIFACT_PAGES_WRANGLER || "wrangler@4.129.1";
+// Site origin for the comments API; overridden when testing against a local run.
+const BASE_OVERRIDE = (process.env.ARTIFACT_PAGES_BASE || "").replace(/\/+$/, "");
 const DEFAULTS = { project: "intrface-docs", host: "docs.intrface.eu", branch: "main" };
 
 type Entry = {
@@ -246,7 +249,9 @@ export function stripWrapper(raw: string): string {
   const m = raw.match(/<\/head><body>\n?([\s\S]*)<\/body><\/html>\s*$/);
   return m ? m[1] : raw;
 }
-function wrapBody(body: string, fallbackTitle: string): string {
+// `ref` ("<project>/<slug>") turns on the review-comment layer; listing pages
+// and directory entries are served without it.
+function wrapBody(body: string, fallbackTitle: string, ref = ""): string {
   let title = fallbackTitle;
   const tm = body.match(/<title>([\s\S]*?)<\/title>/i);
   if (tm) {
@@ -256,7 +261,10 @@ function wrapBody(body: string, fallbackTitle: string): string {
   const mermaid = /class="mermaid"/.test(body)
     ? `<script src="https://cdnjs.cloudflare.com/ajax/libs/mermaid/11.4.1/mermaid.min.js"></script><script>mermaid.initialize({startOnLoad:true})</script>`
     : "";
-  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${esc(title)}</title>${HEAD_RESET}</head><body>\n${body}\n${mermaid}</body></html>\n`;
+  const comments = ref
+    ? `<link rel="stylesheet" href="/_comments.css"><script src="/_comments.js" data-page="${esc(ref)}" defer></script>`
+    : "";
+  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${esc(title)}</title>${HEAD_RESET}</head><body>\n${body}\n${mermaid}${comments}</body></html>\n`;
 }
 
 // ---------- listing pages ----------
@@ -316,6 +324,14 @@ h1{font:400 26px/1.2 var(--serif);letter-spacing:-.01em;margin:14px 0 0;text-wra
 .flabel{display:block;margin-bottom:7px;font-size:13px;color:var(--ink-2)}
 .filter input{width:100%;max-width:300px;font:14px var(--sans);color:var(--ink);background:var(--raise);border:1px solid var(--rule-strong);border-radius:4px;padding:9px 11px}
 .filter input::placeholder{color:var(--ink-3)}
+.chips{display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin:10px 0 0}
+.chip{font:12.5px/1 var(--sans);color:var(--ink-2);background:var(--raise);border:1px solid var(--rule-strong);border-radius:999px;padding:6px 11px;cursor:pointer}
+.chip:hover:not([disabled]){border-color:var(--ink-3);color:var(--ink)}
+.chip[aria-pressed="true"]{background:var(--accent);border-color:var(--accent);color:var(--ground)}
+.chip[disabled]{opacity:.55;cursor:default}
+.csep{width:1px;align-self:stretch;background:var(--rule);margin:0 4px}
+.badge.open{font-family:var(--mono);text-transform:none;letter-spacing:0;border-color:var(--accent);color:var(--accent);background:var(--accent-soft)}
+.badge.addr{font-family:var(--mono);text-transform:none;letter-spacing:0;border-color:var(--public);color:var(--public);background:var(--public-soft)}
 .empty{margin:22px 0;font-size:14px;color:var(--ink-2)}
 @media (max-width:430px){h1{font-size:23px}.row .t{font-size:16px}.proj .name{font-size:18px}
 .proj{grid-template-columns:minmax(0,1fr)}.proj .side{grid-column:1}}
@@ -330,6 +346,28 @@ function words(v){return v.trim().toLowerCase().split(/\\s+/).filter(Boolean);}
 function rank(k,st){return k==="decision"?(st==="superseded"?1:0):2;}
 function index(onready){var st={state:0,data:null};st.load=function(){if(st.state)return;st.state=1;
 fetch("/_search.json",{headers:{accept:"application/json"}}).then(function(r){if(!r.ok)throw 0;return r.json();}).then(function(j){st.data=j;st.state=2;onready();}).catch(function(){st.state=3;onready();});};return st;}`;
+
+// Shared by both listing pages: filter chips, the comment-count summary they
+// read, and the URL hash that makes a filtered view linkable.
+const CHIPS_JS = `function plu(n,w){return n+" "+w+(n===1?"":"s");}
+function summary(onready){var st={state:0,data:null};
+st.load=function(){if(st.state)return;st.state=1;
+fetch("/_comments?summary=1",{headers:{accept:"application/json"}}).then(function(r){if(!r.ok)throw 0;return r.json();}).then(function(j){st.data=j||{};st.state=2;onready();}).catch(function(){st.state=3;onready();});};
+st.open=function(ref){var c=st.data&&st.data[ref];return c&&c.open||0;};
+st.addr=function(ref){var c=st.data&&st.data[ref];return c&&c.addressed||0;};
+return st;}
+function cmark(sum,ref){var o=sum.open(ref),a=sum.addr(ref),s="";
+if(o)s+='<span class="badge open">'+o+' open</span>';
+if(a)s+='<span class="badge addr">'+a+' addressed</span>';
+return s;}
+function breakChip(btn,label){if(!btn)return;btn.disabled=true;btn.textContent=label;btn.setAttribute("aria-pressed","false");}
+function hashRead(){var h=location.hash.replace(/^#/,""),out={};
+if(h)h.split("&").forEach(function(p){var i=p.indexOf("=");if(i>0)out[decodeURIComponent(p.slice(0,i))]=decodeURIComponent(p.slice(i+1).replace(/\\+/g," "));});
+return out;}
+function hashWrite(o){var parts=[],k;for(k in o){if(o[k])parts.push(encodeURIComponent(k)+"="+encodeURIComponent(o[k]));}
+var h=parts.join("&");
+history.replaceState(null,"",location.pathname+(h?"#"+h:""));}
+function press(b,on){b.setAttribute("aria-pressed",on?"true":"false");}`;
 
 function listShell(title: string, body: string, script = ""): string {
   return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${esc(title)}</title>${LIST_CSS}</head><body><main>${body}</main>${script}</body></html>\n`;
@@ -361,36 +399,123 @@ function rootPage(host: string, byProject: Map<string, Entry[]>): string {
     })
     .join("");
   const total = [...byProject.values()].reduce((n, e) => n + e.length, 0);
+  const counts = `<b>${plural(projects.length, "project")}</b> · <b>${plural(total, "page")}</b>`;
+  // Enough of every page to filter and re-draw the project list without the
+  // owner-only search index; the index is loaded only when text is typed.
+  const data = projects.flatMap(([p, entries]) =>
+    entries.map((e) => ({
+      ref: `${p}/${e.slug}`, project: p, title: e.title, url: `/${p}/${e.slug}/`,
+      updated: e.updated, kind: kindOf(e), status: statusOf(e), visibility: e.visibility,
+    })),
+  );
+  const chips = `<div class="chips" id="chips" role="group" aria-label="Filters">`
+    + `<button type="button" class="chip" data-kind="all" aria-pressed="true">All</button>`
+    + `<button type="button" class="chip" data-kind="decision" aria-pressed="false">Decisions</button>`
+    + `<button type="button" class="chip" data-kind="research" aria-pressed="false">Research</button>`
+    + `<span class="csep" aria-hidden="true"></span>`
+    + projects.map(([p]) => `<button type="button" class="chip" data-project="${esc(p)}" aria-pressed="false">${esc(p)}</button>`).join("")
+    + `<span class="csep" aria-hidden="true"></span>`
+    + `<button type="button" class="chip" data-flag="open" aria-pressed="false">Open comments</button>`
+    + `<button type="button" class="chip" data-flag="public" aria-pressed="false">Public</button>`
+    + `</div>`;
   const body = `<div class="top"><span class="crumb">${esc(host)}</span><a class="out" href="/_logout">Sign out</a></div>
 <h1>Intrface documents</h1>
-<p class="count"><b>${plural(projects.length, "project")}</b> · <b>${plural(total, "page")}</b></p>
+<p class="count" id="count" data-all="${esc(counts)}">${counts}</p>
 <div class="filter"><input id="q" type="search" autocomplete="off" aria-label="Search all pages" placeholder="Search all pages"></div>
+${chips}
 <div class="list" id="projects">${cards}</div>
 <div class="list" id="results" hidden></div>
 <p class="empty" id="empty" hidden>No page matches that text.</p>
 <p class="more" id="more" hidden></p>
-<p class="empty" id="err" hidden>Search unavailable.</p>`;
+<p class="empty" id="err" hidden>Search unavailable.</p>
+<script type="application/json" id="data">${JSON.stringify(data).replace(/</g, "\\u003c")}</script>`;
   const script = `<script>
 (function(){${SEARCH_JS}
-var q=document.getElementById("q"),projects=document.getElementById("projects"),results=document.getElementById("results"),empty=document.getElementById("empty"),more=document.getElementById("more"),err=document.getElementById("err");
-var idx=index(run);
-function row(it,s){return '<div class="row"><a class="t" href="'+esc(it.url)+'">'+esc(it.title)+'</a><span class="d">'+esc(it.updated)+'</span><span class="meta"><span class="slug">'+esc(it.ref)+'</span>'+(it.kind==="decision"?'<span class="badge kind">decision</span>':'')+(it.status==="superseded"?'<span class="badge">superseded</span>':'')+'<span class="badge '+esc(it.visibility)+'">'+esc(it.visibility)+'</span></span>'+(s?'<p class="snip">'+esc(s)+'</p>':'')+'</div>';}
-function rest(){projects.hidden=false;results.hidden=true;results.innerHTML="";empty.hidden=true;more.hidden=true;}
-function run(){
-var w=words(q.value);
-if(!w.length||q.value.trim().length<2){rest();return;}
-if(idx.state===3){err.hidden=false;rest();return;}
-if(!idx.data)return;
-var hits=[];
-for(var i=0;i<idx.data.length;i++){var it=idx.data[i],meta=(it.title+" "+it.ref+" "+it.project).toLowerCase(),text=String(it.text||"").toLowerCase(),ok=1,only=null;
+${CHIPS_JS}
+var q=document.getElementById("q"),projects=document.getElementById("projects"),results=document.getElementById("results"),empty=document.getElementById("empty"),more=document.getElementById("more"),err=document.getElementById("err"),chips=document.getElementById("chips"),count=document.getElementById("count");
+var DATA=JSON.parse(document.getElementById("data").textContent);
+var baseCards=projects.innerHTML,baseCount=count.innerHTML;
+var idx=index(run),sum=summary(run);
+var F={kind:"all",projects:{},open:false,pub:false};
+function anyProject(){for(var k in F.projects){if(F.projects[k])return 1;}return 0;}
+function projectList(){var out=[],k;for(k in F.projects){if(F.projects[k])out.push(k);}return out.sort();}
+function chipOk(it){
+if(F.kind==="decision"&&it.kind!=="decision")return 0;
+if(F.kind==="research"&&it.kind==="decision")return 0;
+if(F.pub&&it.visibility!=="public")return 0;
+if(anyProject()&&!F.projects[it.project])return 0;
+if(F.open&&!sum.open(it.ref))return 0;
+return 1;}
+function syncChips(){
+[].forEach.call(chips.querySelectorAll("[data-kind]"),function(b){press(b,b.getAttribute("data-kind")===F.kind);});
+[].forEach.call(chips.querySelectorAll("[data-project]"),function(b){press(b,!!F.projects[b.getAttribute("data-project")]);});
+[].forEach.call(chips.querySelectorAll("[data-flag]"),function(b){var k=b.getAttribute("data-flag");if(!b.disabled)press(b,k==="open"?F.open:F.pub);});}
+function saveHash(){hashWrite({kind:F.kind==="all"?"":F.kind,project:projectList().join(","),open:F.open?"1":"",public:F.pub?"1":"",q:q.value.trim()});}
+function loadHash(){var h=hashRead();
+if(h.kind==="decision"||h.kind==="research")F.kind=h.kind;
+if(h.project)h.project.split(",").forEach(function(p){if(p)F.projects[p]=1;});
+F.open=h.open==="1";F.pub=h.public==="1";
+if(h.q)q.value=h.q;}
+function latest(items){return items.reduce(function(a,e){return e.updated>a?e.updated:a;},"");}
+function byUpd(a,b){return a.updated<b.updated?1:a.updated>b.updated?-1:a.title.localeCompare(b.title);}
+function card(p,items){
+var dec=items.filter(function(e){return e.kind==="decision"&&e.status!=="superseded";}).sort(byUpd);
+var rest=items.filter(function(e){return !(e.kind==="decision"&&e.status!=="superseded");}).sort(byUpd);
+var teaser=dec.slice(0,3).map(function(e){return "<b>"+esc(e.title)+"</b>";}).concat(rest.slice(0,Math.max(0,3-dec.length)).map(function(e){return esc(e.title);})).join('<i>·</i>');
+var nd=dec.length?'<span class="nd">'+plu(dec.length,"decision")+'</span>':'';
+return '<a class="proj" href="/'+esc(p)+'/"><span class="name">'+esc(p)+'</span><span class="side">'+nd+'<span class="n">'+plu(items.length,"page")+'</span><span class="d">'+esc(latest(items))+'</span></span><span class="teaser">'+teaser+'</span></a>';}
+function row(it,s){return '<div class="row"><a class="t" href="'+esc(it.url)+'">'+esc(it.title)+'</a><span class="d">'+esc(it.updated)+'</span><span class="meta"><span class="slug">'+esc(it.ref)+'</span>'+(it.kind==="decision"?'<span class="badge kind">decision</span>':'')+(it.status==="superseded"?'<span class="badge">superseded</span>':'')+'<span class="badge '+esc(it.visibility)+'">'+esc(it.visibility)+'</span>'+cmark(sum,it.ref)+'</span>'+(s?'<p class="snip">'+esc(s)+'</p>':'')+'</div>';}
+function textHits(list,w){var hits=[],usable=idx.state===2;
+for(var i=0;i<list.length;i++){var it=list[i],meta=(it.title+" "+it.ref+" "+it.project).toLowerCase();
+var full=usable?(idx.data.filter(function(d){return d.ref===it.ref;})[0]||{}):{};
+var text=String(full.text||"").toLowerCase(),ok=1,only=null;
 for(var j=0;j<w.length;j++){var inM=meta.indexOf(w[j])>=0,inT=text.indexOf(w[j])>=0;if(!inM&&!inT){ok=0;break;}if(!inM&&!only)only=w[j];}
 if(!ok)continue;
-hits.push({it:it,s:only?snip(it.text,text.indexOf(only)):"",body:only?1:0});}
-hits.sort(function(a,b){return a.body-b.body||rank(a.it.kind,a.it.status)-rank(b.it.kind,b.it.status)||(a.it.updated<b.it.updated?1:a.it.updated>b.it.updated?-1:a.it.title.localeCompare(b.it.title));});
-projects.hidden=true;empty.hidden=hits.length>0;results.hidden=hits.length===0;
+hits.push({it:it,s:only?snip(full.text,text.indexOf(only)):"",body:only?1:0});}
+return hits;}
+function showResults(hits){
+hits.sort(function(a,b){
+var ao=F.open?(sum.open(a.it.ref)?0:1):0,bo=F.open?(sum.open(b.it.ref)?0:1):0;
+return ao-bo||a.body-b.body||rank(a.it.kind,a.it.status)-rank(b.it.kind,b.it.status)||(a.it.updated<b.it.updated?1:a.it.updated>b.it.updated?-1:a.it.title.localeCompare(b.it.title));});
+projects.hidden=true;results.hidden=hits.length===0;empty.hidden=hits.length>0;
 results.innerHTML=hits.slice(0,50).map(function(h){return row(h.it,h.s);}).join("");
-more.hidden=hits.length<=50;more.textContent=(hits.length-50)+" more";}
+more.hidden=hits.length<=50;more.textContent=(hits.length-50)+" more";
+count.innerHTML="<b>"+plu(hits.length,"page")+"</b>";}
+function showProjects(list){
+results.hidden=true;results.innerHTML="";more.hidden=true;projects.hidden=false;
+if(F.kind==="all"&&!anyProject()&&!F.pub){projects.innerHTML=baseCards;count.innerHTML=baseCount;empty.hidden=true;return;}
+var byP={},order=[];
+list.forEach(function(it){if(!byP[it.project]){byP[it.project]=[];order.push(it.project);}byP[it.project].push(it);});
+order.sort(function(a,b){var la=latest(byP[a]),lb=latest(byP[b]);return la<lb?1:la>lb?-1:a.localeCompare(b);});
+projects.innerHTML=order.map(function(p){return card(p,byP[p]);}).join("");
+count.innerHTML="<b>"+plu(order.length,"project")+"</b> · <b>"+plu(list.length,"page")+"</b>";
+empty.hidden=list.length>0;}
+function run(){
+var qs=q.value.trim(),textMode=qs.length>=2;
+if(F.open){sum.load();if(sum.state===3){F.open=false;breakChip(chips.querySelector('[data-flag="open"]'),"Comments unavailable");}
+else if(sum.state!==2){syncChips();return;}}
+if(textMode){idx.load();if(idx.state===1)return;}
+syncChips();saveHash();
+empty.textContent=textMode?"No page matches that text.":"No page matches these filters.";
+var list=DATA.filter(chipOk);
+if(textMode){err.hidden=idx.state!==3;showResults(textHits(list,words(qs)));return;}
+err.hidden=true;
+if(F.open){showResults(list.map(function(it){return {it:it,s:"",body:0};}));return;}
+showProjects(list);}
+chips.addEventListener("click",function(ev){
+var b=ev.target&&ev.target.closest?ev.target.closest(".chip"):null;
+if(!b||b.disabled)return;
+var k=b.getAttribute("data-kind"),p=b.getAttribute("data-project"),f=b.getAttribute("data-flag");
+if(k)F.kind=k;
+if(p)F.projects[p]=!F.projects[p];
+if(f==="open")F.open=!F.open;
+if(f==="public")F.pub=!F.pub;
+run();});
 q.addEventListener("input",function(){idx.load();run();});
+loadHash();
+if(F.open)sum.load();
+if(q.value.trim().length>=2)idx.load();
+run();
 })();
 </script>`;
   return listShell("Intrface documents", body, script);
@@ -410,7 +535,7 @@ function projectPage(project: string, entries: Entry[], all: Entry[] = entries):
     const oldBadge = old ? `<span class="badge">superseded</span>` : "";
     const rep = old && e.supersededBy ? byRef.get(e.supersededBy) : undefined;
     const by = rep ? `<span class="by">superseded by <a href="/${rep.project}/${rep.slug}/">${esc(rep.title)}</a></span>` : "";
-    return `<div class="row${old ? " old" : ""}" data-ref="${esc(`${e.project}/${e.slug}`)}" data-search="${search}"><a class="t" href="/${project}/${e.slug}/">${esc(e.title)}</a><span class="d">${esc(e.updated)}</span><span class="meta"><span class="slug">${esc(e.slug)}</span>${kindBadge}${oldBadge}<span class="badge ${e.visibility}">${e.visibility}</span>${by}${mirror}</span>${note}</div>`;
+    return `<div class="row${old ? " old" : ""}" data-ref="${esc(`${e.project}/${e.slug}`)}" data-search="${search}" data-kind="${kindOf(e)}" data-status="${statusOf(e)}" data-visibility="${e.visibility}"><a class="t" href="/${project}/${e.slug}/">${esc(e.title)}</a><span class="d">${esc(e.updated)}</span><span class="meta"><span class="slug">${esc(e.slug)}</span>${kindBadge}${oldBadge}<span class="badge ${e.visibility}">${e.visibility}</span><span class="cm"></span>${by}${mirror}</span>${note}</div>`;
   };
   const decisions = [
     ...entries.filter(isActiveDecision).sort(byUpdatedDesc),
@@ -427,28 +552,71 @@ function projectPage(project: string, entries: Entry[], all: Entry[] = entries):
     research.length ? `${research.length} research` : "",
   ].filter(Boolean).join(" · ") || plural(entries.length, "page");
   const filter = `<div class="filter"><input id="q" type="search" autocomplete="off" aria-label="Search this project" placeholder="Search this project"></div>`;
+  const chips = `<div class="chips" id="chips" role="group" aria-label="Filters">`
+    + `<button type="button" class="chip" data-kind="all" aria-pressed="true">All</button>`
+    + `<button type="button" class="chip" data-kind="decision" aria-pressed="false">Decisions</button>`
+    + `<button type="button" class="chip" data-kind="research" aria-pressed="false">Research</button>`
+    + `<span class="csep" aria-hidden="true"></span>`
+    + `<button type="button" class="chip" data-flag="open" aria-pressed="false">Open comments</button>`
+    + `<button type="button" class="chip" data-flag="public" aria-pressed="false">Public</button>`
+    + `</div>`;
   const script = `<script>
 (function(){${SEARCH_JS}
-var q=document.getElementById("q"),rows=[].slice.call(document.querySelectorAll(".row")),groups=[].slice.call(document.querySelectorAll(".group")),c=document.getElementById("count"),empty=document.getElementById("empty"),err=document.getElementById("err");
-var idx=index(run),texts={};
+${CHIPS_JS}
+var q=document.getElementById("q"),rows=[].slice.call(document.querySelectorAll(".row")),groups=[].slice.call(document.querySelectorAll(".group")),c=document.getElementById("count"),empty=document.getElementById("empty"),err=document.getElementById("err"),chips=document.getElementById("chips");
+var idx=index(run),sum=summary(run),texts={};
+var F={kind:"all",open:false,pub:false};
+function chipOk(r){
+var k=r.getAttribute("data-kind");
+if(F.kind==="decision"&&k!=="decision")return 0;
+if(F.kind==="research"&&k==="decision")return 0;
+if(F.pub&&r.getAttribute("data-visibility")!=="public")return 0;
+if(F.open&&!sum.open(r.getAttribute("data-ref")))return 0;
+return 1;}
+function syncChips(){
+[].forEach.call(chips.querySelectorAll("[data-kind]"),function(b){press(b,b.getAttribute("data-kind")===F.kind);});
+[].forEach.call(chips.querySelectorAll("[data-flag]"),function(b){var k=b.getAttribute("data-flag");if(!b.disabled)press(b,k==="open"?F.open:F.pub);});}
+function saveHash(){hashWrite({kind:F.kind==="all"?"":F.kind,open:F.open?"1":"",public:F.pub?"1":"",q:q.value.trim()});}
+function loadHash(){var h=hashRead();
+if(h.kind==="decision"||h.kind==="research")F.kind=h.kind;
+F.open=h.open==="1";F.pub=h.public==="1";
+if(h.q)q.value=h.q;}
 function run(){
+if(F.open){sum.load();if(sum.state===3){F.open=false;breakChip(chips.querySelector('[data-flag="open"]'),"Comments unavailable");}
+else if(sum.state!==2){syncChips();return;}}
 if(idx.state===2&&!texts.ready){texts.ready=1;for(var i=0;i<idx.data.length;i++){var d=idx.data[i];texts[d.ref]={t:String(d.text||""),l:String(d.text||"").toLowerCase()};}}
 if(idx.state===3)err.hidden=false;
-var w=words(q.value),n=0;
+syncChips();saveHash();
+var w=words(q.value),n=0,filtered=w.length||F.kind!=="all"||F.open||F.pub;
 rows.forEach(function(r){
-var hay=r.getAttribute("data-search"),tx=texts[r.getAttribute("data-ref")]||{t:"",l:""},ok=1,only=null;
-for(var j=0;j<w.length;j++){var inM=hay.indexOf(w[j])>=0,inT=tx.l.indexOf(w[j])>=0;if(!inM&&!inT){ok=0;break;}if(!inM&&!only)only=w[j];}
+var ref=r.getAttribute("data-ref"),hay=r.getAttribute("data-search"),tx=texts[ref]||{t:"",l:""},ok=chipOk(r),only=null;
+for(var j=0;ok&&j<w.length;j++){var inM=hay.indexOf(w[j])>=0,inT=tx.l.indexOf(w[j])>=0;if(!inM&&!inT){ok=0;break;}if(!inM&&!only)only=w[j];}
 r.hidden=!ok;if(ok)n++;
+var cm=r.querySelector(".cm");if(cm)cm.innerHTML=sum.state===2?cmark(sum,ref):"";
 var old=r.querySelector(".snip");if(old)old.parentNode.removeChild(old);
 if(ok&&only)r.insertAdjacentHTML("beforeend",'<p class="snip">'+esc(snip(tx.t,tx.l.indexOf(only)))+'</p>');});
 groups.forEach(function(g){g.hidden=![].slice.call(g.querySelectorAll(".row")).some(function(r){return !r.hidden;});});
-c.textContent=w.length?n+" of "+rows.length:c.getAttribute("data-all");empty.hidden=n>0;}
-q.addEventListener("input",function(){idx.load();run();});run();})();
+empty.textContent=w.length?"No page matches that text.":"No page matches these filters.";
+c.textContent=filtered?n+" of "+rows.length:c.getAttribute("data-all");empty.hidden=n>0;}
+chips.addEventListener("click",function(ev){
+var b=ev.target&&ev.target.closest?ev.target.closest(".chip"):null;
+if(!b||b.disabled)return;
+var k=b.getAttribute("data-kind"),f=b.getAttribute("data-flag");
+if(k)F.kind=k;
+if(f==="open")F.open=!F.open;
+if(f==="public")F.pub=!F.pub;
+run();});
+q.addEventListener("input",function(){idx.load();run();});
+loadHash();
+if(F.open)sum.load();
+if(q.value.trim().length>=2)idx.load();
+run();})();
 </script>`;
   const body = `<div class="top"><span class="crumb"><a href="/">All projects</a><span>›</span>${esc(project)}</span><a class="out" href="/_logout">Sign out</a></div>
 <h1>${esc(project)}</h1>
 <p class="count"><b id="count" data-all="${esc(counts)}">${esc(counts)}</b></p>
 ${filter}
+${chips}
 ${groups}
 <p class="empty" id="empty" hidden>No page matches that text.</p>
 <p class="empty" id="err" hidden>Search unavailable.</p>`;
@@ -568,7 +736,7 @@ function cmdBuild(): Manifest {
     if (e.type === "dir") copyDir(src, out);
     else {
       mkdirSync(out, { recursive: true });
-      writeFileSync(join(out, "index.html"), wrapBody(readFileSync(src, "utf8"), e.title));
+      writeFileSync(join(out, "index.html"), wrapBody(readFileSync(src, "utf8"), e.title, `${e.project}/${e.slug}`));
     }
     access[`/${e.project}/${e.slug}/`] = e.visibility;
     byProject.set(e.project, [...(byProject.get(e.project) || []), e]);
@@ -592,6 +760,11 @@ function cmdBuild(): Manifest {
     text: plainText(e).replace(/\s+/g, " ").trim().slice(0, 4000),
   }));
   writeFileSync(join(site, "dist", "_search.json"), JSON.stringify(index));
+  // Comment layer assets; absent until templates/comments.{js,css} exist.
+  for (const asset of ["comments.js", "comments.css"]) {
+    const from = join(SKILL_DIR, "templates", asset);
+    if (existsSync(from)) copyFileSync(from, join(site, "dist", `_${asset}`));
+  }
   writeFileSync(join(site, "dist", "_headers"), `/*\n  X-Robots-Tag: noindex\n  Referrer-Policy: same-origin\n  Cache-Control: no-store\n`);
   writeIndexMd(m);
   console.log(`built ${m.entries.length} pages into ${site}/dist`);
@@ -816,6 +989,127 @@ function cmdOpen(args: string[]) {
   console.log(u);
 }
 
+// ---------- review comments ----------
+// Threads live in D1 behind /_comments on the site; the CLI talks to it as the
+// owner (bearer minted from DOCS_SECRET) and posts replies as an agent.
+
+function baseUrl(m: Manifest): string {
+  return BASE_OVERRIDE || `https://${m.site.host}`;
+}
+function docsSecret(): string {
+  const env = readEnvFile();
+  const secret = env.DOCS_SECRET || process.env.DOCS_SECRET || "";
+  if (!secret) die(`DOCS_SECRET missing in ${ENV_FILE}`);
+  return secret;
+}
+// Same value the middleware sets as the owner cookie: "<ts>.<hmac(owner|ts)>".
+function ownerBearer(): string {
+  const ts = Date.now();
+  return `${ts}.${createHmac("sha256", docsSecret()).update(`owner|${ts}`).digest("hex").slice(0, 40)}`;
+}
+
+type ApiOpts = { query?: Record<string, string>; body?: unknown; agent?: string };
+async function commentsApi(m: Manifest, method: string, opts: ApiOpts = {}): Promise<any> {
+  const url = new URL(`${baseUrl(m)}/_comments`);
+  for (const [k, v] of Object.entries(opts.query || {})) url.searchParams.set(k, v);
+  const headers: Record<string, string> = { authorization: `Bearer ${ownerBearer()}`, accept: "application/json" };
+  if (opts.agent) {
+    headers["X-Docs-Role"] = "agent";
+    headers["X-Docs-Author"] = opts.agent;
+  }
+  if (opts.body !== undefined) headers["content-type"] = "application/json";
+  let r: Response;
+  try {
+    r = await fetch(url, { method, headers, body: opts.body === undefined ? undefined : JSON.stringify(opts.body) });
+  } catch (e: any) {
+    return die(`${method} ${url.pathname} failed: ${e?.message || e}`);
+  }
+  const text = await r.text();
+  let data: any = null;
+  try { data = JSON.parse(text); } catch { /* not JSON */ }
+  if (!r.ok) die(`${method} ${url.pathname}${url.search} -> ${r.status} ${data?.error || text.slice(0, 300) || r.statusText}`);
+  return data;
+}
+
+function stamp(ms: number): string {
+  return new Date(Number(ms) || 0).toISOString().slice(0, 16).replace("T", " ");
+}
+function indent(text: string, pad: string): string {
+  return String(text).split("\n").map((l) => pad + l).join("\n");
+}
+function anchorLine(anchor: any): string {
+  const exact = anchor && typeof anchor.exact === "string" ? anchor.exact.replace(/\s+/g, " ").trim() : "";
+  if (!exact) return "general";
+  const head = anchor.heading ? ` (under "${anchor.heading}")` : "";
+  return `"${exact}"${head}`;
+}
+function printThread(t: any) {
+  console.log(`  #${t.id} [${t.state}] ${t.author} (${t.role}) ${stamp(t.created)}`);
+  console.log(`    ${anchorLine(t.anchor)}`);
+  console.log(indent(t.body, "    "));
+  for (const r of t.replies || []) console.log(`      ↳ ${r.author} (${r.role}) ${stamp(r.created)}: ${String(r.body).replace(/\s+/g, " ").trim()}`);
+}
+
+async function cmdComments(args: string[]) {
+  const stateArg = flag(args, "--state") || "";
+  if (stateArg && !["open", "addressed", "accepted", "all"].includes(stateArg)) {
+    die("usage: comments [<project>[/<slug>]] [--state open|addressed|accepted|all]");
+  }
+  const wanted = !stateArg ? ["open", "addressed"] : stateArg === "all" ? ["open", "addressed", "accepted"] : [stateArg];
+  const ref = args.find((a) => !a.startsWith("--")) || "";
+  const m = loadManifest();
+  const summary = (await commentsApi(m, "GET", { query: { summary: "1" } })) || {};
+  const pages = Object.keys(summary)
+    .filter((p) => !ref || (ref.includes("/") ? p === ref : p.startsWith(`${ref}/`)))
+    .filter((p) => wanted.some((w) => (summary[p]?.[w] || 0) > 0))
+    .sort();
+  if (!pages.length) {
+    console.log(ref ? `no ${wanted.join("/")} comments on ${ref}` : `no ${wanted.join("/")} comments`);
+    return;
+  }
+  for (const page of pages) {
+    const data = await commentsApi(m, "GET", { query: { page } });
+    const threads = (data.threads || []).filter((t: any) => wanted.includes(t.state));
+    if (!threads.length) continue;
+    const counts = summary[page] || {};
+    console.log(`\n${page}  ${baseUrl(m)}/${page}/  (open ${counts.open || 0}, addressed ${counts.addressed || 0}, accepted ${counts.accepted || 0})`);
+    for (const t of threads) printThread(t);
+  }
+}
+
+async function cmdReply(args: string[]) {
+  const as = flag(args, "--as") || "agent";
+  const addressed = has(args, "--addressed");
+  const id = args.shift() || "";
+  const text = args.join(" ").trim();
+  if (!/^[0-9a-f]{12}$/.test(id) || !text) die('usage: reply <id> <text…> [--as <name>] [--addressed]');
+  const m = loadManifest();
+  const { thread } = await commentsApi(m, "GET", { query: { id } });
+  await commentsApi(m, "POST", { agent: as, body: { page: thread.page, parent: id, body: text } });
+  let state = thread.state;
+  if (addressed) state = (await commentsApi(m, "PATCH", { agent: as, body: { id, state: "addressed" } })).state;
+  console.log(`#${id} [${state}] replied as ${as} on ${thread.page}`);
+  console.log(`${baseUrl(m)}/${thread.page}/`);
+}
+
+async function cmdResolve(args: string[]) {
+  const id = args[0] || "";
+  if (!/^[0-9a-f]{12}$/.test(id)) die("usage: resolve <id>");
+  const m = loadManifest();
+  const row = await commentsApi(m, "PATCH", { body: { id, state: "accepted" } });
+  console.log(`#${row.id} [${row.state}] ${row.page}`);
+}
+
+async function cmdComment(args: string[]) {
+  const ref = args.shift() || "";
+  const text = args.join(" ").trim();
+  if (!ref || !text) die("usage: comment <project>/<slug> <text…>");
+  const m = loadManifest();
+  findEntry(m, ref); // fail early on a typo in the page reference
+  const row = await commentsApi(m, "POST", { body: { page: ref, body: text } });
+  console.log(`#${row.id} [${row.state}] ${row.author} (${row.role}) on ${row.page}`);
+}
+
 async function cfApi(path: string, init: RequestInit = {}, token = cfToken()): Promise<any> {
   const r = await fetch(`https://api.cloudflare.com/client/v4${path}`, {
     ...init,
@@ -883,6 +1177,10 @@ switch (cmd) {
   case "strip": cmdStrip(rest); break;
   case "secrets": cmdSecrets(); break;
   case "open": cmdOpen(rest); break;
+  case "comments": await cmdComments(rest); break;
+  case "reply": await cmdReply(rest); break;
+  case "resolve": await cmdResolve(rest); break;
+  case "comment": await cmdComment(rest); break;
   case "domain":
     try { await cmdDomain(); } catch (e: any) {
       if (/Authentication error/.test(String(e?.message))) {
@@ -893,7 +1191,7 @@ switch (cmd) {
     }
     break;
   default:
-    console.log(`usage: artifact-pages <init|add|build|publish|share|visibility|decide|supersede|research|show|find|decisions|url|list|strip|secrets|open> ...
+    console.log(`usage: artifact-pages <init|add|build|publish|share|visibility|decide|supersede|research|show|find|decisions|comments|reply|resolve|comment|url|list|strip|secrets|open> ...
   init                                   create manifest, git repo, and ${ENV_FILE}
   add <p>/<s> --title T [--from F] [--dir] [--visibility V]
               [--kind research|decision] [--status active|superseded] [--superseded-by <p>/<s>]
@@ -910,6 +1208,10 @@ switch (cmd) {
   decisions [<project>] [--all]          active decisions, one line each with its URL
   url <p>/<s> | list | open [<p>/<s>]    lookups
   strip <raw.html>                       strip the claude.ai frame wrapper to stdout
+  comments [<p>[/<s>]] [--state open|addressed|accepted|all]   review threads left on the pages
+  reply <id> <text…> [--as <name>] [--addressed]   answer a thread as an agent
+  resolve <id>                           accept a thread (the owner's own call)
+  comment <p>/<s> <text…>                leave a general comment as the owner
   secrets                                push DOCS_SECRET and DOCS_PASSWORD to Pages
   domain                                 attach the custom host and fix its DNS (needs Zone DNS edit token)`);
     process.exit(cmd ? 1 : 0);
