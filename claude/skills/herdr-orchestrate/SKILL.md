@@ -44,17 +44,16 @@ The skill argument decides the mode:
 # 1. Create a dedicated tab; capture root_pane.pane_id from the JSON response
 herdr tab create --workspace <workspace-id> --cwd <repo-root> --label <campaign>-w<N> --no-focus
 # 2. Launch aoc-omp in that tab's root pane
-herdr pane run <root-pane-id> "aoc-omp --model openai-codex/gpt-5.6-terra --thinking high"
+herdr pane run <root-pane-id> "aoc-omp --model openai-codex/gpt-5.6-sol --thinking high"
 ```
 
 Launch-failure recovery: if `aoc-omp` crashes at boot with "Failed to load pi_natives native addon", the global bun tree is broken — run `aoc-omp-update update` (the sanctioned reinstaller), never hand-patch caches. After any crashed launch, `herdr pane read` the pane before relaunching: text queued at a dead prompt executes as shell commands and can eat the next dispatch.
 
-### Worker model policy (decided 2026-08-02)
+### Worker model policy (decided 2026-09-12; supersedes the 2026-08-02 terra default)
 
-- **Default worker: `--model openai-codex/gpt-5.6-terra --thinking high`.** Benched at ~51 tok/s standard tier — matches luna's speed, ~1.75× sol's, at half sol's quota weight. Never spawn a worker on the settings default (gpt-5.5 low).
-- **Intelligence-critical slices: `--model openai-codex/gpt-5.6-sol --thinking high`.** The orchestrator decides this on its own when splitting slices — subtle API semantics, cross-cutting invariants, or a slice terra has already fumbled. No user approval needed (unlike fable escalation).
+- **Every omp worker runs `--model openai-codex/gpt-5.6-sol --thinking high`.** Sol is the floor. Never spawn a worker on terra, luna, or the settings default (gpt-5.5 low): the owner's Codex plan gives effectively unlimited inference on sol and opus, so there is no quota reason to run a weaker model, and terra workers have needed re-packeting that sol would not have. Only a stronger model is ever a valid substitute.
 - **Always provider-qualify the model id** (`openai-codex/...`). Unqualified `gpt-5.6-sol` has silently no-opped in headless mode (ambiguous match across catalogs); qualified ids resolve reliably (verified 2026-08-02: both spawn paths boot and answer).
-- **Never enable fast mode** (`/fast`, `tier.openai: priority`) on workers. Terra-standard already matches sol-fast throughput; priority only burns premium-request quota.
+- **Never enable fast mode** (`/fast`, `tier.openai: priority`) on workers. Priority only burns premium-request quota.
 
 One tab per work slice, labeled `<campaign>-w<N>` so the sidebar shows what each worker is doing. Get the current workspace ID from `herdr pane current` or `herdr pane list`. Spawned `aoc-omp` agents register with herdr's agent detector through the underlying omp integration, so their `agent_status` in `herdr pane list` and `herdr agent wait <target> --until idle` are **reliable** once registered. Registration is not guaranteed: a worker can stay `agent_status: unknown` for its whole run, and `herdr agent wait` then returns agent_not_found. If status reads `unknown` after boot, fall back to the spinner check (`herdr pane read <id> | grep "esc\u27e9"`) without waiting on the detector. `herdr agent wait` takes `--until <status>`, not `--status`.
 
@@ -87,7 +86,7 @@ be the thing carrying worker behavior.
   herdr pane read <qualified-id> | grep "esc⟩"
   ```
   Spinner present ⇒ busy; absent ⇒ idle. (omp renders the spinner hint as `⟨esc⟩` with angle brackets — `grep "(esc"` never matches and reports permanently-idle.)
-  Current omp builds do not always show `esc⟩` while working (false idle on 2026-09-12: three busy workers read idle on the first monitor). Also match the working glyph: `grep -E "esc⟩|󱊷"` on the last 4 lines of the pane. Do not match the status-bar task suffix (`· Execute master assignment`): it stays after the worker finishes and reads as permanently busy (monitor timed out that way on 2026-09-12). macOS has no `timeout`; use plain loops or `gtimeout`.
+  Current omp builds do not always show `esc⟩` while working (false idle on 2026-09-12: three busy workers read idle on the first monitor). Also match the working glyph: `grep -E "esc⟩|󱊷"` on the last 8 lines of the pane (the glyph sits above the TODO tree and two separator lines; `tail -4` missed it and ended a monitor early on 2026-09-12). Do not match the status-bar task suffix (`· Execute master assignment`): it stays after the worker finishes and reads as permanently busy (monitor timed out that way on 2026-09-12). macOS has no `timeout`; use plain loops or `gtimeout`.
 - Never conscript panes the user didn't name — panes may carry other in-progress work.
 
 ## 2. Packet protocol
