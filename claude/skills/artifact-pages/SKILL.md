@@ -56,7 +56,7 @@ Every response that delivers a page for a client states which mode was used and,
 
 - `artifact-pages list` / `url <p>/<s>` / `open [<p>/<s>]`.
 - `artifact-pages secrets` pushes `DOCS_SECRET` and `DOCS_PASSWORD` from `~/.config/aoc/artifact-pages.env` to the Pages project; run after rotating either.
-- Cloudflare auth: `CLOUDFLARE_API_TOKEN` in the env file if present, else wrangler's OAuth token from `wrangler login`. Pages project `intrface-docs`, custom domain `docs.intrface.eu`, both in `manifest.json` under `site`.
+- Cloudflare auth: `CLOUDFLARE_API_TOKEN` in the env file if present, else wrangler's OAuth token from `wrangler login`, which the CLI refreshes in place when it has expired (no wrangler run needed, so any agent in any project can publish). DNS calls (`artifact-pages domain`) use `CLOUDFLARE_DNS_TOKEN` from the env file, else the keychain item `cloudflare-dns-intrface`. Pages project `intrface-docs`, custom domain `docs.intrface.eu`, both in `manifest.json` under `site`.
 - Gate logic lives in `templates/functions/_middleware.ts` inside this skill and is copied into `site/functions/` on every build; change it here, never in the library.
 - `INDEX.md` in the library is generated on build; the manifest is the record.
 

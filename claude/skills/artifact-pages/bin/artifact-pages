@@ -54,15 +54,43 @@ function cfToken(): string {
   const env = readEnvFile();
   if (process.env.CLOUDFLARE_API_TOKEN) return process.env.CLOUDFLARE_API_TOKEN;
   if (env.CLOUDFLARE_API_TOKEN) return env.CLOUDFLARE_API_TOKEN;
-  // Fall back to wrangler's OAuth token (works as a bearer token until it expires).
+  // Fall back to wrangler's OAuth token (works as a bearer token); refresh it
+  // in place when it has expired, the same way wrangler does on each run.
   const cfg = join(HOME, "Library", "Preferences", ".wrangler", "config", "default.toml");
   const alt = join(HOME, ".wrangler", "config", "default.toml");
   for (const f of [cfg, alt]) {
     if (!existsSync(f)) continue;
-    const m = readFileSync(f, "utf8").match(/^oauth_token\s*=\s*"([^"]+)"/m);
-    if (m) return m[1];
+    let text = readFileSync(f, "utf8");
+    const tok = text.match(/^oauth_token\s*=\s*"([^"]+)"/m)?.[1];
+    const ref = text.match(/^refresh_token\s*=\s*"([^"]+)"/m)?.[1];
+    const exp = text.match(/^expiration_time\s*=\s*"([^"]+)"/m)?.[1];
+    if (!tok) continue;
+    if (!ref || !exp || Date.parse(exp) - Date.now() > 60_000) return tok;
+    const body = new URLSearchParams({ grant_type: "refresh_token", refresh_token: ref, client_id: "54d11594-84e4-41aa-b438-e81b8fa78ee7" }).toString();
+    const r = Bun.spawnSync(["curl", "-s", "-X", "POST", "https://dash.cloudflare.com/oauth2/token", "-H", "content-type: application/x-www-form-urlencoded", "--data", body]);
+    let j: any = {};
+    try { j = JSON.parse(r.stdout.toString()); } catch {}
+    if (!j.access_token) die("wrangler OAuth token expired and refresh failed (" + (j.error_description || j.error || "no response") + "): run `bunx wrangler login`, or set CLOUDFLARE_API_TOKEN in " + ENV_FILE);
+    const expIso = new Date(Date.now() + (j.expires_in || 3600) * 1000).toISOString();
+    text = text.replace(/^oauth_token\s*=.*$/m, `oauth_token = "${j.access_token}"`)
+      .replace(/^expiration_time\s*=.*$/m, `expiration_time = "${expIso}"`);
+    if (j.refresh_token) text = text.replace(/^refresh_token\s*=.*$/m, `refresh_token = "${j.refresh_token}"`);
+    writeFileSync(f, text, { mode: 0o600 });
+    return j.access_token;
   }
   die("no Cloudflare token: set CLOUDFLARE_API_TOKEN in " + ENV_FILE + " or run `bunx wrangler login`");
+}
+// Zone DNS calls use a separate token when one exists: CLOUDFLARE_DNS_TOKEN
+// (env or env file), else the macOS keychain item "cloudflare-dns-intrface"
+// (zone-scoped DNS edit on intrface.eu, no Pages scope), else the general token.
+function cfDnsToken(): string {
+  const env = readEnvFile();
+  const t = process.env.CLOUDFLARE_DNS_TOKEN || env.CLOUDFLARE_DNS_TOKEN;
+  if (t) return t;
+  const svc = env.CLOUDFLARE_DNS_KEYCHAIN || "cloudflare-dns-intrface";
+  const r = Bun.spawnSync(["security", "find-generic-password", "-s", svc, "-w"]);
+  if (r.exitCode === 0) { const k = r.stdout.toString().trim(); if (k) return k; }
+  return cfToken();
 }
 function manifestPath(): string {
   return join(LIB, "manifest.json");
@@ -344,10 +372,10 @@ function cmdOpen(args: string[]) {
   console.log(u);
 }
 
-async function cfApi(path: string, init: RequestInit = {}): Promise<any> {
+async function cfApi(path: string, init: RequestInit = {}, token = cfToken()): Promise<any> {
   const r = await fetch(`https://api.cloudflare.com/client/v4${path}`, {
     ...init,
-    headers: { authorization: `Bearer ${cfToken()}`, "content-type": "application/json", ...(init.headers || {}) },
+    headers: { authorization: `Bearer ${token}`, "content-type": "application/json", ...(init.headers || {}) },
   });
   const d: any = await r.json();
   if (!d.success) throw new Error(`${path}: ${JSON.stringify(d.errors)}`);
@@ -361,7 +389,8 @@ async function cmdDomain() {
   const m = loadManifest();
   const host = m.site.host, project = m.site.project;
   const zoneName = host.split(".").slice(-2).join(".");
-  const [zone] = await cfApi(`/zones?name=${zoneName}`);
+  const dns = cfDnsToken();
+  const [zone] = await cfApi(`/zones?name=${zoneName}`, {}, dns);
   if (!zone) die(`zone ${zoneName} not on this account`);
   const accounts = await cfApi(`/accounts`);
   const account = accounts.find((a: any) => a.id === zone.account.id) || accounts[0];
@@ -371,15 +400,15 @@ async function cmdDomain() {
     console.log(`attached ${host} to ${project}`);
   }
   const target = `${project}.pages.dev`;
-  const records = await cfApi(`/zones/${zone.id}/dns_records?name=${host}`);
+  const records = await cfApi(`/zones/${zone.id}/dns_records?name=${host}`, {}, dns);
   const ok = records.find((r: any) => r.type === "CNAME" && r.content === target);
   for (const r of records) {
     if (r === ok) continue;
-    await cfApi(`/zones/${zone.id}/dns_records/${r.id}`, { method: "DELETE" });
+    await cfApi(`/zones/${zone.id}/dns_records/${r.id}`, { method: "DELETE" }, dns);
     console.log(`removed stale ${r.type} ${r.name} -> ${r.content}`);
   }
   if (!ok) {
-    await cfApi(`/zones/${zone.id}/dns_records`, { method: "POST", body: JSON.stringify({ type: "CNAME", name: host, content: target, proxied: true, ttl: 1, comment: "artifact-pages" }) });
+    await cfApi(`/zones/${zone.id}/dns_records`, { method: "POST", body: JSON.stringify({ type: "CNAME", name: host, content: target, proxied: true, ttl: 1, comment: "artifact-pages" }) }, dns);
     console.log(`created CNAME ${host} -> ${target}`);
   }
   for (let i = 0; i < 12; i++) {
@@ -407,7 +436,7 @@ switch (cmd) {
   case "domain":
     try { await cmdDomain(); } catch (e: any) {
       if (/Authentication error/.test(String(e?.message))) {
-        console.error("Cloudflare refused the DNS call: the current token has no Zone DNS Edit scope.\nCreate an API token (Zone DNS Edit + Pages Edit on intrface.eu), put it in " + ENV_FILE + " as CLOUDFLARE_API_TOKEN, and rerun `artifact-pages domain`.\nAlternative: delete the stale `docs` DNS record in the Cloudflare dashboard, then rerun.");
+        console.error("Cloudflare refused the DNS call: the current token has no Zone DNS Edit scope.\nCreate an API token with Zone DNS Edit on intrface.eu and put it in " + ENV_FILE + " as CLOUDFLARE_DNS_TOKEN (or in the keychain as service cloudflare-dns-intrface), then rerun `artifact-pages domain`.\nAlternative: delete the stale `docs` DNS record in the Cloudflare dashboard, then rerun.");
         process.exit(2);
       }
       throw e;
