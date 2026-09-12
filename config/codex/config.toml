@@ -1,2 +1,5 @@
+# Auto-compact at 300k tokens (machine-wide policy across harnesses).
+model_auto_compact_token_limit = 300000
+
 [features]
 hooks = true

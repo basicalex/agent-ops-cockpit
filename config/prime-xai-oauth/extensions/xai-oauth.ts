@@ -162,7 +162,11 @@ export default function (pi: ExtensionAPI) {
 				name: "Grok 4.6 (subscription)",
 				reasoning: true,
 				input: ["text", "image"],
-				contextWindow: 500000,
+				// Real window is 500000. prime-agent has no token threshold for
+				// auto-compaction; it compacts at contextWindow - reserveTokens
+				// (16384 by default), so 316384 lands the trigger at the
+				// machine-wide 300000-token policy.
+				contextWindow: 316384,
 				maxTokens: 64000,
 				cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
 				// Grok 4.6 always reasons; the proxy accepts reasoning_effort low..high.
