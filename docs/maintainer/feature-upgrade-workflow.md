@@ -45,13 +45,6 @@ User Idea
 ## Step 1: Discovery & Analysis
 
 Before proposing anything, understand the current state:
-```bash
-
-# Check existing tasks
-aoc-task list
-
-# Explore relevant code (agent uses Task tool for deep exploration)
-```
 
 **Output:** A summary table of current architecture, affected files, and constraints.
 
@@ -62,7 +55,6 @@ aoc-task list
 |-----------|--------------|--------|
 | Multiplexer layouts | Hardcoded shell scripts | High - all panes |
 | bin/* scripts | bash-only | Medium - internal |
-| Taskmaster TUI | native (Ratatui) | Low |
 ```
 
 ---
@@ -106,18 +98,8 @@ Brief description of how things work now.
 
 ## Step 4: Task Breakdown
 
-Create a parent task with subtasks using taskmaster:
+Break the work into clear implementation steps:
 
-```bash
-# Add parent task
-aoc-task add "Feature Name" \
-  --priority high \
-  --description "One-line summary" \
-  --details "Extended explanation"
-
-# Add subtasks (use task ID from above)
-aoc-task sub add <ID> "Subtask title" --desc "Details"
-```
 
 ### Subtask Structure
 
@@ -147,7 +129,7 @@ Brief description of the feature and its goal.
 - Key implementation points
 - Technical decisions
 
-**Tracking:** Task #XX in `.taskmaster/tasks/tasks.json`
+**Tracking:** ROADMAP.md entry
 ```
 
 ### Roadmap Conventions
@@ -209,7 +191,7 @@ When presenting a new feature to the user, use this structure:
 This feature was planned using the above process:
 
 ### Discovery
-- Explored 37+ bash scripts, layout templates, Taskmaster TUI
+- Explored bash scripts and layout templates
 - Found hardcoded `bash -lc` patterns throughout
 
 ### Scope Clarification
@@ -231,19 +213,6 @@ This feature was planned using the above process:
 
 ## Quick Reference
 
-```bash
-aoc-task list
-
-# Create feature task
-aoc-task add "Title" --priority high --description "..."
-
-# Add subtasks
-aoc-task sub add <ID> "Subtask" --desc "..."
-
-
-# Update roadmap
-# Edit ROADMAP.md with new phase
-```
 
 ---
 
@@ -254,6 +223,6 @@ When the user proposes a new feature:
 - [ ] Explore codebase to understand current architecture
 - [ ] Ask clarifying questions (scope, priority, constraints)
 - [ ] Present structured proposal with options
-- [ ] Create parent task with subtasks in taskmaster
+- [ ] Break work into executable steps
 - [ ] Add to ROADMAP.md with appropriate phase
 - [ ] Summarize what was created for user

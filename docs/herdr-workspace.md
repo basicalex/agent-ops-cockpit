@@ -14,7 +14,6 @@ Keep only AOC pieces that are still valuable as project/tooling primitives:
 
 - `aoc` as the familiar launcher command
 - minimal project initialization conventions where useful
-- Taskmaster / `tm` integration
 - metadata-only context handshakes for OMP startup
 - CodeGraph as a read-only OMP tool when a project has an index
 - HyperFrames, OpenDesign, and web research as standalone project/tooling features

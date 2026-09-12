@@ -54,8 +54,7 @@ Workflow:
 - Identify unrelated/pre-existing changes and exclude them before committing, even if they were edited in the same working tree.
 
 2. Resolve provenance
-- Identify relevant task/subtask/spec from recent implementation context, Taskmaster, or explicit user instructions.
-- Use tm/aoc-task only when it materially improves commit provenance.
+- Identify relevant implementation context from recent session activity or explicit user instructions.
 
 3. Plan atomic commit(s)
 - Start prompt-first: infer the intended commit slice from the /commit arguments; if they are empty, use the current completed work from the session.
@@ -72,9 +71,6 @@ Use:
 
 Include a concise body plus trailers when known:
 
-AOC-Task: <id>
-AOC-Subtask: <id.n>
-AOC-PRD: <path>
 AOC-Intent: <durable intent>
 Tests: <commands run/results>
 Risk: low|medium|high; <reason>

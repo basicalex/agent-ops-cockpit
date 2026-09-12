@@ -8,11 +8,6 @@ type = "ops"
 summary = "Initialize or repair AOC context, memory, and tasks."
 
 [[skill]]
-name = "prd-rpg-authoring"
-type = "planning"
-summary = "Author canonical RPG-format PRDs from template and link via aocPrd."
-
-[[skill]]
 name = "rlm-analysis"
 type = "analysis"
 summary = "Analyze large repos with aoc-rlm scan/peek/chunk."
@@ -22,7 +17,3 @@ name = "teach-workflow"
 type = "workflow"
 summary = "Deprecated legacy teach-mode scans and local insight logging."
 
-[[skill]]
-name = "tm-cc"
-type = "workflow"
-summary = "Cross-project Taskmaster control with explicit tm root targeting and CRUD flows."

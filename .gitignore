@@ -37,10 +37,6 @@ __pycache__/
 # tasks.json
 # tasks/
 
-# Task PRDs must stay tracked
-!.taskmaster/docs/prds/
-!.taskmaster/docs/prds/**
-
 # Local AOC state
 .opencode/
 .pi/
@@ -53,8 +49,6 @@ __pycache__/
 /.aoc/open-design/link.json
 /.aoc/omarchy-migration-backup-path
 /.aoc/insight/sessions/
-!/.taskmaster/
-!/.taskmaster/**
 !/.pi/
 !/.pi/**
 !/.omp/
@@ -70,9 +64,6 @@ __pycache__/
 /.aoc/**/*.lock
 /.aoc/mind/
 /.aoc/mind/**
-/.taskmaster/logs/
-/.taskmaster/**/*.log
-/.taskmaster/**/*.lock
 
 
 
@@ -193,6 +184,7 @@ __pycache__/
 
 !/.omp/skills/
 !/.omp/skills/**
+
 
 
 

@@ -4,7 +4,6 @@ Canonical AOC project surfaces:
 
 ```text
 .aoc/                        # AOC context, memory CLI state, presets, services, managed metadata
-.taskmaster/                 # Taskmaster tasks, tags, specs/PRDs
 .omp/extensions/             # repo-owned AOC OMP extension sources
 .omp/agents/                 # repo-owned AOC OMP agent template sources
 .omp/skills/                 # repo-owned AOC OMP skill sources
@@ -17,8 +16,6 @@ DESIGN.md                    # root product/design contract
 ```text
 !/.aoc/
 !/.aoc/**
-!/.taskmaster/
-!/.taskmaster/**
 !/.omp/
 !/.omp/extensions/
 !/.omp/extensions/**
@@ -33,9 +30,6 @@ High-churn/runtime artifacts remain ignored:
 ```text
 /.aoc/logs/
 /.aoc/tools/
-/.taskmaster/logs/
-/.taskmaster/**/*.log
-/.taskmaster/**/*.lock
 **/.aoc-backups/
 .codegraph/
 ```

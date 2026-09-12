@@ -24,7 +24,6 @@
 ./bin/aoc
 ./bin/aoc-align
 ./bin/aoc-claude-install
-./bin/aoc-context
 ./bin/aoc-doctor
 ./bin/aoc-fetch
 ./bin/aoc-handshake
@@ -45,7 +44,6 @@
 ./bin/aoc-omp-shim-install
 ./bin/aoc-open-explorer
 ./bin/aoc-open-file
-./bin/aoc-pane-rename
 ./bin/aoc-profile
 ./bin/aoc-render
 ./bin/aoc-rlm
@@ -96,8 +94,3 @@ sub-agents (7)
 subagent-ux (6)
 ```
 
-## Task spec Location
-- Directory: .taskmaster/docs/specs
-- Resolve tag spec default with: aoc-task tag spec show --tag <tag>
-- Resolve task spec override with: aoc-task spec show <id> --tag <tag>
-- Effective precedence: task spec override -> tag spec default

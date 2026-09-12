@@ -252,29 +252,11 @@
       "sha256": "a8044d5601d26c3f13bc9bbb09cc6a0d1227b9d74843c5fadf5715a43fdc4500",
       "source": "../.config/aoc/pi/skills/safe-gamification",
       "status": "current"
-    },
-    ".omp/skills/spec-rpg-authoring": {
-      "asset": "skill/spec-rpg-authoring",
-      "assetVersion": 3,
-      "expectedSha256": "834f069461031316226821b6a7175210c1d48ea97e27855ae1280212a074f817",
-      "marker": ".omp/skills/spec-rpg-authoring/.aoc-managed",
-      "sha256": "9121d9f597a077e8d265b1136ad72f0345e1f6969b2def8ff57fe2f6bc29507a",
-      "source": "../.config/aoc/pi/skills/spec-rpg-authoring",
-      "status": "dirty"
-    },
-    ".omp/skills/tm-cc": {
-      "asset": "skill/tm-cc",
-      "assetVersion": 3,
-      "expectedSha256": "bf18338a71c856dd9b23188e5dfecfbbe95bb66e2498602af294c1dd7e2482af",
-      "marker": ".omp/skills/tm-cc/.aoc-managed",
-      "sha256": "bf18338a71c856dd9b23188e5dfecfbbe95bb66e2498602af294c1dd7e2482af",
-      "source": "../.config/aoc/pi/skills/tm-cc",
-      "status": "current"
     }
   },
   "counts": {
-    "current": 24,
-    "dirty": 6,
+    "current": 23,
+    "dirty": 5,
     "stale": 0,
     "unknown": 0
   },

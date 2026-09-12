@@ -70,21 +70,6 @@ aoc-hyperframes sync-skills
 aoc-hyperframes check --dir hyperframes
 ```
 
-## Task list blank
-
-Run:
-
-```bash
-tm list
-```
-
-If no tasks exist:
-
-```bash
-tm add "First task"
-```
-
-Do not edit `.taskmaster/tasks/tasks.json` directly.
 
 ## Project context stale
 

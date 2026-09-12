@@ -231,12 +231,7 @@ That fallback is intentional and is currently the recommended escape hatch.
 
 ## Environment inspection
 
-Use:
-
-```bash
-aoc-yazi-preview detect
-```
-
+Inspect your Yazi preview configuration for the active backend.
 Look for fields such as:
 
 - `aoc_yazi_mermaid=yes`

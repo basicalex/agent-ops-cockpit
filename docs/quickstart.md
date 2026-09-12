@@ -38,7 +38,6 @@ aoc
 ## 5. Use the workspace
 
 - OMP coding agent pane: coding work and OMP subagent orchestration
-- Taskmaster: use `tm` commands for tasks/specs
 - `/commit`: safe atomic commits
 - `/master`: gated master orchestration
 - `/dox`: DOX cartography
@@ -47,7 +46,6 @@ aoc
 ## 6. Basic commands
 
 ```bash
-tm list                               # tasks
 aoc-doctor                            # health check
 ```
 

@@ -131,8 +131,6 @@ aoc-map new task-flow \
   --section tasks \
   --kind flow \
   --summary "Task lifecycle and dependency flow" \
-  --tags taskmaster,workflow \
-  --source .taskmaster/tasks/tasks.json \
   --source docs/plan.md
 ```
 

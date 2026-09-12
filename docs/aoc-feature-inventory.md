@@ -8,7 +8,6 @@ This inventory defines the Herdr/OMP cutover target. AOC should become a project
 |---|---|---|---|
 | Familiar launcher | `bin/aoc`, `bin/aoc-herdr-launch` | AOC + Herdr | `aoc` should launch/focus Herdr. |
 | OMP launcher/context | `bin/aoc-omp`, `bin/aoc-omp-context`, `bin/aoc-handshake --prompt/--json` | AOC + OMP | Metadata-only startup capsule; no broad project-context injection. |
-| Taskmaster integration | `bin/aoc-task`, `bin/tm`, `bin/aoc-tm`, `crates/aoc-taskmaster` | AOC | Keep as task/spec source of truth. |
 | CodeGraph | `.omp/extensions/aoc-codegraph.ts`, `codegraph` CLI | OMP extension | Read-only agent discovery; indexing/sync remains operator-controlled. |
 | Master orchestration | `.omp/extensions/aoc-master.ts`, `/master`, `aoc_orchestrate` | OMP extension + Herdr | Keep as gated peer coordination. Requires an active master lease for the current pane; mutating surface is bounded text sends only, after read-only observation through native `herdr` and the `herdr-agent-observation` skill. |
 | HyperFrames | `bin/aoc-hf`, `bin/aoc-hf-u`, `bin/aoc-hyperframes`, `docs/hyperframes.md`, related skills | AOC tooling | Keep. |
@@ -30,7 +29,6 @@ These items have been removed from the active Herdr/OMP stack. Historical compat
 | AOC subagent manager/control surfaces | removed: `bin/aoc-subagent-supervision*`, `docs/reference/subagent-runtime.md` | OMP | Removed; OMP owns subagent orchestration. |
 | Control pane | removed: `bin/aoc-control`, `bin/aoc-control-toggle`, `crates/aoc-control`, `docs/control-pane.md` | Herdr | Removed; Herdr and direct CLI surfaces own operator actions. |
 | Legacy pane/workspace/session health UI | removed: `bin/aoc-session-state`, `bin/aoc-pane-evidence`, `bin/aoc-pulse-pane`, `bin/aoc-hub`, `crates/aoc-hub-rs`, Pulse/session docs | Herdr | Removed; `bin/aoc-services` is retained for the Herdr AOC Services workspace. |
-| Tab/project metadata | `bin/aoc-tab-metadata`, `bin/aoc-tab-group`, `bin/aoc-pane-rename`, layout metadata sync calls | Herdr | Not required by default install; Herdr workspaces/tabs/panes are the metadata source. |
 | Zellij cleanup/inventory | removed: `bin/aoc-cleanup`, `bin/aoc-cleanup-core.py`, Zellij inventory helpers | Herdr | Removed with the Zellij cockpit. |
 
 ## Installer cutover requirements
@@ -42,7 +40,6 @@ Default install must become lean and must not install old cockpit assets.
 - Herdr config baseline: `herdr/config.toml`
 - OMP integration: `herdr integration install omp` where available
 - AOC OMP context commands: `aoc-omp`, `aoc-omp-context`, `aoc-handshake`
-- Taskmaster commands: `tm`, `aoc-task`, `aoc-tm`
 - CodeGraph OMP extension: `.omp/extensions/aoc-codegraph.ts`
 - Kept tooling: HyperFrames, OpenDesign, web research
 - Herdr AOC Services workspace command: `aoc services` / `bin/aoc-herdr-services`

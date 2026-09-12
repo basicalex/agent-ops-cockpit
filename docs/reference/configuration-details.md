@@ -30,11 +30,8 @@ Override default commands used by AOC helper panes/services:
 | Variable | Description | Default |
 |----------|-------------|---------|
 | `AOC_AGENT_CMD` | Command to run in agent pane | Auto-detected |
-| `AOC_TASKMASTER_CMD` | Taskmaster TUI command | `aoc-taskmaster` |
-| `AOC_TASKMASTER_ROOT` | Override Taskmaster project root for `tm`/`aoc-task`/`aoc-taskmaster` | Current working directory |
 | `AOC_FILETREE_CMD` | File manager command | `yazi` |
 | `AOC_CLOCK_CMD` | Clock command | Auto-detected |
-| `AOC_SYS_CMD` | System stats command | `aoc-sys` |
 | `AOC_TERMINAL_CMD` | Terminal shell | `$SHELL` |
 
 For low-pain custom agent integration, point `AOC_AGENT_CMD` at your own launcher script when a project needs a non-default agent command:
@@ -188,7 +185,6 @@ aoc services start search
 aoc-search status
 aoc-search health
 aoc-search query --mode docs --limit 5 "rust clap subcommands"
-bin/aoc-web-smoke
 ```
 
 General docs/web search needs managed local SearXNG unless a separate paid search API is configured later. Direct package and GitHub modes can run without SearXNG. Use `agent-browser` after you have candidate URLs or need rendered-page interaction.
@@ -238,12 +234,7 @@ AOC uses a project-local configuration model:
 - **Refresh:** `aoc-init` (manual) or `aoc-watcher` (auto)
 
 
-### 2. Task State (`.taskmaster/tasks/tasks.json`)
-
-- **Purpose:** Active work queue
-- **Management:** `aoc-task` commands
-
-### 3. Search Configuration (`.aoc/search.toml`)
+### 2. Search Configuration (`.aoc/search.toml`)
 
 - **Purpose:** Project-local managed search contract
 - **Management:** `aoc services`, `aoc-services`, or `bin/aoc-search`
@@ -254,7 +245,6 @@ AOC uses a project-local configuration model:
 User defaults are stored in:
 
 - `~/.config/aoc/config.toml` - AOC settings
-- `~/.taskmaster/config.json` - Taskmaster preferences
 
 ---
 

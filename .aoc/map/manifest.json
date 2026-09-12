@@ -20,7 +20,7 @@
       {
         "key": "tasks",
         "title": "Tasks",
-        "description": "Taskmaster flows, dependencies, delivery plans, and work decomposition.",
+        "description": "Delivery plans and work decomposition.",
         "order": 30
       },
       {

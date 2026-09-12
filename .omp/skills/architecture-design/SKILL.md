@@ -28,7 +28,7 @@ Use this as a router for cross-cutting product/system architecture work. It shou
 | Frontend/product-facing design mode selection | `frontend-design` |
 | Design system, critique, redesign, polish, handoff, tokens, motion | `design-*` and `motion-director` skills as relevant |
 | HyperFrames/media/campaign architecture | `aoc-hyperframes` |
-| Task/spec architecture | `spec-rpg-authoring` or Taskmaster flows |
+| Implementation architecture | User request and repository evidence |
 
 ## Architecture review checklist
 

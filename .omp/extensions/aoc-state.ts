@@ -49,8 +49,7 @@ function renderCommitPrompt(scope: string): string {
 The user's /state-commit invocation is approval to inspect and commit only safe repo-owned AOC project-state files. It is not approval to push.
 
 Workflow:
-1. Detect Git state
-- Run \`aoc-handshake --json\`.
+1. Inspect Git state
 - Use explicit Git path staging only.
 
 2. Audit state first
@@ -60,7 +59,6 @@ Workflow:
 3. Inspect candidate state filesets
 Default AOC state filesets:
 - .aoc/ excluding logs, locks, .aoc/tools/, and backups
-- .taskmaster/ excluding logs and locks
 - .omp/extensions/
 - .omp/agents/
 - .omp/skills/
@@ -95,8 +93,7 @@ function renderPushPrompt(scope: string): string {
 The user's /state-push invocation is explicit push intent, but you must still verify the exact Git branch and remote before mutating.
 
 Workflow:
-1. Verify VCS and safety
-- Run \`aoc-handshake --json\` and require \`vcs.kind = "git"\`.
+1. Verify Git safety
 - Run \`aoc state status\`.
 - Stop if unsafe candidates or unexpectedly ignored project-state files are reported.
 - Run \`git status --short --branch\` and verify the intended project-state commit is already committed; do not push mixed uncommitted work.

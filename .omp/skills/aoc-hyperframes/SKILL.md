@@ -14,13 +14,12 @@ Operate HyperFrames as an AOC campaign/media production system.
 - **`hyperframes` skill**: low-level HTML/GSAP composition rules.
 - **`hyperframes-cli` skill**: preview, lint, render, TTS, transcription, doctor.
 
-## Startup checks
+## Workspace checks
 
-1. Run/consider `aoc-handshake --json` for AOC status.
-2. Locate target repo and HyperFrames workspace, usually `hyperframes/`.
-3. If no workspace exists, route to Alt+C / `aoc-hyperframes init` before production work.
-4. Inspect `hyperframes/hyperframes.json` when present.
-5. Avoid reading binary/image/video assets unless the user explicitly asks to view them.
+1. Locate target repo and HyperFrames workspace, usually `hyperframes/`.
+2. If no workspace exists, route to Alt+C / `aoc-hyperframes init` before production work.
+3. Inspect `hyperframes/hyperframes.json` when present.
+4. Avoid reading binary/image/video assets unless the user explicitly asks to view them.
 
 ## Routing
 

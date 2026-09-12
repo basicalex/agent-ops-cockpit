@@ -22,7 +22,7 @@ Append-only entries for high-signal teaching insights.
 - timestamp: 2026-02-15T17:57:57Z
   subsystem: indexing/embeddings/retrieval
   insight: Semantic retrieval stack (embeddings/vector search) is absent; current "indexing" is operational state caching for agents/tasks/diffs.
-  evidence: `crates/aoc-hub-rs/src/main.rs`, `crates/aoc-hub-rs/src/pulse_uds.rs`, `.taskmaster/docs/prd.txt`
+  evidence: retired project state
   confidence: high
   suggested action: Capture explicit retrieval scope in PRD before creating implementation tasks.
   promote to memory: no

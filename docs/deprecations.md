@@ -24,7 +24,6 @@ Removed from the active operator path:
 - Herdr workspace/runtime surface: `aoc`, `aoc services`, `aoc-herdr-launch`, `aoc-herdr-services`.
 - OMP runtime config: `~/.omp/agent/config.yml`.
 - Project OMP sources: `.omp/extensions/`, `.omp/agents/`, `.omp/skills/`.
-- AOC state/contracts: `.aoc/**`, `.taskmaster/**`, `AGENTS.md`, `DESIGN.md`.
 
 `aoc-init` no longer migrates or recreates legacy Pi paths or retired cockpit assets.
 

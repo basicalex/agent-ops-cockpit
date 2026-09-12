@@ -53,7 +53,6 @@ These are the changes AOC should make because of Zellij 0.44.
 ### 1) Replace `dump-layout`-first topology parsing with native JSON inventory
 
 **Current AOC paths using `dump-layout`:**
-- `bin/aoc-align`
 - `bin/aoc-cleanup`
 - `bin/aoc-control-toggle`
 - `bin/aoc-mission-control-toggle`

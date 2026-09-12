@@ -214,7 +214,7 @@ Typical implementation handoff:
 
 1. Import OD artifact.
 2. Inspect `design-artifacts/od/<artifact>/index.html` or exported files.
-3. Add/align Taskmaster task acceptance criteria with the artifact.
+3. Define acceptance criteria with the artifact.
 4. Promote any approved design-system rules into root `DESIGN.md`.
 5. Implement in app code.
 6. Verify against the OD artifact and root `DESIGN.md`.

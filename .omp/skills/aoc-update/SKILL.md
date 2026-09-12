@@ -11,13 +11,12 @@ Use this when developing AOC itself: CLI commands, seeded config, prompts, skill
 
 Strategy:
 
-source → task/spec → implement → propagation proof → verify → report
+source → implement → propagation proof → verify → report
 
 Workflow:
 
 1. Resolve source of truth
-- Identify the current user request, task, subtask, spec, or PRD.
-- Inspect task/spec with `tm`/`aoc-task` when applicable.
+- Identify the current user request.
 - Use `.aoc/context.md` for orientation.
 
 2. Classify lifecycle surfaces

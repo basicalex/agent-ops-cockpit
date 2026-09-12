@@ -5,7 +5,7 @@ description: Initialize or repair AOC context, tooling, and tasks safely.
 
 ## When to use
 - New repository setup
-- Missing `.aoc/` or `.taskmaster/`
+- Missing `.aoc/`
 - Stale or inconsistent context
 
 ## Run
@@ -13,9 +13,8 @@ description: Initialize or repair AOC context, tooling, and tasks safely.
 - To skip Rust builds: `AOC_INIT_SKIP_BUILD=1 aoc-init`
 
 ## What it does
-- Creates `.aoc/` and `.taskmaster/` if missing
+- Creates `.aoc/` if missing
 - Generates `.aoc/context.md`
-- Ensures spec directory `.taskmaster/docs/specs/` is available for tag/task links
 - Seeds project OMP assets under `.omp/extensions/`, `.omp/agents/`, `.omp/skills/`, and `.omp/manifest.toml`
 - Keeps `.omp/manifest.toml` as the full OMP inventory plus profile tables
 - Installs AOC OMP extensions selected by active profiles into `${AOC_OMP_AGENT_DIR:-$HOME/.omp/agent}/extensions` when available

@@ -36,7 +36,6 @@ AOC project initialization creates or repairs:
 .omp/extensions/
 .omp/agents/
 .omp/skills/
-.taskmaster/
 AGENTS.md
 DESIGN.md
 ```

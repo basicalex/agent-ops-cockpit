@@ -18,7 +18,7 @@ bash legacy/opencode/scripts/verify-omo.sh regression \
 ```
 
 Expected:
-- Taskmaster-only task authority check passes.
+- Project authority check passes.
 - Control-first policy defaults pass.
 - Profile isolation check passes.
 - Context-pack order/bounds check passes.
@@ -90,4 +90,4 @@ test ! -d .sisyphus/tasks
 
 Expected:
 - `.sisyphus/tasks` is absent.
-- Task lifecycle remains on `tm` / `aoc-task` only.
+- Project tracking remains local.

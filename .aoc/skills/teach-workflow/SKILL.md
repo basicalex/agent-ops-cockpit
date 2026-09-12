@@ -16,4 +16,3 @@ The old teach workflow used `/teach-full`, `/teach-dive`, and `/teach-ask` to pr
 
 - Do not start new architecture/onboarding scans with teach unless the operator explicitly asks for legacy teach behavior.
 - Do not delete `.aoc/insight/`; it may contain historical local notes.
-- Do not edit `.taskmaster/tasks/tasks.json` directly.

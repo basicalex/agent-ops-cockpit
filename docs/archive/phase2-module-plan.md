@@ -98,4 +98,3 @@ Finish the ownership cut while preserving existing detached semantics:
 
 - Mission Control refactor completion: task `184` ✅ done
 - Standalone Mind service cutover: task `190` 🚧 in progress
-- Full PRD: `.taskmaster/docs/prds/task-190_project_scoped_mind_standalone_service_prd_rpg.md`

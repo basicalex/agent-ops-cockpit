@@ -7,4 +7,4 @@ Rules:
 - Avoid broad scans unless targeted inspection fails.
 - Do not perform destructive actions without explicit operator intent.
 - Prefer structured summaries over raw logs.
-- Keep Taskmaster specs/tasks in sync when work crosses planning boundaries.
+- Keep plans and implementation aligned when work crosses planning boundaries.

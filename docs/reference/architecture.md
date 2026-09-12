@@ -9,7 +9,7 @@ AOC is a Herdr-first project/tooling layer:
 - **Herdr** owns workspaces, tabs, panes, navigation, agent status, and visible workspace health.
 - **OMP** owns subagent orchestration and repo-installed agent/skill/extension surfaces.
 - **AOC** owns project setup, task workflows, launch convenience, optional services, and retained standalone tools.
-- Retained memory/provenance is requested lazily through Mnemopi, Taskmaster, CodeGraph, and AOC CLI surfaces rather than injected at startup.
+- Retained memory/provenance is requested lazily through Mnemopi, CodeGraph, and AOC CLI surfaces rather than injected at startup.
 
 ## Kept product surfaces
 
@@ -18,7 +18,6 @@ AOC is a Herdr-first project/tooling layer:
 | Workspace launch | Herdr + `aoc` | `aoc` opens/focuses the Herdr project workspace. |
 | Services workspace | Herdr + AOC | `aoc services` owns visible project-scoped runtime/service status. |
 | OMP startup capsule | AOC + OMP | `aoc-omp-context`, `aoc-omp`, and the OMP shim provide metadata-only startup context. |
-| Taskmaster | AOC | `tm`, `aoc-task`, and `aoc-tm` remain task/spec surfaces. |
 | CodeGraph | OMP extension | Read-only repo discovery when a project has an index. |
 | Retained context | AOC + OMP/Mnemopi | Optional focused task, project-memory, and provenance lookup through supported CLI and OMP surfaces. |
 | Standalone tools | AOC | HyperFrames, OpenDesign, web research, and selected handoff helpers. |
@@ -39,7 +38,7 @@ Retired cockpit surfaces are documented only in `docs/deprecations.md` and `docs
 ```text
 Agent session/task state
    ↓
-Taskmaster / Mnemopi / CodeGraph / AOC CLI
+Mnemopi / CodeGraph / AOC CLI
    ↓
 Focused evidence pack / retained context / provenance query surfaces
 ```

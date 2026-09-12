@@ -141,7 +141,7 @@ Current manifest behavior:
 - design recommended by mode: critique/spec/diff/tokens/brand/premium/funnel/motion/dashboard specialists only when that mode is selected
 - hyperframes active: `aoc-hyperframes`
 - hyperframes recommended by mode: `aoc-hyperframes`
-- ops active: none by default; mode recommends `aoc-init-ops`, `vercel-cli`, `rlm-analysis`, `aoc-map`, or `tm-cc`
+- ops active: none by default; mode recommends `aoc-init-ops`, `vercel-cli`, `rlm-analysis`, or `aoc-map`
 - research active: `web-research`; mode recommends `agent-browser` or `rlm-analysis` when useful
 - test active: `architecture-design`, `agent-browser`; modes recommend `rlm-analysis`, `design-review`, or `vercel-cli` when useful
 

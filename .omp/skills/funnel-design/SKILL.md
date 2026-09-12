@@ -43,7 +43,7 @@ When working inside AOC or an AOC-initialized project:
 
 1. Read root `DESIGN.md` before product-facing UI, copy, layout, docs-site, marketing, or media changes.
 2. Preserve existing design tokens, components, route conventions, and accessibility expectations unless the task explicitly asks for design-system changes.
-3. For multi-file or lifecycle funnel work, create or align Taskmaster spec/task/subtasks before implementation when project policy requires it.
+3. For multi-file or lifecycle funnel work, align implementation scope before changes when project policy requires it.
 4. Use `.aoc/context.md` for orientation if present.
 
 ## Lightweight Workflow

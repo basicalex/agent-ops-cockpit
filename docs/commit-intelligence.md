@@ -6,20 +6,20 @@ This first layer establishes a stable human and machine-readable convention that
 
 ## Why commits matter to AOC provenance
 
-AOC links project understanding through PRDs, Taskmaster tasks, sessions, artifacts, file links, and provenance graphs. Git commits are durable implementation endpoints of that chain.
+AOC links project understanding through requests, sessions, artifacts, file links, and provenance graphs. Git commits are durable implementation endpoints of that chain.
 
 A commit can connect:
 
 ```text
-PRD -> task/subtask -> agent session -> changed files -> tests -> commit -> future retained provenance
+request -> agent session -> changed files -> tests -> commit -> future retained provenance
 ```
 
 This helps future operators and agents answer:
 
 - Why did this file change?
-- Which commits implemented task 193?
+- Which commits implemented this change?
 - What validation supported this behavior?
-- Which PRD requirement led to this implementation?
+- Which requirement led to this implementation?
 - What changed since the last checkpoint?
 - Which commits are relevant for a focused context pack?
 
@@ -32,7 +32,7 @@ Implemented immediately:
 - Approval-gated agent workflow
 - Human-readable docs and examples
 
-Planned later under Taskmaster task `193`:
+Planned later:
 
 - Optional commit provenance ingestion support
 - Commit source artifacts
@@ -70,20 +70,8 @@ A commit should represent one coherent intent:
 
 Avoid mixing unrelated changes just because they happened in the same session.
 
-### 3. Link AOC context
 
-Use Taskmaster/PRD context when available:
-
-```bash
-tm tag current
-aoc-task show <id> --tag <tag>
-aoc-task prd show <id> --tag <tag>
-tm tag prd show
-```
-
-Use retained project context only when it is needed and with an explicit reason; prefer targeted task/PRD lookups over broad memory dumps.
-
-### 4. Commit directly from `/commit`
+### 3. Commit directly from `/commit`
 
 The user's `/commit` invocation is approval for the agent to complete the safe Git commit flow directly:
 
@@ -112,7 +100,6 @@ aoc state status
 Tracked project-state filesets:
 
 - `.aoc/` excluding logs, locks, live runtime databases, downloaded tools, and backups
-- `.taskmaster/` excluding logs and locks
 - `.omp/skills/`
 - `.omp/extensions/`, `.omp/agents/`, and `.omp/skills/`
 - `AGENTS.md`, `DESIGN.md`, and relevant AOC docs/tests
@@ -186,9 +173,6 @@ Do not include:
 Use Git-trailer-style metadata at the bottom. Include only known values.
 
 ```text
-AOC-Task: <id>
-AOC-Subtask: <id.n>
-AOC-PRD: <path>
 AOC-Intent: <short durable intent>
 AOC-Session: <pi/aoc session id>
 AOC-Provenance: <artifact/provenance id>
@@ -199,7 +183,6 @@ Risk: low|medium|high; <reason>
 Minimal useful trailers:
 
 ```text
-AOC-Task: 193
 Tests: not run; docs/prompt only
 Risk: low; documentation-only workflow layer
 ```
@@ -214,9 +197,6 @@ approval-gated commits with structured AOC trailers. This establishes the
 message contract that future provenance ingestion can parse without requiring an
 immediate storage schema refactor.
 
-AOC-Task: 193
-AOC-Subtask: 193.1
-AOC-PRD: .taskmaster/docs/prds/aoc_commit_history_intelligence_prd_rpg.md
 AOC-Intent: establish commit history as durable AOC engineering intelligence
 Tests: not run; documentation and prompt only
 Risk: low; no runtime behavior changed
@@ -227,12 +207,8 @@ Risk: low; no runtime behavior changed
 ```text
 feat(commit): ingest commits as provenance artifacts
 
-Add idempotent commit ingestion so AOC can represent Git history as source artifacts. Parsed AOC trailers create explicit links to tasks, PRDs,
-sessions, files, and tests while preserving concise metadata by default.
+Add idempotent commit ingestion so AOC can represent Git history as source artifacts. Parsed AOC trailers create explicit links to sessions, files, and tests while preserving concise metadata by default.
 
-AOC-Task: 193
-AOC-Subtask: 193.4
-AOC-PRD: .taskmaster/docs/prds/aoc_commit_history_intelligence_prd_rpg.md
 AOC-Intent: make commit history queryable from retained provenance
 Tests: cargo test -p aoc-commit
 Risk: medium; adds provenance storage/query behavior
@@ -258,11 +234,6 @@ Bad:
 feat: everything from today
 ```
 
-Bad:
-
-```text
-AOC-Task: maybe 193?
-```
 
 If a reference is unknown, omit it rather than guessing.
 

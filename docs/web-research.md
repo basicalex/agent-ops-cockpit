@@ -59,10 +59,6 @@ aoc-search query --mode github --limit 3 "h4ckf0r0day/obscura"
 aoc-search query --mode package --direct --limit 3 "requests"
 aoc-fetch https://example.com --format markdown
 aoc-render status
-# optional managed install if Obscura is missing:
-aoc-obscura-install --json
-aoc-render https://example.com --format text
-bin/aoc-web-smoke
 ```
 
 ## Agent usage
@@ -124,12 +120,6 @@ aoc services start search
 aoc-services start search
 ```
 
-If search works but browser smoke fails:
-
-```bash
-agent-browser --version
-bin/aoc-web-smoke
-```
 
 Likely causes:
 

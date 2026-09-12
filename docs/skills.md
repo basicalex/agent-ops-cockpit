@@ -4,7 +4,6 @@
 
 Skills are reusable workflow playbooks stored in `.omp/skills/<name>/SKILL.md`.
 
-Task spec workflows use task-level links (legacy key `aocPrd`) and specs under `.taskmaster/docs/specs/`; `.taskmaster/docs/prds/` remains legacy-compatible.
 
 ## Sync behavior
 
