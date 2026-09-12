@@ -362,7 +362,6 @@ ensure_hyperframes_git_policy() {
     "/$target_dir/.cache/**" \
     "/$target_dir/node_modules/**" \
     "/$target_dir/.aoc/**" \
-    "/$target_dir/.taskmaster/**" \
     "/$target_dir/.thumbnails/**"; do
     if ! grep -Fqx "$line" "$ignore_file"; then
       printf '%s\n' "$line" >> "$ignore_file"

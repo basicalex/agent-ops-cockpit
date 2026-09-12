@@ -10,7 +10,7 @@ Scope: `bin`
 ## Verification
 - `PYTHONDONTWRITEBYTECODE=1 python3 -B bin/<changed-python-cli> --help >/dev/null`
 - `bash -n bin/<changed-bash-wrapper>`
-- `bash -n bin/aoc-context bin/aoc-hyperframes bin/aoc-init`
+- `bash -n bin/aoc-hyperframes bin/aoc-init`
 - `bin/<changed-command> --help >/dev/null`
 
 ## Do Not

@@ -51,7 +51,7 @@ fi
 
 if [[ $# -gt 0 ]]; then
   case "$1" in
-    task|mem|rlm|insight|overseer|map|dox|see|--help|-h)
+    mem|rlm|overseer|map|dox|see|--help|-h)
       # Assuming aoc-cli is in path or same directory
       if [[ -x "$DIR/aoc-cli" ]]; then
         exec "$DIR/aoc-cli" "$@"

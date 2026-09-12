@@ -102,7 +102,7 @@ PY
 }
 
 print_fast_context() {
-  local root initialized context_state agents_state vcs_line policy_line task_line
+  local root initialized context_state agents_state vcs_line policy_line
   root="$(find_aoc_root "${1:-$PWD}")"
   if [[ -d "$root/.aoc" ]]; then initialized="initialized"; else initialized="not initialized"; fi
   if [[ -f "$root/.aoc/context.md" ]]; then context_state="present"; else context_state="missing"; fi
@@ -116,24 +116,15 @@ print_fast_context() {
     policy_line="no VCS detected; do not commit until configured"
   fi
 
-  local tag
-  tag="$(cd "$root" && run_quick 1s tm tag current | first_line)"
-  if [[ -n "$tag" ]]; then
-    task_line="available; active tag \`$tag\`. Use CLI commands for task/spec details; do not read task JSON directly."
-  else
-    task_line="unknown at startup. Use \`tm tag current\` lazily if task/spec grounding is needed."
-  fi
 
   cat <<EOF
 # AOC Startup Context
 
-- Mode: metadata-only startup capsule; do not inject broad raw task state, raw AGENTS chains, skills, prompts, extension source, or docs by default.
+- Mode: metadata-only startup capsule; do not inject broad raw AGENTS chains, skills, prompts, extension source, or docs by default.
 - Root: \`$root\`
 - AOC: $initialized; context \`.aoc/context.md\` is $context_state; agent contract is $agents_state.
 - VCS: $vcs_line. Safety rule: $policy_line.
-- Taskmaster: $task_line
 - CodeGraph and other capability details are lazy lookups, not startup prose.
-- Protected direct reads: \`.taskmaster/tasks/tasks.json\`.
 EOF
   print_style_hooks
 }

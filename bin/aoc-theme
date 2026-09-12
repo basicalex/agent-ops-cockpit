@@ -1,5 +1,0 @@
-#!/usr/bin/env bash
-set -euo pipefail
-
-echo 'aoc-theme legacy Pi theme sync has been retired. Use Herdr/Omarchy/OMP theme configuration instead.' >&2
-exit 1

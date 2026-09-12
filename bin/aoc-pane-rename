@@ -1,6 +1,0 @@
-#!/usr/bin/env bash
-set -euo pipefail
-
-# Deprecated: pane title renaming was removed from AOC Yazi flows to reduce latency.
-# Kept as a no-op for compatibility with older configs/plugins.
-exit 0

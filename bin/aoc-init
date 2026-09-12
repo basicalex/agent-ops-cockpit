@@ -69,8 +69,6 @@ fi
 
 aoc_dir="$project_root/.aoc"
 gemini_dir="$project_root/.gemini"
-task_dir="$project_root/.taskmaster"
-global_task_conf="$HOME/.taskmaster/config.json"
 aoc_config_dir="${XDG_CONFIG_HOME:-$HOME/.config}/aoc"
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 aoc_init_state_file="$aoc_dir/init-state.json"
@@ -889,11 +887,6 @@ This file defines the always-on rules for agents in this repo. Procedural playbo
 ## Always-on rules
 - Use `.aoc/context.md` for orientation; run `aoc-init` if it is missing or stale.
 - Use root `DESIGN.md` as the visual/product design contract before UI, docs-site, marketing, HyperFrames, or other product-facing work.
-- **DO NOT manually read these files** - use the Bash tool to run CLI commands instead (see below).
-- Run AOC commands via Bash tool; do not read `.taskmaster/tasks/tasks.json` directly.
-
-## Startup handshake
-- `aoc-handshake --json` is the metadata-only startup packet for agents: AOC status, Taskmaster tag, Git repository state, and usage policy.
 
 ## Low-Token Default Mode
 - Keep responses concise by default; do not print full files or raw logs unless explicitly requested.
@@ -918,27 +911,16 @@ This file defines the always-on rules for agents in this repo. Procedural playbo
 ## AOC CLI Commands (run via Bash tool - NOT Read tool)
 These commands are in PATH and work without loading any skill:
 - Startup/repair: `aoc-handshake --json`, `aoc-init`
-- Tasks: `tm tag current`, `tm tag spec show`, `aoc-task tag spec show --tag <tag>`, `aoc-task spec show <id> --tag <tag>`
 - VCS: inspect detected mode with `aoc-handshake --json`; use `git status`/`git diff` in Git repositories.
-
 
 ## Core files
 - `.aoc/context.md`: auto-generated project snapshot.
 - `DESIGN.md`: project-wide visual/product design contract; subsystem design docs extend it.
-- `.taskmaster/docs/specs/`: spec documents linked to tags and tasks; `.taskmaster/docs/prds/` remains legacy-compatible.
-- Tag default specs are currently stored via legacy key `aocPrd`; resolve with `aoc-task tag spec show --tag <tag>`.
-- Task spec overrides are currently stored via legacy key `aocPrd`; resolve with `aoc-task spec show <id> --tag <tag>`.
-- Effective precedence is task spec override -> tag default spec.
-- Keep task specs in git: `.taskmaster/docs/specs/**` and legacy `.taskmaster/docs/prds/**` should always be tracked.
-- Keep AOC/task/config/source state in git: `.aoc/**`, `.taskmaster/**`, `.omp/extensions/**`, `.omp/agents/**`, `.omp/skills/**`, `AGENTS.md`, and `DESIGN.md` should not be ignored except explicit high-churn runtime artifacts such as logs, locks, caches, and debug output.
-
-## Task Management
-- `.taskmaster/tasks/tasks.json` is task state; use the Taskmaster TUI, `aoc-task`, or `tm` (alias for `aoc-task`). Do not edit the file directly.
+- Keep AOC/config/source state in git: `.aoc/**`, `.omp/extensions/**`, `.omp/agents/**`, `.omp/skills/**`, `AGENTS.md`, and `DESIGN.md` should not be ignored except explicit high-churn runtime artifacts such as logs, locks, caches, and debug output.
 
 ## Skills (load when needed)
 Load a skill only when its description matches the user request. Keep always-on guidance here minimal; procedural playbooks belong in skill files.
 
-Note: `tm` is a basic CLI command (see above) and needs no skill.
 EOF
 }
 
@@ -1168,7 +1150,7 @@ Apply these defaults unless the user asks for higher detail.
 
 - Keep replies concise and actionable (default: <= 8 bullets).
 - Start with direct path guesses before searching. Example: if asked about an OMP extension, check `.omp/extensions/` first.
-- Avoid broad scans by default. Do NOT run `tm list`, `git status`, or repo-wide `rg` unless the user asks or a targeted check fails.
+- Avoid broad scans by default. Do NOT run `git status` or repo-wide `rg` unless the user asks or a targeted check fails.
 - Use the fewest tool calls needed. For simple locate/explain requests, limit to 1-3 focused reads.
 - Hard budget before first answer: at most 3 tool calls unless the first attempt fails.
 - If unresolved after 3 calls, ask before broader escalation.
@@ -1214,13 +1196,10 @@ ensure_agents_contract() {
   cat <<'EOF' >> "$agents_file"
 
 ## Agent Ops Cockpit (AOC)
-Use the AOC tools for context and tasks in this repo.
+Use the AOC tools for context in this repo.
 
 - **Context:** `.aoc/context.md` (auto-generated project map)
 - **Design:** `DESIGN.md` at the project root is the visual/product design contract. Read it before UI, docs-site, marketing, HyperFrames, or other product-facing changes.
-- **Tasks:** use `tm` or `aoc-task` via Bash tool (do not edit `.taskmaster/tasks/tasks.json` directly)
-- **Task specs:** tag-level defaults + task-level overrides via `aocPrd` (resolve with `aoc-task tag spec show --tag <tag>` and `aoc-task spec show <id> --tag <tag>`)
-- **Startup handshake:** use `aoc-handshake --json` for metadata-only AOC, Taskmaster, and VCS availability. Use Git for repository changes.
 
 If AOC files are missing or stale, run `aoc-init` at the repo root.
 EOF
@@ -1249,8 +1228,6 @@ ensure_git_tracking_policy() {
     "# AOC tracking policy (managed by aoc-init)"
     "!/.aoc/"
     "!/.aoc/**"
-    "!/.taskmaster/"
-    "!/.taskmaster/**"
     "!/.omp/"
     "!/.omp/extensions/"
     "!/.omp/extensions/**"
@@ -1268,9 +1245,9 @@ ensure_git_tracking_policy() {
   done
 
   if [[ "$changed" == "1" ]]; then
-    log "Updated .gitignore to keep .aoc/, .taskmaster/, and repo-owned .omp/ sources tracked."
+    log "Updated .gitignore to keep .aoc/ and repo-owned .omp/ sources tracked."
   else
-    log ".gitignore already keeps .aoc/, .taskmaster/, and repo-owned .omp/ sources tracked."
+    log ".gitignore already keeps .aoc/ and repo-owned .omp/ sources tracked."
   fi
 }
 
@@ -1341,9 +1318,9 @@ setup_project_state() {
 
 
   if command -v tree >/dev/null 2>&1; then
-    tree_output="$(tree -L "$context_tree_depth" --gitignore -I '.git|.taskmaster|.aoc|.gemini|node_modules|target|dist|archive|deprecated|.venv|venv|__pycache__' "$project_root" 2>/dev/null || true)"
+    tree_output="$(tree -L "$context_tree_depth" --gitignore -I '.git|.aoc|.gemini|node_modules|target|dist|archive|deprecated|.venv|venv|__pycache__' "$project_root" 2>/dev/null || true)"
   else
-    tree_output="$(cd "$project_root" && find . -maxdepth "$context_tree_depth" \( -path './.git' -o -path './.taskmaster' -o -path './.aoc' -o -path './.gemini' -o -path './node_modules' -o -path './target' -o -path './dist' -o -path './archive' -o -path './deprecated' -o -path './.venv' -o -path './venv' -o -path './__pycache__' \) -prune -o -print 2>/dev/null | sort || true)"
+    tree_output="$(cd "$project_root" && find . -maxdepth "$context_tree_depth" \( -path './.git' -o -path './.aoc' -o -path './.gemini' -o -path './node_modules' -o -path './target' -o -path './dist' -o -path './archive' -o -path './deprecated' -o -path './.venv' -o -path './venv' -o -path './__pycache__' \) -prune -o -print 2>/dev/null | sort || true)"
   fi
   tree_lines="$(printf '%s\n' "$tree_output" | wc -l | tr -d ' ')"
 
@@ -1420,44 +1397,6 @@ setup_project_state() {
       echo "- Root DESIGN.md: missing (run aoc-init to seed)"
     fi
 
-    echo
-    echo "## Current Task Tag"
-    echo '```'
-    if command -v tm >/dev/null 2>&1; then
-      (cd "$project_root" && tm tag current 2>/dev/null || echo "unknown")
-    elif command -v aoc-task >/dev/null 2>&1; then
-      (cd "$project_root" && aoc-task tag current 2>/dev/null || echo "unknown")
-    elif command -v aoc-cli >/dev/null 2>&1; then
-      (cd "$project_root" && aoc-cli task tag current 2>/dev/null || echo "unknown")
-    elif command -v task-master >/dev/null 2>&1; then
-      echo "task-master does not expose current tag"
-    else
-      echo "Task command not found."
-    fi
-    echo '```'
-
-    echo
-    echo "## Active Workstreams (Tags)"
-    echo '```'
-    if command -v tm >/dev/null 2>&1; then
-      (cd "$project_root" && tm tag list 2>/dev/null || echo "No tags found.")
-    elif command -v aoc-task >/dev/null 2>&1; then
-      (cd "$project_root" && aoc-task tag list 2>/dev/null || echo "No tags found.")
-    elif command -v aoc-cli >/dev/null 2>&1; then
-      (cd "$project_root" && aoc-cli task tag list 2>/dev/null || echo "No tags found.")
-    elif command -v task-master >/dev/null 2>&1; then
-      (cd "$project_root" && task-master tags 2>/dev/null || echo "No tags found.")
-    else
-      echo "Task command not found."
-    fi
-    echo '```'
-
-    echo
-    echo "## Task spec Location"
-    echo "- Directory: .taskmaster/docs/specs"
-    echo "- Resolve tag spec default with: aoc-task tag spec show --tag <tag>"
-    echo "- Resolve task spec override with: aoc-task spec show <id> --tag <tag>"
-    echo "- Effective precedence: task spec override -> tag spec default"
   } > "$context_tmp"
 
   context_lines="$(wc -l < "$context_tmp" | tr -d ' ')"
@@ -2006,140 +1945,6 @@ PY
   fi
 }
 
-setup_tasks() {
-  log "Initializing Taskmaster..."
-
-  mkdir -p "$task_dir/tasks" "$task_dir/docs/specs" "$task_dir/docs/prds" "$task_dir/reports" "$task_dir/templates"
-
-  local native_init_ok=0
-  if command -v aoc-task >/dev/null 2>&1; then
-    if (cd "$project_root" && aoc-task init >/dev/null 2>&1); then
-      native_init_ok=1
-    else
-      warn "aoc-task init failed; using shell fallback for task scaffolding."
-    fi
-  elif command -v aoc-cli >/dev/null 2>&1; then
-    if (cd "$project_root" && aoc-cli task init >/dev/null 2>&1); then
-      native_init_ok=1
-    else
-      warn "aoc-cli task init failed; using shell fallback for task scaffolding."
-    fi
-  fi
-
-  if [[ "$native_init_ok" != "1" ]]; then
-    if [[ ! -f "$task_dir/tasks/tasks.json" ]]; then
-      cat <<EOF > "$task_dir/tasks/tasks.json"
-{
-  "master": {
-    "tasks": []
-  }
-}
-EOF
-    fi
-
-    if [[ ! -f "$task_dir/state.json" ]]; then
-      now_stamp="$(date -u +%Y-%m-%dT%H:%M:%S.%3NZ)"
-      cat <<EOF > "$task_dir/state.json"
-{
-  "currentTag": "master",
-  "lastUpdated": "${now_stamp}",
-  "lastSwitched": "${now_stamp}",
-  "branchTagMapping": {},
-  "migrationNoticeShown": true
-}
-EOF
-    fi
-  fi
-
-  local template_name=""
-  local template_src=""
-  local candidate=""
-  local template_candidates=(
-    "$aoc_config_dir/taskmaster/templates"
-    "$script_dir/../.taskmaster/templates"
-  )
-
-  for template_name in "example_prd.txt" "example_prd_rpg.txt"; do
-    if [[ -f "$task_dir/templates/$template_name" ]]; then
-      continue
-    fi
-    template_src=""
-    for candidate in "${template_candidates[@]}"; do
-      if [[ -f "$candidate/$template_name" ]]; then
-        template_src="$candidate/$template_name"
-        break
-      fi
-    done
-    if [[ -n "$template_src" ]]; then
-      cp "$template_src" "$task_dir/templates/$template_name"
-      log "Seeded Taskmaster template: $task_dir/templates/$template_name"
-    else
-      warn "No upstream template found for $template_name."
-    fi
-  done
-
-  local project_prd="$task_dir/docs/prd.md"
-  if [[ ! -f "$project_prd" ]]; then
-    if [[ -f "$task_dir/templates/example_prd.txt" ]]; then
-      cp "$task_dir/templates/example_prd.txt" "$project_prd"
-      log "Seeded project PRD from upstream template: $project_prd"
-    else
-      cat <<'EOF' > "$project_prd"
-# Product Requirements Document
-
-## Problem
-Describe the core user problem this project solves.
-
-## Goals
--
-
-## Non-Goals
--
-
-## User Stories
-- As a <user>, I want <capability> so that <outcome>.
-
-## Requirements
--
-
-## Acceptance Criteria
-- [ ]
-
-## Constraints
--
-
-## Risks
--
-
-## Test Strategy
--
-EOF
-      log "Seeded fallback project PRD template: $project_prd"
-    fi
-  fi
-
-  local project_prd_txt="$task_dir/docs/prd.txt"
-  if [[ -f "$project_prd" && ! -f "$project_prd_txt" ]]; then
-    cp "$project_prd" "$project_prd_txt"
-    log "Seeded Taskmaster-compatible project PRD copy: $project_prd_txt"
-  fi
-
-  # Config Seeding (Preserve existing logic, but ensure Gemini preference)
-  local local_conf="$task_dir/config.json"
-  
-  if [[ -f "$global_task_conf" ]]; then
-    if [[ ! -f "$local_conf" ]]; then
-      log "Seeding Taskmaster config from global defaults..."
-      cp "$global_task_conf" "$local_conf"
-    else
-      # Advanced: We could merge JSON here, but for now we trust the local config
-      # if it exists, assuming the user might have customized it for this specific repo.
-      log "Local Taskmaster config exists. Preserving."
-    fi
-  else
-    warn "No global Taskmaster config found at $global_task_conf. Skipping seed."
-  fi
-}
 
 # 3. Environment Checks
 setup_env() {
@@ -2178,58 +1983,6 @@ setup_aoc_map() {
 }
 
 
-# 4. Ensure AOC Rust binaries are available
-setup_binaries() {
-  if [[ "${AOC_INIT_SKIP_BUILD:-0}" == "1" ]]; then
-    log "Skipping Rust binary build (AOC_INIT_SKIP_BUILD=1)."
-    return
-  fi
-
-  local manifest_path=""
-  if [[ -f "$project_root/crates/Cargo.toml" ]]; then
-    manifest_path="$project_root/crates/Cargo.toml"
-  elif [[ -f "$script_dir/../crates/Cargo.toml" ]]; then
-    manifest_path="$script_dir/../crates/Cargo.toml"
-  fi
-
-  local required=(aoc-taskmaster)
-  local missing=()
-  local bin=""
-  local manifest_dir=""
-  if [[ -n "$manifest_path" ]]; then
-    manifest_dir="$(dirname "$manifest_path")"
-  fi
-
-  for bin in "${required[@]}"; do
-    if command -v "$bin" >/dev/null 2>&1; then
-      continue
-    fi
-    if [[ -n "$manifest_dir" ]]; then
-      if [[ -x "$manifest_dir/target/release/$bin" || -x "$manifest_dir/target/debug/$bin" ]]; then
-        continue
-      fi
-    fi
-    missing+=("$bin")
-  done
-
-  if ((${#missing[@]} == 0)); then
-    log "Rust binaries already available. Skipping build."
-    return
-  fi
-
-  if [[ -z "$manifest_path" ]]; then
-    warn "Rust workspace not found. Missing binaries: ${missing[*]}"
-    return
-  fi
-
-  if ! command -v cargo >/dev/null 2>&1; then
-    warn "cargo not found; unable to build binaries: ${missing[*]}"
-    return
-  fi
-
-  log "Building AOC Rust binaries: ${required[*]}"
-  cargo build --manifest-path "$manifest_path" -p aoc-taskmaster
-}
 
 main() {
   if [[ "$aoc_init_check_managed_only" == "1" ]]; then
@@ -2258,10 +2011,8 @@ main() {
   setup_aoc_preset_assets
   setup_skills
   setup_aoc_map
-  setup_tasks
   ensure_git_tracking_policy
   setup_env
-  setup_binaries
   refresh_aoc_managed_manifest
   write_project_aoc_state
   log "AOC Initialization Complete. Ready to launch."

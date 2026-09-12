@@ -81,7 +81,6 @@ mkdir -p "$AOC_CONFIG_DIR/btop"
 mkdir -p "$AOC_CONFIG_DIR/pi/skills"
 mkdir -p "$AOC_CONFIG_DIR/pi/prompts"
 mkdir -p "$AOC_CONFIG_DIR/pi/extensions"
-mkdir -p "$AOC_CONFIG_DIR/taskmaster/templates"
 mkdir -p "$AOC_CONFIG_DIR/skills-optional"
 mkdir -p "$AOC_CONFIG_DIR/prompts-optional/pi"
 mkdir -p "$AOC_CONFIG_DIR/omp/extensions"
@@ -646,6 +645,7 @@ for f in "$ROOT_DIR/bin/"*; do
 done
 
 required_bin_scripts=(
+  aoc-html-video
   aoc
   aoc-herdr-launch
   aoc-herdr-install
@@ -653,19 +653,16 @@ required_bin_scripts=(
   aoc-jcode-install
   aoc-prime-agent-install
   aoc-contract-install
-  aoc-compare
   aoc-omp
   aoc-omp-context
   aoc-omp-shim-install
   aoc-omp-seed
   aoc-omp-update
-  aoc-utils.sh
   aoc-init
   aoc-handshake
   aoc-doctor
   aoc-memory-link
   aoc-claude-memory-hook
-  tm
 )
 missing_installed_scripts=()
 for script_name in "${required_bin_scripts[@]}"; do
@@ -678,6 +675,52 @@ if ((${#missing_installed_scripts[@]} > 0)); then
   warn "Script install incomplete; missing in $BIN_DIR: ${missing_installed_scripts[*]}"
   exit 1
 fi
+
+# Remove retired artifacts from prior installs.
+retired_paths=(
+  "$BIN_DIR/aoc-task"
+  "$BIN_DIR/tm"
+  "$BIN_DIR/aoc-taskmaster"
+  "$BIN_DIR/aoc-tm"
+  "$BIN_DIR/tm-editor"
+  "$BIN_DIR/aoc-align"
+  "$BIN_DIR/aoc-compare"
+  "$BIN_DIR/aoc-context"
+  "$BIN_DIR/aoc-insight"
+  "$BIN_DIR/aoc-migrate"
+  "$BIN_DIR/aoc-obscura-install"
+  "$BIN_DIR/aoc-pane-rename"
+  "$BIN_DIR/aoc-prime-goal-rescue"
+  "$BIN_DIR/aoc-prime-review"
+  "$BIN_DIR/aoc-sys"
+  "$BIN_DIR/aoc-theme"
+  "$BIN_DIR/aoc-utils.sh"
+  "$BIN_DIR/aoc-web-smoke"
+  "$BIN_DIR/aoc-yazi"
+  "$BIN_DIR/aoc-yazi-preview"
+  "$BIN_DIR/aoc-mem"
+  "$BIN_DIR/aoc-stm"
+  "$BIN_DIR/aoc-rtk"
+  "$BIN_DIR/aoc-mind"
+  "$BIN_DIR/aoc-mind-service"
+  "$AOC_CONFIG_DIR/taskmaster"
+  "$AOC_CONFIG_DIR/omp/skills/tm-cc"
+  "$AOC_CONFIG_DIR/omp/skills/spec-rpg-authoring"
+  "$AOC_CONFIG_DIR/pi/skills/tm-cc"
+  "$AOC_CONFIG_DIR/pi/skills/spec-rpg-authoring"
+  "$AOC_CONFIG_DIR/pi/skills/prd-rpg-authoring"
+  "$AOC_CONFIG_DIR/pi/prompts/tm-cc.md"
+  "$AOC_CONFIG_DIR/presets/ops/components/mode-tasks.md"
+  "$HOME/.omp/agent/skills/tm-cc"
+  "$HOME/.omp/agent/skills/spec-rpg-authoring"
+  "${XDG_CONFIG_HOME:-$HOME/.config}/yazi/plugins/aoc-title.yazi"
+)
+for retired_path in "${retired_paths[@]}"; do
+  if [[ -e "$retired_path" || -L "$retired_path" ]]; then
+    log "Removing retired artifact: $retired_path"
+    rm -rf "$retired_path"
+  fi
+done
 
 # Remove retired non-PI wrappers from previous installs.
 retired_prefixed_wrappers=(
@@ -1009,17 +1052,6 @@ if [[ -d "$ROOT_DIR/.omp" ]]; then
   fi
 fi
 
-# Upstream Taskmaster PRD templates for project seeding
-if [[ -d "$ROOT_DIR/.taskmaster/templates" ]]; then
-  for f in "$ROOT_DIR/.taskmaster/templates"/example_prd*.txt; do
-    [[ -f "$f" ]] || continue
-    dest="${XDG_CONFIG_HOME:-$HOME/.config}/aoc/taskmaster/templates/$(basename "$f")"
-    if [[ -f "$dest" ]]; then
-      continue
-    fi
-    cp "$f" "$dest"
-  done
-fi
 
 # AOC default PI prompt templates
 for prompt_source_dir in "$ROOT_DIR/.pi/prompts" "$ROOT_DIR/.aoc/prompts/pi"; do
@@ -1042,7 +1074,6 @@ done
 
 required_pi_prompts=(
   aoc-ops
-  tm-cc
 )
 for prompt_name in "${required_pi_prompts[@]}"; do
   installed_prompt="${XDG_CONFIG_HOME:-$HOME/.config}/aoc/pi/prompts/${prompt_name}.md"
