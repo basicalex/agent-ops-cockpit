@@ -1,7 +1,7 @@
 ---
 name: artifact-pages
 description: Deliver any artifact, page, report, brief, board, dashboard, or one-off HTML deliverable as a private page on docs.intrface.eu/<project>/<slug>/ from the shared artifact library (~/dev/artifact-library), independent of which Claude account or harness (claude, claude-codex, omp) produced it. Use whenever the user asks for an artifact or a page to look at or share with a client, when republishing or updating an existing artifact, when they want a share link for a client, or when a claude.ai artifact must be captured into the library. Invoke as /artifact-pages [<project>/<slug>] [share|public|private|list|sync].
-argument-hint: "[<project>/<slug>] [share [--days N] | public | private | list | sync <claude-artifact-url>]"
+argument-hint: "[<project>/<slug>] [share [--days N] | public | private | list | sync <claude-artifact-url> | decide | supersede --by <p>/<s> | research]"
 ---
 
 # artifact-pages
@@ -33,6 +33,32 @@ A multi-file page (index.html plus siblings) is a directory entry: put the folde
 ## Update an existing artifact
 
 Edit the body file in the library, then `artifact-pages add <project>/<slug>` and `artifact-pages publish`. The library file is the source of truth: if a claude.ai copy is newer (someone edited it there), capture it first with **sync** below, then edit.
+
+## Research and decisions
+
+Every page is one of two kinds. **Research** is the default: surveys, scans, studies, audits — informational, may be superseded, nobody builds on it directly. **Decision** is what the team builds against: briefs, specs, plans, charters. A decision is either active or superseded by a later one.
+
+```
+artifact-pages decide <p>/<s>                    # this page is a decision, active
+artifact-pages supersede <p>/<s> --by <p>/<s>    # retire it in favour of another decision
+artifact-pages research <p>/<s>                  # back to research
+```
+
+`add` takes the same fields directly: `--kind research|decision`, `--status active|superseded`, `--superseded-by <p>/<s>`.
+
+The project page lists decisions first (superseded ones muted, with a link to what replaced them), research below. **Before proposing direction in a project, read its active decisions on the project page** — they are the ground you are building on.
+
+Only the user marks a page as a decision. Suggest it when a page reads like one; never run `decide` or `supersede` unprompted.
+
+## Read a page from an agent
+
+```
+artifact-pages show <p>/<s> [--raw] [--max N]     # the page as plain text, with a title/kind/URL header
+artifact-pages find <words…> [--project P] [--decisions]   # search titles, slugs, notes and page text
+artifact-pages decisions [<project>] [--all]      # active decisions and their URLs
+```
+
+An agent that needs a page's content runs `artifact-pages show <project>/<slug>`; it never fetches docs.intrface.eu or opens the claude.ai artifact.
 
 ## Sync a claude.ai artifact into the library
 

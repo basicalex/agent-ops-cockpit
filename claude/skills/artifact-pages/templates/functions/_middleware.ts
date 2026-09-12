@@ -148,7 +148,7 @@ export const onRequest = async (ctx: { request: Request; env: Env; next: () => P
   }
 
   const owner = await isOwner(request, env.DOCS_SECRET);
-  if (path === "/_access.json") return owner ? ctx.next() : new Response("Not found", { status: 404 });
+  if (path === "/_access.json" || path === "/_search.json") return owner ? ctx.next() : new Response("Not found", { status: 404 });
 
   const access = await loadAccess(env, url.origin);
   const prefix = matchPrefix(path, access);
