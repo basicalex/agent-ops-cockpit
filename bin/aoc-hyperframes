@@ -630,7 +630,7 @@ composition_id_for_file() {
 composition_has_timeline() {
   local file="$1" id="$2"
   [[ -n "$id" ]] || return 1
-  grep -Eq "window\.__timelines\[[\"']$id[\"']\]|window\.__timelines\.$id|__timelines" "$file"
+  grep -Eq "window\.__timelines\[[\"']${id}[\"']\]|window\.__timelines\.${id}|__timelines" "$file"
 }
 
 catalog_content() {
