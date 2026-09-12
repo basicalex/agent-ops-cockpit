@@ -20,6 +20,8 @@ const HOME = homedir();
 const LIB = process.env.ARTIFACT_LIBRARY || join(HOME, "dev", "artifact-library");
 const SKILL_DIR = resolve(dirname(Bun.main), "..");
 const ENV_FILE = process.env.ARTIFACT_PAGES_ENV || join(HOME, ".config", "aoc", "artifact-pages.env");
+// Pinned: unpinned `bunx wrangler` resolves to a build whose esbuild dependency is missing from bun's cache.
+const WRANGLER = process.env.ARTIFACT_PAGES_WRANGLER || "wrangler@4.129.1";
 const DEFAULTS = { project: "intrface-docs", host: "docs.intrface.eu", branch: "main" };
 
 type Entry = {
@@ -293,7 +295,7 @@ function cmdBuild(): Manifest {
 }
 
 function wrangler(args: string[], cwd: string): number {
-  const r = spawnSync("bunx", ["wrangler", ...args], { cwd, stdio: "inherit", env: { ...process.env, CLOUDFLARE_API_TOKEN: cfToken() } });
+  const r = spawnSync("bunx", [WRANGLER, ...args], { cwd, stdio: "inherit", env: { ...process.env, CLOUDFLARE_API_TOKEN: cfToken() } });
   return r.status ?? 1;
 }
 
@@ -302,7 +304,7 @@ function cmdSecrets() {
   const env = readEnvFile();
   for (const k of ["DOCS_SECRET", "DOCS_PASSWORD"]) {
     if (!env[k]) die(`${k} missing in ${ENV_FILE}`);
-    const r = spawnSync("bunx", ["wrangler", "pages", "secret", "put", k, "--project-name", m.site.project], {
+    const r = spawnSync("bunx", [WRANGLER, "pages", "secret", "put", k, "--project-name", m.site.project], {
       cwd: join(LIB, "site"), input: env[k], stdio: ["pipe", "inherit", "inherit"], env: { ...process.env, CLOUDFLARE_API_TOKEN: cfToken() },
     });
     if (r.status !== 0) die(`failed to set ${k}`);
