@@ -5,7 +5,6 @@ members = [
     "localhost-manage",
     "aoc-core",
     "aoc-storage",
-    "aoc-taskmaster",
     "aoc-yazi-mermaid",
 ]
 resolver = "2"

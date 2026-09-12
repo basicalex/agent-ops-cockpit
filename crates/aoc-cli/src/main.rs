@@ -6,7 +6,6 @@ mod insight;
 mod map;
 mod overseer;
 mod rlm;
-mod task;
 
 #[derive(Parser)]
 #[command(name = "aoc")]
@@ -18,11 +17,6 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Commands {
-    /// Manage tasks
-    Task {
-        #[command(subcommand)]
-        action: task::TaskCommand,
-    },
     /// Manage memory
     Mem {
         #[command(subcommand)]
@@ -65,7 +59,6 @@ fn main() -> Result<()> {
     let cli = Cli::parse();
 
     match cli.command {
-        Commands::Task { action } => task::handle_task_command(action),
         Commands::Mem { action } => match action {
             MemCommands::Add { content } => {
                 println!("Adding memory: {}", content);

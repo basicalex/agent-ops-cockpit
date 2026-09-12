@@ -1393,7 +1393,6 @@ impl ArtifactTaskLink {
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum RouteOrigin {
-    Taskmaster,
     Heuristic,
     ManualOverride,
 }
@@ -1864,7 +1863,7 @@ mod tests {
             ArtifactTaskRelation::WorkedOn,
             9_350,
             vec!["e3".to_string(), "e1".to_string(), "e1".to_string()],
-            "taskmaster+conversation".to_string(),
+            "workstream+conversation".to_string(),
             ts(),
             Some(ts()),
         )
@@ -1881,7 +1880,7 @@ mod tests {
             ArtifactTaskRelation::WorkedOn,
             10_001,
             vec!["e1".to_string()],
-            "taskmaster+conversation".to_string(),
+            "workstream+conversation".to_string(),
             ts(),
             None,
         )

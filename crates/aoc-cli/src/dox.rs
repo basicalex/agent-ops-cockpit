@@ -999,7 +999,6 @@ fn risks_for_path(rel: &str, scan: &ScanFacts) -> Vec<String> {
 fn is_high_risk_path(rel: &str) -> bool {
     let rel = rel.trim_start_matches("./");
     rel.starts_with(".aoc/")
-        || rel.starts_with(".taskmaster/")
         || rel.starts_with(".omp/")
         || rel.starts_with("scripts/")
         || rel.starts_with("bin/")

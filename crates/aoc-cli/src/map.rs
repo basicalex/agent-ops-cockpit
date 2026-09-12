@@ -873,15 +873,6 @@ fn default_collections() -> Vec<CollectionRecord> {
             order: 20,
         },
         CollectionRecord {
-            key: "tasks".to_string(),
-            title: "Tasks".to_string(),
-            description: Some(
-                "Taskmaster flows, dependencies, delivery plans, and work decomposition."
-                    .to_string(),
-            ),
-            order: 30,
-        },
-        CollectionRecord {
             key: "mind".to_string(),
             title: "Mind".to_string(),
             description: Some(

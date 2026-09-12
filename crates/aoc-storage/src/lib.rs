@@ -3615,7 +3615,6 @@ fn parse_relation(value: &str) -> Option<ArtifactTaskRelation> {
 
 fn route_origin_as_str(origin: RouteOrigin) -> &'static str {
     match origin {
-        RouteOrigin::Taskmaster => "taskmaster",
         RouteOrigin::Heuristic => "heuristic",
         RouteOrigin::ManualOverride => "manual_override",
     }
@@ -3623,7 +3622,6 @@ fn route_origin_as_str(origin: RouteOrigin) -> &'static str {
 
 fn parse_route_origin(value: &str) -> Option<RouteOrigin> {
     match value {
-        "taskmaster" => Some(RouteOrigin::Taskmaster),
         "heuristic" => Some(RouteOrigin::Heuristic),
         "manual_override" => Some(RouteOrigin::ManualOverride),
         _ => None,
@@ -4755,8 +4753,8 @@ mod tests {
                     confidence_bps: 5_000,
                 },
             ],
-            routed_by: RouteOrigin::Taskmaster,
-            reason: "taskmaster_tag_map:tag=mind->segment=mind".to_string(),
+            routed_by: RouteOrigin::Heuristic,
+            reason: "tag_map:tag=mind->segment=mind".to_string(),
             overridden_by: None,
         };
 
@@ -4772,7 +4770,7 @@ mod tests {
         assert_eq!(loaded.secondary.len(), 2);
         assert_eq!(loaded.secondary[0].segment_id, "global");
         assert_eq!(loaded.secondary[1].segment_id, "uncertain");
-        assert_eq!(loaded.routed_by, RouteOrigin::Taskmaster);
+        assert_eq!(loaded.routed_by, RouteOrigin::Heuristic);
         assert_eq!(loaded.reason, route.reason);
     }
 

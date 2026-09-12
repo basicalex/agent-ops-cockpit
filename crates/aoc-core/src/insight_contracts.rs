@@ -134,7 +134,7 @@ pub struct InsightBootstrapResult {
     #[serde(default)]
     pub gaps: Vec<InsightBootstrapGap>,
     #[serde(default)]
-    pub taskmaster_projection: Vec<InsightTaskProposal>,
+    pub task_projection: Vec<InsightTaskProposal>,
     #[serde(default)]
     pub seeds: Vec<InsightSeedJob>,
 }
