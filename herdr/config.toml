@@ -27,9 +27,10 @@ new_tab = "alt+n"
 rename_tab = "alt+shift+r"
 previous_tab = "alt+i"
 next_tab = "alt+o"
-# Reorder the active tab in place (Herdr 0.8.2+); Cmd+Shift+U / Cmd+Shift+P in Ghostty.
-move_tab_previous = "alt+shift+u"
-move_tab_next = "alt+shift+p"
+# Reorder the active tab in place (Herdr 0.8.2+); Cmd+Shift+I / Cmd+Shift+O in Ghostty
+# (shifted previous_tab / next_tab).
+move_tab_previous = "alt+shift+i"
+move_tab_next = "alt+shift+o"
 switch_tab = "alt+1..9"
 # Agent attention queue: alt+a jumps to the next sidebar agent (Cmd+A in Ghostty).
 # With agent_panel_sort = "priority" the walk starts at blocked/done agents.
@@ -50,10 +51,11 @@ cycle_pane_previous = "prefix+shift+tab"
 last_pane = "alt+tab"
 rename_pane = "alt+r"
 close_pane = "alt+shift+w"
-# Swap the focused pane with its left/right neighbour; Cmd+Shift+I / Cmd+Shift+O in Ghostty.
+# Swap the focused pane with its left/right neighbour; Cmd+Shift+H / Cmd+Shift+L in Ghostty
+# (shifted focus_pane_left / focus_pane_right).
 # Up/down swaps stay on the default prefix+shift+k / prefix+shift+j.
-swap_pane_left = "alt+shift+i"
-swap_pane_right = "alt+shift+o"
+swap_pane_left = "alt+shift+h"
+swap_pane_right = "alt+shift+l"
 
 # Pane/layout actions.
 split_vertical = "alt+v"
@@ -66,6 +68,11 @@ edit_scrollback = "prefix+e"
 
 [ui]
 show_agent_labels_on_pane_borders = false
+# herder theme: coral accent, pane gaps and outer frame on.
+accent = "#F26E5F"
+pane_gaps = true
+pane_borders = "auto"
+pane_outer_borders = true
 
 agent_panel_sort = "priority"
 [ui.toast]
@@ -78,5 +85,28 @@ pane_history = false
 [ui.sound]
 enabled = true
 
+# herder theme: follow the terminal palette (ghostty/themes/herder) with warm
+# charcoal surfaces that match its background.
 [theme]
 name = "terminal"
+
+[theme.custom]
+accent = "#F26E5F"
+panel_bg = "#1B1816"
+sidebar_bg = "#161412"
+active_row_bg = "#2A2521"
+selection_bg = "#4A3830"
+surface0 = "#262220"
+surface1 = "#332E2A"
+surface_dim = "#151311"
+overlay0 = "#5C5A55"
+overlay1 = "#8A867E"
+text = "#E8E4D8"
+subtext0 = "#A8A398"
+red = "#F26E5F"
+green = "#4ED66B"
+yellow = "#F5DC5C"
+blue = "#5DB8F0"
+mauve = "#F58AB8"
+teal = "#6EE0D0"
+peach = "#F5A65B"

@@ -3,14 +3,18 @@
 # Option sends Alt (Esc-prefixed) so herdr's alt+hjkl / alt+1..9 bindings work.
 macos-option-as-alt = true
 
+# Theme: herder (ghostty/themes/herder).
+theme = herder
+macos-titlebar-style = hidden
+
 # Font
 font-family = "JetBrainsMonoNL Nerd Font"
 font-style = Regular
 font-size = 12
 
 # Window
-window-padding-x = 14
-window-padding-y = 14
+window-padding-x = 20
+window-padding-y = 20
 confirm-close-surface = false
 resize-overlay = never
 
@@ -44,15 +48,14 @@ keybind = super+k=esc:k
 keybind = super+l=esc:l
 keybind = super+i=esc:i
 keybind = super+o=esc:o
-# Cmd+Shift+I / Cmd+Shift+O -> herdr swap_pane_left / swap_pane_right (alt+shift+i, alt+shift+o).
+# Cmd+Shift+H / Cmd+Shift+L -> herdr swap_pane_left / swap_pane_right (alt+shift+h, alt+shift+l).
+keybind = super+shift+h=esc:H
+keybind = super+shift+l=esc:L
+# Cmd+Shift+I / Cmd+Shift+O -> herdr move_tab_previous / move_tab_next (alt+shift+i, alt+shift+o).
+# ESC+O and ESC+N are C1 escape introducers (SS3, SS2), so those chords are sent as kitty
+# CSI u key reports (codepoint;modifiers=1+shift+alt) instead of esc:<letter>.
 keybind = super+shift+i=esc:I
 keybind = super+shift+o=text:\x1b[111;4u
-# Cmd+Shift+U / Cmd+Shift+P -> herdr move_tab_previous / move_tab_next (alt+shift+u, alt+shift+p).
-# ESC+O, ESC+P and ESC+N are C1 escape introducers (SS3, DCS, SS2), so those chords are sent
-# as kitty CSI u key reports (codepoint;modifiers=1+shift+alt) instead of esc:<letter>.
-# Ghostty's default Cmd+Shift+P command palette is overridden here.
-keybind = super+shift+u=esc:U
-keybind = super+shift+p=text:\x1b[112;4u
 keybind = super+x=esc:x
 # Cmd+P → alt+p: Claude Code's default model picker (chat:modelPicker).
 # Herdr reserves alt+p for future OMP agent selection — revisit if it lands.

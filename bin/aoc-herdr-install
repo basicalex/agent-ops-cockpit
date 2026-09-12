@@ -312,6 +312,11 @@ install_macos_host_configs() {
     cp "$ghostty_src" "$ghostty_dst"
     echo "Installed Ghostty config to $ghostty_dst (reload: Cmd+Shift+, in Ghostty)"
   fi
+  if [[ -d "$repo_root/ghostty/themes" ]]; then
+    mkdir -p "$ghostty_dir/themes"
+    cp "$repo_root/ghostty/themes/"* "$ghostty_dir/themes/"
+    echo "Installed Ghostty themes to $ghostty_dir/themes"
+  fi
 
   local hs_src="$repo_root/hammerspoon/init.lua"
   local hs_dst="$HOME/.hammerspoon/init.lua"

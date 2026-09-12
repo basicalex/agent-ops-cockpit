@@ -1,0 +1,31 @@
+# herder — screen-print palette on a warm charcoal ground.
+# Worn black shirt, cream ink, coral/lemon/lime/cyan/pink print colours,
+# pairs with herdr [theme.custom] in herdr/config.toml.
+
+background = #1B1816
+foreground = #E8E4D8
+
+cursor-color = #F5DC5C
+cursor-text = #000000
+
+selection-background = #4A3830
+selection-foreground = #FFFDF5
+
+# normal
+palette = 0=#26221F
+palette = 1=#F26E5F
+palette = 2=#4ED66B
+palette = 3=#F5DC5C
+palette = 4=#5DB8F0
+palette = 5=#F58AB8
+palette = 6=#6EE0D0
+palette = 7=#C9C4B8
+# bright
+palette = 8=#5C5A55
+palette = 9=#FF8A7A
+palette = 10=#7BF08F
+palette = 11=#FFEB7A
+palette = 12=#86D3FF
+palette = 13=#FFA8CC
+palette = 14=#9AF0E4
+palette = 15=#FFFDF5
