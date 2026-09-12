@@ -17,11 +17,6 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Commands {
-    /// Manage memory
-    Mem {
-        #[command(subcommand)]
-        action: MemCommands,
-    },
     /// Analyze large codebases (RLM)
     Rlm {
         #[command(subcommand)]
@@ -50,21 +45,10 @@ enum Commands {
     },
 }
 
-#[derive(Subcommand)]
-enum MemCommands {
-    Add { content: String },
-}
-
 fn main() -> Result<()> {
     let cli = Cli::parse();
 
     match cli.command {
-        Commands::Mem { action } => match action {
-            MemCommands::Add { content } => {
-                println!("Adding memory: {}", content);
-                Ok(())
-            }
-        },
         Commands::Dox { action } => dox::handle_dox_command(action),
         Commands::Rlm { action } => rlm::handle_rlm_command(action),
         Commands::Insight { action } => insight::handle_insight_command(action),

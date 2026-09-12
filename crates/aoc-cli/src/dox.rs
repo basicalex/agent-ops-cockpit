@@ -1047,13 +1047,18 @@ fn build_coverage(
     candidates: &[DoxCandidate],
     args: &MapArgs,
 ) -> Result<Vec<DoxDirectoryCoverage>> {
+    // find_agents_chain returns canonical paths; compare against canonical roots so a
+    // symlinked project path (macOS /var -> /private/var, user symlinks) is not
+    // misclassified as RootOnly.
+    let project_root = &canonical_or_self(project_root);
     let mut coverage = Vec::new();
     for dir in directories {
+        let dir = &canonical_or_self(dir);
         let chain = find_agents_chain(project_root, dir)?;
         let chain_rel: Vec<String> = chain.iter().map(|path| rel_path(project_root, path)).collect();
         let bytes = measure_agents_bytes(&chain)?;
         let rel = rel_path(project_root, dir);
-        let exact = chain.iter().any(|path| path.parent() == Some(dir));
+        let exact = chain.iter().any(|path| path.parent() == Some(dir.as_path()));
         let risk_score = candidates.iter().find(|candidate| candidate.path == rel).map(|candidate| candidate.score).unwrap_or(0);
         let mut level = if exact {
             CoverageLevel::Specific
@@ -1347,6 +1352,10 @@ fn push_markdown_table_row(lines: &mut Vec<String>, cells: &[String]) {
 
     lines.push(format!("| {} |", row));
 }
+fn canonical_or_self(path: &Path) -> PathBuf {
+    path.canonicalize().unwrap_or_else(|_| path.to_path_buf())
+}
+
 fn find_agents_chain(project_root: &Path, cwd: &Path) -> Result<Vec<PathBuf>> {
     let root = project_root.canonicalize().unwrap_or_else(|_| project_root.to_path_buf());
     let cwd_abs = if cwd.exists() { cwd.canonicalize().unwrap_or_else(|_| cwd.to_path_buf()) } else { cwd.to_path_buf() };
@@ -1639,7 +1648,7 @@ mod tests {
 
     #[test]
     fn agents_chain_prefers_override_and_skips_empty() {
-        let root = temp_root("chain");
+        let root = temp_root("chain").canonicalize().unwrap();
         fs::write(root.join("AGENTS.md"), "root").unwrap();
         let child = root.join("child");
         fs::create_dir_all(&child).unwrap();
