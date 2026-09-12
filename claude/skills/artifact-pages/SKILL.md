@@ -8,7 +8,7 @@ argument-hint: "[<project>/<slug>] [share [--days N] | public | private | list |
 
 One library, one site, every harness. Artifacts are HTML page bodies in `~/dev/artifact-library/<project>/<slug>.html`, registered in `manifest.json`, built and deployed to Cloudflare Pages as `https://docs.intrface.eu/<project>/<slug>/`. The site is private: the owner signs in once with the password from `~/.config/aoc/artifact-pages.env`; a client gets a signed share link or the page is flipped to public.
 
-The claude.ai Artifact tool is optional on top. It is account-bound (two accounts on this machine, no private cross-account sharing), so the library and the docs site are the canonical copy and the claude.ai page is a convenience mirror when the Artifact tool exists in the current harness.
+"Give me an artifact" or "report this as an artifact" means this docs page and nothing else. Do not use the claude.ai Artifact tool unless the user explicitly asks for a claude.ai artifact: it is account-bound (two accounts on this machine, no private cross-account sharing). The library and the docs site are the only copy; the `claude.<account>` URLs in the manifest are historical mirrors captured before the docs site existed.
 
 CLI: `~/.claude/skills/artifact-pages/bin/artifact-pages` (bun). Run `artifact-pages` with no arguments for usage. Everything below is that CLI plus authoring rules.
 
@@ -26,7 +26,7 @@ CLI: `~/.claude/skills/artifact-pages/bin/artifact-pages` (bun). Run `artifact-p
    artifact-pages publish -m "<project>: <slug>"
    ```
    `add` is idempotent: rerun it after every edit to bump the date. `publish` builds `site/`, deploys with wrangler, and commits the library repo.
-4. Report the URL `https://docs.intrface.eu/<project>/<slug>/` to the user. If the Artifact tool is available in this harness and the user wants a claude.ai copy too, publish the same file with it and record the URL: `artifact-pages add <project>/<slug> --claude-url <url> --account <prodigyceii30|basicalex>` (the account is the signed-in email's local part).
+4. Report the URL `https://docs.intrface.eu/<project>/<slug>/` to the user. Only when the user explicitly asks for a claude.ai copy as well, publish the same file with the Artifact tool and record the URL: `artifact-pages add <project>/<slug> --claude-url <url> --account <prodigyceii30|basicalex>` (the account is the signed-in email's local part).
 
 A multi-file page (index.html plus siblings) is a directory entry: put the folder at `<project>/<slug>/` and register with `--dir`.
 
