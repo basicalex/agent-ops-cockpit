@@ -160,17 +160,117 @@ function wrapBody(body: string, fallbackTitle: string): string {
 }
 
 // ---------- listing pages ----------
-const LIST_CSS = `<style>body{margin:0;background:#f5f1eb;color:#0f1729;font:15px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;padding:clamp(24px,6vh,64px) clamp(16px,6vw,72px)}
-main{max-width:860px;margin:0 auto}h1{font-size:22px;font-weight:500;margin:0 0 6px}h2{font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:#47536b;font-weight:600;margin:32px 0 8px}
-p{color:#47536b;margin:0 0 20px}ul{list-style:none;margin:0;padding:0;border-top:1px solid rgba(15,23,41,.14)}li{display:flex;gap:14px;align-items:baseline;padding:11px 0;border-bottom:1px solid rgba(15,23,41,.14)}
-a{color:inherit;text-decoration:none}a:hover{text-decoration:underline}.d{margin-left:auto;font-variant-numeric:tabular-nums;color:#47536b;font-size:13px;white-space:nowrap}
-.v{font-size:11px;letter-spacing:.06em;text-transform:uppercase;padding:2px 7px;border:1px solid rgba(15,23,41,.2);color:#47536b}.v.public{border-color:#0f766e;color:#0f766e}
-nav{font-size:13px;color:#47536b;margin-bottom:22px}nav a{color:#0f766e}</style>`;
-function listPage(title: string, nav: string, sections: Array<{ heading: string; items: Array<{ href: string; label: string; date?: string; vis?: string }> }>): string {
-  const body = sections
-    .map((s) => `<h2>${esc(s.heading)}</h2><ul>${s.items.map((i) => `<li><a href="${i.href}">${esc(i.label)}</a>${i.vis ? `<span class="v ${i.vis}">${i.vis}</span>` : ""}${i.date ? `<span class="d">${i.date}</span>` : ""}</li>`).join("")}</ul>`)
+const DARK_TOKENS = `--ground:#191817;--raise:#211f1d;--ink:#ece8de;--ink-2:#a9a396;--ink-3:#8b8578;--rule:#302d29;--rule-strong:#433e37;--accent:#97b4e2;--public:#dba85c;--public-soft:#2b2317`;
+const LIST_CSS = `<style>
+:root{color-scheme:light;--ground:#faf9f5;--raise:#ffffff;--ink:#141413;--ink-2:#5f5b52;--ink-3:#8a8578;--rule:#e5e1d6;--rule-strong:#cdc8ba;--accent:#34507c;--public:#8a5512;--public-soft:#f5ead9;
+--serif:"Iowan Old Style","Palatino Linotype",Palatino,Georgia,ui-serif,serif;--sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;--mono:ui-monospace,SFMono-Regular,"SF Mono",Menlo,Consolas,monospace}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){color-scheme:dark;${DARK_TOKENS}}}
+:root[data-theme="dark"]{color-scheme:dark;${DARK_TOKENS}}
+*{box-sizing:border-box}[hidden]{display:none!important}
+body{margin:0;background:var(--ground);color:var(--ink);font:15px/1.55 var(--sans);-webkit-font-smoothing:antialiased;padding-block:clamp(26px,5vh,56px);padding-inline:16px}
+main{max-width:780px;margin:0 auto}
+a{color:var(--accent);text-decoration:none}
+a:hover{text-decoration:underline}
+a:focus-visible,input:focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:2px}
+.top{display:flex;flex-wrap:wrap;gap:8px 16px;align-items:baseline;justify-content:space-between;padding-bottom:6px}
+.top .crumb{font-size:13px;color:var(--ink-3)}
+.top .crumb span{padding:0 5px}
+.out{font-size:13px;color:var(--ink-3)}
+h1{font:400 26px/1.2 var(--serif);letter-spacing:-.01em;margin:14px 0 0;text-wrap:balance}
+.count{margin:5px 0 0;font-size:13px;color:var(--ink-2)}
+.count b{font-weight:500;font-variant-numeric:tabular-nums}
+.list{margin-top:22px;border-top:1px solid var(--rule)}
+.proj{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:5px 14px;align-items:baseline;padding:16px 10px;margin-inline:-10px;border-bottom:1px solid var(--rule);color:inherit;border-radius:3px;transition:background .12s ease}
+.proj:hover{background:var(--raise);text-decoration:none}
+.proj .name{font:500 19px/1.25 var(--serif)}
+.proj .side{grid-column:2;display:flex;gap:12px;align-items:baseline;white-space:nowrap}
+.proj .n{font:12px/1 var(--mono);color:var(--ink-3)}
+.teaser{grid-column:1/-1;font-size:13px;color:var(--ink-2);margin-top:1px}
+.teaser i{font-style:normal;color:var(--rule-strong);padding:0 6px}
+.row{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:6px 14px;align-items:baseline;padding:15px 0;border-bottom:1px solid var(--rule)}
+.row .t{font:500 17px/1.3 var(--serif);color:var(--ink);text-wrap:balance}
+.row .t:hover{color:var(--accent)}
+.d{font:12px/1 var(--mono);color:var(--ink-3);font-variant-numeric:tabular-nums;white-space:nowrap;justify-self:end}
+.meta{grid-column:1/-1;display:flex;flex-wrap:wrap;gap:7px 10px;align-items:center;font-size:12.5px;color:var(--ink-3)}
+.slug{font:12px/1 var(--mono);color:var(--ink-2);word-break:break-all}
+.badge{font:11px/1 var(--sans);letter-spacing:.07em;text-transform:uppercase;padding:3px 6px;border:1px solid var(--rule-strong);color:var(--ink-3);border-radius:2px}
+.badge.public{border-color:var(--public);color:var(--public);background:var(--public-soft)}
+.mirror{display:flex;flex-wrap:wrap;gap:0 8px;align-items:center}
+.mirror .k{color:var(--ink-3)}
+.note{grid-column:1/-1;font-size:13px;color:var(--ink-2);max-width:62ch}
+.filter{margin:20px 0 0}
+.flabel{display:block;margin-bottom:7px;font-size:13px;color:var(--ink-2)}
+.filter input{width:100%;max-width:300px;font:14px var(--sans);color:var(--ink);background:var(--raise);border:1px solid var(--rule-strong);border-radius:4px;padding:9px 11px}
+.filter input::placeholder{color:var(--ink-3)}
+.empty{margin:22px 0;font-size:14px;color:var(--ink-2)}
+@media (max-width:430px){h1{font-size:23px}.row .t{font-size:16px}.proj .name{font-size:18px}
+.proj{grid-template-columns:minmax(0,1fr)}.proj .side{grid-column:1}}
+@media (prefers-reduced-motion:reduce){*{transition:none!important}}
+</style>`;
+
+function listShell(title: string, body: string, script = ""): string {
+  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${esc(title)}</title>${LIST_CSS}</head><body><main>${body}</main>${script}</body></html>\n`;
+}
+function plural(n: number, word: string): string {
+  return `${n} ${word}${n === 1 ? "" : "s"}`;
+}
+function byUpdatedDesc(a: Entry, b: Entry): number {
+  return b.updated.localeCompare(a.updated) || a.title.localeCompare(b.title);
+}
+function latestUpdate(entries: Entry[]): string {
+  return entries.reduce((acc, e) => (e.updated > acc ? e.updated : acc), "");
+}
+
+function rootPage(host: string, byProject: Map<string, Entry[]>): string {
+  const projects = [...byProject.entries()].sort(
+    (a, b) => latestUpdate(b[1]).localeCompare(latestUpdate(a[1])) || a[0].localeCompare(b[0]),
+  );
+  const cards = projects
+    .map(([p, entries]) => {
+      const recent = [...entries].sort(byUpdatedDesc).slice(0, 3);
+      const teaser = recent.map((e) => esc(e.title)).join(`<i>·</i>`);
+      return `<a class="proj" href="/${p}/"><span class="name">${esc(p)}</span><span class="side"><span class="n">${plural(entries.length, "page")}</span><span class="d">${esc(latestUpdate(entries))}</span></span><span class="teaser">${teaser}</span></a>`;
+    })
     .join("");
-  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${esc(title)}</title>${LIST_CSS}</head><body><main><nav>${nav}</nav><h1>${esc(title)}</h1>${body}<p style="margin-top:32px;font-size:13px"><a href="/_logout">Sign out</a></p></main></body></html>\n`;
+  const total = [...byProject.values()].reduce((n, e) => n + e.length, 0);
+  const body = `<div class="top"><span class="crumb">${esc(host)}</span><a class="out" href="/_logout">Sign out</a></div>
+<h1>Intrface documents</h1>
+<p class="count"><b>${plural(projects.length, "project")}</b> · <b>${plural(total, "page")}</b></p>
+<div class="list">${cards}</div>`;
+  return listShell("Intrface documents", body);
+}
+
+function projectPage(project: string, entries: Entry[]): string {
+  const sorted = [...entries].sort(byUpdatedDesc);
+  const rows = sorted
+    .map((e) => {
+      const mirrors = Object.keys(e.claude || {}).sort();
+      const mirror = mirrors.length
+        ? `<span class="mirror"><span class="k">claude.ai</span>${mirrors.map((a) => `<a href="${esc(e.claude![a])}">${esc(a)}</a>`).join("")}</span>`
+        : "";
+      const note = e.note ? `<p class="note">${esc(e.note)}</p>` : "";
+      const search = esc(`${e.title} ${e.slug}`.toLowerCase());
+      return `<div class="row" data-search="${search}"><a class="t" href="/${project}/${e.slug}/">${esc(e.title)}</a><span class="d">${esc(e.updated)}</span><span class="meta"><span class="slug">${esc(e.slug)}</span><span class="badge ${e.visibility}">${e.visibility}</span>${mirror}</span>${note}</div>`;
+    })
+    .join("");
+  const filter = sorted.length > 8
+    ? `<div class="filter"><label for="q" class="flabel">Filter by title or slug</label><input id="q" type="search" autocomplete="off" placeholder="Type to filter"></div>`
+    : "";
+  const script = sorted.length > 8
+    ? `<script>
+(function(){var q=document.getElementById("q"),rows=[].slice.call(document.querySelectorAll(".row")),c=document.getElementById("count"),empty=document.getElementById("empty");
+function run(){var v=q.value.trim().toLowerCase(),n=0;rows.forEach(function(r){var hit=!v||r.getAttribute("data-search").indexOf(v)>=0;r.hidden=!hit;if(hit)n++;});
+c.textContent=v?n+" of "+rows.length:rows.length+(rows.length===1?" page":" pages");empty.hidden=n>0;}
+q.addEventListener("input",run);run();})();
+</script>`
+    : "";
+  const body = `<div class="top"><span class="crumb"><a href="/">All projects</a><span>›</span>${esc(project)}</span><a class="out" href="/_logout">Sign out</a></div>
+<h1>${esc(project)}</h1>
+<p class="count"><b id="count">${plural(sorted.length, "page")}</b></p>
+${filter}
+<div class="list">${rows}</div>
+<p class="empty" id="empty" hidden>No page matches that text.</p>`;
+  return listShell(`${project} — Intrface documents`, body, script);
 }
 
 function copyDir(src: string, dst: string) {
@@ -282,11 +382,9 @@ function cmdBuild(): Manifest {
     byProject.set(e.project, [...(byProject.get(e.project) || []), e]);
   }
   for (const [p, entries] of byProject) {
-    const items = entries.map((e) => ({ href: `/${p}/${e.slug}/`, label: e.title, date: e.updated, vis: e.visibility }));
-    writeFileSync(join(site, "dist", p, "index.html"), listPage(p, `<a href="/">All projects</a>`, [{ heading: "Pages", items }]));
+    writeFileSync(join(site, "dist", p, "index.html"), projectPage(p, entries));
   }
-  const root = [...byProject.keys()].sort().map((p) => ({ href: `/${p}/`, label: `${p} · ${byProject.get(p)!.length} page${byProject.get(p)!.length === 1 ? "" : "s"}` }));
-  writeFileSync(join(site, "dist", "index.html"), listPage("Intrface documents", `${m.site.host}`, [{ heading: "Projects", items: root }]));
+  writeFileSync(join(site, "dist", "index.html"), rootPage(m.site.host, byProject));
   writeFileSync(join(site, "dist", "_access.json"), JSON.stringify(access, null, 2));
   writeFileSync(join(site, "dist", "_headers"), `/*\n  X-Robots-Tag: noindex\n  Referrer-Policy: same-origin\n  Cache-Control: no-store\n`);
   writeIndexMd(m);
