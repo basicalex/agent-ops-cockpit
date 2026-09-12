@@ -87,6 +87,7 @@ be the thing carrying worker behavior.
   herdr pane read <qualified-id> | grep "esc⟩"
   ```
   Spinner present ⇒ busy; absent ⇒ idle. (omp renders the spinner hint as `⟨esc⟩` with angle brackets — `grep "(esc"` never matches and reports permanently-idle.)
+  Current omp builds do not always show `esc⟩` while working (false idle on 2026-09-12: three busy workers read idle on the first monitor). Also match the status-bar task suffix and the working glyph: `grep -E "esc⟩|Execute master assignment|󱊷"` on the last 4 lines of the pane. macOS has no `timeout`; use plain loops or `gtimeout`.
 - Never conscript panes the user didn't name — panes may carry other in-progress work.
 
 ## 2. Packet protocol
