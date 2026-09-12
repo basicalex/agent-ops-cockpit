@@ -213,6 +213,24 @@ for skill_dir in "$claude_src/skills"/*/; do
   done < <(find "$skill_dir" \( -name node_modules -o -name .git \) -prune -o -type f ! -name '*.bak.*' -print0)
 done
 
+# Skills that live in their own repo: clone when missing, then link the
+# checkout into the skills dir so edits there are live.
+external_skill() {
+  local name="$1" repo="$2" dir="$3"
+  if [[ ! -d "$dir/.git" ]]; then
+    if ! git clone -q "$repo" "$dir"; then
+      echo "aoc-claude-install: could not clone $repo; skipping skill $name" >&2
+      return 0
+    fi
+  fi
+  if [[ -d "$skills_dst/$name" && ! -L "$skills_dst/$name" ]]; then
+    rm -rf "$skills_dst/$name"
+  fi
+  ln -sfn "$dir" "$skills_dst/$name"
+  echo "aoc-claude-install: linked $skills_dst/$name -> $dir"
+}
+external_skill artifact-pages git@github.com:basicalex/intrface-docs.git "$HOME/dev/intrface-docs"
+
 # Skill executables become plain commands so omp/codex workers and shell
 # scripts can call them without knowing the skill path.
 mkdir -p "$HOME/.local/bin"
