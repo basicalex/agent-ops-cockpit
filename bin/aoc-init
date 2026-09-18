@@ -1335,7 +1335,7 @@ setup_project_state() {
     echo
     echo "## Repository"
     echo "- Name: $project_name"
-    echo "- Root: $project_root"
+    echo "- Root: ${project_root/#$HOME/\~}"
     aoc_vcs_context_lines
 
     echo

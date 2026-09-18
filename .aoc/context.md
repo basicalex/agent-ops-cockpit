@@ -2,7 +2,7 @@
 
 ## Repository
 - Name: agent-ops-cockpit
-- Root: /Users/basicalex/dev/agent-ops-cockpit
+- Root: ~/dev/agent-ops-cockpit
 - VCS: git
 - Git branch: main
 

@@ -1,0 +1,16 @@
+#!/usr/bin/env bash
+# Point this clone's git hooks at the versioned .githooks directory.
+# Run once per clone. Installs gitleaks when brew is available and it is missing.
+set -euo pipefail
+
+root="$(git rev-parse --show-toplevel 2>/dev/null)" || { echo "not inside a git repository" >&2; exit 1; }
+git -C "$root" config core.hooksPath .githooks
+echo "core.hooksPath -> .githooks"
+
+if ! command -v gitleaks >/dev/null 2>&1; then
+  if command -v brew >/dev/null 2>&1; then
+    brew install gitleaks
+  else
+    echo "gitleaks not found; install it so the pre-commit secret scan runs: https://github.com/gitleaks/gitleaks#installing" >&2
+  fi
+fi

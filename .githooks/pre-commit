@@ -1,0 +1,18 @@
+#!/usr/bin/env bash
+# Block commits that add credentials. Scans staged changes with gitleaks.
+# Skip once with: AOC_SKIP_GITLEAKS=1 git commit ...
+set -euo pipefail
+
+[[ "${AOC_SKIP_GITLEAKS:-0}" == "1" ]] && exit 0
+
+if ! command -v gitleaks >/dev/null 2>&1; then
+  echo "pre-commit: gitleaks not installed (brew install gitleaks); skipping secret scan" >&2
+  exit 0
+fi
+
+if ! gitleaks git --pre-commit --staged --no-banner --redact=60 >/dev/null 2>&1; then
+  echo "pre-commit: gitleaks found a credential in the staged changes. Commit blocked." >&2
+  gitleaks git --pre-commit --staged --no-banner --redact=60 --verbose 2>&1 | grep -E '^(Finding|Secret|RuleID|File|Line):' >&2 || true
+  echo "pre-commit: remove the secret, or set AOC_SKIP_GITLEAKS=1 for a known false positive." >&2
+  exit 1
+fi
