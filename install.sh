@@ -7,6 +7,8 @@ AOC_CONFIG_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/aoc"
 OS_NAME="$(uname -s)"
 SHELL_PATH_MARKER_BEGIN="# >>> agent-ops-cockpit PATH >>>"
 SHELL_PATH_MARKER_END="# <<< agent-ops-cockpit PATH <<<"
+SHELL_YAZI_MARKER_BEGIN="# >>> agent-ops-cockpit yazi >>>"
+SHELL_YAZI_MARKER_END="# <<< agent-ops-cockpit yazi <<<"
 
 ensure_shell_path_profiles() {
   is_truthy "${AOC_SKIP_SHELL_PROFILE:-0}" && return 0
@@ -35,6 +37,56 @@ EOF
 $SHELL_PATH_MARKER_BEGIN
 export PATH="\$HOME/.local/bin:\$PATH"
 $SHELL_PATH_MARKER_END
+EOF
+  done
+
+  ensure_shell_yazi_profiles "$fish_profile"
+}
+
+# `y` opens yazi and leaves the shell in the directory yazi was closed in.
+# Seeded once per profile behind markers; an existing `alias y` is dropped
+# first so the function name is not alias-expanded while the file is read.
+ensure_shell_yazi_profiles() {
+  local fish_profile="$1"
+  local profile
+
+  if ! grep -Fq "$SHELL_YAZI_MARKER_BEGIN" "$fish_profile"; then
+    printf '\n' >>"$fish_profile"
+    cat >>"$fish_profile" <<EOF
+$SHELL_YAZI_MARKER_BEGIN
+function y --description 'Open yazi and cd to where it was closed'
+    set -l tmp (mktemp -t yazi-cwd.XXXXXX); or return
+    yazi \$argv --cwd-file="\$tmp"
+    if test -f "\$tmp"
+        set -l cwd (cat -- "\$tmp")
+        if test -n "\$cwd"; and test "\$cwd" != "\$PWD"
+            builtin cd -- "\$cwd"
+        end
+    end
+    rm -f -- "\$tmp"
+end
+$SHELL_YAZI_MARKER_END
+EOF
+  fi
+
+  for profile in "$HOME/.zshrc" "$HOME/.bashrc"; do
+    if [[ -f "$profile" ]] && grep -Fq "$SHELL_YAZI_MARKER_BEGIN" "$profile"; then
+      continue
+    fi
+    printf '\n' >>"$profile"
+    cat >>"$profile" <<EOF
+$SHELL_YAZI_MARKER_BEGIN
+unalias y 2>/dev/null
+y() {
+  local tmp cwd
+  tmp="\$(mktemp -t yazi-cwd.XXXXXX)" || return
+  yazi "\$@" --cwd-file="\$tmp"
+  if cwd="\$(<"\$tmp")" && [[ -n "\$cwd" && "\$cwd" != "\$PWD" ]]; then
+    builtin cd -- "\$cwd"
+  fi
+  rm -f -- "\$tmp"
+}
+$SHELL_YAZI_MARKER_END
 EOF
   done
 }

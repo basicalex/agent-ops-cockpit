@@ -52,7 +52,7 @@ Existing Claude and global agent policy files receive timestamped `.bak` copies 
 
 ## Restart the shell
 
-The installer adds a marked `~/.local/bin` PATH block for fish, zsh, and bash. Restart the shell or open a new terminal before running installed commands.
+The installer adds two marked blocks to fish, zsh, and bash: `~/.local/bin` on PATH, and a `y` function that opens yazi and leaves the shell in the directory yazi was closed in. Restart the shell or open a new terminal before running installed commands.
 
 To skip profile edits:
 
@@ -60,7 +60,7 @@ To skip profile edits:
 AOC_SKIP_SHELL_PROFILE=1 ./install.sh
 ```
 
-Then add `~/.local/bin` to PATH yourself.
+Then add `~/.local/bin` to PATH yourself; the `y` function is optional.
 
 ## Manual steps
 

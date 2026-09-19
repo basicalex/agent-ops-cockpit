@@ -79,6 +79,8 @@ AOC_INSTALL_PRIME_AGENT=0 ./install.sh    # skip prime-agent install
 AOC_SKIP_SHELL_PROFILE=1 ./install.sh     # leave shell profiles unchanged
 ```
 
+The profile step writes two marked blocks to zsh, bash, and fish: `~/.local/bin` on PATH, and a `y` function that opens yazi and leaves the shell in the directory yazi was closed in.
+
 ## Requirements
 
 Bootstrap prerequisites:

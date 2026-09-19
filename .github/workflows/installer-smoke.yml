@@ -41,6 +41,8 @@ jobs:
               test -f ~/.config/yazi/yazi.toml
               test -f ~/.config/yazi/plugins/aoc-open.yazi/main.lua
               grep -Fq \"local editor = \\\"micro\\\"\" ~/.config/yazi/plugins/aoc-open.yazi/main.lua
+              grep -Fq '# >>> agent-ops-cockpit yazi >>>' ~/.bashrc
+              bash -ic 'type y' 2>/dev/null | grep -q 'is a function'
 
               mkdir -p ~/sandbox && cd ~/sandbox
               git init
@@ -88,6 +90,8 @@ jobs:
               test -f ~/.config/yazi/yazi.toml
               test -f ~/.config/yazi/plugins/aoc-open.yazi/main.lua
               grep -Fq \"local editor = \\\"micro\\\"\" ~/.config/yazi/plugins/aoc-open.yazi/main.lua
+              grep -Fq '# >>> agent-ops-cockpit yazi >>>' ~/.bashrc
+              bash -ic 'type y' 2>/dev/null | grep -q 'is a function'
 
               mkdir -p ~/sandbox && cd ~/sandbox
               git init
