@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Installs machine-global agent policy, Codex defaults, Claude skills, and
-# Claude Code permission defaults.
+# Installs agent policy, Claude skills and permissions, Codex defaults and design
+# skills, and warns about missing Claude plugin installs.
 
 repo_root="${AOC_SOURCE_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
 claude_src="$repo_root/claude"
@@ -159,6 +159,103 @@ PY
   echo "aoc-claude-install: installed $settings_file"
 }
 
+install_impeccable() {
+  if [[ "${AOC_SKIP_IMPECCABLE:-0}" == "1" ]]; then
+    echo "aoc-claude-install: skipped Impeccable (AOC_SKIP_IMPECCABLE=1)"
+    return 0
+  fi
+  if [[ "${AOC_CLAUDE_INSTALL_OFFLINE:-0}" == "1" ]]; then
+    echo "aoc-claude-install: skipped Impeccable (AOC_CLAUDE_INSTALL_OFFLINE=1)"
+    return 0
+  fi
+  if ! command -v bunx >/dev/null 2>&1; then
+    echo "aoc-claude-install: skipped Impeccable (bunx not on PATH)"
+    return 0
+  fi
+
+  if ! (cd "$HOME" && bunx impeccable@latest update --global -y); then
+    echo "aoc-claude-install: warning: Impeccable update failed" >&2
+  fi
+
+  local skill_file="$HOME/.claude/skills/impeccable/SKILL.md"
+  if [[ -f "$skill_file" ]]; then
+    local version
+    version="$(awk '
+      NR == 1 && $0 != "---" { exit }
+      NR > 1 && $0 == "---" { exit }
+      /^version:[[:space:]]*/ {
+        sub(/^version:[[:space:]]*/, "")
+        gsub(/^[[:space:]"]+|[[:space:]"]+$/, "")
+        print
+        exit
+      }
+    ' "$skill_file")"
+    if [[ -n "$version" ]]; then
+      echo "aoc-claude-install: Impeccable version $version"
+    else
+      echo "aoc-claude-install: warning: Impeccable version not found in $skill_file" >&2
+    fi
+  else
+    echo "aoc-claude-install: warning: Impeccable skill not found at $skill_file" >&2
+  fi
+}
+
+link_codex_skills() {
+  local name target dst display_dst
+  mkdir -p "$codex_home/skills"
+  for name in impeccable design-principles; do
+    [[ -d "$skills_dst/$name" ]] || continue
+    dst="$codex_home/skills/$name"
+    if [[ -e "$dst" && ! -L "$dst" ]]; then
+      echo "aoc-claude-install: kept existing $dst"
+      continue
+    fi
+    target="$skills_dst/$name"
+    display_dst="$dst"
+    if [[ "$codex_home" == "$HOME/.codex" && "$claude_home" == "$HOME/.claude" ]]; then
+      target="../../.claude/skills/$name"
+      display_dst="${dst/#"$HOME"/\~}"
+    fi
+    ln -sfn "$target" "$dst"
+    echo "aoc-claude-install: linked $display_dst -> $target"
+  done
+}
+
+warn_dead_plugins() {
+  local registry="$claude_home/plugins/installed_plugins.json"
+  [[ -f "$registry" ]] || return 0
+  python3 - "$registry" <<'PY'
+import json
+import os
+import sys
+
+registry = sys.argv[1]
+try:
+    with open(registry) as file:
+        plugins = json.load(file).get("plugins", {})
+except (OSError, ValueError, AttributeError) as exc:
+    print(f"aoc-claude-install: warning: cannot read {registry}: {exc}", file=sys.stderr)
+    raise SystemExit(0)
+
+if isinstance(plugins, dict):
+    for name, installs in plugins.items():
+        if isinstance(installs, dict):
+            installs = [installs]
+        if not isinstance(installs, list):
+            continue
+        for install in installs:
+            if not isinstance(install, dict):
+                continue
+            path = install.get("installPath")
+            if isinstance(path, str) and path and not os.path.exists(path):
+                print(
+                    f"aoc-claude-install: warning: missing Claude plugin path {path}; "
+                    f"claude plugin uninstall {name}",
+                    file=sys.stderr,
+                )
+PY
+}
+
 warn_orchestration_prereqs() {
   local status_output=""
 
@@ -230,6 +327,8 @@ external_skill() {
   echo "aoc-claude-install: linked $skills_dst/$name -> $dir"
 }
 external_skill artifact-pages git@github.com:basicalex/intrface-docs.git "$HOME/dev/intrface-docs"
+install_impeccable
+link_codex_skills
 
 # Skill executables become plain commands so omp/codex workers and shell
 # scripts can call them without knowing the skill path.
@@ -249,5 +348,6 @@ if [[ -d "$claude_src/output-styles" ]]; then
   done
 fi
 
+warn_dead_plugins
 warn_orchestration_prereqs
 echo "aoc-claude-install: done"
