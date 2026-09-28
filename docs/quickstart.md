@@ -69,19 +69,3 @@ aoc services start search
 ```
 
 See [Web research](web-research.md).
-
-## Optional: HyperFrames
-
-Use the AOC HyperFrames CLI or the OMP brand pipeline:
-
-```bash
-aoc-hyperframes
-```
-
-OMP slash command:
-
-```text
-/brand-content
-```
-
-See [HyperFrames](hyperframes.md).

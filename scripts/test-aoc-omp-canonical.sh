@@ -52,12 +52,9 @@ run_init_fixture() {
   local config="$runtime/config.yml"
   mkdir -p "$project" "$runtime"
   printf 'disabledExtensions:\n  - extension-module:third-party\nextensions:\n  - stale-extension.ts\n' >"$config"
-  mkdir -p "$runtime/extensions" "$runtime/skills/aoc-hyperframes" "$runtime/agents"
-  printf 'stale extension\n' >"$runtime/extensions/aoc-brand-content.ts"
+  mkdir -p "$runtime/extensions" "$runtime/agents"
   printf 'stale removed AOC extension\n' >"$runtime/extensions/aoc-jj-init.ts"
   printf 'stale removed Herdr extension\n' >"$runtime/extensions/aoc-herdr.ts"
-  printf 'stale skill\n' >"$runtime/skills/aoc-hyperframes/SKILL.md"
-  printf 'stale AOC agent\n' >"$runtime/agents/brand-strategy.md"
   printf 'user agent\n' >"$runtime/agents/user-local.md"
   if [[ -n "$profiles" ]]; then
     AOC_INIT_SKIP_BUILD=1 AOC_OMP_PROFILES="$profiles" AOC_OMP_AGENT_DIR="$runtime" AOC_OMP_AGENT_CONFIG="$config" bash "$root/bin/aoc-init" "$project" >&2
@@ -104,7 +101,6 @@ for forbidden in \
   aoc-master.ts \
   aoc-commit.ts \
   aoc-state.ts \
-  aoc-brand-content.ts \
   aoc-web-search.ts \
   aoc-dox-command.ts; do
   assert_absent "$default_runtime/extensions/$forbidden"
@@ -113,10 +109,6 @@ assert_absent "$default_runtime/extensions/aoc-jj-init.ts"
 assert_absent "$default_runtime/extensions/aoc-herdr.ts"
 
 for forbidden in \
-  brand-strategy.md \
-  brand-concept.md \
-  svg-asset.md \
-  hyperframes-content.md \
   dox-scout.md \
   dox-mapper.md \
   dox-critic.md \
@@ -129,10 +121,6 @@ from pathlib import Path
 import sys
 config = Path(sys.argv[1]).read_text(encoding='utf-8')
 for name in (
-    'brand-strategy',
-    'brand-concept',
-    'svg-asset',
-    'hyperframes-content',
     'dox-scout',
     'dox-mapper',
     'dox-critic',
@@ -160,11 +148,6 @@ for forbidden in \
   funnel-design \
   safe-gamification \
   omarchy-theme-ops \
-  aoc-hyperframes \
-  hyperframes \
-  hyperframes-cli \
-  website-to-hyperframes \
-  gsap \
   aoc-dox-cartography \
   ponytail-review \
   ponytail-audit \
@@ -178,7 +161,6 @@ for disabled_extension in \
   extension-module:aoc-master \
   extension-module:aoc-commit \
   extension-module:aoc-state \
-  extension-module:aoc-brand-content \
   extension-module:aoc-web-search \
   extension-module:aoc-dox-command; do
   if ! grep -Fq "  - $disabled_extension" "$default_config"; then

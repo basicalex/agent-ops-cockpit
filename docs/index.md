@@ -23,8 +23,6 @@ This is the human entrypoint. Start here before opening architecture or maintain
 | DOX cartography `/dox` | [DOX cartography](dox-cartography.md) |
 | Track tasks and project context | [Tasks and project context](tasks-memory.md) |
 | Research the web | [Web research](web-research.md) |
-| Iterate visual designs in a GUI studio | [Open Design studio](open-design.md) |
-| Create video/campaign assets | [HyperFrames](hyperframes.md) |
 | Configure agents/skills | [Agents](agents.md), [Skills](skills.md) |
 | Fix problems | [Troubleshooting](troubleshooting.md) |
 
@@ -41,7 +39,6 @@ Use these when you need exact contracts or paths:
 - [Project contract](reference/project-contract.md)
 - [Architecture](reference/architecture.md)
 - [Managed assets](managed-assets.md)
-- [Open Design studio](open-design.md)
 - [Commit intelligence](commit-intelligence.md)
 - [Agent extensibility](agent-extensibility.md)
 

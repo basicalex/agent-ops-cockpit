@@ -60,14 +60,9 @@ fi
 for required in \
   .omp/extensions/aoc-codegraph.ts \
   .omp/extensions/aoc-commit.ts \
-  .omp/extensions/aoc-brand-content.ts \
   .omp/extensions/aoc-web-search.ts \
   .omp/extensions/aoc-style.ts \
   .omp/extensions/aoc-profile.ts \
-  .omp/agents/brand-strategy.md \
-  .omp/agents/brand-concept.md \
-  .omp/agents/svg-asset.md \
-  .omp/agents/hyperframes-content.md \
   .omp/skills/aoc-dox-cartography/SKILL.md \
   .omp/skills/aoc-init-ops/SKILL.md \
   .omp/skills/ponytail-workflows/SKILL.md; do
@@ -110,9 +105,9 @@ if [[ "$raw_args" != *"<prompt with spaces>"* ]]; then
   exit 1
 fi
 
-run_aoc_omp AOC_OMP_PROFILES=core,hyperframes bin/aoc-omp run
+run_aoc_omp AOC_OMP_PROFILES=core,dox bin/aoc-omp run
 raw_args="$(cat "$raw_log")"
-if [[ "$raw_args" != *"<aoc-understand,ponytail-workflows,aoc-hyperframes,hyperframes,hyperframes-cli,website-to-hyperframes,gsap>"* ]]; then
+if [[ "$raw_args" != *"<aoc-understand,ponytail-workflows,aoc-dox-cartography>"* ]]; then
   echo "ERROR: combined profile launch did not forward all active skills once" >&2
   exit 1
 fi

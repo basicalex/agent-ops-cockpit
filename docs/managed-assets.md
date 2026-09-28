@@ -14,7 +14,6 @@ Managed by default:
 Project-authored, preserve by default:
 
 ```text
-hyperframes/**
 docs/** outside generated AOC docs
 source code outside managed AOC paths
 ```
@@ -23,11 +22,9 @@ Managed markers use `.aoc-managed` files with asset id, source, checksum, and ti
 
 ```text
 aoc-managed: true
-asset: skill/aoc-hyperframes
+asset: skill/aoc-init-ops
 asset-version: 3
-source: .omp/skills/aoc-hyperframes
+source: .omp/skills/aoc-init-ops
 sha256: <installed tree/file sha256>
 updated-at: <utc>
 ```
-
-If a managed target changed since the last recorded checksum, AOC backs it up before refresh. HyperFrames uses the same rule: `.omp/skills/aoc-hyperframes/**` and `.aoc/presets/hyperframes/**` are managed; `hyperframes/**` workspace content is project-authored after seed.

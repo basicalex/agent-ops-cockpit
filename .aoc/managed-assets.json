@@ -10,15 +10,6 @@
       "source": ".aoc/presets/design",
       "status": "current"
     },
-    ".aoc/presets/hyperframes": {
-      "asset": "preset/hyperframes",
-      "assetVersion": 4,
-      "expectedSha256": "e35aa4706b8911d231f4a16628796639729c5705b9b7dfd8e3acb803d907df85",
-      "marker": ".aoc/presets/hyperframes/.aoc-managed",
-      "sha256": "e35aa4706b8911d231f4a16628796639729c5705b9b7dfd8e3acb803d907df85",
-      "source": ".aoc/presets/hyperframes",
-      "status": "current"
-    },
     ".aoc/presets/ops": {
       "asset": "preset/ops",
       "assetVersion": 4,
@@ -80,15 +71,6 @@
       "marker": ".omp/skills/.aoc-managed",
       "sha256": "d77445f2c279a9c745d96735778f0deea212a95c2c8f541fe75fc220d5160cdf",
       "source": "../.config/aoc/omp/skills",
-      "status": "dirty"
-    },
-    ".omp/skills/aoc-hyperframes": {
-      "asset": "skill/aoc-hyperframes",
-      "assetVersion": 3,
-      "expectedSha256": "69c2d4c7005c50d8218dd27e48d4ddc6689174d55672408cb0c8e1db6a5b65ca",
-      "marker": ".omp/skills/aoc-hyperframes/.aoc-managed",
-      "sha256": "325630d26d903ead6568f0f8decfb67cbabfcacb007a9e0a378ac547027b4bff",
-      "source": "../.config/aoc/pi/skills/aoc-hyperframes",
       "status": "dirty"
     },
     ".omp/skills/aoc-init-ops": {

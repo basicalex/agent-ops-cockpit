@@ -50,20 +50,19 @@ EOF
 assert_lines_equal "$tmp/combined-skills.out" "$tmp/combined-skills.expected"
 
 if grep -Fxq 'aoc-master.ts' "$tmp/default-extensions.out" || \
-   grep -Fxq 'aoc-brand-content.ts' "$tmp/default-extensions.out" || \
    grep -Fxq 'aoc-web-search.ts' "$tmp/default-extensions.out"; then
   echo "ERROR: default core extensions included gated profile assets" >&2
   exit 1
 fi
 
-AOC_OMP_PROFILES=core,hyperframes bash "$root/bin/aoc-profile" active --kind agents --root "$root" --manifest "$root/.omp/manifest.toml" >"$tmp/hyperframes-agents.out"
-cat >"$tmp/hyperframes-agents.expected" <<'EOF'
-brand-strategy.md
-brand-concept.md
-svg-asset.md
-hyperframes-content.md
+AOC_OMP_PROFILES=core,dox bash "$root/bin/aoc-profile" active --kind agents --root "$root" --manifest "$root/.omp/manifest.toml" >"$tmp/dox-agents.out"
+cat >"$tmp/dox-agents.expected" <<'EOF'
+dox-scout.md
+dox-mapper.md
+dox-critic.md
+dox-writer.md
 EOF
-assert_lines_equal "$tmp/hyperframes-agents.out" "$tmp/hyperframes-agents.expected"
+assert_lines_equal "$tmp/dox-agents.out" "$tmp/dox-agents.expected"
 
 
 if AOC_OMP_PROFILES=does-not-exist bash "$root/bin/aoc-profile" active --kind extensions --root "$root" --manifest "$root/.omp/manifest.toml" >"$tmp/unknown.out" 2>"$tmp/unknown.err"; then

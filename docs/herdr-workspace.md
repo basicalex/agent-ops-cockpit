@@ -16,7 +16,7 @@ Keep only AOC pieces that are still valuable as project/tooling primitives:
 - minimal project initialization conventions where useful
 - metadata-only context handshakes for OMP startup
 - CodeGraph as a read-only OMP tool when a project has an index
-- HyperFrames, OpenDesign, and web research as standalone project/tooling features
+- web research as a standalone project/tooling feature
 - selected lightweight handoff helpers only if they remain useful
 - selected Pi/OMP skills only when they complement the new stack
 - docs and install/bootstrap knowledge that can be simplified for Herdr
@@ -150,7 +150,7 @@ ${AOC_OMP_AGENT_DIR:-~/.omp/agent}/agents/
 Do not maintain a second active inventory in this document or under `.aoc/skills`; `.aoc/skills` is legacy/archive-only content, not an OMP runtime source. Runtime skill sources are `.omp/skills`, and active `.omp/manifest.toml` profiles decide which canonical skills install.
 Default/core profiles use OMP/Mnemopi as the memory plane. Retired project-memory extensions are not part of the active Herdr/OMP surface.
 
-The manifest-owned full extension inventory includes the operational tools and slash commands Herdr can enable, including `aoc-codegraph.ts`, `aoc-commit.ts`, `aoc-state.ts`, `aoc-dox.ts`, `aoc-dox-command.ts`, `aoc-master.ts`, `aoc-brand-content.ts`, `aoc-web-search.ts`, `aoc-style.ts`, and `aoc-profile.ts`. Herdr peer observation is a native `herdr` procedure taught by the default/core `herdr-agent-observation` skill, not an AOC OMP tool. The active profile surface includes Ponytail through `/ponytail review|audit|debt|help` and the `ponytail-workflows` skill.
+The manifest-owned full extension inventory includes the operational tools and slash commands Herdr can enable, including `aoc-codegraph.ts`, `aoc-commit.ts`, `aoc-state.ts`, `aoc-dox.ts`, `aoc-dox-command.ts`, `aoc-master.ts`, `aoc-web-search.ts`, `aoc-style.ts`, and `aoc-profile.ts`. Herdr peer observation is a native `herdr` procedure taught by the default/core `herdr-agent-observation` skill, not an AOC OMP tool. The active profile surface includes Ponytail through `/ponytail review|audit|debt|help` and the `ponytail-workflows` skill.
 
 `aoc-master.ts` registers `/master on [minutes]`, `/master off`, `/master status`, and `/master full-retard on/off/status` plus the gated `aoc_orchestrate` and worker-facing `aoc_report` tools. `/master on/off/status` and `/master full-retard on/off/status` route through the agent turn. Existing `aoc_orchestrate assign/send` default to `deliveryMode=draft`, preserving the reviewable `draft|submit|collect` assignment flow; `deliveryMode=notify` drafts a bounded report prompt to the master without submitting. `aoc_report` queues worker reports by default for master-side `aoc_orchestrate inbox/ingest/ack` review. `deliveryMode=submit` and `deliveryMode=full-retard` report delivery require the master-owned `full-retard` toggle and a resolved OMP master target. `aoc_orchestrate collect` retrieves the latest result evidence by assignment ID and result marker. No arbitrary shell commands, focus, pane movement, spawning, resizing, closing, or broadcast actions are exposed.
 
@@ -159,8 +159,6 @@ Use this as the agent graph/context tool in Herdr/OMP workspaces; Understand-Any
 
 
 `aoc-commit.ts` registers `/commit` for safe atomic Git commits. It stages explicit paths only, never stages broad paths, and keeps CodeGraph refresh as post-commit advisory cache maintenance only; it does not initialize/index new projects.
-
-`aoc-brand-content.ts` registers `/brand-content` and `/hyperframes-director` for the branded HyperFrames/html-video pipeline. The related OMP agents are `brand-strategy`, `brand-concept`, `svg-asset`, and `hyperframes-content`.
 
 `aoc-web-search.ts` exposes the `aoc_web_search` tool backed by `aoc-search`, so OMP agents can use local SearXNG or direct package/GitHub modes when built-in web-search providers are out of credits, unauthorized, or timing out.
 Agents must not use `aoc_codegraph` to initialize, index, or sync projects. Operators run those commands explicitly, for example:

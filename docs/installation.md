@@ -98,8 +98,7 @@ herdr integration install omp
 Recommended:
 
 - Rust/Cargo for local builds
-- Node.js `>= 22` for OMP extensions and HyperFrames
-- FFmpeg for HyperFrames renders
+- Node.js `>= 22` for OMP extensions
 - Docker for managed local search
 
 ## Verify

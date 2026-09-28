@@ -190,10 +190,6 @@ The manifest can also store:
 - `order`
 - timestamps
 
-## Relationship to Open Design
-
-AOC Map remains the curated offline visual microsite. Open Design (`aoc-od`) remains the GUI design studio bridge for design/prototype artifacts.
-
 ## Authoring guidance
 
 - Prefer Mermaid files under `.aoc/map/diagrams/`.

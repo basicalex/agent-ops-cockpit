@@ -107,7 +107,7 @@ interface ContextSourceRecord {
 | `.omp/skills/aoc-*.md` workflows | index-only | names only | slash prompt invoked |
 | `.omp/extensions/**` | never-inject-source | capability names only | editing/debugging extension |
 | `.aoc/presets/*` components | active-preset | no unless active | preset/mode active |
-| `DESIGN.md` | intent-triggered | no | UI/product/design/HyperFrames work |
+| `DESIGN.md` | intent-triggered | no | UI/product/design work |
 | themes/layouts | index-only | names only | UI/theme/layout work |
 | `.omp/agents/**` | index-only | names/capabilities only | explicit subagent dispatch |
 

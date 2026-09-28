@@ -69,7 +69,6 @@ Profile-gated OMP surfaces include:
 - `aoc-codegraph.ts` — read-only CodeGraph tool for indexed code discovery.
 - `aoc-commit.ts` — `/commit` safe atomic Git commit workflow; stages only explicit paths and never pushes without explicit approval.
 - `aoc-state.ts` — `/state-status`, `/state-commit`, and `/state-push` Git workflows for repo-owned AOC project state; commit and push are separate, explicit steps.
-- `aoc-brand-content.ts` — `/brand-content` and `/hyperframes-director` HyperFrames branded-content modes.
 - `aoc-dox.ts` — `aoc_dox` safe metadata tool for DOX metadata, review, doctor, eval, and apply dry-run.
 - `aoc-dox-command.ts` — `/dox` slash command for sparse AGENTS cartography with `dox-*` subagents.
 - `aoc-web-search.ts` — `aoc_web_search` wrapper around local `aoc-search`/SearXNG plus direct package/GitHub lookup modes for agents when built-in paid web-search providers fail.
@@ -92,15 +91,6 @@ AOC-managed OMP agent templates live in the repo under:
 ${AOC_OMP_AGENT_DIR:-~/.omp/agent}/agents/
 ```
 
-The branded content pipeline provides:
-
-- `brand-strategy` — brand soul, audience, voice, visual world, off-brand boundaries.
-- `brand-concept` — campaign directions and GPT Image 2 prompt packs.
-- `svg-asset` — clean SVG specs/code from approved image regions.
-- `hyperframes-content` — html-video/HyperFrames storyboard, composition, and shotlist specs.
-
-These specialists initially produce exact specs and target paths; the primary OMP agent/operator applies writes after approval.
-
 ## CodeGraph agent tool
 
 AOC includes an OMP `aoc_codegraph` tool for read-only symbol search, context building, call graph probes, impact analysis, file listing, and affected-test selection. The tool shells out to an existing local `codegraph` CLI/index. It never installs CodeGraph or initializes/indexes projects.
@@ -111,30 +101,6 @@ Operators run CodeGraph setup explicitly, for example:
 ```bash
 codegraph sync /path/to/project
 ```
-
-## HyperFrames and branded content
-
-Run:
-
-```bash
-aoc-hyperframes init
-# or only the branded pipeline docs/assets
-aoc-hyperframes brand init --brand <brand-slug>
-```
-
-Then use OMP commands:
-
-```text
-/brand-content strategy
-/brand-content concepts
-/brand-content image
-/brand-content review
-/brand-content svg
-/brand-content campaign
-/hyperframes-director campaign
-```
-
-See [HyperFrames](hyperframes.md) and [html-video](html-video.md).
 
 ## Legacy boundary
 

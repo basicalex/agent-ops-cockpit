@@ -20,7 +20,7 @@ AOC is a Herdr-first project/tooling layer:
 | OMP startup capsule | AOC + OMP | `aoc-omp-context`, `aoc-omp`, and the OMP shim provide metadata-only startup context. |
 | CodeGraph | OMP extension | Read-only repo discovery when a project has an index. |
 | Retained context | AOC + OMP/Mnemopi | Optional focused task, project-memory, and provenance lookup through supported CLI and OMP surfaces. |
-| Standalone tools | AOC | HyperFrames, OpenDesign, web research, and selected handoff helpers. |
+| Standalone tools | AOC | Web research and selected handoff helpers. |
 
 ## Removed product surfaces
 

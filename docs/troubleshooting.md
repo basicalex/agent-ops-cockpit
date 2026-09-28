@@ -63,14 +63,6 @@ aoc-skill sync --root .
 aoc-skill validate --root .
 ```
 
-For HyperFrames specifically:
-
-```bash
-aoc-hyperframes sync-skills
-aoc-hyperframes check --dir hyperframes
-```
-
-
 ## Project context stale
 
 Run:
@@ -81,24 +73,6 @@ aoc-handshake --json
 ```
 
 Use the handshake and generated `.aoc/context.md` to confirm the current project state.
-
-## HyperFrames check fails
-
-Run:
-
-```bash
-aoc-hyperframes doctor
-aoc-hyperframes bootstrap-asset-system --dir hyperframes
-aoc-hyperframes check --dir hyperframes
-```
-
-Common fixes:
-
-- install Node.js `>= 22`
-- install FFmpeg
-- ensure root `DESIGN.md` exists
-- ensure `hyperframes/docs/DESIGN.md` references root design
-- remove any whole-directory `hyperframes/` ignore from `.gitignore`
 
 ## Web research fails
 

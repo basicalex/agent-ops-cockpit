@@ -9,7 +9,6 @@ Use AOC when you want:
 - project context and memory stored in the repo
 - Taskmaster tasks through `tm` / `aoc-task`
 - CodeGraph code discovery for OMP agents
-- HyperFrames video and campaign tooling
 - web research fallback through local search or direct package/GitHub modes
 
 ## Install
@@ -54,9 +53,7 @@ Common setup paths:
 | Master orchestration | `/master on [minutes]`, `/master off`, `/master status` |
 | Tasks | `tm list`, `aoc-task` |
 | Code discovery | `aoc_codegraph` in OMP, `codegraph sync /path/to/project` by operator |
-| HyperFrames video/campaign work | `aoc-hyperframes`, `/hyperframes-director`, `/brand-content` |
 | Web research fallback | `aoc_web_search`, `aoc-search`, `aoc services` |
-| Open Design GUI studio | `aoc-od install`, then `aoc-od start --open` |
 
 ## Human docs
 
@@ -77,7 +74,6 @@ Reference/maintainer docs live under `docs/reference/`, `docs/maintainer/`, and 
 - OMP coding agent CLI (`omp`)
 - Git
 - Optional: Docker for managed local search
-- Optional: Node.js `>= 22` and FFmpeg for HyperFrames
 
 ## Troubleshooting
 

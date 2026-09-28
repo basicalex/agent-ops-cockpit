@@ -10,8 +10,6 @@ This inventory defines the Herdr/OMP cutover target. AOC should become a project
 | OMP launcher/context | `bin/aoc-omp`, `bin/aoc-omp-context`, `bin/aoc-handshake --prompt/--json` | AOC + OMP | Metadata-only startup capsule; no broad project-context injection. |
 | CodeGraph | `.omp/extensions/aoc-codegraph.ts`, `codegraph` CLI | OMP extension | Read-only agent discovery; indexing/sync remains operator-controlled. |
 | Master orchestration | `.omp/extensions/aoc-master.ts`, `/master`, `aoc_orchestrate` | OMP extension + Herdr | Keep as gated peer coordination. Requires an active master lease for the current pane; mutating surface is bounded text sends only, after read-only observation through native `herdr` and the `herdr-agent-observation` skill. |
-| HyperFrames | `bin/aoc-hf`, `bin/aoc-hf-u`, `bin/aoc-hyperframes`, `docs/hyperframes.md`, related skills | AOC tooling | Keep. |
-| OpenDesign | `bin/aoc-od`, `docs/open-design.md`, related skills | AOC tooling | Keep. |
 | Web research | `.omp/extensions/aoc-web-search.ts`, `bin/aoc-search`, `docs/web-research.md`, `scripts/test-web-research-stack.sh`, related skills/scripts | OMP extension + AOC tooling | Keep. Local fallback for agent web search when paid/native providers fail. |
 | AOC Services workspace | `bin/aoc-herdr-services`, `bin/aoc-services`, `aoc services`, `docs/operator/aoc-services.md` | Herdr + AOC tooling | Retained Herdr runtime owner for project-scoped service health/startup, especially managed local SearXNG. Distinct from retired Mission Control/status UI. |
 | Selected skills/prompts/docs | `.omp/skills`, docs | AOC tooling | Keep only if they complement Herdr/OMP workflows. |
@@ -41,7 +39,7 @@ Default install must become lean and must not install old cockpit assets.
 - OMP integration: `herdr integration install omp` where available
 - AOC OMP context commands: `aoc-omp`, `aoc-omp-context`, `aoc-handshake`
 - CodeGraph OMP extension: `.omp/extensions/aoc-codegraph.ts`
-- Kept tooling: HyperFrames, OpenDesign, web research
+- Kept tooling: web research
 - Herdr AOC Services workspace command: `aoc services` / `bin/aoc-herdr-services`
 - Native Herdr observation skill: `.omp/skills/herdr-agent-observation/SKILL.md`
 

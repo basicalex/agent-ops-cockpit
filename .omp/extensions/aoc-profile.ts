@@ -34,7 +34,6 @@ const PROFILE_COMPLETIONS: AutocompleteItem[] = [
 	{ value: "core", label: "core", description: "Default lean AOC OMP surface." },
 	{ value: "operator", label: "operator", description: "Herdr/operator orchestration surface." },
 	{ value: "dox", label: "dox", description: "DOX cartography surface." },
-	{ value: "hyperframes", label: "hyperframes", description: "HyperFrames content surface." },
 	{ value: "research", label: "research", description: "Local web-search surface." },
 	{ value: "full", label: "full", description: "Full compatibility surface." },
 ];

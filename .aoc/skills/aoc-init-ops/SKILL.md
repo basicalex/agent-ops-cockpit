@@ -21,6 +21,6 @@ description: Initialize or repair AOC context, tooling, and tasks safely.
 - Seeds the global OMP style hook state file at `${AOC_STYLE_STATE_FILE:-$HOME/.omp/agent}/style-hooks.json` with both hooks off when missing
 - Installs AOC OMP agent templates selected by active profiles into `${AOC_OMP_AGENT_DIR:-$HOME/.omp/agent}/agents` when available
 - Installs OMP skills selected by active profiles into `${AOC_OMP_AGENT_DIR:-$HOME/.omp/agent}/skills` when available
-- Seeds reusable preset assets in `.aoc/presets/{design,hyperframes,ops,research,test}/` when missing
+- Seeds reusable preset assets in `.aoc/presets/{design,ops,research,test}/` when missing
 - Seeds `.aoc/init-state.json` with the current AOC project version and applies version-specific migrations on older repos
 - Validates `.omp/skills` as the canonical skill surface

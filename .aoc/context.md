@@ -30,15 +30,10 @@
 ./bin/aoc-herdr-install
 ./bin/aoc-herdr-launch
 ./bin/aoc-herdr-services
-./bin/aoc-hf
-./bin/aoc-hf-u
-./bin/aoc-html-video
-./bin/aoc-hyperframes
 ./bin/aoc-init
 ./bin/aoc-insight
 ./bin/aoc-map
 ./bin/aoc-obscura-install
-./bin/aoc-od
 ./bin/aoc-omp
 ./bin/aoc-omp-context
 ./bin/aoc-omp-shim-install

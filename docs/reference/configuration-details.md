@@ -90,7 +90,7 @@ aoc services start search
 
 What it guarantees:
 - Seeds/repairs canonical project OMP sources under `.omp/extensions/`, `.omp/agents/`, and `.omp/skills/`.
-- Installs AOC OMP extensions into `${AOC_OMP_AGENT_DIR:-~/.omp/agent}/extensions`, including CodeGraph, commit, state, DOX, brand-content, and web-search surfaces.
+- Installs AOC OMP extensions into `${AOC_OMP_AGENT_DIR:-~/.omp/agent}/extensions`, including CodeGraph, commit, state, DOX, and web-search surfaces.
 - Installs AOC OMP agent templates into `${AOC_OMP_AGENT_DIR:-~/.omp/agent}/agents`.
 - Installs AOC OMP skills into `${AOC_OMP_AGENT_DIR:-~/.omp/agent}/skills`.
 - Keeps AOC control-plane state under `.aoc/**`.
@@ -138,7 +138,6 @@ PI installer behavior:
 Prefer direct Herdr/CLI surfaces for default work:
 
 - Managed search/service runtime: `aoc services`, `aoc-search`
-- HyperFrames: `aoc-hyperframes`
 - Vercel CLI: `vercel`
 
 ### OMP runtime config
@@ -152,8 +151,6 @@ Use OMP's own runtime config at `~/.omp/agent/config.yml` for model/auth/status-
 | `AOC_OMP_AGENT_DIR` | OMP runtime directory used by `aoc-init`/`aoc-herdr-install` for extensions, agents, and skills (default `~/.omp/agent`) |
 | `AOC_VERCEL_BIN` | Vercel CLI binary name/path check (default `vercel`) |
 | `AOC_VERCEL_INSTALL_CMD` / `AOC_VERCEL_UPDATE_CMD` | Vercel CLI install/update commands |
-| `AOC_HYPERFRAMES_DIR` | Workspace directory used by `aoc-hyperframes` (default `hyperframes`) |
-| `AOC_HYPERFRAMES_TRACK_WORKSPACE` | Set to `1` to avoid adding the HyperFrames workspace to `.gitignore` |
 
 ### Managed Local Search
 

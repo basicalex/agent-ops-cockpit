@@ -73,7 +73,6 @@ With `preset: design`:
 
 Shipped presets:
 - `design`: product/design critique, specs, tokens, brand, motion-aware review
-- `hyperframes`: video/campaign production and render workflow
 - `ops`: production operations, health, deploys, repo mapping, tasks
 - `research`: evidence gathering across web, repo, and source sets
 - `test`: implementation verification, browser QA, preview smoke checks, and regression testing
@@ -99,7 +98,6 @@ Generic:
 - `/preset select`
 - `/preset-menu`
 - `/preset design`
-- `/preset hyperframes`
 - `/preset ops`
 - `/preset research`
 - `/preset test`
@@ -139,8 +137,6 @@ Motion:
 Current manifest behavior:
 - design active: `frontend-design`, `architecture-design`, `design-director`; dashboard guardrails become active only in `dashboard` mode
 - design recommended by mode: critique/spec/diff/tokens/brand/premium/funnel/motion/dashboard specialists only when that mode is selected
-- hyperframes active: `aoc-hyperframes`
-- hyperframes recommended by mode: `aoc-hyperframes`
 - ops active: none by default; mode recommends `aoc-init-ops`, `vercel-cli`, `rlm-analysis`, or `aoc-map`
 - research active: `web-research`; mode recommends `agent-browser` or `rlm-analysis` when useful
 - test active: `architecture-design`, `agent-browser`; modes recommend `rlm-analysis`, `design-review`, or `vercel-cli` when useful
@@ -163,7 +159,6 @@ Use `/preset menu`, `/preset select`, `/preset-menu`, or `Alt+X` to open the mod
 
 `Alt+X` intentionally shows only umbrella modes:
 - Design
-- HyperFrames
 - Ops
 - Research
 - Test
@@ -177,30 +172,9 @@ Inside the navigator:
 - `x` rotates Caveman level
 - `Alt+X` is the global shortcut to reopen the mode switcher
 
-Focused lenses are available through either nested `Alt+X` sub-options or slash commands. Examples: `/design-director spec`, `/hyperframes-director review`, `/preset ops deploy`, `/preset research repo`.
+Focused lenses are available through either nested `Alt+X` sub-options or slash commands. Examples: `/design-director spec`, `/preset ops deploy`, `/preset research repo`.
 
 Changing a preset/mode updates runtime routing immediately: the next agent turn receives the active preset prompt context. It also updates `~/.omp/agent/config.yml` skill filters. Run `/reload` only when you want Pi's visible skill inventory/list to match the selected preset.
-
-## Relationship to Open Design
-
-The Design preset is a terminal/session design-routing layer. It is useful for critique, specs, implementation handoff, tokens, brand guidance, and motion-aware review.
-
-Open Design is the GUI studio layer. Use it when you need visual iteration, live preview, design-system selection, decks, templates, or polished prototype artifacts:
-
-```bash
-aoc-od start --open
-# iterate in OD GUI
-aoc-od import latest
-```
-
-Then return to AOC presets for implementation and campaign handoff:
-
-```text
-OD GUI exploration -> imported artifact -> Alt+X Design critique/spec/handoff -> implementation
-OD GUI direction -> imported artifact -> Alt+X HyperFrames -> campaign/render factory
-```
-
-See [Open Design studio](open-design.md).
 
 ## Operator mental model
 

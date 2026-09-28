@@ -36,7 +36,6 @@ Load these skills as needed:
 | Motion language, transitions, animation direction | `motion-director` |
 | Anime.js timeline/scroll/review implementation | local `animejs-*` skills if present |
 | Browser visual QA, screenshots, site interaction | `agent-browser` if available |
-| HyperFrames/media/campaigns | `aoc-hyperframes` / `hyperframes` |
 
 ## Default triage
 

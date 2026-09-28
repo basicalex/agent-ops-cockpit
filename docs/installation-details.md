@@ -12,12 +12,7 @@ extensions/aoc-commit.ts
 extensions/aoc-state.ts
 extensions/aoc-dox.ts
 extensions/aoc-dox-command.ts
-extensions/aoc-brand-content.ts
 extensions/aoc-web-search.ts
-agents/brand-strategy.md
-agents/brand-concept.md
-agents/svg-asset.md
-agents/hyperframes-content.md
 agents/dox-scout.md
 agents/dox-mapper.md
 agents/dox-critic.md
@@ -45,7 +40,7 @@ DESIGN.md
 ```bash
 test -f .omp/extensions/aoc-codegraph.ts
 test -f .omp/extensions/aoc-state.ts
-test -f .omp/agents/brand-strategy.md
+test -f .omp/agents/dox-scout.md
 test -f .omp/skills/aoc-init-ops/SKILL.md
 AOC_OMP_CONTEXT_LEVEL=min bin/aoc-omp-context .
 ```

@@ -58,7 +58,6 @@ Use the operator's requested mode to select the appropriate flow inside this ski
 - Understand-Anything owns the deep generated knowledge graph under `.understand-anything/`.
 - AOC owns safe install/status/doctor/project-root routing through `aoc-understand`.
 - AOC Map remains the curated offline visual microsite under `.aoc/map/`.
-- Open Design remains the GUI design studio bridge through `aoc-od`.
 
 ## Teach deprecation
 

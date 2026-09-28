@@ -4,7 +4,7 @@ This file defines the always-on rules for agents in this repo. Procedural playbo
 
 ## Always-on rules
 - Use `.aoc/context.md` for orientation; run `aoc-init` if it is missing or stale.
-- Use root `DESIGN.md` as the visual/product design contract before UI, docs-site, marketing, HyperFrames, or other product-facing work.
+- Use root `DESIGN.md` as the visual/product design contract before UI, docs-site, marketing, or other product-facing work.
 - **DO NOT manually read these files** - use the Bash tool to run CLI commands instead (see below).
 - Run AOC commands via Bash tool.
 

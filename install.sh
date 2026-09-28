@@ -697,7 +697,6 @@ for f in "$ROOT_DIR/bin/"*; do
 done
 
 required_bin_scripts=(
-  aoc-html-video
   aoc
   aoc-herdr-launch
   aoc-herdr-install

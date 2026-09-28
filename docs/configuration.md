@@ -35,7 +35,6 @@ Key extension-owned commands and tools:
 | `aoc-state.ts` | `/state-status`, `/state-commit`, `/state-push` project-state workflows |
 | native Herdr + `herdr-agent-observation` skill | read-only workspace, agent, pane, tab, and transcript observation |
 | `aoc-dox.ts`, `aoc-dox-command.ts` | `/dox [full|scout|map|review|packet|doctor|dry-run]` |
-| `aoc-brand-content.ts` | `/brand-content`, `/hyperframes-director` |
 | `aoc-web-search.ts` | `aoc_web_search` |
 | `aoc-style.ts` | AOC style hook state |
 | `aoc-profile.ts` | `/profile [list|show|enable|disable|set|explain]` capability profile management |
@@ -57,8 +56,6 @@ Use `/master on [minutes]`, `/master off`, and `/master status` to manage the ma
 | `AOC_HERDR_SERVICES=auto|off|focus` | Control Herdr AOC Services workspace ensure/focus behavior |
 | `AOC_INIT_SKIP_BUILD=1` | Skip build-heavy init steps |
 | `AOC_PRESET_WIDGET_VERBOSE=1` | Show verbose preset widget details |
-| `AOC_HYPERFRAMES_DIR` | Override HyperFrames workspace dir |
-
 
 ## Skills
 

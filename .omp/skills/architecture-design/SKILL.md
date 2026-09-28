@@ -27,7 +27,6 @@ Use this as a router for cross-cutting product/system architecture work. It shou
 | Conversion architecture, landing pages, CTAs, qualification, lead capture, pricing, onboarding, funnel analytics | `funnel-design` |
 | Frontend/product-facing design mode selection | `frontend-design` |
 | Design system, critique, redesign, polish, handoff, tokens, motion | `design-*` and `motion-director` skills as relevant |
-| HyperFrames/media/campaign architecture | `aoc-hyperframes` |
 | Implementation architecture | User request and repository evidence |
 
 ## Architecture review checklist

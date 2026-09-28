@@ -5,17 +5,12 @@ extensions = [
   "aoc-dox.ts",
   "aoc-dox-command.ts",
   "aoc-master.ts",
-  "aoc-brand-content.ts",
   "aoc-web-search.ts",
   "aoc-style.ts",
   "aoc-profile.ts",
 ]
 
 agents = [
-  "brand-strategy.md",
-  "brand-concept.md",
-  "svg-asset.md",
-  "hyperframes-content.md",
   "dox-scout.md",
   "dox-mapper.md",
   "dox-critic.md",
@@ -35,7 +30,6 @@ skills = [
   "aoc-dox-cartography",
   "herdr-agent-observation",
   "aoc-gaps",
-  "aoc-hyperframes",
   "aoc-init-ops",
   "aoc-map",
   "aoc-understand",
@@ -52,15 +46,11 @@ skills = [
   "enforce-dashboard-ux-guardrails",
   "frontend-design",
   "funnel-design",
-  "gsap",
-  "hyperframes",
-  "hyperframes-cli",
   "motion-director",
   "omarchy-theme-ops",
   "rlm-analysis",
   "safe-gamification",
   "ponytail-workflows",
-  "website-to-hyperframes",
 ]
 
 [profile_defaults]
@@ -147,24 +137,6 @@ agents = [
   "dox-writer.md",
 ]
 
-[profiles.hyperframes]
-description = "HyperFrames branded-content production surface and visual content specialist agents."
-risk = "medium"
-extensions = ["aoc-brand-content.ts"]
-skills = [
-  "aoc-hyperframes",
-  "hyperframes",
-  "hyperframes-cli",
-  "website-to-hyperframes",
-  "gsap",
-]
-agents = [
-  "brand-strategy.md",
-  "brand-concept.md",
-  "svg-asset.md",
-  "hyperframes-content.md",
-]
-
 [profiles.research]
 description = "Local web-search fallback for package, docs, GitHub, and error lookup."
 risk = "network"
@@ -184,7 +156,6 @@ extensions = [
   "aoc-dox.ts",
   "aoc-dox-command.ts",
   "aoc-master.ts",
-  "aoc-brand-content.ts",
   "aoc-web-search.ts",
   "aoc-style.ts",
   "aoc-profile.ts",
@@ -202,7 +173,6 @@ skills = [
   "aoc-dox-cartography",
   "herdr-agent-observation",
   "aoc-gaps",
-  "aoc-hyperframes",
   "aoc-init-ops",
   "aoc-map",
   "aoc-understand",
@@ -219,21 +189,13 @@ skills = [
   "enforce-dashboard-ux-guardrails",
   "frontend-design",
   "funnel-design",
-  "gsap",
-  "hyperframes",
-  "hyperframes-cli",
   "motion-director",
   "omarchy-theme-ops",
   "rlm-analysis",
   "safe-gamification",
   "ponytail-workflows",
-  "website-to-hyperframes",
 ]
 agents = [
-  "brand-strategy.md",
-  "brand-concept.md",
-  "svg-asset.md",
-  "hyperframes-content.md",
   "dox-scout.md",
   "dox-mapper.md",
   "dox-critic.md",

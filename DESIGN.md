@@ -81,7 +81,7 @@ components:
 
 # DESIGN.md
 
-This is the project-wide visual and product design contract for Agent Ops Cockpit (AOC). Agents must read it before changing AOC control surfaces, docs presentation, product-facing UI, HyperFrames/media flows, themes, or visual assets.
+This is the project-wide visual and product design contract for Agent Ops Cockpit (AOC). Agents must read it before changing AOC control surfaces, docs presentation, product-facing UI, themes, or visual assets.
 
 The YAML front matter is the machine-readable token source for the Google Labs `design.md` format. The markdown body explains how to apply those tokens in AOC.
 
@@ -187,7 +187,7 @@ Use small, consistent radii. Controls should feel precise and technical, not pla
 
 - Tone: concise, clear, operator-centered.
 - CTA style: command-oriented: “Initialize”, “Sync”, “Run doctor”, “Open log”.
-- Terminology: prefer AOC, Pi, Taskmaster, Spec, HyperFrames consistently.
+- Terminology: prefer AOC, Pi, Taskmaster, Spec consistently.
 - Error message style: name failing command/action, give log path or next repair step.
 - Things to avoid: vague success, silent failures, unbounded “magic”, unsupported runtime claims.
 
@@ -203,7 +203,6 @@ Use small, consistent radii. Controls should feel precise and technical, not pla
 
 Subsystem-specific design files may extend this document, but should not contradict it.
 
-- HyperFrames/media: `hyperframes/docs/DESIGN.md`
 - Presets/layouts: `.aoc/presets/**` and `.aoc/layouts/**`
 - Docs/marketing-specific extensions: document locally when introduced
 
