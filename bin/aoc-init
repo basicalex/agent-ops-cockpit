@@ -1171,6 +1171,31 @@ ensure_agents_contract() {
     rm -f "$tmp_agents"
     return
   fi
+  # Refresh the retired wording only inside the AOC-managed section.
+  if grep -Fq 'marketing, HyperFrames, or other product-facing work' "$agents_file" &&
+    python3 - "$agents_file" <<'PY'
+import sys
+from pathlib import Path
+
+path = Path(sys.argv[1])
+text = path.read_text(encoding="utf-8")
+start = text.find("## Agent Ops Cockpit (AOC)")
+if start < 0:
+    raise SystemExit(1)
+end = text.find("\n## ", start + 1)
+if end < 0:
+    end = len(text)
+old = "marketing, HyperFrames, or other product-facing work"
+new = "marketing, or other product-facing work"
+section = text[start:end]
+if old not in section:
+    raise SystemExit(1)
+path.write_text(text[:start] + section.replace(old, new) + text[end:], encoding="utf-8")
+PY
+  then
+    log "Updated retired wording in AGENTS.md AOC section."
+  fi
+
 
   if grep -Fq "## Agent Ops Cockpit (AOC)" "$agents_file"; then
     log "Existing AGENTS.md already includes an AOC section. Preserving."
@@ -1415,6 +1440,73 @@ setup_skills() {
   fi
 }
 
+
+cleanup_retired_creative_project_assets() {
+  local rel target marker
+  local -a retired_creative=(
+    .aoc/presets/hyperframes
+    .omp/skills/aoc-hyperframes .omp/skills/hyperframes .omp/skills/hyperframes-cli
+    .omp/skills/website-to-hyperframes .omp/skills/gsap
+    .omp/agents/brand-concept.md .omp/agents/brand-strategy.md
+    .omp/agents/hyperframes-content.md .omp/agents/svg-asset.md
+    .omp/extensions/aoc-brand-content.ts
+    .pi/skills/aoc-hyperframes .pi/skills/hyperframes .pi/skills/hyperframes-cli
+    .pi/skills/website-to-hyperframes .pi/skills/gsap
+    .pi/prompts/hyperframes.md
+    .aoc/open-design .aoc/skills-optional .aoc/prompts-optional
+  )
+  local -a removed=()
+
+  for rel in "${retired_creative[@]}"; do
+    target="$project_root/$rel"
+    if [[ "$rel" != .aoc/open-design && "$rel" != .aoc/skills-optional && "$rel" != .aoc/prompts-optional ]] &&
+      [[ -e "$target" || -L "$target" ]] && ! is_aoc_managed_target "$target" &&
+      ! python3 - "$aoc_managed_assets_file" "$rel" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+try:
+    assets = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8")).get("assets", {})
+except (OSError, ValueError, AttributeError):
+    raise SystemExit(1)
+raise SystemExit(0 if isinstance(assets, dict) and sys.argv[2] in assets else 1)
+PY
+    then
+      warn "Preserving unmarked retired creative asset: $rel"
+      continue
+    fi
+    if [[ -e "$target" || -L "$target" ]]; then
+      rm -rf -- "$target"
+      log "Removed retired creative asset: $rel"
+    fi
+    marker="$target.aoc-managed"
+    rm -f -- "$marker"
+    removed+=("$rel")
+  done
+
+  if [[ -f "$aoc_managed_assets_file" ]]; then
+    python3 - "$aoc_managed_assets_file" ${removed[@]+"${removed[@]}"} <<'PY'
+import json
+import sys
+from pathlib import Path
+
+path = Path(sys.argv[1])
+try:
+    data = json.loads(path.read_text(encoding="utf-8"))
+except (OSError, ValueError):
+    raise SystemExit(0)
+assets = data.get("assets")
+if not isinstance(assets, dict):
+    raise SystemExit(0)
+for rel in sys.argv[2:]:
+    for entry in list(assets):
+        if entry == rel or entry.startswith(rel + "/"):
+            del assets[entry]
+path.write_text(json.dumps(data, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+PY
+  fi
+}
 
 setup_project_omp_assets() {
   local omp_seed_root
@@ -1931,6 +2023,7 @@ main() {
   setup_project_state
   prepare_project_aoc_state
   apply_project_version_migrations
+  cleanup_retired_creative_project_assets
   setup_project_omp_assets
   setup_omp_extensions
   setup_omp_style_state

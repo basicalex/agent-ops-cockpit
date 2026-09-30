@@ -701,6 +701,7 @@ required_bin_scripts=(
   aoc-herdr-launch
   aoc-herdr-install
   aoc-claude-install
+  aoc-fframes-install
   aoc-jcode-install
   aoc-prime-agent-install
   aoc-contract-install
@@ -945,6 +946,16 @@ fi
 if ((${#missing_optional[@]} > 0)); then
   warn "Missing optional tools: ${missing_optional[*]}"
 fi
+if is_truthy "${AOC_INSTALL_FFRAMES:-1}"; then
+  if ! have bunx; then
+    warn "Skipping fframes install: bunx is missing; install Bun and re-run install.sh."
+  elif ! "$BIN_DIR/aoc-fframes-install"; then
+    warn "fframes install failed; continuing."
+  fi
+else
+  log "fframes install is disabled; set AOC_INSTALL_FFRAMES=1 to opt in."
+fi
+
 
 # Micro
 if ! have micro; then
@@ -1077,6 +1088,11 @@ if [[ -d "$ROOT_DIR/.pi/skills" ]]; then
 fi
 
 # AOC default OMP seed assets for installed aoc-init fallback
+# Retired in 27f9e40; remove cached creative assets no longer seeded by AOC.
+retired_creative_skills=(aoc-hyperframes hyperframes hyperframes-cli website-to-hyperframes gsap)
+retired_creative_agents=(brand-concept.md brand-strategy.md hyperframes-content.md svg-asset.md)
+retired_creative_bins=(aoc-hyperframes aoc-hf aoc-hf-u aoc-html-video aoc-od)
+
 if [[ -d "$ROOT_DIR/.omp" ]]; then
   for kind in extensions agents skills; do
     source_root="$ROOT_DIR/.omp/$kind"
@@ -1184,6 +1200,18 @@ if [[ -d "$ROOT_DIR/.aoc/prompts-optional/pi" ]]; then
     cp "$f" "$dest"
   done
 fi
+for skill in "${retired_creative_skills[@]}"; do
+  rm -rf "$AOC_CONFIG_DIR/omp/skills/$skill" "$AOC_CONFIG_DIR/pi/skills/$skill" "$AOC_CONFIG_DIR/skills-optional/$skill"
+done
+for agent in "${retired_creative_agents[@]}"; do
+  rm -f "$AOC_CONFIG_DIR/omp/agents/$agent"
+done
+for bin in "${retired_creative_bins[@]}"; do
+  rm -f "$BIN_DIR/$bin"
+done
+rm -f "$AOC_CONFIG_DIR/omp/extensions/aoc-brand-content.ts" "$AOC_CONFIG_DIR/prompts-optional/pi/hyperframes.md"
+rm -rf "$AOC_CONFIG_DIR/presets/hyperframes"
+
 
 # Yazi Plugins
 if [[ -d "$ROOT_DIR/yazi/plugins" ]]; then

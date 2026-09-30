@@ -1,0 +1,269 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+skill="$HOME/.agents/skills/fframes-video/SKILL.md"
+claude_skill="$HOME/.claude/skills/fframes-video"
+mac_packages=(pkg-config ffmpeg x264 x265 opus nasm ninja)
+apt_packages=(yasm nasm ffmpeg libx264-dev libx265-dev libopus-dev libclang-dev clang ninja-build libvpx-dev libasound2-dev)
+pacman_packages=(ninja yasm nasm ffmpeg x264 x265 opus clang)
+
+log() { printf 'aoc-fframes-install: %s\n' "$*"; }
+warn() { printf 'aoc-fframes-install: warning: %s\n' "$*" >&2; }
+
+usage() {
+  cat <<'EOF'
+Usage: aoc-fframes-install [--check|--smoke|--help]
+
+  (default)  Install or update dependencies, cargo-fframes, and the agent skill
+  --check    Report installed components without changing anything
+  --smoke    Generate, inspect, and render a temporary video project
+  --help     Show this help
+
+AOC_FFRAMES_SKIP_DEPS=1 skips system packages.
+AOC_FFRAMES_SKIP_SKILL=1 skips skill installation.
+AOC_CLAUDE_INSTALL_OFFLINE=1 skips network operations.
+EOF
+}
+
+os_name="$(uname -s)"
+package_manager() {
+  case "$os_name" in
+    Darwin) command -v brew >/dev/null 2>&1 && printf 'brew\n' ;;
+    Linux)
+      if command -v apt-get >/dev/null 2>&1 && command -v dpkg-query >/dev/null 2>&1; then
+        printf 'apt\n'
+      elif command -v pacman >/dev/null 2>&1; then
+        printf 'pacman\n'
+      fi
+      ;;
+  esac
+}
+
+missing_packages() {
+  local manager="$1" package
+  case "$manager" in
+    brew)
+      for package in "${mac_packages[@]}"; do
+        brew list --formula --versions "$package" >/dev/null 2>&1 || printf '%s\n' "$package"
+      done
+      ;;
+    apt)
+      for package in "${apt_packages[@]}"; do
+        [[ "$(dpkg-query -W -f='${Status}' "$package" 2>/dev/null || true)" == 'install ok installed' ]] || printf '%s\n' "$package"
+      done
+      ;;
+    pacman)
+      for package in "${pacman_packages[@]}"; do
+        pacman -Qq "$package" >/dev/null 2>&1 || printf '%s\n' "$package"
+      done
+      ;;
+  esac
+}
+
+rust_version() {
+  local version
+  version="$(rustc --version 2>/dev/null)" || return 1
+  version="${version#rustc }"
+  printf '%s\n' "${version%% *}"
+}
+
+rust_too_old() {
+  local major minor
+  IFS=. read -r major minor _ <<< "$1"
+  (( major < 1 || (major == 1 && minor < 98) ))
+}
+
+needs_rust_update() {
+  [[ "$os_name" == Darwin ]] || return 1
+  local mac_version
+  mac_version="$(sw_vers -productVersion)"
+  (( ${mac_version%%.*} >= 27 )) && rust_too_old "$1"
+}
+
+installed_crate_version() {
+  cargo install --list 2>/dev/null | sed -n 's/^cargo-fframes v\([^ ]*\):$/\1/p'
+}
+
+check() {
+  local failed=0 manager package version missing=()
+  manager="$(package_manager || true)"
+  if [[ -z "$manager" ]]; then
+    warn "system libs not checked: unsupported OS or missing package manager ($os_name)"
+    failed=1
+  else
+    while IFS= read -r package; do missing+=("$package"); done < <(missing_packages "$manager")
+    if (( ${#missing[@]} )); then
+      log "system libs missing ($manager): ${missing[*]}"
+      failed=1
+    else
+      log "system libs installed ($manager)"
+    fi
+  fi
+
+  if ! command -v cargo >/dev/null 2>&1 || ! command -v rustup >/dev/null 2>&1 || ! version="$(rust_version)"; then
+    log 'rustc/cargo/rustup missing (install from https://rustup.rs/)'
+    failed=1
+  elif needs_rust_update "$version"; then
+    log "rustc $version too old for macOS 27+ (requires 1.98+)"
+    failed=1
+  else
+    log "rustc $version installed (cargo and rustup available)"
+  fi
+
+  version=''
+  if command -v cargo >/dev/null 2>&1; then
+    version="$(installed_crate_version)"
+  fi
+  if [[ -n "$version" ]]; then
+    log "cargo-fframes $version installed"
+  else
+    log 'cargo-fframes missing'
+    failed=1
+  fi
+  if [[ -f "$skill" ]]; then
+    log "skill installed: $skill"
+  else
+    log "skill missing: $skill"
+    failed=1
+  fi
+  if [[ -L "$claude_skill" && -f "$claude_skill/SKILL.md" ]]; then
+    log "Claude skill symlink installed: $claude_skill"
+  else
+    log "Claude skill symlink missing or broken: $claude_skill"
+    failed=1
+  fi
+  return "$failed"
+}
+
+install_packages() {
+  local manager package missing=()
+  manager="$(package_manager || true)"
+  if [[ -z "$manager" ]]; then
+    warn "system libs skipped: unsupported OS or missing package manager ($os_name)"
+    return
+  fi
+  while IFS= read -r package; do missing+=("$package"); done < <(missing_packages "$manager")
+  if (( ${#missing[@]} == 0 )); then
+    log "system libs already installed ($manager)"
+    return
+  fi
+  if [[ "${AOC_CLAUDE_INSTALL_OFFLINE:-0}" == 1 ]]; then
+    warn "system libs missing ($manager): ${missing[*]} (offline)"
+    return
+  fi
+  case "$manager" in
+    brew) brew install "${missing[@]}" ;;
+    apt|pacman)
+      local command=(apt-get install -y)
+      [[ "$manager" == pacman ]] && command=(pacman -S --needed --noconfirm)
+      if sudo -n true >/dev/null 2>&1; then
+        sudo -n "${command[@]}" "${missing[@]}"
+      else
+        warn "system libs missing; run: sudo ${command[*]} ${missing[*]}"
+      fi
+      ;;
+  esac
+}
+
+install_rust_crate() {
+  if ! command -v cargo >/dev/null 2>&1 || ! command -v rustup >/dev/null 2>&1 || ! command -v rustc >/dev/null 2>&1; then
+    warn 'cargo, rustc, and rustup are required: https://rustup.rs/'
+    return 1
+  fi
+  local version
+  version="$(rust_version)"
+  if needs_rust_update "$version"; then
+    if [[ "${AOC_CLAUDE_INSTALL_OFFLINE:-0}" == 1 ]]; then
+      warn "rustc $version requires rustup update stable (offline)"
+      return 1
+    fi
+    rustup update stable
+    version="$(rust_version)"
+    if needs_rust_update "$version"; then
+      warn "rustc $version is still too old; select stable with rustup default stable"
+      return 1
+    fi
+  fi
+  if [[ "${AOC_CLAUDE_INSTALL_OFFLINE:-0}" == 1 ]]; then
+    log 'skipped cargo-fframes install (offline)'
+  else
+    cargo install --locked cargo-fframes
+  fi
+}
+
+link_claude_skill() {
+  [[ -f "$skill" ]] || return 0
+  if [[ -f "$claude_skill/SKILL.md" ]]; then
+    log "Claude skill available: $claude_skill"
+  elif [[ -e "$claude_skill" && ! -L "$claude_skill" ]]; then
+    warn "cannot replace user-owned $claude_skill"
+    return 1
+  else
+    mkdir -p "$(dirname "$claude_skill")"
+    [[ ! -L "$claude_skill" ]] || rm "$claude_skill"
+    ln -s ../../.agents/skills/fframes-video "$claude_skill"
+    log "linked $claude_skill"
+  fi
+}
+
+install_skill() {
+  if [[ "${AOC_FFRAMES_SKIP_SKILL:-0}" == 1 ]]; then
+    log 'skipped skill (AOC_FFRAMES_SKIP_SKILL=1)'
+    return
+  fi
+  if [[ "${AOC_CLAUDE_INSTALL_OFFLINE:-0}" == 1 ]]; then
+    log 'skipped skill update (offline)'
+  elif ! command -v bunx >/dev/null 2>&1; then
+    warn 'skipped skill install (bunx not on PATH)'
+  elif [[ -f "$skill" ]]; then
+    (cd "$HOME" && bunx skills update fframes-video -g -y)
+  else
+    (cd "$HOME" && bunx skills add https://fframes.studio -g -a claude-code codex opencode -y)
+  fi
+  if [[ ! -f "$skill" ]]; then
+    warn "skill missing: $skill"
+  else
+    link_claude_skill
+  fi
+}
+
+smoke() {
+  tmp="$(mktemp -d)"
+  trap 'rm -rf "$tmp"' EXIT
+  (
+    cd "$tmp"
+    cargo fframes new ff-smoke --format landscape --fps 30 --yes
+    cd ff-smoke
+    cargo build --release
+    cargo run --release -q -- inspect
+    cargo run --release -q -- render -o out.mp4
+    local probe
+    probe="$(ffprobe -v error -select_streams v:0 -show_entries stream=width,height,nb_frames -show_entries format=duration -of default=noprint_wrappers=1 out.mp4)"
+    printf '%s\n' "$probe"
+    if [[ "$probe" != *"width=1920"* || "$probe" != *"height=1080"* || "$probe" != *"nb_frames=180"* || "$probe" != *"duration=6.000000"* ]]; then
+      warn 'smoke video does not match 1920x1080, 180 frames, 6 seconds'
+      exit 1
+    fi
+  )
+  log 'smoke passed'
+}
+
+if (( $# > 1 )); then
+  warn 'unexpected extra arguments'
+  exit 1
+fi
+case "${1:-}" in
+  '') ;;
+  --check) check; exit $? ;;
+  --smoke) smoke; exit 0 ;;
+  --help|-h) usage; exit 0 ;;
+  *) warn "unknown option: $1"; usage >&2; exit 1 ;;
+esac
+if [[ "${AOC_FFRAMES_SKIP_DEPS:-0}" == 1 ]]; then
+  log 'skipped system libs (AOC_FFRAMES_SKIP_DEPS=1)'
+else
+  install_packages
+fi
+install_rust_crate
+install_skill
+log 'done'
