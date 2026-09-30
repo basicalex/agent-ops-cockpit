@@ -25,13 +25,7 @@ skills = [
   "aoc-map",
   "aoc-understand",
   "aoc-update",
-  "architecture-design",
-  "enforce-dashboard-ux-guardrails",
-  "frontend-design",
-  "funnel-design",
-  "omarchy-theme-ops",
   "rlm-analysis",
-  "safe-gamification",
   "ponytail-workflows",
 ]
 
@@ -61,24 +55,6 @@ skills = [
 ]
 agents = []
 
-[profiles.design-product]
-description = "Product design, funnel, and ethical gameful UX routing."
-risk = "medium"
-extensions = []
-skills = [
-  "frontend-design",
-  "funnel-design",
-  "safe-gamification",
-]
-agents = []
-
-
-[profiles.desktop]
-description = "Omarchy theme maintenance helpers."
-risk = "medium"
-extensions = []
-skills = ["omarchy-theme-ops"]
-agents = []
 
 [profiles.review]
 description = "Ponytail review, audit, and debt workflows."
@@ -141,13 +117,7 @@ skills = [
   "aoc-map",
   "aoc-understand",
   "aoc-update",
-  "architecture-design",
-  "enforce-dashboard-ux-guardrails",
-  "frontend-design",
-  "funnel-design",
-  "omarchy-theme-ops",
   "rlm-analysis",
-  "safe-gamification",
   "ponytail-workflows",
 ]
 agents = [

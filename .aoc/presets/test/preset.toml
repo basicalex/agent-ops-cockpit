@@ -23,7 +23,7 @@ regression = ["hook", "core", "mode-regression"]
 preview = ["hook", "core", "mode-preview"]
 
 [skills]
-active = ["architecture-design", "agent-browser"]
+active = ["agent-browser"]
 recommended = []
 
 [skills.recommendedByMode]

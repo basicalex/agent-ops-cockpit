@@ -101,7 +101,7 @@ Generic:
 Current manifest behavior:
 - ops active: none by default; mode recommends `aoc-init-ops`, `vercel-cli`, `rlm-analysis`, or `aoc-map`
 - research active: `web-research`; mode recommends `agent-browser` or `rlm-analysis` when useful
-- test active: `architecture-design`, `agent-browser`; modes recommend `rlm-analysis` or `vercel-cli` when useful
+- test active: `agent-browser`; modes recommend `rlm-analysis` or `vercel-cli` when useful
 
 ## Handoff behavior
 

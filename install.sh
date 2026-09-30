@@ -1097,6 +1097,9 @@ retired_creative_skills=(
   design-diff design-director design-handoff design-premium-ui
   design-redesign design-review design-spec design-tokens motion-director
   ponytail ponytail-audit ponytail-debt ponytail-help ponytail-review
+  architecture-design enforce-dashboard-ux-guardrails frontend-design
+  funnel-design omarchy-theme-ops safe-gamification
+  aoc-stm aoc-lexicon browser-qa spec-rpg-authoring tm-cc
 )
 retired_creative_agents=(brand-concept.md brand-strategy.md hyperframes-content.md svg-asset.md)
 retired_creative_bins=(aoc-hyperframes aoc-hf aoc-hf-u aoc-html-video aoc-od)
@@ -1117,6 +1120,12 @@ if [[ -d "$ROOT_DIR/.omp" ]]; then
         cp "$entry" "$dest"
       fi
     done
+    if [[ "$kind" == "skills" ]]; then
+      for cached_skill in "$target_root"/*; do
+        [[ -d "$cached_skill" ]] || continue
+        [[ -d "$source_root/$(basename "$cached_skill")" ]] || rm -rf -- "$cached_skill"
+      done
+    fi
     if [[ "$kind" == "extensions" ]]; then
       rm -f "$target_root/aoc-jj-init.ts" "$target_root/aoc-herdr.ts"
     fi

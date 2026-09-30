@@ -91,42 +91,6 @@
       "source": "../.config/aoc/pi/skills/aoc-understand",
       "status": "current"
     },
-    ".omp/skills/architecture-design": {
-      "asset": "skill/architecture-design",
-      "assetVersion": 3,
-      "expectedSha256": "28596583c13cfb0d6eaec3abc9e3296001ee194e978e21882cfa7522972423af",
-      "marker": ".omp/skills/architecture-design/.aoc-managed",
-      "sha256": "28596583c13cfb0d6eaec3abc9e3296001ee194e978e21882cfa7522972423af",
-      "source": "../.config/aoc/pi/skills/architecture-design",
-      "status": "current"
-    },
-    ".omp/skills/enforce-dashboard-ux-guardrails": {
-      "asset": "skill/enforce-dashboard-ux-guardrails",
-      "assetVersion": 3,
-      "expectedSha256": "0867aa7e737e91bb544de8bb96329c29e795bdc17f5645b37caac1ab27d5dcee",
-      "marker": ".omp/skills/enforce-dashboard-ux-guardrails/.aoc-managed",
-      "sha256": "0867aa7e737e91bb544de8bb96329c29e795bdc17f5645b37caac1ab27d5dcee",
-      "source": "../.config/aoc/pi/skills/enforce-dashboard-ux-guardrails",
-      "status": "current"
-    },
-    ".omp/skills/frontend-design": {
-      "asset": "skill/frontend-design",
-      "assetVersion": 3,
-      "expectedSha256": "5302fb1270b962bac6aa443ee2b5aff6e857dbf3c0972a7a12a03ff22b29fa2f",
-      "marker": ".omp/skills/frontend-design/.aoc-managed",
-      "sha256": "5302fb1270b962bac6aa443ee2b5aff6e857dbf3c0972a7a12a03ff22b29fa2f",
-      "source": "../.config/aoc/pi/skills/frontend-design",
-      "status": "current"
-    },
-    ".omp/skills/funnel-design": {
-      "asset": "skill/funnel-design",
-      "assetVersion": 3,
-      "expectedSha256": "015c50a2ecd29e00457384aa8a3a17c0731200058685d7478bbdf56ddff54d10",
-      "marker": ".omp/skills/funnel-design/.aoc-managed",
-      "sha256": "7268621271e86cd965469c3e1ffd327b057d0e531ce4e7d6402b57ec1a26f787",
-      "source": "../.config/aoc/pi/skills/funnel-design",
-      "status": "dirty"
-    },
     ".omp/skills/rlm-analysis": {
       "asset": "skill/rlm-analysis",
       "assetVersion": 3,
@@ -135,20 +99,11 @@
       "sha256": "7844902bf081428c2a3f4586a69209e0ac30e0ee8e6fe7873c51ff79ba8d6f39",
       "source": "../.config/aoc/pi/skills/rlm-analysis",
       "status": "current"
-    },
-    ".omp/skills/safe-gamification": {
-      "asset": "skill/safe-gamification",
-      "assetVersion": 3,
-      "expectedSha256": "a8044d5601d26c3f13bc9bbb09cc6a0d1227b9d74843c5fadf5715a43fdc4500",
-      "marker": ".omp/skills/safe-gamification/.aoc-managed",
-      "sha256": "a8044d5601d26c3f13bc9bbb09cc6a0d1227b9d74843c5fadf5715a43fdc4500",
-      "source": "../.config/aoc/pi/skills/safe-gamification",
-      "status": "current"
     }
   },
   "counts": {
-    "current": 12,
-    "dirty": 4,
+    "current": 8,
+    "dirty": 3,
     "stale": 0,
     "unknown": 0
   },

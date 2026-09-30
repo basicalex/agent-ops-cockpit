@@ -1458,6 +1458,11 @@ cleanup_retired_creative_project_assets() {
     .omp/skills/design-spec .omp/skills/design-tokens .omp/skills/motion-director
     .omp/skills/ponytail .omp/skills/ponytail-audit .omp/skills/ponytail-debt
     .omp/skills/ponytail-help .omp/skills/ponytail-review
+    .omp/skills/architecture-design .omp/skills/enforce-dashboard-ux-guardrails
+    .omp/skills/frontend-design .omp/skills/funnel-design
+    .omp/skills/omarchy-theme-ops .omp/skills/safe-gamification
+    .omp/skills/aoc-stm .omp/skills/aoc-lexicon .omp/skills/browser-qa
+    .omp/skills/spec-rpg-authoring .omp/skills/tm-cc
     .omp/agents/brand-concept.md .omp/agents/brand-strategy.md
     .omp/agents/hyperframes-content.md .omp/agents/svg-asset.md
     .omp/extensions/aoc-brand-content.ts
@@ -1800,7 +1805,12 @@ setup_omp_skills() {
     "$omp_skill_dir/design-director" "$omp_skill_dir/design-handoff" \
     "$omp_skill_dir/design-premium-ui" "$omp_skill_dir/design-redesign" \
     "$omp_skill_dir/design-review" "$omp_skill_dir/design-spec" \
-    "$omp_skill_dir/design-tokens" "$omp_skill_dir/motion-director"
+    "$omp_skill_dir/design-tokens" "$omp_skill_dir/motion-director" \
+    "$omp_skill_dir/architecture-design" "$omp_skill_dir/enforce-dashboard-ux-guardrails" \
+    "$omp_skill_dir/frontend-design" "$omp_skill_dir/funnel-design" \
+    "$omp_skill_dir/omarchy-theme-ops" "$omp_skill_dir/safe-gamification" \
+    "$omp_skill_dir/aoc-stm" "$omp_skill_dir/aoc-lexicon" "$omp_skill_dir/browser-qa" \
+    "$omp_skill_dir/spec-rpg-authoring" "$omp_skill_dir/tm-cc"
 }
 setup_omp_agents() {
   local omp_agent_seed_dir

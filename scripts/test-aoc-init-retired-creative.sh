@@ -27,6 +27,7 @@ retired=(
   .omp/skills/website-to-hyperframes
   .omp/skills/animejs-core-api .omp/skills/design-review
   .omp/skills/motion-director .omp/skills/ponytail-review
+  .omp/skills/frontend-design .omp/skills/aoc-stm
   .omp/agents/brand-concept.md .omp/agents/brand-strategy.md
   .omp/agents/hyperframes-content.md .omp/agents/svg-asset.md
   .omp/extensions/aoc-brand-content.ts
