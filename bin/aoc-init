@@ -1445,8 +1445,19 @@ cleanup_retired_creative_project_assets() {
   local rel target marker
   local -a retired_creative=(
     .aoc/presets/hyperframes
+    .aoc/presets/design
     .omp/skills/aoc-hyperframes .omp/skills/hyperframes .omp/skills/hyperframes-cli
     .omp/skills/website-to-hyperframes .omp/skills/gsap
+    .omp/skills/animejs-core-api .omp/skills/animejs-performance-a11y
+    .omp/skills/animejs-react-integration .omp/skills/animejs-reviewer
+    .omp/skills/animejs-scene-planner .omp/skills/animejs-scroll-interaction
+    .omp/skills/animejs-svg-motion .omp/skills/animejs-text-splitting
+    .omp/skills/animejs-timelines
+    .omp/skills/design-diff .omp/skills/design-director .omp/skills/design-handoff
+    .omp/skills/design-premium-ui .omp/skills/design-redesign .omp/skills/design-review
+    .omp/skills/design-spec .omp/skills/design-tokens .omp/skills/motion-director
+    .omp/skills/ponytail .omp/skills/ponytail-audit .omp/skills/ponytail-debt
+    .omp/skills/ponytail-help .omp/skills/ponytail-review
     .omp/agents/brand-concept.md .omp/agents/brand-strategy.md
     .omp/agents/hyperframes-content.md .omp/agents/svg-asset.md
     .omp/extensions/aoc-brand-content.ts
@@ -1777,9 +1788,19 @@ setup_omp_skills() {
     fi
   done
 
-  rm -rf "$omp_skill_dir/ponytail-review" "$omp_skill_dir/ponytail-audit" "$omp_skill_dir/ponytail-debt" "$omp_skill_dir/ponytail-help" \
+  rm -rf "$omp_skill_dir/ponytail" "$omp_skill_dir/ponytail-review" "$omp_skill_dir/ponytail-audit" \
+    "$omp_skill_dir/ponytail-debt" "$omp_skill_dir/ponytail-help" \
     "$omp_skill_dir/aoc-hyperframes" "$omp_skill_dir/hyperframes" "$omp_skill_dir/hyperframes-cli" \
-    "$omp_skill_dir/website-to-hyperframes" "$omp_skill_dir/gsap"
+    "$omp_skill_dir/website-to-hyperframes" "$omp_skill_dir/gsap" \
+    "$omp_skill_dir/animejs-core-api" "$omp_skill_dir/animejs-performance-a11y" \
+    "$omp_skill_dir/animejs-react-integration" "$omp_skill_dir/animejs-reviewer" \
+    "$omp_skill_dir/animejs-scene-planner" "$omp_skill_dir/animejs-scroll-interaction" \
+    "$omp_skill_dir/animejs-svg-motion" "$omp_skill_dir/animejs-text-splitting" \
+    "$omp_skill_dir/animejs-timelines" "$omp_skill_dir/design-diff" \
+    "$omp_skill_dir/design-director" "$omp_skill_dir/design-handoff" \
+    "$omp_skill_dir/design-premium-ui" "$omp_skill_dir/design-redesign" \
+    "$omp_skill_dir/design-review" "$omp_skill_dir/design-spec" \
+    "$omp_skill_dir/design-tokens" "$omp_skill_dir/motion-director"
 }
 setup_omp_agents() {
   local omp_agent_seed_dir
@@ -1961,7 +1982,6 @@ setup_aoc_preset_assets() {
 
   # Seed compact production preset assets. Presets are cognitive positioning
   # layers; mode-specific skills remain lazy/filtered.
-  seed_aoc_preset_asset "design"
   seed_aoc_preset_asset "ops"
   seed_aoc_preset_asset "research"
   seed_aoc_preset_asset "test"

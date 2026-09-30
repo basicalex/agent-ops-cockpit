@@ -22,8 +22,11 @@ EOF
 
 retired=(
   .aoc/presets/hyperframes
+  .aoc/presets/design
   .omp/skills/aoc-hyperframes .omp/skills/hyperframes .omp/skills/hyperframes-cli
   .omp/skills/website-to-hyperframes
+  .omp/skills/animejs-core-api .omp/skills/design-review
+  .omp/skills/motion-director .omp/skills/ponytail-review
   .omp/agents/brand-concept.md .omp/agents/brand-strategy.md
   .omp/agents/hyperframes-content.md .omp/agents/svg-asset.md
   .omp/extensions/aoc-brand-content.ts
@@ -44,9 +47,10 @@ for rel in "${retired[@]}"; do
   fi
 done
 # Manifest-only ownership (no marker); directory and file cases.
-rm "$project/.pi/skills/gsap/.aoc-managed" "$project/.omp/agents/svg-asset.md.aoc-managed"
+rm "$project/.pi/skills/gsap/.aoc-managed" "$project/.omp/agents/svg-asset.md.aoc-managed" \
+  "$project/.omp/skills/design-review/.aoc-managed"
 cat > "$project/.aoc/managed-assets.json" <<'EOF'
-{"schemaVersion":1,"assets":{".pi/skills/gsap":{"asset":"skill/gsap"},".omp/agents/svg-asset.md":{"asset":"agent/svg-asset"},".aoc/open-design/old.txt":{"asset":"old"}}}
+{"schemaVersion":1,"assets":{".pi/skills/gsap":{"asset":"skill/gsap"},".omp/agents/svg-asset.md":{"asset":"agent/svg-asset"},".omp/skills/design-review":{"asset":"skill/design-review"},".aoc/open-design/old.txt":{"asset":"old"}}}
 EOF
 mkdir -p "$project/.omp/skills/gsap" "$project/.omp/skills/gsap-custom"
 printf 'user owned\n' > "$project/.omp/skills/gsap/SKILL.md"
@@ -71,7 +75,7 @@ python3 - "$project/.aoc/managed-assets.json" <<'PY'
 import json
 import sys
 assets = json.load(open(sys.argv[1], encoding="utf-8"))["assets"]
-for name in (".pi/skills/gsap", ".omp/agents/svg-asset.md", ".aoc/open-design/old.txt"):
+for name in (".pi/skills/gsap", ".omp/agents/svg-asset.md", ".omp/skills/design-review", ".aoc/open-design/old.txt"):
     if name in assets:
         raise SystemExit(f"ERROR: retired manifest entry remains: {name}")
 PY
@@ -79,6 +83,7 @@ PY
 fresh="$tmp/fresh-project"
 mkdir -p "$fresh"
 AOC_INIT_SKIP_BUILD=1 bash "$root/bin/aoc-init" "$fresh" > "$tmp/fresh.log" 2>&1 || { cat "$tmp/fresh.log" >&2; exit 1; }
+[[ ! -e "$fresh/.aoc/presets/design" ]] || { echo 'ERROR: retired design preset reseeded into fresh project' >&2; exit 1; }
 for rel in AGENTS.md DESIGN.md .aoc/effective-agent-contract.md; do
   if [[ -f "$fresh/$rel" ]] && grep -Eiq 'HyperFrames|open-design|brand-content' "$fresh/$rel"; then
     echo "ERROR: retired wording in fresh $rel" >&2

@@ -87,6 +87,16 @@ if [[ "$has_explicit_skills" -eq 0 ]]; then
     fi
     skill_csv+="$skill"
   done <<<"$active_skills"
+  # Skills installed for every agent (`bunx skills add -g`, e.g. fframes-video) join the profile allowlist.
+  if [[ "${AOC_OMP_SHARED_SKILLS:-1}" != "0" ]]; then
+    for skill_md in "${AOC_OMP_SHARED_SKILLS_DIR:-$HOME/.agents/skills}"/*/SKILL.md; do
+      [[ -f "$skill_md" ]] || continue
+      skill="$(basename "$(dirname "$skill_md")")"
+      [[ -z "${seen_skills[$skill]:-}" ]] || continue
+      seen_skills[$skill]=1
+      skill_csv+="${skill_csv:+,}$skill"
+    done
+  fi
   if [[ -n "$skill_csv" ]]; then
     skill_args=(--skills "$skill_csv")
   else

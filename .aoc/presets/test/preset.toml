@@ -28,7 +28,7 @@ recommended = []
 
 [skills.recommendedByMode]
 verify = ["rlm-analysis"]
-browser = ["design-review"]
+browser = []
 regression = ["rlm-analysis"]
 preview = ["vercel-cli"]
 

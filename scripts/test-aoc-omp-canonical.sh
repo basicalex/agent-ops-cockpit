@@ -4,6 +4,8 @@ set -euo pipefail
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 tmp="$(mktemp -d)"
 trap 'rm -rf "$tmp"' EXIT
+export HOME="$tmp/home" XDG_CONFIG_HOME="$tmp/config" AOC_CLAUDE_INSTALL_OFFLINE=1
+mkdir -p "$HOME" "$XDG_CONFIG_HOME"
 
 assert_file() {
   local path="$1"
@@ -143,8 +145,6 @@ for forbidden in \
   aoc-update \
   browser-qa \
   frontend-design \
-  motion-director \
-  animejs-core-api \
   funnel-design \
   safe-gamification \
   omarchy-theme-ops \

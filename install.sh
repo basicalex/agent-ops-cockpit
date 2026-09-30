@@ -1088,8 +1088,16 @@ if [[ -d "$ROOT_DIR/.pi/skills" ]]; then
 fi
 
 # AOC default OMP seed assets for installed aoc-init fallback
-# Retired in 27f9e40; remove cached creative assets no longer seeded by AOC.
-retired_creative_skills=(aoc-hyperframes hyperframes hyperframes-cli website-to-hyperframes gsap)
+# Remove cached creative assets no longer seeded by AOC.
+retired_creative_skills=(
+  aoc-hyperframes hyperframes hyperframes-cli website-to-hyperframes gsap
+  animejs-core-api animejs-performance-a11y animejs-react-integration
+  animejs-reviewer animejs-scene-planner animejs-scroll-interaction
+  animejs-svg-motion animejs-text-splitting animejs-timelines
+  design-diff design-director design-handoff design-premium-ui
+  design-redesign design-review design-spec design-tokens motion-director
+  ponytail ponytail-audit ponytail-debt ponytail-help ponytail-review
+)
 retired_creative_agents=(brand-concept.md brand-strategy.md hyperframes-content.md svg-asset.md)
 retired_creative_bins=(aoc-hyperframes aoc-hf aoc-hf-u aoc-html-video aoc-od)
 
@@ -1210,7 +1218,7 @@ for bin in "${retired_creative_bins[@]}"; do
   rm -f "$BIN_DIR/$bin"
 done
 rm -f "$AOC_CONFIG_DIR/omp/extensions/aoc-brand-content.ts" "$AOC_CONFIG_DIR/prompts-optional/pi/hyperframes.md"
-rm -rf "$AOC_CONFIG_DIR/presets/hyperframes"
+rm -rf "$AOC_CONFIG_DIR/presets/hyperframes" "$AOC_CONFIG_DIR/presets/design"
 
 
 # Yazi Plugins

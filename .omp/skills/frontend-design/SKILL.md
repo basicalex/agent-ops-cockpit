@@ -1,6 +1,6 @@
 ---
 name: frontend-design
-description: Umbrella skill for product-facing frontend design work. Use when a request involves UI/UX, landing pages, conversion funnels, design systems, design review, redesigns, premium polish, motion, interaction, design tokens, or choosing which frontend/design specialist skill to load. Routes to the appropriate local skills while keeping root DESIGN.md and implementation context in mind.
+description: Umbrella skill for product-facing frontend design work. Use when a request involves UI/UX, landing pages, conversion funnels, design systems, design review, redesigns, visual polish, motion, interaction, design tokens, or choosing the right existing frontend/design guidance. Keeps root DESIGN.md and implementation context in mind.
 compatibility: Designed for Pi Coding Agent and other Agent Skills-compatible coding agents.
 metadata:
   version: "1.0.0"
@@ -16,7 +16,7 @@ Use this skill when the user asks for frontend/product-facing work but the exact
 
 1. Read root `DESIGN.md` before product-facing UI, copy, layout, docs-site, marketing, or media changes.
 2. Preserve existing stack, components, tokens, accessibility, and route conventions.
-3. Load the narrowest specialist skill only when its body is needed. Do not inject every design skill by default.
+3. Load a specialist skill only when its body is needed. Do not inject unrelated skills by default.
 4. For implementation work, inspect code narrowly before editing and run targeted checks.
 
 ## Skill router
@@ -26,15 +26,7 @@ Load these skills as needed:
 | Need | Skill |
 |---|---|
 | End-to-end conversion architecture, landing pages, CTAs, lead capture, pricing, onboarding, funnel analytics | `funnel-design` |
-| Broad art direction / which design mode to use | `design-director` |
-| Critique an existing UI or design artifact | `design-review` |
-| Redesign a screen/page/flow | `design-redesign` |
-| High-end SaaS/product polish and visual refinement | `design-premium-ui` |
-| Token extraction, token mapping, design-system values | `design-tokens` |
-| Design handoff/spec from visual direction to implementation | `design-handoff` or `design-spec` |
-| Compare design versions or regressions | `design-diff` |
-| Motion language, transitions, animation direction | `motion-director` |
-| Anime.js timeline/scroll/review implementation | local `animejs-*` skills if present |
+| UI critique, redesign, polish, tokens, handoff, or motion | Use root `DESIGN.md` and the existing project conventions |
 | Browser visual QA, screenshots, site interaction | `agent-browser` if available |
 
 ## Default triage
@@ -66,13 +58,9 @@ Ask or infer:
 
 Load `funnel-design`.
 
-### Visual redesign or premium polish
+### Visual redesign, polish, or motion work
 
-Load `design-redesign`, `design-premium-ui`, or `design-director` depending on request scope.
-
-### Motion work
-
-Load `motion-director`; for Anime.js implementation, load the specific `animejs-*` skill.
+Use root `DESIGN.md`, the existing components and tokens, and the target route's implementation.
 
 ## Output expectation
 

@@ -91,8 +91,10 @@ run_aoc_omp() {
     AOC_RAW_OMP_BIN="$raw_omp" \
     RAW_OMP_LOG="$raw_log" \
     AOC_PROFILE_STATE_FILE="$tmp_dir/profile-state.json" \
+    AOC_OMP_SHARED_SKILLS_DIR="$tmp_dir/shared-skills" \
     "$@"
 }
+mkdir -p "$tmp_dir/shared-skills"
 
 run_aoc_omp bin/aoc-omp "prompt with spaces"
 raw_args="$(cat "$raw_log")"
@@ -104,6 +106,16 @@ if [[ "$raw_args" != *"<prompt with spaces>"* ]]; then
   echo "ERROR: aoc-omp did not preserve arguments containing spaces" >&2
   exit 1
 fi
+
+mkdir -p "$tmp_dir/shared-skills/fframes-video" "$tmp_dir/shared-skills/no-skill-md"
+printf -- '---\nname: fframes-video\n---\n' > "$tmp_dir/shared-skills/fframes-video/SKILL.md"
+run_aoc_omp bin/aoc-omp run
+raw_args="$(cat "$raw_log")"
+if [[ "$raw_args" != *"<aoc-understand,ponytail-workflows,fframes-video>"* ]]; then
+  echo "ERROR: aoc-omp did not add shared ~/.agents skills to the allowlist" >&2
+  exit 1
+fi
+rm -rf "$tmp_dir/shared-skills/fframes-video" "$tmp_dir/shared-skills/no-skill-md"
 
 run_aoc_omp AOC_OMP_PROFILES=core,dox bin/aoc-omp run
 raw_args="$(cat "$raw_log")"

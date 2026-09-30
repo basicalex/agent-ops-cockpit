@@ -26,7 +26,7 @@ Use this as a router for cross-cutting product/system architecture work. It shou
 | Ethical gamification, progress systems, streaks, quests, rewards, leaderboards, retention mechanics | `safe-gamification` |
 | Conversion architecture, landing pages, CTAs, qualification, lead capture, pricing, onboarding, funnel analytics | `funnel-design` |
 | Frontend/product-facing design mode selection | `frontend-design` |
-| Design system, critique, redesign, polish, handoff, tokens, motion | `design-*` and `motion-director` skills as relevant |
+| Design system, critique, redesign, polish, handoff, tokens, motion | `frontend-design` and the project's `DESIGN.md` |
 | Implementation architecture | User request and repository evidence |
 
 ## Architecture review checklist

@@ -23,16 +23,12 @@ The primary entrypoint is still regular AOC:
 aoc
 ```
 
-Then switch presets live inside the same Pi session:
+Then switch to an available preset:
 
 ```text
-/preset design
-/design-director spec
-/motion-director react
+/preset ops
 /preset off
 ```
-
-`aoc.design` still exists as a convenience bootstrap, but it is no longer the primary flow. It simply starts AOC with the `design` preset preactivated.
 
 ## Runtime model
 
@@ -59,20 +55,13 @@ Preset skills are now treated as:
 - **active**: currently part of preset routing bias
 - **recommended**: suggested only when the task matches the active preset/mode
 
-This means design and motion skills can stay installed in the repo without acting like the default AOC behavior.
+Preset routing distinguishes installed skills from those active for a selected mode.
 
 With `preset: off`:
 - no preset-specific prompt injection
-- no design-first routing bias
 - no preset-specific active skills
 
-With `preset: design`:
-- `frontend-design`, `architecture-design`, and `design-director` become active
-- mode-specific design skills become recommended only when relevant
-- `DESIGN.md` remains the durable handoff/source-of-truth contract
-
 Shipped presets:
-- `design`: product/design critique, specs, tokens, brand, motion-aware review
 - `ops`: production operations, health, deploys, repo mapping, tasks
 - `research`: evidence gathering across web, repo, and source sets
 - `test`: implementation verification, browser QA, preview smoke checks, and regression testing
@@ -87,7 +76,7 @@ Preset assets live in:
   components/
 ```
 
-`aoc-init` seeds these preset assets into other projects. Managed preset/runtime/design assets are refreshed in existing repos too.
+`aoc-init` seeds the remaining preset assets into other projects.
 
 ## Commands
 
@@ -97,7 +86,6 @@ Generic:
 - `/preset menu`
 - `/preset select`
 - `/preset-menu`
-- `/preset design`
 - `/preset ops`
 - `/preset research`
 - `/preset test`
@@ -107,39 +95,13 @@ Generic:
 - `/preset history`
 - `/preset clear-handoff`
 
-Design:
-- `/design-director`
-- `/design-director critique`
-- `/design-director spec`
-- `/design-director diff`
-- `/design-director handoff`
-- `/design-director tokens`
-- `/design-director brand`
-- `/design-director motion`
-- `/design-director premium`
-- `/design-director funnel`
-- `/design-director dashboard`
-- `/design-off`
-
-Motion:
-- `/motion-director`
-- `/motion-director plan`
-- `/motion-director timeline`
-- `/motion-director scroll`
-- `/motion-director svg`
-- `/motion-director text`
-- `/motion-director react`
-- `/motion-director audit`
-- `/motion-off`
 
 ## Preset skill routing
 
 Current manifest behavior:
-- design active: `frontend-design`, `architecture-design`, `design-director`; dashboard guardrails become active only in `dashboard` mode
-- design recommended by mode: critique/spec/diff/tokens/brand/premium/funnel/motion/dashboard specialists only when that mode is selected
 - ops active: none by default; mode recommends `aoc-init-ops`, `vercel-cli`, `rlm-analysis`, or `aoc-map`
 - research active: `web-research`; mode recommends `agent-browser` or `rlm-analysis` when useful
-- test active: `architecture-design`, `agent-browser`; modes recommend `rlm-analysis`, `design-review`, or `vercel-cli` when useful
+- test active: `architecture-design`, `agent-browser`; modes recommend `rlm-analysis` or `vercel-cli` when useful
 
 ## Handoff behavior
 
@@ -158,7 +120,6 @@ The runtime also keeps a short transition trail, inspectable with `/preset histo
 Use `/preset menu`, `/preset select`, `/preset-menu`, or `Alt+X` to open the mode switcher overlay.
 
 `Alt+X` intentionally shows only umbrella modes:
-- Design
 - Ops
 - Research
 - Test
@@ -172,7 +133,7 @@ Inside the navigator:
 - `x` rotates Caveman level
 - `Alt+X` is the global shortcut to reopen the mode switcher
 
-Focused lenses are available through either nested `Alt+X` sub-options or slash commands. Examples: `/design-director spec`, `/preset ops deploy`, `/preset research repo`.
+Focused lenses are available through nested `Alt+X` sub-options or slash commands such as `/preset ops deploy`.
 
 Changing a preset/mode updates runtime routing immediately: the next agent turn receives the active preset prompt context. It also updates `~/.omp/agent/config.yml` skill filters. Run `/reload` only when you want Pi's visible skill inventory/list to match the selected preset.
 
@@ -184,5 +145,5 @@ Use these terms consistently:
 - **active skill**: currently shaping routing for the active preset/mode
 - **recommended skill**: suggested because it matches the current preset/mode
 - **primary flow**: `aoc` then live preset switching
-- **convenience bootstrap**: `aoc.design` preactivating a preset at startup
+- **convenience bootstrap**: a preset selected at startup
 
