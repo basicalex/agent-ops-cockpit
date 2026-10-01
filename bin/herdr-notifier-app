@@ -1,0 +1,115 @@
+#!/usr/bin/env bash
+# Build the herdr-notifier binary and per-project .app bundles that carry the
+# project's icon in macOS notifications. Used by hammerspoon/herdr-notify.lua.
+#
+#   herdr-notifier-app build                      compile main.swift
+#   herdr-notifier-app make <label> [icon-file]   create or refresh <label>.app, print its path
+#   herdr-notifier-app list                       show existing bundles
+#   herdr-notifier-app clean                      remove all bundles and the binary
+set -euo pipefail
+
+root="${HERDR_NOTIFIER_HOME:-$HOME/Library/Application Support/herdr-notifier}"
+bin="$root/bin/herdr-notifier"
+apps="$root/apps"
+src="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/hammerspoon/herdr-notifier/main.swift"
+[ -f "$src" ] || src="$HOME/.hammerspoon/herdr-notifier/main.swift"
+default_icns="/Applications/Ghostty.app/Contents/Resources/Ghostty.icns"
+lsregister="/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister"
+
+build() {
+  mkdir -p "$root/bin"
+  if [ -f "$bin" ] && [ ! "$src" -nt "$bin" ]; then return; fi
+  echo "compiling $src" >&2
+  swiftc -O -o "$bin" "$src" -framework AppKit -framework UserNotifications 2>&1 | grep -v "^$" >&2 || true
+  [ -x "$bin" ] || { echo "build failed" >&2; exit 1; }
+}
+
+slug() { printf '%s' "$1" | tr -c 'A-Za-z0-9' '-' | sed 's/-\{2,\}/-/g; s/^-//; s/-$//' | tr 'A-Z' 'a-z'; }
+
+# Render any image (svg, png, ico, jpg) to a 1024px png.
+render_png() {
+  local in="$1" out="$2" tmp
+  tmp="$(mktemp -d)"
+  case "${in##*.}" in
+    svg|SVG)
+      qlmanage -t -s 1024 -o "$tmp" "$in" >/dev/null 2>&1 || true
+      local made; made="$(ls "$tmp"/*.png 2>/dev/null | head -1 || true)"
+      [ -n "$made" ] || { rm -rf "$tmp"; return 1; }
+      mv "$made" "$out" ;;
+    *)
+      sips -s format png -z 1024 1024 "$in" --out "$out" >/dev/null 2>&1 || { rm -rf "$tmp"; return 1; } ;;
+  esac
+  rm -rf "$tmp"
+}
+
+make_icns() {
+  local png="$1" icns="$2" set
+  set="$(mktemp -d)/icon.iconset"; mkdir -p "$set"
+  for s in 16 32 128 256 512; do
+    sips -z $s $s "$png" --out "$set/icon_${s}x${s}.png" >/dev/null 2>&1
+    sips -z $((s*2)) $((s*2)) "$png" --out "$set/icon_${s}x${s}@2x.png" >/dev/null 2>&1
+  done
+  iconutil -c icns "$set" -o "$icns"
+  rm -rf "$(dirname "$set")"
+}
+
+make() {
+  local label="$1" icon="${2:-}"
+  build
+  local id; id="$(slug "$label")"
+  mkdir -p "$apps"
+  local app="$apps/$label.app" stamp="$apps/$label.source" want
+  want="bin=$(stat -f %m "$bin") icon=${icon}:$([ -n "$icon" ] && [ -f "$icon" ] && stat -f %m "$icon" || echo none)"
+  if [ -d "$app" ] && [ -f "$stamp" ] && [ "$(cat "$stamp")" = "$want" ]; then echo "$app"; return; fi
+
+  # Once a bundle has been launched, macOS App Management blocks writes into it
+  # from processes without that permission (Hammerspoon's children included), so
+  # the bundle is assembled and signed in a scratch dir and moved into place whole.
+  local tmp; tmp="$(mktemp -d)"
+  local new="$tmp/$label.app" contents="$tmp/$label.app/Contents"
+  mkdir -p "$contents/MacOS" "$contents/Resources"
+  cp "$bin" "$contents/MacOS/herdr-notifier"
+  local icns="$contents/Resources/icon.icns" png="$tmp/icon-source.png"
+  if [ -n "$icon" ] && [ -f "$icon" ] && render_png "$icon" "$png" && make_icns "$png" "$icns"; then :
+  else cp "$default_icns" "$icns"; fi
+  cat > "$contents/Info.plist" <<PLIST
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+  <key>CFBundleIdentifier</key><string>dev.aoc.herdr-notifier.$id</string>
+  <key>CFBundleName</key><string>$label</string>
+  <key>CFBundleDisplayName</key><string>$label</string>
+  <key>CFBundleExecutable</key><string>herdr-notifier</string>
+  <key>CFBundleIconFile</key><string>icon</string>
+  <key>CFBundlePackageType</key><string>APPL</string>
+  <key>CFBundleShortVersionString</key><string>1.0</string>
+  <key>CFBundleVersion</key><string>1</string>
+  <key>LSMinimumSystemVersion</key><string>13.0</string>
+  <key>LSUIElement</key><true/>
+  <key>NSHighResolutionCapable</key><true/>
+</dict></plist>
+PLIST
+  codesign --force --sign - "$new" >/dev/null 2>&1
+
+  if [ -d "$app" ] && ! rm -rf "$app" 2>/dev/null; then
+    # The old bundle is protected; leave it and use a fresh path.
+    app="$apps/$label-$(date +%Y%m%d%H%M%S).app"
+  fi
+  mv "$new" "$app"
+  rm -rf "$tmp"
+  echo "$want" > "$stamp"
+  [ -x "$lsregister" ] && "$lsregister" -f "$app" >/dev/null 2>&1 || true
+  # A first launch through LaunchServices registers the bundle with the
+  # notification service and shows the permission prompt; direct posts are
+  # refused until then.
+  open -a "$app" --args register 2>/dev/null || true
+  echo "$app"
+}
+
+case "${1:-}" in
+  build) build ;;
+  make) [ -n "${2:-}" ] || { echo "usage: herdr-notifier-app make <label> [icon-file]" >&2; exit 2; }; make "$2" "${3:-}" ;;
+  list) ls -1 "$apps" 2>/dev/null || true ;;
+  clean) rm -rf "$root" ;;
+  *) sed -n '2,10p' "$0"; exit 2 ;;
+esac

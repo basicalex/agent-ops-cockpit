@@ -327,6 +327,12 @@ install_macos_host_configs() {
     fi
     mkdir -p "$HOME/.hammerspoon"
     cp "$hs_src" "$hs_dst"
+    cp "$repo_root/hammerspoon/herdr-notify.lua" "$HOME/.hammerspoon/herdr-notify.lua"
+    # Per-project notifier apps: source for the Swift binary plus its builder.
+    mkdir -p "$HOME/.hammerspoon/herdr-notifier" "$HOME/.local/bin"
+    cp "$repo_root/hammerspoon/herdr-notifier/main.swift" "$HOME/.hammerspoon/herdr-notifier/main.swift"
+    cp "$repo_root/bin/herdr-notifier-app" "$HOME/.local/bin/herdr-notifier-app"
+    chmod +x "$HOME/.local/bin/herdr-notifier-app"
     echo "Installed Hammerspoon config to $hs_dst"
     if [[ -x "$HOME/.local/bin/hs" ]]; then
       "$HOME/.local/bin/hs" -c "hs.reload()" >/dev/null 2>&1 || true
