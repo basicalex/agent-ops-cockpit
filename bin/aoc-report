@@ -1,0 +1,118 @@
+#!/usr/bin/env python3
+import argparse
+from datetime import datetime, timezone
+import json
+import os
+from pathlib import Path
+import tempfile
+
+
+def load_identity(run_dir):
+    meta_path = run_dir / "meta.json"
+    try:
+        meta = json.loads(meta_path.read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        meta = {
+            "run_id": os.environ.get("AOC_DISPATCH_RUN_ID"),
+            "repo": os.environ.get("AOC_DISPATCH_REPO"),
+            "issue": os.environ.get("AOC_DISPATCH_ISSUE"),
+        }
+        try:
+            meta["issue"] = int(meta["issue"])
+        except (TypeError, ValueError):
+            raise ValueError("AOC_DISPATCH_ISSUE is required and must be an integer") from None
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"invalid meta.json: {exc}") from None
+
+    if not isinstance(meta, dict):
+        raise ValueError("meta.json must contain an object")
+    for name in ("run_id", "repo"):
+        if not isinstance(meta.get(name), str) or not meta[name].strip():
+            raise ValueError(f"{name} is required in meta.json or its dispatch environment variable")
+    if type(meta.get("issue")) is not int:
+        raise ValueError("issue in meta.json must be an integer")
+    return meta["run_id"], meta["repo"], meta["issue"]
+
+
+def write_report(path, report):
+    # A unique temporary file avoids collisions between simultaneous reporters.
+    tmp_path = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            mode="w", encoding="utf-8", dir=path.parent,
+            prefix="report.", suffix=".tmp", delete=False,
+        ) as handle:
+            tmp_path = Path(handle.name)
+            json.dump(report, handle, indent=2, ensure_ascii=False)
+            handle.write("\n")
+        os.replace(tmp_path, path)
+    finally:
+        if tmp_path is not None:
+            tmp_path.unlink(missing_ok=True)
+
+
+def main():
+    parser = argparse.ArgumentParser(
+        prog="aoc-report", description="Write the final report for an AOC Dispatch run."
+    )
+    parser.add_argument("--status", required=True, choices=("done", "blocked", "failed"))
+    parser.add_argument("--summary", required=True)
+    parser.add_argument("--needs-decision")
+    evidence_group = parser.add_mutually_exclusive_group()
+    evidence_group.add_argument("--evidence")
+    evidence_group.add_argument("--evidence-file", type=Path)
+    parser.add_argument("--run-dir")
+    parser.add_argument("--json", action="store_true")
+    args = parser.parse_args()
+
+    try:
+        if not args.summary.strip():
+            raise ValueError("--summary must be non-empty")
+        if len(args.summary) > 1200:
+            raise ValueError("--summary must be at most 1200 characters")
+        if args.needs_decision is not None and len(args.needs_decision) > 1200:
+            raise ValueError("--needs-decision must be at most 1200 characters")
+        if args.status == "blocked":
+            if args.needs_decision is None or not args.needs_decision.strip():
+                raise ValueError("blocked status requires non-empty --needs-decision")
+        elif args.needs_decision is not None:
+            raise ValueError("--needs-decision is only valid with blocked status")
+
+        evidence = args.evidence
+        if args.evidence_file is not None:
+            evidence = args.evidence_file.read_text(encoding="utf-8")
+        if evidence is not None and len(evidence) > 4000:
+            raise ValueError("evidence must be at most 4000 characters")
+
+        directory = args.run_dir if args.run_dir is not None else os.environ.get("AOC_DISPATCH_RUN_DIR")
+        if not directory:
+            raise ValueError("--run-dir or AOC_DISPATCH_RUN_DIR is required")
+        run_dir = Path(directory).expanduser().resolve()
+        if not run_dir.is_dir():
+            raise ValueError(f"run directory does not exist or is not a directory: {run_dir}")
+        run_id, repo, issue = load_identity(run_dir)
+        report = {
+            "schema": "aoc.dispatch.report/v1",
+            "version": 1,
+            "run_id": run_id,
+            "assignmentId": run_id,
+            "repo": repo,
+            "issue": issue,
+            "status": args.status,
+            "summary": args.summary,
+            "needsDecision": args.needs_decision,
+            "decision_id": f"{run_id}-d1" if args.status == "blocked" else None,
+            "evidence": evidence,
+            "timestamp": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        }
+        report_path = run_dir / "report.json"
+        write_report(report_path, report)
+    except (OSError, ValueError) as exc:
+        parser.error(str(exc))
+
+    print(json.dumps(report, indent=2, ensure_ascii=False) if args.json else report_path)
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
