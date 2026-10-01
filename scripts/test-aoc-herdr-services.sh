@@ -4,6 +4,8 @@ set -euo pipefail
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 tmp_dir="$(mktemp -d)"
 trap 'rm -rf "$tmp_dir"' EXIT
+# The launch test must not start a real Master seat manager daemon.
+export AOC_HERDR_MASTER=off
 
 fake_bin="$tmp_dir/bin"
 project="$tmp_dir/project"

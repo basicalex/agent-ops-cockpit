@@ -1,0 +1,352 @@
+#!/usr/bin/env python3
+"""Manage persistent Herdr Master seats without owning dispatcher lifetimes."""
+import argparse
+import datetime as dt
+import fcntl
+import json
+import os
+from pathlib import Path
+import re
+import shlex
+import signal
+import subprocess
+import sys
+import tempfile
+import threading
+import time
+
+
+def read_json(path):
+    try:
+        value = json.loads(path.read_text())
+        return value if isinstance(value, dict) else {}
+    except (OSError, ValueError):
+        return {}
+
+
+def atomic_json(path, value):
+    fd, temporary = tempfile.mkstemp(prefix=path.name + '.', dir=path.parent)
+    try:
+        with os.fdopen(fd, 'w') as handle:
+            json.dump(value, handle, indent=2)
+            handle.write('\n')
+        os.replace(temporary, path)
+    finally:
+        if os.path.exists(temporary):
+            os.unlink(temporary)
+
+
+def pid_alive(pid):
+    if not isinstance(pid, int) or isinstance(pid, bool) or pid <= 0:
+        return False
+    try:
+        os.kill(pid, 0)
+        return True
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+
+
+def timestamp():
+    return dt.datetime.now(dt.timezone.utc).isoformat()
+
+
+class Manager:
+    def __init__(self, session):
+        self.session = session
+        self.directory = Path(os.environ.get('XDG_STATE_HOME') or Path.home() / '.local/state') / 'aoc/master'
+        self.directory.mkdir(parents=True, exist_ok=True)
+        self.state_path = self.directory / f'{session}.json'
+        self.lock_path = self.directory / f'{session}.lock'
+        self.state = read_json(self.state_path)
+        self.state.setdefault('schema', 'aoc.master.state/v1')
+        self.state.setdefault('created_panes', {})
+        self.state.setdefault('workspaces', {})
+        self.state.setdefault('warnings', {})
+        self.herdr = os.environ.get('AOC_MASTER_HERDR_BIN', 'herdr')
+
+    def acquire(self):
+        handle = self.lock_path.open('a+')
+        try:
+            fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            handle.close()
+            return None
+        return handle
+
+    def running(self):
+        handle = self.acquire()
+        if handle is None:
+            return True
+        handle.close()
+        return False
+
+    def herdr_call(self, args):
+        result = subprocess.run([self.herdr, '--session', self.session, *args],
+                                capture_output=True, text=True, timeout=5)
+        if result.returncode:
+            raise RuntimeError(result.stderr.strip() or result.stdout.strip() or 'Herdr call failed')
+        return result.stdout
+
+    def items(self, args, key):
+        payload = json.loads(self.herdr_call(args))
+        return payload['result'][key]
+
+    def server_running(self):
+        try:
+            return bool(re.search(r'^status:\s*running\s*$', self.herdr_call(['status', 'server']), re.M))
+        except (OSError, RuntimeError, subprocess.TimeoutExpired):
+            return False
+
+    def heartbeat(self, pane_id):
+        key = re.sub(r'[^A-Za-z0-9_.-]', '_', pane_id)
+        value = read_json(self.directory / 'seats' / f'{key}.json')
+        try:
+            updated = dt.datetime.fromisoformat(value['updated_at'].replace('Z', '+00:00'))
+            age = (dt.datetime.now(dt.timezone.utc) - updated).total_seconds()
+            alive = (value.get('schema') == 'aoc.master.seat/v1'
+                     and value.get('pane_id') == pane_id and 0 <= age < 60
+                     and pid_alive(value.get('pid')))
+        except (KeyError, ValueError, TypeError):
+            alive = False
+        return value, alive
+
+    @staticmethod
+    def root_pane(tab, panes):
+        # List payloads have no root-pane field; use the first matching pane, not the focused pane.
+        return next((pane for pane in panes if pane.get('tab_id') == tab['tab_id']), None)
+
+    @staticmethod
+    def resolve_root(pane):
+        cwd = pane.get('cwd') if pane else None
+        if not cwd:
+            return None
+        try:
+            result = subprocess.run(['git', '-C', cwd, 'rev-parse', '--show-toplevel'],
+                                    capture_output=True, text=True, timeout=5)
+            if result.returncode == 0 and result.stdout.strip():
+                return result.stdout.strip()
+        except (OSError, subprocess.TimeoutExpired):
+            pass
+        return cwd
+
+    def snapshot(self):
+        rows = []
+        for workspace in self.items(['workspace', 'list'], 'workspaces'):
+            label = workspace.get('label') or ''
+            if label.startswith('AOC Services'):
+                continue
+            wid = workspace['workspace_id']
+            tabs = self.items(['tab', 'list', '--workspace', wid], 'tabs')
+            panes = self.items(['pane', 'list', '--workspace', wid], 'panes')
+            root = self.resolve_root(self.root_pane(tabs[0], panes)) if tabs else None
+            masters = [tab for tab in tabs if (tab.get('label') or '').casefold() == 'master']
+            pane = self.root_pane(masters[0], panes) if masters else None
+            rows.append((workspace, root, masters, pane))
+        return rows
+
+    def warn_once(self, key, message):
+        if self.state['warnings'].get(key) != message:
+            print(message, flush=True)
+            self.state['warnings'][key] = message
+
+    def idle_shell(self, pane):
+        if pane.get('agent'):
+            return False
+        try:
+            output = self.herdr_call(['pane', 'read', pane['pane_id'], '--lines', '20', '--format', 'text', '--raw'])
+        except (OSError, RuntimeError, subprocess.TimeoutExpired):
+            return False
+        output = re.sub(r'\x1b\[[0-?]*[ -/]*[@-~]', '', output)
+        lines = [line.strip() for line in output.splitlines() if line.strip()]
+        # Deliberately exclude a bare '>' (could be a REPL/continuation prompt).
+        return bool(lines and re.search(r'(?:[$%#❯]|➜\s+\S+)\s*$', lines[-1]))
+
+    def save(self):
+        atomic_json(self.state_path, self.state)
+
+    def reconcile(self):
+        workspaces = {}
+        for workspace, root, masters, pane in self.snapshot():
+            wid = workspace['workspace_id']
+            note = {'label': workspace.get('label'), 'root': root}
+            workspaces[wid] = note
+            if not root:
+                note['note'] = 'workspace root pane cwd unavailable'
+                continue
+            if not masters:
+                self.herdr_call(['tab', 'create', '--workspace', wid, '--cwd', root, '--label', 'Master', '--no-focus'])
+                tabs = self.items(['tab', 'list', '--workspace', wid], 'tabs')
+                masters = [tab for tab in tabs if (tab.get('label') or '').casefold() == 'master']
+                if not masters:
+                    raise RuntimeError(f'created Master tab not listed in {wid}')
+                pane = self.root_pane(masters[0], self.items(['pane', 'list', '--workspace', wid], 'panes'))
+                if pane:
+                    self.state['created_panes'][pane['pane_id']] = {
+                        'tab_id': masters[0]['tab_id'], 'terminal_id': pane.get('terminal_id')}
+                    self.save()
+            if len(masters) > 1:
+                self.warn_once(f'duplicates:{wid}', f'Duplicate Master tabs in {wid}: ' + ', '.join(tab['tab_id'] for tab in masters))
+            note['master_tab_id'] = masters[0]['tab_id']
+            if not pane:
+                note['note'] = 'Master root pane unavailable'
+                continue
+            pane_id = pane['pane_id']
+            note['pane_id'] = pane_id
+            heartbeat, alive = self.heartbeat(pane_id)
+            note['note'] = 'no inbox configured' if heartbeat.get('role') == 'no-inbox' else None
+            if alive:
+                continue
+            created = self.state['created_panes'].get(pane_id, {})
+            owned = (created.get('tab_id') == masters[0]['tab_id']
+                     and created.get('terminal_id') == pane.get('terminal_id'))
+            # Allow a newly launched seat to publish its first heartbeat before retrying.
+            if not heartbeat and time.time() - self.state.get('started_panes', {}).get(pane_id, 0) < 60:
+                continue
+            if owned or self.idle_shell(pane):
+                self.herdr_call(['pane', 'run', pane_id, f'aoc-dispatch seat --root {shlex.quote(root)}'])
+                self.state.setdefault('started_panes', {})[pane_id] = time.time()
+            else:
+                self.warn_once(f'busy:{wid}', f'Master tab in {wid} is busy; seat not started')
+        self.state['workspaces'] = workspaces
+        self.state['last_reconcile'] = timestamp()
+        self.save()
+
+    def run(self, handle):
+        handle.seek(0)
+        handle.truncate()
+        handle.write(str(os.getpid()) + '\n')
+        handle.flush()
+        stopped = threading.Event()
+        def stop(_signum, _frame):
+            stopped.set()
+        for sig in (signal.SIGTERM, signal.SIGINT, signal.SIGHUP):
+            signal.signal(sig, stop)
+        tick = max(0.01, float(os.environ.get('AOC_MASTER_TICK', '5')))
+        gone_after = max(0, float(os.environ.get('AOC_MASTER_SERVER_GONE_AFTER', '30')))
+        wait_until = time.monotonic() + float(os.environ.get('AOC_MASTER_SERVER_WAIT', '60'))
+        seen = False
+        gone_since = None
+        try:
+            while not stopped.is_set():
+                now = time.monotonic()
+                if self.server_running():
+                    seen = True
+                    gone_since = None
+                    try:
+                        self.reconcile()
+                    except (OSError, ValueError, KeyError, RuntimeError, subprocess.TimeoutExpired) as exc:
+                        print(f'aoc-master: reconcile: {exc}', flush=True)
+                elif not seen:
+                    if now >= wait_until:
+                        break
+                else:
+                    if gone_since is None:
+                        gone_since = now
+                    if now - gone_since >= gone_after:
+                        break
+                stopped.wait(tick)
+        finally:
+            handle.close()
+        return 0
+
+    def start(self):
+        handle = self.acquire()
+        if handle is None:
+            print('aoc-master already running')
+            return 0
+        read_fd, write_fd = os.pipe()
+        child = os.fork()
+        if child:
+            os.close(write_fd)
+            os.read(read_fd, 1)
+            os.close(read_fd)
+            os.waitpid(child, 0)
+            handle.close()  # Do not LOCK_UN: the daemon inherited this flock.
+            return 0
+        os.close(read_fd)
+        try:
+            os.setsid()
+            if os.fork():
+                os._exit(0)
+            os.chdir('/')
+            with open(os.devnull, 'rb') as source, (self.directory / f'{self.session}.log').open('a') as log:
+                os.dup2(source.fileno(), 0)
+                os.dup2(log.fileno(), 1)
+                os.dup2(log.fileno(), 2)
+            handle.seek(0)
+            handle.truncate()
+            handle.write(str(os.getpid()) + '\n')
+            handle.flush()
+            os.write(write_fd, b'1')
+            os.close(write_fd)
+            code = self.run(handle)
+        except Exception as exc:
+            print(f'aoc-master: {exc}', file=sys.stderr, flush=True)
+            code = 1
+        os._exit(code)
+
+    def status(self, as_json):
+        payload = {'session': self.session, 'running': self.running(), 'workspaces': []}
+        try:
+            rows = self.snapshot() if self.server_running() else []
+        except (OSError, ValueError, KeyError, RuntimeError, subprocess.TimeoutExpired):
+            rows = []
+        for workspace, root, masters, pane in rows:
+            heartbeat, alive = self.heartbeat(pane['pane_id']) if pane else ({}, False)
+            payload['workspaces'].append({
+                'workspace_id': workspace['workspace_id'], 'label': workspace.get('label'), 'root': root,
+                'master_tab_id': masters[0]['tab_id'] if masters else None,
+                'seat_alive': alive, 'role': heartbeat.get('role'), 'seat': heartbeat.get('seat')})
+        if as_json:
+            print(json.dumps(payload, indent=2))
+        else:
+            print(f'aoc-master {self.session}: ' + ('running' if payload['running'] else 'stopped'))
+            for row in payload['workspaces']:
+                print(f"{row['label']}: root={row['root']} Master={row['master_tab_id']} alive={row['seat_alive']} role={row['role']} seat={row['seat']}")
+        return 0
+
+    def stop(self):
+        handle = self.acquire()
+        if handle is not None:
+            handle.close()
+            return 0
+        try:
+            pid = int(self.lock_path.read_text().strip())
+            if pid_alive(pid):
+                os.kill(pid, signal.SIGTERM)
+        except (OSError, ValueError):
+            pass
+        return 0
+
+
+def main(argv=None):
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--session', default=os.environ.get('AOC_HERDR_SESSION', 'aoc'))
+    sub = parser.add_subparsers(dest='command', required=True)
+    for name in ('start', 'run', 'status', 'stop'):
+        command = sub.add_parser(name)
+        command.add_argument('--session', default=argparse.SUPPRESS)
+        if name == 'status':
+            command.add_argument('--json', action='store_true')
+    args = parser.parse_args(argv)
+    if not re.fullmatch(r'[A-Za-z0-9_.-]+', args.session) or args.session in ('.', '..'):
+        parser.error('session must be a non-empty name containing only letters, digits, _, . or -')
+    try:
+        manager = Manager(args.session)
+        if args.command == 'start':
+            return manager.start()
+        if args.command == 'run':
+            handle = manager.acquire()
+            return manager.run(handle) if handle is not None else 0
+        if args.command == 'status':
+            return manager.status(args.json)
+        return manager.stop()
+    except (OSError, ValueError) as exc:
+        print(f'aoc-master: {exc}', file=sys.stderr)
+        return 1
+
+
+if __name__ == '__main__':
+    raise SystemExit(main())

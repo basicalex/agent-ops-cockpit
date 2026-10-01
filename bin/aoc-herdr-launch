@@ -85,5 +85,14 @@ if herdr status server >/dev/null 2>&1; then
   esac
 fi
 
+if [[ "${AOC_HERDR_MASTER:-on}" != "off" ]]; then
+  master="$(dirname "${BASH_SOURCE[0]}")/aoc-master"
+  if [[ -x "$master" ]]; then
+    "$master" start --session "$session" >/dev/null 2>&1 || true
+  elif command -v aoc-master >/dev/null 2>&1; then
+    aoc-master start --session "$session" >/dev/null 2>&1 || true
+  fi
+fi
+
 cd "$cwd"
 exec herdr --session "$session"

@@ -3,17 +3,37 @@ set -euo pipefail
 
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 tmp_dir="$(mktemp -d)"
-trap 'rm -rf "$tmp_dir"' EXIT
+cleanup() {
+  python3 - "$tmp_dir" <<'PY'
+import os
+import signal
+import sys
+from pathlib import Path
+path = Path(sys.argv[1]) / "processes"
+if path.exists():
+    for value in path.read_text().splitlines():
+        try:
+            os.killpg(int(value), signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+PY
+  rm -rf "$tmp_dir"
+}
+trap cleanup EXIT
 
 python3 - "$root/bin/aoc-dispatch" "$tmp_dir" <<'PY'
 import fcntl
+import atexit
 import hashlib
 import json
 import os
 import re
+import runpy
 import shutil
+import signal
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 command = Path(sys.argv[1])
@@ -27,6 +47,18 @@ home = temporary / "home"
 (home / ".config/aoc").mkdir(parents=True)
 (home / ".config/aoc/communication-contract.md").write_text("Fixture communication contract.")
 state_file = temporary / "github.json"
+processes = temporary / "processes"
+background = []
+
+
+def stop_background():
+    for proc in background:
+        if proc.poll() is None:
+            proc.kill()
+        proc.wait()
+
+
+atexit.register(stop_background)
 claude_calls = temporary / "claude.jsonl"
 state_dir = temporary / "state/aoc/dispatch" / hashlib.sha256(str(project.resolve()).encode()).hexdigest()[:16]
 environment = dict(os.environ, PATH=f"{fake_bin}:{os.environ['PATH']}", HOME=str(home),
@@ -34,9 +66,11 @@ environment = dict(os.environ, PATH=f"{fake_bin}:{os.environ['PATH']}", HOME=str
                    FAKE_CLAUDE_CALLS=str(claude_calls), FAKE_GH_ACTOR="aoc-bot",
                    AOC_DISPATCH_GH_BIN=str(fake_bin / "gh"), AOC_DISPATCH_CLAUDE_BIN=str(fake_bin / "claude"),
                    AOC_DISPATCH_NOW="2026-10-01T12:00:00Z", FAKE_CLAUDE_MODE="done",
-                   FAKE_DISPATCH_STATE=str(state_dir / "state.json"))
+                   FAKE_DISPATCH_STATE=str(state_dir / "state.json"), FAKE_PROCESSES=str(processes))
 
 (fake_bin / "gh").write_text(r'''#!/usr/bin/env python3
+import datetime as dt
+import hashlib
 import json
 import os
 import sys
@@ -46,11 +80,16 @@ path = Path(os.environ["FAKE_GH_STATE"])
 state = json.loads(path.read_text())
 argv = sys.argv[1:]
 actor = os.environ.get("FAKE_GH_ACTOR", "aoc-bot")
-created = os.environ["AOC_DISPATCH_NOW"]
+created = os.environ.get("AOC_DISPATCH_NOW") or dt.datetime.now(dt.timezone.utc).isoformat().replace("+00:00", "Z")
 entry = {"argv": argv, "actor": actor, "created_at": created}
 state["log"].append(entry)
 repo = state["repo"]
 output = None
+
+def save():
+    temporary = path.with_suffix(f".{os.getpid()}.tmp")
+    temporary.write_text(json.dumps(state))
+    os.replace(temporary, path)
 
 def change(issue, action, label):
     labels = issue["labels"]
@@ -92,6 +131,23 @@ elif argv[:2] == ["issue", "comment"]:
     state["issues"][argv[2]]["comments"].append({"body": Path(argv[6]).read_text(),
                                                "author": {"login": actor}, "createdAt": created})
 elif argv[:1] == ["api"]:
+    if argv[1:2] == ["-i"]:
+        assert len(argv) in (3, 5), argv
+        assert argv[-1] == f"repos/{repo}/issues?labels=agent-ready&state=open&per_page=50", argv
+        etag = os.environ.get("FAKE_GH_ETAG") or '"' + hashlib.sha256(
+            json.dumps([state["issues"], state["events"]], sort_keys=True).encode()).hexdigest() + '"'
+        conditional = len(argv) == 5
+        if conditional:
+            assert argv[2] == "-H" and argv[3].startswith("If-None-Match: "), argv
+        unchanged = (conditional and argv[3] == "If-None-Match: " + etag) or os.environ.get("FAKE_GH_FORCE_304") == "1"
+        save()
+        if unchanged:
+            print(f"HTTP/2.0 304 Not Modified\nETag: {etag}\n\n", end="")
+            raise SystemExit(int(os.environ.get("FAKE_GH_304_EXIT", "1")))
+        output = [issue for issue in state["issues"].values()
+                  if issue["state"] == "open" and {"name": "agent-ready"} in issue["labels"]]
+        print(f"HTTP/2.0 200 OK\nETag: {etag}\n\n" + json.dumps(output))
+        raise SystemExit(0)
     assert len(argv) == 3 and argv[2] == "--paginate", argv
     prefix = f"repos/{repo}/issues/"
     assert argv[1].startswith(prefix) and argv[1].endswith("/events"), argv
@@ -102,13 +158,15 @@ elif argv[:2] == ["label", "create"]:
     state["labels"][argv[2]] = {"color": argv[6], "description": argv[8]}
 else:
     raise AssertionError("unsupported fake gh command: " + repr(argv))
-path.write_text(json.dumps(state))
+save()
 if output is not None:
     print(output if isinstance(output, str) else json.dumps(output))
 ''')
 (fake_bin / "claude").write_text(r'''#!/usr/bin/env python3
+import datetime as dt
 import json
 import os
+import signal
 import sys
 import time
 from pathlib import Path
@@ -116,14 +174,25 @@ from pathlib import Path
 run_dir = Path(os.environ["AOC_DISPATCH_RUN_DIR"])
 meta = json.loads((run_dir / "meta.json").read_text())
 with Path(os.environ["FAKE_CLAUDE_CALLS"]).open("a") as handle:
+    with Path(os.environ["FAKE_PROCESSES"]).open("a") as registry:
+        registry.write(str(os.getpid()) + "\n")
     handle.write(json.dumps({"argv": sys.argv[1:], "run_dir": str(run_dir), "cwd": os.getcwd(),
                              "run_id": os.environ["AOC_DISPATCH_RUN_ID"], "repo": os.environ["AOC_DISPATCH_REPO"],
                              "issue": os.environ["AOC_DISPATCH_ISSUE"]}) + "\n")
 mode = os.environ["FAKE_CLAUDE_MODE"]
 print("fake master output", flush=True)
-if mode == "sleep":
+print(json.dumps({"type": "assistant", "message": {"content": [
+    {"type": "tool_use", "name": "Read", "input": {"file_path": "packet.md"}},
+    {"type": "text", "text": "Read issue and plan changes"}]}}), flush=True)
+print(json.dumps({"type": "result", "subtype": "success"}), flush=True)
+if mode in ("sleep", "stubborn"):
+    if mode == "stubborn":
+        signal.signal(signal.SIGTERM, signal.SIG_IGN)
     time.sleep(60)
     raise SystemExit(0)
+if mode == "delayed":
+    while not (run_dir / "release").exists():
+        time.sleep(0.03)
 if mode == "noreport":
     raise SystemExit(int(os.environ.get("FAKE_CLAUDE_EXIT", "0")))
 status = mode if mode in ("done", "blocked", "failed") else "done"
@@ -132,7 +201,7 @@ report = {"schema": "aoc.dispatch.report/v1", "version": 1, "run_id": meta["run_
           "summary": "Plan complete" if status == "done" else "Need decision" if status == "blocked" else "Master failed",
           "needsDecision": "Use option A or B?" if status == "blocked" else None,
           "decision_id": meta["run_id"] + "-d1" if status == "blocked" else None,
-          "evidence": "Read issue and repository", "timestamp": os.environ["AOC_DISPATCH_NOW"]}
+          "evidence": "Read issue and repository", "timestamp": os.environ.get("AOC_DISPATCH_NOW") or dt.datetime.now(dt.timezone.utc).isoformat()}
 if mode == "invalid":
     report["run_id"] = "wrong-run"
 (run_dir / "report.json").write_text(json.dumps(report))
@@ -159,7 +228,8 @@ def reset(issues=None, actor="basicalex"):
     shutil.rmtree(state_dir, ignore_errors=True)
     claude_calls.unlink(missing_ok=True)
     environment.update(AOC_DISPATCH_NOW="2026-10-01T12:00:00Z", FAKE_CLAUDE_MODE="done")
-    for name in ("FAKE_GH_CLAIM_NOOP", "FAKE_CLAUDE_EXIT"):
+    for name in ("FAKE_GH_CLAIM_NOOP", "FAKE_CLAUDE_EXIT", "FAKE_GH_ETAG",
+                 "FAKE_GH_FORCE_304", "FAKE_GH_304_EXIT"):
         environment.pop(name, None)
     state = {"repo": "fixture/dispatch", "issues": {}, "labels": {}, "events": [], "log": []}
     for number, labels in (issues or [(2, ["agent-ready"])]):
@@ -173,10 +243,12 @@ def reset(issues=None, actor="basicalex"):
     state_file.write_text(json.dumps(state))
 
 
-def dispatch(*args, expected=0, defaults=True):
+def dispatch(*args, expected=0, defaults=True, wait=True):
     argv = [str(command), "--root", str(project)]
     if defaults:
         argv += ["--repo", "fixture/dispatch"]
+    if args[:1] == ("tick",) and wait:
+        args += ("--wait",)
     proc = subprocess.run(argv + list(args), env=environment, capture_output=True, text=True, timeout=30)
     assert proc.returncode == expected, (argv, args, proc.returncode, proc.stdout, proc.stderr)
     return proc
@@ -360,7 +432,7 @@ state.update(seat="RUNNING", active={"run_id": run_id, "issue": 2, "pid": os.get
 state["issues"]["2"] = {"state": "running", "last_run_id": run_id, "claimed_at": "2026-10-01T11:59:00Z",
                         "decision_id": None, "blocked_at": None, "ready_seen_at": None, "runs": [run_id]}
 (state_dir / "state.json").write_text(json.dumps(state))
-dispatch("tick")
+dispatch("tick", wait=False)
 assert local()["seat"] == "RUNNING" and not calls() and issue_labels() == {"agent-running"}
 # Obtain a PID proven dead, without assuming a magic PID is unused.
 dead = subprocess.Popen([sys.executable, "-c", "pass"])
@@ -428,5 +500,227 @@ for seat in ("CLAIMED", "RUNNING"):
     assert result()["outcome"] == "review" and issue_labels() == {"agent-review"}
     assert len(calls()) == 1
 
-print("AOC Dispatch smoke passed (a-j)")
+# k: unchanged inbox skips processing, changed ETag processes, 300s forces shape 2.
+reset(actor="stranger")
+environment["FAKE_GH_ETAG"] = '"v1"'
+dispatch("tick")
+assert local()["inbox_etag"] == '"v1"'
+start = len(github()["log"])
+dispatch("tick")
+assert [entry["argv"][:2] for entry in github()["log"][start:]] == [["api", "-i"]]
+assert github()["log"][-1]["argv"][2:4] == ["-H", 'If-None-Match: "v1"']
+environment["FAKE_GH_304_EXIT"] = "0"
+dispatch("tick")
+environment["FAKE_GH_ETAG"] = '"v2"'
+start = len(github()["log"])
+dispatch("tick")
+assert local()["inbox_etag"] == '"v2"'
+assert any(entry["argv"][:2] == ["issue", "list"] for entry in github()["log"][start:])
+environment["AOC_DISPATCH_NOW"] = "2026-10-01T12:04:59Z"
+start = len(github()["log"])
+dispatch("tick")
+assert not any(entry["argv"][:2] == ["issue", "list"] for entry in github()["log"][start:])
+environment["AOC_DISPATCH_NOW"] = "2026-10-01T12:05:00Z"
+start = len(github()["log"])
+dispatch("tick")
+assert any(entry["argv"][:2] == ["issue", "list"] for entry in github()["log"][start:])
+assert local()["last_full_check_at"] == "2026-10-01T12:05:00Z"
+
+# l: pending resume is processed even on 304 and still rolls back at timeout.
+original, decision_id = blocked()
+environment.update(AOC_DISPATCH_NOW="2026-10-01T12:01:00Z", FAKE_CLAUDE_MODE="done")
+human("--remove-label", "needs-alex")
+human("--add-label", "agent-ready")
+dispatch("tick", "--decision-timeout", "1")
+assert local()["issues"]["2"]["ready_seen_at"] is not None
+environment.update(FAKE_GH_FORCE_304="1", AOC_DISPATCH_NOW="2026-10-01T12:01:02Z")
+start = len(github()["log"])
+dispatch("tick", "--decision-timeout", "1")
+assert github()["log"][start]["argv"][:2] == ["api", "-i"]
+assert issue_labels() == {"needs-alex"} and local()["issues"]["2"]["ready_seen_at"] is None
+assert comments("resume-timeout") and len(calls()) == 1
+
+
+def until(check, timeout=5):
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        value = check()
+        if value:
+            return value
+        time.sleep(0.03)
+    raise AssertionError("timed out waiting for fixture state")
+
+
+def pid_running(pid):
+    proc = subprocess.run(["ps", "-o", "stat=", "-p", str(pid)], capture_output=True, text=True)
+    return proc.returncode == 0 and not proc.stdout.strip().startswith("Z")
+
+
+def stop_master(pid):
+    try:
+        os.killpg(pid, signal.SIGKILL)
+    except ProcessLookupError:
+        pass
+    until(lambda: not pid_running(pid))
+
+
+# m: a one-pass tick returns before a held master; a later tick finalizes it.
+reset()
+environment["FAKE_CLAUDE_MODE"] = "sleep"
+started = time.monotonic()
+dispatch("tick", wait=False)
+assert time.monotonic() - started < 3
+active = local()["active"]
+assert local()["seat"] == "RUNNING" and pid_running(active["pid"])
+until(lambda: len(calls()) == 1)
+dispatch("tick", wait=False)
+assert local()["active"] == active and issue_labels() == {"agent-running"}
+stop_master(active["pid"])
+dispatch("tick", wait=False)
+assert result()["outcome"] == "failed" and local()["seat"] == "IDLE"
+
+# Timeout comparison survives dispatcher restart; timeout overrides even a report.
+reset()
+environment["FAKE_CLAUDE_MODE"] = "sleep"
+dispatch("tick", "--timeout", "1", wait=False)
+active = local()["active"]
+until(lambda: len(calls()) == 1)
+environment["AOC_DISPATCH_NOW"] = "2026-10-01T12:00:02Z"
+dispatch("tick", "--timeout", "1", wait=False)
+until(lambda: not pid_running(active["pid"]))
+dispatch("tick", "--timeout", "1", wait=False)
+assert result()["reason"] == "timeout" and issue_labels() == {"agent-failed"}
+
+# A master ignoring SIGTERM is killed after the ten-second grace period.
+reset()
+environment["FAKE_CLAUDE_MODE"] = "stubborn"
+dispatch("tick", "--timeout", "0.2")
+pid = int(processes.read_text().splitlines()[-1])
+assert not pid_running(pid) and result()["reason"] == "timeout"
+assert issue_labels() == {"agent-failed"}
+
+# n: another dispatcher did not spawn the live PID, waits, then uses its report.
+reset()
+environment["FAKE_CLAUDE_MODE"] = "delayed"
+dispatch("tick", wait=False)
+active = local()["active"]
+dispatch("tick", wait=False)
+assert local()["active"] == active and issue_labels() == {"agent-running"}
+(state_dir / "runs" / active["run_id"] / "release").touch()
+until(lambda: not pid_running(active["pid"]))
+dispatch("tick", wait=False)
+assert local()["seat"] == "IDLE" and result()["outcome"] == "review"
+
+
+def start_seat(root, pane):
+    output = temporary / (re.sub(r"[^A-Za-z0-9_.-]", "_", pane) + ".log")
+    seat_env = dict(environment, HERDR_PANE_ID=pane)
+    seat_env.pop("AOC_DISPATCH_NOW", None)
+    proc = subprocess.Popen([str(command), "seat", "--root", str(root)], env=seat_env,
+                            stdout=output.open("w"), stderr=subprocess.STDOUT, start_new_session=True)
+    background.append(proc)
+    with processes.open("a") as registry:
+        registry.write(str(proc.pid) + "\n")
+    return proc, output
+
+
+def heartbeat(pane):
+    path = temporary / "state/aoc/master/seats" / (re.sub(r"[^A-Za-z0-9_.-]", "_", pane) + ".json")
+    return json.loads(path.read_text()) if path.exists() else None
+
+
+def stop_seat(proc, pane):
+    proc.send_signal(signal.SIGTERM)
+    assert proc.wait(timeout=5) == 0
+    assert heartbeat(pane) is None
+
+
+# o: non-git root needs no gh call; heartbeat and actual view report no inbox.
+non_git = temporary / "non-git"
+non_git.mkdir()
+before = github()
+proc, output = start_seat(non_git, "w1D:no/inbox")
+beat = until(lambda: heartbeat("w1D:no/inbox"))
+until(lambda: "no inbox configured" in output.read_text())
+assert beat["role"] == "no-inbox" and beat["inbox"] is None and beat["seat"] is None
+assert beat["root"] == str(non_git) and beat["pid"] == proc.pid
+assert beat["schema"] == "aoc.master.seat/v1" and beat["pane_id"] == "w1D:no/inbox"
+assert github() == before
+stop_seat(proc, "w1D:no/inbox")
+
+# p/q: config inbox/interval, exclusive owner, read-only viewer, lock takeover.
+reset([(2, ["risk-review"])])
+config_dir = project / ".aoc"
+config_dir.mkdir()
+config_path = config_dir / "dispatch.toml"
+config_path.write_text('inbox = "fixture/dispatch"\ninterval = 0.1\n')
+first, first_output = start_seat(project, "w1D:first")
+until(lambda: (heartbeat("w1D:first") or {}).get("role") == "owner")
+second, second_output = start_seat(project, "w1D:second")
+until(lambda: (heartbeat("w1D:second") or {}).get("role") == "viewer")
+assert heartbeat("w1D:first")["inbox"] == "fixture/dispatch"
+assert not any(entry["argv"][:2] == ["repo", "view"] for entry in github()["log"])
+until(lambda: sum(entry["argv"][:2] == ["api", "-i"] for entry in github()["log"]) >= 3)
+snapshot = (state_dir / "state.json").read_text()
+time.sleep(0.25)
+assert (state_dir / "state.json").read_text() == snapshot  # 304 owner + viewer do not rewrite state.
+stop_seat(first, "w1D:first")
+until(lambda: (heartbeat("w1D:second") or {}).get("role") == "owner")
+assert second.poll() is None
+config_path.write_text("inbox = [invalid TOML\n")
+until(lambda: "Error:" in second_output.read_text())
+assert second.poll() is None
+config_path.write_text('inbox = "fixture/dispatch"\ninterval = 0.1\n')
+start = len(github()["log"])
+until(lambda: len(github()["log"]) > start)
+stop_seat(second, "w1D:second")
+
+# Config values apply to ticks; explicit flags win.
+reset()
+config_path.write_text('inbox = "fixture/dispatch"\ninterval = 0.1\nmodel = "configured-model"\ntrusted_actor = "stranger"\n')
+dispatch("tick", defaults=False)
+assert not calls()
+environment["AOC_DISPATCH_NOW"] = "2026-10-01T12:05:00Z"
+dispatch("tick", "--trusted-actor", "basicalex", "--model", "cli-model", defaults=False)
+assert calls()[0]["argv"][calls()[0]["argv"].index("--model") + 1] == "cli-model"
+reset()
+config_path.write_text('inbox = "fixture/dispatch"\nmodel = "configured-model"\n')
+dispatch("tick", defaults=False)
+assert calls()[0]["argv"][calls()[0]["argv"].index("--model") + 1] == "configured-model"
+config_path.write_text('inbox = "fixture/dispatch"\ninterval = 0.1\n')
+
+# r: a seat exit removes its heartbeat without killing an active master.
+reset()
+environment["FAKE_CLAUDE_MODE"] = "sleep"
+proc, output = start_seat(project, "w1D:survivor")
+until(lambda: (heartbeat("w1D:survivor") or {}).get("seat") == "RUNNING")
+active = local()["active"]
+until(lambda: len(calls()) == 1)
+assert pid_running(active["pid"])
+until(lambda: "tool Read:" in output.read_text() and "result: success" in output.read_text())
+stop_seat(proc, "w1D:survivor")
+assert pid_running(active["pid"]) and local()["active"] == active
+stop_master(active["pid"])
+dispatch("tick", wait=False)
+assert result()["outcome"] == "failed"
+assert "tool Read:" in comments("failed")[0] and "text: Read issue" in comments("failed")[0]
+config_path.unlink()
+
+# s: stream rendering truncates text, handles tool/result and retains raw lines.
+module = runpy.run_path(str(command), run_name="dispatch_fixture")
+render_path = temporary / "render.log"
+render_path.write_text("\n".join([
+    json.dumps({"type": "assistant", "message": {"content": [
+        {"type": "tool_use", "name": "Read", "input": {"file_path": "packet.md"}},
+        {"type": "text", "text": "x" * 200}]}}),
+    json.dumps({"type": "result", "subtype": "success"}),
+    "plain diagnostic",
+]) + "\n")
+assert module["render_log_lines"](render_path, 20) == [
+    'tool Read: {"file_path": "packet.md"}', "text: " + "x" * 160,
+    "result: success", "plain diagnostic"]
+assert module["render_log_lines"](render_path, 2) == ["result: success", "plain diagnostic"]
+assert module["render_log_lines"](temporary / "missing.log", 20) == []
+
+print("AOC Dispatch smoke passed (a-s)")
 PY
