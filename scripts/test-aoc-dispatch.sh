@@ -1069,6 +1069,24 @@ assert f"including {project}" in packet and "with `--tests` describing the comma
 assert "--branch/--commit are auto-filled" in packet and "do not delegate to workers" not in packet
 assert f"built-in: git push {bare} {code['branch']}:refs/heads/{code['branch']}" in git_trace.read_text()
 assert json.loads(dispatch("status", "--json").stdout)["mode"] == "code"
+
+# Readable status: idle seat, the 10 most recently claimed issues, PR column from result.json.
+record = local()["issues"]["2"]
+assert dispatch("status").stdout.splitlines() == [
+    "Seat: IDLE", "Active: none",
+    f"#2  review  last run {record['last_run_id']}  claimed {record['claimed_at']}  PR {result()['pr_url']}"]
+saved = (state_dir / "state.json").read_text()
+state = local()
+for number in range(10, 21):
+    state["issues"][str(number)] = {"state": "failed", "last_run_id": f"run-{number}",
+                                    "claimed_at": f"2026-09-{number:02d}T00:00:00Z"}
+(state_dir / "state.json").write_text(json.dumps(state))
+lines = dispatch("status").stdout.splitlines()
+assert len(lines) == 12 and lines[2].startswith("#2  review  ") and lines[2].endswith(f"  PR {result()['pr_url']}")
+assert lines[3:] == [f"#{number}  failed  last run run-{number}  claimed 2026-09-{number:02d}T00:00:00Z"
+                     for number in range(20, 11, -1)], lines
+assert len(json.loads(dispatch("status", "--json").stdout)["issues"]) == 12
+(state_dir / "state.json").write_text(saved)
 for key in ("GH_TOKEN", "GITHUB_TOKEN", "GH_ENTERPRISE_TOKEN", "GITHUB_ENTERPRISE_TOKEN",
             "GIT_CONFIG_COUNT", "GIT_CONFIG_KEY_0", "GIT_CONFIG_VALUE_0", "HERDR_WORKSPACE_ID"):
     environment.pop(key, None)
@@ -1188,6 +1206,8 @@ until(lambda: len(calls()) == 1)
 active = local()["active"]
 status = json.loads(dispatch("status", "--json").stdout)
 assert status["mode"] == "code" and status["branch"] == code_record()["branch"]
+assert dispatch("status").stdout.splitlines()[:2] == [
+    "Seat: RUNNING", f"Active: issue 2 run {active['run_id']} elapsed 0s branch {code_record()['branch']}"]
 proc, output = start_seat(project, "z1:active")
 until(lambda: f"Branch: {code_record()['branch']}" in output.read_text())
 assert "Mode: code" in output.read_text()
