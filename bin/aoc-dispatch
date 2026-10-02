@@ -897,9 +897,25 @@ def main():
             if args.json:
                 print(json.dumps(dispatch.state, indent=2))
             else:
-                print(f"Seat: {dispatch.state['seat']}\nActive: {json.dumps(dispatch.state['active'])}")
-                for issue, record in sorted(dispatch.state["issues"].items(), key=lambda item: int(item[0])):
-                    print(f"Issue {issue}: {json.dumps(record)}")
+                lines = [f"Seat: {dispatch.state['seat']}"]
+                if active:
+                    elapsed = max(0, (now() - parse_time(active.get("started_at") or record["claimed_at"])).total_seconds())
+                    line = f"Active: issue {active['issue']} run {active['run_id']} elapsed {elapsed:.0f}s"
+                    lines.append(line + (f" branch {dispatch.state['branch']}" if "branch" in dispatch.state else ""))
+                else:
+                    lines.append("Active: none")
+                recent = sorted(dispatch.state["issues"].items(),
+                                key=lambda item: item[1].get("claimed_at") or "", reverse=True)[:10]
+                for issue, entry in recent:
+                    line = (f"#{issue}  {entry['state']}  last run {entry['last_run_id']}"
+                            f"  claimed {entry.get('claimed_at') or 'unknown'}")
+                    try:
+                        result = json.loads((dispatch.directory / "runs" / entry["last_run_id"]
+                                             / "result.json").read_text(encoding="utf-8"))
+                    except (OSError, ValueError):
+                        result = {}
+                    lines.append(line + (f"  PR {result['pr_url']}" if result.get("pr_url") else ""))
+                print("\n".join(lines))
         else:
             with (dispatch.directory / "poll.lock").open("a+") as handle:
                 try:
