@@ -34,16 +34,16 @@ meta = {
 report_path = run_dir / "report.json"
 
 
-def invoke(*args, overrides=None):
+def invoke(*args, overrides=None, cwd=None):
     result = subprocess.run(
         [str(cli), *args], env={**env, **(overrides or {})},
-        capture_output=True, text=True, check=False,
+        capture_output=True, text=True, check=False, cwd=cwd,
     )
     return result
 
 
-def success(*args, overrides=None):
-    result = invoke(*args, overrides=overrides)
+def success(*args, overrides=None, cwd=None):
+    result = invoke(*args, overrides=overrides, cwd=cwd)
     assert result.returncode == 0, (args, result.returncode, result.stderr)
     assert not result.stderr, result.stderr
     return result.stdout
@@ -77,6 +77,7 @@ assert report == {
     "assignmentId": run_id, "repo": meta["repo"], "issue": 2, "status": "done",
     "summary": "Plan ready", "needsDecision": None, "decision_id": None,
     "evidence": "Reviewed issue #2", "timestamp": report["timestamp"],
+    "branch": None, "commit": None, "tests": None,
 }, report
 stamp = datetime.strptime(report["timestamp"], "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc)
 assert before <= stamp <= datetime.now(timezone.utc), report
@@ -110,6 +111,80 @@ assert fallback["run_id"] == fallback_env["AOC_DISPATCH_RUN_ID"], fallback
 assert fallback["assignmentId"] == fallback["run_id"], fallback
 assert fallback["repo"] == "owner/project" and fallback["issue"] == 7, fallback
 
+assert all(fallback[key] is None for key in ("branch", "commit", "tests")), fallback
+
+# Explicit code fields also work in dry-run; omitted fields never retain old values.
+explicit_commit = "aB" * 20
+output = success("--run-dir", str(run_dir), "--status", "done", "--summary", "Code ready",
+                 "--branch", "aoc/issue-2-report", "--commit", explicit_commit,
+                 "--tests", "python3 smoke.py\nPassed café case", "--json")
+report = json.loads(output)
+assert report["branch"] == "aoc/issue-2-report", report
+assert report["commit"] == explicit_commit, report
+assert report["tests"] == "python3 smoke.py\nPassed café case", report
+success("--run-dir", str(run_dir), "--status", "done", "--summary", "Dry-run ready")
+report = json.loads(report_path.read_text())
+assert all(report[key] is None for key in ("branch", "commit", "tests")), report
+
+# Code mode reads the caller's checkout, not the run directory; flags override independently.
+git_dir = tmp / "worktree with spaces"
+git_dir.mkdir()
+git_env = {key: value for key, value in env.items() if not key.startswith("GIT_")}
+
+
+def git(*args):
+    result = subprocess.run(["git", *args], cwd=git_dir, env=git_env,
+                            capture_output=True, text=True, check=False)
+    assert result.returncode == 0, (args, result.stderr)
+    return result.stdout.strip()
+
+
+git("init", "--initial-branch=aoc/issue-2-autofill")
+(git_dir / "source.txt").write_text("Report fixture\n")
+git("add", "source.txt")
+git("-c", "user.name=AOC Test", "-c", "user.email=aoc-test@example.invalid",
+    "-c", "commit.gpgsign=false", "-c", f"core.hooksPath={tmp / 'no-hooks'}",
+    "commit", "-m", "Create report fixture")
+head = git("rev-parse", "HEAD")
+success("--run-dir", str(run_dir), "--status", "done", "--summary", "Dry-run in git",
+        cwd=git_dir)
+report = json.loads(report_path.read_text())
+assert report["branch"] is None and report["commit"] is None, report
+(run_dir / "meta.json").write_text(json.dumps({**meta, "mode": "code"}))
+output = success("--run-dir", str(run_dir), "--status", "done", "--summary", "Auto-filled",
+                 "--json", cwd=git_dir)
+report = json.loads(output)
+assert report["branch"] == "aoc/issue-2-autofill" and report["commit"] == head, report
+assert report["tests"] is None, report
+output = success("--run-dir", str(run_dir), "--status", "done", "--summary", "Branch override",
+                 "--branch", "aoc/issue-2-explicit", "--json", cwd=git_dir)
+report = json.loads(output)
+assert report["branch"] == "aoc/issue-2-explicit" and report["commit"] == head, report
+output = success("--run-dir", str(run_dir), "--status", "done", "--summary", "Commit override",
+                 "--commit", explicit_commit, "--json", cwd=git_dir)
+report = json.loads(output)
+assert report["branch"] == "aoc/issue-2-autofill" and report["commit"] == explicit_commit, report
+output = success("--run-dir", str(run_dir), "--status", "done", "--summary", "No git checkout",
+                 "--json", cwd=tmp)
+report = json.loads(output)
+assert report["branch"] is None and report["commit"] is None, report
+(run_dir / "meta.json").write_text(json.dumps(meta))
+
+# Tests text follows evidence semantics: Unicode character limit and verbatim file content.
+tests_file = tmp / "tests.txt"
+tests = "python3 smoke.py\nPassed café case\n"
+tests_file.write_text(tests, encoding="utf-8")
+success("--run-dir", str(run_dir), "--status", "done", "--summary", "Tests ready",
+        "--tests-file", str(tests_file))
+assert json.loads(report_path.read_text())["tests"] == tests
+success("--run-dir", str(run_dir), "--status", "done", "--summary", "Tests boundary",
+        "--tests", "é" * 4000)
+assert json.loads(report_path.read_text())["tests"] == "é" * 4000
+tests_file.write_text("é" * 4000, encoding="utf-8")
+success("--run-dir", str(run_dir), "--status", "done", "--summary", "Tests file boundary",
+        "--tests-file", str(tests_file))
+assert json.loads(report_path.read_text())["tests"] == "é" * 4000
+
 # Character limits include the boundary; evidence-file preserves multiline Unicode text.
 evidence_file = tmp / "evidence.txt"
 evidence = "Read café\nReviewed diff\n"
@@ -125,6 +200,15 @@ assert report["needsDecision"] == "?" * 1200, report
 
 # Each rejected call leaves an existing report byte-for-byte intact and no temporary files.
 base = ["--run-dir", str(run_dir), "--status", "done"]
+for commit in ("", "a" * 39, "a" * 41, "g" * 40, "a" * 40 + "\n"):
+    failure("--commit must be a 40-hex SHA", *base, "--summary", "Ready", "--commit", commit)
+failure("tests must be at most 4000", *base, "--summary", "Ready", "--tests", "é" * 4001)
+tests_file.write_text("é" * 4001, encoding="utf-8")
+failure("tests must be at most 4000", *base, "--summary", "Ready",
+        "--tests-file", str(tests_file))
+failure("not allowed with argument --tests", *base, "--summary", "Ready",
+        "--tests", "Direct", "--tests-file", str(tests_file))
+failure("No such file", *base, "--summary", "Ready", "--tests-file", str(tmp / "absent-tests.txt"))
 failure("--summary must be non-empty", *base, "--summary", "")
 failure("--summary must be non-empty", *base, "--summary", " \n\t")
 failure("--summary must be at most 1200", *base, "--summary", "x" * 1201)

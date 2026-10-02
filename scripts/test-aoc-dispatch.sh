@@ -131,6 +131,22 @@ def change(issue, action, label):
 
 if argv == ["repo", "view", "--json", "nameWithOwner", "-q", ".nameWithOwner"]:
     output = repo
+elif argv == ["repo", "view", repo, "--json", "defaultBranchRef", "-q", ".defaultBranchRef.name"]:
+    output = "main"
+elif argv[:2] == ["pr", "list"]:
+    assert argv[2:5] == ["--repo", repo, "--head"] and argv[6:] == ["--state", "open", "--json", "number,url"], argv
+    output = [pr for pr in state.get("prs", []) if pr["head"] == argv[5]]
+elif argv[:2] == ["pr", "create"]:
+    assert len(argv) == 12 and argv[2:5] == ["--repo", repo, "--head"], argv
+    assert argv[6] == "--base" and argv[8] == "--title" and argv[10] == "--body-file", argv
+    entry["body"] = Path(argv[11]).read_text()
+    if os.environ.get("FAKE_GH_PR_FAIL") == "1":
+        save()
+        print("fixture PR creation failed", file=sys.stderr)
+        raise SystemExit(1)
+    url = f"https://github.com/{repo}/pull/{100 + len(state.get('prs', []))}"
+    state.setdefault("prs", []).append({"number": 100, "url": url, "head": argv[5]})
+    output = "Created pull request\n" + url + "\n\n"
 elif argv[:2] == ["issue", "list"]:
     assert len(argv) == 12 and argv[2:7] == ["--repo", repo, "--state", "open", "--label"], argv
     assert argv[8:] == ["--json", "number,title,labels,updatedAt", "--limit", "50"], argv
@@ -200,6 +216,7 @@ import json
 import os
 import signal
 import sys
+import subprocess
 import time
 from pathlib import Path
 
@@ -210,7 +227,12 @@ with Path(os.environ["FAKE_CLAUDE_CALLS"]).open("a") as handle:
         registry.write(str(os.getpid()) + "\n")
     handle.write(json.dumps({"argv": sys.argv[1:], "run_dir": str(run_dir), "cwd": os.getcwd(),
                              "run_id": os.environ["AOC_DISPATCH_RUN_ID"], "repo": os.environ["AOC_DISPATCH_REPO"],
-                             "issue": os.environ["AOC_DISPATCH_ISSUE"]}) + "\n")
+                             "issue": os.environ["AOC_DISPATCH_ISSUE"],
+                             "env": {key: value for key, value in os.environ.items()
+                                     if key.startswith("GIT_CONFIG_") or key in (
+                                         "GH_TOKEN", "GITHUB_TOKEN", "GH_ENTERPRISE_TOKEN",
+                                         "GITHUB_ENTERPRISE_TOKEN", "GH_CONFIG_DIR",
+                                         "GIT_TERMINAL_PROMPT", "AOC_DISPATCH_WORKTREE")}}) + "\n")
 mode = os.environ["FAKE_CLAUDE_MODE"]
 print("fake master output", flush=True)
 print(json.dumps({"type": "assistant", "message": {"content": [
@@ -234,6 +256,32 @@ report = {"schema": "aoc.dispatch.report/v1", "version": 1, "run_id": meta["run_
           "needsDecision": "Use option A or B?" if status == "blocked" else None,
           "decision_id": meta["run_id"] + "-d1" if status == "blocked" else None,
           "evidence": "Read issue and repository", "timestamp": os.environ.get("AOC_DISPATCH_NOW") or dt.datetime.now(dt.timezone.utc).isoformat()}
+if meta["mode"] == "code":
+    def git(*args):
+        return subprocess.run(["git", *args], check=True, capture_output=True, text=True).stdout.strip()
+    behaviour = os.environ.get("FAKE_CODE_BEHAVIOUR", "commit")
+    if behaviour == "wrong-branch":
+        git("checkout", "-b", "wrong-branch")
+    elif behaviour == "unrelated":
+        git("checkout", "--orphan", meta["code"]["branch"] + "-unrelated")
+        git("rm", "-rf", ".")
+    if behaviour != "no-commits":
+        with Path("change.txt").open("a") as changed:
+            changed.write(meta["run_id"] + "\n")
+        git("add", "change.txt")
+        git("commit", "-m", "Implement fixture issue")
+    if behaviour == "unrelated":
+        git("branch", "-M", meta["code"]["branch"])
+    elif behaviour == "dirty":
+        Path("change.txt").write_text("uncommitted change\n")
+    elif behaviour == "untracked":
+        Path("untracked.txt").write_text("untracked change\n")
+    report.update(branch=git("rev-parse", "--abbrev-ref", "HEAD"),
+                  commit=git("rev-parse", "HEAD"), tests="fixture check: passed")
+    if behaviour == "wrong-commit":
+        report["commit"] = meta["code"]["base_sha"]
+    elif behaviour == "wrong-report-branch":
+        report["branch"] = "aoc/issue-2-wrong"
 if mode == "invalid":
     report["run_id"] = "wrong-run"
 (run_dir / "report.json").write_text(json.dumps(report))
@@ -520,7 +568,7 @@ with (state_dir / "poll.lock").open("a+") as handle:
         proc = dispatch(mode, expected=3)
         assert f"another aoc-dispatch is polling {project}" in proc.stderr
 
-# j: label creation/update is idempotent; real mode rejected before any GitHub call.
+# j: label creation/update is idempotent; invalid mode rejected before any GitHub call.
 reset()
 dispatch("labels")
 expected_colors = {"agent-ready": "0E8A16", "agent-running": "1D76DB", "agent-review": "5319E7",
@@ -530,7 +578,7 @@ dispatch("labels")
 assert len(github()["labels"]) == 6
 before = github()
 proc = dispatch("tick", "--mode", "real", expected=2)
-assert "only dry-run is implemented" in proc.stderr and github() == before
+assert "mode must be dry-run or code" in proc.stderr and github() == before
 
 # Sort ascending, skip conflicting candidates, and launch at most one master.
 reset([(4, ["agent-ready"]), (2, ["agent-ready", "risk-review"]), (3, ["agent-ready"])])
@@ -904,5 +952,265 @@ assert [entry["status"] for entry in activities()] == ["failed", "done"]
 stop_seat(proc, "w2:health")
 config_path.unlink()
 
-print("AOC Dispatch smoke passed (a-y)")
+# z: isolated real Git repositories; only gh, claude, Prism and handshake are fixtures.
+real_git = shutil.which("git")
+environment.update(GIT_AUTHOR_NAME="Dispatch Fixture", GIT_AUTHOR_EMAIL="fixture@example.invalid",
+                   GIT_COMMITTER_NAME="Dispatch Fixture", GIT_COMMITTER_EMAIL="fixture@example.invalid",
+                   GIT_CONFIG_NOSYSTEM="1", GIT_CONFIG_GLOBAL=os.devnull, GIT_TERMINAL_PROMPT="0")
+environment.pop("FAKE_GH_HEALTH_CONTROL", None)
+dry_project, dry_state_dir = project, state_dir
+git_trace = temporary / "git-trace.log"
+environment["GIT_TRACE"] = str(git_trace)
+
+
+def git_at(cwd, *args, expected=0):
+    proc = subprocess.run([real_git, *map(str, args)], cwd=cwd, env=environment,
+                          capture_output=True, text=True, timeout=10)
+    assert proc.returncode == expected, (cwd, args, proc.stdout, proc.stderr)
+    return proc.stdout.strip()
+
+
+def code_fixture(name, extra_config=""):
+    global project, state_dir, bare, base_sha
+    directory = temporary / name
+    directory.mkdir()
+    bare = directory / "origin.git"
+    seed = directory / "seed"
+    git_at(directory, "init", "--bare", bare)
+    git_at(directory, "init", "-b", "main", seed)
+    (seed / "initial.txt").write_text("base\n")
+    git_at(seed, "add", "initial.txt")
+    git_at(seed, "commit", "-m", "Initial fixture")
+    base_sha = git_at(seed, "rev-parse", "HEAD")
+    git_at(seed, "push", bare, "main:refs/heads/main")
+    git_at(directory, "--git-dir", bare, "symbolic-ref", "HEAD", "refs/heads/main")
+    project = directory / "root"
+    git_at(directory, "clone", bare, project)
+    (project / ".aoc").mkdir()
+    (project / ".aoc/dispatch.toml").write_text(
+        f'inbox = "fixture/dispatch"\nmode = "code"\npush_url = {json.dumps(str(bare))}\n' + extra_config)
+    state_dir = temporary / "state/aoc/dispatch" / hashlib.sha256(str(project.resolve()).encode()).hexdigest()[:16]
+    environment.update(FAKE_DISPATCH_STATE=str(state_dir / "state.json"), FAKE_PRISM_ROOT=str(project))
+    reset()
+    environment.pop("FAKE_CODE_BEHAVIOUR", None)
+    environment.pop("FAKE_GH_PR_FAIL", None)
+    git_trace.write_text("")
+    return directory
+
+
+def code_record():
+    return local()["issues"]["2"]["code"]
+
+
+def assert_no_publication():
+    assert git_at(project, "ls-remote", "--heads", bare) == f"{base_sha}\trefs/heads/main"
+    assert not any(entry["argv"][0] == "pr" for entry in github()["log"])
+    assert "built-in: git push" not in git_trace.read_text()
+
+
+# z1: permissions/guards, worktree base, PR content and explicit safe push.
+code_fixture("z1")
+title = "  Fix: Workflow / files!!!  "
+state = github()
+state["issues"]["2"]["title"] = title
+state_file.write_text(json.dumps(state))
+environment.update(GH_TOKEN="fixture-token", GITHUB_TOKEN="fixture-token",
+                   GH_ENTERPRISE_TOKEN="fixture-token", GITHUB_ENTERPRISE_TOKEN="fixture-token",
+                   HERDR_WORKSPACE_ID="fixture-workspace", GIT_CONFIG_COUNT="1",
+                   GIT_CONFIG_KEY_0="color.ui", GIT_CONFIG_VALUE_0="false")
+dispatch("tick")
+code = code_record()
+assert code == {"default_branch": "main", "base_sha": base_sha,
+                "branch": "aoc/issue-2-fix-workflow-files", "worktree": str(state_dir / "worktrees/issue-2")}
+launch = calls()[0]
+argv, env = launch["argv"], launch["env"]
+assert launch["cwd"] == code["worktree"] and env["AOC_DISPATCH_WORKTREE"] == code["worktree"]
+assert "--allowedTools" not in argv and argv[argv.index("--permission-mode") + 1] == "bypassPermissions"
+assert argv[argv.index("--disallowedTools") + 1:argv.index("--append-system-prompt")] == ["Bash(git push:*)", "Bash(gh:*)"]
+assert all(token not in env for token in ("GH_TOKEN", "GITHUB_TOKEN", "GH_ENTERPRISE_TOKEN", "GITHUB_ENTERPRISE_TOKEN"))
+assert env["GIT_TERMINAL_PROMPT"] == "0" and env["GIT_CONFIG_COUNT"] == "4"
+assert env["GIT_CONFIG_KEY_0"] == "color.ui" and env["GIT_CONFIG_VALUE_0"] == "false"
+assert Path(env["GH_CONFIG_DIR"]) == Path(launch["run_dir"]) / "gh-config"
+assert list(Path(env["GH_CONFIG_DIR"]).iterdir()) == []
+for index, url in enumerate(("https://github.com/", "git@github.com:", "ssh://git@github.com/"), 1):
+    assert env[f"GIT_CONFIG_KEY_{index}"] == "url.aoc-push-blocked:///.pushInsteadOf"
+    assert env[f"GIT_CONFIG_VALUE_{index}"] == url
+    # Read effective push URL; no network request.
+    git_at(project, "remote", "add", f"guard-{index}", url + "fixture/dispatch.git")
+    guarded = subprocess.run([real_git, "remote", "get-url", "--push", f"guard-{index}"],
+                             cwd=code["worktree"], env=dict(environment, **env),
+                             capture_output=True, text=True, check=True)
+    assert guarded.stdout.strip() == "aoc-push-blocked:///fixture/dispatch.git"
+head = git_at(code["worktree"], "rev-parse", "HEAD")
+assert git_at(project, "ls-remote", bare, f"refs/heads/{code['branch']}") == f"{head}\trefs/heads/{code['branch']}"
+assert git_at(project, "ls-remote", bare, "refs/heads/main") == f"{base_sha}\trefs/heads/main"
+assert git_at(code["worktree"], "rev-parse", "HEAD^") == base_sha
+assert git_at(code["worktree"], "status", "--porcelain") == ""
+pr = next(entry for entry in github()["log"] if entry["argv"][:2] == ["pr", "create"])
+assert pr["argv"][5] == code["branch"] and pr["argv"][7] == "main" and pr["argv"][9] == title + " (#2)"
+run_id = local()["issues"]["2"]["last_run_id"]
+assert f"<!-- aoc-dispatch run_id={run_id} event=pr -->" in pr["body"]
+assert "Closes #2" in pr["body"] and "## Tests\n\nfixture check: passed" in pr["body"]
+assert f"Commits: 1\nHEAD: {head}" in pr["body"]
+assert result()["pr_url"] == github()["prs"][0]["url"] and result()["head"] == head
+assert result()["branch"] == code["branch"] and issue_labels() == {"agent-review"}
+assert result()["pr_url"] in comments("result")[0] and head in comments("result")[0]
+assert "fixture check: passed" in comments("result")[0]
+assert comments("claim")[0].endswith(
+    f"Claimed for code mode. The master works on branch `{code['branch']}`; Dispatch opens a pull request when it reports done.\n")
+assert activities()[0]["summary"].endswith("(code)") and activities()[-1]["issue-url"] == comment_url("result")
+meta = json.loads((Path(launch["run_dir"]) / "meta.json").read_text())
+assert meta["mode"] == "code" and meta["code"] == code
+packet = (Path(launch["run_dir"]) / "packet.md").read_text()
+assert all(f"{key}: {value}\n" in packet for key, value in code.items())
+assert "mode: code\n" in packet and "herdr_workspace: fixture-workspace\n" in packet
+assert f"## Repo state\nBranch: {code['branch']}\nHEAD: {base_sha}" in packet
+assert f"including {project}" in packet and "with `--tests` describing the commands" in packet
+assert "--branch/--commit are auto-filled" in packet and "do not delegate to workers" not in packet
+assert f"built-in: git push {bare} {code['branch']}:refs/heads/{code['branch']}" in git_trace.read_text()
+assert json.loads(dispatch("status", "--json").stdout)["mode"] == "code"
+for key in ("GH_TOKEN", "GITHUB_TOKEN", "GH_ENTERPRISE_TOKEN", "GITHUB_ENTERPRISE_TOKEN",
+            "GIT_CONFIG_COUNT", "GIT_CONFIG_KEY_0", "GIT_CONFIG_VALUE_0", "HERDR_WORKSPACE_ID"):
+    environment.pop(key, None)
+
+# Config/CLI precedence, defaults and invalid config stay local.
+import argparse
+for mode, configured, cli_timeout, timeout in (
+        ("code", None, None, 7200), ("dry-run", None, None, 1800),
+        ("code", 41, None, 41), ("code", 41, 7, 7)):
+    (project / ".aoc/dispatch.toml").write_text(
+        f'mode = "{mode}"\n' + (f"timeout = {configured}\n" if configured else ""))
+    instance = module["Dispatcher"](argparse.Namespace(root=str(project), repo="fixture/dispatch", timeout=cli_timeout))
+    instance.configure()
+    assert instance.args.timeout == timeout and instance.args.fetch_remote == "origin"
+    assert instance.args.push_url == "git@github.com:fixture/dispatch.git"
+(project / ".aoc/dispatch.toml").write_text('mode = "invalid"\n')
+before = github()
+assert "mode must be dry-run or code" in dispatch("tick", expected=1).stderr
+assert github() == before
+
+# z2: ordered check failures never push or call PR APIs.
+for behaviour, check in (("dirty", "clean worktree"), ("untracked", "clean worktree"),
+                         ("wrong-branch", "branch"), ("no-commits", "commits ahead"),
+                         ("wrong-commit", "report identity"), ("unrelated", "base ancestry"),
+                         ("wrong-report-branch", "report identity")):
+    code_fixture("z2-" + behaviour)
+    environment["FAKE_CODE_BEHAVIOUR"] = behaviour
+    dispatch("tick")
+    assert result()["outcome"] == "failed" and f"PR checks failed: {check}:" in result()["reason"]
+    assert code_record()["branch"] in comments("failed")[0] and issue_labels() == {"agent-failed"}
+    assert_no_publication()
+
+# z3: blocked work persists; continuation reuses identity, pushes another commit, reuses PR.
+code_fixture("z3")
+environment["FAKE_CLAUDE_MODE"] = "blocked"
+dispatch("tick")
+original = local()["issues"]["2"]
+code = code_record()
+first_head = git_at(code["worktree"], "rev-parse", "HEAD")
+assert result()["outcome"] == "needs_alex" and issue_labels() == {"needs-alex"}
+assert code["branch"] in comments("blocked")[0]
+assert_no_publication()
+state = github()
+state["prs"] = [{"head": code["branch"], "number": 99, "url": "https://github.com/fixture/dispatch/pull/99"}]
+state_file.write_text(json.dumps(state))
+environment.update(AOC_DISPATCH_NOW="2026-10-01T12:01:00Z", FAKE_CLAUDE_MODE="done")
+answer(f"AOC-DECISION {original['decision_id']}\nImplement it")
+human("--remove-label", "needs-alex", "--add-label", "agent-ready")
+dispatch("tick")
+assert code_record() == code and len(calls()) == 2 and calls()[0]["cwd"] == calls()[1]["cwd"]
+assert git_at(code["worktree"], "rev-parse", "HEAD^") == first_head
+assert git_at(code["worktree"], "rev-list", "--count", f"{base_sha}..HEAD") == "2"
+assert result()["pr_url"] == state["prs"][0]["url"] and issue_labels() == {"agent-review"}
+assert not any(entry["argv"][:2] == ["pr", "create"] for entry in github()["log"])
+assert sum(entry["argv"][:2] == ["repo", "view"] for entry in github()["log"]) == 1
+continued = json.loads((Path(calls()[1]["run_dir"]) / "meta.json").read_text())
+assert continued["code"] == code and continued["continuation_of"] == original["last_run_id"]
+
+# z3 missing worktree: restore recorded branch without fetching/changing its base.
+code_fixture("z3-missing")
+environment["FAKE_CLAUDE_MODE"] = "blocked"
+dispatch("tick")
+original = local()["issues"]["2"]
+code = code_record()
+first_head = git_at(code["worktree"], "rev-parse", "HEAD")
+shutil.rmtree(code["worktree"])
+environment.update(AOC_DISPATCH_NOW="2026-10-01T12:01:00Z", FAKE_CLAUDE_MODE="done")
+answer(f"AOC-DECISION {original['decision_id']}\nImplement it")
+human("--remove-label", "needs-alex", "--add-label", "agent-ready")
+dispatch("tick")
+assert result()["outcome"] == "review", result()
+assert code_record() == code and git_at(code["worktree"], "rev-parse", "HEAD^") == first_head
+
+# z4: a missing local push destination fails before any PR request.
+directory = code_fixture("z4")
+(project / ".aoc/dispatch.toml").write_text(
+    f'mode = "code"\npush_url = {json.dumps(str(directory / "missing.git"))}\n')
+dispatch("tick")
+assert result()["outcome"] == "failed" and result()["reason"].startswith("push failed:")
+assert not any(entry["argv"][0] == "pr" for entry in github()["log"])
+assert git_at(project, "ls-remote", "--heads", bare) == f"{base_sha}\trefs/heads/main"
+
+# z5: missing fetch remote fails before packet/master.
+code_fixture("z5", 'fetch_remote = "missing"\n')
+dispatch("tick")
+assert result()["outcome"] == "failed" and result()["reason"].startswith("code setup failed:")
+assert not calls() and issue_labels() == {"agent-failed"}
+assert comments("claim") and not (state_dir / "runs" / local()["issues"]["2"]["last_run_id"] / "packet.md").exists()
+assert_no_publication()
+
+# Existing local branches are never reused for a fresh issue; slug fallback is safe.
+code_fixture("z1-collision")
+git_at(project, "branch", "aoc/issue-2-work")
+state = github()
+state["issues"]["2"]["title"] = "???"
+state_file.write_text(json.dumps(state))
+dispatch("tick")
+run_id = local()["issues"]["2"]["last_run_id"]
+assert code_record()["branch"] == "aoc/issue-2-work-" + run_id[-4:]
+assert git_at(project, "rev-parse", "aoc/issue-2-work") == base_sha
+assert result()["outcome"] == "review"
+
+# PR failure cannot become agent-review after a successful push.
+code_fixture("z1-pr-failure")
+environment["FAKE_GH_PR_FAIL"] = "1"
+dispatch("tick")
+assert result()["outcome"] == "failed" and result()["reason"].startswith("pr failed:")
+assert issue_labels() == {"agent-failed"}
+assert git_at(project, "ls-remote", bare, f"refs/heads/{code_record()['branch']}")
+environment.pop("FAKE_GH_PR_FAIL")
+
+# Active status and the actual seat surface show code mode and branch.
+code_fixture("z1-active")
+environment["FAKE_CLAUDE_MODE"] = "sleep"
+dispatch("tick", wait=False)
+until(lambda: len(calls()) == 1)
+active = local()["active"]
+status = json.loads(dispatch("status", "--json").stdout)
+assert status["mode"] == "code" and status["branch"] == code_record()["branch"]
+proc, output = start_seat(project, "z1:active")
+until(lambda: f"Branch: {code_record()['branch']}" in output.read_text())
+assert "Mode: code" in output.read_text()
+stop_seat(proc, "z1:active")
+stop_master(active["pid"])
+dispatch("tick")
+assert result()["outcome"] == "failed"
+assert_no_publication()
+
+# z6: CLI can override configured code mode without repo-view/worktree/push/PR calls.
+code_fixture("z6-override")
+dispatch("tick", "--mode", "dry-run")
+assert result()["outcome"] == "review" and calls()[0]["cwd"] == str(project)
+assert not any(entry["argv"][0] in ("repo", "pr") for entry in github()["log"])
+assert "built-in: git worktree" not in git_trace.read_text() and "built-in: git push" not in git_trace.read_text()
+project, state_dir = dry_project, dry_state_dir
+environment.update(FAKE_DISPATCH_STATE=str(state_dir / "state.json"), FAKE_PRISM_ROOT=str(project))
+reset()
+git_trace.write_text("")
+dispatch("tick")
+assert not any(entry["argv"][0] in ("repo", "pr") for entry in github()["log"])
+assert "built-in: git worktree" not in git_trace.read_text() and "built-in: git push" not in git_trace.read_text()
+assert json.loads(dispatch("status", "--json").stdout)["mode"] == "dry-run"
+
+print("AOC Dispatch smoke passed (a-y, z1-z6)")
 PY

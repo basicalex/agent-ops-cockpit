@@ -4,6 +4,8 @@ from datetime import datetime, timezone
 import json
 import os
 from pathlib import Path
+import re
+import subprocess
 import tempfile
 
 
@@ -31,7 +33,18 @@ def load_identity(run_dir):
             raise ValueError(f"{name} is required in meta.json or its dispatch environment variable")
     if type(meta.get("issue")) is not int:
         raise ValueError("issue in meta.json must be an integer")
-    return meta["run_id"], meta["repo"], meta["issue"]
+    return meta["run_id"], meta["repo"], meta["issue"], meta.get("mode")
+
+
+def git_identity(revision_arg):
+    try:
+        result = subprocess.run(
+            ["git", "rev-parse", *revision_arg], capture_output=True, text=True, check=False,
+            cwd=os.environ.get("AOC_DISPATCH_WORKTREE") or None,
+        )
+    except OSError:
+        return None
+    return result.stdout.strip() or None if result.returncode == 0 else None
 
 
 def write_report(path, report):
@@ -61,6 +74,11 @@ def main():
     evidence_group = parser.add_mutually_exclusive_group()
     evidence_group.add_argument("--evidence")
     evidence_group.add_argument("--evidence-file", type=Path)
+    parser.add_argument("--branch")
+    parser.add_argument("--commit")
+    tests_group = parser.add_mutually_exclusive_group()
+    tests_group.add_argument("--tests")
+    tests_group.add_argument("--tests-file", type=Path)
     parser.add_argument("--run-dir")
     parser.add_argument("--json", action="store_true")
     args = parser.parse_args()
@@ -84,13 +102,27 @@ def main():
         if evidence is not None and len(evidence) > 4000:
             raise ValueError("evidence must be at most 4000 characters")
 
+        tests = args.tests
+        if args.tests_file is not None:
+            tests = args.tests_file.read_text(encoding="utf-8")
+        if tests is not None and len(tests) > 4000:
+            raise ValueError("tests must be at most 4000 characters")
+        if args.commit is not None and re.fullmatch(r"[0-9a-fA-F]{40}", args.commit) is None:
+            raise ValueError("--commit must be a 40-hex SHA")
+
         directory = args.run_dir if args.run_dir is not None else os.environ.get("AOC_DISPATCH_RUN_DIR")
         if not directory:
             raise ValueError("--run-dir or AOC_DISPATCH_RUN_DIR is required")
         run_dir = Path(directory).expanduser().resolve()
         if not run_dir.is_dir():
             raise ValueError(f"run directory does not exist or is not a directory: {run_dir}")
-        run_id, repo, issue = load_identity(run_dir)
+        run_id, repo, issue, mode = load_identity(run_dir)
+        branch, commit = args.branch, args.commit
+        if mode == "code":
+            if branch is None:
+                branch = git_identity(["--abbrev-ref", "HEAD"])
+            if commit is None:
+                commit = git_identity(["HEAD"])
         report = {
             "schema": "aoc.dispatch.report/v1",
             "version": 1,
@@ -103,6 +135,9 @@ def main():
             "needsDecision": args.needs_decision,
             "decision_id": f"{run_id}-d1" if args.status == "blocked" else None,
             "evidence": evidence,
+            "branch": branch,
+            "commit": commit,
+            "tests": tests,
             "timestamp": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
         }
         report_path = run_dir / "report.json"
