@@ -194,6 +194,32 @@ class Dispatcher:
             raise RuntimeError(f"gh {' '.join(map(str, argv))}: {proc.stderr.strip() or proc.stdout.strip()}")
         return json.loads(proc.stdout) if as_json else proc.stdout
 
+    def send_prism_activity(self, agent, status, summary, task_ref, url):
+        try:
+            timeout = float(os.environ.get("AOC_DISPATCH_PRISM_TIMEOUT", "10"))
+            if not math.isfinite(timeout) or timeout <= 0:
+                raise ValueError("AOC_DISPATCH_PRISM_TIMEOUT must be positive and finite")
+            proc = subprocess.run(
+                [os.environ.get("AOC_DISPATCH_PRISM_BIN", "aoc-prism"), "activity",
+                 "--agent", agent, "--status", status, "--summary", summary[:4000],
+                 "--repo", self.repo, "--issue-url", url, "--task-ref", task_ref],
+                cwd=self.root, capture_output=True, text=True, timeout=timeout)
+            if proc.returncode:
+                log(f"Prism activity {status} failed: exit {proc.returncode}")
+        except (OSError, ValueError, OverflowError, subprocess.SubprocessError) as exc:
+            log(f"Prism activity {status} failed: {exc}")
+
+    def prism_activity(self, status, summary, issue_number, url):
+        run_id = self.state["issues"][str(issue_number)]["last_run_id"]
+        self.send_prism_activity(f"aoc-master@{self.repo.rsplit('/', 1)[-1]}", status,
+                                 f"run {run_id}: {summary}", f"{self.repo}#{issue_number}", url)
+
+    def prism_health(self, status, error=None):
+        summary = (f"dispatcher for {self.root} recovered" if status == "done"
+                   else f"dispatcher for {self.root} failing: {str(error)[:300]}")
+        self.send_prism_activity(f"aoc-dispatch@{self.repo.rsplit('/', 1)[-1]}", status,
+                                 summary, f"{self.repo}:dispatcher", f"https://github.com/{self.repo}")
+
     def load(self, create=True):
         if self.state_path.exists():
             self.state = json.loads(self.state_path.read_text(encoding="utf-8"))
@@ -219,7 +245,10 @@ class Dispatcher:
         with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", dir=self.directory) as handle:
             handle.write(text)
             handle.flush()
-            self.gh("issue", "comment", issue, "--repo", self.repo, "--body-file", handle.name)
+            output = self.gh("issue", "comment", issue, "--repo", self.repo, "--body-file", handle.name)
+        lines = [line.strip() for line in output.splitlines() if line.strip()]
+        return (lines[-1] if lines and lines[-1].startswith("https://")
+                else f"https://github.com/{self.repo}/issues/{issue}")
 
     def report(self, run_id, issue):
         path = self.directory / "runs" / run_id / "report.json"
@@ -269,21 +298,24 @@ class Dispatcher:
             body = reason
             if report["evidence"]:
                 body += f"\n\n<details>\n<summary>Evidence</summary>\n\n{report['evidence']}\n\n</details>"
-            self.comment(issue, run_id, "result", body)
+            url = self.comment(issue, run_id, "result", body)
+            self.prism_activity("done", reason, issue, url)
         elif failure is None and report["status"] == "blocked":
             outcome, reason = "needs_alex", report["needsDecision"]
             decision_id = report["decision_id"]
             self.edit(issue, "--remove-label", "agent-running", "--add-label", "needs-alex")
-            self.comment(issue, run_id, "blocked", f"{report['summary']}\n\n{reason}\n\n"
-                         f"Answer with a comment whose first line is `AOC-DECISION {decision_id}`, "
-                         "then remove `needs-alex` and add `agent-ready`.")
+            url = self.comment(issue, run_id, "blocked", f"{report['summary']}\n\n{reason}\n\n"
+                               f"Answer with a comment whose first line is `AOC-DECISION {decision_id}`, "
+                               "then remove `needs-alex` and add `agent-ready`.")
+            self.prism_activity("blocked", f"needs Alex: {reason}", issue, url)
             record.update(decision_id=decision_id, blocked_at=stamp())
         else:
             outcome, reason = "failed", failure or report["summary"]
             self.edit(issue, "--remove-label", "agent-running", "--add-label", "agent-failed")
             path = run_dir / "claude.log"
             excerpt = "\n".join(render_log_lines(path, 40)) if path.exists() else "unavailable"
-            self.comment(issue, run_id, "failed", f"{reason}\n\n<details>\n<summary>Last 40 lines of claude.log</summary>\n\n{excerpt}\n\n</details>")
+            url = self.comment(issue, run_id, "failed", f"{reason}\n\n<details>\n<summary>Last 40 lines of claude.log</summary>\n\n{excerpt}\n\n</details>")
+            self.prism_activity("failed", reason, issue, url)
         atomic_json(run_dir / "result.json", {"schema": "aoc.dispatch.result/v1", "run_id": run_id,
                     "issue": issue, "outcome": outcome, "reason": reason, "finished_at": stamp()})
         record["state"] = outcome
@@ -314,9 +346,11 @@ class Dispatcher:
         if (now() - parse_time(record["ready_seen_at"])).total_seconds() > self.args.decision_timeout:
             self.edit(issue["number"], "--remove-label", "agent-ready")
             self.edit(issue["number"], "--add-label", "needs-alex")
-            self.comment(issue["number"], record["last_run_id"], "resume-timeout",
-                         f"No `{marker}` comment was found; restored needs-alex. "
-                         "Post the decision, then remove needs-alex and add agent-ready.")
+            url = self.comment(issue["number"], record["last_run_id"], "resume-timeout",
+                               f"No `{marker}` comment was found; restored needs-alex. "
+                               "Post the decision, then remove needs-alex and add agent-ready.")
+            self.prism_activity("blocked",
+                                f"no {marker} found; needs-alex restored", issue["number"], url)
             record["ready_seen_at"] = None
             self.save()
         log(f"issue {issue['number']}: waiting for {marker}")
@@ -504,6 +538,12 @@ class Dispatcher:
                 log(f"issue {issue_number}: claim was not confirmed; stopped tick")
                 return
             self.comment(issue_number, run_id, "claim", "Claimed for a dry-run plan. No repository changes will be made.")
+            summary = f"started on #{issue_number} {issue['title']} (dry-run)"
+            if continuation:
+                summary += (f" resumed after AOC-DECISION {meta['decision_id']}"
+                            f" (continuation of {meta['continuation_of']})")
+            self.prism_activity("started", summary, issue_number,
+                                f"https://github.com/{self.repo}/issues/{issue_number}")
             issue = self.gh("issue", "view", issue_number, "--repo", self.repo,
                             "--json", "number,title,body,author,labels,comments,url", as_json=True)
             (run_dir / "packet.md").write_text(self.packet(issue, meta, decision), encoding="utf-8")
@@ -544,6 +584,8 @@ def seat(dispatch, render=True):
     handle = None
     stopped = threading.Event()
     heartbeat_lock = threading.Lock()
+    failures = 0
+    health_reported = False
 
     def heartbeat():
         with heartbeat_lock:
@@ -595,6 +637,18 @@ def seat(dispatch, render=True):
             except (OSError, ValueError, KeyError, TypeError, RuntimeError, subprocess.SubprocessError) as exc:
                 error = str(exc)
                 log(f"tick failed: {exc}")
+            if error is None:
+                failures = 0
+            if role == "owner" and dispatch.repo:
+                if error is not None:
+                    failures += 1
+                    if failures == 5:
+                        dispatch.prism_health("failed", error)
+                        health_reported = True
+                else:
+                    if health_reported:
+                        dispatch.prism_health("done")
+                        health_reported = False
             heartbeat()
             if render:
                 render_seat(dispatch, role, error)

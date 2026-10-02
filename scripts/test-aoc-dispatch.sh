@@ -60,11 +60,14 @@ def stop_background():
 
 atexit.register(stop_background)
 claude_calls = temporary / "claude.jsonl"
+prism_calls = temporary / "prism.jsonl"
 state_dir = temporary / "state/aoc/dispatch" / hashlib.sha256(str(project.resolve()).encode()).hexdigest()[:16]
 environment = dict(os.environ, PATH=f"{fake_bin}:{os.environ['PATH']}", HOME=str(home),
                    XDG_STATE_HOME=str(temporary / "state"), FAKE_GH_STATE=str(state_file),
                    FAKE_CLAUDE_CALLS=str(claude_calls), FAKE_GH_ACTOR="aoc-bot",
                    AOC_DISPATCH_GH_BIN=str(fake_bin / "gh"), AOC_DISPATCH_CLAUDE_BIN=str(fake_bin / "claude"),
+                   AOC_DISPATCH_PRISM_BIN=str(fake_bin / "aoc-prism"),
+                   FAKE_PRISM_CALLS=str(prism_calls), FAKE_PRISM_ROOT=str(project),
                    AOC_DISPATCH_NOW="2026-10-01T12:00:00Z", FAKE_CLAUDE_MODE="done",
                    FAKE_DISPATCH_STATE=str(state_dir / "state.json"), FAKE_PROCESSES=str(processes))
 
@@ -74,6 +77,7 @@ import hashlib
 import json
 import os
 import sys
+import time
 from pathlib import Path
 
 path = Path(os.environ["FAKE_GH_STATE"])
@@ -85,6 +89,26 @@ entry = {"argv": argv, "actor": actor, "created_at": created}
 state["log"].append(entry)
 repo = state["repo"]
 output = None
+health_control = os.environ.get("FAKE_GH_HEALTH_CONTROL")
+if health_control and argv[:2] == ["api", "-i"]:
+    control = Path(health_control)
+    attempts = control / "attempts"
+    attempt = int(attempts.read_text()) + 1 if attempts.exists() else 1
+    pending_attempts = control / "attempts.tmp"
+    pending_attempts.write_text(str(attempt))
+    os.replace(pending_attempts, attempts)
+    if attempt in (5, 6):
+        while not (control / f"release-{attempt}").exists():
+            time.sleep(0.01)
+    if attempt <= 6:
+        save_pending = path.with_suffix(f".{os.getpid()}.tmp")
+        save_pending.write_text(json.dumps(state))
+        os.replace(save_pending, path)
+        print("fixture outage " + "x" * 350, file=sys.stderr)
+        raise SystemExit(1)
+    if attempt == 7:
+        while not (control / "release").exists():
+            time.sleep(0.01)
 
 def save():
     temporary = path.with_suffix(f".{os.getpid()}.tmp")
@@ -130,6 +154,14 @@ elif argv[:2] == ["issue", "comment"]:
     assert argv[3:6] == ["--repo", repo, "--body-file"] and len(argv) == 7, argv
     state["issues"][argv[2]]["comments"].append({"body": Path(argv[6]).read_text(),
                                                "author": {"login": actor}, "createdAt": created})
+    output = f"https://github.com/{repo}/issues/{argv[2]}#issuecomment-{len(state['issues'][argv[2]]['comments'])}"
+    state["issues"][argv[2]]["comments"][-1]["url"] = output
+    if os.environ.get("FAKE_GH_COMMENT_OUTPUT") == "empty":
+        output = None
+    elif os.environ.get("FAKE_GH_COMMENT_OUTPUT") == "non-url":
+        output = "Comment posted\nnot a URL\n\n"
+    else:
+        output = "Comment posted\n\n" + output + "\n\n"
 elif argv[:1] == ["api"]:
     if argv[1:2] == ["-i"]:
         assert len(argv) in (3, 5), argv
@@ -207,6 +239,21 @@ if mode == "invalid":
 (run_dir / "report.json").write_text(json.dumps(report))
 raise SystemExit(int(os.environ.get("FAKE_CLAUDE_EXIT", "0")))
 ''')
+(fake_bin / "aoc-prism").write_text(r'''#!/usr/bin/env python3
+import json
+import os
+import sys
+import time
+from pathlib import Path
+
+assert os.getcwd() == os.environ["FAKE_PRISM_ROOT"], os.getcwd()
+with Path(os.environ["FAKE_PRISM_CALLS"]).open("a") as handle:
+    handle.write(json.dumps(sys.argv[1:]) + "\n")
+time.sleep(float(os.environ.get("FAKE_PRISM_SLEEP", "0")))
+print("fixture Prism stdout")
+print("fixture Prism stderr", file=sys.stderr)
+raise SystemExit(int(os.environ.get("FAKE_PRISM_EXIT", "0")))
+''')
 (fake_bin / "aoc-handshake").write_text('#!/usr/bin/env python3\nprint(\'{"fixture": true}\')\n')
 for binary in fake_bin.iterdir():
     binary.chmod(0o755)
@@ -224,12 +271,33 @@ def calls():
     return [json.loads(line) for line in claude_calls.read_text().splitlines()] if claude_calls.exists() else []
 
 
+
+def activities():
+    rows = [json.loads(line) for line in prism_calls.read_text().splitlines()] if prism_calls.exists() else []
+    result = []
+    for argv in rows:
+        assert argv[0] == "activity" and len(argv) == 13, argv
+        flags = dict(zip(argv[1::2], argv[2::2]))
+        assert set(flags) == {"--agent", "--status", "--summary", "--repo", "--issue-url", "--task-ref"}, argv
+        assert flags["--repo"] == "fixture/dispatch"
+        result.append({key[2:]: value for key, value in flags.items()})
+    return result
+
+
+def comment_url(event):
+    return next(comment["url"] for comment in reversed(github()["issues"]["2"]["comments"])
+                if f"event={event} -->" in comment["body"])
+
 def reset(issues=None, actor="basicalex"):
     shutil.rmtree(state_dir, ignore_errors=True)
     claude_calls.unlink(missing_ok=True)
+    prism_calls.unlink(missing_ok=True)
     environment.update(AOC_DISPATCH_NOW="2026-10-01T12:00:00Z", FAKE_CLAUDE_MODE="done")
+    environment["AOC_DISPATCH_PRISM_BIN"] = str(fake_bin / "aoc-prism")
     for name in ("FAKE_GH_CLAIM_NOOP", "FAKE_CLAUDE_EXIT", "FAKE_GH_ETAG",
-                 "FAKE_GH_FORCE_304", "FAKE_GH_304_EXIT"):
+                 "FAKE_GH_FORCE_304", "FAKE_GH_304_EXIT", "FAKE_GH_COMMENT_OUTPUT",
+                 "FAKE_PRISM_EXIT", "FAKE_PRISM_SLEEP", "AOC_DISPATCH_PRISM_TIMEOUT",
+                 "FAKE_GH_HEALTH_CONTROL"):
         environment.pop(name, None)
     state = {"repo": "fixture/dispatch", "issues": {}, "labels": {}, "events": [], "log": []}
     for number, labels in (issues or [(2, ["agent-ready"])]):
@@ -477,6 +545,7 @@ environment["FAKE_GH_CLAIM_NOOP"] = "1"
 proc = dispatch("tick")
 assert "claim was not confirmed" in proc.stderr
 assert local()["seat"] == "IDLE" and local()["active"] is None and not local()["issues"]
+assert not activities()
 assert not calls() and issue_labels() == {"agent-ready"}
 
 # A nonzero exit does not discard a valid structured report.
@@ -722,5 +791,118 @@ assert module["render_log_lines"](render_path, 20) == [
 assert module["render_log_lines"](render_path, 2) == ["result: success", "plain diagnostic"]
 assert module["render_log_lines"](temporary / "missing.log", 20) == []
 
-print("AOC Dispatch smoke passed (a-s)")
+# t: done lifecycle, stable identity, run prefix and the result comment permalink.
+reset()
+proc = dispatch("tick")
+run_id = local()["issues"]["2"]["last_run_id"]
+assert activities() == [
+    {"agent": "aoc-master@dispatch", "status": "started",
+     "summary": f"run {run_id}: started on #2 Issue 2 (dry-run)", "repo": "fixture/dispatch",
+     "issue-url": "https://github.com/fixture/dispatch/issues/2", "task-ref": "fixture/dispatch#2"},
+    {"agent": "aoc-master@dispatch", "status": "done",
+     "summary": f"run {run_id}: Plan complete", "repo": "fixture/dispatch",
+     "issue-url": comment_url("result"), "task-ref": "fixture/dispatch#2"},
+]
+assert not proc.stdout and "fixture Prism" not in proc.stderr
+# Empty or non-URL final stdout lines fall back to the issue, not earlier output.
+for output_mode in ("empty", "non-url"):
+    reset()
+    environment["FAKE_GH_COMMENT_OUTPUT"] = output_mode
+    dispatch("tick")
+    assert activities()[-1]["issue-url"] == "https://github.com/fixture/dispatch/issues/2"
+
+# u: blocked permalink and continuation resolve using the same agent/task-ref.
+original, decision_id = blocked()
+assert [entry["status"] for entry in activities()] == ["started", "blocked"]
+assert activities()[-1]["issue-url"] == comment_url("blocked")
+assert activities()[-1]["summary"] == f"run {original}: needs Alex: Use option A or B?"
+environment.update(AOC_DISPATCH_NOW="2026-10-01T12:01:00Z", FAKE_CLAUDE_MODE="done")
+answer(f"AOC-DECISION {decision_id}\nUse option A")
+human("--remove-label", "needs-alex", "--add-label", "agent-ready")
+dispatch("tick")
+continued = local()["issues"]["2"]["last_run_id"]
+assert [entry["status"] for entry in activities()] == ["started", "blocked", "started", "done"]
+assert all(entry["task-ref"] == "fixture/dispatch#2" and entry["agent"] == "aoc-master@dispatch"
+           for entry in activities())
+assert activities()[2]["summary"] == (
+    f"run {continued}: started on #2 Issue 2 (dry-run) resumed after AOC-DECISION {decision_id}"
+    f" (continuation of {original})")
+
+# v: a missing report sends failed with its diagnostic comment and exact reason.
+reset()
+environment["FAKE_CLAUDE_MODE"] = "noreport"
+dispatch("tick")
+run_id = local()["issues"]["2"]["last_run_id"]
+assert [entry["status"] for entry in activities()] == ["started", "failed"]
+assert activities()[-1]["issue-url"] == comment_url("failed")
+assert activities()[-1]["summary"] == f"run {run_id}: master process ended without a report"
+assert activities()[-1]["task-ref"] == "fixture/dispatch#2"
+
+# w: resume timeout reopens the same blocked task at the rollback comment.
+original, decision_id = blocked()
+environment.update(AOC_DISPATCH_NOW="2026-10-01T12:01:00Z", FAKE_CLAUDE_MODE="done")
+human("--remove-label", "needs-alex", "--add-label", "agent-ready")
+dispatch("tick", "--decision-timeout", "1")
+assert [entry["status"] for entry in activities()] == ["started", "blocked"]
+environment["AOC_DISPATCH_NOW"] = "2026-10-01T12:01:02Z"
+dispatch("tick", "--decision-timeout", "1")
+assert [entry["status"] for entry in activities()] == ["started", "blocked", "blocked"]
+assert activities()[-1]["issue-url"] == comment_url("resume-timeout")
+assert activities()[-1]["summary"] == (
+    f"run {original}: no AOC-DECISION {decision_id} found; needs-alex restored")
+assert activities()[-1]["task-ref"] == "fixture/dispatch#2"
+assert issue_labels() == {"needs-alex"} and local()["issues"]["2"]["ready_seen_at"] is None
+
+# x: subprocess failure or timeout cannot stop claim or finalization.
+for fault in ("exit", "timeout", "missing", "invalid-timeout"):
+    reset()
+    if fault == "exit":
+        environment["FAKE_PRISM_EXIT"] = "1"
+    elif fault == "timeout":
+        environment.update(FAKE_PRISM_SLEEP="2", AOC_DISPATCH_PRISM_TIMEOUT="0.1")
+    elif fault == "missing":
+        environment["AOC_DISPATCH_PRISM_BIN"] = str(fake_bin / "missing-prism")
+    else:
+        environment["AOC_DISPATCH_PRISM_TIMEOUT"] = "invalid"
+    started = time.monotonic()
+    proc = dispatch("tick")
+    assert time.monotonic() - started < 5
+    assert issue_labels() == {"agent-review"} and result()["outcome"] == "review"
+    assert local()["seat"] == "IDLE" and local()["active"] is None
+    assert len([line for line in proc.stderr.splitlines() if "Prism activity" in line]) == 2, proc.stderr
+    assert "fixture Prism" not in proc.stderr and not proc.stdout
+    if fault in ("exit", "timeout"):
+        assert [entry["status"] for entry in activities()] == ["started", "done"]
+
+# y: six failed owner ticks send once; the next successful tick resolves once.
+reset([(2, ["risk-review"])])
+control = temporary / "health-control"
+control.mkdir()
+environment["FAKE_GH_HEALTH_CONTROL"] = str(control)
+config_path.write_text('inbox = "fixture/dispatch"\ninterval = 0.05\n')
+proc, output = start_seat(project, "w2:health")
+until(lambda: (control / "attempts").exists() and (control / "attempts").read_text() == "5")
+assert not activities() and output.read_text().count("aoc-dispatch: tick failed:") == 4
+(control / "release-5").touch()
+until(lambda: (control / "attempts").read_text() == "6")
+assert [entry["status"] for entry in activities()] == ["failed"]
+assert output.read_text().count("aoc-dispatch: tick failed:") == 5
+(control / "release-6").touch()
+until(lambda: (control / "attempts").read_text() == "7")
+assert [entry["status"] for entry in activities()] == ["failed"], activities()
+failure = activities()[0]
+assert failure["agent"] == "aoc-dispatch@dispatch" and failure["task-ref"] == "fixture/dispatch:dispatcher"
+assert failure["issue-url"] == "https://github.com/fixture/dispatch"
+assert failure["summary"] == (
+    f"dispatcher for {project} failing: " + ("gh inbox HTTP None: fixture outage " + "x" * 350)[:300])
+assert output.read_text().count("aoc-dispatch: tick failed:") == 6
+(control / "release").touch()
+until(lambda: len(activities()) == 2)
+assert activities()[1] == dict(failure, status="done", summary=f"dispatcher for {project} recovered")
+until(lambda: int((control / "attempts").read_text()) >= 9)
+assert [entry["status"] for entry in activities()] == ["failed", "done"]
+stop_seat(proc, "w2:health")
+config_path.unlink()
+
+print("AOC Dispatch smoke passed (a-y)")
 PY

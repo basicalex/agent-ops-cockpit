@@ -1,0 +1,168 @@
+#!/usr/bin/env python3
+import argparse
+from datetime import datetime, timezone
+from http.client import HTTPException
+import json
+import math
+import os
+from pathlib import Path
+import sys
+from urllib import error, request
+
+
+class NoRedirect(request.HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        # Non-2xx is a failure; never forward credentials to a redirect target.
+        return None
+
+
+def redact(text, token):
+    return text.replace(token, "[redacted]") if token else text
+
+
+def log_call(command, status, code, preview, token):
+    state = os.environ.get("XDG_STATE_HOME") or "~/.local/state"
+    path = Path(state).expanduser() / "aoc/prism/notify.log"
+    stamp = datetime.now(timezone.utc).isoformat(timespec="seconds")
+    preview = json.dumps(redact(preview, token)[:120], ensure_ascii=False)
+    line = f"{stamp} {command} {status} {code if code is not None else '-'} {preview}\n"
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with path.open("a", encoding="utf-8") as handle:
+            handle.write(line)
+    except (OSError, UnicodeError):
+        print("aoc-prism: log unavailable", file=sys.stderr)
+
+
+def load_token(path):
+    if "AOC_PRISM_TOKEN" in os.environ:
+        return os.environ["AOC_PRISM_TOKEN"], None
+    data = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(data, dict):
+        raise ValueError("token file must contain an object")
+    token = data.get("token")
+    if not isinstance(token, str):
+        return "", None
+    token_id = data.get("id")
+    return token, token_id if isinstance(token_id, str) else None
+
+
+def make_body(args, parser):
+    def text(name, limit):
+        value = getattr(args, name).strip()[:limit]
+        if not value:
+            parser.error(f"--{name.replace('_', '-')} must be non-empty")
+        return value
+
+    if args.command == "activity":
+        body = {"agent": text("agent", 200), "status": args.status,
+                "summary": text("summary", 4000)}
+        optional = {"repo": "repo", "issue_url": "issueUrl", "task_ref": "taskRef",
+                    "workspace_id": "workspaceId"}
+    elif args.command == "notify":
+        body = {"source": "aoc", "title": text("title", 4000), "body": text("body", 4000)}
+        optional = {"url": "url", "severity": "severity", "kind": "kind",
+                    "dedupe_key": "dedupeKey", "issue_url": "issueUrl",
+                    "workspace_id": "workspaceId"}
+    else:
+        body = {"dedupeKey": text("dedupe_key", None)}
+        optional = {}
+    for name, key in optional.items():
+        value = getattr(args, name)
+        if value is None:
+            continue
+        if name in ("url", "issue_url") and not value.startswith(("http://", "https://")):
+            parser.error(f"--{name.replace('_', '-')} must start with http:// or https://")
+        body[key] = value
+    return body
+
+
+def main():
+    parser = argparse.ArgumentParser(prog="aoc-prism", description="Send fail-open Prism notifications and agent activity.")
+    commands = parser.add_subparsers(dest="command", required=True)
+    activity = commands.add_parser("activity", help="Report agent activity")
+    activity.add_argument("--agent", required=True)
+    activity.add_argument("--status", required=True, choices=("started", "progress", "blocked", "done", "failed"))
+    activity.add_argument("--summary", required=True)
+    activity.add_argument("--repo")
+    activity.add_argument("--issue-url")
+    activity.add_argument("--task-ref")
+    activity.add_argument("--workspace-id")
+    notify = commands.add_parser("notify", help="Send an attention item")
+    notify.add_argument("--title", required=True)
+    notify.add_argument("--body", required=True)
+    notify.add_argument("--url")
+    notify.add_argument("--severity", choices=("info", "needs_you", "urgent"))
+    notify.add_argument("--kind", choices=("alert", "info", "decision", "approval"))
+    notify.add_argument("--dedupe-key")
+    notify.add_argument("--issue-url")
+    notify.add_argument("--workspace-id")
+    resolve = commands.add_parser("resolve", help="Resolve an attention item")
+    resolve.add_argument("--dedupe-key", required=True)
+    for command in (activity, notify, resolve):
+        command.add_argument("--json", action="store_true", help="Print a successful response body")
+        command.add_argument("--strict", action="store_true", help="Exit 1 on delivery failure")
+    commands.add_parser("status", help="Show configuration without revealing the token")
+    args = parser.parse_args()
+
+    if os.environ.get("AOC_PRISM") == "off":
+        # Do not even open the token file when disabled.
+        log_call(args.command, "disabled", None, "", "")
+        return 0
+
+    body = None if args.command == "status" else make_body(args, parser)
+    preview = "" if body is None else body.get("summary", body.get("title", ""))
+    base = os.environ.get("AOC_PRISM_URL", "https://api.intrface.eu").rstrip("/")
+    token_path = Path(os.environ.get("AOC_PRISM_TOKEN_FILE", "~/.config/prism/aoc-token.json")).expanduser()
+    token, token_id = "", None
+    token_error = None
+    try:
+        token, token_id = load_token(token_path)
+        if not token.strip():
+            token_error = "MissingToken"
+    except (OSError, ValueError, UnicodeError) as exc:
+        token_error = type(exc).__name__
+
+    if args.command == "status":
+        print(redact(json.dumps({"baseUrl": base, "tokenFile": str(token_path),
+                                 "tokenFound": token_error is None, "tokenId": token_id},
+                                ensure_ascii=False), token))
+        log_call(args.command, token_error or "ok", None, "", token)
+        return 0
+    if token_error:
+        log_call(args.command, token_error, None, preview, token)
+        return 1 if args.strict else 0
+
+    code, result, outcome = None, None, "ok"
+    try:
+        timeout = float(os.environ.get("AOC_PRISM_TIMEOUT", "4"))
+        if not math.isfinite(timeout) or timeout <= 0:
+            raise ValueError("timeout must be positive and finite")
+        endpoint = {"activity": "/api/v1/agent-activity", "notify": "/api/v1/notify",
+                    "resolve": "/api/v1/notify/resolve"}[args.command]
+        req = request.Request(base + endpoint, data=json.dumps(body, ensure_ascii=False).encode("utf-8"),
+                              headers={"Authorization": f"Bearer {token}",
+                                       "Content-Type": "application/json", "User-Agent": "aoc-prism/1"},
+                              method="POST")
+        with request.build_opener(NoRedirect()).open(req, timeout=timeout) as response:
+            code = response.status
+            if not 200 <= code < 300:
+                outcome = "HTTPError"
+            elif args.json:
+                result = response.read().decode("utf-8")
+    except error.HTTPError as exc:
+        code, outcome = exc.code, "HTTPError"
+        exc.close()
+    except (OSError, ValueError, UnicodeError, error.URLError, HTTPException) as exc:
+        # Never log exception messages: they may contain headers or server echoes.
+        outcome = type(exc).__name__
+    log_call(args.command, outcome, code, preview, token)
+    if outcome != "ok":
+        return 1 if args.strict else 0
+    if result is not None:
+        print(redact(result, token))
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
