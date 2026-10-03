@@ -61,6 +61,7 @@ def stop_background():
 atexit.register(stop_background)
 claude_calls = temporary / "claude.jsonl"
 prism_calls = temporary / "prism.jsonl"
+herdr_state = temporary / "herdr.json"
 state_dir = temporary / "state/aoc/dispatch" / hashlib.sha256(str(project.resolve()).encode()).hexdigest()[:16]
 environment = dict(os.environ, PATH=f"{fake_bin}:{os.environ['PATH']}", HOME=str(home),
                    XDG_STATE_HOME=str(temporary / "state"), FAKE_GH_STATE=str(state_file),
@@ -69,7 +70,9 @@ environment = dict(os.environ, PATH=f"{fake_bin}:{os.environ['PATH']}", HOME=str
                    AOC_DISPATCH_PRISM_BIN=str(fake_bin / "aoc-prism"),
                    FAKE_PRISM_CALLS=str(prism_calls), FAKE_PRISM_ROOT=str(project),
                    AOC_DISPATCH_NOW="2026-10-01T12:00:00Z", FAKE_CLAUDE_MODE="done",
-                   FAKE_DISPATCH_STATE=str(state_dir / "state.json"), FAKE_PROCESSES=str(processes))
+                   FAKE_DISPATCH_STATE=str(state_dir / "state.json"), FAKE_PROCESSES=str(processes),
+                   AOC_HERDR_BIN=str(fake_bin / "herdr"), FAKE_HERDR_STATE=str(herdr_state),
+                   FAKE_WORKER_WAIT=str(command.parent / "aoc-worker-wait"))
 
 (fake_bin / "gh").write_text(r'''#!/usr/bin/env python3
 import datetime as dt
@@ -230,6 +233,38 @@ save()
 if output is not None:
     print(output if isinstance(output, str) else json.dumps(output))
 ''')
+(fake_bin / "herdr").write_text(r'''#!/usr/bin/env python3
+import fcntl
+import json
+import os
+import sys
+from pathlib import Path
+
+path = Path(os.environ["FAKE_HERDR_STATE"])
+args = sys.argv[1:]
+with path.with_suffix(".lock").open("w") as lock:
+    fcntl.flock(lock, fcntl.LOCK_EX)
+    state = json.loads(path.read_text())
+    if args[:2] == ["tab", "create"]:
+        label = args[args.index("--label") + 1]
+        number = len(state["tabs"]) + 1
+        tab = {"tab_id": f"fixture:t{number}", "label": label}
+        pane = {"pane_id": f"fixture:p{number}", "agent_status": "working"}
+        state["tabs"].append(tab)
+        state["panes"].append(pane)
+        result = {"tab": tab, "root_pane": pane}
+    elif args[:2] == ["pane", "run"]:
+        state["runs"].append({"pane_id": args[2], "command": args[3]})
+        result = {}
+    elif args == ["pane", "list"]:
+        result = {"panes": state["panes"]}
+    else:
+        raise SystemExit("unexpected fixture herdr command: " + repr(args))
+    temporary = path.with_suffix(".tmp")
+    temporary.write_text(json.dumps(state))
+    os.replace(temporary, path)
+print(json.dumps({"result": result}))
+''')
 (fake_bin / "claude").write_text(r'''#!/usr/bin/env python3
 import datetime as dt
 import json
@@ -253,8 +288,10 @@ with Path(os.environ["FAKE_CLAUDE_CALLS"]).open("a") as handle:
                                          "GH_TOKEN", "GITHUB_TOKEN", "GH_ENTERPRISE_TOKEN",
                                          "GITHUB_ENTERPRISE_TOKEN", "GH_CONFIG_DIR",
                                          "GIT_TERMINAL_PROMPT", "AOC_DISPATCH_WORKTREE")}}) + "\n")
+if os.environ.get("FAKE_CLAUDE_NO_SESSION") != "1":
+    print(json.dumps({"type": "system", "subtype": "init", "session_id": "fixture-session"}), flush=True)
 mode = os.environ["FAKE_CLAUDE_MODE"]
-print("fake master output", flush=True)
+print("fake master output: " + ("resumed" if "--resume" in sys.argv else "initial"), flush=True)
 print(json.dumps({"type": "assistant", "message": {"content": [
     {"type": "tool_use", "name": "Read", "input": {"file_path": "packet.md"}},
     {"type": "text", "text": "Read issue and plan changes"}]}}), flush=True)
@@ -269,6 +306,70 @@ if mode == "delayed":
         time.sleep(0.03)
 if mode == "noreport":
     raise SystemExit(int(os.environ.get("FAKE_CLAUDE_EXIT", "0")))
+worker_output = None
+if mode in ("delegate", "delegate-lost"):
+    worker_files = [run_dir / "workers" / f"issue2-w{k}.md" for k in (1, 2)]
+    panes = ["fixture:p1", "fixture:p2"]
+    if "--resume" not in sys.argv:
+        for k in (1, 2):
+            created = subprocess.run([os.environ["AOC_HERDR_BIN"], "tab", "create",
+                                     "--workspace", "fixture-workspace", "--cwd", os.getcwd(),
+                                     "--label", f"issue2-w{k}", "--no-focus"],
+                                    check=True, capture_output=True, text=True)
+            pane = json.loads(created.stdout)["result"]["root_pane"]["pane_id"]
+            assert pane == panes[k - 1]
+            subprocess.run([os.environ["AOC_HERDR_BIN"], "pane", "run", pane,
+                            f"aoc-omp --prompt-file issue2-w{k}.txt"], check=True, capture_output=True)
+        worker_code = r"""
+import fcntl
+import json
+import os
+import sys
+import time
+from pathlib import Path
+
+path = Path(os.environ["FAKE_HERDR_STATE"])
+pane, result_file, lost = sys.argv[1:]
+def update(status):
+    with path.with_suffix(".lock").open("w") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        state = json.loads(path.read_text())
+        if status is None:
+            state["panes"] = [item for item in state["panes"] if item["pane_id"] != pane]
+        else:
+            next(item for item in state["panes"] if item["pane_id"] == pane)["agent_status"] = status
+        temporary = path.with_suffix(f".{os.getpid()}.tmp")
+        temporary.write_text(json.dumps(state))
+        os.replace(temporary, path)
+update("working")
+time.sleep(0.1)
+if lost == "1":
+    update(None)
+    raise SystemExit(0)
+update("idle")
+time.sleep(0.1)
+update("working")
+time.sleep(1)
+Path(result_file).write_text(f"{pane}: fixture worker complete\n")
+update("idle")
+"""
+        for k, (pane, result_file) in enumerate(zip(panes, worker_files), 1):
+            child = subprocess.Popen([sys.executable, "-c", worker_code, pane, str(result_file),
+                                      "1" if mode == "delegate-lost" and k == 2 else "0"],
+                                     start_new_session=True, stdout=subprocess.DEVNULL,
+                                     stderr=subprocess.DEVNULL)
+            with Path(os.environ["FAKE_PROCESSES"]).open("a") as registry:
+                registry.write(str(child.pid) + "\n")
+        if mode == "delegate":
+            raise SystemExit(0)
+    waiter = [os.environ["FAKE_WORKER_WAIT"]]
+    for pane, result_file in zip(panes, worker_files):
+        waiter += ["--worker", f"{pane}={result_file}"]
+    waiter += ["--interval", "0.05", "--stall", "3", "--timeout", "20"]
+    waited = subprocess.run(waiter, capture_output=True, text=True)
+    assert waited.returncode == (1 if mode == "delegate-lost" else 0), (waited.stdout, waited.stderr)
+    worker_output = waited.stdout
+    print(worker_output, flush=True)
 status = mode if mode in ("done", "blocked", "failed") else "done"
 report = {"schema": "aoc.dispatch.report/v1", "version": 1, "run_id": meta["run_id"],
           "assignmentId": meta["run_id"], "repo": meta["repo"], "issue": meta["issue"], "status": status,
@@ -276,7 +377,11 @@ report = {"schema": "aoc.dispatch.report/v1", "version": 1, "run_id": meta["run_
           "needsDecision": "Use option A or B?" if status == "blocked" else None,
           "decision_id": meta["run_id"] + "-d1" if status == "blocked" else None,
           "evidence": "Read issue and repository", "timestamp": os.environ.get("AOC_DISPATCH_NOW") or dt.datetime.now(dt.timezone.utc).isoformat()}
-if meta["mode"] == "code":
+if mode == "delegate":
+    report.update(summary="Delegated workers integrated", tests="aoc-worker-wait: 2 done; fixture check: passed")
+elif mode == "delegate-lost":
+    report.update(status="failed", summary="Delegated worker fixture:p2 missing", evidence=worker_output)
+if meta["mode"] == "code" and mode != "delegate-lost":
     def git(*args):
         return subprocess.run(["git", *args], check=True, capture_output=True, text=True).stdout.strip()
     behaviour = os.environ.get("FAKE_CODE_BEHAVIOUR", "commit")
@@ -288,6 +393,9 @@ if meta["mode"] == "code":
     if behaviour != "no-commits":
         with Path("change.txt").open("a") as changed:
             changed.write(meta["run_id"] + "\n")
+            if mode == "delegate":
+                for result_file in worker_files:
+                    changed.write(result_file.read_text())
         git("add", "change.txt")
         git("commit", "-m", "Implement fixture issue")
     if behaviour == "unrelated":
@@ -297,7 +405,7 @@ if meta["mode"] == "code":
     elif behaviour == "untracked":
         Path("untracked.txt").write_text("untracked change\n")
     report.update(branch=git("rev-parse", "--abbrev-ref", "HEAD"),
-                  commit=git("rev-parse", "HEAD"), tests="fixture check: passed")
+                  commit=git("rev-parse", "HEAD"), tests=report.get("tests", "fixture check: passed"))
     if behaviour == "wrong-commit":
         report["commit"] = meta["code"]["base_sha"]
     elif behaviour == "wrong-report-branch":
@@ -361,12 +469,13 @@ def reset(issues=None, actor="basicalex"):
     claude_calls.unlink(missing_ok=True)
     prism_calls.unlink(missing_ok=True)
     environment.update(AOC_DISPATCH_NOW="2026-10-01T12:00:00Z", FAKE_CLAUDE_MODE="done")
+    herdr_state.write_text(json.dumps({"tabs": [], "panes": [], "runs": []}))
     environment["AOC_DISPATCH_PRISM_BIN"] = str(fake_bin / "aoc-prism")
     for name in ("FAKE_GH_CLAIM_NOOP", "FAKE_CLAUDE_EXIT", "FAKE_GH_ETAG",
                  "FAKE_GH_FORCE_304", "FAKE_GH_304_EXIT", "FAKE_GH_COMMENT_OUTPUT",
                  "FAKE_PRISM_EXIT", "FAKE_PRISM_SLEEP", "AOC_DISPATCH_PRISM_TIMEOUT",
                  "FAKE_GH_HEALTH_CONTROL", "FAKE_GH_ENFORCE_LABELS", "FAKE_GH_FAIL_LABEL",
-                 "FAKE_GH_FAIL_COMMENT_EVENT"):
+                 "FAKE_GH_FAIL_COMMENT_EVENT", "FAKE_CLAUDE_NO_SESSION"):
         environment.pop(name, None)
     state = {"repo": "fixture/dispatch", "issues": {}, "labels": {}, "events": [], "log": []}
     for number, labels in (issues or [(2, ["agent-ready"])]):
@@ -458,6 +567,7 @@ sections = ["# AOC Dispatch run ", "## Source", "## Mode rules", "## Issue", "##
 assert [packet.index(section) for section in sections] == sorted(packet.index(section) for section in sections)
 assert '"fixture": true' in packet and "do not delegate to workers or subagents" in packet
 assert "report a plan" in packet and "Call `aoc-report` exactly once, as the last action." in packet
+assert "Master lifecycle" not in packet
 status = json.loads(dispatch("status", "--json").stdout)
 assert status["seat"] == "IDLE" and status["issues"]["2"]["state"] == "review"
 
@@ -750,10 +860,11 @@ dispatch("tick", wait=False)
 assert local()["seat"] == "IDLE" and result()["outcome"] == "review"
 
 
-def start_seat(root, pane, command_name="seat"):
+def start_seat(root, pane, command_name="seat", frozen_clock=False):
     output = temporary / (re.sub(r"[^A-Za-z0-9_.-]", "_", pane) + ".log")
     seat_env = dict(environment, HERDR_PANE_ID=pane)
-    seat_env.pop("AOC_DISPATCH_NOW", None)
+    if not frozen_clock:
+        seat_env.pop("AOC_DISPATCH_NOW", None)
     proc = subprocess.Popen([str(command), command_name, "--root", str(root)], env=seat_env,
                             stdout=output.open("w"), stderr=subprocess.STDOUT, start_new_session=True)
     background.append(proc)
@@ -1047,6 +1158,7 @@ launch = calls()[0]
 argv, env = launch["argv"], launch["env"]
 assert launch["cwd"] == code["worktree"] and env["AOC_DISPATCH_WORKTREE"] == code["worktree"]
 assert "--allowedTools" not in argv and argv[argv.index("--permission-mode") + 1] == "bypassPermissions"
+assert "--no-session-persistence" not in argv
 assert argv[argv.index("--disallowedTools") + 1:argv.index("--append-system-prompt")] == ["Bash(git push:*)", "Bash(gh:*)"]
 assert all(token not in env for token in ("GH_TOKEN", "GITHUB_TOKEN", "GH_ENTERPRISE_TOKEN", "GITHUB_ENTERPRISE_TOKEN"))
 assert env["GIT_TERMINAL_PROMPT"] == "0" and env["GIT_CONFIG_COUNT"] == "4"
@@ -1088,6 +1200,8 @@ assert "mode: code\n" in packet and "herdr_workspace: fixture-workspace\n" in pa
 assert f"## Repo state\nBranch: {code['branch']}\nHEAD: {base_sha}" in packet
 assert f"including {project}" in packet and "with `--tests` describing the commands" in packet
 assert "--branch/--commit are auto-filled" in packet and "do not delegate to workers" not in packet
+assert "aoc-worker-wait" in packet and f"{launch['run_dir']}/workers/issue2-w" in packet
+assert "never wait for them with run_in_background" in packet
 assert f"built-in: git push {bare} {code['branch']}:refs/heads/{code['branch']}" in git_trace.read_text()
 assert json.loads(dispatch("status", "--json").stdout)["mode"] == "code"
 
@@ -1229,14 +1343,17 @@ status = json.loads(dispatch("status", "--json").stdout)
 assert status["mode"] == "code" and status["branch"] == code_record()["branch"]
 assert dispatch("status").stdout.splitlines()[:2] == [
     "Seat: RUNNING", f"Active: issue 2 run {active['run_id']} elapsed 0s branch {code_record()['branch']}"]
-proc, output = start_seat(project, "z1:active")
+proc, output = start_seat(project, "z1:active", frozen_clock=True)
 until(lambda: f"Branch: {code_record()['branch']}" in output.read_text())
 assert "Mode: code" in output.read_text()
 stop_seat(proc, "z1:active")
 stop_master(active["pid"])
+environment["FAKE_CLAUDE_MODE"] = "done"
 dispatch("tick")
-assert result()["outcome"] == "failed"
-assert_no_publication()
+assert result()["outcome"] == "review" and issue_labels() == {"agent-review"}, result()
+assert len(calls()) == 2 and calls()[1]["argv"][calls()[1]["argv"].index("--resume") + 1] == "fixture-session"
+assert result()["pr_url"] == github()["prs"][0]["url"]
+assert git_at(project, "ls-remote", bare, f"refs/heads/{code_record()['branch']}")
 
 # z6: CLI can override configured code mode without repo-view/worktree/push/PR calls.
 code_fixture("z6-override")
@@ -1244,6 +1361,76 @@ dispatch("tick", "--mode", "dry-run")
 assert result()["outcome"] == "review" and calls()[0]["cwd"] == str(project)
 assert not any(entry["argv"][0] in ("repo", "pr") for entry in github()["log"])
 assert "built-in: git worktree" not in git_trace.read_text() and "built-in: git push" not in git_trace.read_text()
+# z7: an early-exiting master resumes in-session and waits for both delegated workers.
+code_fixture("z7")
+environment["FAKE_CLAUDE_MODE"] = "delegate"
+dispatch("tick")
+assert result()["outcome"] == "review" and issue_labels() == {"agent-review"}
+assert result()["pr_url"] == github()["prs"][0]["url"]
+assert any(entry["argv"][:2] == ["pr", "create"] for entry in github()["log"])
+assert len(calls()) == 2
+initial, resumed = calls()
+assert "--resume" not in initial["argv"] and "--no-session-persistence" not in initial["argv"]
+argv = resumed["argv"]
+assert argv[argv.index("--resume"):argv.index("--resume") + 2] == ["--resume", "fixture-session"]
+assert "resumed run" in argv[argv.index("-p") + 1]
+herdr = json.loads(herdr_state.read_text())
+assert [tab["label"] for tab in herdr["tabs"]] == ["issue2-w1", "issue2-w2"]
+assert [run["pane_id"] for run in herdr["runs"]] == ["fixture:p1", "fixture:p2"]
+assert all(run["command"].startswith("aoc-omp ") for run in herdr["runs"])
+run_dir = Path(initial["run_dir"])
+for k in (1, 2):
+    text = (run_dir / "workers" / f"issue2-w{k}.md").read_text()
+    assert text in (Path(code_record()["worktree"]) / "change.txt").read_text()
+log_text = (run_dir / "claude.log").read_text()
+assert "fake master output: initial" in log_text and "fake master output: resumed" in log_text
+assert result()["reason"] == "Delegated workers integrated"
+assert "aoc-worker-wait: 2 done" in comments("result")[0]
+assert local()["seat"] == "IDLE" and local()["active"] is None
+
+# z8: a foreground wait reports a missing worker, not a missing master report.
+code_fixture("z8")
+environment["FAKE_CLAUDE_MODE"] = "delegate-lost"
+dispatch("tick")
+assert result()["outcome"] == "failed" and "fixture:p2" in result()["reason"]
+assert len(calls()) == 1 and "without a report" not in result()["reason"]
+report = json.loads((Path(calls()[0]["run_dir"]) / "report.json").read_text())
+assert "fixture:p2 missing" in report["evidence"]
+assert_no_publication()
+
+# z9: successful no-report turns exhaust the bounded same-session resumes.
+code_fixture("z9")
+environment["FAKE_CLAUDE_MODE"] = "noreport"
+dispatch("tick")
+assert len(calls()) == 4
+for launch in calls()[1:]:
+    argv = launch["argv"]
+    assert argv[argv.index("--resume"):argv.index("--resume") + 2] == ["--resume", "fixture-session"]
+assert result()["reason"] == "master process ended without a report after 3 resumes"
+assert result()["outcome"] == "failed"
+
+# z9b: a nonzero master exit never resumes.
+code_fixture("z9b")
+environment.update(FAKE_CLAUDE_MODE="noreport", FAKE_CLAUDE_EXIT="1")
+dispatch("tick")
+assert len(calls()) == 1 and "master exited 1 without a report" in result()["reason"]
+
+# z9c: missing session metadata cannot resume.
+code_fixture("z9c")
+environment.update(FAKE_CLAUDE_MODE="noreport", FAKE_CLAUDE_NO_SESSION="1")
+dispatch("tick")
+assert len(calls()) == 1 and result()["reason"] == "master process ended without a report"
+
+# z9d: an exited master beyond the original deadline cannot resume after restart.
+code_fixture("z9d")
+environment["FAKE_CLAUDE_MODE"] = "noreport"
+dispatch("tick", wait=False)
+until(lambda: len(calls()) == 1 and not pid_running(local()["active"]["pid"]))
+environment["AOC_DISPATCH_NOW"] = "2026-10-01T12:00:02Z"
+dispatch("tick", "--timeout", "1")
+assert len(calls()) == 1 and result()["outcome"] == "failed"
+assert "master process ended without a report" in result()["reason"]
+
 project, state_dir = dry_project, dry_state_dir
 environment.update(FAKE_DISPATCH_STATE=str(state_dir / "state.json"), FAKE_PRISM_ROOT=str(project))
 reset()
@@ -1385,5 +1572,5 @@ for command_name in ("seat", "watch"):
             assert [entry["argv"][2] for entry in creations] == list(expected_colors)
         config_path.unlink()
 
-print("AOC Dispatch smoke passed (a-y, z1-z6, aa-ac)")
+print("AOC Dispatch smoke passed (a-y, z1-z9, aa-ac)")
 PY
