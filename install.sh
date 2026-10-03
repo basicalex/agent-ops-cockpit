@@ -728,6 +728,18 @@ if ((${#missing_installed_scripts[@]} > 0)); then
   exit 1
 fi
 
+# aoc-live (issue #10): the copied bin/aoc-live runs the live/ package from here.
+live_dst="${XDG_DATA_HOME:-$HOME/.local/share}/aoc/live"
+if command -v bun >/dev/null 2>&1; then
+  mkdir -p "$live_dst"
+  rsync -a --delete --exclude node_modules --exclude test "$ROOT_DIR/live/" "$live_dst/"
+  if ! (cd "$live_dst" && bun install --frozen-lockfile --production >/dev/null); then
+    warn "aoc-live: bun install failed in $live_dst"
+  fi
+else
+  warn "aoc-live: bun not found; skipping the live/ package install"
+fi
+
 # Remove retired artifacts from prior installs.
 retired_paths=(
   "$BIN_DIR/aoc-task"

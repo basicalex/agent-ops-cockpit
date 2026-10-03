@@ -1,0 +1,282 @@
+#!/usr/bin/env bash
+set -euo pipefail
+umask 077
+
+script=$(bun -e 'console.log(require("node:fs").realpathSync(process.argv[1]))' "$0")
+script_dir=${script%/*}
+if [[ -n ${AOC_LIVE_DIR:-} ]]; then
+  live_dir=$AOC_LIVE_DIR
+elif [[ -f $script_dir/../live/package.json ]]; then
+  live_dir=$script_dir/../live
+else
+  live_dir=${XDG_DATA_HOME:-$HOME/.local/share}/aoc/live
+fi
+[[ -f $live_dir/package.json ]] || { printf 'aoc-live: package.json not found in %s\n' "$live_dir" >&2; exit 1; }
+state_dir=${AOC_LIVE_STATE_DIR:-${XDG_STATE_HOME:-$HOME/.local/state}/aoc/live}
+codex_home=${CODEX_HOME:-$HOME/.codex}
+tunnel_cfg=${XDG_CONFIG_HOME:-$HOME/.config}/aoc/live/cloudflared.yml
+port=${AOC_LIVE_PORT:-8765}
+[[ $port =~ ^[0-9]+$ ]] && (( port > 0 && port <= 65535 )) || { printf 'aoc-live: invalid port\n' >&2; exit 1; }
+
+get_token() {
+  if [[ -n ${AOC_LIVE_TOKEN_CMD:-} ]]; then
+    "$AOC_LIVE_TOKEN_CMD" 2>/dev/null
+  else
+    security find-generic-password -s aoc-live -a mcp-path-token -w 2>/dev/null
+  fi
+}
+ensure_package() {
+  if [[ ! -d $live_dir/node_modules ]]; then
+    (cd "$live_dir" && bun install --frozen-lockfile)
+  fi
+}
+prepare_state() {
+  bun -e 'require("node:fs").mkdirSync(process.argv[1],{recursive:true,mode:0o700})' "$state_dir"
+}
+# BSD flock is available in macOS libc even though there is no flock command.
+# fd 9 remains open in the supervisor and is closed in every supervised child.
+lock_state() {
+  exec 9>"$state_dir/supervisor.lock"
+  bun -e 'import {dlopen,FFIType} from "bun:ffi";const lib=dlopen(process.platform==="darwin"?"/usr/lib/libSystem.B.dylib":"libc.so.6",{flock:{args:[FFIType.i32,FFIType.i32],returns:FFIType.i32}});process.exit(lib.symbols.flock(9,6)===0?0:1)' 2>/dev/null
+}
+read_pid() {
+  bun -e 'try{const p=Number(require("node:fs").readFileSync(process.argv[1],"utf8"));if(Number.isInteger(p)&&p>1)console.log(p)}catch{}' "$state_dir/supervisor.pid"
+}
+health() { curl --silent --output /dev/null --connect-timeout 1 --max-time 2 "http://127.0.0.1:$port/"; }
+write_state() {
+  bun -e '
+    const fs=require("node:fs");const [dir,pid,started,server,port,restarts,exit,provider,pp,pr,pe]=process.argv.slice(1);
+    let old;try{old=JSON.parse(fs.readFileSync(dir+"/state.json","utf8"))}catch{}
+    const last=(part,count,code)=>code===""?null:old?.[part]?.restarts===Number(count)?old[part].last_exit:{code:Number(code),at:new Date().toISOString()};
+    const state={schema:"aoc.live.state/v1",pid:Number(pid),started_at:started,server:{pid:Number(server)||null,port:Number(port),restarts:Number(restarts),last_exit:last("server",restarts,exit)},provider:{name:provider==="cloudflared"?provider:null,pid:Number(pp)||null,restarts:Number(pr),last_exit:last("provider",pr,pe)}};
+    fs.writeFileSync(dir+"/state.json.tmp",JSON.stringify(state)+"\n",{mode:0o600});fs.renameSync(dir+"/state.json.tmp",dir+"/state.json");
+  ' "$state_dir" "$$" "$started_at" "$server_pid" "$port" "$server_restarts" "$server_exit" "$provider_name" "$provider_pid" "$provider_restarts" "$provider_exit" 9>&-
+}
+supervise() {
+  trap '' HUP
+  local server_pid=0 server_restarts=0 server_exit='' server_delay=2 server_next=0 server_since=0
+  local provider_pid=0 provider_name=local provider_restarts=0 provider_exit='' provider_delay=2 provider_next=0 provider_since=0
+  local started_at
+  started_at=$(bun -e 'console.log(new Date().toISOString())' 9>&-)
+  bun -e 'const fs=require("node:fs");const [dir,pid]=process.argv.slice(1);fs.writeFileSync(dir+"/supervisor.pid",pid+"\n",{mode:0o600});for(const name of ["server.log","provider.log"]){const p=dir+"/"+name;try{const fd=fs.openSync(p,"r+");const size=fs.fstatSync(fd).size;if(size>1048576){const b=Buffer.alloc(1048576);fs.readSync(fd,b,0,b.length,size-b.length);fs.writeSync(fd,b,0,b.length,0);fs.ftruncateSync(fd,b.length)}fs.closeSync(fd)}catch{fs.writeFileSync(p,"")}}' "$state_dir" "$$" 9>&-
+  cleanup() {
+    trap - EXIT TERM INT
+    [[ $server_pid == 0 ]] || kill "$server_pid" 2>/dev/null || true
+    [[ $provider_pid == 0 ]] || kill "$provider_pid" 2>/dev/null || true
+    for ((j=0;j<30;j++)); do
+      if { [[ $server_pid == 0 ]] || ! kill -0 "$server_pid" 2>/dev/null; } &&
+         { [[ $provider_pid == 0 ]] || ! kill -0 "$provider_pid" 2>/dev/null; }; then break; fi
+      bun -e 'await Bun.sleep(100)' 9>&-
+    done
+    [[ $server_pid == 0 ]] || kill -KILL "$server_pid" 2>/dev/null || true
+    [[ $provider_pid == 0 ]] || kill -KILL "$provider_pid" 2>/dev/null || true
+    [[ $server_pid == 0 ]] || wait "$server_pid" 2>/dev/null || true
+    [[ $provider_pid == 0 ]] || wait "$provider_pid" 2>/dev/null || true
+    server_pid=0; provider_pid=0
+    write_state
+    bun -e 'require("node:fs").rmSync(process.argv[1],{force:true})' "$state_dir/supervisor.pid" 9>&-
+  }
+  trap cleanup EXIT
+  trap 'exit 0' TERM INT
+  ensure_package 9>&- >/dev/null 2>&1
+  write_state
+  while :; do
+    if [[ $server_pid != 0 ]] && ! kill -0 "$server_pid" 2>/dev/null; then
+      server_exit=0; wait "$server_pid" || server_exit=$?
+      if (( SECONDS - server_since >= 300 )); then server_delay=2; fi
+      server_pid=0; server_restarts=$((server_restarts+1)); server_next=$((SECONDS+server_delay)); server_delay=$((server_delay < 30 ? server_delay*2 : 60))
+      write_state
+    fi
+    if [[ $provider_pid != 0 ]] && ! kill -0 "$provider_pid" 2>/dev/null; then
+      provider_exit=0; wait "$provider_pid" || provider_exit=$?
+      if (( SECONDS - provider_since >= 300 )); then provider_delay=2; fi
+      provider_pid=0; provider_restarts=$((provider_restarts+1)); provider_next=$((SECONDS+provider_delay)); provider_delay=$((provider_delay < 30 ? provider_delay*2 : 60))
+      write_state
+    fi
+    if [[ $server_pid == 0 ]] && (( SECONDS >= server_next )); then
+      bun run "$live_dir/src/server.ts" </dev/null >>"$state_dir/server.log" 2>&1 9>&- &
+      server_pid=$!; server_since=$SECONDS
+      write_state
+    fi
+    if [[ $provider_pid == 0 ]] && (( SECONDS >= provider_next )) && health 9>&-; then
+      provider_name=local
+      if [[ -f $tunnel_cfg ]] && command -v cloudflared >/dev/null 2>&1; then
+        provider_name=cloudflared
+        (unset AOC_LIVE_TOKEN AOC_LIVE_CONNECT_TOKEN; exec cloudflared tunnel --config "$tunnel_cfg" --loglevel warn --no-autoupdate run) </dev/null >>"$state_dir/provider.log" 2>&1 9>&- &
+        provider_pid=$!; provider_since=$SECONDS
+      else
+        provider_next=$((SECONDS+10))
+      fi
+      write_state
+    fi
+    bun -e 'await Bun.sleep(1000)' 9>&-
+  done
+}
+start_service() {
+  local token pid
+  prepare_state
+  if ! lock_state; then
+    pid=$(read_pid)
+    if [[ -n $pid ]] && kill -0 "$pid" 2>/dev/null; then printf 'already running\n'; return 0; fi
+    printf 'aoc-live: supervisor starting\n'; return 0
+  fi
+  token=$(get_token) || { printf 'aoc-live: no token stored; staying off\n'; return 0; }
+  [[ ${#token} -ge 32 ]] || { printf 'aoc-live: no valid token stored; staying off\n'; return 0; }
+  export AOC_LIVE_TOKEN=$token AOC_LIVE_SUPERVISED=1
+  (trap '' HUP; exec bash "$script" _supervise) </dev/null >/dev/null 2>&1 &
+  pid=$!
+  bun -e 'require("node:fs").writeFileSync(process.argv[1],process.argv[2]+"\n",{mode:0o600})' "$state_dir/supervisor.pid" "$pid" 9>&-
+  disown "$pid"
+  printf 'aoc-live: started\n'
+}
+stop_service() {
+  local pid
+  [[ -d $state_dir ]] || return 0
+  # A free lock means any stored pid is stale, not a process we may kill.
+  if lock_state; then return 0; fi
+  pid=$(read_pid)
+  if [[ -n $pid ]] && kill -0 "$pid" 2>/dev/null; then
+    kill "$pid" 2>/dev/null || true
+    for ((i=0;i<50;i++)); do
+      kill -0 "$pid" 2>/dev/null || break
+      bun -e 'await Bun.sleep(100)'
+    done
+    if kill -0 "$pid" 2>/dev/null; then printf 'aoc-live: supervisor did not stop\n' >&2; return 1; fi
+  fi
+}
+desktop_table_exists() {
+  bun -e 'try{process.exit(/^\[mcp_servers\.aoc-live\][ \t]*(?:#.*)?$/m.test(require("node:fs").readFileSync(process.argv[1],"utf8"))?0:1)}catch{process.exit(1)}' "$codex_home/config.toml"
+}
+desktop_config() {
+  local action=$1 token=''
+  if [[ $action == connect ]]; then
+    token=$(get_token) || { printf 'aoc-live: no token stored\n' >&2; return 1; }
+    [[ ${#token} -ge 32 ]] || { printf 'aoc-live: invalid token\n' >&2; return 1; }
+  fi
+  AOC_LIVE_CONNECT_TOKEN=$token bun -e '
+    const fs=require("node:fs");const [dir,port,action]=process.argv.slice(1);const file=dir+"/config.toml";
+    let old="";try{old=fs.readFileSync(file,"utf8")}catch(e){if(e.code!=="ENOENT")throw e}
+    const header=/^\[mcp_servers\.aoc-live\][ \t]*(?:#.*)?(?:\r?\n|$)/gm;
+    let next=old,match;
+    const replacement=action==="connect"?`[mcp_servers.aoc-live]\nurl = ${JSON.stringify(`http://127.0.0.1:${port}/mcp/${process.env.AOC_LIVE_CONNECT_TOKEN}`)}\ntool_timeout_sec = 30\n`:"";
+    if((match=header.exec(old))){
+      let end=old.length;const following=/^\[(?!mcp_servers\.aoc-live\.)/gm;following.lastIndex=match.index+match[0].length;const boundary=following.exec(old);if(boundary)end=boundary.index;
+      next=old.slice(0,match.index)+replacement+old.slice(end);
+    }else if(action==="connect")next=old+(old&&!old.endsWith("\n")?"\n":"")+replacement;
+    if(next!==old){
+      fs.mkdirSync(dir,{recursive:true,mode:0o700});
+      if(fs.existsSync(file)){fs.copyFileSync(file,file+".aoc-live.bak");fs.chmodSync(file+".aoc-live.bak",0o600)}
+      const temp=file+".aoc-live."+process.pid+".tmp";
+      try{fs.writeFileSync(temp,next,{mode:0o600,flag:"wx"});fs.renameSync(temp,file)}finally{fs.rmSync(temp,{force:true})}
+    }
+    if(fs.existsSync(file))fs.chmodSync(file,0o600);
+  ' "$codex_home" "$port" "$action"
+  if [[ $action == connect ]]; then printf 'connected; restart the ChatGPT desktop app\n'; else printf 'disconnected; restart the ChatGPT desktop app\n'; fi
+}
+tunnel_hostname() {
+  bun -e 'try{const text=require("node:fs").readFileSync(process.argv[1],"utf8");const m=/^[ \t]*-[ \t]+hostname:[ \t]+(.+)$/m.exec(text);if(m){const h=m[1].trim();console.log(h.startsWith("\"")?JSON.parse(h):h)}}catch{}' "$tunnel_cfg"
+}
+tunnel_id() {
+  bun -e 'const rows=JSON.parse(await Bun.stdin.text());if(!Array.isArray(rows))process.exit(1);const matches=rows.filter(t=>t.name==="aoc-live");if(matches.length>1)process.exit(1);const id=matches[0]?.id;if(id){if(!/^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/i.test(id))process.exit(1);console.log(id)}'
+}
+tunnel_setup() {
+  local hostname=$1 listing id credentials config_dir
+  bun -e 'const h=process.argv[1];process.exit(h.length<=253&&/^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/i.test(h)?0:1)' "$hostname" || { printf 'aoc-live: invalid hostname\n' >&2; return 1; }
+  command -v cloudflared >/dev/null 2>&1 || { printf 'aoc-live: cloudflared is not installed\n' >&2; return 1; }
+  listing=$(cloudflared tunnel list --output json 2>/dev/null) || { printf 'aoc-live: cannot list tunnels; run cloudflared login first\n' >&2; return 1; }
+  id=$(printf '%s' "$listing" | tunnel_id) || { printf 'aoc-live: invalid or ambiguous tunnel list\n' >&2; return 1; }
+  config_dir=${tunnel_cfg%/*}
+  credentials=$config_dir/aoc-live.json
+  if [[ -z $id ]]; then
+    bun -e 'require("node:fs").mkdirSync(process.argv[1],{recursive:true,mode:0o700})' "$config_dir"
+    cloudflared tunnel create --credentials-file "$credentials" aoc-live >/dev/null 2>&1 || { printf 'aoc-live: tunnel creation failed\n' >&2; return 1; }
+    listing=$(cloudflared tunnel list --output json 2>/dev/null) || { printf 'aoc-live: cannot read created tunnel\n' >&2; return 1; }
+    id=$(printf '%s' "$listing" | tunnel_id)
+    [[ -n $id ]] || { printf 'aoc-live: created tunnel was not found\n' >&2; return 1; }
+  elif [[ ! -f $credentials ]]; then
+    credentials=$HOME/.cloudflared/$id.json
+  fi
+  [[ -f $credentials ]] || { printf 'aoc-live: aoc-live tunnel credentials are missing\n' >&2; return 1; }
+  cloudflared tunnel route dns aoc-live "$hostname" >/dev/null 2>&1 || { printf 'aoc-live: DNS route failed\n' >&2; return 1; }
+  bun -e '
+    const fs=require("node:fs"),path=require("node:path");const [file,id,credentials,host,port]=process.argv.slice(1);
+    const text=`tunnel: ${id}\ncredentials-file: ${JSON.stringify(credentials)}\ningress:\n  - hostname: ${JSON.stringify(host)}\n    service: http://127.0.0.1:${port}\n    originRequest:\n      httpHostHeader: 127.0.0.1:${port}\n  - service: http_status:404\n`;
+    fs.mkdirSync(path.dirname(file),{recursive:true,mode:0o700});const temp=file+"."+process.pid+".tmp";
+    try{fs.writeFileSync(temp,text,{mode:0o600,flag:"wx"});fs.renameSync(temp,file)}finally{fs.rmSync(temp,{force:true})}
+    fs.chmodSync(credentials,0o600);
+  ' "$tunnel_cfg" "$id" "$credentials" "$hostname" "$port"
+  printf 'tunnel configured: %s\n' "$hostname"
+}
+case "${1:-help}" in
+  _supervise)
+    [[ ${AOC_LIVE_SUPERVISED:-} == 1 && ${#AOC_LIVE_TOKEN} -ge 32 ]] || exit 1
+    supervise
+    ;;
+  serve)
+    ensure_package
+    token=$(get_token) || { printf 'aoc-live: no token stored\n' >&2; exit 1; }
+    [[ ${#token} -ge 32 ]] || { printf 'aoc-live: invalid token\n' >&2; exit 1; }
+    export AOC_LIVE_TOKEN=$token
+    exec bun run "$live_dir/src/server.ts"
+    ;;
+  token)
+    [[ ${2:-} == init || ${2:-} == rotate ]] || { printf 'usage: aoc-live token init|rotate\n' >&2; exit 1; }
+    token=$(openssl rand -hex 32)
+    security add-generic-password -U -s aoc-live -a mcp-path-token -w "$token" >/dev/null 2>&1
+    printf 'token stored\n'
+    if [[ ${2:-} == rotate ]]; then
+      if desktop_table_exists; then desktop_config connect; fi
+      pid=$(read_pid)
+      if [[ -n $pid ]] && kill -0 "$pid" 2>/dev/null; then
+        stop_service
+        start_service
+      fi
+    fi
+    ;;
+  start) start_service ;;
+  stop) stop_service ;;
+  restart) stop_service; start_service ;;
+  connect) desktop_config connect ;;
+  disconnect) desktop_config disconnect ;;
+  status)
+    port=$(bun -e 'try{console.log(JSON.parse(require("node:fs").readFileSync(process.argv[1],"utf8")).server.port)}catch{console.log(process.argv[2])}' "$state_dir/state.json" "$port")
+    probe=down
+    if health; then probe=answering; fi
+    bun -e 'const fs=require("node:fs");const [dir,port,health]=process.argv.slice(1);let s;try{s=JSON.parse(fs.readFileSync(dir+"/state.json","utf8"))}catch{}let running=false;try{if(s?.pid>1){process.kill(s.pid,0);running=true}}catch{}console.log(`aoc-live: ${running?"running":"not running"}; port ${s?.server?.port??port}; health ${health}; provider ${running?(s?.provider?.name??"local-only"):"none"}; /mcp/<hidden>`) ' "$state_dir" "$port" "$probe"
+    ;;
+  logs)
+    [[ ${2:-} == '' || ${2:-} == -f ]] || { printf 'usage: aoc-live logs [-f]\n' >&2; exit 1; }
+    bun -e '
+      const fs=require("node:fs");const [path,follow]=process.argv.slice(1);let offset=0;
+      function show(){try{const fd=fs.openSync(path,"r");const size=fs.fstatSync(fd).size;if(offset>size)offset=0;const start=offset||Math.max(0,size-1048576);const b=Buffer.alloc(size-start);fs.readSync(fd,b,0,b.length,start);fs.closeSync(fd);process.stdout.write(offset===0?b.toString().split("\n").slice(-101).join("\n"):b);offset=size}catch{}}
+      show();if(follow==="-f")while(true){await Bun.sleep(500);show()}
+    ' "$state_dir/server.log" "${2:-}"
+    ;;
+  tunnel)
+    case "${2:-}" in
+      setup) [[ -n ${3:-} ]] || { printf 'usage: aoc-live tunnel setup <hostname>\n' >&2; exit 1; }; tunnel_setup "$3" ;;
+      status)
+        hostname=$(tunnel_hostname)
+        bun -e 'let s;try{s=JSON.parse(require("node:fs").readFileSync(process.argv[1],"utf8"))}catch{}let running=false;try{if(s?.provider?.name==="cloudflared"&&s.provider.pid>1){process.kill(s.provider.pid,0);running=true}}catch{}console.log(`hostname: ${process.argv[2]||"not configured"}; cloudflared: ${running?"running":"not running"}`)' "$state_dir/state.json" "$hostname"
+        ;;
+      *) printf 'usage: aoc-live tunnel setup <hostname> | status\n' >&2; exit 1 ;;
+    esac
+    ;;
+  url)
+    [[ ${2:-} == '' || ${2:-} == --show ]] || { printf 'usage: aoc-live url [--show]\n' >&2; exit 1; }
+    token='<hidden>'
+    if [[ ${2:-} == --show ]]; then
+      token=$(get_token) || { printf 'aoc-live: no token stored\n' >&2; exit 1; }
+      [[ ${#token} -ge 32 ]] || { printf 'aoc-live: invalid token\n' >&2; exit 1; }
+    fi
+    printf 'http://127.0.0.1:%s/mcp/%s\n' "$port" "$token"
+    if [[ -f $tunnel_cfg ]]; then
+      hostname=$(tunnel_hostname)
+      [[ -z $hostname ]] || printf 'https://%s/mcp/%s\n' "$hostname" "$token"
+    fi
+    ;;
+  help|-h|--help)
+    printf '%s\n' 'aoc-live start | stop | restart | status | logs [-f]' 'aoc-live connect | disconnect' 'aoc-live tunnel setup <hostname> | tunnel status' 'aoc-live serve | token init|rotate | url [--show] | help' 'Desktop app: aoc-live connect; restart the ChatGPT desktop app.' 'Mobile/web: aoc-live tunnel setup <hostname> once, then aoc-live url --show.' 'Paste the public HTTPS URL into ChatGPT developer mode: create app, No authentication.' 'URL paths are hidden by default: /mcp/<hidden>.'
+    ;;
+  *) printf 'aoc-live: unknown command; see help\n' >&2; exit 1 ;;
+esac

@@ -1,0 +1,4 @@
+[
+  { "number": 10, "title": "Read-only ghp_SYNTHETIC12345678", "state": "OPEN", "labels": [{ "name": "agent-running" }], "updatedAt": "2026-10-03T10:00:00Z", "url": "https://github.com/example/repo/issues/10" },
+  { "number": 11, "title": "Follow-up", "state": "CLOSED", "labels": [], "updatedAt": "2026-10-03T11:00:00Z", "url": "https://github.com/example/repo/issues/11" }
+]

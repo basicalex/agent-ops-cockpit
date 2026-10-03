@@ -1,0 +1,16 @@
+#!/usr/bin/env bun
+const args = process.argv.slice(2);
+if (args[0] === "repo" && args[1] === "view") {
+  console.log("example/repo");
+} else if (args[0] === "issue" && args[1] === "view") {
+  const fields = args[args.indexOf("--json") + 1];
+  if (fields === "comments") {
+    process.stdout.write(await Bun.file(new URL("comments.json", import.meta.url)).text());
+  } else {
+    const comments = await Bun.file(new URL("comments.json", import.meta.url)).json();
+    console.log(JSON.stringify({ number: 10, title: "Synthetic context task", body: "## Goal\nRead-only context api_key=synthetic-objective-key\n\n## Scope\nFixture", state: "OPEN", labels: [{ name: "agent-running" }], closedAt: null, url: "https://github.com/example/repo/issues/10", comments: comments.comments }));
+  }
+} else {
+  console.error("Fixture only permits gh repo view and gh issue view");
+  process.exit(1);
+}
