@@ -1,0 +1,18 @@
+{
+  "schema": "aoc.issue.state/v1",
+  "issue": 10,
+  "url": "https://github.com/example/repo/issues/10",
+  "title": "Context service ghp_SYNTHETIC12345678",
+  "objective": "Read context. api_key=synthetic-objective-key",
+  "state": "running",
+  "labels": ["agent-running"],
+  "closedAt": null,
+  "blockers": ["password=synthetic-blocker-password"],
+  "commits": ["0123456789abcdef0123456789abcdef01234567"],
+  "pull_requests": ["https://github.com/example/repo/pull/11"],
+  "completion": { "complete": false, "url": null, "at": null },
+  "events": [
+    { "source": "dispatch", "event": "claim", "kind": null, "run_id": "run-1", "seq": 1, "at": "2026-10-01T10:00:00Z", "url": "https://github.com/example/repo/issues/10#issuecomment-1", "author": "worker", "state": "running", "change": null, "evidence": null, "next": null, "blockers": null, "summary": "Claimed task" },
+    { "source": "journal", "event": "progress", "kind": "validation", "run_id": null, "seq": null, "at": "2026-10-02T10:00:00Z", "url": "https://github.com/example/repo/issues/10#issuecomment-2", "author": "worker", "state": "running", "change": "token=synthetic-event-token", "evidence": "Bearer synthetic-evidence-token", "next": "Run checks", "blockers": "client_secret=synthetic-event-blocker", "summary": "Validated" }
+  ]
+}

@@ -1,0 +1,10 @@
+{
+  "comments": [
+    { "author": { "login": "alice" }, "createdAt": "2026-10-01T10:00:00Z", "body": "First plain comment", "url": "https://github.com/example/repo/issues/10#issuecomment-1" },
+    { "author": { "login": "bot" }, "createdAt": "2026-10-02T10:00:00Z", "body": "<!-- aoc-dispatch event=claim run_id=run-1 -->\nDispatch detail", "url": "https://github.com/example/repo/issues/10#issuecomment-2" },
+    { "author": null, "createdAt": "2026-10-03T10:00:00Z", "body": "Second plain comment sk-proj-SYNTHETIC12345678", "url": "https://github.com/example/repo/issues/10#issuecomment-3" },
+    { "author": { "login": "bot" }, "createdAt": "2026-10-04T10:00:00Z", "body": "<!-- aoc-journal event=progress kind=validation -->\r\nJournal detail", "url": "https://github.com/example/repo/issues/10#issuecomment-4" },
+    { "author": { "login": "bob" }, "createdAt": "2026-10-05T10:00:00Z", "body": "Third plain comment password=synthetic-comment-password", "url": "https://github.com/example/repo/issues/10#issuecomment-5" },
+    { "author": { "login": "carol" }, "createdAt": "2026-10-06T10:00:00Z", "body": "Fourth plain comment\n<!-- aoc-journal event=progress -->", "url": "https://github.com/example/repo/issues/10#issuecomment-6" }
+  ]
+}

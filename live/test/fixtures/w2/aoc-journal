@@ -1,0 +1,4 @@
+#!/usr/bin/env bun
+const args = process.argv.slice(2);
+if (args.includes("999")) await Bun.sleep(5000);
+process.stdout.write(args.includes("998") ? "\u20ac".repeat(3) : await Bun.file(new URL("state.json", import.meta.url)).text());

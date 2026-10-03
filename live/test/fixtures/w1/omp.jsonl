@@ -1,0 +1,8 @@
+{"type":"title","title":"Synthetic Release"}
+{"type":"session","id":"omp-one","cwd":"/fixture/project"}
+{"type":"model_change","model":"synthetic"}
+{"type":"custom_message","content":"hidden custom content"}
+{"type":"message","timestamp":"2026-10-01T11:00:00Z","message":{"role":"user","content":[{"type":"text","text":"Review release changes <system-reminder>hidden context</system-reminder>"}]}}
+{"type":"message","message":{"role":"assistant","content":[{"type":"thinking","thinking":"invisible reasoning"},{"type":"text","text":"Release changes reviewed."},{"type":"toolCall","name":"read","arguments":{"path":"never include arguments"}}]}}
+{"type":"message","message":{"role":"toolResult","content":[{"type":"text","text":"invisible result"}]}}
+{"type":"message","message":{"role":"assistant","content":[{"type":"tool_result","content":"invisible tool output"},{"type":"text","text":"Ready for review."}]}}

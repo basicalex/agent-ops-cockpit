@@ -94,5 +94,14 @@ if [[ "${AOC_HERDR_MASTER:-on}" != "off" ]]; then
   fi
 fi
 
+if [[ "${AOC_HERDR_LIVE:-on}" != "off" ]]; then
+  live="$(dirname "${BASH_SOURCE[0]}")/aoc-live"
+  if [[ -x "$live" ]]; then
+    "$live" start >/dev/null 2>&1 || true
+  elif command -v aoc-live >/dev/null 2>&1; then
+    aoc-live start >/dev/null 2>&1 || true
+  fi
+fi
+
 cd "$cwd"
 exec herdr --session "$session"

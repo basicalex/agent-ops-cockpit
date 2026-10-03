@@ -1,0 +1,14 @@
+{"type":"user","timestamp":"2026-10-01T10:00:00Z","message":{"role":"user","content":"<system-reminder>injected secret context</system-reminder>Find the Release plan"}}
+{"type":"assistant","timestamp":"2026-10-01T10:01:00Z","message":{"role":"assistant","content":[{"type":"thinking","thinking":"hidden private reasoning"},{"type":"text","text":"Release plan starts with scope."},{"type":"tool_use","name":"read_file","input":{"secret":"tool input must not appear"}}]}}
+{"type":"user","message":{"role":"user","content":[{"type":"tool_result","content":"hidden tool output"}]}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"thinking","thinking":"thinking-only"}]}}
+{"type":"user","isSidechain":true,"message":{"role":"user","content":"sidechain text"}}
+{"type":"user","isMeta":true,"message":{"role":"user","content":"meta text"}}
+{"type":"user","message":{"role":"user","content":[{"type":"tool_result","content":"ignored output"},{"type":"text","text":"What is next? <system-notice>hidden injected notice</system-notice>"}]}}
+{"type":"assistant","message":{"role":"assistant","content":"Next: verify the Release. synthetic-secret"}}
+{"type":"user","message":{"role":"user","content":"Proceed"}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","name":"search_code","input":{"query":"invisible"}}]}}
+{"type":"assistant","message":{"role":"assistant","content":"The Release is ready."}}
+{"type":"user","message":{"role":"user","content":"Thanks"}}
+{"type":"assistant","message":{"role":"assistant","content":"Finished"}}
+{"type":"user","message":{"role":"user","content":"<system-reminder>unfinished injected block"}}
