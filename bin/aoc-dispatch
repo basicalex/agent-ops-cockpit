@@ -336,6 +336,17 @@ class Dispatcher:
         self.state["updated_at"] = stamp()
         atomic_json(self.state_path, self.state)
 
+    def create_labels(self):
+        errors = []
+        for name, (color, description) in LABELS.items():
+            try:
+                self.gh("label", "create", name, "--repo", self.repo, "--color", color,
+                        "--description", description, "--force")
+            except (OSError, RuntimeError, subprocess.SubprocessError) as exc:
+                errors.append(str(exc))
+        if errors:
+            raise RuntimeError("; ".join(errors))
+
     def edit(self, issue, *flags):
         self.gh("issue", "edit", issue, "--repo", self.repo, *flags)
 
@@ -428,7 +439,8 @@ class Dispatcher:
             record.update(decision_id=decision_id, blocked_at=stamp())
         else:
             outcome, reason = "failed", failure or report["summary"]
-            self.edit(issue, "--remove-label", "agent-running", "--add-label", "agent-failed")
+            self.edit(issue, "--remove-label", "agent-running", "--remove-label", "agent-ready",
+                      "--add-label", "agent-failed")
             path = run_dir / "claude.log"
             excerpt = "\n".join(render_log_lines(path, 40)) if path.exists() else "unavailable"
             url = self.comment(issue, run_id, "failed", f"{reason}{branch_note}\n\n<details>\n<summary>Last 40 lines of claude.log</summary>\n\n{excerpt}\n\n</details>")
@@ -439,6 +451,16 @@ class Dispatcher:
         self.state.update(seat="IDLE", active=None)
         self.save()
         log(f"issue {issue} run {run_id}: {outcome}: {reason}")
+
+    def fail_claim(self, run_id, issue, reason):
+        try:
+            self.finalize(run_id, issue, failure=reason)
+        except Exception as exc:
+            log(f"issue {issue} run {run_id}: {reason}; finalization failed: {exc}")
+            self.state["issues"][str(issue)].update(
+                state="failed", decision_id=None, blocked_at=None, ready_seen_at=None)
+            self.state.update(seat="IDLE", active=None)
+            self.save()
 
     def resume(self, issue, events, record):
         blocked_at = parse_time(record["blocked_at"])
@@ -580,27 +602,46 @@ class Dispatcher:
                 child = subprocess.Popen(argv, cwd=code["worktree"] if code else self.root, env=environment, stdout=handle,
                                          stderr=subprocess.STDOUT, start_new_session=True)
             except OSError as exc:
-                self.finalize(run_id, issue, failure=f"master launch failed: {exc}")
+                self.fail_claim(run_id, issue, f"claim failed: master launch failed: {exc}")
                 return
             self.children[run_id] = (child, time.monotonic())
             self.state.update(seat="RUNNING", active={"run_id": run_id, "issue": issue,
                                                      "pid": child.pid, "started_at": stamp()})
             self.save()
 
+    def signal_master(self, active, signum):
+        pid = active["pid"]
+        own_group = os.getpgid(0)
+        try:
+            group = os.getpgid(pid)
+        except ProcessLookupError:
+            group = None
+        # killpg addresses a group ID, including when its leader has already exited.
+        if pid == own_group or group == own_group:
+            self.fail_claim(active["run_id"], active["issue"],
+                            "master shares dispatcher process group")
+            return False
+        try:
+            os.killpg(pid, signum)
+        except ProcessLookupError:
+            pass
+        return True
+
     def check_active(self):
         active = self.state["active"]
         if not active:
             raise ValueError("non-IDLE seat without active run")
         owned = self.children.get(active["run_id"])
+        if self.state["seat"] == "CLAIMED" and active.get("pid") == os.getpid() and not owned:
+            self.fail_claim(active["run_id"], active["issue"], "claim interrupted")
+            return
         code = owned[0].poll() if owned else None
         running = code is None if owned else alive(active.get("pid"))
         if "terminating_at" in active:
             if running and time.time() - active["terminating_at"] < 10:
                 return
-            try:
-                os.killpg(active["pid"], signal.SIGKILL)
-            except ProcessLookupError:
-                pass
+            if not self.signal_master(active, signal.SIGKILL):
+                return
             if owned and owned[0].poll() is None:
                 return
             self.children.pop(active["run_id"], None)
@@ -613,10 +654,8 @@ class Dispatcher:
             elapsed = max(elapsed, time.monotonic() - owned[1])
         if running:
             if elapsed > self.args.timeout:
-                try:
-                    os.killpg(active["pid"], signal.SIGTERM)
-                except ProcessLookupError:
-                    pass
+                if not self.signal_master(active, signal.SIGTERM):
+                    return
                 active["terminating_at"] = time.time()
                 self.save()
             else:
@@ -686,46 +725,52 @@ class Dispatcher:
                 "ready_seen_at": None, "runs": (record["runs"] if record else []) + [run_id]}
             self.state.update(seat="CLAIMED", active={"run_id": run_id, "issue": issue_number, "pid": os.getpid()})
             self.save()
-            self.edit(issue_number, "--add-label", "agent-running", "--remove-label", "agent-ready")
-            issue = self.gh("issue", "view", issue_number, "--repo", self.repo,
-                            "--json", "number,title,body,author,labels,comments,url", as_json=True)
-            if "agent-running" not in names(issue) or "agent-ready" in names(issue):
-                if previous is None:
-                    del self.state["issues"][str(issue_number)]
-                else:
-                    self.state["issues"][str(issue_number)] = previous
-                self.state.update(seat="IDLE", active=None)
-                self.save()
-                log(f"issue {issue_number}: claim was not confirmed; stopped tick")
-                return
-            branch = None
-            previous_code = previous.get("code") if previous else None
-            if meta["mode"] == "code":
-                try:
-                    branch = previous_code["branch"] if previous_code else self.code_branch(issue, run_id)
-                except (OSError, ValueError, RuntimeError, subprocess.SubprocessError) as exc:
-                    self.finalize(run_id, issue_number, failure=f"code setup failed: {exc}")
+            try:
+                self.edit(issue_number, "--add-label", "agent-running", "--remove-label", "agent-ready")
+                issue = self.gh("issue", "view", issue_number, "--repo", self.repo,
+                                "--json", "number,title,body,author,labels,comments,url", as_json=True)
+                if "agent-running" not in names(issue) or "agent-ready" in names(issue):
+                    if previous is None:
+                        del self.state["issues"][str(issue_number)]
+                    else:
+                        self.state["issues"][str(issue_number)] = previous
+                    self.state.update(seat="IDLE", active=None)
+                    self.save()
+                    log(f"issue {issue_number}: claim was not confirmed; stopped tick")
                     return
-            claim = (f"Claimed for code mode. The master works on branch `{branch}`; "
-                     "Dispatch opens a pull request when it reports done." if branch else
-                     "Claimed for a dry-run plan. No repository changes will be made.")
-            self.comment(issue_number, run_id, "claim", claim)
-            summary = f"started on #{issue_number} {issue['title']} ({meta['mode']})"
-            if continuation:
-                summary += (f" resumed after AOC-DECISION {meta['decision_id']}"
-                            f" (continuation of {meta['continuation_of']})")
-            self.prism_activity("started", summary, issue_number,
-                                f"https://github.com/{self.repo}/issues/{issue_number}")
-            if meta["mode"] == "code":
-                try:
-                    self.setup_code(issue, meta, previous_code, branch)
-                except (OSError, ValueError, KeyError, RuntimeError, subprocess.SubprocessError) as exc:
-                    self.finalize(run_id, issue_number, failure=f"code setup failed: {exc}")
-                    return
-            issue = self.gh("issue", "view", issue_number, "--repo", self.repo,
-                            "--json", "number,title,body,author,labels,comments,url", as_json=True)
-            (run_dir / "packet.md").write_text(self.packet(issue, meta, decision), encoding="utf-8")
-            self.launch(run_id, issue_number)
+                branch = None
+                previous_code = previous.get("code") if previous else None
+                if meta["mode"] == "code":
+                    try:
+                        branch = previous_code["branch"] if previous_code else self.code_branch(issue, run_id)
+                    except (OSError, ValueError, RuntimeError, subprocess.SubprocessError) as exc:
+                        self.fail_claim(run_id, issue_number, f"code setup failed: {exc}")
+                        return
+                claim = (f"Claimed for code mode. The master works on branch `{branch}`; "
+                         "Dispatch opens a pull request when it reports done." if branch else
+                         "Claimed for a dry-run plan. No repository changes will be made.")
+                self.comment(issue_number, run_id, "claim", claim)
+                summary = f"started on #{issue_number} {issue['title']} ({meta['mode']})"
+                if continuation:
+                    summary += (f" resumed after AOC-DECISION {meta['decision_id']}"
+                                f" (continuation of {meta['continuation_of']})")
+                self.prism_activity("started", summary, issue_number,
+                                    f"https://github.com/{self.repo}/issues/{issue_number}")
+                if meta["mode"] == "code":
+                    try:
+                        self.setup_code(issue, meta, previous_code, branch)
+                    except (OSError, ValueError, KeyError, RuntimeError, subprocess.SubprocessError) as exc:
+                        self.fail_claim(run_id, issue_number, f"code setup failed: {exc}")
+                        return
+                issue = self.gh("issue", "view", issue_number, "--repo", self.repo,
+                                "--json", "number,title,body,author,labels,comments,url", as_json=True)
+                (run_dir / "packet.md").write_text(self.packet(issue, meta, decision), encoding="utf-8")
+                self.launch(run_id, issue_number)
+            except Exception as exc:
+                # A spawned master must remain tracked, even if persisting RUNNING fails.
+                if run_id in self.children:
+                    raise
+                self.fail_claim(run_id, issue_number, f"claim failed: {exc}")
             return
 
 
@@ -768,6 +813,7 @@ def seat(dispatch, render=True):
     heartbeat_lock = threading.Lock()
     failures = 0
     health_reported = False
+    labels_attempted = set()
 
     def heartbeat():
         with heartbeat_lock:
@@ -813,6 +859,12 @@ def seat(dispatch, render=True):
                             handle = candidate
                     role = "owner" if handle else "viewer"
                     if handle:
+                        if dispatch.repo not in labels_attempted:
+                            labels_attempted.add(dispatch.repo)
+                            try:
+                                dispatch.create_labels()
+                            except (OSError, RuntimeError, subprocess.SubprocessError) as exc:
+                                log(f"label creation failed: {exc}")
                         dispatch.tick()
                     else:
                         dispatch.load(create=False)
@@ -882,9 +934,7 @@ def main():
         if dispatch.repo is None:
             raise ValueError(f"no inbox configured for {dispatch.root}")
         if args.command == "labels":
-            for name, (color, description) in LABELS.items():
-                dispatch.gh("label", "create", name, "--repo", dispatch.repo, "--color", color,
-                            "--description", description, "--force")
+            dispatch.create_labels()
         elif args.command == "status":
             dispatch.load()
             active = dispatch.state.get("active")

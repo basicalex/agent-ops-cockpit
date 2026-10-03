@@ -162,12 +162,28 @@ elif argv[:2] == ["issue", "edit"]:
     issue = state["issues"][argv[2]]
     if argv[5:] == ["--add-label", "agent-running", "--remove-label", "agent-ready"]:
         entry["local_state_before_claim"] = json.loads(Path(os.environ["FAKE_DISPATCH_STATE"]).read_text())
+    missing = []
     for index in range(5, len(argv), 2):
         assert argv[index] in ("--add-label", "--remove-label"), argv
         if os.environ.get("FAKE_GH_CLAIM_NOOP") != "1":
-            change(issue, argv[index], argv[index + 1])
+            action, label = argv[index:index + 2]
+            if (action == "--add-label" and os.environ.get("FAKE_GH_ENFORCE_LABELS") == "1"
+                    and label not in state["labels"]):
+                missing.append(label)
+            else:
+                change(issue, action, label)
+    if missing:
+        save()
+        print("label not found: " + ", ".join(missing), file=sys.stderr)
+        raise SystemExit(1)
 elif argv[:2] == ["issue", "comment"]:
     assert argv[3:6] == ["--repo", repo, "--body-file"] and len(argv) == 7, argv
+    body = Path(argv[6]).read_text()
+    fail_event = os.environ.get("FAKE_GH_FAIL_COMMENT_EVENT")
+    if fail_event and f"event={fail_event} -->" in body:
+        save()
+        print("fixture comment failed", file=sys.stderr)
+        raise SystemExit(1)
     state["issues"][argv[2]]["comments"].append({"body": Path(argv[6]).read_text(),
                                                "author": {"login": actor}, "createdAt": created})
     output = f"https://github.com/{repo}/issues/{argv[2]}#issuecomment-{len(state['issues'][argv[2]]['comments'])}"
@@ -203,6 +219,10 @@ elif argv[:1] == ["api"]:
     output = [event for event in state["events"] if event["issue"] == number]
 elif argv[:2] == ["label", "create"]:
     assert len(argv) == 10 and argv[3:6] == ["--repo", repo, "--color"] and argv[7] == "--description" and argv[9] == "--force", argv
+    if os.environ.get("FAKE_GH_FAIL_LABEL") == argv[2]:
+        save()
+        print("fixture label creation failed", file=sys.stderr)
+        raise SystemExit(1)
     state["labels"][argv[2]] = {"color": argv[6], "description": argv[8]}
 else:
     raise AssertionError("unsupported fake gh command: " + repr(argv))
@@ -345,7 +365,8 @@ def reset(issues=None, actor="basicalex"):
     for name in ("FAKE_GH_CLAIM_NOOP", "FAKE_CLAUDE_EXIT", "FAKE_GH_ETAG",
                  "FAKE_GH_FORCE_304", "FAKE_GH_304_EXIT", "FAKE_GH_COMMENT_OUTPUT",
                  "FAKE_PRISM_EXIT", "FAKE_PRISM_SLEEP", "AOC_DISPATCH_PRISM_TIMEOUT",
-                 "FAKE_GH_HEALTH_CONTROL"):
+                 "FAKE_GH_HEALTH_CONTROL", "FAKE_GH_ENFORCE_LABELS", "FAKE_GH_FAIL_LABEL",
+                 "FAKE_GH_FAIL_COMMENT_EVENT"):
         environment.pop(name, None)
     state = {"repo": "fixture/dispatch", "issues": {}, "labels": {}, "events": [], "log": []}
     for number, labels in (issues or [(2, ["agent-ready"])]):
@@ -729,11 +750,11 @@ dispatch("tick", wait=False)
 assert local()["seat"] == "IDLE" and result()["outcome"] == "review"
 
 
-def start_seat(root, pane):
+def start_seat(root, pane, command_name="seat"):
     output = temporary / (re.sub(r"[^A-Za-z0-9_.-]", "_", pane) + ".log")
     seat_env = dict(environment, HERDR_PANE_ID=pane)
     seat_env.pop("AOC_DISPATCH_NOW", None)
-    proc = subprocess.Popen([str(command), "seat", "--root", str(root)], env=seat_env,
+    proc = subprocess.Popen([str(command), command_name, "--root", str(root)], env=seat_env,
                             stdout=output.open("w"), stderr=subprocess.STDOUT, start_new_session=True)
     background.append(proc)
     with processes.open("a") as registry:
@@ -1232,5 +1253,137 @@ assert not any(entry["argv"][0] in ("repo", "pr") for entry in github()["log"])
 assert "built-in: git worktree" not in git_trace.read_text() and "built-in: git push" not in git_trace.read_text()
 assert json.loads(dispatch("status", "--json").stdout)["mode"] == "dry-run"
 
-print("AOC Dispatch smoke passed (a-y, z1-z6)")
+# aa: a partial label edit removes ready, then fails; failure still releases the seat.
+for available in (["agent-ready", "agent-failed"], ["agent-ready"]):
+    reset()
+    environment["FAKE_GH_ENFORCE_LABELS"] = "1"
+    state = github()
+    state["labels"] = {name: {} for name in available}
+    state_file.write_text(json.dumps(state))
+    proc = dispatch("tick")
+    record = local()["issues"]["2"]
+    assert record["state"] == "failed" and local()["seat"] == "IDLE" and local()["active"] is None
+    assert not calls() and not comments("claim") and "claim failed:" in proc.stderr
+    claim = next(entry for entry in github()["log"] if "local_state_before_claim" in entry)
+    assert claim["local_state_before_claim"]["seat"] == "CLAIMED"
+    assert "agent-ready" not in issue_labels()
+    if "agent-failed" in available:
+        assert issue_labels() == {"agent-failed"} and result()["outcome"] == "failed"
+        assert result()["reason"].startswith("claim failed:") and "label not found: agent-running" in result()["reason"]
+        assert result()["reason"] in comments("failed")[0]
+    else:
+        assert "finalization failed:" in proc.stderr and not comments("failed")
+    events, issue_comments = github()["events"], github()["issues"]["2"]["comments"]
+    dispatch("tick")
+    assert not calls() and local()["issues"]["2"] == record and local()["seat"] == "IDLE"
+    assert github()["events"] == events and github()["issues"]["2"]["comments"] == issue_comments
+
+# Claim comment errors, and errors posting the failure, also release the seat.
+for event in ("claim", "failed"):
+    reset()
+    environment["FAKE_GH_FAIL_COMMENT_EVENT"] = event
+    if event == "failed":
+        environment["FAKE_GH_ENFORCE_LABELS"] = "1"
+        state = github()
+        state["labels"] = {"agent-ready": {}, "agent-failed": {}}
+        state_file.write_text(json.dumps(state))
+    proc = dispatch("tick")
+    assert local()["issues"]["2"]["state"] == "failed"
+    assert local()["seat"] == "IDLE" and local()["active"] is None and not calls()
+    assert issue_labels() == {"agent-failed"} and "claim failed:" in proc.stderr
+    if event == "claim":
+        assert "fixture comment failed" in result()["reason"] and comments("failed")
+    else:
+        assert "finalization failed:" in proc.stderr
+    dispatch("tick")
+    assert not calls() and local()["seat"] == "IDLE"
+
+# ab: in-process self claims recover before either timeout signal path.
+from unittest.mock import patch
+
+
+def interrupted_state(seat_name, pid, terminating=False):
+    dispatch("status", "--json")
+    state = local()
+    run_id = "2-interrupted"
+    state.update(seat=seat_name, active={"run_id": run_id, "issue": 2, "pid": pid})
+    if terminating:
+        state["active"]["terminating_at"] = time.time() - 20
+    state["issues"]["2"] = {"state": "running", "last_run_id": run_id, "mode": "dry-run",
+        "claimed_at": "2026-10-01T11:00:00Z", "decision_id": None,
+        "blocked_at": None, "ready_seen_at": None, "runs": [run_id]}
+    (state_dir / "state.json").write_text(json.dumps(state))
+
+
+for terminating in (False, True):
+    reset([(2, ["agent-running"])])
+    interrupted_state("CLAIMED", os.getpid(), terminating)
+    with patch.dict(os.environ, environment, clear=True):
+        instance = module["Dispatcher"](argparse.Namespace(root=str(project), repo="fixture/dispatch"))
+        instance.configure()
+        with patch.object(os, "killpg", side_effect=AssertionError("dispatcher must not be signaled")) as killpg:
+            instance.tick()
+            killpg.assert_not_called()
+    assert result()["reason"] == "claim interrupted" and result()["outcome"] == "failed"
+    assert local()["seat"] == "IDLE" and local()["active"] is None
+    assert issue_labels() == {"agent-failed"} and "claim interrupted" in comments("failed")[0]
+    assert not calls()
+    dispatch("tick")
+    assert not calls() and local()["seat"] == "IDLE"
+
+# A different PID in our group must be protected from both SIGTERM and SIGKILL.
+for terminating in (False, True):
+    reset([(2, ["agent-running"])])
+    child = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)"])
+    background.append(child)
+    try:
+        assert os.getpgid(child.pid) == os.getpgid(0)
+        interrupted_state("RUNNING", child.pid, terminating)
+        with patch.dict(os.environ, environment, clear=True):
+            instance = module["Dispatcher"](argparse.Namespace(root=str(project), repo="fixture/dispatch", timeout=1))
+            instance.configure()
+            with patch.object(os, "killpg", side_effect=AssertionError("own group must not be signaled")) as killpg:
+                instance.tick()
+                killpg.assert_not_called()
+        assert child.poll() is None
+        assert result()["reason"] == "master shares dispatcher process group"
+        assert local()["seat"] == "IDLE" and local()["active"] is None
+        assert issue_labels() == {"agent-failed"} and not calls()
+    finally:
+        child.terminate()
+        child.wait(timeout=5)
+
+# ac: owner seat/watch create every label once, continue on failure, retry next start.
+for command_name in ("seat", "watch"):
+    for fail_label in (None, "agent-running"):
+        reset([(2, ["risk-review"])])
+        config_path.write_text('inbox = "fixture/dispatch"\ninterval = 0.05\n')
+        if fail_label:
+            environment["FAKE_GH_FAIL_LABEL"] = fail_label
+        pane = f"ac:{command_name}:{fail_label or 'success'}"
+        proc, output = start_seat(project, pane, command_name)
+        until(lambda: (heartbeat(pane) or {}).get("role") == "owner")
+        until(lambda: sum(entry["argv"][:2] == ["api", "-i"] for entry in github()["log"]) >= 3)
+        creations = [entry for entry in github()["log"] if entry["argv"][:2] == ["label", "create"]]
+        assert [entry["argv"][2] for entry in creations] == list(expected_colors)
+        assert all(entry["argv"][-1] == "--force" for entry in creations)
+        assert proc.poll() is None and local()["seat"] == "IDLE" and not calls()
+        if fail_label:
+            assert "label creation failed:" in output.read_text()
+            assert set(github()["labels"]) == set(expected_colors) - {fail_label}
+        else:
+            assert set(github()["labels"]) == set(expected_colors)
+        stop_seat(proc, pane)
+        if fail_label:
+            environment.pop("FAKE_GH_FAIL_LABEL")
+            start = len(github()["log"])
+            proc, output = start_seat(project, pane, command_name)
+            until(lambda: set(github()["labels"]) == set(expected_colors))
+            until(lambda: sum(entry["argv"][:2] == ["api", "-i"] for entry in github()["log"][start:]) >= 3)
+            stop_seat(proc, pane)
+            creations = [entry for entry in github()["log"][start:] if entry["argv"][:2] == ["label", "create"]]
+            assert [entry["argv"][2] for entry in creations] == list(expected_colors)
+        config_path.unlink()
+
+print("AOC Dispatch smoke passed (a-y, z1-z6, aa-ac)")
 PY
