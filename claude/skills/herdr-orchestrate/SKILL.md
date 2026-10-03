@@ -130,7 +130,9 @@ herdr pane run <qualified-id> "Read /tmp/<campaign>-<pane>.txt and execute the M
 
 ## 3. Monitor phase
 
-**Non-interactive sessions wait in the foreground.** A `claude -p` session (every AOC Dispatch master) exits when its turn ends, so a `run_in_background` monitor never notifies it; run #9 of AOC Dispatch failed this way with `master process ended without a report`. There, never end the turn while workers run. Give every packet a last step that writes the worker's final report to a result file, then block on:
+An AOC Dispatch issue master normally runs interactively in its visible tab `issue-<n>`; background monitors work there. Label its worker tabs `issue-<n>-w<K>` and leave issue-master and worker tabs open for inspection after the run.
+
+**Non-interactive sessions wait in the foreground.** A `claude -p` session (a headless AOC Dispatch master) exits when its turn ends, so a `run_in_background` monitor never notifies it; run #9 of AOC Dispatch failed this way with `master process ended without a report`. There, never end the turn while workers run. Give every packet a last step that writes the worker's final report to a result file, then block on:
 
 ```bash
 aoc-worker-wait --worker <qualified-id>=<result-file> --worker <qualified-id>=<result-file>
@@ -197,7 +199,7 @@ Rules for lessons: one per incident, short, state the failure evidence and the c
 
 ## 6. Cleanup
 
-- Close tabs **you spawned** after verification succeeds: `herdr tab close <tab-id>`. Keep a failed worker's tab open for diagnosis until its slice is resolved.
+- Outside AOC Dispatch, close tabs **you spawned** after verification succeeds: `herdr tab close <tab-id>`. Dispatch issue-master and worker tabs stay open for inspection. Keep a failed worker's tab open for diagnosis until its slice is resolved.
 - Never close tabs or panes the user provided.
 - Remove the campaign's `/tmp/<campaign>-*.txt` packets and `/tmp/tsbuildinfo-*` worker caches.
 

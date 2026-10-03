@@ -73,6 +73,10 @@ environment = dict(os.environ, PATH=f"{fake_bin}:{os.environ['PATH']}", HOME=str
                    FAKE_DISPATCH_STATE=str(state_dir / "state.json"), FAKE_PROCESSES=str(processes),
                    AOC_HERDR_BIN=str(fake_bin / "herdr"), FAKE_HERDR_STATE=str(herdr_state),
                    FAKE_WORKER_WAIT=str(command.parent / "aoc-worker-wait"))
+environment = {key: value for key, value in environment.items() if not key.startswith("HERDR_")}
+environment["AOC_DISPATCH_HERDR_BIN"] = str(fake_bin / "herdr")
+herdr_text = temporary / "herdr-text.txt"
+environment["FAKE_HERDR_TEXT"] = str(herdr_text)
 
 (fake_bin / "gh").write_text(r'''#!/usr/bin/env python3
 import datetime as dt
@@ -238,6 +242,7 @@ import fcntl
 import json
 import os
 import sys
+import subprocess
 from pathlib import Path
 
 path = Path(os.environ["FAKE_HERDR_STATE"])
@@ -245,25 +250,49 @@ args = sys.argv[1:]
 with path.with_suffix(".lock").open("w") as lock:
     fcntl.flock(lock, fcntl.LOCK_EX)
     state = json.loads(path.read_text())
+    state.setdefault("calls", []).append(args)
+    if os.environ.get("FAKE_HERDR_FAIL") == " ".join(args[:2]):
+        pending = path.with_suffix(".tmp")
+        pending.write_text(json.dumps(state))
+        os.replace(pending, path)
+        raise SystemExit("fixture herdr failure")
     if args[:2] == ["tab", "create"]:
         label = args[args.index("--label") + 1]
         number = len(state["tabs"]) + 1
-        tab = {"tab_id": f"fixture:t{number}", "label": label}
-        pane = {"pane_id": f"fixture:p{number}", "agent_status": "working"}
+        tab = {"tab_id": f"fixture:t{number}", "label": label,
+               "cwd": args[args.index("--cwd") + 1]}
+        pane = {"pane_id": f"fixture:p{number}", "tab_id": tab["tab_id"], "agent_status": "working"}
         state["tabs"].append(tab)
         state["panes"].append(pane)
         result = {"tab": tab, "root_pane": pane}
     elif args[:2] == ["pane", "run"]:
         state["runs"].append({"pane_id": args[2], "command": args[3]})
+        if args[3].startswith("bash "):
+            child = subprocess.Popen(["bash", "-c", args[3]], env=os.environ,
+                                     start_new_session=True, stdout=subprocess.DEVNULL,
+                                     stderr=subprocess.DEVNULL)
+            with Path(os.environ["FAKE_PROCESSES"]).open("a") as registry:
+                registry.write(str(child.pid) + "\n")
         result = {}
     elif args == ["pane", "list"]:
         result = {"panes": state["panes"]}
+    elif args[:2] == ["tab", "list"]:
+        result = {"tabs": state["tabs"]}
+    elif args[:2] == ["pane", "read"]:
+        result = {}
+    elif args[:2] in (["pane", "send-keys"], ["pane", "send-text"]):
+        if args[2:] and args[-1] == "Enter":
+            Path(os.environ["FAKE_HERDR_TEXT"]).write_text("")
+        result = {}
     else:
         raise SystemExit("unexpected fixture herdr command: " + repr(args))
     temporary = path.with_suffix(".tmp")
     temporary.write_text(json.dumps(state))
     os.replace(temporary, path)
-print(json.dumps({"result": result}))
+if args[:2] == ["pane", "read"]:
+    print(Path(os.environ["FAKE_HERDR_TEXT"]).read_text())
+else:
+    print(json.dumps({"result": result}))
 ''')
 (fake_bin / "claude").write_text(r'''#!/usr/bin/env python3
 import datetime as dt
@@ -308,18 +337,18 @@ if mode == "noreport":
     raise SystemExit(int(os.environ.get("FAKE_CLAUDE_EXIT", "0")))
 worker_output = None
 if mode in ("delegate", "delegate-lost"):
-    worker_files = [run_dir / "workers" / f"issue2-w{k}.md" for k in (1, 2)]
+    worker_files = [run_dir / "workers" / f"issue-2-w{k}.md" for k in (1, 2)]
     panes = ["fixture:p1", "fixture:p2"]
     if "--resume" not in sys.argv:
         for k in (1, 2):
             created = subprocess.run([os.environ["AOC_HERDR_BIN"], "tab", "create",
                                      "--workspace", "fixture-workspace", "--cwd", os.getcwd(),
-                                     "--label", f"issue2-w{k}", "--no-focus"],
+                                     "--label", f"issue-2-w{k}", "--no-focus"],
                                     check=True, capture_output=True, text=True)
             pane = json.loads(created.stdout)["result"]["root_pane"]["pane_id"]
             assert pane == panes[k - 1]
             subprocess.run([os.environ["AOC_HERDR_BIN"], "pane", "run", pane,
-                            f"aoc-omp --prompt-file issue2-w{k}.txt"], check=True, capture_output=True)
+                            f"aoc-omp --prompt-file issue-2-w{k}.txt"], check=True, capture_output=True)
         worker_code = r"""
 import fcntl
 import json
@@ -470,6 +499,11 @@ def reset(issues=None, actor="basicalex"):
     prism_calls.unlink(missing_ok=True)
     environment.update(AOC_DISPATCH_NOW="2026-10-01T12:00:00Z", FAKE_CLAUDE_MODE="done")
     herdr_state.write_text(json.dumps({"tabs": [], "panes": [], "runs": []}))
+    herdr_text.write_text("Yes, I trust this folder\n❯ No, exit\n")
+    for name in list(environment):
+        if name.startswith("HERDR_"):
+            environment.pop(name)
+    environment.pop("FAKE_HERDR_FAIL", None)
     environment["AOC_DISPATCH_PRISM_BIN"] = str(fake_bin / "aoc-prism")
     for name in ("FAKE_GH_CLAIM_NOOP", "FAKE_CLAUDE_EXIT", "FAKE_GH_ETAG",
                  "FAKE_GH_FORCE_304", "FAKE_GH_304_EXIT", "FAKE_GH_COMMENT_OUTPUT",
@@ -1148,7 +1182,7 @@ state["issues"]["2"]["title"] = title
 state_file.write_text(json.dumps(state))
 environment.update(GH_TOKEN="fixture-token", GITHUB_TOKEN="fixture-token",
                    GH_ENTERPRISE_TOKEN="fixture-token", GITHUB_ENTERPRISE_TOKEN="fixture-token",
-                   HERDR_WORKSPACE_ID="fixture-workspace", GIT_CONFIG_COUNT="1",
+                   GIT_CONFIG_COUNT="1",
                    GIT_CONFIG_KEY_0="color.ui", GIT_CONFIG_VALUE_0="false")
 dispatch("tick")
 code = code_record()
@@ -1196,11 +1230,10 @@ meta = json.loads((Path(launch["run_dir"]) / "meta.json").read_text())
 assert meta["mode"] == "code" and meta["code"] == code
 packet = (Path(launch["run_dir"]) / "packet.md").read_text()
 assert all(f"{key}: {value}\n" in packet for key, value in code.items())
-assert "mode: code\n" in packet and "herdr_workspace: fixture-workspace\n" in packet
 assert f"## Repo state\nBranch: {code['branch']}\nHEAD: {base_sha}" in packet
 assert f"including {project}" in packet and "with `--tests` describing the commands" in packet
 assert "--branch/--commit are auto-filled" in packet and "do not delegate to workers" not in packet
-assert "aoc-worker-wait" in packet and f"{launch['run_dir']}/workers/issue2-w" in packet
+assert "aoc-worker-wait" in packet
 assert "never wait for them with run_in_background" in packet
 assert f"built-in: git push {bare} {code['branch']}:refs/heads/{code['branch']}" in git_trace.read_text()
 assert json.loads(dispatch("status", "--json").stdout)["mode"] == "code"
@@ -1375,12 +1408,12 @@ argv = resumed["argv"]
 assert argv[argv.index("--resume"):argv.index("--resume") + 2] == ["--resume", "fixture-session"]
 assert "resumed run" in argv[argv.index("-p") + 1]
 herdr = json.loads(herdr_state.read_text())
-assert [tab["label"] for tab in herdr["tabs"]] == ["issue2-w1", "issue2-w2"]
+assert [tab["label"] for tab in herdr["tabs"]] == ["issue-2-w1", "issue-2-w2"]
 assert [run["pane_id"] for run in herdr["runs"]] == ["fixture:p1", "fixture:p2"]
 assert all(run["command"].startswith("aoc-omp ") for run in herdr["runs"])
 run_dir = Path(initial["run_dir"])
 for k in (1, 2):
-    text = (run_dir / "workers" / f"issue2-w{k}.md").read_text()
+    text = (run_dir / "workers" / f"issue-2-w{k}.md").read_text()
     assert text in (Path(code_record()["worktree"]) / "change.txt").read_text()
 log_text = (run_dir / "claude.log").read_text()
 assert "fake master output: initial" in log_text and "fake master output: resumed" in log_text
@@ -1572,5 +1605,280 @@ for command_name in ("seat", "watch"):
             assert [entry["argv"][2] for entry in creations] == list(expected_colors)
         config_path.unlink()
 
-print("AOC Dispatch smoke passed (a-y, z1-z9, aa-ac)")
+# ad: visible master, real launch script, isolated publication and one trust answer.
+code_fixture("ad space'quote", "interval = 0.05\n")
+environment.update(HERDR_WORKSPACE_ID="fixture-workspace", FAKE_CLAUDE_MODE="delayed",
+                   GH_TOKEN="fixture-token", GITHUB_TOKEN="fixture-token",
+                   GH_ENTERPRISE_TOKEN="fixture-token", GITHUB_ENTERPRISE_TOKEN="fixture-token",
+                   GIT_CONFIG_COUNT="1", GIT_CONFIG_KEY_0="color.ui", GIT_CONFIG_VALUE_0="false")
+dispatch("tick", wait=False)
+until(lambda: len(calls()) == 1)
+dispatch("tick", wait=False)
+active = local()["active"]
+run_dir = state_dir / "runs" / active["run_id"]
+code = code_record()
+assert active["surface"] == "tab" and active["tab_label"] == "issue-2"
+assert active["pane_id"] == "fixture:p1" and active["tab_id"] == "fixture:t1"
+assert active["pid"] == int((run_dir / "master.pid").read_text())
+import uuid
+assert str(uuid.UUID(active["session_id"])) == active["session_id"]
+launch = calls()[0]
+argv, env = launch["argv"], launch["env"]
+assert "-p" not in argv and "--output-format" not in argv and "--verbose" not in argv
+assert argv[argv.index("--session-id") + 1] == active["session_id"]
+assert argv[argv.index("--permission-mode") + 1] == "bypassPermissions"
+assert argv[argv.index("--disallowedTools") + 1:argv.index("--append-system-prompt")] == [
+    "Bash(git push:*)", "Bash(gh:*)"]
+assert argv[argv.index("--append-system-prompt") + 1] == "Fixture communication contract."
+assert launch["cwd"] == code["worktree"] and env["AOC_DISPATCH_WORKTREE"] == code["worktree"]
+assert not any(key in env for key in ("GH_TOKEN", "GITHUB_TOKEN", "GH_ENTERPRISE_TOKEN", "GITHUB_ENTERPRISE_TOKEN"))
+assert env["GH_CONFIG_DIR"] == str(run_dir / "gh-config") and env["GIT_TERMINAL_PROMPT"] == "0"
+assert env["GIT_CONFIG_COUNT"] == "4" and env["GIT_CONFIG_KEY_0"] == "color.ui"
+for index, url in enumerate(("https://github.com/", "git@github.com:", "ssh://git@github.com/"), 1):
+    assert env[f"GIT_CONFIG_KEY_{index}"] == "url.aoc-push-blocked:///.pushInsteadOf"
+    assert env[f"GIT_CONFIG_VALUE_{index}"] == url
+herdr = json.loads(herdr_state.read_text())
+assert herdr["tabs"] == [{"tab_id": "fixture:t1", "label": "issue-2", "cwd": code["worktree"]}]
+assert herdr["calls"][0] == ["tab", "create", "--workspace", "fixture-workspace",
+                             "--cwd", code["worktree"], "--label", "issue-2", "--no-focus"]
+assert [row[3] for row in herdr["calls"] if row[:2] == ["pane", "send-keys"]] == ["Down", "Enter"]
+assert active["trust_answered"]
+assert json.loads(dispatch("status", "--json").stdout)["active"] == active
+assert "Surface: tab  Tab: issue-2  Pane: fixture:p1" in dispatch("status").stdout
+proc, output = start_seat(project, "ad:master", frozen_clock=True)
+until(lambda: "Tab: issue-2 pane fixture:p1" in output.read_text())
+assert "Surface: tab" in output.read_text() and "tool Read:" not in output.read_text()
+stop_seat(proc, "ad:master")
+# A report wins even while the interactive master remains alive, without signaling it.
+(run_dir / "release").touch()
+until(lambda: (run_dir / "report.json").exists())
+child = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)"], start_new_session=True)
+background.append(child)
+(run_dir / "master.pid").write_text(str(child.pid))
+dispatch("tick", wait=False)
+assert child.poll() is None and result()["outcome"] == "review"
+head = git_at(code["worktree"], "rev-parse", "HEAD")
+assert git_at(project, "ls-remote", bare, f"refs/heads/{code['branch']}") == f"{head}\trefs/heads/{code['branch']}"
+assert issue_labels() == {"agent-review"} and result()["pr_url"] == github()["prs"][0]["url"]
+assert len(calls()) == 1
+herdr = json.loads(herdr_state.read_text())
+assert not any("close" in row for row in herdr["calls"])
+assert [row[3] for row in herdr["calls"] if row[:2] == ["pane", "send-keys"]] == ["Down", "Enter"]
+stop_master(child.pid)
+for key in ("GH_TOKEN", "GITHUB_TOKEN", "GH_ENTERPRISE_TOKEN", "GITHUB_ENTERPRISE_TOKEN",
+            "GIT_CONFIG_COUNT", "GIT_CONFIG_KEY_0", "GIT_CONFIG_VALUE_0"):
+    environment.pop(key, None)
+
+# The same six publication checks reject invalid tab reports before pushing.
+for behaviour, check in (("dirty", "clean worktree"), ("wrong-branch", "branch"),
+                         ("unrelated", "base ancestry"), ("no-commits", "commits ahead"),
+                         ("wrong-commit", "report identity"), ("wrong-report-branch", "report identity")):
+    code_fixture("ad-check-" + behaviour)
+    environment.update(HERDR_WORKSPACE_ID="fixture-workspace", FAKE_CODE_BEHAVIOUR=behaviour)
+    dispatch("tick")
+    assert result()["outcome"] == "failed" and f"PR checks failed: {check}:" in result()["reason"]
+    assert_no_publication()
+
+# Both Herdr launch failures release the claim, never closing the inspection tab.
+for fault in ("tab create", "pane run"):
+    code_fixture("ad-fail-" + fault.replace(" ", "-"))
+    environment.update(HERDR_WORKSPACE_ID="fixture-workspace", FAKE_HERDR_FAIL=fault)
+    dispatch("tick")
+    assert result()["reason"].startswith("claim failed:") and "fixture herdr failure" in result()["reason"]
+    assert local()["seat"] == "IDLE" and issue_labels() == {"agent-failed"} and not calls()
+    assert not any("close" in row for row in json.loads(herdr_state.read_text())["calls"])
+
+# ae: dead interactive masters resume in the same pane/session; all exit codes qualify.
+code_fixture("ae")
+environment.update(HERDR_WORKSPACE_ID="fixture-workspace", FAKE_CLAUDE_MODE="noreport", FAKE_CLAUDE_EXIT="7")
+dispatch("tick")
+assert len(calls()) == 4 and result()["reason"] == "issue master exited without a report after 3 resumes"
+sid = calls()[0]["argv"][calls()[0]["argv"].index("--session-id") + 1]
+for launch in calls()[1:]:
+    argv = launch["argv"]
+    assert argv[argv.index("--resume") + 1] == sid and "--session-id" not in argv and "-p" not in argv
+herdr = json.loads(herdr_state.read_text())
+assert len(herdr["tabs"]) == 1 and all(row["pane_id"] == "fixture:p1" for row in herdr["runs"])
+assert len(herdr["runs"]) == 4 and all(row["command"].endswith(" --resume") for row in herdr["runs"][1:])
+assert result()["outcome"] == "failed"
+assert_no_publication()
+
+# af: persisted first-idle clock resets on work; each nudge gets a fresh interval.
+code_fixture("af", "nudge_after = 1\n")
+environment.update(HERDR_WORKSPACE_ID="fixture-workspace", FAKE_CLAUDE_MODE="sleep")
+dispatch("tick", wait=False)
+until(lambda: len(calls()) == 1)
+dispatch("tick", wait=False)
+active = local()["active"]
+def pane_status(status):
+    state = json.loads(herdr_state.read_text())
+    state["panes"][0]["agent_status"] = status
+    herdr_state.write_text(json.dumps(state))
+pane_status("idle")
+dispatch("tick", wait=False)
+assert local()["active"]["idle_since"] == "2026-10-01T12:00:00Z"
+environment["AOC_DISPATCH_NOW"] = "2026-10-01T12:00:01Z"
+dispatch("tick", wait=False)
+assert local()["active"]["nudges"] == 0
+pane_status("unknown")
+dispatch("tick", wait=False)
+assert local()["active"]["idle_since"] == "2026-10-01T12:00:00Z"
+pane_status("working")
+dispatch("tick", wait=False)
+assert local()["active"]["idle_since"] is None
+pane_status("idle")
+dispatch("tick", wait=False)
+for second in (3, 5, 7):
+    environment["AOC_DISPATCH_NOW"] = f"2026-10-01T12:00:{second:02d}Z"
+    dispatch("tick", wait=False)
+    assert local()["active"]["nudges"] == (second - 1) // 2
+herdr = json.loads(herdr_state.read_text())
+nudges = [row for row in herdr["calls"] if row[:2] == ["pane", "send-text"]]
+assert len(nudges) == 3 and all(row[2] == active["pane_id"] for row in nudges)
+assert all(row[3] == (
+    f"AOC Dispatch: run {active['run_id']} has no aoc-report yet. Nobody answers in this tab. "
+    "Continue the work, or call aoc-report with blocked or failed now.") for row in nudges)
+assert sum(row[:2] == ["pane", "send-keys"] and row[-1] == "Enter" for row in herdr["calls"]) == 4
+environment["AOC_DISPATCH_NOW"] = "2026-10-01T12:00:09Z"
+dispatch("tick", wait=False)
+assert result()["reason"] == "issue master idle without a report"
+assert pid_running(active["pid"])  # No timeout signal and no tab close.
+stop_master(active["pid"])
+assert_no_publication()
+
+# ai: an idle master whose worker tab is still busy (or "unknown") is waiting, not stalled.
+code_fixture("ai", "nudge_after = 1\n")
+environment.update(HERDR_WORKSPACE_ID="fixture-workspace", FAKE_CLAUDE_MODE="sleep")
+dispatch("tick", wait=False)
+until(lambda: len(calls()) == 1)
+dispatch("tick", wait=False)
+active = local()["active"]
+state = json.loads(herdr_state.read_text())
+state["panes"][0]["agent_status"] = "idle"
+state["tabs"].append({"tab_id": "fixture:tw1", "label": "issue-2-w1", "cwd": "/"})
+state["panes"].append({"pane_id": "fixture:pw1", "tab_id": "fixture:tw1", "agent_status": "unknown"})
+herdr_state.write_text(json.dumps(state))
+for second in (1, 3, 5, 7, 9):
+    environment["AOC_DISPATCH_NOW"] = f"2026-10-01T12:00:{second:02d}Z"
+    dispatch("tick", wait=False)
+    assert local()["active"]["idle_since"] is None and local()["active"]["nudges"] == 0
+assert not any(row[:2] == ["pane", "send-text"] for row in json.loads(herdr_state.read_text())["calls"])
+state = json.loads(herdr_state.read_text())
+state["panes"][-1]["agent_status"] = "idle"
+herdr_state.write_text(json.dumps(state))
+environment["AOC_DISPATCH_NOW"] = "2026-10-01T12:00:10Z"
+dispatch("tick", wait=False)
+assert local()["active"]["idle_since"] == "2026-10-01T12:00:10Z"
+stop_master(active["pid"])
+
+# ag: disappeared panes fail; seats restart from disk and reports win over missing panes.
+code_fixture("ag-missing")
+environment.update(HERDR_WORKSPACE_ID="fixture-workspace", FAKE_CLAUDE_MODE="sleep")
+dispatch("tick", wait=False)
+until(lambda: len(calls()) == 1)
+dispatch("tick", wait=False)
+active = local()["active"]
+state = json.loads(herdr_state.read_text())
+state["panes"] = []
+herdr_state.write_text(json.dumps(state))
+dispatch("tick", wait=False)
+assert result()["reason"] == "issue master tab closed"
+stop_master(active["pid"])
+
+code_fixture("ag-restart", "interval = 0.05\n")
+environment.update(HERDR_WORKSPACE_ID="fixture-workspace", FAKE_CLAUDE_MODE="delayed")
+proc, output = start_seat(project, "ag:first", frozen_clock=True)
+until(lambda: (state_dir / "state.json").exists() and (state := local())["seat"] == "RUNNING"
+      and state["active"].get("surface") == "tab" and state["active"].get("pid") is not None)
+active = local()["active"]
+stop_seat(proc, "ag:first")
+assert pid_running(active["pid"])
+run_dir = state_dir / "runs" / active["run_id"]
+proc, output = start_seat(project, "ag:second", frozen_clock=True)
+until(lambda: "Tab: issue-2 pane fixture:p1" in output.read_text())
+assert len(calls()) == 1 and local()["active"]["session_id"] == active["session_id"]
+(run_dir / "release").touch()
+until(lambda: local()["seat"] == "IDLE")
+stop_seat(proc, "ag:second")
+assert result()["outcome"] == "review" and len(calls()) == 1
+
+# A late trust dialog is handled by the restarted dispatcher, once.
+code_fixture("ag-late-trust")
+environment.update(HERDR_WORKSPACE_ID="fixture-workspace", FAKE_CLAUDE_MODE="delayed")
+herdr_text.write_text("")
+started = time.monotonic()
+dispatch("tick", wait=False)
+assert time.monotonic() - started < 15
+until(lambda: len(calls()) == 1)
+assert not local()["active"]["trust_answered"]
+herdr_text.write_text("Yes, I trust this folder\n❯ No, exit\n")
+dispatch("tick", wait=False)
+dispatch("tick", wait=False)
+assert local()["active"]["trust_answered"]
+assert [row[-1] for row in json.loads(herdr_state.read_text())["calls"]
+        if row[:2] == ["pane", "send-keys"]] == ["Down", "Enter"]
+run_dir = Path(calls()[0]["run_dir"])
+(run_dir / "release").touch()
+until(lambda: (run_dir / "report.json").exists())
+state = json.loads(herdr_state.read_text())
+state["panes"] = []
+herdr_state.write_text(json.dumps(state))
+dispatch("tick", wait=False)
+assert result()["outcome"] == "review"  # Report precedes the missing-pane failure.
+
+# ag startup and timeout: no PID gets 90s; SIGTERM/SIGKILL keep the tab open.
+code_fixture("ag-start")
+environment.update(HERDR_WORKSPACE_ID="fixture-workspace", FAKE_CLAUDE_MODE="noreport")
+dispatch("tick", wait=False)
+until(lambda: len(calls()) == 1)
+run_dir = Path(calls()[0]["run_dir"])
+until(lambda: not pid_running(int((run_dir / "master.pid").read_text())))
+(run_dir / "master.pid").unlink()
+environment["AOC_DISPATCH_NOW"] = "2026-10-01T12:01:30Z"
+dispatch("tick", wait=False)
+assert result()["reason"] == "issue master did not start"
+
+code_fixture("ag-timeout")
+environment.update(HERDR_WORKSPACE_ID="fixture-workspace", FAKE_CLAUDE_MODE="stubborn")
+dispatch("tick", wait=False)
+until(lambda: len(calls()) == 1)
+dispatch("tick", wait=False)
+active = local()["active"]
+environment["AOC_DISPATCH_NOW"] = "2026-10-01T12:00:02Z"
+dispatch("tick", "--timeout", "1", wait=False)
+assert pid_running(active["pid"]) and "terminating_at" in local()["active"]
+state = local()
+state["active"]["terminating_at"] = time.time() - 11
+(state_dir / "state.json").write_text(json.dumps(state))
+dispatch("tick", "--timeout", "1", wait=False)
+until(lambda: not pid_running(active["pid"]))
+assert result()["reason"] == "timeout"
+assert not any("close" in row for row in json.loads(herdr_state.read_text())["calls"])
+
+# ah: continuation gets a new tab; no workspace and dry-run keep headless argv.
+code_fixture("ah")
+environment.update(HERDR_WORKSPACE_ID="fixture-workspace", FAKE_CLAUDE_MODE="blocked")
+dispatch("tick")
+original = local()["issues"]["2"]
+environment.update(AOC_DISPATCH_NOW="2026-10-01T12:01:00Z", FAKE_CLAUDE_MODE="done")
+answer(f"AOC-DECISION {original['decision_id']}\nImplement it")
+human("--remove-label", "needs-alex", "--add-label", "agent-ready")
+dispatch("tick")
+assert [tab["label"] for tab in json.loads(herdr_state.read_text())["tabs"]] == ["issue-2", "issue-2-run2"]
+assert calls()[0]["cwd"] == calls()[1]["cwd"] and result()["outcome"] == "review"
+code_fixture("ah-headless")
+dispatch("tick")
+assert calls()[0]["argv"][0] == "-p" and "--session-id" not in calls()[0]["argv"]
+assert not json.loads(herdr_state.read_text())["tabs"]
+code_fixture("ah-dry")
+environment["HERDR_WORKSPACE_ID"] = "fixture-workspace"
+dispatch("tick", "--mode", "dry-run")
+assert calls()[0]["argv"][0] == "-p" and "--no-session-persistence" in calls()[0]["argv"]
+assert not json.loads(herdr_state.read_text())["tabs"]
+code_fixture("ah-no-herdr")
+environment.update(HERDR_WORKSPACE_ID="fixture-workspace", AOC_DISPATCH_HERDR_BIN=str(fake_bin / "missing-herdr"))
+dispatch("tick")
+assert calls()[0]["argv"][0] == "-p" and not json.loads(herdr_state.read_text())["tabs"]
+
+print("AOC Dispatch smoke passed (a-y, z1-z9, aa-ac, ad-ai)")
 PY
