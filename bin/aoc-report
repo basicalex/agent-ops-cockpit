@@ -79,6 +79,8 @@ def main():
     tests_group = parser.add_mutually_exclusive_group()
     tests_group.add_argument("--tests")
     tests_group.add_argument("--tests-file", type=Path)
+    parser.add_argument("--decisions")
+    parser.add_argument("--follow-up")
     parser.add_argument("--run-dir")
     parser.add_argument("--json", action="store_true")
     args = parser.parse_args()
@@ -90,6 +92,10 @@ def main():
             raise ValueError("--summary must be at most 1200 characters")
         if args.needs_decision is not None and len(args.needs_decision) > 1200:
             raise ValueError("--needs-decision must be at most 1200 characters")
+        for name in ("decisions", "follow_up"):
+            value = getattr(args, name)
+            if value is not None and len(value) > 1200:
+                raise ValueError(f"--{name.replace('_', '-')} must be at most 1200 characters")
         if args.status == "blocked":
             if args.needs_decision is None or not args.needs_decision.strip():
                 raise ValueError("blocked status requires non-empty --needs-decision")
@@ -138,6 +144,8 @@ def main():
             "branch": branch,
             "commit": commit,
             "tests": tests,
+            "decisions": args.decisions,
+            "followUp": args.follow_up,
             "timestamp": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
         }
         report_path = run_dir / "report.json"

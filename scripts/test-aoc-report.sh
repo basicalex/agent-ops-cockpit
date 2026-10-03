@@ -78,6 +78,7 @@ assert report == {
     "summary": "Plan ready", "needsDecision": None, "decision_id": None,
     "evidence": "Reviewed issue #2", "timestamp": report["timestamp"],
     "branch": None, "commit": None, "tests": None,
+    "decisions": None, "followUp": None,
 }, report
 stamp = datetime.strptime(report["timestamp"], "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc)
 assert before <= stamp <= datetime.now(timezone.utc), report
@@ -125,6 +126,15 @@ assert report["tests"] == "python3 smoke.py\nPassed café case", report
 success("--run-dir", str(run_dir), "--status", "done", "--summary", "Dry-run ready")
 report = json.loads(report_path.read_text())
 assert all(report[key] is None for key in ("branch", "commit", "tests")), report
+
+for value in ("Use the existing lock", "é" * 1200, ""):
+    output = success("--run-dir", str(run_dir), "--status", "done", "--summary", "Ready",
+                     "--decisions", value, "--follow-up", value, "--json")
+    report = json.loads(output)
+    assert report["decisions"] == value and report["followUp"] == value, report
+success("--run-dir", str(run_dir), "--status", "done", "--summary", "Ready")
+report = json.loads(report_path.read_text())
+assert report["decisions"] is None and report["followUp"] is None, report
 
 # Code mode reads the caller's checkout, not the run directory; flags override independently.
 git_dir = tmp / "worktree with spaces"
@@ -202,6 +212,8 @@ assert report["needsDecision"] == "?" * 1200, report
 base = ["--run-dir", str(run_dir), "--status", "done"]
 for commit in ("", "a" * 39, "a" * 41, "g" * 40, "a" * 40 + "\n"):
     failure("--commit must be a 40-hex SHA", *base, "--summary", "Ready", "--commit", commit)
+for name in ("decisions", "follow-up"):
+    failure(f"--{name} must be at most 1200", *base, "--summary", "Ready", "--" + name, "é" * 1201)
 failure("tests must be at most 4000", *base, "--summary", "Ready", "--tests", "é" * 4001)
 tests_file.write_text("é" * 4001, encoding="utf-8")
 failure("tests must be at most 4000", *base, "--summary", "Ready",

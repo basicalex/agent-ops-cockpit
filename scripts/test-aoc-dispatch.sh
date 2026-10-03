@@ -77,6 +77,7 @@ environment = {key: value for key, value in environment.items() if not key.start
 environment["AOC_DISPATCH_HERDR_BIN"] = str(fake_bin / "herdr")
 herdr_text = temporary / "herdr-text.txt"
 environment["FAKE_HERDR_TEXT"] = str(herdr_text)
+environment["FAKE_PROGRESS_BIN"] = str(command.with_name("aoc-progress"))
 
 (fake_bin / "gh").write_text(r'''#!/usr/bin/env python3
 import datetime as dt
@@ -187,7 +188,9 @@ elif argv[:2] == ["issue", "comment"]:
     assert argv[3:6] == ["--repo", repo, "--body-file"] and len(argv) == 7, argv
     body = Path(argv[6]).read_text()
     fail_event = os.environ.get("FAKE_GH_FAIL_COMMENT_EVENT")
-    if fail_event and f"event={fail_event} -->" in body:
+    fail_seq = os.environ.get("FAKE_GH_PROGRESS_FAIL_SEQ")
+    if (fail_event and f"event={fail_event} -->" in body) or (
+            fail_seq and f"event=progress kind=checkpoint seq={fail_seq} -->" in body):
         save()
         print("fixture comment failed", file=sys.stderr)
         raise SystemExit(1)
@@ -325,12 +328,22 @@ print(json.dumps({"type": "assistant", "message": {"content": [
     {"type": "tool_use", "name": "Read", "input": {"file_path": "packet.md"}},
     {"type": "text", "text": "Read issue and plan changes"}]}}), flush=True)
 print(json.dumps({"type": "result", "subtype": "success"}), flush=True)
+if mode in ("progress", "progress-delayed"):
+    for seq in range(1, 9):
+        args = [os.environ["FAKE_PROGRESS_BIN"], "--kind", "decision" if seq == 1 else "checkpoint",
+                "--state", "Implementation ready" if seq == 1 else f"Milestone {seq}",
+                "--change", "Use the run-local journal" if seq == 1 else f"Completed stage {seq}"]
+        if seq == 1:
+            args += ["--evidence", "Verified\n  behavior", "--next", "Finish reporting",
+                     "--blockers", "None", "--commit", "ab" * 20]
+        subprocess.run(args, check=True, capture_output=True, text=True)
+    (run_dir / "progress-ready").touch()
 if mode in ("sleep", "stubborn"):
     if mode == "stubborn":
         signal.signal(signal.SIGTERM, signal.SIG_IGN)
     time.sleep(60)
     raise SystemExit(0)
-if mode == "delayed":
+if mode in ("delayed", "progress-delayed"):
     while not (run_dir / "release").exists():
         time.sleep(0.03)
 if mode == "noreport":
@@ -439,6 +452,9 @@ if meta["mode"] == "code" and mode != "delegate-lost":
         report["commit"] = meta["code"]["base_sha"]
     elif behaviour == "wrong-report-branch":
         report["branch"] = "aoc/issue-2-wrong"
+for flag, key in (("FAKE_REPORT_DECISIONS", "decisions"), ("FAKE_REPORT_FOLLOW_UP", "followUp")):
+    if flag in os.environ:
+        report[key] = os.environ[flag]
 if mode == "invalid":
     report["run_id"] = "wrong-run"
 (run_dir / "report.json").write_text(json.dumps(report))
@@ -509,7 +525,8 @@ def reset(issues=None, actor="basicalex"):
                  "FAKE_GH_FORCE_304", "FAKE_GH_304_EXIT", "FAKE_GH_COMMENT_OUTPUT",
                  "FAKE_PRISM_EXIT", "FAKE_PRISM_SLEEP", "AOC_DISPATCH_PRISM_TIMEOUT",
                  "FAKE_GH_HEALTH_CONTROL", "FAKE_GH_ENFORCE_LABELS", "FAKE_GH_FAIL_LABEL",
-                 "FAKE_GH_FAIL_COMMENT_EVENT", "FAKE_CLAUDE_NO_SESSION"):
+                 "FAKE_GH_FAIL_COMMENT_EVENT", "FAKE_CLAUDE_NO_SESSION", "FAKE_GH_PROGRESS_FAIL_SEQ",
+                 "FAKE_REPORT_DECISIONS", "FAKE_REPORT_FOLLOW_UP"):
         environment.pop(name, None)
     state = {"repo": "fixture/dispatch", "issues": {}, "labels": {}, "events": [], "log": []}
     for number, labels in (issues or [(2, ["agent-ready"])]):
@@ -557,7 +574,8 @@ def result(number=2):
 
 def comments(event):
     return [comment["body"] for comment in github()["issues"]["2"]["comments"]
-            if comment["body"].startswith("<!-- aoc-dispatch ") and f"event={event} -->" in comment["body"]]
+            if comment["body"].startswith("<!-- aoc-dispatch ") and
+            (f"event={event} -->" in comment["body"] or f"event={event} kind=" in comment["body"])]
 
 
 def blocked():
@@ -602,6 +620,7 @@ assert [packet.index(section) for section in sections] == sorted(packet.index(se
 assert '"fixture": true' in packet and "do not delegate to workers or subagents" in packet
 assert "report a plan" in packet and "Call `aoc-report` exactly once, as the last action." in packet
 assert "Master lifecycle" not in packet
+assert "## Progress journal" not in packet and "--decisions" not in packet and "--follow-up" not in packet
 status = json.loads(dispatch("status", "--json").stdout)
 assert status["seat"] == "IDLE" and status["issues"]["2"]["state"] == "review"
 
@@ -991,6 +1010,72 @@ config_path.unlink()
 
 # s: stream rendering truncates text, handles tool/result and retains raw lines.
 module = runpy.run_path(str(command), run_name="dispatch_fixture")
+
+reset()
+environment["FAKE_CLAUDE_MODE"] = "progress-delayed"
+dispatch("tick", wait=False)
+until(lambda: len(calls()) == 1 and (Path(calls()[0]["run_dir"]) / "progress-ready").exists())
+run_dir = Path(calls()[0]["run_dir"])
+run_id = local()["active"]["run_id"]
+dispatch("tick", wait=False)
+assert len(comments("progress")) == 5
+assert json.loads((run_dir / "progress-posted.json").read_text()) == {"posted": 5}
+assert comments("progress")[0] == (
+    f"<!-- aoc-dispatch run_id={run_id} event=progress kind=decision seq=1 -->\n\n"
+    "**Decision**\n\n**State:** Implementation ready\n**Change:** Use the run-local journal\n"
+    f"**Evidence:** commit `{'ab' * 20}`; Verified behavior\n**Next:** Finish reporting\n**Blockers:** None\n")
+dispatch("tick", wait=False)
+assert len(comments("progress")) == 8
+dispatch("tick", wait=False)
+assert len(comments("progress")) == 8
+assert comments("progress")[1] == (
+    f"<!-- aoc-dispatch run_id={run_id} event=progress kind=checkpoint seq=2 -->\n\n"
+    "**Checkpoint**\n\n**State:** Milestone 2\n**Change:** Completed stage 2\n")
+template = json.loads((run_dir / "progress.jsonl").read_text().splitlines()[0])
+invalid = ["{", "[]"]
+for patch in ({"run_id": "wrong"}, {"issue": 99}, {"kind": "unknown"}, {"state": ""},
+              {"change": " "}, {"state": "x" * 501}, {"change": "x" * 501},
+              {"evidence": "x" * 1001}, {"next": "x" * 501}, {"blockers": "x" * 501},
+              {"kind": "blocker", "blockers": None}, {"commit": "bad"}, {"next": 7}):
+    invalid.append(json.dumps({**template, **patch, "seq": 9 + len(invalid)}))
+with (run_dir / "progress.jsonl").open("a") as journal:
+    journal.write("\n".join(invalid) + "\n")
+    seq = 9 + len(invalid)
+    journal.write(json.dumps({**template, "seq": seq, "kind": "validation", "state": "Validated",
+                             "change": "Checks passed", "commit": None}) + "\n")
+proc = dispatch("tick", wait=False)
+assert "skipping progress line" in proc.stderr and len(comments("progress")) == 9
+assert json.loads((run_dir / "progress-posted.json").read_text()) == {"posted": seq}
+(run_dir / "progress-posted.json").write_text("{")
+assert "progress flush failed" in dispatch("tick", wait=False).stderr
+assert local()["seat"] == "RUNNING"
+(run_dir / "progress-posted.json").write_text(json.dumps({"posted": seq}))
+(run_dir / "release").touch()
+until(lambda: (run_dir / "report.json").exists())
+dispatch("tick")
+assert result()["outcome"] == "review"
+bodies = [c["body"] for c in github()["issues"]["2"]["comments"]]
+assert bodies.index(comments("progress")[-1]) < bodies.index(comments("result")[0])
+
+reset()
+environment.update(FAKE_CLAUDE_MODE="progress-delayed", FAKE_GH_PROGRESS_FAIL_SEQ="2")
+dispatch("tick", wait=False)
+until(lambda: len(calls()) == 1 and (Path(calls()[0]["run_dir"]) / "progress-ready").exists())
+run_dir = Path(calls()[0]["run_dir"])
+proc = dispatch("tick", wait=False)
+assert "progress post failed at seq 2" in proc.stderr
+assert len(comments("progress")) == 1
+assert json.loads((run_dir / "progress-posted.json").read_text()) == {"posted": 1}
+environment.pop("FAKE_GH_PROGRESS_FAIL_SEQ")
+dispatch("tick", wait=False)
+assert len(comments("progress")) == 6
+(run_dir / "release").touch()
+until(lambda: (run_dir / "report.json").exists())
+dispatch("tick")
+assert len(comments("progress")) == 8 and result()["outcome"] == "review"
+assert [int(re.search(r"seq=(\d+)", body)[1]) for body in comments("progress")] == list(range(1, 9))
+dispatch("tick")
+assert len(comments("progress")) == 8
 render_path = temporary / "render.log"
 render_path.write_text("\n".join([
     json.dumps({"type": "assistant", "message": {"content": [
@@ -1184,6 +1269,7 @@ environment.update(GH_TOKEN="fixture-token", GITHUB_TOKEN="fixture-token",
                    GH_ENTERPRISE_TOKEN="fixture-token", GITHUB_ENTERPRISE_TOKEN="fixture-token",
                    GIT_CONFIG_COUNT="1",
                    GIT_CONFIG_KEY_0="color.ui", GIT_CONFIG_VALUE_0="false")
+environment["FAKE_CLAUDE_MODE"] = "progress"
 dispatch("tick")
 code = code_record()
 assert code == {"default_branch": "main", "base_sha": base_sha,
@@ -1223,6 +1309,16 @@ assert result()["pr_url"] == github()["prs"][0]["url"] and result()["head"] == h
 assert result()["branch"] == code["branch"] and issue_labels() == {"agent-review"}
 assert result()["pr_url"] in comments("result")[0] and head in comments("result")[0]
 assert "fixture check: passed" in comments("result")[0]
+assert comments("result")[0] == (
+    f"<!-- aoc-dispatch run_id={run_id} event=result -->\n\nPlan complete\n\n"
+    "## Decisions\n- Use the run-local journal\n\n## Tests\nfixture check: passed\n\n"
+    f"## References\nPull request: {result()['pr_url']}\nBranch: `{code['branch']}`\n"
+    f"HEAD: `{head}`\nCommits:\n- `{head[:12]}` Implement fixture issue\n\n"
+    "## Follow-up\nNone reported.\n\n## Blockers\nNone remain.\n\n"
+    "<details>\n<summary>Evidence</summary>\n\nRead issue and repository\n\n</details>\n")
+assert len(comments("progress")) == 8
+issue_bodies = [c["body"] for c in github()["issues"]["2"]["comments"]]
+assert issue_bodies.index(comments("progress")[-1]) < issue_bodies.index(comments("result")[0])
 assert comments("claim")[0].endswith(
     f"Claimed for code mode. The master works on branch `{code['branch']}`; Dispatch opens a pull request when it reports done.\n")
 assert activities()[0]["summary"].endswith("(code)") and activities()[-1]["issue-url"] == comment_url("result")
@@ -1235,6 +1331,9 @@ assert f"including {project}" in packet and "with `--tests` describing the comma
 assert "--branch/--commit are auto-filled" in packet and "do not delegate to workers" not in packet
 assert "aoc-worker-wait" in packet
 assert "never wait for them with run_in_background" in packet
+assert packet.index("## Mode rules") < packet.index("## Progress journal") < packet.index("## Issue")
+assert "[--decisions TEXT] [--follow-up TEXT]" in packet
+assert "a run may record at most 25 entries" in packet
 assert f"built-in: git push {bare} {code['branch']}:refs/heads/{code['branch']}" in git_trace.read_text()
 assert json.loads(dispatch("status", "--json").stdout)["mode"] == "code"
 
@@ -1301,6 +1400,7 @@ state = github()
 state["prs"] = [{"head": code["branch"], "number": 99, "url": "https://github.com/fixture/dispatch/pull/99"}]
 state_file.write_text(json.dumps(state))
 environment.update(AOC_DISPATCH_NOW="2026-10-01T12:01:00Z", FAKE_CLAUDE_MODE="done")
+environment.update(FAKE_REPORT_DECISIONS="Keep the original base", FAKE_REPORT_FOLLOW_UP="none")
 answer(f"AOC-DECISION {original['decision_id']}\nImplement it")
 human("--remove-label", "needs-alex", "--add-label", "agent-ready")
 dispatch("tick")
@@ -1312,6 +1412,10 @@ assert not any(entry["argv"][:2] == ["pr", "create"] for entry in github()["log"
 assert sum(entry["argv"][:2] == ["repo", "view"] for entry in github()["log"]) == 1
 continued = json.loads((Path(calls()[1]["run_dir"]) / "meta.json").read_text())
 assert continued["code"] == code and continued["continuation_of"] == original["last_run_id"]
+completion = comments("result")[-1]
+head = git_at(code["worktree"], "rev-parse", "HEAD")
+assert "## Decisions\nKeep the original base" in completion and "## Follow-up\nnone" in completion
+assert f"Commits:\n- `{first_head[:12]}` Implement fixture issue\n- `{head[:12]}` Implement fixture issue" in completion
 
 # z3 missing worktree: restore recorded branch without fetching/changing its base.
 code_fixture("z3-missing")
@@ -1356,6 +1460,7 @@ run_id = local()["issues"]["2"]["last_run_id"]
 assert code_record()["branch"] == "aoc/issue-2-work-" + run_id[-4:]
 assert git_at(project, "rev-parse", "aoc/issue-2-work") == base_sha
 assert result()["outcome"] == "review"
+assert "## Decisions\nNone recorded." in comments("result")[0]
 
 # PR failure cannot become agent-review after a successful push.
 code_fixture("z1-pr-failure")
@@ -1472,6 +1577,47 @@ dispatch("tick")
 assert not any(entry["argv"][0] in ("repo", "pr") for entry in github()["log"])
 assert "built-in: git worktree" not in git_trace.read_text() and "built-in: git push" not in git_trace.read_text()
 assert json.loads(dispatch("status", "--json").stdout)["mode"] == "dry-run"
+
+from unittest.mock import patch
+with patch.dict(os.environ, {"XDG_STATE_HOME": environment["XDG_STATE_HOME"]}):
+    instance = module["Dispatcher"](argparse.Namespace(root=str(project), repo="fixture/dispatch", timeout=None))
+instance.configure()
+instance.load()
+run_id = local()["issues"]["2"]["last_run_id"]
+report_path = state_dir / "runs" / run_id / "report.json"
+old_report = json.loads(report_path.read_text())
+assert "decisions" not in old_report and "followUp" not in old_report
+assert instance.report(run_id, 2) == old_report
+for key in ("decisions", "followUp"):
+    for value in (None, "é" * 1200):
+        report_path.write_text(json.dumps({**old_report, key: value}))
+        assert instance.report(run_id, 2)[key] == value
+    for value in (17, [], "é" * 1201):
+        report_path.write_text(json.dumps({**old_report, key: value}))
+        try:
+            instance.report(run_id, 2)
+        except ValueError as exc:
+            assert f"invalid report {key}" in str(exc)
+        else:
+            raise AssertionError(f"accepted invalid {key}")
+report_path.write_text(json.dumps(old_report))
+
+code = {"base_sha": "a" * 40, "worktree": str(project)}
+published = {"pr_url": "https://github.com/fixture/dispatch/pull/99", "branch": "aoc/issue-2-fixture", "head": "b" * 40}
+snapshot_report = {**old_report, "tests": None, "evidence": None}
+history = "\n".join(f"{n:040x}\tCommit {n}" for n in range(1, 23))
+instance.git = lambda *args, **kwargs: history
+body = instance.completion(run_id, 2, code, snapshot_report, published)
+assert "## Tests\nnot reported" in body
+commit_lines = body.split("Commits:\n", 1)[1].split("\n\n## Follow-up", 1)[0]
+assert commit_lines == "\n".join(f"- `{format(n, '040x')[:12]}` Commit {n}" for n in range(1, 21))
+
+def unavailable_git(*args, **kwargs):
+    raise RuntimeError("fixture git failure")
+
+instance.git = unavailable_git
+assert "Commits:\nunavailable\n\n## Follow-up" in instance.completion(run_id, 2, code, snapshot_report, published)
+
 
 # aa: a partial label edit removes ready, then fails; failure still releases the seat.
 for available in (["agent-ready", "agent-failed"], ["agent-ready"]):
@@ -1880,5 +2026,41 @@ environment.update(HERDR_WORKSPACE_ID="fixture-workspace", AOC_DISPATCH_HERDR_BI
 dispatch("tick")
 assert calls()[0]["argv"][0] == "-p" and not json.loads(herdr_state.read_text())["tabs"]
 
-print("AOC Dispatch smoke passed (a-y, z1-z9, aa-ac, ad-ai)")
+# aj: a visible tab master's progress posts while it runs and before its result.
+for finish_early in (False, True):
+    code_fixture("aj-finalize" if finish_early else "aj-live")
+    environment.update(HERDR_WORKSPACE_ID="fixture-workspace", FAKE_CLAUDE_MODE="progress-delayed",
+                       AOC_DISPATCH_HERDR_BIN=str(fake_bin / "herdr"))
+    dispatch("tick", wait=False)
+    until(lambda: len(calls()) == 1 and (Path(calls()[0]["run_dir"]) / "progress-ready").exists())
+    run_dir = Path(calls()[0]["run_dir"])
+    pid = int((run_dir / "master.pid").read_text())
+    assert local()["active"]["surface"] == "tab" and pid_running(pid)
+    proc = dispatch("tick", wait=False)
+    active = local()["active"]
+    assert active["pid"] == pid and pid_running(pid)
+    assert len(comments("progress")) == 5 and not comments("result"), (
+        "tab progress relay", len(comments("progress")), comments("result"), proc.stderr)
+    assert json.loads((run_dir / "progress-posted.json").read_text()) == {"posted": 5}
+    if not finish_early:
+        dispatch("tick", wait=False)
+        assert pid_running(pid) and local()["seat"] == "RUNNING"
+        assert len(comments("progress")) == 8 and not comments("result")
+        assert json.loads((run_dir / "progress-posted.json").read_text()) == {"posted": 8}
+    (run_dir / "release").touch()
+    until(lambda: (run_dir / "report.json").exists())
+    dispatch("tick", wait=False)
+    assert result()["outcome"] == "review" and local()["seat"] == "IDLE"
+    assert json.loads((run_dir / "progress-posted.json").read_text()) == {"posted": 8}
+    assert [body.splitlines()[0] for body in comments("progress")] == [
+        f"<!-- aoc-dispatch run_id={active['run_id']} event=progress "
+        f"kind={'decision' if seq == 1 else 'checkpoint'} seq={seq} -->"
+        for seq in range(1, 9)]
+    assert len(comments("result")) == 1
+    bodies = [comment["body"] for comment in github()["issues"]["2"]["comments"]]
+    assert bodies.index(comments("progress")[-1]) < bodies.index(comments("result")[0])
+    dispatch("tick", wait=False)
+    assert [comment["body"] for comment in github()["issues"]["2"]["comments"]] == bodies
+
+print("AOC Dispatch smoke passed (a-y, z1-z9, aa-ac, ad-aj)")
 PY
