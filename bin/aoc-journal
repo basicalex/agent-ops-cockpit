@@ -1,0 +1,242 @@
+#!/usr/bin/env python3
+"""Read issue journals, post progress, and link follow-up issues through gh."""
+import argparse
+import json
+import os
+import re
+import subprocess
+import sys
+import tempfile
+from pathlib import Path
+
+
+KINDS = {
+    "discovery": "Discovery", "decision": "Decision", "scope": "Scope change",
+    "checkpoint": "Checkpoint", "blocker": "Blocker", "unblocked": "Blocker resolved",
+    "validation": "Validation", "commit": "Commit", "review": "Review addressed",
+    "deploy": "Deployment", "regression": "Regression", "correction": "Correction",
+    "incident": "Incident",
+}
+STATE_LABELS = {
+    "agent-running": "running", "needs-alex": "needs-decision", "agent-review": "review",
+    "agent-failed": "failed", "agent-ready": "ready",
+}
+FIELDS = ("state", "change", "evidence", "next", "blockers")
+
+
+def gh(*argv, as_json=False):
+    proc = subprocess.run([os.environ.get("AOC_JOURNAL_GH_BIN", "gh"), *map(str, argv)],
+                          capture_output=True, text=True, timeout=60)
+    if proc.returncode:
+        raise RuntimeError(f"gh {' '.join(map(str, argv))}: "
+                           f"{proc.stderr.strip() or proc.stdout.strip() or proc.returncode}")
+    return json.loads(proc.stdout) if as_json else proc.stdout
+
+
+def last_url(output):
+    return next((line.strip() for line in reversed(output.splitlines())
+                 if line.strip().startswith("https://")), None)
+
+
+def body_command(body, *argv):
+    with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8") as handle:
+        handle.write(body)
+        handle.flush()
+        return gh(*argv, "--body-file", handle.name)
+
+
+def compact(value, limit):
+    value = " ".join(value.split())
+    return value if len(value) <= limit else value[:limit - 1] + "…"
+
+
+def objective(body):
+    goal = re.search(r"^##[ \t]+Goal[ \t]*\r?$", body, re.MULTILINE)
+    if goal:
+        text = body[goal.end():].lstrip("\r\n")
+        heading = re.search(r"^#{1,6}[ \t]+", text, re.MULTILINE)
+        return compact(text[:heading.start()] if heading else text, 500)
+    return compact(next((paragraph for paragraph in re.split(r"\n\s*\n", body)
+                         if paragraph.strip()), ""), 500)
+
+
+def journal_event(comment):
+    first, _, body = comment.get("body", "").partition("\n")
+    marker = re.fullmatch(r"<!-- aoc-(dispatch|journal) (.*?) -->", first.rstrip("\r"))
+    if not marker:
+        return None
+    attrs = dict(re.findall(r"([a-z_]+)=([^\s]+)", marker[2]))
+    if "event" not in attrs:
+        return None
+    seq = attrs.get("seq", "")
+    author = comment.get("author") or {}
+    event = {"source": marker[1], "event": attrs["event"], "kind": attrs.get("kind"),
+             "run_id": attrs.get("run_id"), "seq": int(seq) if seq.isdigit() else None,
+             "at": comment.get("createdAt"), "url": comment.get("url"),
+             "author": author.get("login")}
+    for field in FIELDS:
+        match = re.search(rf"^\*\*{field.title()}:\*\*[ \t]*(.*)$", body, re.MULTILINE)
+        event[field] = match[1].strip() if match else None
+    summary = next((line.strip() for line in body.splitlines()
+                    if line.strip() and not re.fullmatch(r"\*\*.*\*\*", line.strip())), "")
+    event["summary"] = compact(summary, 200)
+    return event
+
+
+def references(body):
+    commits = []
+    in_commits = False
+    for line in body.splitlines():
+        if re.fullmatch(r"Commits:[ \t]*", line):
+            in_commits = True
+            continue
+        short = re.match(r"^- `([0-9a-fA-F]{12})`(?:[ \t]+.*)?$", line) if in_commits else None
+        if short:
+            commits.append(short[1])
+        elif in_commits:
+            in_commits = False
+        for match in re.finditer(r"(?:HEAD:[ \t]*`?|\bcommit `)([0-9a-fA-F]{40})(?![0-9a-fA-F])`?", line):
+            commits.append(match[1])
+    prs = re.findall(r"https://github\.com/[^/\s<>`]+/[^/\s<>`]+/pull/\d+\b", body)
+    return commits, prs
+
+
+def snapshot(issue, limit):
+    labels = sorted(label["name"] for label in issue["labels"])
+    state = "closed" if issue["state"] == "CLOSED" else next(
+        (value for label, value in STATE_LABELS.items() if label in labels), "open")
+    events, blockers, commits, prs = [], [], [], []
+    completion = {"complete": False, "url": None, "at": None}
+    for comment in sorted(issue.get("comments", []), key=lambda value: value.get("createdAt") or ""):
+        event = journal_event(comment)
+        if event is None:
+            continue
+        events.append(event)
+        dispatch = event["source"] == "dispatch"
+        if ((event["event"] == "progress" and event["kind"] == "blocker")
+                or (dispatch and event["event"] == "blocked")):
+            blockers = [event["blockers"] or event["summary"]]
+        elif event["kind"] == "unblocked" or (dispatch and event["event"] in {"claim", "result"}):
+            blockers = []
+        if dispatch and event["event"] in {"claim", "result", "blocked", "failed"}:
+            complete = event["event"] == "result" and bool(re.search(
+                r"^##[ \t]+Blockers[ \t]*\r?$", comment["body"], re.MULTILINE))
+            completion = {"complete": complete, "url": event["url"] if complete else None,
+                          "at": event["at"] if complete else None}
+        found_commits, found_prs = references(comment["body"])
+        commits.extend(found_commits)
+        prs.extend(found_prs)
+    if "needs-alex" in labels and not blockers:
+        blockers = ["needs-alex label is set"]
+    return {"schema": "aoc.issue.state/v1", "issue": issue["number"], "url": issue["url"],
+            "title": issue["title"], "objective": objective(issue.get("body") or ""),
+            "state": state, "labels": labels, "closedAt": issue.get("closedAt"),
+            "events": events[-limit:] if limit else [], "blockers": blockers,
+            "commits": list(dict.fromkeys(commits)), "pull_requests": list(dict.fromkeys(prs)),
+            "completion": completion}
+
+
+def render_progress(args):
+    values = {}
+    for field in FIELDS:
+        value = getattr(args, field) or ""
+        limit = 1000 if field == "evidence" else 500
+        if len(value) > limit:
+            raise ValueError(f"{field} must be at most {limit} characters")
+        values[field] = re.sub(r"\s*[\r\n]\s*", " ", value).strip()
+    for field in ("state", "change"):
+        if not values[field]:
+            raise ValueError(f"{field} must be non-empty")
+    if args.kind == "blocker" and not values["blockers"]:
+        raise ValueError("kind blocker requires non-empty blockers")
+    if args.commit is not None:
+        if not re.fullmatch(r"[0-9a-fA-F]{40}", args.commit):
+            raise ValueError("commit must be a 40-hex SHA")
+        values["evidence"] = f"commit `{args.commit}`" + (
+            f"; {values['evidence']}" if values["evidence"] else "")
+    lines = [f"<!-- aoc-journal event=progress kind={args.kind} -->", "", f"**{KINDS[args.kind]}**", ""]
+    lines.extend(f"**{field.title()}:** {values[field]}" for field in FIELDS if values[field])
+    return "\n".join(lines)
+
+
+def print_state(value):
+    print(f"Issue: #{value['issue']} {value['title']} {value['url']}")
+    print(f"Objective: {value['objective']}")
+    print(f"State: {value['state']}")
+    print("Blockers: " + ("; ".join(value["blockers"]) or "None"))
+    print("Commits: " + (", ".join(value["commits"]) or "None"))
+    print("PRs: " + (", ".join(value["pull_requests"]) or "None"))
+    completion = value["completion"]
+    print("Completion: " + (f"complete {completion['url']} {completion['at']}"
+                            if completion["complete"] else "incomplete"))
+    print("Events:")
+    for event in value["events"]:
+        print(f"- {event['at']} {event['kind'] or event['event']}: {event['change'] or event['summary']}")
+
+
+def nonnegative(value):
+    number = int(value)
+    if number < 0:
+        raise argparse.ArgumentTypeError("must be non-negative")
+    return number
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    commands = parser.add_subparsers(dest="command", required=True)
+    state = commands.add_parser("state", help="Show the current issue snapshot")
+    state.add_argument("--json", action="store_true")
+    state.add_argument("--events", type=nonnegative, default=10)
+    post = commands.add_parser("post", help="Post a progress journal entry")
+    post.add_argument("--kind", choices=KINDS, required=True)
+    post.add_argument("--state", required=True)
+    post.add_argument("--change", required=True)
+    for field in ("evidence", "next", "blockers", "commit"):
+        post.add_argument("--" + field)
+    follow = commands.add_parser("follow-up", help="Move new scope to a linked issue")
+    follow.add_argument("--title", required=True)
+    body = follow.add_mutually_exclusive_group()
+    body.add_argument("--body")
+    body.add_argument("--body-file", type=Path)
+    for command in (state, post, follow):
+        command.add_argument("issue", type=int)
+        command.add_argument("--repo", metavar="OWNER/NAME")
+    args = parser.parse_args()
+    try:
+        progress = render_progress(args) if args.command == "post" else None
+        repo = args.repo or gh("repo", "view", "--json", "nameWithOwner", "-q", ".nameWithOwner").strip()
+        if not re.fullmatch(r"[^/\s]+/[^/\s]+", repo):
+            raise ValueError("repo must be an owner/name string")
+        if args.command == "state":
+            issue = gh("issue", "view", args.issue, "--repo", repo, "--json",
+                       "number,title,body,state,labels,comments,url,closedAt", as_json=True)
+            value = snapshot(issue, args.events)
+            if args.json:
+                print(json.dumps(value, indent=2))
+            else:
+                print_state(value)
+        elif args.command == "post":
+            issue = gh("issue", "view", args.issue, "--repo", repo, "--json", "state", as_json=True)
+            if issue["state"] == "CLOSED" and args.kind not in {"deploy", "regression", "correction", "incident"}:
+                raise ValueError(f"issue #{args.issue} is closed; record new scope with: "
+                                 f"aoc-journal follow-up {args.issue} --title TITLE")
+            output = body_command(progress, "issue", "comment", args.issue, "--repo", repo)
+            print(last_url(output) or f"https://github.com/{repo}/issues/{args.issue}")
+        else:
+            text = args.body_file.read_text(encoding="utf-8") if args.body_file else args.body
+            body = f"Follow-up to #{args.issue}." + (f"\n\n{text}" if text else "")
+            output = body_command(body, "issue", "create", "--repo", repo, "--title", args.title)
+            url = last_url(output)
+            if not url:
+                raise RuntimeError("gh issue create returned no issue URL")
+            body_command(f"<!-- aoc-journal event=follow-up -->\n\nNew scope moved to {url}.",
+                         "issue", "comment", args.issue, "--repo", repo)
+            print(url)
+    except (OSError, ValueError, RuntimeError, subprocess.SubprocessError, KeyError, TypeError) as exc:
+        print("aoc-journal: " + " ".join(str(exc).splitlines()), file=sys.stderr)
+        return 1
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
