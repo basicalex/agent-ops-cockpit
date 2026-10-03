@@ -1,0 +1,166 @@
+#!/usr/bin/env python3
+"""Wait in the foreground for explicit delegated worker results."""
+import argparse
+import json
+import math
+import os
+from pathlib import Path
+import subprocess
+import sys
+import time
+
+BUSY_MARKERS = ("esc\u27e9", "\U000f12b7")
+
+
+class UsageParser(argparse.ArgumentParser):
+    def error(self, message):
+        self.print_usage(sys.stderr)
+        self.exit(64, f"{self.prog}: error: {message}\n")
+
+
+def list_panes(binary):
+    try:
+        result = subprocess.run(
+            [binary, "pane", "list"], capture_output=True, text=True, timeout=20,
+        )
+        if result.returncode != 0:
+            raise ValueError(f"herdr pane list exited {result.returncode}")
+        payload = json.loads(result.stdout)
+        if not isinstance(payload, dict) or not isinstance(payload.get("result"), dict):
+            raise ValueError("invalid herdr pane list shape")
+        panes = payload["result"].get("panes")
+        if not isinstance(panes, list) or any(
+            not isinstance(pane, dict)
+            or not isinstance(pane.get("pane_id"), str)
+            or not isinstance(pane.get("agent_status"), str)
+            for pane in panes
+        ):
+            raise ValueError("invalid herdr pane list shape")
+        return {pane["pane_id"]: pane["agent_status"] for pane in panes}
+    except (OSError, subprocess.TimeoutExpired, ValueError) as exc:
+        print("aoc-worker-wait: warning: " + " ".join(str(exc).splitlines()), file=sys.stderr)
+        return None
+
+
+def pane_busy(binary, pane):
+    # omp workers often stay "unknown" to herdr's detector; read the pane's spinner instead.
+    try:
+        result = subprocess.run(
+            [binary, "pane", "read", pane], capture_output=True, text=True, timeout=20,
+        )
+        if result.returncode != 0:
+            raise ValueError(f"herdr pane read {pane} exited {result.returncode}")
+    except (OSError, subprocess.TimeoutExpired, ValueError) as exc:
+        print("aoc-worker-wait: warning: " + " ".join(str(exc).splitlines()), file=sys.stderr)
+        return None
+    return any(marker in line for line in result.stdout.splitlines()[-8:] for marker in BUSY_MARKERS)
+
+
+def has_result(path):
+    try:
+        return bool(path.read_text(encoding="utf-8").strip())
+    except (OSError, UnicodeError):
+        return False
+
+
+def wait_workers(workers, args):
+    deadline = time.monotonic() + args.timeout
+    terminal = {"done", "missing", "stalled"}
+    binary = os.environ.get("AOC_HERDR_BIN", "herdr")
+    while True:
+        panes = list_panes(binary)
+        now = time.monotonic()
+        for worker in workers:
+            if worker["state"] in terminal:
+                continue
+            if has_result(worker["path"]):
+                worker.update(state="done", idle_since=None, idle_seconds=None)
+                continue
+            if panes is None:
+                continue
+            if worker["pane"] not in panes:
+                worker.update(state="missing", idle_since=None, idle_seconds=None)
+                continue
+            status = panes[worker["pane"]]
+            busy = pane_busy(binary, worker["pane"]) if status == "unknown" else status == "working"
+            if busy is None:
+                continue
+            if busy:
+                worker.update(state="running", idle_since=None, idle_seconds=None)
+            else:
+                if worker["idle_since"] is None:
+                    worker["idle_since"] = now
+                elapsed = now - worker["idle_since"]
+                worker.update(state="stalled" if elapsed >= args.stall else "idle",
+                              idle_seconds=elapsed)
+        if all(worker["state"] in terminal for worker in workers):
+            return 0 if all(worker["state"] == "done" for worker in workers) else 1
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            break
+        time.sleep(min(args.interval, remaining))
+        if time.monotonic() >= deadline:
+            break
+    now = time.monotonic()
+    for worker in workers:
+        if worker["state"] == "idle":
+            worker["idle_seconds"] = now - worker["idle_since"]
+    return 2
+
+
+def main():
+    parser = UsageParser(
+        prog="aoc-worker-wait",
+        description=("Wait in the foreground; only a non-empty result file completes a worker, "
+                     "never an idle pane. Exit codes: 0 means all done, 1 means terminal "
+                     "missing/stalled failure, 2 means timeout (call again), and 64 means usage error."),
+    )
+    parser.add_argument("--worker", action="append", required=True, metavar="PANE=RESULT_FILE")
+    parser.add_argument("--timeout", type=float, default=540, metavar="SECONDS")
+    parser.add_argument("--interval", type=float, default=15, metavar="SECONDS")
+    parser.add_argument("--stall", type=float, default=240, metavar="SECONDS")
+    parser.add_argument("--json", action="store_true")
+    args = parser.parse_args()
+    for name in ("timeout", "interval", "stall"):
+        value = getattr(args, name)
+        if not math.isfinite(value) or value <= 0:
+            parser.error(f"--{name} must be a positive finite number")
+    if args.stall >= args.timeout:
+        parser.error("--stall must be less than --timeout")
+    workers = []
+    seen = set()
+    for specification in args.worker:
+        pane, separator, result_file = specification.partition("=")
+        if not separator or ":" not in pane or not result_file:
+            parser.error("--worker requires a workspace-qualified PANE=RESULT_FILE")
+        if pane in seen:
+            parser.error(f"duplicate pane: {pane}")
+        seen.add(pane)
+        try:
+            path = Path(result_file).expanduser()
+        except RuntimeError as exc:
+            parser.error(str(exc))
+        workers.append({"pane": pane, "path": path, "state": "running",
+                        "idle_since": None, "idle_seconds": None})
+    code = wait_workers(workers, args)
+    if args.json:
+        print(json.dumps({
+            "status": {0: "done", 1: "failed", 2: "timeout"}[code],
+            "workers": [{"pane": worker["pane"], "result_file": str(worker["path"]),
+                         "state": worker["state"], "idle_seconds": worker["idle_seconds"]}
+                        for worker in workers],
+        }))
+    else:
+        for worker in workers:
+            detail = (f" (idle {worker['idle_seconds']:.0f}s)"
+                      if worker["state"] in {"idle", "stalled"} else "")
+            print(f"{worker['pane']} {worker['state']} {worker['path']}{detail}")
+        states = ("done", "running", "idle", "missing", "stalled")
+        print("summary: " + ", ".join(
+            f"{sum(worker['state'] == state for worker in workers)} {state}" for state in states
+        ))
+    return code
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
