@@ -130,7 +130,15 @@ herdr pane run <qualified-id> "Read /tmp/<campaign>-<pane>.txt and execute the M
 
 ## 3. Monitor phase
 
-Run the watcher loop with `run_in_background` so you get notified instead of blocking.
+**Non-interactive sessions wait in the foreground.** A `claude -p` session (every AOC Dispatch master) exits when its turn ends, so a `run_in_background` monitor never notifies it; run #9 of AOC Dispatch failed this way with `master process ended without a report`. There, never end the turn while workers run. Give every packet a last step that writes the worker's final report to a result file, then block on:
+
+```bash
+aoc-worker-wait --worker <qualified-id>=<result-file> --worker <qualified-id>=<result-file>
+```
+
+A worker counts as done only when its result file is non-empty, so idle blips never end the wait. Exit 2 means workers are still running (call it again; each call stays under the Bash tool's 10-minute limit), exit 1 means a pane disappeared or sat idle past `--stall` without a result. Report those workers as a failure or blocker; never exit without the run's report.
+
+In interactive sessions, run the watcher loop with `run_in_background` so you get notified instead of blocking.
 
 **Require consecutive idle checks before declaring done.** Workers (omp and claude alike) blip to `idle` between turns mid-task; a single idle poll has ended a monitor early more than once. Only treat the campaign as finished after 3+ consecutive all-idle polls.
 
