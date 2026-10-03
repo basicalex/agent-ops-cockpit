@@ -1,0 +1,128 @@
+#!/usr/bin/env python3
+import argparse
+from datetime import datetime, timezone
+import fcntl
+import json
+import os
+from pathlib import Path
+import re
+import subprocess
+
+
+KINDS = ("discovery", "decision", "scope", "checkpoint", "blocker", "unblocked",
+         "validation", "commit", "review", "deploy", "regression", "correction", "incident")
+
+
+def load_identity(run_dir):
+    meta_path = run_dir / "meta.json"
+    try:
+        meta = json.loads(meta_path.read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        meta = {
+            "run_id": os.environ.get("AOC_DISPATCH_RUN_ID"),
+            "repo": os.environ.get("AOC_DISPATCH_REPO"),
+            "issue": os.environ.get("AOC_DISPATCH_ISSUE"),
+        }
+        try:
+            meta["issue"] = int(meta["issue"])
+        except (TypeError, ValueError):
+            raise ValueError("AOC_DISPATCH_ISSUE is required and must be an integer") from None
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"invalid meta.json: {exc}") from None
+
+    if not isinstance(meta, dict):
+        raise ValueError("meta.json must contain an object")
+    for name in ("run_id", "repo"):
+        if not isinstance(meta.get(name), str) or not meta[name].strip():
+            raise ValueError(f"{name} is required in meta.json or its dispatch environment variable")
+    if type(meta.get("issue")) is not int:
+        raise ValueError("issue in meta.json must be an integer")
+    return meta["run_id"], meta["repo"], meta["issue"], meta.get("mode")
+
+
+def git_identity(revision_arg):
+    try:
+        result = subprocess.run(
+            ["git", "rev-parse", *revision_arg], capture_output=True, text=True, check=False,
+            cwd=os.environ.get("AOC_DISPATCH_WORKTREE") or None,
+        )
+    except OSError:
+        return None
+    return result.stdout.strip() or None if result.returncode == 0 else None
+
+
+def main():
+    parser = argparse.ArgumentParser(
+        prog="aoc-progress", description="Record a meaningful transition for an AOC Dispatch run."
+    )
+    parser.add_argument("--kind", required=True, choices=KINDS)
+    parser.add_argument("--state", required=True)
+    parser.add_argument("--change", required=True)
+    for name in ("evidence", "next", "blockers", "commit", "run-dir"):
+        parser.add_argument("--" + name)
+    parser.add_argument("--json", action="store_true")
+    args = parser.parse_args()
+
+    try:
+        fields = {}
+        for name in ("state", "change", "evidence", "next", "blockers"):
+            value = getattr(args, name)
+            limit = 1000 if name == "evidence" else 500
+            if value is not None and len(value) > limit:
+                raise ValueError(f"--{name} must be at most {limit} characters")
+            fields[name] = re.sub(r"\s*[\r\n]\s*", " ", value).strip() if value is not None else None
+        for name in ("state", "change"):
+            if not fields[name]:
+                raise ValueError(f"--{name} must be non-empty")
+        if args.kind == "blocker" and not fields["blockers"]:
+            raise ValueError("blocker requires non-empty --blockers")
+        if args.commit is not None and re.fullmatch(r"[0-9a-fA-F]{40}", args.commit) is None:
+            raise ValueError("--commit must be a 40-hex SHA")
+        directory = args.run_dir if args.run_dir is not None else os.environ.get("AOC_DISPATCH_RUN_DIR")
+        if not directory:
+            raise ValueError("--run-dir or AOC_DISPATCH_RUN_DIR is required")
+        run_dir = Path(directory).expanduser().resolve()
+        if not run_dir.is_dir():
+            raise ValueError(f"run directory does not exist or is not a directory: {run_dir}")
+        run_id, repo, issue, mode = load_identity(run_dir)
+        commit = args.commit
+        if args.kind == "commit" and commit is None and mode == "code":
+            commit = git_identity(["HEAD"])
+        if args.kind == "commit" and (commit is None or re.fullmatch(r"[0-9a-fA-F]{40}", commit) is None):
+            raise ValueError("commit requires a resolvable 40-hex SHA")
+        journal_path = run_dir / "progress.jsonl"
+        with (run_dir / "progress.lock").open("a") as lock:
+            fcntl.flock(lock, fcntl.LOCK_EX)
+            contents = journal_path.read_text(encoding="utf-8") if journal_path.exists() else ""
+            lines = contents.splitlines()
+            if contents and not contents.endswith("\n"):
+                with journal_path.open("a", encoding="utf-8") as handle:
+                    handle.write("\n")
+            if len(lines) >= 25:
+                raise ValueError("progress journal limit reached (25); record only meaningful transitions")
+            if lines:
+                try:
+                    last = json.loads(lines[-1])
+                except json.JSONDecodeError:
+                    last = None
+                if isinstance(last, dict) and all(last.get(key) == value for key, value in
+                       (("kind", args.kind), ("state", fields["state"]), ("change", fields["change"]))):
+                    raise ValueError("duplicate progress transition (kind/state/change equal the last entry)")
+            entry = {
+                "schema": "aoc.dispatch.progress/v1", "run_id": run_id, "repo": repo,
+                "issue": issue, "seq": len(lines) + 1, "kind": args.kind, **fields,
+                "commit": commit, "timestamp": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+            }
+            with journal_path.open("a", encoding="utf-8") as handle:
+                handle.write(json.dumps(entry, ensure_ascii=False) + "\n")
+                handle.flush()
+                os.fsync(handle.fileno())
+    except (OSError, ValueError) as exc:
+        parser.error(str(exc))
+
+    print(json.dumps(entry, ensure_ascii=False) if args.json else journal_path)
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

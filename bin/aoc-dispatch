@@ -35,6 +35,13 @@ LABELS = {
 ALLOWED_TOOLS = ["Read", "Glob", "Grep", "Bash(aoc-report:*)",
                  "Bash(git status:*)", "Bash(git log:*)", "Bash(git diff:*)"]
 MAX_RESUMES = 3
+PROGRESS_KINDS = {
+    "discovery": "Discovery", "decision": "Decision", "scope": "Scope change",
+    "checkpoint": "Checkpoint", "blocker": "Blocker", "unblocked": "Blocker resolved",
+    "validation": "Validation", "commit": "Commit", "review": "Review addressed",
+    "deploy": "Deployment", "regression": "Regression", "correction": "Correction",
+    "incident": "Incident",
+}
 
 
 def log(message):
@@ -371,8 +378,9 @@ class Dispatcher:
     def edit(self, issue, *flags):
         self.gh("issue", "edit", issue, "--repo", self.repo, *flags)
 
-    def comment(self, issue, run_id, event, body):
-        text = f"<!-- aoc-dispatch run_id={run_id} event={event} -->\n\n{body}\n"
+    def comment(self, issue, run_id, event, body, **attributes):
+        extra = "".join(f" {key}={value}" for key, value in attributes.items())
+        text = f"<!-- aoc-dispatch run_id={run_id} event={event}{extra} -->\n\n{body}\n"
         with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", dir=self.directory) as handle:
             handle.write(text)
             handle.flush()
@@ -380,6 +388,94 @@ class Dispatcher:
         lines = [line.strip() for line in output.splitlines() if line.strip()]
         return (lines[-1] if lines and lines[-1].startswith("https://")
                 else f"https://github.com/{self.repo}/issues/{issue}")
+
+    def progress_entries(self, run_id, issue):
+        path = self.directory / "runs" / run_id / "progress.jsonl"
+        if not path.exists():
+            return
+        with path.open(encoding="utf-8") as handle:
+            for seq, line in enumerate(handle, 1):
+                if not line.endswith("\n"):
+                    break
+                try:
+                    entry = json.loads(line)
+                    if (not isinstance(entry, dict) or entry.get("schema") != "aoc.dispatch.progress/v1"
+                            or entry.get("run_id") != run_id or entry.get("repo") != self.repo
+                            or type(entry.get("issue")) is not int or entry["issue"] != issue
+                            or type(entry.get("seq")) is not int or entry["seq"] != seq):
+                        raise ValueError("progress identity, schema or sequence mismatch")
+                    if entry.get("kind") not in PROGRESS_KINDS:
+                        raise ValueError("invalid progress kind")
+                    for key in ("state", "change", "evidence", "next", "blockers"):
+                        value = entry.get(key)
+                        limit = 1000 if key == "evidence" else 500
+                        if value is not None and (not isinstance(value, str) or len(value) > limit):
+                            raise ValueError(f"invalid progress {key}")
+                        entry[key] = re.sub(r"\s*[\r\n]\s*", " ", value).strip() if value is not None else None
+                    if not entry["state"] or not entry["change"]:
+                        raise ValueError("empty progress state or change")
+                    if entry["kind"] == "blocker" and not entry["blockers"]:
+                        raise ValueError("empty progress blockers")
+                    commit = entry.get("commit")
+                    if commit is not None and (not isinstance(commit, str)
+                                              or re.fullmatch(r"[0-9a-fA-F]{40}", commit) is None):
+                        raise ValueError("invalid progress commit")
+                    if entry["kind"] == "commit" and not commit:
+                        raise ValueError("missing progress commit")
+                    parse_time(entry["timestamp"])
+                except (ValueError, KeyError, TypeError, AttributeError) as exc:
+                    log(f"run {run_id}: skipping progress line {seq}: {exc}")
+                    entry = None
+                yield seq, entry
+
+    def flush_progress(self, run_id, issue, limit=None):
+        cursor_path = self.directory / "runs" / run_id / "progress-posted.json"
+        posted = json.loads(cursor_path.read_text(encoding="utf-8"))["posted"] if cursor_path.exists() else 0
+        if type(posted) is not int or posted < 0:
+            raise ValueError("invalid progress cursor")
+        count = 0
+        for seq, entry in self.progress_entries(run_id, issue):
+            if seq <= posted:
+                continue
+            if limit is not None and count >= limit:
+                break
+            if entry is not None:
+                body = f"**{PROGRESS_KINDS[entry['kind']]}**\n\n**State:** {entry['state']}\n**Change:** {entry['change']}"
+                evidence = entry["evidence"]
+                if entry.get("commit"):
+                    evidence = f"commit `{entry['commit']}`" + (f"; {evidence}" if evidence else "")
+                for label, value in (("Evidence", evidence), ("Next", entry["next"]), ("Blockers", entry["blockers"])):
+                    if value:
+                        body += f"\n**{label}:** {value}"
+                try:
+                    self.comment(issue, run_id, "progress", body, kind=entry["kind"], seq=seq)
+                except Exception as exc:
+                    log(f"run {run_id}: progress post failed at seq {seq}: {exc}")
+                    return
+                count += 1
+            atomic_json(cursor_path, {"posted": seq})
+            posted = seq
+
+    def completion(self, run_id, issue, code, report, published):
+        decisions = report.get("decisions")
+        if not decisions:
+            try:
+                decisions = "\n".join(f"- {entry['change']}" for _, entry in self.progress_entries(run_id, issue)
+                                      if entry is not None and entry["kind"] == "decision")
+            except (OSError, ValueError) as exc:
+                log(f"run {run_id}: progress decisions unavailable: {exc}")
+        try:
+            history = self.git("log", "--reverse", "--format=%H%x09%s",
+                               f"{code['base_sha']}..HEAD", cwd=code["worktree"])
+            commits = "\n".join(f"- `{sha[:12]}` {subject}" for sha, subject in
+                                (line.split("\t", 1) for line in history.splitlines()[:20]))
+        except (OSError, ValueError, RuntimeError, subprocess.SubprocessError):
+            commits = "unavailable"
+        return (f"{report['summary']}\n\n## Decisions\n{decisions or 'None recorded.'}\n\n"
+                f"## Tests\n{report.get('tests') or 'not reported'}\n\n## References\n"
+                f"Pull request: {published['pr_url']}\nBranch: `{published['branch']}`\n"
+                f"HEAD: `{published['head']}`\nCommits:\n{commits}\n\n"
+                f"## Follow-up\n{report.get('followUp') or 'None reported.'}\n\n## Blockers\nNone remain.")
 
     def report(self, run_id, issue):
         path = self.directory / "runs" / run_id / "report.json"
@@ -399,6 +495,10 @@ class Dispatcher:
                 raise ValueError(f"missing report {key}")
             value = report[key]
             if value is not None and (not isinstance(value, str) or len(value) > limit):
+                raise ValueError(f"invalid report {key}")
+        for key in ("decisions", "followUp"):
+            value = report.get(key)
+            if value is not None and (not isinstance(value, str) or len(value) > 1200):
                 raise ValueError(f"invalid report {key}")
         if not report["summary"] or not report["summary"].strip():
             raise ValueError("empty report summary")
@@ -437,14 +537,16 @@ class Dispatcher:
                 failure = str(exc)
         branch_note = f"\n\nBranch: `{code['branch']}`" if code else ""
         record.update(decision_id=None, blocked_at=None, ready_seen_at=None)
+        try:
+            self.flush_progress(run_id, issue)
+        except Exception as exc:
+            log(f"run {run_id}: progress flush failed: {exc}")
         if failure is None and report["status"] == "done":
             outcome, reason = "review", report["summary"]
             self.edit(issue, "--remove-label", "agent-running", "--add-label", "agent-review")
             body = reason
             if published:
-                body += (f"\n\nPull request: {published['pr_url']}\n"
-                         f"Branch: `{published['branch']}`\nHEAD: `{published['head']}`\n\n"
-                         f"## Tests\n\n{report.get('tests') or 'not reported'}")
+                body = self.completion(run_id, issue, code, report, published)
             if report["evidence"]:
                 body += f"\n\n<details>\n<summary>Evidence</summary>\n\n{report['evidence']}\n\n</details>"
             url = self.comment(issue, run_id, "result", body)
@@ -577,6 +679,17 @@ class Dispatcher:
                          "timeout or missing result as `failed` (or `blocked` when it needs a decision), "
                          "naming the worker; never exit without aoc-report. If your turn ends without a "
                          f"report, Dispatch resumes this session up to {MAX_RESUMES} times and then marks the run failed.\n")
+            text += ("\n## Progress journal\n"
+                     "Record meaningful task-state transitions with `aoc-progress --kind KIND --state TEXT --change TEXT "
+                     "[--evidence TEXT] [--next TEXT] [--blockers TEXT] [--commit SHA]`. Dispatch posts each entry as a "
+                     "comment on the issue while you work. Kinds: discovery (a finding that changes the understanding of "
+                     "the task), decision (an architecture or implementation choice), scope (the plan or scope changed), "
+                     "checkpoint (a meaningful implementation milestone), blocker and unblocked, validation (a meaningful "
+                     "test or check result), commit (a commit that represents progress; the SHA defaults to HEAD), review "
+                     "(review feedback addressed). Keep each field to one or two sentences. Do not record tool calls, "
+                     "file reads or routine edits; a run may record at most 25 entries. Dispatch posts the start and the "
+                     "final result itself. In the final aoc-report, pass --decisions with the key decisions and "
+                     "--follow-up with remaining limitations or follow-up work, or `none`.\n")
         else:
             text += ("\n## Mode rules\nDo not create, edit or delete files; do not commit, branch, push or open PRs; "
                      "do not post to GitHub; do not delegate to workers or subagents. Read the issue and repo, "
@@ -598,7 +711,7 @@ class Dispatcher:
                  "`aoc-report --status done|blocked|failed --summary TEXT [--needs-decision TEXT] "
                  "[--evidence TEXT | --evidence-file PATH] [--run-dir DIR] [--json]")
         if code:
-            text += " [--branch TEXT] [--commit SHA] [--tests TEXT | --tests-file PATH]"
+            text += " [--branch TEXT] [--commit SHA] [--tests TEXT | --tests-file PATH] [--decisions TEXT] [--follow-up TEXT]"
         text += ("`\nRun directory is supplied through AOC_DISPATCH_RUN_DIR. Summary must be non-empty "
                  "and at most 1200 characters. For blocked, --needs-decision is required (at most 1200 "
                  "characters); omit it for done or failed. Evidence is optional, at most 4000 characters; "
@@ -856,6 +969,10 @@ class Dispatcher:
         elif pane.get("agent_status") == "working" or workers_busy:
             active["idle_since"] = None
         self.save()
+        try:
+            self.flush_progress(active["run_id"], active["issue"], limit=5)
+        except Exception as exc:
+            log(f"run {active['run_id']}: progress flush failed: {exc}")
         if elapsed > self.args.timeout:
             if self.signal_master(active, signal.SIGTERM):
                 active["terminating_at"] = time.time()
@@ -896,6 +1013,10 @@ class Dispatcher:
                 active["terminating_at"] = time.time()
                 self.save()
             else:
+                try:
+                    self.flush_progress(active["run_id"], active["issue"], limit=5)
+                except Exception as exc:
+                    log(f"run {active['run_id']}: progress flush failed: {exc}")
                 log(f"run {active['run_id']}: master still alive")
             return
         run_dir = self.directory / "runs" / active["run_id"]
