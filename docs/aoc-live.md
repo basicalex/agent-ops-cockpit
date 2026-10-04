@@ -20,11 +20,11 @@ The tunnel uses a separate listener on `127.0.0.1:8766` (`AOC_LIVE_PUBLIC_PORT`)
 
 ## Connect from the phone (ChatGPT mobile, voice)
 
-1. Create a Cloudflare Access application for the public hostname with **Managed OAuth** and an allow policy for Alex's email only. Note the team name and application's AUD tag.
+1. In Cloudflare Zero Trust, create a self-hosted Access application for the public hostname with an Allow policy for Alex's email only. New teams have no One-time PIN login method; add it under Integrations → Identity providers first. Keep App Launcher off (its clientless option is refused for public hostnames). Then edit the app, turn on **Managed OAuth** with redirect URIs `https://chatgpt.com/connector/oauth/*` and `https://chatgpt.com/connector_platform_oauth_redirect`, and note the team name and the app's AUD tag.
 2. `aoc-live access set --team <team> --aud <64-char-aud> --email <owner-email>`. This writes `${XDG_CONFIG_HOME:-$HOME/.config}/aoc/live/access.json` with mode `0600` and refreshes any existing tunnel config. `aoc-live access show` displays the team, email and first eight AUD characters.
 3. Once: `aoc-live tunnel setup aoc-live.intrface.eu`, then `aoc-live tunnel enable`. Setup creates the tunnel and DNS record but leaves a new config disabled. The tunnel forwards only to the public listener and also requires Access at cloudflared. Enable refuses missing or mismatched Access configuration; disable renames the config and restarts the supervisor, leaving desktop access available.
 4. `aoc-live url --show` and copy the public URL. In ChatGPT on the web, turn on Developer mode and create an app with **Authentication = OAuth**. Leave client ID and client secret empty so ChatGPT uses dynamic registration; sign in with the allowed email.
-5. The app is then available on the phone. Ask "what are my agents doing?"; the model calls `workspace_overview` first.
+5. The app syncs to the phone. In a chat, pick it under **+**, then ask "what are my agents doing?"; the model calls `workspace_overview` first. Verified 2026-10-04 from the Android app in voice mode.
 
 `AOC_LIVE_ACCESS_TEAM`, `AOC_LIVE_ACCESS_AUD` and `AOC_LIVE_ACCESS_EMAIL` override service configuration for tests. The supervisor still requires `access.json` and a matching `required: true` tunnel Access block. `aoc-live status` reports both ports, Access configuration and tunnel enabled/disabled/blocked state.
 
