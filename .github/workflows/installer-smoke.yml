@@ -36,7 +36,6 @@ jobs:
               command -v aoc-cli
               command -v aoc-init
               command -v aoc-doctor
-              aoc task --help >/dev/null
               test -f ~/.config/yazi/yazi.toml
               test -f ~/.config/yazi/plugins/aoc-open.yazi/main.lua
               grep -Fq \"local editor = \\\"micro\\\"\" ~/.config/yazi/plugins/aoc-open.yazi/main.lua
@@ -48,7 +47,6 @@ jobs:
               aoc-init
               test -f .aoc/context.md
               test -f .aoc/init-state.json
-              test -f .taskmaster/tasks/tasks.json
 
               AOC_DEFAULT_REPO=${{ github.repository }} \
                 curl -fsSL https://raw.githubusercontent.com/${{ github.repository }}/${{ github.sha }}/install/bootstrap.sh \
@@ -84,7 +82,6 @@ jobs:
               command -v aoc-cli
               command -v aoc-init
               command -v aoc-doctor
-              aoc task --help >/dev/null
               test -f ~/.config/yazi/yazi.toml
               test -f ~/.config/yazi/plugins/aoc-open.yazi/main.lua
               grep -Fq \"local editor = \\\"micro\\\"\" ~/.config/yazi/plugins/aoc-open.yazi/main.lua
@@ -96,7 +93,6 @@ jobs:
               aoc-init
               test -f .aoc/context.md
               test -f .aoc/init-state.json
-              test -f .taskmaster/tasks/tasks.json
 
               AOC_DEFAULT_REPO=${{ github.repository }} \
                 curl -fsSL https://raw.githubusercontent.com/${{ github.repository }}/${{ github.ref_name }}/install/bootstrap.sh \

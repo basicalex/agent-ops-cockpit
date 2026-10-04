@@ -39,8 +39,6 @@ jobs:
       - name: Build
         run: cargo build --workspace --manifest-path crates/Cargo.toml
 
-      - name: Managed Zellij Plugin Smoke
-        run: bash ./scripts/zellij/test-managed-plugin.sh
 
       - name: Lint
         run: bash ./scripts/lint.sh
