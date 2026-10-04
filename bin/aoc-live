@@ -15,8 +15,96 @@ fi
 state_dir=${AOC_LIVE_STATE_DIR:-${XDG_STATE_HOME:-$HOME/.local/state}/aoc/live}
 codex_home=${CODEX_HOME:-$HOME/.codex}
 tunnel_cfg=${XDG_CONFIG_HOME:-$HOME/.config}/aoc/live/cloudflared.yml
+access_file=${tunnel_cfg%/*}/access.json
 port=${AOC_LIVE_PORT:-8765}
 [[ $port =~ ^[0-9]+$ ]] && (( port > 0 && port <= 65535 )) || { printf 'aoc-live: invalid port\n' >&2; exit 1; }
+public_port=${AOC_LIVE_PUBLIC_PORT:-8766}
+[[ $public_port =~ ^[0-9]+$ ]] && (( public_port > 0 && public_port <= 65535 && public_port != port )) || { printf 'aoc-live: invalid public port\n' >&2; exit 1; }
+
+# Parse YAML structurally: a comment or unrelated Access block cannot enable a tunnel.
+access_config() {
+  bun -e '
+    const fs=require("node:fs"),path=require("node:path");
+    const [module,file,cfg,port,action,...args]=process.argv.slice(1);
+    const {loadAccessConfig,validateAccessConfig}=await import(module);
+    const atomic=(file,text)=>{fs.mkdirSync(path.dirname(file),{recursive:true,mode:0o700});const temp=file+"."+process.pid+".tmp";try{fs.writeFileSync(temp,text,{mode:0o600,flag:"wx"});fs.renameSync(temp,file)}finally{fs.rmSync(temp,{force:true})}};
+    const read=()=>Bun.YAML.parse(fs.readFileSync(cfg,"utf8"));
+    const write=(data,access)=>{
+      const host=data.ingress?.[0]?.hostname;
+      if(typeof data.tunnel!=="string"||typeof data["credentials-file"]!=="string"||typeof host!=="string")throw new Error("Invalid tunnel configuration");
+      const text=`tunnel: ${JSON.stringify(data.tunnel)}\ncredentials-file: ${JSON.stringify(data["credentials-file"])}\ningress:\n  - hostname: ${JSON.stringify(host)}\n    service: http://127.0.0.1:${port}\n    originRequest:\n      httpHostHeader: 127.0.0.1:${port}\n      access:\n        required: true\n        teamName: ${access.team}\n        audTag:\n          - ${access.aud}\n  - service: http_status:404\n`;
+      atomic(cfg,text);
+    };
+    try {
+      if(action==="set"){
+        const access=validateAccessConfig({team:args[0],aud:args[1],email:args[2]});
+        atomic(file,JSON.stringify(access)+"\n");
+        if(fs.existsSync(cfg))write(read(),access);
+      }else{
+        if(!fs.existsSync(file))process.exit(1);
+        const access=loadAccessConfig();if(!access)process.exit(1);
+        if(action==="show")console.log(`team: ${access.team}; email: ${access.email}; AUD: ${access.aud.slice(0,8)}`);
+        else if(action==="ready"){
+          const data=read(),routes=data.ingress;
+          if(!Array.isArray(routes)||routes.length!==2||routes[1]?.service!=="http_status:404")process.exit(1);
+          const route=routes[0],guard=route?.originRequest?.access;
+          if(route?.service!==`http://127.0.0.1:${port}`||route.originRequest?.httpHostHeader!==`127.0.0.1:${port}`||
+             guard?.required!==true||guard.teamName!==access.team||!Array.isArray(guard.audTag)||guard.audTag.length!==1||guard.audTag[0]!==access.aud)process.exit(1);
+        }else if(action==="write")write({tunnel:args[0],"credentials-file":args[1],ingress:[{hostname:args[2]}]},access);
+      }
+    }catch{if(["set","write","show"].includes(action))console.error("aoc-live: invalid or missing Access/tunnel configuration");process.exit(1)}
+  ' "$live_dir/src/config.ts" "$access_file" "$tunnel_cfg" "$public_port" "$@"
+}
+validate_tunnel() {
+  if command -v cloudflared >/dev/null 2>&1; then
+    cloudflared tunnel --config "$1" ingress validate >/dev/null 2>&1 || { printf 'aoc-live: invalid tunnel ingress\n' >&2; return 1; }
+  fi
+}
+tunnel_state() {
+  if [[ -f $tunnel_cfg ]]; then
+    if access_config ready; then printf 'enabled'; else printf 'blocked'; fi
+  else
+    printf 'disabled'
+  fi
+}
+access_set() {
+  local team='' aud='' email='' cfg=$tunnel_cfg pid
+  shift
+  while (( $# )); do
+    [[ $# -ge 2 ]] || { printf 'usage: aoc-live access set --team <t> --aud <a> --email <e>\n' >&2; return 1; }
+    case "$1" in
+      --team) team=$2 ;;
+      --aud) aud=$2 ;;
+      --email) email=$2 ;;
+      *) printf 'aoc-live: unknown access option\n' >&2; return 1 ;;
+    esac
+    shift 2
+  done
+  [[ -f $cfg || ! -f $cfg.disabled ]] || tunnel_cfg=$cfg.disabled
+  access_config set "$team" "$aud" "$email"
+  if [[ -f $tunnel_cfg ]]; then validate_tunnel "$tunnel_cfg"; fi
+  tunnel_cfg=$cfg
+  printf 'access configured\n'
+  pid=$(read_pid)
+  if [[ -n $pid ]] && kill -0 "$pid" 2>/dev/null; then stop_service; start_service; fi
+}
+tunnel_toggle() {
+  local action=$1
+  if [[ $action == enable ]]; then
+    local cfg=$tunnel_cfg
+    [[ -f $cfg ]] || tunnel_cfg=$cfg.disabled
+    access_config ready || { printf 'tunnel blocked: access not configured\n' >&2; return 1; }
+    validate_tunnel "$tunnel_cfg"
+    tunnel_cfg=$cfg
+    if [[ ! -f $cfg ]]; then
+      bun -e 'require("node:fs").renameSync(process.argv[1]+".disabled",process.argv[1])' "$cfg"
+    fi
+  elif [[ -f $tunnel_cfg ]]; then
+    bun -e 'require("node:fs").renameSync(process.argv[1],process.argv[1]+".disabled")' "$tunnel_cfg"
+  fi
+  stop_service
+  start_service
+}
 
 get_token() {
   if [[ -n ${AOC_LIVE_TOKEN_CMD:-} ]]; then
@@ -45,12 +133,12 @@ read_pid() {
 health() { curl --silent --output /dev/null --connect-timeout 1 --max-time 2 "http://127.0.0.1:$port/"; }
 write_state() {
   bun -e '
-    const fs=require("node:fs");const [dir,pid,started,server,port,restarts,exit,provider,pp,pr,pe]=process.argv.slice(1);
+    const fs=require("node:fs");const [dir,pid,started,server,port,restarts,exit,provider,pp,pr,pe,publicPort]=process.argv.slice(1);
     let old;try{old=JSON.parse(fs.readFileSync(dir+"/state.json","utf8"))}catch{}
     const last=(part,count,code)=>code===""?null:old?.[part]?.restarts===Number(count)?old[part].last_exit:{code:Number(code),at:new Date().toISOString()};
-    const state={schema:"aoc.live.state/v1",pid:Number(pid),started_at:started,server:{pid:Number(server)||null,port:Number(port),restarts:Number(restarts),last_exit:last("server",restarts,exit)},provider:{name:provider==="cloudflared"?provider:null,pid:Number(pp)||null,restarts:Number(pr),last_exit:last("provider",pr,pe)}};
+    const state={schema:"aoc.live.state/v1",pid:Number(pid),started_at:started,server:{pid:Number(server)||null,port:Number(port),public_port:Number(publicPort),restarts:Number(restarts),last_exit:last("server",restarts,exit)},provider:{name:provider==="cloudflared"?provider:null,pid:Number(pp)||null,restarts:Number(pr),last_exit:last("provider",pr,pe)}};
     fs.writeFileSync(dir+"/state.json.tmp",JSON.stringify(state)+"\n",{mode:0o600});fs.renameSync(dir+"/state.json.tmp",dir+"/state.json");
-  ' "$state_dir" "$$" "$started_at" "$server_pid" "$port" "$server_restarts" "$server_exit" "$provider_name" "$provider_pid" "$provider_restarts" "$provider_exit" 9>&-
+  ' "$state_dir" "$$" "$started_at" "$server_pid" "$port" "$server_restarts" "$server_exit" "$provider_name" "$provider_pid" "$provider_restarts" "$provider_exit" "$public_port" 9>&-
 }
 supervise() {
   trap '' HUP
@@ -98,9 +186,19 @@ supervise() {
       server_pid=$!; server_since=$SECONDS
       write_state
     fi
+    if [[ -f $tunnel_cfg ]] && ! access_config ready 9>&-; then
+      if [[ $provider_name != blocked ]]; then printf 'tunnel blocked: access not configured\n' >>"$state_dir/provider.log"; fi
+      if [[ $provider_pid != 0 ]]; then
+        kill "$provider_pid" 2>/dev/null || true
+        wait "$provider_pid" 2>/dev/null || true
+        provider_pid=0
+      fi
+      provider_name=blocked; provider_next=$((SECONDS+10))
+      write_state
+    fi
     if [[ $provider_pid == 0 ]] && (( SECONDS >= provider_next )) && health 9>&-; then
       provider_name=local
-      if [[ -f $tunnel_cfg ]] && command -v cloudflared >/dev/null 2>&1; then
+      if [[ -f $tunnel_cfg ]] && access_config ready 9>&- && command -v cloudflared >/dev/null 2>&1; then
         provider_name=cloudflared
         (unset AOC_LIVE_TOKEN AOC_LIVE_CONNECT_TOKEN; exec cloudflared tunnel --config "$tunnel_cfg" --loglevel warn --no-autoupdate run) </dev/null >>"$state_dir/provider.log" 2>&1 9>&- &
         provider_pid=$!; provider_since=$SECONDS
@@ -174,13 +272,14 @@ desktop_config() {
   if [[ $action == connect ]]; then printf 'connected; restart the ChatGPT desktop app\n'; else printf 'disconnected; restart the ChatGPT desktop app\n'; fi
 }
 tunnel_hostname() {
-  bun -e 'try{const text=require("node:fs").readFileSync(process.argv[1],"utf8");const m=/^[ \t]*-[ \t]+hostname:[ \t]+(.+)$/m.exec(text);if(m){const h=m[1].trim();console.log(h.startsWith("\"")?JSON.parse(h):h)}}catch{}' "$tunnel_cfg"
+  bun -e 'try{const fs=require("node:fs"),file=process.argv[1];const data=Bun.YAML.parse(fs.readFileSync(fs.existsSync(file)?file:file+".disabled","utf8"));if(typeof data.ingress?.[0]?.hostname==="string")console.log(data.ingress[0].hostname)}catch{}' "$tunnel_cfg"
 }
 tunnel_id() {
   bun -e 'const rows=JSON.parse(await Bun.stdin.text());if(!Array.isArray(rows))process.exit(1);const matches=rows.filter(t=>t.name==="aoc-live");if(matches.length>1)process.exit(1);const id=matches[0]?.id;if(id){if(!/^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/i.test(id))process.exit(1);console.log(id)}'
 }
 tunnel_setup() {
   local hostname=$1 listing id credentials config_dir
+  access_config configured || { printf 'tunnel blocked: access not configured\n' >&2; return 1; }
   bun -e 'const h=process.argv[1];process.exit(h.length<=253&&/^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/i.test(h)?0:1)' "$hostname" || { printf 'aoc-live: invalid hostname\n' >&2; return 1; }
   command -v cloudflared >/dev/null 2>&1 || { printf 'aoc-live: cloudflared is not installed\n' >&2; return 1; }
   listing=$(cloudflared tunnel list --output json 2>/dev/null) || { printf 'aoc-live: cannot list tunnels; run cloudflared login first\n' >&2; return 1; }
@@ -198,13 +297,13 @@ tunnel_setup() {
   fi
   [[ -f $credentials ]] || { printf 'aoc-live: aoc-live tunnel credentials are missing\n' >&2; return 1; }
   cloudflared tunnel route dns aoc-live "$hostname" >/dev/null 2>&1 || { printf 'aoc-live: DNS route failed\n' >&2; return 1; }
-  bun -e '
-    const fs=require("node:fs"),path=require("node:path");const [file,id,credentials,host,port]=process.argv.slice(1);
-    const text=`tunnel: ${id}\ncredentials-file: ${JSON.stringify(credentials)}\ningress:\n  - hostname: ${JSON.stringify(host)}\n    service: http://127.0.0.1:${port}\n    originRequest:\n      httpHostHeader: 127.0.0.1:${port}\n  - service: http_status:404\n`;
-    fs.mkdirSync(path.dirname(file),{recursive:true,mode:0o700});const temp=file+"."+process.pid+".tmp";
-    try{fs.writeFileSync(temp,text,{mode:0o600,flag:"wx"});fs.renameSync(temp,file)}finally{fs.rmSync(temp,{force:true})}
-    fs.chmodSync(credentials,0o600);
-  ' "$tunnel_cfg" "$id" "$credentials" "$hostname" "$port"
+  # A newly configured tunnel stays disabled until explicitly enabled.
+  local cfg=$tunnel_cfg
+  [[ -f $cfg ]] || tunnel_cfg=$cfg.disabled
+  access_config write "$id" "$credentials" "$hostname"
+  validate_tunnel "$tunnel_cfg"
+  tunnel_cfg=$cfg
+  bun -e 'require("node:fs").chmodSync(process.argv[1],0o600)' "$credentials"
   printf 'tunnel configured: %s\n' "$hostname"
 }
 case "${1:-help}" in
@@ -238,11 +337,21 @@ case "${1:-help}" in
   restart) stop_service; start_service ;;
   connect) desktop_config connect ;;
   disconnect) desktop_config disconnect ;;
+  access)
+    case "${2:-}" in
+      set) access_set "${@:2}" ;;
+      show) access_config show || { printf 'aoc-live: access not configured\n' >&2; exit 1; } ;;
+      *) printf 'usage: aoc-live access set --team <t> --aud <a> --email <e> | show\n' >&2; exit 1 ;;
+    esac
+    ;;
   status)
     port=$(bun -e 'try{console.log(JSON.parse(require("node:fs").readFileSync(process.argv[1],"utf8")).server.port)}catch{console.log(process.argv[2])}' "$state_dir/state.json" "$port")
     probe=down
     if health; then probe=answering; fi
-    bun -e 'const fs=require("node:fs");const [dir,port,health]=process.argv.slice(1);let s;try{s=JSON.parse(fs.readFileSync(dir+"/state.json","utf8"))}catch{}let running=false;try{if(s?.pid>1){process.kill(s.pid,0);running=true}}catch{}console.log(`aoc-live: ${running?"running":"not running"}; port ${s?.server?.port??port}; health ${health}; provider ${running?(s?.provider?.name??"local-only"):"none"}; /mcp/<hidden>`) ' "$state_dir" "$port" "$probe"
+    access=no
+    if access_config configured; then access=yes; fi
+    tunnel=$(tunnel_state)
+    bun -e 'const fs=require("node:fs");const [dir,port,publicPort,health,access,tunnel]=process.argv.slice(1);let s;try{s=JSON.parse(fs.readFileSync(dir+"/state.json","utf8"))}catch{}let running=false;try{if(s?.pid>1){process.kill(s.pid,0);running=true}}catch{}console.log(`aoc-live: ${running?"running":"not running"}; local port ${s?.server?.port??port}; public port ${s?.server?.public_port??publicPort}; access configured ${access}; tunnel ${tunnel}; health ${health}; provider ${running?(s?.provider?.name??"local-only"):"none"}; /mcp/<hidden>`) ' "$state_dir" "$port" "$public_port" "$probe" "$access" "$tunnel"
     ;;
   logs)
     [[ ${2:-} == '' || ${2:-} == -f ]] || { printf 'usage: aoc-live logs [-f]\n' >&2; exit 1; }
@@ -255,11 +364,12 @@ case "${1:-help}" in
   tunnel)
     case "${2:-}" in
       setup) [[ -n ${3:-} ]] || { printf 'usage: aoc-live tunnel setup <hostname>\n' >&2; exit 1; }; tunnel_setup "$3" ;;
+      enable|disable) tunnel_toggle "$2" ;;
       status)
         hostname=$(tunnel_hostname)
-        bun -e 'let s;try{s=JSON.parse(require("node:fs").readFileSync(process.argv[1],"utf8"))}catch{}let running=false;try{if(s?.provider?.name==="cloudflared"&&s.provider.pid>1){process.kill(s.provider.pid,0);running=true}}catch{}console.log(`hostname: ${process.argv[2]||"not configured"}; cloudflared: ${running?"running":"not running"}`)' "$state_dir/state.json" "$hostname"
+        bun -e 'let s;try{s=JSON.parse(require("node:fs").readFileSync(process.argv[1],"utf8"))}catch{}let running=false;try{if(s?.provider?.name==="cloudflared"&&s.provider.pid>1){process.kill(s.provider.pid,0);running=true}}catch{}console.log(`hostname: ${process.argv[2]||"not configured"}; tunnel: ${process.argv[3]}; cloudflared: ${running?"running":"not running"}`)' "$state_dir/state.json" "$hostname" "$(tunnel_state)"
         ;;
-      *) printf 'usage: aoc-live tunnel setup <hostname> | status\n' >&2; exit 1 ;;
+      *) printf 'usage: aoc-live tunnel setup <hostname> | enable | disable | status\n' >&2; exit 1 ;;
     esac
     ;;
   url)
@@ -270,13 +380,13 @@ case "${1:-help}" in
       [[ ${#token} -ge 32 ]] || { printf 'aoc-live: invalid token\n' >&2; exit 1; }
     fi
     printf 'http://127.0.0.1:%s/mcp/%s\n' "$port" "$token"
-    if [[ -f $tunnel_cfg ]]; then
+    if [[ -f $tunnel_cfg || -f $tunnel_cfg.disabled ]]; then
       hostname=$(tunnel_hostname)
       [[ -z $hostname ]] || printf 'https://%s/mcp/%s\n' "$hostname" "$token"
     fi
     ;;
   help|-h|--help)
-    printf '%s\n' 'aoc-live start | stop | restart | status | logs [-f]' 'aoc-live connect | disconnect' 'aoc-live tunnel setup <hostname> | tunnel status' 'aoc-live serve | token init|rotate | url [--show] | help' 'Desktop app: aoc-live connect; restart the ChatGPT desktop app.' 'Mobile/web: aoc-live tunnel setup <hostname> once, then aoc-live url --show.' 'Paste the public HTTPS URL into ChatGPT developer mode: create app, No authentication.' 'URL paths are hidden by default: /mcp/<hidden>.'
+    printf '%s\n' 'aoc-live start | stop | restart | status | logs [-f]' 'aoc-live connect | disconnect' 'aoc-live access set --team <t> --aud <a> --email <e> | show' 'aoc-live tunnel setup <hostname> | enable | disable | status' 'aoc-live serve | token init|rotate | url [--show] | help' 'Desktop app: aoc-live connect; restart the ChatGPT desktop app.' 'Mobile/web: configure Cloudflare Access Managed OAuth, run access set, tunnel setup, then tunnel enable.' 'Paste the public HTTPS URL into ChatGPT developer mode: Authentication = OAuth; leave client ID/secret empty.' 'URL paths are hidden by default: /mcp/<hidden>.'
     ;;
   *) printf 'aoc-live: unknown command; see help\n' >&2; exit 1 ;;
 esac

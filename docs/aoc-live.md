@@ -14,14 +14,19 @@ aoc-live logs -f        # tool names and durations only
 aoc-live stop           # cuts all access
 ```
 
-The server listens on 127.0.0.1:8765 and answers only at `/mcp/<token>`. Treat the full URL as a password. `aoc-live token rotate` replaces it.
+The desktop listener stays on `127.0.0.1:8765` (`AOC_LIVE_PORT`) and answers only at `/mcp/<token>`. Treat the full URL as a password. `aoc-live token rotate` replaces it.
+
+The tunnel uses a separate listener on `127.0.0.1:8766` (`AOC_LIVE_PUBLIC_PORT`). Every request needs a Cloudflare Access RS256 JWT for the configured team, application audience and owner email, plus the path token and the same Host/Origin guards. Without valid Access configuration, this listener returns **503 with an empty body for every request**; the desktop listener is unaffected.
 
 ## Connect from the phone (ChatGPT mobile, voice)
 
-1. Once: `aoc-live tunnel setup aoc-live.intrface.eu`. This creates a Cloudflare tunnel named `aoc-live` and one DNS record; the supervisor runs it from then on.
-2. `aoc-live url --show` and copy the public URL.
-3. In ChatGPT on the web: Settings → Security and login → Developer mode on. Then Plugins → + → create app, paste the URL, choose **No authentication**.
-4. The app is then available on the phone. Ask "what are my agents doing?"; the model calls `workspace_overview` first.
+1. Create a Cloudflare Access application for the public hostname with **Managed OAuth** and an allow policy for Alex's email only. Note the team name and application's AUD tag.
+2. `aoc-live access set --team <team> --aud <64-char-aud> --email <owner-email>`. This writes `${XDG_CONFIG_HOME:-$HOME/.config}/aoc/live/access.json` with mode `0600` and refreshes any existing tunnel config. `aoc-live access show` displays the team, email and first eight AUD characters.
+3. Once: `aoc-live tunnel setup aoc-live.intrface.eu`, then `aoc-live tunnel enable`. Setup creates the tunnel and DNS record but leaves a new config disabled. The tunnel forwards only to the public listener and also requires Access at cloudflared. Enable refuses missing or mismatched Access configuration; disable renames the config and restarts the supervisor, leaving desktop access available.
+4. `aoc-live url --show` and copy the public URL. In ChatGPT on the web, turn on Developer mode and create an app with **Authentication = OAuth**. Leave client ID and client secret empty so ChatGPT uses dynamic registration; sign in with the allowed email.
+5. The app is then available on the phone. Ask "what are my agents doing?"; the model calls `workspace_overview` first.
+
+`AOC_LIVE_ACCESS_TEAM`, `AOC_LIVE_ACCESS_AUD` and `AOC_LIVE_ACCESS_EMAIL` override service configuration for tests. The supervisor still requires `access.json` and a matching `required: true` tunnel Access block. `aoc-live status` reports both ports, Access configuration and tunnel enabled/disabled/blocked state.
 
 ## Connect from the ChatGPT desktop app
 
