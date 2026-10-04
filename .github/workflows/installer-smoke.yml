@@ -36,7 +36,6 @@ jobs:
               command -v aoc-cli
               command -v aoc-init
               command -v aoc-doctor
-              command -v jcode
               aoc task --help >/dev/null
               test -f ~/.config/yazi/yazi.toml
               test -f ~/.config/yazi/plugins/aoc-open.yazi/main.lua
@@ -85,7 +84,6 @@ jobs:
               command -v aoc-cli
               command -v aoc-init
               command -v aoc-doctor
-              command -v jcode
               aoc task --help >/dev/null
               test -f ~/.config/yazi/yazi.toml
               test -f ~/.config/yazi/plugins/aoc-open.yazi/main.lua
