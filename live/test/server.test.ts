@@ -31,16 +31,21 @@ const tools = createTools({
 });
 let server: Server;
 let disabled: Server;
+const listeners: Server[] = [];
 let url: string;
 const headers = { "Content-Type": "application/json", Accept: "application/json, text/event-stream" };
 beforeAll(async () => {
-  const config = loadConfig({ AOC_LIVE_TOKEN: "x".repeat(64), AOC_LIVE_PORT: "0" });
-  server = await start({ config, tools });
+  const config = loadConfig({ XDG_CONFIG_HOME: `/tmp/aoc-live-no-config-${process.pid}`, AOC_LIVE_TOKEN: "x".repeat(64), AOC_LIVE_PORT: "0", AOC_LIVE_PUBLIC_PORT: "0" });
+  const active = await start({ config, tools });
+  server = active.local;
+  listeners.push(active.local, active.public);
   url = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
-  disabled = await start({ config: { ...config, pathToken: undefined }, tools });
+  const inactive = await start({ config: { ...config, pathToken: undefined }, tools });
+  disabled = inactive.local;
+  listeners.push(inactive.local, inactive.public);
 });
 afterAll(async () => {
-  await Promise.all([server, disabled].map(s => new Promise<void>((resolve, reject) => s.close(error => error ? reject(error) : resolve()))));
+  await Promise.all(listeners.map(s => new Promise<void>((resolve, reject) => s.close(error => error ? reject(error) : resolve()))));
 });
 const rpcResponseSchema = z.object({ result: z.object({
   serverInfo: z.object({ name: z.string() }).default({ name: "" }),
