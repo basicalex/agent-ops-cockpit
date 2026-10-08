@@ -337,6 +337,30 @@ case "${1:-help}" in
   restart) stop_service; start_service ;;
   connect) desktop_config connect ;;
   disconnect) desktop_config disconnect ;;
+  agents)
+    [[ $# == 2 && ( $2 == list || $2 == disable || $2 == enable ) ]] || { printf 'usage: aoc-live agents list|disable|enable\n' >&2; exit 1; }
+    bun -e '
+      const fs=require("node:fs"),path=require("node:path");
+      const [dir,action,module]=process.argv.slice(1);
+      const {redact}=await import(module);
+      const disabled=path.join(dir,"agents.disabled");
+      try {
+        if(action==="disable"){
+          fs.mkdirSync(dir,{recursive:true,mode:0o700});fs.chmodSync(dir,0o700);
+          fs.writeFileSync(disabled,"",{mode:0o600});fs.chmodSync(disabled,0o600);
+          console.log("agent control disabled");
+        }else if(action==="enable"){
+          fs.rmSync(disabled,{force:true});console.log("agent control enabled");
+        }else{
+          const file=path.join(dir,"agents.json");
+          const agents=fs.existsSync(file)?JSON.parse(fs.readFileSync(file,"utf8")):[];
+          if(!Array.isArray(agents))throw new Error();
+          if(!agents.length)console.log("no registered agents");
+          for(const a of agents)console.log(redact(`${a.id} workspace=${a.workspaceLabel} harness=${a.harness} branch=${a.branch} ${a.stoppedAt?"stopped":"running"}${a.prUrl?" pr="+a.prUrl:""}`).replace(/[\r\n]/g," "));
+        }
+      }catch{console.error("aoc-live: agent registry or control state unavailable");process.exit(1)}
+    ' "$state_dir" "$2" "$live_dir/src/redact.ts"
+    ;;
   access)
     case "${2:-}" in
       set) access_set "${@:2}" ;;
@@ -386,7 +410,7 @@ case "${1:-help}" in
     fi
     ;;
   help|-h|--help)
-    printf '%s\n' 'aoc-live start | stop | restart | status | logs [-f]' 'aoc-live connect | disconnect' 'aoc-live access set --team <t> --aud <a> --email <e> | show' 'aoc-live tunnel setup <hostname> | enable | disable | status' 'aoc-live serve | token init|rotate | url [--show] | help' 'Desktop app: aoc-live connect; restart the ChatGPT desktop app.' 'Mobile/web: configure Cloudflare Access Managed OAuth, run access set, tunnel setup, then tunnel enable.' 'Paste the public HTTPS URL into ChatGPT developer mode: Authentication = OAuth; leave client ID/secret empty.' 'URL paths are hidden by default: /mcp/<hidden>.'
+    printf '%s\n' 'aoc-live start | stop | restart | status | logs [-f]' 'aoc-live agents list | disable | enable' 'aoc-live connect | disconnect' 'aoc-live access set --team <t> --aud <a> --email <e> | show' 'aoc-live tunnel setup <hostname> | enable | disable | status' 'aoc-live serve | token init|rotate | url [--show] | help' 'Desktop app: aoc-live connect; restart the ChatGPT desktop app.' 'Mobile/web: configure Cloudflare Access Managed OAuth, run access set, tunnel setup, then tunnel enable.' 'Paste the public HTTPS URL into ChatGPT developer mode: Authentication = OAuth; leave client ID/secret empty.' 'URL paths are hidden by default: /mcp/<hidden>.'
     ;;
   *) printf 'aoc-live: unknown command; see help\n' >&2; exit 1 ;;
 esac
