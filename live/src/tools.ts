@@ -1,5 +1,6 @@
+import { appendFile, mkdir, stat } from "node:fs/promises";
 import { homedir } from "node:os";
-import { basename } from "node:path";
+import { basename, dirname, join } from "node:path";
 import { z } from "zod";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { LIMITS, type IssueState, type Workspace, type Tab } from "./contracts";
@@ -10,14 +11,21 @@ import * as conversations from "./conversations";
 import { redact } from "./redact";
 
 export const readOnlyAnnotations = { readOnlyHint: true, openWorldHint: false, destructiveHint: false } as const;
+export const writeAnnotations = { readOnlyHint: false, openWorldHint: false, destructiveHint: false } as const;
+const NOTES_MAX_BYTES = 1_000_000;
+function defaultNotesFile(env = process.env): string {
+  const dir = env.AOC_LIVE_STATE_DIR || join(env.XDG_STATE_HOME || join(homedir(), ".local/state"), "aoc/live");
+  return join(dir, "notes.jsonl");
+}
 type Dependencies = {
   herdr: typeof herdr; git: typeof git;
   issues: { listIssues: typeof issues.listIssues; getIssueState: (root: string, number: number, opts?: { events?: number; comments?: number }) => Promise<IssueState> };
   conversations: typeof conversations; redact: typeof redact;
+  notesFile: string;
 };
 export type LiveTool = {
   name: string; description: string; inputSchema: z.AnyZodObject;
-  annotations: typeof readOnlyAnnotations;
+  annotations: typeof readOnlyAnnotations | typeof writeAnnotations;
   execute(args?: unknown): Promise<CallToolResult>;
 };
 const nonempty = z.string().trim().min(1);
@@ -25,7 +33,7 @@ const workspaceInput = { workspace: nonempty };
 const rootInput = { ...workspaceInput, root: nonempty.optional() };
 
 export function createTools(overrides: Partial<Dependencies> = {}): LiveTool[] {
-  const deps: Dependencies = { herdr, git, issues, conversations, redact, ...overrides };
+  const deps: Dependencies = { herdr, git, issues, conversations, redact, notesFile: defaultNotesFile(), ...overrides };
   function safe(value: unknown, roots: string[]): unknown {
     if (typeof value === "string") {
       return deps.redact(value).replace(new RegExp(`${homedir().replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}[^\\s\"'<>]*`, "g"), path => roots.some(root => path === root || path.startsWith(root + "/")) ? path : "[home path]");
@@ -207,5 +215,13 @@ export function createTools(overrides: Partial<Dependencies> = {}): LiveTool[] {
       if (!workspace.tabs.some(t => t.panes.some(p => p.paneId === pane_id))) throw new Error("Pane does not belong to workspace");
       return { paneId: pane_id, text: await deps.herdr.readPane(pane_id, { lines }) };
     }),
+    { ...tool("save_note", "Append a short note from Alex to the local AOC inbox on the Mac. Nothing is sent anywhere else. Use when Alex asks to note, remember or jot something down.", { text: nonempty.max(2000), workspace: nonempty.optional() }, async ({ text, workspace }) => {
+      const size = await stat(deps.notesFile).then(s => s.size, () => 0);
+      if (size > NOTES_MAX_BYTES) throw new Error("Note inbox is full");
+      await mkdir(dirname(deps.notesFile), { recursive: true, mode: 0o700 });
+      const at = new Date().toISOString();
+      await appendFile(deps.notesFile, JSON.stringify({ at, text, workspace: workspace ?? null }) + "\n", { mode: 0o600 });
+      return { saved: true, at };
+    }), annotations: writeAnnotations },
   ];
 }
