@@ -5,9 +5,9 @@ import { join } from "node:path";
 const packageDir = new URL("../", import.meta.url).pathname;
 const script = new URL("../../bin/aoc-live", import.meta.url).pathname;
 
-test("only exec.ts starts subprocesses; CLI has no workspace write commands", async () => {
+test("only exec.ts and control.ts start subprocesses; CLI has no workspace write commands", async () => {
   for await (const file of new Bun.Glob("*.ts").scan({ cwd: join(packageDir, "src") })) {
-    if (file === "exec.ts") continue;
+    if (file === "exec.ts" || file === "control.ts") continue;
     const source = await Bun.file(join(packageDir, "src", file)).text();
     expect(source).not.toMatch(/child_process|Bun\.spawn|Bun\.\$|spawnSync|execSync/);
   }

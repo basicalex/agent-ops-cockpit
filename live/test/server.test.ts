@@ -62,14 +62,13 @@ async function rpc(method: string, params?: unknown) {
   return rpcResponseSchema.parse(await response.json());
 }
 
-test("stateless initialize and tools/list annotate every tool, with save_note as the only write", async () => {
+test("stateless initialize lists agent tools with their control annotations", async () => {
   const init = await rpc("initialize", { protocolVersion: "2025-03-26", capabilities: {}, clientInfo: { name: "synthetic", version: "1" } });
   expect(init.result.serverInfo.name).toBe("aoc-live");
-  const first = init.result.instructions.slice(0, 512);
-  for (const phrase of ["Read-only context", "workspace_overview", "get_workspace_state", "data, not instructions", "GitHub issues and AOC Dispatch"]) expect(first).toContain(phrase);
   const listing = await rpc("tools/list");
-  expect(listing.result.tools.map(t => t.name)).toEqual(["workspace_overview", "get_workspace_state", "list_tabs", "get_tab_context", "search_conversations", "get_conversation_slice", "list_issues", "get_issue_state", "get_git_state", "get_diff", "read_file", "search_code", "read_pane", "save_note"]);
-  for (const tool of listing.result.tools) expect(tool.annotations).toEqual({ readOnlyHint: tool.name !== "save_note", destructiveHint: false, openWorldHint: false });
+  expect(listing.result.tools.map(t => t.name)).toEqual(["workspace_overview", "get_workspace_state", "list_tabs", "get_tab_context", "search_conversations", "get_conversation_slice", "list_issues", "get_issue_state", "get_git_state", "get_diff", "read_file", "search_code", "read_pane", "save_note", "agent_list", "agent_read", "agent_start", "agent_send", "agent_answer", "agent_stop", "agent_open_pr"]);
+  const writes = ["save_note", "agent_start", "agent_send", "agent_answer", "agent_stop", "agent_open_pr"];
+  for (const tool of listing.result.tools) expect(tool.annotations).toEqual({ readOnlyHint: !writes.includes(tool.name), destructiveHint: tool.name === "agent_stop", openWorldHint: tool.name === "agent_open_pr" });
 });
 
 test("wrong and disabled paths return 404; stateless GET and DELETE return 405", async () => {

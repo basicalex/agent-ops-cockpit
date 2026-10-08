@@ -9,9 +9,13 @@ import * as git from "./git";
 import * as issues from "./issues";
 import * as conversations from "./conversations";
 import { redact } from "./redact";
+import { createAgents, type Agents } from "./agents";
+import { answerKeys } from "./control";
 
 export const readOnlyAnnotations = { readOnlyHint: true, openWorldHint: false, destructiveHint: false } as const;
 export const writeAnnotations = { readOnlyHint: false, openWorldHint: false, destructiveHint: false } as const;
+export const stopAnnotations = { readOnlyHint: false, openWorldHint: false, destructiveHint: true } as const;
+export const prAnnotations = { readOnlyHint: false, openWorldHint: true, destructiveHint: false } as const;
 const NOTES_MAX_BYTES = 1_000_000;
 function defaultNotesFile(env = process.env): string {
   const dir = env.AOC_LIVE_STATE_DIR || join(env.XDG_STATE_HOME || join(homedir(), ".local/state"), "aoc/live");
@@ -21,11 +25,11 @@ type Dependencies = {
   herdr: typeof herdr; git: typeof git;
   issues: { listIssues: typeof issues.listIssues; getIssueState: (root: string, number: number, opts?: { events?: number; comments?: number }) => Promise<IssueState> };
   conversations: typeof conversations; redact: typeof redact;
-  notesFile: string;
+  notesFile: string; agents: Agents;
 };
 export type LiveTool = {
   name: string; description: string; inputSchema: z.AnyZodObject;
-  annotations: typeof readOnlyAnnotations | typeof writeAnnotations;
+  annotations: { readOnlyHint: boolean; openWorldHint: boolean; destructiveHint: boolean };
   execute(args?: unknown): Promise<CallToolResult>;
 };
 const nonempty = z.string().trim().min(1);
@@ -33,7 +37,7 @@ const workspaceInput = { workspace: nonempty };
 const rootInput = { ...workspaceInput, root: nonempty.optional() };
 
 export function createTools(overrides: Partial<Dependencies> = {}): LiveTool[] {
-  const deps: Dependencies = { herdr, git, issues, conversations, redact, notesFile: defaultNotesFile(), ...overrides };
+  const deps: Dependencies = { herdr, git, issues, conversations, redact, notesFile: defaultNotesFile(), agents: createAgents(), ...overrides };
   function safe(value: unknown, roots: string[]): unknown {
     if (typeof value === "string") {
       return deps.redact(value).replace(new RegExp(`${homedir().replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}[^\\s\"'<>]*`, "g"), path => roots.some(root => path === root || path.startsWith(root + "/")) ? path : "[home path]");
@@ -223,5 +227,20 @@ export function createTools(overrides: Partial<Dependencies> = {}): LiveTool[] {
       await appendFile(deps.notesFile, JSON.stringify({ at, text, workspace: workspace ?? null }) + "\n", { mode: 0o600 });
       return { saved: true, at };
     }), annotations: writeAnnotations },
+    tool("agent_list", "List coding agents started here, their status and whether a report is ready.", {}, async (_args, allow) => {
+      const agents = await deps.agents.list();
+      allow(agents.flatMap(agent => [agent.repoRoot, agent.worktree]));
+      return agents;
+    }),
+    tool("agent_read", "Read an agent's screen, branch progress and report. Use its id from agent_list.", { id: nonempty, lines: z.number().int().min(1).max(200).optional() }, async ({ id, lines }) => deps.agents.read(id, lines)),
+    { ...tool("agent_start", "Start a coding agent in a workspace's own worktree and tab. Use for a task Alex wants done. harness defaults to omp; use claude only when Alex asks for Claude.", { ...workspaceInput, task: nonempty, harness: z.enum(["claude", "omp"]).optional() }, async ({ workspace, task, harness }, allow) => {
+      const started = await deps.agents.start(workspace, task, harness);
+      allow([started.worktree]);
+      return started;
+    }), annotations: writeAnnotations },
+    { ...tool("agent_send", "Send a task or follow-up to an agent started here. Use agent_answer for a blocked question.", { id: nonempty, text: nonempty.max(4000) }, async ({ id, text }) => deps.agents.send(id, text)), annotations: writeAnnotations },
+    { ...tool("agent_answer", "Answer an agent's terminal question with keys or text. Not while the agent is working.", { id: nonempty, input: z.union([z.object({ keys: z.array(z.enum(answerKeys)).min(1).max(10) }).strict(), z.object({ text: z.string().min(1).max(500) }).strict()]) }, async ({ id, input }) => deps.agents.answer(id, input)), annotations: writeAnnotations },
+    { ...tool("agent_stop", "Close an agent's tab. Keep its branch and worktree for review or a PR.", { id: nonempty }, async ({ id }) => deps.agents.stop(id)), annotations: stopAnnotations },
+    { ...tool("agent_open_pr", "Push an agent's clean branch and open a GitHub PR. Use after reviewing its report and commits.", { id: nonempty, title: nonempty.max(120), body: z.string().max(4000) }, async ({ id, title, body }) => deps.agents.openPr(id, title, body)), annotations: prAnnotations },
   ];
 }
