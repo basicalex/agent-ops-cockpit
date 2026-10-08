@@ -1,6 +1,6 @@
-# aoc-live: read-only AOC context for ChatGPT
+# aoc-live: AOC context for ChatGPT
 
-`aoc-live` is a local MCP server that lets ChatGPT read your herdr workspaces, agent conversations, issue journals (#9) and repositories. It cannot run commands, type into panes or write to GitHub. Delegation still goes through a GitHub issue with `agent-ready`, which AOC Dispatch picks up.
+`aoc-live` is a local MCP server that lets ChatGPT read your herdr workspaces, agent conversations, issue journals (#9) and repositories. Its one write is `save_note`, which appends a note to `${XDG_STATE_HOME:-$HOME/.local/state}/aoc/live/notes.jsonl` (mode `0600`, capped at 1 MB); ChatGPT asks before calling it. It cannot run commands, type into panes or write to GitHub. Delegation still goes through a GitHub issue with `agent-ready`, which AOC Dispatch picks up.
 
 ## Run
 
