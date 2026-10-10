@@ -87,6 +87,9 @@ keybind = super+shift+k=esc:K
 keybind = super+shift+n=text:\x1b[110;4u
 # Cmd+Shift+R → alt+shift+r: herdr rename_tab.
 keybind = super+shift+r=esc:R
+# Cmd+Shift+P -> alt+shift+p: herdr reminder pin (aoc-herdr-pin). CSI-u form,
+# since ESC P would open a DCS sequence.
+keybind = super+shift+p=text:\x1b[112;4u
 # Cmd+digits: override both the physical (digit_N) and translated (N) forms
 # so Ghostty's default goto_tab bindings are fully replaced.
 keybind = super+digit_1=esc:1
