@@ -1,0 +1,54 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+usage() {
+  cat <<'EOF'
+Usage: aoc-herdr-pin [--on|--off] [PANE_ID]
+
+Toggle a reminder pin on a Herdr pane. Pinned agents show a pink marker in
+the sidebar (the $pin token in herdr/config.toml) until you unpin them.
+Without PANE_ID, acts on the UI-focused pane. Bound to alt+shift+p
+(Cmd+Shift+P in Ghostty).
+EOF
+}
+
+# Keybinding commands inherit the Herdr server's minimal PATH.
+export PATH="$HOME/.local/bin:/opt/homebrew/bin:/usr/local/bin:$PATH"
+# They may also lack the session socket; without it the CLI talks to the
+# default server instead of the AOC session.
+if [[ -z "${HERDR_SOCKET_PATH:-}" ]]; then
+  session="${HERDR_SESSION:-${AOC_HERDR_SESSION:-aoc}}"
+  socket="${XDG_CONFIG_HOME:-$HOME/.config}/herdr/sessions/$session/herdr.sock"
+  [[ -S "$socket" ]] && export HERDR_SOCKET_PATH="$socket"
+fi
+
+mode="toggle"
+pane=""
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --on) mode="on" ;;
+    --off) mode="off" ;;
+    -h|--help) usage; exit 0 ;;
+    *) pane="$1" ;;
+  esac
+  shift
+done
+
+if [[ -z "$pane" ]]; then
+  # A detached keybinding command has no HERDR_PANE_ID, so this resolves to
+  # the pane focused in the UI.
+  pane="$(herdr pane current | jq -r '.result.pane.pane_id')"
+fi
+
+if [[ "$mode" == "toggle" ]]; then
+  pinned="$(herdr api snapshot | jq -r --arg p "$pane" \
+    '.result.snapshot.panes[] | select(.pane_id == $p) | .tokens.pin // empty')"
+  if [[ -n "$pinned" ]]; then mode="off"; else mode="on"; fi
+fi
+
+if [[ "$mode" == "on" ]]; then
+  herdr pane report-metadata "$pane" --source aoc-pin --token 'pin=◆'
+else
+  herdr pane report-metadata "$pane" --source aoc-pin --clear-token pin
+fi

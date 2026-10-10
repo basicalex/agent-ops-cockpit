@@ -65,6 +65,13 @@ resize_mode = "prefix+shift+z"
 toggle_sidebar = "alt+b"
 edit_scrollback = "prefix+e"
 
+# Reminder pin: toggles a pink marker on the focused agent's sidebar row
+# (Cmd+Shift+P in Ghostty). See bin/aoc-herdr-pin.
+[[keys.command]]
+key = "alt+shift+p"
+type = "shell"
+command = "$HOME/.local/bin/aoc-herdr-pin"
+
 
 [ui]
 show_agent_labels_on_pane_borders = false
@@ -75,6 +82,10 @@ pane_borders = "auto"
 pane_outer_borders = true
 
 agent_panel_sort = "priority"
+
+# Default rows plus the $pin token that aoc-herdr-pin sets.
+[ui.sidebar.agents]
+rows = [["state_icon", { token = "$pin", fg = "#F58AB8", bold = true }, "machine", "workspace", "tab"], ["agent"]]
 # Popups come from Hammerspoon (hammerspoon/herdr-notify.lua): clickable,
 # and a click jumps to the pane. Herdr's own delivery stays off to avoid doubles.
 [ui.toast]
