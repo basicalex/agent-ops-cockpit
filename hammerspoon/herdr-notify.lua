@@ -41,12 +41,17 @@ M.config = {
     os.getenv("HOME") .. "/.local/bin/herdr-notifier-app",
     os.getenv("HOME") .. "/dev/agent-ops-cockpit/bin/herdr-notifier-app",
   },
+  -- Puts saved reminder pins back after a server (re)start; see aoc-herdr-pin.
+  pinScript = {
+    os.getenv("HOME") .. "/.local/bin/aoc-herdr-pin",
+    os.getenv("HOME") .. "/dev/agent-ops-cockpit/bin/aoc-herdr-pin",
+  },
 }
 
 -- socket path -> {
 --   path, known = {pane_id -> agent_status}, primed, busy, failures,
 --   stream = hs.task (the open nc subscription), buffer, reopenAt,
---   reopenTimer, resyncTimer, events, lastEventAt }
+--   reopenTimer, resyncTimer, events, lastEventAt, restorePins }
 local sessions = {}
 local liveNotifications = {} -- pane key -> hs.notify, kept referenced so click callbacks survive GC
 local timers = {}
@@ -505,6 +510,8 @@ local function openStream(sess)
     sess.stream = nil
     if sessions[sess.path] == sess then
       log("%s: stream ended (exit %s); reconnecting", sess.path, tostring(exitCode))
+      -- The server may have restarted and dropped every pin token.
+      sess.restorePins = true
       scheduleReopen(sess)
     end
   end, function(_, stdout)
@@ -528,6 +535,30 @@ local function openStream(sess)
   end
   task:setInput(req)
   sess.subscribed = #subs - 3
+end
+
+local pinScript
+for _, candidate in ipairs(M.config.pinScript) do
+  if pinScript == nil and hs.fs.attributes(candidate, "mode") == "file" then pinScript = candidate end
+end
+
+-- Pin tokens live only in server memory; aoc-herdr-pin keeps them on disk.
+local function restorePins(sess)
+  if not pinScript then return end
+  local task
+  task = hs.task.new(pinScript, function(exitCode, _, stderr)
+    inflight[task] = nil
+    if exitCode ~= 0 then
+      log("%s: pin restore failed: %s", sess.path, (stderr or ""):gsub("%s+$", ""))
+    end
+  end, { "--restore" })
+  task:setEnvironment({
+    HOME = os.getenv("HOME"),
+    PATH = "/usr/bin:/bin:/usr/sbin:/sbin",
+    HERDR_SOCKET_PATH = sess.path,
+  })
+  inflight[task] = true
+  if not task:start() then inflight[task] = nil end
 end
 
 -- pane.list sweep: seeds the status map, notifies on anything the stream
@@ -568,6 +599,10 @@ sync = function(sess)
       end
     end
     sess.primed = true
+    if sess.restorePins and #panes > 0 then
+      sess.restorePins = false
+      restorePins(sess)
+    end
     if changed or not sess.stream then openStream(sess) end
   end)
 end
@@ -599,7 +634,7 @@ local function rescan()
       -- skip until the retry time
     elseif not sessions[path] then
       deadUntil[path] = nil
-      sessions[path] = { path = path, known = {}, primed = false, busy = false, failures = 0, buffer = "" }
+      sessions[path] = { path = path, known = {}, primed = false, busy = false, failures = 0, buffer = "", restorePins = true }
       log("watching %s", path)
     end
   end

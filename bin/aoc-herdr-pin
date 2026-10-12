@@ -4,11 +4,17 @@ set -euo pipefail
 usage() {
   cat <<'EOF'
 Usage: aoc-herdr-pin [--on|--off] [PANE_ID]
+       aoc-herdr-pin --restore
 
 Toggle a reminder pin on a Herdr pane. Pinned agents show a pink marker in
 the sidebar (the $pin token in herdr/config.toml) until you unpin them.
 Without PANE_ID, acts on the UI-focused pane. Bound to alt+shift+p
 (Cmd+Shift+P in Ghostty).
+
+Pins are saved per session under $XDG_STATE_HOME/aoc (default
+~/.local/state/aoc). --restore puts them back after a Herdr server restart,
+following an agent's session id if its pane id changed, and forgets pins
+whose agent is gone. Hammerspoon runs it when it reconnects to a server.
 EOF
 }
 
@@ -29,11 +35,51 @@ while [[ $# -gt 0 ]]; do
   case "$1" in
     --on) mode="on" ;;
     --off) mode="off" ;;
+    --restore) mode="restore" ;;
     -h|--help) usage; exit 0 ;;
     *) pane="$1" ;;
   esac
   shift
 done
+
+session="default"
+if [[ "${HERDR_SOCKET_PATH:-}" =~ /sessions/([^/]+)/herdr\.sock$ ]]; then
+  session="${BASH_REMATCH[1]}"
+fi
+state_dir="${XDG_STATE_HOME:-$HOME/.local/state}/aoc"
+state="$state_dir/herdr-pins-$session.json"
+mkdir -p "$state_dir"
+[[ -s "$state" ]] || echo '[]' >"$state"
+
+save_state() {
+  local tmp="$state.tmp"
+  cat >"$tmp" && mv "$tmp" "$state"
+}
+
+pin_on() { herdr pane report-metadata "$1" --source aoc-pin --token 'pin=◆'; }
+
+if [[ "$mode" == "restore" ]]; then
+  snapshot="$(herdr api snapshot)"
+  # Each saved pin goes to the pane running the same agent session, else the
+  # same pane id. With no panes at all the server is still starting, so the
+  # state is left alone.
+  plan="$(jq -c --argjson snap "$snapshot" '
+    ($snap.result.snapshot.panes // []) as $panes
+    | if ($panes | length) == 0 then {pins: ., panes: []} else
+      [ .[] as $pin
+        | ( [ $panes[] | select($pin.agent_session != "" and .agent_session.value == $pin.agent_session) ]
+            + [ $panes[] | select(.pane_id == $pin.pane_id) ] )[0]
+        | select(. != null)
+        | {pane_id, agent_session: (.agent_session.value // "")} ]
+      | unique_by(.pane_id)
+      | {pins: ., panes: [.[].pane_id]}
+      end' "$state")"
+  jq '.pins' <<<"$plan" | save_state
+  while IFS= read -r id; do
+    [[ -n "$id" ]] && pin_on "$id"
+  done < <(jq -r '.panes[]' <<<"$plan")
+  exit 0
+fi
 
 if [[ -z "$pane" ]]; then
   # A detached keybinding command has no HERDR_PANE_ID, so this resolves to
@@ -41,14 +87,18 @@ if [[ -z "$pane" ]]; then
   pane="$(herdr pane current | jq -r '.result.pane.pane_id')"
 fi
 
+info="$(herdr api snapshot | jq -c --arg p "$pane" \
+  '.result.snapshot.panes[] | select(.pane_id == $p) | {pin: (.tokens.pin // ""), agent_session: (.agent_session.value // "")}')"
+
 if [[ "$mode" == "toggle" ]]; then
-  pinned="$(herdr api snapshot | jq -r --arg p "$pane" \
-    '.result.snapshot.panes[] | select(.pane_id == $p) | .tokens.pin // empty')"
-  if [[ -n "$pinned" ]]; then mode="off"; else mode="on"; fi
+  if [[ -n "$(jq -r '.pin' <<<"$info")" ]]; then mode="off"; else mode="on"; fi
 fi
 
 if [[ "$mode" == "on" ]]; then
-  herdr pane report-metadata "$pane" --source aoc-pin --token 'pin=◆'
+  pin_on "$pane"
+  jq --arg p "$pane" --arg s "$(jq -r '.agent_session' <<<"$info")" \
+    '[.[] | select(.pane_id != $p)] + [{pane_id: $p, agent_session: $s}]' "$state" | save_state
 else
   herdr pane report-metadata "$pane" --source aoc-pin --clear-token pin
+  jq --arg p "$pane" '[.[] | select(.pane_id != $p)]' "$state" | save_state
 fi
