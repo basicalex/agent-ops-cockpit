@@ -108,7 +108,7 @@ Hard rules to bake into every packet's CONSTRAINTS:
 - "Touch ONLY these files: <explicit list>."
 - "Do NOT commit, stage, stash, or revert anything — `git stash` included: it sweeps every concurrent session's uncommitted work off a shared tree. To test whether a failure is pre-existing, check out the file to a temp path (`git show HEAD:<file> > /tmp/...`) instead." This line goes into EVERY subagent prompt, not only omp packets.
 - "No interactive questions — if blocked, report the blocker in your final response and stop."
-- **"Do NOT run aoc-init or create AOC/Taskmaster scaffolding (.aoc/, .omp/, .taskmaster/, DESIGN.md) in repos that don't already have it committed."** A worker's startup ritual otherwise dirties AGENTS.md, .gitignore and scaffold dirs that the orchestrator has to revert during verify.
+- **"Do NOT run aoc-init or create AOC scaffolding (.aoc/, .omp/, DESIGN.md) in repos that don't already have it committed."** A worker's startup ritual otherwise dirties AGENTS.md, .gitignore and scaffold dirs that the orchestrator has to revert during verify.
 - ACCEPTANCE includes the verification commands (TEST_CMD / TYPECHECK_CMD) with the framing: "pre-existing errors are acceptable; errors in YOUR files must be clean."
 
 ### Typecheck rules for large apps (avoid timeouts and cache thrash)

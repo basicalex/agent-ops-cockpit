@@ -2,7 +2,6 @@
 prepend_keymap = [
   # Navigation
   { on = ["g", "c"], run = "cd .aoc", desc = "Go to Context" },
-  { on = ["g", "t"], run = "cd .taskmaster", desc = "Go to Tasks" },
   { on = ["g", "l"], run = "shell 'cd \"${XDG_STATE_HOME:-$HOME/.local/state}/aoc\" && yazi'", desc = "Go to Logs" },
 
   # SMART OPEN (Enter / o)

@@ -58,7 +58,6 @@ Enable users to run their preferred shell in terminal panes while AOC's internal
 - Add `AOC_SHELL` override for explicit selection
 - Create shell detection utilities for edge cases
 
-**Tracking:** Task #41 in `.taskmaster/tasks/tasks.json`
 
 ### Phase 2: Custom Layout Selection (In Progress)
 
@@ -75,7 +74,6 @@ Empower users to create, share, and use custom Zellij layouts for different "AOC
 **Next extension:**
 - Port `aoc.<layout>` shell integration to Zsh and Fish with parity behavior (project-local refresh + completion)
 
-**Tracking:** Task #42 in `.taskmaster/tasks/tasks.json`
 
 ### Phase 3: Script Portability (Planned)
 

@@ -7,7 +7,6 @@ Use AOC when you want:
 - a Herdr workspace with the OMP coding agent
 - master orchestration through `/master`
 - project context and memory stored in the repo
-- Taskmaster tasks through `tm` / `aoc-task`
 - CodeGraph code discovery for OMP agents
 - web research fallback through local search or direct package/GitHub modes
 
@@ -37,7 +36,6 @@ aoc
 Inside AOC:
 
 1. Use the OMP pane for coding.
-2. Use Taskmaster for tasks.
 3. Use `/commit` for safe commits.
 4. Use `/master` for orchestration.
 5. Run `aoc-doctor` for health checks.
@@ -51,7 +49,6 @@ Common setup paths:
 | OMP coding agent | `aoc omp`, `omp` |
 | Safe commit workflow | `/commit [intent]` |
 | Master orchestration | `/master on [minutes]`, `/master off`, `/master status` |
-| Tasks | `tm list`, `aoc-task` |
 | Code discovery | `aoc_codegraph` in OMP, `codegraph sync /path/to/project` by operator |
 | Web research fallback | `aoc_web_search`, `aoc-search`, `aoc services` |
 
