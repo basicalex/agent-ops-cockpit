@@ -1417,7 +1417,6 @@ aoc_agents_managed_end='<!-- aoc:managed:end -->'
 # belongs to the project and is never changed.
 ensure_agents_contract() {
   local agents_file="$1"
-  local first_agents_line=""
   local block_file known_file result="" tag line
 
   block_file="$(mktemp)"
@@ -1434,12 +1433,10 @@ ensure_agents_contract() {
     return
   fi
 
-  IFS= read -r first_agents_line < "$agents_file" || true
-  if grep -Fqx "$aoc_agents_managed_start" "$agents_file" ||
-    [[ "$first_agents_line" == "# AOC Architecture & Agent Guidelines" ]]; then
-    known_file="$(mktemp)"
-    { aoc_agents_template_body; aoc_agents_retired_template_lines; } > "$known_file"
-    result="$(python3 - "$agents_file" "$block_file" "$known_file" "$aoc_agents_managed_start" "$aoc_agents_managed_end" <<'PY'
+  known_file="$(mktemp)"
+  { aoc_agents_template_body; aoc_agents_retired_template_lines; } > "$known_file"
+  result="$(python3 - "$agents_file" "$block_file" "$known_file" "$aoc_agents_managed_start" "$aoc_agents_managed_end" <<'PY'
+import re
 import sys
 from pathlib import Path
 
@@ -1461,93 +1458,111 @@ if start in lines and end in lines[lines.index(start):]:
         print("refreshed")
     raise SystemExit(0)
 
-# Migration: a whole-file AOC contract without markers. Keep every line that
-# no AOC template wrote, in order, after the managed block.
-known = {line.rstrip() for line in known_path.read_text(encoding="utf-8").splitlines()}
-kept = []
-gap = False
-for line in lines:
+# Migration for a file without markers: a whole-file AOC contract, or a
+# project file with (or without) an old "## Agent Ops Cockpit (AOC)" section.
+# The managed block goes first; every line no AOC template wrote follows, in
+# order. Project lines from the old AOC section stay under "## Project rules".
+whole_file = bool(lines) and lines[0] == "# AOC Architecture & Agent Guidelines"
+known = {line.rstrip() for line in known_path.read_text(encoding="utf-8").splitlines() if line.strip()}
+known.update({start, end})
+# Lines the old appended AOC section wrote; some drifted outside the section.
+known.update({
+    "Use the AOC tools for context in this repo.",
+    "- **Context:** `.aoc/context.md` (auto-generated project map)",
+    "If AOC files are missing or stale, run `aoc-init` at the repo root.",
+})
+
+legacy_heading = "## Agent Ops Cockpit (AOC)"
+sec_start = sec_end = len(lines)
+if legacy_heading in lines:
+    sec_start = lines.index(legacy_heading)
+    sec_end = next((k for k in range(sec_start + 1, len(lines)) if lines[k].startswith("## ")), len(lines))
+
+# Generic AOC guidance that the managed block now carries.
+generic = re.compile(
+    r"^Use the AOC tools for |^If AOC files are missing or stale|DESIGN\.md|\.aoc/context\.md|HyperFrames"
+)
+retired = re.compile(
+    r"aoc-" r"mem|aoc-" r"stm|\.aoc/stm|\.aoc/memory\.md|\bSTM\b|\bRTK\b|\brtk\b|\bMind\b|mind-service"
+    r"|\bjj\b|Jujutsu|[Zz]ellij|[Cc]ode[Gg]raph|\bTaskmaster\b|\btm\b|aoc[- ]task|[Ss]ear[Xx][Nn][Gg]"
+)
+
+section_kept, section_dropped = [], []
+for line in lines[sec_start + 1:sec_end]:
     stripped = line.rstrip()
     if not stripped:
-        gap = True
+        if section_kept:
+            section_kept.append("")
         continue
-    if stripped in known or stripped in (start, end):
-        continue
-    if gap and kept:
-        kept.append("")
-    gap = False
-    kept.append(line)
+    if stripped in known or generic.search(stripped) or retired.search(stripped):
+        section_dropped.append(stripped)
+    else:
+        section_kept.append(line)
+while section_kept and not section_kept[-1]:
+    section_kept.pop()
+
+placeholder = object()
+rest = [line for line in lines[:sec_start] if line.rstrip() not in known]
+if sec_start < len(lines):
+    rest += ["", placeholder, ""]
+rest += [line for line in lines[sec_end:] if line.rstrip() not in known]
+
+def tidy(seq):
+    out, gap = [], False
+    for item in seq:
+        if isinstance(item, str) and not item.strip():
+            gap = True
+            continue
+        if gap and out:
+            out.append("")
+        gap = False
+        out.append(item)
+    return out
+
+rest = tidy(rest)
+body = [item for item in rest if item is not placeholder]
+if body and body[0].startswith("#"):
+    section = ["## Project rules", *section_kept] if section_kept else []
+    kept = tidy(sum(([*section, ""] if item is placeholder else [item] for item in rest), []))
+else:
+    lead = ["## Project rules", *section_kept, ""] if section_kept else (["## Project rules"] if body else [])
+    kept = tidy(lead + body)
 
 out = block
 if kept:
-    out += "\n\n"
-    if not kept[0].startswith("## "):
-        out += "## Project rules\n"
-    out += "\n".join(kept)
-path.write_text(out.rstrip("\n") + "\n", encoding="utf-8")
-print("migrated")
-for line in kept:
-    if line:
+    out += "\n\n" + "\n".join(kept)
+out = out.rstrip("\n") + "\n"
+if out == text:
+    print("same")
+    raise SystemExit(0)
+path.write_text(out, encoding="utf-8")
+if sec_start < len(lines):
+    print("converted")
+    report = section_kept
+else:
+    print("migrated" if whole_file else "added")
+    report = kept if whole_file else []
+for line in report:
+    if line and line != "## Project rules":
         print("kept\t" + line)
+for line in section_dropped:
+    print("dropped\t" + line)
 PY
 )"
-    rm -f "$known_file" "$block_file"
-    case "$result" in
-      same) log "AGENTS.md managed block already up to date." ;;
-      refreshed) log "Updated the AOC-managed block in AGENTS.md." ;;
-      migrated*)
-        log "Moved the AOC contract in AGENTS.md into a managed block."
-        while IFS=$'\t' read -r tag line; do
-          if [[ "$tag" == "kept" ]]; then log "  kept project line: $line"; fi
-        done <<< "$result"
-        ;;
+  rm -f "$known_file" "$block_file"
+  case "$result" in
+    same) log "AGENTS.md managed block already up to date." ;;
+    refreshed) log "Updated the AOC-managed block in AGENTS.md." ;;
+    migrated*) log "Moved the AOC contract in AGENTS.md into a managed block." ;;
+    converted*) log "Replaced the old AOC section in AGENTS.md with a managed block." ;;
+    added*) log "Added the AOC-managed block to AGENTS.md; project content follows it." ;;
+  esac
+  while IFS=$'\t' read -r tag line; do
+    case "$tag" in
+      kept) log "  kept project line: $line" ;;
+      dropped) log "  dropped old AOC line: $line" ;;
     esac
-    return 0
-  fi
-  rm -f "$block_file"
-
-  # Refresh the retired wording only inside the AOC-managed section.
-  if grep -Fq 'marketing, HyperFrames, or other product-facing work' "$agents_file" &&
-    python3 - "$agents_file" <<'PY'
-import sys
-from pathlib import Path
-
-path = Path(sys.argv[1])
-text = path.read_text(encoding="utf-8")
-start = text.find("## Agent Ops Cockpit (AOC)")
-if start < 0:
-    raise SystemExit(1)
-end = text.find("\n## ", start + 1)
-if end < 0:
-    end = len(text)
-old = "marketing, HyperFrames, or other product-facing work"
-new = "marketing, or other product-facing work"
-section = text[start:end]
-if old not in section:
-    raise SystemExit(1)
-path.write_text(text[:start] + section.replace(old, new) + text[end:], encoding="utf-8")
-PY
-  then
-    log "Updated retired wording in AGENTS.md AOC section."
-  fi
-
-
-  if grep -Fq "## Agent Ops Cockpit (AOC)" "$agents_file"; then
-    log "Existing AGENTS.md already includes an AOC section. Preserving."
-    return
-  fi
-
-  log "Appending AOC command guidance to existing AGENTS.md..."
-  cat <<'EOF' >> "$agents_file"
-
-## Agent Ops Cockpit (AOC)
-Use the AOC tools for context in this repo.
-
-- **Context:** `.aoc/context.md` (auto-generated project map)
-- **Design:** `DESIGN.md` at the project root is the visual/product design contract. Read it before UI, docs-site, marketing, or other product-facing changes.
-
-If AOC files are missing or stale, run `aoc-init` at the repo root.
-EOF
+  done <<< "$result"
 }
 
 
@@ -1561,12 +1576,10 @@ ensure_git_tracking_policy() {
     : > "$ignore_file"
   fi
 
-  if [[ -s "$ignore_file" ]]; then
-    local last_char=""
-    last_char="$(tail -c 1 "$ignore_file" 2>/dev/null || true)"
-    if [[ "$last_char" != $'\n' ]]; then
-      printf '\n' >> "$ignore_file"
-    fi
+  # $(...) strips a trailing newline, so a non-empty result means the file
+  # does not end with one.
+  if [[ -s "$ignore_file" && -n "$(tail -c 1 "$ignore_file" 2>/dev/null || true)" ]]; then
+    printf '\n' >> "$ignore_file"
   fi
 
   local rules=(
@@ -1580,6 +1593,9 @@ ensure_git_tracking_policy() {
     "!/.omp/agents/**"
     "!/.omp/skills/"
     "!/.omp/skills/**"
+    # Backups aoc-init leaves next to refreshed targets (.omp/, .aoc/presets/,
+    # .pi/*/). Listed after the re-includes above so this rule wins.
+    ".aoc-backups/"
   )
 
   for line in "${rules[@]}"; do
@@ -1590,7 +1606,7 @@ ensure_git_tracking_policy() {
   done
 
   if [[ "$changed" == "1" ]]; then
-    log "Updated .gitignore to keep .aoc/ and repo-owned .omp/ sources tracked."
+    log "Updated .gitignore to keep .aoc/ and repo-owned .omp/ sources tracked and AOC backups ignored."
   else
     log ".gitignore already keeps .aoc/ and repo-owned .omp/ sources tracked."
   fi
