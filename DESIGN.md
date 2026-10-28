@@ -87,7 +87,7 @@ The YAML front matter is the machine-readable token source for the Google Labs `
 
 ## Overview
 
-- Product/project: Agent Ops Cockpit — a Pi-first agent operations cockpit for context, tasks, memory, skills, layouts, and production modes.
+- Product/project: Agent Ops Cockpit — a Herdr-first agent operations layer for project context, skills, and orchestration.
 - Primary audience: developers and AI-assisted builders operating complex projects from a terminal-first workflow.
 - Primary promise: make agent work observable, controllable, recoverable, and production-ready without burying the operator in noise.
 - Desired emotional impression: calm command center, sharp engineering instrument, trustworthy automation.
@@ -187,7 +187,7 @@ Use small, consistent radii. Controls should feel precise and technical, not pla
 
 - Tone: concise, clear, operator-centered.
 - CTA style: command-oriented: “Initialize”, “Sync”, “Run doctor”, “Open log”.
-- Terminology: prefer AOC, Pi, Taskmaster, Spec consistently.
+- Terminology: prefer AOC, Herdr, OMP, Spec consistently.
 - Error message style: name failing command/action, give log path or next repair step.
 - Things to avoid: vague success, silent failures, unbounded “magic”, unsupported runtime claims.
 

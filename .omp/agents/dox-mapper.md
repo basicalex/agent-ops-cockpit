@@ -1,7 +1,7 @@
 ---
 name: dox-mapper
 description: Read-only AOC DOX mapper that turns approved candidate areas into evidence-backed local contracts
-tools: read, search, find, aoc_codegraph, aoc_dox
+tools: read, search, find, aoc_dox
 spawns: ""
 model: openai-codex/gpt-5.5
 thinking-level: high

@@ -1965,7 +1965,7 @@ mod tests {
     #[test]
     fn normalize_key_collapses_spacing_and_case() {
         assert_eq!(normalize_key("Agent Topology"), "agent-topology");
-        assert_eq!(normalize_key("mind__ops"), "mind-ops");
+        assert_eq!(normalize_key("core__ops"), "core-ops");
     }
 
     #[test]

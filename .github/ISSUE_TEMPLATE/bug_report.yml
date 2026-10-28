@@ -40,11 +40,11 @@ body:
   - type: textarea
     attributes:
       label: Environment
-      description: OS, terminal, Zellij, Yazi, Rust, and any relevant versions.
+      description: OS, terminal, Herdr, Yazi, Rust, and any relevant versions.
       value: |
         OS:
         Terminal:
-        Zellij:
+        Herdr:
         Yazi:
         Rust:
     validations:

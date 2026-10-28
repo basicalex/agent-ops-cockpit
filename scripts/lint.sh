@@ -3,7 +3,7 @@ set -euo pipefail
 
 collect_shell_files() {
   local f first_line
-  for f in bin/* install.sh install/bootstrap.sh legacy/opencode/scripts/*.sh; do
+  for f in bin/* install.sh install/bootstrap.sh; do
     [[ -f "$f" ]] || continue
     first_line="$(head -n 1 "$f")"
     if [[ "$first_line" =~ ^#!.*(^|[/[:space:]])(bash|sh|dash|ksh)([[:space:]]|$) ]]; then

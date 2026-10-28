@@ -47,7 +47,7 @@ def resolve_project_root(cwd: str | None) -> Path:
     if not root.is_dir():
         raise ValueError(f"invalid cwd: {root}")
     for candidate in [root, *root.parents]:
-        if (candidate / ".aoc" / "search.toml").exists() or (candidate / "bin" / "aoc").exists():
+        if (candidate / ".aoc" / "context.md").exists() or (candidate / "bin" / "aoc").exists():
             return candidate
     return root
 
@@ -143,28 +143,16 @@ def ensure_tab(workspace_id: str, root: Path, label: str, pane_label: str, comma
     return True
 
 
-def services_commands(root: Path):
+def overview_command(root: Path) -> str:
     quoted_root = shlex.quote(str(root))
-    overview_body = f"export AOC_SERVICES_ROOT={quoted_root}; exec aoc-services up --watch --interval 30"
-    overview = f"bash -lc {shlex.quote(overview_body)}"
-    search_body = (
-        f"cd {quoted_root} && "
-        f"export AOC_SERVICES_ROOT={quoted_root}; "
-        "aoc-search status; "
-        "printf '\\nNext commands:\\n  aoc services start search\\n  aoc-search health\\n  aoc-search query --mode docs --limit 3 <query>\\n'; "
-        "exec \"${SHELL:-bash}\""
-    )
-    search = f"bash -lc {shlex.quote(search_body)}"
-    return overview, search
+    body = f"cd {quoted_root} && export AOC_SERVICES_ROOT={quoted_root}; exec \"${{SHELL:-bash}}\""
+    return f"bash -lc {shlex.quote(body)}"
 
 
 def ensure_layout(root: Path, workspace_id: str):
-    overview, search = services_commands(root)
     created = []
-    if ensure_tab(workspace_id, root, "Overview", "AOC Services", overview, reuse_initial=True):
+    if ensure_tab(workspace_id, root, "Overview", "AOC Services", overview_command(root), reuse_initial=True):
         created.append("Overview")
-    if ensure_tab(workspace_id, root, "Search", "Managed Search", search):
-        created.append("Search")
     return created
 
 
@@ -214,7 +202,7 @@ def command_ensure(root: Path, focus: bool) -> int:
     if created_tabs:
         print(f" tabs: {', '.join(created_tabs)}")
     else:
-        print(" tabs: reused existing Overview/Search")
+        print(" tabs: reused existing Overview")
     return 0
 
 

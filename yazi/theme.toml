@@ -1,5 +1,5 @@
-# AOC Yazi Theme - Command tips in status bar (like Zellij)
-# Catppuccin-inspired colors to match the Zellij status bar
+# AOC Yazi Theme - Command tips in status bar
+# Catppuccin-inspired colors
 
 [mgr]
 cwd = { fg = "#94E2D5" }

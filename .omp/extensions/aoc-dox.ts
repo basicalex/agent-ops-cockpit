@@ -19,7 +19,6 @@ const DoxParams = Type.Object({
 	action: DoxActionSchema,
 	cwd: Type.Optional(Type.String({ description: "Optional working directory scoped under the current project root." })),
 	json: Type.Optional(Type.Boolean({ description: "Request JSON output where supported." })),
-	noCodegraph: Type.Optional(Type.Boolean({ description: "Disable CodeGraph usage where supported." })),
 	minScore: Type.Optional(Type.Integer({ minimum: 1, maximum: 20, description: "Minimum candidate score where supported." })),
 	maxChars: Type.Optional(Type.Integer({ minimum: 1000, maximum: 40000, description: "Maximum characters returned to the model." })),
 });
@@ -28,7 +27,6 @@ const DoxWriterParams = Type.Object({
 	action: DoxWriterActionSchema,
 	cwd: Type.Optional(Type.String({ description: "Optional working directory scoped under the current project root." })),
 	json: Type.Optional(Type.Boolean({ description: "Request JSON output where supported." })),
-	noCodegraph: Type.Optional(Type.Boolean({ description: "Disable CodeGraph usage for map." })),
 	minScore: Type.Optional(Type.Integer({ minimum: 1, maximum: 20, description: "Minimum candidate score for map." })),
 	writePacket: Type.Optional(Type.Boolean({ description: "For action=review-packet, write .aoc/dox/review.md." })),
 	maxChars: Type.Optional(Type.Integer({ minimum: 1000, maximum: 40000, description: "Maximum characters returned to the model." })),
@@ -38,7 +36,6 @@ type DoxParamsType = {
 	action: "review" | "review-packet" | "doctor" | "apply-dry-run";
 	cwd?: string;
 	json?: boolean;
-	noCodegraph?: boolean;
 	minScore?: number;
 	maxChars?: number;
 };
@@ -47,7 +44,6 @@ type DoxWriterParamsType = {
 	action: "map" | "eval" | "review-packet";
 	cwd?: string;
 	json?: boolean;
-	noCodegraph?: boolean;
 	minScore?: number;
 	writePacket?: boolean;
 	maxChars?: number;
@@ -89,7 +85,6 @@ function buildWriterArgs(params: DoxWriterParamsType): string[] {
 		case "map":
 			args.push("map");
 			if (json) args.push("--json");
-			if (params.noCodegraph) args.push("--no-codegraph");
 			if (Number.isFinite(params.minScore ?? NaN)) args.push("--min-score", String(Math.floor(params.minScore as number)));
 			break;
 		case "eval":

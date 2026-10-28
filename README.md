@@ -1,15 +1,12 @@
 # AOC — Herdr-first AI workspace
 
-AOC (Agent Ops Cockpit) gives each project a Herdr workspace with OMP-native coding agents, repo-owned context, memory, tasks, and retained project tooling.
+AOC (Agent Ops Cockpit) gives each project a Herdr workspace with OMP-native coding agents, repo-owned context, and project tooling.
 
 Use AOC when you want:
 
 - a Herdr workspace with the OMP coding agent
 - master orchestration through `/master`
-- project context and memory stored in the repo
-- Taskmaster tasks through `tm` / `aoc-task`
-- CodeGraph code discovery for OMP agents
-- web research fallback through local search or direct package/GitHub modes
+- project context stored in the repo
 
 ## Install
 
@@ -37,10 +34,9 @@ aoc
 Inside AOC:
 
 1. Use the OMP pane for coding.
-2. Use Taskmaster for tasks.
-3. Use `/commit` for safe commits.
-4. Use `/master` for orchestration.
-5. Run `aoc-doctor` for health checks.
+2. Use `/commit` for safe commits.
+3. Use `/master` for orchestration.
+4. Run `aoc-doctor` for health checks.
 
 Common setup paths:
 
@@ -51,9 +47,6 @@ Common setup paths:
 | OMP coding agent | `aoc omp`, `omp` |
 | Safe commit workflow | `/commit [intent]` |
 | Master orchestration | `/master on [minutes]`, `/master off`, `/master status` |
-| Tasks | `tm list`, `aoc-task` |
-| Code discovery | `aoc_codegraph` in OMP, `codegraph sync /path/to/project` by operator |
-| Web research fallback | `aoc_web_search`, `aoc-search`, `aoc services` |
 
 ## Human docs
 
@@ -73,7 +66,7 @@ Reference/maintainer docs live under `docs/reference/`, `docs/maintainer/`, and 
 - Herdr
 - OMP coding agent CLI (`omp`)
 - Git
-- Optional: Docker for managed local search
+- Bun
 
 ## Troubleshooting
 

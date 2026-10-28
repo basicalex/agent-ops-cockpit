@@ -1,11 +1,9 @@
 extensions = [
-  "aoc-codegraph.ts",
   "aoc-commit.ts",
   "aoc-state.ts",
   "aoc-dox.ts",
   "aoc-dox-command.ts",
   "aoc-master.ts",
-  "aoc-web-search.ts",
   "aoc-style.ts",
   "aoc-profile.ts",
 ]
@@ -37,7 +35,6 @@ description = "Lean default AOC OMP surface for code understanding and Ponytail 
 risk = "low"
 extensions = [
   "aoc-profile.ts",
-  "aoc-codegraph.ts",
   "aoc-dox.ts",
   "aoc-style.ts",
 ]
@@ -86,26 +83,15 @@ agents = [
   "dox-writer.md",
 ]
 
-[profiles.research]
-description = "Local web-search fallback for package, docs, GitHub, and error lookup."
-risk = "network"
-extensions = ["aoc-web-search.ts"]
-skills = []
-agents = []
-
-
-
 [profiles.full]
 description = "Full compatibility surface matching the previous always-installed AOC OMP inventory."
 risk = "high"
 extensions = [
-  "aoc-codegraph.ts",
   "aoc-commit.ts",
   "aoc-state.ts",
   "aoc-dox.ts",
   "aoc-dox-command.ts",
   "aoc-master.ts",
-  "aoc-web-search.ts",
   "aoc-style.ts",
   "aoc-profile.ts",
 ]

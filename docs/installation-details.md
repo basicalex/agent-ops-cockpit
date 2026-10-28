@@ -7,12 +7,10 @@ AOC installation is OMP-first.
 `aoc-init` and `aoc-herdr-install` install repo-owned OMP assets into `${AOC_OMP_AGENT_DIR:-~/.omp/agent}`:
 
 ```text
-extensions/aoc-codegraph.ts
 extensions/aoc-commit.ts
 extensions/aoc-state.ts
 extensions/aoc-dox.ts
 extensions/aoc-dox-command.ts
-extensions/aoc-web-search.ts
 agents/dox-scout.md
 agents/dox-mapper.md
 agents/dox-critic.md
@@ -38,7 +36,7 @@ DESIGN.md
 ## Smoke checks
 
 ```bash
-test -f .omp/extensions/aoc-codegraph.ts
+test -f .omp/extensions/aoc-commit.ts
 test -f .omp/extensions/aoc-state.ts
 test -f .omp/agents/dox-scout.md
 test -f .omp/skills/aoc-init-ops/SKILL.md

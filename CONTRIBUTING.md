@@ -6,12 +6,13 @@ We welcome contributions!
 
 1.  **Prerequisites:**
     *   Rust (latest stable)
-    *   `zellij` >= 0.43.1
+    *   Bun
+    *   Herdr
     *   `yazi`
 
 2.  **Build:**
     ```bash
-    cargo build --workspace
+    cargo build --manifest-path crates/Cargo.toml --workspace
     ```
 
 3.  **Install Locally:**
@@ -21,7 +22,7 @@ We welcome contributions!
 
 ## Project Structure
 
-*   `crates/`: Rust binaries (`aoc-cli`, `aoc-core`).
-*   `plugins/`: Reserved for Zellij plugins (currently empty).
+*   `crates/`: Rust binaries (`aoc-cli`).
 *   `bin/`: Shell scripts and wrappers.
-*   `zellij/`: Layout templates.
+*   `herdr/`: Herdr config baseline.
+*   `yazi/`: Yazi config and plugins.

@@ -34,16 +34,13 @@ if [[ "${1:-}" == "services" ]]; then
       shift
       exec_sibling_or_path aoc-herdr-services ensure "$@"
       ;;
-    status|up|start|stop|doctor)
-      exec_sibling_or_path aoc-services "$@"
-      ;;
     -h|--help)
-      echo "Usage: aoc services [workspace|status|up|start|stop|doctor]"
+      echo "Usage: aoc services [workspace|ensure]"
       exit 0
       ;;
     *)
       echo "Unknown services command: $1" >&2
-      echo "Usage: aoc services [workspace|status|up|start|stop|doctor]" >&2
+      echo "Usage: aoc services [workspace|ensure]" >&2
       exit 2
       ;;
   esac
@@ -51,7 +48,7 @@ fi
 
 if [[ $# -gt 0 ]]; then
   case "$1" in
-    rlm|overseer|map|dox|see|--help|-h)
+    rlm|map|dox|see|--help|-h)
       # Assuming aoc-cli is in path or same directory
       if [[ -x "$DIR/aoc-cli" ]]; then
         exec "$DIR/aoc-cli" "$@"

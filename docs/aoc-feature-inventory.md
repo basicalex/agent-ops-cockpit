@@ -8,10 +8,8 @@ This inventory defines the Herdr/OMP cutover target. AOC should become a project
 |---|---|---|---|
 | Familiar launcher | `bin/aoc`, `bin/aoc-herdr-launch` | AOC + Herdr | `aoc` should launch/focus Herdr. |
 | OMP launcher/context | `bin/aoc-omp`, `bin/aoc-omp-context`, `bin/aoc-handshake --prompt/--json` | AOC + OMP | Metadata-only startup capsule; no broad project-context injection. |
-| CodeGraph | `.omp/extensions/aoc-codegraph.ts`, `codegraph` CLI | OMP extension | Read-only agent discovery; indexing/sync remains operator-controlled. |
 | Master orchestration | `.omp/extensions/aoc-master.ts`, `/master`, `aoc_orchestrate` | OMP extension + Herdr | Keep as gated peer coordination. Requires an active master lease for the current pane; mutating surface is bounded text sends only, after read-only observation through native `herdr` and the `herdr-agent-observation` skill. |
-| Web research | `.omp/extensions/aoc-web-search.ts`, `bin/aoc-search`, `docs/web-research.md`, `scripts/test-web-research-stack.sh`, related skills/scripts | OMP extension + AOC tooling | Keep. Local fallback for agent web search when paid/native providers fail. |
-| AOC Services workspace | `bin/aoc-herdr-services`, `bin/aoc-services`, `aoc services`, `docs/operator/aoc-services.md` | Herdr + AOC tooling | Retained Herdr runtime owner for project-scoped service health/startup, especially managed local SearXNG. Distinct from retired Mission Control/status UI. |
+| AOC Services workspace | `bin/aoc-herdr-services`, `aoc services` | Herdr + AOC tooling | Optional project-scoped workspace with one shell tab. Distinct from retired Mission Control/status UI. |
 | Selected skills/prompts/docs | `.omp/skills`, docs | AOC tooling | Keep only if they complement Herdr/OMP workflows. |
 
 ## Remove / retire from default AOC
@@ -26,8 +24,11 @@ These items have been removed from the active Herdr/OMP stack. Historical compat
 | Mission Control | removed: `bin/aoc-mission-control`, `bin/aoc-mission-control-tab`, `bin/aoc-mission-control-toggle`, `crates/aoc-mission-control`, `.aoc/layouts/mission-control.kdl`, operator Mission Control docs | Herdr + OMP | Removed rather than ported; overlapping functionality belongs in Herdr/OMP. |
 | AOC subagent manager/control surfaces | removed: `bin/aoc-subagent-supervision*`, `docs/reference/subagent-runtime.md` | OMP | Removed; OMP owns subagent orchestration. |
 | Control pane | removed: `bin/aoc-control`, `bin/aoc-control-toggle`, `crates/aoc-control`, `docs/control-pane.md` | Herdr | Removed; Herdr and direct CLI surfaces own operator actions. |
-| Legacy pane/workspace/session health UI | removed: `bin/aoc-session-state`, `bin/aoc-pane-evidence`, `bin/aoc-pulse-pane`, `bin/aoc-hub`, `crates/aoc-hub-rs`, Pulse/session docs | Herdr | Removed; `bin/aoc-services` is retained for the Herdr AOC Services workspace. |
+| Legacy pane/workspace/session health UI | removed: `bin/aoc-session-state`, `bin/aoc-pane-evidence`, `bin/aoc-pulse-pane`, `bin/aoc-hub`, `crates/aoc-hub-rs`, Pulse/session docs | Herdr | Removed. |
 | Zellij cleanup/inventory | removed: `bin/aoc-cleanup`, `bin/aoc-cleanup-core.py`, Zellij inventory helpers | Herdr | Removed with the Zellij cockpit. |
+| Local web-search stack | removed 2026-10-28: `bin/aoc-search`, `bin/aoc-fetch`, `bin/aoc-render`, `bin/aoc-services`, SearXNG service files, `aoc_web_search` | Agent harness web tools | Removed; it needed Docker and saw no use. |
+| CodeGraph | removed 2026-10-28: `aoc_codegraph` OMP tool | None | Removed; the CLI was not installed, so every call failed. |
+| Extra harness installers | removed 2026-10-28: prime-agent, jcode, OpenCode installers and configs | Claude Code, Codex, OMP | Removed; unused harnesses. |
 
 ## Installer cutover requirements
 
@@ -38,8 +39,6 @@ Default install must become lean and must not install old cockpit assets.
 - Herdr config baseline: `herdr/config.toml`
 - OMP integration: `herdr integration install omp` where available
 - AOC OMP context commands: `aoc-omp`, `aoc-omp-context`, `aoc-handshake`
-- CodeGraph OMP extension: `.omp/extensions/aoc-codegraph.ts`
-- Kept tooling: web research
 - Herdr AOC Services workspace command: `aoc services` / `bin/aoc-herdr-services`
 - Native Herdr observation skill: `.omp/skills/herdr-agent-observation/SKILL.md`
 

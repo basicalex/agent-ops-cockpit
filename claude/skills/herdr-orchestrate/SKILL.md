@@ -108,7 +108,7 @@ Hard rules to bake into every packet's CONSTRAINTS:
 - "Touch ONLY these files: <explicit list>."
 - "Do NOT commit, stage, stash, or revert anything — `git stash` included: it sweeps every concurrent session's uncommitted work off a shared tree. To test whether a failure is pre-existing, check out the file to a temp path (`git show HEAD:<file> > /tmp/...`) instead." This line goes into EVERY subagent prompt, not only omp packets.
 - "No interactive questions — if blocked, report the blocker in your final response and stop."
-- **"Do NOT run aoc-init or create AOC/Taskmaster scaffolding (.aoc/, .omp/, .taskmaster/, DESIGN.md) in repos that don't already have it committed."** A worker's startup ritual otherwise dirties AGENTS.md, .gitignore and scaffold dirs that the orchestrator has to revert during verify.
+- **"Do NOT run aoc-init or create AOC scaffolding (.aoc/, .omp/, DESIGN.md) in repos that don't already have it committed."** A worker's startup ritual otherwise dirties AGENTS.md, .gitignore and scaffold dirs that the orchestrator has to revert during verify.
 - ACCEPTANCE includes the verification commands (TEST_CMD / TYPECHECK_CMD) with the framing: "pre-existing errors are acceptable; errors in YOUR files must be clean."
 
 ### Typecheck rules for large apps (avoid timeouts and cache thrash)
@@ -209,3 +209,4 @@ Rules for lessons: one per incident, short, state the failure evidence and the c
 - Worker made a small, obvious mistake → fixing it directly during verification is allowed (the minor-fix exception); anything larger gets re-packeted.
 - Worker touched out-of-scope files → do not commit those hunks; note it and revert only the out-of-scope worker changes after confirming they aren't user work.
 - Worker pane unresponsive → `herdr pane read` its scrollback to diagnose before re-dispatching.
+- Mid-run notes to a busy Codex worker can fail ("unsupported_native_inflight_message", emb2 campaign 2026-10-07) and the note is lost. Put everything in the packet; if scope changes mid-run, make the small edit yourself or send it after the worker goes idle.

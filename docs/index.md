@@ -19,10 +19,7 @@ This is the human entrypoint. Start here before opening architecture or maintain
 | Herdr workspace management | [Herdr workspace](herdr-workspace.md) |
 | Master orchestration `/master` | [Herdr workspace](herdr-workspace.md) |
 | Safe commits `/commit` | [Commit intelligence](commit-intelligence.md) |
-| Code discovery `aoc_codegraph` | [Agent extensibility](agent-extensibility.md) |
 | DOX cartography `/dox` | [DOX cartography](dox-cartography.md) |
-| Track tasks and project context | [Tasks and project context](tasks-memory.md) |
-| Research the web | [Web research](web-research.md) |
 | Configure agents/skills | [Agents](agents.md), [Skills](skills.md) |
 | Fix problems | [Troubleshooting](troubleshooting.md) |
 

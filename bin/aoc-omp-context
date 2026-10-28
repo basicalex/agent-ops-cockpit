@@ -124,7 +124,7 @@ print_fast_context() {
 - Root: \`$root\`
 - AOC: $initialized; context \`.aoc/context.md\` is $context_state; agent contract is $agents_state.
 - VCS: $vcs_line. Safety rule: $policy_line.
-- CodeGraph and other capability details are lazy lookups, not startup prose.
+- Capability details are lazy lookups, not startup prose.
 EOF
   print_style_hooks
 }
@@ -134,4 +134,5 @@ if [[ "${AOC_OMP_CONTEXT_FAST:-1}" != "0" && "$level" != "full" ]]; then
   exit 0
 fi
 
-exec "$handshake" --prompt --prompt-level "$level" "$@"
+"$handshake" --prompt --prompt-level "$level" "$@"
+print_style_hooks

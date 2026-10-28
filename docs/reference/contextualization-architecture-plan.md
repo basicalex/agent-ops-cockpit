@@ -10,7 +10,7 @@ AOC currently has multiple context producers that can appear equally relevant at
 - layered `AGENTS.md` files
 - `.aoc/context.md`
 - `aoc-handshake --json`
-- Taskmaster tasks/specs
+- `docs/specs/` task specs
 - retained context packs/provenance
 - `.omp/skills/**/SKILL.md`
 - `.omp/skills/aoc-*.md` workflows
@@ -51,7 +51,6 @@ These are not injected by default:
 
 - full `AGENTS.md` chain
 - broad memory/context packs
-- full Taskmaster task JSON
 - full task/spec docs
 - skill bodies
 - prompt bodies

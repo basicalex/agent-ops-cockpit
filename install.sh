@@ -129,7 +129,6 @@ mkdir -p "$HOME/.config/yazi"
 mkdir -p "$HOME/.config/yazi/plugins"
 mkdir -p "${MICRO_CONFIG_HOME:-${XDG_CONFIG_HOME:-$HOME/.config}/micro}"
 mkdir -p "$AOC_CONFIG_DIR"
-mkdir -p "$AOC_CONFIG_DIR/btop"
 mkdir -p "$AOC_CONFIG_DIR/pi/skills"
 mkdir -p "$AOC_CONFIG_DIR/pi/prompts"
 mkdir -p "$AOC_CONFIG_DIR/pi/extensions"
@@ -595,24 +594,6 @@ install_tool() {
           ;;
       esac
       ;;
-    pnpm)
-      case "$pm" in
-        brew|pacman|dnf|apk)
-          pm_install pnpm || warn "Failed to install pnpm via package manager."
-          ;;
-        *)
-          ;;
-      esac
-
-      if ! have pnpm && have corepack; then
-        corepack enable >/dev/null 2>&1 || true
-        corepack prepare pnpm@latest --activate >/dev/null 2>&1 || true
-      fi
-
-      if ! have pnpm && have npm; then
-        npm install -g --prefix "${AOC_NPM_GLOBAL_PREFIX:-$HOME/.local}" pnpm || warn "Failed to install pnpm via npm."
-      fi
-      ;;
     fzf|tmux|chafa|ffmpeg)
       pm_install "$tool" || warn "Failed to install $tool."
       ;;
@@ -692,6 +673,8 @@ for f in "$ROOT_DIR/bin/"*; do
   filename=$(basename "$f")
   # Skip micro if it's there (it shouldn't be, but just in case)
   [[ "$filename" == "micro" ]] && continue
+  # Docs such as bin/AGENTS.md are not commands.
+  [[ "$filename" == *.md ]] && continue
 
   install -m 0755 "$f" "$BIN_DIR/$filename"
 done
@@ -702,8 +685,6 @@ required_bin_scripts=(
   aoc-herdr-install
   aoc-claude-install
   aoc-fframes-install
-  aoc-jcode-install
-  aoc-prime-agent-install
   aoc-contract-install
   aoc-omp
   aoc-omp-context
@@ -767,6 +748,17 @@ retired_paths=(
   "$BIN_DIR/aoc-rtk"
   "$BIN_DIR/aoc-mind"
   "$BIN_DIR/aoc-mind-service"
+  "$BIN_DIR/AGENTS.md"
+  "$BIN_DIR/aoc-jcode-install"
+  "$BIN_DIR/aoc-prime-agent-install"
+  "$BIN_DIR/aoc-prime-memory-install"
+  "$BIN_DIR/aoc-prime-xai-oauth-install"
+  "$BIN_DIR/aoc-search"
+  "$BIN_DIR/aoc-fetch"
+  "$BIN_DIR/aoc-render"
+  "$BIN_DIR/aoc-services"
+  "$AOC_CONFIG_DIR/btop"
+  "$AOC_CONFIG_DIR/codex-tmux.conf"
   "$AOC_CONFIG_DIR/taskmaster"
   "$AOC_CONFIG_DIR/omp/skills/tm-cc"
   "$AOC_CONFIG_DIR/omp/skills/spec-rpg-authoring"
@@ -898,22 +890,6 @@ if ! have curl && ! have wget; then
     fi
   fi
 fi
-if is_truthy "${AOC_INSTALL_JCODE:-0}"; then
-  if ! aoc-jcode-install; then
-    missing_required+=("jcode")
-  fi
-else
-  log "Jcode install is disabled; set AOC_INSTALL_JCODE=1 to opt in."
-fi
-
-if is_truthy "${AOC_INSTALL_PRIME_AGENT:-1}"; then
-  if ! aoc-prime-agent-install; then
-    missing_optional+=("prime-agent")
-  fi
-else
-  warn "Skipping prime-agent install because AOC_INSTALL_PRIME_AGENT=0."
-fi
-
 
 if ! ensure_tool yazi "yazi"; then
   missing_required+=("yazi")
@@ -1065,7 +1041,6 @@ run_config_installer() {
 
 run_config_installer aoc-herdr-install
 run_config_installer aoc-claude-install
-run_config_installer aoc-prime-memory-install
 run_config_installer aoc-contract-install
 run_config_installer aoc-omp-shim-install
 run_config_installer aoc-omp-seed
@@ -1079,8 +1054,6 @@ install -m 0644 "$ROOT_DIR/yazi/keymap.toml" "$HOME/.config/yazi/keymap.toml"
 rm -f "$HOME/.config/yazi/theme.toml"
 install -m 0644 "$ROOT_DIR/yazi/init.lua" "$HOME/.config/yazi/init.lua"
 install -m 0644 "$ROOT_DIR/micro/bindings.json" "${MICRO_CONFIG_HOME:-${XDG_CONFIG_HOME:-$HOME/.config}/micro}/bindings.json"
-install -m 0644 "$ROOT_DIR/config/codex-tmux.conf" "${XDG_CONFIG_HOME:-$HOME/.config}/aoc/codex-tmux.conf"
-install -m 0644 "$ROOT_DIR/config/btop.conf" "${XDG_CONFIG_HOME:-$HOME/.config}/aoc/btop/btop.conf"
 
 # AOC default PI skills
 if [[ -d "$ROOT_DIR/.pi/skills" ]]; then
@@ -1132,15 +1105,12 @@ if [[ -d "$ROOT_DIR/.omp" ]]; then
         cp "$entry" "$dest"
       fi
     done
-    if [[ "$kind" == "skills" ]]; then
-      for cached_skill in "$target_root"/*; do
-        [[ -d "$cached_skill" ]] || continue
-        [[ -d "$source_root/$(basename "$cached_skill")" ]] || rm -rf -- "$cached_skill"
-      done
-    fi
-    if [[ "$kind" == "extensions" ]]; then
-      rm -f "$target_root/aoc-jj-init.ts" "$target_root/aoc-herdr.ts"
-    fi
+    # Prune cached entries the repo no longer ships, so the installed
+    # aoc-init fallback never seeds a retired skill, agent or extension.
+    for cached_entry in "$target_root"/*; do
+      [[ -e "$cached_entry" || -L "$cached_entry" ]] || continue
+      [[ -e "$source_root/$(basename "$cached_entry")" ]] || rm -rf -- "$cached_entry"
+    done
   done
   if [[ -f "$ROOT_DIR/.omp/manifest.toml" ]]; then
     mkdir -p "$AOC_CONFIG_DIR/omp"

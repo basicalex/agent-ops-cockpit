@@ -1,6 +1,6 @@
 aoc-managed: true
 asset: preset/test
-asset-version: 4
-source: .aoc/presets/test
-sha256: 10a772f8e8f5d809d65e0e72ea5d928ff5882339cf45b1e292d1951c77679fce
-updated-at: 2026-07-21T07:54:50Z
+asset-version: 5
+source: ../.config/aoc/presets/test
+sha256: 33adc4b647c9868399fa68e58057482e6f7df607edad2fec1ef4ea818270c5fa
+updated-at: 2026-10-28T14:53:44Z

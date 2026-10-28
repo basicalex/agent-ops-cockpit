@@ -38,7 +38,6 @@ __pycache__/
 # tasks/
 
 # Local AOC state
-.opencode/
 .pi/
 
 # AOC tracking policy (managed by aoc-init)
@@ -61,95 +60,6 @@ __pycache__/
 /.aoc/**/*.log
 /.aoc/*.lock
 /.aoc/**/*.lock
-/.aoc/mind/
-/.aoc/mind/**
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 # Local pi-multi-auth runtime debug history
 .pi/packages/pi-multi-auth-aoc/debug/
@@ -157,42 +67,17 @@ __pycache__/
 # AOC managed asset safety backups
 **/.aoc-backups/
 
-# Project-local downloaded tool binaries (reinstall with bin/aoc-obscura-install)
+# Project-local downloaded tool binaries (retired; safe to delete)
 .aoc/tools/obscura/obscura
 
-# Local CodeGraph indexes (rebuild with codegraph init -i)
+# Retired local code-index caches (safe to delete)
 .codegraph/
 
 # Local Pi subagent runtime artifacts
 .pi/tmp/
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 !/.omp/skills/
 !/.omp/skills/**
-
-
-
-
-
-
-
-
-
-
 
 # codex-image design-lab working material (never committed)
 design-lab/

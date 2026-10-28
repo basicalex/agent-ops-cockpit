@@ -74,24 +74,6 @@ aoc-handshake --json
 
 Use the handshake and generated `.aoc/context.md` to confirm the current project state.
 
-## Web research fails
-
-See [Web research](web-research.md).
-
-Check service state:
-
-```bash
-aoc services status
-```
-
-Then test the CLI path agents use:
-
-```bash
-aoc-search "test query"
-```
-
-Managed local search needs Docker or Docker Compose.
-
 ## Herdr workspace issues
 
 Check Herdr:

@@ -18,6 +18,7 @@ Removed from the active operator path:
 - The STM handoff CLI, decision-log CLI, and Mind integration were removed.
 - Pi agent lifecycle scripts: `aoc-pi`, `aoc-agent`, `aoc-agent-run`, `aoc-agent-wrap`, `aoc-agent-install`, and the installed pi shim.
 - Lexicon feature: the `aoc-lexicon` skill, `.aoc/lexicon.md`, `aoc-voxtype-setup`, and `voxtype-aoc-lexicon-filter`.
+- Retired 2026-10-28: the prime-agent, jcode, and OpenCode installers and configs; the local web-search stack (`aoc-search`, `aoc-fetch`, `aoc-render`, `aoc-services`, SearXNG, `aoc_web_search`); the CodeGraph OMP tool; the btop and codex-tmux configs; the pnpm lockfile.
 
 ## Canonical supported runtime
 

@@ -3,6 +3,7 @@
 ## [Unreleased]
 
 ### Removed
+- **Retired tools (2026-10-28)**: deleted the prime installers and configs (`aoc-prime-agent-install`, `aoc-prime-memory-install`, `aoc-prime-xai-oauth-install`, `config/prime-*`, `docs/prime-memory-rail.md`), `aoc-jcode-install` and the jcode overlay in `aoc-contract-install`, `legacy/opencode`, the SearXNG web-search stack (`aoc-search`, `aoc-fetch`, `aoc-render`, `aoc-services`, the Search tab in `aoc-herdr-services`, `docs/web-research.md`), `config/btop.conf`, `config/codex-tmux.conf`, `.cursorrules` and `pnpm-lock.yaml`. The repo now uses bun (`bun.lock`). `install.sh` no longer copies `bin/*.md` into `~/.local/bin`, and it now prunes cached OMP extensions and agents the repo no longer ships, as it already did for skills; this stops retired extensions such as `aoc-mind.ts` from being seeded into new repos. Its removal list deletes the retired commands from old installs.
 - **RTK routing**: deleted `bin/aoc-rtk`, `bin/aoc-rtk-proxy`, `.aoc/rtk.toml`, and all RTK seeding, doctor checks, handshake fields, docs, and smoke tests. AOC no longer routes command output.
 - **Retired-concept references**: purged remaining Mind/STM/`aoc-mem` and jj/Jujutsu mentions from bin scripts, seeds, docs, keybindings, and skills (repos are Git-only; the shared memory rail replaced the old memory CLIs). Cleanup migrations that scrub old installs are kept.
 - **`crates/aoc-opencode-adapter`**: dead workspace-excluded crate deleted along with mind-era and pi-era planning docs in `.taskmaster/docs/prds/`.

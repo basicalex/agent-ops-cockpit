@@ -10,41 +10,49 @@
 - README.md
 - DESIGN.md
 - package.json
-- pnpm-lock.yaml
 
 ## Project Structure (tree -L 2)
 ```
 .
-./.agents
+./.claude
+./.claude/scheduled_tasks.lock
+./.claude/settings.local.json
+./.claude/worktrees
+./.codegraph
+./.codegraph/.gitignore
+./.codegraph/codegraph.db
+./.env
+./.env.example
+./.githooks
+./.githooks/pre-commit
+./.github
+./.github/FUNDING.yml
+./.github/ISSUE_TEMPLATE
+./.github/pull_request_template.md
+./.github/workflows
+./.gitignore
+./.omp
+./.omp/agents
+./.omp/extensions
+./.omp/manifest.toml
+./.omp/manifest.toml.aoc-managed
+./.omp/RULES.md
+./.omp/skills
 ./AGENTS.md
-./.agents/skills
 ./AOC.md
 ./bin
 ./bin/AGENTS.md
 ./bin/aoc
-./bin/aoc-align
 ./bin/aoc-claude-install
+./bin/aoc-claude-memory-hook
+./bin/aoc-contract-install
+./bin/aoc-dispatch
 ./bin/aoc-doctor
-./bin/aoc-fetch
+./bin/aoc-fframes-install
+./bin/aoc-git-hooks-install
 ./bin/aoc-handshake
 ./bin/aoc-herdr-install
 ./bin/aoc-herdr-launch
-./bin/aoc-herdr-services
-./bin/aoc-init
-./bin/aoc-insight
-./bin/aoc-map
-./bin/aoc-obscura-install
-./bin/aoc-omp
-./bin/aoc-omp-context
-./bin/aoc-omp-shim-install
-./bin/aoc-open-explorer
-./bin/aoc-open-file
-./bin/aoc-profile
-./bin/aoc-render
-./bin/aoc-rlm
-./bin/aoc-search
-./bin/aoc-services
-./bin/aoc-skill
 ... [tree truncated to 40 lines]
 ```
 
@@ -60,32 +68,3 @@
 ## Design Contract
 - Root DESIGN.md: present
 - Use as visual/product design source before product-facing UI, docs-site, marketing, or media changes.
-
-## Current Task Tag
-```
-env-protec
-```
-
-## Active Workstreams (Tags)
-```
-184 (5)
-aoc-presets (1)
-aoc/pi_cleanup (9)
-deprecation (10)
-detached-orchestration (3)
-env-protec (56)
-master (46)
-mermaid (1)
-mind (51)
-mission-control (17)
-omo (10)
-pi-compaction-ui (1)
-pi-terminal-ops (1)
-pulse-hub-spoke (8)
-pulse-tab-overview (1)
-safety (9)
-session-overseer (0)
-sub-agents (7)
-subagent-ux (6)
-```
-

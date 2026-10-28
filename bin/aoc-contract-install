@@ -5,11 +5,9 @@ repo_root="${AOC_SOURCE_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
 contract_src="$repo_root/config/communication-contract/CONTRACT.md"
 config_dir="${XDG_CONFIG_HOME:-$HOME/.config}/aoc"
 canonical_dst="$config_dir/communication-contract.md"
-jcode_dst="$HOME/.jcode/prompt-overlay.md"
-jcode_sha="$config_dir/communication-contract.jcode.sha"
 
 usage() {
-  cat <<'EOF'
+  cat <<'USAGE'
 Usage: aoc-contract-install [--status]
 
 Install the AOC communication contract for harness launchers.
@@ -17,39 +15,11 @@ Install the AOC communication contract for harness launchers.
 Options:
   --status    Print the management status of each target
   -h, --help  Show this help text
-EOF
+USAGE
 }
 
 log() {
   printf 'aoc-contract-install: %s\n' "$*"
-}
-
-is_truthy() {
-  case "${1:-}" in
-    1|true|TRUE|yes|YES|on|ON) return 0 ;;
-    *) return 1 ;;
-  esac
-}
-
-jcode_enabled() {
-  is_truthy "${AOC_INSTALL_JCODE:-0}" || command -v jcode >/dev/null 2>&1
-}
-
-sha256() {
-  shasum -a 256 "$1" | awk '{print $1}'
-}
-
-jcode_status() {
-  if [[ ! -f "$jcode_dst" ]]; then
-    printf 'missing\n'
-    return
-  fi
-
-  if [[ -f "$jcode_sha" ]] && [[ "$(sha256 "$jcode_dst")" == "$(<"$jcode_sha")" ]]; then
-    printf 'installed\n'
-  else
-    printf 'user-owned\n'
-  fi
 }
 
 status() {
@@ -57,12 +27,6 @@ status() {
     printf 'canonical installed\n'
   else
     printf 'canonical missing\n'
-  fi
-  if jcode_enabled; then
-    printf 'jcode '
-    jcode_status
-  else
-    printf 'jcode disabled\n'
   fi
 }
 
@@ -83,23 +47,6 @@ install_managed() {
   fi
   install -m 0644 "$src" "$dst"
   log "installed $dst"
-}
-
-install_jcode() {
-  if [[ -f "$jcode_dst" ]] && [[ "$(jcode_status)" != "installed" ]]; then
-    printf 'aoc-contract-install: warning: keeping user-owned %s\n' "$jcode_dst" >&2
-    return
-  fi
-
-  if [[ -f "$jcode_dst" ]] && cmp -s "$contract_src" "$jcode_dst"; then
-    log "kept existing $jcode_dst"
-    return
-  fi
-
-  mkdir -p "$(dirname "$jcode_dst")" "$config_dir"
-  install -m 0644 "$contract_src" "$jcode_dst"
-  sha256 "$jcode_dst" > "$jcode_sha"
-  log "installed $jcode_dst"
 }
 
 case "${1:-}" in
@@ -125,9 +72,4 @@ if [[ ! -f "$contract_src" ]]; then
 fi
 
 install_managed "$contract_src" "$canonical_dst"
-if jcode_enabled; then
-  install_jcode
-else
-  log 'skipped Jcode prompt overlay because Jcode is disabled'
-fi
 log 'done'

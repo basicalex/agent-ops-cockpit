@@ -66,12 +66,10 @@ AOC OMP extensions are repo-tracked under `.omp/extensions/`. `.omp/manifest.tom
 
 Profile-gated OMP surfaces include:
 
-- `aoc-codegraph.ts` — read-only CodeGraph tool for indexed code discovery.
 - `aoc-commit.ts` — `/commit` safe atomic Git commit workflow; stages only explicit paths and never pushes without explicit approval.
 - `aoc-state.ts` — `/state-status`, `/state-commit`, and `/state-push` Git workflows for repo-owned AOC project state; commit and push are separate, explicit steps.
 - `aoc-dox.ts` — `aoc_dox` safe metadata tool for DOX metadata, review, doctor, eval, and apply dry-run.
 - `aoc-dox-command.ts` — `/dox` slash command for sparse AGENTS cartography with `dox-*` subagents.
-- `aoc-web-search.ts` — `aoc_web_search` wrapper around local `aoc-search`/SearXNG plus direct package/GitHub lookup modes for agents when built-in paid web-search providers fail.
 - `aoc-style.ts` — `/ponytail off|lite|full|ultra|status|review|audit|debt|help`, `/caveman off|lite|full|ultra|status`, and persistent AOC host-style hook state.
 - `aoc-profile.ts` — `/profile [list|show|enable|disable|set|explain]` capability profile management.
 
@@ -89,17 +87,6 @@ AOC-managed OMP agent templates live in the repo under:
 
 ```text
 ${AOC_OMP_AGENT_DIR:-~/.omp/agent}/agents/
-```
-
-## CodeGraph agent tool
-
-AOC includes an OMP `aoc_codegraph` tool for read-only symbol search, context building, call graph probes, impact analysis, file listing, and affected-test selection. The tool shells out to an existing local `codegraph` CLI/index. It never installs CodeGraph or initializes/indexes projects.
-This is the replacement graph surface for agents; do not use AOC Understand / Understand-Anything for repository graph evidence.
-
-Operators run CodeGraph setup explicitly, for example:
-
-```bash
-codegraph sync /path/to/project
 ```
 
 ## Legacy boundary

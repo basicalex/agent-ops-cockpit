@@ -1,6 +1,6 @@
 ---
 name: aoc-dox-cartography
-description: Map sparse, evidence-backed AGENTS.md local contracts using AOC DOX, CodeGraph, and OMP subagents.
+description: Map sparse, evidence-backed AGENTS.md local contracts using AOC DOX and OMP subagents.
 ---
 
 # AOC DOX Cartography
@@ -22,5 +22,4 @@ Use this workflow to create sparse operational context, not general documentatio
 
 - `aoc_dox` is read-only plus apply dry-run; `aoc_dox_writer` is metadata-writing and only for writer workflows; neither exposes `apply --yes`.
 - `aoc dox map` may update only `.aoc/dox/` metadata, never `AGENTS.md` files.
-- CodeGraph is evidence only. Do not run CodeGraph init, sync, index, install, unlock, or uninit from this workflow.
 - Local `AGENTS.md` files are for durable operational contracts only; reject architecture summaries and obvious directory descriptions.

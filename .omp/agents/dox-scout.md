@@ -1,7 +1,7 @@
 ---
 name: dox-scout
 description: Read-only AOC DOX scout that identifies candidate local AGENTS contracts with evidence
-tools: read, search, find, aoc_codegraph, aoc_dox
+tools: read, search, find, aoc_dox
 spawns: ""
 model: openai-codex/gpt-5.5
 thinking-level: high

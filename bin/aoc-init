@@ -68,19 +68,25 @@ if [[ $# -gt 0 ]]; then
 fi
 
 aoc_dir="$project_root/.aoc"
-gemini_dir="$project_root/.gemini"
 aoc_config_dir="${XDG_CONFIG_HOME:-$HOME/.config}/aoc"
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 aoc_init_state_file="$aoc_dir/init-state.json"
 aoc_managed_assets_file="$aoc_dir/managed-assets.json"
 aoc_omp_seed_cache_dir="$aoc_config_dir/omp"
 
-AOC_PROJECT_LAYOUT_VERSION=4
+AOC_PROJECT_LAYOUT_VERSION=5
 AOC_INIT_STATE_SCHEMA_VERSION=1
 
 aoc_project_version_before=0
 aoc_project_version_after="$AOC_PROJECT_LAYOUT_VERSION"
 aoc_project_migrations_applied=()
+
+# OMP extensions AOC no longer ships. Seeding skips them even when a stale
+# seed cache still holds them, and v5 removes old project copies.
+aoc_retired_omp_extensions=(
+  aoc-mind.ts aoc-herdr.ts aoc-jj-init.ts ponytail.ts aoc-codegraph.ts aoc-web-search.ts
+  aoc-openai-stt.ts aoc-brand-content.ts
+)
 
 log() { echo ">> $1"; }
 warn() { echo "!! $1"; }
@@ -547,6 +553,62 @@ path.write_text("\n".join(updated).rstrip() + "\n", encoding="utf-8")
 PY
 }
 
+# v5: remove state left by retired tools (RTK, Mind, Zellij layouts, STM,
+# the decision log, SearXNG search) and retired OMP extensions.
+remove_retired_project_state_v5() {
+  local rel name link_target
+  local -a retired_paths=(
+    .aoc/rtk.toml .aoc/mind .aoc/layouts .aoc/stm .aoc/memory.md .aoc/memory.md.lock
+    .aoc/effective-agent-contract.md .aoc/search.toml .aoc/services/searxng
+  )
+  for rel in "${retired_paths[@]}"; do
+    if [[ -e "$project_root/$rel" || -L "$project_root/$rel" ]]; then
+      rm -rf -- "${project_root:?}/$rel"
+      log "Removed retired AOC state: $rel"
+    fi
+  done
+  rmdir "$aoc_dir/services" 2>/dev/null || true
+
+  # A managed .omp/extensions tree is replaced from the seed later, which drops
+  # these files without a dirty backup. Only an unmanaged tree needs this.
+  if [[ ! -f "$project_root/.omp/extensions/.aoc-managed" ]]; then
+    for name in aoc-mind.ts aoc-herdr.ts aoc-jj-init.ts ponytail.ts aoc-codegraph.ts aoc-web-search.ts; do
+      rel=".omp/extensions/$name"
+      if [[ -e "$project_root/$rel" || -L "$project_root/$rel" ]]; then
+        rm -f -- "$project_root/$rel" "$project_root/$rel.aoc-managed"
+        log "Removed retired OMP extension: $rel"
+      fi
+    done
+  fi
+
+  # .cursorrules was a link to the context snapshot; leave a real file alone.
+  if [[ -L "$project_root/.cursorrules" ]]; then
+    link_target="$(readlink "$project_root/.cursorrules")"
+    case "$link_target" in
+      .aoc/context.md|./.aoc/context.md|"$aoc_dir/context.md")
+        rm -f -- "$project_root/.cursorrules"
+        log "Removed .cursorrules link to .aoc/context.md"
+        ;;
+    esac
+  fi
+
+  # Older prompt seeds told agents to avoid a Taskmaster command that is gone.
+  for name in omp-low-token.md pi-low-token.md; do
+    rel="$aoc_dir/prompts/$name"
+    [[ -f "$rel" ]] || continue
+    python3 - "$rel" <<'PY'
+import sys
+from pathlib import Path
+
+path = Path(sys.argv[1])
+text = path.read_text(encoding="utf-8")
+old = "Do NOT run `tm list`, `git status`, or repo-wide `rg`"
+if old in text:
+    path.write_text(text.replace(old, "Do NOT run `git status` or repo-wide `rg`"), encoding="utf-8")
+PY
+  done
+}
+
 apply_project_version_migrations() {
   if (( aoc_project_version_before > AOC_PROJECT_LAYOUT_VERSION )); then
     aoc_project_version_after="$aoc_project_version_before"
@@ -576,6 +638,12 @@ apply_project_version_migrations() {
     note_project_migration \
       "v4-retired-memory-cleanup" \
       "Applying AOC project migration v4: remove retired STM, decision-log, and Mind project state."
+  fi
+  if (( aoc_project_version_before < 5 )); then
+    remove_retired_project_state_v5
+    note_project_migration \
+      "v5-retired-tool-cleanup" \
+      "Applying AOC project migration v5: remove RTK, Mind, layout, search, and retired OMP extension state."
   fi
 }
 
@@ -863,9 +931,9 @@ PY
   fi
 }
 
-write_aoc_agents_contract() {
-  local target_file="$1"
-  cat <<'EOF' > "$target_file"
+# Body of the AOC-managed block in AGENTS.md (markers are added by the caller).
+aoc_agents_template_body() {
+  cat <<'EOF'
 # AOC Architecture & Agent Guidelines
 
 This file defines the always-on rules for agents in this repo. Procedural playbooks live in AOC skills.
@@ -877,7 +945,6 @@ This file defines the always-on rules for agents in this repo. Procedural playbo
 ## Low-Token Default Mode
 - Keep responses concise by default; do not print full files or raw logs unless explicitly requested.
 - Start with the smallest viable step; use narrow, path-scoped searches before broad scans.
-- When `.codegraph/` exists and the OMP `aoc_codegraph` tool is available, use it before broad text/file scans for code discovery, call-flow mapping, impact probes, and affected-test selection.
 - Read files in bounded chunks and avoid rereading unchanged large files.
 - Summarize command/tool output with actionable lines only (key errors, next actions).
 - Run targeted checks/tests first; run full-suite commands only when required.
@@ -906,7 +973,6 @@ These commands are in PATH and work without loading any skill:
 
 ## Skills (load when needed)
 Load a skill only when its description matches the user request. Keep always-on guidance here minimal; procedural playbooks belong in skill files.
-
 EOF
 }
 
@@ -1148,71 +1214,355 @@ Apply these defaults unless the user asks for higher detail.
 EOF
 }
 
+# Lines from older AOC AGENTS.md templates (taken from bin/aoc-init history and
+# from repo sweeps that rewrote them). The marker migration drops these lines
+# and keeps every other line as a project rule. This is a removal list.
+aoc_agents_retired_template_lines() {
+  cat <<'EOF'
+    *   **Decisions:** Why we chose library X over Y.
+    *   **Evolution:** Major refactors or pivots (e.g., "Switched Gemini to native pane").
+    *   **Preferences:** User specific constraints (e.g., "Strict Types only").
+    *   **Read:** At the start of every task (`aoc-mem read`).
+    *   **Read:** `aoc task list` to find work.
+    *   **Rule:** Do not edit `.aoc/memory.md` directly; all interactions must go through `aoc-mem`.
+    *   **Rule:** Do not edit `.taskmaster/tasks/tasks.json` directly; all interactions must go through `aoc task`.
+    *   **Write:** When you make a decision that future agents need to know (`aoc-mem add "..."`).
+    *   **Write:** `aoc task add` to plan steps. `aoc task status` to report progress.
+## RLM Skill (Default for Large Codebases)
+## Standard Workflow
+## Startup handshake
+## Task Management
+## The Cognitive Stack
+## Toolchain Reference
+### 1. Context (Orientation)
+### 2. Memory (Wisdom)
+### 3. Tasks (Execution)
+*   **Agent Action:**
+*   **Agent Action:** **Read Only.** Run `aoc-init` to refresh it manually. If `aoc-watcher` is installed, it updates automatically.
+*   **Agent Action:** **Read Only.** This file is updated in real-time by the `aoc-watcher` background service. You do not need to run `aoc-init` manually unless the watcher is stopped.
+*   **Content:**
+*   **Content:** File tree, `README.md` snapshot, basic operational rules.
+*   **Content:** The immediate work queue.
+*   **File:** `.aoc/context.md`
+*   **File:** `.aoc/memory.md`
+*   **File:** `.taskmaster/tasks/tasks.json`
+*   **Nature:** Auto-generated (reactive if `aoc-watcher` is installed).
+*   **Nature:** Dynamic, State-driven.
+*   **Nature:** Persistent, Append-only (Log).
+*   **Nature:** Reactive, Auto-generated.
+*   **Why it exists:** AGENTS.md is static policy; `.aoc/context.md` is a live project snapshot. The watcher keeps it current so long-running sessions don't drift.
+*   **Why it exists:** AGENTS.md is static policy; `.aoc/context.md` is a live project snapshot. Use `aoc-init` (or `aoc-watcher` when available) to keep it current.
+*   Treat this as the default approach for large codebases before deep analysis.
+*   `aoc task` / `aoc-taskmaster`: CLI for managing tasks.
+*   `aoc-doctor`: Validates system dependencies.
+*   `aoc-init`: Bootstraps the `.aoc` and `.taskmaster` folders.
+*   `aoc-mem`: CLI for managing `memory.md`.
+*   `aoc-rlm scan` (or `rlm scan`) for scale, `aoc-rlm peek` (or `rlm peek`) for snippets, `aoc-rlm chunk` (or `rlm chunk`) for slicing.
+*   `aoc-watcher` (optional): Background service that keeps `context.md` updated in real-time.
+*   `aoc-watcher`: Background service that keeps `context.md` updated in real-time.
+**Memory:**
+**Other:**
+**STM handoff layer (not durable memory):**
+**Short-Term Memory (STM):**
+**Tasks:**
+- **DO NOT manually read these files** - use the Bash tool to run CLI commands instead (see below).
+- Always pass an explicit reason when requesting Mind context; prefer focused/provenance/resume modes over broad recall.
+- Do not use STM for durable decisions (`aoc-mem add`), generic logs, raw command output, or every minor task.
+- Effective precedence is task PRD override -> tag PRD default.
+- Effective precedence is task spec override -> tag default spec.
+- Jujutsu setup/import/init/export is operator-controlled. AOC init reports existing `.jj` state but must not create or initialize Jujutsu; use explicit `/jj-init` or a direct shell command for setup.
+- Keep AOC/config/source state in git: `.aoc/**`, `.omp/extensions/**`, `.omp/agents/**`, `.omp/skills/**`, `AGENTS.md`, and `DESIGN.md` should not be ignored except explicit high-churn runtime artifacts such as logs, locks, caches, debug output, and live Mind databases.
+- Keep AOC/task state in git: `.aoc/**` and `.taskmaster/**` should not be ignored.
+- Keep AOC/task state in git: `.aoc/**`, `.taskmaster/**`, and `.pi/**` should not be ignored.
+- Keep AOC/task/config state in git: `.aoc/**`, `.taskmaster/**`, and `.pi/**` should not be ignored except explicit high-churn runtime artifacts such as logs, locks, and `.aoc/mind/project.sqlite`.
+- Keep AOC/task/config/source state in git: `.aoc/**`, `.taskmaster/**`, `.omp/extensions/**`, `.omp/agents/**`, `.omp/skills/**`, `AGENTS.md`, and `DESIGN.md` should not be ignored except explicit high-churn runtime artifacts such as logs, locks, caches, and debug output.
+- Keep AOC/task/config/source state in git: `.aoc/**`, `.taskmaster/**`, `.omp/extensions/**`, `.omp/agents/**`, `.omp/skills/**`, `AGENTS.md`, and `DESIGN.md` should not be ignored except explicit high-churn runtime artifacts such as logs, locks, caches, debug output, and live Mind databases.
+- Keep AOC/task/config/source state in git: `.aoc/**`, `.taskmaster/**`, `.pi/**`, `.omp/extensions/**`, `.omp/agents/**`, `AGENTS.md`, and `DESIGN.md` should not be ignored except explicit high-churn runtime artifacts such as logs, locks, caches, debug output, and live Mind databases.
+- Keep task PRDs in git: `.taskmaster/docs/prds/**` should always be tracked.
+- Keep task specs in git: `.taskmaster/docs/specs/**` and legacy `.taskmaster/docs/prds/**` should always be tracked.
+- Memory: `aoc-mem read`, `aoc-mem search "query"`, `aoc-mem add "decision"`
+- Mind may sync/ingest in the background, but retrieval should be lazy and intent-bound.
+- Prefer `jj` commands when handshake VCS metadata reports Jujutsu, including colocated Jujutsu+Git repositories; prefer Git commands only in Git-only repositories.
+- RTK exists to improve context health: allowlisted noisy commands are condensed for better signal density, with fail-open native fallback.
+- RTK routing is default-on for new AOC projects (`.aoc/rtk.toml` mode=`on`); existing explicit mode=`off` is preserved.
+- RTK: `aoc-rtk status`, `aoc-rtk doctor`, `aoc-rtk install --auto`, `aoc-rtk enable|disable`
+- Record major decisions and constraints in memory (`aoc-mem add "..."`).
+- Request focused Mind context only after user intent is known, for resume/continuation, prior decisions, task/PRD grounding, debugging previous attempts, provenance/audit, or when targeted local inspection is insufficient.
+- Request focused Mind context only after user intent is known, for resume/continuation, prior decisions, task/spec grounding, debugging previous attempts, provenance/audit, or when targeted local inspection is insufficient.
+- Run AOC commands via Bash tool - do NOT use Read tool for `.aoc/memory.md` or `.aoc/stm/current.md`.
+- Run AOC commands via Bash tool - do NOT use Read tool for `.aoc/memory.md`, `.aoc/stm/current.md`, or `.taskmaster/tasks/tasks.json`.
+- Run AOC commands via Bash tool.
+- Run AOC commands via Bash tool; do not read `.taskmaster/tasks/tasks.json` directly.
+- STM directed handoff only: `aoc-stm status`, `aoc-stm template --purpose <kind>`, `aoc-stm`, `aoc-stm add "note"`, `aoc-stm handoff --purpose <kind> --to <recipient> --focus <focus>`, `aoc-stm resume <archive>`
+- STM handoff only: `aoc-stm status`, `aoc-stm`, `aoc-stm add "note"`, `aoc-stm handoff`, `aoc-stm resume`
+- Startup must not load broad Mind memories or context packs by default; use the handshake to discover Mind, not to prime direction.
+- Startup/repair: `aoc-init`
+- Tag PRD defaults are linked via tag `aocPrd`; resolve with `aoc-task tag prd show --tag <tag>`.
+- Tag default specs are currently stored via legacy key `aocPrd`; resolve with `aoc-task tag spec show --tag <tag>`.
+- Task PRD overrides are linked via task `aocPrd`; resolve with `aoc-task prd show <id> --tag <tag>`.
+- Task PRDs are linked per task (not subtask) via `aocPrd`; keep PRD documents in `.taskmaster/docs/prds/` and resolve via `aoc-task prd` commands.
+- Task PRDs are linked per task via `aocPrd`; resolve via `aoc-task prd show <id>`.
+- Task spec overrides are currently stored via legacy key `aocPrd`; resolve with `aoc-task spec show <id> --tag <tag>`.
+- Tasks: `tm tag current`, `tm tag spec show`, `aoc-task tag spec show --tag <tag>`, `aoc-task spec show <id> --tag <tag>`
+- Use STM only for deliberate in-progress agent/session handoffs: continuation, coordination, context-window pressure, or avoiding overlapping edits.
+- Use root `DESIGN.md` as the visual/product design contract before UI, docs-site, marketing, HyperFrames, or other product-facing work.
+- VCS: inspect detected mode with `aoc-handshake --json`; use `jj status`/`jj diff` in Jujutsu repos and `git status`/`git diff` in Git-only repos; use `/jj-init` only for explicit colocated Jujutsu setup.
+- When `.codegraph/` exists and the OMP `aoc_codegraph` tool is available, use it before broad text/file scans for code discovery, call-flow mapping, impact probes, and affected-test selection.
+- `.aoc/layouts/`: legacy-only Zellij layouts, created only when `AOC_INIT_LEGACY_ZELLIJ=1`.
+- `.aoc/layouts/`: project-shared Zellij layouts for AOC (`*.kdl`).
+- `.aoc/memory.md` is append-only; use `aoc-mem` to read/search/add. Do not edit the file directly.
+- `.aoc/memory.md`: persistent decision log.
+- `.aoc/mind-service.json`: optional project-local launcher metadata for the standalone Mind service.
+- `.aoc/mind-service.json`: project-local launcher metadata for the standalone Mind service.
+- `.aoc/rtk.toml`: project-local RTK routing policy and install contract.
+- `.aoc/stm/archive/`: archived STM diary snapshots.
+- `.aoc/stm/archive/`: archived STM snapshots used for handoffs/history.
+- `.aoc/stm/current.md` is STM draft state; use `aoc-stm` to add/edit/archive/read. STM archives are a durable project diary; store architectural decisions in `aoc-mem`.
+- `.aoc/stm/current.md` is STM draft state; use `aoc-stm` to read the current draft, `aoc-stm archive` to persist snapshots, and `aoc-stm read` for archived entries. STM archives are a durable project diary; store architectural decisions in `aoc-mem`.
+- `.aoc/stm/current.md` is short-term working state; use `aoc-stm` to add/edit/handoff/archive. Do not store long-term decisions here.
+- `.aoc/stm/current.md`: ephemeral short-term handoff state.
+- `.aoc/stm/current.md`: in-progress STM draft state.
+- `.taskmaster/docs/prds/`: PRD documents linked to tags and tasks.
+- `.taskmaster/docs/prds/`: task-level PRD documents linked from tasks.
+- `.taskmaster/docs/specs/`: spec documents linked to tags and tasks; `.taskmaster/docs/prds/` remains legacy-compatible.
+- `.taskmaster/tasks/tasks.json` is task state; use the Taskmaster TUI or `aoc task` commands. Do not edit the file directly.
+- `.taskmaster/tasks/tasks.json` is task state; use the Taskmaster TUI or `aoc-task` commands. Do not edit the file directly.
+- `.taskmaster/tasks/tasks.json` is task state; use the Taskmaster TUI, `aoc-task`, or `tm` (alias for `aoc-task`). Do not edit the file directly.
+- `.taskmaster/tasks/tasks.json`: dynamic task queue.
+- `aoc-handshake --json` - print metadata-only startup state and Mind usage policy; does not inject Mind memories
+- `aoc-handshake --json` is the metadata-only startup packet for agents: AOC status, Git repository state, and usage policy.
+- `aoc-handshake --json` is the metadata-only startup packet for agents: AOC status, Mind availability, Git repository state, and usage policy.
+- `aoc-handshake --json` is the metadata-only startup packet for agents: AOC status, Mind availability, VCS mode/preferred command family, and usage policy.
+- `aoc-handshake --json` is the metadata-only startup packet for agents: AOC status, Taskmaster tag, Git repository state, and usage policy.
+- `aoc-handshake --json` is the metadata-only startup packet for agents: AOC status, Taskmaster tag, Mind availability, Git repository state, and usage policy.
+- `aoc-handshake --json` is the metadata-only startup packet for agents: AOC status, Taskmaster tag, Mind availability, VCS mode/preferred command family, and usage policy.
+- `aoc-handshake --json` is the metadata-only startup packet for agents: AOC status, Taskmaster tag, Mind availability, and usage policy.
+- `aoc-init-ops`: initialize or repair AOC files.
+- `aoc-init` - initialize/repair AOC files
+- `aoc-mem add "decision"` - record architectural decision
+- `aoc-mem read` - read persistent memory
+- `aoc-mem search "query"` - search memory
+- `aoc-rtk doctor` - run RTK diagnostics
+- `aoc-rtk enable|disable` - toggle RTK routing mode
+- `aoc-rtk install --auto` - auto-fetch and install pinned RTK binary
+- `aoc-rtk status` - check RTK routing status
+- `aoc-stm add "note"` - add a concise handoff note
+- `aoc-stm add "note"` - add to current draft
+- `aoc-stm archive` - archive current draft
+- `aoc-stm edit` - edit current draft in editor
+- `aoc-stm edit` - edit current handoff draft in editor
+- `aoc-stm handoff` - archive current draft and print handoff snapshot
+- `aoc-stm handoff` - archive current handoff draft and print sealed snapshot
+- `aoc-stm read` - read latest archived snapshot
+- `aoc-stm resume` - print archived handoff snapshot (latest by default)
+- `aoc-stm status` - inspect draft freshness/size/latest archive before relying on it
+- `aoc-stm template` - print the structured handoff packet format
+- `aoc-stm` - print current draft (shortcut for `aoc-stm read-current`)
+- `aoc-stm` - print current handoff draft (shortcut for `aoc-stm read-current`)
+- `aoc-task tag prd show --tag <tag>` - show PRD linked to a specific tag
+- `aoc-task tag spec show --tag <tag>` - show spec linked to a specific tag (`prd` remains a legacy alias)
+- `aoc-workflow`: standard project workflow.
+- `memory-ops`: read/search/add to memory.
+- `prd-align`: align tasks with the PRD.
+- `prd-dev`: draft the Taskmaster PRD.
+- `prd-intake`: parse a project PRD into actionable tasks.
+- `prd-intake`: parse a project PRD into initial task sets.
+- `release-notes`: draft changelog and release notes.
+- `rlm-analysis`: large codebase analysis flow.
+- `skill-creator`: create or update AOC skills.
+- `spec-align`/`prd-align`: align tasks with the linked spec.
+- `spec-dev`/`prd-dev`: draft the Taskmaster spec (PRD legacy subtype).
+- `spec-intake`/`prd-intake`: parse a project spec into initial task sets.
+- `stm-ops`: manage short-term diary memory and STM context loading.
+- `stm-ops`: manage short-term handoff memory and resume flow.
+- `tag-align`: normalize task tags and dependencies.
+- `task-breakdown`: expand a task into clear subtasks.
+- `task-breakdown`: expand tasks into subtasks.
+- `task-checker`: verify implementation vs. testStrategy.
+- `taskmaster-ops`: manage tasks and tags.
+- `teach-workflow`: guided teach-mode scans, dives, and local insight logging.
+- `tm --tm-root <path> ...` - run Taskmaster commands against another project
+- `tm add "Task name"` - add new task
+- `tm list` - list tasks (alias for `aoc-task`)
+- `tm tag current` - print effective active tag
+- `tm tag prd show` - show PRD linked to active tag
+- `tm tag spec show` - show spec linked to active tag (`prd` remains a legacy alias)
+- `tm-cc`: cross-project Taskmaster control with explicit tm root targeting.
+- `tm` - open Taskmaster TUI
+- `zellij-theme-ops`: create and manage global Zellij themes.
+1.  **Orient:** Run `aoc-init` (if needed) or check `.aoc/context.md` to see the files involved.
+2.  **Recall:** Run `aoc-mem read` (or `aoc-mem search "login"`) to see past decisions about the login system.
+3.  **Plan:** Run `aoc task add "Refactor login"` to break it down.
+4.  **Execute:** Edit files, run tests.
+5.  **Update:** `aoc task status <id> done`.
+6.  **Record:** `aoc-mem add "Refactored login to use OAuth2 provider X."`
+AOC separates information into three layers to prevent context window overflow and ensure long-term coherence.
+Note: `aoc-mem` and `aoc-stm` are basic CLI commands (see above) - no skill needed.
+Note: `aoc-mem`, `aoc-stm`, and `tm` are basic CLI commands (see above) - no skill needed.
+Note: `tm` is a basic CLI command (see above) and needs no skill.
+STM is for deliberate directed in-progress handoff packets only; it is not a mailbox and does not notify another agent by itself. Pass the printed next-agent brief or exact archive explicitly. In Pi, `/handoff <focus>` asks the agent to generate a clean purpose-matched packet for the current work; `/resume [archive]` asks the agent to load a sealed handoff into context safely. Do not use STM for durable decisions, generic logs, raw command output, or every minor task.
+STM is for deliberate directed in-progress handoff packets only; it is not a mailbox and does not notify another agent by itself. Pass the printed next-agent brief or exact archive explicitly. In Pi, `/handoff <focus>` asks the agent to generate a clean purpose-matched packet for the current work; `/rresume [archive]` asks the agent to load a sealed handoff into context safely. Do not use STM for durable decisions, generic logs, raw command output, or every minor task.
+STM is for deliberate directed in-progress handoff packets only; it is not a mailbox and does not notify another agent by itself. Pass the printed next-agent brief or exact archive explicitly. Use `aoc-stm handoff --purpose <kind> --to <recipient> --focus <focus>` to generate a clean purpose-matched packet for the current work; use `aoc-stm resume <archive>` to load a sealed handoff into context safely. Do not use STM for durable decisions, generic logs, raw command output, or every minor task.
+STM is for deliberate in-progress handoffs only; do not use it for durable decisions, generic logs, raw command output, or every minor task.
+This document details the **Distributed Cognitive Architecture** of the Agent Ops Cockpit. If you are an agent working in this environment, this is your operating manual.
+When repository size exceeds your context window, use the Rust-based RLM tool:
+When you receive a high-level request (e.g., "Refactor the login system"):
+EOF
+}
+
+aoc_agents_managed_start='<!-- aoc:managed:start -->'
+aoc_agents_managed_end='<!-- aoc:managed:end -->'
+
+# AOC owns only the block between the managed markers. Everything outside it
+# belongs to the project and is never changed.
 ensure_agents_contract() {
   local agents_file="$1"
-  local first_agents_line=""
+  local block_file known_file result="" tag line
+
+  block_file="$(mktemp)"
+  {
+    printf '%s\n' "$aoc_agents_managed_start"
+    aoc_agents_template_body
+    printf '%s\n' "$aoc_agents_managed_end"
+  } > "$block_file"
 
   if [[ ! -f "$agents_file" ]]; then
     log "Creating AGENTS.md..."
-    write_aoc_agents_contract "$agents_file"
+    cp "$block_file" "$agents_file"
+    rm -f "$block_file"
     return
   fi
 
-  if IFS= read -r first_agents_line < "$agents_file" && [[ "$first_agents_line" == "# AOC Architecture & Agent Guidelines" ]]; then
-    local tmp_agents
-    tmp_agents="$(mktemp)"
-    write_aoc_agents_contract "$tmp_agents"
-    if ! cmp -s "$tmp_agents" "$agents_file"; then
-      cp "$tmp_agents" "$agents_file"
-      log "Updated AGENTS.md to latest AOC contract."
-    else
-      log "AGENTS.md already up to date."
-    fi
-    rm -f "$tmp_agents"
-    return
-  fi
-  # Refresh the retired wording only inside the AOC-managed section.
-  if grep -Fq 'marketing, HyperFrames, or other product-facing work' "$agents_file" &&
-    python3 - "$agents_file" <<'PY'
+  known_file="$(mktemp)"
+  { aoc_agents_template_body; aoc_agents_retired_template_lines; } > "$known_file"
+  result="$(python3 - "$agents_file" "$block_file" "$known_file" "$aoc_agents_managed_start" "$aoc_agents_managed_end" <<'PY'
+import re
 import sys
 from pathlib import Path
 
-path = Path(sys.argv[1])
+path, block_path, known_path = (Path(arg) for arg in sys.argv[1:4])
+start, end = sys.argv[4], sys.argv[5]
 text = path.read_text(encoding="utf-8")
-start = text.find("## Agent Ops Cockpit (AOC)")
-if start < 0:
-    raise SystemExit(1)
-end = text.find("\n## ", start + 1)
-if end < 0:
-    end = len(text)
-old = "marketing, HyperFrames, or other product-facing work"
-new = "marketing, or other product-facing work"
-section = text[start:end]
-if old not in section:
-    raise SystemExit(1)
-path.write_text(text[:start] + section.replace(old, new) + text[end:], encoding="utf-8")
+block = block_path.read_text(encoding="utf-8").rstrip("\n")
+lines = text.splitlines()
+
+if start in lines and end in lines[lines.index(start):]:
+    # Refresh the managed block in place; leave the rest of the file alone.
+    i = lines.index(start)
+    j = lines.index(end, i)
+    updated = "\n".join(lines[:i] + block.splitlines() + lines[j + 1:]).rstrip("\n") + "\n"
+    if updated == text:
+        print("same")
+    else:
+        path.write_text(updated, encoding="utf-8")
+        print("refreshed")
+    raise SystemExit(0)
+
+# Migration for a file without markers: a whole-file AOC contract, or a
+# project file with (or without) an old "## Agent Ops Cockpit (AOC)" section.
+# The managed block goes first; every line no AOC template wrote follows, in
+# order. Project lines from the old AOC section stay under "## Project rules".
+whole_file = bool(lines) and lines[0] == "# AOC Architecture & Agent Guidelines"
+known = {line.rstrip() for line in known_path.read_text(encoding="utf-8").splitlines() if line.strip()}
+known.update({start, end})
+# Lines the old appended AOC section wrote; some drifted outside the section.
+known.update({
+    "Use the AOC tools for context in this repo.",
+    "- **Context:** `.aoc/context.md` (auto-generated project map)",
+    "If AOC files are missing or stale, run `aoc-init` at the repo root.",
+})
+
+legacy_heading = "## Agent Ops Cockpit (AOC)"
+sec_start = sec_end = len(lines)
+if legacy_heading in lines:
+    sec_start = lines.index(legacy_heading)
+    sec_end = next((k for k in range(sec_start + 1, len(lines)) if lines[k].startswith("## ")), len(lines))
+
+# Generic AOC guidance that the managed block now carries.
+generic = re.compile(
+    r"^Use the AOC tools for |^If AOC files are missing or stale|DESIGN\.md|\.aoc/context\.md|HyperFrames"
+)
+retired = re.compile(
+    r"aoc-" r"mem|aoc-" r"stm|\.aoc/stm|\.aoc/memory\.md|\bSTM\b|\bRTK\b|\brtk\b|\bMind\b|mind-service"
+    r"|\bjj\b|Jujutsu|[Zz]ellij|[Cc]ode[Gg]raph|\bTaskmaster\b|\btm\b|aoc[- ]task|[Ss]ear[Xx][Nn][Gg]"
+)
+
+section_kept, section_dropped = [], []
+for line in lines[sec_start + 1:sec_end]:
+    stripped = line.rstrip()
+    if not stripped:
+        if section_kept:
+            section_kept.append("")
+        continue
+    if stripped in known or generic.search(stripped) or retired.search(stripped):
+        section_dropped.append(stripped)
+    else:
+        section_kept.append(line)
+while section_kept and not section_kept[-1]:
+    section_kept.pop()
+
+placeholder = object()
+rest = [line for line in lines[:sec_start] if line.rstrip() not in known]
+if sec_start < len(lines):
+    rest += ["", placeholder, ""]
+rest += [line for line in lines[sec_end:] if line.rstrip() not in known]
+
+def tidy(seq):
+    out, gap = [], False
+    for item in seq:
+        if isinstance(item, str) and not item.strip():
+            gap = True
+            continue
+        if gap and out:
+            out.append("")
+        gap = False
+        out.append(item)
+    return out
+
+rest = tidy(rest)
+body = [item for item in rest if item is not placeholder]
+if body and body[0].startswith("#"):
+    section = ["## Project rules", *section_kept] if section_kept else []
+    kept = tidy(sum(([*section, ""] if item is placeholder else [item] for item in rest), []))
+else:
+    lead = ["## Project rules", *section_kept, ""] if section_kept else (["## Project rules"] if body else [])
+    kept = tidy(lead + body)
+
+out = block
+if kept:
+    out += "\n\n" + "\n".join(kept)
+out = out.rstrip("\n") + "\n"
+if out == text:
+    print("same")
+    raise SystemExit(0)
+path.write_text(out, encoding="utf-8")
+if sec_start < len(lines):
+    print("converted")
+    report = section_kept
+else:
+    print("migrated" if whole_file else "added")
+    report = kept if whole_file else []
+for line in report:
+    if line and line != "## Project rules":
+        print("kept\t" + line)
+for line in section_dropped:
+    print("dropped\t" + line)
 PY
-  then
-    log "Updated retired wording in AGENTS.md AOC section."
-  fi
-
-
-  if grep -Fq "## Agent Ops Cockpit (AOC)" "$agents_file"; then
-    log "Existing AGENTS.md already includes an AOC section. Preserving."
-    return
-  fi
-
-  log "Appending AOC command guidance to existing AGENTS.md..."
-  cat <<'EOF' >> "$agents_file"
-
-## Agent Ops Cockpit (AOC)
-Use the AOC tools for context in this repo.
-
-- **Context:** `.aoc/context.md` (auto-generated project map)
-- **Design:** `DESIGN.md` at the project root is the visual/product design contract. Read it before UI, docs-site, marketing, or other product-facing changes.
-
-If AOC files are missing or stale, run `aoc-init` at the repo root.
-EOF
+)"
+  rm -f "$known_file" "$block_file"
+  case "$result" in
+    same) log "AGENTS.md managed block already up to date." ;;
+    refreshed) log "Updated the AOC-managed block in AGENTS.md." ;;
+    migrated*) log "Moved the AOC contract in AGENTS.md into a managed block." ;;
+    converted*) log "Replaced the old AOC section in AGENTS.md with a managed block." ;;
+    added*) log "Added the AOC-managed block to AGENTS.md; project content follows it." ;;
+  esac
+  while IFS=$'\t' read -r tag line; do
+    case "$tag" in
+      kept) log "  kept project line: $line" ;;
+      dropped) log "  dropped old AOC line: $line" ;;
+    esac
+  done <<< "$result"
 }
 
 
@@ -1226,12 +1576,10 @@ ensure_git_tracking_policy() {
     : > "$ignore_file"
   fi
 
-  if [[ -s "$ignore_file" ]]; then
-    local last_char=""
-    last_char="$(tail -c 1 "$ignore_file" 2>/dev/null || true)"
-    if [[ "$last_char" != $'\n' ]]; then
-      printf '\n' >> "$ignore_file"
-    fi
+  # $(...) strips a trailing newline, so a non-empty result means the file
+  # does not end with one.
+  if [[ -s "$ignore_file" && -n "$(tail -c 1 "$ignore_file" 2>/dev/null || true)" ]]; then
+    printf '\n' >> "$ignore_file"
   fi
 
   local rules=(
@@ -1245,6 +1593,9 @@ ensure_git_tracking_policy() {
     "!/.omp/agents/**"
     "!/.omp/skills/"
     "!/.omp/skills/**"
+    # Backups aoc-init leaves next to refreshed targets (.omp/, .aoc/presets/,
+    # .pi/*/). Listed after the re-includes above so this rule wins.
+    ".aoc-backups/"
   )
 
   for line in "${rules[@]}"; do
@@ -1255,7 +1606,7 @@ ensure_git_tracking_policy() {
   done
 
   if [[ "$changed" == "1" ]]; then
-    log "Updated .gitignore to keep .aoc/ and repo-owned .omp/ sources tracked."
+    log "Updated .gitignore to keep .aoc/ and repo-owned .omp/ sources tracked and AOC backups ignored."
   else
     log ".gitignore already keeps .aoc/ and repo-owned .omp/ sources tracked."
   fi
@@ -1263,15 +1614,6 @@ ensure_git_tracking_policy() {
 
 # 1. Setup project-local AOC state
 setup_project_state() {
-  # Migration Logic
-  if [[ -d "$gemini_dir" && ! -d "$aoc_dir" ]]; then
-    log "Migrating .gemini/ to .aoc/..."
-    mv "$gemini_dir" "$aoc_dir"
-    if [[ -f "$aoc_dir/GEMINI.md" ]]; then
-      mv "$aoc_dir/GEMINI.md" "$aoc_dir/context.md"
-    fi
-  fi
-
   if [[ ! -d "$aoc_dir" ]]; then
     log "Creating .aoc/ directory..."
     mkdir -p "$aoc_dir"
@@ -1328,9 +1670,9 @@ setup_project_state() {
 
 
   if command -v tree >/dev/null 2>&1; then
-    tree_output="$(tree -L "$context_tree_depth" --gitignore -I '.git|.aoc|.gemini|node_modules|target|dist|archive|deprecated|.venv|venv|__pycache__' "$project_root" 2>/dev/null || true)"
+    tree_output="$(tree -L "$context_tree_depth" --gitignore -I '.git|.aoc|node_modules|target|dist|archive|deprecated|.venv|venv|__pycache__' "$project_root" 2>/dev/null || true)"
   else
-    tree_output="$(cd "$project_root" && find . -maxdepth "$context_tree_depth" \( -path './.git' -o -path './.aoc' -o -path './.gemini' -o -path './node_modules' -o -path './target' -o -path './dist' -o -path './archive' -o -path './deprecated' -o -path './.venv' -o -path './venv' -o -path './__pycache__' \) -prune -o -print 2>/dev/null | sort || true)"
+    tree_output="$(cd "$project_root" && find . -maxdepth "$context_tree_depth" \( -path './.git' -o -path './.aoc' -o -path './node_modules' -o -path './target' -o -path './dist' -o -path './archive' -o -path './deprecated' -o -path './.venv' -o -path './venv' -o -path './__pycache__' \) -prune -o -print 2>/dev/null | sort || true)"
   fi
   tree_lines="$(printf '%s\n' "$tree_output" | wc -l | tr -d ' ')"
 
@@ -1537,6 +1879,8 @@ setup_project_omp_assets() {
     return 0
   fi
 
+  local filtered_seed=""
+  local name=""
   mkdir -p "$project_omp_root"
   for kind in extensions agents skills; do
     source_dir="$omp_seed_root/$kind"
@@ -1546,9 +1890,26 @@ setup_project_omp_assets() {
       log "Project OMP $kind already canonical ($target_dir)."
       continue
     fi
+    if [[ "$kind" == "extensions" ]]; then
+      for name in "${aoc_retired_omp_extensions[@]}"; do
+        [[ -e "$source_dir/$name" ]] || continue
+        if [[ -z "$filtered_seed" ]]; then
+          filtered_seed="$(mktemp -d)"
+          copy_tree_force "$source_dir" "$filtered_seed/extensions"
+        fi
+        rm -f -- "$filtered_seed/extensions/$name"
+        warn "Skipped retired OMP extension in stale seed: $source_dir/$name"
+      done
+      [[ -z "$filtered_seed" ]] || source_dir="$filtered_seed/extensions"
+    fi
     copy_tree_force_managed "$source_dir" "$target_dir" "omp-$kind"
+    if [[ "$source_dir" != "$omp_seed_root/$kind" ]]; then
+      # Name the real seed in the marker, not the filtered temp copy.
+      write_aoc_managed_marker "$target_dir" "omp-$kind" "$omp_seed_root/$kind"
+    fi
     log "Seeded project OMP $kind: .omp/$kind"
   done
+  [[ -z "$filtered_seed" ]] || rm -rf -- "$filtered_seed"
 
   local manifest_source="$omp_seed_root/manifest.toml"
   local manifest_target="$project_omp_root/manifest.toml"
@@ -1692,6 +2053,25 @@ config.write_text("\n".join(lines) + "\n")
 PY
 }
 
+# Remove assets an earlier aoc-init installed into the user OMP dir that the
+# current seed no longer installs. The record holds the names installed last.
+prune_unseeded_omp_assets() {
+  local target_dir="$1"
+  shift
+  local record="$target_dir/.aoc-seeded"
+  local name=""
+  if [[ -f "$record" ]]; then
+    while IFS= read -r name; do
+      [[ -n "$name" && "$name" != */* && "$name" != .* ]] || continue
+      if ! array_contains "$name" "$@"; then
+        rm -rf -- "${target_dir:?}/$name"
+        log "Removed OMP asset no longer in the AOC seed: $target_dir/$name"
+      fi
+    done < "$record"
+  fi
+  if (( $# > 0 )); then printf '%s\n' "$@" > "$record"; else : > "$record"; fi
+}
+
 setup_omp_extensions() {
   local omp_extension_seed_dir
   omp_extension_seed_dir="$(aoc_omp_seed_root)/extensions"
@@ -1731,7 +2111,14 @@ setup_omp_extensions() {
     fi
   done
 
-  rm -f "$omp_extension_dir/aoc-openai-stt.ts" "$omp_extension_dir/ponytail.ts" "$omp_extension_dir/aoc-jj-init.ts" "$omp_extension_dir/aoc-herdr.ts" "$omp_extension_dir/aoc-brand-content.ts"
+  for extension_name in "${aoc_retired_omp_extensions[@]}"; do
+    rm -f "$omp_extension_dir/$extension_name"
+  done
+  local seeded_extensions=("${required_extensions[@]}")
+  if [[ "${#required_extensions[@]}" -gt 0 && -f "$omp_extension_seed_dir/aoc-runtime.ts" ]]; then
+    seeded_extensions+=(aoc-runtime.ts)
+  fi
+  prune_unseeded_omp_assets "$omp_extension_dir" "${seeded_extensions[@]}"
   sync_omp_extension_disable_config
   sync_omp_extension_config
   log "Updated OMP extension config: ${AOC_OMP_AGENT_CONFIG:-$HOME/.omp/agent/config.yml}"
@@ -1811,6 +2198,7 @@ setup_omp_skills() {
     "$omp_skill_dir/omarchy-theme-ops" "$omp_skill_dir/safe-gamification" \
     "$omp_skill_dir/aoc-stm" "$omp_skill_dir/aoc-lexicon" "$omp_skill_dir/browser-qa" \
     "$omp_skill_dir/spec-rpg-authoring" "$omp_skill_dir/tm-cc"
+  prune_unseeded_omp_assets "$omp_skill_dir" "${required_skills[@]}"
 }
 setup_omp_agents() {
   local omp_agent_seed_dir
@@ -1848,105 +2236,10 @@ setup_omp_agents() {
   done
   rm -f "$omp_agent_dir/brand-concept.md" "$omp_agent_dir/brand-strategy.md" \
     "$omp_agent_dir/svg-asset.md" "$omp_agent_dir/hyperframes-content.md"
+  prune_unseeded_omp_assets "$omp_agent_dir" "${required_agents[@]}"
   sync_omp_agent_disable_config
 }
 
-
-setup_search_assets() {
-  local search_file="$project_root/.aoc/search.toml"
-  local searxng_dir="$project_root/.aoc/services/searxng"
-  local compose_file="$searxng_dir/docker-compose.yml"
-  local settings_file="$searxng_dir/settings.yml"
-  local global_search_dir="$aoc_config_dir/search"
-  local global_services_dir="$aoc_config_dir/services/searxng"
-
-  mkdir -p "$project_root/.aoc" "$searxng_dir" "$global_search_dir" "$global_services_dir"
-
-  if [[ ! -f "$search_file" ]]; then
-    cat > "$search_file" <<'EOF'
-version = 1
-
-[search]
-enabled = true
-provider = "searxng"
-managed = true
-auto_start = true
-
-[search.runtime]
-base_url = "http://127.0.0.1:8888"
-healthcheck_url = "http://127.0.0.1:8888/search?q=python+documentation&format=json&engines=bing%2Cgoogle%2Cbrave%2Cpresearch%2Cduckduckgo%2Cstartpage%2Cmojeek%2Cqwant%2Cyahoo%2Cwiby"
-compose_file = ".aoc/services/searxng/docker-compose.yml"
-service_name = "searxng"
-
-[search.query_defaults]
-format = "json"
-language = "en"
-categories = "general"
-safe_search = 0
-engines = "bing,google,brave,presearch,duckduckgo,startpage,mojeek,qwant,yahoo,wiby"
-
-[search.agent_policy]
-allow_auto_start = true
-prompt_when_missing = true
-prompt_when_unhealthy = true
-EOF
-    log "Seeded AOC search config: .aoc/search.toml"
-  fi
-
-  if [[ ! -f "$compose_file" ]]; then
-    cat > "$compose_file" <<'EOF'
-services:
-  searxng:
-    image: docker.io/searxng/searxng:latest
-    container_name: aoc-searxng
-    ports:
-      - "127.0.0.1:8888:8080"
-    volumes:
-      - ./settings.yml:/etc/searxng/settings.yml
-    restart: unless-stopped
-EOF
-    log "Seeded AOC SearXNG compose file."
-  fi
-
-  if [[ ! -f "$settings_file" ]]; then
-    cat > "$settings_file" <<'EOF'
-use_default_settings: true
-server:
-  secret_key: "aoc-searxng-local-dev-key"
-  bind_address: "0.0.0.0"
-  port: 8080
-  limiter: false
-search:
-  safe_search: 0
-  autocomplete: ""
-  formats:
-    - html
-    - json
-    - csv
-    - rss
-engines:
-  - name: duckduckgo
-    disabled: true
-  - name: startpage
-    disabled: true
-  - name: mojeek
-    disabled: true
-  - name: qwant
-    disabled: true
-  - name: yahoo
-    disabled: true
-  - name: ahmia
-    disabled: true
-  - name: torch
-    disabled: true
-EOF
-    log "Seeded AOC SearXNG settings."
-  fi
-
-  cp "$search_file" "$global_search_dir/search.toml" || true
-  cp "$compose_file" "$global_services_dir/docker-compose.yml" || true
-  cp "$settings_file" "$global_services_dir/settings.yml" || true
-}
 
 setup_aoc_preset_assets() {
   local presets_dir="$project_root/.aoc/presets"
@@ -2059,7 +2352,6 @@ main() {
   setup_omp_style_state
   setup_omp_skills
   setup_omp_agents
-  setup_search_assets
   setup_aoc_preset_assets
   setup_skills
   setup_aoc_map

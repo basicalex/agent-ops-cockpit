@@ -58,9 +58,7 @@ fi
 
 
 for required in \
-  .omp/extensions/aoc-codegraph.ts \
   .omp/extensions/aoc-commit.ts \
-  .omp/extensions/aoc-web-search.ts \
   .omp/extensions/aoc-style.ts \
   .omp/extensions/aoc-profile.ts \
   .omp/skills/aoc-dox-cartography/SKILL.md \
