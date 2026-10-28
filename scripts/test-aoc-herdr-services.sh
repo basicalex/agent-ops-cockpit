@@ -11,7 +11,7 @@ fake_bin="$tmp_dir/bin"
 project="$tmp_dir/project"
 state="$tmp_dir/herdr-state.json"
 mkdir -p "$fake_bin" "$project/.aoc"
-printf '[search]\nenabled = true\n' > "$project/.aoc/search.toml"
+printf '# context\n' > "$project/.aoc/context.md"
 printf '{"workspaces":[],"tabs":[],"panes":[],"log":[]}' > "$state"
 
 python3 - "$fake_bin/herdr" <<'PY'
@@ -163,15 +163,14 @@ mode = sys.argv[2]
 if mode == "created":
     assert len(state["workspaces"]) == 1, state
     assert state["workspaces"][0]["label"].startswith("AOC Services · project · "), state
-    assert [tab["label"] for tab in state["tabs"]] == ["Overview", "Search"], state
-    assert [pane.get("label") for pane in state["panes"]] == ["AOC Services", "Managed Search"], state
+    assert [tab["label"] for tab in state["tabs"]] == ["Overview"], state
+    assert [pane.get("label") for pane in state["panes"]] == ["AOC Services"], state
     commands = [pane.get("command", "") for pane in state["panes"]]
-    assert any("aoc-services up --watch --interval 30" in command for command in commands), state
-    assert any("aoc-search status" in command for command in commands), state
+    assert all("${SHELL:-bash}" in command and "aoc-" not in command for command in commands), state
 elif mode == "idempotent":
     assert len(state["workspaces"]) == 1, state
-    assert len(state["tabs"]) == 2, state
-    assert len(state["panes"]) == 2, state
+    assert len(state["tabs"]) == 1, state
+    assert len(state["panes"]) == 1, state
 elif mode == "focused":
     assert any(entry[:2] == ["workspace", "focus"] for entry in state["log"]), state
 elif mode == "launch_auto":
@@ -185,7 +184,7 @@ PY
 }
 
 output="$(run_with_fake "$root/bin/aoc-herdr-services" ensure --cwd "$project" --no-focus)"
-if [[ "$output" != *"AOC Services workspace created"* || "$output" != *"tabs: Overview, Search"* ]]; then
+if [[ "$output" != *"AOC Services workspace created"* || "$output" != *"tabs: Overview"* ]]; then
   echo "ERROR: ensure did not create expected Services workspace" >&2
   printf '%s\n' "$output" >&2
   exit 1
@@ -193,7 +192,7 @@ fi
 assert_state created
 
 output="$(run_with_fake "$root/bin/aoc-herdr-services" ensure --cwd "$project" --no-focus)"
-if [[ "$output" != *"tabs: reused existing Overview/Search"* ]]; then
+if [[ "$output" != *"tabs: reused existing Overview"* ]]; then
   echo "ERROR: second ensure did not reuse existing tabs" >&2
   printf '%s\n' "$output" >&2
   exit 1

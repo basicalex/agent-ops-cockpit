@@ -55,17 +55,3 @@ OMP slash commands:
 /master on                            # enable gated master orchestration
 /commit                               # run safe atomic commit workflow
 ```
-
-## Optional: web research
-
-OMP agents use the `aoc_web_search` tool for local SearXNG or direct package/GitHub search fallback.
-
-Operators can manage the local search service through the Herdr AOC Services workspace:
-
-```bash
-aoc services
-aoc services status
-aoc services start search
-```
-
-See [Web research](web-research.md).

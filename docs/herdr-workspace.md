@@ -15,12 +15,10 @@ Keep only AOC pieces that are still valuable as project/tooling primitives:
 - `aoc` as the familiar launcher command
 - minimal project initialization conventions where useful
 - metadata-only context handshakes for OMP startup
-- CodeGraph as a read-only OMP tool when a project has an index
-- web research as a standalone project/tooling feature
 - selected lightweight handoff helpers only if they remain useful
 - selected Pi/OMP skills only when they complement the new stack
 - docs and install/bootstrap knowledge that can be simplified for Herdr
-- AOC Services workspace for project-scoped runtime health, especially managed local search
+- an optional AOC Services workspace for long-lived project shells
 
 ## What moves out of AOC
 
@@ -40,7 +38,7 @@ Treat these as legacy or transitional:
 ## New model
 
 - **Herdr** owns workspaces, tabs, panes, navigation, agent status, workspace health, and operator UI.
-- **Herdr AOC Services workspace** owns project-scoped long-lived AOC runtime status/startup, especially managed local SearXNG search.
+- **Herdr AOC Services workspace** is an optional project-scoped workspace for long-lived shells.
 - **OMP** owns subagent orchestration.
 - **AOC** becomes the compatibility/tooling layer around project setup, task workflows, launch convenience, and retained standalone tools.
 
@@ -48,25 +46,21 @@ The `aoc` command launches/focuses the Herdr workspace. The default installer an
 
 ## Services workspace
 
-Use a separate Services workspace when you want visible runtime ownership without cluttering the coding workspace:
+Use a separate Services workspace when you want long-lived shells out of the coding workspace:
 
 ```bash
 aoc services
-aoc services status
-aoc services start search
 ```
 
-`aoc services` creates/focuses a project-scoped Herdr workspace named `AOC Services · <project> · <hash>`. It keeps an `Overview` tab running `aoc-services up --watch --interval 30` and a `Search` tab with managed-search status and next commands.
+`aoc services` creates or focuses a project-scoped Herdr workspace named `AOC Services · <project> · <hash>`. It holds one `Overview` tab with a shell at the project root.
 
 Launch behavior is conservative:
 
 | Variable | Behavior |
 |---|---|
-| `AOC_HERDR_SERVICES=auto` | default; if a Herdr server is already running, ensure the Services workspace without focusing it |
-| `AOC_HERDR_SERVICES=off` | never ensure the Services workspace from `aoc` launch |
+| `AOC_HERDR_SERVICES=off` | default; never ensure the Services workspace from `aoc` launch |
+| `AOC_HERDR_SERVICES=auto` | if a Herdr server is already running, ensure the Services workspace without focusing it |
 | `AOC_HERDR_SERVICES=focus` | ensure/focus Services for explicit service-ops sessions |
-
-Agents still consume `aoc_web_search` / `aoc-search`; they do not call Docker or SearXNG directly. `aoc-search` auto-start remains a safety fallback when project policy allows it, not the primary runtime UX.
 
 ## Current Herdr UX baseline
 
@@ -103,7 +97,7 @@ The Herdr-first path is implemented with:
 - `bin/aoc` — delegates to Herdr by default and exposes `aoc services`
 - `install.sh` — defaults to Herdr/OMP assets and does not install retired cockpit assets
 - `bin/aoc-init` — installs the AOC OMP extensions, skills, and agent templates selected by active `.omp/manifest.toml` profiles, seeds the lean OMP tool baseline, and skips retired layout assets, plugin repair, subagent manager extension, AOC agent presence extension, Mission Control, and Control pane defaults
-- `/commit [scope]` — OMP slash command that triggers the safe atomic Git commit workflow: inspect changes, run targeted validation, commit only the intended atomic work, report the Git SHA, and after a successful commit perform best-effort `codegraph sync` when a project `.codegraph/` index and CLI are present; never push
+- `/commit [scope]` — OMP slash command that triggers the safe atomic Git commit workflow: inspect changes, run targeted validation, commit only the intended atomic work, report the Git SHA, and after a successful commit never push
 
 Retired cockpit compatibility paths are tracked only in `docs/deprecations.md`.
 
@@ -150,19 +144,8 @@ ${AOC_OMP_AGENT_DIR:-~/.omp/agent}/agents/
 Do not maintain a second active inventory in this document or under `.aoc/skills`; `.aoc/skills` is legacy/archive-only content, not an OMP runtime source. Runtime skill sources are `.omp/skills`, and active `.omp/manifest.toml` profiles decide which canonical skills install.
 Default/core profiles use OMP/Mnemopi as the memory plane. Retired project-memory extensions are not part of the active Herdr/OMP surface.
 
-The manifest-owned full extension inventory includes the operational tools and slash commands Herdr can enable, including `aoc-codegraph.ts`, `aoc-commit.ts`, `aoc-state.ts`, `aoc-dox.ts`, `aoc-dox-command.ts`, `aoc-master.ts`, `aoc-web-search.ts`, `aoc-style.ts`, and `aoc-profile.ts`. Herdr peer observation is a native `herdr` procedure taught by the default/core `herdr-agent-observation` skill, not an AOC OMP tool. The active profile surface includes Ponytail through `/ponytail review|audit|debt|help` and the `ponytail-workflows` skill.
+The manifest-owned full extension inventory includes the operational tools and slash commands Herdr can enable, including `aoc-commit.ts`, `aoc-state.ts`, `aoc-dox.ts`, `aoc-dox-command.ts`, `aoc-master.ts`, `aoc-style.ts`, and `aoc-profile.ts`. Herdr peer observation is a native `herdr` procedure taught by the default/core `herdr-agent-observation` skill, not an AOC OMP tool. The active profile surface includes Ponytail through `/ponytail review|audit|debt|help` and the `ponytail-workflows` skill.
 
 `aoc-master.ts` registers `/master on [minutes]`, `/master off`, `/master status`, and `/master full-retard on/off/status` plus the gated `aoc_orchestrate` and worker-facing `aoc_report` tools. `/master on/off/status` and `/master full-retard on/off/status` route through the agent turn. Existing `aoc_orchestrate assign/send` default to `deliveryMode=draft`, preserving the reviewable `draft|submit|collect` assignment flow; `deliveryMode=notify` drafts a bounded report prompt to the master without submitting. `aoc_report` queues worker reports by default for master-side `aoc_orchestrate inbox/ingest/ack` review. `deliveryMode=submit` and `deliveryMode=full-retard` report delivery require the master-owned `full-retard` toggle and a resolved OMP master target. `aoc_orchestrate collect` retrieves the latest result evidence by assignment ID and result marker. No arbitrary shell commands, focus, pane movement, spawning, resizing, closing, or broadcast actions are exposed.
 
-`aoc-codegraph.ts` exposes the read-only `aoc_codegraph` tool for code discovery: `status`, `files`, `search`, `context`, `callers`, `callees`, `impact`, and `affected`.
-Use this as the agent graph/context tool in Herdr/OMP workspaces; Understand-Anything is not part of the active graph path.
-
-
-`aoc-commit.ts` registers `/commit` for safe atomic Git commits. It stages explicit paths only, never stages broad paths, and keeps CodeGraph refresh as post-commit advisory cache maintenance only; it does not initialize/index new projects.
-
-`aoc-web-search.ts` exposes the `aoc_web_search` tool backed by `aoc-search`, so OMP agents can use local SearXNG or direct package/GitHub modes when built-in web-search providers are out of credits, unauthorized, or timing out.
-Agents must not use `aoc_codegraph` to initialize, index, or sync projects. Operators run those commands explicitly, for example:
-
-```bash
-codegraph sync /path/to/project
-```
+`aoc-commit.ts` registers `/commit` for safe atomic Git commits. It stages explicit paths only and never stages broad paths.

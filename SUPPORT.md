@@ -12,7 +12,7 @@ Thanks for using AOC. Here is how to get help and report issues.
 Use GitHub Issues for bugs and feature requests:
 https://github.com/basicalex/agent-ops-cockpit/issues
 
-Please include reproduction steps, your OS, terminal, and versions of Zellij
+Please include reproduction steps, your OS, terminal, and versions of Herdr
 and Yazi.
 
 ## Discussions

@@ -3,7 +3,7 @@
 Canonical AOC project surfaces:
 
 ```text
-.aoc/                        # AOC context, memory CLI state, presets, services, managed metadata
+.aoc/                        # AOC context, presets, managed metadata
 .omp/extensions/             # repo-owned AOC OMP extension sources
 .omp/agents/                 # repo-owned AOC OMP agent template sources
 .omp/skills/                 # repo-owned AOC OMP skill sources
@@ -31,7 +31,6 @@ High-churn/runtime artifacts remain ignored:
 /.aoc/logs/
 /.aoc/tools/
 **/.aoc-backups/
-.codegraph/
 ```
 
 Global/operator OMP runtime config lives outside the repo at `~/.omp/agent/config.yml` and may be created by the operator or upstream OMP tooling.

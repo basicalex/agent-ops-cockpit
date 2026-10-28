@@ -2,7 +2,7 @@
 
 [fframes](https://fframes.studio) lets agents build videos with Rust and SVG and render them on the GPU. `aoc-fframes-install` installs the system video libraries, Rust's `cargo-fframes` project generator, and the `fframes-video` agent skill. It updates existing installations on later runs.
 
-The skill lives at `~/.agents/skills/fframes-video/`. Codex, OpenCode, and OMP read that directory; Claude Code uses `~/.claude/skills/fframes-video`, linked to it. The installer downloads the skill from fframes.studio, not the large GitHub repository.
+The skill lives at `~/.agents/skills/fframes-video/`. Codex and OMP read that directory; Claude Code uses `~/.claude/skills/fframes-video`, linked to it. The installer downloads the skill from fframes.studio, not the large GitHub repository.
 
 - `aoc-fframes-install`: install or update dependencies and the skill.
 - `aoc-fframes-install --check`: report missing pieces without making changes; exit non-zero if incomplete.

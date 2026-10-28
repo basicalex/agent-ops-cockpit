@@ -46,13 +46,9 @@ aoc
 
 ## What install does
 
-`install.sh` installs AOC binaries, scripts, the machine-global prime-agent CLI, the Herdr config baseline, OMP defaults, optional skill templates, OMP extension/skill/agent assets declared in `.omp/manifest.toml`, the AOC-aware OMP shim, and global config under user-local paths. Jcode support remains available as an opt-in comparison harness.
+`install.sh` installs AOC binaries, scripts, the Herdr config baseline, OMP defaults, optional skill templates, OMP extension/skill/agent assets declared in `.omp/manifest.toml`, the AOC-aware OMP shim, and global config under user-local paths.
 
 It does **not** assume every repo should become an AOC repo. Use `aoc-init` for each project you want to use with AOC.
-
-`prime-agent` is machine-global. If explicitly enabled, `jcode` is also machine-global. `aoc-init` does not seed per-project state for either.
-
-`prime-agent` is PrimeIntellect's RLM coding agent. It installs as a global npm package and needs Node 22 or newer; the install also prepares its IPython runtime (uv, Python 3.11, ipykernel) unless you set `PRIME_AGENT_BOOTSTRAP_KERNEL_ON_INSTALL=0`. Run `prime-agent` in a project and use `/login` on first launch to pick a provider.
 
 ## Useful install options
 
@@ -74,8 +70,6 @@ Local install overrides:
 
 ```bash
 AOC_INSTALL_RUST=0 ./install.sh           # skip Rust bootstrap
-AOC_INSTALL_JCODE=1 ./install.sh          # opt in to jcode install
-AOC_INSTALL_PRIME_AGENT=0 ./install.sh    # skip prime-agent install
 AOC_SKIP_SHELL_PROFILE=1 ./install.sh     # leave shell profiles unchanged
 ```
 
@@ -99,7 +93,7 @@ Recommended:
 
 - Rust/Cargo for local builds
 - Node.js `>= 22` for OMP extensions
-- Docker for managed local search
+- Bun for `aoc-live` and fframes
 
 ## Verify
 
@@ -111,10 +105,7 @@ aoc-init --status
 aoc-handshake --json
 aoc-omp-context
 omp --help
-prime-agent --version
 ```
-
-Run tool-specific verify actions when enabling optional integrations. After opting into Jcode, verify it with `jcode --help`.
 
 ## Detailed reference
 

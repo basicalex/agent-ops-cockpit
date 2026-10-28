@@ -80,9 +80,7 @@ The user's `/commit` invocation is approval for the agent to complete the safe G
 - run targeted validation when practical
 - stage only explicit paths and never broad paths like `.`
 - commit with AOC provenance trailers
-- report the resulting Git SHA, CodeGraph cache status, and remaining unrelated changes
-
-After a successful commit, agents should refresh CodeGraph only as cache maintenance: if `.codegraph/` exists and `codegraph` is on PATH, run `codegraph sync <repo-root>`. This happens after the commit, never before it, and sync failure is advisory only; it must not block, undo, or invalidate the VCS result.
+- report the resulting Git SHA and remaining unrelated changes
 
 If the file set or commit intent is ambiguous, the agent should stop and ask for clarification before staging or mutating. Never push unless explicitly requested.
 

@@ -218,7 +218,7 @@ install_skill() {
   elif [[ -f "$skill" ]]; then
     (cd "$HOME" && bunx skills update fframes-video -g -y)
   else
-    (cd "$HOME" && bunx skills add https://fframes.studio -g -a claude-code codex opencode -y)
+    (cd "$HOME" && bunx skills add https://fframes.studio -g -a claude-code codex -y)
   fi
   if [[ ! -f "$skill" ]]; then
     warn "skill missing: $skill"

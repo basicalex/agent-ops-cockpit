@@ -6,8 +6,7 @@ Advanced configuration options for Agent Ops Cockpit (AOC).
 
 - `aoc-doctor` to verify install health
 - `aoc` to open/focus the Herdr project workspace
-- `aoc services` to open/focus the Herdr AOC Services workspace
-- `aoc services status` and `aoc-search health` for managed local search/runtime checks
+- `aoc services` to open/focus the optional Herdr AOC Services workspace
 - this document mainly as a reference for paths, env vars, and advanced tuning
 
 ## Table of Contents
@@ -65,21 +64,17 @@ aoc-clock-set
 
 ### Herdr Services
 
-The default runtime owner is the project-scoped Herdr AOC Services workspace:
+The optional Services workspace is a project-scoped Herdr workspace with one shell tab:
 
 | Variable | Description | Default |
 |----------|-------------|---------|
-| `AOC_HERDR_SERVICES` | `auto` ensures the Services workspace when a Herdr server already exists; `off` disables launch-time ensure; `focus` opens Services for explicit ops sessions | `auto` |
-| `AOC_SERVICES_ROOT` | Override the service root used by `aoc-services` and the Services workspace panes | Resolved project root |
-| `AOC_SERVICES_WATCH_INTERVAL` | Default refresh interval for `aoc-services status --watch` / `up --watch` | `30` |
-| `AOC_SERVICES_HEALTH_CACHE_TTL` | Max cached service-health age for watch mode | `20` |
+| `AOC_HERDR_SERVICES` | `auto` ensures the Services workspace when a Herdr server already exists; `off` disables launch-time ensure; `focus` opens Services for explicit ops sessions | `off` |
+| `AOC_SERVICES_ROOT` | Override the project root used by the Services workspace | Resolved project root |
 
-Operator commands:
+Operator command:
 
 ```bash
 aoc services
-aoc services status
-aoc services start search
 ```
 
 `aoc services` uses Herdr workspace/tab/pane commands. It does not start Herdr behind the operator's back; start Herdr with `aoc` first if no Herdr server is running.
@@ -90,7 +85,7 @@ aoc services start search
 
 What it guarantees:
 - Seeds/repairs canonical project OMP sources under `.omp/extensions/`, `.omp/agents/`, and `.omp/skills/`.
-- Installs AOC OMP extensions into `${AOC_OMP_AGENT_DIR:-~/.omp/agent}/extensions`, including CodeGraph, commit, state, DOX, and web-search surfaces.
+- Installs AOC OMP extensions into `${AOC_OMP_AGENT_DIR:-~/.omp/agent}/extensions`, including commit, state, and DOX surfaces.
 - Installs AOC OMP agent templates into `${AOC_OMP_AGENT_DIR:-~/.omp/agent}/agents`.
 - Installs AOC OMP skills into `${AOC_OMP_AGENT_DIR:-~/.omp/agent}/skills`.
 - Keeps AOC control-plane state under `.aoc/**`.
@@ -130,14 +125,13 @@ Default command overrides:
 
 PI installer behavior:
 
-- By default, `pi` installs from npm (`pnpm add -g @mariozechner/pi-coding-agent`).
+- By default, `pi` installs from npm (`bun add -g @mariozechner/pi-coding-agent`).
 - AOC does not bundle PI artifacts; it only executes installer commands.
 
 ### Tools Integrations
 
 Prefer direct Herdr/CLI surfaces for default work:
 
-- Managed search/service runtime: `aoc services`, `aoc-search`
 - Vercel CLI: `vercel`
 
 ### OMP runtime config
@@ -151,40 +145,6 @@ Use OMP's own runtime config at `~/.omp/agent/config.yml` for model/auth/status-
 | `AOC_OMP_AGENT_DIR` | OMP runtime directory used by `aoc-init`/`aoc-herdr-install` for extensions, agents, and skills (default `~/.omp/agent`) |
 | `AOC_VERCEL_BIN` | Vercel CLI binary name/path check (default `vercel`) |
 | `AOC_VERCEL_INSTALL_CMD` / `AOC_VERCEL_UPDATE_CMD` | Vercel CLI install/update commands |
-
-### Managed Local Search
-
-Managed local search is project-local. The Herdr AOC Services workspace is the visible runtime owner; `aoc-search` is the stable CLI/tool surface.
-
-Services/search setup writes:
-
-- write `.aoc/search.toml`
-- write `.aoc/services/searxng/docker-compose.yml`
-- write `.aoc/services/searxng/settings.yml`
-- start/verify the managed SearXNG container through `aoc services start search` or `aoc-search start --wait`
-
-Managed local search no longer seeds browser/search legacy browser/search skills. Agents use the built-in/web-search tool surface and OMP extension paths.
-
-Canonical phase-1 paths:
-
-- `.aoc/search.toml`
-- `.aoc/services/searxng/docker-compose.yml`
-- `.aoc/services/searxng/settings.yml`
-- `bin/aoc-search`
-- `.omp/extensions/aoc-web-search.ts`
-
-Use `aoc services` for operator-visible runtime ownership and `aoc-search` as the stable interface for agents and operators:
-
-```bash
-aoc services
-aoc services status
-aoc services start search
-aoc-search status
-aoc-search health
-aoc-search query --mode docs --limit 5 "rust clap subcommands"
-```
-
-General docs/web search needs managed local SearXNG unless a separate paid search API is configured later. Direct package and GitHub modes can run without SearXNG. Use `agent-browser` after you have candidate URLs or need rendered-page interaction.
 
 ### Agent Configuration
 
@@ -230,12 +190,6 @@ AOC uses a project-local configuration model:
 - **Content:** Project-specific snapshot (repo facts, VCS mode, Git branch when present, key files, structure tree, README headings, workstream tags, task PRD location)
 - **Refresh:** `aoc-init` (manual) or `aoc-watcher` (auto)
 
-
-### 2. Search Configuration (`.aoc/search.toml`)
-
-- **Purpose:** Project-local managed search contract
-- **Management:** `aoc services`, `aoc-services`, or `bin/aoc-search`
-- **Related paths:** `.aoc/services/searxng/**`, `.omp/extensions/aoc-web-search.ts`
 
 ### Global Configuration
 

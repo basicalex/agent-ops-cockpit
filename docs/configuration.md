@@ -31,11 +31,9 @@ Key extension-owned commands and tools:
 |---|---|
 | `aoc-commit.ts` | `/commit [intent]` |
 | `aoc-master.ts` | `/master on [minutes]`, `/master off`, `/master status`, `/master full-retard on|off|status`, `aoc_orchestrate`, `aoc_report` |
-| `aoc-codegraph.ts` | `aoc_codegraph` read-only discovery |
 | `aoc-state.ts` | `/state-status`, `/state-commit`, `/state-push` project-state workflows |
 | native Herdr + `herdr-agent-observation` skill | read-only workspace, agent, pane, tab, and transcript observation |
 | `aoc-dox.ts`, `aoc-dox-command.ts` | `/dox [full|scout|map|review|packet|doctor|dry-run]` |
-| `aoc-web-search.ts` | `aoc_web_search` |
 | `aoc-style.ts` | AOC style hook state |
 | `aoc-profile.ts` | `/profile [list|show|enable|disable|set|explain]` capability profile management |
 
