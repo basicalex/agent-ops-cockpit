@@ -1,3 +1,4 @@
+<!-- aoc:managed:start -->
 # AOC Architecture & Agent Guidelines
 
 This file defines the always-on rules for agents in this repo. Procedural playbooks live in AOC skills.
@@ -5,16 +6,10 @@ This file defines the always-on rules for agents in this repo. Procedural playbo
 ## Always-on rules
 - Use `.aoc/context.md` for orientation; run `aoc-init` if it is missing or stale.
 - Use root `DESIGN.md` as the visual/product design contract before UI, docs-site, marketing, or other product-facing work.
-- **DO NOT manually read these files** - use the Bash tool to run CLI commands instead (see below).
-- Run AOC commands via Bash tool.
-
-## Startup handshake
-- `aoc-handshake --json` is the metadata-only startup packet for agents: AOC status, Git repository state, and usage policy.
 
 ## Low-Token Default Mode
 - Keep responses concise by default; do not print full files or raw logs unless explicitly requested.
 - Start with the smallest viable step; use narrow, path-scoped searches before broad scans.
-- When `.codegraph/` exists and the OMP `aoc_codegraph` tool is available, use it before broad text/file scans for code discovery, call-flow mapping, impact probes, and affected-test selection.
 - Read files in bounded chunks and avoid rereading unchanged large files.
 - Summarize command/tool output with actionable lines only (key errors, next actions).
 - Run targeted checks/tests first; run full-suite commands only when required.
@@ -33,15 +28,14 @@ This file defines the always-on rules for agents in this repo. Procedural playbo
 
 ## AOC CLI Commands (run via Bash tool - NOT Read tool)
 These commands are in PATH and work without loading any skill:
-- Startup/repair: `aoc-init`
+- Startup/repair: `aoc-handshake --json`, `aoc-init`
 - VCS: inspect detected mode with `aoc-handshake --json`; use `git status`/`git diff` in Git repositories.
-
 
 ## Core files
 - `.aoc/context.md`: auto-generated project snapshot.
 - `DESIGN.md`: project-wide visual/product design contract; subsystem design docs extend it.
-
+- Keep AOC/config/source state in git: `.aoc/**`, `.omp/extensions/**`, `.omp/agents/**`, `.omp/skills/**`, `AGENTS.md`, and `DESIGN.md` should not be ignored except explicit high-churn runtime artifacts such as logs, locks, caches, and debug output.
 
 ## Skills (load when needed)
 Load a skill only when its description matches the user request. Keep always-on guidance here minimal; procedural playbooks belong in skill files.
-
+<!-- aoc:managed:end -->

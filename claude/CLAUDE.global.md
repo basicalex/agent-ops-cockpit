@@ -25,7 +25,7 @@ The AOC communication contract (`~/.config/aoc/communication-contract.md`, sourc
 - **Main Claude session**: the `contract` output style, selected by `outputStyle` in `~/.claude/settings.json` (on by default; rules arrive through the system prompt when active). Toggling it via `/config` affects the main agent ONLY — it is a personal toggle, never the delivery route for workers or subagents.
 - **Agent-tool subagents**: output styles do not reach them. Every subagent prompt includes: "Follow the communication contract at ~/.config/aoc/communication-contract.md for your report: plain language, findings not narrative, no filler."
 - **Claude herdr workers**: spawned with `--append-system-prompt "$(cat ~/.config/aoc/communication-contract.md 2>/dev/null)"` (encoded in the herdr-orchestrate skill).
-- **omp / prime / jcode**: wired by `aoc-contract-install` and the aoc-omp capsule; nothing to do from Claude sessions.
+- **omp**: wired by the aoc-omp capsule; nothing to do from Claude sessions.
 
 # Prose style (docs, PR text, commit messages, reports, UI/marketing copy)
 

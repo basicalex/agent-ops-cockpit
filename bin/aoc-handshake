@@ -210,7 +210,7 @@ def print_prompt_compact(packet: dict[str, Any]) -> None:
     print(f"- AOC: {'initialized' if aoc.get('initialized') else 'not initialized'}; context `{aoc.get('contextPath', '.aoc/context.md')}` is {'present' if aoc.get('contextPresent') else 'missing'}; agent contract is {'present' if aoc.get('agentsContractPresent') else 'missing'}.")
     print(f"- VCS: {vcs_summary(vcs)}. Safety rule: {vcs_policy_line(vcs)}; never push without explicit approval.")
     print("- Context policy: load focused context only after user intent is known and the reason is explicit.")
-    print("- CodeGraph and other capability details are lazy lookups, not startup prose.")
+    print("- Capability details are lazy lookups, not startup prose.")
     if warnings:
         print("- Warnings: " + "; ".join(str(w) for w in warnings))
 
@@ -236,10 +236,6 @@ def print_prompt_full(packet: dict[str, Any]) -> None:
     print("- Do not load broad project context at startup.")
     print("- Request focused evidence only after user intent is known, with an explicit reason.")
     print("- Good triggers: resume/continue, previous decisions, debugging prior attempts, provenance/audit, or targeted local inspection proving insufficient.")
-    print()
-    print("## CodeGraph")
-    print("- If `.codegraph/` exists and the OMP `aoc_codegraph` tool is available, use it before broad text scans for code discovery, architecture tracing, impact analysis, and affected-test selection.")
-    print("- Treat CodeGraph as read-only inside the agent. Initialization, indexing, and sync are explicit operator actions.")
     print()
     print("## VCS policy")
     print(f"- Detected: {vcs_summary(vcs)}")

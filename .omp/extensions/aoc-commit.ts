@@ -75,21 +75,17 @@ AOC-Intent: <durable intent>
 Tests: <commands run/results>
 Risk: low|medium|high; <reason>
 
-5. Validate, commit directly, then refresh CodeGraph cache
+5. Validate and commit directly
 - Run targeted validation appropriate to the selected files when practical.
 - Stage only explicit paths with \`git add -- path ...\`, commit, and report the observed SHA.
 - If no safe atomic set can be inferred from the prompt, session context, and targeted diffs, ask one concise clarification before staging or mutating.
 - Never push unless explicitly requested.
-- After a successful commit only, if \`.codegraph/\` exists and \`codegraph\` is on PATH, run \`codegraph sync <repo-root>\` as best-effort cache maintenance.
-- Never run CodeGraph sync before the commit, never include \`.codegraph/**\` in the commit, and never let sync failure change, undo, block, or invalidate the committed VCS result.
-- If sync fails or is unavailable, report it as advisory cache status and continue the final commit report.
 
 Final response after commit:
 - Git commit SHA
 - subject
 - files committed
 - tests noted
-- CodeGraph cache status: synced | skipped (no index/CLI) | failed (advisory; reason)
 - remaining unrelated changes, if any
 
 Safety:

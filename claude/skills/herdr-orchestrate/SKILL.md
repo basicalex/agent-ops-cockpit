@@ -209,3 +209,4 @@ Rules for lessons: one per incident, short, state the failure evidence and the c
 - Worker made a small, obvious mistake → fixing it directly during verification is allowed (the minor-fix exception); anything larger gets re-packeted.
 - Worker touched out-of-scope files → do not commit those hunks; note it and revert only the out-of-scope worker changes after confirming they aren't user work.
 - Worker pane unresponsive → `herdr pane read` its scrollback to diagnose before re-dispatching.
+- Mid-run notes to a busy Codex worker can fail ("unsupported_native_inflight_message", emb2 campaign 2026-10-07) and the note is lost. Put everything in the packet; if scope changes mid-run, make the small edit yourself or send it after the worker goes idle.

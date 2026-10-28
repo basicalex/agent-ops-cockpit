@@ -90,7 +90,6 @@ fi
 
 core_extensions=(
   aoc-profile.ts
-  aoc-codegraph.ts
   aoc-dox.ts
   aoc-style.ts
 )
@@ -103,7 +102,6 @@ for forbidden in \
   aoc-master.ts \
   aoc-commit.ts \
   aoc-state.ts \
-  aoc-web-search.ts \
   aoc-dox-command.ts; do
   assert_absent "$default_runtime/extensions/$forbidden"
 done
@@ -161,7 +159,6 @@ for disabled_extension in \
   extension-module:aoc-master \
   extension-module:aoc-commit \
   extension-module:aoc-state \
-  extension-module:aoc-web-search \
   extension-module:aoc-dox-command; do
   if ! grep -Fq "  - $disabled_extension" "$default_config"; then
     echo "ERROR: inactive AOC extension not disabled in config: $disabled_extension" >&2

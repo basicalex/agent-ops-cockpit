@@ -19,7 +19,6 @@ assert_lines_equal() {
 AOC_PROFILE_STATE_FILE="$state_file" bash "$root/bin/aoc-profile" active --kind extensions --root "$root" --manifest "$root/.omp/manifest.toml" >"$tmp/default-extensions.out"
 cat >"$tmp/default-extensions.expected" <<'EOF'
 aoc-profile.ts
-aoc-codegraph.ts
 aoc-dox.ts
 aoc-style.ts
 EOF

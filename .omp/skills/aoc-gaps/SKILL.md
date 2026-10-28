@@ -23,7 +23,7 @@ Arguments after the command are the **direction**. No quotes are needed in Pi ch
 Compare these layers, escalating only as needed:
 
 1. **Implemented code reality**
-   - Use the `aoc_codegraph` tool first when `.codegraph/` exists; otherwise use targeted file/symbol inspection.
+   - Use targeted file/symbol inspection.
    - `git status --short` and recent commits when relevant.
 2. **Operator direction**
    - Treat command arguments as authoritative scope unless repository evidence conflicts.
@@ -40,7 +40,7 @@ Do not invent code-backed conclusions without local evidence.
 
 ### 2. Inspect implementation narrowly
 
-For a directed audit, query `aoc_codegraph` first for `status`, `search`, `context`, `callers`, `callees`, `impact`, or `affected` evidence tied to the direction terms. If `aoc_codegraph` reports CodeGraph missing, stale, uninitialized, or unavailable, fall back to focused searches and bounded file reads. Keep excerpts small.
+For a directed audit, use focused searches and bounded file reads tied to the direction terms. Keep excerpts small.
 
 
 ### 3. Compare and classify gaps
