@@ -2,9 +2,7 @@ use anyhow::Result;
 use clap::{Parser, Subcommand};
 
 mod dox;
-mod insight;
 mod map;
-mod overseer;
 mod rlm;
 
 #[derive(Parser)]
@@ -21,16 +19,6 @@ enum Commands {
     Rlm {
         #[command(subcommand)]
         action: rlm::RlmCommand,
-    },
-    /// Query Mind-backed insight retrieval, provenance, and runtime status
-    Insight {
-        #[command(subcommand)]
-        action: insight::InsightCommand,
-    },
-    /// Inspect and steer the session overseer control plane
-    Overseer {
-        #[command(subcommand)]
-        action: overseer::OverseerCommand,
     },
     /// Map sparse AGENTS.md context contracts
     Dox {
@@ -51,8 +39,6 @@ fn main() -> Result<()> {
     match cli.command {
         Commands::Dox { action } => dox::handle_dox_command(action),
         Commands::Rlm { action } => rlm::handle_rlm_command(action),
-        Commands::Insight { action } => insight::handle_insight_command(action),
-        Commands::Overseer { action } => overseer::handle_overseer_command(action),
         Commands::Map { action } => map::handle_map_command(action),
     }
 }
